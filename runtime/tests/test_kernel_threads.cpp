@@ -852,7 +852,8 @@ NXTEST(config_switch_console_cores) {
 
 NXTEST(system_tick_monotonic_and_rate) {
     begin();
-    CHECK_EQ(k::kTickHz, 19200000ull);
+    const uint64_t hz = k::tick_hz();               // 19.2 MHz (Switch 1) or 31.25 MHz (Switch 2), from the registered game
+    CHECK(hz == k::kTickHzSwitch1 || hz == k::kTickHzSwitch2);
     uint64_t prev = k::system_tick();
     bool monotonic = true;
     for (int i = 0; i < 100000; i++) {
@@ -866,8 +867,8 @@ NXTEST(system_tick_monotonic_and_rate) {
     Sleep(100);
     const uint64_t b = k::system_tick();
     const int64_t d = static_cast<int64_t>(b - a);
-    CHECK(d >= 1920000 - 300000);                  // Sleep(100) never returns early: at least 100 ms - 15 ms of 19.2 MHz ticks
-    CHECK(d <= 1920000 * 50);                      // and returns (a busy machine may delay the wake-up by any amount: the upper bound only catches a wrong tick rate, 50x)
+    CHECK(d >= static_cast<int64_t>(hz / 10 - hz * 15 / 1000));   // Sleep(100) never returns early: at least 100 ms - 15 ms of ticks
+    CHECK(d <= static_cast<int64_t>(hz / 10 * 50));                 // and returns (a busy machine may delay the wake-up by any amount: the upper bound only catches a wrong tick rate, 50x)
 
     const uint64_t before = k::system_tick();
     ::Ctx c{};
