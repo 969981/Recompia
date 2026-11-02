@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $bd = if ($Out) { $Out } elseif ($Release) { Join-Path $root "build\relpkg" } else { Join-Path $root ("build\" + $Config.ToLower()) }
 if ($Clean -and (Test-Path $bd)) { Remove-Item -Recurse -Force $bd }
-$env_cmd = Join-Path $root "..\nx\runtime\scripts\env.cmd"
+$env_cmd = Join-Path $root "..\runtime\scripts\env.cmd"
 $cfg = "cmake -S `"$root`" -B `"$bd`" -G Ninja -DCMAKE_BUILD_TYPE=$Config -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DPKP_VERSION=$Version"
 if ($Runtime) { $cfg += " -DPKP_RUNTIME_DIR=`"$Runtime`"" }
 if ($LibDir) { $cfg += " -DPKP_LIB_DIR=`"$LibDir`"" }
