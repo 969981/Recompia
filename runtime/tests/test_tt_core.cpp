@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 
+#include "nxrt/game.h"
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/dispatch.h"
@@ -195,9 +196,18 @@ const char* kSession =
     "@pos 2.5 10.0 0.375 0.01\n"
     "@pass\n";
 
+// The fake game has Metroid Prime Remastered's memory shape (games/mpr/mpr_tt_probe.cpp): with another test game registered its probes
+// read other structures, so the cases skip.
+bool skip_unless_mpr() {
+    if (std::string(nxrt::game::info().id) == "mpr") return false;
+    nxtest::skip("the fake game has Metroid Prime Remastered's memory shape; the registered test game is not mpr");
+    return true;
+}
+
 }  // namespace
 
 NXTEST(probes_read_the_fake_game) {
+    if (skip_unless_mpr()) return;
     Rig r("probes");
     r.set_igt(12.5);
     r.xf[3] = 1.5f; r.xf[7] = -2.0f; r.xf[11] = 3.25f;
@@ -214,6 +224,7 @@ NXTEST(probes_read_the_fake_game) {
 }
 
 NXTEST(script_runs_and_passes) {
+    if (skip_unless_mpr()) return;
     Rig r("pass");
     const std::string s = scriptfile("pass.nxs", kSession);
     begin(r, {{"script", s}, {"deterministic", "1"}});
@@ -231,6 +242,7 @@ NXTEST(script_runs_and_passes) {
 }
 
 NXTEST(wait_timeout_fails_with_the_script_line) {
+    if (skip_unless_mpr()) return;
     Rig r("timeout");
     const std::string s = scriptfile("timeout.nxs", "3\n@area " + std::string(kAreaB) + " timeout=12\n@pass\n");
     begin(r, {{"script", s}});
@@ -244,6 +256,7 @@ NXTEST(wait_timeout_fails_with_the_script_line) {
 }
 
 NXTEST(assert_failure_ends_the_run) {
+    if (skip_unless_mpr()) return;
     Rig r("assert");
     const std::string s = scriptfile("assert.nxs", "2\n@assert health < 50\n@pass\n");
     begin(r, {{"script", s}});
@@ -254,6 +267,7 @@ NXTEST(assert_failure_ends_the_run) {
 }
 
 NXTEST(parse_error_is_exit_code_2) {
+    if (skip_unless_mpr()) return;
     Rig r("parse");
     const std::string s = scriptfile("bad.nxs", "5\nfrobnicate 3\n");
     begin(r, {{"script", s}});
@@ -263,6 +277,7 @@ NXTEST(parse_error_is_exit_code_2) {
 }
 
 NXTEST(replay_of_a_recording_is_bit_identical) {
+    if (skip_unless_mpr()) return;
     Rig a("rec");
     const std::string s = scriptfile("session.nxs", kSession);
     const std::string rec = "tt_test_out\\session.nxin";
@@ -294,6 +309,7 @@ NXTEST(replay_of_a_recording_is_bit_identical) {
 }
 
 NXTEST(two_script_runs_have_the_same_final_hash) {
+    if (skip_unless_mpr()) return;
     uint64_t h[2];
     for (int i = 0; i < 2; i++) {
         Rig r("twice");
@@ -308,6 +324,7 @@ NXTEST(two_script_runs_have_the_same_final_hash) {
 }
 
 NXTEST(a_different_input_gives_a_different_hash) {
+    if (skip_unless_mpr()) return;
     uint64_t h[2];
     const char* scripts[2] = {"5\nhold UP\n10\n@pass\n", "5\nhold UP\n11\n@pass\n"};
     for (int i = 0; i < 2; i++) {
@@ -321,6 +338,7 @@ NXTEST(a_different_input_gives_a_different_hash) {
 }
 
 NXTEST(virtual_clock_steps_per_frame) {
+    if (skip_unless_mpr()) return;
     Rig r("clock");
     begin(r, {{"deterministic", "1"}, {"trace", "none"}});
     uint64_t t0 = 0, t1 = 0, t2 = 0;
@@ -349,6 +367,7 @@ NXTEST(virtual_clock_steps_per_frame) {
 }
 
 NXTEST(rng_is_a_seeded_stream_in_deterministic_mode) {
+    if (skip_unless_mpr()) return;
     uint8_t a[24], b[24], c[24];
     Rig r("rng");
     begin(r, {{"deterministic", "1"}, {"seed", "42"}, {"trace", "none"}});
@@ -368,6 +387,7 @@ NXTEST(rng_is_a_seeded_stream_in_deterministic_mode) {
 }
 
 NXTEST(hash_regions_fold_memory_into_the_frame_hash) {
+    if (skip_unless_mpr()) return;
     static uint8_t buf[256];
     std::memset(buf, 7, sizeof buf);
     char spec[64];
@@ -387,6 +407,7 @@ NXTEST(hash_regions_fold_memory_into_the_frame_hash) {
 }
 
 NXTEST(warp_runs_the_practice_mod_sequence) {
+    if (skip_unless_mpr()) return;
     Rig r("warp");
     nxrt::fn_register(kBase + 0xc838e4, fake_set_world);
     nxrt::fn_register(kBase + 0xc84478, fake_current_ws);
@@ -424,6 +445,7 @@ const char* kWarpScript = "2\n@warp frig frig_b\n@assert area == frig_b\n@pass\n
 
 // S42: @warp waits while the game's resource loader has work queued, and warps once it has been idle for 10 frames in a row.
 NXTEST(warp_waits_for_the_idle_resource_loader) {
+    if (skip_unless_mpr()) return;
     Rig r("warpgate");
     r.with_loader = true;
     r.set_loader_queue(3);
@@ -448,6 +470,7 @@ NXTEST(warp_waits_for_the_idle_resource_loader) {
 }
 
 NXTEST(warp_gate_can_be_turned_off_and_gives_up_after_its_limit) {
+    if (skip_unless_mpr()) return;
     for (int mode = 0; mode < 2; mode++) {
         Rig r(mode ? "warpgate_max" : "warpgate_off");
         r.with_loader = true;
@@ -468,6 +491,7 @@ bool shot_ok(const char* path, void*) { spit(path, "PNG?"); return true; }
 }
 
 NXTEST(shots_go_through_the_provider) {
+    if (skip_unless_mpr()) return;
     Rig r("shot");
     const std::string s = scriptfile("shot.nxs", "2\n@shot first\n1\n@shot second\n@pass\n");
     begin(r, {{"script", s}});
@@ -482,6 +506,7 @@ NXTEST(shots_go_through_the_provider) {
 }
 
 NXTEST(missing_provider_is_a_note_unless_required) {
+    if (skip_unless_mpr()) return;
     for (int req = 0; req < 2; req++) {
         Rig r("noshot");
         const std::string s = scriptfile("noshot.nxs", "2\n@shot x\n@pass\n");
@@ -494,6 +519,7 @@ NXTEST(missing_provider_is_a_note_unless_required) {
 }
 
 NXTEST(max_frames_budget_fails_the_run) {
+    if (skip_unless_mpr()) return;
     Rig r("budget");
     const std::string s = scriptfile("budget.nxs", "100000\n");
     begin(r, {{"script", s}, {"max_frames", "30"}});
@@ -504,6 +530,7 @@ NXTEST(max_frames_budget_fails_the_run) {
 }
 
 NXTEST(watchdog_freeze_ends_a_scripted_run_with_code_5) {
+    if (skip_unless_mpr()) return;
     Rig r("freeze");
     const std::string s = scriptfile("freeze.nxs", "100000\n");
     nxrt::config_clear();
@@ -544,6 +571,7 @@ bool record_key(const char* name, bool down) {
 }  // namespace
 
 NXTEST(key_steps_reach_the_key_sink_on_their_frames) {
+    if (skip_unless_mpr()) return;
     Rig r("keys");
     const std::string s = scriptfile("keys.nxs", "key W for 3\nkeydown Left Ctrl\nkeyup Left Ctrl\n@pass\n");
     begin(r, {{"script", s}, {"deterministic", "1"}});
@@ -563,6 +591,7 @@ NXTEST(key_steps_reach_the_key_sink_on_their_frames) {
 }
 
 NXTEST(key_without_for_is_four_frames) {
+    if (skip_unless_mpr()) return;
     Rig r("keys4");
     const std::string s = scriptfile("keys4.nxs", "key Mouse1\n@pass\n");
     begin(r, {{"script", s}});
@@ -577,6 +606,7 @@ NXTEST(key_without_for_is_four_frames) {
 }
 
 NXTEST(unknown_key_name_fails_the_run_and_releases_held_keys) {
+    if (skip_unless_mpr()) return;
     Rig r("keyunknown");
     // keydown W holds W; the next line names a key the sink refuses, so the run fails there and W must be released
     const std::string s = scriptfile("keys_unknown.nxs", "keydown W\nkey Nope\n@pass\n");
@@ -597,6 +627,7 @@ NXTEST(unknown_key_name_fails_the_run_and_releases_held_keys) {
 }
 
 NXTEST(keys_still_down_are_released_when_the_script_passes) {
+    if (skip_unless_mpr()) return;
     Rig r("keyhold");
     const std::string s = scriptfile("keyhold.nxs", "keydown Left Ctrl\n2\n@pass\n");
     begin(r, {{"script", s}});
