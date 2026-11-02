@@ -211,6 +211,9 @@ bool format_view_ok(const TexGpu& g, VkFormat fmt) {
 
 // A promoted image answers the 8-bit RGBA formats the game asks for (its sRGB and UNORM views) with its own format: the values are linear floats.
 VkFormat promoted_view_format(const TexGpu& g, VkFormat f) {
+    // An image made in its format's fallback (D24S8 as D32_SFLOAT_S8_UINT on GPUs without D24S8, e.g. AMD) answers views of the
+    // NVN format with its own: before, every shader sampling such a depth buffer got the dummy view.
+    if (g.fmt && f == g.fmt->vk && g.format == g.fmt->vk_fallback && f != g.format) return g.format;
     if (g.promoted && (f == VK_FORMAT_R8G8B8A8_SRGB || f == VK_FORMAT_R8G8B8A8_UNORM)) return g.format;
     // An ASTC view (a texture view naming its ASTC format, sRGB or not) of an image stored transcoded (BC7, or the disk cache's RGBA8/BC5)
     // reads the image's own format, as its sRGB or UNORM partner like the view asks. Mario Kart World's character and course materials
