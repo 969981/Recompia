@@ -1,5 +1,3 @@
-What it changes and why:
+What it changes:
 
 Tested on (GPU, what you played):
-
-- [ ] This pull request contains no game code, decompiler output, game data or anything copied from the game.

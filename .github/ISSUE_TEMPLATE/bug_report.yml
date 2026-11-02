@@ -2,22 +2,11 @@ name: Bug report
 description: Something is wrong in the game or the launcher.
 labels: [bug]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Never attach game files, keys, dumps, generated code (`work\`) or a built `pkp.exe`. Issues about pirated or modified copies are closed.
-  - type: checkboxes
-    id: own-copy
-    attributes:
-      label: Your copy
-      options:
-        - label: I use files I extracted myself from my own copy of the game, version 2.0.1a.
-          required: true
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: What you did, what you expected, what happened instead. Where in the game it was.
+      description: What you did and what happened, and where in the game.
     validations:
       required: true
   - type: input
