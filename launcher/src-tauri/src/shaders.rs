@@ -256,6 +256,8 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         let _ = fs::remove_dir_all(&stage);
         let mut cmd = Command::new(&tools.harness);
         cmd.arg("--batch").arg(&corpus).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
+        // server GC: with the default workstation GC each collection stops every worker (about 4x slower)
+        cmd.env("DOTNET_gcServer", "1");
         let base = finished;
         let ok = run_tool(cmd, cancel, |l| {
             // "  <n>/<count>  <s> s" every 500 blocks
