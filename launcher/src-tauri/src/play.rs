@@ -65,27 +65,45 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         return Err(format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe or set the game folder in Settings.", crate::dump::fwd(game_dir)));
     }
 
-    let mut cmd = Command::new(&exe);
-    // every path (exefs, romfs, shader cache) comes from pkp.ini next to pkp.exe
-    cmd.current_dir(game_dir).args(["--log", "pkp.log"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no stray console if pkp.exe is a console build
-    }
-    let started = SystemTime::now();
-    let mut child = cmd.spawn().map_err(|e| format!("Could not start pkp.exe: {}", e))?;
-
-    set_status(app, Status { state: "running".into(), message: format!("pkp.exe started (process {})", child.id()), ..Default::default() });
-    if minimize {
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.minimize();
-        }
-    }
-
     let app2 = app.clone();
     let dir = game_dir.to_path_buf();
+    let tools = crate::exe_dir().join("tools");
+    let first = if crate::shaders::needs_warm_up(game_dir) {
+        "Collecting the shaders the game builds while it runs (once, about a minute)..."
+    } else {
+        "Checking the shaders the game builds while it runs..."
+    };
+    set_status(app, Status { state: "running".into(), message: first.into(), ..Default::default() });
     std::thread::spawn(move || {
+        // every start: the run-time shaders seen so far must all be translated (the warm-up run collects them the first
+        // time, e.g. for a setup finished before it existed). A failure here is logged in the status, the game still starts.
+        let prep = match crate::shaders::prepare(&dir, &tools, &std::sync::atomic::AtomicBool::new(false)) {
+            Ok(Some(n)) if n > 0 => format!(" {} shaders were translated before the start.", n),
+            Err(e) => format!(" Shaders were not prepared: {}.", e),
+            _ => String::new(),
+        };
+        let mut cmd = Command::new(&exe);
+        // every path (exefs, romfs, shader cache) comes from pkp.ini next to pkp.exe
+        cmd.current_dir(&dir).args(["--log", "pkp.log"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no stray console if pkp.exe is a console build
+        }
+        let started = SystemTime::now();
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                set_status(&app2, Status { state: "exited".into(), crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
+                return;
+            }
+        };
+        set_status(&app2, Status { state: "running".into(), message: format!("pkp.exe started (process {})", child.id()), ..Default::default() });
+        if minimize {
+            if let Some(w) = app2.get_webview_window("main") {
+                let _ = w.minimize();
+            }
+        }
         let result = child.wait();
         let (code, wait_err) = match result {
             Ok(s) => (s.code(), None),
@@ -93,7 +111,6 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         };
         // shaders the game built while it ran: translated now, so the next run has them (the state stays "running" meanwhile)
         set_status(&app2, Status { state: "running".into(), message: "Translating the shaders the game built while it ran...".into(), ..Default::default() });
-        let tools = crate::exe_dir().join("tools");
         let shaders = match crate::shaders::translate_missing(&dir, &tools) {
             Ok(0) => String::new(),
             Ok(n) => format!(" {} new shaders translated.", n),
@@ -108,7 +125,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             (None, Some(c)) => format!("pkp.exe exited with code {} (0x{:08X}).", c, c as u32),
             (None, None) => "pkp.exe was ended by the system.".to_string(),
         };
-        set_status(&app2, Status { state: "exited".into(), code, crashed, files, message: message + &shaders });
+        set_status(&app2, Status { state: "exited".into(), code, crashed, files, message: message + &prep + &shaders });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.unminimize();
