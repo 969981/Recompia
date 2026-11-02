@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "nvn_core.h"
+#include "nxrt/game.h"
 #include "nvn_impl.h"
 #include "nvn_texture_layout.h"
 #include "test_framework.h"
@@ -280,9 +281,12 @@ NXTEST(layout_packaged_block_height_and_rejects) {
     b.packaged_layout[0] = 7;               // out of the range smo accepts (0..4): the default rule is used
     CHECK_EQ(be::compute_texture_layout(b).storage_size, 2048u);
 
-    // Rejects: unknown format, buffer target, zero size, array without layers, linear stride too small.
+    // Rejects: unknown format, zero size, array without layers, linear stride too small.
     CHECK(!be::compute_texture_layout(mk(NVN_TEXTURE_TARGET_2D, 4, 4, 1, 1, 0)).valid);
-    CHECK(!be::compute_texture_layout(mk(NVN_TEXTURE_TARGET_BUFFER, 64, 1, 1, 1, NVN_FORMAT_R8)).valid);
+    // A buffer texture is one tight row (Switch 2 games make small ones at start-up): 64 R8 texels = 64 bytes, pitch linear.
+    const be::TexLayout buf = be::compute_texture_layout(mk(NVN_TEXTURE_TARGET_BUFFER, 64, 1, 1, 1, NVN_FORMAT_R8));
+    CHECK(buf.valid && !buf.block_linear);
+    CHECK_EQ(buf.storage_size, 64u);
     CHECK(!be::compute_texture_layout(mk(NVN_TEXTURE_TARGET_2D, 0, 4, 1, 1, NVN_FORMAT_R8)).valid);
     CHECK(!be::compute_texture_layout(mk(NVN_TEXTURE_TARGET_2D_ARRAY, 4, 4, 0, 1, NVN_FORMAT_R8)).valid);
     TextureBuilderInfo lin = mk(NVN_TEXTURE_TARGET_2D, 100, 10, 1, 1, NVN_FORMAT_R8, NVN_TEXTURE_FLAGS_LINEAR);
@@ -581,7 +585,7 @@ NXTEST(initialize_rejects_bad_builders) {
     a.bformat(&bld, NVN_FORMAT_RGBA8);                                    // no storage set: no pool
     CHECK_EQ(a.init(&tex, &bld), 0);
 
-    build(a, bld, pool, NVN_TEXTURE_TARGET_BUFFER, 64, 1, 1, 1, NVN_FORMAT_R8);            // buffer target has no layout
+    build(a, bld, pool, NVN_TEXTURE_TARGET_2D_ARRAY, 4, 4, 0, 1, NVN_FORMAT_R8);           // an array without layers has no layout
     CHECK_EQ(a.init(&tex, &bld), 0);
     CHECK(be::host_of<be::Texture>(&tex) == nullptr);
 }
@@ -630,9 +634,11 @@ NXTEST(write_read_round_trip_level0_and_level2) {
     CHECK(host->cpu_dirty.load());                  // a write marks the texture for upload
     a.read(&tex, nullptr, &full0, back.data());
     CHECK(std::memcmp(src0.data(), back.data(), src0.size()) == 0);
-    // The storage is block-linear, not row by row: texels 0..3 of row 0 are the first 16 bytes, texels 4..7 start at byte 32.
+    // The storage is block-linear, not row by row: texels 0..3 of row 0 are the first 16 bytes, texels 4..7 start at byte 32 in a
+    // Switch 1 GOB and at byte 64 in a Switch 2 GOB (which keeps four rows of a 16-byte column together; tegra_tiling.cpp).
+    const size_t piece1 = nxrt::game::info().platform == nxrt::game::Platform::Switch2 ? 64 : 32;
     CHECK(std::memcmp(&pool.mem[0], &src0[0], 16) == 0);
-    CHECK(std::memcmp(&pool.mem[32], &src0[16], 16) == 0);
+    CHECK(std::memcmp(&pool.mem[piece1], &src0[16], 16) == 0);
 
     // Level 2 (16x16) through a view: other levels keep their data.
     std::vector<uint8_t> src2(16 * 16 * 4), back2(src2.size());
