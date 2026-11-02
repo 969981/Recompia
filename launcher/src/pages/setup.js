@@ -8,16 +8,23 @@ listen('dlss-progress', (ev) => dlssHandler && dlssHandler(ev.payload));
 function candidateHtml(c, chosen) {
   const title = c.kind === 'base' ? 'Base game' : `Update ${esc(c.version)}`;
   const used = chosen && chosen.path === c.path;
+  // an incomplete folder that another one makes unnecessary (an empty base/ next to a full update) is not an error
+  const unneeded = chosen && !used && !c.ok;
+  const chip = used
+    ? `<span class="chip ok">${icon('circle-check')}Will be used</span>`
+    : c.ok ? '<span class="chip">Valid, older</span>'
+    : unneeded ? '<span class="chip">Not needed</span>'
+    : `<span class="chip danger">${icon('circle-x')}Incomplete</span>`;
   return `
     <div class="candidate ${used ? 'chosen' : ''}">
       <div class="row between">
         <h3>${title}</h3>
-        ${used ? `<span class="chip ok">${icon('circle-check')}Will be used</span>` : c.ok ? '<span class="chip">Valid, older</span>' : `<span class="chip danger">${icon('circle-x')}Incomplete</span>`}
+        ${chip}
       </div>
       <div class="path">${esc(c.path)}</div>
-      <ul class="checks">
+      ${unneeded ? '' : `<ul class="checks">
         ${c.checks.map((k) => `<li class="${k.ok ? 'ok' : 'bad'}">${icon(k.ok ? 'circle-check' : 'circle-x')}${esc(k.label)}</li>`).join('')}
-      </ul>
+      </ul>`}
     </div>`;
 }
 
