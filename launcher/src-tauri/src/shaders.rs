@@ -246,6 +246,29 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     Ok(n)
 }
 
+/// Seconds the warm-up run plays. The opening asks for its run-time blocks about 8 to 25 s after start.
+pub const WARMUP_SECONDS: u32 = 60;
+
+/// Plays the game once without a window or sound, for WARMUP_SECONDS, so the blocks it builds while it runs (the romfs
+/// corpus cannot have them) are dumped and translated before the first real start. A fresh save folder in the cache,
+/// so the player's own save is never touched. Ok(None) = cancelled, else how many blocks were added.
+pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result<Option<usize>, String> {
+    let scratch = cache_dir(game_dir).join("warmup");
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(scratch.join("save")).map_err(|e| format!("cannot create {}: {}", scratch.display(), e))?;
+    let mut cmd = Command::new(game_dir.join("pkp.exe"));
+    cmd.current_dir(game_dir).arg("--headless").args(["--max-seconds", &WARMUP_SECONDS.to_string()]).arg("--log").arg(scratch.join("warmup.log"));
+    // environment variables win over pkp.ini
+    cmd.env("NXRT_FS_SAVE_DIR", scratch.join("save")).env("NXRT_NVN_DUMP_MISSING", MISSING_REL).env("NXRT_AUDIO_SINK", "null");
+    // it ends with exit code 124 when the time is up: any end is fine, a crash only means fewer blocks were collected
+    if let Ok(false) = run_tool(cmd, cancel, |_| {}) {
+        return Ok(None);
+    }
+    let n = translate_missing(game_dir, tools_dir)?;
+    let _ = fs::remove_dir_all(&scratch);
+    Ok(Some(n))
+}
+
 /// The whole setup. `report` gets every progress change. Ok(true) = finished (or the limit reached), Ok(false) = cancelled.
 pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut(Progress)) -> Result<bool, String> {
     let cache = cache_dir(&job.game_dir);
