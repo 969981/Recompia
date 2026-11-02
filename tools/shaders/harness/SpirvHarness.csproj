@@ -12,6 +12,8 @@
     <AssemblyName>spirv_harness</AssemblyName>
     <RootNamespace>SpirvHarness</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- every worker allocates heavily; workstation GC stops them all on each collection (about 4x slower) -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
