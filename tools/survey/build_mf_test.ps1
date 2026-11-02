@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $here  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $out   = [System.IO.Path]::GetFullPath((Join-Path $here '..\..\work\survey\fmv'))
 $clang = 'C:\Program Files\LLVM\bin\clang-cl.exe'
-$vcvars = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
+$vcvars = Join-Path (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) 'VC\Auxiliary\Build\vcvars64.bat'
 foreach ($p in @($clang, $vcvars)) { if (-not (Test-Path $p)) { throw "not found: $p" } }
 $envdump = cmd /c "`"$vcvars`" >nul && set"
 foreach ($line in $envdump) {
