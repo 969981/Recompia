@@ -437,6 +437,16 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "lod_bias") return set_real(-2.0, 2.0, &s->display.lod_bias);
             if (k == "bloom") return set_bool(&s->display.bloom);
             if (k == "chromatic_aberration") return set_bool(&s->display.chromatic_aberration);
+            if (k == "view_distance") return set_real(1.0, 4.0, &s->display.view_distance);
+            if (k == "quality_preset") {
+                const std::string q = lower(v);
+                if (q != "switch2" && q != "high" && q != "ultra" && q != "custom") {
+                    *msg = "quality_preset must be switch2, high, ultra or custom, got '" + v + "'";
+                    return false;
+                }
+                s->display.quality_preset = q;
+                return true;
+            }
             if (k == "fast_gpu_memory") return set_bool(&s->display.fast_gpu_memory);
             if (k == "fewer_gpu_waits") return set_bool(&s->display.fewer_gpu_waits);
             if (k == "shader_prewarm") return set_bool(&s->display.shader_prewarm);
@@ -876,6 +886,8 @@ std::string format_settings(const Settings& s) {
     kv("lod_bias", num_exact(s.display.lod_bias));
     kv("bloom", flag(s.display.bloom));
     kv("chromatic_aberration", flag(s.display.chromatic_aberration));
+    kv("quality_preset", s.display.quality_preset);
+    kv("view_distance", num_exact(s.display.view_distance));
     kv("fast_gpu_memory", flag(s.display.fast_gpu_memory));
     kv("fewer_gpu_waits", flag(s.display.fewer_gpu_waits));
     kv("shader_prewarm", flag(s.display.shader_prewarm));

@@ -2,6 +2,8 @@
 // Internal to src/services/: the per-service registration hooks that services::register_all() / reset_all() call.
 // Each service file defines its own pair; a service that has nothing to reset defines an empty reset.
 #pragma once
+#include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -37,5 +39,12 @@ void register_audio();       void audio_reset();       // audio.cpp       audren
 void register_audio_out();   void audio_out_reset();   // audio_out.cpp   audout:u, audin:u
 std::shared_ptr<ipc::Service> audio_out_manager();   std::shared_ptr<ipc::Service> audio_in_manager();   // for aud:u (Switch 2)
 void register_vi_nv();       void vi_nv_reset();       // vi_nv.cpp       vi:u (vi:m, vi:s), nvdrv (nvdrv:a, nvdrv:s)
+
+// album.cpp: caps:su (photos saved as PNG into the album folder), registered by register_misc().
+std::shared_ptr<ipc::Service> make_screenshot_app();
+// The album folder: [album] dir (default "album"), a relative path taken from the exe's folder.
+std::filesystem::path album_dir();
+// Writes `width` x `height` linear RGBA8 pixels as a 24-bit PNG (alpha dropped). False, with the failing step in `err`, on error.
+bool album_write_png(const std::filesystem::path& file, const uint8_t* rgba, uint32_t width, uint32_t height, std::string* err);
 
 }  // namespace nxrt::services

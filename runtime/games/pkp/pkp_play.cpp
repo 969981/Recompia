@@ -14,8 +14,9 @@
 // while [display] dynamic_resolution is off. The scene passes keep viewports authored for 1920x1080: the command context's SetViewport(s)
 // (0x17b509c / 0x17b5240, which also derive the 2/w, -2/h screen constants from the rect) get the target's size, and the render thread's
 // replay (0x17b6c98) stretches what still arrives sized for 1920x1080. The internal size is fixed at start (the targets are created once).
-// [pkp] render_override (default 0 for now: with it on, a dark purple patch shows on the ground near the player, from a pass not found yet)
-// switches all of it on.
+// The terrain occlusion pass's copy into its fixed 80x45 targets takes its source rect from a viewport recorded as 1920x1080 (hook_low_copy
+// below; without it a hard-edged dark patch showed on the ground). [pkp] render_override (default 1 since the
+// 2026-11-02 run confirmed that fix; 0 = the game's 1080p layout) switches all of it on.
 //
 // Frame rate. The main loop's frame step (0xbfc404) turns the measured frame time into a frame multiplier in 60 Hz units that 90 functions
 // read (the float at 0x34c03f0): 1.0 within 1.5 ms of 1/60 s, else dt * 60 clamped to [1, 3]. Faster than 60 fps the multiplier stays 1
@@ -82,6 +83,7 @@ constexpr uint64_t kFullWidth = 0x1129980, kFullHeight = 0x11299c0;         // u
 constexpr uint64_t kCopyParams = 0x22d1e0;                                  // dynres manager: copy the frame's size parameters (x0 = manager)
 constexpr uint64_t kReplayViewports = 0x17b6c98;                            // mid: render-thread pass replay, before SetViewports
 constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // mid: the command context's SetViewport (x1 rect) / SetViewports (w1 n, x2 rects)
+constexpr uint64_t kLowCopy = 0x73d824;                                     // mid: 0x73d73c calling the 80x45 copy 0x10f48d8 (x3 source texture, x5 source rect)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
@@ -253,6 +255,33 @@ int hook_replay_viewports(::Ctx* c, uint64_t, void*) {
             s.vp_fixes.fetch_add(1, std::memory_order_relaxed);
         }
     }
+    return 0;
+}
+
+// The terrain occlusion pass's 80x45 copy. At BeginScene_GBuffer, 0x73d73c copies the G-buffer colour and depth into the fixed 80x45 targets
+// (manager +0x40f0 / +0x40f8) that the terrain lighting (fs 37c9671c, t282.w) reads at screen UV. Through 0x10f48d8(dst, dst depth, dst
+// rect, src colour, src depth, src rect {x, y, w, h}), it gives the source rect as the current pass's recorded viewport (pass +96) times the
+// view's scale. 0x10edc40 records the G-buffer viewport through the light SetViewports 0x17c0420 as 1920 x 1080, and nothing changes that copy,
+// so on render-size G-buffer targets the copy samples UV 0..1920/W (1.5 at 1280x720, nvn.trace: a2[0..1.5]). The visible frame then lands in
+// the top-left of the 80x45 targets and the rest is the sampler's border; the terrain drawn on top is at the right place. The lighting
+// reads that mix, which puts a hard-edged dark patch on the ground. The mid hook on the call (0x73d824: x3 the source colour texture, u16
+// width / height at +48 / +50; x5 the source rect) turns a rect at the origin sized for 1920x1080 on a render-size source into the source's size.
+std::atomic<uint64_t> g_lowcopy_fixes{0};
+int hook_low_copy(::Ctx* c, uint64_t, void*) {
+    const State& s = st();
+    const int W = s.w.load(std::memory_order_relaxed), H = s.h.load(std::memory_order_relaxed);
+    if (W == kTableW && H == kTableH) return 0;
+    const uint64_t src = c->x[3], rect = c->x[5];
+    if (!src || !rect || !mem::is_mapped(src + 48, 4)) return 0;
+    const int tw = rd<uint16_t>(src + 48), th = rd<uint16_t>(src + 50);
+    int32_t* r = reinterpret_cast<int32_t*>(rect);                   // {x, y, w, h}
+    if (r[0] != 0 || r[1] != 0 || tw <= 0 || th <= 0 || (r[2] == tw && r[3] == th)) return 0;
+    const double ew = static_cast<double>(tw) * kTableW / W, eh = static_cast<double>(th) * kTableH / H;
+    if (std::fabs(r[2] - ew) > 1.0 || std::fabs(r[3] - eh) > 1.0) return 0;
+    if (g_lowcopy_fixes.fetch_add(1, std::memory_order_relaxed) == 0)
+        NXLOG_I(kTag, "terrain occlusion copy: source rect %dx%d -> %dx%d", r[2], r[3], tw, th);
+    r[2] = tw;
+    r[3] = th;
     return 0;
 }
 
@@ -515,15 +544,18 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     pick_size(d, window_w, window_h, &w, &h);
     s.dynres.store(d.dynamic_resolution);
     {
-        // [hdr]: the host's HDR scene pipeline (src/gfx/extras): float post targets plus a structural patch of a tone-map shader with two 3D
-        // grading volumes (Metroid Prime Remastered's); the shoulder extension that gives highlights above paper white is game-specific and
-        // pkp has none, so in HDR Pokopia is shown at paper white (its own HdrOutput path, HdrTvNit, is not driven). Pokopia never asks whether the
+        // [hdr]: the host's HDR scene pipeline (src/gfx/extras): float post targets, and the composite pass's LUT tone map (cbComposite,
+        // g_tHdrLut: a log shaper into a 32^3 grade that clips flat at 1 from scene 0.85-1.1) runs as an HDR variant whose highlights climb
+        // above paper white to the display's peak (extras spirv_hdr_tonemap_lut; no game hook). The game's own "true HDR" constants
+        // (fKIDSTrueHDR, fMaxLum, SIMHDR_PARAMS set at 0x2580198; HdrTvNit / BaseTvNit at 0x2581580) are looked up by name and no shader
+        // in the game's data declares them, so driving them would change nothing. Pokopia never asks whether the
         // TV is HDR (no settings / vi / oe / NVN capability query in main) and never calls the NVN2 window HDR procs; what it does declare are the
         // nn::vi layer content luminance ranges (standard 0..300, extended 0..400 nits), which [hdr] mode = native uses (paper white, content max).
         const extras::HdrState hs = extras::hdr_state();
-        NXLOG_I(kTag, "HDR: scene %s, output %s, paper white %.0f nits, peak %.0f nits (no pkp tone-curve hook: highlights stay at paper white)",
-                hs.scene_hdr ? "HDR" : "SDR", extras::output_kind_name(hs.output), static_cast<double>(hs.paper_white_nits),
-                static_cast<double>(hs.peak_nits));
+        NXLOG_I(kTag, "HDR: scene %s, output %s, paper white %.0f nits, peak %.0f nits (peak ratio %.2f: %s)", hs.scene_hdr ? "HDR" : "SDR",
+                extras::output_kind_name(hs.output), static_cast<double>(hs.paper_white_nits), static_cast<double>(hs.peak_nits),
+                static_cast<double>(hs.peak_ratio),
+                hs.scene_hdr && hs.peak_ratio > 1.001f ? "the composite LUT tone map's highlights reach the peak" : "highlights stay at paper white");
     }
     // The display's aspect ([display] aspect: auto = the window's, or the fixed render size's when one is set). Anything but 16:9 gives the
     // game targets of that shape (1080 high when wider, 1920 wide when narrower; the back end's scale on top) and the camera / UI hooks above.
@@ -531,7 +563,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     const double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
     Wide& wd = wide();
     wd.aspect = close_to(aspect, kAspect169) ? kAspect169 : aspect;
-    const bool override_size = config_get_bool("pkp", "render_override", false);
+    const bool override_size = config_get_bool("pkp", "render_override", true);
     if (!override_size && wide_on()) {
         int gw = kTableW, gh = kTableH;
         if (wd.aspect > kAspect169) gw = static_cast<int>(std::lround(kTableH * wd.aspect)) & ~1;
@@ -548,6 +580,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         s.hooks.push_back(hook_add_mid(base + kSetViewport, &hook_set_viewport));
         s.hooks.push_back(hook_add_mid(base + kSetViewports, &hook_set_viewports));
         s.hooks.push_back(hook_add_mid(base + kReplayViewports, &hook_replay_viewports));
+        s.hooks.push_back(hook_add_mid(base + kLowCopy, &hook_low_copy));
         s.hooks.push_back(hook_add_mid(base + kCamSubmit, &hook_cam_submit));
         s.hooks.push_back(hook_add_mid(base + kProjBuild, &hook_proj_build));
         wd.ui_size = mem::alloc_kernel(16);
@@ -595,6 +628,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     s.hooks.push_back(hook_add_mid(base + kSetViewport, &hook_set_viewport));
     s.hooks.push_back(hook_add_mid(base + kSetViewports, &hook_set_viewports));
     s.hooks.push_back(hook_add_mid(base + kReplayViewports, &hook_replay_viewports));
+    s.hooks.push_back(hook_add_mid(base + kLowCopy, &hook_low_copy));
     s.render_installed = true;
     NXLOG_I(kTag, "render resolution %dx%d (window %dx%d, scale %d%%%s), dynamic resolution %s", w, h, window_w, window_h, d.render_scale,
             d.render_width > 0 && d.render_height > 0 ? ", fixed size" : "", d.dynamic_resolution ? "on" : "off");

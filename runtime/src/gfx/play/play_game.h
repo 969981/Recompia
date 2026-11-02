@@ -63,6 +63,7 @@ enum : unsigned {
     kDisplayOptBloom = 1u << 2,      // [display] bloom
     kDisplayOptChromatic = 1u << 3,  // [display] chromatic_aberration
     kDisplayOptAll = kDisplayOptFov | kDisplayOptAspect | kDisplayOptBloom | kDisplayOptChromatic,
+    kDisplayOptQuality = 1u << 4,    // [display] quality_preset, view_distance (the game's quality hooks; GamePlay::quality_preset)
 };
 
 struct GamePlay {
@@ -89,6 +90,8 @@ struct GamePlay {
     bool (*mouse_tab)(int where, Settings& edit) = nullptr;
     // F1 page, Tweaks tab: the game's optional looks ([tweaks], play_tweaks.h). Returns true when edit changed; nullptr = no Tweaks tab.
     bool (*tweaks_tab)(Settings& edit) = nullptr;
+    // F1 page, Graphics tab (kDisplayOptQuality): writes a quality preset's values ("switch2", "high", "ultra") into d. False: unknown name.
+    bool (*quality_preset)(const char* name, DisplaySettings& d) = nullptr;
 };
 
 const GamePlay* game_play();         // the registered game's table, or nullptr

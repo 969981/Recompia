@@ -428,8 +428,8 @@ std::shared_ptr<Service> make_aoc() {
     });
 }
 
-// ---- caps:u and caps:su -----------------------------------------------------------------------------------------------------------
-// No screenshots or album files are stored: lists are empty and saving a screenshot is accepted without storing it.
+// ---- caps:u (caps:su is in album.cpp) --------------------------------------------------------------------------------------------
+// Album reading: lists are empty (Pokopia main imports no album list or load function, only nn::album::SaveScreenshot).
 Handler album_list() {
     return [](Request& req, Response& rsp) -> uint32_t {
         zero_buffer(req.out_buf(0));
@@ -455,20 +455,6 @@ std::shared_ptr<Service> make_album_app() {
         s.add_cmd(142, "GetAlbumFileList3AaeAruidDeprecated", album_list());
     });
 }
-std::shared_ptr<Service> make_screenshot_app() {
-    return make_iface("IScreenShotApplicationService", [](Service& s) {
-        s.add_cmd(32, "SetShimLibraryVersion", accept("caps", "SetShimLibraryVersion (caps:su)"));
-        // Accepted, not stored: no album exists to keep the image in.
-        const Handler save = [](Request& req, Response&) -> uint32_t {
-            NXLOG_I("caps", "SaveScreenShot (cmd %u): screenshots are not stored on this host, accepted and dropped", req.cmd);
-            return 0;
-        };
-        s.add_cmd(203, "SaveScreenShotEx0", save);
-        s.add_cmd(205, "SaveScreenShotEx1", save);
-        s.add_cmd(210, "SaveScreenShotEx2", save);
-    });
-}
-
 // ---- mii:u ------------------------------------------------------------------------------------------------------------------------
 // The shared Mii database is empty. Count and get answer zero; the default and random builders return an all-zero CharInfo (the
 // real default Mii data is not reproduced here).

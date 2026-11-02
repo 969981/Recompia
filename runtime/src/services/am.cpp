@@ -66,6 +66,7 @@ const uint32_t kOutOfMemory = res(128, 600);         // MemoryAllocationFailed
 // (anything else, e.g. 128-35 AppletLaunchFailed, ends in svcBreak: work/audit/crashes.md); 712 is Switchbrew's "thread stack pool
 // exhausted (out of memory)", a resource refusal the caller gets back as a plain failure.
 const uint32_t kLibraryAppletFailed = res(128, 712);
+const uint32_t kAppletCanceled = res(128, 22);       // LibraryAppletCanceled: 0x2C80, what JoinLibraryApplet maps to exit reason 1
 
 // Everything the applet manager keeps for the process. Replaced by fresh_state() on start-up and by am_reset().
 struct AmState {
@@ -526,12 +527,15 @@ ServicePtr make_window_controller() {
 }
 
 // ---- library applets -------------------------------------------------------------------------------------------------------------
-// The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form, the player select (0x10) and, for every other applet,
-// one that ends at once with no output (the error applet and the rest: what the game waits for is that the applet ends). Command ids
+// The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form, the player select (0x10),
+// the error applet (0x0E: logs the error it was given), the shop (0x14: ends cancelled) and, for every other applet, one that ends at
+// once with no output (what the game waits for is that the applet ends). Command ids
 // follow the Switchbrew "Applet Manager services" page (IAppletAccessor / ILibraryAppletAccessor). The keyboard storages follow Ryujinx
 // src/Ryujinx.HLE/HOS/Applets/SoftwareKeyboard (MIT: SoftwareKeyboardConfig, the 0x7D8-byte output) and Eden / yuzu
 // applet_software_keyboard_types.h (GPL-3.0-or-later); the accessor's channel model follows the user's Afterpulse runtime (am.cpp, same
 // licence). Switch 2 games pass the applet id with more bits above it (Pokopia: 0x1020011 for the keyboard), so the low 16 bits pick it.
+constexpr uint32_t kAppletIdError = 0x0E;                     // LibraryAppletError (Pokopia: 0x100000E, nn::err::ShowError)
+constexpr uint32_t kAppletIdShop = 0x14;                      // LibraryAppletShop (0x1000014, nn::ec::detail::ShowShopPage)
 constexpr uint32_t kAppletIdPlayerSelect = 0x10;              // nn::applet::AppletId LibraryAppletPlayerSelect
 constexpr uint32_t kAppletIdSwkbd = 0x11;                     // LibraryAppletSwkbd
 constexpr uint32_t kAppletModeAllForeground = 0;              // nn::applet::LibraryAppletMode: the normal keyboard
@@ -809,6 +813,45 @@ void player_select_start(AppletState& a) {
     applet_finish(a);
 }
 
+// The error applet: in data 0 is CommonArguments, 1 the error argument; the first byte of that is its type (sdk nn::err, Pokopia's sdk
+// module: ShowError 0x38e580, ShowApplicationError 0x38ead0, ApplicationErrorArg 0x38fb9c..0x38fe60). Type 0 (ShowError(Result), 0x20
+// bytes): the Result at 0x10. Type 4 (a pctl Result, 12 bytes): the Result at 8. Type 2 (ApplicationErrorArg, 0x1014 bytes): u32
+// error code number at 8, language code char[8] at 0xC, dialog message char[0x800] at 0x14, full-screen message char[0x800] at 0x814.
+// Nothing is shown: the error is logged and the applet ends as if the player closed it (no output, GetResult success).
+std::string read_c_text(const Bytes& b, size_t off, size_t cap) {
+    std::string t;
+    for (size_t i = 0; i < cap && off + i < b.size(); ++i) {
+        const char c = static_cast<char>(b[off + i]);
+        if (c == 0) break;
+        t.push_back(c == '\r' ? ' ' : c);
+    }
+    return t;
+}
+
+void error_applet_start(AppletState& a) {
+    std::shared_ptr<Bytes> arg = a.in_data.size() > 1 ? a.in_data[1] : nullptr;
+    if (!arg || arg->empty()) {
+        NXLOG_I("am", "error applet: no error argument among the %zu storages pushed", a.in_data.size());
+    } else {
+        const uint8_t type = (*arg)[0];
+        if (type == 0 || type == 4) {
+            const uint32_t r = read_at<uint32_t>(*arg, type == 0 ? 0x10 : 8, 0);
+            NXLOG_I("am", "error applet: the game shows error %04u-%04u (result 0x%x, argument type %u, %zu bytes)", 2000 + (r & 0x1FF),
+                    (r >> 9) & 0x1FFF, r, type, arg->size());
+        } else if (type == 2) {
+            const uint32_t code = read_at<uint32_t>(*arg, 8, 0);
+            const std::string lang = read_c_text(*arg, 0xC, 8);
+            const std::string dialog = read_c_text(*arg, 0x14, 0x800);
+            const std::string full = read_c_text(*arg, 0x814, 0x800);
+            NXLOG_I("am", "error applet: the game shows application error %u (language \"%s\"): dialog \"%s\", full screen \"%s\"", code,
+                    lang.c_str(), dialog.c_str(), full.c_str());
+        } else {
+            NXLOG_I("am", "error applet: argument type %u (%zu bytes), not decoded", type, arg->size());
+        }
+    }
+    applet_finish(a);
+}
+
 // The bytes of the storage handed in (an IStorage this file made). Null when there is none or it is not one.
 std::shared_ptr<Bytes> storage_bytes(const Request& req) {
     if (req.in_services.empty() || !req.in_services[0]) return nullptr;
@@ -856,6 +899,11 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
                 swkbd_start(a);
             } else if (a->id == kAppletIdPlayerSelect) {
                 player_select_start(*a);
+            } else if (a->id == kAppletIdError) {
+                error_applet_start(*a);
+            } else if (a->id == kAppletIdShop) {
+                NXLOG_I("am", "shop applet 0x%x started: no shop here, it ends as cancelled by the player", a->full_id);
+                applet_finish(*a);
             } else {
                 NXLOG_I("am", "library applet 0x%x started: it ends at once with no output", a->full_id);
                 applet_finish(*a);
@@ -873,7 +921,9 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
             if (!a->completed) applet_finish(*a);
             return 0;
         });
-        s.add_cmd(30, "GetResult", [](Request&, Response&) -> uint32_t { return 0; });
+        // The shop ends cancelled (LibraryAppletCanceled, 128-22: exit reason Canceled in nn::applet::JoinLibraryApplet), so
+        // nn::ec::detail::ShowShopPage does not read the 0x1010-byte return value it aborts without. Every other applet: success.
+        s.add_cmd(30, "GetResult", [a](Request&, Response&) -> uint32_t { return a->id == kAppletIdShop ? kAppletCanceled : 0; });
         s.add_cmd(50, "SetOutOfFocusApplicationSuspendingEnabled", ignored("SetOutOfFocusApplicationSuspendingEnabled"));
         s.add_cmd(60, "PresetLibraryAppletGpuTimeSliceZero", ignored("PresetLibraryAppletGpuTimeSliceZero"));
         s.add_cmd(100, "PushInData", [a](Request& req, Response&) -> uint32_t {
@@ -1206,11 +1256,17 @@ ServicePtr make_application_proxy() {
             return 0;
         });
         s.add_cmd(60, "GetGraphicsScalingParametersFunctions", [](Request&, Response& rsp) -> uint32_t {
-            // nn::oe::GetCurrentGraphicsScale maps the first word of cmd 10 to a scale level: 10 -> 0, 20 -> 1, 30 -> 2 (anything else
-            // aborts). A PC run renders at the size the user picks, so the game is told the highest level.
+            // nn::oe::GetCurrentGraphicsScale (sdk) maps the first word of cmd 10 to a scale level: 10 -> 0, 20 -> 1, 30 -> 2 (anything else
+            // aborts). Level 0 is the console's full-quality one: Pokopia's dynamic resolution (main 0x710022d338 / 0x710022cd20) tops out
+            // at its level 30 (1920x1080) at scale 0 docked, 24 (1728x972) at scale 1 and 22 (1664x936) at scale 2. [am] graphics_scale
+            // (10, 20 or 30) picks another answer.
             rsp.push_object(make_iface("IGraphicsScalingParametersFunctions", [](Service& g) {
                 g.add_cmd(10, "GetGraphicsScalingParameters", [](Request&, Response& r) -> uint32_t {
-                    r.push<uint32_t>(30);
+                    static const uint32_t answer = [] {
+                        const int64_t v = nxrt::config_get_int("am", "graphics_scale", 10);
+                        return (v == 20 || v == 30) ? static_cast<uint32_t>(v) : 10u;
+                    }();
+                    r.push<uint32_t>(answer);
                     r.push<uint32_t>(0);
                     r.push<uint64_t>(0);
                     return 0;

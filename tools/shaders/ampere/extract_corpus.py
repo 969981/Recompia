@@ -5,7 +5,8 @@ Sources:
   * romfs motor_asset_re/<platform>/*.fdata and data/*.file: IDRK entries (see .weaver/ktgl_rdb.py); entries whose
     inflated data starts with '_S2G' (G2S shader container, type KTID 0x7bcd279f) or '_DOK' (system resources,
     type KTID 0x20a6a0bb) are searched for GLSLC outputs.
-  * main (decompressed ELF/NSO segment dump): searched for GLSLC outputs as is.
+  * main (decompressed ELF/NSO segment dump, or the ExeFS 'main' NSO itself, decompressed here): searched for GLSLC
+    outputs as is.
 
 A GLSLC output (NVN2 layout, see docs/AMPERE.md): u32 magic 0x19866891, +0x5c u32 output length, +0x64 u32 section count,
 section header i at +0xa8 + 0x98*i = {u32 size, u32 offset from output, u32 type}; type 0 (GPU code) adds
@@ -152,11 +153,30 @@ def scan_file(path, out):
     return rows
 
 
+def nso_image(d):
+    """A compressed NSO (the ExeFS 'main' as dumped) -> its memory image: .text, .rodata, .data at their memory offsets
+    (header +0x10 three {file off, mem off, size, align}, +0x60 compressed sizes, flag bits 0..2 = segment LZ4-compressed)."""
+    flags, = struct.unpack_from('<I', d, 0xc)
+    segs = [struct.unpack_from('<4I', d, 0x10 + 0x10 * i) for i in range(3)]
+    csz = struct.unpack_from('<3I', d, 0x60)
+    img = bytearray(max(m + s for _, m, s, _ in segs))
+    for i, (fo, mo, sz, _) in enumerate(segs):
+        if flags & (1 << i):
+            import lz4.block
+            seg = lz4.block.decompress(bytes(d[fo:fo + csz[i]]), uncompressed_size=sz)
+        else:
+            seg = bytes(d[fo:fo + sz])
+        img[mo:mo + len(seg)] = seg
+    return bytes(img)
+
+
 def scan_main(path, out):
     global OUT
     OUT = out
     low_priority()
     d = open(path, 'rb').read()
+    if d[:4] == b'NSO0':
+        d = nso_image(d)
     return slim([(os.path.basename(path), 0, 0, 0, 'main', go, si, stage_of(ctrl), ctrl, code, gb)
                  for go, gb, secs in glslc_outputs(d) for si, ctrl, code in secs])
 
@@ -167,6 +187,7 @@ def main():
     ap.add_argument('--main')
     ap.add_argument('--out', required=True)
     ap.add_argument('--jobs', type=int, default=4)
+    ap.add_argument('--progress', action='store_true', help='print "scan: <done> <total>" lines while scanning')
     a = ap.parse_args()
     root = os.path.join(a.romfs, 'motor_asset_re')
     paths = []
@@ -183,6 +204,13 @@ def main():
         futs = [ex.submit(scan_file, p, a.out) for p in paths]
         if a.main:
             futs.append(ex.submit(scan_main, a.main, a.out))
+        if a.progress:   # "scan: <done> <total>" per finished file (the launcher's setup reads these)
+            done = [0]
+            def tick(_):
+                done[0] += 1
+                print(f'scan: {done[0]} {len(futs)}', flush=True)
+            for f in futs:
+                f.add_done_callback(tick)
         results = [f.result() for f in futs]
     for res in results:
         for name, eo, fk, tk, tag, go, si, st, cn, kn, h, ch, gh in res:

@@ -276,7 +276,7 @@ static VkShaderModule no_output_module(const ShaderInfo* fs) {
 
 // The tone-map fragment shader runs as its HDR variant while the HDR scene is active (extras/hdr_nvn.h); every other fragment shader is the translated one.
 static VkShaderModule hdr_fragment_module(const ShaderInfo* fs) {
-    if (!extras::hdr_scene_active() || fs->spirv.size() > 16384) return shader_module(fs);
+    if (!extras::hdr_scene_active() || fs->spirv.size() > 65536) return shader_module(fs);   // Pokopia's composite tone map is about 24.5k words
     std::lock_guard<std::recursive_mutex> lk(g_module_mu);
     static std::unordered_map<const ShaderInfo*, VkShaderModule> cache;
     auto it = cache.find(fs);

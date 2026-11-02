@@ -3,6 +3,7 @@
 #include "pkp_game.h"
 #include "pkp_menu.h"
 #include "pkp_play.h"
+#include "pkp_quality.h"
 
 #include <cstring>
 
@@ -100,8 +101,14 @@ const play::GameDefaults& game_defaults() {
 void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     play_install(base, host, s);
     menu_install(base);
+    quality_install(base, s);
+}
+void settings_changed_all(const play::Settings& s) {
+    play_settings_changed(s);
+    quality_settings_changed(s);
 }
 void remove_all() {
+    quality_remove();
     menu_remove();
     play_remove();
 }
@@ -109,17 +116,21 @@ void status_all(char* buf, size_t n) {
     play_status_text(buf, n);
     const size_t k = std::strlen(buf);
     if (k + 1 < n) menu_status_text(buf + k, n - k);
+    const size_t k2 = std::strlen(buf);
+    if (k2 + 1 < n) quality_status_text(buf + k2, n - k2);
 }
 
 const play::GamePlay& game_play() {
     static const play::GamePlay t = [] {
         play::GamePlay p;
         p.frame_update = kFrameUpdate;
+        p.display_options = play::kDisplayOptQuality;   // view distance and the quality preset (pkp_quality.cpp)
+        p.quality_preset = &quality_preset;
         p.install_render = &play_install_render;
         p.install = &install_all;
         p.remove = &remove_all;
         p.frame = &play_frame;
-        p.settings_changed = &play_settings_changed;
+        p.settings_changed = &settings_changed_all;
         p.display_live = &play_display_live;
         p.display_hook_calls = &play_display_calls;
         p.status_text = &status_all;

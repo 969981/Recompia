@@ -27,7 +27,7 @@ function reportHtml(s) {
 }
 
 export async function render(el, ctx) {
-  const [cfg, ov] = await Promise.all([api('get_config'), api('get_overview')]);
+  const [cfg, ov, setup] = await Promise.all([api('get_config'), api('get_overview'), api('setup_status')]);
   const report = cfg.dump_dir ? await api('validate_dump', { path: cfg.dump_dir }) : null;
   const chosen = report && report.chosen;
   let status = await api('game_status');
@@ -38,6 +38,7 @@ export async function render(el, ctx) {
     if (!cfg.dump_dir) problems.push('No game files chosen yet.');
     else if (!chosen) problems.push(`The game files at ${cfg.dump_dir} are not usable: ${report.errors.join(' ')}`);
     if (!ov.exe_exists) problems.push(`pkp.exe was not found in ${ov.game_dir}. Put the launcher next to pkp.exe, or set the game folder in Settings.`);
+    if (chosen && ov.exe_exists && !setup.complete) problems.push(setup.progress.state === 'running' ? 'Setup is still running (Game files).' : 'Setup is not finished yet: open Game files and press Set up.');
     const ready = problems.length === 0;
 
     el.innerHTML = `
@@ -48,7 +49,7 @@ export async function render(el, ctx) {
         </div>
 
         ${problems.map((p) => `<div class="banner danger">${icon('circle-x')}<div>${esc(p)}</div></div>`).join('')}
-        ${problems.length && !chosen ? `<div><button class="btn primary" id="to-setup">${icon('folder-open')}Choose game files</button></div>` : ''}
+        ${problems.length && (!chosen || !setup.complete) ? `<div><button class="btn primary" id="to-setup">${icon(chosen ? 'wrench' : 'folder-open')}${chosen ? 'Set up' : 'Choose game files'}</button></div>` : ''}
 
         <div class="row wrap">
           <button class="btn primary big" id="play" ${ready && !running ? '' : 'disabled'}>${icon('play')}${running ? 'Running' : 'Play'}</button>
@@ -62,6 +63,8 @@ export async function render(el, ctx) {
           <dl class="kv">
             <dt>Game files</dt>
             <dd>${chosen ? `${chosen.kind === 'base' ? 'Base game' : 'Update ' + esc(chosen.version)}<div class="path">${esc(chosen.path)}</div>` : '<span class="faint">not set</span>'}</dd>
+            <dt>Shaders</dt>
+            <dd>${setup.complete ? 'ready' : '<span class="faint">not set up</span>'}</dd>
             <dt>Game folder</dt>
             <dd>${ov.exe_exists ? 'pkp.exe found' : '<span class="faint">pkp.exe missing</span>'}<div class="path">${esc(ov.game_dir)}</div></dd>
           </dl>

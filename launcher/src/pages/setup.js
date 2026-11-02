@@ -16,10 +16,44 @@ function candidateHtml(c, chosen) {
     </div>`;
 }
 
+function shadersHtml(s, saved) {
+  const p = s.progress;
+  const running = p.state === 'running';
+  const pct = p.total ? Math.floor((100 * p.done) / p.total) : 0;
+  let body = '';
+  if (running) {
+    body = `<p class="dim">${esc(p.message)}</p>
+      <progress max="100" value="${p.total ? pct : ''}"></progress>
+      <p class="faint">${p.total ? `${pct}%. ` : ''}You can pause and continue later; finished shaders are kept.</p>`;
+  } else if (p.state === 'error') {
+    body = `<div class="banner danger">${icon('circle-x')}<div>${esc(p.message)}</div></div>`;
+  } else if (s.complete) {
+    body = `<p class="dim">${icon('circle-check')} Done. The game's shaders are in <code>shader_cache/spirv</code> next to pkp.exe.</p>`;
+  } else {
+    body = `<p class="dim">${p.state === 'cancelled' ? esc(p.message) : 'Writes the game paths to pkp.ini and translates the game\'s shaders from your romfs for your PC (once; about 100,000 shaders, takes a while; needs about 36 GB free while it runs and keeps about 26 GB).'}</p>`;
+  }
+  const label = s.complete ? 'Set up again' : s.started ? 'Continue setup' : 'Set up';
+  return `
+    <div class="card">
+      <h2>${icon('wrench')}Set up</h2>
+      <div class="stack">
+        ${body}
+        <div class="row">
+          ${running
+            ? `<button class="btn" id="setup-cancel">${icon('circle-x')}Pause</button>`
+            : `<button class="btn ${s.complete ? '' : 'primary'}" id="setup-run" ${saved ? '' : 'disabled'}>${icon('wrench')}${label}</button>`}
+          ${s.complete && !running ? `<button class="btn primary" id="to-play">${icon('play')}Go to Play</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
 export async function render(el, ctx) {
   const cfg = await api('get_config');
   let path = cfg.dump_dir || '';
+  let saved = path;
   let report = path ? await api('validate_dump', { path }) : null;
+  let setup = await api('setup_status');
 
   function draw() {
     const ok = report && report.chosen;
@@ -45,9 +79,11 @@ export async function render(el, ctx) {
         ${report && report.candidates.length ? `<div class="stack">${report.candidates.map((c) => candidateHtml(c, report.chosen)).join('')}</div>` : ''}
 
         <div class="row">
-          <button class="btn primary" id="use" ${ok ? '' : 'disabled'}>${icon('circle-check')}Use these game files</button>
+          <button class="btn ${ok && saved !== path ? 'primary' : ''}" id="use" ${ok && setup.progress.state !== 'running' ? '' : 'disabled'}>${icon('circle-check')}Use these game files</button>
           ${ctx.firstRun ? '' : '<button class="btn quiet" id="cancel">Back</button>'}
         </div>
+
+        ${shadersHtml(setup, ok && saved === path)}
       </div>`;
     refreshIcons();
 
@@ -69,13 +105,41 @@ export async function render(el, ctx) {
     el.querySelector('#use').addEventListener('click', async () => {
       try {
         await api('save_dump', { path });
-        toast('Game files saved.', 'ok');
-        ctx.go('play');
+        saved = path;
+        toast('Game files saved. Next: Set up.', 'ok');
+        draw();
       } catch (e) {
         toast(errText(e), 'error');
       }
     });
     el.querySelector('#cancel')?.addEventListener('click', () => ctx.go('play'));
+    el.querySelector('#to-play')?.addEventListener('click', () => ctx.go('play'));
+    el.querySelector('#setup-run')?.addEventListener('click', async () => {
+      try {
+        await api('start_setup');
+        setup = await api('setup_status');
+        draw();
+      } catch (e) {
+        toast(errText(e), 'error');
+      }
+    });
+    el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
   }
+
+  ctx.onSetup(async (p) => {
+    const was = setup.progress.state;
+    setup = p.state === 'running' ? { ...setup, progress: p } : await api('setup_status');
+    // progress ticks only touch the setup card's text, so the path field keeps its focus
+    if (was === 'running' && p.state === 'running' && el.querySelector('progress')) {
+      const card = el.querySelector('#setup-cancel')?.closest('.card');
+      if (card) {
+        card.outerHTML = shadersHtml(setup, true);
+        refreshIcons();
+        el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
+        return;
+      }
+    }
+    draw();
+  });
   draw();
 }

@@ -53,7 +53,7 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-pub fn start(app: &AppHandle, game_dir: &Path, exefs: &str, minimize: bool) -> Result<(), String> {
+pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), String> {
     {
         let st = app.state::<PlayState>();
         if st.0.lock().unwrap().state == "running" {
@@ -66,7 +66,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, exefs: &str, minimize: bool) -> R
     }
 
     let mut cmd = Command::new(&exe);
-    cmd.current_dir(game_dir).args(["--exefs", exefs, "--log", "pkp.log"]);
+    // every path (exefs, romfs, shader cache) comes from pkp.ini next to pkp.exe
+    cmd.current_dir(game_dir).args(["--log", "pkp.log"]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

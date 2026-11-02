@@ -88,6 +88,13 @@ VkPresentModeKHR to_vk(PresentMode m) {
 }
 
 // ---- PNG helpers ------------------------------------------------------------------------------------------------------
+std::atomic<int> g_png_writes{0};   // screenshots requested and not yet written to disk
+
+// Waits (at most 15 s) for screenshot files still being written; called before the test runner exits.
+void wait_screenshot_writes() {
+    for (int i = 0; i < 1500 && g_png_writes.load() > 0; i++) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+}
+
 bool save_png_rgba(const std::string& path, const uint8_t* rgba, uint32_t w, uint32_t h) {
     SDL_Surface* s = SDL_CreateSurfaceFrom(static_cast<int>(w), static_cast<int>(h), SDL_PIXELFORMAT_RGBA32, const_cast<uint8_t*>(rgba),
                                            static_cast<int>(w * 4));
@@ -708,6 +715,7 @@ void Renderer::end_frame() {
     if (capturing) {
         if (s.dev->create_buffer(static_cast<VkDeviceSize>(w) * h * bpp, VK_BUFFER_USAGE_TRANSFER_DST_BIT, MemoryUse::Readback, &cap, "screenshot") != VK_SUCCESS) {
             NXLOG_E(kTag, "screenshot buffer allocation failed");
+            if (!s.cap_path.empty()) g_png_writes.fetch_sub(1);
         }
     }
     if (cap) {
@@ -853,7 +861,13 @@ void Renderer::end_frame() {
                 for (size_t i = 0; i < px.size(); i += 4) std::swap(px[i], px[i + 2]);
             for (size_t i = 3; i < px.size(); i += 4) px[i] = 255;
         }
-        if (!s.cap_path.empty() && save_png_rgba(s.cap_path, px.data(), w, h)) NXLOG_I(kTag, "screenshot %ux%u written to %s", w, h, s.cap_path.c_str());
+        if (!s.cap_path.empty()) {
+            // the PNG encode takes seconds: write it on a worker so the frame is not held up (wait_screenshot_writes before exit)
+            std::thread([path = s.cap_path, data = s.cap_out ? px : std::move(px), w, h]() {
+                if (save_png_rgba(path, data.data(), w, h)) NXLOG_I(kTag, "screenshot %ux%u written to %s", w, h, path.c_str());
+                g_png_writes.fetch_sub(1);
+            }).detach();
+        }
         if (s.cap_out) *s.cap_out = std::move(px);
         if (s.cap_w) *s.cap_w = w;
         if (s.cap_h) *s.cap_h = h;
@@ -909,6 +923,7 @@ uint32_t Renderer::frames_in_flight() const { return impl_->desc.frames_in_fligh
 bool Renderer::headless() const { return impl_->headless; }
 
 void Renderer::request_screenshot(const std::string& png_path) {
+    g_png_writes.fetch_add(1);   // until the worker has written the file (wait_screenshot_writes)
     impl_->cap_path = png_path;
     impl_->cap_pending.store(true, std::memory_order_release);   // after the path is set: end_frame reads the path once it sees the flag
 }

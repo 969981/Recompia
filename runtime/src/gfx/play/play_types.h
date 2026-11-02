@@ -178,6 +178,10 @@ struct DisplaySettings {
     double lod_bias = 0;           // texture LOD bias added to every sampler (-2.0 .. 2.0; negative is sharper)
     bool bloom = true;
     bool chromatic_aberration = true;
+    // Games with quality hooks (play_game.h kDisplayOptQuality, live): the view distance multiplies the camera's far clip (1.0 .. 4.0, 1 = the
+    // console's), the preset names the set of values last picked on the F1 page (switch2, high, ultra; custom after a single change).
+    std::string quality_preset = "switch2";
+    double view_distance = 1.0;
     // ---- S38 GPU paths, at the next start; [nvn] pool_mirror and pass_barriers in mpr.ini or the environment win over these.
     bool fast_gpu_memory = true;   // device-local copies of the pools draws read ([nvn] pool_mirror = on); costs up to 2 GiB of video memory
     bool fewer_gpu_waits = true;   // no full barrier after passes that only wrote their attachments ([nvn] pass_barriers = tracked)

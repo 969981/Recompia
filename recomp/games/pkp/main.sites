@@ -131,8 +131,32 @@ midhook 0x7101f90fec
 #   their prologues: rects sized for 1920x1080 on render-size targets become the target size (viewport and the 2/w, -2/h screen constants)
 midhook 0x71017b50ac
 midhook 0x71017b5254
+#   render resolution: the terrain occlusion pass (0x710073d73c) calling its 80x45 G-buffer copy 0x71010f48d8: x3 the source colour texture,
+#   x5 the source rect {x, y, w, h}, taken from a viewport recorded as 1920x1080 (becomes the source's size on render-size targets)
+midhook 0x710073d824
 #   aspect ratio: the scene camera handed to the render view (0x71008cbe64, x20 = the camera), the KTGL camera's projection builder
 #   (0x7101f12114) after its prologue (x0 = the camera), the screen-layout camera (0x7101fbab60) after its prologue (x2 = int[2] size)
 midhook 0x71008cc124
 midhook 0x7101f12130
 midhook 0x7101fbab98
+#   quality: the camera commit (0x71022a9f60) after it copied the staged blocks over the live fields and released the lock, x19 = the
+#   camera (pkp_quality.cpp: the view distance multiplies the live Far clip +0x14; probe log of the quality fields)
+midhook 0x71022aced8
+
+#   quality: model LOD setup (PartsLodDistance0/1 at x0+0x174/0x178, [pkp] lod_distance)
+entryhook 0x7102371280
+entryhook 0x71023719ac
+entryhook 0x7102371d80
+#   quality: LOD selection probes (pkp_quality.cpp, [pkp] quality_probe / lod_distance): placement instance LOD distance (s0) and
+#   its grid cell cull (s2 vs w0) in 0x710234fc20; the model screen-error threshold (s0) after 0x71022a0168 in 0x71023b7b60 and
+#   0x71023b8004; the model LOD select (vtable slot +0x460) and SetLodLevel 0x71008eb6e0
+midhook 0x7102350520
+midhook 0x71023501bc
+midhook 0x71023b7c68
+midhook 0x71023b80a4
+entryhook 0x71023be60c
+entryhook 0x71008eb6e0
+#   quality: placed-object LOD switch in 0x71008f3660 ([pkp] lod_distance): s11 = squared switch distance x FOV factor before the
+#   compare with s8 (x22 = the object), and s0 = the squared switch distance handed to the batch update 0x71008f4c20
+midhook 0x71008f3a20
+midhook 0x71008f3fa0

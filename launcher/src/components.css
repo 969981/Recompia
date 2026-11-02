@@ -141,3 +141,7 @@ input[type="checkbox"] { accent-color: var(--color-accent); width: 16px; height:
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); margin: 0; }
 dl.kv dt { color: var(--color-text-dim); }
 dl.kv dd { margin: 0; min-width: 0; }
+
+progress { width: 100%; height: 10px; appearance: none; border: none; border-radius: var(--radius-md); background: var(--color-surface-sunken); overflow: hidden; }
+progress::-webkit-progress-bar { background: var(--color-surface-sunken); }
+progress::-webkit-progress-value { background: var(--color-accent); }

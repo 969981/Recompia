@@ -26,6 +26,8 @@
 #include "nxrt/tt.h"
 #include "tt_internal.h"
 
+namespace nxrt::gfx { void wait_screenshot_writes(); }
+
 namespace nxrt::tt {
 namespace detail {
 std::atomic<uint32_t> svc_every{0};
@@ -663,6 +665,7 @@ void end_run(int code, const char* verdict, const std::string& message) {
         flush_files(s);
         if (s.trace) std::fflush(s.trace);
     }
+    nxrt::gfx::wait_screenshot_writes();   // shots are written on a worker
     ExitFn fn = s.exit_fn ? s.exit_fn : default_exit;
     fn(code);
 }

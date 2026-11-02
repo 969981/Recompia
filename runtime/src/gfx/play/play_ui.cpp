@@ -820,6 +820,26 @@ void resolution_group(Page& p) {
 
 // ---- Graphics -----------------------------------------------------------------------------------------------------------------------
 
+// The game's quality preset (kDisplayOptQuality): picking one writes its view distance, texture LOD bias and anisotropy; changing one of
+// those afterwards makes it Custom.
+constexpr const char* kQualityIds[] = {"switch2", "high", "ultra", "custom"};
+constexpr const char* kQualityNames[] = {"Switch 2 (console)", "High", "Ultra", "Custom"};
+constexpr int kQualityCount = 4;
+
+void quality_preset_combo(Page& p, const GamePlay* gp) {
+    DisplaySettings& d = p.edit.display;
+    int sel = kQualityCount - 1;
+    for (int i = 0; i < kQualityCount; ++i)
+        if (d.quality_preset == kQualityIds[i]) sel = i;
+    if (ImGui::BeginCombo("Quality preset", kQualityNames[sel])) {
+        for (int i = 0; i < kQualityCount - 1; ++i) {
+            if (ImGui::Selectable(kQualityNames[i], i == sel) && i != sel && gp->quality_preset && gp->quality_preset(kQualityIds[i], d)) mark(p);
+        }
+        ImGui::EndCombo();
+    }
+    tip("Sets the view distance, texture LOD bias and anisotropy together. Switch 2 is the console's picture.");
+}
+
 void picture_group(Page& p) {
     DisplaySettings& d = p.edit.display;
     const GamePlay* gp = game_play();
@@ -865,6 +885,16 @@ void picture_group(Page& p) {
     if (ImGui::Checkbox("Dynamic resolution", &d.dynamic_resolution)) mark(p);
     tip("The game's own dynamic resolution: it lowers the render size when the GPU is late. Off keeps the full size.");
 
+    const bool quality = (opts & kDisplayOptQuality) != 0;
+    if (quality) quality_preset_combo(p, gp);
+    auto custom = [&] {
+        if (quality) d.quality_preset = "custom";
+        mark(p);
+    };
+    if (quality) {
+        if (slider("View distance", &d.view_distance, 1.0, 4.0, "x%.2f")) custom();
+        tip("Multiplies the camera's far clip: terrain and large scenery reach farther. 1 is the console's.");
+    }
     int aniso_sel = 0;
     for (int i = 0; i < kAnisoCount; ++i)
         if (kAnisoValues[i] == d.anisotropy) aniso_sel = i;
@@ -872,13 +902,13 @@ void picture_group(Page& p) {
         for (int i = 0; i < kAnisoCount; ++i) {
             if (ImGui::Selectable(kAnisoNames[i], i == aniso_sel) && i != aniso_sel) {
                 d.anisotropy = kAnisoValues[i];
-                mark(p);
+                custom();
             }
         }
         ImGui::EndCombo();
     }
     tip("Sharper textures at a slant. Game default keeps what the game asks for; the other entries are a minimum on every filtering sampler.");
-    if (slider("Texture LOD bias", &d.lod_bias, -2.0, 2.0, "%.2f")) mark(p);
+    if (slider("Texture LOD bias", &d.lod_bias, -2.0, 2.0, "%.2f")) custom();
     tip("Negative values pick sharper texture levels, positive values softer ones.");
     if (opts & kDisplayOptBloom) {
         if (ImGui::Checkbox("Bloom", &d.bloom)) mark(p);

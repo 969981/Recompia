@@ -380,13 +380,12 @@ bool screenshot_provider(const char* path, void*) {
     if (!st.renderer || !path) return false;
     DeleteFileA(path);
     if (std::strstr(path, "nvntrace_")) nvn::backend_trace_next_frame();   // `@shot nvntrace_<name>`: also trace the frame that is captured
-    const uint64_t before = st.renderer->stats().screenshots;
+    // The caller is the game's thread at a frame boundary, and the capture happens at the render thread's next end of frame, which
+    // needs the game's next frame: waiting here for the file held every shot for the 5 s timeout. Wait only for an earlier request to
+    // be taken (one capture path at a time), then return; the file is written on a worker and the test runner waits for it at exit.
+    for (int i = 0; i < 200 && st.renderer->capture_pending(); ++i) Sleep(5);
     st.renderer->request_screenshot(path);
-    for (int i = 0; i < 500; ++i) {
-        if (st.renderer->stats().screenshots > before) return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;   // counted after the file is written
-        Sleep(10);
-    }
-    return false;
+    return true;
 }
 
 void vib_sink(uint32_t slot, int hand, const hid::VibrationValue& v, void*) {

@@ -2,6 +2,10 @@
 // Small services of the title's Service Access Control list (S3c): csrng, ldr:ro, mm:u, hwopus, aoc:u, caps:u, mii:u, irs,
 // nfc:user, nfp:user, ectx:aw, banana, htc, htcs. Request bytes and expected results are written out from Switchbrew (command tables
 // and the Error_codes page), not read from the implementation.
+#include <filesystem>
+#include <vector>
+#include <windows.h>
+
 #include "svc_test_util.h"
 
 #include "nxrt/config.h"
@@ -126,6 +130,33 @@ NXTEST(misc_caps_album_is_empty) {
     nxsvc::Reply list = s.call(142, nxsvc::Args().with_pid().u16(0).align(8).u64(0).u64(0).u64(0).buf_b(out, sizeof out));
     REQUIRE(list.ok());
     CHECK_EQ(list.get<uint64_t>(0), 0u);
+}
+
+NXTEST(misc_caps_su_saves_png) {
+    nxsvc::Env env;
+    char tmp[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmp);
+    const std::filesystem::path dir = std::filesystem::path(tmp) / "nxrt_album_test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    config_set("album", "dir", dir.string().c_str());
+    nxsvc::Session s = nxsvc::connect("caps:su");
+    REQUIRE(s.valid());
+    // SaveScreenShotEx1 (cmd 205) as the Switch 2 sdk sends it: ScreenShotAttribute (0x40 bytes, ImageSize 0 = 1280x720), u32 report
+    // option, u64 aruid; buffer 0 the 0x404-byte ApplicationData, buffer 1 the RGBA8 image.
+    std::vector<uint8_t> img(1280 * 720 * 4, 0x80);
+    std::vector<uint8_t> app(0x404, 0);
+    nxsvc::Reply r = s.call(205, nxsvc::Args().u32(0).pad(0x3C).u32(0).align(8).u64(0).buf_a(app.data(), app.size()).buf_a(img.data(), img.size()));
+    REQUIRE(r.ok());
+    // ApplicationAlbumEntry: u64 file size first, the last byte 1.
+    CHECK(r.get<uint64_t>(0) > 0);
+    CHECK_EQ(r.get<uint8_t>(0x1F), 1u);
+    size_t pngs = 0;
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+        if (e.path().extension() == ".png") ++pngs;
+    CHECK_EQ(pngs, 1u);
+    std::filesystem::remove_all(dir, ec);
+    config_clear();
 }
 
 NXTEST(misc_mii_empty_database) {

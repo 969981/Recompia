@@ -327,17 +327,26 @@ NXTEST(am_create_storage_too_large) {
     CHECK_EQ(creator.call(10, nxsvc::Args().i64(0x20000000)).result, 0x4B080u);
 }
 
-NXTEST(am_library_applet_refused) {
+NXTEST(am_error_and_shop_applets_close) {
     nxsvc::Env env;
     nxsvc::Session proxy = open_proxy();
     REQUIRE(proxy.valid());
     nxsvc::Session creator = proxy.sub(proxy.call(11));
     REQUIRE(creator.valid());
-    // Library applets are not supported: AppletLaunchFailed, 128-35 = 0x4680 (the code is Ryujinx's, not checked on Switchbrew).
-    nxsvc::Reply r = creator.call(0, nxsvc::Args().u32(0x10).u32(1));
-    CHECK_EQ(r.result, 0x4680u);
-    CHECK_EQ(r.move.size(), 0u);
-    CHECK_EQ(creator.call(3, nxsvc::Args().u32(0x10).u32(1).u64(0)).result, 0x4680u);
+    // The inline software keyboard (0x11 in a partial-foreground mode) is still refused: 128-712 = 0x59080.
+    CHECK_EQ(creator.call(0, nxsvc::Args().u32(0x1010011).u32(1)).result, 0x59080u);
+    // The error applet as Pokopia creates it (0x100000E, mode 0): Start ends it at once and GetResult is success (exit reason Normal).
+    nxsvc::Session err = creator.sub(creator.call(0, nxsvc::Args().u32(0x100000E).u32(0)));
+    REQUIRE(err.valid());
+    CHECK_EQ(err.call(10).result, 0u);
+    CHECK_EQ(err.call(1).get<uint8_t>(0), 1u);
+    CHECK_EQ(err.call(30).result, 0u);
+    // The shop (0x1000014) ends cancelled: LibraryAppletCanceled, 128-22 = 0x2C80.
+    nxsvc::Session shop = creator.sub(creator.call(0, nxsvc::Args().u32(0x1000014).u32(0)));
+    REQUIRE(shop.valid());
+    CHECK_EQ(shop.call(10).result, 0u);
+    CHECK_EQ(shop.call(1).get<uint8_t>(0), 1u);
+    CHECK_EQ(shop.call(30).result, 0x2C80u);
 }
 
 NXTEST(am_desired_language) {

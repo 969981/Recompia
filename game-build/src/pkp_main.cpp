@@ -14,8 +14,11 @@
 //
 // Installed layout (a release folder after pkp_setup has run): when exefs\main sits next to pkp.exe, or --game DIR / PKP_GAME names a
 // folder, that folder becomes the working directory, so everything the runtime reads relative to it (bc7_cache, shader_cache, romfs,
-// controls.ini, pkp.log) is found wherever the exe is started from (double click, shortcut, terminal), the ExeFS is ./exefs and the
-// settings file is ./pkp.ini (written by setup). Without it (development runs from game-build or work/run) nothing changes.
+// controls.ini, pkp.log) is found wherever the exe is started from (double click, shortcut, terminal), and the settings file is ./pkp.ini
+// (written by the launcher's setup). A pkp.ini next to pkp.exe also makes the folder installed. Paths come from pkp.ini, relative ones
+// resolved against the game folder: [fs] exefs (default ./exefs), [fs] romfs (default ./romfs), [nvn] shader_cache (default
+// ./shader_cache/spirv). --exefs / PKP_EXEFS and the NXRT_* variables win over the ini. Without it (development runs from game-build or
+// work/run) nothing changes, except that [fs] exefs in the ini named by --ini / NXRT_INI replaces the built-in ExeFS default.
 #include <windows.h>
 
 #include <chrono>
@@ -299,7 +302,8 @@ int main(int argc, char** argv) {
     bool installed = false;
     {
         const std::wstring base = game.empty() ? exe_dir() : widen_utf8(absolute_utf8(game));
-        installed = !game.empty() || file_exists(base + L"\\exefs\\main");
+        const char* gi = nxrt::game::info().game_ini;
+        installed = !game.empty() || file_exists(base + L"\\exefs\\main") || (*gi && file_exists(base + L"\\" + widen_utf8(gi)));
         if (installed) {
             if (exefs_given) exefs = absolute_utf8(exefs);
             if (ini) { ini_abs = absolute_utf8(ini); ini = ini_abs.c_str(); }
@@ -316,7 +320,6 @@ int main(int argc, char** argv) {
                 if (CreateMutexW(nullptr, FALSE, name.c_str()) && GetLastError() == ERROR_ALREADY_EXISTS)
                     die("The game is already running from this folder (or its shaders are being prepared). Close that one first.");
             }
-            if (!exefs_given) exefs = "exefs";
             if (!logp) logp = "pkp.log";
             const char* game_ini = nxrt::game::info().game_ini;     // "pkp.ini", written by setup
             if (!ini && !std::getenv("NXRT_INI") && *game_ini && file_exists(std::wstring(game_ini, game_ini + std::strlen(game_ini)))) ini = game_ini;
@@ -329,6 +332,9 @@ int main(int argc, char** argv) {
     if (!nxrt::init(opt)) die("runtime start-up failed (address-space layout)");
     for (const auto& kv : boot_opts) nxrt::config_set("boot", kv.first.c_str(), kv.second.c_str());
     if (installed && !nxrt::config_has("fs", "romfs")) nxrt::config_set("fs", "romfs", "romfs");   // pkp.ini missing or without [fs]
+    // [fs] exefs (pkp.ini, or NXRT_FS_EXEFS) names the ExeFS when neither --exefs nor PKP_EXEFS does; installed: relative to the game folder.
+    if (!exefs_given) exefs = nxrt::config_get_str("fs", "exefs", installed ? "exefs" : exefs.c_str());
+    nxrt::config_set("fs", "exefs", exefs.c_str());     // the one in use, for the About page
     nxrt::config_set("process", "program_id", "0x0400A3A01EE4C000");     // GetInfo(ProgramId); an ini value or the environment still wins
     NXLOG_I("boot", "pkp %s (Pokémon Pokopia PC port)", PKP_VERSION);
     NXLOG_I("boot", "Pokémon Pokopia %s: exefs '%s'", nxrt::game::info().version, exefs.c_str());
@@ -396,7 +402,7 @@ int main(int argc, char** argv) {
         std::string err;
         const std::string path = exefs + "\\" + g.file;
         if (!file_exists(widen_utf8(path)))
-            die("The game files were not found (%s). Run pkp_setup.exe from this folder first, then start the game again.", path.c_str());
+            die("The game files were not found (%s). Choose your game files in the Pokopia launcher (or set [fs] exefs in pkp.ini), then start the game again.", path.c_str());
         nxrt::Module* m = nxrt::module_load_nso_file(path.c_str(), lo, &err);
         if (!m) die("cannot load %s: %s", path.c_str(), err.c_str());
         if (m->base() != g.nx->base) die("module %s is mapped at a base different from the one the library was lifted for", g.file);

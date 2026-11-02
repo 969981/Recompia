@@ -2479,7 +2479,10 @@ void forget_buffer_views(VkBuffer buffer) {
 
 VkBufferView tex_buffer_view(Texture* t, const TextureViewInfo* view, int component, VkFormat shader_format, bool storage,
                              uint64_t* gpu_address, uint64_t* bytes, VkFormat* format) {
-    if (!t || !t->fmt || t->b.target != NVN_TEXTURE_TARGET_BUFFER || t->b.width <= 0) return VK_NULL_HANDLE;
+    if (!t || !t->fmt || t->b.width <= 0) return VK_NULL_HANDLE;
+    // A buffer fetch reads the texture's memory as a run of texels, whatever target the storage was built with (a texture view of BUFFER target,
+    // or a 2D/3D texture the game left bound to a samplerBuffer slot): the run is the BUFFER texture's width, else the whole storage.
+    const bool buffer_target = t->b.target == NVN_TEXTURE_TARGET_BUFFER;
     const FormatInfo* fi = t->fmt;
     if (view && view->has_format)
         if (const FormatInfo* vf = format_info(view->format)) fi = vf;
@@ -2495,7 +2498,13 @@ VkBufferView tex_buffer_view(Texture* t, const TextureViewInfo* view, int compon
     else if (t->mem) addr = reinterpret_cast<uint64_t>(t->mem);
     if (!addr) return VK_NULL_HANDLE;
     const VkPhysicalDeviceLimits& lim = device().properties().limits;
-    uint64_t n = std::min<uint64_t>(static_cast<uint64_t>(t->b.width), lim.maxTexelBufferElements);
+    if (!fi->bytes) return VK_NULL_HANDLE;
+    uint64_t texels = static_cast<uint64_t>(t->b.width);
+    if (!buffer_target) {
+        texels = t->storage_size / fi->bytes;
+        if (!texels) texels = static_cast<uint64_t>(t->b.width) * static_cast<uint64_t>(std::max(1, t->b.height)) * static_cast<uint64_t>(std::max(1, t->b.depth));
+    }
+    uint64_t n = std::min<uint64_t>(texels, lim.maxTexelBufferElements);
     const uint64_t size = n * fi->bytes;
     BufRef br = resolve_buffer(addr, size);
     if (!br.ok) return VK_NULL_HANDLE;

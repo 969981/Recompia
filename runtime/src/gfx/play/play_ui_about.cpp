@@ -57,9 +57,10 @@ std::string shader_cache_dir() {
     return "not found";
 }
 
-// The ExeFS folder. The launcher decides it from its command line and does not publish it, so this repeats its rule: PKP_EXEFS-style
-// variable, else ./exefs when it holds the main module, else game/exefs.
+// The ExeFS folder: [fs] exefs (the game's main() stores the folder it loaded there; the player may also set it in the game ini), else
+// the old rule for mains that do not: PKP_EXEFS-style variable, else ./exefs when it holds the main module, else game/exefs.
 std::string exefs_dir() {
+    if (const std::string configured = config_get_str("fs", "exefs", ""); !configured.empty()) return absolute(configured);
     std::string var = game::info().id ? game::info().id : "";
     for (char& c : var) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     var += "_EXEFS";
@@ -100,7 +101,7 @@ void draw_about_page(const std::string& settings_path) {
     if (info.game_ini && *info.game_ini) path_row("Game ini", absolute(info.game_ini), "Runtime options ([fs], [nvn], [audio] ...); docs/CONFIG.md lists the keys.");
     path_row("Log", absolute(config_get_str("log", "path", "nxrt.log")));
     path_row("RomFS", absolute(services::romfs_dir()), "[fs] romfs");
-    path_row("ExeFS", exefs_dir(), "Where the launcher looks for the main module; --exefs on the command line can name another.");
+    path_row("ExeFS", exefs_dir(), "[fs] exefs; --exefs on the command line wins.");
     path_row("Save data", absolute(services::save_dir()), "[fs] save_dir");
     path_row("Shader cache", shader_cache_dir(), "[nvn] shader_cache");
     path_row("Pipeline cache", absolute(config_get_str("nvn", "pipeline_cache", "pipeline_cache.bin")), "[nvn] pipeline_cache; the pipeline keys sit beside it.");

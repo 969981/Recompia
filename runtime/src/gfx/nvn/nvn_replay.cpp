@@ -317,6 +317,11 @@ void log_once(const char* key, const char* msg) {
     if (seen.emplace(key, true).second) NXLOG_W(kTag, "%s", msg);
 }
 
+bool first_time_key(const std::string& key) {   // render thread only
+    static std::unordered_map<std::string, bool> seen;
+    return seen.size() < 4096 && seen.emplace(key, true).second;
+}
+
 // ---- helpers ----------------------------------------------------------------------------------------------------------------
 VkFormat scaled_for(VkFormat f) {
     switch (f) {
@@ -836,9 +841,96 @@ void feedback_prepare(const ProgLayout& pl) {
 
 void flush_compute_out();       // compute shadows (below): results of direct compute bindings go back to the pool
 
+// A sampler3D reading a texture whose storage is 2D (a 2D texture the game left bound to the slot, or a 3D texture view of 2D storage): the
+// console samples it as a volume one slice deep. Vulkan cannot view a 2D image as 3D, so the draw samples a 3D copy (w x h x 1, every level) of the
+// texture's layer, made before the pass and refreshed once per submission (and whenever the CPU wrote the texture).
+struct Vol3dCopy {
+    Ref<Texture> src;                                      // keeps the key alive while the copy exists
+    Ref<Texture> tex;
+    uint32_t layer = 0;
+    uint64_t copied = UINT64_MAX;                          // serial of the submission of the last copy
+    uint64_t last = 0;                                     // serial of the last submission that used it
+};
+std::unordered_map<Texture*, Vol3dCopy> g_vol3d;           // 2D texture -> its 3D copy
+std::unordered_map<Texture*, Texture*> g_vol3d_use;        // 2D texture -> the copy the current draw samples
+
+bool wants_vol3d(const DescriptorBinding& b, const TexResolved& r) {
+    if (!r.tex || view_type_for(b) != VK_IMAGE_VIEW_TYPE_3D) return false;
+    const int target = r.tex->b.target;
+    return target != NVN_TEXTURE_TARGET_3D && target != NVN_TEXTURE_TARGET_BUFFER && !target_is_multisample(target) && r.tex->b.samples <= 1 &&
+           !tex_is_depth(r.tex);
+}
+
+void vol3d_prepare(const ProgLayout& pl) {
+    g_vol3d_use.clear();
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        const TexResolved r = resolve_texture(d);
+        if (!wants_vol3d(b, r) || g_vol3d_use.count(r.tex) || !tex_gpu(r.tex)) continue;
+        const uint32_t layer = r.has_view && r.view.has_layers ? static_cast<uint32_t>(r.view.min_layer) : 0;
+        if (layer >= tex_layers(r.tex)) continue;
+        Vol3dCopy& e = g_vol3d[r.tex];
+        if (e.src.get() != r.tex) e.src = Ref<Texture>::share(r.tex);
+        e.last = F ? F->serial : 0;
+        Ref<Texture>& c = e.tex;
+        if (c && (c->b.width != r.tex->b.width || c->b.height != r.tex->b.height || c->fmt != r.tex->fmt || c->levels != r.tex->levels || e.layer != layer ||
+                  (c->gpu && tex_scale(c.get()) != tex_scale(r.tex))))
+            c = Ref<Texture>();
+        if (!c) {
+            Texture* n = new Texture();
+            n->b = r.tex->b;
+            n->b.target = NVN_TEXTURE_TARGET_3D;
+            n->b.depth = 1;
+            n->fmt = r.tex->fmt;
+            n->levels = r.tex->levels;
+            n->layers = 1;
+            n->block_linear = r.tex->block_linear;
+            n->cpu_dirty.store(false);
+            static uint32_t next_id = 0x7e000000;
+            n->id = next_id++;
+            c = Ref<Texture>(n);
+            e.layer = layer;
+            e.copied = UINT64_MAX;
+        }
+        if (!tex_gpu_scaled(c.get(), tex_scale(r.tex))) continue;
+        const uint64_t serial = F ? F->serial : 0;
+        if (e.copied != serial || r.tex->cpu_dirty.load()) {
+            flush_compute_out();
+            end_pass();
+            tex_ensure_current(r.tex, *F);
+            tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            tex_transition(c.get(), *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            std::vector<VkImageCopy> regions;
+            for (uint32_t lv = 0; lv < tex_levels(r.tex); ++lv) {
+                VkImageCopy rc = {};
+                rc.srcSubresource = {tex_aspect(r.tex), lv, layer, 1};
+                rc.dstSubresource = {tex_aspect(c.get()), lv, 0, 1};
+                rc.extent = tex_image_extent(r.tex, lv);
+                rc.extent.depth = 1;
+                regions.push_back(rc);
+            }
+            vkCmdCopyImage(F->cb, tex_image(r.tex), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(c.get()), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           static_cast<uint32_t>(regions.size()), regions.data());
+            tex_mark_gpu_written(c.get());
+            tex_transition(c.get(), *F, tex_sampled_layout(c.get()));
+            tex_transition(r.tex, *F, tex_sampled_layout(r.tex));   // the same draw may sample it as 2D too
+            e.copied = serial;
+            counters().copies.fetch_add(1, std::memory_order_relaxed);
+            gstamp("3D copy of a 2D texture");
+            if (first_time_key("vol3d " + std::to_string(r.tex->id)))
+                NXLOG_I(kTag, "texture %u (%s %dx%d, target %d) is sampled as 3D by %s binding %s: it gets a 3D copy one slice deep", r.tex->id,
+                        r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.target, d.shader->hash.c_str(), b.name.c_str());
+        }
+        g_vol3d_use[r.tex] = c.get();
+    }
+}
+
 // Makes the textures a draw samples current (uploaded, in their sampled layout) and the storage images it binds writable (GENERAL).
 // Ends the pass when it has to touch images. The depth attachment itself is left to the pass.
 void prepare_textures(const ProgLayout& pl) {
+    vol3d_prepare(pl);
     std::vector<Texture*> need, need_storage;
     for (const BindingDesc& d : pl.bindings) {
         if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
@@ -1245,6 +1337,13 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                 const auto fb = g_fb_use.find(r.tex);
                 if (fb != g_fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
             }
+            if (r.tex && wants_vol3d(b, r)) {                      // a sampler3D over 2D storage samples the 3D copy (vol3d_prepare)
+                const auto vc = g_vol3d_use.find(r.tex);
+                if (vc != g_vol3d_use.end()) {
+                    r.tex = vc->second;
+                    r.view.has_layers = false;                     // the copy is the chosen layer, one slice deep
+                }
+            }
             // [nvn] debug_null_format = "BPTC_UFLOAT" or "RGBA8:256x64": every sampled texture of that NVN format (and size) gets the dummy view
             // (term isolation, debugging only)
             static const std::string null_fmt = nxrt::config_get_str("nvn", "debug_null_format", "");
@@ -1264,6 +1363,10 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
                     }
+                } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {
+                    NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
+                            r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
+                            static_cast<int>(view_type_for(b)), d.shader->hash.c_str(), b.name.c_str(), b.nvn.index, d.set, d.binding);
                 }
             } else if (feedback) {
                 log_once("color-feedback", "a texture is sampled while it is a colour attachment of the pass: the dummy texture is bound");
@@ -1322,14 +1425,11 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             }
             if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);      // an image buffer may be written by the shader
             if (!v) {
-                if (r.tex) {
-                    static int reported = 0;
-                    if (reported < 20) {
-                        ++reported;
-                        NXLOG_W(kTag, "texel buffer: texture %u (%s, target %d, %d texels) has no buffer view", r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?",
-                                r.tex->b.target, r.tex->b.width);
-                    }
-                }
+                if (r.tex && first_time_key("texel-buffer " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+                    NXLOG_W(kTag, "texel buffer: texture %u (%s, target %d, %dx%dx%d, storage %llu bytes at %p) has no buffer view: shader %s binding %s (NVN slot %d, set %u binding %u)",
+                            r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
+                            static_cast<unsigned long long>(r.tex->storage_size), static_cast<void*>(r.tex->mem), d.shader->hash.c_str(), b.name.c_str(),
+                            b.nvn.index, d.set, d.binding);
                 log_once("texel-buffer-dummy", "a texel buffer binding has no usable buffer texture: a dummy buffer view is bound");
                 v = dummy_buffer_view(shader_fmt, storage);
             }
@@ -1779,24 +1879,29 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
               S.bias_clamp, S.depth_mode, S.window_origin, S.depth_clamp ? 1 : 0);
         if (S.color.blend_enable_mask)
             TRACE("    blend rt0 rgb %d,%d,%d a %d,%d,%d (nvn enums src,dst,eq)", S.blend[0].src_rgb, S.blend[0].dst_rgb, S.blend[0].eq_rgb, S.blend[0].src_a, S.blend[0].dst_a, S.blend[0].eq_a);
+        // [nvn] trace_ubo_bytes = N (NXRT_NVN_TRACE_UBO_BYTES, default 768, at most 65536): how many leading bytes of each uniform block the trace prints
+        static const uint64_t ubo_bytes = static_cast<uint64_t>(std::clamp<int64_t>(nxrt::config_get_int("nvn", "trace_ubo_bytes", 768), 16, 65536));
         for (int stg = kVertex; stg <= kFragment; ++stg)
         for (uint32_t slot = 0; slot < 16; ++slot) {    // the first words of every uniform block bound to the vertex and the fragment stage
             const GState::Bind& ub = S.ubo[stg][slot];
             if (!ub.addr) continue;
-            BufRef ur = resolve_buffer(ub.addr, std::min<uint64_t>(ub.size, 768));
+            BufRef ur = resolve_buffer(ub.addr, std::min<uint64_t>(ub.size, ubo_bytes));
             std::string words;
             if (ur.ok) {
                 const uint32_t* w = reinterpret_cast<const uint32_t*>(ub.addr);
-                for (uint32_t i = 0; i < 192 && i * 4 < ub.size; ++i) { char t[16]; std::snprintf(t, sizeof t, " %08x", w[i]); words += t; }
+                for (uint32_t i = 0; i * 4 < ubo_bytes && i * 4 < ub.size; ++i) { char t[16]; std::snprintf(t, sizeof t, " %08x", w[i]); words += t; }
             }
             TRACE("    %s ubo%u %llx/%llu%s:%s", stg == kVertex ? "vs" : "fs", slot, static_cast<unsigned long long>(ub.addr), static_cast<unsigned long long>(ub.size), ur.ok ? "" : " (outside every pool)", words.c_str());
         }
         TRACE("    viewport %u: %g %g %g %g depth %g..%g scissor %u: %d %d %d %d", S.nvp, S.vp[0][0], S.vp[0][1], S.vp[0][2], S.vp[0][3], S.dr[0][0], S.dr[0][1], S.nsc,
               S.sc[0][0], S.sc[0][1], S.sc[0][2], S.sc[0][3]);
         for (uint32_t i = 0; i < P.ncolor; ++i)
-            if (Texture* ct = S.color_tex[i].get())
-                TRACE("    rt%u t%u mem %p storage %llu cpu-dirty %d view level %u layer %u layers %u", i, ct->id, static_cast<void*>(ct->mem), static_cast<unsigned long long>(ct->storage_size),
-                      ct->cpu_dirty.load() ? 1 : 0, S.color_level[i], S.color_layer[i], S.color_layers[i]);
+            if (Texture* ct = S.color_tex[i].get()) {
+                const FormatInfo* vf = (S.color_has_view[i] && S.color_view[i].has_format) ? format_info(S.color_view[i].format) : nullptr;
+                TRACE("    rt%u t%u mem %p storage %llu cpu-dirty %d view level %u layer %u layers %u format %s", i, ct->id, static_cast<void*>(ct->mem),
+                      static_cast<unsigned long long>(ct->storage_size), ct->cpu_dirty.load() ? 1 : 0, S.color_level[i], S.color_layer[i], S.color_layers[i],
+                      vf && vf->name ? vf->name : "-");
+            }
         g_trace_sampled.clear();
         for (const BindingDesc& d : pl->bindings) {   // texel buffers (light lists and other BUFFER-target textures): the view the draw gets
             if (d.type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER && d.type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) continue;
@@ -1833,9 +1938,14 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
             if (r.has_sampler)
                 std::snprintf(smp, sizeof smp, " | sampler min %d mag %d wrap %d,%d,%d lod %g..%g bias %g aniso %g cmp %d func %d", r.smp.min_filter, r.smp.mag_filter, r.smp.wrap_s, r.smp.wrap_t,
                               r.smp.wrap_r, r.smp.lod_min, r.smp.lod_max, r.smp.lod_bias, r.smp.max_anisotropy, r.smp.compare_mode, r.smp.compare_func);
-            if (r.has_view)
+            if (r.has_view) {
+                // the view's own format by name (a view naming the sRGB partner of its texture's format, or the reverse, changes the decode)
+                const FormatInfo* vf = r.view.has_format ? format_info(r.view.format) : nullptr;
+                char vfn[48] = "";
+                if (r.view.has_format) std::snprintf(vfn, sizeof vfn, " format %s", vf && vf->name ? vf->name : "?");
                 std::snprintf(vw, sizeof vw, " | view levels %d+%d layers %d+%d%s", r.view.has_levels ? r.view.min_level : -1, r.view.has_levels ? r.view.num_levels : -1,
-                              r.view.has_layers ? r.view.min_layer : -1, r.view.has_layers ? r.view.num_layers : -1, r.view.has_format ? " format" : "");
+                              r.view.has_layers ? r.view.min_layer : -1, r.view.has_layers ? r.view.num_layers : -1, vfn);
+            }
             if (r.tex) {
                 const int* sw = (r.has_view && r.view.has_swizzle) ? r.view.swizzle : r.tex->b.swizzle;
                 const size_t n = std::strlen(vw);
@@ -2358,7 +2468,19 @@ VkClearRect full_rect() {
 }
 
 void do_clear_color(const P_ClearColor& p) {
-    if (g_trace) { char a[96]; TRACE("clear color rt%u mask %x kind %u %s", p.target, p.mask, p.kind, tex_desc(p.target < 8 ? S.color_tex[p.target].get() : nullptr, a, sizeof a)); }
+    if (g_trace) {   // the value (as floats for kind 0, else as words) and the rectangle the clear covers (the scissor when one is set)
+        char a[96], v[96];
+        if (p.kind == 0) {
+            float f[4];
+            std::memcpy(f, p.value, sizeof f);
+            std::snprintf(v, sizeof v, "%g %g %g %g", f[0], f[1], f[2], f[3]);
+        } else {
+            std::snprintf(v, sizeof v, "%08x %08x %08x %08x", p.value[0], p.value[1], p.value[2], p.value[3]);
+        }
+        const VkClearRect cr = full_rect();
+        TRACE("clear color rt%u mask %x kind %u %s value %s rect %d %d %u %u", p.target, p.mask, p.kind, tex_desc(p.target < 8 ? S.color_tex[p.target].get() : nullptr, a, sizeof a), v,
+              cr.rect.offset.x, cr.rect.offset.y, cr.rect.extent.width, cr.rect.extent.height);
+    }
     if (!S.render_enable) return;   // render enable gates clears as it gates draws (yuzu DrawManager::Clear)
     if (p.target >= 8 || !S.color_tex[p.target]) return;
     if (p.mask == 0) return;
@@ -3204,6 +3326,13 @@ void replay_end_submit(Frame& f) {
     flush_compute_out();     // every compute result is in game memory before the submission's serial signals
     end_pass();
     if ((f.serial & 127) == 0 && !g_fb_clone.empty()) fb_sweep(f.serial);
+    if ((f.serial & 127) == 0 && !g_vol3d.empty()) {   // 3D copies of 2D textures no submission used for kFbIdleSubmits are released
+        g_vol3d_use.clear();
+        for (auto it = g_vol3d.begin(); it != g_vol3d.end();) {
+            if (f.serial > it->second.last + kFbIdleSubmits) it = g_vol3d.erase(it);
+            else ++it;
+        }
+    }
     if (g_occ_active >= 0) {   // a query cannot outlive its command buffer: the count of an unreported counter is dropped
         vkCmdEndQuery(f.cb, g_occ_pool, static_cast<uint32_t>(g_occ_active));
         g_occ_active = -1;
@@ -3245,6 +3374,8 @@ void replay_shutdown() {
     g_set_cache.clear();
     g_fb_use.clear();
     g_fb_clone.clear();
+    g_vol3d_use.clear();
+    g_vol3d.clear();
     g_fb_clone_n.store(0, std::memory_order_relaxed);
 }
 

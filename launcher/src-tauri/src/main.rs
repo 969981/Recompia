@@ -5,10 +5,14 @@ mod dump;
 mod ini;
 mod play;
 mod settings;
+mod shaders;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -102,7 +106,10 @@ fn save_dump(app: AppHandle, path: String) -> Result<dump::DumpReport, String> {
     save_config(app.clone(), cfg.clone())?;
     settings::apply(
         &game_dir_of(&cfg),
-        &[settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: chosen.romfs }],
+        &[
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "exefs".into(), value: chosen.exefs },
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: chosen.romfs },
+        ],
     )?;
     Ok(report)
 }
@@ -126,8 +133,81 @@ fn play(app: AppHandle) -> Result<(), String> {
     let report = dump::scan(&cfg.dump_dir);
     let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
     let dir = game_dir_of(&cfg);
-    settings::ensure_play_paths(&dir, &chosen.romfs)?;
-    play::start(&app, &dir, &chosen.exefs, cfg.minimize_on_play)
+    if !shaders::is_complete(&dir) {
+        return Err("Finish the shader setup first (Game files, Set up).".into());
+    }
+    settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs)?;
+    play::start(&app, &dir, cfg.minimize_on_play)
+}
+
+/// Shader setup: the running job's progress and its cancel flag.
+#[derive(Default)]
+struct SetupState {
+    progress: Mutex<shaders::Progress>,
+    cancel: AtomicBool,
+}
+
+#[derive(Serialize)]
+struct SetupStatus {
+    progress: shaders::Progress,
+    /// setup.json says finished and the cache is there
+    complete: bool,
+    /// an earlier setup started (Set up continues it)
+    started: bool,
+}
+
+#[tauri::command]
+fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
+    let dir = game_dir_of(&load_config(&app));
+    let mut progress = state.progress.lock().unwrap().clone();
+    if progress.state.is_empty() {
+        progress.state = "idle".into();
+    }
+    SetupStatus { progress, complete: shaders::is_complete(&dir), started: !shaders::read_marker(&dir).romfs.is_empty() }
+}
+
+/// First-run setup: (a) the pkp.ini paths, (b) the shader cache in shader_cache/spirv, on a worker thread with
+/// "setup-status" events.
+#[tauri::command]
+fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), String> {
+    let cfg = load_config(&app);
+    let report = dump::scan(&cfg.dump_dir);
+    let chosen = report.chosen.ok_or_else(|| "Choose usable game files first.".to_string())?;
+    let dir = game_dir_of(&cfg);
+    if !dir.join("pkp.exe").is_file() {
+        return Err(format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe or set the game folder in Settings.", dump::fwd(&dir)));
+    }
+    {
+        let mut p = state.progress.lock().unwrap();
+        if p.state == "running" {
+            return Err("Setup is already running.".into());
+        }
+        *p = shaders::Progress { state: "running".into(), phase: "check".into(), message: "Checking the setup tools...".into(), ..Default::default() };
+    }
+    settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs)?;
+    let st = state.inner().clone();
+    st.cancel.store(false, Ordering::SeqCst);
+    let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1)).unwrap_or(2).max(1);
+    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0 };
+    std::thread::spawn(move || {
+        let emit = |p: shaders::Progress| {
+            *st.progress.lock().unwrap() = p.clone();
+            let _ = app.emit("setup-status", p);
+        };
+        let result = shaders::find_tools(&exe_dir().join("tools")).and_then(|tools| shaders::run(&job, &tools, &st.cancel, |p| emit(p)));
+        let end = match result {
+            Ok(true) => shaders::Progress { state: "done".into(), phase: "finish".into(), message: "Setup finished.".into(), ..Default::default() },
+            Ok(false) => shaders::Progress { state: "cancelled".into(), message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },
+            Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
+        };
+        emit(end);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_setup(state: State<Arc<SetupState>>) {
+    state.cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -156,6 +236,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(play::PlayState::default())
+        .manage(Arc::new(SetupState::default()))
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
@@ -166,6 +247,9 @@ fn main() {
             read_settings,
             write_settings,
             play,
+            setup_status,
+            start_setup,
+            cancel_setup,
             game_status,
             open_game_file,
             open_game_dir,
