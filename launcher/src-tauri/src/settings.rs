@@ -59,8 +59,8 @@ pub fn read(dir: &Path) -> SettingsDump {
     }
 }
 
-fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
-    let tmp = path.with_extension("ini.tmp");
+pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
+    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
     fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
     fs::rename(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);

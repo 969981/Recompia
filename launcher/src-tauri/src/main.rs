@@ -70,7 +70,7 @@ fn get_config(app: AppHandle) -> Config {
 #[tauri::command]
 fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(config_path(&app)?, text).map_err(|e| format!("cannot save launcher settings: {}", e))
+    settings::write_atomic(&config_path(&app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
 }
 
 #[tauri::command]
