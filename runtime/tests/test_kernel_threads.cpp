@@ -472,7 +472,7 @@ NXTEST(priority_and_core_mask_svcs) {
 
     ::Ctx c7{};
     c7.x[0] = h;
-    c7.x[1] = 7;                                             // ideal core 7
+    c7.x[1] = 8;                                             // ideal core 8: past the 8 core ids Switch 2 has (0..7 are accepted)
     c7.x[2] = 1;
     CHECK_EQ(svc_rc(&c7, 0x0F), k::kInvalidCoreId);
 

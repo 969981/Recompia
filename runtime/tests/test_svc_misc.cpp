@@ -92,7 +92,7 @@ NXTEST(misc_hwopus_size_and_refusal) {
     const uint32_t h = ev.new_handle();
     REQUIRE(h != 0);
     nxsvc::Reply open = s.call(0, nxsvc::Args().u64(packed).u32(size).hcopy(h));
-    CHECK_EQ(open.result, kNotSupported);
+    CHECK_EQ(open.result, 0u);                      // a decoder that decodes silence (misc.cpp make_hwopus), not a refusal
     kernel::handle_close(h);
 }
 
@@ -102,10 +102,10 @@ NXTEST(misc_aoc_base_id_and_empty_list) {
     services::profile_reload();
     nxsvc::Session s = nxsvc::connect("aoc:u");
     REQUIRE(s.valid());
-    // GetAddOnContentBaseId (cmd 5): PID-descriptor -> u64. The title's add-on base id (control.nacp) is 010012101468D000.
+    // GetAddOnContentBaseId (cmd 5): PID-descriptor -> u64, the program id + 0x1000 (Metroid Prime Remastered: 010012101468D000).
     nxsvc::Reply base = s.call(5, nxsvc::Args().with_pid());
     REQUIRE(base.ok());
-    CHECK_EQ(base.get<uint64_t>(0), 0x010012101468D000ull);
+    CHECK_EQ(base.get<uint64_t>(0), services::profile().program_id + 0x1000ull);
     // CountAddOnContent (cmd 2): PID-descriptor -> s32 count = 0.
     nxsvc::Reply cnt = s.call(2, nxsvc::Args().with_pid());
     REQUIRE(cnt.ok());
