@@ -1,4 +1,4 @@
-# PKP Recomp
+# Pokopia Recomp
 
 Pokémon Pokopia (Switch 2) recompiled to run natively on Windows.
 
