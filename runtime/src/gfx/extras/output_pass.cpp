@@ -109,6 +109,8 @@ void OutputPass::shutdown() {
     VkDevice d = dev_->device();
     dev_->wait_idle();
     fsr_.shutdown();
+    nis_.shutdown();
+    nis_tried_ = false;
     for (auto& [f, p] : enc_pipes_)
         if (p) { vkDestroyPipeline(d, p, nullptr); vk_gauge_pipelines().sub(1); }
     enc_pipes_.clear();
@@ -289,10 +291,18 @@ int OutputPass::record(VkCommandBuffer cb, VkImageView dst_view, VkFormat dst_fo
     }
     const uint32_t upw = std::max(1u, static_cast<uint32_t>(std::lround(pw))), uph = std::max(1u, static_cast<uint32_t>(std::lround(ph)));
     const bool origin_ok = !has_crop || (p.crop[0] == 0 && p.crop[1] == 0);
-    if (p.fsr1 && fsr_.initialised() && origin_ok && (upw > cw + 0.5 || uph > ch + 0.5)) {
+    if ((p.fsr1 || p.nis) && origin_ok && (upw > cw + 0.5 || uph > ch + 0.5)) {
         const VkExtent2D in_view = {static_cast<uint32_t>(cw), static_cast<uint32_t>(ch)};
+        const VkExtent2D out = {upw, uph};
+        if (p.nis && !nis_tried_) {
+            nis_tried_ = true;
+            if (!nis_.init(*dev_)) NXLOG_W(kTag, "NVIDIA Image Scaling is not available (its pipeline failed): FSR 1 is used instead");
+        }
+        SpatialUpscaler* su = p.nis && nis_.initialised() && nis_.supports(in_view, out) ? static_cast<SpatialUpscaler*>(&nis_)
+                              : fsr_.initialised()                                   ? static_cast<SpatialUpscaler*>(&fsr_)
+                                                                                     : nullptr;
         // display-referred picture: the HDR window texture is 1.0 = paper white, so no pre-scale; SDR bytes are already [0,1]
-        if (VkImageView up = fsr_.upscale(cb, p.src, in_view, p.src_extent, VkExtent2D{upw, uph}, p.src_linear, 1.0f, p.sharpness)) {
+        if (VkImageView up = su ? su->upscale(cb, p.src, in_view, p.src_extent, out, p.src_linear, 1.0f, p.sharpness) : VK_NULL_HANDLE) {
             const int32_t whole[4] = {0, 0, 0, 0};
             encode(cb, dst_view, dst_format, dst_extent, up, VkExtent2D{upw, uph}, whole, p.keep_aspect, p.flip_y, mode, p.paper_white_nits, p.peak_nits, VK_IMAGE_LAYOUT_GENERAL, pic);
             return mode;

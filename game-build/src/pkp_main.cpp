@@ -50,10 +50,16 @@
 
 #include "pkp/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
 
+#ifdef PKP_RT_DLL
+// Release model (b): this file is built into pkp_rt.dll (the runtime, no game code). pkp.exe is linked on the player's PC from the
+// libraries lifted out of their own dump plus src/pkp_stub.cpp, which passes the four module tables to pkp_rt_main below.
+#include "pkp_rt_api.h"
+#else
 extern "C" {
 extern const NxModule nxmod_main, nxmod_sdk, nxmod_subsdk0, nxmod_rtld;
 extern const uint32_t nxmod_main_abi, nxmod_sdk_abi, nxmod_subsdk0_abi, nxmod_rtld_abi;
 }
+#endif
 
 #ifndef PKP_EXEFS_DEFAULT
 #define PKP_EXEFS_DEFAULT "game/exefs"
@@ -73,12 +79,21 @@ struct GameModule {
 };
 
 // Load order = the order the console maps them: the entry module first.
+#ifdef PKP_RT_DLL
+GameModule kModules[] = {      // filled by pkp_rt_main from the tables pkp.exe passes
+    {"rtld", nullptr, nullptr, 0x7700000000ull},
+    {"main", nullptr, nullptr, 0x7100000000ull},
+    {"sdk", nullptr, nullptr, 0x7500000000ull},
+    {"subsdk0", nullptr, nullptr, 0x7600000000ull},
+};
+#else
 const GameModule kModules[] = {
     {"rtld", &nxmod_rtld, &nxmod_rtld_abi, 0x7700000000ull},
     {"main", &nxmod_main, &nxmod_main_abi, 0x7100000000ull},
     {"sdk", &nxmod_sdk, &nxmod_sdk_abi, 0x7500000000ull},
     {"subsdk0", &nxmod_subsdk0, &nxmod_subsdk0_abi, 0x7600000000ull},
 };
+#endif
 
 std::unique_ptr<nxrt::gfx::Device> g_gfx_device;
 std::unique_ptr<nxrt::gfx::Renderer> g_gfx_renderer;
@@ -259,7 +274,19 @@ int prepare_shaders_main(bool if_needed, int threads, const std::string& program
 
 }  // namespace
 
+#ifdef PKP_RT_DLL
+extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
+    if (!mods || mods->size != sizeof(PkpRtModules) || mods->api != PKP_RT_API) {
+        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll come from different releases. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
+        return 3;
+    }
+    kModules[0].nx = mods->rtld; kModules[0].abi = mods->rtld_abi;
+    kModules[1].nx = mods->main; kModules[1].abi = mods->main_abi;
+    kModules[2].nx = mods->sdk; kModules[2].abi = mods->sdk_abi;
+    kModules[3].nx = mods->subsdk0; kModules[3].abi = mods->subsdk0_abi;
+#else
 int main(int argc, char** argv) {
+#endif
     nxrt_register_game_pkp();      // before anything reads it (nxrt::init, play mode, the services, the test tooling): docs/GAME_BOUNDARY.md
 #ifdef PKP_GUI_SUBSYSTEM
     // Started from a terminal: show the output there. When the output is redirected to a file or a pipe (pkp --version > v.txt), leave it alone.

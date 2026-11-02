@@ -52,6 +52,27 @@ foreach(m main sdk subsdk0 rtld)
     set_target_properties(pkp_${m} PROPERTIES IMPORTED_LOCATION "${PKP_LIB_DIR}/pkp_${m}.lib")
 endforeach()
 
+# Release model (b) (PKP_RT_DLL=ON, docs/RELEASE.md): no game code in anything built here. The runtime and the boot code become
+# pkp_rt.dll (+ the import library pkp_rt.lib); pkp.exe is linked on the player's PC from the libraries lifted out of their own dump
+# and src/pkp_stub.cpp (tools/build/pkp_build.py in the package, with the bundled Zig). Nothing lifted is imported here.
+option(PKP_RT_DLL "build the runtime as pkp_rt.dll for release model (b)" OFF)
+if(PKP_RT_DLL)
+    add_library(pkp_rt SHARED src/pkp_main.cpp src/pkp_rt.def)
+    set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\"")
+    target_compile_definitions(pkp_rt PRIVATE PKP_RT_DLL=1 PKP_GUI_SUBSYSTEM=1 PKP_EXEFS_DEFAULT="exefs")
+    target_link_libraries(pkp_rt PRIVATE nxrt_game_pkp nxrt_gfx nxrt)
+    # /DEBUG off: no .pdb path in the DLL. Low host allocations as for pkp.exe (guest ranges at 0x71_0000_0000 stay free).
+    target_link_options(pkp_rt PRIVATE /HIGHENTROPYVA:NO /DEBUG:NONE /Brepro)
+    target_compile_options(pkp_rt PRIVATE "-clang:-ffile-prefix-map=${PKP_ROOT}=.")
+    add_custom_command(TARGET pkp_rt POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PKP_RUNTIME_DIR}/assets/fonts/DejaVuSans.ttf" "$<TARGET_FILE_DIR:pkp_rt>/fonts/DejaVuSans.ttf")
+    file(GLOB PKP_A2B_DLLS "${NXRT_A2B_DIR}/astcdec-*-shared.dll")
+    foreach(dll ${PKP_A2B_DLLS})
+        add_custom_command(TARGET pkp_rt POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:pkp_rt>")
+    endforeach()
+    return()
+endif()
+
 add_executable(pkp src/pkp_main.cpp res/pkp.rc)
 set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\"")
 set_source_files_properties(res/pkp.rc PROPERTIES COMPILE_DEFINITIONS "PKP_VER_MAJOR=${PKP_VER_MAJOR};PKP_VER_MINOR=${PKP_VER_MINOR};PKP_VER_PATCH=${PKP_VER_PATCH};PKP_VER_TEXT=\"${PKP_VERSION}\""

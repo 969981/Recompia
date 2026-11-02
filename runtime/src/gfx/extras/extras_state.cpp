@@ -58,7 +58,7 @@ Settings settings_from_config() {
     s.hdr.highlight_boost = std::clamp(config_get_double("hdr", "highlight_boost", 1.0), 0.0, 2.0);
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
-    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : UpscaleMode::Off;
+    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : UpscaleMode::Off;
     s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", 0.8), 0.0, 1.0);
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");

@@ -620,6 +620,9 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
 
 // ---- gpu.h ---------------------------------------------------------------------------------------------------------------
 bool active() { return g != nullptr; }
+void cpu_will_read(uint64_t addr, uint64_t size) {
+    if (g && out_any()) out_fetch(addr, size, false);
+}
 bool debug_labels() { return g && g->dev && g->dev->features().debug_labels; }
 
 namespace {

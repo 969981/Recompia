@@ -75,7 +75,7 @@ void movie_initialize_unavailable(::Ctx* c) {
     c->x[0] = 0x1a4cb;   // stand-in non-zero nn::Result
 }
 
-// nn::nifm::HandleNetworkRequestErrorResult shows the network connection applet (library applet 0xe) so the user can fix a failed
+// nn::nifm::HandleNetworkRequestErrorResult shows the network connection applet (library applet 0x0F) so the user can fix a failed
 // network request. Library applets do not exist here and the SDK aborts when creating one fails, so the call answers as if the user
 // backed out of the applet: a non-zero nn::Result (nifm, module 110), and the game carries on offline (Mario Kart World: Time Trials).
 void nifm_handle_network_request_error(::Ctx* c) {

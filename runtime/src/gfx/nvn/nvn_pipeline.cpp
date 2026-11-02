@@ -417,6 +417,18 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
         }
         sig.append("|", 1);
     }
+    // push constants of generated stages (the pass-through tessellation control shader): one range from offset 0 over those stages
+    VkPushConstantRange pcr = {0, 0, 0};
+    for (int st = 0; st < 6; ++st)
+        if (stages[st] && stages[st]->push_bytes) {
+            pcr.stageFlags |= stage_bit(stages[st]->stage);
+            pcr.size = std::max(pcr.size, stages[st]->push_bytes);
+        }
+    if (pcr.size) {
+        const uint32_t w[2] = {pcr.stageFlags, pcr.size};
+        sig.append("P", 1);
+        sig.append(reinterpret_cast<const char*>(w), sizeof w);
+    }
     auto sh = g_shared_layouts.find(sig);
     if (sh == g_shared_layouts.end()) {
         SharedLayout nl;
@@ -432,6 +444,8 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
         VkPipelineLayoutCreateInfo pci = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pci.setLayoutCount = 4;
         pci.pSetLayouts = nl.sets;
+        pci.pushConstantRangeCount = pcr.size ? 1 : 0;
+        pci.pPushConstantRanges = pcr.size ? &pcr : nullptr;
         if (vkCreatePipelineLayout(vkdev(), &pci, nullptr, &nl.layout) != VK_SUCCESS) {
             NXLOG_E(kTag, "pipeline layout failed");
             return nullptr;
@@ -440,6 +454,8 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
     }
     for (int set = 0; set < 4; ++set) pl.sets[set] = sh->second.sets[set];
     pl.layout = sh->second.layout;
+    pl.push_stages = pcr.stageFlags;
+    pl.push_bytes = pcr.size;
     return &g_layouts.emplace(key, std::move(pl)).first->second;
 }
 

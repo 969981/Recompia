@@ -235,6 +235,9 @@ struct ShaderInfo {
     // stays false and the replay must compute them on use.
     bool masks_known = false;
     uint64_t dynamic_uniforms = 0, written_storage = 0;
+    // A generated stage that reads push constants (the pass-through tessellation control shader: its levels), bytes from offset 0; the
+    // program's pipeline layout then has that range for this stage. 0 = none (every translated shader).
+    uint32_t push_bytes = 0;
 };
 
 // Builds a ShaderInfo from a code block, its control section and the SPIR-V words (no I/O). `resources` = the

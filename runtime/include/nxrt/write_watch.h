@@ -60,6 +60,23 @@ void forget(uint64_t addr, uint64_t size, bool ban);
 // Section offsets [offset, offset + size) got another view (memory.cpp, heap_alias): those pages are banned in every region.
 void ban_section(uint64_t offset, uint64_t size);
 
+// ---- read guards (the NVN back end's deferred compute results, nvn_gpu_pool.cpp) ----------------------------------------------
+// The owner's copy of guarded pages is newer than the CPU's: they are PAGE_NOACCESS, and the first CPU access of any kind (read or
+// write, any thread) calls the guard handler with the address before the access goes on. The handler makes the CPU's pages current and
+// calls unguard(); if a page is still guarded when it returns, it is unguarded here (the access then sees what the pages hold). Only
+// armed pages (read-only because of arm) can be guarded; unguard makes them read-only again (armed, not valid). A file read into guarded
+// pages (before_os_write) calls the handler first; a change of mapping or protection (forget) drops the guard without it.
+using GuardHandler = void (*)(uint64_t addr);
+void set_guard_handler(GuardHandler fn);
+// Owner: guards pages [first, first + count). False when a page is not armed (written since, never armed, banned) or a file read is
+// in progress there: nothing is guarded then. Pages already guarded stay so.
+bool guard(Region* r, uint64_t first, uint64_t count);
+// Any thread: the guarded pages among [first, first + count) become read-only (armed) again.
+void unguard(Region* r, uint64_t first, uint64_t count);
+// Owner: true when every page of the run is still armed (read-only or guarded: the CPU did not write it since it was armed).
+bool all_armed(const Region* r, uint64_t first, uint64_t count);
+uint64_t guard_faults();   // accesses that hit a guarded page (statistics)
+
 uint64_t faults();     // write faults handled so far (statistics)
 uint64_t fault_waits(); // rounds a fault spent waiting for another thread's release of the same page (statistics; stays 0 for foreign faults)
 

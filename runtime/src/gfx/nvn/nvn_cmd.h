@@ -109,6 +109,12 @@ struct P_CallCommands { uint32_t count, copy; };                                
 // ---- lists --------------------------------------------------------------------------------------------------------------------
 struct RecHeader { uint16_t op; uint16_t flags; uint32_t size; };
 
+struct CommandBuffer;
+// Console command / control memory model (api_cmdbuf.cpp): charges one record of the buffer being recorded, before it is
+// appended. Caller holds the buffer's lock (or has exclusive use of it). Running out queues the game's memory callback, which
+// runs when the NVN call returns (cmdmem_run_pending, from the thunk in nvn_abi.h).
+void cmdmem_charge(CommandBuffer* cb, Op op, uint32_t blob_size);
+
 class CmdList : public Obj {
 public:
     static constexpr Kind kKind = Kind::CmdList;
@@ -119,6 +125,8 @@ public:
     uint32_t record_count = 0;
     uint32_t draw_count = 0;
     uint64_t mem_start = 0, mem_end = 0;  // command memory the game believes this list occupies (GPU addresses)
+    uint64_t hw_bytes = 0;                // command memory the console would have used for it (the model's estimate)
+    CommandBuffer* meter = nullptr;       // the buffer recording it (charged per record), null once recorded and for host-made lists
     std::atomic<uint64_t> calls{0};
 
     // Appends one record. `blob` (may be null) is copied after the payload.
@@ -133,6 +141,7 @@ public:
 
 private:
     void append(Op op, const void* payload, uint32_t payload_size, const void* blob, uint32_t blob_size) {
+        if (meter) cmdmem_charge(meter, op, blob_size);
         const uint32_t p = (payload_size + 7u) & ~7u, b = (blob_size + 7u) & ~7u;
         const uint32_t total = static_cast<uint32_t>(sizeof(RecHeader)) + p + b;
         const size_t at = bytes.size();
@@ -179,14 +188,22 @@ struct CommandBuffer : Obj {
     TexturePool* tpool = nullptr;     // the texture pool set in the list being recorded (the list holds it); background texture preparation resolves handles with it
     int64_t copy_row_stride = 0, copy_image_stride = 0;
     uint64_t callback = 0, callback_data = 0;       // guest function pointer and its data
+    uint64_t guest = 0;                              // the guest NVNcommandBuffer (first argument of the callback)
     // command / control memory the game added
     struct Block { uint64_t pool_gpu; uint64_t offset; uint64_t size; };
     std::vector<Block> command_blocks;
-    uint64_t command_total = 0, control_total = 0;
-    uint64_t command_used = 0, control_used = 0;     // grows with the commands recorded; given back when memory is added
+    // Console model (api_cmdbuf.cpp): positions in the command block and the control memory added last, as the console's
+    // write pointers would be, from per-record estimates of the command words and the control entries the sdk writes.
+    uint64_t command_total = 0, control_total = 0;   // size of the command block / control memory added last
+    uint64_t command_used = 0, control_used = 0;     // write positions in them
     uint64_t last_block_addr = 0;                    // GPU address of the command memory added last
-    uint64_t base_used = 0;                          // command_used when the current recording began
-    uint64_t control_base = 0;
+    uint64_t seg_start = 0;                          // command_used at the last control entry (the sdk's command segment start)
+    bool ctl_group = false, seg_contig = false;      // a control group is open / the next segment continues the last one
+    bool cmd_full = false, ctl_full = false;         // ran out and nothing was added: lists go to the overflow ring
+    uint64_t cmd_serial = 0, ctl_serial = 0;         // AddCommandMemory / AddControlMemory calls
+    uint64_t pend_cmd = 0, pend_ctl = 0;             // bytes charged while the callback is queued (they go in the memory it adds)
+    uint64_t rec_start = 0, rec_block_end = 0, rec_serial = 0;   // where the current recording began
+    bool rec_unbacked = false;                       // the recording began without room in the game's command memory
     // Overflow memory: a recording that finds no room left in the command memory the game added (the estimate reached the
     // block's end and the game added nothing since, because on the console the out-of-memory callback would hand over more)
     // is placed in a ring of this buffer's own made-up addresses (kOverflowAddrBase), so the overlap rule still ends it.

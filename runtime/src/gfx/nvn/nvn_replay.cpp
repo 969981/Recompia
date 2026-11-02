@@ -15,6 +15,8 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <set>
+#include <tuple>
 #include <memory>
 #include <unordered_map>
 
@@ -33,6 +35,7 @@
 #include "nxrt/lowlat.h"
 #include "extras/hdr_nvn.h"
 #include "extras/fsr1_spatial.h"
+#include "extras/spatial_upscaler.h"
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
 
@@ -851,7 +854,13 @@ void feedback_prepare(const ProgLayout& pl) {
     g_fb_seen = any;
 }
 
-void flush_compute_out();       // compute shadows (below): results of direct compute bindings go back to the pool
+void flush_compute_out(int why = kOutGpuReader);       // compute shadows (below): results of direct compute bindings go back to the pool
+void compute_out_guard(uint64_t addr, uint64_t size, int why = kOutGpuReader);
+// [addr, +size) of game memory a texture upload reads: held compute results there go back first (compute_out_lazy; else all of them).
+void out_texture_read(Texture* t) {
+    if (!out_lazy()) { flush_compute_out(kOutTexture); return; }
+    if (t && t->mem && t->cpu_dirty.load()) compute_out_guard(reinterpret_cast<uint64_t>(t->mem), t->storage_size ? t->storage_size : 4096, kOutTexture);
+}
 
 // A sampler3D reading a texture whose storage is 2D (a 2D texture the game left bound to the slot, or a 3D texture view of 2D storage): the
 // console samples it as a volume one slice deep. Vulkan cannot view a 2D image as 3D, so the draw samples a 3D copy (w x h x 1, every level) of the
@@ -909,7 +918,7 @@ void vol3d_prepare(const ProgLayout& pl) {
         if (!tex_gpu_scaled(c.get(), tex_scale(r.tex))) continue;
         const uint64_t serial = F ? F->serial : 0;
         if (e.copied != serial || r.tex->cpu_dirty.load()) {
-            flush_compute_out();
+            out_texture_read(r.tex);
             end_pass();
             tex_ensure_current(r.tex, *F);
             tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -965,7 +974,8 @@ void prepare_textures(const ProgLayout& pl) {
         }
     }
     if (need.empty() && need_storage.empty()) return;
-    flush_compute_out();     // an upload reads game memory: compute results still in the pool copy go back first
+    for (Texture* t : need) out_texture_read(t);           // an upload reads game memory: compute results held there go back first
+    for (Texture* t : need_storage) out_texture_read(t);
     end_pass(true);     // layout changes and uploads follow: each carries the dependency for its own image
     counters().pass_breaks.fetch_add(1, std::memory_order_relaxed);
     for (Texture* t : need) {
@@ -1064,9 +1074,7 @@ struct Shadow { gfx::Buffer buf; VkDeviceSize size = 0; uint64_t last = 0; };
 std::unordered_map<uint64_t, Shadow> g_shadows;            // by GPU address and size
 struct ShadowUse { uint64_t addr; VkDeviceSize size; BufRef host; VkBuffer buf; VkDeviceSize off; bool writes; bool direct; MirrorSpan mirror; };
 std::vector<ShadowUse> g_shadow_uses;                       // this dispatch
-// Results of direct bindings still only in the pool copy (this submission): copied back to the pool by flush_compute_out.
-struct OutPending { uint64_t addr; VkDeviceSize size; BufRef host; VkBuffer buf; VkDeviceSize off; };
-std::vector<OutPending> g_out_pending;
+// Results of direct bindings still only in the pool copy: nvn_gpu_pool.cpp (out_add ... out_end_submit, "compute out").
 bool g_shadowing = false;
 bool g_sh_barrier = false, g_sh_copied = false;             // this dispatch: the barrier before the copies in is recorded / some copy in is
 uint64_t g_sh_uses = 0, g_sh_from_mirror = 0, g_sh_bytes_mirror = 0, g_sh_bytes_pool = 0, g_sh_bytes_out = 0, g_sh_no_span = 0;   // summary line
@@ -1082,31 +1090,24 @@ bool compute_direct_on() {
     return on;
 }
 
-// The pending results go back to the pool, and their pages of the pool copy are valid (tracked) again.
-void flush_compute_out() {
-    if (g_out_pending.empty()) return;
+// Every result still only in the pool copy goes back to the pool (in queue order, before what is recorded next).
+void flush_compute_out(int why) {
+    if (!out_any()) return;
     end_pass();
-    memory_barrier(F->cb);           // the dispatches that wrote the copy before the copies read it
-    for (const OutPending& o : g_out_pending) {
-        VkBufferCopy c = {o.off, o.host.offset, o.size};
-        vkCmdCopyBuffer(F->cb, o.buf, o.host.buffer, 1, &c);
-        g_sh_bytes_dout += o.size;
+    if (out_flush(F->cb, 0, UINT64_MAX, why)) {
+        ++g_sh_flushes;
+        gstamp("compute out");
     }
-    memory_barrier(F->cb);           // the pool holds the results before anything reads it
-    for (const OutPending& o : g_out_pending) mirror_span_written(o.addr, o.size);
-    g_out_pending.clear();
-    ++g_sh_flushes;
-    gstamp("compute out");
 }
 
-// [addr, addr + size) is about to be read or written some other way than a direct binding of exactly a pending range: the results go back
-// first when the range shares a page with one (a page granular test: the pool copy is filled and tracked by whole pages).
-void compute_out_guard(uint64_t addr, uint64_t size) {
-    if (g_out_pending.empty() || !size) return;
-    const uint64_t a0 = addr & ~uint64_t{4095}, a1 = (addr + size + 4095) & ~uint64_t{4095};
-    for (const OutPending& o : g_out_pending) {
-        const uint64_t b0 = o.addr & ~uint64_t{4095}, b1 = (o.addr + o.size + 4095) & ~uint64_t{4095};
-        if (a0 < b1 && b0 < a1) { flush_compute_out(); return; }
+// [addr, addr + size) is about to be read or written some other way than a direct binding of exactly a held range: the results sharing a
+// page with it go back first (a page granular test: the pool copy is filled and tracked by whole pages).
+void compute_out_guard(uint64_t addr, uint64_t size, int why) {
+    if (!size || !out_overlaps(addr, size)) return;
+    end_pass();
+    if (out_flush(F->cb, addr, size, why)) {
+        ++g_sh_flushes;
+        gstamp("compute out");
     }
 }
 
@@ -1115,6 +1116,115 @@ void compute_out_guard(uint64_t addr, uint64_t size) {
 bool compute_out_may_wait(Op op) {
     if (op == Op::Dispatch || op == Op::DispatchIndirect || op == Op::Barrier || op == Op::CallCommands || op == Op::PushDebugGroup || op == Op::PopDebugGroup) return true;
     return op < Op::DrawArrays && op != Op::SetRenderEnable && op != Op::SetRenderTargets;
+}
+
+// A buffer a draw reads: results it shares a page with go back first, unless the draw binds the pool copy for it (vertex, index and aligned
+// uniform buffers whose pages are all current there, resolve_read).
+void out_draw_read(uint64_t addr, uint64_t size, bool copy_ok, int why) {
+    if (!addr) return;
+    if (!size) size = 65536;
+    if (!out_overlaps(addr, size)) return;
+    if (copy_ok && out_servable(addr, size)) return;
+    compute_out_guard(addr, size, why);
+}
+
+// The buffer for [addr, +size) that a command reads through a plain buffer binding (storage buffers, indirect arguments, copy sources): the
+// pool copy when it holds a compute result there and is current for the whole range, else the pool, after the results there went back
+// (flush: false inside a pass, where out_before_op has done that already).
+BufRef held_or_pool(uint64_t addr, uint64_t size, int why, bool flush) {
+    if (size && out_overlaps(addr, size)) {
+        if (out_lazy() && out_servable(addr, size)) {
+            const MirrorSpan ms = mirror_span(addr, size);
+            BufRef r = resolve_buffer(addr, size);
+            if (ms.buf && r.ok) {
+                r.buffer = ms.buf;
+                r.offset = ms.offset;
+                r.avail = ms.avail;
+                return r;
+            }
+        }
+        if (flush) compute_out_guard(addr, size, why);
+    }
+    return resolve_buffer(addr, size);
+}
+
+// The reads of a draw's bound buffers (out_before_op).
+void out_draw_bindings() {
+    for (const GState::Bind& b : S.vtx) out_draw_read(b.addr, b.size, true, kOutDrawBuffer);
+    const VkDeviceSize ualign = device().properties().limits.minUniformBufferOffsetAlignment;
+    for (int st = 0; st < kCompute; ++st) {
+        if (!S.stage[st]) continue;
+        for (const GState::Bind& b : S.ubo[st]) out_draw_read(b.addr, b.size, ualign && (b.addr % ualign) == 0, kOutDrawBuffer);
+        for (const GState::Bind& b : S.ssbo[st]) out_draw_read(b.addr, b.size, true, kOutStorageXfb);   // bound from the copy (build_set)
+    }
+    for (const GState::Bind& b : S.xfb) out_draw_read(b.addr, b.size, false, kOutStorageXfb);
+}
+
+// [nvn] compute_out_lazy: before op, the results it may read or overwrite through the pool go back (instead of all of them before any
+// command that is not a dispatch). Ops that only touch images, state and syncs leave them in the copy; a fence's serial is the
+// submission's, and out_end_submit decides at its end.
+void out_before_op(const RecordReader& r) {
+    if (!out_any()) return;
+    switch (r.op()) {
+        case Op::Dispatch: case Op::DispatchIndirect: case Op::Barrier: case Op::CallCommands: case Op::PushDebugGroup: case Op::PopDebugGroup:
+        case Op::ClearColor: case Op::ClearDepthStencil: case Op::ClearTexture: case Op::CopyTextureToTexture: case Op::Downsample:
+        case Op::DrawTexture: case Op::DiscardColor: case Op::DiscardDepthStencil: case Op::ResolveDepth: case Op::FenceSync: case Op::WaitSync:
+        case Op::ResetCounter: case Op::WaitEvent: case Op::SetRenderEnable:
+            return;
+        case Op::CopyBufferToTexture: case Op::CopyTextureToBuffer:    // do_copy_buffer_texture: its own range (it knows the size)
+            return;
+        case Op::DrawArrays:
+        case Op::DrawElements: {
+            out_draw_bindings();
+            if (r.op() == Op::DrawElements) {
+                const auto& p = r.payload<P_DrawElements>();
+                const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
+                out_draw_read(p.index_address, static_cast<uint64_t>(p.count) * (isz ? isz : 4), true, kOutDrawBuffer);
+            }
+            return;
+        }
+        case Op::DrawIndirect: {
+            out_draw_bindings();
+            const auto& p = r.payload<P_DrawIndirect>();
+            const bool indexed = p.type != 0xffffffffu;
+            const uint64_t cmd = indexed ? 20 : 16;
+            const uint64_t stride = p.stride ? static_cast<uint64_t>(p.stride) : cmd;
+            const uint64_t n = p.multi && p.count_address ? std::max<uint64_t>(1, p.max_count) : 1;
+            out_draw_read(p.indirect_address, stride * (n - 1) + cmd, true, kOutIndirect);   // do_draw_indirect binds the copy for them
+            if (p.multi && p.count_address) out_draw_read(p.count_address, 4, true, kOutIndirect);
+            if (indexed) compute_out_guard(p.index_address, 1u << 20, kOutIndirect);       // indices of unknown count: 1 MiB from the start
+            return;
+        }
+        case Op::ClearBuffer: {
+            const auto& p = r.payload<P_ClearBuffer>();
+            compute_out_guard(p.address, p.size, kOutBufferWrite);
+            return;
+        }
+        case Op::CopyBufferToBuffer: {
+            const auto& p = r.payload<P_CopyBufferToBuffer>();
+            out_draw_read(p.src, p.size, true, kOutBufferRead);       // the copy reads the pool copy (held_or_pool)
+            compute_out_guard(p.dst, p.size, kOutBufferWrite);
+            return;
+        }
+        case Op::UpdateUniformBuffer: {
+            const auto& p = r.payload<P_UpdateUniformBuffer>();
+            compute_out_guard(p.address + static_cast<uint64_t>(p.offset), p.size, kOutBufferWrite);
+            return;
+        }
+        case Op::ReportCounter: compute_out_guard(r.payload<P_Counter>().address, 32, kOutBufferWrite); return;
+        case Op::ReportValue: compute_out_guard(r.payload<P_ReportValue>().address, 32, kOutBufferWrite); return;
+        case Op::SignalEvent: {
+            const auto& p = r.payload<P_Event>();
+            if (p.event && p.event->pool && p.event->pool->base)
+                compute_out_guard(p.event->pool->gpu_base + static_cast<uint64_t>(p.event->offset), 4, kOutEvent);
+            return;
+        }
+        case Op::DrawXfb: flush_compute_out(kOutIndirect); return;
+        default:
+            if (r.op() < Op::DrawArrays) return;    // state
+            flush_compute_out(kOutOther);           // feedback begin/end and the rest: everything first
+            return;
+    }
 }
 
 void sh_barrier_once() {
@@ -1134,23 +1244,26 @@ BufRef shadow_of(uint64_t addr, VkDeviceSize size, const BufRef& host, bool writ
             return r;
         }
         if (addr < u.addr + u.size && u.addr < addr + size) {   // overlapping ranges stay coherent in the pool
-            compute_out_guard(addr, size);
+            compute_out_guard(addr, size, kOutDispatch);
             return host;
         }
     }
     // a result an earlier dispatch left in the pool copy: this dispatch binds it there again (the pages are not valid for the tracker
     // until the result goes back, so mirror_span would not say so)
-    for (const OutPending& o : g_out_pending)
-        if (o.addr == addr && o.size == size) {
+    {
+        VkBuffer ob = VK_NULL_HANDLE;
+        VkDeviceSize oo = 0;
+        if (out_exact(addr, size, &ob, &oo)) {
             ++g_sh_uses;
             ++g_sh_direct;
-            g_shadow_uses.push_back({addr, size, host, o.buf, o.off, writes, true, MirrorSpan{o.buf, o.off, true}});
-            BufRef r = host; r.buffer = o.buf; r.offset = o.off; r.avail = size;
+            g_shadow_uses.push_back({addr, size, host, ob, oo, writes, true, MirrorSpan{ob, oo, true}});
+            BufRef r = host; r.buffer = ob; r.offset = oo; r.avail = size;
             return r;
         }
-    compute_out_guard(addr, size);
-    if (size > kShadowMax) return host;
-    const MirrorSpan ms = mirror_span(addr, size);
+    }
+    if (!out_lazy()) compute_out_guard(addr, size, kOutDispatch);
+    if (size > kShadowMax) { compute_out_guard(addr, size, kOutDispatch); return host; }
+    const MirrorSpan ms = mirror_span(addr, size);    // pages holding a compute result count as current there (compute_out_lazy)
     if (ms.buf && compute_direct_on()) {
         bool ok = ms.valid;
         if (!ok) {
@@ -1168,6 +1281,7 @@ BufRef shadow_of(uint64_t addr, VkDeviceSize size, const BufRef& host, bool writ
             return r;
         }
     }
+    compute_out_guard(addr, size, kOutDispatch);      // the shadow reads the pool: held results there go back first
     const uint64_t key = addr ^ (static_cast<uint64_t>(size) << 40) ^ (static_cast<uint64_t>(size) >> 24);
     Shadow& sh = g_shadows[key];
     if (!sh.buf || sh.size != size) {
@@ -1206,10 +1320,7 @@ void shadows_after_dispatch() {
     for (const ShadowUse& u : g_shadow_uses) {
         if (!u.writes) continue;
         if (u.direct) {
-            bool known = false;
-            for (const OutPending& o : g_out_pending) known |= o.addr == u.addr && o.size == u.size;
-            if (known) ++g_sh_merged;          // written again before it went back: one copy out for both
-            else g_out_pending.push_back({u.addr, u.size, u.host, u.buf, u.off});
+            if (out_add(u.addr, u.size, u.buf, u.off, u.host)) ++g_sh_merged;   // written again before it went back: one copy out for both
             continue;
         }
         if (!any) { memory_barrier(F->cb); any = true; }
@@ -1232,7 +1343,7 @@ void shadows_after_dispatch() {
                 "direct to the pool copy %llu (%llu after filling pages, in %llu MiB, out %llu MiB in %llu flushes, %llu writes merged)",
                 (unsigned long long)g_sh_uses, (unsigned long long)g_sh_from_mirror, (unsigned long long)g_sh_no_span, (unsigned long long)(g_sh_bytes_mirror >> 20),
                 (unsigned long long)(g_sh_bytes_pool >> 20), (unsigned long long)(g_sh_bytes_out >> 20), (unsigned long long)g_sh_direct,
-                (unsigned long long)g_sh_direct_filled, (unsigned long long)(g_sh_bytes_fill >> 20), (unsigned long long)(g_sh_bytes_dout >> 20),
+                (unsigned long long)g_sh_direct_filled, (unsigned long long)(g_sh_bytes_fill >> 20), (unsigned long long)(out_bytes_total() >> 20),
                 (unsigned long long)g_sh_flushes, (unsigned long long)g_sh_merged);
         for (auto it = g_shadows.begin(); it != g_shadows.end();) {
             if (F->serial - it->second.last > 600) {
@@ -1292,7 +1403,10 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                     const int idx = b.nvn.index;
                     if (idx >= 0 && idx < 16 && S.ubo[d.nvn_stage][idx].addr) {
                         const GState::Bind& bind = S.ubo[d.nvn_stage][idx];
-                        compute_out_guard(bind.addr, bind.size ? bind.size : 65536);   // a compute result still in the pool copy goes back first
+                        if (d.nvn_stage == kCompute || !out_lazy()) {                   // draws: checked before the op (out_before_op)
+                            const VkDeviceSize ua = device().properties().limits.minUniformBufferOffsetAlignment;
+                            out_draw_read(bind.addr, bind.size ? bind.size : 65536, ua && (bind.addr % ua) == 0, kOutDrawBuffer);   // resolve_read serves the copy
+                        }
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
                         const float ufs = ufs_scale_for(d, idx);
@@ -1332,6 +1446,16 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                         const GState::Bind& bind = S.ssbo[d.nvn_stage][slot];
                         BufRef br = resolve_buffer(bind.addr, bind.size);
                         bi = {br.buffer, br.offset, std::min<VkDeviceSize>(bind.size ? bind.size : br.avail, br.avail)};
+                        if (!g_shadowing && br.ok && out_lazy() && out_overlaps(bind.addr, bi.range)) {   // a draw over a held compute result: the copy
+                            const BufRef hb = held_or_pool(bind.addr, bi.range, kOutStorageXfb, false);
+                            if (hb.buffer != br.buffer) {
+                                bi.buffer = hb.buffer;
+                                bi.offset = hb.offset;
+                                gpu_wrote(bind.addr, bi.range, kWriteStorage);
+                                out_add(bind.addr, bi.range, hb.buffer, hb.offset, br);   // what the draw writes there is held like a dispatch's
+                                break;
+                            }
+                        }
                         if (g_shadowing && br.ok) {                                  // before gpu_wrote: the shadow reads the pool copy while valid
                             const BufRef sh = shadow_of(bind.addr, bi.range, br, true);
                             bi.buffer = sh.buffer;
@@ -1346,9 +1470,10 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                     const int idx = b.nvn.index;
                     if (idx >= 0 && idx < 16 && S.ubo[d.nvn_stage][idx].addr) {
                         const GState::Bind& bind = S.ubo[d.nvn_stage][idx];
-                        BufRef br = resolve_buffer(bind.addr, bind.size);
-                        bi = {br.buffer, br.offset, std::min<VkDeviceSize>(bind.size ? bind.size : br.avail, br.avail)};
-                        compute_out_guard(bind.addr, bi.range);
+                        const BufRef br0 = resolve_buffer(bind.addr, bind.size);
+                        const VkDeviceSize range = std::min<VkDeviceSize>(bind.size ? bind.size : br0.avail, br0.avail);
+                        const BufRef br = held_or_pool(bind.addr, range, kOutDispatch, true);
+                        bi = {br.buffer, br.offset, range};
                     }
                     break;
                 }
@@ -1457,6 +1582,12 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                 const BufRef sh = shadow_of(addr, bytes, host, storage);
                 if (sh.buffer != host.buffer)
                     if (VkBufferView sv = make_buffer_view(sh.buffer, sh.offset, bytes, vfmt)) v = sv;   // offset: non-zero in the pool copy
+            }
+            if (v && !g_shadowing && out_lazy() && out_overlaps(addr, bytes)) {   // a draw reads a held compute result as texels: from the copy
+                const MirrorSpan ms = out_servable(addr, bytes) ? mirror_span(addr, bytes) : MirrorSpan{};
+                VkBufferView mv = ms.buf ? make_buffer_view(ms.buf, ms.offset, bytes, vfmt) : VK_NULL_HANDLE;
+                if (mv) v = mv;
+                else log_once("out-texel", "a draw reads a compute result held in the pool copy as a texel buffer the copy cannot serve: it reads the pool");
             }
             if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);      // an image buffer may be written by the shader
             if (!v) {
@@ -1765,7 +1896,7 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
         if (!r.tex || !tex_gpu(r.tex) || shares_image(r.tex, S.depth_tex.get())) continue;
         const VkExtent3D se = tex_extent(r.tex, 0);
         if (se.width >= te.width && se.height >= te.height) return;          // nothing to enlarge
-        extras::Fsr1Spatial* su = extras::scene_upscaler(&device());
+        extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height});
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass
         tex_ensure_current(r.tex, *F);
@@ -1783,41 +1914,63 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
 }
 
 // Evaluation-only programs (NVN tessellates with the fixed SetInner/OuterTessellationLevels): a generated pass-through control shader
-// (nvn_tess_gen.h), one per evaluation shader, patch size and levels. It copies the per-vertex vec4 locations the evaluation shader
-// reads and gl_Position, and zeroes its per-patch inputs. Null when the evaluation shader's inputs are not the translator's vec4s.
+// (nvn_tess_gen.h), one per (vertex shader, evaluation shader, patch size). It copies each per-vertex input of the evaluation shader from the
+// vertex shader output at the same location (zero where the vertex shader writes none) and gl_Position, zeroes the per-patch inputs, and reads
+// the levels from push constants (pushed before each such draw, so level changes need no new pipeline). Null when an interface variable has a
+// type the generator does not handle.
 const ShaderInfo* g_gen_tcs = nullptr;   // the generated control shader of the current draw (null: the program has its own, or none)
-const ShaderInfo* passthrough_tcs_for(const ShaderInfo* tes) {
-    static std::map<std::string, std::unique_ptr<ShaderInfo>> cache;
+const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderInfo* tes) {
+    struct Key {
+        const ShaderInfo* vs; const ShaderInfo* tes; uint32_t n;
+        bool operator<(const Key& o) const { return std::tie(vs, tes, n) < std::tie(o.vs, o.tes, o.n); }
+    };
+    static std::map<Key, std::unique_ptr<ShaderInfo>> cache;
     const uint32_t n = std::clamp<uint32_t>(S.patch_size, 1, 32);
-    char key[160];
-    uint32_t lv[6];
-    std::memcpy(lv, S.tess_outer, 16);
-    std::memcpy(lv + 4, S.tess_inner, 8);
-    std::snprintf(key, sizeof key, "%s/%u/%08x%08x%08x%08x%08x%08x", tes->hash.c_str(), n, lv[0], lv[1], lv[2], lv[3], lv[4], lv[5]);
+    const Key key{vs, tes, n};
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.get();
-    std::vector<uint32_t> per_vertex, per_patch;
+    auto to_io = [](const ShaderIo& v, tessgen::Io& o) {
+        if (v.components < 1 || v.components > 4) return false;
+        if (v.type == ScalarType::Float) o.kind = tessgen::Kind::Float;
+        else if (v.type == ScalarType::Sint) o.kind = tessgen::Kind::Sint;
+        else if (v.type == ScalarType::Uint) o.kind = tessgen::Kind::Uint;
+        else return false;
+        o.location = v.location;
+        o.component = v.component;
+        o.components = v.components;
+        return true;
+    };
+    std::vector<tessgen::Io> vs_out, per_vertex, per_patch;
     bool ok = true;
+    for (const ShaderIo& o : vs->refl.outputs) {   // an output array (several locations) is not matched: its readers get zero
+        tessgen::Io io;
+        if (o.array <= 1 && to_io(o, io)) vs_out.push_back(io);
+    }
     for (const ShaderIo& in : tes->refl.inputs) {
-        if (in.type != ScalarType::Float || in.components != 4 || in.component != 0) ok = false;
-        (in.array > 1 ? per_vertex : per_patch).push_back(in.location);   // in an evaluation shader a non-array input is per patch
+        tessgen::Io io;
+        if (!to_io(in, io)) { ok = false; break; }
+        (in.array > 1 ? per_vertex : per_patch).push_back(io);   // in an evaluation shader a non-array input is per patch
     }
     std::unique_ptr<ShaderInfo> si;
     if (ok) {
+        const std::vector<tessgen::Copy> copies = tessgen::match(vs_out, per_vertex);
+        size_t copied = 0;
+        for (const tessgen::Copy& c : copies) copied += c.has_src;
         si = std::make_unique<ShaderInfo>();
-        si->hash = std::string("tcs-pass-") + key;
+        si->hash = "tcs-pass-" + vs->hash + "-" + tes->hash + "-" + std::to_string(n);
         si->stage = ShaderStage::TessControl;
-        si->spirv = tessgen::passthrough_tcs(per_vertex, per_patch, n, S.tess_outer, S.tess_inner);
+        si->spirv = tessgen::passthrough_tcs(copies, per_patch, n);
+        si->push_bytes = tessgen::kPushBytes;
         std::string err;
         if (!reflect_spirv(si->spirv.data(), si->spirv.size(), si->refl, &err)) {
             NXLOG_W(kTag, "generated control shader for %s does not reflect: %s", tes->hash.c_str(), err.c_str());
             si.reset();
         } else {
-            NXLOG_I(kTag, "evaluation shader %s: pass-through control shader, %u vertices, %zu per-vertex and %zu per-patch locations, levels %g %g %g %g / %g %g",
-                    tes->hash.c_str(), n, per_vertex.size(), per_patch.size(), S.tess_outer[0], S.tess_outer[1], S.tess_outer[2], S.tess_outer[3], S.tess_inner[0], S.tess_inner[1]);
+            NXLOG_I(kTag, "evaluation shader %s (vs %s): pass-through control shader, %u vertices, %zu per-vertex locations (%zu from the vertex shader, %zu zero), %zu per-patch",
+                    tes->hash.c_str(), vs->hash.c_str(), n, copies.size(), copied, copies.size() - copied, per_patch.size());
         }
     } else {
-        NXLOG_W(kTag, "evaluation shader %s: inputs are not all vec4 floats, no pass-through control shader", tes->hash.c_str());
+        NXLOG_W(kTag, "evaluation shader %s: an input is not a 1..4 component float/int, no pass-through control shader", tes->hash.c_str());
     }
     const ShaderInfo* out = si.get();
     cache.emplace(key, std::move(si));
@@ -1837,7 +1990,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
         if (mode != NVN_DRAW_PRIMITIVE_PATCHES) { note_unsupported("tessellation draw: tessellation program drawn without patches"); return false; }
         if (!S.stage[kTessEval]) { note_unsupported("tessellation draw: patches without a tessellation evaluation shader"); return false; }
         if (!S.stage[kTessCtl]) {
-            const ShaderInfo* gen = passthrough_tcs_for(S.stage[kTessEval]);
+            const ShaderInfo* gen = passthrough_tcs_for(vs, S.stage[kTessEval]);
             if (!gen) { note_unsupported("tessellation draw: evaluation shader without a control shader, no pass-through could be made"); return false; }
             if (gen != g_gen_tcs) g_dirty |= kPipe;
             g_gen_tcs = gen;
@@ -2027,6 +2180,19 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     if (g_dirty & kDesc) {
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
+    }
+    if (pl->push_bytes && g_gen_tcs) {
+        // the pass-through control shader's tessellation levels (NVN's fixed SetInner/OuterTessellationLevels), every draw: cheap, and
+        // the layout may have changed since the last push
+        tessgen::TessPush push = {};
+        std::memcpy(push.outer, S.tess_outer, sizeof push.outer);
+        std::memcpy(push.inner, S.tess_inner, sizeof push.inner);
+        vkCmdPushConstants(F->cb, pl->layout, pl->push_stages, 0, std::min<uint32_t>(pl->push_bytes, sizeof push), &push);
+        static std::set<const ShaderInfo*> logged;
+        if (logged.insert(g_gen_tcs).second)
+            NXLOG_I(kTag, "tessellation draw: evaluation shader %s drawn with pass-through control shader %s, patch size %u, levels %g %g %g %g / %g %g",
+                    S.stage[kTessEval]->hash.c_str(), g_gen_tcs->hash.c_str(), static_cast<unsigned>(std::clamp<uint32_t>(S.patch_size, 1, 32)),
+                    S.tess_outer[0], S.tess_outer[1], S.tess_outer[2], S.tess_outer[3], S.tess_inner[0], S.tess_inner[1]);
     }
     if (g_dirty & (kVb | kPipe)) {
         for (uint32_t i = 0; i < g_key_attr_count; ++i) {
@@ -2349,13 +2515,14 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     if (!noted_indirect) { noted_indirect = true; NXLOG_I("nvn.replay", "replay: indirect draw (first): mode %u, %s%s", p.mode, indexed ? "indexed" : "arrays", p.multi ? ", multi-draw" : ""); }
     if (indexed && isz == 1 && !noted_u8) { noted_u8 = true; NXLOG_I("nvn.replay", "replay: indirect draw with 8-bit indices (first): VK_EXT_index_type_uint8"); }
     const uint64_t cmd_size = indexed ? 20 : 16;
-    BufRef ib = resolve_buffer(p.indirect_address, cmd_size);
+    const uint64_t n_cmds = p.multi && p.count_address ? std::max<uint64_t>(1, p.max_count) : 1;
+    BufRef ib = held_or_pool(p.indirect_address, (p.stride ? static_cast<uint64_t>(p.stride) : cmd_size) * (n_cmds - 1) + cmd_size, kOutIndirect, false);
     if (indexed) {
         BufRef xb = resolve_buffer(p.index_address, 4);
         vkCmdBindIndexBuffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
     if (p.multi && p.count_address) {
-        BufRef cb = resolve_buffer(p.count_address, 4);
+        BufRef cb = held_or_pool(p.count_address, 4, kOutIndirect, false);
         const uint32_t stride = static_cast<uint32_t>(p.stride ? p.stride : cmd_size);
         if (indexed) vkCmdDrawIndexedIndirectCount(F->cb, ib.buffer, ib.offset, cb.buffer, cb.offset, p.max_count, stride);
         else vkCmdDrawIndirectCount(F->cb, ib.buffer, ib.offset, cb.buffer, cb.offset, p.max_count, stride);
@@ -2442,7 +2609,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
     g_bound_pipeline = VK_NULL_HANDLE;
     support_for_draw(*pl, true);
-    if (indirect) compute_out_guard(indirect, 12);       // indirect arguments a direct binding wrote go back first
+    const BufRef ind = indirect ? held_or_pool(indirect, 12, kOutIndirect, true) : BufRef{};   // arguments a dispatch wrote: from the copy
     g_shadowing = compute_shadows_on();
     g_shadow_uses.clear();
     g_sh_barrier = g_sh_copied = false;
@@ -2452,8 +2619,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
         gstamp("shadow in");
     }
     if (indirect) {
-        BufRef b = resolve_buffer(indirect, 12);
-        vkCmdDispatchIndirect(F->cb, b.buffer, b.offset);
+        vkCmdDispatchIndirect(F->cb, ind.buffer, ind.offset);
     } else {
         vkCmdDispatch(F->cb, x, y, z);
         if (gpass_on()) gstamp(("cs " + cs->hash.substr(0, 8)).c_str());
@@ -2657,7 +2823,9 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
     c.imageExtent = {rw, rh, rd};
     if (t->b.target != NVN_TEXTURE_TARGET_3D && t->layers > 1 && !p.has_view) { c.imageSubresource.layerCount = tex_layers(t); c.imageExtent.depth = 1; }
     if (t->b.target != NVN_TEXTURE_TARGET_3D && rd > 1) { c.imageSubresource.layerCount = rd; c.imageSubresource.baseArrayLayer = s.layer + static_cast<uint32_t>(std::max(0, r.z)); c.imageOffset.z = 0; c.imageExtent.depth = 1; }
-    BufRef br = resolve_buffer(p.address, stride * ((rh + bh - 1) / bh) * rd);
+    const uint64_t buf_bytes = stride * ((rh + bh - 1) / bh) * rd;
+    if (!to_texture) compute_out_guard(p.address, buf_bytes, kOutBufferWrite);     // written: held results there go back first
+    BufRef br = to_texture ? held_or_pool(p.address, buf_bytes, kOutBufferRead, true) : resolve_buffer(p.address, buf_bytes);
     c.bufferOffset = br.offset;
     if (to_texture) {
         tex_ensure_current(t, *F);
@@ -2837,7 +3005,8 @@ void run_list(const CmdList& list, int depth) {
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
     for (RecordReader r(list); r.next();) {
         mark_dirty(r);
-        if (!g_out_pending.empty() && !compute_out_may_wait(r.op())) flush_compute_out();   // compute shadows: results back to the pool first
+        if (out_lazy()) out_before_op(r);                                                   // compute shadows: results back to the pool first
+        else if (out_any() && !compute_out_may_wait(r.op())) flush_compute_out(kOutOther);
         switch (r.op()) {
             case Op::Nop: break;
             case Op::BindProgram: apply_bind_program(r.payload<P_BindProgram>()); break;
@@ -2940,7 +3109,6 @@ void run_list(const CmdList& list, int depth) {
                 const auto& p = r.payload<P_TessLevels>();
                 if (p.outer) std::memcpy(S.tess_outer, p.v, sizeof S.tess_outer);
                 else std::memcpy(S.tess_inner, p.v, sizeof S.tess_inner);
-                g_dirty |= kPipe;   // the generated control shader of an evaluation-only program carries the levels
                 break;
             }
             case Op::SetRenderEnable:
@@ -3003,7 +3171,7 @@ void run_list(const CmdList& list, int depth) {
             case Op::CopyBufferToBuffer: {
                 const auto& p = r.payload<P_CopyBufferToBuffer>();
                 end_pass();
-                BufRef s = resolve_buffer(p.src, p.size), d = resolve_buffer(p.dst, p.size);
+                BufRef s = held_or_pool(p.src, p.size, kOutBufferRead, true), d = resolve_buffer(p.dst, p.size);
                 if (s.ok && d.ok) {
                     VkBufferCopy c = {s.offset, d.offset, p.size};
                     vkCmdCopyBuffer(F->cb, s.buffer, d.buffer, 1, &c);
@@ -3358,7 +3526,10 @@ void fb_sweep(uint64_t serial) {
 
 void replay_end_submit(Frame& f) {
     F = &f;
-    flush_compute_out();     // every compute result is in game memory before the submission's serial signals
+    if (out_any()) {         // every compute result is in game memory, or held and guarded, before the submission's serial signals
+        end_pass();
+        out_end_submit(F->cb, F->serial);
+    }
     end_pass();
     if ((f.serial & 127) == 0 && !g_fb_clone.empty()) fb_sweep(f.serial);
     if ((f.serial & 127) == 0 && !g_vol3d.empty()) {   // 3D copies of 2D textures no submission used for kFbIdleSubmits are released
@@ -3405,7 +3576,7 @@ void replay_shutdown() {
     S = GState();
     P = Pass();
     g_pending.clear();
-    g_out_pending.clear();
+    out_reset();
     g_set_cache.clear();
     g_fb_use.clear();
     g_fb_clone.clear();

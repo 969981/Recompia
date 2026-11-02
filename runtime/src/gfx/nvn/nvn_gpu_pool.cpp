@@ -485,6 +485,9 @@ struct Mirror {
     int pool_flags = 0;
     int64_t st_written = 0, st_copied = 0;   // pages the CPU wrote after a copy, pages copied (summary line)
     uint64_t pool_bytes = 0;
+    // compute out (below): pages where a compute result in the copy is newer than the pool, and pages the CPU has read compute results
+    // from (any thread sets them; atomics)
+    std::unique_ptr<std::atomic<uint64_t>[]> gpu_new, cpu_read;
 };
 
 namespace {
@@ -589,6 +592,8 @@ void bit_put(std::vector<uint64_t>& v, uint64_t i, bool on) {
 }
 
 bool page_valid(const Mirror& m, uint64_t p) { return mem::ww::page_valid(m.ww, p); }
+void out_register(Mirror* m);
+bool new_servable(const Mirror& m, uint64_t first, uint64_t last);
 
 bool range_valid(const Mirror& m, uint64_t first, uint64_t count) { return mem::ww::all_valid(m.ww, first, count); }
 
@@ -623,6 +628,10 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
     m->backoff.assign(static_cast<size_t>(m->npages), 0);
     m->hot_until.assign(static_cast<size_t>(m->npages), 0);
     m->pool_bytes = pg->size;
+    m->gpu_new.reset(new std::atomic<uint64_t>[words]);
+    m->cpu_read.reset(new std::atomic<uint64_t>[words]);
+    for (size_t i = 0; i < words; ++i) { m->gpu_new[i].store(0, std::memory_order_relaxed); m->cpu_read[i].store(0, std::memory_order_relaxed); }
+    out_register(m.get());
     NXLOG_I(kTag, "pool %p: device-local copy (%llu KiB in %zu chunks made on demand, pool flags 0x%x, %s)", static_cast<void*>(pg->base),
             static_cast<unsigned long long>(pg->size >> 10), m->chunks.size(), static_cast<unsigned>(mp->flags), "writes tracked");
     pg->mirror = m.release();
@@ -656,8 +665,10 @@ void absorb_writes(Mirror& m, uint32_t now) {
     }
 }
 
+bool new_get(const Mirror& m, uint64_t p) { return (m.gpu_new[static_cast<size_t>(p >> 6)].load(std::memory_order_acquire) >> (p & 63)) & 1; }
+
 bool copyable(const Mirror& m, uint64_t i, uint32_t now) {
-    return bit_get(m.want, i) && !page_valid(m, i) && m.hot_until[static_cast<size_t>(i)] <= now && !mem::ww::page_banned(m.ww, i);
+    return bit_get(m.want, i) && !page_valid(m, i) && !new_get(m, i) && m.hot_until[static_cast<size_t>(i)] <= now && !mem::ww::page_banned(m.ww, i);
 }
 
 void log_summary(uint32_t now) {
@@ -713,6 +724,10 @@ struct MirrorGauges {
 MirrorGauges g_mirror_gauges;
 
 }  // namespace
+
+void out_unregister(Mirror* m);
+void out_retire();
+void out_log();
 
 bool mirror_enabled() { return mirror_mode() != MirrorMode::Off; }
 
@@ -770,7 +785,7 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     if (first / chunk_pages != last / chunk_pages) { g_use_skip[use % 3]++; g_skip_why[3]++; return out; }
     const VkBuffer cb = mirror_chunk(*m, first);
     if (!cb) { g_use_skip[use % 3]++; g_skip_why[4]++; return out; }
-    if (range_valid(*m, first, last - first + 1)) {
+    if (range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last))) {
         out.buffer = cb;
         out.offset = poff - (first / chunk_pages) * kChunkBytes;
         out.avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - out.offset;
@@ -804,7 +819,8 @@ MirrorSpan mirror_span(uint64_t gpu_address, uint64_t size) {
     if (!cb) return s;
     s.buf = cb;
     s.offset = poff - (first / chunk_pages) * kChunkBytes;
-    s.valid = range_valid(*m, first, last - first + 1);
+    s.valid = range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last));
+    s.avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - s.offset;
     return s;
 }
 
@@ -853,9 +869,9 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
     const uint64_t base = (first / chunk_pages) * kChunkBytes;
     bool ok = true;
     for (uint64_t p = first; p <= last;) {
-        if (page_valid(m, p)) { ++p; continue; }
+        if (page_valid(m, p) || new_get(m, p)) { ++p; continue; }
         uint64_t q = p + 1;
-        while (q <= last && !page_valid(m, q)) ++q;
+        while (q <= last && !page_valid(m, q) && !new_get(m, q)) ++q;
         if (arm_in_budget() && arm_timed(m.ww, p, q - p)) {   // valid from now until the CPU writes a page; the copy below reads the pool when it runs
             for (uint64_t i = p; i < q; ++i) {
                 m.copied_at[static_cast<size_t>(i)] = now ? now : 1;
@@ -872,7 +888,7 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
         p = q;
     }
     if (!copies.empty()) vkCmdCopyBuffer(cb, src, chunk, static_cast<uint32_t>(copies.size()), copies.data());
-    return ok && range_valid(m, first, last - first + 1);
+    return ok && (range_valid(m, first, last - first + 1) || new_servable(m, first, last));
 }
 
 bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use) {
@@ -895,7 +911,12 @@ bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use) {
 
 void mirror_begin_submit(Frame& f, bool on) {
     g_mirror_on = on && mirror_mode() != MirrorMode::Off;
-    if (!g_mirror_on) return;
+    out_retire();
+    out_log();
+    if (!g_mirror_on) {
+        if (out_any()) out_flush(f.cb, 0, UINT64_MAX, kOutMirrorOff);   // draws of this submission read the pools: results go back first
+        return;
+    }
     const uint32_t now = presents_now();
     log_summary(now);
     uint64_t budget = kCopyBudget;
@@ -973,6 +994,7 @@ void mirror_destroy(PoolGpu* p) {
     Mirror* m = p->mirror;
     if (!m) return;
     p->mirror = nullptr;
+    out_unregister(m);
     g_mirrors.erase(std::remove(g_mirrors.begin(), g_mirrors.end(), m), g_mirrors.end());
     if (m->ww) mem::ww::region_destroy(m->ww);
     for (gfx::Buffer& c : m->chunks)
@@ -983,6 +1005,443 @@ void mirror_destroy(PoolGpu* p) {
         }
     g_st_live_bytes.store(static_cast<int64_t>(g_mirror_bytes), std::memory_order_relaxed);
     delete m;
+}
+
+
+// ---- compute out: results of direct compute bindings held in the copy (nvn_gpu_internal.h) ---------------------------------------
+// The copy-back of compute results to the pool streamed ~0.8 GB/s over PCIe, while most results are only read by later GPU work. With
+// [nvn] compute_out_lazy (default on) a result stays in the copy after its submission: its pages are marked newer-in-the-copy (gpu_new)
+// and guarded (PAGE_NOACCESS, mem::ww::guard). Draws bind the copy for them (resolve_read); a GPU reader of the pool gets them copied back
+// first, in queue order (out_flush, called by the replay before such a command); the CPU's first touch of a guarded page faults, and the
+// handler waits for the submission that wrote the result and copies it back on its own small submission (out_fetch, also called for
+// nvnMemoryPool/BufferInvalidateMappedRange). A page the CPU read once (cpu_read) has its later results copied back at the end of their
+// submission, as before, so a result the game reads every frame costs one wait, not one per frame.
+namespace {
+
+struct OutEntry {
+    uint64_t addr = 0;
+    VkDeviceSize size = 0;
+    Mirror* m = nullptr;
+    uint64_t first = 0, last = 0;       // pool pages it touches
+    VkBuffer mbuf = VK_NULL_HANDLE;     // its place in the copy
+    VkDeviceSize moff = 0;
+    VkBuffer hbuf = VK_NULL_HANDLE;     // its place in the pool's own buffer
+    VkDeviceSize hoff = 0;
+    bool pending = false;               // written by the submission being recorded
+    bool guarded = false;               // its pages are guarded
+    uint64_t serial = 0;                // the submission whose result the copy holds (0: only the one being recorded)
+    uint64_t flushed = 0;               // a copy-back is recorded in this submission: the guard goes when it completes
+};
+
+std::mutex g_out_mu;                    // g_out, g_out_mirrors; never held while touching guest memory
+std::vector<OutEntry> g_out;
+std::vector<Mirror*> g_out_mirrors;
+std::atomic<size_t> g_out_n{0};
+std::atomic<uint64_t> g_out_lo{UINT64_MAX}, g_out_hi{0};   // address bounds of the entries (render thread; a quick filter)
+
+// statistics (bytes and counts; the 10 s line)
+std::atomic<uint64_t> g_ob_end{0}, g_ob_gpu{0}, g_ob_fault{0}, g_ob_inval{0};
+std::atomic<uint64_t> g_why_bytes[kOutWhyCount], g_why_n[kOutWhyCount];   // GPU-reader copy-backs by reason
+std::atomic<uint64_t> g_on_fault{0}, g_on_inval{0}, g_on_deferred{0}, g_on_eager_read{0}, g_on_eager_noguard{0}, g_on_gpu_flush{0};
+
+void bits_set(std::atomic<uint64_t>* bm, uint64_t first, uint64_t last, bool on) {
+    for (uint64_t p = first; p <= last; ++p) {
+        const uint64_t b = uint64_t{1} << (p & 63);
+        if (on) bm[p >> 6].fetch_or(b, std::memory_order_acq_rel);
+        else bm[p >> 6].fetch_and(~b, std::memory_order_acq_rel);
+    }
+}
+bool bits_any(const std::atomic<uint64_t>* bm, uint64_t first, uint64_t last) {
+    for (uint64_t p = first; p <= last; ++p)
+        if ((bm[p >> 6].load(std::memory_order_acquire) >> (p & 63)) & 1) return true;
+    return false;
+}
+
+void out_register(Mirror* m) {
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    g_out_mirrors.push_back(m);
+    static std::once_flag once;
+    std::call_once(once, [] { mem::ww::set_guard_handler([](uint64_t addr) { out_fetch(addr, kPageBytes, true); }); });
+}
+
+bool new_servable(const Mirror& m, uint64_t first, uint64_t last) {
+    for (uint64_t p = first; p <= last; ++p) {
+        if (page_valid(m, p)) continue;
+        if (!new_get(m, p) || !mem::ww::all_armed(m.ww, p, 1)) return false;   // armed: the CPU has not written it since
+    }
+    return true;
+}
+
+bool overlaps(const OutEntry& e, uint64_t lo, uint64_t hi) {      // page granular: [lo, hi) of addresses
+    const uint64_t a0 = e.addr & ~(kPageBytes - 1), a1 = (e.addr + e.size + kPageBytes - 1) & ~(kPageBytes - 1);
+    return a0 < hi && lo < a1;
+}
+
+// After entries of m covering [first, last] were removed or changed (lock held): pages no entry covers any more are not newer in the
+// copy; pages no guarded entry covers lose their guard.
+void settle(Mirror* m, uint64_t first, uint64_t last) {
+    const uint64_t n = last - first + 1;
+    std::vector<uint8_t> cov(static_cast<size_t>(n), 0);     // 1: some entry, 2: some guarded entry
+    for (const OutEntry& e : g_out) {
+        if (e.m != m || e.last < first || e.first > last) continue;
+        const uint64_t a = std::max(e.first, first), b = std::min(e.last, last);
+        for (uint64_t p = a; p <= b; ++p) cov[static_cast<size_t>(p - first)] |= static_cast<uint8_t>(1 | (e.guarded ? 2 : 0));
+    }
+    for (uint64_t p = first; p <= last;) {
+        const uint8_t c = cov[static_cast<size_t>(p - first)];
+        if (c & 2) { ++p; continue; }
+        if (!(c & 1)) bits_set(m->gpu_new.get(), p, p, false);
+        uint64_t q = p + 1;
+        while (q <= last && !(cov[static_cast<size_t>(q - first)] & 2)) {
+            if (!(cov[static_cast<size_t>(q - first)] & 1)) bits_set(m->gpu_new.get(), q, q, false);
+            ++q;
+        }
+        mem::ww::unguard(m->ww, p, q - p);
+        p = q;
+    }
+}
+
+void recompute_bounds() {
+    uint64_t lo = UINT64_MAX, hi = 0;
+    for (const OutEntry& e : g_out) { lo = std::min(lo, e.addr); hi = std::max(hi, e.addr + e.size); }
+    g_out_lo.store(lo, std::memory_order_relaxed);
+    g_out_hi.store(hi, std::memory_order_relaxed);
+    g_out_n.store(g_out.size(), std::memory_order_release);
+}
+
+void copy_barrier_in(VkCommandBuffer cb) { memory_barrier(cb); }   // the writes of the results (and anything earlier) before the copies
+
+void copy_barrier_host(VkCommandBuffer cb) {                         // the copies before everything after, the host's reads included
+    VkMemoryBarrier2 b = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    b.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
+    b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT;
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(cb, &di);
+}
+
+uint64_t record_copies(VkCommandBuffer cb, const std::vector<size_t>& idx) {
+    if (idx.empty()) return 0;
+    copy_barrier_in(cb);
+    uint64_t bytes = 0;
+    for (size_t i : idx) {
+        const OutEntry& e = g_out[i];
+        VkBufferCopy c = {e.moff, e.hoff, e.size};
+        vkCmdCopyBuffer(cb, e.mbuf, e.hbuf, 1, &c);
+        bytes += e.size;
+    }
+    copy_barrier_host(cb);
+    return bytes;
+}
+
+// Removes the entries at idx (ascending or not) and settles their pages. Lock held.
+void remove_entries(std::vector<size_t> idx) {
+    if (idx.empty()) return;
+    std::sort(idx.begin(), idx.end());
+    struct Span { Mirror* m; uint64_t first, last; };
+    std::vector<Span> spans;
+    for (size_t k = idx.size(); k-- > 0;) {
+        const OutEntry& e = g_out[idx[k]];
+        spans.push_back({e.m, e.first, e.last});
+        g_out.erase(g_out.begin() + static_cast<std::ptrdiff_t>(idx[k]));
+    }
+    for (const Span& s : spans) settle(s.m, s.first, s.last);
+    recompute_bounds();
+}
+
+uint64_t page_size_kb(uint64_t bytes) { return bytes >> 10; }
+
+}  // namespace
+
+bool out_lazy() {
+    static const bool on = config_get_bool("nvn", "compute_out_lazy", true);
+    return on;
+}
+
+bool out_any() { return g_out_n.load(std::memory_order_acquire) != 0; }
+
+uint64_t out_bytes_total() {
+    return g_ob_end.load(std::memory_order_relaxed) + g_ob_gpu.load(std::memory_order_relaxed) + g_ob_fault.load(std::memory_order_relaxed) +
+           g_ob_inval.load(std::memory_order_relaxed);
+}
+
+bool out_add(uint64_t addr, VkDeviceSize size, VkBuffer mbuf, VkDeviceSize moff, const BufRef& host) {
+    if (!size || !host.ok) return false;
+    const PoolHit hit = pool_lookup(addr);
+    Mirror* m = hit.pool && hit.pool->gpu ? hit.pool->gpu->mirror : nullptr;
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    for (OutEntry& e : g_out)
+        if (e.addr == addr && e.size == size && e.m == m) {
+            e.pending = true;
+            e.mbuf = mbuf; e.moff = moff; e.hbuf = host.buffer; e.hoff = host.offset;
+            if (m) bits_set(m->gpu_new.get(), e.first, e.last, true);    // a copy-back recorded earlier in this submission cleared them
+            return true;
+        }
+    OutEntry e;
+    e.addr = addr; e.size = size; e.m = m;
+    e.mbuf = mbuf; e.moff = moff; e.hbuf = host.buffer; e.hoff = host.offset;
+    e.pending = true;
+    if (m) {
+        const uint64_t base = reinterpret_cast<uint64_t>(m->pg->base);
+        e.first = (addr - base) / kPageBytes;
+        e.last = std::min<uint64_t>((addr + size - 1 - base) / kPageBytes, m->npages - 1);
+        bits_set(m->gpu_new.get(), e.first, e.last, true);
+    }
+    g_out.push_back(e);
+    g_out_lo.store(std::min(g_out_lo.load(std::memory_order_relaxed), addr), std::memory_order_relaxed);
+    g_out_hi.store(std::max(g_out_hi.load(std::memory_order_relaxed), addr + size), std::memory_order_relaxed);
+    g_out_n.store(g_out.size(), std::memory_order_release);
+    return false;
+}
+
+bool out_exact(uint64_t addr, VkDeviceSize size, VkBuffer* buf, VkDeviceSize* off) {
+    if (!out_any()) return false;
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    for (const OutEntry& e : g_out)
+        if (e.addr == addr && e.size == size && e.mbuf) {
+            // a copy-back recorded in this submission (flushed) leaves the copy as current as the pool: still the right place
+            *buf = e.mbuf;
+            *off = e.moff;
+            return true;
+        }
+    return false;
+}
+
+bool out_overlaps(uint64_t addr, uint64_t size) {
+    if (!out_any() || !size) return false;
+    const uint64_t lo = addr & ~(kPageBytes - 1), hi = size >= UINT64_MAX - addr ? UINT64_MAX : (addr + size + kPageBytes - 1) & ~(kPageBytes - 1);
+    if (hi <= (g_out_lo.load(std::memory_order_relaxed) & ~(kPageBytes - 1)) || lo >= g_out_hi.load(std::memory_order_relaxed) + kPageBytes) return false;
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    for (const OutEntry& e : g_out)
+        if (!e.flushed || e.pending)
+            if (overlaps(e, lo, hi)) return true;
+    return false;
+}
+
+bool out_servable(uint64_t addr, uint64_t size) {
+    if (!out_lazy() || !g_mirror_on || !size) return false;
+    MemoryPool* mp = nullptr;
+    PoolGpu* pg = nullptr;
+    uint64_t poff = 0;
+    const BufRef r = resolve_in_pool(addr, size, &mp, &pg, &poff);
+    if (!r.ok || !pg || !pg->mirror) return false;
+    const Mirror& m = *pg->mirror;
+    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
+    const uint64_t chunk_pages = kChunkBytes / kPageBytes;
+    if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
+    if (!m.chunks[static_cast<size_t>(first / chunk_pages)].buffer) return false;
+    return range_valid(m, first, last - first + 1) || new_servable(m, first, last);
+}
+
+uint64_t out_flush(VkCommandBuffer cb, uint64_t addr, uint64_t size, int why) {
+    if (!out_any()) return 0;
+    const uint64_t lo = size == UINT64_MAX ? 0 : addr & ~(kPageBytes - 1);
+    const uint64_t hi = size == UINT64_MAX || size >= UINT64_MAX - addr ? UINT64_MAX : (addr + size + kPageBytes - 1) & ~(kPageBytes - 1);
+    const uint64_t cur = current_serial();
+    std::vector<std::pair<uint64_t, uint64_t>> rearm;     // results copied back in queue order: tracked again (mirror_span_written)
+    uint64_t bytes = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_out_mu);
+        std::vector<size_t> idx, gone;
+        for (size_t i = 0; i < g_out.size(); ++i) {
+            const OutEntry& e = g_out[i];
+            if (e.flushed && !e.pending) continue;          // copied back already in this submission, nothing newer since
+            if (overlaps(e, lo, hi)) idx.push_back(i);
+        }
+        if (idx.empty()) return 0;
+        bytes = record_copies(cb, idx);
+        for (size_t i : idx) {
+            OutEntry& e = g_out[i];
+            if (e.guarded) {                                // the CPU may still read old bytes until the copy has run: guarded until then;
+                e.pending = false;                          // the copy stays as current as the pool for it (gpu_new kept until retired)
+                e.flushed = cur;
+            } else {
+                rearm.emplace_back(e.addr, e.size);
+                gone.push_back(i);
+            }
+        }
+        remove_entries(gone);
+    }
+    for (const auto& r : rearm) mirror_span_written(r.first, r.second);
+    (why == kOutSubmitEnd ? g_ob_end : g_ob_gpu).fetch_add(bytes, std::memory_order_relaxed);
+    if (why != kOutSubmitEnd) g_on_gpu_flush.fetch_add(1, std::memory_order_relaxed);
+    const int w = why >= 0 && why < kOutWhyCount ? why : kOutGpuReader;
+    g_why_bytes[w].fetch_add(bytes, std::memory_order_relaxed);
+    g_why_n[w].fetch_add(1, std::memory_order_relaxed);
+    return bytes;
+}
+
+void out_end_submit(VkCommandBuffer cb, uint64_t serial) {
+    if (!out_any()) return;
+    std::vector<std::pair<uint64_t, uint64_t>> rearm;
+    {
+        std::lock_guard<std::mutex> lk(g_out_mu);
+        std::vector<size_t> eager, gone;
+        for (size_t i = 0; i < g_out.size(); ++i) {
+            OutEntry& e = g_out[i];
+            if (!e.pending) continue;
+            bool hold = out_lazy() && e.m && e.m->ww;
+            if (hold && bits_any(e.m->cpu_read.get(), e.first, e.last)) { hold = false; g_on_eager_read.fetch_add(1, std::memory_order_relaxed); }
+            else if (hold && !e.guarded && !mem::ww::guard(e.m->ww, e.first, e.last - e.first + 1)) { hold = false; g_on_eager_noguard.fetch_add(1, std::memory_order_relaxed); }
+            if (hold) {
+                e.guarded = true;
+                e.pending = false;
+                e.serial = serial;
+                e.flushed = 0;
+                g_on_deferred.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                eager.push_back(i);
+            }
+        }
+        const uint64_t bytes = record_copies(cb, eager);
+        g_ob_end.fetch_add(bytes, std::memory_order_relaxed);
+        for (size_t i : eager) {
+            OutEntry& e = g_out[i];
+            e.pending = false;
+            if (e.guarded) { e.flushed = serial; e.serial = serial; }   // guarded from before: the guard goes when this submission is done
+            else { rearm.emplace_back(e.addr, e.size); gone.push_back(i); }
+        }
+        remove_entries(gone);
+    }
+    for (const auto& r : rearm) mirror_span_written(r.first, r.second);
+}
+
+void out_retire() {
+    if (!out_any()) return;
+    const uint64_t done = poll_completed();
+    std::vector<std::pair<uint64_t, uint64_t>> rearm;
+    {
+        std::lock_guard<std::mutex> lk(g_out_mu);
+        std::vector<size_t> gone;
+        for (size_t i = 0; i < g_out.size(); ++i) {
+            OutEntry& e = g_out[i];
+            if (!e.flushed || e.pending || e.flushed > done) continue;
+            e.guarded = false;
+            rearm.emplace_back(e.addr, e.size);
+            gone.push_back(i);
+        }
+        remove_entries(gone);
+    }
+    for (const auto& r : rearm) mirror_span_written(r.first, r.second);
+}
+
+void out_fetch(uint64_t addr, uint64_t size, bool by_fault) {
+    if (!size || (!by_fault && !out_lazy())) return;
+    const uint64_t lo = addr & ~(kPageBytes - 1), hi = (addr + size + kPageBytes - 1) & ~(kPageBytes - 1);
+    std::unique_lock<std::mutex> lk(g_out_mu);
+    // later results in these pages go back at the end of their submission
+    for (Mirror* m : g_out_mirrors) {
+        const uint64_t base = reinterpret_cast<uint64_t>(m->pg->base), end = base + m->npages * kPageBytes;
+        if (hi <= base || lo >= end) continue;
+        bits_set(m->cpu_read.get(), (std::max(lo, base) - base) / kPageBytes, (std::min(hi, end) - 1 - base) / kPageBytes, true);
+    }
+    for (int waits = 0;; ) {
+        // rebuilt after every wait: entries may have changed or gone while the lock was free
+        std::vector<size_t> idx, copy;
+        uint64_t need = 0;
+        const bool rt = on_render_thread();
+        const uint64_t cur = rt ? current_serial() : 0;
+        for (size_t i = 0; i < g_out.size(); ++i) {
+            const OutEntry& e = g_out[i];
+            if (!overlaps(e, lo, hi) || !(e.guarded || e.serial)) continue;   // only in the submission being recorded: it goes back at its end
+            idx.push_back(i);
+            // a copy-back is recorded already (flushed): once that submission is done the pool is current, and later pool writes there
+            // (a clear, a copy, an update) must not be overwritten with the held result. Only when this thread is the one recording it
+            // (the render thread) can it not wait: then the result is copied now, before those later writes run.
+            if (e.flushed && !e.pending && !(rt && e.flushed >= cur)) need = std::max(need, e.flushed);
+            else { copy.push_back(i); need = std::max(need, e.serial); }
+        }
+        if (idx.empty()) return;
+        if (need && !serial_done(need) && !(rt && need >= cur) && waits < 8) {
+            lk.unlock();
+            if (!wait_serial(need, 5ull * 1000 * 1000 * 1000)) NXLOG_W(kTag, "compute out: waited 5 s for submission %llu to read its result", static_cast<unsigned long long>(need));
+            lk.lock();
+            ++waits;
+            continue;
+        }
+        uint64_t bytes = 0;
+        if (!copy.empty()) device().submit_once([&](VkCommandBuffer cb) { bytes = record_copies(cb, copy); });
+        (by_fault ? g_ob_fault : g_ob_inval).fetch_add(bytes, std::memory_order_relaxed);
+        (by_fault ? g_on_fault : g_on_inval).fetch_add(1, std::memory_order_relaxed);
+        std::vector<size_t> gone;
+        struct Span { Mirror* m; uint64_t first, last; };
+        std::vector<Span> spans;
+        for (size_t i : idx) {
+            OutEntry& e = g_out[i];
+            if (e.pending) {                               // written again by the submission being recorded: it stays out, unguarded
+                e.guarded = false;
+                e.flushed = 0;
+                e.serial = 0;
+                if (e.m) spans.push_back({e.m, e.first, e.last});
+            } else {
+                gone.push_back(i);
+            }
+        }
+        for (const Span& s : spans) settle(s.m, s.first, s.last);
+        remove_entries(gone);
+        return;
+    }
+}
+
+void out_unregister(Mirror* m) {
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    g_out_mirrors.erase(std::remove(g_out_mirrors.begin(), g_out_mirrors.end(), m), g_out_mirrors.end());
+    // the pool is going away: its held results with it (the region's destruction makes every page writable again)
+    g_out.erase(std::remove_if(g_out.begin(), g_out.end(), [m](const OutEntry& e) { return e.m == m; }), g_out.end());
+    recompute_bounds();
+}
+
+void out_reset() {
+    std::lock_guard<std::mutex> lk(g_out_mu);
+    std::vector<size_t> all(g_out.size());
+    for (size_t i = 0; i < all.size(); ++i) { all[i] = i; g_out[i].guarded = false; }
+    remove_entries(all);
+}
+
+// One line every 10 s: what went back to game memory and why, and what the copies hold.
+void out_log() {
+    static auto last = std::chrono::steady_clock::now();
+    static uint64_t p_end = 0, p_gpu = 0, p_fault = 0, p_inval = 0, pn_fault = 0, pn_inval = 0, pn_def = 0, pn_read = 0, pn_ng = 0, pn_gf = 0, p_gfaults = 0;
+    const auto now = std::chrono::steady_clock::now();
+    const double secs = std::chrono::duration<double>(now - last).count();
+    if (secs < 10.0) return;
+    last = now;
+    const uint64_t end = g_ob_end.load(), gpu = g_ob_gpu.load(), fault = g_ob_fault.load(), inval = g_ob_inval.load();
+    const uint64_t nf = g_on_fault.load(), ni = g_on_inval.load(), nd = g_on_deferred.load(), nr = g_on_eager_read.load(), ng = g_on_eager_noguard.load(),
+                   ngf = g_on_gpu_flush.load(), gfaults = mem::ww::guard_faults();
+    const uint64_t total = (end - p_end) + (gpu - p_gpu) + (fault - p_fault) + (inval - p_inval);
+    size_t held = 0;
+    uint64_t held_bytes = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_out_mu);
+        for (const OutEntry& e : g_out)
+            if (e.guarded && !e.flushed) { ++held; held_bytes += e.size; }
+    }
+    NXLOG_I(kTag, "compute out (%s): copied back %.0f KB/s over %.1f s (end of submission %llu KiB, for GPU readers %llu KiB in %llu flushes, on demand: "
+            "CPU touches %llu KiB in %llu copies, invalidates %llu KiB in %llu copies; guard faults %llu); held in the copy %zu results, %llu KiB "
+            "(held %llu, sent back at once %llu: CPU-read pages, %llu: not guardable)",
+            out_lazy() ? "lazy" : "always", total / 1000.0 / secs, secs, (unsigned long long)page_size_kb(end - p_end), (unsigned long long)page_size_kb(gpu - p_gpu),
+            (unsigned long long)(ngf - pn_gf), (unsigned long long)page_size_kb(fault - p_fault), (unsigned long long)(nf - pn_fault),
+            (unsigned long long)page_size_kb(inval - p_inval), (unsigned long long)(ni - pn_inval), (unsigned long long)(gfaults - p_gfaults), held,
+            (unsigned long long)(held_bytes >> 10), (unsigned long long)(nd - pn_def), (unsigned long long)(nr - pn_read), (unsigned long long)(ng - pn_ng));
+    static uint64_t pw_b[kOutWhyCount] = {}, pw_n[kOutWhyCount] = {};
+    static const char* const kWhyName[kOutWhyCount] = {"reader", "submit end", "copies off", "dispatch", "draw vertex/index/uniform", "draw storage/xfb",
+                                                       "indirect", "buffer write", "buffer read", "texture upload", "event", "other"};
+    std::string why;
+    for (int w = 0; w < kOutWhyCount; ++w) {
+        const uint64_t b = g_why_bytes[w].load(), n = g_why_n[w].load();
+        if (b != pw_b[w] || n != pw_n[w]) {
+            char t[96];
+            snprintf(t, sizeof t, "%s%s %llu KiB/%llu", why.empty() ? "" : ", ", kWhyName[w], (unsigned long long)((b - pw_b[w]) >> 10), (unsigned long long)(n - pw_n[w]));
+            why += t;
+        }
+        pw_b[w] = b; pw_n[w] = n;
+    }
+    if (!why.empty()) NXLOG_I(kTag, "compute out: copy-backs by reason (KiB/flushes over %.1f s): %s", secs, why.c_str());
+    p_end = end; p_gpu = gpu; p_fault = fault; p_inval = inval; pn_fault = nf; pn_inval = ni; pn_def = nd; pn_read = nr; pn_ng = ng; pn_gf = ngf; p_gfaults = gfaults;
 }
 
 }  // namespace gpu

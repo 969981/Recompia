@@ -554,11 +554,20 @@ void fps_group(UiHost& host, Page& p) {
 constexpr const char* kHdrModeNames[] = {"Off", "Auto", "On", "Native"};
 constexpr const char* kHdrFormatNames[] = {"Auto", "HDR10", "scRGB"};
 constexpr const char* kLatencyModeNames[] = {"Off", "Auto", "On", "Boost"};
-constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS"};
-constexpr int kUpscaleCount = static_cast<int>(sizeof kUpscaleNames / sizeof kUpscaleNames[0]);
+constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)"};   // indexed by extras::UpscaleMode
+// The order the list shows them in: the spatial upscalers, then the temporal ones.
+constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nis,
+                                                 extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess};
 
-// Only Off and FSR 1 can be picked for now. The other modes stay in the list, greyed out, and a file that holds one shows it as selected.
-bool upscale_available(extras::UpscaleMode m) { return m == extras::UpscaleMode::Off || m == extras::UpscaleMode::Fsr1; }
+// Off and the spatial upscalers (FSR 1, NIS) can be picked. The temporal ones (FSR 3, DLSS, XeSS) need per-pixel motion vectors, a depth buffer
+// and a jittered camera from the game; Pokopia renders no motion vectors and runs no TAA, so they stay in the list greyed out, and a file that holds
+// one shows it as selected (the game then runs as Off).
+bool upscale_available(extras::UpscaleMode m) {
+    return m == extras::UpscaleMode::Off || m == extras::UpscaleMode::Fsr1 || m == extras::UpscaleMode::Nis;
+}
+constexpr const char* kTemporalWhy =
+    "Not possible in this game: temporal upscalers (and DLAA) need per-pixel motion vectors and a jittered camera, and Pokopia renders "
+    "neither (it has no TAA pass). Use FSR 1 or NIS.";
 
 // A nits field where 0 means "auto" (shown as "auto"). Other values are clamped into lo..hi when the field is left, so the slider can be
 // dragged through the gap below lo while it is held.
@@ -627,25 +636,32 @@ void upscale_group(Page& p) {
     // Only the modes that work are offered. A file that holds another one shows it as the current entry, marked, until the player picks.
     const int mode = static_cast<int>(u.mode);
     std::string preview = kUpscaleNames[mode];
-    if (!upscale_available(u.mode)) preview += " (not available yet)";
+    if (!upscale_available(u.mode)) preview += " (not possible in this game)";
     const bool open = ImGui::BeginCombo("Upscaler##upscale_mode", preview.c_str());
-    tip("FSR 1 draws the game below the window size and sharpens it up to the window.");
+    tip("FSR 1 (AMD) and NIS (NVIDIA Image Scaling) enlarge the game's picture from a lower render or scene resolution and sharpen it; both run on any GPU. "
+        "NIS covers up to 2x per side, FSR 1 takes over beyond that.");
     if (open) {
-        for (int i = 0; i < kUpscaleCount; ++i) {
-            if (!upscale_available(static_cast<extras::UpscaleMode>(i))) continue;
-            if (ImGui::Selectable(kUpscaleNames[i], i == mode) && i != mode) {
-                u.mode = static_cast<extras::UpscaleMode>(i);
+        for (extras::UpscaleMode m : kUpscaleOrder) {
+            const int i = static_cast<int>(m);
+            const bool ok = upscale_available(m);
+            if (!ok) ImGui::BeginDisabled();
+            if (ImGui::Selectable(kUpscaleNames[i], i == mode) && i != mode && ok) {
+                u.mode = m;
                 mark(p);
+            }
+            if (!ok) {
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", kTemporalWhy);
             }
         }
         ImGui::EndCombo();
     }
 
     if (slider("Sharpness", &u.sharpness, 0.0, 1.0, "%.2f")) mark(p);
-    tip("How much FSR 1 sharpens the upscaled picture; 1 is the sharpest.");
+    tip("How much FSR 1 or NIS sharpens the upscaled picture; 1 is the sharpest.");
     if (ImGui::SliderInt("Scene resolution##upscale_scene", &u.scene_scale, 25, 100, "%d%%")) mark(p);
     tip("Renders the 3D scene at this percent of the output size per side; the game scales it up and keeps the HUD and the post effects at full size. 100 turns it off. Applies live.");
-    ImGui::TextDisabled("Or render everything below the window size with the render scale above; FSR 1 then fills the rest.");
+    ImGui::TextDisabled("Or render everything below the window size with the render scale above; the upscaler then fills the rest.");
 }
 
 void latency_group(Page& p) {

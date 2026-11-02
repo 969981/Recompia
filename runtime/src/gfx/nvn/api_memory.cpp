@@ -194,7 +194,13 @@ void nvnMemoryPoolFlushMappedRange(const NVNmemoryPool* pool, ptrdiff_t offset, 
     if (n) textures_cpu_wrote(p->base + start, n);
 }
 
-void nvnMemoryPoolInvalidateMappedRange(const NVNmemoryPool*, ptrdiff_t, size_t) {}
+void nvnMemoryPoolInvalidateMappedRange(const NVNmemoryPool* pool, ptrdiff_t offset, size_t size) {
+    const MemoryPool* p = pool_of_guest(pool);
+    if (!p || !p->base) return;
+    uint64_t start = 0;
+    const uint64_t n = clip_range(offset, size, p->size, start);
+    if (n) gpu::cpu_will_read(reinterpret_cast<uint64_t>(p->base) + start, n);   // compute results held in video memory come back first
+}
 
 NVNbufferAddress nvnMemoryPoolGetBufferAddress(const NVNmemoryPool* pool) {
     const MemoryPool* p = pool_of_guest(pool);
@@ -319,7 +325,15 @@ void nvnBufferFlushMappedRange(const NVNbuffer* buffer, ptrdiff_t offset, size_t
     if (n) textures_cpu_wrote(map + start, n);
 }
 
-void nvnBufferInvalidateMappedRange(const NVNbuffer*, ptrdiff_t, size_t) {}
+void nvnBufferInvalidateMappedRange(const NVNbuffer* buffer, ptrdiff_t offset, size_t size) {
+    BufferData d{};
+    if (!buffer_load(buffer, d)) return;
+    uint8_t* map = buffer_host(d);
+    if (!map) return;
+    uint64_t start = 0;
+    const uint64_t n = clip_range(offset, size, d.size, start);
+    if (n) gpu::cpu_will_read(reinterpret_cast<uint64_t>(map) + start, n);
+}
 
 NVNmemoryPool* nvnBufferGetMemoryPool(const NVNbuffer* buffer) {
     BufferData d{};

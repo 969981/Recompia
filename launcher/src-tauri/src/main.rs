@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dump;
+mod gamebuild;
 mod ini;
 mod play;
 mod settings;
@@ -133,6 +134,9 @@ fn play(app: AppHandle) -> Result<(), String> {
     let report = dump::scan(&cfg.dump_dir);
     let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
     let dir = game_dir_of(&cfg);
+    if gamebuild::is_package_b(&exe_dir().join("tools")) && !gamebuild::is_built(&dir) {
+        return Err("Build the game first (Game files, Set up).".into());
+    }
     if !shaders::is_complete(&dir) {
         return Err("Finish the shader setup first (Game files, Set up).".into());
     }
@@ -163,18 +167,22 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     if progress.state.is_empty() {
         progress.state = "idle".into();
     }
-    SetupStatus { progress, complete: shaders::is_complete(&dir), started: !shaders::read_marker(&dir).romfs.is_empty() }
+    let built = !gamebuild::is_package_b(&exe_dir().join("tools")) || gamebuild::is_built(&dir);
+    let started = !shaders::read_marker(&dir).romfs.is_empty() || dir.join("build").join("state.json").is_file();
+    SetupStatus { progress, complete: built && shaders::is_complete(&dir), started }
 }
 
-/// First-run setup: (a) the pkp.ini paths, (b) the shader cache in shader_cache/spirv, on a worker thread with
-/// "setup-status" events.
+/// First-run setup: (a) the pkp.ini paths, (b) in a model (b) release, pkp.exe built from the player's dump
+/// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
 fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), String> {
     let cfg = load_config(&app);
     let report = dump::scan(&cfg.dump_dir);
     let chosen = report.chosen.ok_or_else(|| "Choose usable game files first.".to_string())?;
     let dir = game_dir_of(&cfg);
-    if !dir.join("pkp.exe").is_file() {
+    let tools_dir = exe_dir().join("tools");
+    let package_b = gamebuild::is_package_b(&tools_dir);
+    if !package_b && !dir.join("pkp.exe").is_file() {
         return Err(format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe or set the game folder in Settings.", dump::fwd(&dir)));
     }
     {
@@ -188,13 +196,26 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
     let st = state.inner().clone();
     st.cancel.store(false, Ordering::SeqCst);
     let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1)).unwrap_or(2).max(1);
+    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: jobs + 1 };
     let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0 };
     std::thread::spawn(move || {
         let emit = |p: shaders::Progress| {
             *st.progress.lock().unwrap() = p.clone();
             let _ = app.emit("setup-status", p);
         };
-        let result = shaders::find_tools(&exe_dir().join("tools")).and_then(|tools| shaders::run(&job, &tools, &st.cancel, |p| emit(p)));
+        let result = (|| {
+            if package_b && !gamebuild::is_built(&build_job.game_dir) {
+                let tools = gamebuild::find_tools(&tools_dir)?;
+                let built = gamebuild::run(&build_job, &tools, &st.cancel, |t| {
+                    emit(shaders::Progress { state: "running".into(), phase: t.phase, done: t.done, total: t.total, message: t.message })
+                })?;
+                if !built {
+                    return Ok(false);
+                }
+            }
+            let tools = shaders::find_tools(&tools_dir)?;
+            shaders::run(&job, &tools, &st.cancel, |p| emit(p))
+        })();
         let end = match result {
             Ok(true) => shaders::Progress { state: "done".into(), phase: "finish".into(), message: "Setup finished.".into(), ..Default::default() },
             Ok(false) => shaders::Progress { state: "cancelled".into(), message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },

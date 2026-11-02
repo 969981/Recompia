@@ -103,11 +103,12 @@ void present_on_render_thread(Window* w, int index) {
     if (const float sc = tex_scale(t); sc != 1.0f)
         for (int32_t& c : crop) c = static_cast<int32_t>(std::lround(static_cast<float>(c) * sc));
     pp->set_flip_y(window_origin_mode() == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT);   // the game runs with the lower-left origin (mode 0)
-    // HDR scene / HDR swapchain / FSR 1 / picture controls go through the output pass (S14); everything else is the plain present pass of the SDR path
+    // HDR scene / HDR swapchain / FSR 1 or NIS / picture controls go through the output pass (S14); everything else is the plain present pass of the SDR path
     const extras::HdrState hs = extras::hdr_state();
     const extras::PictureLive pic = extras::picture_live();
     extras::OutputPass* op = output_pass();
-    if (op && (hs.scene_hdr || hs.output != extras::OutputKind::Sdr8 || extras::upscale_mode() == extras::UpscaleMode::Fsr1 || pic.active)) {
+    if (op && (hs.scene_hdr || hs.output != extras::OutputKind::Sdr8 || extras::upscale_mode() == extras::UpscaleMode::Fsr1 ||
+               extras::upscale_mode() == extras::UpscaleMode::Nis || pic.active)) {
         extras::OutputParams prm;
         prm.src = src;
         prm.src_extent = VkExtent2D{e.width, e.height};
@@ -119,6 +120,7 @@ void present_on_render_thread(Window* w, int index) {
         prm.paper_white_nits = hs.paper_white_nits;
         prm.peak_nits = hs.peak_nits;
         prm.fsr1 = extras::upscale_mode() == extras::UpscaleMode::Fsr1;
+        prm.nis = extras::upscale_mode() == extras::UpscaleMode::Nis;
         prm.sharpness = extras::upscale_sharpness();
         prm.picture = pic.active;
         prm.pic[0] = pic.contrast;

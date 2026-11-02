@@ -7,8 +7,9 @@
 //
 //   HDR       the game's scene pipeline is switched to float targets and a tone curve whose shoulder reaches the display's peak; the
 //             present step encodes the result as HDR10 (ST 2084) or scRGB. See src/gfx/extras/hdr_*.
-//   Upscale   a spatial FSR 1 pass in the present step (any internal resolution below the window size); the temporal upscalers are
-//             described in docs/S14.md.
+//   Upscale   a spatial pass, AMD FSR 1 or NVIDIA Image Scaling, in the present step (any internal resolution below the window size) or on
+//             the HDR scene before the game's tone map. The temporal upscalers (FSR 3, DLSS, XeSS) need motion vectors and a jittered
+//             projection, which Pokopia does not render, so they are kept in the enum but never offered (docs/S14.md).
 //   Latency   NVIDIA Reflex (VK_NV_low_latency2) and AMD Anti-Lag 2 (VK_AMD_anti_lag) markers and sleeps around input sampling.
 #pragma once
 #include <cstdint>
@@ -30,10 +31,10 @@ struct HdrSettings {
     double highlight_boost = 1.0;    // 0 = the game's SDR look up to its own white, 1 = highlights reach the peak (0 .. 2)
 };
 
-enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess };
+enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis };   // Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU)
 struct UpscaleSettings {
     UpscaleMode mode = UpscaleMode::Off;
-    double sharpness = 0.8;          // 0 .. 1 (FSR RCAS; 1 = sharpest)
+    double sharpness = 0.8;          // 0 .. 1 (FSR 1 RCAS or the NIS sharpening; 1 = sharpest)
     int scene_scale = 100;           // 25 .. 100: percent of the output size the 3D scene is rendered at (the game's own dynamic-resolution path; HUD and post stay native)
     std::string fsr_dll;             // amd_fidelityfx_vk.dll location for the FSR 3 modes (empty: next to the exe)
     std::string dlss_dll;            // nvngx_dlss.dll the player supplies (empty: not used)

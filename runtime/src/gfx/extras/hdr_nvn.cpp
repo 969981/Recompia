@@ -8,6 +8,7 @@
 #include "nxrt/extras.h"
 #include "nxrt/log.h"
 #include "extras/fsr1_spatial.h"
+#include "extras/nis_spatial.h"
 #include "extras/hdr_tonemap_patch.h"
 
 namespace nxrt::extras {
@@ -52,18 +53,37 @@ bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash)
     return ok;
 }
 
-bool scene_upscale_wanted() { return upscale_mode() == UpscaleMode::Fsr1; }
+bool scene_upscale_wanted() {
+    const UpscaleMode m = upscale_mode();
+    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nis;
+}
 
-Fsr1Spatial* scene_upscaler(void* gfx_device) {
-    static Fsr1Spatial* inst = nullptr;
-    static bool tried = false;
-    if (!tried && gfx_device) {
-        tried = true;
+SpatialUpscaler* scene_upscaler(void* gfx_device, VkExtent2D in, VkExtent2D out) {
+    static Fsr1Spatial* fsr = nullptr;
+    static NisSpatial* nis = nullptr;
+    static bool tried_fsr = false, tried_nis = false, told_range = false;
+    if (!gfx_device) return nullptr;
+    gfx::Device& dev = *static_cast<gfx::Device*>(gfx_device);
+    if (upscale_mode() == UpscaleMode::Nis) {
+        if (!tried_nis) {
+            tried_nis = true;
+            auto* n = new NisSpatial();
+            if (n->init(dev)) nis = n;
+            else delete n;
+        }
+        if (nis && nis->supports(in, out)) return nis;
+        if (nis && !told_range) {
+            told_range = true;
+            NXLOG_I("hdr", "scene upscale %ux%u -> %ux%u is beyond NIS's 2x: FSR 1 is used for it", in.width, in.height, out.width, out.height);
+        }
+    }
+    if (!tried_fsr) {
+        tried_fsr = true;
         auto* f = new Fsr1Spatial();
-        if (f->init(*static_cast<gfx::Device*>(gfx_device))) inst = f;
+        if (f->init(dev)) fsr = f;
         else delete f;
     }
-    return inst;
+    return fsr;
 }
 
 float scene_upscale_prescale() { return 0.1f; }

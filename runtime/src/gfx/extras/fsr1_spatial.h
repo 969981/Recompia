@@ -8,13 +8,14 @@
 #include <cstdint>
 
 #include "nxrt/gfx.h"
+#include "extras/spatial_upscaler.h"
 
 namespace nxrt::extras {
 
-class Fsr1Spatial {
+class Fsr1Spatial : public SpatialUpscaler {
 public:
     Fsr1Spatial() = default;
-    ~Fsr1Spatial() { shutdown(); }
+    ~Fsr1Spatial() override { shutdown(); }
     Fsr1Spatial(const Fsr1Spatial&) = delete;
     Fsr1Spatial& operator=(const Fsr1Spatial&) = delete;
 
@@ -27,7 +28,7 @@ public:
     // compression; 1 for display-referred values, about 0.1 for the game's pre-exposure scene colour); false: the source is already in [0,1] (sRGB-style).
     // sharpness 0..1 (RCAS; 1 = sharpest). Returns the view of the result, an image in GENERAL layout with a barrier recorded that makes it readable by compute and
     // fragment shaders; the view stays valid until the next call that changes `out`. Null on failure.
-    VkImageView upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D in_view, VkExtent2D in_tex, VkExtent2D out, bool linear_hdr, float prescale, float sharpness);
+    VkImageView upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D in_view, VkExtent2D in_tex, VkExtent2D out, bool linear_hdr, float prescale, float sharpness) override;
     uint32_t frames() const { return frames_; }
 
     static constexpr uint32_t kSetRing = 16;

@@ -142,6 +142,15 @@ midhook 0x7101fbab98
 #   quality: the camera commit (0x71022a9f60) after it copied the staged blocks over the live fields and released the lock, x19 = the
 #   camera (pkp_quality.cpp: the view distance multiplies the live Far clip +0x14; probe log of the quality fields)
 midhook 0x71022aced8
+#   engine TAA (pkp_taa.cpp, [pkp] game_taa): the camera block copy 0x7102123e80 before it reads the TAA enable +0x1a1c (x20 = source),
+#   and the jitter step of 0x71008b6254 before it reads +0x1a1c (x9 = the renderer's camera block)
+midhook 0x7102126a88
+midhook 0x7102574a18
+#   engine TAA probes (pkp_taa.cpp): TemporalAA3 pass slot setup and render (x0 = the pass, +0xc its switch), TemporalAA (v1) and KTSS slot setup
+entryhook 0x7101e53748
+entryhook 0x7101e5389c
+entryhook 0x7101e39b64
+entryhook 0x7101e577ac
 
 #   quality: model LOD setup (PartsLodDistance0/1 at x0+0x174/0x178, [pkp] lod_distance)
 entryhook 0x7102371280

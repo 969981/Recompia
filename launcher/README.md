@@ -22,6 +22,14 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
 
 `release\Play.bat` starts the game the same way without the launcher (after setup).
 
+## Release model (b): pkp.exe built on the player's PC
+
+When `tools\build\pkp_build.py` is present (the package from the main project's release script), the release holds no
+`pkp.exe`. Set up first builds it from the chosen dump (`src-tauri/src/gamebuild.rs`): verify the ExeFS by hash, lift,
+compile with the bundled Zig, link against `pkp_rt.dll`; then the shader steps below run. Play stays off until both are
+done. Pause works in every step and Continue setup resumes. Headless check of the whole first run:
+`cargo run --release --example first_run -- <game dir> <exefs> <romfs> <tools dir> [shader limit] [jobs]`.
+
 ## Release folder
 
 The launcher looks for its tools in `tools\` next to its own exe. A release folder must contain:

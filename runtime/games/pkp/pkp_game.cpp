@@ -4,6 +4,7 @@
 #include "pkp_menu.h"
 #include "pkp_play.h"
 #include "pkp_quality.h"
+#include "pkp_taa.h"
 
 #include <cstring>
 
@@ -102,12 +103,14 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     play_install(base, host, s);
     menu_install(base);
     quality_install(base, s);
+    taa_install(base);
 }
 void settings_changed_all(const play::Settings& s) {
     play_settings_changed(s);
     quality_settings_changed(s);
 }
 void remove_all() {
+    taa_remove();
     quality_remove();
     menu_remove();
     play_remove();
@@ -118,6 +121,11 @@ void status_all(char* buf, size_t n) {
     if (k + 1 < n) menu_status_text(buf + k, n - k);
     const size_t k2 = std::strlen(buf);
     if (k2 + 1 < n) quality_status_text(buf + k2, n - k2);
+    const size_t k3 = std::strlen(buf);
+    if (k3 + 2 < n) {
+        buf[k3] = ' ';
+        taa_status_text(buf + k3 + 1, n - k3 - 1);
+    }
 }
 
 const play::GamePlay& game_play() {

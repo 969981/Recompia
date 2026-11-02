@@ -1,0 +1,9 @@
+Tools bundled for the first-run build (release model b). None of them contains game code or data.
+- Zig 0.17.0 (tools/build/zig): MIT (LICENSE.zig.MIT.txt). The clang, lld, libc++, libunwind and compiler-rt inside it are LLVM
+  projects, Apache-2.0 WITH LLVM-exception. mingw-w64 headers and CRT sources carry their own notices (public domain / ZPL / MIT-style)
+  in tools/build/zig/lib/libc/mingw and lib/libc/include/any-windows-any.
+- Python 3.13.15 embeddable package (tools/python): PSF License (LICENSE.Python.PSF.txt).
+- capstone 5.0.9 (BSD-3-Clause) and lz4 4.4.5 (BSD-3-Clause) Python packages: licences in tools/python/Lib/site-packages/*.dist-info.
+- nxrecomp lifter (tools/build/recomp): GPL-3.0-or-later (tools/build/recomp/LICENSE).
+- spirv_harness (tools/spirv_harness): built on Ryujinx's shader translator (MIT, LICENSE.Ryujinx.MIT.txt) and the .NET runtime (MIT).
+- Keyboard and mouse prompt icons (assets/kbm_icons): Kenney Input Prompts, CC0.

@@ -106,12 +106,12 @@ bool pick_word(const std::string& k, const std::string& v, const std::vector<con
 // The words the file uses for the display extras enums, indexed by the enum value (the first word of each list is the default's).
 const std::vector<const char*> kHdrModeWords = {"off", "auto", "on", "native"};
 const std::vector<const char*> kHdrFormatWords = {"auto", "hdr10", "scrgb"};
-const std::vector<const char*> kUpscaleWords = {"off", "fsr1", "fsr3", "dlss", "xess"};
+const std::vector<const char*> kUpscaleWords = {"off", "fsr1", "fsr3", "dlss", "xess", "nis"};
 const std::vector<const char*> kLatencyWords = {"off", "auto", "on", "boost"};
 // The upscale words accepted when reading (spatial is an alias of fsr1) and the enum value each one means.
-const std::vector<const char*> kUpscaleReadWords = {"off", "fsr1", "spatial", "fsr3", "dlss", "xess"};
+const std::vector<const char*> kUpscaleReadWords = {"off", "fsr1", "spatial", "fsr3", "dlss", "xess", "nis"};
 const extras::UpscaleMode kUpscaleFromWord[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr1,
-                                                extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess};
+                                                extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess, extras::UpscaleMode::Nis};
 
 // Splits on '\n'. Line i of the result is line i+1 of the file (for error messages).
 std::vector<std::string> split_lines(const std::string& text) {

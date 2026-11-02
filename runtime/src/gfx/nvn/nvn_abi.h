@@ -123,6 +123,11 @@ inline void write_result(::Ctx* c, R v) {
 }
 
 // ---- the thunk ---------------------------------------------------------------------------------------------------------
+// Set when a recording ran out of the command or control memory the game added (api_cmdbuf.cpp): the thunk calls the game's
+// memory callback after the NVN function returns, with no lock held, on the recording thread.
+inline thread_local bool t_cmdmem_pending = false;
+void cmdmem_run_pending(::Ctx* c);
+
 template <auto Fn>
 struct Thunk;
 
@@ -138,6 +143,7 @@ struct Thunk<Fn> {
             R r = std::apply(Fn, std::tuple<A...>{rd.template next<A>()...});
             write_result<R>(c, r);
         }
+        if (t_cmdmem_pending) cmdmem_run_pending(c);
     }
 };
 

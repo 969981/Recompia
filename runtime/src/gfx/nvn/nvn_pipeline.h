@@ -37,6 +37,8 @@ struct ProgLayout {
     VkPipelineLayout layout = VK_NULL_HANDLE;
     std::vector<BindingDesc> bindings;          // every used descriptor of every stage, sorted by (set, binding)
     bool has_set[4] = {};
+    VkShaderStageFlags push_stages = 0;         // push constant range [0, push_bytes) of generated stages (ShaderInfo::push_bytes); 0 = none
+    uint32_t push_bytes = 0;
 };
 
 // Stages by NVN stage index (0 vertex, 1 fragment, 2 geometry, 5 compute); null = absent.

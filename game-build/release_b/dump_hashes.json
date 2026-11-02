@@ -1,0 +1,13 @@
+{
+  "title": "Pokémon Pokopia",
+  "program_id": "0400A3A01EE4C000",
+  "version": "2.0.1 (update 655360)",
+  "main_build_id": "76a489f3bd3642fa5e18bd83d32c98bacc5f7d0e",
+  "sha256": {
+    "main": "8a8ce87b4edfce88c6260da5dd80d6cafc03a761eebc842d7a3476e353a8336f",
+    "sdk": "7c12078e9f853f5d77f395155f7308f264fa6e93fadaeba8dca525f4483c09b2",
+    "subsdk0": "2e91ffc8b6f036ffd34fdb3c3dc280dec80956308e34ea866167650842c9f3be",
+    "rtld": "166d3b75ec5559cd241cbacf03dbf16c267a2cbfc95c33c41ba02d3a03c5616f",
+    "main.npdm": "de024cc0dcdf3480b1fca447344fce0a35f49aaffe842c25e5fb4c6d359d42b4"
+  }
+}

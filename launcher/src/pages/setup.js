@@ -24,13 +24,13 @@ function shadersHtml(s, saved) {
   if (running) {
     body = `<p class="dim">${esc(p.message)}</p>
       <progress max="100" value="${p.total ? pct : ''}"></progress>
-      <p class="faint">${p.total ? `${pct}%. ` : ''}You can pause and continue later; finished shaders are kept.</p>`;
+      <p class="faint">${p.total ? `${pct}%. ` : ''}You can pause and continue later; finished work is kept.</p>`;
   } else if (p.state === 'error') {
-    body = `<div class="banner danger">${icon('circle-x')}<div>${esc(p.message)}</div></div>`;
+    body = `<div class="banner danger">${icon('circle-x')}<div style="white-space: pre-wrap">${esc(p.message)}</div></div>`;
   } else if (s.complete) {
-    body = `<p class="dim">${icon('circle-check')} Done. The game's shaders are in <code>shader_cache/spirv</code> next to pkp.exe.</p>`;
+    body = `<p class="dim">${icon('circle-check')} Done. pkp.exe is built and the game's shaders are in <code>shader_cache/spirv</code> next to it.</p>`;
   } else {
-    body = `<p class="dim">${p.state === 'cancelled' ? esc(p.message) : 'Writes the game paths to pkp.ini and translates the game\'s shaders from your romfs for your PC (once; about 100,000 shaders, takes a while; needs about 36 GB free while it runs and keeps about 26 GB).'}</p>`;
+    body = `<p class="dim">${p.state === 'cancelled' ? esc(p.message) : 'Checks your game files, builds pkp.exe from them on this PC (the download contains no game code; the compile takes a while and needs a few GB free while it runs), then translates the game\'s shaders from your romfs (about 100,000 shaders; needs about 36 GB free while it runs and keeps about 26 GB). You can pause and continue later.'}</p>`;
   }
   const label = s.complete ? 'Set up again' : s.started ? 'Continue setup' : 'Set up';
   return `

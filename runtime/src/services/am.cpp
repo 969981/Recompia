@@ -527,9 +527,11 @@ ServicePtr make_window_controller() {
 }
 
 // ---- library applets -------------------------------------------------------------------------------------------------------------
-// The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form, the player select (0x10),
-// the error applet (0x0E: logs the error it was given), the shop (0x14: ends cancelled) and, for every other applet, one that ends at
-// once with no output (what the game waits for is that the applet ends). Command ids
+// Every applet Pokopia's main (and the SDK functions it imports) can create gets its own answer; the list and the reasons are in
+// docs/IPC_ANSWERS.md. The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form answers a text, the player select
+// (0x10) answers the one user or, for its network-account modes, that the player backed out; the error applet (0x0E) logs the error it
+// was given; the shop, friends, data management, network connection and GameShare matchmaking applets end as cancelled by the player
+// (offline: nothing to buy, invite, free or connect to). An applet id nothing here knows ends at once with no output. Command ids
 // follow the Switchbrew "Applet Manager services" page (IAppletAccessor / ILibraryAppletAccessor). The keyboard storages follow Ryujinx
 // src/Ryujinx.HLE/HOS/Applets/SoftwareKeyboard (MIT: SoftwareKeyboardConfig, the 0x7D8-byte output) and Eden / yuzu
 // applet_software_keyboard_types.h (GPL-3.0-or-later); the accessor's channel model follows the user's Afterpulse runtime (am.cpp, same
@@ -541,7 +543,26 @@ constexpr uint32_t kAppletIdShop = 0x14;                      // LibraryAppletSh
 // cancelled at once (offline: no invitation can be sent); nn::la::StartLibraryApplet turns that into a failure and the friends call
 // returns 0x3C79 (121-30) to the game, which ignores it (StartFriendInvitation) or takes its failure path (StartSending...).
 constexpr uint32_t kAppletIdMyPage = 0x1A;
+// LibraryAppletDataErase (0x100000D): nn::fs::EnsureSaveData / ExtendSaveData (sdk 0x75003e6a78, 0x75003e6d7c) run it through
+// nn::la::StartLibraryAppletEasy when IApplicationFunctions reports a required size above 0 (the save does not fit). Ends cancelled:
+// the fs call then returns 0x3E02 (not enough space), as when the player leaves data management without freeing anything.
+constexpr uint32_t kAppletIdDataErase = 0x0D;
+// LibraryAppletNetConnect (0x0F): nn::nifm::HandleNetworkRequestErrorResult. Pokopia's two imports of it are answered before the SDK
+// gets here (core/switch2.cpp); if it is reached anyway it ends cancelled (the network problem is not resolved).
+constexpr uint32_t kAppletIdNetConnect = 0x0F;
+// GameShare matchmaking (0x1000024, or 0x1030024 for the other StreamPlayType): nn::streamplay::detail::ShowMatchmakeSupportCore
+// (sdk 0x75006b9420), from nn::streamplay::OpenSessionWithMatchmakeSupport (game: main 0x7101132f60, GameShare host). Ends cancelled:
+// the SDK returns 0x3D1F, which the game (main 0x7101133704) treats as the player backing out, with no error shown.
+constexpr uint32_t kAppletIdMatchmake = 0x24;
 constexpr uint32_t kAppletIdPlayerSelect = 0x10;              // nn::applet::AppletId LibraryAppletPlayerSelect
+// The player select's UiSettings (in data 1, 0xA0 bytes): u32 mode at 0 (nn::account::detail::StartPselApplet, sdk 0x75001844c0,
+// pushes it and pops a 0x18-byte {u64 result, Uid} answer whose result it returns). Mode 0 is ShowUserSelector; 2 is
+// EnsureNetworkServiceAccountAvailable, 10 / 11 ShowLicenseRequirementsForNetworkService (also from nn::err::ShowError for some
+// network results). Offline there is no Nintendo Account to link and no Switch Online licence, so every mode but the user selector
+// answers ResultCancelledByUser (124-1, 0x27C). Pokopia's callers (main 0x7100542f20, 0x7100583860 ...) read 0x27C as "the player
+// backed out" and stop quietly; a success from mode 2 would make them retry the token request in a loop.
+constexpr uint32_t kPselModeUserSelector = 0;
+constexpr uint32_t kAccountCancelledByUser = 0x27C;
 constexpr uint32_t kAppletIdSwkbd = 0x11;                     // LibraryAppletSwkbd
 constexpr uint32_t kAppletModeAllForeground = 0;              // nn::applet::LibraryAppletMode: the normal keyboard
 constexpr size_t kSwkbdStringSize = 0x7D4;                    // STRING_BUFFER_SIZE
@@ -807,15 +828,38 @@ void swkbd_interactive(const std::shared_ptr<AppletState>& ap) {
     }
 }
 
-// The player select: the one user, picked at once (output: u64 result 0, then the Uid; 0x18 bytes).
+// The player select (output: u64 result, then the Uid; 0x18 bytes). The user selector picks the one user at once; the other modes
+// (network account and licence screens) answer that the player backed out, with no user.
 void player_select_start(AppletState& a) {
+    std::shared_ptr<Bytes> ui = a.in_data.size() > 1 ? a.in_data[1] : nullptr;
+    const uint32_t mode = ui ? read_at<uint32_t>(*ui, 0, kPselModeUserSelector) : kPselModeUserSelector;
     auto out = std::make_shared<Bytes>(0x18, uint8_t{0});
-    uint64_t hi = 0, lo = 0;
-    accapi::user_uid(&hi, &lo);
-    std::memcpy(out->data() + 8, &hi, 8);
-    std::memcpy(out->data() + 16, &lo, 8);
+    if (mode == kPselModeUserSelector) {
+        uint64_t hi = 0, lo = 0;
+        accapi::user_uid(&hi, &lo);
+        std::memcpy(out->data() + 8, &hi, 8);
+        std::memcpy(out->data() + 16, &lo, 8);
+        NXLOG_I("am", "player select applet 0x%x (user selector): answering the one user", a.full_id);
+    } else {
+        const uint64_t r = kAccountCancelledByUser;
+        std::memcpy(out->data(), &r, 8);
+        NXLOG_I("am", "player select applet 0x%x (account mode %u: network account / licence screen): offline, answering cancelled by "
+                "the player (0x27C)", a.full_id, mode);
+    }
     push_out(a, out);
     applet_finish(a);
+}
+
+// The applets that end as cancelled by the player (GetResult LibraryAppletCanceled, exit reason 1), with what the log says about them.
+const char* cancelled_applet(uint32_t id) {
+    switch (id) {
+    case kAppletIdShop: return "shop: no eShop here";
+    case kAppletIdMyPage: return "friends (friend invitation): offline, no invitation sent";
+    case kAppletIdDataErase: return "data management (save data does not fit): nothing freed";
+    case kAppletIdNetConnect: return "network connection: offline, not resolved";
+    case kAppletIdMatchmake: return "GameShare matchmaking: no guests here";
+    default: return nullptr;
+    }
 }
 
 // The error applet: in data 0 is CommonArguments, 1 the error argument; the first byte of that is its type (sdk nn::err, Pokopia's sdk
@@ -906,14 +950,11 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
                 player_select_start(*a);
             } else if (a->id == kAppletIdError) {
                 error_applet_start(*a);
-            } else if (a->id == kAppletIdShop) {
-                NXLOG_I("am", "shop applet 0x%x started: no shop here, it ends as cancelled by the player", a->full_id);
-                applet_finish(*a);
-            } else if (a->id == kAppletIdMyPage) {
-                NXLOG_I("am", "friends applet 0x%x started (friend invitation): offline, it ends as cancelled", a->full_id);
+            } else if (const char* why = cancelled_applet(a->id)) {
+                NXLOG_I("am", "library applet 0x%x started (%s): it ends as cancelled by the player", a->full_id, why);
                 applet_finish(*a);
             } else {
-                NXLOG_I("am", "library applet 0x%x started: it ends at once with no output", a->full_id);
+                NXLOG_W("am", "library applet 0x%x started (not one Pokopia was seen to launch): it ends at once with no output", a->full_id);
                 applet_finish(*a);
             }
             return 0;
@@ -929,10 +970,11 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
             if (!a->completed) applet_finish(*a);
             return 0;
         });
-        // The shop ends cancelled (LibraryAppletCanceled, 128-22: exit reason Canceled in nn::applet::JoinLibraryApplet), so
-        // nn::ec::detail::ShowShopPage does not read the 0x1010-byte return value it aborts without. Every other applet: success.
+        // The cancelled applets answer LibraryAppletCanceled (128-22: exit reason Canceled in nn::applet::JoinLibraryApplet, a failure
+        // in nn::la::StartLibraryApplet), so nn::ec::detail::ShowShopPage does not read the 0x1010-byte return value it aborts without
+        // and the others return their own "cancelled" result. Every other applet: success.
         s.add_cmd(30, "GetResult", [a](Request&, Response&) -> uint32_t {
-            return a->id == kAppletIdShop || a->id == kAppletIdMyPage ? kAppletCanceled : 0;
+            return cancelled_applet(a->id) ? kAppletCanceled : 0;
         });
         s.add_cmd(50, "SetOutOfFocusApplicationSuspendingEnabled", ignored("SetOutOfFocusApplicationSuspendingEnabled"));
         s.add_cmd(60, "PresetLibraryAppletGpuTimeSliceZero", ignored("PresetLibraryAppletGpuTimeSliceZero"));

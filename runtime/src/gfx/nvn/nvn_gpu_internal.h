@@ -131,7 +131,7 @@ enum WriteUse { kWriteStorage = 0, kWriteXfb = 1, kWriteImageCopy = 2, kWriteUpd
 BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use);
 // The device-local copy of [gpu_address, +size) for the compute shadows (nvn_replay.cpp): its chunk and offset (buf null: no copy for it, or the
 // range spans two chunks), and whether the copy holds the pool's bytes right now. Call it before note_gpu_write invalidates the range.
-struct MirrorSpan { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize offset = 0; bool valid = false; };
+struct MirrorSpan { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize offset = 0; bool valid = false; VkDeviceSize avail = 0; };   // avail: bytes to the chunk's end
 MirrorSpan mirror_span(uint64_t gpu_address, uint64_t size);
 // The GPU wrote the same bytes of the range into the pool and into its copy (a shadow's result): the pages wholly inside the range hold the
 // pool's bytes again and are tracked again (unless hot or banned), so the next dispatch reads them from video memory.
@@ -144,6 +144,51 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
 bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use);
 void mirror_begin_submit(Frame& f, bool on);
 void mirror_destroy(PoolGpu* p);
+
+// ---- compute results held in the pool copy (nvn_gpu_pool.cpp, "compute out") ----------------------------------------------------
+// A dispatch that binds the pool copy directly (nvn_replay.cpp, compute shadows) writes its result there: the range is "out" until the
+// copy-back to the pool. [nvn] compute_out_lazy (default on): at the end of a submission a result is not copied back but held in the
+// copy, its pages guarded (nxrt/write_watch.h: the CPU's first access waits for an on-demand copy, out_fetch); draws read it from the copy
+// (resolve_read), and the other GPU readers of the pool get it copied back first (out_flush). Results in pages the CPU has read before
+// (a guard fault or nvnMemoryPool/BufferInvalidateMappedRange) are copied back at the end of the submission, as without the option.
+// Off: every result goes back at the end of its submission, and before any command other than a dispatch, a state change or a barrier.
+// Render thread unless noted.
+bool out_lazy();
+bool out_any();                                                    // any thread (a hint)
+// The direct binding [addr, +size) at (mbuf, moff) of the copy was written (host: the pool's buffer). True: the same range was out already.
+bool out_add(uint64_t addr, VkDeviceSize size, VkBuffer mbuf, VkDeviceSize moff, const BufRef& host);
+// The same range is out: its place in the copy.
+bool out_exact(uint64_t addr, VkDeviceSize size, VkBuffer* buf, VkDeviceSize* off);
+// Some page of [addr, +size) holds a result that is newer in the copy than in the pool.
+bool out_overlaps(uint64_t addr, uint64_t size);
+// resolve_read would bind the copy for [addr, +size) (every page current there).
+bool out_servable(uint64_t addr, uint64_t size);
+// Why results went back (the stats line): the end of a submission, or the GPU reader of the pool that needed them.
+enum OutWhy {
+    kOutGpuReader = 0,      // unspecified reader
+    kOutSubmitEnd,          // end of the submission (CPU-read pages, not guardable, or compute_out_lazy off)
+    kOutMirrorOff,          // a submission without pool copies (gpuperf A/B off window)
+    kOutDispatch,           // a compute binding over a held result that cannot bind the copy (overlapping ranges, no copy, shadow)
+    kOutDrawBuffer,         // a vertex, index or uniform buffer the copy cannot serve (two chunks, unaligned uniform ...)
+    kOutStorageXfb,         // a storage or feedback buffer of a draw the copy cannot serve
+    kOutIndirect,           // indirect or feedback-draw arguments the copy cannot serve
+    kOutBufferWrite,        // a command writing pool memory over a held result (clear, copy destination, uniform update, report)
+    kOutBufferRead,         // a buffer copy or buffer-texture copy reading a held result the copy cannot serve
+    kOutTexture,            // a texture upload reading a held result
+    kOutEvent,              // an event signal over a held result
+    kOutOther,              // anything else (feedback begin/end, ops without an address)
+    kOutWhyCount
+};
+// Records into cb (outside any pass) the copy-back of every result sharing a page with [addr, +size) (size UINT64_MAX: all), with the
+// barriers around it. Returns the bytes.
+uint64_t out_flush(VkCommandBuffer cb, uint64_t addr, uint64_t size, int why);
+// The end of a submission's recording (serial): each result written in it is held (guarded) or copied back.
+void out_end_submit(VkCommandBuffer cb, uint64_t serial);
+// Any thread: the CPU will read [addr, +size) (nvnMemoryPool/BufferInvalidateMappedRange; a guard fault calls it too): results held
+// there are copied back now (waiting for the GPU), and later results there go back at the end of their submission.
+void out_fetch(uint64_t addr, uint64_t size, bool by_fault);
+uint64_t out_bytes_total();                                        // bytes copied back so far (statistics)
+void out_reset();                                                  // replay shutdown: drops every entry (guards off)
 
 // ---- textures --------------------------------------------------------------------------------------------------------------
 // What a binding site needs to see of a texture.

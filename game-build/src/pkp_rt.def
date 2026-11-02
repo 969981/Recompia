@@ -1,0 +1,17 @@
+; pkp_rt.dll exports (release model b): the entry pkp.exe calls (pkp_rt_api.h) and every function recomp's ctx.h marks as
+; runtime-provided, which the lifted game code compiled on the player's PC imports from here.
+LIBRARY pkp_rt
+EXPORTS
+    pkp_rt_main
+    call_indirect
+    host_import
+    guest_trap
+    guest_unimpl
+    guest_svc
+    guest_mrs
+    guest_msr
+    nx_site_inline
+    nx_site_midhook
+    nx_hook_entry
+    stx_diag
+    nx_catch_call

@@ -121,7 +121,14 @@ def put(sub, h, data):
         t = f'{p}.{os.getpid()}.tmp'
         with open(t, 'wb') as f:
             f.write(data)
-        os.replace(t, p)
+        try:
+            os.replace(t, p)
+        except PermissionError:
+            # Windows refuses to replace a file another worker (or a virus scanner) has open. That worker wrote the same
+            # block (content-addressed), so keep its copy.
+            if not os.path.exists(p):
+                raise
+            os.remove(t)
 
 
 def slim(occs):

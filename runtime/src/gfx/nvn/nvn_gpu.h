@@ -60,6 +60,10 @@ void texture_registered(Texture* t);   // the registration half of the above: on
 // texture has no GPU image yet or cannot be read back.
 bool download_texture(Texture* t);
 
+// nvnMemoryPoolInvalidateMappedRange / nvnBufferInvalidateMappedRange: the CPU is about to read [addr, +size), which the GPU may have
+// written. Compute results the back end holds in video memory there are copied back first (waits for the GPU). Any thread.
+void cpu_will_read(uint64_t addr, uint64_t size);
+
 // nvnDeviceSetWindowOriginMode / nvnDeviceSetDepthMode: the replay needs them to place viewports and the depth range.
 void set_window_modes(int origin_mode, int depth_mode);
 
