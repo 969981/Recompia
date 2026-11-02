@@ -846,6 +846,9 @@ namespace Ryujinx.Graphics.Shader.Instructions
             IrOperand[] r;
             if (HasSuffix(x, ".H0_H0")) r = [ctx.UnpackHalf2x16Low(v), ctx.UnpackHalf2x16Low(v)];
             else if (HasSuffix(x, ".H1_H1")) r = [ctx.UnpackHalf2x16High(v), ctx.UnpackHalf2x16High(v)];
+            // H0_NH1 (selector 4): the lanes swap and the half that lands in the low lane, the old H1, is negated. It fell through to the
+            // plain H1_H0 order before, so HFMA2/HADD2 forms with it computed the wrong halves (the same fix as Eden-NS2's Pokopia lowering).
+            else if (HasSuffix(x, ".H0_NH1")) r = [ctx.FPAbsNeg(ctx.UnpackHalf2x16High(v), false, true), ctx.UnpackHalf2x16Low(v)];
             else if (HasSuffix(x, ".F32")) r = [v, v];
             else r = [ctx.UnpackHalf2x16Low(v), ctx.UnpackHalf2x16High(v)];
             return FPAbsNeg(ctx, r, x.Abs, x.Neg);
