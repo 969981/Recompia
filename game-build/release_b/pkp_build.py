@@ -169,6 +169,20 @@ def lift(runner, exefs, gen, jobs):
     progress('lift', len(MODULES), len(MODULES), 'Game code translated')
 
 
+def free_memory():
+    """Available physical memory in bytes (Windows), or None."""
+    try:
+        import ctypes
+
+        class MS(ctypes.Structure):
+            _fields_ = [('len', ctypes.c_uint32), ('load', ctypes.c_uint32)] + [(n, ctypes.c_uint64) for n in
+                        ('total', 'avail', 'pagetotal', 'pageavail', 'virttotal', 'virtavail', 'extavail')]
+        m = MS(len=ctypes.sizeof(MS))
+        return m.avail if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)) else None
+    except (AttributeError, OSError):
+        return None
+
+
 def compile_all(runner, gen, obj, jobs, env):
     units = []
     for name, _, _, _, shards in MODULES:
@@ -195,22 +209,39 @@ def compile_all(runner, gen, obj, jobs, env):
         cmd = [ZIG, 'c++'] + CXXFLAGS + ['-I', os.path.join(RECOMP, 'include'), '-I', os.path.dirname(src), '-c', src, '-o', tmp]
         rc, tail = runner.run(cmd, env=env)
         if rc != 0:
-            raise Fail('Compiling %s/%s failed (exit %d):\n%s' % (name, os.path.basename(src), rc, tail))
+            return 'Compiling %s/%s failed (exit %d):\n%s' % (name, os.path.basename(src), rc, tail)
         os.replace(tmp, o)
+        return None
 
+    # a big unit takes a GB or two in clang; with too many at once memory runs out and clang dies on every unit with
+    # exit 541541187 (0x20474343: an uncaught C++ exception, std::bad_alloc)
+    # ponytail: 2 GiB per job is a guess from the unit sizes; measure if machines with plenty of RAM get capped
+    avail = free_memory()
+    if avail:
+        jobs = max(1, min(jobs, avail // (2 << 30)))
+    failed = []
     with ThreadPoolExecutor(max_workers=jobs) as ex:
-        pending = {ex.submit(one, t) for t in todo}
+        pending = {ex.submit(one, t): t for t in todo}
         try:
             while pending:
-                fin, pending = wait(pending, return_when=FIRST_COMPLETED)
+                fin, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for f in fin:
-                    f.result()
+                    t = pending.pop(f)
+                    if f.result():
+                        failed.append(t)
+                        continue
                     done += 1
                     progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
         except BaseException:
             for f in pending:
                 f.cancel()
             raise
+    for t in failed:                     # again one at a time with all the memory: only a failure here is real
+        err = one(t)
+        if err:
+            raise Fail(err)
+        done += 1
+        progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
 
 
 def clear_high_entropy_va(exe):
