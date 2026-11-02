@@ -91,6 +91,14 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             Ok(s) => (s.code(), None),
             Err(e) => (None, Some(e.to_string())),
         };
+        // shaders the game built while it ran: translated now, so the next run has them (the state stays "running" meanwhile)
+        set_status(&app2, Status { state: "running".into(), message: "Translating the shaders the game built while it ran...".into(), ..Default::default() });
+        let tools = crate::exe_dir().join("tools");
+        let shaders = match crate::shaders::translate_missing(&dir, &tools) {
+            Ok(0) => String::new(),
+            Ok(n) => format!(" {} new shaders translated.", n),
+            Err(e) => format!(" New shaders were not translated: {}.", e),
+        };
         let files = report_files(&dir, started);
         let crash_file = files.iter().any(|f| f.fresh && f.name != "pkp.log");
         let crashed = crash_file || code.map_or(true, |c| c != 0);
@@ -100,7 +108,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             (None, Some(c)) => format!("pkp.exe exited with code {} (0x{:08X}).", c, c as u32),
             (None, None) => "pkp.exe was ended by the system.".to_string(),
         };
-        set_status(&app2, Status { state: "exited".into(), code, crashed, files, message });
+        set_status(&app2, Status { state: "exited".into(), code, crashed, files, message: message + &shaders });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.unminimize();
