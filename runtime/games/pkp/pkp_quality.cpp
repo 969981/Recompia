@@ -20,6 +20,14 @@
 //
 // Texture sharpness: the renderer's own sampler tuning ([display] lod_bias, anisotropy, play_display.cpp) on every NVN sampler. A
 // [pkp] quality_preset in the ini or the environment wins over the F1 page's values at start and after every settings change.
+//
+// Fog strength ([pkp] fog_strength, 0 .. 1.5, 1 = the console). The height-fog pass (fragment shader 7c8c05da24a1f5a2, a full-screen pass
+// after lighting) blends three fog layers over the scene: per layer i, factor = (1 - exp(-ramp^2)) * clamp(c3[i].w, 0, 1) * distance ramp,
+// colour c3[i].xyz, where c3 is its uniform block 3 (73 vec4s; c3[3..5] the height ramps, c3[6..65] four cos fluctuations per layer,
+// c3[66] mask-map transform, c3[67] flags, c3[68] depth linearisation, c3[69..72] the inverse view). The NVN back end scales the three
+// layer amounts c3[0..2].w (byte offsets 0x0c, 0x1c, 0x2c) by the strength when it binds that block (nxrt/gfx_tuning.h): 0 removes the
+// fog, values above 1 raise only the layers whose amount is below 1 (the shader clamps it). No guest hook: the CPU writer of the block was not
+// found (the env parameter table 0x71009d3010 has HeightFogLayer0/1 Start, End and Color at +0x8d8..+0x908, but no 3-layer writer was traced).
 #include "pkp_quality.h"
 
 #include <algorithm>
@@ -398,6 +406,15 @@ void quality_install(uint64_t base, const play::Settings& set) {
         s.ini_view = config_get_double("pkp", "view_distance", 1.0);
     }
     apply(set);
+    {
+        const double fog = std::clamp(config_get_double("pkp", "fog_strength", 1.0), 0.0, 1.5);
+        gfx::Tuning& t = gfx::tuning();
+        t.ufs_block.store(3);
+        t.ufs_mask.store((1u << 3) | (1u << 7) | (1u << 11));   // c3[0].w, c3[1].w, c3[2].w
+        t.ufs_scale.store(static_cast<float>(fog));
+        t.ufs_hash.store(0x7c8c05da24a1f5a2ull);
+        if (fog != 1.0) NXLOG_I(kTag, "quality: fog strength x%.2f", fog);
+    }
     s.hooks.push_back(hook_add_mid(base + kCamCommitEnd, &hook_cam_commit));
     s.hooks.push_back(hook_add_mid(base + kProjBuild, &hook_proj_build));
     s.probe = config_get_bool("pkp", "quality_probe", false);

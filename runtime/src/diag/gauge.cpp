@@ -66,6 +66,7 @@ uint64_t g_prev_phase[kHpCount];                  // at the previous frame; the 
 std::atomic<uint64_t> g_game_present_last{0};     // QPC of the game's latest present call
 std::atomic<uint64_t> g_game_gap_max{0};          // longest gap between two game present calls since the last presented frame
 thread_local bool t_render_thread = false;
+thread_local bool t_game_present_thread = false;  // this thread has called hitch_note_game_present
 
 struct HitchEvent {
     double ms = 0;
@@ -167,6 +168,16 @@ std::string format_event(const HitchEvent& ev, size_t others) {
     game = b;
     part(game, "present back pressure", kHpGameBackpressure);
     part(game, "GPU sync waits (all threads)", kHpGameSyncWait);
+    {   // the presenting game thread's system calls (IPC = services and file reads, waits); the rest of its gap is guest code on the CPU
+        std::string sv;
+        part(sv, "IPC", kHpGameIpc);
+        part(sv, "waits", kHpGameWait);
+        const double v = ms(kHpGameSvc);
+        if (v >= 0.05) {
+            snprintf(b, sizeof b, ", presenting thread in system calls %.1f%s%s%s", v, sv.empty() ? "" : " (", sv.c_str(), sv.empty() ? "" : ")");
+            game += b;
+        }
+    }
     out += game;
     std::string any_thr;
     part(any_thr, "write-fault handler", kHpFaults);
@@ -370,7 +381,9 @@ void hitch_phase_add(int phase, uint64_t ticks) {
 }
 void hitch_set_render_thread() { t_render_thread = true; }
 bool hitch_on_render_thread() { return t_render_thread; }
+bool hitch_on_game_present_thread() { return t_game_present_thread; }
 void hitch_note_game_present() {
+    t_game_present_thread = true;
     const uint64_t t = qpc();
     const uint64_t prev = g_game_present_last.exchange(t, std::memory_order_relaxed);
     if (!prev || t <= prev) return;

@@ -564,7 +564,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     Wide& wd = wide();
     wd.aspect = close_to(aspect, kAspect169) ? kAspect169 : aspect;
     const bool override_size = config_get_bool("pkp", "render_override", true);
-    if (!override_size && wide_on()) {
+    if (wide_on()) {   // a non-16:9 shape always takes the wide path (render_override only picks the size for 16:9)
         int gw = kTableW, gh = kTableH;
         if (wd.aspect > kAspect169) gw = static_cast<int>(std::lround(kTableH * wd.aspect)) & ~1;
         else gh = static_cast<int>(std::lround(kTableW / wd.aspect)) & ~1;

@@ -167,10 +167,27 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
 
 namespace {
 std::atomic<void (*)()> g_busy_hook{nullptr};
+
+// The hitch line's split of the game's presenting thread: time in system calls, and of it IPC (services, file reads) and waits.
+struct GameSvcTimer {
+    uint64_t t0;
+    uint32_t number;
+    explicit GameSvcTimer(uint32_t n) : t0(hitch_on_game_present_thread() ? hitch_ticks() : 0), number(n) {}
+    ~GameSvcTimer() {
+        if (!t0) return;
+        const uint64_t d = hitch_ticks() - t0;
+        hitch_phase_add(kHpGameSvc, d);
+        if (number >= 0x21 && number <= 0x23) hitch_phase_add(kHpGameIpc, d);   // SendSyncRequest(WithUserBuffer), SendAsyncRequestWithUserBuffer
+        else if (number == 0x0B || number == 0x18 || number == 0x1A || number == 0x1C || number == 0x34) hitch_phase_add(kHpGameWait, d);
+    }
+    GameSvcTimer(const GameSvcTimer&) = delete;
+    GameSvcTimer& operator=(const GameSvcTimer&) = delete;
+};
 }
 void svc_set_busy_hook(void (*fn)()) { g_busy_hook.store(fn, std::memory_order_release); }
 
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
+    GameSvcTimer game_timer(number);
     if (kernel::KThread* self = kernel::current_thread()) self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);   // the starvation line
     if (auto fn = g_busy_hook.load(std::memory_order_relaxed)) fn();
     if (tt::detail::svc_every.load(std::memory_order_relaxed)) tt::detail::on_svc(c);      // test tooling: frame_source = svc:N

@@ -137,6 +137,7 @@ const play::GamePlay& game_play() {
         p.menu_frame = &menu_frame;
         p.menu_over_value = &menu_over_value;
         p.menu_active = &menu_active;
+        p.menu_in_game = &menu_in_game;
         return p;
     }();
     return t;

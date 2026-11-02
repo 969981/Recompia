@@ -48,10 +48,24 @@ struct LatencySettings {
     bool log_timings = false;        // log one line of timings per second
 };
 
+// Picture controls applied in the present step (the output pass), on the display-encoded picture: black level, contrast, saturation, then gamma.
+// All neutral (1, 1, 0, 1): the present step is left exactly as it is (the pass is skipped).
+struct PictureSettings {
+    double contrast = 1.0;     // 0.5 .. 1.5, around mid grey (0.5 of the encoded signal)
+    double saturation = 1.0;   // 0 .. 2 (0 = grey)
+    double black = 0.0;        // -0.5 .. 0.25: below 0 pulls the blacks down (the signal at -black becomes black), above 0 lifts them; white stays
+    double gamma = 1.0;        // 0.5 .. 2: mid-tone brightness (signal^(1/gamma)); above 1 brightens
+    bool neutral() const { return contrast == 1.0 && saturation == 1.0 && black == 0.0 && gamma == 1.0; }
+};
+// The named presets ([picture] preset): "neutral" and "vivid". False for any other name (*out unchanged).
+bool picture_preset(const std::string& name, PictureSettings* out);
+PictureSettings picture_clamped(PictureSettings p);
+
 struct Settings {
     HdrSettings hdr;
     UpscaleSettings upscale;
     LatencySettings latency;
+    PictureSettings picture;
 };
 
 // Reads [hdr] [upscale] [latency] from the nxrt configuration (mpr.ini, environment NXRT_HDR_MODE ...). Never fails.
@@ -63,6 +77,13 @@ void set_settings(const Settings& s);
 UpscaleMode upscale_mode();
 float upscale_sharpness();
 int upscale_scene_scale();          // percent, 100 = off
+// The picture controls in force for the present step (lock-free; the F1 page's sliders change them live before Apply and save).
+struct PictureLive {
+    float contrast = 1, saturation = 1, black = 0, gamma = 1;
+    bool active = false;             // false: all neutral, the present step skips the adjustment
+};
+PictureLive picture_live();
+void set_picture_live(const PictureSettings& p);   // only the live copy; set_settings() also sets it
 
 // ---- HDR runtime state ---------------------------------------------------------------------------------------------------------
 enum class OutputKind : uint8_t { Sdr8 = 0, Hdr10, ScRgb };

@@ -4,6 +4,8 @@
 //
 //   encode   mode 0 copy (the SDR picture as the game wrote it: sRGB-encoded bytes), 1 scene-linear to sRGB, 2 scene-linear to HDR10 (BT.2020, ST 2084),
 //            3 scene-linear to scRGB. "Scene-linear" is the HDR scene pipeline's window texture: float16, 1.0 = paper white, values above 1 are highlights.
+//   picture  optional colour controls (black level, contrast, saturation, gamma) on the display-encoded signal before the encode; for the
+//            scene-linear modes the signal is rgb^(1/2.2) and goes back with ^2.2. Off: the encode is exactly the plain one.
 //   upscale  AMD FSR 1: EASU into a float16 image the size of the picture, then RCAS (sharpen), then the encode above reads that image. Used when the
 //            picture on screen is larger than the source crop. In HDR scene mode both run on c = x / (1 + x), so highlights above 1 survive the filters.
 //
@@ -31,6 +33,8 @@ struct OutputParams {
     float paper_white_nits = 203, peak_nits = 1000;
     bool fsr1 = false;                       // upscale with FSR 1 when the picture is larger than the source
     float sharpness = 0.8f;                  // 0..1 (RCAS)
+    bool picture = false;                    // apply the picture controls (nxrt/extras.h PictureSettings) in the encode
+    float pic[4] = {1, 1, 0, 1};             // contrast, saturation, black, gamma
 };
 
 class OutputPass {
@@ -55,7 +59,7 @@ public:
 private:
     VkPipeline encode_pipeline(VkFormat fmt);
     void encode(VkCommandBuffer cb, VkImageView dst_view, VkFormat dst_format, VkExtent2D dst_extent, VkImageView src, VkExtent2D src_extent, const int32_t crop[4],
-                bool keep_aspect, bool flip_y, int mode, float paper, float peak, VkImageLayout src_layout);
+                bool keep_aspect, bool flip_y, int mode, float paper, float peak, VkImageLayout src_layout, const float* pic);
 
     gfx::Device* dev_ = nullptr;
     VkSampler linear_ = VK_NULL_HANDLE, nearest_ = VK_NULL_HANDLE;

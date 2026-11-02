@@ -82,6 +82,9 @@ enum HitchPhase : int {
     kHpGameBackpressure,    // game threads: present waiting for the render thread (present_ahead)
     kHpGameSyncWait,        // game threads: sync waits on the GPU timeline (nvnSyncWait and the like)
     kHpPoolImport,          // any thread: importing a memory pool (vkAllocateMemory over the game's memory; the driver pins the pages)
+    kHpGameSvc,             // the game's presenting thread: inside system calls (the rest of its time between presents is guest code)
+    kHpGameIpc,             //   of it: IPC requests (service calls, file reads)
+    kHpGameWait,            //   of it: waits (SleepThread, WaitSynchronization, ArbitrateLock, WaitProcessWideKeyAtomic, WaitForAddress)
     kHpCount
 };
 uint64_t hitch_ticks();                                  // QueryPerformanceCounter
@@ -98,6 +101,8 @@ void hitch_set_render_thread();                          // the calling thread i
 bool hitch_on_render_thread();
 // The game's thread called present: the longest gap between two such calls inside a slow frame is shown (game-side frame time).
 void hitch_note_game_present();
+// The calling thread has called hitch_note_game_present at least once: svc_dispatch times its system calls for the hitch line.
+bool hitch_on_game_present_thread();
 // The last `window_s` seconds of frame times as a compact block of text (frames, fps, 1% low, worst, per-second fps and worst ms, the worst
 // frames and the age of the last one). Allocates; never takes a lock another thread could hold: for the crash, freeze and memory reports.
 std::string frame_times_summary(double window_s = 30.0);

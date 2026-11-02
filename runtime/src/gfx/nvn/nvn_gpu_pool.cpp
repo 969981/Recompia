@@ -30,13 +30,32 @@ namespace nxrt::nvn::be {
 
 namespace gpu { struct Mirror; }
 
-struct PoolGpu {
+// One Vulkan import of a byte range of a pool: its own private view, VkDeviceMemory and VkBuffer.
+struct PoolChunk {
     VkDeviceMemory mem = VK_NULL_HANDLE;
     VkBuffer buffer = VK_NULL_HANDLE;
-    uint8_t* base = nullptr;          // aligned start of the import
-    VkDeviceSize size = 0;            // aligned size of the import
+    void* view = nullptr;             // private small view of the heap section the import goes through (nullptr: imported at its own address)
+    uint64_t off = 0;                 // pool offset (from PoolGpu::base) of byte 0 of the import
+    VkDeviceSize size = 0;
+    bool tried = false;               // import attempted
     bool failed = false;
-    void* view = nullptr;             // private small view of the heap section the import goes through (nullptr: imported at base)
+};
+
+// A pool is imported whole (one chunk; the background importer does it) or, when it is larger than one chunk ([nvn] pool_import_chunk_mb), in
+// chunks imported on the render thread the first time an address in them is resolved. Chunk k covers pool bytes [k*stride, k*stride + clen):
+// neighbouring chunks overlap by clen - stride bytes, so any range that short lies wholly in one chunk. Each chunk goes through its own private
+// view of the section (never the same host pointer twice: the spec lets a driver refuse importing the same pointer again). A longer range
+// that crosses a stride boundary gets a span: one more import over the strides it touches (rare; logged).
+struct PoolGpu {
+    uint8_t* base = nullptr;          // aligned start of the pool's imports
+    VkDeviceSize size = 0;            // aligned size
+    bool failed = false;
+    bool viewed = false;              // imports go through private views of the heap section (the mirror needs that)
+    int flags = 0;
+    uint64_t stride = 0;              // chunk k starts at k * stride (whole import: stride = size)
+    uint64_t clen = 0;                // bytes per chunk (the last one may be shorter)
+    std::vector<PoolChunk> chunks;
+    std::deque<PoolChunk> spans;      // imports of ranges longer than the overlap that cross a stride boundary (deque: stable addresses)
     gpu::Mirror* mirror = nullptr;  // device-local copy of the pages draws read (S38, [nvn] pool_mirror); render thread
     bool mirror_tried = false;
 };
@@ -51,6 +70,7 @@ namespace gpu {
 namespace {
 
 constexpr const char* kTag = "nvn.pool";
+constexpr uint64_t kMirrorChunkBytes = 64ull << 20;   // the mirror's chunk (kChunkBytes below): import strides are a multiple of it
 
 VkBuffer g_dummy = VK_NULL_HANDLE;
 gfx::Buffer g_dummy_buf;
@@ -61,50 +81,51 @@ std::mutex g_live_mu;
 std::unordered_set<PoolGpu*> g_live;
 nxrt::GaugeCounter g_gauge_pools_live("nvn.pools_live");   // pools imported and not yet destroyed (g_live)
 
-PoolGpu* import_pool(MemoryPool* p) {
-    ft::Scope zs(ft::zone_id("pool.import"), 0, static_cast<uint32_t>(p->flags) << 16 | static_cast<uint32_t>(std::min<uint64_t>(p->size >> 20, 0xffff)));
-    nxrt::HitchTimer ht(nxrt::kHpPoolImport);      // the hitch line: an import running beside a slow vkQueueSubmit2 shows here
-    auto* g = new PoolGpu();
-    gfx::Device& dev = device();
-    if (!dev.features().external_memory_host || !p->base || !p->size) {
-        g->failed = true;
-        NXLOG_E(kTag, "pool at %p size 0x%llx cannot be imported (%s)", static_cast<void*>(p->base), static_cast<unsigned long long>(p->size),
-                !dev.features().external_memory_host ? "VK_EXT_external_memory_host is missing" : "no storage");
-        return g;
-    }
-    const uint64_t align = std::max<uint64_t>(dev.limits_ext().min_imported_host_alignment, 4096);
-    const uint64_t start = reinterpret_cast<uint64_t>(p->base) & ~(align - 1);
-    const uint64_t end = (reinterpret_cast<uint64_t>(p->base) + p->size + align - 1) & ~(align - 1);
-    VkDeviceSize size = end - start;
-    if (size > dev.limits_ext().max_buffer_size && dev.limits_ext().max_buffer_size) {
-        NXLOG_W(kTag, "pool of 0x%llx bytes is larger than maxBufferSize 0x%llx: the tail is not reachable by the GPU",
-                static_cast<unsigned long long>(size), static_cast<unsigned long long>(dev.limits_ext().max_buffer_size));
-        size = dev.limits_ext().max_buffer_size & ~(align - 1);
-    }
-    g->base = reinterpret_cast<uint8_t*>(start);
-    g->size = size;
+// [nvn] pool_import_chunk_mb (default 64, rounded up to a multiple of 64; 0 = import every pool whole). A pool larger than one chunk is imported
+// in chunks of that many MiB plus a quarter of it overlapping the next chunk, each on the render thread the first time a draw, copy or texture
+// touches it. vkAllocateMemory of an import pins every page of it (about a quarter of a millisecond per MiB) and a vkQueueSubmit2 running beside
+// it waits: Pokopia's 3500 MiB graphics heap took ~0.9 s as one import, while draws read only a few MiB of it.
+uint64_t import_stride() {
+    static const uint64_t s = [] {
+        const int64_t mb = std::max<int64_t>(0, config_get_int("nvn", "pool_import_chunk_mb", 64));
+        const uint64_t b = static_cast<uint64_t>(mb) << 20;
+        return b ? (b + kMirrorChunkBytes - 1) / kMirrorChunkBytes * kMirrorChunkBytes : uint64_t{0};
+    }();
+    return s;
+}
+uint64_t import_overlap() { return import_stride() / 4; }
 
-    // Import through a small private view of the same section pages when the pool lies in the heap's primary view (see mem::heap_private_view).
-    uint8_t* import_ptr = g->base;
-    static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
-    if (use_view && mem::heap_exists() && start >= mem::kHeapBase && end <= mem::kHeapBase + mem::heap_reserved()) {
-        const uint64_t off = start - mem::kHeapBase;
-        const uint64_t voff = off & ~(mem::kAllocGranularity - 1);
-        const uint64_t delta = off - voff;
+// Imports pool bytes [off, off + size) of g into c. False (c.failed) when it cannot.
+bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, size_t index, size_t count) {
+    c.tried = true;
+    c.off = off;
+    c.size = size;
+    ft::Scope zs(ft::zone_id("pool.import"), 0, static_cast<uint32_t>(g->flags) << 16 | static_cast<uint32_t>(std::min<uint64_t>(size >> 20, 0xffff)));
+    nxrt::HitchTimer ht(nxrt::kHpPoolImport);      // the hitch line: an import running beside a slow vkQueueSubmit2 shows here
+    gfx::Device& dev = device();
+    const uint64_t start = reinterpret_cast<uint64_t>(g->base) + off;
+
+    // Import through a small private view of the same section pages when the range lies in the heap's primary view (see mem::heap_private_view).
+    uint8_t* import_ptr = reinterpret_cast<uint8_t*>(start);
+    if (g->viewed) {
+        const uint64_t soff = start - mem::kHeapBase;
+        const uint64_t voff = soff & ~(mem::kAllocGranularity - 1);
+        const uint64_t delta = soff - voff;
         const uint64_t vsize = (delta + size + mem::kAllocGranularity - 1) & ~(mem::kAllocGranularity - 1);
         if (void* v = mem::heap_private_view(voff, std::min<uint64_t>(vsize, mem::heap_reserved() - voff))) {
-            g->view = v;
+            c.view = v;
             import_ptr = static_cast<uint8_t*>(v) + delta;
         }
     }
 
     VkMemoryHostPointerPropertiesEXT hp = {VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT};
     VkResult r;
+    const auto tm0 = std::chrono::steady_clock::now();
     { NXFT("pool.hostprops"); r = vkGetMemoryHostPointerPropertiesEXT(dev.device(), VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, import_ptr, &hp); }
     if (r != VK_SUCCESS || !hp.memoryTypeBits) {
-        NXLOG_E(kTag, "vkGetMemoryHostPointerPropertiesEXT failed (%d) for %p", static_cast<int>(r), static_cast<void*>(g->base));
-        g->failed = true;
-        return g;
+        NXLOG_E(kTag, "vkGetMemoryHostPointerPropertiesEXT failed (%d) for %p (%s %zu of %zu)", static_cast<int>(r), reinterpret_cast<void*>(start), what, index, count);
+        c.failed = true;
+        return false;
     }
     uint32_t ty = 0;
     while (!(hp.memoryTypeBits & (1u << ty))) ++ty;
@@ -114,11 +135,15 @@ PoolGpu* import_pool(MemoryPool* p) {
     VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &imp};
     mai.allocationSize = size;
     mai.memoryTypeIndex = ty;
-    { NXFT("pool.alloc"); r = vkAllocateMemory(dev.device(), &mai, nullptr, &g->mem); }
+    const auto tm1 = std::chrono::steady_clock::now();
+    { NXFT("pool.alloc"); r = vkAllocateMemory(dev.device(), &mai, nullptr, &c.mem); }
+    const auto tm2 = std::chrono::steady_clock::now();
     if (r != VK_SUCCESS) {
-        NXLOG_E(kTag, "importing pool %p (0x%llx bytes) failed (%d)", static_cast<void*>(g->base), static_cast<unsigned long long>(size), static_cast<int>(r));
-        g->failed = true;
-        return g;
+        NXLOG_E(kTag, "importing pool %p %s %zu of %zu (offset 0x%llx, 0x%llx bytes) failed (%d)", static_cast<void*>(g->base), what, index, count,
+                static_cast<unsigned long long>(off), static_cast<unsigned long long>(size), static_cast<int>(r));
+        c.mem = VK_NULL_HANDLE;
+        c.failed = true;
+        return false;
     }
     vk_gauge_memory_allocs().add(1);
     vk_gauge_memory_bytes().add(static_cast<int64_t>(size));
@@ -131,19 +156,124 @@ PoolGpu* import_pool(MemoryPool* p) {
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
                 (device().features().transform_feedback ? VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT : 0u);
     bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    r = vkCreateBuffer(dev.device(), &bci, nullptr, &g->buffer);
+    r = vkCreateBuffer(dev.device(), &bci, nullptr, &c.buffer);
     if (r == VK_SUCCESS) vk_gauge_buffers().add(1);
-    if (r == VK_SUCCESS) r = vkBindBufferMemory(dev.device(), g->buffer, g->mem, 0);
+    else c.buffer = VK_NULL_HANDLE;
+    if (r == VK_SUCCESS) r = vkBindBufferMemory(dev.device(), c.buffer, c.mem, 0);
     if (r != VK_SUCCESS) {
-        NXLOG_E(kTag, "buffer over pool %p failed (%d)", static_cast<void*>(g->base), static_cast<int>(r));
-        g->failed = true;
-        return g;
+        NXLOG_E(kTag, "buffer over pool %p %s %zu of %zu failed (%d)", static_cast<void*>(g->base), what, index, count, static_cast<int>(r));
+        c.failed = true;
+        return false;
     }
     counters().pools_imported.fetch_add(1);
+    {   // a slow import stalls a vkQueueSubmit2 running beside it (the driver): size and where the time went, to tell page pinning from the rest
+        const auto tm3 = std::chrono::steady_clock::now();
+        auto msd = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        const double total = msd(tm0, tm3);
+        if (total >= 20.0)
+            NXLOG_I(kTag, "slow pool import: %p, %llu MiB (flags 0x%x, %s %zu of %zu, %s): %.1f ms (host pointer properties %.1f, vkAllocateMemory %.1f, buffer and bind %.1f) on %s",
+                    reinterpret_cast<void*>(start), static_cast<unsigned long long>(size >> 20), static_cast<unsigned>(g->flags), what, index, count,
+                    c.view ? "through a private view" : "at its own address", total, msd(tm0, tm1), msd(tm1, tm2), msd(tm2, tm3),
+                    nxrt::hitch_on_render_thread() ? "the render thread" : "the import worker");
+    }
+    NXLOG_D(kTag, "pool %p %s %zu of %zu imported: offset 0x%llx, 0x%llx bytes, memory type %u", static_cast<void*>(g->base), what, index, count,
+            static_cast<unsigned long long>(off), static_cast<unsigned long long>(size), ty);
+    return true;
+}
+
+void destroy_chunk(PoolChunk& c) {
+    gfx::Device& dev = device();
+    if (c.buffer) buffer_views_forget(c.buffer);
+    if (c.buffer) { vkDestroyBuffer(dev.device(), c.buffer, nullptr); vk_gauge_buffers().sub(1); }
+    if (c.mem) {
+        vkFreeMemory(dev.device(), c.mem, nullptr);
+        vk_gauge_memory_allocs().sub(1);
+        vk_gauge_memory_bytes().sub(static_cast<int64_t>(c.size));   // the size the allocation was made with
+    }
+    if (c.view) mem::heap_private_view_unmap(c.view);
+    c = PoolChunk{};
+}
+
+// The Vulkan side of a pool. A pool no larger than one chunk (every pool, with [nvn] pool_import_chunk_mb = 0) is imported here, whole; a
+// larger one only gets its chunk table here, and its chunks are imported as they are touched (pool_chunk).
+PoolGpu* import_pool(MemoryPool* p) {
+    auto* g = new PoolGpu();
+    g->flags = p->flags;
+    gfx::Device& dev = device();
+    if (!dev.features().external_memory_host || !p->base || !p->size) {
+        g->failed = true;
+        NXLOG_E(kTag, "pool at %p size 0x%llx cannot be imported (%s)", static_cast<void*>(p->base), static_cast<unsigned long long>(p->size),
+                !dev.features().external_memory_host ? "VK_EXT_external_memory_host is missing" : "no storage");
+        return g;
+    }
+    const uint64_t align = std::max<uint64_t>(dev.limits_ext().min_imported_host_alignment, 4096);
+    const uint64_t start = reinterpret_cast<uint64_t>(p->base) & ~(align - 1);
+    const uint64_t end = (reinterpret_cast<uint64_t>(p->base) + p->size + align - 1) & ~(align - 1);
+    VkDeviceSize size = end - start;
+    const uint64_t stride = import_stride();
+    const bool chunked = stride && size > stride + import_overlap();
+    if (!chunked && size > dev.limits_ext().max_buffer_size && dev.limits_ext().max_buffer_size) {
+        NXLOG_W(kTag, "pool of 0x%llx bytes is larger than maxBufferSize 0x%llx: the tail is not reachable by the GPU",
+                static_cast<unsigned long long>(size), static_cast<unsigned long long>(dev.limits_ext().max_buffer_size));
+        size = dev.limits_ext().max_buffer_size & ~(align - 1);
+    }
+    g->base = reinterpret_cast<uint8_t*>(start);
+    g->size = size;
+    static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
+    g->viewed = use_view && mem::heap_exists() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
+    if (chunked) {
+        g->stride = stride;
+        g->clen = stride + import_overlap();
+        g->chunks.resize(static_cast<size_t>((size + stride - 1) / stride));
+        NXLOG_I(kTag, "pool %p, %llu MiB (flags 0x%x): imported in %zu chunks of %llu MiB (%llu MiB overlapping the next) as they are first used",
+                static_cast<void*>(g->base), static_cast<unsigned long long>(size >> 20), static_cast<unsigned>(p->flags), g->chunks.size(),
+                static_cast<unsigned long long>(g->clen >> 20), static_cast<unsigned long long>(import_overlap() >> 20));
+    } else {
+        g->stride = size;
+        g->clen = size;
+        g->chunks.resize(1);
+        if (!import_range(g, g->chunks[0], 0, size, "whole", 0, 1)) {
+            g->failed = true;
+            return g;
+        }
+    }
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live.insert(g); }
     g_gauge_pools_live.add(1);
-    NXLOG_D(kTag, "pool %p imported: 0x%llx bytes, memory type %u", static_cast<void*>(g->base), static_cast<unsigned long long>(size), ty);
     return g;
+}
+
+// Chunk k of g, imported now if it was not tried yet (render thread). Null when it cannot be imported.
+PoolChunk* pool_chunk(PoolGpu* g, uint64_t k) {
+    if (k >= g->chunks.size()) return nullptr;
+    PoolChunk& c = g->chunks[static_cast<size_t>(k)];
+    if (!c.tried) {
+        const uint64_t off = k * g->stride;
+        import_range(g, c, off, std::min<uint64_t>(g->clen, g->size - off), "chunk", static_cast<size_t>(k), g->chunks.size());
+    }
+    return c.failed || !c.buffer ? nullptr : &c;
+}
+
+// An import holding pool bytes [off, off + size) when no chunk does: an existing span, or a new one over the strides the range touches.
+PoolChunk* pool_span(PoolGpu* g, uint64_t off, uint64_t size) {
+    for (PoolChunk& s : g->spans)
+        if (off >= s.off && off + size <= s.off + s.size) return s.failed || !s.buffer ? nullptr : &s;   // a failed span is not tried again
+    const uint64_t s0 = off / g->stride * g->stride;
+    const uint64_t s1 = std::min<uint64_t>((off + size + g->stride - 1) / g->stride * g->stride, g->size);
+    const uint64_t maxb = device().limits_ext().max_buffer_size;
+    if (s1 <= s0 || (maxb && s1 - s0 > maxb)) return nullptr;
+    NXLOG_I(kTag, "pool %p: a range of %llu KiB at offset 0x%llx crosses a chunk boundary: span import of %llu MiB at offset 0x%llx",
+            static_cast<void*>(g->base), static_cast<unsigned long long>(size >> 10), static_cast<unsigned long long>(off),
+            static_cast<unsigned long long>((s1 - s0) >> 20), static_cast<unsigned long long>(s0));
+    g->spans.emplace_back();
+    PoolChunk& s = g->spans.back();
+    if (!import_range(g, s, s0, s1 - s0, "span", g->spans.size() - 1, g->spans.size())) {
+        destroy_chunk(s);              // keeps nothing but the range, so the same range is not tried again
+        s.off = s0;
+        s.size = s1 - s0;
+        s.tried = s.failed = true;
+        return nullptr;
+    }
+    return &s;
 }
 
 // ---- background import --------------------------------------------------------------------------------------------------
@@ -200,6 +330,8 @@ void make_dummy() {
 void prefetch_pool(MemoryPool* p) {
     static const bool enabled = config_get_bool("nvn", "pool_prefetch", true);   // [nvn] pool_prefetch = false: import on first use only
     if (!enabled || !p || p->is_virtual || !p->base || !p->size || !active()) return;
+    // a pool larger than one chunk is imported chunk by chunk as the render thread touches it (pool_chunk), never whole
+    if (import_stride() && p->size > import_stride() + import_overlap()) return;
     std::lock_guard<std::mutex> lk(g_pf_mu);
     if (g_pf_stop) return;
     int expect = 0;
@@ -215,13 +347,15 @@ VkBuffer dummy_buffer() {
 }
 
 namespace {
-BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_out, PoolGpu** gpu_out);
+BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_out, PoolGpu** gpu_out, uint64_t* pool_off_out = nullptr);
 }
 
 BufRef resolve_buffer(uint64_t gpu_address, uint64_t size) { return resolve_in_pool(gpu_address, size, nullptr, nullptr); }
 
 namespace {
-BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_out, PoolGpu** gpu_out) {
+// out.buffer / out.offset name the chunk (or span) import holding the range; *pool_off_out receives the offset from the pool's aligned base
+// (what the mirror's pages count from). out.avail is what is left of that import, at least the chunk overlap for a chunked pool.
+BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_out, PoolGpu** gpu_out, uint64_t* pool_off_out) {
     BufRef out;
     const PoolHit hit = pool_lookup(gpu_address);
     PoolGpu* pg = nullptr;
@@ -243,7 +377,16 @@ BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_ou
         }
         pg = hit.pool->gpu;
     }
-    if (!pg || pg->failed || !pg->buffer) {
+    // the import starts at the aligned base, which may be below the pool's own base
+    const uint64_t off = pg ? gpu_address - reinterpret_cast<uint64_t>(pg->base) : 0;
+    const PoolChunk* c = nullptr;
+    if (pg && !pg->failed && off < pg->size) {
+        c = pool_chunk(pg, off / pg->stride);
+        // a range longer than the overlap that runs past its chunk (and not past the pool): a span import holds all of it
+        if (c && size && off + size > c->off + c->size && off + size <= pg->size)
+            if (const PoolChunk* sp = pool_span(pg, off, size)) c = sp;
+    }
+    if (!pg || pg->failed || (off < pg->size && !c)) {
         counters().unresolved_addresses.fetch_add(1);
         std::lock_guard<std::mutex> lk(g_log_mu);
         if (g_logged.insert(gpu_address >> 12).second)
@@ -253,20 +396,19 @@ BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_ou
         out.avail = 65536;
         return out;
     }
-    // the import starts at the aligned base, which may be below the pool's own base
-    const uint64_t off = gpu_address - reinterpret_cast<uint64_t>(pg->base);
     if (off >= pg->size) {
         counters().unresolved_addresses.fetch_add(1);
         out.buffer = dummy_buffer();
         out.avail = 65536;
         return out;
     }
-    out.buffer = pg->buffer;
-    out.offset = off;
-    out.avail = pg->size - off;
+    out.buffer = c->buffer;
+    out.offset = off - c->off;
+    out.avail = c->off + c->size - off;
     out.ok = size <= out.avail;
     if (pool_out) *pool_out = hit.pool;
     if (gpu_out) *gpu_out = pg;
+    if (pool_off_out) *pool_off_out = off;
     return out;
 }
 }  // namespace
@@ -308,15 +450,8 @@ void pool_gpu_destroy(PoolGpu* p) {
     }
     if (was_live) g_gauge_pools_live.sub(1);
     if (p->mirror) mirror_destroy(p);
-    gfx::Device& dev = device();
-    if (p->buffer) buffer_views_forget(p->buffer);
-    if (p->buffer) { vkDestroyBuffer(dev.device(), p->buffer, nullptr); vk_gauge_buffers().sub(1); }
-    if (p->mem) {
-        vkFreeMemory(dev.device(), p->mem, nullptr);
-        vk_gauge_memory_allocs().sub(1);
-        vk_gauge_memory_bytes().sub(static_cast<int64_t>(p->size));   // p->size is the size the allocation was made with
-    }
-    if (p->view) mem::heap_private_view_unmap(p->view);
+    for (PoolChunk& c : p->chunks) destroy_chunk(c);
+    for (PoolChunk& c : p->spans) destroy_chunk(c);
     delete p;
 }
 
@@ -337,7 +472,7 @@ void pool_gpu_destroy(PoolGpu* p) {
 constexpr uint64_t kChunkBytes = 64ull << 20;
 struct Mirror {
     std::vector<gfx::Buffer> chunks;    // the copy, kChunkBytes each (the last one may be shorter); empty until a draw wants a page in it
-    VkBuffer src = VK_NULL_HANDLE;      // the pool's own buffer (the copies read it)
+    PoolGpu* pg = nullptr;              // the pool (the copies read its chunk imports, mirror_src)
     mem::ww::Region* ww = nullptr;      // the CPU's writes to the pool's pages
     uint64_t npages = 0;
     std::vector<uint64_t> want;         // bitmap: a draw wanted the page while it was not valid
@@ -463,7 +598,7 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
     if (!mp || mp->is_virtual || mp->is_shader_code || mp->dead.load() || pg->failed) return nullptr;
     // Tracked copies change the protection of the CPU's view of the pages. With [nvn] pool_view = false the GPU import is that same view;
     // that combination is not tried: no copy.
-    if (!pg->view) return nullptr;
+    if (!pg->viewed) return nullptr;
     const uint64_t budget = mirror_cap_bytes();
     if (budget == 0) return nullptr;
 
@@ -477,7 +612,7 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
         return nullptr;
     }
     m->chunks.resize(static_cast<size_t>((pg->size + kChunkBytes - 1) / kChunkBytes));
-    m->src = pg->buffer;
+    m->pg = pg;
     m->pool_flags = mp->flags;
     m->npages = pg->size / kPageBytes;
     const size_t words = static_cast<size_t>((m->npages + 63) / 64);
@@ -611,13 +746,23 @@ VkBuffer mirror_chunk(Mirror& m, uint64_t page) {
     return c.buffer;
 }
 
+// The pool import the copies of mirror chunk `page` belongs to read from (imported now if it is not yet), and in *base the pool offset of its
+// byte 0. A mirror chunk lies wholly in one import chunk: import strides are multiples of kChunkBytes. Null: the pool part cannot be imported.
+VkBuffer mirror_src(Mirror& m, uint64_t page, uint64_t* base) {
+    const PoolChunk* c = pool_chunk(m.pg, page * kPageBytes / m.pg->stride);
+    if (!c) return VK_NULL_HANDLE;
+    *base = c->off;
+    return c->buffer;
+}
+
 BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     MemoryPool* mp = nullptr;
     PoolGpu* pg = nullptr;
-    BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg);
+    uint64_t poff = 0;
+    BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!g_mirror_on) return out;
     if (!out.ok || !pg || !size) { g_use_skip[use % 3]++; g_skip_why[0]++; return out; }
-    const uint64_t first = out.offset / kPageBytes, last = (out.offset + size - 1) / kPageBytes;
+    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     if (last - first + 1 > kMaxBindPages) { g_use_skip[use % 3]++; g_skip_why[1]++; return out; }
     Mirror* m = mirror_for(pg, mp);
     if (!m || last >= m->npages) { g_use_skip[use % 3]++; g_skip_why[2]++; return out; }
@@ -627,7 +772,8 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     if (!cb) { g_use_skip[use % 3]++; g_skip_why[4]++; return out; }
     if (range_valid(*m, first, last - first + 1)) {
         out.buffer = cb;
-        out.offset -= (first / chunk_pages) * kChunkBytes;
+        out.offset = poff - (first / chunk_pages) * kChunkBytes;
+        out.avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - out.offset;
         for (uint64_t p = first; p <= last; ++p) bit_put(m->used, p, true);
         g_st_dev_binds.fetch_add(1, std::memory_order_relaxed);
         g_use_dev[use % 3]++;
@@ -645,9 +791,10 @@ MirrorSpan mirror_span(uint64_t gpu_address, uint64_t size) {
     if (!g_mirror_on || !size) return s;
     MemoryPool* mp = nullptr;
     PoolGpu* pg = nullptr;
-    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg);
+    uint64_t poff = 0;
+    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!out.ok || !pg) return s;
-    const uint64_t first = out.offset / kPageBytes, last = (out.offset + size - 1) / kPageBytes;
+    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     if (last - first + 1 > kMaxBindPages) return s;
     Mirror* m = mirror_for(pg, mp);
     if (!m || last >= m->npages) return s;
@@ -656,7 +803,7 @@ MirrorSpan mirror_span(uint64_t gpu_address, uint64_t size) {
     const VkBuffer cb = mirror_chunk(*m, first);
     if (!cb) return s;
     s.buf = cb;
-    s.offset = out.offset - (first / chunk_pages) * kChunkBytes;
+    s.offset = poff - (first / chunk_pages) * kChunkBytes;
     s.valid = range_valid(*m, first, last - first + 1);
     return s;
 }
@@ -665,10 +812,11 @@ void mirror_span_written(uint64_t gpu_address, uint64_t size) {
     if (!g_mirror_on || !size) return;
     MemoryPool* mp = nullptr;
     PoolGpu* pg = nullptr;
-    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg);
+    uint64_t poff = 0;
+    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!out.ok || !pg || !pg->mirror) return;
     Mirror& m = *pg->mirror;
-    const uint64_t first = (out.offset + kPageBytes - 1) / kPageBytes, end = (out.offset + size) / kPageBytes;   // pages wholly inside
+    const uint64_t first = (poff + kPageBytes - 1) / kPageBytes, end = (poff + size) / kPageBytes;   // pages wholly inside
     if (first >= end || end > m.npages) return;
     const uint32_t now = presents_now();
     for (uint64_t p = first; p < end; ++p)
@@ -685,14 +833,18 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
     if (!g_mirror_on || !size) return false;
     MemoryPool* mp = nullptr;
     PoolGpu* pg = nullptr;
-    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg);
+    uint64_t poff = 0;
+    const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!out.ok || !pg || !pg->mirror) return false;
     Mirror& m = *pg->mirror;
-    const uint64_t first = out.offset / kPageBytes, last = (out.offset + size - 1) / kPageBytes;
+    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     const uint64_t chunk_pages = kChunkBytes / kPageBytes;
     if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
     const VkBuffer chunk = mirror_chunk(m, first);
     if (!chunk) return false;
+    uint64_t src_base = 0;
+    const VkBuffer src = mirror_src(m, first, &src_base);
+    if (!src) return false;
     const uint32_t now = presents_now();
     for (uint64_t p = first; p <= last; ++p)      // per-frame CPU data (hot) or pages with another view (banned) stay in the pool
         if (!page_valid(m, p) && (m.hot_until[static_cast<size_t>(p)] > now || mem::ww::page_banned(m.ww, p))) return false;
@@ -710,7 +862,7 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
                 bit_put(m.used, i, true);
                 bit_put(m.want, i, false);
             }
-            copies.push_back(VkBufferCopy{p * kPageBytes, p * kPageBytes - base, (q - p) * kPageBytes});
+            copies.push_back(VkBufferCopy{p * kPageBytes - src_base, p * kPageBytes - base, (q - p) * kPageBytes});
             m.st_copied += static_cast<int64_t>(q - p);
             g_st_copied.fetch_add(static_cast<int64_t>((q - p) * kPageBytes), std::memory_order_relaxed);
             if (bytes) *bytes += (q - p) * kPageBytes;
@@ -719,7 +871,7 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
         }
         p = q;
     }
-    if (!copies.empty()) vkCmdCopyBuffer(cb, m.src, chunk, static_cast<uint32_t>(copies.size()), copies.data());
+    if (!copies.empty()) vkCmdCopyBuffer(cb, src, chunk, static_cast<uint32_t>(copies.size()), copies.data());
     return ok && range_valid(m, first, last - first + 1);
 }
 
@@ -765,7 +917,8 @@ void mirror_begin_submit(Frame& f, bool on) {
             if (!arm_in_budget()) { m.any_want = true; break; }                         // arming took its time for this submission: the same
             const uint64_t chunk_pages = kChunkBytes / kPageBytes;
             const uint64_t chunk_end = (p / chunk_pages + 1) * chunk_pages;
-            if (!mirror_chunk(m, p)) { bit_put(m.want, p, false); ++p; continue; }
+            uint64_t src_base = 0;
+            if (!mirror_chunk(m, p) || !mirror_src(m, p, &src_base)) { bit_put(m.want, p, false); ++p; continue; }
             uint64_t q = p + 1;
             while (q < m.npages && q < chunk_end && copyable(m, q, now) && (q - p + 1) * kPageBytes <= budget) ++q;
             const bool armed = arm_timed(m.ww, p, q - p);
@@ -795,7 +948,10 @@ void mirror_begin_submit(Frame& f, bool on) {
             const size_t ci = static_cast<size_t>(g_copy_tmp[i].srcOffset / kChunkBytes);
             size_t j = i + 1;
             while (j < g_copy_tmp.size() && g_copy_tmp[j].srcOffset / kChunkBytes == ci) ++j;
-            vkCmdCopyBuffer(f.cb, m.src, m.chunks[ci].buffer, static_cast<uint32_t>(j - i), g_copy_tmp.data() + i);
+            uint64_t src_base = 0;
+            const VkBuffer src = mirror_src(m, g_copy_tmp[i].srcOffset / kPageBytes, &src_base);   // imported when the run was made
+            for (size_t k = i; k < j; ++k) g_copy_tmp[k].srcOffset -= src_base;
+            if (src) vkCmdCopyBuffer(f.cb, src, m.chunks[ci].buffer, static_cast<uint32_t>(j - i), g_copy_tmp.data() + i);
             i = j;
         }
     }

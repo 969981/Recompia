@@ -248,7 +248,7 @@ struct Settings {
     TimingSettings timing;
     DisplaySettings display;
     AudioSettings audio;
-    extras::Settings extras;       // the [hdr] [upscale] [latency] sections (nxrt/extras.h): HDR output, upscaling, low latency
+    extras::Settings extras;       // the [hdr] [upscale] [latency] [picture] sections (nxrt/extras.h): HDR output, upscaling, low latency
     PromptSettings prompts;
     FpsSettings fps;
     FastbootSettings fastboot;     // [tweaks] skip_intro skip_boot_logos fast_menus menu_speed (play_fastboot.h, S46)
@@ -345,6 +345,7 @@ const char* key_alt_sens();
 //   [upscale]  mode (off fsr1 fsr3 dlss xess; spatial = fsr1) sharpness (0..1) fsr_dll dlss_dll xess_dll (paths, kept verbatim)
 //              frame_generation (1/0)
 //   [latency]  mode (off auto on boost) log_timings (1/0)
+//   [picture]  contrast (0.5..1.5) saturation (0..2) black (-0.5..0.25) gamma (0.5..2), neutral 1 1 0 1; preset (neutral vivid) is read, not written
 //   [audio]    volume (0..1) mute_unfocused (1/0) device (default or part of an output device's name)
 //   [prompts]  style = switch|xbox|playstation|keyboard|auto   (which button icons the game's prompts show; auto, the default, follows the last used input device)
 //   [tweaks]   skip_intro skip_boot_logos fast_menus (1/0) menu_speed (1..4)   (play_fastboot.h)

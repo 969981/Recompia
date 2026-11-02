@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -21,6 +22,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
+#include "nxrt/gfx_tuning.h"
 #include "nxrt/log.h"
 #include "nvn_decoded.h"
 #include "nvn_enums.h"
@@ -638,6 +640,16 @@ struct TexResolved {
     SamplerInfo smp;
     bool has_sampler = false;
 };
+
+// The scale nxrt/gfx_tuning.h asks for on uniform block `idx` of this binding's shader (1 = none): only the chosen fragment shader's block.
+float ufs_scale_for(const BindingDesc& d, int idx) {
+    const nxrt::gfx::Tuning& t = nxrt::gfx::tuning();
+    const uint64_t want = t.ufs_hash.load(std::memory_order_relaxed);
+    if (!want || d.nvn_stage != kFragment || idx != t.ufs_block.load(std::memory_order_relaxed)) return 1.0f;
+    const float sc = t.ufs_scale.load(std::memory_order_relaxed);
+    if (sc == 1.0f || !d.shader || std::strtoull(d.shader->hash.c_str(), nullptr, 16) != want) return 1.0f;
+    return sc;
+}
 
 uint32_t read_handle_word(int stage, int bank, int word) {
     // a texture handle the game wrote into uniform block (bank - 3)
@@ -1283,7 +1295,24 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                         compute_out_guard(bind.addr, bind.size ? bind.size : 65536);   // a compute result still in the pool copy goes back first
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
-                        if (br.ok && (br.offset % align) == 0) {
+                        const float ufs = ufs_scale_for(d, idx);
+                        if (br.ok && ufs != 1.0f) {
+                            // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
+                            const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
+                            UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
+                            if (u) {
+                                std::memcpy(u.ptr, host_ptr(bind.addr), n);
+                                const uint32_t mask = nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);
+                                for (uint32_t i = 0; i < 32; ++i) {
+                                    if (!(mask & (1u << i)) || (i + 1) * 4 > n) continue;
+                                    float v;
+                                    std::memcpy(&v, static_cast<uint8_t*>(u.ptr) + i * 4, 4);
+                                    v *= ufs;
+                                    std::memcpy(static_cast<uint8_t*>(u.ptr) + i * 4, &v, 4);
+                                }
+                                bi = {u.buffer, u.offset, n};
+                            }
+                        } else if (br.ok && (br.offset % align) == 0) {
                             bi = {br.buffer, br.offset, std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536})};
                         } else if (br.ok) {
                             // unaligned binding: copy into the upload ring
@@ -1417,6 +1446,12 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             uint64_t addr = 0, bytes = 0;
             VkFormat vfmt = VK_FORMAT_UNDEFINED;
             VkBufferView v = r.tex ? tex_buffer_view(r.tex, r.has_view ? &r.view : nullptr, component, shader_fmt, storage, &addr, &bytes, &vfmt) : VK_NULL_HANDLE;
+            // a 2D/3D texture the game left in a samplerBuffer slot (e.g. KTGL's 8x8 default texture 3 in the foliage wind shader's
+            // interaction buffers): read as a run of texels over its storage, as the console does, instead of the dummy
+            if (v && r.tex->b.target != NVN_TEXTURE_TARGET_BUFFER && first_time_key("texel-nonbuf " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+                NXLOG_I(kTag, "texture %u (%s %dx%dx%d, target %d) is read as a texel buffer by %s binding %s: it gets a buffer view over its storage (%llu bytes)",
+                        r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.depth, r.tex->b.target,
+                        d.shader->hash.c_str(), b.name.c_str(), static_cast<unsigned long long>(bytes));
             if (v && g_shadowing) {                                        // before gpu_wrote: the shadow reads the pool copy while valid
                 const BufRef host = resolve_buffer(addr, bytes);
                 const BufRef sh = shadow_of(addr, bytes, host, storage);

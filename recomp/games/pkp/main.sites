@@ -160,3 +160,17 @@ entryhook 0x71008eb6e0
 #   compare with s8 (x22 = the object), and s0 = the squared switch distance handed to the batch update 0x71008f4c20
 midhook 0x71008f3a20
 midhook 0x71008f3fa0
+#   menu mouse: every screen-layout pane class's draw (vtable slot +0x2b0) at its flag store `str wN, [x0, #0x104]` (pane in x0; x21 in
+#   0x7101f77fe0), the layouts drawn this frame (pkp_menu.cpp kDrawSites)
+midhook 0x7101f5ac6c
+midhook 0x7101f5b26c
+midhook 0x7101f63094
+midhook 0x7101f642a8
+midhook 0x7101f6a028
+midhook 0x7101f6a8c4
+midhook 0x7101f76168
+midhook 0x7101f765b4
+midhook 0x7101f78030
+midhook 0x7101f78124
+midhook 0x7101f7aa2c
+midhook 0x7101f7fe48

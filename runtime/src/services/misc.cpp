@@ -794,12 +794,17 @@ CmdNames htc_tenv_cmds() { return {{0, "GetServiceInterface"}}; }
 // stpl:u (Switch 2 stream play / GameShare): nn::streamplay::detail::GetUserService opens it and calls cmd 0 for the user service object.
 // GameShare is not available here, but the two IUserService commands the SDK sends at start-up abort the process on any failure
 // (sdk 0x75006b9744 and 0x75006ad634: AbortImpl), so they answer "nothing to share" instead of failing:
-//   300 (GetUserService, sdk proxy 0x75006b78f4): out {u64 size, u64 offset} + a copy handle to the guest-pad shared memory, which
-//       HidApplicationResourceHolder attaches and maps. A zeroed block (no guests connected) is handed out.
+//   300 GetHidSharedMemory (sdk proxy 0x75006b78f4, caller GetUserService 0x75006b95f0): out {u64 size, u64 offset} + a copy handle.
+//       HidApplicationResourceHolder (0x75006b08b8) attaches `size` bytes, maps them and reads the guest-input format at `offset`.
 //   1   GetRequiredMemorySize(u8 type, u8 mode, u32 guests) -> u32 (sdk proxy 0x75006b76f0): 0, no work memory needed.
-// Every other command (Initialize, OpenSession..., the guest pad reads) is not implemented: it fails and is logged, so a GameShare
-// path that goes further shows up in the log instead of running on zeros.
-constexpr uint64_t kStreamplayHidSharedMemorySize = 0x40000;   // not known; generous so reads of an empty guest table stay inside it
+// The format, from HidSharedMemoryAccessor's readers (sdk 0x75006b0980..0x75006b24a0), for up to three guests (IsGuestIdValid: id < 3):
+// pads at 0, 0x24000 per guest pad id (0, 1, 32 = handheld) and 0xC000 per guest inside it (u32 NpadStyleSet at +0, pad ring at +0x28
+// of 33 x 0x38 entries, six-axis rings from +0x2490 every 0xE80, controller colours at +0x7B90); touch screens at 0x6C000, 0x6000 per
+// guest; Jcms rings at 0x7E000, 0x1800 per (pad 0/1, Joy-Con type 0/1) and 0x800 per guest. The readers reach 0x84000. "No GameShare
+// session" is all zero: every style set 0 (GetGuestPadStyleSet: no pad) and every ring count 0 (the state readers return 0 entries).
+// Every other command (Initialize, OpenSession..., GetConnectionState) is not implemented: it fails and is logged, so a GameShare
+// path that goes further shows up in the log instead of running on zeros. Pokopia sends only 1 and 300 at start-up.
+constexpr uint64_t kStreamplayHidSharedMemorySize = 0x84000;   // the extent of the format above (page aligned)
 
 std::shared_ptr<ipc::Service> make_streamplay_user_service() {
     return make_iface("nn::streamplay::detail::IUserService", [](Service& s) {

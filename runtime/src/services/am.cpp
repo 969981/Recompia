@@ -536,6 +536,11 @@ ServicePtr make_window_controller() {
 // licence). Switch 2 games pass the applet id with more bits above it (Pokopia: 0x1020011 for the keyboard), so the low 16 bits pick it.
 constexpr uint32_t kAppletIdError = 0x0E;                     // LibraryAppletError (Pokopia: 0x100000E, nn::err::ShowError)
 constexpr uint32_t kAppletIdShop = 0x14;                      // LibraryAppletShop (0x1000014, nn::ec::detail::ShowShopPage)
+// LibraryAppletMyPage (0x100001A): nn::friends::StartFriendInvitation / StartSendingFriendInvitation (sdk 0x75003e32a0, 0x75003e33b0)
+// run it with a 0x10A8-byte argument (kind 8 / 9). CreateMyPageApplet aborts if creating it fails, so it is created and ends as
+// cancelled at once (offline: no invitation can be sent); nn::la::StartLibraryApplet turns that into a failure and the friends call
+// returns 0x3C79 (121-30) to the game, which ignores it (StartFriendInvitation) or takes its failure path (StartSending...).
+constexpr uint32_t kAppletIdMyPage = 0x1A;
 constexpr uint32_t kAppletIdPlayerSelect = 0x10;              // nn::applet::AppletId LibraryAppletPlayerSelect
 constexpr uint32_t kAppletIdSwkbd = 0x11;                     // LibraryAppletSwkbd
 constexpr uint32_t kAppletModeAllForeground = 0;              // nn::applet::LibraryAppletMode: the normal keyboard
@@ -904,6 +909,9 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
             } else if (a->id == kAppletIdShop) {
                 NXLOG_I("am", "shop applet 0x%x started: no shop here, it ends as cancelled by the player", a->full_id);
                 applet_finish(*a);
+            } else if (a->id == kAppletIdMyPage) {
+                NXLOG_I("am", "friends applet 0x%x started (friend invitation): offline, it ends as cancelled", a->full_id);
+                applet_finish(*a);
             } else {
                 NXLOG_I("am", "library applet 0x%x started: it ends at once with no output", a->full_id);
                 applet_finish(*a);
@@ -923,7 +931,9 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
         });
         // The shop ends cancelled (LibraryAppletCanceled, 128-22: exit reason Canceled in nn::applet::JoinLibraryApplet), so
         // nn::ec::detail::ShowShopPage does not read the 0x1010-byte return value it aborts without. Every other applet: success.
-        s.add_cmd(30, "GetResult", [a](Request&, Response&) -> uint32_t { return a->id == kAppletIdShop ? kAppletCanceled : 0; });
+        s.add_cmd(30, "GetResult", [a](Request&, Response&) -> uint32_t {
+            return a->id == kAppletIdShop || a->id == kAppletIdMyPage ? kAppletCanceled : 0;
+        });
         s.add_cmd(50, "SetOutOfFocusApplicationSuspendingEnabled", ignored("SetOutOfFocusApplicationSuspendingEnabled"));
         s.add_cmd(60, "PresetLibraryAppletGpuTimeSliceZero", ignored("PresetLibraryAppletGpuTimeSliceZero"));
         s.add_cmd(100, "PushInData", [a](Request& req, Response&) -> uint32_t {
@@ -1204,6 +1214,9 @@ ServicePtr make_application_functions() {
             rsp.out_copy.push_back(never_event().new_handle());
             return 0;
         });
+        // Friend invitations: nn::friends::GetFriendInvitationNotificationEvent (sdk 0x75003d8968, vtable slot 0x1B0 = cmd 140; it aborts
+        // if the command fails) and TryPopFriendInvitationNotificationInfo (0x75003d89f0, slot 0x1B8 = cmd 141; 128-2 means "none",
+        // anything else but success aborts). Offline: an event that never fires and nothing to pop.
         s.add_cmd(140, "GetFriendInvitationStorageChannelEvent", [](Request&, Response& rsp) -> uint32_t {
             rsp.out_copy.push_back(never_event().new_handle());
             return 0;

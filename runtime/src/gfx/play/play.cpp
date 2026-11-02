@@ -755,10 +755,14 @@ int update_hook(::Ctx*, uint64_t, void*) {
     // The game's part (play_game.h GamePlay::frame): the gyro's pitch-rate scale for this step, the cycle hint, the context while in game. This
     // step's length is known here, before the game reads the sample (the timestep hook on the same frame update runs first: hooks of one address run
     // in registration order).
+    // One of the game's menus over play (bag, shop, choice box: GamePlay::menu_in_game): the frame is a menu frame for the context, the
+    // pointer and the mouse capture (with the menu pointer off, play stays play).
+    const bool game_menu = gp && gp->menu_in_game && gp->menu_in_game(in_game && st.settings.mouse.menu_cursor) && in_game;
+    const bool playing = in_game && !game_menu;
     GameFrame gf;
     if (gp && gp->frame) {
         const double step = timestep::active() ? static_cast<double>(timestep::current_dt()) : static_cast<double>(timestep::kGameStep);
-        gp->frame(in_game, step, &gf);
+        gp->frame(playing, step, &gf);
     }
     if (st.source_owner) st.source_owner->set_look_scale(gf.look_scale);
     if (gf.hints_valid) st.engine->set_cycle_hint(gf.cycle_index, gf.cycle_mask, now);
@@ -769,6 +773,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
     st.was_in_game = in_game;
     Ctx ctx;
     if (!in_game) ctx = st.map_hint ? Ctx::Map : Ctx::Menu;
+    else if (game_menu) ctx = Ctx::Menu;
     else ctx = gf.play_ctx;
     st.engine->set_context(ctx, now);
 
@@ -790,7 +795,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
     st.overlay_was_visible = overlay_visible;
 
     if (st.window) {
-        const bool want = st.capture_mouse && platform::focused() && !platform::minimized() && !overlay_visible && in_game &&
+        const bool want = st.capture_mouse && platform::focused() && !platform::minimized() && !overlay_visible && playing &&
                           st.capture_state.load() == 0 && !hid::jc2_mouse_wants_pointer();
         if (want != platform::relative_mouse()) {
             platform::set_relative_mouse(want);
@@ -824,7 +829,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
         mm::Pointer& ptr = mm::pointer();
         ptr.set_enabled(st.settings.mouse.menu_cursor);
         // (a scripted run has no focus: the test tooling drives the pointer with synthetic events)
-        const bool menu_up = st.window && !in_game && ctx == Ctx::Menu && (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;
+        const bool menu_up = st.window && !playing && ctx == Ctx::Menu && (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;
         mm::Geometry geo;
         platform::pixel_size(&geo.win_w, &geo.win_h);
         const DisplayLive dl = gp && gp->display_live ? gp->display_live() : DisplayLive{};
@@ -835,7 +840,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
         if (const Act a = gp && gp->menu_frame ? gp->menu_frame(menu_up, geo) : Act::None; a != Act::None) st.engine->pulse(a, now);
         if (st.overlay && st.pointer_draw) st.overlay->set_pointer(menu_up && ptr.enabled() && ptr.cursor_visible(menu_up), ptr.x(), ptr.y(), true);
         // In play with the Joy-Con 2 mouse on its surface the game draws its own cursor: the OS cursor is hidden (unless the overlay is up).
-        const bool game_cursor = in_game && !overlay_visible && hid::jc2_mouse_active();
+        const bool game_cursor = playing && !overlay_visible && hid::jc2_mouse_active();
         if (st.window && !platform::relative_mouse())
             platform::set_cursor_visible(!game_cursor && (overlay_visible || !(ptr.enabled() && menu_up) || ptr.cursor_visible(menu_up)));
         if (st.window) {   // the Joy-Con 2 mouse (hid): the pointer on the picture, the buttons and the wheel
@@ -851,7 +856,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
             st.jc2_wheel_x = st.jc2_wheel_y = 0;
         }
     }
-    if (!in_game) input::mouse_delta_take();         // aim only counts what arrives while the game is playing
+    if (!playing) input::mouse_delta_take();         // aim only counts what arrives while the game is playing (not under one of its menus)
 
     if (st.log_status && now - st.last_status_ns > 1000 * kMs) {
         st.last_status_ns = now;
@@ -1052,6 +1057,10 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("upscale", "frame_generation")) r.upscale.frame_generation = env.upscale.frame_generation;
     if (config_has("latency", "mode")) r.latency.mode = env.latency.mode;
     if (config_has("latency", "log_timings")) r.latency.log_timings = env.latency.log_timings;
+    // [picture]: a preset or any of the four keys in mpr.ini / the environment replaces the file's picture controls as a whole
+    if (config_has("picture", "preset") || config_has("picture", "contrast") || config_has("picture", "saturation") || config_has("picture", "black") ||
+        config_has("picture", "gamma"))
+        r.picture = env.picture;
     return r;
 }
 

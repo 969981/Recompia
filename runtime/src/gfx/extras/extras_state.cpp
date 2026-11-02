@@ -26,6 +26,8 @@ bool g_settings_set = false;
 std::atomic<int> g_upscale_mode{-1};          // -1: not read yet
 std::atomic<float> g_upscale_sharp{0.8f};
 std::atomic<int> g_scene_scale{100};
+std::atomic<float> g_pic_contrast{1.0f}, g_pic_saturation{1.0f}, g_pic_black{0.0f}, g_pic_gamma{1.0f};
+std::atomic<bool> g_pic_active{false};
 
 // The state is a handful of floats read by the render thread, the guest threads (hooks) and the UI. A seqlock keeps readers lock-free
 // and consistent without a mutex on the hot path.
@@ -68,6 +70,15 @@ Settings settings_from_config() {
     s.latency.mode = lm == "auto" ? LatencyMode::Auto : lm == "on" || lm == "1" || lm == "true" ? LatencyMode::On : lm == "boost" ? LatencyMode::Boost : LatencyMode::Off;
     s.latency.frames_ahead = static_cast<int>(std::clamp<int64_t>(config_get_int("latency", "frames_ahead", 1), -1, 3));
     s.latency.log_timings = config_get_bool("latency", "log_timings", false);
+
+    // [picture]: a preset first, then any single key set next to it wins over the preset's value
+    PictureSettings pic;
+    picture_preset(lower(config_get_str("picture", "preset", "neutral")), &pic);
+    pic.contrast = config_get_double("picture", "contrast", pic.contrast);
+    pic.saturation = config_get_double("picture", "saturation", pic.saturation);
+    pic.black = config_get_double("picture", "black", pic.black);
+    pic.gamma = config_get_double("picture", "gamma", pic.gamma);
+    s.picture = picture_clamped(pic);
     return s;
 }
 
@@ -79,6 +90,7 @@ Settings settings() {
         g_upscale_mode.store(static_cast<int>(g_settings.upscale.mode));
         g_upscale_sharp.store(static_cast<float>(g_settings.upscale.sharpness));
         g_scene_scale.store(g_settings.upscale.scene_scale);
+        set_picture_live(g_settings.picture);
     }
     return g_settings;
 }
@@ -90,6 +102,51 @@ void set_settings(const Settings& s) {
     g_upscale_mode.store(static_cast<int>(s.upscale.mode));
     g_upscale_sharp.store(static_cast<float>(s.upscale.sharpness));
     g_scene_scale.store(s.upscale.scene_scale);
+    set_picture_live(s.picture);
+}
+
+bool picture_preset(const std::string& name, PictureSettings* out) {
+    if (name == "neutral" || name == "off" || name.empty()) {
+        *out = PictureSettings{};
+        return true;
+    }
+    if (name == "vivid") {   // a modest push against the game's hazy look
+        *out = PictureSettings{};
+        out->contrast = 1.10;
+        out->saturation = 1.15;
+        out->black = -0.03;
+        return true;
+    }
+    return false;
+}
+
+PictureSettings picture_clamped(PictureSettings p) {
+    p.contrast = std::clamp(p.contrast, 0.5, 1.5);
+    p.saturation = std::clamp(p.saturation, 0.0, 2.0);
+    p.black = std::clamp(p.black, -0.5, 0.25);
+    p.gamma = std::clamp(p.gamma, 0.5, 2.0);
+    return p;
+}
+
+void set_picture_live(const PictureSettings& in) {
+    const PictureSettings p = picture_clamped(in);
+    g_pic_contrast.store(static_cast<float>(p.contrast), std::memory_order_relaxed);
+    g_pic_saturation.store(static_cast<float>(p.saturation), std::memory_order_relaxed);
+    g_pic_black.store(static_cast<float>(p.black), std::memory_order_relaxed);
+    g_pic_gamma.store(static_cast<float>(p.gamma), std::memory_order_relaxed);
+    g_pic_active.store(!p.neutral(), std::memory_order_release);
+}
+
+PictureLive picture_live() {
+    upscale_mode();      // reads the settings once
+    PictureLive l;
+    l.active = g_pic_active.load(std::memory_order_acquire);
+    if (!l.active) return l;
+    l.contrast = g_pic_contrast.load(std::memory_order_relaxed);
+    l.saturation = g_pic_saturation.load(std::memory_order_relaxed);
+    l.black = g_pic_black.load(std::memory_order_relaxed);
+    l.gamma = g_pic_gamma.load(std::memory_order_relaxed);
+    return l;
 }
 
 UpscaleMode upscale_mode() {

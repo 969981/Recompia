@@ -70,17 +70,19 @@ constexpr uint32_t kNmTypeMerged = 1u << 0, kNmTypeJoyLeftJcms = 1u << 1, kNmTyp
 constexpr uint64_t kNmHandleMerged = 0x4E4D0001, kNmHandleRight = 0x4E4D0002;   // opaque, only compared
 constexpr uint32_t kNmAttrConnected = 1u << 1;  // the game counts frames with this bit to switch to mouse controls
 
-// The server-side Nmouse state (0x70). The public NmouseState (0x30) is bytes 0..0x24, then 0x30 (at 0x24), 0x28, 0x2C.
+// The server-side Nmouse state (0x70). The public NmouseState (0x30) is bytes 0..0x24, then 0x30 (at 0x24), 0x28, 0x2C
+// (sdk NmouseTransferMemoryAccessor::GetNmouseStates 0x7500658980). The SDK's DevNmouseState conversion (sdk 0x7500657dc0) reads
+// public +0x18/+0x1C as the pointer range and maps it to 720p/1080p/1440p/4K, so there is no movement delta in this state.
 struct NmouseInternal {
-    uint64_t unknown0;      // copied out, never read by the game
+    uint64_t unknown0;      // copied out, never read by the game or the SDK
     uint64_t sampling;      // +0x08
-    int32_t x, y;           // +0x10 pointer in the InitializeNmouse range (1920x1080 for this game); the game's cursor reads these
-    int32_t dx, dy;         // +0x18 movement (inferred, like MouseState)
-    int32_t wheel_x;        // +0x20 public +0x20 (GetWheelDeltaDev's first value)
+    int32_t x, y;           // +0x10 pointer in the pointer range (1920x1080 for this game); the game's cursor reads these
+    int32_t range_w, range_h;   // +0x18 the pointer range (InitializeNmouse / SetNmousePointerRanges)
+    int32_t wheel_x;        // +0x20 public +0x20; the game sums public +0x20 and +0x24 per sample (clamped to +-600)
     int32_t dev24;          // +0x24 not in the public state
-    uint32_t buttons;       // +0x28 MouseButton bits (inferred, like MouseState)
-    uint32_t attributes;    // +0x2C bit 1: the mouse is on its surface
-    int32_t wheel_y;        // +0x30 public +0x24 (GetWheelDeltaDev's second value)
+    uint32_t buttons;       // +0x28 MouseButton bits (inferred: no reader in the game or the SDK interprets them)
+    uint32_t attributes;    // +0x2C bit 1: the mouse is on its surface (the SDK's dev state turns it into a bool)
+    int32_t wheel_y;        // +0x30 public +0x24 (GetWheelDeltaDev returns +0x20 and +0x30)
     uint8_t dev[0x3C];
 };
 static_assert(sizeof(NmouseInternal) == 0x70, "NmouseInternal");
@@ -469,13 +471,13 @@ void jcms_setup(HidState& s) {
     for (uint32_t i = 0; i < 16; ++i) ring_init<JcmsState>(b, i * kJcmsRingSize);
 }
 
-// One Nmouse sample from the play layer's feed: the pointer in the InitializeNmouse range, its movement since the last sample, the
-// buttons, the wheel (120 per notch, inferred from the game clamping its sum at +-600), and "on its surface" while jc2_mouse_active().
+// One Nmouse sample from the play layer's feed: the pointer in the pointer range, the range itself, the buttons, the wheel (120 per notch, inferred from the game clamping its sum at +-600), and "on its surface" while jc2_mouse_active().
 // Caller holds st().mu.
 void sample_nmouse(HidState& s) {
     if (!s.nm_addr || !g_jc2_listed.load()) return;
     const bool active = nxrt::hid::jc2_mouse_active();
     NmouseInternal ns{};
+    const int32_t prev_x = s.nm_x, prev_y = s.nm_y;
     float wx = 0, wy = 0;
     float u = 0, v = 0;
     uint32_t buttons = 0;
@@ -494,10 +496,6 @@ void sample_nmouse(HidState& s) {
         const int32_t y = std::min(s.nm_h - 1, static_cast<int32_t>(v * static_cast<float>(s.nm_h)));
         ns.x = x;
         ns.y = y;
-        if (s.nm_x >= 0) {
-            ns.dx = x - s.nm_x;
-            ns.dy = y - s.nm_y;
-        }
         s.nm_x = x;
         s.nm_y = y;
         ns.wheel_x = static_cast<int32_t>(std::lround(wx * 120.f));
@@ -508,16 +506,19 @@ void sample_nmouse(HidState& s) {
         ns.x = std::max(0, s.nm_x);
         ns.y = std::max(0, s.nm_y);
     }
+    ns.range_w = s.nm_w;
+    ns.range_h = s.nm_h;
     if (active != g_jc2_active.exchange(active) && s.active_logs < 200) {
         s.active_logs++;
         NXLOG_I("hid", "Joy-Con 2 mouse %s (mode %s)", active ? "ON: the game sees the PC mouse" : "off", nxrt::hid::jc2_mouse_mode_name(nxrt::hid::jc2_mouse_mode()));
     }
     uint8_t* b = reinterpret_cast<uint8_t*>(s.nm_addr);
     for (uint32_t i = 0; i < 2; ++i) ring_push(ring_at<NmouseInternal>(b, kNmRings + i * kNmRingSize), ns);
-    if (active && s.nm_logged < 3 && (ns.dx || ns.dy || ns.buttons || ns.wheel_x || ns.wheel_y)) {
+    const bool moved = active && (ns.x != prev_x || ns.y != prev_y);
+    if (active && s.nm_logged < 3 && (moved || ns.buttons || ns.wheel_x || ns.wheel_y)) {
         s.nm_logged++;
-        NXLOG_I("hid", "Joy-Con 2 mouse sample %u: pos %d,%d move %d,%d buttons %x wheel %d,%d attr %x (block %llx)", s.nm_logged, ns.x, ns.y,
-                ns.dx, ns.dy, ns.buttons, ns.wheel_x, ns.wheel_y, ns.attributes, static_cast<unsigned long long>(s.nm_addr));
+        NXLOG_I("hid", "Joy-Con 2 mouse sample %u: pos %d,%d range %dx%d buttons %x wheel %d,%d attr %x (block %llx)", s.nm_logged, ns.x, ns.y,
+                ns.range_w, ns.range_h, ns.buttons, ns.wheel_x, ns.wheel_y, ns.attributes, static_cast<unsigned long long>(s.nm_addr));
     }
     if (s.jcms_addr) {
         // Player 1's Jcms states (index npad * 2 + type: 0 left, 1 right) keep counting so GetJcmsState has a current entry.
@@ -544,6 +545,24 @@ uint64_t tm_addr(const ipc::Request& req, uint64_t size, uint64_t need, const ch
         return 0;
     }
     return tm->addr;
+}
+
+// InitializeNmouse (3139) and its NmouseStateRange form (3130) share one layout: u8 pointer type @0, s32 width @4, s32 height @8,
+// aruid @0x10, size @0x18 and the transfer memory handle (3139 adds a u32, always 1, at @0xC).
+uint32_t nm_initialize(ipc::Request& req, const char* what) {
+    const uint32_t type = req.arg<uint8_t>(0);
+    const int32_t w = req.arg<int32_t>(4), h = req.arg<int32_t>(8);
+    const uint64_t size = req.arg<uint64_t>(0x18);
+    std::lock_guard<std::mutex> lk(st().mu);
+    HidState& s = st();
+    s.nm_w = w > 0 ? w : 1920;
+    s.nm_h = h > 0 ? h : 1080;
+    s.nm_addr = tm_addr(req, size, kNmMinSize, what);
+    s.nm_size = s.nm_addr ? size : 0;
+    NXLOG_I("hid", "%s(pointer type %u, range %dx%d, size %llx) -> block %llx", what, type, w, h, static_cast<unsigned long long>(size),
+            static_cast<unsigned long long>(s.nm_addr));
+    if (s.nm_addr) nm_setup(s);
+    return 0;
 }
 
 // The input for one sample: the source's, or the default pads (player 1 idle FullKey, handheld in handheld mode).
@@ -1010,8 +1029,10 @@ void setup_hid(ipc::Service& svc) {
     ignore_cmd(svc, 1002, "SetTouchScreenConfiguration");
     ignore_cmd(svc, 1003, "IsFirmwareUpdateNeededForNotification", 1);
     ignore_cmd(svc, 1004, "SetTouchScreenResolution");
-    // ---- Switch 2 Joy-Con 2 mouse (Nmouse / Jcms). Ids from the sdk proxy table (thunks at sdk 0x75006701b4..0x75006702e8, in vtable
-    // order from slot 0x538) matched to the nn::hid::detail callers' slots; see docs/hid_mouse_sw2.md. None of them returns data.
+    // ---- Switch 2 Joy-Con 2 mouse (Nmouse / Jcms). Ids from the sdk proxy thunks (0x75006701b4..0x75006702ec, IHidServer vtable
+    // slots 0x538..0x5B8) matched to the nn::hid::detail callers; raw-data layouts from the thunks' CMIF writers. docs/hid_mouse_sw2.md.
+    // Pokopia imports only the wrappers behind 3110, 3111, 3112, 3131 and 3136-3139; the others get the answer a server with the two
+    // listed devices gives. There is no 3114-3129 or 3134 in the SDK's table.
     svc.add_cmd(3110, "InitializeJcms", [](ipc::Request& req, ipc::Response&) -> uint32_t {
         const uint64_t size = req.arg<uint64_t>(8);   // aruid at 0
         std::lock_guard<std::mutex> lk(st().mu);
@@ -1029,19 +1050,50 @@ void setup_hid(ipc::Service& svc) {
         return 0;
     });
     svc.add_cmd(3112, "StartJcms", [](ipc::Request& req, ipc::Response&) -> uint32_t {
-        // The game calls it every frame for each Joy-Con 2 mouse it found, so a call proves it read the Nmouse handle table.
+        // u32 JcmsHandle @0, aruid @8. The game calls it every frame for each Joy-Con 2 mouse it found, so a call proves it read the
+        // Nmouse handle table. The Jcms rings are sampled whether started or not.
         std::lock_guard<std::mutex> lk(st().mu);
         if (st().jcms_starts < 3) NXLOG_I("hid", "StartJcms(handle %x): the game found the Joy-Con 2 mouse", req.arg<uint32_t>(0));
         st().jcms_starts++;
         return 0;
     });
+    // u32 JcmsHandle @0, aruid @8. Not imported by Pokopia; the rings keep sampling (nothing to stop).
     ignore_cmd(svc, 3113, "StopJcms");
+    // InitializeNmouse with an NmouseStateRange (sdk 0x75006576c0): the width and height come from the SDK's range table (720p, 1080p,
+    // 1440p, 4K), the pointer type is 0. The SDK sends SetMergedNmouseSourceTypes(6) right after it.
+    svc.add_cmd(3130, "InitializeNmouseWithStateRange", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        return nm_initialize(req, "InitializeNmouseWithStateRange");
+    });
     svc.add_cmd(3131, "FinalizeNmouse", [](ipc::Request&, ipc::Response&) -> uint32_t {
         std::lock_guard<std::mutex> lk(st().mu);
         st().nm_addr = st().nm_size = 0;
         g_jc2_listed.store(false);
         g_jc2_active.store(false);
         NXLOG_I("hid", "FinalizeNmouse");
+        return 0;
+    });
+    // SetNmousePointerRanges / SetNmouseStateRanges (sdk 0x7500656cc0, 0x75006578c0): s32 width @0, s32 height @4, aruid @8. The new
+    // range applies from the next sample (pointer position and the state's range fields).
+    svc.add_cmd(3132, "SetNmousePointerRanges", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        const int32_t w = req.arg<int32_t>(0), h = req.arg<int32_t>(4);
+        std::lock_guard<std::mutex> lk(st().mu);
+        if (w > 0) st().nm_w = w;
+        if (h > 0) st().nm_h = h;
+        NXLOG_I("hid", "SetNmousePointerRanges(%d, %d)", w, h);
+        return 0;
+    });
+    // GetNmousePointerRanges / GetNmouseStateRanges (sdk 0x7500656d40, 0x7500657960): aruid in; out s32 width @0, s32 height @4.
+    svc.add_cmd(3133, "GetNmousePointerRanges", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        std::lock_guard<std::mutex> lk(st().mu);
+        rsp.push<int32_t>(st().nm_w);
+        rsp.push<int32_t>(st().nm_h);
+        return 0;
+    });
+    // EnableShowingCursor (sdk 0x750065719c): bool @0, aruid @8. Stored where the client reads it back
+    // (NmouseTransferMemoryAccessor::IsEnabledShowingCursor, block +0x8E68).
+    svc.add_cmd(3135, "EnableShowingCursor", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        std::lock_guard<std::mutex> lk(st().mu);
+        if (st().nm_addr) reinterpret_cast<uint8_t*>(st().nm_addr)[kNmShowCursor] = req.arg<uint8_t>(0) ? 1 : 0;
         return 0;
     });
     svc.add_cmd(3136, "SetNmouseButtonConfigJoyLeftJcms", [](ipc::Request& req, ipc::Response&) -> uint32_t {
@@ -1059,22 +1111,32 @@ void setup_hid(ipc::Service& svc) {
         st().nm_merged_types = req.arg<uint32_t>(0);   // aruid at 8
         return 0;
     });
-    svc.add_cmd(3139, "InitializeNmouse", [](ipc::Request& req, ipc::Response&) -> uint32_t {
-        // u8 pointer type, s32 width, s32 height, u32 (1), aruid, size; the transfer memory handle.
-        const uint32_t type = req.arg<uint8_t>(0);
-        const int32_t w = req.arg<int32_t>(4), h = req.arg<int32_t>(8);
-        const uint64_t size = req.arg<uint64_t>(0x18);
-        std::lock_guard<std::mutex> lk(st().mu);
-        HidState& s = st();
-        s.nm_w = w > 0 ? w : 1920;
-        s.nm_h = h > 0 ? h : 1080;
-        s.nm_addr = tm_addr(req, size, kNmMinSize, "InitializeNmouse");
-        s.nm_size = s.nm_addr ? size : 0;
-        NXLOG_I("hid", "InitializeNmouse(pointer type %u, range %dx%d, size %llx) -> block %llx", type, w, h, static_cast<unsigned long long>(size),
-                static_cast<unsigned long long>(s.nm_addr));
-        if (s.nm_addr) nm_setup(s);
+    // InitializeNmouse (sdk 0x75006569e0, the form Pokopia uses: 0xC000 bytes, 1920x1080).
+    svc.add_cmd(3139, "InitializeNmouse", [](ipc::Request& req, ipc::Response&) -> uint32_t { return nm_initialize(req, "InitializeNmouse"); });
+    // SetNmousePointerPosition (sdk 0x7500657410): s32 x @0, s32 y @4, aruid @8, NmouseHandle @0x10. The pointer is the PC mouse, which
+    // the game cannot move: accepted and logged.
+    svc.add_cmd(3140, "SetNmousePointerPosition", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        NXLOG_I("hid", "SetNmousePointerPosition(%d, %d, handle %llx): the pointer is the PC mouse, not moved", req.arg<int32_t>(0),
+                req.arg<int32_t>(4), static_cast<unsigned long long>(req.arg<uint64_t>(0x10)));
         return 0;
     });
+    // EnableNmousePointer (sdk 0x75006572b0): bool @0, aruid @8, NmouseHandle @0x10. Stored in that handle's info byte, which the client
+    // reads back (IsEnableNmousePointer, info +0x10).
+    svc.add_cmd(3141, "EnableNmousePointer", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        const bool on = req.arg<uint8_t>(0) != 0;
+        const uint64_t handle = req.arg<uint64_t>(0x10);
+        std::lock_guard<std::mutex> lk(st().mu);
+        HidState& s = st();
+        if (!s.nm_addr) return 0;
+        uint8_t* b = reinterpret_cast<uint8_t*>(s.nm_addr);
+        for (uint32_t i = 0; i < kNmSlots; ++i)
+            if (b[kNmHandles + i * 16 + 8] && std::memcmp(b + kNmHandles + i * 16, &handle, 8) == 0) b[kNmInfo + i * kNmInfoSize + 0x10] = on ? 1 : 0;
+        return 0;
+    });
+    // RestrictNmousePointer (sdk 0x7500657630): four floats @0..0xC, aruid @0x10. The PC pointer is not restricted: accepted.
+    ignore_cmd(svc, 3142, "RestrictNmousePointer");
+    // 3143 (vtable slot 0x5B8): aruid @0, u64 @8; no nn::hid::detail caller in the SDK, name unknown. Accepted.
+    ignore_cmd(svc, 3143, "Cmd3143");
 }
 
 void hid_stop_sampler(HidState& s) {

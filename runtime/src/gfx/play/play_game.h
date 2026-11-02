@@ -83,6 +83,9 @@ struct GamePlay {
     Act (*menu_frame)(bool menu_up, const mm::Geometry& g) = nullptr;
     bool (*menu_over_value)() = nullptr;                          // the pointer is over a slider's track: the wheel steps its value
     bool (*menu_active)() = nullptr;                              // the menu hooks saw an active pointer this frame
+    // Once per frame before the context is decided: true while one of the game's menus is up although the game is in play (it keeps calling
+    // its input function under an in-game menu). Play mode then treats the frame as a menu: menu context, the pointer, no mouse capture or look.
+    bool (*menu_in_game)(bool in_game) = nullptr;
     void (*status)(GameStatus* out) = nullptr;
     // The game's part of the [play] log_status line, appended after the base fields.
     void (*status_text)(char* buf, size_t n) = nullptr;

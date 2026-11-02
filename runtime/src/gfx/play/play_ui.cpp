@@ -196,6 +196,7 @@ void sanitize(Settings& s) {
     h.paper_white_nits = h.paper_white_nits <= 0 ? 0 : std::clamp(h.paper_white_nits, 80.0, 500.0);
     h.highlight_boost = std::clamp(h.highlight_boost, 0.0, 2.0);
     s.extras.upscale.sharpness = std::clamp(s.extras.upscale.sharpness, 0.0, 1.0);
+    s.extras.picture = extras::picture_clamped(s.extras.picture);
     s.audio.volume = std::clamp(s.audio.volume, 0.0, 1.0);
     s.display.monitor = std::clamp(s.display.monitor, 0, 32);
     if (s.audio.device.empty()) s.audio.device = "default";
@@ -215,6 +216,7 @@ void revert_to_saved(UiHost& host, Page& p) {
     stop_rebind(host, p);
     p.edit = host.settings();
     p.edit.fps = host.settings().fps;
+    extras::set_picture_live(p.edit.extras.picture);   // the colour sliders preview live: back to the saved values
     refresh_out_text(p);
     p.dirty = false;
 }
@@ -223,6 +225,7 @@ void load_factory(UiHost& host, Page& p) {
     stop_rebind(host, p);
     p.edit = host.factory();
     p.edit.fps = host.settings().fps;
+    extras::set_picture_live(p.edit.extras.picture);
     refresh_out_text(p);
     mark(p);
 }
@@ -950,9 +953,35 @@ void gpu_group(Page& p) {
     else ImGui::TextDisabled("No shaders waiting to be prepared");
 }
 
+// Colour controls of the present step (nxrt/extras.h PictureSettings). They show live while dragged; Apply and save keeps them.
+void color_group(Page& p) {
+    extras::PictureSettings& c = p.edit.extras.picture;
+    ImGui::SeparatorText("Colour");
+    bool changed = false;
+    if (ImGui::Button("Neutral##pic_neutral")) changed = extras::picture_preset("neutral", &c);
+    tip("The game's own picture, untouched.");
+    ImGui::SameLine();
+    if (ImGui::Button("Vivid##pic_vivid")) changed = extras::picture_preset("vivid", &c);
+    tip("A modest boost: contrast 1.10, saturation 1.15, black level -0.03.");
+    changed |= slider("Contrast##pic_contrast", &c.contrast, 0.5, 1.5, "%.2f");
+    tip("Spreads the tones away from mid grey; 1 is the game's own.");
+    changed |= slider("Saturation##pic_saturation", &c.saturation, 0.0, 2.0, "%.2f");
+    tip("Colour intensity; 0 is grey, 1 is the game's own.");
+    changed |= slider("Black level##pic_black", &c.black, -0.5, 0.25, "%.3f");
+    tip("Below 0 pulls the darkest tones down to black (against a hazy, washed-out look); above 0 lifts them. White stays. 0 is the game's own.");
+    changed |= slider("Gamma##pic_gamma", &c.gamma, 0.5, 2.0, "%.2f");
+    tip("Mid-tone brightness: above 1 brightens, below 1 darkens. Black and white stay. 1 is the game's own.");
+    if (changed) {
+        extras::set_picture_live(c);
+        mark(p);
+    }
+    ImGui::TextDisabled(c.neutral() ? "Neutral: the picture is presented as the game drew it." : "Applies live; Apply and save keeps it.");
+}
+
 void graphics_page(Page& p) {
     hdr_group(p);
     picture_group(p);
+    color_group(p);
     gpu_group(p);
 }
 

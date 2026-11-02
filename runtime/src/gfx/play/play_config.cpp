@@ -148,7 +148,7 @@ Settings builtin_settings() {
     return s;
 }
 
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Prompts, Fps, Switch, Aim, Camera, Tweaks, Bindings };
+enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Switch, Aim, Camera, Tweaks, Bindings };
 
 // The factory-defaults revision this build writes ([meta] defaults_rev) and the factory bindings an older controls.ini does not have: the
 // game's (play_types.h GameDefaults).
@@ -169,6 +169,7 @@ const char* sec_label(Sec s) {
         case Sec::Hdr: return "[hdr]";
         case Sec::Upscale: return "[upscale]";
         case Sec::Latency: return "[latency]";
+        case Sec::Picture: return "[picture]";
         case Sec::Prompts: return "[prompts]";
         case Sec::Fps: return "[fps]";
         case Sec::Switch: return "[switch]";
@@ -528,6 +529,21 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "log_timings") return set_bool(&l.log_timings);
             break;
         }
+        case Sec::Picture: {
+            extras::PictureSettings& c = s->extras.picture;
+            if (k == "preset") {   // read only (the file keeps the four values): fills them in, the keys after it win
+                if (!extras::picture_preset(lower(v), &c)) {
+                    *msg = "preset must be neutral or vivid";
+                    return false;
+                }
+                return true;
+            }
+            if (k == "contrast") return set_real(0.5, 1.5, &c.contrast);
+            if (k == "saturation") return set_real(0.0, 2.0, &c.saturation);
+            if (k == "black") return set_real(-0.5, 0.25, &c.black);
+            if (k == "gamma") return set_real(0.5, 2.0, &c.gamma);
+            break;
+        }
         case Sec::Switch: {
             Act a = Act::None;
             if (!parse_act(k, &a) || a == Act::None) break;   // unknown action name: a warning
@@ -561,6 +577,7 @@ Sec fixed_sec(const std::string& key) {
     if (key == "hdr") return Sec::Hdr;
     if (key == "upscale") return Sec::Upscale;
     if (key == "latency") return Sec::Latency;
+    if (key == "picture") return Sec::Picture;
     if (key == "prompts") return Sec::Prompts;
     if (key == "fps") return Sec::Fps;
     if (key == "aim") return Sec::Aim;
@@ -919,6 +936,12 @@ std::string format_settings(const Settings& s) {
     kv("mode", kLatencyWords[static_cast<int>(s.extras.latency.mode)]);
     kv("frames_ahead", std::to_string(s.extras.latency.frames_ahead));
     kv("log_timings", flag(s.extras.latency.log_timings));
+
+    o += "\n[picture]\n";
+    kv("contrast", num_exact(s.extras.picture.contrast));
+    kv("saturation", num_exact(s.extras.picture.saturation));
+    kv("black", num_exact(s.extras.picture.black));
+    kv("gamma", num_exact(s.extras.picture.gamma));
     o += "\n[prompts]\n";
     kv("style", prompt_style_name(s.prompts.style));
 

@@ -15,6 +15,7 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g);   // main threa
 bool menu_over_value();                                             // the pointer is over a slider: the wheel steps it
 bool menu_active();                                                 // the menu hooks saw an active pointer this frame
 bool menu_open();                                                   // a menu with the game's cursor is on screen (for other parts of pkp)
+bool menu_in_game(bool in_game);                                    // main thread, once per frame before the context: a menu is up over play
 void menu_status_text(char* buf, size_t n);
 
 }  // namespace nxrt::games::pkp
