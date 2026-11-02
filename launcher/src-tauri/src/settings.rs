@@ -125,6 +125,11 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), Str
         ini.set("nvn", "shader_cache", crate::shaders::SPIRV_REL);
         changed = true;
     }
+    // shaders the game builds while it runs, for play.rs to translate after it exits (kept if the user set it, even empty)
+    if ini.get("nvn", "dump_missing").is_none() {
+        ini.set("nvn", "dump_missing", crate::shaders::MISSING_REL);
+        changed = true;
+    }
     let cur_save = ini.get("fs", "save_dir").unwrap_or_default();
     if cur_save.trim().is_empty() {
         let _ = fs::create_dir_all(dir.join("save"));
@@ -150,6 +155,23 @@ mod tests {
         let outside = std::env::temp_dir();
         assert_eq!(portable(&dir, &outside.to_string_lossy()), outside.to_string_lossy());   // outside: unchanged
         assert_eq!(portable(&dir, "Z:/does/not/exist"), "Z:/does/not/exist");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn play_paths_turn_on_dump_missing_once() {
+        let dir = std::env::temp_dir().join(format!("pkp_dm_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let d = crate::dump::fwd(&dir);
+        ensure_play_paths(&dir, &d, &d).unwrap();
+        assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(crate::shaders::MISSING_REL));
+        // the user turned it off: kept
+        let mut ini = load(&dir.join(PKP_INI)).unwrap();
+        ini.set("nvn", "dump_missing", "");
+        write_atomic(&dir.join(PKP_INI), &ini.to_text()).unwrap();
+        ensure_play_paths(&dir, &d, &d).unwrap();
+        assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(""));
         let _ = fs::remove_dir_all(&dir);
     }
 }

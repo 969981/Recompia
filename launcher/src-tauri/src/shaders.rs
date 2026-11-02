@@ -25,6 +25,9 @@ use std::time::Duration;
 
 /// Folder (in the game folder) the runtime opens by default; also what setup writes as `[nvn] shader_cache`.
 pub const SPIRV_REL: &str = "shader_cache/spirv";
+/// `[nvn] dump_missing`: the runtime writes the blocks the cache has no translation for here (the game builds some while
+/// it runs, so the romfs corpus cannot have them). The launcher translates them after the game exits.
+pub const MISSING_REL: &str = "shader_cache/missing";
 const CHUNK: usize = 1000;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -191,6 +194,58 @@ fn first_col(row: &str) -> &str {
     row.split('\t').next().unwrap_or("")
 }
 
+/// Moves a harness run's .spv files from `stage` into `spirv`, then appends its rows to spirv/results.tsv (the rows are
+/// what make a block count as done, so they go last). Returns the number of rows.
+fn commit_stage(stage: &Path, spirv: &Path) -> Result<usize, String> {
+    let results = spirv.join("results.tsv");
+    let (rheader, rrows) = read_tsv(&stage.join("results.tsv"))?;
+    for r in &rrows {
+        let h = first_col(r);
+        let src = stage.join(format!("{}.spv", h));
+        if src.is_file() {
+            let dst = spirv.join(format!("{}.spv", h));
+            let _ = fs::remove_file(&dst);
+            fs::rename(&src, &dst).map_err(|e| format!("cannot move {}: {}", src.display(), e))?;
+        }
+    }
+    let new_file = !results.is_file();
+    let mut out = fs::OpenOptions::new().create(true).append(true).open(&results).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
+    let mut text = String::new();
+    if new_file {
+        text.push_str(&rheader);
+        text.push('\n');
+    }
+    for r in &rrows {
+        text.push_str(r);
+        text.push('\n');
+    }
+    out.write_all(text.as_bytes()).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
+    Ok(rrows.len())
+}
+
+/// Translates the blocks the game dumped to MISSING_REL during its last run into the cache, then clears the folder.
+/// Ok(0) when there was nothing to do.
+pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, String> {
+    let missing = game_dir.join(MISSING_REL);
+    if !missing.join("manifest.tsv").is_file() {
+        return Ok(0);
+    }
+    let harness = tools_dir.join("spirv_harness").join("spirv_harness.exe");
+    let stage = cache_dir(game_dir).join("stage_missing");
+    let _ = fs::remove_dir_all(&stage);
+    let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).to_string();
+    let mut cmd = Command::new(&harness);
+    cmd.arg("--batch").arg(&missing).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
+    cmd.env("DOTNET_gcServer", "1");
+    if !run_tool(cmd, &AtomicBool::new(false), |_| {})? {
+        return Err("the shader translator stopped".into());
+    }
+    let n = commit_stage(&stage, &game_dir.join(SPIRV_REL))?;
+    let _ = fs::remove_dir_all(&stage);
+    let _ = fs::remove_dir_all(&missing);
+    Ok(n)
+}
+
 /// The whole setup. `report` gets every progress change. Ok(true) = finished (or the limit reached), Ok(false) = cancelled.
 pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut(Progress)) -> Result<bool, String> {
     let cache = cache_dir(&job.game_dir);
@@ -268,29 +323,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         if !ok {
             return Ok(false);
         }
-        // commit the chunk: .spv files first, then the rows that make them count
-        let (rheader, rrows) = read_tsv(&stage.join("results.tsv"))?;
-        for r in &rrows {
-            let h = first_col(r);
-            let src = stage.join(format!("{}.spv", h));
-            if src.is_file() {
-                let dst = spirv.join(format!("{}.spv", h));
-                let _ = fs::remove_file(&dst);
-                fs::rename(&src, &dst).map_err(|e| format!("cannot move {}: {}", src.display(), e))?;
-            }
-        }
-        let new_file = !results.is_file();
-        let mut out = fs::OpenOptions::new().create(true).append(true).open(&results).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
-        let mut text = String::new();
-        if new_file {
-            text.push_str(&rheader);
-            text.push('\n');
-        }
-        for r in &rrows {
-            text.push_str(r);
-            text.push('\n');
-        }
-        out.write_all(text.as_bytes()).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
+        commit_stage(&stage, &spirv)?;
         finished += chunk.len() as u64;
         report(p("translate", finished, total, format!("Translating shaders: {} of {}", finished, total)));
     }
