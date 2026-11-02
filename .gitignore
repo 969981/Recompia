@@ -1,0 +1,29 @@
+# Your game files and everything generated from them. Never commit these.
+/game/
+/work/
+build/
+shader_cache/
+bc7_cache/
+*.nso
+*.nro
+*.npdm
+*.nca
+*.nsp
+*.xci
+*.keys
+exefs/
+romfs/
+*.exe
+*.pdb
+*.map
+*.log
+pkp.ini
+pipeline_keys.bin
+# tool output
+node_modules/
+target/
+bin/
+obj/
+.vs/
+.venv/
+__pycache__/

@@ -1,0 +1,3 @@
+tests/synth/*.o
+tests/synth/*.elf
+__pycache__/
