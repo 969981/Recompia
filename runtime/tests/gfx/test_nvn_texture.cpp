@@ -499,10 +499,10 @@ NXTEST(initialize_getters_and_finalize) {
     CHECK_EQ(a.bget_class(&bld), 0);
     CHECK_EQ(a.bget_zcull(&bld), 0u);
     NVNtextureSparseTileLayout sparse{};
-    sparse.unknown0 = 9;
+    sparse.numTiledLevels = 9;
     sparse.tileWidth = 7;
     a.bget_sparse(&bld, &sparse);
-    CHECK_EQ(sparse.unknown0, 0);
+    CHECK_EQ(sparse.numTiledLevels, 0);   // 64 x 64 is smaller than one 128 x 128 tile: every level is mip tail
     CHECK_EQ(sparse.tileWidth, 128);   // a 64 KiB tile of 32-bit texels: 128 x 128
     CHECK_EQ(sparse.tileHeight, 128);
     CHECK_EQ(sparse.tileDepth, 1);
@@ -532,10 +532,10 @@ NXTEST(initialize_getters_and_finalize) {
     a.swizzle(&tex, &r, &g, &bl, &al);
     CHECK_EQ(static_cast<int>(r), static_cast<int>(NVN_TEXTURE_SWIZZLE_R));
     CHECK_EQ(static_cast<int>(al), static_cast<int>(NVN_TEXTURE_SWIZZLE_A));
-    sparse.unknown0 = 9;
+    sparse.numTiledLevels = 9;
     sparse.tileWidth = 7;
     a.sparse(&tex, &sparse);
-    CHECK_EQ(sparse.unknown0, 0);
+    CHECK_EQ(sparse.numTiledLevels, 0);   // 64 x 64 is smaller than one 128 x 128 tile: every level is mip tail
     CHECK_EQ(sparse.tileWidth, 128);
     CHECK_EQ(sparse.tileHeight, 128);
     CHECK_EQ(sparse.tileDepth, 1);
