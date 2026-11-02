@@ -70,6 +70,23 @@ def sha256(path):
     return h.hexdigest()
 
 
+def read_json(path):
+    """The JSON in path, or None if it is missing or unreadable (a file cut short by a crash or power loss starts over)."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_json(path, value):
+    """Write through a temporary file and rename, so a stop mid-write never leaves half a file behind."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(value, f, indent=1)
+    os.replace(tmp, path)
+
+
 def verify(exefs):
     want = json.load(open(os.path.join(HERE, 'dump_hashes.json'), encoding='utf-8'))
     missing = [n for n in want['sha256'] if not os.path.isfile(os.path.join(exefs, n))]
@@ -287,11 +304,10 @@ def main():
         stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'],
                  'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib'))}
         state_p = os.path.join(build, 'state.json')
-        old = json.load(open(state_p)) if os.path.isfile(state_p) else None
-        if old != stamp:                 # another dump or another release: start over
+        if read_json(state_p) != stamp:  # another dump or another release (or no readable state): start over
             for d in ('lift', 'obj'):
                 shutil.rmtree(os.path.join(build, d), ignore_errors=True)
-            json.dump(stamp, open(state_p, 'w'), indent=1)
+            write_json(state_p, stamp)
         times['verify'] = round(time.time() - t0, 1)
         runner = Runner(cancel_file)
         env = dict(os.environ)
@@ -312,7 +328,7 @@ def main():
             for d in ('lift', 'obj', 'zig-cache'):
                 shutil.rmtree(os.path.join(build, d), ignore_errors=True)
         done = dict(stamp, exe_sha256=sha256(exe), seconds=times, finished=time.strftime('%Y-%m-%d %H:%M:%S'))
-        json.dump(done, open(os.path.join(build, 'done.json'), 'w'), indent=1)
+        write_json(os.path.join(build, 'done.json'), done)
         progress('finish', 1, 1, 'pkp.exe is ready (%d s)' % (time.time() - t0))
         return 0
     except Cancelled:

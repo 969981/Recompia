@@ -186,7 +186,7 @@ void system_info_get(::Ctx* c) {
 // LimitableResource: 0 PhysicalMemoryMax, 1 ThreadCountMax, 2 EventCountMax, 3 TransferMemoryCountMax, 4 SessionCountMax.
 bool resource_limit(uint64_t which, uint64_t& v) {
     switch (which) {
-        case 0: v = kTotalMemoryAvailable; return true;   // chosen value
+        case 0: v = svc_total_memory(); return true;      // the same memory GetInfo TotalMemorySize reports (per platform, [memory])
         case 1: v = 0x200; return true;                   // nxrt choice
         case 2: v = 0x600; return true;                   // nxrt choice
         case 3: v = 0x80; return true;                    // nxrt choice

@@ -25,6 +25,7 @@
 #include <thread>
 #include <vector>
 
+#include "nxrt/game.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/module.h"
 #include "nxrt/movie.h"
@@ -165,7 +166,15 @@ struct DecoderSide {
 uint64_t new_md() { uint64_t* h = new uint64_t(0); call(kMdCtor, {P(h)}); return P(h); }
 void free_md(uint64_t h) { call(kMdDtor, {h}); delete reinterpret_cast<uint64_t*>(h); }
 
-Result play(const std::string& dir, const std::string& id, size_t frame_step, bool keep_pcm) {
+// The Media Foundation movie:: HLE is Switch 1 only: on Switch 2 movie:: stays in subsdk0 and the decoders answer one level down
+// (movie_mf.cpp install_movie_hle, src/media/video_codec.cpp). True (and the case skipped) when the registered game is a Switch 2 title.
+bool skip_on_switch2() {
+    if (game::info().platform != game::Platform::Switch2) return false;
+    nxtest::skip("the registered game is a Switch 2 title: movie:: is not taken over by Media Foundation there");
+    return true;
+}
+
+Result play_movie(const std::string& dir, const std::string& id, size_t frame_step, bool keep_pcm) {
     Result r;
     r.id = id;
     const auto t0 = std::chrono::steady_clock::now();
@@ -356,6 +365,7 @@ std::vector<std::string> load_lines(const std::string& path) {
 // Plays the shortest movie of the oracle folder through the extractor only (no decoders) to its end, seeks to 0 like a looping movie does and plays it again:
 // both passes must hold the same samples with the same timestamps, whether the loop restart came from the samples decoded ahead (S21) or from a fresh seek.
 NXTEST(movie_loop_restart) {
+    if (skip_on_switch2()) return;
     const char* dirv = std::getenv("NXRT_MOVIE_DIR");
     if (!dirv || !*dirv) { nxtest::skip("NXRT_MOVIE_DIR is not set (run tools/media/movie_oracle.py)"); return; }
     REQUIRE(media::install_movie_hle());
@@ -408,6 +418,7 @@ NXTEST(movie_loop_restart) {
 }
 
 NXTEST(movie_import_table) {
+    if (skip_on_switch2()) return;
     CHECK(media::install_movie_hle());
     size_t n = 0;
     const char* const* names = media::movie_import_names(&n);
@@ -419,6 +430,7 @@ NXTEST(movie_import_table) {
 }
 
 NXTEST(movie_mediadata_buffer) {
+    if (skip_on_switch2()) return;
     REQUIRE(media::install_movie_hle());
     uint64_t md = 0;
     call(kMdCtor, {P(&md)});
@@ -447,6 +459,7 @@ NXTEST(movie_mediadata_buffer) {
 }
 
 NXTEST(movie_all_fmv) {
+    if (skip_on_switch2()) return;
     const char* dirv = std::getenv("NXRT_MOVIE_DIR");
     if (!dirv || !*dirv) { nxtest::skip("NXRT_MOVIE_DIR is not set (run tools/media/movie_oracle.py)"); return; }
     REQUIRE(media::install_movie_hle());
@@ -468,7 +481,7 @@ NXTEST(movie_all_fmv) {
     std::vector<std::thread> pool;
     for (unsigned t = 0; t < nthreads; t++) {
         pool.emplace_back([&] {
-            for (size_t i; (i = next.fetch_add(1)) < todo.size();) results[i] = play(dir, todo[i].id, step, outv != nullptr);
+            for (size_t i; (i = next.fetch_add(1)) < todo.size();) results[i] = play_movie(dir, todo[i].id, step, outv != nullptr);
         });
     }
     for (auto& t : pool) t.join();

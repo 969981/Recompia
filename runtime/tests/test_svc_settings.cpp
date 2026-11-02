@@ -34,6 +34,7 @@ bool out_is_code(const nxsvc::Reply& r, const char* name) {
 // No configuration overrides (the profile is the Metroid Prime Remastered defaults).
 void default_profile() {
     config_clear();
+    config_set("system", "firmware", "12.1.0");   // the version expected_firmware() writes out, whatever the registered game declares
     services::profile_reload();
 }
 

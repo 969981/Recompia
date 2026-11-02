@@ -4,6 +4,7 @@
 // Ryujinx for the result codes (module 128: result = module | description << 9), not read from the service.
 #include <filesystem>
 #include <windows.h>
+#include <algorithm>
 #include <cstring>
 
 #include "nxrt/config.h"
@@ -384,7 +385,8 @@ NXTEST(am_application_functions_fixed_replies) {
     nxsvc::Reply dv = app.call(23);
     CHECK_EQ(dv.result, 0u);
     REQUIRE(dv.out.size() >= 16);
-    const uint8_t want_dv[16] = {'1', '.', '0', '.', '0', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    uint8_t want_dv[16] = {};   // the registered game's display version, NUL padded
+    std::memcpy(want_dv, services::profile().display_version.c_str(), std::min<size_t>(services::profile().display_version.size(), 15));
     CHECK(std::memcmp(dv.out.data(), want_dv, 16) == 0);
 
     // NotifyRunning returns 1.
@@ -446,12 +448,14 @@ NXTEST(am_ensure_save_data) {
     CHECK_EQ(r.result, 0u);
     CHECK_EQ(r.get<uint64_t>(0), 0ull);
     CHECK_EQ(services::fsapi::account_save_size(1, 2, &size, &journal), 0u);
-    CHECK_EQ(size, 4ll << 20);
+    const int64_t want_size = static_cast<int64_t>(services::profile().account_save_size);
+    const int64_t want_journal = static_cast<int64_t>(services::profile().account_save_journal);
+    CHECK_EQ(size, want_size);
     // GetSaveDataSize(type 1 = account, Uid) -> normal, journal
     r = app.call(26, nxsvc::Args().u8(1).align(8).u64(1).u64(2));
     CHECK_EQ(r.result, 0u);
-    CHECK_EQ(r.get<int64_t>(0), 4ll << 20);
-    CHECK_EQ(r.get<int64_t>(8), 1ll << 20);
+    CHECK_EQ(r.get<int64_t>(0), want_size);
+    CHECK_EQ(r.get<int64_t>(8), want_journal);
     std::filesystem::remove_all(dir);
     clear_config();
 }

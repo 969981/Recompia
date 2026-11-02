@@ -195,11 +195,11 @@ NXTEST(vertex_attribs_and_streams_recorded) {
     NVNvertexAttribState attr[2];
     std::memset(attr, 0x31, sizeof attr);
     NVNvertexStreamState streams[3];
-    std::memset(streams, 0x42, sizeof work);
+    std::memset(streams, 0x42, sizeof streams);
     abi::proc<PFNNVNCOMMANDBUFFERBINDVERTEXATTRIBSTATEPROC>("nvnCommandBufferBindVertexAttribState")(&r.cb, 2, attr);
     abi::proc<PFNNVNCOMMANDBUFFERBINDVERTEXSTREAMSTATEPROC>("nvnCommandBufferBindVertexStreamState")(&r.cb, 3, streams);
     std::memset(attr, 0, sizeof attr);       // the game reuses its objects
-    std::memset(streams, 0, sizeof work);
+    std::memset(streams, 0, sizeof streams);
     const Ref<CmdList> list = r.end();
     expect_count(list, 2);
     if (!list) return;
@@ -210,7 +210,7 @@ NXTEST(vertex_attribs_and_streams_recorded) {
     }
     if (expect_op(rd, Op::BindVertexStreams, 8 + 8 + 24)) {
         CHECK_EQ(rd.payload<P_BindVertexStreams>().count, 3u);
-        expect_filled(rd.blob<P_BindVertexStreams>(), 0x42, sizeof work);
+        expect_filled(rd.blob<P_BindVertexStreams>(), 0x42, sizeof streams);
     }
 }
 

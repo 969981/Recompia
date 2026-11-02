@@ -70,7 +70,7 @@ fn get_config(app: AppHandle) -> Config {
 #[tauri::command]
 fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(config_path(&app)?, text).map_err(|e| format!("cannot save launcher settings: {}", e))
+    settings::write_atomic(&config_path(&app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
 }
 
 #[tauri::command]
@@ -109,8 +109,8 @@ fn save_dump(app: AppHandle, path: String) -> Result<dump::DumpReport, String> {
     settings::apply(
         &game_dir_of(&cfg),
         &[
-            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "exefs".into(), value: chosen.exefs },
-            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: chosen.romfs },
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "exefs".into(), value: settings::portable(&game_dir_of(&cfg), &chosen.exefs) },
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: settings::portable(&game_dir_of(&cfg), &chosen.romfs) },
         ],
     )?;
     Ok(report)

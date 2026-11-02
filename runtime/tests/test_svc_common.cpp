@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "nxrt/config.h"
+#include "nxrt/game.h"
 
 NXTEST_GROUP(svc_common)
 
@@ -59,13 +60,15 @@ NXTEST(common_profile_defaults) {
     config_clear();
     services::profile_reload();
     const services::TitleProfile& p = services::profile();
-    CHECK_EQ(p.program_id, 0x010012101468C000ull);
-    CHECK_EQ(p.account_save_size, 4ull << 20);
-    CHECK_EQ(p.account_save_journal, 1ull << 20);
+    // the registered game's title defaults (game::Info::title_defaults), not one game's numbers
+    services::TitleProfile want;
+    if (game::info().title_defaults) game::info().title_defaults(want);
+    CHECK_EQ(p.program_id, game::info().program_id);
+    CHECK_EQ(p.account_save_size, want.account_save_size);
+    CHECK_EQ(p.account_save_journal, want.account_save_journal);
     CHECK_EQ(static_cast<uint32_t>(p.language), static_cast<uint32_t>(services::Language::AmericanEnglish));
     CHECK(p.docked);
-    // 13 supported languages (control.nacp)
-    CHECK_EQ(__builtin_popcount(p.supported_languages), 13);
+    CHECK_EQ(p.supported_languages, want.supported_languages);   // control.nacp SupportedLanguage
     CHECK_EQ(services::language_code_u64(services::Language::AmericanEnglish), 0x53552d6e65ull);   // "en-US"
 }
 
@@ -89,7 +92,7 @@ NXTEST(common_profile_overrides) {
 
 NXTEST(common_program_id_default) {
     config_clear();
-    CHECK_EQ(services::program_id_now(), 0x010012101468C000ull);
+    CHECK_EQ(services::program_id_now(), game::info().program_id);
     config_set("process", "program_id", "0x1234");
     CHECK_EQ(services::program_id_now(), 0x1234ull);
     config_clear();

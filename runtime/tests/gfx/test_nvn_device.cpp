@@ -4,6 +4,7 @@
 // builder objects. The GPU is the stub (nvn_gpu_stub.cpp): submit advances the serial, every wait is already satisfied.
 #include <cstring>
 
+#include "nxrt/game.h"
 #include "nvn_cmd.h"
 #include "nvn_core.h"
 #include "nvn_gpu.h"
@@ -121,10 +122,11 @@ NXTEST(device_get_integer_known_and_unknown_values) {
     CHECK(v == 256);
     get(&dev, NVN_DEVICE_INFO_MAX_TEXTURE_SIZE, &v);
     CHECK(v == 16384);
+    const bool nvn2 = nxrt::game::info().platform == nxrt::game::Platform::Switch2;   // NVN2 (Switch 2 SDK 20.5) is 231.30, NVN1 55.15
     get(&dev, NVN_DEVICE_INFO_API_MAJOR_VERSION, &v);
-    CHECK(v == 55);
+    CHECK(v == (nvn2 ? 231 : 55));
     get(&dev, NVN_DEVICE_INFO_API_MINOR_VERSION, &v);
-    CHECK(v == 15);
+    CHECK(v == (nvn2 ? 30 : 15));
     get(&dev, NVN_DEVICE_INFO_TEXTURE_BINDINGS_PER_STAGE, &v);
     CHECK(v == 32);
     get(&dev, NVN_DEVICE_INFO_MAX_TEXTURE_LAYERS, &v);

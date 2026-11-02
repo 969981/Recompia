@@ -323,10 +323,11 @@ NXTEST(sparse_texture_prepares_from_mapped_tiles) {
 NXTEST(untile_cube_and_cube_array) {
     no_cache();
     const TextureBuilderInfo cube = make_info(NVN_TEXTURE_TARGET_CUBEMAP, 64, 64, 0, 4, NVN_FORMAT_RGBA8);
-    const TextureBuilderInfo cube_array = make_info(NVN_TEXTURE_TARGET_CUBEMAP_ARRAY, 40, 40, 2, 3, NVN_FORMAT_RGBA8);
+    // a cube array's depth counts layer-faces, 6 per cube (nvn_texture_layout.cpp; Pokopia sets 6 * cubes): two cubes = 12
+    const TextureBuilderInfo cube_array = make_info(NVN_TEXTURE_TARGET_CUBEMAP_ARRAY, 40, 40, 12, 3, NVN_FORMAT_RGBA8);
     for (const TextureBuilderInfo& info : {cube, cube_array}) {
         Built bt;
-        CHECK_MSG(begin_block_linear(bt, info), "layout");
+        REQUIRE(begin_block_linear(bt, info));   // without a layout the rest would read an empty image
         CHECK_EQ(bt.L.layers, info.target == NVN_TEXTURE_TARGET_CUBEMAP ? 6u : 12u);
         fill_random(bt.lin, 77);
         finish_block_linear(bt, info);
@@ -877,11 +878,11 @@ NXTEST(failures_return_false_without_crashing) {
         CHECK(!prepare_texture(*t, TexCaps(), out));
         CHECK(!out.error.empty());
     }
-    // layouts that do not exist
+    // layouts that do not exist (a BUFFER target has one now: a single tight row, nvn_texture_layout.cpp)
     const TextureBuilderInfo bad[] = {
         make_info(NVN_TEXTURE_TARGET_2D, 16, 16, 1, 1, NVN_FORMAT_NONE),
         make_info(NVN_TEXTURE_TARGET_3D, 33, 33, 0, 1, NVN_FORMAT_RGBA8),
-        make_info(NVN_TEXTURE_TARGET_BUFFER, 64, 1, 1, 1, NVN_FORMAT_RGBA8),
+        make_info(NVN_TEXTURE_TARGET_BUFFER, 0, 1, 1, 1, NVN_FORMAT_RGBA8),
         make_info(NVN_TEXTURE_TARGET_2D, 0, 16, 1, 1, NVN_FORMAT_RGBA8),
         make_info(NVN_TEXTURE_TARGET_2D_ARRAY, 16, 16, 0, 1, NVN_FORMAT_RGBA8),
     };

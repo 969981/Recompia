@@ -27,6 +27,9 @@ constexpr uint64_t kLastEdit = 1546300800ull;
 // A fresh start: the default profile, every service reset (acc_reset takes the profile's user).
 void fresh_profile() {
     config_clear();
+    // the user these tests check byte for byte (Metroid Prime Remastered's defaults), whatever game the tests register
+    config_set("account", "uid", "00000000000000014d50525265636f6d");
+    config_set("account", "nickname", "Samus");
     services::profile_reload();
     services::reset_all();
 }

@@ -112,21 +112,6 @@ void set_settings(const Settings& s) {
     set_picture_live(s.picture);
 }
 
-bool picture_preset(const std::string& name, PictureSettings* out) {
-    if (name == "neutral" || name == "off" || name.empty()) {
-        *out = PictureSettings{};
-        return true;
-    }
-    if (name == "vivid") {   // a modest push against the game's hazy look
-        *out = PictureSettings{};
-        out->contrast = 1.10;
-        out->saturation = 1.15;
-        out->black = -0.03;
-        return true;
-    }
-    return false;
-}
-
 PictureSettings picture_clamped(PictureSettings p) {
     p.contrast = std::clamp(p.contrast, 0.5, 1.5);
     p.saturation = std::clamp(p.saturation, 0.0, 2.0);

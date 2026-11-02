@@ -19,14 +19,17 @@
 #include "nxrt/config.h"
 #include "nxrt/input_source.h"
 #include "nxrt/tex_override.h"
-#include "pak.h"
 #include "play/play_types.h"
 #include "play/prompt_resolve.h"
 #include "play/prompts.h"
 #include "tegra_tiling.h"
 #include "test_framework.h"
 #include "project_root.h"
+#if __has_include("pak.h")   // Metroid Prime Remastered pak/TXTR readers (mprs): only the real-data cases below use them
+#include "pak.h"
 #include "txtr.h"
+#define NXTEST_HAVE_MPRS 1
+#endif
 NXTEST_GROUP(prompt_icons)
 
 using namespace nxrt;
@@ -409,6 +412,7 @@ NXTEST(the_upload_path_asks_the_hook_and_replaces_the_pixels) {
     gfx::set_texture_override(nullptr, nullptr);
 }
 
+#if NXTEST_HAVE_MPRS
 // ---- real data: the game's own icon (skipped without the paks) ------------------------------------------------------------------------
 NXTEST(real_icon_untiles_to_valid_blocks_with_the_console_rule) {
     const char* env = std::getenv("NXRT_FS_ROMFS");
@@ -491,3 +495,4 @@ NXTEST(real_icon_ids_exist_in_both_interfaces) {
     CHECK_EQ(count("Preload/MPR1/GuiSysMP1.pak", gui), gui.size());
     CHECK_EQ(count("Preload/MPRT/PreloadFrontEndMPT.pak", front), front.size());
 }
+#endif  // NXTEST_HAVE_MPRS

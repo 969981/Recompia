@@ -41,6 +41,9 @@ if(GIT_FOUND)
 endif()
 target_include_directories(nxrt_gfx PUBLIC include src/gfx/nvn/third_party PRIVATE src/gfx src/gfx/nvn)
 target_link_libraries(nxrt_gfx PUBLIC nxrt nxrt_volk nxrt_vma nxrt_imgui nxrt_tiling nxrt_astc2bc7 SDL3::SDL3-static)
+# The core calls into the graphics shell (src/core/switch2.cpp: the HDR layer luminance; src/testtools: the screenshot wait), so whatever
+# links nxrt (nxrt_tests, the liftrun_* tests) links nxrt_gfx too, as the game exe does. Static libraries may depend on each other.
+target_link_libraries(nxrt INTERFACE nxrt_gfx)
 target_compile_definitions(nxrt_gfx PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=1)
 
 add_executable(nxrt_gfx_demo apps/gfx_demo.cpp)

@@ -6,7 +6,7 @@ $build  = [System.IO.Path]::GetFullPath((Join-Path $here '..\build\oracle'))
 $cmake  = 'C:\Program Files\CMake\bin\cmake.exe'
 $clang  = 'C:\Program Files\LLVM\bin\clang-cl.exe'
 $ninja  = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\ninja.exe'
-$vcvars = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
+$vcvars = Join-Path (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) 'VC\Auxiliary\Build\vcvars64.bat'
 
 foreach ($p in @($cmake, $clang, $ninja, $vcvars)) {
     if (-not (Test-Path $p)) { throw "not found: $p" }

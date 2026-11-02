@@ -17,6 +17,7 @@ romfs/
 *.pdb
 *.map
 *.log
+*.log.prev
 pkp.ini
 pipeline_keys.bin
 # tool output

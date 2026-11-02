@@ -72,8 +72,11 @@ pub fn read_marker(game_dir: &Path) -> Marker {
 }
 
 fn write_marker(game_dir: &Path, m: &Marker) -> Result<(), String> {
+    // through a temporary file: a marker cut short by a crash would read back as no progress and start the hours-long setup over
     let p = cache_dir(game_dir).join("setup.json");
-    fs::write(&p, serde_json::to_string_pretty(m).unwrap_or_default()).map_err(|e| format!("cannot write {}: {}", p.display(), e))
+    let tmp = cache_dir(game_dir).join("setup.json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(m).unwrap_or_default()).map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
+    fs::rename(&tmp, &p).map_err(|e| format!("cannot replace {}: {}", p.display(), e))
 }
 
 /// True when a finished setup's cache is in place.
