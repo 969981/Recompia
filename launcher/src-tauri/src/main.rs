@@ -109,8 +109,8 @@ fn save_dump(app: AppHandle, path: String) -> Result<dump::DumpReport, String> {
     settings::apply(
         &game_dir_of(&cfg),
         &[
-            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "exefs".into(), value: chosen.exefs },
-            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: chosen.romfs },
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "exefs".into(), value: settings::portable(&game_dir_of(&cfg), &chosen.exefs) },
+            settings::Edit { file: "pkp".into(), section: "fs".into(), key: "romfs".into(), value: settings::portable(&game_dir_of(&cfg), &chosen.romfs) },
         ],
     )?;
     Ok(report)

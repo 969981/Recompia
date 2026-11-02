@@ -92,6 +92,19 @@ pub fn apply(dir: &Path, edits: &[Edit]) -> Result<(), String> {
 
 /// Used by Play and setup: the ini keys the launcher owns. pkp.exe reads every path from pkp.ini (a pkp.ini next to it makes
 /// the game folder its working directory), so it needs no command-line paths.
+/// A path for pkp.ini: relative to the game folder (forward slashes) when it lies inside it, so the folder can be moved or copied to
+/// another PC or to SteamOS/Proton with its dump and saves; absolute otherwise. The game resolves relative paths against its folder.
+pub fn portable(dir: &Path, p: &str) -> String {
+    let full = Path::new(p.trim());
+    match (fs::canonicalize(dir), fs::canonicalize(full)) {
+        (Ok(d), Ok(f)) => match f.strip_prefix(&d) {
+            Ok(rel) if !rel.as_os_str().is_empty() => crate::dump::fwd(rel),
+            _ => p.to_string(),
+        },
+        _ => p.to_string(),
+    }
+}
+
 pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), String> {
     let path = dir.join(PKP_INI);
     let mut ini = load(&path).unwrap_or_else(Ini::empty);
@@ -104,7 +117,7 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), Str
         // relative paths in the ini are relative to the game folder, the working directory of the game
         let cur_full = if cur_path.is_absolute() { cur_path.to_path_buf() } else { dir.join(cur_path) };
         if cur.trim().is_empty() || !cur_full.is_dir() {
-            ini.set("fs", key, value);
+            ini.set("fs", key, &portable(dir, value));
             changed = true;
         }
     }
@@ -114,13 +127,29 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), Str
     }
     let cur_save = ini.get("fs", "save_dir").unwrap_or_default();
     if cur_save.trim().is_empty() {
-        let save = dir.join("save");
-        let _ = fs::create_dir_all(&save);
-        ini.set("fs", "save_dir", &crate::dump::fwd(&save));
+        let _ = fs::create_dir_all(dir.join("save"));
+        ini.set("fs", "save_dir", "save");   // relative: the saves move with the folder
         changed = true;
     }
     if changed {
         write_atomic(&path, &ini.to_text())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_paths_inside_the_game_folder_are_relative() {
+        let dir = std::env::temp_dir().join(format!("pkp_portable_{}", std::process::id()));
+        let inside = dir.join("dump").join("updates").join("655360").join("exefs");
+        fs::create_dir_all(&inside).unwrap();
+        assert_eq!(portable(&dir, &inside.to_string_lossy()), "dump/updates/655360/exefs");
+        let outside = std::env::temp_dir();
+        assert_eq!(portable(&dir, &outside.to_string_lossy()), outside.to_string_lossy());   // outside: unchanged
+        assert_eq!(portable(&dir, "Z:/does/not/exist"), "Z:/does/not/exist");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
