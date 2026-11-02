@@ -74,7 +74,16 @@ struct Pending {
     uint64_t cmd_min = 0, ctl_min = 0;
 };
 thread_local Pending t_pending;
-thread_local bool t_in_callback = false;
+// In the guest's command-memory callback: the flag lives in nxrt::host_callback_flags() so a guest exception that unwinds out of the
+// callback (a longjmp past CallbackScope) does not leave it set: catch_call.cpp restores it at the landing.
+bool in_callback() { return (nxrt::host_callback_flags() & nxrt::kHostCbCmdMem) != 0; }
+struct CallbackScope {
+    uint32_t saved = nxrt::host_callback_flags();
+    CallbackScope() { nxrt::host_callback_restore(saved | nxrt::kHostCbCmdMem); }
+    ~CallbackScope() { nxrt::host_callback_restore(saved); }
+    CallbackScope(const CallbackScope&) = delete;
+    CallbackScope& operator=(const CallbackScope&) = delete;
+};
 
 // A run-out with no callback to call: the recording continues in the overflow ring (EndRecording).
 void fall_back(CommandBuffer* cb, int event) {
@@ -85,7 +94,7 @@ void fall_back(CommandBuffer* cb, int event) {
 
 // Queues the callback for `event`. Caller holds the buffer's lock (or has exclusive use of it).
 void request(CommandBuffer* cb, int event, uint64_t min_size) {
-    if (!cb->callback || !cb->guest || !callback_enabled() || t_in_callback || (t_pending.cb && t_pending.cb != cb)) {
+    if (!cb->callback || !cb->guest || !callback_enabled() || in_callback() || (t_pending.cb && t_pending.cb != cb)) {
         fall_back(cb, event);
         return;
     }
@@ -313,9 +322,10 @@ void abi::cmdmem_run_pending(::Ctx* c) {
         const uint64_t min_size = event == kEventCommand ? p.cmd_min : p.ctl_min;
         note_family(cb, fn, event, min_size, c->x[30]);
         g_cb_calls.fetch_add(1, std::memory_order_relaxed);
-        t_in_callback = true;
-        gcall4(c, fn, cb->guest, static_cast<uint64_t>(event), min_size, data);
-        t_in_callback = false;
+        {
+            const CallbackScope scope;
+            gcall4(c, fn, cb->guest, static_cast<uint64_t>(event), min_size, data);
+        }
         std::lock_guard<std::mutex> lk(cb->lock);
         if (event == kEventCommand) {
             const uint64_t n = cb->pend_cmd;

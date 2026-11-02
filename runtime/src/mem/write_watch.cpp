@@ -506,32 +506,59 @@ void take_written(Region* r, std::vector<uint64_t>& out) {
     }
 }
 
-OsWriteScope::OsWriteScope(const void* p, uint64_t n) {
-    if (!n) return;
+namespace {
+// An OS-call slot over [p, p + n) (OsWriteScope, OsReadScope): arm() and guard() leave the range alone while it is held.
+int os_slot_acquire(const void* p, uint64_t n) {
     const uint64_t lo = reinterpret_cast<uint64_t>(p) & ~(kPage - 1), hi = (reinterpret_cast<uint64_t>(p) + n + kPage - 1) & ~(kPage - 1);
-    for (int i = 0; i < kOsSlots && slot_ < 0; ++i) {
+    for (int i = 0; i < kOsSlots; ++i) {
         uint64_t expect = 0;
         if (g_os[i].hi.load(std::memory_order_relaxed) == 0 && g_os[i].lo.compare_exchange_strong(expect, lo | 1, std::memory_order_seq_cst)) {
             g_os[i].lo.store(lo, std::memory_order_seq_cst);
             g_os[i].hi.store(hi, std::memory_order_seq_cst);
-            slot_ = i;
+            return i;
         }
     }
-    if (slot_ < 0) {
-        g_os_overflow.fetch_add(1, std::memory_order_seq_cst);
-        slot_ = kOsSlots;
-    }
-    before_os_write(p, n);
+    g_os_overflow.fetch_add(1, std::memory_order_seq_cst);
+    return kOsSlots;
 }
 
-OsWriteScope::~OsWriteScope() {
-    if (slot_ < 0) return;
-    if (slot_ == kOsSlots) {
+void os_slot_release(int slot) {
+    if (slot < 0) return;
+    if (slot == kOsSlots) {
         g_os_overflow.fetch_sub(1, std::memory_order_seq_cst);
         return;
     }
-    g_os[slot_].hi.store(0, std::memory_order_seq_cst);
-    g_os[slot_].lo.store(0, std::memory_order_seq_cst);
+    g_os[slot].hi.store(0, std::memory_order_seq_cst);
+    g_os[slot].lo.store(0, std::memory_order_seq_cst);
+}
+}  // namespace
+
+OsWriteScope::OsWriteScope(const void* p, uint64_t n) {
+    if (!n) return;
+    slot_ = os_slot_acquire(p, n);
+    before_os_write(p, n);
+}
+
+OsWriteScope::~OsWriteScope() { os_slot_release(slot_); }
+
+OsReadScope::OsReadScope(const void* p, uint64_t n) {
+    if (!n) return;
+    slot_ = os_slot_acquire(p, n);   // first: guard() cannot take a page of the range back between the fetch and the OS call
+    before_os_read(p, n);
+}
+
+OsReadScope::~OsReadScope() { os_slot_release(slot_); }
+
+void before_os_read(const void* p, uint64_t n) {
+    // guarded pages only: their owner makes them current and they become read-only (armed) again, which the OS can read. Armed pages
+    // stay armed: a read does not change them.
+    if (!n || g_live.load(std::memory_order_acquire) == 0) return;
+    const uint64_t lo = reinterpret_cast<uint64_t>(p) & ~(kPage - 1), hi = reinterpret_cast<uint64_t>(p) + n;
+    for (uint64_t a = lo; a < hi; a += kPage)
+        if (guarded_at(a)) {
+            if (GuardHandler fn = g_guard_fn.load(std::memory_order_acquire)) fn(a);
+            drop_guard(a, kPage);
+        }
 }
 
 void before_os_write(const void* p, uint64_t n) {

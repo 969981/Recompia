@@ -6,7 +6,8 @@
 //   - copies, per control point, every per-vertex input of the evaluation shader that the vertex shader writes (same Location and
 //     Component), converting the vertex shader's type to the evaluation shader's (component count, int/float bits); an evaluation input
 //     the vertex shader does not write gets zero (the console leaves it undefined),
-//   - copies gl_Position (the translator's gl_PerVertex block, as the vertex and evaluation shaders declare it),
+//   - copies gl_Position (the translator's gl_PerVertex block, as the vertex and evaluation shaders declare it), and gl_ClipDistance /
+//     gl_CullDistance (whole arrays) when asked (the vertex shader writes them and the evaluation shader reads gl_in[].gl_*Distance),
 //   - writes zero to the evaluation shader's per-patch inputs,
 //   - sets gl_TessLevelOuter / gl_TessLevelInner from a push constant block (TessPush, offset 0, kPushBytes, tessellation control
 //     stage), so a level change between draws needs no new shader or pipeline.
@@ -61,8 +62,9 @@ inline std::vector<Copy> match(const std::vector<Io>& vs_outputs, const std::vec
 
 // vertices: output patch size (clamped to 1..32); the input arrays have 32 (gl_MaxPatchVertices) elements. The gl_PerVertex block
 // matches the translator's ({vec4 Position, float PointSize, float ClipDistance[clip_count], float CullDistance[cull_count]}).
+// copy_clip / copy_cull: gl_out[id].gl_ClipDistance = gl_in[id].gl_ClipDistance (and the cull distances); otherwise they are not written.
 inline std::vector<uint32_t> passthrough_tcs(const std::vector<Copy>& per_vertex, const std::vector<Io>& per_patch, uint32_t vertices,
-                                             uint32_t clip_count = 7, uint32_t cull_count = 1) {
+                                             uint32_t clip_count = 7, uint32_t cull_count = 1, bool copy_clip = false, bool copy_cull = false) {
     enum : uint32_t {
         kCapability = 17, kMemoryModel = 14, kEntryPoint = 15, kExecutionMode = 16, kDecorate = 71, kMemberDecorate = 72, kTypeVoid = 19,
         kTypeInt = 21, kTypeFloat = 22, kTypeVector = 23, kTypeArray = 28, kTypeStruct = 30, kTypePointer = 32, kTypeFunction = 33,
@@ -260,6 +262,16 @@ inline std::vector<uint32_t> passthrough_tcs(const std::vector<Copy>& per_vertex
         op(code, kAccessChain, {ptr(kInput, t_v4), src, v_gl_in, inv, iconst(0)});
         op(code, kLoad, {t_v4, val, src});
         op(code, kAccessChain, {ptr(kOutput, t_v4), dst, v_gl_out, inv, iconst(0)});
+        op(code, kStore, {dst, val});
+    }
+    for (uint32_t member : {2u, 3u}) {   // gl_out[id].gl_ClipDistance / gl_CullDistance = gl_in[id]'s, the whole array
+        if (!(member == 2 ? copy_clip : copy_cull)) continue;
+        const uint32_t n = member == 2 ? clip_count : cull_count;
+        const uint32_t at = array(t_float, n ? n : 1);
+        const uint32_t src = id(), val = id(), dst = id();
+        op(code, kAccessChain, {ptr(kInput, at), src, v_gl_in, inv, iconst(static_cast<int32_t>(member))});
+        op(code, kLoad, {at, val, src});
+        op(code, kAccessChain, {ptr(kOutput, at), dst, v_gl_out, inv, iconst(static_cast<int32_t>(member))});
         op(code, kStore, {dst, val});
     }
     // per-patch values: every invocation writes the same ones (identical values from several invocations are well defined)

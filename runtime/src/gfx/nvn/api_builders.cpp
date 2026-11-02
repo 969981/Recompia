@@ -18,7 +18,7 @@
 // checked, no code copied. refs/smo-recomp/runtime/gfx/nvn_stub.c (GPL-3.0), memory pool and buffer builder layouts checked,
 // no code copied.
 //
-// Not implemented here, on purpose: nvnEventBuilderGetStorage (no signature in sigs.txt, not assumed).
+// nvnEventBuilderGetStorage and nvnWindowBuilderGetNumActiveTextures have no NVN1 signature; they follow the NVN2 driver (see each).
 #include <atomic>
 #include <cstring>
 #include <mutex>
@@ -219,6 +219,8 @@ void nvnWindowBuilderSetPresentInterval(NVNwindowBuilder* b, int interval) { wr<
 int nvnWindowBuilderGetPresentInterval(const NVNwindowBuilder* b) { return rd<int32_t>(b, kWInterval); }
 
 void nvnWindowBuilderSetNumActiveTextures(NVNwindowBuilder* b, int count) { wr<int32_t>(b, kWActive, count); }
+// NVN2 (sdk 0x5F1300): int (const NVNwindowBuilder*), the count SetNumActiveTextures stored.
+int nvnWindowBuilderGetNumActiveTextures(const NVNwindowBuilder* b) { return rd<int32_t>(b, kWActive); }
 
 // ---- NVNmemoryPoolBuilder --------------------------------------------------------------------------------------------------
 void nvnMemoryPoolBuilderSetDevice(NVNmemoryPoolBuilder* b, NVNdevice* d) { wr<uint64_t>(b, kPDevice, bits_of(d)); }
@@ -266,6 +268,11 @@ const NVNmemoryPool* nvnEventBuilderGetMemoryPool(const NVNeventBuilder* b) {
 }
 ptrdiff_t nvnEventBuilderGetMemoryOffset(const NVNeventBuilder* b) {
     return static_cast<ptrdiff_t>(rd<int64_t>(b, kEOffset));
+}
+// NVN2 (sdk 0x5E0D00): const NVNmemoryPool* (const NVNeventBuilder*, int64_t* offset): the pool and offset given to SetStorage.
+const NVNmemoryPool* nvnEventBuilderGetStorage(const NVNeventBuilder* b, int64_t* offset) {
+    if (offset) *offset = rd<int64_t>(b, kEOffset);
+    return ptr_of<const NVNmemoryPool>(rd<uint64_t>(b, kEPool));
 }
 
 }  // namespace
@@ -367,6 +374,7 @@ void register_api_builders() {
     NVN_REG(nvnWindowBuilderSetPresentInterval);
     NVN_REG(nvnWindowBuilderGetPresentInterval);
     NVN_REG(nvnWindowBuilderSetNumActiveTextures);
+    NVN_REG(nvnWindowBuilderGetNumActiveTextures);
     NVN_REG(nvnWindowBuilderSetColorSpace);
     NVN_REG(nvnWindowBuilderGetColorSpace);
     NVN_REG(nvnWindowBuilderSetHdrDisplayMetadata);
@@ -395,6 +403,7 @@ void register_api_builders() {
     NVN_REG(nvnEventBuilderSetStorage);
     NVN_REG(nvnEventBuilderGetMemoryPool);
     NVN_REG(nvnEventBuilderGetMemoryOffset);
+    NVN_REG(nvnEventBuilderGetStorage);
 }
 
 }  // namespace nxrt::nvn

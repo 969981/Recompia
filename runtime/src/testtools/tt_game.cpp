@@ -16,6 +16,7 @@
 
 #include "nxrt/game.h"
 #include "nxrt/log.h"
+#include "nxrt/write_watch.h"
 #include "tt_internal.h"
 
 namespace nxrt::tt {
@@ -29,6 +30,7 @@ void set_game_base(uint64_t b) { g_base.store(b); }
 bool read_mem(uint64_t addr, void* out, size_t n) {
     if (addr < 0x10000) return false;
     SIZE_T got = 0;
+    const nxrt::mem::ww::OsReadScope rs(reinterpret_cast<const void*>(addr), n);   // a guarded page (deferred GPU result) fails the read
     return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(addr), out, n, &got) && got == n;
 }
 bool write_mem(uint64_t addr, const void* in, size_t n) {

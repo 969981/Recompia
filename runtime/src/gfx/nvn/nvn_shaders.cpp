@@ -169,7 +169,7 @@ enum : uint32_t {
     OpName = 5, OpEntryPoint = 15, OpExecutionMode = 16, OpTypeBool = 20, OpTypeInt = 21, OpTypeFloat = 22,
     OpTypeVector = 23, OpTypeMatrix = 24, OpTypeImage = 25, OpTypeSampler = 26, OpTypeSampledImage = 27,
     OpTypeArray = 28, OpTypeRuntimeArray = 29, OpTypeStruct = 30, OpTypePointer = 32, OpConstant = 43,
-    OpVariable = 59, OpDecorate = 71, OpMemberDecorate = 72,
+    OpVariable = 59, OpAccessChain = 65, OpInBoundsAccessChain = 66, OpDecorate = 71, OpMemberDecorate = 72,
 };
 enum : uint32_t {
     DecBlock = 2, DecBufferBlock = 3, DecBuiltIn = 11, DecLocation = 30, DecComponent = 31, DecBinding = 33,
@@ -187,6 +187,7 @@ struct Decorations {
     int set = -1, binding = -1, location = -1, component = 0, builtin = -1;
     bool block = false, buffer_block = false;
     std::vector<uint32_t> member_builtins;
+    std::vector<std::pair<uint32_t, uint32_t>> member_builtin_at;   // (member index, BuiltIn)
 };
 
 struct Type {
@@ -364,6 +365,11 @@ bool reflect_spirv(const uint32_t* words, size_t count, ShaderReflection& out, s
         uint32_t id, ptr_type, storage;
     };
     std::vector<Var> vars;
+    struct Chain {
+        uint32_t base;
+        std::vector<uint32_t> idx;   // index ids
+    };
+    std::vector<Chain> chains;   // access chains (block members of built-in blocks: builtins_used_*)
     std::unordered_set<uint32_t> referenced;  // ids some instruction takes as an operand (approximation, see below)
     uint32_t entry_id = 0;
     bool have_entry = false;
@@ -417,7 +423,10 @@ bool reflect_spirv(const uint32_t* words, size_t count, ShaderReflection& out, s
             }
             break;
         case OpMemberDecorate:
-            if (n >= 4 && w[2] == DecBuiltIn) dec[w[0]].member_builtins.push_back(w[3]);
+            if (n >= 4 && w[2] == DecBuiltIn) {
+                dec[w[0]].member_builtins.push_back(w[3]);
+                dec[w[0]].member_builtin_at.emplace_back(w[1], w[3]);
+            }
             break;
         case OpTypeBool: case OpTypeInt: case OpTypeFloat: case OpTypeVector: case OpTypeMatrix: case OpTypeImage:
         case OpTypeSampler: case OpTypeSampledImage: case OpTypeArray: case OpTypeRuntimeArray: case OpTypeStruct:
@@ -429,6 +438,9 @@ bool reflect_spirv(const uint32_t* words, size_t count, ShaderReflection& out, s
             break;
         case OpVariable:
             if (n >= 3) vars.push_back({w[1], w[0], w[2]});
+            break;
+        case OpAccessChain: case OpInBoundsAccessChain:
+            if (n >= 4) chains.push_back({w[2], std::vector<uint32_t>(w + 3, w + n)});
             break;
         }
         i += wc;
@@ -547,6 +559,28 @@ bool reflect_spirv(const uint32_t* words, size_t count, ShaderReflection& out, s
     std::sort(out.bindings.begin(), out.bindings.end(), [](const DescriptorBinding& a, const DescriptorBinding& b) {
         return a.set != b.set ? a.set < b.set : a.binding < b.binding;
     });
+    // built-in block members (gl_PerVertex.gl_ClipDistance, ...) an access chain reaches: the ones the shader uses, not just declares
+    std::unordered_map<uint32_t, const Var*> io_vars;
+    for (const Var& x : vars)
+        if (x.storage == ScInput || x.storage == ScOutput) io_vars[x.id] = &x;
+    for (const Chain& c : chains) {
+        auto vi = io_vars.find(c.base);
+        if (vi == io_vars.end()) continue;
+        const Var* v = vi->second;
+        const Type* pt = type(v->ptr_type);
+        if (!pt || pt->op != OpTypePointer || pt->w.size() < 2) continue;
+        uint32_t t_id = pt->w[1];
+        size_t depth = 0;
+        for (const Type* t = type(t_id); t && t->op == OpTypeArray && !t->w.empty(); t = type(t_id)) t_id = t->w[0], ++depth;
+        const Type* st = type(t_id);
+        if (!st || st->op != OpTypeStruct || depth >= c.idx.size()) continue;
+        auto d = dec.find(t_id);
+        auto k = constants.find(c.idx[depth]);
+        if (d == dec.end() || k == constants.end()) continue;
+        auto& list = v->storage == ScInput ? out.builtins_used_in : out.builtins_used_out;
+        for (const auto& [member, b] : d->second.member_builtin_at)
+            if (member == k->second && std::find(list.begin(), list.end(), b) == list.end()) list.push_back(b);
+    }
     auto by_location = [](const ShaderIo& a, const ShaderIo& b) {
         return a.location != b.location ? a.location < b.location : a.component < b.component;
     };

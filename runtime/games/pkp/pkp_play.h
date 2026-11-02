@@ -17,5 +17,6 @@ void play_frame(bool in_game, double step_seconds, play::GameFrame* out);   // t
 play::DisplayLive play_display_live();
 uint32_t play_display_calls();
 void play_status_text(char* buf, size_t n);
+bool play_follow_live();   // the follow camera updated within the last second: the player is in the world (not the title)
 
 }  // namespace nxrt::games::pkp

@@ -36,6 +36,7 @@
 #include "extras/hdr_nvn.h"
 #include "extras/fsr1_spatial.h"
 #include "extras/spatial_upscaler.h"
+#include "extras/temporal.h"
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
 
@@ -1160,6 +1161,37 @@ void out_draw_bindings() {
     for (const GState::Bind& b : S.xfb) out_draw_read(b.addr, b.size, false, kOutStorageXfb);
 }
 
+const uint8_t* cpu_view(uint64_t addr, uint64_t size);   // below
+
+// The bytes from index_address an indexed indirect draw reads: max over its draws of (first index + count) * index size, from the
+// arguments (and draw count) when the CPU can read them (not a held result, not written by a submission that has not completed).
+// Otherwise the GPU writes them too and nobody knows the count here: everything from index_address to the end of its pool.
+uint64_t indirect_index_span(const P_DrawIndirect& p) {
+    const uint32_t isz0 = index_size_bytes(static_cast<int>(p.type));
+    const uint64_t isz = isz0 ? isz0 : 4;
+    const uint64_t stride = p.stride ? static_cast<uint64_t>(p.stride) : 20;
+    const auto whole = [&] { const BufRef b = resolve_buffer(p.index_address, 1); return b.ok && b.avail ? static_cast<uint64_t>(b.avail) : uint64_t{1} << 20; };
+    uint64_t n = 1;
+    if (p.multi && p.count_address) {
+        const uint8_t* c = out_overlaps(p.count_address, 4) ? nullptr : cpu_view(p.count_address, 4);
+        if (!c) return whole();
+        uint32_t v = 0;
+        std::memcpy(&v, c, 4);
+        n = std::min<uint64_t>(v, p.max_count);
+    }
+    if (!n) return 0;
+    const uint64_t args = stride * (n - 1) + 20;
+    const uint8_t* a = out_overlaps(p.indirect_address, args) ? nullptr : cpu_view(p.indirect_address, args);
+    if (!a) return whole();
+    uint64_t end = 0;
+    for (uint64_t i = 0; i < n; ++i) {
+        uint32_t v[3];
+        std::memcpy(v, a + i * stride, sizeof v);   // count, instance count, first index
+        if (v[0] && v[1]) end = std::max(end, (static_cast<uint64_t>(v[2]) + v[0]) * isz);
+    }
+    return end;
+}
+
 // [nvn] compute_out_lazy: before op, the results it may read or overwrite through the pool go back (instead of all of them before any
 // command that is not a dispatch). Ops that only touch images, state and syncs leave them in the copy; a fence's serial is the
 // submission's, and out_end_submit decides at its end.
@@ -1192,7 +1224,7 @@ void out_before_op(const RecordReader& r) {
             const uint64_t n = p.multi && p.count_address ? std::max<uint64_t>(1, p.max_count) : 1;
             out_draw_read(p.indirect_address, stride * (n - 1) + cmd, true, kOutIndirect);   // do_draw_indirect binds the copy for them
             if (p.multi && p.count_address) out_draw_read(p.count_address, 4, true, kOutIndirect);
-            if (indexed) compute_out_guard(p.index_address, 1u << 20, kOutIndirect);       // indices of unknown count: 1 MiB from the start
+            if (indexed) compute_out_guard(p.index_address, indirect_index_span(p), kOutIndirect);   // the draw binds the pool for its indices
             return;
         }
         case Op::ClearBuffer: {
@@ -1360,6 +1392,15 @@ void shadows_after_dispatch() {
 
 Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw
 VkImageView g_su_view = VK_NULL_HANDLE;
+Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
+uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
+// Temporal upscaling: a copy of a vertex slot 0 camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
+bool tsr_jitter(uint32_t* words, size_t n_words) {
+    Texture* d = S.depth_tex.get();
+    if (!d || !tex_gpu(d)) return false;
+    const VkExtent3D e = tex_image_extent(d, 0);
+    return extras::temporal_jitter_block(words, n_words, e.width, e.height, g_tsr_frame);
+}
 
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     std::vector<VkWriteDescriptorSet> writes;
@@ -1410,13 +1451,15 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
                         const float ufs = ufs_scale_for(d, idx);
-                        if (br.ok && ufs != 1.0f) {
+                        const bool tsr = d.nvn_stage == kVertex && idx == 0 && bind.size >= 272 && extras::temporal_wanted() && S.depth_tex;
+                        if (br.ok && (ufs != 1.0f || tsr)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
                             UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
-                                const uint32_t mask = nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);
+                                if (tsr && n >= 272) tsr_jitter(reinterpret_cast<uint32_t*>(u.ptr), static_cast<size_t>(n / 4));   // temporal upscaling
+                                const uint32_t mask = ufs != 1.0f ? nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed) : 0u;
                                 for (uint32_t i = 0; i < 32; ++i) {
                                     if (!(mask & (1u << i)) || (i + 1) * 4 > n) continue;
                                     float v;
@@ -1879,10 +1922,91 @@ bool trigger_time_ok() {
 
 // Scene upscaler (S14, src/gfx/extras/hdr_nvn.h): before a tone-map draw whose HDR scene input is smaller than its target, FSR 1 enlarges the scene
 // to the target's size and the draw samples that instead. The override lives until the next draw.
+// Temporal upscaling (FSR 3 / DLSS / DLAA, src/gfx/extras/temporal.h): a G-buffer draw (4+ colour targets and a depth target) offers its vertex
+// uniform slot 0 as the camera block; the first valid one of the frame is kept with its depth target.
+void temporal_gbuffer_note() {
+    if (S.ncolor < 4 || !S.depth_tex || !S.stage[kVertex] || extras::temporal_camera_ready()) return;
+    const GState::Bind& u = S.ubo[kVertex][0];
+    if (!u.addr || u.size < 272) return;
+    uint32_t w[68];
+    std::memcpy(w, host_ptr(u.addr), sizeof w);
+    tsr_jitter(w, 68);                                                    // the camera as the draw sees it (the bound copy is jittered the same way)
+    extras::temporal_note_gbuffer(w, 68);
+    if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
+}
+
+// The tone-map draw with a temporal mode: the largest 2D colour input is the HDR scene; the SDK's result (target size) replaces it for this draw.
+void temporal_for_draw(const ProgLayout& pl) {
+    ++g_tsr_frame;                                                        // one tone-map draw per frame: the next frame's jitter phase
+    Texture* target = S.color_tex[0].get();
+    Texture* depth = g_tsr_depth.get();
+    static bool told_intercept = false, told_input = false, told_depth = false;
+    if (!told_intercept) {
+        told_intercept = true;
+        NXLOG_I(kTag, "temporal: tone-map draw %s intercepted (target %ux%u)", S.stage[kFragment]->hash.c_str(), target ? target->b.width : 0,
+                target ? target->b.height : 0);
+    }
+    if (!extras::temporal_camera_ready()) {                              // counts the frames without a camera (warns after 120)
+        extras::temporal_evaluate(nullptr, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, {}, {}, false);
+        return;
+    }
+    if (!tex_gpu(target) || !depth || !tex_gpu(depth)) {
+        if (!told_depth) {
+            told_depth = true;
+            NXLOG_W(kTag, "temporal: camera found but no usable target / G-buffer depth texture at the tone-map draw");
+        }
+        return;
+    }
+    const BindingDesc* best = nullptr;
+    TexResolved best_r{};
+    uint64_t best_area = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex) || shares_image(r.tex, depth)) continue;
+        const VkExtent3D e = tex_image_extent(r.tex, 0);
+        const uint64_t area = static_cast<uint64_t>(e.width) * e.height;
+        if (area > best_area) { best_area = area; best = &d; best_r = r; }
+    }
+    if (!best) {
+        if (!told_input) {
+            told_input = true;
+            NXLOG_W(kTag, "temporal: the tone-map draw samples no 2D colour texture to use as the scene");
+        }
+        return;
+    }
+    const DescriptorBinding& b = best->shader->refl.bindings[best->index];
+    const VkExtent3D ce = tex_image_extent(best_r.tex, 0), de = tex_image_extent(depth, 0), te = tex_image_extent(target, 0);
+    const VkExtent2D render{std::min(ce.width, de.width), std::min(ce.height, de.height)};
+    end_pass();                                                           // compute work cannot run inside a render pass
+    tex_ensure_current(best_r.tex, *F);
+    tex_transition(best_r.tex, *F, tex_sampled_layout(best_r.tex));
+    tex_transition(depth, *F, tex_sampled_layout(depth));
+    VkImageView src = tex_sampled_view(best_r.tex, make_request(b, best_r));
+    ViewRequest dr;
+    dr.depth_aspect = true;
+    VkImageView dv = tex_sampled_view(depth, dr);
+    if (!src || !dv) return;
+    VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
+                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W);
+    g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
+    if (out) {
+        g_su_tex = best_r.tex;
+        g_su_view = out;
+    }
+}
+
 void scene_upscale_for_draw(const ProgLayout& pl) {
     g_su_tex = nullptr;
     g_su_view = VK_NULL_HANDLE;
     const ShaderInfo* fs = S.stage[kFragment];
+    if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
+        temporal_for_draw(pl);
+        return;
+    }
     if (!fs || !extras::scene_upscale_wanted() || S.ncolor == 0 || !S.color_tex[0] || !extras::hdr_is_tonemap(fs->spirv, fs->hash)) return;
     Texture* target = S.color_tex[0].get();
     if (!tex_gpu(target)) return;
@@ -1959,15 +2083,21 @@ const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderInfo* te
         si = std::make_unique<ShaderInfo>();
         si->hash = "tcs-pass-" + vs->hash + "-" + tes->hash + "-" + std::to_string(n);
         si->stage = ShaderStage::TessControl;
-        si->spirv = tessgen::passthrough_tcs(copies, per_patch, n);
+        // gl_ClipDistance / gl_CullDistance: copied when the vertex shader writes them and the evaluation shader reads gl_in[]'s
+        auto uses = [](const std::vector<uint32_t>& v, uint32_t b) { return std::find(v.begin(), v.end(), b) != v.end(); };
+        constexpr uint32_t kBuiltInClip = 3, kBuiltInCull = 4;
+        const bool clip = uses(vs->refl.builtins_used_out, kBuiltInClip) && uses(tes->refl.builtins_used_in, kBuiltInClip);
+        const bool cull = uses(vs->refl.builtins_used_out, kBuiltInCull) && uses(tes->refl.builtins_used_in, kBuiltInCull);
+        si->spirv = tessgen::passthrough_tcs(copies, per_patch, n, 7, 1, clip, cull);
         si->push_bytes = tessgen::kPushBytes;
         std::string err;
         if (!reflect_spirv(si->spirv.data(), si->spirv.size(), si->refl, &err)) {
             NXLOG_W(kTag, "generated control shader for %s does not reflect: %s", tes->hash.c_str(), err.c_str());
             si.reset();
         } else {
-            NXLOG_I(kTag, "evaluation shader %s (vs %s): pass-through control shader, %u vertices, %zu per-vertex locations (%zu from the vertex shader, %zu zero), %zu per-patch",
-                    tes->hash.c_str(), vs->hash.c_str(), n, copies.size(), copied, copies.size() - copied, per_patch.size());
+            NXLOG_I(kTag, "evaluation shader %s (vs %s): pass-through control shader, %u vertices, %zu per-vertex locations (%zu from the vertex shader, %zu zero), %zu per-patch%s%s",
+                    tes->hash.c_str(), vs->hash.c_str(), n, copies.size(), copied, copies.size() - copied, per_patch.size(), clip ? ", clip distances" : "",
+                    cull ? ", cull distances" : "");
         }
     } else {
         NXLOG_W(kTag, "evaluation shader %s: an input is not a 1..4 component float/int, no pass-through control shader", tes->hash.c_str());
@@ -2008,6 +2138,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     }
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
+    if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
         g_prog_writes = false;
         for (const BindingDesc& d : pl->bindings) g_prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -2431,11 +2562,18 @@ void do_draw_elements(const P_DrawElements& p) {
 
 // The bytes at a GPU address as the CPU sees them, when they are current: inside a pool, and not a range a submission that has not completed
 // may write (gw_settled). Null otherwise. For decisions that need data the GPU would otherwise hold (indirect arguments, draw counts).
+// Compute results held in the device copy ([nvn] compute_out_lazy) are newer than the pool: they are fetched back first (out_fetch: a
+// completed submission's result, or one whose copy-back is recorded but has not run); one the submission being recorded writes cannot be
+// read (null). Without the fetch an unguarded held result would be read stale, and a guarded one through a fault.
 const uint8_t* cpu_view(uint64_t addr, uint64_t size) {
     if (!addr || !size) return nullptr;
     const PoolHit hit = pool_lookup(addr);
     if (!hit.pool || hit.pool->is_virtual || !hit.pool->base || hit.offset + size > hit.pool->size) return nullptr;
     if (!gw_settled(addr, size)) return nullptr;
+    if (out_any()) {
+        out_fetch(addr, size, false);
+        if (out_overlaps(addr, size)) return nullptr;
+    }
     return host_ptr(addr);
 }
 

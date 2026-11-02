@@ -39,6 +39,12 @@ void hle_clear();                                         // tests only
 // Name of the HLE function the calling thread is currently inside, or nullptr.
 const char* hle_current_name();
 void hle_restore_current(const char* name);               // after a longjmp out of an HLE handler (eh/catch_call.cpp): sets what hle_current_name() answers
+// Host state of this thread tied to a guest callback the host is running (bit flags, kHostCb*). The host sets a bit around the guest
+// call; a guest exception that unwinds out of the callback longjmps past that reset, so eh/catch_call.cpp saves the flags when a catch
+// frame is entered and puts them back when it lands there.
+enum : uint32_t { kHostCbCmdMem = 1u << 0 };              // NVN command-memory callback (gfx/nvn/api_cmdbuf.cpp)
+uint32_t host_callback_flags();
+void host_callback_restore(uint32_t flags);
 
 // ---- the dispatch entry used by the ABI (abi_glue.cpp defines call_indirect / guest_trap on top of it) ----------------------
 // Runs the lifted function or HLE thunk at `addr` on `c`; an unknown target is a guest trap (GUEST TRAP report, exception

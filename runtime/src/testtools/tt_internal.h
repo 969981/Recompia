@@ -60,6 +60,7 @@ private:
     Script script_;
     size_t idx_ = 0;
     bool started_ = false, done_ = false, warped_ = false, has_keys_ = false;
+    uint64_t shot_frame_ = 0;   // frame of the last @shot: @pass / @fail wait a few frames so the capture is taken before the run ends
     int64_t remaining_ = 0;
     uint64_t start_frame_ = 0;
     uint64_t start_ms_ = 0;

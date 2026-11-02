@@ -15,6 +15,7 @@
 #include "imgui.h"
 #include "nxrt/audio_sink.h"
 #include "nxrt/extras.h"
+#include "extras/temporal.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/input_source.h"
 #include "nxrt/lowlat.h"
@@ -554,20 +555,35 @@ void fps_group(UiHost& host, Page& p) {
 constexpr const char* kHdrModeNames[] = {"Off", "Auto", "On", "Native"};
 constexpr const char* kHdrFormatNames[] = {"Auto", "HDR10", "scRGB"};
 constexpr const char* kLatencyModeNames[] = {"Off", "Auto", "On", "Boost"};
-constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)"};   // indexed by extras::UpscaleMode
+constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA"};   // indexed by extras::UpscaleMode
 // The order the list shows them in: the spatial upscalers, then the temporal ones.
 constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nis,
-                                                 extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess};
+                                                 extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Xess};
+constexpr const char* kUpscaleQualityNames[] = {"Native (AA only)", "Quality", "Balanced", "Performance", "Ultra performance", "Custom (scene resolution)"};
 
-// Off and the spatial upscalers (FSR 1, NIS) can be picked. The temporal ones (FSR 3, DLSS, XeSS) need per-pixel motion vectors, a depth buffer
-// and a jittered camera from the game; Pokopia renders no motion vectors and runs no TAA, so they stay in the list greyed out, and a file that holds
-// one shows it as selected (the game then runs as Off).
+// Off and the spatial upscalers (FSR 1, NIS) always work. The temporal ones (src/gfx/extras/temporal.h) get depth, camera motion vectors made by
+// the runtime and the game's projection jitter: FSR 3 when the FidelityFX DLLs are found, DLSS / DLAA when the Streamline DLLs and nvngx_dlss.dll are found (the GPU
+// check runs when the renderer starts them). XeSS is not wired. A file that holds an unavailable one shows it as selected (the game runs as Off).
 bool upscale_available(extras::UpscaleMode m) {
-    return m == extras::UpscaleMode::Off || m == extras::UpscaleMode::Fsr1 || m == extras::UpscaleMode::Nis;
+    switch (m) {
+        case extras::UpscaleMode::Off:
+        case extras::UpscaleMode::Fsr1:
+        case extras::UpscaleMode::Nis: return true;
+        case extras::UpscaleMode::Fsr3: return extras::temporal_ffx_available();
+        case extras::UpscaleMode::Dlss:
+        case extras::UpscaleMode::Dlaa: return extras::temporal_dlss_available();
+        default: return false;
+    }
 }
-constexpr const char* kTemporalWhy =
-    "Not possible in this game: temporal upscalers (and DLAA) need per-pixel motion vectors and a jittered camera, and Pokopia renders "
-    "neither (it has no TAA pass). Use FSR 1 or NIS.";
+const char* temporal_why(extras::UpscaleMode m) {
+    if (m == extras::UpscaleMode::Fsr3)
+        return "Needs amd_fidelityfx_loader_vk.dll and amd_fidelityfx_upscaler_vk.dll (AMD FidelityFX SDK v2.4.0) in upscalers\\fsr3 next to the "
+               "executable, or a path in [upscale] fsr_dll.";
+    if (m == extras::UpscaleMode::Dlss || m == extras::UpscaleMode::Dlaa)
+        return "Needs an NVIDIA RTX GPU and the Streamline DLLs (sl.interposer.dll, sl.common.dll, sl.dlss.dll, nvngx_dlss.dll) in upscalers\\streamline "
+               "next to the executable, or their folder in [upscale] dlss_dll. The launcher's Game files page downloads nvngx_dlss.dll from NVIDIA.";
+    return "XeSS is not wired up yet.";
+}
 
 // A nits field where 0 means "auto" (shown as "auto"). Other values are clamped into lo..hi when the field is left, so the slider can be
 // dragged through the gap below lo while it is held.
@@ -636,10 +652,11 @@ void upscale_group(Page& p) {
     // Only the modes that work are offered. A file that holds another one shows it as the current entry, marked, until the player picks.
     const int mode = static_cast<int>(u.mode);
     std::string preview = kUpscaleNames[mode];
-    if (!upscale_available(u.mode)) preview += " (not possible in this game)";
+    if (!upscale_available(u.mode)) preview += " (not available)";
     const bool open = ImGui::BeginCombo("Upscaler##upscale_mode", preview.c_str());
     tip("FSR 1 (AMD) and NIS (NVIDIA Image Scaling) enlarge the game's picture from a lower render or scene resolution and sharpen it; both run on any GPU. "
-        "NIS covers up to 2x per side, FSR 1 takes over beyond that.");
+        "NIS covers up to 2x per side, FSR 1 takes over beyond that. FSR 3 and DLSS / DLAA are temporal: they anti-alias the HDR scene using depth, "
+        "camera motion and the game's jitter (switched on with them); DLSS and DLAA need an RTX GPU and apply from the next start.");
     if (open) {
         for (extras::UpscaleMode m : kUpscaleOrder) {
             const int i = static_cast<int>(m);
@@ -651,14 +668,30 @@ void upscale_group(Page& p) {
             }
             if (!ok) {
                 ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", kTemporalWhy);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", temporal_why(m));
             }
         }
         ImGui::EndCombo();
     }
+    if ((u.mode == extras::UpscaleMode::Dlss || u.mode == extras::UpscaleMode::Dlaa) && !extras::temporal_dlss_started()) restart_badge();
+
+    if (u.mode == extras::UpscaleMode::Fsr3 || u.mode == extras::UpscaleMode::Dlss) {
+        const int q = static_cast<int>(u.quality);
+        if (ImGui::BeginCombo("Quality##upscale_quality", kUpscaleQualityNames[q])) {
+            for (int i = 0; i < 6; ++i) {
+                if (ImGui::Selectable(kUpscaleQualityNames[i], i == q) && i != q) {
+                    u.quality = static_cast<extras::UpscaleQuality>(i);
+                    mark(p);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        tip("The scene's render size per side: Native 100%, Quality 67%, Balanced 59%, Performance 50%, Ultra performance 33%, Custom the scene resolution "
+            "below. Takes effect where the game renders its scene below the output size; otherwise the upscaler runs as native anti-aliasing.");
+    }
 
     if (slider("Sharpness", &u.sharpness, 0.0, 1.0, "%.2f")) mark(p);
-    tip("How much FSR 1 or NIS sharpens the upscaled picture; 1 is the sharpest.");
+    tip("How much FSR 1, NIS or FSR 3 sharpens the upscaled picture; 1 is the sharpest (DLSS has no sharpening).");
     if (ImGui::SliderInt("Scene resolution##upscale_scene", &u.scene_scale, 25, 100, "%d%%")) mark(p);
     tip("Renders the 3D scene at this percent of the output size per side; the game scales it up and keeps the HUD and the post effects at full size. 100 turns it off. Applies live.");
     ImGui::TextDisabled("Or render everything below the window size with the render scale above; the upscaler then fills the rest.");

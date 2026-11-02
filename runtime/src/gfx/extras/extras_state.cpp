@@ -26,6 +26,7 @@ bool g_settings_set = false;
 std::atomic<int> g_upscale_mode{-1};          // -1: not read yet
 std::atomic<float> g_upscale_sharp{0.8f};
 std::atomic<int> g_scene_scale{100};
+std::atomic<int> g_upscale_quality{static_cast<int>(UpscaleQuality::Quality)};
 std::atomic<float> g_pic_contrast{1.0f}, g_pic_saturation{1.0f}, g_pic_black{0.0f}, g_pic_gamma{1.0f};
 std::atomic<bool> g_pic_active{false};
 
@@ -58,7 +59,11 @@ Settings settings_from_config() {
     s.hdr.highlight_boost = std::clamp(config_get_double("hdr", "highlight_boost", 1.0), 0.0, 2.0);
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
-    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : UpscaleMode::Off;
+    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : UpscaleMode::Off;
+    const std::string uq = lower(config_get_str("upscale", "quality", "quality"));
+    s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
+                      : uq == "performance" ? UpscaleQuality::Performance : uq == "ultra_performance" || uq == "ultraperformance" ? UpscaleQuality::UltraPerformance
+                      : uq == "custom" ? UpscaleQuality::Custom : UpscaleQuality::Quality;
     s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", 0.8), 0.0, 1.0);
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");
@@ -90,6 +95,7 @@ Settings settings() {
         g_upscale_mode.store(static_cast<int>(g_settings.upscale.mode));
         g_upscale_sharp.store(static_cast<float>(g_settings.upscale.sharpness));
         g_scene_scale.store(g_settings.upscale.scene_scale);
+        g_upscale_quality.store(static_cast<int>(g_settings.upscale.quality));
         set_picture_live(g_settings.picture);
     }
     return g_settings;
@@ -102,6 +108,7 @@ void set_settings(const Settings& s) {
     g_upscale_mode.store(static_cast<int>(s.upscale.mode));
     g_upscale_sharp.store(static_cast<float>(s.upscale.sharpness));
     g_scene_scale.store(s.upscale.scene_scale);
+    g_upscale_quality.store(static_cast<int>(s.upscale.quality));
     set_picture_live(s.picture);
 }
 
@@ -162,7 +169,34 @@ float upscale_sharpness() { return g_upscale_sharp.load(std::memory_order_relaxe
 
 int upscale_scene_scale() {
     upscale_mode();      // reads the settings once
+    if (upscale_mode() == UpscaleMode::Dlaa) return 100;
+    if (upscale_temporal()) {
+        const int pct = quality_percent(upscale_quality());
+        if (pct > 0) return pct;
+    }
     return g_scene_scale.load(std::memory_order_relaxed);
+}
+
+UpscaleQuality upscale_quality() {
+    upscale_mode();
+    return static_cast<UpscaleQuality>(g_upscale_quality.load(std::memory_order_relaxed));
+}
+
+bool upscale_temporal() {
+    const UpscaleMode m = upscale_mode();
+    return m == UpscaleMode::Fsr3 || m == UpscaleMode::Dlss || m == UpscaleMode::Dlaa;
+}
+
+int quality_percent(UpscaleQuality q) {
+    switch (q) {
+        case UpscaleQuality::Native: return 100;
+        case UpscaleQuality::Quality: return 67;            // 1 / 1.5
+        case UpscaleQuality::Balanced: return 59;           // 1 / 1.7
+        case UpscaleQuality::Performance: return 50;        // 1 / 2
+        case UpscaleQuality::UltraPerformance: return 33;   // 1 / 3
+        case UpscaleQuality::Custom: return -1;
+    }
+    return -1;
 }
 
 HdrState hdr_state() {

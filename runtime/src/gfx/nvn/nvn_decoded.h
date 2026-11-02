@@ -96,6 +96,19 @@ struct TextureBuilderInfo {
     uint32_t gl_texture_name = 0;
 };
 TextureBuilderInfo decode(const NVNtextureBuilder* b);
+// nvnTextureGetRawStorageClass / nvnTextureBuilderGetRawStorageClass (NVN2), as the NVN2 driver answers them (sdk 0x5F1050 / 0x5EE9A0):
+// LINEAR or LINEAR_RENDER_TARGET textures 1; else by format: NONE 0, STENCIL8 and DEPTH16 3, DEPTH24 and DEPTH24_STENCIL8 4,
+// DEPTH32F_STENCIL8 5, every other format (DEPTH32F included) 2.
+inline int raw_storage_class(int flags, int format) {
+    if (flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) return 1;
+    switch (format) {
+        case NVN_FORMAT_NONE: return 0;
+        case NVN_FORMAT_STENCIL8: case NVN_FORMAT_DEPTH16: return 3;
+        case NVN_FORMAT_DEPTH24: case NVN_FORMAT_DEPTH24_STENCIL8: return 4;
+        case NVN_FORMAT_DEPTH32F_STENCIL8: return 5;
+        default: return 2;
+    }
+}
 
 // What an NVNtextureView selects. A field that was not set is "the texture's own" (has_* false).
 struct TextureViewInfo {

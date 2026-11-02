@@ -741,6 +741,8 @@ namespace Ryujinx.Graphics.Shader.Instructions
             return ctx.FPAbsNeg(v, o.Abs, o.Neg);
         }
 
+        const float TwoPi = 6.28318530717958647692f;
+
         static void EmitMufuAmpere(EmitterContext ctx, SassInst i)
         {
             IReadOnlyList<Op> o = i.Operands;
@@ -752,8 +754,10 @@ namespace Ryujinx.Graphics.Shader.Instructions
             else if (Has(i, "SQRT")) r = ctx.FPSquareRoot(a);
             else if (Has(i, "EX2")) r = ctx.FPExponentB2(a);
             else if (Has(i, "LG2")) r = ctx.FPLogarithmB2(a);
-            else if (Has(i, "SIN")) r = ctx.FPSine(a);
-            else if (Has(i, "COS")) r = ctx.FPCosine(a);
+            // Volta+ MUFU.SIN/COS take the angle in turns (sin(2*pi*x)): there is no RRO, the compiler emits
+            // FMUL.RZ x, 1/(2*pi) before them (Mesa NAK builder.rs fsin/fcos, sm >= 70). Maxwell's MUFU took radians after RRO.
+            else if (Has(i, "SIN")) r = ctx.FPSine(ctx.FPMultiply(a, ConstF(TwoPi)));
+            else if (Has(i, "COS")) r = ctx.FPCosine(ctx.FPMultiply(a, ConstF(TwoPi)));
             else throw Unsup();
             if (f16) r = ctx.PackHalf2x16(r, ConstF(0));   // inferred: the F16 result is in the low half
             Dst(ctx, o[0], r);

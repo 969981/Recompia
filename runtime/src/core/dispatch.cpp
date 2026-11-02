@@ -267,6 +267,12 @@ void hle_clear() {
 const char* hle_current_name() { return t_hle_name; }
 void hle_restore_current(const char* name) { t_hle_name = name; }
 
+namespace {
+thread_local uint32_t t_host_cb_flags = 0;
+}
+uint32_t host_callback_flags() { return t_host_cb_flags; }
+void host_callback_restore(uint32_t flags) { t_host_cb_flags = flags; }
+
 // ---- dispatch ---------------------------------------------------------------------------------------------------------
 
 void trap(const char* what, uint64_t addr) {

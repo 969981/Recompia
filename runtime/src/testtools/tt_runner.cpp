@@ -481,6 +481,7 @@ void Runner::frame(uint64_t k, const GameState& s, bool valid, ::Ctx* c) {
             case StepKind::Shot: {
                 std::string why;
                 if (!take_shot(st.text, &why) && require_shots()) { fail(st, "@shot " + st.text + ": " + why); return; }
+                shot_frame_ = k;
                 advance();
                 continue;
             }
@@ -499,7 +500,9 @@ void Runner::frame(uint64_t k, const GameState& s, bool valid, ::Ctx* c) {
                 continue;
             }
             case StepKind::Timeout: default_timeout_ = st.count; advance(); continue;
-            case StepKind::Pass: done_ = true; end_run(0, "pass", "@pass at " + script_.path + ":" + std::to_string(st.line)); return;
+            case StepKind::Pass:
+                if (shot_frame_ && k - shot_frame_ < 3) return;   // the shot is taken at the end of a later frame on the thread that ends the run
+                done_ = true; end_run(0, "pass", "@pass at " + script_.path + ":" + std::to_string(st.line)); return;
             case StepKind::Fail: fail(st, st.text.empty() ? "@fail" : st.text); return;
             case StepKind::Key:
                 if (first) {

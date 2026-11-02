@@ -211,10 +211,22 @@ Files: `third_party/ffx_fsr1/` (`fsr1/ffx_fsr1.h`, `ffx_core*.h`, `ffx_common_ty
 
 Files: `third_party/nvidia_nis/` (`NIS_Scaler.h`, `NIS_Config.h`, unmodified). Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. Licence text: `third_party/nvidia_nis/LICENSE.txt`. Source: https://github.com/NVIDIAGameWorks/NVIDIAImageScaling, tag v1.0.3. Used by `src/gfx/extras/nis_spatial.cpp` (the constant setup, `NVScalerUpdateConfig`) and by the compute shader in `src/gfx/extras/nis_shaders.inc`, generated from these headers by `scripts/gen_nis_shaders.py`.
 
-## AMD FidelityFX FSR 3.1 runtime, optional (MIT source)
+## AMD FidelityFX SDK v2.4.0, FidelityFX API headers (MIT)
 
-`amd_fidelityfx_vk.dll` is not shipped by default. It is built by the player or by the release scripts from the same SDK tag, v1.1.4 (MIT source, see above). The game loads it at run time only if the file is present next to the executable.
+Files: `third_party/amd_ffx_api/` (`api/include/ffx_api.h`, `ffx_api_types.h`, `ffx_api_loader.h`, `vk/ffx_api_vk.h`, `upscalers/include/ffx_upscale.h`, unmodified). Copyright (c) Advanced Micro Devices, Inc. Licence text: `third_party/amd_ffx_api/LICENSE.txt`. Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, release v2.4.0. Used by `src/gfx/extras/temporal_ffx.cpp`.
 
-## NVIDIA DLSS and Intel XeSS (not shipped)
+## AMD FidelityFX FSR 3.1 runtime (MIT)
 
-`nvngx_dlss.dll` (NVIDIA DLSS) and `libxess.dll` (Intel XeSS) are never shipped with the project. The game loads each one only from a file the player supplies, named by the `[upscale]` settings `dlss_dll` and `xess_dll` (see `docs/CONFIG.md`).
+`amd_fidelityfx_loader_vk.dll` and `amd_fidelityfx_upscaler_vk.dll` (AMD-signed, byte-identical to `Kits/FidelityFX/signedbin/` in the FidelityFX SDK v2.4.0 release; the SDK's licence, `licenses/LICENSE.FidelityFX-SDK-v2.4.0.txt` in the release, lists both under MIT) are not in this repository. The release package carries them unchanged in `upscalers/fsr3/`; the game loads them at run time only (`LoadLibrary`), found there, next to the executable or via `[upscale] fsr_dll`. Copyright (C) Advanced Micro Devices, Inc.
+
+## NVIDIA Streamline SDK v2.14.16 headers (MIT)
+
+Files: `third_party/nvidia_streamline/include/` (unmodified). Copyright (c) NVIDIA CORPORATION. Licence text: `third_party/nvidia_streamline/license.txt`. Source: https://github.com/NVIDIA-RTX/Streamline, release v2.14.16. Used by `src/gfx/extras/temporal_dlss.cpp`; nothing from Streamline is linked.
+
+## NVIDIA Streamline runtime DLLs (MIT)
+
+`sl.interposer.dll`, `sl.common.dll` and `sl.dlss.dll` (NVIDIA-signed, from `bin/x64` of the Streamline SDK v2.14.16 release, https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.16; MIT, `licenses/LICENSE.Streamline.MIT.txt`, third-party notices in `licenses/NOTICE.Streamline-3rd-party.md`) are not in this repository. The release package carries them unchanged in `upscalers/streamline/`; the game loads them at run time only. Copyright (c) NVIDIA CORPORATION.
+
+## NVIDIA DLSS (nvngx_dlss.dll, not shipped) and Intel XeSS (not shipped)
+
+`nvngx_dlss.dll` (NVIDIA DLSS Super Resolution 310.9.16) is under the NVIDIA RTX SDKs LICENSE (v. March 14, 2024; https://github.com/NVIDIA/DLSS/blob/main/LICENSE.txt, a copy is `licenses/LICENSE.NVIDIA-RTX-SDKs.txt` in the release). That licence requires redistributors to pass on terms at least as protective as its own and forbids any use that subjects the SDK to a licence requiring it to be redistributable at no charge (section 4e), which does not fit a GPL-3.0 package, so neither the repository nor the release package contains the file. The launcher's Game files page offers to download it from NVIDIA's own repository (https://github.com/NVIDIA/DLSS, tag v310.9.16, sha256 checked) into `upscalers/streamline/` on the player's PC after showing the licence. `libxess.dll` (Intel XeSS) is never shipped either; `xess_dll` is read but not used (see `docs/CONFIG.md`). The DLSS SDK itself (NGX static library) is not used.

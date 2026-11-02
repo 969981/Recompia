@@ -8,8 +8,9 @@
 //   HDR       the game's scene pipeline is switched to float targets and a tone curve whose shoulder reaches the display's peak; the
 //             present step encodes the result as HDR10 (ST 2084) or scRGB. See src/gfx/extras/hdr_*.
 //   Upscale   a spatial pass, AMD FSR 1 or NVIDIA Image Scaling, in the present step (any internal resolution below the window size) or on
-//             the HDR scene before the game's tone map. The temporal upscalers (FSR 3, DLSS, XeSS) need motion vectors and a jittered
-//             projection, which Pokopia does not render, so they are kept in the enum but never offered (docs/S14.md).
+//             the HDR scene before the game's tone map. Temporal: FSR 3.1 (FidelityFX API, Vulkan DLLs loaded at run time) and DLSS / DLAA
+//             (NVIDIA Streamline, loaded at run time) on the HDR scene before the tone map, with motion vectors made from depth and the
+//             camera matrices and the game's own projection jitter (src/gfx/extras/temporal.h, docs/S14.md). XeSS stays unavailable.
 //   Latency   NVIDIA Reflex (VK_NV_low_latency2) and AMD Anti-Lag 2 (VK_AMD_anti_lag) markers and sleeps around input sampling.
 #pragma once
 #include <cstdint>
@@ -31,13 +32,19 @@ struct HdrSettings {
     double highlight_boost = 1.0;    // 0 = the game's SDR look up to its own white, 1 = highlights reach the peak (0 .. 2)
 };
 
-enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis };   // Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU)
+// Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU). Fsr3, Dlss, Dlaa: temporal (Dlaa = DLSS at the input size).
+enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa };
+// Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
+// keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
+// upscalers run at the input size (native anti-aliasing).
+enum class UpscaleQuality : uint8_t { Native = 0, Quality, Balanced, Performance, UltraPerformance, Custom };
 struct UpscaleSettings {
     UpscaleMode mode = UpscaleMode::Off;
+    UpscaleQuality quality = UpscaleQuality::Quality;
     double sharpness = 0.8;          // 0 .. 1 (FSR 1 RCAS or the NIS sharpening; 1 = sharpest)
     int scene_scale = 100;           // 25 .. 100: percent of the output size the 3D scene is rendered at (the game's own dynamic-resolution path; HUD and post stay native)
-    std::string fsr_dll;             // amd_fidelityfx_vk.dll location for the FSR 3 modes (empty: next to the exe)
-    std::string dlss_dll;            // nvngx_dlss.dll the player supplies (empty: not used)
+    std::string fsr_dll;             // FidelityFX API DLL for FSR 3 (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; empty: next to the exe)
+    std::string dlss_dll;            // folder (or sl.interposer.dll path) of the Streamline + DLSS DLLs (empty: next to the exe)
     std::string xess_dll;            // libxess.dll the player supplies (empty: not used)
     bool frame_generation = false;   // FSR 3 frame interpolation (needs the FSR 3 mode)
 };
@@ -77,7 +84,12 @@ void set_settings(const Settings& s);
 // Lock-free reads of the live upscale fields (the render thread asks every frame).
 UpscaleMode upscale_mode();
 float upscale_sharpness();
-int upscale_scene_scale();          // percent, 100 = off
+int upscale_scene_scale();          // percent, 100 = off (a temporal mode with a quality preset other than Custom: the preset's percent)
+UpscaleQuality upscale_quality();
+bool upscale_temporal();            // the mode is FSR 3, DLSS or DLAA
+int quality_percent(UpscaleQuality q);   // the preset's input scale per side in percent (Custom: -1)
+// The game's own projection jitter as its TAA code last stored it (NDC units, the previous frame's; pkp_taa.cpp), for the log only.
+void temporal_note_game_jitter(float x_ndc, float y_ndc);
 // The picture controls in force for the present step (lock-free; the F1 page's sliders change them live before Apply and save).
 struct PictureLive {
     float contrast = 1, saturation = 1, black = 0, gamma = 1;

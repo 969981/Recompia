@@ -17,6 +17,7 @@ extern "C" void nx_catch_call(Ctx* c, void (*body)(Ctx*, uint64_t)) {
     const char* const saved_hle = nxrt::hle_current_name();
     const char* const saved_in_import = c->in_import;
     const uint64_t saved_import_from = c->import_from;
+    const uint32_t saved_cb_flags = nxrt::host_callback_flags();   // a host bit set inside a guest callback the exception left
     volatile uint64_t pad = 0;
     for (;;) {
         if (setjmp(rec.jb) == 0) {
@@ -27,6 +28,7 @@ extern "C" void nx_catch_call(Ctx* c, void (*body)(Ctx*, uint64_t)) {
         nxrt::hle_restore_current(saved_hle);
         c->in_import = saved_in_import;
         c->import_from = saved_import_from;
+        nxrt::host_callback_restore(saved_cb_flags);
     }
     auto& st = catch_stack();
     for (size_t i = st.size(); i-- > 0;)

@@ -10,6 +10,8 @@
 //    mapping or protection it makes, so an armed page never ends up with a protection somebody else chose.
 //  * Writes by the operating system into guest memory (ReadFile into a buffer) do not raise an exception: the call fails instead. The file
 //    readers call before_os_write() on the destination first (services/fs_*.cpp).
+//  * Reads by the operating system from guest memory (WriteFile from a buffer, ReadProcessMemory) fail the same way on a guarded page
+//    (PAGE_NOACCESS, the read guards below). Callers hold an OsReadScope over the source first.
 //  * Granularity is the 4 KiB page.
 #pragma once
 #include <cstdint>
@@ -50,6 +52,20 @@ public:
     ~OsWriteScope();
     OsWriteScope(const OsWriteScope&) = delete;
     OsWriteScope& operator=(const OsWriteScope&) = delete;
+private:
+    int slot_ = -1;
+};
+// Any thread: the operating system is about to read [p, p + n) (WriteFile from guest memory): guarded pages in the range are made
+// current by the guard handler and become readable. Armed pages stay armed. Cheap when no region exists.
+void before_os_read(const void* p, uint64_t n);
+// The same for the lifetime of the object, and no page of the range is guarded (or armed) again until it ends: hold it around the OS
+// call that reads guest memory.
+class OsReadScope {
+public:
+    OsReadScope(const void* p, uint64_t n);
+    ~OsReadScope();
+    OsReadScope(const OsReadScope&) = delete;
+    OsReadScope& operator=(const OsReadScope&) = delete;
 private:
     int slot_ = -1;
 };

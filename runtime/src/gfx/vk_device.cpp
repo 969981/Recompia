@@ -22,6 +22,7 @@
 #include "nxrt/log.h"
 #include "nxrt/platform.h"
 #include "vk_gauges.h"
+#include "extras/temporal.h"
 
 #include <vk_mem_alloc.h>
 
@@ -342,7 +343,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool headless = desc.headless >= 0 ? desc.headless != 0 : config_get_bool("gfx", "headless", false);
     std::string gpu_want = !desc.gpu.empty() ? desc.gpu : config_get_str("gfx", "gpu", "");
 
-    if (volkInitialize() != VK_SUCCESS) return fail("no Vulkan loader found (vulkan-1.dll)");
+    // DLSS / DLAA: Streamline must see the instance, device and swapchain calls, so the loader functions come from sl.interposer.dll
+    if (PFN_vkGetInstanceProcAddr sl_gipa = extras::streamline_preinit()) volkInitializeCustom(sl_gipa);
+    else if (volkInitialize() != VK_SUCCESS) return fail("no Vulkan loader found (vulkan-1.dll)");
     uint32_t inst_version = 0;
     vkEnumerateInstanceVersion(&inst_version);
     if (inst_version < VK_API_VERSION_1_3) return fail("Vulkan 1.3 is required; the loader offers less");

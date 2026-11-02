@@ -751,7 +751,9 @@ int update_hook(::Ctx*, uint64_t, void*) {
     const uint64_t pi = st.last_pi_ns.load();
     // "In game" = the game called ProcessInput during one of the last few frame boundaries. Counted in frames, not host time: a slow frame (the game
     // can take 100 ms or more per frame under load) must not read as a menu.
-    const bool in_game = pi != 0 && st.frames.load() - st.last_pi_frame.load() <= 4;
+    // Also within 100 ms of host time: a catch-up burst of frame boundaries with no input call (1-2 frames about once a second at ~50 fps)
+    // dropped the context to the menu and released the mouse for a moment.
+    const bool in_game = pi != 0 && (st.frames.load() - st.last_pi_frame.load() <= 4 || pi + 100000000ull >= now);
     // The game's part (play_game.h GamePlay::frame): the gyro's pitch-rate scale for this step, the cycle hint, the context while in game. This
     // step's length is known here, before the game reads the sample (the timestep hook on the same frame update runs first: hooks of one address run
     // in registration order).
@@ -830,6 +832,13 @@ int update_hook(::Ctx*, uint64_t, void*) {
         ptr.set_enabled(st.settings.mouse.menu_cursor);
         // (a scripted run has no focus: the test tooling drives the pointer with synthetic events)
         const bool menu_up = st.window && !playing && ctx == Ctx::Menu && (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;
+        if (tt::enabled()) {   // test runs: why the menu pointer is or is not up, on each change
+            static int last = -1;
+            const int sig = (st.window ? 1 : 0) | (playing ? 2 : 0) | (static_cast<int>(ctx) << 2) | (overlay_visible ? 256 : 0);
+            if (sig != last && (last = sig, true))
+                NXLOG_I("play", "menu pointer gate: window %d playing %d ctx %d (menu %d) minimized %d overlay %d -> %d", st.window ? 1 : 0, playing ? 1 : 0,
+                        static_cast<int>(ctx), static_cast<int>(Ctx::Menu), platform::minimized() ? 1 : 0, overlay_visible ? 1 : 0, menu_up ? 1 : 0);
+        }
         mm::Geometry geo;
         platform::pixel_size(&geo.win_w, &geo.win_h);
         const DisplayLive dl = gp && gp->display_live ? gp->display_live() : DisplayLive{};
@@ -1050,6 +1059,7 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("hdr", "highlight_boost")) r.hdr.highlight_boost = env.hdr.highlight_boost;
     if (config_has("upscale", "mode")) r.upscale.mode = env.upscale.mode;
     if (config_has("upscale", "sharpness")) r.upscale.sharpness = env.upscale.sharpness;
+    if (config_has("upscale", "quality")) r.upscale.quality = env.upscale.quality;
     if (config_has("upscale", "scene_scale")) r.upscale.scene_scale = env.upscale.scene_scale;
     if (config_has("upscale", "fsr_dll")) r.upscale.fsr_dll = env.upscale.fsr_dll;
     if (config_has("upscale", "dlss_dll")) r.upscale.dlss_dll = env.upscale.dlss_dll;

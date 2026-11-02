@@ -275,6 +275,7 @@ struct Event : Obj {
     static constexpr Kind kKind = Kind::Event;
     Event() : Obj(kKind) {}
     MemoryPool* pool = nullptr;
+    const NVNmemoryPool* guest_pool = nullptr;   // the guest pool object the builder named (nvnEventGetMemoryPool)
     int64_t offset = 0;                     // the 32-bit event value lives in pool memory at this offset
     std::atomic<uint32_t> shadow{0};        // the value after every GPU signal recorded so far (replay thread)
     std::atomic<bool> shadow_valid{false};

@@ -6,8 +6,6 @@
 //
 // Not registered here, on purpose:
 //   nvnDeviceGetProcAddress        already implemented by nvn_loader.cpp (device_get_proc_address).
-//   nvnEventGetMemoryPool          the host Event keeps no guest pointer to its pool, so it cannot return one.
-//   nvnSyncCreateGLSync, nvnSyncInitializeFromFencedGLSync   GL interop, not used by the game (no signature in the table).
 //   nvnEventWait                   not in nvn_table.inc.
 //   nvnEventSetDebugLabel          not in nvn_table.inc.
 //
@@ -17,6 +15,11 @@
 //   int nvnWindowGetNumActiveTextures(const NVNwindow*)
 //   void nvnWindowSetNumActiveTextures(NVNwindow*, int)
 //   void nvnSetExternalDebuggerEnabledNVX(NVNboolean)            (no-op)
+// NVN2 entry points with no NVN1 signature, answered as the NVN2 driver does (sdk addresses of its functions):
+//   const NVNmemoryPool* nvnEventGetMemoryPool(const NVNevent*)                                    (0x5E0DA0)
+//   int nvnSyncCreateGLSync(const NVNsync*, uint64_t* gl_sync)                                     (0x5EDDE0)
+//   NVNboolean nvnSyncInitializeFromFencedGLSync(NVNsync*, NVNdevice*, int gl_sync, int* status)   (0x5EDD00)
+// The GL sync pair is GL interop: no GL context exists behind this back end, so both give the driver's answer for a missing GL.
 //
 // Layouts and enum values are those of the NVN header (third_party/nvn/nvn.h). Event signal mode WRITE is the header's
 // NVN_EVENT_SIGNAL_MODE_WRITE. Constants used by the device info table: nvn_device_info.inc.
@@ -323,6 +326,15 @@ NVNboolean nvnSyncInitialize(NVNsync* sync, NVNdevice*) {
     return 1;
 }
 
+// GL interop (NVN2). The driver answers 4 (leaving *gl_sync alone) when it cannot export the sync, and false with *status = 4 when its
+// GL interop interface is missing; here there is never a GL context.
+constexpr int kGlSyncFailed = 4;
+int nvnSyncCreateGLSync(const NVNsync*, uint64_t*) { return kGlSyncFailed; }
+NVNboolean nvnSyncInitializeFromFencedGLSync(NVNsync*, NVNdevice*, int, int* status) {
+    if (status) *status = kGlSyncFailed;
+    return 0;
+}
+
 void nvnSyncFinalize(NVNsync* sync) {
     if (!be::host_of<be::Sync>(sync)) return;
     g_syncs.sub(1);
@@ -353,9 +365,15 @@ NVNboolean nvnEventInitialize(NVNevent* event, const NVNeventBuilder* builder) {
     const EventBuilderInfo info = builder ? decode(builder) : EventBuilderInfo{};
     auto* e = new be::Event();
     e->pool = be::host_of<be::MemoryPool>(info.pool);
+    e->guest_pool = info.pool;
     e->offset = info.offset;
     be::bind_guest(event, e);
     return 1;
+}
+
+const NVNmemoryPool* nvnEventGetMemoryPool(const NVNevent* event) {
+    const be::Event* e = be::host_of<be::Event>(event);
+    return e ? e->guest_pool : nullptr;
 }
 
 void nvnEventFinalize(NVNevent* event) {
@@ -572,6 +590,8 @@ void register_api_device() {
     // sync
     NVN_REG(nvnSyncInitialize);
     NVN_REG(nvnSyncFinalize);
+    NVN_REG(nvnSyncCreateGLSync);
+    NVN_REG(nvnSyncInitializeFromFencedGLSync);
     NVN_REG(nvnSyncSetDebugLabel);
     NVN_REG(nvnSyncWait);
     // event
@@ -580,6 +600,7 @@ void register_api_device() {
     NVN_REG(nvnEventGetValue);
     NVN_REG(nvnEventSignal);
     NVN_REG(nvnEventGetMemoryOffset);
+    NVN_REG(nvnEventGetMemoryPool);
     // window
     NVN_REG(nvnWindowInitialize);
     NVN_REG(nvnWindowFinalize);

@@ -452,12 +452,15 @@ uint64_t mono_ns() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
+std::atomic<uint64_t> g_follow_ns{0};   // the last follow-camera update (play_follow_live)
+
 // Every follow-camera update past its scene check: while the turn branch ran within the grace time, read the mouse here (this keeps play mode's
 // "in game", and so the capture, through short closures of the branch) and keep the counts for the branch; after it, drop what was kept.
 int hook_cam_field(::Ctx*, uint64_t, void*) {
     State& s = st();
     if (!s.host) return 0;
     s.cam_field.fetch_add(1, std::memory_order_relaxed);
+    g_follow_ns.store(mono_ns(), std::memory_order_relaxed);
     if (s.last_turn_ns == 0 || mono_ns() - s.last_turn_ns > s.grace_ns) {
         if (s.pend_dx != 0 || s.pend_dy != 0) s.cam_dropped.fetch_add(1, std::memory_order_relaxed);
         s.pend_dx = s.pend_dy = 0;
@@ -745,6 +748,11 @@ void play_status_text(char* buf, size_t n) {
         if (m > 0) k2 += m;
     }
     if (k2 > 0 && static_cast<size_t>(k2) < n) kbm_status_text(buf + k2, n - k2);
+}
+
+bool play_follow_live() {
+    const uint64_t t = g_follow_ns.load(std::memory_order_relaxed);
+    return t != 0 && mono_ns() - t < 1000000000ull;
 }
 
 }  // namespace nxrt::games::pkp

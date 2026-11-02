@@ -78,6 +78,7 @@ public:
         get_size(&cur);
         if (static_cast<uint64_t>(offset) + size > static_cast<uint64_t>(cur) && !(mode_ & kModeAppend)) return rc::kNoAppend;
         const uint8_t* s = static_cast<const uint8_t*>(src);
+        const mem::ww::OsReadScope rs(s, size);   // WriteFile fails on a page the write tracker guarded (a deferred GPU result)
         while (size) {
             const DWORD chunk = static_cast<DWORD>(std::min<uint64_t>(size, 0x40000000));
             OVERLAPPED ov{};

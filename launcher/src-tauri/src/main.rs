@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod dlss;
 mod dump;
 mod gamebuild;
 mod ini;
@@ -232,6 +233,25 @@ fn cancel_setup(state: State<Arc<SetupState>>) {
 }
 
 #[tauri::command]
+fn dlss_status(app: AppHandle) -> dlss::Status {
+    dlss::status(&game_dir_of(&load_config(&app)), &exe_dir().join("tools"))
+}
+
+/// Downloads NVIDIA's nvngx_dlss.dll (see dlss.rs) on a worker thread, with "dlss-progress" events.
+#[tauri::command]
+async fn fetch_dlss(app: AppHandle) -> Result<(), String> {
+    let dir = game_dir_of(&load_config(&app));
+    let tools_dir = exe_dir().join("tools");
+    tauri::async_runtime::spawn_blocking(move || {
+        dlss::fetch(&dir, &tools_dir, |p| {
+            let _ = app.emit("dlss-progress", p);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn game_status(state: State<play::PlayState>) -> play::Status {
     state.0.lock().unwrap().clone()
 }
@@ -253,12 +273,37 @@ fn open_game_dir(app: AppHandle) -> Result<(), String> {
     play::open_with_shell(&game_dir_of(&load_config(&app)))
 }
 
+
+/// Test runs only (PKP_LAUNCHER_EVAL_FILE set): the page writes a result next to the eval file, <file>.out.
+#[tauri::command]
+fn test_report(text: String) -> Result<(), String> {
+    let path = std::env::var("PKP_LAUNCHER_EVAL_FILE").map_err(|_| "not a test run".to_string())?;
+    std::fs::write(format!("{path}.out"), text).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(play::PlayState::default())
         .manage(Arc::new(SetupState::default()))
+        .setup(|app| {
+            // Test runs drive the page without input: PKP_LAUNCHER_EVAL_FILE=<path>. A JS file written there is run in the page once and
+            // deleted; it reports back through document.title (the window title). WebView2's DevTools port does not open for Tauri apps here.
+            if let Ok(path) = std::env::var("PKP_LAUNCHER_EVAL_FILE") {
+                if let Some(win) = app.get_webview_window("main") {
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        if let Ok(js) = std::fs::read_to_string(&path) {
+                            let _ = std::fs::remove_file(&path);
+                            let _ = win.eval(&js);
+                        }
+                    });
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            test_report,
             get_config,
             save_config,
             get_overview,
@@ -271,6 +316,8 @@ fn main() {
             setup_status,
             start_setup,
             cancel_setup,
+            dlss_status,
+            fetch_dlss,
             game_status,
             open_game_file,
             open_game_dir,

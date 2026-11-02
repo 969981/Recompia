@@ -43,6 +43,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/extras.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -87,6 +88,13 @@ void force_on(uint64_t blk) {
     if (rd<int32_t>(blk + kPattern) < 2) wr<int32_t>(blk + kPattern, kForcedPattern);
 }
 
+// [pkp] game_taa only. A temporal upscaler does not switch it on: run b7 (enable forced, pattern 16) left the G-buffer camera unjittered, so
+// the runtime jitters the scene camera itself (extras::temporal_jitter_block). The jitter step 0x7102574a18 writes (2 Halton - 1) / size into
+// x25 +0x1a24 / +0x1a28 and into x25's projection (+0xc0..0xff, view-projection rebuilt at +0x100); x25 was the same object as the parameter
+// block x9 in b7, and +0x1a24 is also the copied camera parameter "LensSimulationTemporalAAJitter" (+0x1724 in the kids camera), so the value
+// read at the hook is the copy, not last frame's jitter. Where that projection goes was not traced.
+bool forced() { return st().force != 0; }
+
 void note_game_values(uint64_t blk) {
     State& s = st();
     s.game_enable.store(rd<int32_t>(blk + kEnable));
@@ -102,7 +110,7 @@ int hook_copy(::Ctx* c, uint64_t, void*) {
     if (!s.copy_logged.exchange(true))
         NXLOG_I(kTag, "taa: camera block copy, game values: enable %d type %d jitter pattern %d", rd<int32_t>(src + kEnable), rd<int32_t>(src + kType),
                 rd<int32_t>(src + kPattern));
-    if (s.force) force_on(src);
+    if (forced()) force_on(src);
     return 0;
 }
 
@@ -116,10 +124,11 @@ int hook_jitter(::Ctx* c, uint64_t, void*) {
         NXLOG_I(kTag, "taa: jitter step reached, parameter block %llx: game values enable %d type %d pattern %d%s", static_cast<unsigned long long>(blk),
                 s.game_enable.load(), s.game_type.load(), s.game_pattern.load(), s.force ? " (enable overridden to 1 before the game reads it)" : "");
     }
-    if (s.force) force_on(blk);
+    if (forced()) force_on(blk);
     if (rd<int32_t>(blk + kEnable) >= 1) {
         const uint64_t n = s.jitter_on.fetch_add(1, std::memory_order_relaxed) + 1;
         const uint64_t view = c->x[25];   // holds the previous frame's jitter (the game stores the new one after this point)
+        if (view && mem::is_mapped(view, kViewJitY + 4)) extras::temporal_note_game_jitter(rd<float>(view + kViewJitX), rd<float>(view + kViewJitY));
         if (n == 16 && !s.jitter_on_logged.exchange(true) && view && mem::is_mapped(view, kViewJitY + 4))
             NXLOG_I(kTag, "taa: jitter active (16 frames), view %llx, last jitter %.6f %.6f", static_cast<unsigned long long>(view),
                     static_cast<double>(rd<float>(view + kViewJitX)), static_cast<double>(rd<float>(view + kViewJitY)));

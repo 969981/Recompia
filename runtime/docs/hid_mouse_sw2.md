@@ -133,3 +133,13 @@ Wheel units: *inferred* 120 per notch (the game clamps its sum at ±600).
   a request), so the pointer becomes absolute and the Joy-Con 2 mouse goes on its surface.
 - Placement / Rock Smash detection is not done: auto mode without a request means the Joy-Con 2 mouse is live only where the camera
   does not hold the mouse.
+
+## Menus outside play (pkp_menu.cpp pick_extend)
+
+The title, settings, language, save and yes / no screens go through the same pane scan as the in-game menus (play mode calls
+`menu_frame` with the menu context whenever the game is not in play). main holds no pane-name strings (the names live in the layout
+data and the screens are scripted), so no per-menu selection field was found; the selection is read off the cursor panes. Two extra rules:
+a part's entry inside a list entry is promoted to the list entry (settings: `Win_cursor` in each `CL_0020_parts_setting_menu_btn_N`),
+and sibling instances of one button layout with the triangle cursor in one of them form the entry list (yes / no, language, save choices).
+A click on a key guide listed in `[pkp] menu_key_guides` (default `881468973=btn_minus`, the title's "(-) Settings") sends its button.
+`menu_log 1` prints `menu: selection by <rule>: ...` whenever the rule or layout changes.

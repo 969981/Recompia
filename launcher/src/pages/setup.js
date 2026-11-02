@@ -1,4 +1,9 @@
+import { listen } from '@tauri-apps/api/event';
 import { api, esc, icon, refreshIcons, toast, errText } from '../util.js';
+
+// one listener for the whole session; the page being shown sets the handler
+let dlssHandler = null;
+listen('dlss-progress', (ev) => dlssHandler && dlssHandler(ev.payload));
 
 function candidateHtml(c, chosen) {
   const title = c.kind === 'base' ? 'Base game' : `Update ${esc(c.version)}`;
@@ -48,12 +53,32 @@ function shadersHtml(s, saved) {
     </div>`;
 }
 
+function dlssHtml(d, busy, p) {
+  if (!d.available) return '';
+  const pct = p && p.total ? Math.min(100, Math.floor((100 * p.done) / p.total)) : 0;
+  return `
+    <div class="card" id="dlss-card">
+      <h2>${icon('monitor')}NVIDIA DLSS (optional)</h2>
+      <div class="stack">
+        <p class="dim">FSR 3 is included and needs nothing more. DLSS and DLAA need an NVIDIA RTX GPU and one more file, <code>nvngx_dlss.dll</code>, which NVIDIA licenses separately, so it is not in the download. This button gets it from NVIDIA's own DLSS repository on GitHub (version 310.9.16, checked against a fixed hash) and puts it in <code>${esc(d.dir)}</code>. By downloading it you accept the NVIDIA RTX SDKs licence: <code>licenses/LICENSE.NVIDIA-RTX-SDKs.txt</code>, also at github.com/NVIDIA/DLSS.</p>
+        ${busy ? `<p class="dim">${esc(p?.message || 'Starting...')}</p><progress max="100" value="${pct}"></progress>` : ''}
+        <div class="row">
+          ${d.present ? `<span class="chip ok">${icon('circle-check')}nvngx_dlss.dll is installed</span>` : ''}
+          <button class="btn ${d.present ? '' : 'primary'}" id="dlss-get" ${busy ? 'disabled' : ''}>${icon('monitor')}${d.present ? 'Download again' : 'Download DLSS from NVIDIA'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 export async function render(el, ctx) {
   const cfg = await api('get_config');
   let path = cfg.dump_dir || '';
   let saved = path;
   let report = path ? await api('validate_dump', { path }) : null;
   let setup = await api('setup_status');
+  let dlss = await api('dlss_status');
+  let dlssBusy = false;
+  let dlssProgress = null;
 
   function draw() {
     const ok = report && report.chosen;
@@ -84,6 +109,8 @@ export async function render(el, ctx) {
         </div>
 
         ${shadersHtml(setup, ok && saved === path)}
+
+        ${dlssHtml(dlss, dlssBusy, dlssProgress)}
       </div>`;
     refreshIcons();
 
@@ -124,7 +151,30 @@ export async function render(el, ctx) {
       }
     });
     el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
+    el.querySelector('#dlss-get')?.addEventListener('click', async () => {
+      dlssBusy = true;
+      dlssProgress = null;
+      draw();
+      try {
+        await api('fetch_dlss');
+        toast('nvngx_dlss.dll downloaded and verified. Restart the game to use DLSS.', 'ok');
+      } catch (e) {
+        toast(errText(e), 'error');
+      }
+      dlssBusy = false;
+      dlss = await api('dlss_status');
+      draw();
+    });
   }
+
+  dlssHandler = (p) => {
+    dlssProgress = p;
+    const card = el.querySelector('#dlss-card');
+    if (card && dlssBusy) {
+      card.outerHTML = dlssHtml(dlss, true, p);
+      refreshIcons();
+    }
+  };
 
   ctx.onSetup(async (p) => {
     const was = setup.progress.state;

@@ -47,7 +47,12 @@ bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash)
         if (it != cache.end()) return it->second;
     }
     std::vector<uint32_t> scratch;
-    const bool ok = words.size() <= 16384 && spirv_hdr_tonemap(words, scratch);
+    // the curve tone map (MPR) or the LUT composite (Pokopia); the patch result is only used as a match test here
+    bool ok = words.size() <= 16384 && spirv_hdr_tonemap(words, scratch);
+    if (!ok) {   // no size limit: Pokopia's composite shader is large (hdr_tonemap_variant matches it the same way)
+        scratch.clear();
+        ok = spirv_hdr_tonemap_lut(words, 2.0f, scratch);
+    }
     std::lock_guard<std::mutex> lk(mu);
     cache[hash] = ok;
     return ok;

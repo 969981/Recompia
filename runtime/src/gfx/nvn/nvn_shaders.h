@@ -148,6 +148,7 @@ struct ShaderReflection {
     std::vector<DescriptorBinding> bindings;       // sorted by (set, binding)
     std::vector<ShaderIo> inputs, outputs;         // Location-decorated Input/Output variables (not built-ins)
     std::vector<uint32_t> builtins_in, builtins_out;  // SPIR-V BuiltIn values (on variables or block members)
+    std::vector<uint32_t> builtins_used_in, builtins_used_out;  // built-in block members an access chain reaches (used, not only declared)
     bool uses_support_buffer = false;
 
     const DescriptorBinding* find(uint32_t set, uint32_t binding) const;

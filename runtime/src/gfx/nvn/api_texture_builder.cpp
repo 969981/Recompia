@@ -8,8 +8,8 @@
 // smo-recomp runtime/gfx/nvn_gl.c (GPL-3.0), layout/defaults checked, no code copied. Also runtime/gfx/nvn_front.h (the
 // TexBuilder and View structs), layout checked, no code copied.
 // Not here: nvnTextureBuilderGetStorageSize, GetStorageAlignment, GetStorageClass, GetSparseTileLayout and
-// GetZCullStorageSize (the manager). nvnTextureBuilderGetDevice, GetPackagedTextureLayout and GetRawStorageClass are in
-// nvn_table.inc with an unknown signature and are not in sigs.txt, so they are skipped.
+// GetZCullStorageSize (the manager). nvnTextureBuilderGetDevice, GetPackagedTextureLayout and GetRawStorageClass have no NVN1
+// signature (the table says '?'); they follow the NVN2 driver (sdk 0x5EE2A0, 0x5EE380, 0x5EE9A0), see each.
 #include <cstring>
 
 #include "nvn_impl.h"
@@ -119,6 +119,24 @@ int nvnTextureBuilderGetHeight(const NVNtextureBuilder* b) { return load_b(b).he
 int nvnTextureBuilderGetDepth(const NVNtextureBuilder* b) { return load_b(b).depth; }
 int nvnTextureBuilderGetLevels(const NVNtextureBuilder* b) { return load_b(b).levels; }
 NVNformat nvnTextureBuilderGetFormat(const NVNtextureBuilder* b) { return static_cast<NVNformat>(load_b(b).format); }
+// NVN2: NVNdevice* (const NVNtextureBuilder*), the device given to SetDevice.
+NVNdevice* nvnTextureBuilderGetDevice(const NVNtextureBuilder* b) { return load_b(b).device; }
+// NVN2: NVNboolean (const NVNtextureBuilder*, NVNpackagedTextureLayout* out). The NVN2 driver keeps three 4-bit fields of the layout
+// SetPackagedTextureLayout was given (the low 12 bits of its first halfword) and writes them back as a 32-bit word; it answers 1 when a
+// layout was set, else 0 with the word zero. Only 4 bytes of `out` are written, as the driver does.
+NVNboolean nvnTextureBuilderGetPackagedTextureLayout(const NVNtextureBuilder* b, NVNpackagedTextureLayout* out) {
+    const TexBuilderData d = load_b(b);
+    uint16_t h = 0;
+    std::memcpy(&h, d.layout, sizeof h);
+    const uint32_t w = d.has_layout ? (h & 0xfffu) : 0u;
+    if (out) std::memcpy(out, &w, sizeof w);
+    return d.has_layout ? 1 : 0;
+}
+// NVN2: the raw storage class (int) of a texture built from this builder (raw_storage_class, nvn_decoded.h).
+int nvnTextureBuilderGetRawStorageClass(const NVNtextureBuilder* b) {
+    const TexBuilderData d = load_b(b);
+    return raw_storage_class(d.flags, d.format);
+}
 int nvnTextureBuilderGetSamples(const NVNtextureBuilder* b) { return load_b(b).samples; }
 void nvnTextureBuilderGetSwizzle(const NVNtextureBuilder* b, NVNtextureSwizzle* r, NVNtextureSwizzle* g, NVNtextureSwizzle* bl,
                                  NVNtextureSwizzle* a) {
@@ -339,6 +357,9 @@ void register_api_texture_builder() {
     NVN_REG(nvnTextureBuilderSetStride);
     NVN_REG(nvnTextureBuilderSetGLTextureName);
     NVN_REG(nvnTextureBuilderGetFlags);
+    NVN_REG(nvnTextureBuilderGetDevice);
+    NVN_REG(nvnTextureBuilderGetPackagedTextureLayout);
+    NVN_REG(nvnTextureBuilderGetRawStorageClass);
     NVN_REG(nvnTextureBuilderGetTarget);
     NVN_REG(nvnTextureBuilderGetWidth);
     NVN_REG(nvnTextureBuilderGetHeight);

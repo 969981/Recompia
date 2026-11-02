@@ -17,6 +17,7 @@
 // Menus whose selection shows no cursor pane (highlight only) get the click and the bindings but not the hover; the log says which
 // layouts were on screen ([pkp] menu_log = 2 lists their panes) so they can be added.
 #include "pkp_menu.h"
+#include "pkp_play.h"
 
 #include <algorithm>
 #include <atomic>
@@ -97,6 +98,12 @@ struct State {
     std::vector<Layout> layouts;
     std::vector<Pane> panes;
     int hovered = -1, focused = -1, cursor = -1, slider = -1;
+    // how pick() found the selection (menus outside play, see pick_extend): 0 the cursor's rule, 1 promoted to the list entry that holds
+    // the cursor's part, 2 sibling instances of one button layout (group = their entry panes)
+    int mode = 0;
+    std::vector<int> group;
+    uint64_t mode_sig = 0;
+    std::unordered_map<uint32_t, play::Act> key_guides;   // [pkp] menu_key_guides: a key guide layout id -> the button its click sends
     bool active = false;
     // navigation toward the entry under the pointer
     uint64_t target = 0;               // pane pointer
@@ -608,6 +615,96 @@ bool advance_mark(const Pane& p) {
     return has(n, "triangle");
 }
 
+// Menus outside play (title, settings, language, save and yes / no dialogs) build their entries from parts, and in KTGL each part instance is
+// a layout of its own in the pool (the bag's triangle 4148535219/43 is one too). Pane names come from the layout data only: main holds no
+// pane-name string at all (no "cursor", "Win_", "btn_" bytes in the image), the screens are driven by their scripts, and no selection field
+// could be read from code, so the selection is still read off the cursor panes. Two shapes the cursor rule above misses (from the
+// settings / language layouts listed by p5d / p5e, menu_log 2):
+//   * settings: the list 434523034 holds 'CL_0020_parts_setting_menu_btn_0..3'; each button is a part layout (2408049848) with its own
+//     'Win_cursor' highlight and entries ('Null_type_1tab', 'CL_0000_parts_btn_choices' ...). The cursor rule picks an entry of that part,
+//     and hover then stays inside the one button. Rule 1 (promotion): when the chosen entry's layout is small (at most 4 entries) and the
+//     entry sits inside an entry of another list layout, the selection is that list entry (the smallest holding the entry's centre), so the
+//     hover covers the whole list. Also, an entry chosen by a non-triangle cursor that has a smaller entry of its layout under the cursor's
+//     centre gives way to it (a list frame 'posi_list' around the buttons).
+//   * yes / no, language and save choices: each choice is an instance of one button layout ('Null_btn', '0000_btn_common_N', and the
+//     language's '0030_prt_language_1'), the selected one showing 'CL_0000_parts_cursor_triangle' at its left; the cursor rule takes that
+//     triangle for a message box's advance arrow (under 3 entries in its layout). Rule 2 (siblings): when no cursor was found, a cursor
+//     whose layout has at least one other drawn instance (same layout id) is the selection; the entries are each instance's largest entry
+//     (they must not all sit on one spot), and hover / steps move between them. Draw hooks only (pooled templates all look visible).
+// The in-game menus seen so far (bag: 41 entries, chat choices: 8) never reach either rule, so their path is unchanged.
+bool ignored_layout(const Pane& p) {
+    const State& s = st();
+    return !s.ig_ignore.empty() && s.ig_ignore.count(static_cast<uint64_t>(p.lay_id) << 32 | p.lay_sub);
+}
+
+void pick_extend(const std::vector<int>& items, float big) {
+    State& s = st();
+    s.mode = 0;
+    s.group.clear();
+    const int nl = static_cast<int>(items.size());
+    if (s.focused >= 0 && s.cursor >= 0) {
+        const Pane& cp = s.panes[s.cursor];
+        // a frame entry around several entries ('posi_list'): the entry of that layout under the cursor's centre
+        if (!advance_mark(cp)) {
+            const Pane& f = s.panes[s.focused];
+            int inner = 0, under = -1;
+            for (size_t i = 0; i < s.panes.size(); ++i) {
+                const Pane& p = s.panes[i];
+                if (static_cast<int>(i) == s.focused || !p.item || p.lay != f.lay || p.area() >= f.area()) continue;
+                if (!f.contains(p.cx(), p.cy())) continue;
+                ++inner;
+                if (p.contains(cp.cx(), cp.cy()) && (under < 0 || p.area() < s.panes[under].area())) under = static_cast<int>(i);
+            }
+            if (inner >= 2 && under >= 0) s.focused = under;
+        }
+        // rule 1: the chosen entry belongs to a part (a small layout) placed in an entry of a list layout
+        const Pane& f = s.panes[s.focused];
+        if (f.lay >= 0 && f.lay < nl && items[f.lay] <= 4) {
+            int up = -1;
+            for (size_t i = 0; i < s.panes.size(); ++i) {
+                const Pane& p = s.panes[i];
+                if (!p.item || p.area() > big || p.lay < 0 || p.lay >= nl || p.lay == f.lay || items[p.lay] < 2) continue;
+                if (!p.contains(f.cx(), f.cy()) || f.area() > p.area() * 1.5f) continue;
+                if (up < 0 || p.area() < s.panes[up].area()) up = static_cast<int>(i);
+            }
+            if (up >= 0) { s.focused = up; s.mode = 1; }
+        }
+        return;
+    }
+    // rule 2: sibling instances of one button layout, the cursor in one of them
+    if (!draw_hooks_live()) return;
+    std::vector<int> rep(s.layouts.size(), -1);       // each layout's largest entry
+    for (size_t i = 0; i < s.panes.size(); ++i) {
+        const Pane& p = s.panes[i];
+        if (!p.item || p.area() > big || p.lay < 0 || p.lay >= static_cast<int>(rep.size())) continue;
+        if (rep[p.lay] < 0 || p.area() > s.panes[rep[p.lay]].area()) rep[p.lay] = static_cast<int>(i);
+    }
+    float best = 160.f;
+    for (size_t c = 0; c < s.panes.size(); ++c) {
+        const Pane& cp = s.panes[c];
+        if (!cp.cursor || cp.area() > big || cp.lay < 0 || cp.lay >= static_cast<int>(rep.size()) || ignored_layout(cp)) continue;
+        const int mine = rep[cp.lay];
+        if (mine < 0) continue;
+        const uint32_t id = s.layouts[cp.lay].id;
+        std::vector<int> g;
+        int apart = 0;
+        for (size_t li = 0; li < s.layouts.size(); ++li) {
+            if (s.layouts[li].id != id || rep[li] < 0) continue;
+            g.push_back(rep[li]);
+            const Pane& q = s.panes[rep[li]];
+            if (std::fabs(q.cx() - s.panes[mine].cx()) > 8.f || std::fabs(q.cy() - s.panes[mine].cy()) > 8.f) ++apart;
+        }
+        if (g.size() < 2 || apart == 0) continue;
+        const float d = s.panes[mine].dist(cp.cx(), cp.cy());
+        if (d > best) continue;
+        best = d;
+        s.cursor = static_cast<int>(c);
+        s.focused = mine;
+        s.group = std::move(g);
+        s.mode = 2;
+    }
+}
+
 // The game's cursor: a visible cursor pane (not a message box's advance arrow, not in an ignored layout) whose own layout has at least two
 // entries, one of them within 160 px; of those, the closest. The entry under the pointer only counts in the cursor's layout (pooled layouts
 // that are not drawn still look visible: their panes keep alpha 255 and a rectangle).
@@ -650,7 +747,14 @@ void pick(float px, float py, bool inside) {
         if (advance_mark(cp) && (s.cursor != static_cast<int>(c))) ++rejected_arrow;
     }
     if (best > 160.f) s.cursor = s.focused = -1;
-    if (inside) {
+    pick_extend(items, big);
+    if (inside && s.mode == 2) {
+        float hb = 1e30f;
+        for (int i : s.group) {
+            const Pane& p = s.panes[i];
+            if (p.contains(px, py) && p.area() < hb) { hb = p.area(); s.hovered = i; }
+        }
+    } else if (inside) {
         float hb = 1e30f;
         for (size_t i = 0; i < s.panes.size(); ++i) {
             const Pane& p = s.panes[i];
@@ -760,6 +864,24 @@ void menu_install(uint64_t base) {
             }
         }
     }
+    s.key_guides.clear();
+    {   // "id=act ..." (act names as in the [switch] section: btn_minus, btn_plus, btn_x ...). 881468973 = the title's "(-) Settings" guide
+        // (p5m: 'Win_000_btn_key_guide_0' at 1722,1003..1920,1075; gameplay's HUD guides use the layout too, see key_guide_drawn); "" turns them off
+        const std::string list = config_get_str("pkp", "menu_key_guides", "881468973=btn_minus");  // gitleaks:allow (a layout id, not a key)
+        char name[32];
+        unsigned id = 0;
+        int used = 0;
+        for (const char* q = list.c_str(); *q;) {
+            play::Act a;
+            if (std::sscanf(q, " %u=%31[A-Za-z0-9_]%n", &id, name, &used) == 2 && used > 0) {
+                if (play::parse_act(name, &a)) s.key_guides[id] = a;
+                else NXLOG_W(kTag, "menu_key_guides: unknown action '%s'", name);
+                q += used;
+            } else {
+                ++q;
+            }
+        }
+    }
     for (const DrawSite& d : kDrawSites)
         g_draw_hooks.push_back(hook_add_mid(base + d.off, &hook_pane_draw, reinterpret_cast<void*>(static_cast<uintptr_t>(d.reg))));
     s.installed = true;
@@ -778,12 +900,25 @@ void menu_remove() {
 // input function, so play mode cannot tell them from play. A layout with the game's selection cursor on an entry (pick's rule: a visible
 // "...cursor..." pane within 160 px of an "item" pane) is such a menu. Closed: one scan every kPollFrames frames; up: menu_frame scans
 // every frame and its result is reused. Debounced: up after kOpenHits positive polls in a row, down after kCloseFrames negative frames.
+// A drawn key guide layout from [pkp] menu_key_guides (the title's "(-) Settings"): a screen with no selection cursor that still takes clicks.
+// Gameplay's HUD draws the same key guide layout (Run / Bag / Focus), so it counts only while the follow camera is not running (the title).
+bool key_guide_drawn(const State& s) {
+    if (s.key_guides.empty() || play_follow_live()) return false;
+    for (const Layout& L : s.layouts)
+        if (L.visible > 0 && s.key_guides.count(L.id)) return true;
+    return false;
+}
+
 bool menu_in_game(bool in_game) {
     State& s = st();
     constexpr int kPollFrames = 6, kOpenHits = 2, kCloseFrames = 10;
     g_frame.fetch_add(1, std::memory_order_relaxed);     // the drawn set's clock (once per play-mode frame)
     const bool scanned = s.frame_scanned, scanned_present = s.frame_present;
     s.frame_scanned = false;
+    if (s.log_level >= 3) {   // once a second: why the menu code does or does not look at this frame
+        static uint32_t n = 0;
+        if (++n % 600 == 0) NXLOG_I(kTag, "menu: poll in_game %d installed %d enabled %d in_game_menus %d up %d layouts %zu", in_game ? 1 : 0, s.installed ? 1 : 0, s.enabled ? 1 : 0, s.ig_enabled ? 1 : 0, s.ig_up ? 1 : 0, s.layouts.size());
+    }
     if (!in_game || !s.installed || !s.enabled || !s.ig_enabled) {
         if (s.ig_up && log_ok(true)) NXLOG_I(kTag, "menu: in-game menu closed (layout %u/%u, the game left play)", s.ig_lay_id, s.ig_lay_sub);
         s.ig_up = false;
@@ -799,7 +934,8 @@ bool menu_in_game(bool in_game) {
         s.pages.clear();
         scan();
         pick(-1.f, -1.f, false);
-        present = s.cursor >= 0 && s.focused >= 0;
+        if (s.log_level >= 3) log_layouts();   // what play-time screens (the title too) draw
+        present = (s.cursor >= 0 && s.focused >= 0) || key_guide_drawn(s);
     }
     if (!s.ig_up) {
         s.ig_hits = present ? s.ig_hits + 1 : 0;
@@ -807,6 +943,12 @@ bool menu_in_game(bool in_game) {
             s.ig_up = true;
             s.ig_miss = 0;
             ++s.n_ig_opens;
+            if (s.cursor < 0 || s.focused < 0) {   // a key guide screen (title): no cursor
+                s.ig_lay_id = s.ig_lay_sub = 0;
+                std::snprintf(s.ig_cursor, sizeof s.ig_cursor, "%s", "(key guide)");
+                if (log_ok(true)) NXLOG_I(kTag, "menu: in-game menu up: a key guide screen with no cursor (%zu layouts); clicks go to the key guides, else A", s.layouts.size());
+                return s.ig_up;
+            }
             const Pane& c = s.panes[s.cursor];
             const Pane& f = s.panes[s.focused];
             s.ig_lay_id = c.lay_id;
@@ -834,6 +976,10 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     play::mm::Pointer& ptr = play::mm::pointer();
     const play::mm::Snapshot snap = ptr.begin_frame(menu_up, g);
     s.active = false;
+    if (s.log_level >= 3) {
+        static uint32_t n = 0;
+        if (++n % 600 == 0) NXLOG_I(kTag, "menu: frame menu_up %d active %d inside %d shown %d", menu_up ? 1 : 0, snap.active ? 1 : 0, snap.inside ? 1 : 0, snap.shown ? 1 : 0);
+    }
     if (!s.installed || !s.enabled || !snap.active) {
         if (s.was_up && log_ok(true)) NXLOG_I(kTag, "menu: closed");
         s.was_up = false;
@@ -849,9 +995,22 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     const float px = (snap.nx + 1.f) * 0.5f * kCanvasW, py = (1.f - snap.ny) * 0.5f * kCanvasH;
     pick(px, py, snap.inside && snap.shown);
     s.frame_scanned = true;
-    s.frame_present = s.cursor >= 0 && s.focused >= 0;
+    s.frame_present = (s.cursor >= 0 && s.focused >= 0) || key_guide_drawn(s);
     log_layouts();
     s.was_up = true;
+    {   // which rule found the selection (pick_extend), once per change: the proof for menus outside play
+        const Pane* c = s.cursor >= 0 ? &s.panes[s.cursor] : nullptr;
+        const Pane* f = s.focused >= 0 ? &s.panes[s.focused] : nullptr;
+        const uint64_t sig = c && f ? (static_cast<uint64_t>(s.mode) << 62) ^ (static_cast<uint64_t>(c->lay_id) << 32) ^ f->lay_id ^
+                                          (static_cast<uint64_t>(s.group.size()) << 48)
+                                    : 0;
+        if (sig != s.mode_sig && c && f && log_ok(true)) {
+            static const char* const kMode[] = {"cursor", "list entry holding the cursor's part", "sibling button layouts"};
+            NXLOG_I(kTag, "menu: selection by %s: cursor '%s' (layout %u/%u) on '%s' (layout %u/%u), %zu sibling entries", kMode[s.mode], c->name,
+                    c->lay_id, c->lay_sub, f->name, f->lay_id, f->lay_sub, s.group.size());
+        }
+        s.mode_sig = sig;
+    }
 
     const Pane* hov = s.hovered >= 0 ? &s.panes[s.hovered] : nullptr;
     const Pane* foc = s.focused >= 0 ? &s.panes[s.focused] : nullptr;
@@ -885,6 +1044,17 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (snap.click) {
         ptr.click_used();
         ++s.n_clicks;
+        // a key guide under the pointer ("(-) Settings" on the title): its button
+        if (snap.inside && snap.shown && !s.key_guides.empty()) {
+            for (const Pane& p : s.panes) {
+                if (!p.item || !p.contains(px, py)) continue;
+                const auto it = s.key_guides.find(p.lay_id);
+                if (it == s.key_guides.end()) continue;
+                if (log_ok(true)) NXLOG_I(kTag, "menu: click on key guide '%s' (layout %u/%u) -> %s", p.name, p.lay_id, p.lay_sub, play::act_info(it->second).name);
+                clear_nav();
+                return it->second;
+            }
+        }
         if (s.cursor < 0) {
             if (log_ok(true)) NXLOG_I(kTag, "menu: click -> A (no cursor on screen)");
             clear_nav();

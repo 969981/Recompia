@@ -4,4 +4,6 @@ Pokopia PC @VERSION@
 2. Press Set up. It builds pkp.exe and the shader cache on this PC. You can pause and continue later.
 3. Press Play.
 
+Upscaling: FSR 3 works out of the box (F1, Graphics). DLSS / DLAA need an NVIDIA RTX GPU and a file NVIDIA licenses separately: the launcher's Game files page has a button that downloads it from NVIDIA.
+
 Licences: LICENSE.txt and licenses/.

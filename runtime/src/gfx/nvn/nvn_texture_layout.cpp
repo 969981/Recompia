@@ -8,6 +8,11 @@
 //     (console_block_height: 1.5 times the rows, thresholds 16/32/64/128; the layout of the game's own TXTR data).
 //     3D textures use block height 1 GOB and block depth 16 GOBs (the rule that matches the game's 3D textures, see
 //     SURVEY section 3).
+//     Switch 2 (NVN2): the packaged layout is three 4-bit log2 fields in its first halfword: bits 0-3 block height, 4-7 block depth,
+//     8-11 block width (in GOBs). The NVN2 driver's SetPackagedTextureLayout (sdk 0x5EEA00) keeps those 12 bits, and texture
+//     initialization (0x5EEF48) uses them in place of its own block shape (0x5C1408: width 0, height from the rows, depth from the
+//     slices, 0x633A80) for every target. Here: height and depth for 2D and non-sparse 3D textures (width is always 0 on Tegra; a
+//     non-zero one is logged).
 //   * storage = layer stride * layers * samples. The layer stride is the untrimmed size of a layer: tegra trims the last
 //     level of a 3D texture, but the game's buffers are the untrimmed size (47 of 47 3D textures checked, SURVEY section 3).
 //   * alignment = 512 * level-0 block height in GOBs, at least 0x200 (Wonder's TILING.md; 0x200 is the minimum).
@@ -19,8 +24,11 @@
 // No code was copied.
 #include "nvn_texture_layout.h"
 #include "nxrt/game.h"
+#include "nxrt/log.h"
 
 #include <algorithm>
+#include <mutex>
+#include <set>
 
 #include <nvn/nvn.h>
 
@@ -29,6 +37,25 @@ namespace {
 
 uint64_t div_up(uint64_t a, uint64_t b) { return (a + b - 1) / b; }
 uint64_t align_up(uint64_t a, uint64_t b) { return div_up(a, b) * b; }
+
+// NVN2 packaged layout: log2 block height, depth and width in GOBs (see the header comment).
+struct PackedShape {
+    uint32_t h = 0, d = 0, w = 0;
+};
+PackedShape nvn2_packed_shape(const TextureBuilderInfo& b) {
+    PackedShape s;
+    s.h = b.packaged_layout[0] & 0xfu;
+    s.d = (b.packaged_layout[0] >> 4) & 0xfu;
+    s.w = b.packaged_layout[1] & 0xfu;
+    static std::mutex mu;
+    static std::set<uint32_t> seen;   // each distinct shape once, with the texture that first had it
+    const uint32_t key = s.h | (s.d << 4) | (s.w << 8) | (static_cast<uint32_t>(b.target) << 12);
+    std::lock_guard<std::mutex> lk(mu);
+    if (seen.insert(key).second)
+        NXLOG_I("nvn.tex", "packaged texture layout (first of this kind): block height 2^%u, depth 2^%u, width 2^%u GOBs; target %d, %dx%dx%d format %d",
+                s.h, s.d, s.w, b.target, b.width, b.height, b.depth, b.format);
+    return s;
+}
 
 
 }  // namespace
@@ -182,9 +209,21 @@ TexLayout compute_texture_layout(const TextureBuilderInfo& b) {
     } else if (is3d) {
         ds.gob_blocks_y = 1;
         ds.gob_blocks_z = 16;
+        if (b.has_packaged_layout && ds.gob_switch2) {
+            const PackedShape s = nvn2_packed_shape(b);
+            if (s.h <= 5 && s.d <= 5) {
+                ds.gob_blocks_y = 1u << s.h;
+                ds.gob_blocks_z = 1u << s.d;
+            }
+        }
     } else {
         uint32_t gy = console_block_height(static_cast<uint32_t>(blocks_y));
-        if (b.has_packaged_layout && b.packaged_layout[0] <= 4) gy = 1u << b.packaged_layout[0];
+        if (b.has_packaged_layout && ds.gob_switch2) {
+            const PackedShape s = nvn2_packed_shape(b);   // the depth field of a 2D texture is 0 (one slice)
+            if (s.h <= 5) gy = 1u << s.h;
+        } else if (b.has_packaged_layout && b.packaged_layout[0] <= 4) {
+            gy = 1u << b.packaged_layout[0];
+        }
         ds.gob_blocks_y = gy;
         ds.gob_blocks_z = 1;
     }
