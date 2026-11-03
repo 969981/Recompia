@@ -44,7 +44,7 @@ fn main() {
             last = msg.to_string();
         }
     };
-    if !gamebuild::is_built(&game) {
+    if !gamebuild::is_built(&game, &tools_dir) {
         let tools = gamebuild::find_tools(&tools_dir).unwrap_or_else(|e| fail(e));
         let job = gamebuild::Job { game_dir: game.clone(), exefs: PathBuf::from(&a[1]), jobs };
         match gamebuild::run(&job, &tools, &cancel, |t| tick(&t.phase, &t.message)) {

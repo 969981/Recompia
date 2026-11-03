@@ -188,8 +188,13 @@ fn play(app: AppHandle) -> Result<(), String> {
         (chosen.exefs, chosen.romfs)
     };
     let dir = game_dir_of(&cfg);
-    if gamebuild::is_package_b(&exe_dir().join("tools")) && !gamebuild::is_built(&dir) {
-        return Err("Build the game first (Game files, Set up).".into());
+    let tools_dir = exe_dir().join("tools");
+    if gamebuild::is_package_b(&tools_dir) {
+        match gamebuild::built_state(&dir, &tools_dir) {
+            gamebuild::Built::Current => {}
+            gamebuild::Built::Stale => return Err(gamebuild::REBUILD_MESSAGE.into()),
+            gamebuild::Built::No => return Err("Build the game first (Game files, Set up).".into()),
+        }
     }
     if !shaders::is_complete(&dir) {
         return Err("Finish the shader setup first (Game files, Set up).".into());
@@ -212,6 +217,8 @@ struct SetupStatus {
     complete: bool,
     /// an earlier setup started (Set up continues it)
     started: bool,
+    /// pkp.exe is from an older release whose game code this one changes: Set up rebuilds it
+    rebuild: bool,
 }
 
 #[tauri::command]
@@ -221,9 +228,15 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     if progress.state.is_empty() {
         progress.state = "idle".into();
     }
-    let built = !gamebuild::is_package_b(&exe_dir().join("tools")) || gamebuild::is_built(&dir);
+    let tools_dir = exe_dir().join("tools");
+    let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
     let started = !shaders::read_marker(&dir).romfs.is_empty() || dir.join("build").join("state.json").is_file();
-    SetupStatus { progress, complete: built && shaders::is_complete(&dir), started }
+    SetupStatus {
+        progress,
+        complete: state == gamebuild::Built::Current && shaders::is_complete(&dir),
+        started,
+        rebuild: state == gamebuild::Built::Stale,
+    }
 }
 
 /// First-run setup: (a) the pkp.ini paths, (b) in a model (b) release, pkp.exe built from the player's dump
@@ -258,7 +271,8 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             let _ = app.emit("setup-status", p);
         };
         let result = (|| {
-            if package_b && !gamebuild::is_built(&build_job.game_dir) {
+            // no build yet, or one from an older release (stale tools stamp): build pkp.exe (again)
+            if package_b && !gamebuild::is_built(&build_job.game_dir, &tools_dir) {
                 let tools = gamebuild::find_tools(&tools_dir)?;
                 let built = gamebuild::run(&build_job, &tools, &st.cancel, |t| {
                     emit(shaders::Progress { state: "running".into(), phase: t.phase, done: t.done, total: t.total, message: t.message })
