@@ -439,6 +439,8 @@ void pad_tab(const LiveStatus& live, Page& p) {   // the Gamepad tab of the Cont
     tip("The stick must move this far from the centre before it counts (a fraction of its travel). Applies before the game's own dead zone.");
     if (slider("Right stick dead zone", &pad.right_deadzone, 0.0, 0.5, "%.2f")) mark(p);
     tip("The same for the right stick (looking).");
+    if (slider("Left stick max", &pad.stick_max, 0.5, 1.0, "%.2f")) mark(p);
+    tip("How far the left stick must be pushed to count as fully pushed (a fraction of its travel). Lower it if your stick never reaches full speed (for example it tops out around 0.95).");
     if (ImGui::Checkbox("Invert look (right stick up looks down)", &pad.invert_y)) mark(p);
     if (ImGui::IsItemHovered()) ImGui::SetItemTooltip("%s", "Applies in play only; adds to the game's own invert option.");
     if (slider("Look sensitivity", &pad.look_sens, 0.25, 3.0, "%.2f", ImGuiSliderFlags_Logarithmic)) mark(p);

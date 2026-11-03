@@ -18,6 +18,8 @@ namespace nxrt::play {
 //  sticks    raw axis / 32768 (clamped to -1..1), y flipped (SDL y down = +, hid y up = +), radial dead zone cfg.stick_deadzone with the
 //            remaining travel rescaled to 0..1 ((len - dz) / (1 - dz)), then * 32767 rounded; the result is within +-32767.
 // Stick dead zones: cfg.stick_deadzone for the left stick, cfg.right_deadzone for the right one.
+// Outer zone (left stick only): cfg.stick_max (0.5..1, default 1 = off). The travel from the dead zone to stick_max is rescaled to 0..1, so a raw
+// radius at or past stick_max gives full deflection.
 void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadInput* out);
 
 // The right stick as the game's look input, in play: vertical flipped when cfg.invert_y, both axes times cfg.look_sens (clamped to 0.25..3), then pulled back

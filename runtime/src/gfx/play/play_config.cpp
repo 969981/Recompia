@@ -331,6 +331,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "label_abxy") return set_bool(&s->pad.label_abxy);
             if (k == "deadzone") return set_real(0.0, 0.5, &s->pad.stick_deadzone);
             if (k == "right_deadzone") return set_real(0.0, 0.5, &s->pad.right_deadzone);
+            if (k == "stick_max") return set_real(0.5, 1.0, &s->pad.stick_max);
             if (k == "invert_y") return set_bool(&s->pad.invert_y);
             if (k == "look_sens") return set_real(0.25, 3.0, &s->pad.look_sens);
             if (k == "trigger_threshold") return set_real(0.05, 1.0, &s->pad.trigger_threshold);
@@ -875,6 +876,7 @@ std::string format_settings(const Settings& s) {
     kv("invert_y", flag(s.pad.invert_y));
     kv("look_sens", num(s.pad.look_sens));
     kv("trigger_threshold", num(s.pad.trigger_threshold));
+    kv("stick_max", num(s.pad.stick_max));
     kv("gyro", flag(s.pad.gyro));
     kv("gyro_scale", num(s.pad.gyro_scale));
     kv("rumble", flag(s.pad.rumble));

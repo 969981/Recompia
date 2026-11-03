@@ -44,8 +44,10 @@ int32_t to_stick(double v) {
     return static_cast<int32_t>(std::clamp(r, -32767L, 32767L));
 }
 
-// Radial dead zone. x, y are -1..1 (hid y up = +). dz is already clamped to 0..0.9.
-hid::StickValue stick(double x, double y, double dz) {
+// Radial dead zone and outer zone. x, y are -1..1 (hid y up = +). dz is already clamped to 0..0.9, max_zone to 0.5..1.
+// The travel between dz and max_zone is rescaled to 0..1 and anything past max_zone is full deflection, so a stick that only reaches 0.96 of its
+// range can still give the game a full push. max_zone 1 is the plain dead zone rescale.
+hid::StickValue stick(double x, double y, double dz, double max_zone) {
     const double len = std::sqrt(x * x + y * y);
     if (len > 1.0) {  // square corners: pull back onto the unit circle so the result never exceeds full deflection
         x /= len;
@@ -53,7 +55,8 @@ hid::StickValue stick(double x, double y, double dz) {
     }
     const double r = std::min(len, 1.0);
     if (r <= dz) return {};
-    const double s = (r - dz) / (1.0 - dz) / r;
+    const double hi = std::min(1.0, std::max(max_zone, dz + 0.05));   // always past the dead zone
+    const double s = std::min(1.0, (r - dz) / (hi - dz)) / r;
     return {to_stick(x * s), to_stick(y * s)};
 }
 
@@ -91,8 +94,9 @@ void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadI
 
     const double dz = std::clamp(cfg.stick_deadzone, 0.0, 0.9), rdz = std::clamp(cfg.right_deadzone, 0.0, 0.9);
     out->buttons = bits;
-    out->left = stick(norm_axis(raw.axes[kAxisLeftX]), -norm_axis(raw.axes[kAxisLeftY]), dz);
-    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz);
+    const double lmax = std::clamp(cfg.stick_max, 0.5, 1.0);
+    out->left = stick(norm_axis(raw.axes[kAxisLeftX]), -norm_axis(raw.axes[kAxisLeftY]), dz, lmax);
+    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz, 1.0);
 }
 
 hid::StickValue adjust_look_stick(hid::StickValue right, const PadSettings& cfg) {
