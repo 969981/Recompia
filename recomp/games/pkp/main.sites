@@ -131,6 +131,9 @@ midhook 0x7101f90fec
 #   their prologues: rects sized for 1920x1080 on render-size targets become the target size (viewport and the 2/w, -2/h screen constants)
 midhook 0x71017b50ac
 midhook 0x71017b5254
+#   render resolution: the pass-state viewport recorder 0x71017c0420 (x0 = ctx + 0x10, w1 count, x2 rects; no screen constants of its own:
+#   0x71017b3000 and friends derive 2/w, -2/h from what it records): rects sized for 1920x1080 on render-size targets become the target size
+entryhook 0x71017c0420
 #   render resolution: the terrain occlusion pass (0x710073d73c) calling its 80x45 G-buffer copy 0x71010f48d8: x3 the source colour texture,
 #   x5 the source rect {x, y, w, h}, taken from a viewport recorded as 1920x1080 (becomes the source's size on render-size targets)
 midhook 0x710073d824
