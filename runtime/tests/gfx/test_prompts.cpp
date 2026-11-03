@@ -213,6 +213,7 @@ NXTEST(stick_icons_keep_the_games_icon_outside_the_keyboard_map) {
 }
 
 NXTEST(auto_follows_the_last_used_device) {
+    nxrt::config_set("host", "handheld", "off");   // desktop behaviour, also when the tests run on a Deck (host_is_handheld reads it once)
     CHECK(auto_style(LastDevice::KeyboardMouse, 1, 1) == PromptStyle::Keyboard);
     CHECK(auto_style(LastDevice::Pad, 2, -1) == PromptStyle::PlayStation);
     CHECK(auto_style(LastDevice::Pad, 1, -1) == PromptStyle::Xbox);
