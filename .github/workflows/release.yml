@@ -117,7 +117,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $log = Get-Content -Raw CHANGELOG.md
-          $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))\s*\r?\n(.*?)(?=^## |\z)")
+          $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
           if (-not $m.Success) { throw "CHANGELOG.md has no section '## $env:VERSION'" }
           $m.Groups[1].Value.Trim() | Set-Content build/notes.md
-          gh release create $env:GITHUB_REF_NAME (Get-Item build/rel/*.zip).FullName --title "Pokopia Recomp $env:VERSION" --notes-file build/notes.md
+          $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build (\w)\)").Groups[1].Value
+          gh release create $env:GITHUB_REF_NAME (Get-Item build/rel/*.zip).FullName --title "Pokopia Recomp $env:VERSION (build $env:BUILD)" --notes-file build/notes.md
