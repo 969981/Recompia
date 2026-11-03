@@ -172,6 +172,12 @@ bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use);
 void mirror_begin_submit(Frame& f, bool on);
 void mirror_destroy(PoolGpu* p);
 
+)
+// The game's shaders come from NVIDIA's 32-wide warps: shuffles, ballots and votes assume 32 invocations per subgroup. For a stage of a
+// game pipeline: a VkPipelineShaderStageRequiredSubgroupSizeCreateInfo asking for 32 (static, shareable) when the GPU's subgroups are not
+// 32 wide and it can be asked for that stage (AMD runs 64 wide by default); null otherwise (NVIDIA, or a stage that cannot ask).
+const void* subgroup32_info(VkShaderStageFlagBits stage);
+
 // ---- compute results held in the pool copy (nvn_gpu_pool.cpp, "compute out") ----------------------------------------------------
 // A dispatch that binds the pool copy directly (nvn_replay.cpp, compute shadows) writes its result there: the range is "out" until the
 // copy-back to the pool. [nvn] compute_out_lazy (default on): at the end of a submission a result is not copied back but held in the
