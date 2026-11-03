@@ -2,7 +2,7 @@
 
 Pokémon Pokopia (Switch 2) recompiled to run natively on Windows.
 
-[Download the latest build](https://github.com/drakolordx7/pokopia-recomp/releases/latest)
+[Download the latest build](https://github.com/featureJosh/pokopia-recomp/releases/latest) (this fork: faster on Linux/Proton handhelds, many fixes; what changed: [CHANGELOG.md](CHANGELOG.md)). The original project: [drakolordx7/pokopia-recomp](https://github.com/drakolordx7/pokopia-recomp).
 
 You need your own extracted copy of the game, version 2.0.1a. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo.
 
