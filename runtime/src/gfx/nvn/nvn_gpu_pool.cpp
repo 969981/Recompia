@@ -210,8 +210,12 @@ PoolGpu* import_pool(MemoryPool* p) {
     const uint64_t start = reinterpret_cast<uint64_t>(p->base) & ~(align - 1);
     const uint64_t end = (reinterpret_cast<uint64_t>(p->base) + p->size + align - 1) & ~(align - 1);
     VkDeviceSize size = end - start;
+    static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
+    const bool viewed = use_view && mem::heap_has_section() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
     const uint64_t stride = import_stride();
-    const bool chunked = stride && size > stride + import_overlap();
+    // Chunks overlap, and without private views two of them would import the same host pages: the driver refuses the second
+    // (VK_ERROR_INVALID_EXTERNAL_HANDLE, seen on the RX 9060 XT with [memory] heap_section = 0). Unviewed pools are imported whole.
+    const bool chunked = viewed && stride && size > stride + import_overlap();
     if (!chunked && size > dev.limits_ext().max_buffer_size && dev.limits_ext().max_buffer_size) {
         NXLOG_W(kTag, "pool of 0x%llx bytes is larger than maxBufferSize 0x%llx: the tail is not reachable by the GPU",
                 static_cast<unsigned long long>(size), static_cast<unsigned long long>(dev.limits_ext().max_buffer_size));
@@ -219,8 +223,7 @@ PoolGpu* import_pool(MemoryPool* p) {
     }
     g->base = reinterpret_cast<uint8_t*>(start);
     g->size = size;
-    static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
-    g->viewed = use_view && mem::heap_has_section() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
+    g->viewed = viewed;
     if (chunked) {
         g->stride = stride;
         g->clen = stride + import_overlap();
