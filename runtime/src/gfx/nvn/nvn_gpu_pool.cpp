@@ -220,7 +220,7 @@ PoolGpu* import_pool(MemoryPool* p) {
     g->base = reinterpret_cast<uint8_t*>(start);
     g->size = size;
     static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
-    g->viewed = use_view && mem::heap_exists() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
+    g->viewed = use_view && mem::heap_has_section() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
     if (chunked) {
         g->stride = stride;
         g->clen = stride + import_overlap();

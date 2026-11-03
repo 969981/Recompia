@@ -215,7 +215,9 @@ void shutdown() {
         }
         g_aliases.clear();
         g_alias_used.clear();
-        if (g_heap_size) {
+        if (g_heap_size && !g_section) {
+            VirtualFree(reinterpret_cast<void*>(kHeapBase), 0, MEM_RELEASE);   // the private heap (heap_create)
+        } else if (g_heap_size) {
             if (!UnmapViewOfFile(reinterpret_cast<void*>(kHeapBase))) {
                 DWORD e = GetLastError();
                 NXLOG_E(kTag, "shutdown: UnmapViewOfFile(heap) failed, error %lu", static_cast<unsigned long>(e));
@@ -445,6 +447,26 @@ bool heap_create(uint64_t reserve_bytes) {
                 static_cast<unsigned long long>(size), static_cast<unsigned long long>(kHeapMax));
         return false;
     }
+    // [memory] heap_section: auto (default) = a section unless running under Wine (memory.h), 1 = always, 0 = never
+    const std::string mode = nxrt::config_get_str("memory", "heap_section", "auto");
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version");
+    if (mode == "0" || (mode != "1" && wine)) {
+        void* p = VirtualAlloc(reinterpret_cast<void*>(kHeapBase), static_cast<SIZE_T>(size), MEM_RESERVE, PAGE_NOACCESS);
+        if (reinterpret_cast<uint64_t>(p) != kHeapBase) {
+            NXLOG_E(kTag, "heap_create: VirtualAlloc(MEM_RESERVE %llu MiB) at %llx failed, error %lu", static_cast<unsigned long long>(size >> 20),
+                    static_cast<unsigned long long>(kHeapBase), static_cast<unsigned long>(GetLastError()));
+            if (p) VirtualFree(p, 0, MEM_RELEASE);
+            return false;
+        }
+        g_heap_size = size;
+        g_commit_bits.assign((size / kPage + 63) / 64, 0);
+        g_heap_cls.assign(static_cast<size_t>(size / kPage), 0);
+        g_committed = 0;
+        NXLOG_I(kTag, "heap: private memory of %llu MiB at %llx, no section (%s): no alias views, pools import at their own address",
+                static_cast<unsigned long long>(size >> 20), static_cast<unsigned long long>(kHeapBase), wine ? "Wine" : "[memory] heap_section = 0");
+        return true;
+    }
     HANDLE sec = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_RESERVE,
                                     static_cast<DWORD>(size >> 32), static_cast<DWORD>(size & 0xFFFFFFFFu), nullptr);
     if (!sec) {
@@ -481,6 +503,11 @@ bool heap_create(uint64_t reserve_bytes) {
 bool heap_exists() {
     std::lock_guard lk(g_heap_mu);
     return g_heap_size != 0;
+}
+
+bool heap_has_section() {
+    std::lock_guard lk(g_heap_mu);
+    return g_section != nullptr;
 }
 
 uint64_t heap_reserved() {
@@ -570,8 +597,8 @@ uint64_t heap_committed() {
 
 uint64_t heap_alias(uint64_t offset, uint64_t size, uint64_t at, Prot p) {
     std::lock_guard lk(g_heap_mu);
-    if (!g_heap_size) {
-        NXLOG_W(kTag, "heap_alias: no heap");
+    if (!g_heap_size || !g_section) {
+        NXLOG_W(kTag, "heap_alias: %s", g_heap_size ? "the heap is private memory (no section): no alias views" : "no heap");
         return 0;
     }
     if (size == 0 || offset % kAllocGranularity || size % kAllocGranularity || offset > g_heap_size ||
@@ -633,7 +660,7 @@ uint64_t heap_alias(uint64_t offset, uint64_t size, uint64_t at, Prot p) {
 
 void* heap_private_view(uint64_t offset, uint64_t size) {
     std::lock_guard lk(g_heap_mu);
-    if (!g_heap_size || size == 0 || offset % kAllocGranularity || offset > g_heap_size || size > g_heap_size - offset) return nullptr;
+    if (!g_section || size == 0 || offset % kAllocGranularity || offset > g_heap_size || size > g_heap_size - offset) return nullptr;
     return MapViewOfFile(g_section, FILE_MAP_ALL_ACCESS, static_cast<DWORD>(offset >> 32), static_cast<DWORD>(offset & 0xFFFFFFFFu), static_cast<SIZE_T>(size));
 }
 
