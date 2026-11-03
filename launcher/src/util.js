@@ -3,13 +3,13 @@ import {
   createIcons,
   Play, Settings, FolderOpen, Info, CircleCheck, CircleX, TriangleAlert, CircleAlert, FileText,
   Save, Undo2, Folder, Monitor, Volume2, Mouse, Gamepad2, LoaderCircle, FolderSearch, Wrench,
-  ShieldCheck, Keyboard, HardDrive,
+  ShieldCheck, Keyboard, HardDrive, FileArchive,
 } from 'lucide';
 
 const ICONS = {
   Play, Settings, FolderOpen, Info, CircleCheck, CircleX, TriangleAlert, CircleAlert, FileText,
   Save, Undo2, Folder, Monitor, Volume2, Mouse, Gamepad2, LoaderCircle, FolderSearch, Wrench,
-  ShieldCheck, Keyboard, HardDrive,
+  ShieldCheck, Keyboard, HardDrive, FileArchive,
 };
 
 /** Calls a Rust command. */
