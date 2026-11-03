@@ -121,6 +121,7 @@ struct Gpu {
 };
 
 Gpu* g = nullptr;
+void flush_batch();   // [nvn] submit_batch, below
 std::mutex g_install_mu;
 
 uint64_t read_completed() {
