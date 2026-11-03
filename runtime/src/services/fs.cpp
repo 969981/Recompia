@@ -19,6 +19,7 @@
 #include <sstream>
 
 #include "fs_romfs.h"
+#include "nxrt/nup.h"
 #include "fs_volume.h"
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
@@ -580,6 +581,7 @@ std::shared_ptr<Service> make_fsp() {
     auto s = std::make_shared<Service>("fsp-srv");
     s->add_cmd(1, "SetCurrentProcess", [](Request&, Response&) -> uint32_t { return 0; });
     s->add_cmd(2, "OpenDataFileSystemByCurrentProcess", [](Request&, Response& rsp) -> uint32_t {
+        if (nup::is_nup(romfs_dir())) return fs::rc::kTargetNotFound;    // a .nup is served as the RomFS image (OpenDataStorage) only
         auto v = std::make_shared<Volume>(romfs_dir(), false, true, 0);
         if (!v->ok()) return fs::rc::kTargetNotFound;
         rsp.push_object(make_filesystem(v, "rom:"));

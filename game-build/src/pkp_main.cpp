@@ -21,6 +21,7 @@
 // work/run) nothing changes, except that [fs] exefs in the ini named by --ini / NXRT_INI replaces the built-in ExeFS default.
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +46,7 @@
 #include "nxrt/nvn_backend.h"
 #include "nxrt/platform.h"
 #include "nxrt/play.h"
+#include "nxrt/nup.h"
 #include "nxrt/nxmodule.h"
 #include "nxrt/runtime.h"
 
@@ -421,16 +423,31 @@ int main(int argc, char** argv) {
         nxrt::play::start(po);
     }
 
-    // 1. map
+    // 1. map ([fs] exefs is a folder or a .nup package: the modules are then read from the package)
+    nxrt::nup::Content pkg;
+    const bool packaged = nxrt::nup::is_nup(exefs);
+    if (packaged) {
+        std::string err;
+        if (!nxrt::nup::open(exefs, pkg, &err)) die("The game package cannot be used: %s", err.c_str());
+    }
     for (const GameModule& g : kModules) {
         nxrt::LoadOptions lo;
         lo.name = g.file;
         lo.base = g.base;
         std::string err;
         const std::string path = exefs + "\\" + g.file;
-        if (!file_exists(widen_utf8(path)))
-            die("The game files were not found (%s). Choose your game files in the Pokopia launcher (or set [fs] exefs in pkp.ini), then start the game again.", path.c_str());
-        nxrt::Module* m = nxrt::module_load_nso_file(path.c_str(), lo, &err);
+        nxrt::Module* m = nullptr;
+        if (packaged) {
+            auto it = std::find_if(pkg.exefs.begin(), pkg.exefs.end(), [&](const nxrt::nup::File& f) { return f.path == g.file; });
+            if (it == pkg.exefs.end()) die("The game package %s has no exefs/%s.", exefs.c_str(), g.file);
+            std::vector<uint8_t> bytes;
+            if (!nxrt::nup::read_file(exefs, *it, bytes, &err)) die("%s", err.c_str());
+            m = nxrt::module_load_nso_memory(bytes.data(), bytes.size(), lo, &err);
+        } else {
+            if (!file_exists(widen_utf8(path)))
+                die("The game files were not found (%s). Choose your game files in the Pokopia launcher (or set [fs] exefs in pkp.ini), then start the game again.", path.c_str());
+            m = nxrt::module_load_nso_file(path.c_str(), lo, &err);
+        }
         if (!m) die("cannot load %s: %s", path.c_str(), err.c_str());
         if (m->base() != g.nx->base) die("module %s is mapped at a base different from the one the library was lifted for", g.file);
         // 2. register the lifted functions and tables (an ABI-version mismatch of a stale library is refused here)

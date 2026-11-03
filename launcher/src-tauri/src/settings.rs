@@ -110,13 +110,13 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), Str
     let mut ini = load(&path).unwrap_or_else(Ini::empty);
     let mut changed = !path.exists();
 
-    // [fs] exefs and [fs] romfs: kept while they name an existing folder (the user may have pointed them elsewhere)
+    // [fs] exefs and [fs] romfs: kept while they name an existing folder or .nup (the user may have pointed them elsewhere)
     for (key, value) in [("exefs", exefs), ("romfs", romfs)] {
         let cur = ini.get("fs", key).unwrap_or_default();
         let cur_path = Path::new(cur.trim());
         // relative paths in the ini are relative to the game folder, the working directory of the game
         let cur_full = if cur_path.is_absolute() { cur_path.to_path_buf() } else { dir.join(cur_path) };
-        if cur.trim().is_empty() || !cur_full.is_dir() {
+        if cur.trim().is_empty() || !(cur_full.is_dir() || cur_full.is_file()) {
             ini.set("fs", key, &portable(dir, value));
             changed = true;
         }

@@ -12,7 +12,7 @@ mod shaders;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
@@ -179,8 +179,14 @@ fn play(app: AppHandle) -> Result<(), String> {
     if cfg.dump_dir.trim().is_empty() {
         return Err("Choose your game files first (Setup).".into());
     }
-    let report = dump::scan(&cfg.dump_dir);
-    let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
+    // a .nup package is played as it is: pkp reads exefs and romfs straight from it
+    let (exefs, romfs) = if cfg.dump_dir.trim().ends_with(".nup") && Path::new(cfg.dump_dir.trim()).is_file() {
+        (cfg.dump_dir.trim().to_string(), cfg.dump_dir.trim().to_string())
+    } else {
+        let report = dump::scan(&cfg.dump_dir);
+        let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
+        (chosen.exefs, chosen.romfs)
+    };
     let dir = game_dir_of(&cfg);
     if gamebuild::is_package_b(&exe_dir().join("tools")) && !gamebuild::is_built(&dir) {
         return Err("Build the game first (Game files, Set up).".into());
@@ -188,7 +194,7 @@ fn play(app: AppHandle) -> Result<(), String> {
     if !shaders::is_complete(&dir) {
         return Err("Finish the shader setup first (Game files, Set up).".into());
     }
-    settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs)?;
+    settings::ensure_play_paths(&dir, &exefs, &romfs)?;
     play::start(&app, &dir, cfg.minimize_on_play)
 }
 
