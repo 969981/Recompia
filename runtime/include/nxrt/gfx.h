@@ -267,9 +267,18 @@ public:
     // the command buffer (GPU timestamp 0) and puts the image in COLOR_ATTACHMENT_OPTIMAL. Returns false when there is nothing
     // to draw (window minimised / zero extent, swapchain being recreated): the caller waits for events and tries again.
     bool begin_frame(FrameInfo* out);
+    // Command buffers that go to the GPU in end_frame's own vkQueueSubmit2, before the frame's command buffer, and a timeline value
+    // that submission signals: one kernel submission for a frame's work and its present. They wait for the swapchain image with the rest.
+    struct SubmitPrefix {
+        const VkCommandBuffer* cmds = nullptr;
+        uint32_t count = 0;
+        VkSemaphore timeline = VK_NULL_HANDLE;
+        uint64_t value = 0;
+        bool submitted = false;           // out: vkQueueSubmit2 succeeded
+    };
     // Runs the overlay hook, finishes and submits the command buffer (GPU timestamp 1), saves a requested screenshot and
     // presents.
-    void end_frame();
+    void end_frame(SubmitPrefix* prefix = nullptr);
 
     // Called from end_frame, after the caller's drawing, with the image still in COLOR_ATTACHMENT_OPTIMAL: record draws that
     // go on top (the ImGui overlay) with a dynamic-rendering pass that loads the image.

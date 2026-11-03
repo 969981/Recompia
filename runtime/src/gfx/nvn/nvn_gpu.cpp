@@ -84,6 +84,11 @@ struct Gpu {
     // [nvn] submit_batch: recorded submissions wait here and go to the GPU in one vkQueueSubmit2 (flush_batch). Render thread.
     std::vector<Slot*> batch;
     uint32_t batch_max = 1;
+    // submit_batch = frame: the batch is not flushed when the render thread runs out of work; it goes with the present, in the present's
+    // own vkQueueSubmit2 (take_batch_for_present), or earlier when a thread waits for one of its serials (flush_wanted).
+    bool frame_batch = false;
+    std::atomic<uint64_t> flushed_pub{0};          // `flushed`, readable from any thread
+    std::atomic<bool> flush_wanted{false};         // a thread waits for (or polls) a serial still in the batch
     uint64_t recording = 0;               // render thread: serial of the submission being recorded (0 outside)
     std::atomic<uint64_t> last_submitted{0};
     // Serials are handed out when a submission is queued (the game thread gets its serial at once and goes on while the render thread
@@ -161,14 +166,15 @@ void render_loop() {
         std::function<void()> job;
         {
             std::unique_lock<std::mutex> lk(g->qmu);
-            if (!g->stop && g->queue.empty() && !g->batch.empty()) {
+            if (!g->batch.empty() && (g->flush_wanted.load() || (!g->frame_batch && !g->stop && g->queue.empty()))) {
                 lk.unlock();
-                flush_batch();      // nothing more to record for now: the GPU gets what there is
+                flush_batch();      // nothing more to record for now (or a thread waits for it): the GPU gets what there is
                 lk.lock();
             }
             if (!g->stop && g->queue.empty()) {
                 nxrt::HitchTimer ht(nxrt::kHpRenderIdle);      // the hitch line: the render thread waited for the game
-                g->qcv.wait(lk, [] { return g->stop || !g->queue.empty(); });
+                g->qcv.wait(lk, [] { return g->stop || !g->queue.empty() || (g->flush_wanted.load() && !g->batch.empty()); });
+                if (g->queue.empty() && !g->stop) continue;    // woken to flush
             }
             if (g->queue.empty()) {   // stop requested and drained
                 lk.unlock();
@@ -260,8 +266,18 @@ void flush_batch() {
         vkSignalSemaphore(g->dev->device(), &ssi);
     }
     g->flushed = serial;
+    g->flushed_pub.store(serial);
+    g->flush_wanted.store(false);
     g->batch.clear();
     g->ctr.submits.fetch_add(1);
+}
+
+// submit_batch = frame: a thread outside the render thread waits for a serial that may still sit in the batch; the render thread flushes
+// it at once instead of with the next present (which that thread may be the one to queue).
+void want_flush(uint64_t serial) {
+    if (!g->frame_batch || serial <= g->flushed_pub.load() || g->flush_wanted.exchange(true)) return;
+    std::lock_guard<std::mutex> lk(g->qmu);
+    g->qcv.notify_one();
 }
 
 void wait_serial_blocking(uint64_t serial) {
@@ -634,6 +650,34 @@ void submit_recorded() {
     if (g) flush_batch();
 }
 
+bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::SubmitPrefix* p) {
+    if (!g || !g->frame_batch || g->batch.empty()) {
+        submit_recorded();
+        return false;
+    }
+    cmds->clear();
+    for (Slot* s : g->batch) cmds->push_back(s->cb);
+    p->cmds = cmds->data();
+    p->count = static_cast<uint32_t>(cmds->size());
+    p->timeline = g->timeline;
+    p->value = g->batch.back()->serial;
+    return true;
+}
+
+void present_batch_done(const gfx::Renderer::SubmitPrefix& p) {
+    if (!p.submitted) {   // as flush_batch: keep the timeline moving so waiters do not hang
+        VkSemaphoreSignalInfo ssi = {VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO};
+        ssi.semaphore = g->timeline;
+        ssi.value = p.value;
+        vkSignalSemaphore(g->dev->device(), &ssi);
+    }
+    g->flushed = p.value;
+    g->flushed_pub.store(p.value);
+    g->flush_wanted.store(false);
+    g->batch.clear();
+    g->ctr.submits.fetch_add(1);
+}
+
 // Queues a submission with the next serial (in queue order). wait: until the render thread has run it (and, with gpu_done, the GPU too).
 uint64_t queue_submit(std::function<void(Frame&)> record, bool wait, bool gpu_done) {
     if (on_render_thread()) {
@@ -713,7 +757,9 @@ void finish() {
 bool serial_done(uint64_t serial) {
     if (!g || !serial) return true;
     if (g->completed.load() >= serial) return true;
-    return read_completed() >= serial;
+    if (read_completed() >= serial) return true;
+    want_flush(serial);     // polled: it must reach the GPU to ever complete
+    return false;
 }
 
 namespace {
@@ -742,6 +788,7 @@ bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
     if (!g || !serial) return true;
     if (serial_done(serial)) return true;
     if (timeout_ns == 0) return false;
+    want_flush(serial);
     NXFT("sync.wait");
     nxrt::HitchTimer ht(nxrt::kHpGameSyncWait);
     g_wait_serial.store(serial);
@@ -878,12 +925,16 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     gp->rend = rend;
     gp->limiter = limiter;
     gp->keep_aspect = keep_aspect;
-    {   // [nvn] submit_batch: auto = 8 under Wine (each kernel submission walks the imported pools again, flush_batch), 1 elsewhere
-        const std::string b = nxrt::config_get_str("nvn", "submit_batch", "auto");
+    {   // [nvn] submit_batch: auto = frame under Wine (each kernel submission walks the imported pools again, flush_batch), 1 elsewhere.
+        // frame: one kernel submission per frame, the present's; N: flush every N submissions and whenever the render thread idles.
+        std::string b = nxrt::config_get_str("nvn", "submit_batch", "auto");
         HMODULE nt = GetModuleHandleW(L"ntdll.dll");
         const bool wine = nt && GetProcAddress(nt, "wine_get_version");
-        gp->batch_max = static_cast<uint32_t>(std::clamp<int64_t>(b == "auto" ? (wine ? 8 : 1) : std::atoll(b.c_str()), 1, kSlots / 2));
-        NXLOG_I(kTag, "submit_batch %u (%s%s)", gp->batch_max, b.c_str(), b == "auto" ? (wine ? ", Wine" : ", not Wine") : "");
+        const std::string how = b == "auto" ? (wine ? "auto, Wine" : "auto, not Wine") : b;
+        if (b == "auto") b = wine ? "frame" : "1";
+        gp->frame_batch = b == "frame";
+        gp->batch_max = gp->frame_batch ? kSlots / 2 : static_cast<uint32_t>(std::clamp<int64_t>(std::atoll(b.c_str()), 1, kSlots / 2));
+        NXLOG_I(kTag, "submit_batch %s (%s)", gp->frame_batch ? "frame" : std::to_string(gp->batch_max).c_str(), how.c_str());
     }
     g = gp;
     if (!dev.features().timeline_semaphore) {

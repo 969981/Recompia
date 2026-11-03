@@ -49,6 +49,11 @@ std::string unsupported_report();
 // Hands the submissions recorded so far to the GPU ([nvn] submit_batch keeps them back). Call before a queue operation that must come after
 // them: the present, sparse binds.
 void submit_recorded();
+// The present: with [nvn] submit_batch = frame, the batch goes in the present's own vkQueueSubmit2 (one kernel submission a frame).
+// true: p is filled (cmds holds its command buffers); call present_batch_done(p) after Renderer::end_frame(p). false: the batch is
+// submitted already (submit_recorded), call end_frame without a prefix.
+bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::SubmitPrefix* p);
+void present_batch_done(const gfx::Renderer::SubmitPrefix& p);
 // Runs fn on the render thread and waits for it. From the render thread itself it just calls fn.
 void run_on_render_thread(const std::function<void()>& fn);
 // Test and one-shot hook: runs fn(Frame&) on the render thread with a fresh command buffer, submits it and waits for the GPU.

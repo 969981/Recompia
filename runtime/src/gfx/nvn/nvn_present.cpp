@@ -131,8 +131,12 @@ void present_on_render_thread(Window* w, int index) {
     } else {
         pp->record(fi.cmd, fi.view, fi.extent, src, VkExtent2D{e.width, e.height}, crop, keep_aspect());
     }
-    submit_recorded();      // the frame's own submissions go first
-    { NXFT("present.end"); nxrt::HitchTimer ht(nxrt::kHpRenderPresentEnd); rend->end_frame(); }
+    // the frame's own submissions go first: in the present's submission ([nvn] submit_batch = frame), or on their own before it
+    static thread_local std::vector<VkCommandBuffer> cmds;
+    gfx::Renderer::SubmitPrefix pre;
+    const bool merged = take_batch_for_present(&cmds, &pre);
+    { NXFT("present.end"); nxrt::HitchTimer ht(nxrt::kHpRenderPresentEnd); rend->end_frame(merged ? &pre : nullptr); }
+    if (merged) present_batch_done(pre);
 }
 
 }  // namespace nxrt::nvn::be::gpu

@@ -700,7 +700,7 @@ bool Renderer::begin_frame(FrameInfo* out) {
     return true;
 }
 
-void Renderer::end_frame() {
+void Renderer::end_frame(SubmitPrefix* prefix) {
     Impl& s = *impl_;
     if (!s.in_frame) return;
     s.in_frame = false;
@@ -755,18 +755,26 @@ void Renderer::end_frame() {
     VkSemaphoreSubmitInfo signal = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     signal.semaphore = t.render_done;
     signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    VkCommandBufferSubmitInfo cb = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-    cb.commandBuffer = slot.cmd;
+    std::vector<VkCommandBufferSubmitInfo> cbs(prefix ? prefix->count + 1 : 1, VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO});
+    for (uint32_t i = 0; prefix && i < prefix->count; i++) cbs[i].commandBuffer = prefix->cmds[i];
+    cbs.back().commandBuffer = slot.cmd;
     VkSubmitInfo2 si = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    si.commandBufferInfoCount = 1;
-    si.pCommandBufferInfos = &cb;
-    VkSemaphoreSubmitInfo signals[2] = {signal, {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO}};
+    si.commandBufferInfoCount = static_cast<uint32_t>(cbs.size());
+    si.pCommandBufferInfos = cbs.data();
+    VkSemaphoreSubmitInfo signals[3] = {};
     if (!s.headless) {
         si.waitSemaphoreInfoCount = 1;
         si.pWaitSemaphoreInfos = &wait;
-        si.signalSemaphoreInfoCount = 1;
-        si.pSignalSemaphoreInfos = signals;
+        signals[si.signalSemaphoreInfoCount++] = signal;
     }
+    if (prefix && prefix->timeline) {
+        VkSemaphoreSubmitInfo& tl = signals[si.signalSemaphoreInfoCount++];
+        tl = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        tl.semaphore = prefix->timeline;
+        tl.value = prefix->value;
+        tl.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    }
+    si.pSignalSemaphoreInfos = signals;
     // low latency markers go outside the queue lock (they take it themselves: the validation layer wants calls on one swapchain from different threads apart)
     uint64_t present_id = 0;
     uint64_t probe_value = 0;
@@ -777,10 +785,11 @@ void Renderer::end_frame() {
         if (s.probe_sem) {
             probe_value = ++s.probe_next;
             s.probe_ids[probe_value % 256] = s.latency->present_sim_id();
-            signals[1].semaphore = s.probe_sem;
-            signals[1].value = probe_value;
-            signals[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            si.signalSemaphoreInfoCount = 2;
+            VkSemaphoreSubmitInfo& pr = signals[si.signalSemaphoreInfoCount++];
+            pr = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            pr.semaphore = s.probe_sem;
+            pr.value = probe_value;
+            pr.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
     }
     {
@@ -788,6 +797,7 @@ void Renderer::end_frame() {
         VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &si, slot.fence);
         if (r != VK_SUCCESS) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
         else if (probe_value) s.probe_published.store(probe_value);
+        if (prefix) prefix->submitted = r == VK_SUCCESS;
         if (!s.headless) {
             VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
             pi.waitSemaphoreCount = 1;
