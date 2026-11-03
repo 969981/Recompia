@@ -29,3 +29,4 @@ obj/
 .venv/
 __pycache__/
 /export/
+/saves/
