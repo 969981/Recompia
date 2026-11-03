@@ -28,6 +28,9 @@ pub const SPIRV_REL: &str = "shader_cache/spirv";
 /// `[nvn] dump_missing`: the runtime writes the blocks the cache has no translation for here (the game builds some while
 /// it runs, so the romfs corpus cannot have them). The launcher translates them after the game exits.
 pub const MISSING_REL: &str = "shader_cache/missing";
+/// Every run-time block seen so far, kept with its code (manifest.tsv, code_<hash>.bin, ctrl_<hash>.bin), so each Play
+/// can check that all of them are translated without running the game.
+pub const RUNTIME_REL: &str = "shader_cache/runtime";
 const CHUNK: usize = 1000;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -223,27 +226,116 @@ fn commit_stage(stage: &Path, spirv: &Path) -> Result<usize, String> {
     Ok(rrows.len())
 }
 
-/// Translates the blocks the game dumped to MISSING_REL during its last run into the cache, then clears the folder.
-/// Ok(0) when there was nothing to do.
+fn col(row: &str, k: usize) -> &str {
+    row.split('\t').nth(k).unwrap_or("")
+}
+
+/// True when no run-time block was ever collected for this cache: the warm-up run has not happened yet.
+pub fn needs_warm_up(game_dir: &Path) -> bool {
+    !game_dir.join(RUNTIME_REL).join("manifest.tsv").is_file()
+}
+
+/// Before every start: moves what the game dumped to MISSING_REL (by any run, also one started without the launcher)
+/// into RUNTIME_REL, then translates every block listed there that has no .spv in the cache. Ok(n) = blocks translated.
 pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, String> {
     let missing = game_dir.join(MISSING_REL);
-    if !missing.join("manifest.tsv").is_file() {
+    let runtime = game_dir.join(RUNTIME_REL);
+    let list = runtime.join("manifest.tsv");
+    // manifest columns (runtime nvn_shaders.cpp dump_missing_block): 10 = hash, 11 = code file, 12 = control file
+    if let Ok((header, rows)) = read_tsv(&missing.join("manifest.tsv")) {
+        fs::create_dir_all(&runtime).map_err(|e| format!("cannot create {}: {}", runtime.display(), e))?;
+        let mut known: HashSet<String> = read_tsv(&list).map(|(_, r)| r.iter().map(|x| col(x, 10).to_string()).collect()).unwrap_or_default();
+        let mut text = if fs::metadata(&list).map(|m| m.len() == 0).unwrap_or(true) { format!("{}\n", header) } else { String::new() };
+        for r in &rows {
+            // the same block twice (several runs appended to one manifest before it was merged): the first one counts
+            if !known.insert(col(r, 10).to_string()) {
+                continue;
+            }
+            for f in [col(r, 11), col(r, 12)] {
+                fs::rename(missing.join(f), runtime.join(f)).map_err(|e| format!("cannot move {}: {}", f, e))?;
+            }
+            text.push_str(r);
+            text.push('\n');
+        }
+        let mut out = fs::OpenOptions::new().create(true).append(true).open(&list).map_err(|e| format!("cannot write {}: {}", list.display(), e))?;
+        out.write_all(text.as_bytes()).map_err(|e| format!("cannot write {}: {}", list.display(), e))?;
+        let _ = fs::remove_dir_all(&missing);
+    }
+
+    let spirv = game_dir.join(SPIRV_REL);
+    let Ok((header, rows)) = read_tsv(&list) else { return Ok(0) };
+    // ponytail: a block the translator fails on has no .spv and is tried again at every start (a second or two)
+    let todo: Vec<&String> = rows.iter().filter(|r| !spirv.join(format!("{}.spv", col(r, 10))).is_file()).collect();
+    if todo.is_empty() {
         return Ok(0);
     }
-    let harness = tools_dir.join("spirv_harness").join("spirv_harness.exe");
+    // the harness reads the code and control files relative to its manifest: absolute paths point it at RUNTIME_REL
+    let input = cache_dir(game_dir).join("runtime_todo");
     let stage = cache_dir(game_dir).join("stage_missing");
+    let _ = fs::remove_dir_all(&input);
     let _ = fs::remove_dir_all(&stage);
+    fs::create_dir_all(&input).map_err(|e| format!("cannot create {}: {}", input.display(), e))?;
+    let mut text = format!("{}\n", header);
+    for r in &todo {
+        let mut f: Vec<String> = r.split('\t').map(String::from).collect();
+        for k in [11, 12] {
+            if let Some(v) = f.get_mut(k) {
+                *v = runtime.join(&*v).to_string_lossy().replace('\\', "/");
+            }
+        }
+        text.push_str(&f.join("\t"));
+        text.push('\n');
+    }
+    fs::write(input.join("manifest.tsv"), text).map_err(|e| format!("cannot write {}: {}", input.display(), e))?;
     let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).to_string();
-    let mut cmd = Command::new(&harness);
-    cmd.arg("--batch").arg(&missing).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
+    let mut cmd = Command::new(tools_dir.join("spirv_harness").join("spirv_harness.exe"));
+    cmd.arg("--batch").arg(&input).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
     cmd.env("DOTNET_gcServer", "1");
     if !run_tool(cmd, &AtomicBool::new(false), |_| {})? {
         return Err("the shader translator stopped".into());
     }
-    let n = commit_stage(&stage, &game_dir.join(SPIRV_REL))?;
+    let n = commit_stage(&stage, &spirv)?;
     let _ = fs::remove_dir_all(&stage);
-    let _ = fs::remove_dir_all(&missing);
+    let _ = fs::remove_dir_all(&input);
     Ok(n)
+}
+
+/// Seconds the warm-up run plays. The opening asks for its run-time blocks about 3 to 25 s after start.
+pub const WARMUP_SECONDS: u32 = 60;
+
+/// Plays the game once without a window or sound, for WARMUP_SECONDS, so the blocks it builds while it runs (the romfs
+/// corpus cannot have them) are collected and translated before a real start. A fresh save folder in the cache, so the
+/// player's own save is never touched. Ok(None) = cancelled, else how many blocks were translated.
+pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result<Option<usize>, String> {
+    let scratch = cache_dir(game_dir).join("warmup");
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(scratch.join("save")).map_err(|e| format!("cannot create {}: {}", scratch.display(), e))?;
+    let mut cmd = Command::new(game_dir.join("pkp.exe"));
+    cmd.current_dir(game_dir).arg("--headless").args(["--max-seconds", &WARMUP_SECONDS.to_string()]).arg("--log").arg(scratch.join("warmup.log"));
+    // environment variables win over pkp.ini
+    cmd.env("NXRT_FS_SAVE_DIR", scratch.join("save")).env("NXRT_NVN_DUMP_MISSING", MISSING_REL).env("NXRT_AUDIO_SINK", "null");
+    // it ends with exit code 124 when the time is up: any end is fine, a crash only means fewer blocks were collected
+    if let Ok(false) = run_tool(cmd, cancel, |_| {}) {
+        return Ok(None);
+    }
+    let n = translate_missing(game_dir, tools_dir)?;
+    // an empty list still records that the warm-up ran: a run that collects nothing is not repeated at every start
+    let list = game_dir.join(RUNTIME_REL).join("manifest.tsv");
+    if !list.is_file() {
+        let _ = fs::create_dir_all(game_dir.join(RUNTIME_REL));
+        fs::write(&list, "").map_err(|e| format!("cannot write {}: {}", list.display(), e))?;
+    }
+    let _ = fs::remove_dir_all(&scratch);
+    Ok(Some(n))
+}
+
+/// What every start and every setup does: the warm-up run once, afterwards only the check of the collected blocks.
+pub fn prepare(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result<Option<usize>, String> {
+    if needs_warm_up(game_dir) {
+        warm_up(game_dir, tools_dir, cancel)
+    } else {
+        translate_missing(game_dir, tools_dir).map(Some)
+    }
 }
 
 /// The whole setup. `report` gets every progress change. Ok(true) = finished (or the limit reached), Ok(false) = cancelled.

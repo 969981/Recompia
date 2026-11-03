@@ -215,7 +215,21 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
                 }
             }
             let tools = shaders::find_tools(&tools_dir)?;
-            shaders::run(&job, &tools, &st.cancel, |p| emit(p))
+            // a finished cache of the same romfs has nothing left to translate (re-extracting would only find that out)
+            let same = shaders::read_marker(&job.game_dir).romfs == job.romfs.to_string_lossy().replace('\\', "/");
+            let done = same && shaders::is_complete(&job.game_dir);
+            if !done && !shaders::run(&job, &tools, &st.cancel, |p| emit(p))? {
+                return Ok(false);
+            }
+            // the shaders the game builds while it runs: one hidden run collects those of the opening; later ones are
+            // collected by every normal run, and every Play checks them all (play.rs)
+            emit(shaders::Progress {
+                state: "running".into(),
+                phase: "warmup".into(),
+                message: format!("Running the game once in the background to collect the shaders it builds while it runs (about {} s)...", shaders::WARMUP_SECONDS),
+                ..Default::default()
+            });
+            Ok(shaders::prepare(&job.game_dir, &tools_dir, &st.cancel)?.is_some())
         })();
         let end = match result {
             Ok(true) => shaders::Progress { state: "done".into(), phase: "finish".into(), message: "Setup finished.".into(), ..Default::default() },
