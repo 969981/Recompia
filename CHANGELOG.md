@@ -3,17 +3,48 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## 0.3.0 (build G)
+
+### What's new
+- Name entry has an on-screen keyboard drawn in the game. It works with a controller, mouse or keyboard, including in Steam's Game Mode
+  on handhelds, where the old Windows popup lost keys or never got focus.
+- Faster start: after the first launch, the game packs its boot shaders into one file (about 285 MB) and reads that instead of
+  thousands of small files. The first launch writes it in the background.
+- Steam Deck and Legion Go S are detected. Button prompts stay as controller icons when you use the trackpad or touchscreen (the
+  title screen used to show Enter for A), and automatic render scale follows the screen instead of rendering at 1080p or more.
+- Setup works when the Windows user folder has accented or other non-English characters in its name (it failed after compiling).
+
+### Known issues
+- The launcher does not start under Proton/Linux: it needs Microsoft's WebView2, which Proton does not include.
+- Legion Go S: 60 fps, not yet a steady 90.
+
+---
+
+### Release notes for developers
+
+Base: fork 0.2.0 (`98e50b8`).
+
+- **#31** swkbd: ImGui on-screen keyboard instead of the Win32 prompt (fork #29). The game blocks its window thread while the applet
+  is open: kernel waits on that thread run a hook in 10 ms slices and the last frame is presented again with the overlay on top.
+- **#32** `pkp_build.py` writes the `zig ar` response files as UTF-8 (orezraey, upstream drakolordx7/pokopia-recomp#6).
+- **#33** `host_is_handheld()`: `SteamDeck=1`, SMBIOS product Jupiter/Galileo or family `Legion Go S*` (registry BIOS key, else
+  Wine's `Z:\sys\class\dmi`); `[host] handheld`. Render scale auto = window size; prompt style auto keeps pad prompts on mouse
+  input (based on tinfoil-chewer/pokopia-recomp-linux 8b150a4).
+- **#34** `<shader_cache>.preload.pack`: the order file's SPIR-V in one zstd file (1096 -> 284 MiB), written in the background after
+  a boot preload, read front to back on later boots; stale entries by results.tsv line hash; `[nvn] shader_pack`. zstd 1.5.7 pinned.
+  Go S: written in 20 s, preload 2.6 -> 1.7 s (tinfoil-chewer/pokopia-recomp-linux c7a15e4).
+
 ## 0.2.0 (build F)
 
 ### What's new
 
-Our test builds have letters (A, B, C ...). Each entry is what got better for you in that build.
+Builds A to F were the test builds that led to 0.2.0.
 
 **Build A: the starting point**
 - Everything from the original 0.1.1 release, plus a long list of small fixes to setup, the launcher and stability.
 - Colours look right now. Before, the game looked washed out and too bright (the Pokédex was orange instead of red, Ditto was pale pink).
 - AMD graphics cards no longer show black or white blocks instead of textures.
-- First-time setup is gentler on your PC: it no longer runs out of memory while it builds the game, and a step that fails is retried.
+- First-time setup no longer runs out of memory while it builds the game, and a step that fails is retried.
 - The launcher checks shaders before every start and warms them up, so there is less stutter the first time you see something new.
 
 **Build B: names and menus**
@@ -25,7 +56,7 @@ Our test builds have letters (A, B, C ...). Each entry is what got better for yo
 - The sky and backgrounds are no longer black, and there are no more bright white halos around things on those devices.
 
 **Build D: tidier game files**
-- The game files moved into the folder layout the launcher expects. Nothing for you to do.
+- The game files moved into the folder layout the launcher expects.
 
 **Build E: one game file, smoother on handhelds**
 - The launcher can use the game as a single `.nup` package file instead of a folder of extracted files.
@@ -39,9 +70,9 @@ Our test builds have letters (A, B, C ...). Each entry is what got better for yo
 
 **Also in 0.2.0**
 - Playing above 1080p (for example 1440p): dark outlines of characters drawn in the wrong place, and blotchy shadows, are fixed.
-- Updating: when a new version changes the game code, the launcher now asks you to run Set up again (once), so the fix actually reaches
-  your game. Every existing install rebuilds once after this update.
-- Steam Deck / Legion Go S tip: if you want more fps, lower the render scale or turn on FSR 3 in F1 > Graphics (about 70-80 fps on a
+- Updating: when a new version changes the game code, the launcher asks you to run Set up again (once) so the new code is built.
+  Every existing install rebuilds once after this update.
+- Steam Deck / Legion Go S: for more fps, lower the render scale or turn on FSR 3 in F1 > Graphics (about 70-80 fps on a
   Legion Go S at 67%).
 
 ### Known issues
