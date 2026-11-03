@@ -5,6 +5,7 @@ mod dlss;
 mod dump;
 mod gamebuild;
 mod ini;
+mod nup;
 mod play;
 mod settings;
 mod shaders;
@@ -91,6 +92,52 @@ async fn pick_folder(app: AppHandle, title: String, start: Option<String>) -> Op
         dlg = dlg.set_directory(s);
     }
     dlg.blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
+}
+
+#[tauri::command]
+async fn pick_nup(app: AppHandle, start: Option<String>) -> Option<String> {
+    let mut dlg = app.dialog().file().set_title("Choose your Pokopia .nup package").add_filter("NUP package", &["nup"]);
+    if let Some(s) = start.filter(|s| PathBuf::from(s).is_dir()) {
+        dlg = dlg.set_directory(s);
+    }
+    dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
+}
+
+#[derive(Serialize, Clone)]
+struct NupProgress {
+    done: u64,
+    total: u64,
+    file: String,
+}
+
+/// Unpacks a .nup into `<game folder>/nup_dump` (base/ and updates/<version>/, the same layout as a dump folder) and
+/// returns that folder. Emits "nup-progress". A finished unpack of the same package is reused.
+#[tauri::command]
+async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: String) -> Result<String, String> {
+    if state.progress.lock().unwrap().state == "running" {
+        return Err("Setup is running. Pause it first.".into());
+    }
+    let out = game_dir_of(&load_config(&app)).join("nup_dump");
+    let src = PathBuf::from(path.trim());
+    let emitter = app.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let mut last = 0u64;
+        nup::extract(
+            &src,
+            &out,
+            &mut |done, total, file| {
+                // the UI only needs ~100 updates over the whole unpack
+                if total == 0 || done == total || done - last >= total / 100 {
+                    last = done;
+                    let _ = emitter.emit("nup-progress", NupProgress { done, total, file: file.to_string() });
+                }
+            },
+            &|| false,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(dump::fwd(&res))
 }
 
 #[tauri::command]
@@ -323,6 +370,8 @@ fn main() {
             get_overview,
             pick_folder,
             validate_dump,
+            pick_nup,
+            import_nup,
             save_dump,
             read_settings,
             write_settings,

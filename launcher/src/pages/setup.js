@@ -4,6 +4,8 @@ import { api, esc, icon, refreshIcons, toast, errText } from '../util.js';
 // one listener for the whole session; the page being shown sets the handler
 let dlssHandler = null;
 listen('dlss-progress', (ev) => dlssHandler && dlssHandler(ev.payload));
+let nupHandler = null;
+listen('nup-progress', (ev) => nupHandler && nupHandler(ev.payload));
 
 function candidateHtml(c, chosen) {
   const title = c.kind === 'base' ? 'Base game' : `Update ${esc(c.version)}`;
@@ -77,6 +79,14 @@ function dlssHtml(d, busy, p) {
     </div>`;
 }
 
+function nupPct(p) {
+  return p && p.total ? Math.min(100, Math.floor((100 * p.done) / p.total)) : 0;
+}
+
+function nupMsg(p) {
+  return p && p.total ? `Unpacking the .nup: ${nupPct(p)}%${p.file ? ` (${p.file})` : ''}` : 'Reading the .nup...';
+}
+
 export async function render(el, ctx) {
   const cfg = await api('get_config');
   let path = cfg.dump_dir || '';
@@ -86,6 +96,8 @@ export async function render(el, ctx) {
   let dlss = await api('dlss_status');
   let dlssBusy = false;
   let dlssProgress = null;
+  let nupBusy = false;
+  let nupProgress = null;
 
   function draw() {
     const ok = report && report.chosen;
@@ -93,7 +105,7 @@ export async function render(el, ctx) {
       <div class="page">
         <div class="hero">
           <h1>${ctx.firstRun ? 'Welcome. Set up your game files.' : 'Game files'}</h1>
-          <p class="dim">Pokopia Launcher does not include the game. You need your own legally dumped copy, already decrypted. The launcher only reads this folder and never writes to it.</p>
+          <p class="dim">Pokopia Launcher does not include the game. You need your own legally dumped copy, already decrypted. The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).</p>
         </div>
 
         <div class="card">
@@ -101,8 +113,11 @@ export async function render(el, ctx) {
           <div class="stack">
             <div class="row">
               <input type="text" id="path" spellcheck="false" placeholder="C:/path/to/Pokopia_dump" value="${esc(path)}" />
-              <button class="btn" id="browse">${icon('folder-open')}Browse</button>
+              <button class="btn" id="browse" ${nupBusy ? 'disabled' : ''}>${icon('folder-open')}Browse</button>
+              <button class="btn" id="browse-nup" ${nupBusy ? 'disabled' : ''}>${icon('file-archive')}.nup</button>
             </div>
+            ${nupBusy ? `<p class="dim" id="nup-msg">${nupMsg(nupProgress)}</p><progress max="100" value="${nupPct(nupProgress)}"></progress>` : ''}
+            <p class="faint">Or pick a <code>.nup</code> package instead of a folder: it is unpacked once into <code>nup_dump/</code> next to the game and used from there (needs the free space of the full game).</p>
             <p class="faint">Expected layout: <code>base/</code> and <code>updates/&lt;version&gt;/</code>, each with <code>exefs/</code> (main, sdk, subsdk0, rtld, main.npdm) and <code>romfs/</code>. The highest valid update is used, otherwise the base game.</p>
           </div>
         </div>
@@ -135,6 +150,21 @@ export async function render(el, ctx) {
         input.value = picked;
         check();
       }
+    });
+    el.querySelector('#browse-nup').addEventListener('click', async () => {
+      const picked = await api('pick_nup', { start: null });
+      if (!picked) return;
+      nupBusy = true;
+      nupProgress = null;
+      draw();
+      try {
+        path = await api('import_nup', { path: picked });
+        report = await api('validate_dump', { path });
+      } catch (e) {
+        toast(errText(e), 'error');
+      }
+      nupBusy = false;
+      draw();
     });
     el.querySelector('#use').addEventListener('click', async () => {
       try {
@@ -173,6 +203,17 @@ export async function render(el, ctx) {
       draw();
     });
   }
+
+  nupHandler = (p) => {
+    nupProgress = p;
+    if (!nupBusy) return;
+    const msg = el.querySelector('#nup-msg');
+    if (msg) {
+      msg.textContent = nupMsg(p);
+      const bar = msg.nextElementSibling;
+      if (bar) bar.value = nupPct(p);
+    }
+  };
 
   dlssHandler = (p) => {
     dlssProgress = p;
