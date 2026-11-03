@@ -381,6 +381,7 @@ bool sparse_flush_binds(TexGpu& g) {
     VkFenceCreateInfo fi = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     VkFence fence = VK_NULL_HANDLE;
     if (vkCreateFence(vkdev(), &fi, nullptr, &fence) != VK_SUCCESS) return false;
+    if (on_render_thread()) submit_recorded();     // binds come after the submissions recorded before them, as without a batch
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(device().queue_mutex());
