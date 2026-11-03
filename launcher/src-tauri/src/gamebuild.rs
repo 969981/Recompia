@@ -4,7 +4,10 @@
 //! verify the ExeFS by hash, lift the four modules, compile them, link pkp.exe against pkp_rt.dll (the runtime).
 //!
 //! Resumable: the script keeps finished modules and objects in `<game>/build`; Pause writes `<game>/build/cancel`, which
-//! stops it and its compilers. `<game>/build/done.json` plus pkp.exe means the build is finished.
+//! stops it and its compilers. `<game>/build/done.json` plus pkp.exe means a build finished; it is this release's build
+//! only if `pkp_build.py --check` says done.json matches the tools this release ships (lifter, main.sites, pkp_rt.lib, ...).
+//! An update extracted over an install leaves the old pkp.exe and done.json behind: the check calls that stale, so Play
+//! asks for Set up again and Set up rebuilds (the old pkp.exe stays until the new one is linked over it).
 //! No crate-local imports, so `examples/first_run.rs` can build this file alone.
 
 use std::fs;
@@ -38,9 +41,59 @@ pub fn is_package_b(tools_dir: &Path) -> bool {
     tools_dir.join("build").join("pkp_build.py").is_file()
 }
 
-/// pkp.exe was built from this release's runtime and is in place.
-pub fn is_built(game_dir: &Path) -> bool {
-    game_dir.join("pkp.exe").is_file() && game_dir.join("build").join("done.json").is_file()
+/// What Play says when pkp.exe is from an older release (Built::Stale). The time is the compile's, as in the README.
+pub const REBUILD_MESSAGE: &str = "This update changes the game code: set up again to rebuild pkp.exe (Game files, Set up; about 7 minutes). Your shaders and saves are kept.";
+
+/// How far the pkp.exe in a game folder is from this release.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Built {
+    /// no finished build (no pkp.exe or no done.json)
+    No,
+    /// a finished build from other tools: an older release, or one whose tools could not be checked
+    Stale,
+    /// built with this release's tools
+    Current,
+}
+
+/// The last check: (done.json path, its mtime and size, pkp.exe's mtime) -> result. The tools do not change while the
+/// launcher runs, and a finished build rewrites done.json, so one python run per finished build is enough.
+type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>);
+static CHECKED: std::sync::Mutex<Option<(CheckKey, Built)>> = std::sync::Mutex::new(None);
+
+/// Whether pkp.exe was built by this release's tools (`pkp_build.py --check`, the stamp's only implementation).
+pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
+    let exe = game_dir.join("pkp.exe");
+    let done = game_dir.join("build").join("done.json");
+    let (Ok(em), Ok(dm)) = (fs::metadata(&exe), fs::metadata(&done)) else {
+        return Built::No;
+    };
+    if !em.is_file() || !dm.is_file() {
+        return Built::No;
+    }
+    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok());
+    if let Some((k, b)) = CHECKED.lock().unwrap().as_ref() {
+        if *k == key {
+            return *b;
+        }
+    }
+    // missing tools: Stale, so Set up runs and names what is missing
+    let Ok(tools) = find_tools(tools_dir) else {
+        return Built::Stale;
+    };
+    let mut cmd = Command::new(&tools.python);
+    cmd.arg("-I").arg(&tools.script).arg("--check").arg("--game").arg(game_dir);
+    quiet(&mut cmd);
+    let Ok(out) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() else {
+        return Built::Stale; // not cached: the next look tries again
+    };
+    let b = if out.success() { Built::Current } else { Built::Stale };
+    *CHECKED.lock().unwrap() = Some((key, b));
+    b
+}
+
+/// pkp.exe is in place and was built with this release's tools.
+pub fn is_built(game_dir: &Path, tools_dir: &Path) -> bool {
+    built_state(game_dir, tools_dir) == Built::Current
 }
 
 pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
@@ -136,4 +189,36 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     }
     let tail = err_tail.join().unwrap_or_default();
     Err(error.unwrap_or_else(|| format!("The game build failed ({}). {}", st, tail.trim())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("pkp-gamebuild-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("build")).unwrap();
+        d
+    }
+
+    #[test]
+    fn no_build_without_exe_or_record() {
+        let d = temp("none");
+        assert_eq!(built_state(&d, &d.join("tools")), Built::No);
+        fs::write(d.join("pkp.exe"), b"MZ").unwrap();
+        assert_eq!(built_state(&d, &d.join("tools")), Built::No);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn unchecked_build_is_stale() {
+        // a finished build that this release's tools cannot vouch for (here: no tools at all) needs Set up again
+        let d = temp("stale");
+        fs::write(d.join("pkp.exe"), b"MZ").unwrap();
+        fs::write(d.join("build").join("done.json"), b"{\"format\": 1}").unwrap();
+        assert_eq!(built_state(&d, &d.join("tools")), Built::Stale);
+        assert!(!is_built(&d, &d.join("tools")));
+        fs::remove_dir_all(&d).unwrap();
+    }
 }

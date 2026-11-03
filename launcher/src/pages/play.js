@@ -38,7 +38,11 @@ export async function render(el, ctx) {
     if (!cfg.dump_dir) problems.push('No game files chosen yet.');
     else if (!chosen) problems.push(`The game files at ${cfg.dump_dir} are not usable: ${report.errors.join(' ')}`);
     if (!ov.exe_exists) problems.push(`pkp.exe was not found in ${ov.game_dir}. Put the launcher next to pkp.exe, or set the game folder in Settings.`);
-    if (chosen && ov.exe_exists && !setup.complete) problems.push(setup.progress.state === 'running' ? 'Setup is still running (Game files).' : 'Setup is not finished yet: open Game files and press Set up.');
+    if (chosen && ov.exe_exists && !setup.complete) {
+      problems.push(setup.progress.state === 'running' ? 'Setup is still running (Game files).'
+        : setup.rebuild ? 'This update changes the game code: open Game files and press Set up again to rebuild pkp.exe (about 7 minutes). Your shaders and saves are kept.'
+        : 'Setup is not finished yet: open Game files and press Set up.');
+    }
     const ready = problems.length === 0;
 
     el.innerHTML = `

@@ -27,7 +27,10 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
 When `tools\build\pkp_build.py` is present (the package from the main project's release script), the release holds no
 `pkp.exe`. Set up first builds it from the chosen dump (`src-tauri/src/gamebuild.rs`): verify the ExeFS by hash, lift,
 compile with the bundled Zig, link against `pkp_rt.dll`; then the shader steps below run. Play stays off until both are
-done. Pause works in every step and Continue setup resumes. Headless check of the whole first run:
+done. Pause works in every step and Continue setup resumes. A built pkp.exe counts only while `build\done.json` matches
+the tools of the release in use (`pkp_build.py --check`: lifter, `main.sites`, compile flags, SDK files, `pkp_rt.lib`), so
+an update extracted over an install that changes any of them turns Play off with "This update changes the game code"
+until Set up rebuilds pkp.exe (the shader cache is kept). Headless check of the whole first run:
 `cargo run --release --example first_run -- <game dir> <exefs> <romfs> <tools dir> [shader limit] [jobs]`.
 
 ## Release folder

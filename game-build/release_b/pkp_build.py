@@ -2,6 +2,7 @@
 """First-run game build of release model (b): turns the player's own dump into pkp.exe on their PC.
 
     python -I tools/build/pkp_build.py --exefs <dump>/updates/<v>/exefs --game <install folder> [--jobs N] [--keep]
+    python -I tools/build/pkp_build.py --check --game <install folder>
 
 The package ships no game code. This script
   1. verifies the dump's ExeFS against dump_hashes.json (the supported build: sha256 of every module + main's build ID),
@@ -9,6 +10,12 @@ The package ships no game code. This script
   3. compiles the generated C++ with the bundled Zig (zig c++, mingw target) into <game>/build/obj, in parallel,
   4. links pkp.exe = sdk/pkp_stub.cpp + the lifted objects + sdk/pkp_rt.lib (the runtime, pkp_rt.dll in the package),
   5. deletes the generated sources and objects (unless --keep) and records the result in <game>/build/done.json.
+
+The build stamp (state.json, done.json) is the dump (main build ID, module hashes) plus tool_stamp(): everything in this
+package that goes into pkp.exe (lifter sources, main.sites, compile flags, the SDK files with pkp_rt.lib). A release that
+changes any of them makes an older stamp stale: Set up then lifts, compiles and links again from scratch (the old pkp.exe
+stays until the new one is linked over it). --check compares <game>/build/done.json with this package's tools only (no
+dump check, well under a second) and prints one JSON line {"current": bool, "reason": text}; exit 0 current, 3 not.
 
 Resumable: a module's lift counts once its marker file is written, an object once it is renamed into place, so a stopped
 build continues where it stopped. A file named <game>/build/cancel stops it (the launcher's Pause).
@@ -30,7 +37,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RECOMP = os.path.join(HERE, 'recomp')
 SDK = os.path.join(HERE, 'sdk')
 ZIG = os.path.join(HERE, 'zig', 'zig.exe')
-FORMAT = 1          # bump when the build layout changes: older partial builds are then started over
+FORMAT = 2          # bump when the build layout or the stamp changes: older builds (partial or done) are then started over
+# the lifter as game-build/scripts/make-release.ps1 ships it: paths under RECOMP, the same in the zip (tools/build/recomp/...)
+# and in the repo (recomp/...)
+LIFTER = ['nxrecomp', 'include/nxrecomp', 'games/pkp/CMakeLists.txt', 'games/pkp/config.py']
+SITES = 'games/pkp/main.sites'
+# what the link takes from sdk/ besides the lifted objects and pkp_rt.lib (stamped on its own, as 'runtime')
+SDK_FILES = ['pkp_stub.cpp', 'pkp_rt_api.h', 'pkp.rc', 'pkp.manifest']
 
 # name, NSO file, guest base, NxModule.index, translation units (as recomp/games/pkp/CMakeLists.txt)
 MODULES = [
@@ -68,6 +81,50 @@ def sha256(path):
         for b in iter(lambda: f.read(1 << 20), b''):
             h.update(b)
     return h.hexdigest()
+
+
+def tree_hash(root, rels):
+    """One sha256 over the files under root/rel for each rel (a file or a folder, walked in sorted order): each file's path
+    relative to root and its sha256. Python's bytecode caches are left out (the lifter's own runs write them); a missing
+    path counts as missing, so the hash still compares."""
+    h = hashlib.sha256()
+    for rel in rels:
+        top = os.path.join(root, *rel.split('/'))
+        if os.path.isfile(top):
+            files = [rel]
+        elif os.path.isdir(top):
+            files = []
+            for d, dirs, names in os.walk(top):
+                dirs[:] = [x for x in dirs if x != '__pycache__']
+                files += [os.path.relpath(os.path.join(d, n), root).replace('\\', '/') for n in names if not n.endswith('.pyc')]
+        else:
+            h.update(('%s\0missing\0' % rel).encode())
+            continue
+        for f in sorted(files):
+            h.update(('%s\0%s\0' % (f, sha256(os.path.join(root, *f.split('/'))))).encode())
+    return h.hexdigest()
+
+
+def tool_stamp():
+    """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
+    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, [SITES]), 'sdk': tree_hash(SDK, SDK_FILES),
+            'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES]}
+
+
+def check(game):
+    """Whether pkp.exe and <game>/build/done.json were built with this package's tools: (current, reason)."""
+    if not os.path.isfile(os.path.join(game, 'pkp.exe')):
+        return False, 'pkp.exe is not built yet'
+    done = read_json(os.path.join(game, 'build', 'done.json'))
+    if not isinstance(done, dict):
+        return False, 'pkp.exe has no finished build record'
+    if done.get('format') != FORMAT or not isinstance(done.get('tools'), dict):
+        return False, 'pkp.exe was built by an older release'
+    want = tool_stamp()
+    changed = [k for k in want if done['tools'].get(k) != want[k]]
+    if changed:
+        return False, 'this release changes ' + ', '.join(changed)
+    return True, 'pkp.exe matches this release'
 
 
 def read_json(path):
@@ -312,12 +369,22 @@ def main():
     ap.add_argument('--game')
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument('--keep', action='store_true', help='keep the generated sources and objects')
+    ap.add_argument('--check', action='store_true', help='only say whether <game>/build/done.json matches these tools')
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.lift_one:                       # child process: one lifter run (keeps the lifter's own pool out of this process)
         sys.path.insert(0, RECOMP)
         from nxrecomp.__main__ import main as nx_main
         return nx_main(json.loads(a.lift_one)) or 0
+    if a.check:
+        if not a.game:
+            ap.error('--check needs --game')
+        try:
+            current, reason = check(os.path.abspath(a.game))
+        except OSError as e:                 # a tool file that cannot be read: Set up then runs and names it
+            current, reason = False, 'cannot read the build tools: %s' % e
+        print(json.dumps({'current': current, 'reason': reason}), flush=True)
+        return 0 if current else 3
     if not a.exefs or not a.game:
         ap.error('--exefs and --game are required')
     game = os.path.abspath(a.game)
@@ -332,10 +399,11 @@ def main():
         if not os.path.isfile(ZIG):
             raise Fail('The bundled compiler is missing (%s). Extract the release zip again.' % ZIG)
         want = verify(a.exefs)
-        stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'],
-                 'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib'))}
+        stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'], 'tools': tool_stamp()}
         state_p = os.path.join(build, 'state.json')
-        if read_json(state_p) != stamp:  # another dump or another release (or no readable state): start over
+        # another dump or another release (or no readable state): start over. Removing lift/ drops the modules' .lifted
+        # markers too, so a changed lifter or main.sites lifts everything again, not only recompiles
+        if read_json(state_p) != stamp:
             for d in ('lift', 'obj'):
                 shutil.rmtree(os.path.join(build, d), ignore_errors=True)
             write_json(state_p, stamp)
