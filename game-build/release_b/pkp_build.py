@@ -343,7 +343,9 @@ def link(runner, obj, game, env):
             os.remove(a)
         objs = sorted(os.path.join(obj, name, f) for f in os.listdir(os.path.join(obj, name)) if f.endswith('.o'))
         rsp = os.path.join(obj, '%s.rsp' % name)
-        with open(rsp, 'w') as f:
+        # UTF-8, not the ANSI code page: zig ar reads the response file as UTF-8, so a game folder path with non-ASCII
+        # characters (an accented user name) failed the archive step.
+        with open(rsp, 'w', encoding='utf-8') as f:
             f.write('\n'.join('"%s"' % p.replace('\\', '/') for p in objs))
         rc, tail = runner.run([ZIG, 'ar', 'rcs', a, '@' + rsp], env=env)
         if rc != 0:
