@@ -742,9 +742,10 @@ void swkbd_answer(AppletState& a, bool ok) {
         return;
     }
     auto out = std::make_shared<Bytes>(8 + kSwkbdStringSize, uint8_t{0});
-    const uint64_t size = a.utf8 ? utf16_to_utf8(a.text).size() + 1 : (a.text.size() + 1) * 2;
+    // Text check always uses UTF-16LE, even when the final keyboard result uses UTF-8.
+    const uint64_t size = (a.text.size() + 1) * 2;
     std::memcpy(out->data(), &size, 8);
-    put_text(out->data() + 8, kSwkbdStringSize, a.text, a.utf8);
+    put_text(out->data() + 8, kSwkbdStringSize, a.text, false);
     a.interactive_out.push_back(out);
     a.interactive_out_event.signal();
 }
