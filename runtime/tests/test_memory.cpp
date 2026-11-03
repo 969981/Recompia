@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "test_framework.h"
 
+#include "nxrt/config.h"
 #include "nxrt/memory.h"
 
 #include <windows.h>
@@ -340,6 +341,31 @@ NXTEST(heap_offset_of_primary_alias_and_unrelated) {
     CHECK(!mem::heap_offset_of(mem::kHeapBase + kHeapSmall, &off));  // past the section
     CHECK(!mem::heap_offset_of(mem::kMainBase, &off));
     CHECK(mem::heap_alias_unmap(a));
+    mem::shutdown();
+}
+
+// [memory] heap_section = 0 (what auto picks under Wine): private memory at kHeapBase, commit/decommit as with the section, no views.
+NXTEST(heap_private_memory_without_section) {
+    mem::shutdown();
+    nxrt::config_set("memory", "heap_section", "0");
+    CHECK(mem::init());
+    CHECK(mem::heap_create(kHeapSmall));
+    CHECK(mem::heap_exists());
+    CHECK(!mem::heap_has_section());
+    CHECK(mem::heap_commit(0, kGr));
+    word_at(mem::kHeapBase)[3] = 0xCAFE0002u;
+    CHECK_EQ(word_at(mem::kHeapBase)[3], 0xCAFE0002u);
+    CHECK_EQ(touch(mem::kHeapBase + kGr, true), 0);              // not committed
+    CHECK(mem::heap_decommit(0, kPg));
+    CHECK_EQ(touch(mem::kHeapBase, false), 0);                   // decommitted: no access
+    CHECK_EQ(mem::heap_alias(0, kGr, 0, mem::Prot::RW), 0ull);
+    CHECK(mem::heap_private_view(0, kGr) == nullptr);
+    mem::shutdown();
+    CHECK(!mem::heap_exists());
+    nxrt::config_set("memory", "heap_section", "auto");
+    CHECK(mem::init());
+    CHECK(mem::heap_create(kHeapSmall));                         // the region was released: a section fits again
+    CHECK(mem::heap_has_section());
     mem::shutdown();
 }
 
