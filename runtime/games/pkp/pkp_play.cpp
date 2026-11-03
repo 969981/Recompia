@@ -83,7 +83,8 @@ constexpr uint64_t kFullWidth = 0x1129980, kFullHeight = 0x11299c0;         // u
 constexpr uint64_t kCopyParams = 0x22d1e0;                                  // dynres manager: copy the frame's size parameters (x0 = manager)
 constexpr uint64_t kReplayViewports = 0x17b6c98;                            // mid: render-thread pass replay, before SetViewports
 constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // mid: the command context's SetViewport (x1 rect) / SetViewports (w1 n, x2 rects)
-constexpr uint64_t kLowCopy = 0x73d824;                                     // mid: 0x73d73c calling the 80x45 copy 0x10f48d8 (x3 source texture, x5 source rect)
+constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
+constexpr uint64_t kLowCopy = 0x73d824;                                    // mid: 0x73d73c calling the 80x45 copy 0x10f48d8 (x3 source texture, x5 source rect)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
@@ -193,11 +194,19 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
 // shaders read (2/w, -2/h in vs ubo0). Rects are {w, h, x, y, min, max} (ints, then floats; stride 24). The pass state in use
 // (ctx [+0x18] + 616 * ctx [+0x24]) holds the bound target at +0x50, its size at +0x58 / +0x5c. A rect at the origin sized for a
 // 1920x1080 frame on a target of the render size is made the target's size here, so the constants follow it too.
-std::atomic<uint64_t> g_set_vp_fixes{0};
-void fix_rect(::Ctx* c, uint64_t rect) {
+// The other viewport setter, 0x17c0420 (64 callers: the G-buffer, the deferred passes and most scene passes; x0 = ctx + 0x10, w1 count,
+// x2 rects), only records the rects into the pass state (+0x60 viewports, +0x58 scissors). The screen constants are derived later from
+// that record (0x17b3000, 0x17b45c0, 0x17b9700, 0x17bac00: 2 / pass[+0x60].w, -2 / h), so a rect kept at 1920x1080 there gave the
+// render-size passes 2/1920, -2/1080 while the replay stretched the viewport itself: a quad in pixel units (vs 821538a4) then covered
+// 1.333x the target from the top-left, and its UVs with it. At 2560x1440 the G-buffer AO composite (fs 90107dd3, t428 into the
+// albedo's alpha) showed the AO of the characters as dark blue silhouettes at 1.333x their screen position and moved the ground's
+// AO the same way (the mottled, world-fixed haze of upstream #17). The entry hook there fixes the rects the same way, before they are
+// recorded, so the constants, the replayed viewport and the terrain occlusion copy's source rect all follow.
+std::atomic<uint64_t> g_set_vp_fixes{0}, g_rec_vp_fixes{0};
+void fix_rect(::Ctx* c, uint64_t rect, uint64_t ctx = 0) {
     State& s = st();
     const int W = s.w.load(std::memory_order_relaxed), H = s.h.load(std::memory_order_relaxed);
-    const uint64_t ctx = c->x[0];
+    if (!ctx) ctx = c->x[0];
     const int32_t idx = rd<int32_t>(ctx + 0x24);
     const uint64_t pass = idx < 0 ? 0 : rd<uint64_t>(ctx + 0x18) + 616ull * static_cast<uint32_t>(idx);
     if (!pass) return;
@@ -223,6 +232,18 @@ int hook_set_viewports(::Ctx* c, uint64_t, void*) {
     if (s.w.load(std::memory_order_relaxed) == kTableW && s.h.load(std::memory_order_relaxed) == kTableH) return 0;
     const uint32_t n = static_cast<uint32_t>(c->x[1]);
     for (uint32_t i = 0; i < n && i < 16; ++i) fix_rect(c, c->x[2] + 24ull * i);
+    return 0;
+}
+int hook_record_viewports(::Ctx* c, uint64_t, void*) {
+    const State& s = st();
+    if (s.w.load(std::memory_order_relaxed) == kTableW && s.h.load(std::memory_order_relaxed) == kTableH) return 0;
+    const uint64_t ctx = c->x[0] - 0x10, rects = c->x[2];
+    const uint32_t n = static_cast<uint32_t>(c->x[1]);
+    if (!rects || n == 0 || !mem::is_mapped(ctx + 0x18, 16) || !mem::is_mapped(rects, 24ull * std::min<uint32_t>(n, 16))) return 0;
+    const uint64_t before = g_set_vp_fixes.load(std::memory_order_relaxed);
+    for (uint32_t i = 0; i < n && i < 16; ++i) fix_rect(c, rects + 24ull * i, ctx);
+    if (g_set_vp_fixes.load(std::memory_order_relaxed) != before && g_rec_vp_fixes.fetch_add(1, std::memory_order_relaxed) == 0)
+        NXLOG_I(kTag, "recorded viewport: 1920x1080-sized rect made the target's size (0x17c0420, screen constants follow)");
     return 0;
 }
 
@@ -582,6 +603,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         for (const auto& t : table) s.hooks.push_back(hook_add_entry(base + t.off, t.fn));
         s.hooks.push_back(hook_add_mid(base + kSetViewport, &hook_set_viewport));
         s.hooks.push_back(hook_add_mid(base + kSetViewports, &hook_set_viewports));
+        s.hooks.push_back(hook_add_entry(base + kRecordViewports, &hook_record_viewports));
         s.hooks.push_back(hook_add_mid(base + kReplayViewports, &hook_replay_viewports));
         s.hooks.push_back(hook_add_mid(base + kLowCopy, &hook_low_copy));
         s.hooks.push_back(hook_add_mid(base + kCamSubmit, &hook_cam_submit));
@@ -630,6 +652,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     for (const auto& t : table) s.hooks.push_back(hook_add_entry(base + t.off, t.fn));
     s.hooks.push_back(hook_add_mid(base + kSetViewport, &hook_set_viewport));
     s.hooks.push_back(hook_add_mid(base + kSetViewports, &hook_set_viewports));
+    s.hooks.push_back(hook_add_entry(base + kRecordViewports, &hook_record_viewports));
     s.hooks.push_back(hook_add_mid(base + kReplayViewports, &hook_replay_viewports));
     s.hooks.push_back(hook_add_mid(base + kLowCopy, &hook_low_copy));
     s.render_installed = true;
