@@ -10,12 +10,11 @@
 //     the layout) is walked and each visible pane's screen rectangle computed;
 //   * the entry under the pointer is the smallest visible "item" pane (a button, list cell, choice, tab ... by its name) containing it;
 //   * the selected entry is the item pane nearest to the game's cursor pane (a pane named "...cursor...");
-//   * when the pointer moved onto another entry, d-pad presses step the game's own selection toward it until the cursor sits on it
-//     (one press, then a wait for the cursor to move; the other axis when a press changed nothing);
-//   * a left click confirms (A) the entry under the pointer, after stepping to it if needed; with no cursor on screen (messages, prompts)
-//     a click anywhere is A. Right click (B) and the wheel (d-pad up / down) are menu-context bindings (pkp_game.cpp).
-// Menus whose selection shows no cursor pane (highlight only) get the click and the bindings but not the hover; the log says which
-// layouts were on screen ([pkp] menu_log = 2 lists their panes) so they can be added.
+//   * the pointer does not move the selection (that guess is not reliable enough to steer by, see menu_frame): a left click is A on the
+//     game's own selection, or the button of a key guide under it. Right click (B) and the wheel (d-pad up / down) are menu-context
+//     bindings (pkp_game.cpp).
+// The hover and the selection still feed the log, the status line, the wheel over a slider and the in-game menu detection;
+// [pkp] menu_log = 2 lists the panes of the layouts on screen.
 #include "pkp_menu.h"
 #include "pkp_play.h"
 
@@ -105,14 +104,7 @@ struct State {
     uint64_t mode_sig = 0;
     std::unordered_map<uint32_t, play::Act> key_guides;   // [pkp] menu_key_guides: a key guide layout id -> the button its click sends
     bool active = false;
-    // navigation toward the entry under the pointer
-    uint64_t target = 0;               // pane pointer
-    int steps = 0, wait = 0, fails = 0;
-    bool pending_confirm = false;
-    bool prefer_other_axis = false;
-    uint64_t focus_before = 0, last_focus = 0, last_hover = 0;
-    int focus_stable = 0;
-    int click_wait = 0;                // frames a pending click has waited for the selection
+    uint64_t last_focus = 0, last_hover = 0;   // for the log
     // in-game menus (menu_in_game): a layout with the game's cursor on an entry while the game is in play
     bool ig_enabled = false;
     bool ig_up = false;                // the in-game menu is up (debounced)
@@ -132,7 +124,7 @@ struct State {
     std::unordered_set<uint64_t> dumped;    // layout (id, sub) whose panes were listed
     std::chrono::steady_clock::time_point last_log{};
     uint32_t log_lines = 0;
-    std::atomic<uint32_t> n_layouts{0}, n_panes{0}, n_items{0}, n_steps{0}, n_clicks{0};
+    std::atomic<uint32_t> n_layouts{0}, n_panes{0}, n_items{0}, n_clicks{0};
     char hover_name[48] = {}, focus_name[48] = {};
     // page readability cache (one VirtualQuery per page and scan)
     std::unordered_map<uint64_t, bool> pages;
@@ -600,13 +592,6 @@ void scan() {
     g_trace = false;
 }
 
-int find_pane(uint64_t ptr) {
-    const State& s = st();
-    for (size_t i = 0; i < s.panes.size(); ++i)
-        if (s.panes[i].ptr == ptr) return static_cast<int>(i);
-    return -1;
-}
-
 // The entry under the pointer, the cursor and the entry it marks.
 bool advance_mark(const Pane& p) {
     // a message box's "next" arrow is a cursor pane with no choice behind it (p5d: 'CL_0000_parts_cursor_triangle' over '0000_btn_common_1')
@@ -778,33 +763,6 @@ void pick(float px, float py, bool inside) {
     }
 }
 
-play::Act dir_toward(const Pane& from, const Pane& to, bool other_axis) {
-    const float dx = to.cx() - from.cx(), dy = to.cy() - from.cy();
-    bool horiz = std::fabs(dx) > std::fabs(dy);
-    if (other_axis && std::fabs(dx) > 4.f && std::fabs(dy) > 4.f) horiz = !horiz;
-    if (horiz) return dx > 0 ? play::Act::DpadRight : play::Act::DpadLeft;
-    return dy > 0 ? play::Act::DpadDown : play::Act::DpadUp;
-}
-
-const char* act_name(play::Act a) {
-    switch (a) {
-        case play::Act::DpadUp: return "up";
-        case play::Act::DpadDown: return "down";
-        case play::Act::DpadLeft: return "left";
-        case play::Act::DpadRight: return "right";
-        case play::Act::BtnA: return "A";
-        default: return "?";
-    }
-}
-
-void clear_nav() {
-    State& s = st();
-    s.target = 0;
-    s.steps = s.wait = s.fails = s.click_wait = 0;
-    s.pending_confirm = false;
-    s.prefer_other_axis = false;
-}
-
 void log_layouts() {
     State& s = st();
     uint64_t sig = 0;
@@ -893,7 +851,6 @@ void menu_remove() {
     g_draw_hooks.clear();
     st().installed = false;
     st().ig_up = false;
-    clear_nav();
 }
 
 // While the game is in play its menus (bag, crafting, shops, choice boxes) are KTGL layouts over the world and the game keeps calling its
@@ -985,7 +942,6 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
         s.was_up = false;
         s.panes.clear();
         s.hovered = s.focused = s.cursor = s.slider = -1;
-        clear_nav();
         return play::Act::None;
     }
     s.active = true;
@@ -1028,90 +984,27 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
         std::snprintf(s.focus_name, sizeof s.focus_name, "%s", foc ? foc->name : "");
         if (foc && log_ok()) NXLOG_I(kTag, "menu: selected '%s' (cursor '%s')", foc->name, s.cursor >= 0 ? s.panes[s.cursor].name : "");
         s.last_focus = foc_ptr;
-        s.focus_stable = 0;
-    } else {
-        ++s.focus_stable;
     }
 
-    // keyboard or pad used: the pointer lets go of the selection
-    if (!snap.shown) clear_nav();
-    // the pointer moved onto another entry: the selection follows it
-    if (snap.hover && hov && hov_ptr != s.target && s.cursor >= 0) {
-        clear_nav();
-        s.target = hov_ptr;
-    }
-    // left click
-    if (snap.click) {
-        ptr.click_used();
-        ++s.n_clicks;
-        // a key guide under the pointer ("(-) Settings" on the title): its button
-        if (snap.inside && snap.shown && !s.key_guides.empty()) {
-            for (const Pane& p : s.panes) {
-                if (!p.item || !p.contains(px, py)) continue;
-                const auto it = s.key_guides.find(p.lay_id);
-                if (it == s.key_guides.end()) continue;
-                if (log_ok(true)) NXLOG_I(kTag, "menu: click on key guide '%s' (layout %u/%u) -> %s", p.name, p.lay_id, p.lay_sub, play::act_info(it->second).name);
-                clear_nav();
-                return it->second;
-            }
-        }
-        if (s.cursor < 0) {
-            if (log_ok(true)) NXLOG_I(kTag, "menu: click -> A (no cursor on screen)");
-            clear_nav();
-            return play::Act::BtnA;
-        }
-        if (hov && foc_ptr == hov_ptr) {
-            if (log_ok(true)) NXLOG_I(kTag, "menu: click on the selected '%s' -> A", hov->name);
-            clear_nav();
-            return play::Act::BtnA;
-        }
-        if (hov) {
-            s.target = hov_ptr;
-            s.pending_confirm = true;
-            s.click_wait = 0;
-            if (log_ok(true)) NXLOG_I(kTag, "menu: click on '%s', selecting it first", hov->name);
-        } else if (log_ok(true)) {
-            NXLOG_I(kTag, "menu: click on no entry (ignored)");
+    // Left click: a key guide under the pointer ("(-) Settings" on the title) sends its button, any other click is A on the game's own
+    // selection. The pointer never moves the selection: the selected entry is only guessed from where the cursor part is drawn, and in
+    // grids with a bobbing cursor (the main menu's triangle over CL_0300_parts_btn_mainmenu_0000..0008) the guess jumped between entries,
+    // so d-pad steps toward the hovered entry started from the wrong one and sent the selection around the menu (fork issue #7).
+    // totk-pc-recomp keeps the mouse out of its game's menus the same way. The selection moves with the wheel and the keys.
+    if (!snap.click) return play::Act::None;
+    ptr.click_used();
+    ++s.n_clicks;
+    if (snap.inside && snap.shown && !s.key_guides.empty()) {
+        for (const Pane& p : s.panes) {
+            if (!p.item || !p.contains(px, py)) continue;
+            const auto it = s.key_guides.find(p.lay_id);
+            if (it == s.key_guides.end()) continue;
+            if (log_ok(true)) NXLOG_I(kTag, "menu: click on key guide '%s' (layout %u/%u) -> %s", p.name, p.lay_id, p.lay_sub, play::act_info(it->second).name);
+            return it->second;
         }
     }
-
-    if (!s.target) return play::Act::None;
-    const int ti = find_pane(s.target);
-    if (ti < 0 || !foc) {
-        if (s.pending_confirm && ++s.click_wait > 90) clear_nav();
-        else if (!s.pending_confirm) clear_nav();
-        return play::Act::None;
-    }
-    if (foc_ptr == s.target) {
-        if (s.pending_confirm) {
-            if (s.focus_stable < 2) return play::Act::None;      // the cursor still moving
-            if (log_ok(true)) NXLOG_I(kTag, "menu: '%s' selected -> A", foc->name);
-            clear_nav();
-            return play::Act::BtnA;
-        }
-        clear_nav();
-        return play::Act::None;
-    }
-    if (s.wait > 0) {
-        --s.wait;
-        if (s.wait == 0 && foc_ptr == s.focus_before) {
-            ++s.fails;                                  // the press moved nothing: try the other axis, then give up
-            s.prefer_other_axis = !s.prefer_other_axis;
-            if (s.fails >= 4) {
-                if (log_ok()) NXLOG_I(kTag, "menu: cannot reach '%s' from '%s'", s.panes[ti].name, foc->name);
-                clear_nav();
-            }
-        }
-        return play::Act::None;
-    }
-    if (s.steps >= 40) { clear_nav(); return play::Act::None; }
-    const play::Act a = dir_toward(*foc, s.panes[ti], s.prefer_other_axis);
-    ++s.steps;
-    ++s.n_steps;
-    s.wait = 8;
-    s.focus_before = foc_ptr;
-    if (s.log_level >= 2 && log_ok()) NXLOG_I(kTag, "menu: step %s from '%s' toward '%s'", act_name(a), foc->name, s.panes[ti].name);
-    return a;
+    if (log_ok(true)) NXLOG_I(kTag, "menu: click -> A on '%s'", foc ? foc->name : "");
+    return play::Act::BtnA;
 }
 
 bool menu_over_value() { return st().active && st().slider >= 0; }
@@ -1122,8 +1015,8 @@ bool menu_open() { return st().active && st().cursor >= 0; }
 
 void menu_status_text(char* buf, size_t n) {
     const State& s = st();
-    std::snprintf(buf, n, " menu_layouts=%u menu_panes=%u menu_entries=%u hover='%s' selected='%s' steps=%u clicks=%u in_game_menu=%d (%u/%u) in_game_opens=%u",
-                  s.n_layouts.load(), s.n_panes.load(), s.n_items.load(), s.hover_name, s.focus_name, s.n_steps.load(), s.n_clicks.load(),
+    std::snprintf(buf, n, " menu_layouts=%u menu_panes=%u menu_entries=%u hover='%s' selected='%s' clicks=%u in_game_menu=%d (%u/%u) in_game_opens=%u",
+                  s.n_layouts.load(), s.n_panes.load(), s.n_items.load(), s.hover_name, s.focus_name, s.n_clicks.load(),
                   s.ig_up ? 1 : 0, s.ig_lay_id, s.ig_lay_sub, s.n_ig_opens.load());
 }
 
