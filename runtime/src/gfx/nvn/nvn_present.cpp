@@ -131,6 +131,7 @@ void present_on_render_thread(Window* w, int index) {
     } else {
         pp->record(fi.cmd, fi.view, fi.extent, src, VkExtent2D{e.width, e.height}, crop, keep_aspect());
     }
+    submit_recorded();      // the frame's own submissions go first
     { NXFT("present.end"); nxrt::HitchTimer ht(nxrt::kHpRenderPresentEnd); rend->end_frame(); }
 }
 

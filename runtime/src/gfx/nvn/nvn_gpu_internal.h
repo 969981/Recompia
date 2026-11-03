@@ -46,6 +46,9 @@ Counters* counters_if();   // null before the GPU is up
 void note_unsupported(const char* what);
 std::string unsupported_report();
 
+// Hands the submissions recorded so far to the GPU ([nvn] submit_batch keeps them back). Call before a queue operation that must come after
+// them: the present, sparse binds.
+void submit_recorded();
 // Runs fn on the render thread and waits for it. From the render thread itself it just calls fn.
 void run_on_render_thread(const std::function<void()>& fn);
 // Test and one-shot hook: runs fn(Frame&) on the render thread with a fresh command buffer, submits it and waits for the GPU.
