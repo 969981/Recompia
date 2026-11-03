@@ -37,6 +37,13 @@ Our test builds have letters (A, B, C ...). Each entry is what got better for yo
 - In the game world on a Legion Go S, about 35 fps before, about 55-60 fps now.
 - Windows PCs are not affected by this change.
 
+**Also in 0.2.0**
+- Playing above 1080p (for example 1440p): dark outlines of characters drawn in the wrong place, and blotchy shadows, are fixed.
+- Updating: when a new version changes the game code, the launcher now asks you to run Set up again (once), so the fix actually reaches
+  your game. Every existing install rebuilds once after this update.
+- Steam Deck / Legion Go S tip: if you want more fps, lower the render scale or turn on FSR 3 in F1 > Graphics (about 70-80 fps on a
+  Legion Go S at 67%).
+
 ### Known issues
 - Legion Go S: 60 fps, not yet a steady 90 (being worked on).
 - First setup still takes a while: about 7 minutes to build the game, then 1 to 2 hours for the shaders (you can pause and continue).
@@ -66,4 +73,8 @@ Base: upstream `2c29515` (v0.1.1). Fork PRs on featureJosh/pokopia-recomp; issue
 - **#22** `[nvn] submit_batch` (auto = `frame` under Wine): one kernel submission per frame, merged into the present's
   `vkQueueSubmit2`; early flush only when a thread waits on or polls a batched serial. amdgpu re-walks every userptr BO on each CS
   (~4-5 ms with 4.7 GB imported). Go S in game 33-39 -> 55-60 fps (fork #19; follow-up #23).
+- **#25** viewports recorded by 0x17c0420 (64 callers) follow the render size: at render heights above 1080 the G-buffer AO
+  composite landed at 1.333x (dark silhouettes, misplaced ground AO; upstream drakolordx7/pokopia-recomp#17).
+- **#26** rebuild on update: pkp_build.py tool stamp (lifter, main.sites, sdk, pkp_rt.lib, flags; FORMAT 2) and `--check`; the
+  launcher treats a stale build as not set up.
 - Packaging: `game-build/scripts/make-release.ps1` + `.github/workflows/release.yml`; third-party payload from the upstream 0.1.1 zip.
