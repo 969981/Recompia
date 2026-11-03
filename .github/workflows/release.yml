@@ -56,6 +56,11 @@ jobs:
         if: steps.vpx.outputs.cache-hit != 'true'
         run: C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
 
+      - name: Texture tools (astc2bc7, astcdec DLLs)
+        run: |
+          ./tools/textures/scripts/fetch_third_party.ps1
+          ./tools/textures/scripts/build.ps1
+
       - name: pkp_rt.dll
         run: |
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
