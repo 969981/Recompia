@@ -19,7 +19,8 @@ class RomfsImage {
 public:
     RomfsImage();
     ~RomfsImage();
-    // Scans `host_dir` (recursively; names are taken as UTF-8 from the host paths) and builds the tables. False with *err set when the
+    // Scans `host_dir` (recursively; names are taken as UTF-8 from the host paths) and builds the tables. `host_dir` may also name a .nup
+    // package (nxrt/nup.h): its RomFS is served from the package file. False with *err set when the
     // folder does not exist or an entry cannot be described. Replaces an earlier build.
     bool build(const std::string& host_dir, std::string* err = nullptr);
     bool built() const;

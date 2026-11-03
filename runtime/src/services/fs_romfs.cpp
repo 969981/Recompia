@@ -22,6 +22,7 @@
 
 #include "nxrt/diag.h"
 #include "nxrt/log.h"
+#include "nxrt/nup.h"
 #include "nxrt/write_watch.h"
 
 namespace nxrt::services::fs {
@@ -101,6 +102,7 @@ struct Node {
     std::wstring host;           // host path to open
     bool is_dir = false;
     uint64_t size = 0;           // files only
+    uint64_t src = 0;            // files: offset of the data in the host file (0, or the extent in a .nup)
     std::vector<Node> kids;      // sorted by name bytes
     uint32_t entry = 0;          // offset of this entry in its table
     uint32_t parent = 0;         // entry offset of the parent directory (the root's is 0)
@@ -172,6 +174,52 @@ bool scan(Node& dir, std::string& msg) {
     return true;
 }
 
+void sort_tree(Node& d) {
+    std::sort(d.kids.begin(), d.kids.end(), [](const Node& a, const Node& b) { return a.name < b.name; });
+    for (Node& k : d.kids)
+        if (k.is_dir) sort_tree(k);
+}
+
+// Fills root from the RomFS of a .nup package: every file is a range of the package file.
+bool scan_nup(const std::string& nup_path, Node& root, std::string& msg) {
+    nup::Content c;
+    if (!nup::open(nup_path, c, &msg)) return false;
+    if (c.romfs.empty()) {
+        msg = nup_path + " has no RomFS";
+        return false;
+    }
+    for (const nup::File& f : c.romfs) {
+        Node* d = &root;
+        size_t at = 0;
+        for (size_t slash; (slash = f.path.find('/', at)) != std::string::npos; at = slash + 1) {
+            const std::string name = f.path.substr(at, slash - at);
+            auto it = std::find_if(d->kids.begin(), d->kids.end(), [&](const Node& k) { return k.is_dir && k.name == name; });
+            if (it == d->kids.end()) {
+                Node k;
+                k.is_dir = true;
+                k.name = name;
+                k.path = d->path + "/" + name;
+                d->kids.push_back(std::move(k));
+                it = d->kids.end() - 1;
+            }
+            d = &*it;
+        }
+        Node k;
+        k.name = f.path.substr(at);
+        k.path = "/" + f.path;
+        k.host = root.host;
+        k.size = f.size;
+        k.src = f.offset;
+        if (k.name.size() > kMaxName || k.path.size() > kMaxPath) {
+            msg = "name or path too long for a RomFS: " + k.path;
+            return false;
+        }
+        d->kids.push_back(std::move(k));
+    }
+    sort_tree(root);
+    return true;
+}
+
 void flatten(Node& n, std::vector<Node*>& dirs, std::vector<Node*>& files) {
     for (Node& k : n.kids) {
         if (k.is_dir) {
@@ -196,6 +244,7 @@ struct FileRec {
     std::wstring host;
     uint64_t size = 0;
     uint64_t image_off = 0;
+    uint64_t src = 0;            // offset of the data in the host file
     std::string path;            // path inside the image ("/a/b.bin"), for the first-read note
 };
 
@@ -215,20 +264,21 @@ struct Layout {
 bool make_layout(const std::string& host_dir, Layout& L, std::string* err) {
     std::string msg;
     std::wstring wdir;
+    const bool packaged = nup::is_nup(host_dir);
     if (!to_wide(host_dir, wdir)) {
         if (err) *err = "host folder name is empty or not valid UTF-8";
         return false;
     }
     std::error_code ec;
     const std::filesystem::path abs = std::filesystem::absolute(std::filesystem::path(wdir), ec);
-    if (ec || !std::filesystem::is_directory(abs, ec)) {
+    if (ec || (!packaged && !std::filesystem::is_directory(abs, ec))) {
         if (err) *err = "not a folder: " + host_dir;
         return false;
     }
     Node root;
     root.is_dir = true;
     root.host = long_path(abs.wstring());
-    if (!scan(root, msg)) {
+    if (!(packaged ? scan_nup(host_dir, root, msg) : scan(root, msg))) {
         if (err) *err = msg;
         return false;
     }
@@ -346,8 +396,8 @@ bool make_layout(const std::string& host_dir, Layout& L, std::string* err) {
         const uint64_t img = kPartitionOfs + f->data;
         if (img > cursor) L.segs.push_back({cursor, img - cursor, Segment::Kind::kZero, 0, 0});
         const uint32_t idx = static_cast<uint32_t>(L.files.size());
-        L.files.push_back({f->host, f->size, img, f->path});
-        if (f->size > 0) L.segs.push_back({img, f->size, Segment::Kind::kFile, 0, idx});
+        L.files.push_back({f->host, f->size, img, f->src, f->path});
+        if (f->size > 0) L.segs.push_back({img, f->size, Segment::Kind::kFile, f->src, idx});
         L.by_path[f->path] = idx;
         cursor = img + f->size;
         data_bytes += f->size;
