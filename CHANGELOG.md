@@ -5,7 +5,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## 0.2.0 (build F)
 
-### What's new, in plain words
+### What's new
 
 Our test builds have letters (A, B, C ...). Each entry is what got better for you in that build.
 
