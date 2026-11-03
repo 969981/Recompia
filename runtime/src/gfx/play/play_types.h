@@ -141,6 +141,7 @@ struct PadSettings {
     bool label_abxy = true;        // true: buttons by the label printed on them (Xbox A = Switch A); false: by position (bottom = Switch B)
     double stick_deadzone = 0.10;  // left stick, radial, 0..0.5, applied before the game's own dead zone
     double right_deadzone = 0.10;  // right stick (looking), same rule
+    double stick_max = 1.0;        // left stick, 0.5..1: the fraction of the travel that counts as full deflection (1 = off). A pad whose stick tops out below 1 reaches full speed with this lowered
     bool invert_y = false;         // right stick up looks down (in play only: menus and the map keep the stick as it is). Stacks with the game's own option.
     double look_sens = 1.0;        // 0.25..3: the right stick's deflection is multiplied by this in play (below 1 the turn speed tops out lower, above 1 it tops out sooner)
     double trigger_threshold = 0.35;   // analog trigger travel (0..1) that counts as ZL / ZR pressed
@@ -335,7 +336,7 @@ const char* key_alt_sens();
 //              yaw_source / pitch_source = 2.0 are accepted as well (Source scale); when both forms appear the last one wins
 //              alt_camera = 1 (the alternate body's camera follows the mouse and the right stick), alt_sensitivity = 2.0 (its sensitivity, Source
 //              scale, both directions; alt_yaw / alt_pitch in radians per count set one direction each)
-//   [pad]      label_abxy deadzone trigger_threshold gyro gyro_scale rumble rumble_scale alt_orbit
+//   [pad]      label_abxy deadzone stick_max trigger_threshold gyro gyro_scale rumble rumble_scale alt_orbit
 //   [timing]   tap_ms hold_ms double_ms pulse_ms
 //   [display]  window_mode vsync fps_limit (number, 0 = unlimited, auto = refresh rate; fps_cap is read too) width height keep_aspect render_scale render_width render_height aspect fov_offset
 //              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm astc_quality (fast high uncompressed)

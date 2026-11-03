@@ -416,6 +416,44 @@ NXTEST(left_and_right_dead_zones_differ) {
     CHECK(sw.right.x > 0);
 }
 
+NXTEST(stick_max_default_changes_nothing) {
+    // stick_max 1 is the plain dead zone rescale: 0.96 of the travel gives (0.96 - 0.1) / 0.9 = 0.9556 of full.
+    platform::GamepadRaw raw;
+    raw.axes[1] = -31457;   // 0.96 up
+    const hid::StickValue v = run(raw, play::PadSettings{}).left;
+    CHECK_MSG(v.y > 31100 && v.y < 31500, "default gave " + std::to_string(v.y));
+}
+
+NXTEST(stick_max_gives_full_push_at_the_pad_limit) {
+    // A pad that only reaches 0.96: with stick_max 0.9 that is already past the outer zone, so the game gets 32767.
+    platform::GamepadRaw raw;
+    raw.axes[1] = -31457;
+    play::PadSettings cfg;
+    cfg.stick_max = 0.9;
+    const hid::NpadInput out = run(raw, cfg);
+    CHECK_EQ(out.left.y, 32767);
+    CHECK_EQ(out.left.x, 0);
+    // half travel scales up by the same rule: (0.5 - 0.1) / (0.9 - 0.1) = 0.5
+    raw.axes[1] = -16384;
+    const hid::StickValue half = run(raw, cfg).left;
+    CHECK_MSG(half.y > 16300 && half.y < 16450, "half gave " + std::to_string(half.y));
+    // a diagonal past the zone stays on the unit circle
+    raw.axes[0] = 25000;
+    raw.axes[1] = -25000;
+    const hid::StickValue d = run(raw, cfg).left;
+    const double len = std::sqrt(static_cast<double>(d.x) * d.x + static_cast<double>(d.y) * d.y);
+    CHECK_MSG(len <= 32767 * 1.0001, "diagonal length " + std::to_string(len));
+}
+
+NXTEST(stick_max_leaves_the_right_stick_alone) {
+    platform::GamepadRaw raw;
+    raw.axes[3] = -31457;   // right stick 0.96 up
+    play::PadSettings cfg;
+    cfg.stick_max = 0.5;
+    const hid::StickValue r = run(raw, cfg).right;
+    CHECK_MSG(r.y > 31100 && r.y < 31500, "right gave " + std::to_string(r.y));
+}
+
 NXTEST(look_stick_identity_at_defaults) {
     const hid::StickValue out = play::adjust_look_stick(hid::StickValue{12000, -8000}, play::PadSettings{});
     CHECK_EQ(out.x, 12000);
