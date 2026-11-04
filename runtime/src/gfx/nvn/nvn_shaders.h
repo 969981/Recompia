@@ -36,6 +36,9 @@ public:
     Sha1();
     void update(const void* data, size_t size);
     void finish(uint8_t digest[20]);  // the object is spent afterwards
+    // update() uses the CPU's SHA instructions for whole blocks when it has them (CPUID, same digest as the portable loop).
+    static bool shani_available();
+    static void force_portable(bool on);   // tests: true keeps update() on the portable loop
 
 private:
     void block(const uint8_t* p);

@@ -17,11 +17,15 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <sstream>
 #include <unordered_set>
+
+#include <immintrin.h>
+#include <intrin.h>
 
 #include <nxrt/ftrace.h>
 #include <nxrt/config.h>
@@ -43,6 +47,55 @@ inline uint32_t rd32(const uint8_t* p) {
     std::memcpy(&v, p, 4);  // little-endian host (arm64, x86-64), like the Switch
     return v;
 }
+
+// The SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen): the same digest as block() at several times the speed. The
+// shader cache keys on this hash, and the game hashes every stage of every program it links (over a second of the boot on the portable
+// loop). Intrinsics, no inline assembly; chosen at run time from CPUID.
+bool have_shani() {
+    static const bool yes = [] {
+        int r[4];
+        __cpuid(r, 0);
+        if (r[0] < 7) return false;
+        __cpuidex(r, 1, 0);
+        const bool sse41 = (r[2] >> 19) & 1, ssse3 = (r[2] >> 9) & 1;
+        __cpuidex(r, 7, 0);
+        return sse41 && ssse3 && ((r[1] >> 29) & 1);
+    }();
+    return yes;
+}
+
+template <int F>
+__attribute__((target("sha,sse4.1,ssse3"))) inline __m128i rnds4(__m128i abcd, __m128i wk) { return _mm_sha1rnds4_epu32(abcd, wk, F); }
+
+__attribute__((target("sha,sse4.1,ssse3"))) void sha1_blocks_shani(uint32_t h[5], const uint8_t* data, size_t blocks) {
+    const __m128i kSwap = _mm_set_epi64x(0x0001020304050607ll, 0x08090a0b0c0d0e0fll);
+    __m128i abcd = _mm_shuffle_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(h)), 0x1B);
+    __m128i e0 = _mm_set_epi32(static_cast<int>(h[4]), 0, 0, 0);
+    for (; blocks; --blocks, data += 64) {
+        const __m128i abcd_save = abcd, e_save = e0;
+        __m128i m[4];
+        for (int i = 0; i < 4; i++) m[i] = _mm_shuffle_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16 * i)), kSwap);
+        __m128i eprev = e0;
+        for (int g = 0; g < 20; g++) {
+            const __m128i wk = g == 0 ? _mm_add_epi32(e0, m[0]) : _mm_sha1nexte_epu32(eprev, m[g & 3]);
+            eprev = abcd;
+            switch (g / 5) {   // the round function is an immediate
+                case 0: abcd = rnds4<0>(abcd, wk); break;
+                case 1: abcd = rnds4<1>(abcd, wk); break;
+                case 2: abcd = rnds4<2>(abcd, wk); break;
+                default: abcd = rnds4<3>(abcd, wk); break;
+            }
+            if (g + 4 < 20)   // W[4(g+4) ..] from the four groups before it; it takes m[g]'s slot, which this group has used
+                m[g & 3] = _mm_sha1msg2_epu32(_mm_xor_si128(_mm_sha1msg1_epu32(m[g & 3], m[(g + 1) & 3]), m[(g + 2) & 3]), m[(g + 3) & 3]);
+        }
+        e0 = _mm_sha1nexte_epu32(eprev, e_save);
+        abcd = _mm_add_epi32(abcd, abcd_save);
+    }
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(h), _mm_shuffle_epi32(abcd, 0x1B));
+    h[4] = static_cast<uint32_t>(_mm_extract_epi32(e0, 3));
+}
+
+std::atomic<bool> g_shani_off{false};   // Sha1::force_portable (tests)
 
 }  // namespace
 
@@ -77,10 +130,18 @@ void Sha1::update(const void* data, size_t size) {
         block(buf_);
         used_ = 0;
     }
+    if (size >= 64 && have_shani() && !g_shani_off.load(std::memory_order_relaxed)) {
+        sha1_blocks_shani(h_, p, size / 64);
+        p += size & ~size_t{63};
+        size &= 63;
+    }
     for (; size >= 64; p += 64, size -= 64) block(p);
     std::memcpy(buf_, p, size);
     used_ = size;
 }
+
+bool Sha1::shani_available() { return have_shani(); }
+void Sha1::force_portable(bool on) { g_shani_off.store(on, std::memory_order_relaxed); }
 
 void Sha1::finish(uint8_t digest[20]) {
     uint64_t bits = bytes_ * 8;
