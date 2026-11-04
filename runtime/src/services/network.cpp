@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Offline network services (S3c): nifm, bsd, bsdcfg, ssl, nim:eca, friend, prepo, pctl, bcat, ldn, nsd, sfdnsres, ntc, ngct, ngc, notif.
-// The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives.
+// The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives. The one
+// exception is bsd's UDP sockets, which run on the virtual local-wireless LAN (net/vsock.h) when a vnet link is up.
 // Adapted from ScarletNX (GPL-3.0-or-later): src/nx/hle/services/network/nifm.swipc, bsd.swipc, ssl.swipc, dns.swipc, ldn.swipc and
 //   src/nx/hle/services/misc.swipc (pctl, friend, prepo, bcat, ngct, nsd). Command ids, names and layouts.
 // Adapted from Ryujinx (MIT): src/Ryujinx.HLE/HOS/Services/Nifm/*, Sockets/Bsd/IClient.cs, Ssl/ResultCode.cs, Nim/Ntc/*,
@@ -10,7 +11,8 @@
 //   Parental_Control_services. The result codes are module | (description << 9) (services.h).
 //
 // Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ldn
-// state, the ssl context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value.
+// state, the ssl context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every
+// socket and drops the current vnet link). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
 #include <cstring>
 #include <functional>
 #include <initializer_list>
@@ -23,6 +25,8 @@
 #include "nxrt/config.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "../net/vnet.h"
+#include "../net/vsock.h"
 #include "services_internal.h"
 
 namespace nxrt::services {
@@ -333,9 +337,135 @@ std::shared_ptr<ipc::Service> make_nifm_static() {
 }
 
 // =============================================================================================================================================
-// bsd: bsd:u, bsd:s, bsd:a (IClient). Switchbrew "Sockets services". Every socket-level command returns -1 with errno ENETDOWN, or the
-// success pair where the command is a control call. bsdcfg has an empty command table (ScarletNX bsd.swipc).
+// bsd: bsd:u, bsd:s, bsd:a (IClient). Switchbrew "Sockets services". The UDP commands are a thin adapter over the vsock socket table
+// (net/vsock.h: UDP datagrams on the vnet link ldn brings up); SOCK_STREAM and the other domains still answer ENETDOWN, and every other
+// socket-level command returns -1 with errno ENETDOWN, or the success pair where the command is a control call. bsdcfg has an empty
+// command table (ScarletNX bsd.swipc).
+// Layouts from libnx nx/source/services/bsd.c (ISC) and Ryujinx Sockets/Bsd/IClient.cs (MIT): input (i32 fd, i32 flags/level/...) raw;
+// data and addresses in AutoSelect buffers (type 0x21 in = A or X, 0x22 out = B or C: in_buf()/out_buf() take either); output (i32 ret,
+// u32 errno), then u32 addrlen / optlen for RecvFrom, GetSockName, GetPeerName and GetSockOpt. The socket table is process-wide (every
+// bsd session sees the same descriptors).
+// sockaddr_in on the Switch is FreeBSD's: u8 sin_len (16), u8 sin_family (AF_INET 2), be16 port, be32 address, 8 zero bytes.
 // =============================================================================================================================================
+
+constexpr size_t kSockaddrSize = 16;
+
+// (i32 ret, u32 errno) and the optional trailing u32.
+uint32_t bsd_ret(ipc::Response& rsp, const vsock::Ret& r) {
+    rsp.push(r.ret);
+    rsp.push(r.err);
+    return 0;
+}
+
+// Reads a sockaddr_in from an input buffer. 0 or an errno (EINVAL: too short, EAFNOSUPPORT: not AF_INET).
+uint32_t read_sockaddr(const ipc::Buffer& b, vsock::Addr& a) {
+    uint8_t sa[kSockaddrSize] = {};
+    if (buf_read(b, sa, sizeof sa) < 8) return vsock::kEinval;
+    if (sa[1] != vsock::kAfInet) return vsock::kEafnosupport;
+    a.port = static_cast<uint16_t>((sa[2] << 8) | sa[3]);
+    a.ip = (uint32_t{sa[4]} << 24) | (uint32_t{sa[5]} << 16) | (uint32_t{sa[6]} << 8) | sa[7];
+    return 0;
+}
+
+// Writes a sockaddr_in to an output buffer; returns the bytes written (the addrlen answer).
+uint32_t write_sockaddr(const ipc::Buffer& b, const vsock::Addr& a) {
+    const uint8_t sa[kSockaddrSize] = {static_cast<uint8_t>(kSockaddrSize), static_cast<uint8_t>(vsock::kAfInet),
+                                       static_cast<uint8_t>(a.port >> 8), static_cast<uint8_t>(a.port),
+                                       static_cast<uint8_t>(a.ip >> 24), static_cast<uint8_t>(a.ip >> 16),
+                                       static_cast<uint8_t>(a.ip >> 8), static_cast<uint8_t>(a.ip)};
+    return static_cast<uint32_t>(buf_write(b, sa, sizeof sa));
+}
+
+// A command whose sockaddr input failed to parse answers -1 with that errno, unless the descriptor is bad (EBADF comes first).
+vsock::Ret addr_fail(int fd, uint32_t e) { return {-1, vsock::stack().is_socket(fd) ? e : vsock::kEbadf}; }
+
+uint32_t bsd_send(ipc::Response& rsp, int fd, int flags, const ipc::Buffer& data, const vsock::Addr* to) {
+    return bsd_ret(rsp, vsock::stack().sendto(fd, buf_ptr(data), static_cast<size_t>(data.size), flags, to));
+}
+
+uint32_t bsd_recv(ipc::Response& rsp, int fd, int flags, const ipc::Buffer& data, vsock::Addr* from) {
+    return bsd_ret(rsp, vsock::stack().recvfrom(fd, buf_mut(data), static_cast<size_t>(data.size), flags, from));
+}
+
+void add_bsd_udp(ipc::Service& s) {
+    auto socket = [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().socket(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8)));
+    };
+    cmd(s, "bsd", 2, "Socket", socket);
+    cmd(s, "bsd", 3, "SocketExempt", socket);
+    cmd(s, "bsd", 8, "Recv", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_recv(rsp, req.arg<int32_t>(0), req.arg<int32_t>(4), req.out_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 9, "RecvFrom", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        vsock::Addr from;
+        const vsock::Ret r = vsock::stack().recvfrom(req.arg<int32_t>(0), buf_mut(req.out_buf(0)), static_cast<size_t>(req.out_buf(0).size),
+                                                     req.arg<int32_t>(4), &from);
+        bsd_ret(rsp, r);
+        rsp.push(r.err ? uint32_t{0} : write_sockaddr(req.out_buf(1), from));
+        return 0;
+    });
+    cmd(s, "bsd", 10, "Send", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_send(rsp, req.arg<int32_t>(0), req.arg<int32_t>(4), req.in_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 11, "SendTo", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr to;
+        if (const uint32_t e = read_sockaddr(req.in_buf(1), to)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_send(rsp, fd, req.arg<int32_t>(4), req.in_buf(0), &to);
+    });
+    cmd(s, "bsd", 13, "Bind", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr a;
+        if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_ret(rsp, vsock::stack().bind(fd, a));
+    });
+    cmd(s, "bsd", 14, "Connect", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr a;
+        if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_ret(rsp, vsock::stack().connect(fd, a));
+    });
+    auto name = [](bool peer) {
+        return [peer](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            vsock::Addr a;
+            const int fd = req.arg<int32_t>(0);
+            const vsock::Ret r = peer ? vsock::stack().getpeername(fd, &a) : vsock::stack().getsockname(fd, &a);
+            bsd_ret(rsp, r);
+            rsp.push(r.err ? uint32_t{0} : write_sockaddr(req.out_buf(0), a));
+            return 0;
+        };
+    };
+    cmd(s, "bsd", 15, "GetPeerName", name(true));
+    cmd(s, "bsd", 16, "GetSockName", name(false));
+    cmd(s, "bsd", 17, "GetSockOpt", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const ipc::Buffer out = req.out_buf(0);
+        size_t n = static_cast<size_t>(out.size);
+        const vsock::Ret r = vsock::stack().getsockopt(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8), buf_mut(out), &n);
+        bsd_ret(rsp, r);
+        rsp.push(r.err ? uint32_t{0} : static_cast<uint32_t>(n));
+        return 0;
+    });
+    cmd(s, "bsd", 20, "Fcntl", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().fcntl(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8)));
+    });
+    cmd(s, "bsd", 21, "SetSockOpt", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const ipc::Buffer in = req.in_buf(0);
+        return bsd_ret(rsp, vsock::stack().setsockopt(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8), buf_ptr(in),
+                                                      static_cast<size_t>(in.size)));
+    });
+    cmd(s, "bsd", 22, "Shutdown", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().shutdown(req.arg<int32_t>(0), req.arg<int32_t>(4)));
+    });
+    cmd(s, "bsd", 24, "Write", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_send(rsp, req.arg<int32_t>(0), 0, req.in_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 25, "Read", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_recv(rsp, req.arg<int32_t>(0), 0, req.out_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 26, "Close", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().close(req.arg<int32_t>(0)));
+    });
+}
 
 std::shared_ptr<ipc::Service> make_bsd() {
     return make_iface("nn::socket::sf::IClient", [](ipc::Service& s) {
@@ -344,33 +474,17 @@ std::shared_ptr<ipc::Service> make_bsd() {
             rsp.push(static_cast<uint32_t>(0));
             return 0;
         });
+        add_bsd_udp(s);
         rows(s, "bsd", {
             {1, "StartMonitoring", K::Ok},
-            {2, "Socket", K::Errno},
-            {3, "SocketExempt", K::Errno},
             {4, "Open", K::Errno},
             {5, "Select", K::Errno},
             {6, "Poll", K::Errno},
             {7, "Sysctl", K::Errno, 0, 1},
-            {8, "Recv", K::Errno},
-            {9, "RecvFrom", K::Errno, 0, 1},
-            {10, "Send", K::Errno},
-            {11, "SendTo", K::Errno},
             {12, "Accept", K::Errno, 0, 1},
-            {13, "Bind", K::Errno},
-            {14, "Connect", K::Errno},
-            {15, "GetPeerName", K::Errno, 0, 1},
-            {16, "GetSockName", K::Errno, 0, 1},
-            {17, "GetSockOpt", K::Errno, 0, 1},
             {18, "Listen", K::Errno},
             {19, "Ioctl", K::Errno},
-            {20, "Fcntl", K::Errno},
-            {21, "SetSockOpt", K::Errno},
-            {22, "Shutdown", K::Errno},
             {23, "ShutdownAllSockets", K::Errno},
-            {24, "Write", K::Errno},
-            {25, "Read", K::Errno},
-            {26, "Close", K::ErrnoOk},          // no socket is ever open, so there is nothing to fail on
             {27, "DuplicateSocket", K::Errno},
             {28, "GetResourceStatistics", K::Zeros, 0, 8},
             {29, "RecvMMsg", K::Errno},
@@ -1307,6 +1421,8 @@ void network_reset() {
     s.next_pki_id = 1;
     s.ldn_state = kLdnStateNone;
     s.ssl_contexts = 0;
+    vnet::set_current_link(nullptr);
+    vsock::stack().reset();
 }
 
 }  // namespace nxrt::services
