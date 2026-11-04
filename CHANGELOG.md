@@ -3,6 +3,14 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+- Steam Deck, Legion Go S and other 16:10 screens: trees, rocks, stairs, players and Pokémon are drawn at the right height again. They
+  used to float above the screen centre and sink into the ground below it, and only settled when you walked up to them. With
+  `aspect = auto` the picture now stays 16:9 with thin bars on screens taller than 16:9 (#73). `aspect = 16:10` still gives the full
+  taller view, with the old placement problem, until it is fixed properly.
+
 ## 0.4.0 (build H)
 
 ### What's new
