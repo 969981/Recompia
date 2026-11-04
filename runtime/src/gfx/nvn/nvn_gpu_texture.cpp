@@ -1281,6 +1281,7 @@ struct ArmQueue {
     bool started = false;
 };
 ArmQueue* g_armq = nullptr;     // never destroyed: the worker runs until the process ends
+std::mutex g_arm_import_mu;     // tex_arm_import_mutex: the worker's arms against pool_lazy's imports
 std::atomic<uint64_t> g_arm_async_jobs{0}, g_arm_async_rewritten{0};
 // the hitch log: arms the worker made, and uploads it found written before its arm (uploaded again), during a slow frame
 const bool g_arm_hitch_registered =
@@ -1305,7 +1306,10 @@ void arm_worker() {
         if (it == aq.latest.end() || it->second != j.seq) continue;   // a newer upload queued its own arm
         lk.unlock();
         if (!t->destroyed.load()) {
-            mem::ww::arm(g_tex_ww, j.first, j.count);   // false: a page it cannot protect: not watched (as the synchronous arm)
+            {
+                std::lock_guard<std::mutex> ilk(g_arm_import_mu);   // not between a lazy import's forget and the import (tex_arm_import_mutex)
+                mem::ww::arm(g_tex_ww, j.first, j.count);   // false: a page it cannot protect: not watched (as the synchronous arm)
+            }
             uint64_t h = 0;
             const bool same = texprep::hash_storage(*t, h) && h == j.hash;   // unreadable now: reported, as a write would be
             lk.lock();
@@ -1327,6 +1331,11 @@ void arm_worker() {
     }
 }
 
+}  // namespace
+
+std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
+
+namespace {
 // Render thread, after the storage was read for an upload of content `hash` (have_hash false: unknown). Arms the pages on the worker.
 void tex_ww_arm_later(Texture* t, const TexGpu& g, bool have_hash, uint64_t hash) {
     if (!tex_ww_wanted(*t, g)) return;
@@ -1430,7 +1439,9 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     }
     gfx::Image ni;
     std::string err;
-    if (device().create_image(make_desc(s, g->format, g->usage, base_flags(s, g->format)), &ni, &err) != VK_SUCCESS) {
+    // the flags the image was made with: base_flags alone lacks EXTENDED_USAGE, and an sRGB image with storage usage was refused at every
+    // rescale (once a frame, as the texture kept wanting its scale)
+    if (device().create_image(make_desc(s, g->format, g->usage, g->cflags ? g->cflags : base_flags(s, g->format)), &ni, &err) != VK_SUCCESS) {
         NXLOG_W(kTag, "texture %u: cannot remake it at %ux%u (%s): it keeps scale %.3f", t->id, s.base.width, s.base.height, err.c_str(), g->scale);
         if (to == 1.0f) g->scale_blocked = true;
         return false;
@@ -1602,6 +1613,8 @@ bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
     static const bool on = nxrt::config_get_bool("nvn", "gpu_untile", true);
     if (!on) return *why = "off", false;
     if (!t->mem || t->vpool || t->levels != 1 || t->layers != 1 || t->storage_size < (64u << 10)) return *why = "storage, levels or layers", false;
+    // [nvn] pool_lazy: storage no bind has imported is untiled on the CPU (the upload path after this) instead of importing a chunk for it
+    if (pool_lazy_wants_cpu(reinterpret_cast<uint64_t>(t->mem), t->storage_size)) return *why = "storage not imported (pool_lazy)", false;
     if (g.levels != 1 || g.layers != 1 || g.transcoded || !g.fmt || g.format != g.fmt->vk || !(g.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
         return *why = "image format or usage", false;
     const TexLayout L = compute_texture_layout(t->b);

@@ -9,6 +9,7 @@
 // Everything declared here must be called on the render thread (gpu::on_render_thread()) unless it says otherwise.
 #pragma once
 #include <atomic>
+#include <mutex>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -125,6 +126,18 @@ VkBuffer dummy_buffer();
 // The last 32 bytes of the dummy buffer hold the default of an unset vertex attribute: float (0,0,0,1) and integer (0,0,0,1).
 constexpr VkDeviceSize kDummyAttrFloatOffset = 65504, kDummyAttrIntOffset = 65520;
 uint64_t pool_imports();          // statistics
+// [nvn] pool_lazy (+ pool_lazy_cpu_untile): [gpu_address, +size) lies in a lazily imported pool and no import holds it yet, so a texture
+// upload should read it on the CPU rather than import it for one GPU copy. Counts the answer for the summary line.
+bool pool_lazy_wants_cpu(uint64_t gpu_address, uint64_t size);
+// [nvn] pool_lazy: held by the texture write watch's arm worker around each arm and by a lazy import around making its pages writable and
+// importing them; an arm in between made pages read-only again and the import failed (VK_ERROR_INVALID_EXTERNAL_HANDLE) (nvn_gpu_texture.cpp).
+std::mutex& tex_arm_import_mutex();
+struct PoolLazyStats {
+    bool on = false;                  // [nvn] pool_lazy is in effect
+    int64_t live_bytes = 0;           // bytes of lazy imports alive now
+    uint64_t imported_bytes = 0, imports = 0, spans = 0, dropped = 0, cpu_untiles = 0;   // so far
+};
+PoolLazyStats pool_lazy_stats();      // any thread (statistics, tests)
 // Called from destroy_pool_gpu on the render thread.
 void pool_gpu_destroy(PoolGpu* p);
 void pool_shutdown();             // destroys every imported pool still alive and the dummy buffer (device idle)
