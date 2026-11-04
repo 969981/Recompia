@@ -8,6 +8,7 @@
 // handles never dropped by count, deferred bind arrays read at record time.
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <chrono>
 #include <cstdlib>
@@ -39,6 +40,42 @@
 #include "extras/temporal.h"
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
+
+// [prof] render_split: the Vulkan commands of the replay are counted by kind (binds, draws, dynamic state, passes) with one branch when off.
+// The macros call the real function (a macro name is not expanded again inside its own expansion).
+#define vkCmdBindPipeline(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindPipeline(__VA_ARGS__))
+#define vkCmdBindDescriptorSets(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindDescriptorSets(__VA_ARGS__))
+#define vkCmdBindVertexBuffers2(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindVertexBuffers2(__VA_ARGS__))
+#define vkCmdBindIndexBuffer(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindIndexBuffer(__VA_ARGS__))
+#define vkCmdDraw(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDraw(__VA_ARGS__))
+#define vkCmdDrawIndexed(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexed(__VA_ARGS__))
+#define vkCmdDrawIndirect(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirect(__VA_ARGS__))
+#define vkCmdDrawIndexedIndirect(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexedIndirect(__VA_ARGS__))
+#define vkCmdDrawIndirectCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirectCount(__VA_ARGS__))
+#define vkCmdDrawIndexedIndirectCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexedIndirectCount(__VA_ARGS__))
+#define vkCmdDrawIndirectByteCountEXT(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirectByteCountEXT(__VA_ARGS__))
+#define vkCmdSetViewportWithCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetViewportWithCount(__VA_ARGS__))
+#define vkCmdSetScissorWithCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetScissorWithCount(__VA_ARGS__))
+#define vkCmdSetStencilWriteMask(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilWriteMask(__VA_ARGS__))
+#define vkCmdSetStencilTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilTestEnable(__VA_ARGS__))
+#define vkCmdSetStencilReference(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilReference(__VA_ARGS__))
+#define vkCmdSetStencilOp(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilOp(__VA_ARGS__))
+#define vkCmdSetStencilCompareMask(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilCompareMask(__VA_ARGS__))
+#define vkCmdSetRasterizerDiscardEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetRasterizerDiscardEnable(__VA_ARGS__))
+#define vkCmdSetPrimitiveTopology(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetPrimitiveTopology(__VA_ARGS__))
+#define vkCmdSetPrimitiveRestartEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetPrimitiveRestartEnable(__VA_ARGS__))
+#define vkCmdSetLineWidth(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetLineWidth(__VA_ARGS__))
+#define vkCmdSetFrontFace(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetFrontFace(__VA_ARGS__))
+#define vkCmdSetDepthWriteEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthWriteEnable(__VA_ARGS__))
+#define vkCmdSetDepthTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthTestEnable(__VA_ARGS__))
+#define vkCmdSetDepthCompareOp(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthCompareOp(__VA_ARGS__))
+#define vkCmdSetDepthBoundsTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBoundsTestEnable(__VA_ARGS__))
+#define vkCmdSetDepthBounds(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBounds(__VA_ARGS__))
+#define vkCmdSetDepthBiasEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBiasEnable(__VA_ARGS__))
+#define vkCmdSetDepthBias(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBias(__VA_ARGS__))
+#define vkCmdSetCullMode(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetCullMode(__VA_ARGS__))
+#define vkCmdSetBlendConstants(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetBlendConstants(__VA_ARGS__))
+#define vkCmdBeginRendering(...) (::nxrt::ft::split_count(::nxrt::ft::kCntPasses), vkCmdBeginRendering(__VA_ARGS__))
 
 namespace nxrt::nvn::be::gpu {
 namespace {
@@ -118,9 +155,15 @@ struct Pass {
     bool depth_ro = false;      // the depth attachment is in DEPTH_STENCIL_READ_ONLY_OPTIMAL (it is also sampled by the draws of this pass)
     uint32_t samples = 1;
     float scale = 1.0f;         // resolution scale of the attachments ([gfx] render_scale): viewports and scissors are multiplied by it
+    uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)
 };
 
 Pass P;
+uint8_t g_fbl_want = 0;         // colour slots the current draw samples through the feedback loop layout (feedback_prepare -> ensure_pass)
+
+VkImageLayout color_layout(uint8_t fbl, uint32_t slot) {
+    return (fbl >> slot) & 1 ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+}
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
@@ -142,6 +185,66 @@ UploadAlloc g_draw_support;     // the support buffer the next descriptor sets b
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
+// [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
+// targets, a feedback or 3D copy, a GPU write, a new submission). With be::g_bind_gen (pools, texture images) it keys the per-set memo of build_set.
+uint64_t g_rp_epoch = 1;
+inline void rp_bump(ft::SplitCount src = ft::kCntCounts) { ++g_rp_epoch; ft::split_count(ft::kCntEpoch); if (src != ft::kCntCounts) ft::split_count(src); }
+// [nvn] epoch_exact (default off: no measured gain): the two bumps that cannot change what a memoized set resolves to are left out: end_pass while no pass is
+// open, and SetRenderTargets that sets the targets already set (see end_pass and mark_dirty).
+bool epoch_exact_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "epoch_exact", false);
+        NXLOG_I(kTag, "set_reuse epoch: %s ([nvn] epoch_exact)", v ? "exact (no bump for end_pass without a pass or for the same render targets)" : "every pass end and render target op");
+        return v;
+    }();
+    return on;
+}
+
+// Replay phase profile (frame trace only, [prof] trace): time and count per phase of the draw / dispatch setup, summed over a
+// submission and written as one event per phase at its end (t0 = submission start, duration = the sum, arg = the count), so the
+// per-thread zone totals of ftrace_report.py split the "replay" zone without one event per draw (thousands a frame overflow the
+// event array). Off: one relaxed load per site.
+enum RpPhase { kRpDraw, kRpSets, kRpSetBuild, kRpSetWrite, kRpSetBind, kRpPrep, kRpPass, kRpPipe, kRpDyn, kRpVb, kRpDispatch, kRpSet0, kRpSet1, kRpSet2, kRpSet3, kRpMiss0, kRpMiss1, kRpMiss2, kRpMiss3, kRpBuf, kRpTex, kRpTexel, kRpSame0, kRpSame1, kRpSame2, kRpSame3, kRpReuse, kRpBegin, kRpEnd, kRpOpIn, kRpOp, kRpTail, kRpTexPoll, kRpMirror, kRpOutEnd, kRpCount };
+constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
+                                            "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
+                                            "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3", "rp.reuse",
+                                            "rp.begin", "rp.end", "rp.opin", "rp.op", "rp.tail", "rp.texpoll", "rp.mirror", "rp.outend"};
+// Stamps are TSC ticks (ft::tsc), converted to ns in rp_flush. Disjoint "top" phases that together cover the replay zone: rp.begin and rp.end
+// (per replay call: tex_poll_cpu_writes, mirror_begin_submit, out_end_submit, end_pass, ...), rp.opin (mark_dirty + out_before_op per op),
+// rp.draw (begin_draw), rp.tail (what a draw op does after begin_draw: index resolve, vkCmdDraw*), rp.op (every other op, dispatch setup
+// excluded: rp.dispatch), plus the NXFT zones rp.cbsetup / rp.cbend of nvn_gpu.cpp (slot, begin / end command buffer, query resets, batch
+// flush). rp.texpoll, rp.mirror, rp.outend are parts of rp.begin / rp.end. The per-binding phases (rp.buf, rp.tex, rp.texel) run only with
+// [prof] replay_fine (a scope each costs more than the work of a cached binding).
+uint64_t g_rp_ns[kRpCount] = {};     // ticks until rp_flush
+uint32_t g_rp_n[kRpCount] = {};
+uint64_t g_rp_t0 = 0;
+uint64_t g_rp_inner = 0;             // ticks of rp.draw / rp.dispatch scopes and finished ops, so an op's own time can be told from them
+bool g_rp_fine = false;
+struct RpScope {
+    int ph;
+    uint64_t t0;
+    explicit RpScope(int p, bool en = true) : ph(p), t0(en && ft::on() ? ft::tsc() : 0) {}
+    ~RpScope() {
+        if (!t0) return;
+        const uint64_t dt = ft::tsc() - t0;
+        g_rp_ns[ph] += dt;
+        ++g_rp_n[ph];
+        if (ph == kRpDraw || ph == kRpDispatch) g_rp_inner += dt;
+    }
+};
+void rp_count(int ph) { if (ft::on()) ++g_rp_n[ph]; }   // a count without time (cache hits)
+void rp_flush() {
+    if (!g_rp_t0) return;
+    static uint16_t ids[kRpCount];
+    static bool named = false;
+    if (!named) { for (int i = 0; i < kRpCount; ++i) ids[i] = ft::zone_id(kRpNames[i]); named = true; }
+    for (int i = 0; i < kRpCount; ++i)
+        if (g_rp_n[i]) ft::event(ids[i], g_rp_t0, g_rp_t0 + ft::tsc_to_ns(g_rp_ns[i]), g_rp_n[i]);
+    std::memset(g_rp_ns, 0, sizeof g_rp_ns);
+    std::memset(g_rp_n, 0, sizeof g_rp_n);
+    g_rp_t0 = 0;
+    g_rp_inner = 0;
+}
 
 // What changed since the last draw. Ops set bits (mark_dirty); a draw handles and clears the groups it needs. A new submission, a
 // new pass and anything that binds other pipelines sets them all (a new command buffer has no dynamic state, a new pass has other
@@ -150,6 +253,60 @@ enum : uint32_t {
     kPipe = 1, kDesc = 2, kVb = 4, kDynVp = 8, kDynRaster = 16, kDynDepth = 32, kDynStencil = 64, kDynBias = 128, kDynBlend = 256, kAllDirty = 0x1ff
 };
 uint32_t g_dirty = kAllDirty;
+
+// [nvn] bind_coalesce: fewer Vulkan calls per draw. Vertex buffers, descriptor sets and the index buffer are bound in ranges / only when they
+// changed, and dynamic state is sent only when its value differs from the last one sent in this command buffer (the shadow). Vulkan keeps
+// dynamic state across vkCmdBeginRendering inside one command buffer, and binding a pipeline that has the state dynamic does not reset it;
+// the shadow is invalidated where a command buffer starts and where other code records graphics work into it (clears drawn with a mask,
+// upscalers, SDK compute).
+bool bind_coalesce_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "bind_coalesce", true);
+        if (v) NXLOG_I("nvn.replay", "nvn: bind_coalesce on");
+        return v;
+    }();
+    return on;
+}
+template <class T> struct Sh {
+    T v{};
+    bool ok = false;
+    // true: the value differs (or is unknown) and was recorded as sent
+    bool changed(const T& n) {
+        if (ok && std::memcmp(&v, &n, sizeof(T)) == 0) return false;
+        v = n;
+        ok = true;
+        return true;
+    }
+};
+struct DynShadow {
+    Sh<std::array<VkViewport, 16>> vp; uint32_t nvp = 0;
+    Sh<std::array<VkRect2D, 16>> sc; uint32_t nsc = 0;
+    Sh<uint32_t> cull, front, discard, depth_test, depth_write, depth_cmp, depth_bounds_test, stencil_test, bias_enable;
+    Sh<float> line_width;
+    Sh<std::array<float, 2>> depth_bounds;
+    Sh<std::array<uint32_t, 5>> stencil_op[2];
+    Sh<uint32_t> stencil_ref[2], stencil_cmask[2], stencil_wmask[2];
+    Sh<std::array<float, 3>> bias;
+    Sh<std::array<float, 4>> blend;
+};
+DynShadow g_dsh;
+struct VbShadow { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize off = 0, size = 0, stride = 0; bool ok = false; };
+VbShadow g_vbsh[16];
+struct IbShadow { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize off = 0; VkIndexType type = VK_INDEX_TYPE_NONE_KHR; bool ok = false; };
+IbShadow g_ibsh;
+void shadow_invalidate() {
+    g_dsh = DynShadow();
+    for (VbShadow& v : g_vbsh) v = VbShadow();
+    g_ibsh = IbShadow();
+}
+// vkCmdBindIndexBuffer unless the same (buffer, offset, type) is already bound in this command buffer.
+void bind_index_buffer(VkCommandBuffer cb, VkBuffer buf, VkDeviceSize off, VkIndexType type) {
+    if (bind_coalesce_on()) {
+        if (g_ibsh.ok && g_ibsh.buf == buf && g_ibsh.off == off && g_ibsh.type == type) { ft::split_count(ft::kCntSkipped); return; }
+        g_ibsh = {buf, off, type, true};
+    }
+    vkCmdBindIndexBuffer(cb, buf, off, type);
+}
 // A command may write [addr, addr + size) of pool memory: device-local copies of those pages are stale, and bindings that point at them are
 // made again (vertex buffers and descriptor sets).
 // The ranges of pool memory the GPU writes, with the serial of the submission that did (a ring). The replay records commands: a range written
@@ -181,6 +338,7 @@ bool gw_settled(uint64_t addr, uint64_t size) {
 }
 
 void gpu_wrote(uint64_t addr, uint64_t size, int use) {
+    rp_bump(ft::kCntEpGpuWrote);
     note_gw(addr, size);
     if (note_gpu_write(addr, size, use)) {
         g_dirty |= kVb | kDesc;
@@ -191,6 +349,7 @@ const ProgLayout* g_pl = nullptr;
 VkPipeline g_pipe = VK_NULL_HANDLE;
 VkPrimitiveTopology g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
 VkPrimitiveTopology g_pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+bool g_pipe_fbl = false;        // g_pipe was made for a pass with a feedback loop attachment (GraphicsKey::fb_loop)
 bool g_restart = false, g_restart_valid = false;
 uint32_t g_key_attr_count = 0;
 uint8_t g_key_binding[16] = {};
@@ -390,6 +549,12 @@ bool same_image(Texture* a, Texture* b) { return a == b || (a && b && a->gpu && 
 // then ends without a barrier when it only wrote its attachments. Any other caller gets a full barrier, also for passes ended earlier
 // without one.
 void end_pass(bool to_pass = false) {
+    // [nvn] epoch_exact: with no pass open nothing a memoized set depends on changes here (P stays closed, so fbl_sampled stays false; the
+    // render targets, handles, pools and images are untouched; the barrier below changes no descriptor). Every other change has its own
+    // bump (ensure_pass, feedback / 3D copies, gpu_wrote, bind_gen).
+    static const bool exact = epoch_exact_on();
+    if (P.open || !exact) rp_bump(ft::kCntEpEndPass);
+    else ft::split_count(ft::kCntEpSkipEndPass);
     if (!P.open) {
         if (!to_pass && !g_pending.empty()) {
             memory_barrier(F->cb);
@@ -415,7 +580,7 @@ void end_pass(bool to_pass = false) {
             for (const PendingWrite& w : g_pending) if (w.tex.get() == t) return;
             g_pending.push_back({Ref<Texture>::share(t), l});
         };
-        for (uint32_t i = 0; i < P.ncolor; ++i) remember(P.color[i].tex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        for (uint32_t i = 0; i < P.ncolor; ++i) remember(P.color[i].tex, color_layout(P.fbl, i));
         if (!P.depth_ro) remember(P.depth.tex, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     } else {
         memory_barrier(F->cb);
@@ -491,13 +656,14 @@ float attach_targets(bool fix) {
     return lo;
 }
 
-// Starts a pass on the current render targets if none is open for them. False when there is nothing to render to.
-bool ensure_pass(bool depth_ro = false) {
-    if (P.open && targets_match() && P.depth_ro == depth_ro) return true;
+// Starts a pass on the current render targets if none is open for them. False when there is nothing to render to. fbl: the colour slots
+// that are in the feedback loop layout (a pass in another layout mode is ended: the layouts and the pipelines' feedback flag go together).
+bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0) {
+    if (P.open && targets_match() && P.depth_ro == depth_ro && P.fbl == fbl) return true;
     end_pass(true);
     if (!g_pending.empty()) {
         bool conflict = false;
-        for (uint32_t i = 0; i < S.ncolor && !conflict; ++i) conflict = pending_conflict(S.color_tex[i].get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        for (uint32_t i = 0; i < S.ncolor && !conflict; ++i) conflict = pending_conflict(S.color_tex[i].get(), color_layout(fbl, i));
         if (!conflict && S.depth_tex)
             conflict = pending_conflict(S.depth_tex.get(), depth_ro ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         if (conflict) {
@@ -512,6 +678,7 @@ bool ensure_pass(bool depth_ro = false) {
     P = Pass();
     P.depth_ro = depth_ro;
     P.scale = pass_scale;
+    P.fbl = fbl;
     VkRenderingAttachmentInfo colors[8] = {};
     VkRenderingAttachmentInfo depth = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     VkRenderingAttachmentInfo stencil = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -524,12 +691,13 @@ bool ensure_pass(bool depth_ro = false) {
         P.color[i] = make_target(t, S.color_view[i], S.color_has_view[i]);
         if (!t || !tex_gpu(t)) continue;
         const bool fresh = tex_layout(t) == VK_IMAGE_LAYOUT_UNDEFINED;
-        tex_transition(t, *F, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        tex_mark_gpu_written(t);
+        const VkImageLayout cl = color_layout(fbl, i);
+        tex_transition_attach(t, *F, cl, P.color[i].level);   // the pass writes this level only (tex_write_gen: the feedback copies)
+        tex_mark_gpu_written(t, static_cast<int>(P.color[i].level));
         VkImageView v = tex_attachment_view(t, P.color[i].level, P.color[i].layer, P.color[i].layers, P.color[i].view_format);
         if (!v) continue;
         colors[i].imageView = v;
-        colors[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         colors[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         P.color_fmt[i] = tex_attachment_format(t, P.color[i].view_format);
@@ -591,6 +759,7 @@ bool ensure_pass(bool depth_ro = false) {
     gstamp("pass setup");
     vkCmdBeginRendering(F->cb, &ri);
     P.open = true;
+    rp_bump(ft::kCntEpBeginPass);
     counters().passes.fetch_add(1, std::memory_order_relaxed);
     g_bound_pipeline = VK_NULL_HANDLE;
     return true;
@@ -632,6 +801,19 @@ void set_viewports_and_scissors() {
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
     }
+    if (bind_coalesce_on()) {
+        // compare the whole arrays (the unused tail is zero) and the count
+        std::array<VkViewport, 16> av = {};
+        std::array<VkRect2D, 16> as = {};
+        std::memcpy(av.data(), vp, sizeof(VkViewport) * nvp);
+        std::memcpy(as.data(), sc, sizeof(VkRect2D) * nvp);
+        const bool cv = g_dsh.vp.changed(av) || g_dsh.nvp != nvp;
+        const bool cs = g_dsh.sc.changed(as) || g_dsh.nsc != nvp;
+        g_dsh.nvp = g_dsh.nsc = nvp;
+        if (cv) vkCmdSetViewportWithCount(cb, nvp, vp); else ft::split_count(ft::kCntSkipped);
+        if (cs) vkCmdSetScissorWithCount(cb, nvp, sc); else ft::split_count(ft::kCntSkipped);
+        return;
+    }
     vkCmdSetViewportWithCount(cb, nvp, vp);
     vkCmdSetScissorWithCount(cb, nvp, sc);
 }
@@ -666,16 +848,52 @@ uint32_t read_handle_word(int stage, int bank, int word) {
     return v;
 }
 
-TexResolved resolve_texture(const BindingDesc& d) {
+// [nvn] resolve_once (default on): a draw (or dispatch) resolves each texture binding once; prepare_textures, vol3d_prepare,
+// samples_depth_target, feedback_prepare, scene_upscale_for_draw, build_set_resolved and support_for_draw then share that result (they
+// called resolve_texture each, 2 shared locks and a view + sampler copy every time: up to 5 per binding per draw).
+// What resolve_texture returns is a function of: the handle (S.tex of the stage, or the word in the uniform block's memory), the bound
+// texture and sampler pools (S.tpool / S.spool) and their entries. Entries change only in texture_pool_register / sampler_pool_store,
+// which bump be::g_bind_gen under the pool's lock after the write; texture images remade or released (tex_rescale,
+// tex_enable_feedback_loop, release_texture_gpu, re-init) bump it too, though they keep the Texture* and the entry. The feedback remap
+// (g_fb_use), the 3D copies (g_vol3d_use), passes and render targets are applied by the callers AFTER resolve_texture, so they are not
+// inputs. Invariant: a slot of g_rc is used only within the draw scope it was filled in (g_rc_stamp, armed per begin_draw / do_dispatch
+// for that ProgLayout) and only while the handle read again now, both pool pointers and g_bind_gen (read before the resolve) are what
+// they were: so a slot is never staler than a call made at its fill time, and any pool write or image remake in between re-resolves.
+struct ResolveSlot {
+    uint64_t stamp = 0, gen = 0, handle = 0;
+    const void* tpool = nullptr;
+    const void* spool = nullptr;
     TexResolved r;
-    const DescriptorBinding& b = d.shader->refl.bindings[d.index];
-    uint64_t handle = 0;
-    if (b.nvn.source == NvnSource::SamplerBinding) {
-        const int idx = b.nvn.index;
-        if (idx >= 0 && idx < 64) handle = S.tex[d.nvn_stage][idx];
-    } else if (b.nvn.source == NvnSource::HandleInUniform) {
-        handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+};
+std::vector<ResolveSlot> g_rc;
+const ProgLayout* g_rc_pl = nullptr;   // the layout of the draw scope (null: no scope, resolve_texture resolves every time)
+uint64_t g_rc_stamp = 0;
+bool resolve_once_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "resolve_once", true);
+        NXLOG_I(kTag, "texture bindings: %s ([nvn] resolve_once)", v ? "resolved once per draw" : "resolved by every caller");
+        return v;
+    }();
+    return on;
+}
+// RAII draw scope: arm() once the draw's ProgLayout is known; the scope ends with the draw or dispatch setup.
+struct ResolveScope {
+    ResolveScope() = default;
+    ResolveScope(const ResolveScope&) = delete;
+    ResolveScope& operator=(const ResolveScope&) = delete;
+    void arm(const ProgLayout* pl) {
+        static const bool on = resolve_once_on();
+        if (!on || !pl) return;
+        ++g_rc_stamp;
+        g_rc_pl = pl;
+        if (g_rc.size() < pl->bindings.size()) g_rc.resize(pl->bindings.size());
     }
+    ~ResolveScope() { g_rc_pl = nullptr; }
+};
+
+TexResolved resolve_handle(uint64_t handle) {
+    TexResolved r;
+    ft::split_count(ft::kCntResolve);
     const uint32_t tid = handle_texture_id(handle), sid = handle_sampler_id(handle);
     if (S.tpool && static_cast<int>(tid) < S.tpool->count) {
         std::shared_lock<std::shared_mutex> lk(S.tpool->lock);
@@ -694,6 +912,32 @@ TexResolved resolve_texture(const BindingDesc& d) {
         }
     }
     return r;
+}
+
+TexResolved resolve_texture(const BindingDesc& d) {
+    const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+    uint64_t handle = 0;
+    if (b.nvn.source == NvnSource::SamplerBinding) {
+        const int idx = b.nvn.index;
+        if (idx >= 0 && idx < 64) handle = S.tex[d.nvn_stage][idx];
+    } else if (b.nvn.source == NvnSource::HandleInUniform) {
+        handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+    }
+    const ProgLayout* pl = g_rc_pl;
+    if (!pl || &d < pl->bindings.data() || &d >= pl->bindings.data() + pl->bindings.size()) return resolve_handle(handle);
+    ResolveSlot& sl = g_rc[static_cast<size_t>(&d - pl->bindings.data())];
+    const uint64_t gen = be::g_bind_gen.load(std::memory_order_acquire);   // before the resolve: a write after it is seen next time
+    if (sl.stamp == g_rc_stamp && sl.gen == gen && sl.handle == handle && sl.tpool == S.tpool.get() && sl.spool == S.spool.get()) {
+        ft::split_count(ft::kCntResolveHit);
+        return sl.r;
+    }
+    sl.r = resolve_handle(handle);
+    sl.stamp = g_rc_stamp;
+    sl.gen = gen;
+    sl.handle = handle;
+    sl.tpool = S.tpool.get();
+    sl.spool = S.spool.get();
+    return sl.r;
 }
 
 ViewRequest make_request(const DescriptorBinding& b, const TexResolved& r) {
@@ -786,16 +1030,53 @@ bool is_color_feedback(Texture* t) {
 }
 
 // A draw that samples its own colour attachment (the bloom composite of some frames reads the tone-mapped picture while it writes it back, one
-// pixel at a time): the console allows that, Vulkan has no such loop. The draw samples a copy of the image made just before it, which holds the
-// same values a pointwise read sees on the hardware (and the right ones when the shader reads another mip level of the attachment).
+// pixel at a time; the bloom mip chain renders one level of a texture while it samples the others through a view of all levels): the console
+// allows that, plain Vulkan has no such loop. Two ways, per draw:
+// - feedback loop ([nvn] feedback_loop, VK_EXT_attachment_feedback_loop_layout): the image (remade once with the feedback loop usage) is
+//   attachment and sampled texture at once in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT, with a pipeline made with the feedback loop flag. The pass
+//   before the draw is ended (a barrier: the draw reads what the draws before it wrote) and the draw's pass begins in that layout. No copy. A
+//   pointwise read sees the pixel before the draw writes it, as on the console.
+// - copy: the draw samples a copy of the image made just before it, which holds the same values a pointwise read sees on the hardware (and the
+//   right ones when the shader reads another mip level of the attachment). [nvn] feedback_copy_levels: only the levels the draw's view covers
+//   that were written since the copy was last brought up to date are copied (tex_write_gen); the mip chain's draws each copy one level.
 struct FbClone {
     Ref<Texture> tex;
     uint64_t last = 0;                                     // serial of the last submission that used the copy
+    uint64_t gen[16] = {};                                 // the attachment's write generation of each level when it was copied (0: never)
 };
 std::unordered_map<Texture*, FbClone> g_fb_clone;          // attachment -> its copy (same shape, no storage in game memory)
 std::unordered_map<Texture*, Texture*> g_fb_use;           // attachment -> the copy the current draw samples
 bool g_fb_seen = false;                                    // the last check found a feedback binding: check every draw until it goes away
 std::atomic<int64_t> g_fb_clone_n{0};                      // g_fb_clone's size, mirrored for the gauge (the map itself is render thread only)
+
+// [nvn] feedback_loop: auto (default) = the feedback loop layout where the GPU has VK_EXT_attachment_feedback_loop_layout, off = the copy.
+bool fb_loop_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "feedback_loop", "auto");
+        const bool want = v != "off" && v != "0" && v != "false";
+        const bool have = device().features().attachment_feedback_loop;
+        NXLOG_I(kTag, "feedback draws: %s ([nvn] feedback_loop = %s, VK_EXT_attachment_feedback_loop_layout %s)", want && have ? "feedback loop layout" : "copy",
+                v.c_str(), have ? "yes" : "no");
+        return want && have;
+    }();
+    return on;
+}
+// [nvn] feedback_copy_levels: auto (default) = the copy path copies only the levels that changed, off = every level each time.
+bool fb_levels_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "feedback_copy_levels", "auto");
+        return v != "off" && v != "0" && v != "false";
+    }();
+    return on;
+}
+
+// The texture is the image of a colour slot that the open pass has in the feedback loop layout (its draw samples it there).
+bool fbl_sampled(Texture* t) {
+    if (!P.open || !P.fbl || !t) return false;
+    for (uint32_t i = 0; i < P.ncolor && i < 8; ++i)
+        if (((P.fbl >> i) & 1) && shares_image(t, P.color[i].tex)) return true;
+    return false;
+}
 
 Texture* feedback_clone(Texture* t) {
     FbClone& fe = g_fb_clone[t];
@@ -816,13 +1097,27 @@ Texture* feedback_clone(Texture* t) {
         c = Ref<Texture>(n);
         static uint32_t next_id = 0x7f000000;
         n->id = next_id++;
+        for (uint64_t& g : fe.gen) g = 0;
     }
     return tex_gpu_scaled(c.get(), tex_scale(t)) ? c.get() : nullptr;
 }
 
+// GPU pass profiler label: size, format, levels, the level the pass writes and the levels the draw samples.
+void feedback_label(const TexResolved& r, const char* what) {
+    uint32_t att_lv = 0;
+    for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) { att_lv = S.color_level[i]; break; }
+    char fb[112];
+    std::snprintf(fb, sizeof fb, "feedback %s %ux%u %s lv%u w%u s%d+%d", what, r.tex->b.width, r.tex->b.height, r.tex->fmt ? r.tex->fmt->name : "?",
+                  tex_levels(r.tex), att_lv, r.has_view && r.view.has_levels ? r.view.min_level : 0,
+                  r.has_view && r.view.has_levels ? r.view.num_levels : static_cast<int>(tex_levels(r.tex)));
+    gpass_stamp(*F, fb, 0);
+}
+
 void feedback_prepare(const ProgLayout& pl) {
-    g_fb_use.clear();
+    if (!g_fb_use.empty()) { g_fb_use.clear(); rp_bump(ft::kCntEpFeedback); }
+    g_fbl_want = 0;
     bool any = false;
+    TexResolved loop_label;
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
@@ -830,27 +1125,78 @@ void feedback_prepare(const ProgLayout& pl) {
         const TexResolved r = resolve_texture(d);
         if (!r.tex || !tex_gpu(r.tex) || !is_color_feedback(r.tex) || r.tex->b.samples > 1 || g_fb_use.count(r.tex)) continue;
         any = true;
+        if (fb_loop_on()) {
+            uint8_t slots = 0;
+            for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) slots |= static_cast<uint8_t>(1u << i);
+            if (slots && (g_fbl_want & slots) == slots) continue;          // another binding of the same image
+            if (!tex_has_feedback_loop(r.tex)) {                          // the first feedback draw of this image: remade with the usage (once)
+                end_pass();
+                tex_enable_feedback_loop(r.tex, *F);
+            }
+            if (slots && tex_has_feedback_loop(r.tex)) {
+                if (!tex_current_on_gpu(r.tex)) {
+                    end_pass();
+                    tex_ensure_current(r.tex, *F);
+                }
+                g_fbl_want |= slots;
+                if (gpass_on() && !loop_label.tex) loop_label = r;   // stamped after the pass ends below (the open pass's draws are its own interval)
+                continue;
+            }
+        }
         Texture* c = feedback_clone(r.tex);
         if (!c) continue;
-        end_pass();
-        tex_ensure_current(r.tex, *F);                                    // storage the game wrote since the image was made reaches the copy too
-        tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
-        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        if (!tex_current_on_gpu(r.tex)) {
+            end_pass();
+            tex_ensure_current(r.tex, *F);                                // storage the game wrote since the image was made reaches the copy too
+        }
+        FbClone& fe = g_fb_clone[r.tex];
+        const uint32_t nlv = tex_levels(r.tex);
+        // the levels the draw's view covers (a level outside it may stay stale: its generation says so when a later view covers it)
+        uint32_t lo = 0, hi = nlv;
+        if (r.has_view && r.view.has_levels) {
+            lo = std::min<uint32_t>(static_cast<uint32_t>(std::max(0, static_cast<int>(r.view.min_level))), nlv);
+            if (r.view.num_levels > 0) hi = std::min<uint32_t>(nlv, lo + static_cast<uint32_t>(r.view.num_levels));
+        }
+        const bool by_level = fb_levels_on() && nlv <= 16;
+        if (!by_level) { lo = 0; hi = nlv; }
         std::vector<VkImageCopy> regions;
-        for (uint32_t lv = 0; lv < tex_levels(r.tex); ++lv) {
-            const VkExtent3D e = tex_image_extent(r.tex, lv);
+        uint64_t gens[16] = {};
+        for (uint32_t lv = lo; lv < hi; ++lv) {
+            if (by_level) {
+                gens[lv] = tex_write_gen(r.tex, lv);
+                if (gens[lv] != 0 && gens[lv] == fe.gen[lv]) continue;  // not written since it was copied
+            }
             VkImageCopy rc = {};
             rc.srcSubresource = {tex_aspect(r.tex), lv, 0, tex_layers(r.tex)};
             rc.dstSubresource = {tex_aspect(c), lv, 0, tex_layers(c)};
-            rc.extent = e;
+            rc.extent = tex_image_extent(r.tex, lv);
             regions.push_back(rc);
         }
+        g_fb_use[r.tex] = c;
+        rp_bump(ft::kCntEpFeedback);   // [nvn] set_reuse: what this texture resolves to changed
+        if (regions.empty()) continue;                                    // the copy is current for every level the draw samples (no pass break)
+        end_pass();
+        tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
+        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkCmdCopyImage(F->cb, tex_image(r.tex), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(c), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), regions.data());
         tex_mark_gpu_written(c);
         tex_transition(c, *F, tex_sampled_layout(c));
-        g_fb_use[r.tex] = c;
+        if (by_level)
+            for (const VkImageCopy& rc : regions) fe.gen[rc.srcSubresource.mipLevel] = gens[rc.srcSubresource.mipLevel];
+        rp_bump(ft::kCntEpFeedback);
         counters().copies.fetch_add(1, std::memory_order_relaxed);
-        gstamp("feedback copy");
+        if (gpass_on()) {
+            char what[24];
+            if (regions.size() == hi - lo) std::snprintf(what, sizeof what, "copy");
+            else std::snprintf(what, sizeof what, "copy %zul", regions.size());   // only that many of the sampled levels were copied
+            feedback_label(r, what);
+        }
+    }
+    // The draws before this one wrote the attachment it reads through the feedback loop layout: the pass ends (with a barrier) and the draw's
+    // pass begins in that layout (ensure_pass). Each such draw gets its own pass, as each copy did.
+    if (g_fbl_want) {
+        end_pass();
+        if (loop_label.tex) feedback_label(loop_label, "loop");
     }
     g_fb_seen = any;
 }
@@ -946,6 +1292,7 @@ void vol3d_prepare(const ProgLayout& pl) {
                         r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.target, d.shader->hash.c_str(), b.name.c_str());
         }
         g_vol3d_use[r.tex] = c.get();
+        rp_bump(ft::kCntEpVol3d);
     }
 }
 
@@ -1402,12 +1749,90 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
     return extras::temporal_jitter_block(words, n_words, e.width, e.height, g_tsr_frame);
 }
 
+// Descriptor set number `set` of the bound program: the one of the last draw (SetMemo below), a set of this submission with the same contents (g_set_cache), or a new one.
+// Render thread only (scratch arrays below are reused).
+// [nvn] set_reuse: the inputs of the last set built for each set number. A set whose bindings are all sampled textures (combined image
+// samplers by binding or by handle in a uniform block) resolves to the same descriptors as long as the program, the handles, the pools,
+// the replay epoch (g_rp_epoch: passes, render targets, feedback and 3D copies, GPU writes, submissions), be::g_bind_gen (pool
+// registrations, texture images made, replaced or released) and the scene upscaler's override are the same: such a draw takes the set of
+// the one before without resolving every texture again (about 45 % of the texture sets of a frame are the one before, typically a
+// per-object uniform block changed between two draws of one material). Texel buffer, storage and uniform bindings are never reused
+// (their resolution has side effects or reads pool copies that change inside a submission).
+struct SetMemo {
+    const ProgLayout* pl = nullptr;
+    uint64_t epoch = 0, gen = 0;
+    const void* tpool = nullptr;
+    const void* spool = nullptr;
+    const void* su_tex = nullptr;
+    VkImageView su_view = VK_NULL_HANDLE;
+    uint32_t n = 0;
+    uint64_t h[32] = {};
+    VkDescriptorSet ds = VK_NULL_HANDLE;
+};
+SetMemo g_set_memo[4];
+// Fills m with the current inputs of set set of pl; false when the set cannot be reused (a binding of another kind, too many bindings).
+bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
+    m.pl = &pl;
+    m.epoch = g_rp_epoch;
+    m.gen = be::g_bind_gen.load(std::memory_order_relaxed);
+    m.tpool = S.tpool.get();
+    m.spool = S.spool.get();
+    m.su_tex = g_su_tex;
+    m.su_view = g_su_view;
+    m.n = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.set != set) continue;
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || m.n >= 32) return false;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        uint64_t handle = 0;
+        if (b.nvn.source == NvnSource::SamplerBinding) {
+            if (b.nvn.index >= 0 && b.nvn.index < 64) handle = S.tex[d.nvn_stage][b.nvn.index];
+        } else if (b.nvn.source == NvnSource::HandleInUniform) {
+            handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+        } else {
+            return false;
+        }
+        m.h[m.n++] = handle;
+    }
+    return m.n > 0;
+}
+bool set_memo_same(const SetMemo& a, const SetMemo& b) {
+    return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
+           a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
+}
+VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
-    std::vector<VkWriteDescriptorSet> writes;
-    std::vector<VkDescriptorBufferInfo> binfo;
-    std::vector<VkDescriptorImageInfo> iinfo;
-    std::vector<VkBufferView> tinfo;
+    static const bool reuse_on = set_reuse_on();
+    if (!reuse_on || g_trace || g_shadowing) return build_set_resolved(pl, set);
+    SetMemo now;
+    if (!set_memo_inputs(pl, set, now)) return build_set_resolved(pl, set);
+    SetMemo& last = g_set_memo[set & 3];
+    if (last.ds && set_memo_same(now, last)) {
+        rp_count(kRpReuse);
+        ft::split_count(ft::kCntSetHit);
+        return last.ds;
+    }
+    ft::split_count(ft::kCntSetMiss);
+    now.ds = build_set_resolved(pl, set);
+    last = now;
+    return now.ds;
+}
+
+// The set resolved from the current state: a set of this submission with the same contents (g_set_cache), or a new one.
+VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
+    RpScope rp_(kRpSetBuild);
+    RpScope rps_(kRpSet0 + static_cast<int>(set & 3));
+    // reused across calls (no heap allocation per draw); the pointers the writes keep stay valid: capacity is reserved for every binding
+    static std::vector<VkWriteDescriptorSet> writes;
+    static std::vector<VkDescriptorBufferInfo> binfo;
+    static std::vector<VkDescriptorImageInfo> iinfo;
+    static std::vector<VkBufferView> tinfo;
+    writes.clear();
+    binfo.clear();
+    iinfo.clear();
+    tinfo.clear();
     const size_t nb = pl.bindings.size();
+    writes.reserve(nb);
     binfo.reserve(nb);
     iinfo.reserve(nb);
     tinfo.reserve(nb);
@@ -1422,6 +1847,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
         w.descriptorCount = 1;
         w.descriptorType = d.type;
         if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+            RpScope rpb_(kRpBuf, g_rp_fine);
             VkDescriptorBufferInfo bi = {dummy_buffer(), 0, 65536};
             switch (b.nvn.source) {
                 case NvnSource::SupportBuffer:
@@ -1528,6 +1954,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             w.pBufferInfo = &binfo.back();
             mix(reinterpret_cast<uint64_t>(bi.buffer)); mix(bi.offset); mix(bi.range);
         } else if (d.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+            RpScope rpt_(kRpTex, g_rp_fine);
             VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             TexResolved r = resolve_texture(d);
             if (r.tex) {
@@ -1550,11 +1977,12 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             }
             // a compute dispatch is never inside the graphics pass: a colour attachment of the last pass is an ordinary texture to it
             const bool feedback = r.tex && d.nvn_stage != kCompute && is_color_feedback(r.tex);
-            if (r.tex && tex_gpu(r.tex) && !feedback) {
+            const bool loop = feedback && fbl_sampled(r.tex);      // sampled in the feedback loop layout of the open pass (feedback_prepare)
+            if (r.tex && tex_gpu(r.tex) && (!feedback || loop)) {
                 VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
                 if (v) {
                     ii.imageView = v;
-                    ii.imageLayout = tex_sampled_layout(r.tex);
+                    ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
                     if (r.has_sampler) ii.sampler = sampler_for(r.smp);
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
@@ -1605,6 +2033,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             w.pImageInfo = &iinfo.back();
             mix(reinterpret_cast<uint64_t>(ii.imageView));
         } else if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
+            RpScope rpx_(kRpTexel, g_rp_fine);
             // NVN BUFFER-target textures (samplerBuffer / imageBuffer): a texel buffer view over the pool memory that holds the texels
             const bool storage = d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             const VkFormat shader_fmt = storage ? image_format_vk(b.image.format) : VK_FORMAT_UNDEFINED;
@@ -1655,8 +2084,15 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
         }
         writes.push_back(w);
     }
+    if (ft::on()) {   // profile: the same contents as the last build of this set number
+        static uint64_t last[4];
+        if (last[set & 3] == key) rp_count(kRpSame0 + static_cast<int>(set & 3));
+        last[set & 3] = key;
+    }
     auto it = g_set_cache.find(key);
     if (it != g_set_cache.end()) return it->second;
+    RpScope rpw_(kRpSetWrite);
+    rp_count(kRpMiss0 + static_cast<int>(set & 3));
     VkDescriptorSet ds = F->alloc_set(pl.sets[set]);
     if (!ds) return VK_NULL_HANDLE;
     for (auto& w : writes) w.dstSet = ds;
@@ -1733,11 +2169,33 @@ void support_for_draw(const ProgLayout& pl, bool compute) {
 }
 
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp) {
-    for (uint32_t set = 0; set < 4; ++set) {
-        if (!pl.has_set[set]) continue;
-        VkDescriptorSet ds = build_set(pl, set);
-        if (ds) vkCmdBindDescriptorSets(F->cb, bp, pl.layout, set, 1, &ds, 0, nullptr);
+    if (!bind_coalesce_on()) {
+        for (uint32_t set = 0; set < 4; ++set) {
+            if (!pl.has_set[set]) continue;
+            VkDescriptorSet ds = build_set(pl, set);
+            RpScope rp_(kRpSetBind);
+            if (ds) vkCmdBindDescriptorSets(F->cb, bp, pl.layout, set, 1, &ds, 0, nullptr);
+        }
+        return;
     }
+    // one call per run of consecutive sets
+    VkDescriptorSet run[4];
+    uint32_t first = 0, n = 0;
+    auto flush = [&] {
+        if (!n) return;
+        RpScope rp_(kRpSetBind);
+        vkCmdBindDescriptorSets(F->cb, bp, pl.layout, first, n, run, 0, nullptr);
+        if (n > 1) ft::split_count(ft::kCntMerged, n - 1);
+        n = 0;
+    };
+    for (uint32_t set = 0; set < 4; ++set) {
+        if (!pl.has_set[set]) { flush(); continue; }
+        VkDescriptorSet ds = build_set(pl, set);
+        if (!ds) { flush(); continue; }
+        if (!n) first = set;
+        run[n++] = ds;
+    }
+    flush();
 }
 
 // ---- draws -------------------------------------------------------------------------------------------------------------------
@@ -1860,14 +2318,23 @@ bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
 
 void set_dynamic_state(uint32_t dirty, VkPrimitiveTopology topo, bool indexed, int index_type) {
     VkCommandBuffer cb = F->cb;
+    const bool co = bind_coalesce_on();
+    // true: send the value (always when the key is off)
+    auto ch = [co](auto& sh, const auto& v) {
+        if (!co || sh.changed(v)) return true;
+        ft::split_count(ft::kCntSkipped);
+        return false;
+    };
     if (dirty & kDynVp) set_viewports_and_scissors();
     if (dirty & kDynRaster) {
-        vkCmdSetCullMode(cb, vk_cull_mode(S.poly.cull_face));
+        const VkCullModeFlags cull = vk_cull_mode(S.poly.cull_face);
+        if (ch(g_dsh.cull, static_cast<uint32_t>(cull))) vkCmdSetCullMode(cb, cull);
         VkFrontFace ff = vk_front_face(S.poly.front_face);
         if (S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT) ff = ff == VK_FRONT_FACE_CLOCKWISE ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;   // unflipped viewport
-        vkCmdSetFrontFace(cb, ff);
-        vkCmdSetRasterizerDiscardEnable(cb, S.rasterizer_discard);
-        vkCmdSetLineWidth(cb, device().features().wide_lines ? std::max(1.0f, S.line_width) : 1.0f);
+        if (ch(g_dsh.front, static_cast<uint32_t>(ff))) vkCmdSetFrontFace(cb, ff);
+        if (ch(g_dsh.discard, static_cast<uint32_t>(S.rasterizer_discard ? 1 : 0))) vkCmdSetRasterizerDiscardEnable(cb, S.rasterizer_discard);
+        const float lw = device().features().wide_lines ? std::max(1.0f, S.line_width) : 1.0f;
+        if (ch(g_dsh.line_width, lw)) vkCmdSetLineWidth(cb, lw);
     }
     if (topo != g_topo) {
         vkCmdSetPrimitiveTopology(cb, topo);
@@ -1876,28 +2343,35 @@ void set_dynamic_state(uint32_t dirty, VkPrimitiveTopology topo, bool indexed, i
     const bool restart = S.prim_restart && indexed &&
                          ((index_type == NVN_INDEX_TYPE_UNSIGNED_INT && S.restart_index == 0xffffffffu) || (index_type == NVN_INDEX_TYPE_UNSIGNED_SHORT && S.restart_index == 0xffffu) ||
                           (index_type == NVN_INDEX_TYPE_UNSIGNED_BYTE && S.restart_index == 0xffu));
-    if (!g_restart_valid || restart != g_restart || (dirty & kDynRaster)) {
+    if (!g_restart_valid || restart != g_restart || (!co && (dirty & kDynRaster))) {
         vkCmdSetPrimitiveRestartEnable(cb, restart);
         g_restart = restart;
         g_restart_valid = true;
     }
     const bool have_depth = P.depth_fmt != VK_FORMAT_UNDEFINED;
     if (dirty & kDynDepth) {
-        vkCmdSetDepthTestEnable(cb, have_depth && S.ds.depth_test);
-        vkCmdSetDepthWriteEnable(cb, have_depth && !P.depth_ro && S.ds.depth_test && S.ds.depth_write);
-        vkCmdSetDepthCompareOp(cb, vk_compare_op(S.ds.depth_func ? S.ds.depth_func : NVN_DEPTH_FUNC_LESS));
-        vkCmdSetDepthBoundsTestEnable(cb, have_depth && S.depth_bounds && device().features().depth_bounds);
-        if (S.depth_bounds && device().features().depth_bounds) vkCmdSetDepthBounds(cb, S.db_near, S.db_far);
+        const bool dt = have_depth && S.ds.depth_test, dw = have_depth && !P.depth_ro && S.ds.depth_test && S.ds.depth_write;
+        const VkCompareOp dc = vk_compare_op(S.ds.depth_func ? S.ds.depth_func : NVN_DEPTH_FUNC_LESS);
+        const bool dbt = have_depth && S.depth_bounds && device().features().depth_bounds;
+        if (ch(g_dsh.depth_test, static_cast<uint32_t>(dt))) vkCmdSetDepthTestEnable(cb, dt);
+        if (ch(g_dsh.depth_write, static_cast<uint32_t>(dw))) vkCmdSetDepthWriteEnable(cb, dw);
+        if (ch(g_dsh.depth_cmp, static_cast<uint32_t>(dc))) vkCmdSetDepthCompareOp(cb, dc);
+        if (ch(g_dsh.depth_bounds_test, static_cast<uint32_t>(dbt))) vkCmdSetDepthBoundsTestEnable(cb, dbt);
+        if (S.depth_bounds && device().features().depth_bounds && ch(g_dsh.depth_bounds, std::array<float, 2>{S.db_near, S.db_far})) vkCmdSetDepthBounds(cb, S.db_near, S.db_far);
     }
     if (dirty & kDynStencil) {
-        vkCmdSetStencilTestEnable(cb, P.has_stencil && S.ds.stencil_test);
+        const bool ste = P.has_stencil && S.ds.stencil_test;
+        if (ch(g_dsh.stencil_test, static_cast<uint32_t>(ste))) vkCmdSetStencilTestEnable(cb, ste);
         for (int f = 0; f < 2; ++f) {
             const VkStencilFaceFlags face = f == 0 ? VK_STENCIL_FACE_FRONT_BIT : VK_STENCIL_FACE_BACK_BIT;
-            vkCmdSetStencilOp(cb, face, vk_stencil_op(S.ds.stencil_fail[f]), vk_stencil_op(S.ds.depth_pass[f]), vk_stencil_op(S.ds.depth_fail[f]),
-                              vk_compare_op(S.ds.stencil_func[f] ? S.ds.stencil_func[f] : NVN_STENCIL_FUNC_ALWAYS));
-            vkCmdSetStencilReference(cb, face, S.stencil_ref[f]);
-            vkCmdSetStencilCompareMask(cb, face, S.stencil_vmask[f]);
-            vkCmdSetStencilWriteMask(cb, face, P.depth_ro ? 0u : S.stencil_wmask[f]);
+            const std::array<uint32_t, 5> op = {static_cast<uint32_t>(face), static_cast<uint32_t>(vk_stencil_op(S.ds.stencil_fail[f])), static_cast<uint32_t>(vk_stencil_op(S.ds.depth_pass[f])),
+                                                static_cast<uint32_t>(vk_stencil_op(S.ds.depth_fail[f])), static_cast<uint32_t>(vk_compare_op(S.ds.stencil_func[f] ? S.ds.stencil_func[f] : NVN_STENCIL_FUNC_ALWAYS))};
+            if (ch(g_dsh.stencil_op[f], op))
+                vkCmdSetStencilOp(cb, face, static_cast<VkStencilOp>(op[1]), static_cast<VkStencilOp>(op[2]), static_cast<VkStencilOp>(op[3]), static_cast<VkCompareOp>(op[4]));
+            if (ch(g_dsh.stencil_ref[f], static_cast<uint32_t>(S.stencil_ref[f]))) vkCmdSetStencilReference(cb, face, S.stencil_ref[f]);
+            if (ch(g_dsh.stencil_cmask[f], static_cast<uint32_t>(S.stencil_vmask[f]))) vkCmdSetStencilCompareMask(cb, face, S.stencil_vmask[f]);
+            const uint32_t wm = P.depth_ro ? 0u : static_cast<uint32_t>(S.stencil_wmask[f]);
+            if (ch(g_dsh.stencil_wmask[f], wm)) vkCmdSetStencilWriteMask(cb, face, wm);
         }
     }
     if (dirty & kDynBias) {
@@ -1906,10 +2380,14 @@ void set_dynamic_state(uint32_t dirty, VkPrimitiveTopology topo, bool indexed, i
         const bool bias = (mode == NVN_POLYGON_MODE_FILL && (off & NVN_POLYGON_OFFSET_ENABLE_FILL)) ||
                           (mode == NVN_POLYGON_MODE_LINE && (off & NVN_POLYGON_OFFSET_ENABLE_LINE)) ||
                           (mode == NVN_POLYGON_MODE_POINT && (off & NVN_POLYGON_OFFSET_ENABLE_POINT));
-        vkCmdSetDepthBiasEnable(cb, bias);
-        vkCmdSetDepthBias(cb, S.bias_units, device().features().depth_bias_clamp ? S.bias_clamp : 0.0f, S.bias_factor);
+        if (ch(g_dsh.bias_enable, static_cast<uint32_t>(bias))) vkCmdSetDepthBiasEnable(cb, bias);
+        const float bclamp = device().features().depth_bias_clamp ? S.bias_clamp : 0.0f;
+        if (ch(g_dsh.bias, std::array<float, 3>{S.bias_units, bclamp, S.bias_factor})) vkCmdSetDepthBias(cb, S.bias_units, bclamp, S.bias_factor);
     }
-    if (dirty & kDynBlend) vkCmdSetBlendConstants(cb, S.blend_color);
+    if (dirty & kDynBlend) {
+        const std::array<float, 4> bc = {S.blend_color[0], S.blend_color[1], S.blend_color[2], S.blend_color[3]};
+        if (ch(g_dsh.blend, bc)) vkCmdSetBlendConstants(cb, S.blend_color);
+    }
 }
 
 // Prepares everything a draw needs and binds it. False: skip the draw.
@@ -1993,6 +2471,7 @@ void temporal_for_draw(const ProgLayout& pl) {
     VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
                                                 S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W);
     g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
+    shadow_invalidate();
     if (out) {
         g_su_tex = best_r.tex;
         g_su_view = out;
@@ -2029,6 +2508,7 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
         if (!src) return;
         VkImageView up = su->upscale(F->cb, src, VkExtent2D{se.width, se.height}, VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height}, true,
                                      extras::scene_upscale_prescale(), extras::upscale_sharpness());
+        shadow_invalidate();
         if (up) {
             g_su_tex = r.tex;
             g_su_view = up;
@@ -2109,6 +2589,8 @@ const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderInfo* te
 const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl] : g_gen_tcs; }
 
 bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
+    RpScope rp_all(kRpDraw);
+    ResolveScope rs_;
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
@@ -2138,8 +2620,10 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     }
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
+    rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
+        RpScope rp_(kRpPrep);
         g_prog_writes = false;
         for (const BindingDesc& d : pl->bindings) g_prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         attach_targets(false);
@@ -2162,12 +2646,17 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
         scene_upscale_for_draw(*pl);
     }
     if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
-    if (!ensure_pass(g_want_depth_ro)) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
+    bool pass_ok;
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_fbl_want); }
+    if (!pass_ok) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
     if (g_prog_writes || g_xfb_active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
-    if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe) {
+    if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {
+        RpScope rp_(kRpPipe);
         GraphicsKey key;
         build_key(key, topo);
+        key.fb_loop = P.fbl != 0 ? 1 : 0;   // the pass has an attachment in the feedback loop layout
+        g_pipe_fbl = key.fb_loop != 0;
         g_pipe = graphics_pipeline(key, *pl);
         g_pipe_xfb = key.xfb != 0;
         g_pipe_topo = topo;
@@ -2307,8 +2796,9 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
             note_unsupported("transform feedback into an address outside every pool");
         }
     }
-    set_dynamic_state(g_dirty, topo, indexed, index_type);
+    { RpScope rp_(kRpDyn); set_dynamic_state(g_dirty, topo, indexed, index_type); }
     if (g_dirty & kDesc) {
+        RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
     }
@@ -2326,31 +2816,66 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
                     S.tess_outer[0], S.tess_outer[1], S.tess_outer[2], S.tess_outer[3], S.tess_inner[0], S.tess_inner[1]);
     }
     if (g_dirty & (kVb | kPipe)) {
+        RpScope rp_(kRpVb);
+        const bool co = bind_coalesce_on();
+        // pending run of bindings to bind with one call
+        VkBuffer rb[16];
+        VkDeviceSize ro[16], rs[16], rst[16];
+        uint32_t rfirst = 0, rn = 0;
+        auto flush = [&] {
+            if (!rn) return;
+            vkCmdBindVertexBuffers2(F->cb, rfirst, rn, rb, ro, rs, rst);
+            if (rn > 1) ft::split_count(ft::kCntMerged, rn - 1);
+            g_vb_bound_in_cb = true;
+            rn = 0;
+        };
+        auto add = [&](uint32_t binding, VkBuffer buf, VkDeviceSize off, VkDeviceSize size, VkDeviceSize stride) {
+            if (co && binding < 16) {
+                VbShadow& sh = g_vbsh[binding];
+                if (sh.ok && sh.buf == buf && sh.off == off && sh.size == size && sh.stride == stride) { ft::split_count(ft::kCntSkipped); flush(); return; }
+                sh = {buf, off, size, stride, true};
+                if (rn && rfirst + rn == binding) {
+                    rb[rn] = buf; ro[rn] = off; rs[rn] = size; rst[rn] = stride; ++rn;
+                    return;
+                }
+                flush();
+                rfirst = binding;
+                rb[0] = buf; ro[0] = off; rs[0] = size; rst[0] = stride;
+                rn = 1;
+                return;
+            }
+            vkCmdBindVertexBuffers2(F->cb, binding, 1, &buf, &off, &size, &stride);
+            g_vb_bound_in_cb = true;
+        };
+        // bindings in ascending order so that neighbours merge
+        uint32_t order[16], norder = 0;
         for (uint32_t i = 0; i < g_key_attr_count; ++i) {
             const uint32_t binding = g_key_binding[i];
             bool done = false;
-            for (uint32_t j = 0; j < i; ++j) if (g_key_binding[j] == binding) done = true;
-            if (done) continue;
+            for (uint32_t j = 0; j < norder; ++j) if (order[j] == binding) done = true;
+            if (!done && norder < 16) order[norder++] = binding;
+        }
+        if (co) std::sort(order, order + norder);
+        for (uint32_t k = 0; k < norder; ++k) {
+            const uint32_t binding = order[k];
             if (g_key_dummy_binding && binding == static_cast<uint32_t>(g_key_dummy_binding - 1)) {
-                VkBuffer dummy = dummy_buffer();
-                VkDeviceSize off = kDummyAttrFloatOffset, size = 32, stride = 0;
-                vkCmdBindVertexBuffers2(F->cb, binding, 1, &dummy, &off, &size, &stride);
-                g_vb_bound_in_cb = true;
+                add(binding, dummy_buffer(), kDummyAttrFloatOffset, 32, 0);
                 continue;
             }
             const GState::Bind& vb = S.vtx[binding];
             BufRef br = vb.addr ? resolve_read(vb.addr, vb.size, kReadVertex) : BufRef{dummy_buffer(), 0, 65536, false};
             VkDeviceSize size = vb.size ? std::min<VkDeviceSize>(vb.size, br.avail) : br.avail;
             VkDeviceSize stride = static_cast<VkDeviceSize>(S.stream[binding].stride);
-            vkCmdBindVertexBuffers2(F->cb, binding, 1, &br.buffer, &br.offset, &size, &stride);
-            g_vb_bound_in_cb = true;
+            add(binding, br.buffer, br.offset, size, stride);
         }
+        flush();
         if (!g_vb_bound_in_cb) {
             // the pipeline's vertex binding strides are dynamic: a command buffer that never bound a vertex buffer must still bind one
             VkBuffer dummy = dummy_buffer();
             VkDeviceSize off = 0, size = 65536, stride = 0;
             vkCmdBindVertexBuffers2(F->cb, 0, 1, &dummy, &off, &size, &stride);
             g_vb_bound_in_cb = true;
+            if (co) g_vbsh[0] = {dummy, off, size, stride, true};
         }
     }
     g_dirty = g_mirror_stale ? (kVb | kDesc) : 0;     // a storage buffer of this draw made copied pages stale: the next draw binds again
@@ -2446,7 +2971,7 @@ bool bind_u32_indices(const std::vector<uint32_t>& idx) {
     UploadAlloc u = F->upload(idx.size() * 4, 4);
     if (!u) return false;
     std::memcpy(u.ptr, idx.data(), idx.size() * 4);
-    vkCmdBindIndexBuffer(F->cb, u.buffer, u.offset, VK_INDEX_TYPE_UINT32);
+    bind_index_buffer(F->cb, u.buffer, u.offset, VK_INDEX_TYPE_UINT32);
     return true;
 }
 
@@ -2467,7 +2992,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
         if (!bind_u32_indices(idx)) return;
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, 0, p.base_instance);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     trace_snap_after_draw();
@@ -2551,10 +3076,10 @@ void do_draw_elements(const P_DrawElements& p) {
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     } else {
         BufRef br = resolve_read(p.index_address, static_cast<uint64_t>(p.count) * isz, kReadIndex);
-        vkCmdBindIndexBuffer(F->cb, br.buffer, br.offset, vk_index_type(static_cast<int>(p.type)));
+        bind_index_buffer(F->cb, br.buffer, br.offset, vk_index_type(static_cast<int>(p.type)));
         vkCmdDrawIndexed(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     trace_snap_after_draw();
@@ -2630,7 +3155,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
         drew = true;
     }
     if (drew) {
-        counters().draws.fetch_add(1, std::memory_order_relaxed);
+        counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
         g_pass_draws++;
     } else {
         counters().draws_skipped.fetch_add(1);
@@ -2657,7 +3182,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     BufRef ib = held_or_pool(p.indirect_address, (p.stride ? static_cast<uint64_t>(p.stride) : cmd_size) * (n_cmds - 1) + cmd_size, kOutIndirect, false);
     if (indexed) {
         BufRef xb = resolve_buffer(p.index_address, 4);
-        vkCmdBindIndexBuffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
+        bind_index_buffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
     if (p.multi && p.count_address) {
         BufRef cb = held_or_pool(p.count_address, 4, kOutIndirect, false);
@@ -2669,7 +3194,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     } else {
         vkCmdDrawIndirect(F->cb, ib.buffer, ib.offset, 1, 16);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     trace_snap_after_draw();
 }
@@ -2698,7 +3223,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     for (uint32_t b = 0; !stride && b < 16; ++b) stride = S.stream[b].stride;
     if (!stride) { note_unsupported("DrawTransformFeedback with no vertex stream stride"); counters().draws_skipped.fetch_add(1); return; }
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb_counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     trace_snap_after_draw();
 }
@@ -2706,6 +3231,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
 std::string g_cs_missing;   // trace: the untranslated block(s) of the bound compute program ("cs -" dispatches)
 
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
+    RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
     TRACE("dispatch %u %u %u indirect %llx cs %s%s%s", x, y, z, static_cast<unsigned long long>(indirect), cs ? cs->hash.c_str() : "-",
           !cs && !g_cs_missing.empty() ? " missing " : "", !cs ? g_cs_missing.c_str() : "");
@@ -2713,6 +3239,8 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     const ShaderInfo* stages[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, cs};
     const ProgLayout* pl = prog_layout(stages);
     if (!pl) return;
+    ResolveScope rs_;
+    rs_.arm(pl);
     prepare_textures(*pl);
     end_pass();
     if (g_trace) {   // the compute bindings: buffers (source, slot, address), texel buffers and textures, and the first words of each uniform block
@@ -2765,6 +3293,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     shadows_after_dispatch();
     memory_barrier(F->cb);
     g_dirty = kAllDirty;
+    shadow_invalidate();
     counters().dispatches.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -2837,6 +3366,7 @@ void do_clear_color(const P_ClearColor& p) {
             g_dirty = kAllDirty;
             g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
             g_restart_valid = false;
+            shadow_invalidate();
             return;
         }
         note_unsupported("ClearColor with a partial channel mask (all channels are cleared)");
@@ -2872,6 +3402,7 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
             g_dirty = kAllDirty;
             g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
             g_restart_valid = false;
+            shadow_invalidate();
             return;
         }
         note_unsupported("ClearDepthStencil with a partial stencil mask (the whole stencil is cleared)");
@@ -3086,6 +3617,28 @@ void apply_bind_program(const P_BindProgram& p) {
     }
 }
 
+// [nvn] epoch_exact: SetRenderTargets that sets exactly the render target state already set (count, every colour and the depth texture,
+// whether each has a view and that view field by field). The state it would write is then the state there is, so nothing the set memo
+// depends on through the targets changes: is_color_feedback reads S.color_tex / S.ncolor, the depth sampled by a draw reads S.depth_tex,
+// and the pass (P, fbl_sampled) is begun by ensure_pass, which bumps on its own.
+bool same_view(const TextureViewInfo& a, const TextureViewInfo& b) {
+    return a.has_levels == b.has_levels && a.has_layers == b.has_layers && a.has_format == b.has_format && a.has_swizzle == b.has_swizzle &&
+           a.has_depth_stencil_mode == b.has_depth_stencil_mode && a.has_target == b.has_target && a.min_level == b.min_level &&
+           a.num_levels == b.num_levels && a.min_layer == b.min_layer && a.num_layers == b.num_layers && a.format == b.format &&
+           a.swizzle[0] == b.swizzle[0] && a.swizzle[1] == b.swizzle[1] && a.swizzle[2] == b.swizzle[2] && a.swizzle[3] == b.swizzle[3] &&
+           a.depth_stencil_mode == b.depth_stencil_mode && a.target == b.target;
+}
+bool same_targets(const P_RenderTargets& p) {
+    if (p.count != S.ncolor || p.count > 8) return false;
+    for (uint32_t i = 0; i < p.count; ++i) {
+        const TargetRef& t = p.color[i];
+        if (t.tex != S.color_tex[i].get() || (t.has_view != 0) != S.color_has_view[i]) return false;
+        if (t.has_view && !same_view(t.view, S.color_view[i])) return false;
+    }
+    if (p.depth.tex != S.depth_tex.get() || (p.depth.has_view != 0) != S.depth_has_view) return false;
+    return !p.depth.has_view || same_view(p.depth.view, S.depth_view);
+}
+
 void mark_dirty(const RecordReader& r) {
     switch (r.op()) {
         case Op::BindProgram: g_dirty |= kPipe | kDesc | kVb; break;
@@ -3101,7 +3654,13 @@ void mark_dirty(const RecordReader& r) {
         case Op::SetLineWidth: case Op::SetRasterizerDiscard: case Op::SetPrimitiveRestart: g_dirty |= kDynRaster; break;
         case Op::SetPatchSize: g_dirty |= kPipe; break;   // patch control points are part of the pipeline
         case Op::SetPolygonOffsetClamp: g_dirty |= kDynBias; break;
-        case Op::SetRenderTargets: g_dirty = kAllDirty; break;
+        case Op::SetRenderTargets: {
+            g_dirty = kAllDirty;
+            static const bool exact = epoch_exact_on();
+            if (exact && same_targets(r.payload<P_RenderTargets>())) ft::split_count(ft::kCntEpSkipTargets);
+            else rp_bump(ft::kCntEpTargets);
+            break;
+        }
         default: break;
     }
 }
@@ -3138,13 +3697,36 @@ bool counter_window_has_gpu_draw(RecordReader look, uint32_t type) {
     return false;
 }
 
+// Time of one op of the list, split into rp.opin (mark_dirty, out_before_op) and the op itself (rp.tail for draws, rp.op otherwise).
+struct RpOpScope {
+    bool on;
+    Op op;
+    uint64_t ta = 0, tb = 0, inner0 = 0;
+    RpOpScope(bool rt, Op o) : on(rt), op(o) { if (on) { inner0 = g_rp_inner; ta = ft::tsc(); } }
+    void mid() { if (on) tb = ft::tsc(); }
+    ~RpOpScope() {
+        if (!on) return;
+        const uint64_t tc = ft::tsc();
+        const uint64_t exec = tc - tb, inner = g_rp_inner - inner0;
+        const int ph = (op == Op::DrawArrays || op == Op::DrawElements || op == Op::DrawIndirect || op == Op::DrawXfb) ? kRpTail : kRpOp;
+        g_rp_ns[ph] += exec > inner ? exec - inner : 0;
+        ++g_rp_n[ph];
+        g_rp_ns[kRpOpIn] += tb - ta;
+        ++g_rp_n[kRpOpIn];
+        g_rp_inner = inner0 + (tc - ta);
+    }
+};
+
 void run_list(const CmdList& list, int depth) {
     if (depth > kMaxDepth) { log_once("depth", "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
+    const bool rt = ft::on() && g_rp_t0;
     for (RecordReader r(list); r.next();) {
+        RpOpScope rpo(rt, r.op());
         mark_dirty(r);
         if (out_lazy()) out_before_op(r);                                                   // compute shadows: results back to the pool first
         else if (out_any() && !compute_out_may_wait(r.op())) flush_compute_out(kOutOther);
+        rpo.mid();
         switch (r.op()) {
             case Op::Nop: break;
             case Op::BindProgram: apply_bind_program(r.payload<P_BindProgram>()); break;
@@ -3540,10 +4122,17 @@ void note_frame_for_pacing() {
 }
 
 void replay_begin_submit(Frame& f) {
+    static const bool fine_init = (g_rp_fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
+    (void)fine_init;
+    rp_flush();
+    rp_bump(ft::kCntEpSubmit);    // the sets of the last submission are gone with its descriptor pools
+    ft::split_count(ft::kCntSubmissions);
+    g_rp_t0 = ft::on() ? ft::now_ns() : 0;
+    RpScope rp_begin(kRpBegin);
     gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_async defers draws only while frames are flowing
     note_frame_for_pacing();
     F = &f;
-    tex_poll_cpu_writes();
+    { RpScope rp_(kRpTexPoll); ft::SplitScope sp_(ft::kSplSetup); tex_poll_cpu_writes(); }   // per call: see setup_coalesce_on (nvn_gpu_texture.cpp)
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)
     if (g_trace_frame == -2) {
         // [nvn] trace_frame = "6050" or "6050,9300": every listed presented frame is traced (the first one is the main one)
@@ -3594,6 +4183,8 @@ void replay_begin_submit(Frame& f) {
         set_narrow_barriers(g_tracked);
         g_pending.clear();
         g_pass_unsafe = false;
+        RpScope rp_(kRpMirror);
+        ft::SplitScope sp_(ft::kSplSetup);
         mirror_begin_submit(f, on);
     }
     S.window_origin = window_origin_mode();
@@ -3608,6 +4199,7 @@ void replay_begin_submit(Frame& f) {
     g_topo = g_pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
     g_restart_valid = false;
     g_vb_bound_in_cb = false;
+    shadow_invalidate();
     g_want_depth_ro = false;
     g_fb_use.clear();
     g_fb_seen = false;
@@ -3663,9 +4255,12 @@ void fb_sweep(uint64_t serial) {
 }
 
 void replay_end_submit(Frame& f) {
+    const uint64_t rp_te = ft::on() ? ft::tsc() : 0;
     F = &f;
     if (out_any()) {         // every compute result is in game memory, or held and guarded, before the submission's serial signals
         end_pass();
+        RpScope rp_(kRpOutEnd);
+        ft::SplitScope sp_(ft::kSplSetup);
         out_end_submit(F->cb, F->serial);
     }
     end_pass();
@@ -3686,6 +4281,8 @@ void replay_end_submit(Frame& f) {
         g_cw[k].active = -1;
     }
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
+    if (rp_te) { g_rp_ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp_n[kRpEnd]; }
+    rp_flush();
     F = nullptr;
 }
 

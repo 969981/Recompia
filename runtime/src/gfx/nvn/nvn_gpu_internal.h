@@ -9,6 +9,7 @@
 // Everything declared here must be called on the render thread (gpu::on_render_thread()) unless it says otherwise.
 #pragma once
 #include <atomic>
+#include <mutex>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -49,6 +50,9 @@ std::string unsupported_report();
 // Hands the submissions recorded so far to the GPU ([nvn] submit_batch keeps them back). Call before a queue operation that must come after
 // them: the present, sparse binds.
 void submit_recorded();
+// [nvn] submit_thread: returns once the submit worker has run everything handed to it (no-op when off). Before a queue operation of
+// the render thread itself (sparse bind, debug wait-idle submit) and before swapchain work (present_on_render_thread).
+void submit_drain();
 // The present: with [nvn] submit_batch = frame, the batch goes in the present's own vkQueueSubmit2 (one kernel submission a frame).
 // true: p is filled (cmds holds its command buffers); call present_batch_done(p) after Renderer::end_frame(p). false: the batch is
 // submitted already (submit_recorded), call end_frame without a prefix.
@@ -102,6 +106,9 @@ uint64_t current_serial();        // the serial of the submission being recorded
 bool gpass_on();
 void gpass_stamp(Frame& f, const char* label, uint32_t arg = 0);
 
+// ---- descriptors ([nvn] set_reuse; read once, nvn_gpu.cpp) ---------------------------------------------------------------------
+bool set_reuse_on();              // a descriptor set whose bindings did not change since the last draw is not resolved again (build_set)
+
 // ---- barriers ---------------------------------------------------------------------------------------------------------------
 void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImageLayout to, VkImageAspectFlags aspect,
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
@@ -125,6 +132,18 @@ VkBuffer dummy_buffer();
 // The last 32 bytes of the dummy buffer hold the default of an unset vertex attribute: float (0,0,0,1) and integer (0,0,0,1).
 constexpr VkDeviceSize kDummyAttrFloatOffset = 65504, kDummyAttrIntOffset = 65520;
 uint64_t pool_imports();          // statistics
+// [nvn] pool_lazy (+ pool_lazy_cpu_untile): [gpu_address, +size) lies in a lazily imported pool and no import holds it yet, so a texture
+// upload should read it on the CPU rather than import it for one GPU copy. Counts the answer for the summary line.
+bool pool_lazy_wants_cpu(uint64_t gpu_address, uint64_t size);
+// [nvn] pool_lazy: held by the texture write watch's arm worker around each arm and by a lazy import around making its pages writable and
+// importing them; an arm in between made pages read-only again and the import failed (VK_ERROR_INVALID_EXTERNAL_HANDLE) (nvn_gpu_texture.cpp).
+std::mutex& tex_arm_import_mutex();
+struct PoolLazyStats {
+    bool on = false;                  // [nvn] pool_lazy is in effect
+    int64_t live_bytes = 0;           // bytes of lazy imports alive now
+    uint64_t imported_bytes = 0, imports = 0, spans = 0, dropped = 0, cpu_untiles = 0;   // so far
+};
+PoolLazyStats pool_lazy_stats();      // any thread (statistics, tests)
 // Called from destroy_pool_gpu on the render thread.
 void pool_gpu_destroy(PoolGpu* p);
 void pool_shutdown();             // destroys every imported pool still alive and the dummy buffer (device idle)
@@ -229,11 +248,26 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why);
 // Must be called with no render pass open on `f.cb`. Leaves the image in SHADER_READ_ONLY_OPTIMAL after an upload.
 void tex_ensure_current(Texture* t, Frame& f);
 void tex_poll_cpu_writes();   // start of a submission: textures of coherent pools whose pages the CPU wrote become dirty (nvn_gpu_texture.cpp)
+// [nvn] setup_coalesce (default on): the per replay call write-watch polls read only the bitmap words a summary marks, and the mirror walks
+// only the range of pages draws wanted (nvn_gpu_texture.cpp; same pages found, same copies made). Logs its activation once.
+bool setup_coalesce_on();
 // Moves the whole image to `layout` (no-op if already there). Call with no render pass open.
 void tex_transition(Texture* t, Frame& f, VkImageLayout layout);
 VkImageLayout tex_layout(Texture* t);
-// The texture has been (or is about to be) written by the GPU: no more uploads from memory until the CPU writes it.
-void tex_mark_gpu_written(Texture* t);
+// tex_transition for a render pass that writes level `level` only: the move counts as a write of that level (tex_write_gen), not of all.
+void tex_transition_attach(Texture* t, Frame& f, VkImageLayout layout, uint32_t level);
+// The texture has been (or is about to be) written by the GPU: no more uploads from memory until the CPU writes it. `level` >= 0: only
+// that level is written (a render pass), else any level may be.
+void tex_mark_gpu_written(Texture* t, int level = -1);
+// Write generation of an image level: a globally unique number that changes whenever the level may have been written (any layout change
+// into a writable layout, a pass on it, a new image). Equal numbers at two times: the level was not written in between. 0: no image.
+uint64_t tex_write_gen(Texture* t, uint32_t level);
+// Remakes the image with VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT (content copied over) unless it has it. Once per image; false
+// when the image cannot have it (the caller keeps the feedback copy). No render pass open.
+bool tex_enable_feedback_loop(Texture* t, Frame& f);
+bool tex_has_feedback_loop(Texture* t);
+// tex_ensure_current would do nothing: the image holds the newest content (rendered or uploaded, the CPU did not write since).
+bool tex_current_on_gpu(Texture* t);
 void tex_sparse_before_copy(Texture* t, uint32_t layer, uint32_t level);   // a sparse texture: bind the mapped tiles a copy writes
 VkImage tex_image(Texture* t);
 VkFormat tex_vk_format(Texture* t);

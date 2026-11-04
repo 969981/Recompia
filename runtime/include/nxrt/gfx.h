@@ -121,6 +121,7 @@ struct DeviceFeatures {
     bool dynamic_rendering_unused_attachments = false;
     bool transform_feedback = false, transform_feedback_queries = false;   // VK_EXT_transform_feedback (the feedback queries: transformFeedbackQueries)
     bool index_type_uint8 = false;        // VK_EXT/KHR_index_type_uint8 (8-bit index buffers, indexTypeUint8)
+    bool attachment_feedback_loop = false;   // VK_EXT_attachment_feedback_loop_layout (attachmentFeedbackLoopLayout): a draw may sample its own colour attachment
     bool debug_labels = false;            // VK_EXT_debug_utils is enabled on the instance (command buffer labels)
     bool occlusion_query = false, occlusion_query_precise = false, pipeline_statistics_query = false;
     bool sparse_binding = false, sparse_residency_image2d = false, sparse_residency_image3d = false, sparse_residency_aliased = false;
@@ -281,8 +282,17 @@ public:
         uint32_t count = 0;
         VkSemaphore timeline = VK_NULL_HANDLE;
         uint64_t value = 0;
-        bool submitted = false;           // out: vkQueueSubmit2 succeeded
+        bool submitted = false;           // out: vkQueueSubmit2 succeeded (only when !queued)
+        // With a submit queue (set_submit_queue): runs on the queue's thread right after vkQueueSubmit2, with its success (also when the
+        // device is lost and nothing was submitted: false). `queued` (out): the submit went to the queue, `submitted` is not known yet.
+        std::function<void(bool submitted)> after_submit;
+        bool queued = false;
     };
+    // [nvn] submit_thread: end_frame hands the vkQueueSubmit2 + vkQueuePresentKHR (and what depends on their results: present stats,
+    // `dirty` on OUT_OF_DATE, the low-latency present_end) to `q`, which runs its jobs in order on one thread. The caller must drain `q`
+    // before the next begin_frame, set_present_mode or the Renderer's destruction (swapchain calls are externally synchronised and the frame
+    // slot's fence is waited there). A frame with a screenshot calls `drain` after queueing (the copy is read back at once). Empty: inline (default).
+    void set_submit_queue(std::function<void(std::function<void()>)> q, std::function<void()> drain);
     // Runs the overlay hook, finishes and submits the command buffer (GPU timestamp 1), saves a requested screenshot and
     // presents.
     void end_frame(SubmitPrefix* prefix = nullptr);

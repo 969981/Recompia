@@ -47,6 +47,9 @@
 
 namespace nxrt::nvn::be {
 
+constexpr uint32_t kGenLevels = 16;
+static uint64_t g_wgen_next = 0;                        // render thread only (move_layout, the replay)
+
 // The Vulkan side of a texture: Texture::gpu points to it (created by gpu::tex_gpu, freed by gpu::tex_destroy).
 static std::mutex g_live_mu;
 static std::set<struct TexGpu*> g_live_set;
@@ -60,6 +63,7 @@ struct TexGpu {
     VkExtent3D base = {1, 1, 1};                        // level 0 extent (depth for 3D images)
     uint32_t levels = 1, layers = 1;
     VkImageUsageFlags usage = 0;
+    VkImageCreateFlags cflags = 0;                      // the create flags the image was made with
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;   // tracked layout (the same for every level and layer)
     bool failed = false;                                // no image: the texture is not usable on the GPU (logged once)
@@ -79,6 +83,13 @@ struct TexGpu {
     bool streamed = false;                              // rewritten by the CPU frame after frame: not write-watched, read again once per present
     uint32_t streamed_at = 0;                           // present count of the last read in that mode
     bool untiled = false;                               // the last upload went through gpu_untile (cheap enough to repeat every frame)
+    // Write generations per level (kGenLevels; deeper levels share the last slot): a level gets a new, globally unique number whenever it may
+    // have been written. A copy of the image (the feedback copies of nvn_replay.cpp) remembers the numbers it copied and copies again only
+    // the levels whose number changed. Every write goes through a layout change into a writable layout (move_layout: all levels) or is a
+    // render pass (tex_transition_attach / tex_mark_gpu_written with its level), so a copy that leaves the image in TRANSFER_SRC sees each later
+    // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
+    uint64_t wgen[kGenLevels] = {};
+    bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
 };
 
 // A virtual-pool texture too big to back fully (Mario Kart World's terrain virtual texture caches: 8192x8192 arrays of 68 layers, 1.4 to
@@ -382,6 +393,7 @@ bool sparse_flush_binds(TexGpu& g) {
     VkFence fence = VK_NULL_HANDLE;
     if (vkCreateFence(vkdev(), &fi, nullptr, &fence) != VK_SUCCESS) return false;
     if (on_render_thread()) submit_recorded();     // binds come after the submissions recorded before them, as without a batch
+    submit_drain();                                // [nvn] submit_thread: ... and after the worker has put them on the queue
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(device().queue_mutex());
@@ -506,11 +518,24 @@ bool create_sparse_texture(Texture* t, TexGpu* g, const Shape& s, std::string* w
 
 // ---- creation -------------------------------------------------------------------------------------------------------------
 // Makes the image of t (or the failed marker when no format works). Stores the result in t->gpu, which is never null afterwards.
+// A new write generation for one level (level >= 0) or for all of them (level < 0).
+void bump_gen(TexGpu& g, int level) {
+    if (level >= 0) { g.wgen[std::min<uint32_t>(static_cast<uint32_t>(level), kGenLevels - 1)] = ++g_wgen_next; return; }
+    for (uint64_t& w : g.wgen) w = ++g_wgen_next;
+}
+
+// Layouts nothing writes the image in: a move into any other one counts as a write of every level (or of `level` alone).
+bool read_only_layout(VkImageLayout l) {
+    return l == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
+           l == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || l == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+}
+
 TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto* g = new TexGpu();
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live_set.insert(g); }
     g_gauge_textures_live.add(1);
     t->gpu = g;
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);
     const Shape s = shape_of(*t);
     g->fmt = t->fmt;
     g->type = s.type;
@@ -521,6 +546,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto fail = [&](const std::string& why) -> TexGpu* {
         NXLOG_E(kTag, "texture %u: no image (%s): the texture is not usable on the GPU", t->id, why.c_str());
         g->failed = true;
+        g_bind_gen.fetch_add(1, std::memory_order_relaxed);
         counters().textures_failed.fetch_add(1);
         return g;
     };
@@ -609,6 +635,8 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
                     static_cast<unsigned>(flags), static_cast<unsigned>(usage));
     }
     g->usage = usage;
+    g->cflags = flags;
+    bump_gen(*g, -1);
 
     // Resolution scale: the image is the NVN size times the scale. Other modules keep the NVN size (tex_extent) and ask tex_scale /
     // tex_image_extent where the image size matters (render area, viewports, copies, the support buffer's render_scale).
@@ -645,6 +673,7 @@ TexGpu* tex_or_null(Texture* t, float want_scale = 1.0f) {
             // the same bytes under another texture object: one image (the object rendered to and the one that is sampled are not the same
             // object); what the image holds is as current for this object as for the one it was made for
             t->gpu = ag;
+            g_bind_gen.fetch_add(1, std::memory_order_relaxed);
             ++ag->refs;
             if (ag->uploaded || ag->gpu_written) t->cpu_dirty.store(false);
             static int logged = 0;
@@ -700,8 +729,9 @@ float attachment_scale(const Texture& t) {
 }
 
 // ---- barriers and copies ----------------------------------------------------------------------------------------------------
-void move_layout(Frame& f, TexGpu& g, VkImageLayout to) {
+void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level = -1) {
     if (g.layout == to) return;
+    if (!read_only_layout(to)) bump_gen(g, write_level);
     // A 3D image created with 2D_ARRAY_COMPATIBLE: without maintenance9 the layer range of a barrier means all depth slices.
     const uint32_t layer_count = g.type == VK_IMAGE_TYPE_3D ? VK_REMAINING_ARRAY_LAYERS : g.layers;
     image_barrier(f.cb, g.img.image, g.layout, to, g.aspect, 0, g.levels, 0, layer_count);
@@ -969,7 +999,12 @@ VkImageView view_for(TexGpu& g, VkImageViewType type, uint32_t base_level, uint3
     // A view takes the usages of its image; a format of the view that cannot do one of them (an sRGB view cannot be stored to) restricts it.
     VkImageViewUsageCreateInfo uc = {VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO};
     {
-        constexpr VkImageUsageFlags kViewUsages = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        // VK_EXT_attachment_feedback_loop_layout: a view used as an attachment in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL must carry
+        // ATTACHMENT_FEEDBACK_LOOP_BIT_EXT in its usage (VUID-VkRenderingAttachmentInfo-imageView-10780), so a restricted usage keeps it
+        // whenever the image has it. It has no format feature of its own: the image already passed its creation-time check (colour
+        // attachment + sampled), and the view's own SAMPLED/COLOR_ATTACHMENT bits are still format-checked below.
+        constexpr VkImageUsageFlags kViewUsages = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                  VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
         VkFormatProperties fp = {};
         vkGetPhysicalDeviceFormatProperties(device().physical(), fmt, &fp);
         VkImageUsageFlags u = g.usage & kViewUsages;
@@ -1250,6 +1285,7 @@ struct ArmQueue {
     bool started = false;
 };
 ArmQueue* g_armq = nullptr;     // never destroyed: the worker runs until the process ends
+std::mutex g_arm_import_mu;     // tex_arm_import_mutex: the worker's arms against pool_lazy's imports
 std::atomic<uint64_t> g_arm_async_jobs{0}, g_arm_async_rewritten{0};
 // the hitch log: arms the worker made, and uploads it found written before its arm (uploaded again), during a slow frame
 const bool g_arm_hitch_registered =
@@ -1274,7 +1310,10 @@ void arm_worker() {
         if (it == aq.latest.end() || it->second != j.seq) continue;   // a newer upload queued its own arm
         lk.unlock();
         if (!t->destroyed.load()) {
-            mem::ww::arm(g_tex_ww, j.first, j.count);   // false: a page it cannot protect: not watched (as the synchronous arm)
+            {
+                std::lock_guard<std::mutex> ilk(g_arm_import_mu);   // not between a lazy import's forget and the import (tex_arm_import_mutex)
+                mem::ww::arm(g_tex_ww, j.first, j.count);   // false: a page it cannot protect: not watched (as the synchronous arm)
+            }
             uint64_t h = 0;
             const bool same = texprep::hash_storage(*t, h) && h == j.hash;   // unreadable now: reported, as a write would be
             lk.lock();
@@ -1296,6 +1335,11 @@ void arm_worker() {
     }
 }
 
+}  // namespace
+
+std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
+
+namespace {
 // Render thread, after the storage was read for an upload of content `hash` (have_hash false: unknown). Arms the pages on the worker.
 void tex_ww_arm_later(Texture* t, const TexGpu& g, bool have_hash, uint64_t hash) {
     if (!tex_ww_wanted(*t, g)) return;
@@ -1399,7 +1443,9 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     }
     gfx::Image ni;
     std::string err;
-    if (device().create_image(make_desc(s, g->format, g->usage, base_flags(s, g->format)), &ni, &err) != VK_SUCCESS) {
+    // the flags the image was made with: base_flags alone lacks EXTENDED_USAGE, and an sRGB image with storage usage was refused at every
+    // rescale (once a frame, as the texture kept wanting its scale)
+    if (device().create_image(make_desc(s, g->format, g->usage, g->cflags ? g->cflags : base_flags(s, g->format)), &ni, &err) != VK_SUCCESS) {
         NXLOG_W(kTag, "texture %u: cannot remake it at %ux%u (%s): it keeps scale %.3f", t->id, s.base.width, s.base.height, err.c_str(), g->scale);
         if (to == 1.0f) g->scale_blocked = true;
         return false;
@@ -1434,6 +1480,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     std::vector<VkImageView> views;
     for (auto& kv : g->views) views.push_back(kv.second);
     g->views.clear();
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);   // the views of the old image go
     defer_destroy([old, views]() mutable {
         for (VkImageView v : views) { vkDestroyImageView(vkdev(), v, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(old);
@@ -1441,15 +1488,42 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     g->img = ni;
     g->base = s.base;
     g->layout = nl;
+    bump_gen(*g, -1);
     g->scale = to;
     if (to == 1.0f) g->scale_blocked = true;
     return true;
 }
 
+// Why the polls run at the start of every replay call (contract): NVN pool memory is shared with the GPU on the console; a CPU write the
+// game made before nvnQueueSubmit (and, for a cached pool, nvnMemoryPoolFlushMappedRange) is seen by the commands of that submission. Here
+// the GPU reads the game's memory through device-local copies (pool mirror) and uploaded images (textures of coherent pools), so writes since
+// the last replay call must invalidate them before this call's commands are recorded. The game writes pool memory between the submissions
+// of one frame (uniform/vertex rings, CPU-written textures), so one poll per frame would bind stale copies to later submissions. The
+// poll itself stays per call; setup_coalesce only makes it cheaper: an empty poll reads the summary (~220 words for an 8 GiB region)
+// instead of every word of the bitmap.
+bool setup_coalesce_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "setup_coalesce", true);
+        mem::ww::set_summary_scan(v);
+        NXLOG_I(kTag, "setup_coalesce %s ([nvn] setup_coalesce): write-watch polls read %s; the mirror walks %s", v ? "on" : "off",
+                v ? "the summary bitmap" : "every bitmap word", v ? "the wanted page range" : "every page");
+        return v;
+    }();
+    return on;
+}
+
 void tex_poll_cpu_writes() {
+    (void)setup_coalesce_on();
     if (!g_tex_ww) return;
     g_tex_ww_pages.clear();
+    const uint64_t w0 = ft::g_split_on ? mem::ww::take_stats().words : 0;
     mem::ww::take_written(g_tex_ww, g_tex_ww_pages);
+    if (ft::g_split_on) {
+        ft::split_count(ft::kCntTexPoll);
+        if (g_tex_ww_pages.empty()) ft::split_count(ft::kCntTexPollEmpty);
+        ft::split_add(ft::kCntTexPages, g_tex_ww_pages.size());
+        ft::split_add(ft::kCntWwWords, mem::ww::take_stats().words - w0);
+    }
     if (g_tex_ww_pages.empty()) return;
     std::sort(g_tex_ww_pages.begin(), g_tex_ww_pages.end());
     const uint64_t base = mem::ww::region_base(g_tex_ww);
@@ -1570,6 +1644,8 @@ bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
     static const bool on = nxrt::config_get_bool("nvn", "gpu_untile", true);
     if (!on) return *why = "off", false;
     if (!t->mem || t->vpool || t->levels != 1 || t->layers != 1 || t->storage_size < (64u << 10)) return *why = "storage, levels or layers", false;
+    // [nvn] pool_lazy: storage no bind has imported is untiled on the CPU (the upload path after this) instead of importing a chunk for it
+    if (pool_lazy_wants_cpu(reinterpret_cast<uint64_t>(t->mem), t->storage_size)) return *why = "storage not imported (pool_lazy)", false;
     if (g.levels != 1 || g.layers != 1 || g.transcoded || !g.fmt || g.format != g.fmt->vk || !(g.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
         return *why = "image format or usage", false;
     const TexLayout L = compute_texture_layout(t->b);
@@ -1825,9 +1901,89 @@ void tex_sparse_before_copy(Texture* t, uint32_t layer, uint32_t level) {
     if (g && g->sparse) sparse_bind_for_copy(t, *g, layer, level);
 }
 
-void tex_mark_gpu_written(Texture* t) {
+void tex_transition_attach(Texture* t, Frame& f, VkImageLayout layout, uint32_t level) {
+    TexGpu* g = tex_or_null(t);
+    if (g) move_layout(f, *g, layout, static_cast<int>(level));
+}
+
+bool tex_current_on_gpu(Texture* t) {
+    const TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g && !t->cpu_dirty.load() && !g->streamed && (g->gpu_written || g->uploaded);
+}
+
+bool tex_has_feedback_loop(Texture* t) {
+    const TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g && (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) != 0;
+}
+
+// Only images that show a feedback draw get the usage: on some GPUs it costs the colour compression of the image (RADV turns DCC off for
+// feedback loop images on older chips), so it is not given to every render target at creation. Same shape, format, scale and flags; every
+// level and layer is copied over.
+bool tex_enable_feedback_loop(Texture* t, Frame& f) {
+    TexGpu* g = tex_or_null(t);
+    if (!g) return false;
+    if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;
+    if (g->fb_loop_tried) return false;
+    g->fb_loop_tried = true;
+    Shape s = shape_of(*t);
+    s.base = g->base;
+    if (!device().features().attachment_feedback_loop || g->sparse || g->depth || s.samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
+        !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+        return false;
+    const VkImageUsageFlags nu = g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
+    gfx::Image ni;
+    std::string err;
+    if (!device().image_supported(make_desc(s, g->format, nu, g->cflags), &err) ||
+        device().create_image(make_desc(s, g->format, nu, g->cflags), &ni, &err) != VK_SUCCESS) {
+        NXLOG_W(kTag, "texture %u (%s %ux%u): no feedback loop usage (%s): its feedback draws keep the copy", t->id, g->fmt ? g->fmt->name : "?", g->base.width,
+                g->base.height, err.c_str());
+        return false;
+    }
+    static int logged = 0;
+    if (logged++ < 40)
+        NXLOG_I(kTag, "texture %u: %s %ux%u (%u levels) remade with feedback loop usage (a draw samples it while rendering to it)", t->id, g->fmt ? g->fmt->name : "?",
+                g->base.width, g->base.height, g->levels);
+    VkImageLayout nl = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (g->layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+        move_layout(f, *g, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        image_barrier(f.cb, ni.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, g->aspect, 0, g->levels, 0, g->layers);
+        std::vector<VkImageCopy> regions;
+        for (uint32_t l = 0; l < g->levels; ++l) {
+            VkImageCopy r = {};
+            r.srcSubresource = {g->aspect, l, 0, g->layers};
+            r.dstSubresource = {g->aspect, l, 0, g->layers};
+            r.extent = level_extent(g->base, l);
+            regions.push_back(r);
+        }
+        vkCmdCopyImage(f.cb, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ni.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()),
+                       regions.data());
+        nl = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    }
+    gfx::Image old = g->img;
+    std::vector<VkImageView> views;
+    for (auto& kv : g->views) views.push_back(kv.second);
+    g->views.clear();
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);   // the views of the old image go (set_reuse memos must not outlive them)
+    defer_destroy([old, views]() mutable {
+        for (VkImageView v : views) { vkDestroyImageView(vkdev(), v, nullptr); vk_gauge_image_views().sub(1); }
+        device().destroy_image(old);
+    });
+    g->img = ni;
+    g->layout = nl;
+    g->usage = nu;
+    bump_gen(*g, -1);
+    return true;
+}
+
+uint64_t tex_write_gen(Texture* t, uint32_t level) {
+    TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g ? g->wgen[std::min(level, kGenLevels - 1)] : 0;
+}
+
+void tex_mark_gpu_written(Texture* t, int level) {
     TexGpu* g = tex_or_null(t);
     if (!g) return;
+    bump_gen(*g, level);
     g->gpu_written = true;
     t->cpu_dirty.store(false);                   // the GPU data is the newer one until the CPU writes again
 }
