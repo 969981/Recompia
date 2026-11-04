@@ -586,7 +586,7 @@ constexpr size_t kCfgCommonSize = 0x3D4;
 // natural alignment). The 0x530-byte config (library version 0x140010, Pokopia 2.0.1a) is repacked by the shim: sdk
 // nn::swkbd::ShowKeyboard(String*, const ShowKeyboardArg&, Trigger) at 0x750054e700 copies use_utf8 (arg 0x3BD) to 0x3AA, the initial
 // string offset/length (arg 0x3C0/0x3C4) to 0x3BC/0x3C0 and use_text_check (arg 0x3D0) to 0x48D. Read with the old offsets, use_utf8
-// came from a byte of the initial string offset (always 0): the text went back as UTF-16 to a game reading UTF-8, "Josh" -> "J".
+// came from a byte of the initial string offset (always 0): the text went back as UTF-16 to a game reading UTF-8, "Alex" -> "A".
 struct SwkbdCfgLayout {
     size_t use_utf8, initial_offset, initial_length /* UTF-16 characters */, use_text_check;
 };
@@ -754,7 +754,7 @@ void swkbd_answer(AppletState& a, bool ok) {
     }
     auto out = std::make_shared<Bytes>(8 + kSwkbdStringSize, uint8_t{0});
     // The text check uses the config's encoding, like the final result: with use_utf8 the game reads UTF-8 here too (and answers in
-    // UTF-8). UTF-16 "Josh" read as UTF-8 is "J" then NULs, which the game's name check refuses.
+    // UTF-8). UTF-16 "Alex" read as UTF-8 is "A" then NULs, which the game's name check refuses.
     const uint64_t size = a.utf8 ? utf16_to_utf8(a.text).size() + 1 : (a.text.size() + 1) * 2;
     std::memcpy(out->data(), &size, 8);
     put_text(out->data() + 8, kSwkbdStringSize, a.text, a.utf8);
