@@ -161,9 +161,14 @@ void split_frame(uint64_t presents) {
     for (int i = 0; i < kCntCounts; ++i) { c[i] = static_cast<double>(g_split_cnt[i] - cnt_last[i]) / f; cnt_last[i] = g_split_cnt[i]; }
     const double interval = static_cast<double>(el) / 1e6 / f;
     const double busy = interval - ms[kSplIdle];
-    NXLOG_I("prof", "render split, %llu frames, %.1f fps, ms/frame: interval %.2f, render busy %.2f, idle %.2f | replay %.2f (gpu_wait %.2f), present %.2f (end %.2f), submit %.2f, other %.2f | per frame: draws %.0f, cmds bind %.0f draw %.0f dyn %.0f barrier %.0f, passes %.1f, epoch bumps %.0f, set_reuse hit %.0f miss %.0f, submissions %.1f",
+    NXLOG_I("prof", "render split, %llu frames, %.1f fps, ms/frame: interval %.2f, render busy %.2f, idle %.2f | replay %.2f (gpu_wait %.2f), present %.2f (end %.2f), submit %.2f, other %.2f | per frame: draws %.0f, cmds bind %.0f draw %.0f dyn %.0f barrier %.0f, passes %.1f, epoch bumps %.0f, set_reuse hit %.0f miss %.0f, submissions %.1f | bind_coalesce: calls skipped %.0f, merged away %.0f",
             static_cast<unsigned long long>(frames), 1000.0 / interval, interval, busy, ms[kSplIdle], ms[kSplReplay], ms[kSplGpuWait], ms[kSplPresent], ms[kSplPresentEnd], ms[kSplSubmit],
-            busy - ms[kSplReplay] - ms[kSplPresent] - ms[kSplSubmit], c[kCntDraws], c[kCntCmdBind], c[kCntCmdDraw], c[kCntCmdDyn], c[kCntCmdBarrier], c[kCntPasses], c[kCntEpoch], c[kCntSetHit], c[kCntSetMiss], c[kCntSubmissions]);
+            busy - ms[kSplReplay] - ms[kSplPresent] - ms[kSplSubmit], c[kCntDraws], c[kCntCmdBind], c[kCntCmdDraw], c[kCntCmdDyn], c[kCntCmdBarrier], c[kCntPasses], c[kCntEpoch], c[kCntSetHit], c[kCntSetMiss], c[kCntSubmissions], c[kCntSkipped], c[kCntMerged]);
+    const double pl = c[kCntPoolHit] + c[kCntPoolMiss], sets = c[kCntSetHit] + c[kCntSetMiss];
+    NXLOG_I("prof", "render split resolve, per frame: texture resolves %.0f (%.2f per draw) + %.0f from the draw's array | pool_lookup %.0f, cache hit %.1f %% | set_reuse hit %.1f %% | epoch bumps: gpu_wrote %.0f, end_pass %.0f, begin pass %.0f, feedback %.0f, vol3d %.0f, targets %.0f, submission %.1f, skipped end_pass %.0f targets %.0f",
+            c[kCntResolve], c[kCntDraws] > 0 ? c[kCntResolve] / c[kCntDraws] : 0.0, c[kCntResolveHit], pl, pl > 0 ? 100.0 * c[kCntPoolHit] / pl : 0.0,
+            sets > 0 ? 100.0 * c[kCntSetHit] / sets : 0.0, c[kCntEpGpuWrote], c[kCntEpEndPass], c[kCntEpBeginPass], c[kCntEpFeedback], c[kCntEpVol3d], c[kCntEpTargets],
+            c[kCntEpSubmit], c[kCntEpSkipEndPass], c[kCntEpSkipTargets]);
     t_last = now;
     p_last = presents;
 }
