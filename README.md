@@ -62,7 +62,7 @@ Handheld support covers Steam Deck, Legion Go S and SteamOS. Link Play (two play
 ## Quick start
 
 1. Download the zip from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere.
-2. Run `PokopiaLauncher.exe` — if SmartScreen warns, choose **More info → Run anyway**. Pick your dump folder and press **Set up**: it compiles the game on your PC (about 7 minutes), then builds the shader cache (1 to 2 hours, you can pause and continue later).
+2. Run `PokopiaLauncher.exe`. If SmartScreen warns, choose **More info → Run anyway**. Pick your dump folder and press **Set up**: it compiles the game on your PC (about 7 minutes), then builds the shader cache (1 to 2 hours, you can pause and continue later).
 3. Press **Play**.
 
 F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for placing items.
@@ -73,4 +73,4 @@ F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for pla
 
 ## License
 
-GPL-3.0. Third-party code keeps its own licence — see [CREDITS.md](CREDITS.md).
+GPL-3.0. Third-party code keeps its own licence, see [CREDITS.md](CREDITS.md).
