@@ -259,7 +259,16 @@ void import_cache_invalidate() {
 uint64_t import_calls() { return g_import_calls.load(std::memory_order_relaxed); }
 
 namespace detail {
-void count_import() { g_import_calls.fetch_add(1, std::memory_order_relaxed); }
+// Per thread, added to the shared count every 4096 calls: one atomic add on a line every thread writes was 11% of a boot thread's time in
+// its string-compare loop (strlen / strncmp imports), the cache line moving between the cores that call imports. The summary count is
+// short by under 4096 per thread.
+void count_import() {
+    static thread_local uint32_t n = 0;
+    if (++n == 4096) {
+        g_import_calls.fetch_add(4096, std::memory_order_relaxed);
+        n = 0;
+    }
+}
 }  // namespace detail
 
 }  // namespace nxrt
