@@ -11,20 +11,23 @@
 // All codes of the action table are looked up at the first tag, because the HUD (bottom left) draws the same atlas sprites without tags.
 //
 // The mid hook sits on the layout's call of the handler (0x1f90fec: x0 the layout, w1 the tag type, x2 the arguments as UTF-16, x8 the
-// handler). While keyboard and mouse prompts show ([prompts] style keyboard, or auto after the keyboard or mouse was used last) and
-// [pkp] kbm_icons is on:
-//   * icons: the button's sprite in the game's UI atlas (a BC7 texture) is overwritten with the icon of the key bound to that button
-//     (assets/kbm_icons/<name>.png next to the exe, Kenney's Input Prompts names: keyboard_e.png, mouse_left.png ...), through
-//     nxrt/tex_patch.h. The game then draws its own glyph, which now shows the key, in every text that uses it. When the pads are used
-//     again (or the binding changes) the saved pixels go back.
-//   * text: a button with a bound key but no icon file gets the key's name in the game's own font instead ("[E]"), through the layout's
-//     add-character call (vtable +16); the handler call is then pointed at an empty function.
+// handler). While a prompt style other than switch shows ([prompts] style keyboard/xbox/playstation, or auto following the last
+// device used) and [pkp] kbm_icons is on:
+//   * keyboard and mouse: the button's sprite in the game's UI atlas (a BC7 texture) is overwritten with the icon of the key bound
+//     to that button (assets/kbm_icons/<name>.png next to the exe, Kenney's Input Prompts names: keyboard_e.png, mouse_left.png ...),
+//     through nxrt/tex_patch.h. The game then draws its own glyph, which now shows the key, in every text that uses it. When the pads
+//     are used again (or the binding changes) the saved pixels go back. A button with a bound key but no icon file gets the key's
+//     name in the game's own font instead ("[E]"), through the layout's add-character call (vtable +16); the handler call is then
+//     pointed at an empty function.
+//   * xbox / playstation: the same atlas sprites are overwritten with the pad icons of the prompt icon pack
+//     (assets/prompts/prompt_icons.pak: play::prompts_pack(); ps/cross for the button that presses Switch A, following [padmap]
+//     and [pad] label_abxy), so the prompts show the controller's own buttons instead of the game's Switch glyphs.
 // The sprites are also looked up from the frame hook (pkp_play.cpp) once the sprite sheets are loaded, so the title screen and the HUD,
-// which draw them without a text tag, show the keys before the first tag.
+// which draw them without a text tag, show the icons before the first tag.
 // The title screen's "PRESS (A) BUTTON" is not text: it is part of the title logo texture (a 1024x1024 BC7 texture loaded with the title
 // layout, the English one: the A disc at (262..309, 631..678)). That texture is found by the content of the disc's blocks and the disc is
-// drawn over with the icon of the Enter key bound to A (nxrt/tex_patch.h texture_patch_bc7_matching), in the art's style: a white key
-// with its symbol cut out and the art's soft dark shadow.
+// drawn over with whatever A shows in the current prompt style (the Enter key's icon in keyboard style, the pad's button icon in a pad
+// style; nxrt/tex_patch.h texture_patch_bc7_matching), in the art's style: a white key with its symbol cut out and the art's soft dark shadow.
 #include "pkp_kbm.h"
 
 #include <windows.h>
@@ -104,6 +107,8 @@ struct State {
     uint64_t base = 0x7100000000ull;
     bool enabled = true;                             // [pkp] kbm_icons
     std::string dir;                                 // <exe folder>/assets/kbm_icons/
+    play::Settings settings;                         // the last applied settings: bindings for the keyboard style, the pad remap for pad styles
+    play::PromptStyle eff = play::PromptStyle::Switch;   // the style that shows now (play::prompts_effective_style)
     std::mutex mu;
     std::array<Want, kSlots> want;
     std::array<Glyph, kSlots> glyph;
@@ -198,8 +203,6 @@ bool input_for_bits(const play::Settings& s, uint64_t bit, play::InputId* out) {
     return false;
 }
 
-bool keyboard_prompts() { return play::prompts_effective_style() == play::PromptStyle::Keyboard; }
-
 // ---- icon files ----
 // The game's button glyphs (atlas #493, "0000_key_1_a" ...) are a white cap with a dark rim and a dark letter, so they read on the white
 // dialogue boxes, the blue tutorial boxes and the 3D scene alike. Kenney's keys are a white cap with the letter cut out (transparent), which
@@ -260,12 +263,23 @@ void plate(Image& im) {
     im.rgba = std::move(out);
 }
 
-// The icon file `name`.png, on its plate (plated) or as drawn by Kenney.
+// The icon `name`: a pack entry ("xbox/a", "ps/cross"; names with a slash, straight RGBA from the prompt pack, never plated) or a
+// Kenney file `name`.png from assets/kbm_icons, on its plate (plated) or as drawn by Kenney.
 const Image* image_locked(State& s, const std::string& name, bool plated = true) {
-    Image& im = s.images[plated ? name : "raw:" + name];
+    const bool from_pack = name.find('/') != std::string::npos;
+    Image& im = s.images[from_pack ? "pack:" + name : (plated ? name : "raw:" + name)];
     if (!im.tried) {
         im.tried = true;
-        if (!gfx::load_png_rgba(s.dir + name + ".png", &im.rgba, &im.w, &im.h) || im.w < 8 || im.h < 8) im.rgba.clear();
+        if (from_pack) {
+            const play::IconPack* pack = play::prompts_pack();
+            const uint8_t* px = pack ? pack->find(name) : nullptr;
+            if (px && pack->width() >= 8 && pack->height() >= 8) {
+                im.w = pack->width();
+                im.h = pack->height();
+                im.rgba.assign(px, px + static_cast<size_t>(im.w) * im.h * 4);
+                NXLOG_I(kTag, "prompt icon %s: %ux%u from the pack", name.c_str(), im.w, im.h);
+            } else im.rgba.clear();
+        } else if (!gfx::load_png_rgba(s.dir + name + ".png", &im.rgba, &im.w, &im.h) || im.w < 8 || im.h < 8) im.rgba.clear();
         else {
             if (plated) plate(im);
             NXLOG_I(kTag, "kbm icon %s.png: %ux%u", name.c_str(), im.w, im.h);
@@ -508,12 +522,58 @@ void resolve_all(::Ctx* c, State& s, uint64_t mgr) {
     s.all_resolved = ready;
 }
 
+// What every glyph should show now, from the current settings and the prompt style that shows. Caller holds s.mu.
+void compute_want_locked(State& s) {
+    const play::PromptStyle eff = play::prompts_effective_style();
+    s.eff = eff;
+    std::array<Want, kSlots> want;
+    std::string title;
+    if (eff == play::PromptStyle::Keyboard) {
+        for (int i = 0; i < kCodes; ++i) {
+            play::InputId in;
+            if (input_for_bits(s.settings, kCodeBit[i], &in)) want[i] = {label_of(in), icon_of(in)};
+        }
+        // the sticks: the left one moves (the four move keys, "WASD"), the right one turns the camera (the mouse)
+        std::string move, move_icon = "@move:";
+        for (play::Act a : {play::Act::MoveForward, play::Act::MoveLeft, play::Act::MoveBack, play::Act::MoveRight}) {
+            play::InputId in;
+            const bool bound = input_for_act(s.settings, a, &in);
+            const std::string n = bound ? play::input_name(in) : std::string(), ic = bound ? icon_of(in) : std::string();
+            move = n.size() == 1 && (!move.empty() || a == play::Act::MoveForward) ? move + n : std::string();
+            move_icon = ic.empty() || move_icon.empty() ? std::string() : move_icon + (a == play::Act::MoveForward ? "" : ",") + ic;
+        }
+        want[kSlotLS] = {move.size() == 4 ? move : "Move", move_icon};
+        want[kSlotRS] = {"Mouse", "mouse_move"};
+        // the title art's A: the Enter key when one is bound to A (the menu key, though E is listed first), else whatever A shows
+        title = want[5].icon;
+        for (const play::Binding& b : s.settings.bindings) {
+            const play::Output& o = s.settings.out[static_cast<int>(b.act)];
+            if (b.trig != play::Trig::Press || b.in.kind != play::InKind::Key || o.buttons != kCodeBit[5] || o.lx || o.ly || o.rx || o.ry) continue;
+            const std::string n = play::input_name(b.in);
+            if ((n == "Return" || n == "Keypad Enter") && !icon_of(b.in).empty()) {
+                title = icon_of(b.in);
+                break;
+            }
+        }
+    } else if (eff == play::PromptStyle::Xbox || eff == play::PromptStyle::PlayStation) {
+        // the pad's own button that presses each Switch button, following [padmap] and [pad] label_abxy; the stick clicks and the
+        // stick glyphs have no pad icon and keep the game's own
+        for (int i = 0; i < kCodes; ++i)
+            want[i].icon = play::pad_pack_name(eff, s.settings.pad, s.settings.pad.label_abxy, kCodeBit[i]);
+        title = want[5].icon;
+    }
+    s.want = want;
+    s.title_icon = title;
+}
+
 // Puts the wanted icon (or the game's pixels) into every glyph that was found. Caller holds s.mu.
-void sync_glyphs_locked(State& s, bool keyboard) {
+void sync_glyphs_locked(State& s) {
+    compute_want_locked(s);
+    const bool patch = s.enabled && s.eff != play::PromptStyle::Switch;
     for (int i = 0; i < kSlots; ++i) {
         Glyph& g = s.glyph[i];
         if (!g.tex) continue;
-        std::string target = keyboard && s.enabled ? s.want[i].icon : std::string();
+        std::string target = patch ? s.want[i].icon : std::string();
         if (!target.empty() && !have_icon_locked(s, target)) target.clear();
         if (target == g.shown) continue;
         const void* tex = reinterpret_cast<const void*>(g.tex);
@@ -561,7 +621,6 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
         if (ch < '0' || ch > '9') break;
         action = action * 10 + (ch - '0');
     }
-    const bool keyboard = keyboard_prompts();
     if (action == 0 || action > 0x1ff || action == 255) return 0;
     const uint64_t mgr = rd<uint64_t>(s.base + kInputMgr);
     if (!mgr) return 0;
@@ -573,8 +632,8 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
         if (!s.all_resolved) resolve_all(c, s, mgr);
         if (code < static_cast<uint32_t>(kMaxCode) && s.code_slot[code] == -2) resolve_code(c, s, code, action);
         const int slot = code < static_cast<uint32_t>(kMaxCode) ? s.code_slot[code] : -1;
-        sync_glyphs_locked(s, keyboard);
-        if (slot >= 0 && keyboard) {
+        sync_glyphs_locked(s);
+        if (slot >= 0 && s.eff == play::PromptStyle::Keyboard) {   // the text label is only for the keyboard style
             label = s.want[slot].label;
             icon = !s.glyph[slot].shown.empty();
         }
@@ -594,12 +653,12 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
 void frame(::Ctx* c) {
     State& s = st();
     if (!s.enabled || (++s.frames % 30) != 0) return;
-    const bool keyboard = keyboard_prompts();
+    const play::PromptStyle eff = play::prompts_effective_style();
     std::vector<uint8_t> title;
     {
         std::lock_guard<std::mutex> lk(s.mu);
         bool ready = s.all_resolved;
-        if (!ready && keyboard && s.frame_tries < 400) {
+        if (!ready && eff != play::PromptStyle::Switch && s.frame_tries < 400) {
             const uint64_t mgr = rd<uint64_t>(s.base + kInputMgr);
             if (mgr && rd<uint64_t>(s.base + kDataMgr) && rd<uint64_t>(s.base + kUiMgr)) {
                 ++s.frame_tries;
@@ -608,8 +667,8 @@ void frame(::Ctx* c) {
                 if (ready) NXLOG_I(kTag, "kbm: glyph sprites found at game frame %u", s.frames);
             }
         }
-        if (ready) sync_glyphs_locked(s, keyboard);
-        if (keyboard && s.frames % 60 == 0) {
+        if (ready) sync_glyphs_locked(s);
+        if (eff != play::PromptStyle::Switch && s.frames % 60 == 0) {
             if (s.title_px_icon != s.title_icon) {
                 s.title_px = title_pixels_locked(s, s.title_icon);
                 s.title_px_icon = s.title_icon;
@@ -639,7 +698,7 @@ void kbm_install(uint64_t base, std::vector<uint32_t>* hooks) {
     s.enabled = config_get_bool("pkp", "kbm_icons", true);
     s.dir = exe_dir() + "assets/kbm_icons/";
     hooks->push_back(hook_add_mid(base + kTagCall, &hook_tag));
-    NXLOG_I(kTag, "keyboard prompts %s (they show while [prompts] style is keyboard, or auto after keyboard or mouse input; icons from %s)",
+    NXLOG_I(kTag, "button prompts %s (keyboard icons from %s, pad icons from the prompt icon pack; the style is [prompts] style)",
             s.enabled ? "on" : "off ([pkp] kbm_icons = 0)", s.dir.c_str());
 }
 
@@ -647,36 +706,9 @@ void kbm_frame(::Ctx* c) { frame(c); }
 
 void kbm_settings_changed(const play::Settings& set) {
     State& s = st();
-    std::array<Want, kSlots> want;
-    for (int i = 0; i < kCodes; ++i) {
-        play::InputId in;
-        if (input_for_bits(set, kCodeBit[i], &in)) want[i] = {label_of(in), icon_of(in)};
-    }
-    // the sticks: the left one moves (the four move keys, "WASD"), the right one turns the camera (the mouse)
-    std::string move, move_icon = "@move:";
-    for (play::Act a : {play::Act::MoveForward, play::Act::MoveLeft, play::Act::MoveBack, play::Act::MoveRight}) {
-        play::InputId in;
-        const bool bound = input_for_act(set, a, &in);
-        const std::string n = bound ? play::input_name(in) : std::string(), ic = bound ? icon_of(in) : std::string();
-        move = n.size() == 1 && (!move.empty() || a == play::Act::MoveForward) ? move + n : std::string();
-        move_icon = ic.empty() || move_icon.empty() ? std::string() : move_icon + (a == play::Act::MoveForward ? "" : ",") + ic;
-    }
-    want[kSlotLS] = {move.size() == 4 ? move : "Move", move_icon};
-    want[kSlotRS] = {"Mouse", "mouse_move"};
-    // the title art's A: the Enter key when one is bound to A (the menu key, though E is listed first), else whatever A shows
-    std::string title = want[5].icon;
-    for (const play::Binding& b : set.bindings) {
-        const play::Output& o = set.out[static_cast<int>(b.act)];
-        if (b.trig != play::Trig::Press || b.in.kind != play::InKind::Key || o.buttons != kCodeBit[5] || o.lx || o.ly || o.rx || o.ry) continue;
-        const std::string n = play::input_name(b.in);
-        if ((n == "Return" || n == "Keypad Enter") && !icon_of(b.in).empty()) {
-            title = icon_of(b.in);
-            break;
-        }
-    }
     std::lock_guard<std::mutex> lk(s.mu);
-    s.want = want;
-    s.title_icon = title;
+    s.settings = set;
+    compute_want_locked(s);
 }
 
 void kbm_status_text(char* buf, size_t n) {

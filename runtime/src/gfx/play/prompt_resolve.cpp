@@ -168,6 +168,22 @@ std::string resolve_icon(const ResolveIn& in, Icon icon) {
     return icon_pressed(icon) ? base + "_pressed" : base;
 }
 
+std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit) {
+    if (style != PromptStyle::Xbox && style != PromptStyle::PlayStation) return {};
+    if (switch_bit == 0 || (switch_bit & (switch_bit - 1)) != 0) return {};   // exactly one button bit
+    using namespace hid;
+    Btn b = Btn::None;
+    if (switch_bit & (btn(kBtnLeft) | btn(kBtnUp) | btn(kBtnRight) | btn(kBtnDown))) b = Btn::DPad;
+    else
+        for (int i = 0; i < static_cast<int>(Btn::kCount); ++i)
+            if (button_bit(static_cast<Btn>(i)) == switch_bit) {
+                b = static_cast<Btn>(i);
+                break;
+            }
+    if (b == Btn::None) return {};
+    return pad_name(style, pad, label_abxy, b);
+}
+
 PromptStyle auto_style(LastDevice last, int last_pad_kind, int connected_pad_kind) {
     auto from_kind = [](int k) {
         switch (k) {
