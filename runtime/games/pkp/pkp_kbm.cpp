@@ -667,7 +667,9 @@ void frame(::Ctx* c) {
                 if (ready) NXLOG_I(kTag, "kbm: glyph sprites found at game frame %u", s.frames);
             }
         }
-        if (ready) sync_glyphs_locked(s);
+        // not only once everything is found: the title draws (-) Settings while other sprites (sticks) are not loaded yet, so every
+        // glyph already found gets its icon now. Skipped while none was found (nothing to patch, no per-frame work)
+        if (ready || std::any_of(s.glyph.begin(), s.glyph.end(), [](const Glyph& g) { return g.tex != 0; })) sync_glyphs_locked(s);
         if (eff != play::PromptStyle::Switch && s.frames % 60 == 0) {
             if (s.title_px_icon != s.title_icon) {
                 s.title_px = title_pixels_locked(s, s.title_icon);
