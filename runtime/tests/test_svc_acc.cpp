@@ -248,11 +248,11 @@ NXTEST(acc_manager_account_id_and_async_context) {
     // CheckAvailability (0): ok
     r = mgr.call(0);
     CHECK(r.ok());
-    // GetAccountId (1): uid[0] ^ uid[1] (ScarletNX's id for a user; the local user has no network account): 0x4D50525265636F6C
+    // GetAccountId (1): the network service account id, nonzero (its sources: acc_network_account_id)
     r = mgr.call(1);
     CHECK(r.ok());
-    CHECK_EQ(r.get<uint64_t>(0), 0x4D50525265636F6Cull);
-    // EnsureIdTokenCacheAsync (2): an IAsyncContext that is done at once and failed with nifm's 110-300 (0x2586E), no network
+    CHECK(r.get<uint64_t>(0) != 0);
+    // EnsureIdTokenCacheAsync (2): an IAsyncContext that is done at once and succeeded (yuzu family)
     r = mgr.call(2);
     CHECK(r.ok());
     REQUIRE(r.move.size() == 1);
@@ -266,7 +266,63 @@ NXTEST(acc_manager_account_id_and_async_context) {
     r = ctx.call(1);                   // Cancel
     CHECK(r.ok());
     r = ctx.call(3);                   // GetResult
-    CHECK_EQ(r.result, 0x2586Eu);
+    CHECK_EQ(r.result, 0u);
+    // LoadIdTokenCacheDeprecated (3) and LoadIdTokenCache (4): success, u32 size, a zero-filled token of 0x100 bytes cut to the buffer
+    for (uint32_t cmd : {3u, 4u}) {
+        std::vector<uint8_t> tok(0x200, 0xAA);
+        r = mgr.call(cmd, Args().buf_b(tok.data(), tok.size()));
+        CHECK_EQ(r.result, 0u);
+        CHECK_EQ(r.get<uint32_t>(0), 0x100u);
+        CHECK(tok[0] == 0 && tok[0xFF] == 0 && tok[0x100] == 0xAA);
+        std::vector<uint8_t> small(0x40, 0xAA);
+        r = mgr.call(cmd, Args().buf_b(small.data(), small.size()));
+        CHECK_EQ(r.get<uint32_t>(0), 0x40u);
+        CHECK(small[0x3F] == 0);
+    }
+    // LoadNetworkServiceLicenseKindAsync (170): still a failed context (no network), licence kind 0
+    r = mgr.call(170);
+    CHECK(r.ok());
+    REQUIRE(r.move.size() == 1);
+    nxsvc::Session lic = mgr.sub(r);
+    CHECK_EQ(lic.call(3).result, 0x2586Eu);
+    CHECK_EQ(lic.call(100).get<uint32_t>(0), 0u);
+}
+
+namespace {
+uint64_t account_id(const uint8_t* uid = kLocalUid) {
+    nxsvc::Session s = nxsvc::connect("acc:u0");
+    nxsvc::Reply r = s.call(101, Args().bytes(uid, 16));
+    if (!r.ok() || r.move.size() != 1) return 0;
+    nxsvc::Session mgr = s.sub(r);
+    return mgr.call(1).get<uint64_t>(0);
+}
+}  // namespace
+
+// The network service account id: [account] network_account_id when it is 16 hex digits and nonzero; otherwise a stable nonzero hash
+// of the MachineGuid and the uid (another uid, another id), worked out again when the services are reset.
+NXTEST(acc_network_account_id) {
+    nxsvc::Env env;
+    fresh_profile();
+    const uint64_t def = account_id();
+    CHECK(def != 0);
+    CHECK_EQ(account_id(), def);                    // stable
+    config_set("account", "network_account_id", "0123456789abcDEF");
+    services::reset_all();
+    CHECK_EQ(account_id(), 0x0123456789ABCDEFull);
+    for (const char* bad : {"0000000000000000", "123", "0123456789abcdeg", "0123456789abcdef0"}) {
+        config_set("account", "network_account_id", bad);
+        services::reset_all();
+        CHECK_EQ(account_id(), def);                // not 16 hex digits / zero: the default
+    }
+    fresh_profile();
+    config_set("account", "uid", "00000000000000024d50525265636f6d");
+    services::profile_reload();
+    services::reset_all();
+    const uint8_t uid2[16] = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x6d, 0x6f, 0x63, 0x65, 0x52, 0x52, 0x50, 0x4d};
+    const uint64_t other = account_id(uid2);
+    CHECK(other != 0);
+    CHECK(other != def);
+    fresh_profile();
 }
 
 NXTEST(acc_state_follows_profile_on_reset) {

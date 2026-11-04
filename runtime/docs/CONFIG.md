@@ -170,12 +170,15 @@ Rules:
 | `system` | `nickname` | `nxrt` | `NXRT_SYSTEM_NICKNAME` | `src/services/common.cpp` | Console nickname. |
 | `account` | `nickname` | `Samus` | `NXRT_ACCOUNT_NICKNAME` | `src/services/common.cpp` | Nickname of the local user. |
 | `account` | `uid` | empty (`00000000000000014d50525265636f6d`) | `NXRT_ACCOUNT_UID` | `src/services/common.cpp` | Local user id as 32 hex digits. Anything that is not 32 hex digits keeps the default. |
+| `account` | `network_account_id` | empty (a hash of the Windows MachineGuid and `uid`) | `NXRT_ACCOUNT_NETWORK_ACCOUNT_ID` | `src/services/acc.cpp` | The user's network service account id (IManagerForApplication GetAccountId) as 16 hex digits, nonzero. Games build their player id for local play from it (Pokopia refuses a second player with the same id: error 9005), so it must differ between the PCs of a session. The default does, even with the default `uid`: a stable hash of `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` (per Wine prefix under Proton) and `uid`; if the registry cannot be read, `uid` hi XOR lo. Anything that is not 16 hex digits or is zero keeps the default (Warn). The id in use is logged once at Info under tag `acc`. |
 | `fs` | `romfs` | `game/romfs` | `NXRT_FS_ROMFS` | `src/services/common.cpp` | Host folder served as the game's RomFS, relative to the working directory. |
 | `fs` | `save_dir` | empty (`%APPDATA%\MPRRecomp\save`) | `NXRT_FS_SAVE_DIR` | `src/services/common.cpp` | Folder for save data. Empty: the APPDATA default. |
 | `album` | `dir` | `album` | `NXRT_ALBUM_DIR` | `src/services/album.cpp` | Folder the game's photos (caps:su SaveScreenShotEx0/1/2) are written to, one PNG per photo named by the local date and time (`YYYY-MM-DD_HH-MM-SS-mmm.png`). A relative path is taken from the exe's folder. Created when the first photo is saved. |
 | `fatal` | `report_path` | unset (`<exe path without extension>_fatal.txt`) | `NXRT_FATAL_REPORT_PATH` | `src/services/logfault.cpp` | Fatal-error report file. Once the key is set, even to empty, its value is used. Empty: no file is written. |
 | `fatal` | `terminate` | `true` | `NXRT_FATAL_TERMINATE` | `src/services/logfault.cpp` | `true` ends the process with exit code 5 after a fatal report. `false` returns. |
 | `net` | `offline` | `true` | `NXRT_NET_OFFLINE` | `src/services/network.cpp` | `true`: no connection, no friends and no BCAT data (the start-up log line says so). |
+| `net` | `server` | empty | `NXRT_NET_SERVER` | `src/services/ldn.cpp` | Relay server for local wireless play (the launcher's `--host`): `host:port`, port 39660 when left out. Empty: local wireless is off (ldn scans find nothing, creating a network fails), as before. The connection opens in the background when the game initializes ldn; the outcome is logged once at Info under tag `net` (`ldn: relay 1.2.3.4:39660 connected as Josh` or the error). The player name sent to the server is `[account] nickname`. |
+| `net` | `password` | empty | `NXRT_NET_PASSWORD` | `src/services/ldn.cpp` | Password of the relay server (sent in its HELLO). Empty: none. |
 | `pl` | `font_dir` | empty | `NXRT_PL_FONT_DIR` | `src/services/pl.cpp` | Folder searched first for `DejaVuSans.ttf` and the shared font dumps. Empty: the search goes on to `fonts\` next to the exe, then `assets\fonts\` under the working directory, then the exe's folder. |
 | `play` | `controls` | `controls.ini` | `NXRT_PLAY_CONTROLS` | `src/gfx/play/play.cpp` | Settings file of play mode (controls, sensitivity, display); written with the factory settings when missing. |
 | `play` | `capture_mouse` | `true` | `NXRT_PLAY_CAPTURE_MOUSE` | `src/gfx/play/play.cpp` | Capture the pointer (relative mode) while the game is in play. |
@@ -451,6 +454,7 @@ nickname = nxrt
 [account]
 nickname = Samus
 ; uid =  (empty: the built-in local user id)
+; network_account_id =  (empty: a hash of this PC's MachineGuid and uid)
 
 [fs]
 romfs = game/romfs
@@ -462,6 +466,8 @@ terminate = true
 
 [net]
 offline = true
+; server =  (host:port of the relay server for local wireless play; empty: off)
+; password =
 
 [pl]
 ; font_dir =  (empty: the default search folders)

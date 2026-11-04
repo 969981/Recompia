@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <string>
+#include <vector>
 
 #include "nxrt/log.h"
 
@@ -31,6 +33,23 @@ namespace {
 Ret ok(int32_t v = 0) { return {v, 0}; }
 Ret fail(uint32_t e) { return {-1, e}; }
 constexpr uint32_t kLimitedBroadcast = 0xFFFFFFFFu;
+
+// The payload's first kDumpBytes bytes as hex for the Debug udp lines ("|" every 16 bytes, "..." when cut). 192 covers Pokopia's KTGL
+// join request (171 bytes with its 4-byte routing header, work/mp/join-reject-analysis.md). Only built when Debug is on (NXLOG_D).
+constexpr size_t kDumpBytes = 192;
+std::string hex_head(const std::vector<uint8_t>& b) {
+    static const char kHex[] = "0123456789abcdef";
+    const size_t n = b.size() < kDumpBytes ? b.size() : kDumpBytes;
+    std::string s;
+    s.reserve(n * 3 + n / 16 * 2 + 4);
+    for (size_t i = 0; i < n; ++i) {
+        if (i) s += (i % 16) ? " " : " | ";
+        s += kHex[b[i] >> 4];
+        s += kHex[b[i] & 15];
+    }
+    if (n < b.size()) s += " ...";
+    return s;
+}
 }  // namespace
 
 Stack::Stack(std::shared_ptr<vnet::Link> fixed) : fixed_(std::move(fixed)) {
@@ -153,8 +172,8 @@ Ret Stack::sendto(int fd, const void* p, size_t n, int flags, const Addr* to) {
         d.dst_port = dst.port;
         d.data.assign(static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + n);
     }
-    NXLOG_D("net", "udp fd %d send %s:%u -> %s:%u, %zu bytes", fd, vnet::ip_str(d.src_ip).c_str(), d.src_port,
-            vnet::ip_str(d.dst_ip).c_str(), d.dst_port, n);
+    NXLOG_D("net", "udp fd %d send %s:%u -> %s:%u, %zu bytes: %s", fd, vnet::ip_str(d.src_ip).c_str(), d.src_port,
+            vnet::ip_str(d.dst_ip).c_str(), d.dst_port, n, hex_head(d.data).c_str());
     if (d.dst_ip == d.src_ip) inbound(d);          // to our own address: the loopback path, not the wire
     else if (!l->send(d)) return fail(kEnetunreach);
     return ok(static_cast<int32_t>(n));
@@ -170,8 +189,8 @@ void Stack::inbound(const vnet::Datagram& d) {
         if (s.q.size() >= kQueueCap) s.q.pop_front();
         s.q.push_back(d);
         any = true;
-        NXLOG_D("net", "udp fd %d recv %s:%u -> %s:%u, %zu bytes", fd, vnet::ip_str(d.src_ip).c_str(), d.src_port,
-                vnet::ip_str(d.dst_ip).c_str(), d.dst_port, d.data.size());
+        NXLOG_D("net", "udp fd %d recv %s:%u -> %s:%u, %zu bytes: %s", fd, vnet::ip_str(d.src_ip).c_str(), d.src_port,
+                vnet::ip_str(d.dst_ip).c_str(), d.dst_port, d.data.size(), hex_head(d.data).c_str());
     };
     for (const auto& [fd, s] : socks_) {
         if (!s->bound || s->shut_rd || s->local.port != d.dst_port) continue;
