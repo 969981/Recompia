@@ -374,6 +374,7 @@ struct Renderer::Impl {
 
     bool recreate(uint32_t want_w, uint32_t want_h) {
         dev->wait_idle();
+        if (dev->device_lost()) return false;
         if (headless) {
             destroy_targets();
             extent = {want_w, want_h};
@@ -487,6 +488,7 @@ struct Renderer::Impl {
         if (latency) latency->prepare_swapchain(&ci);
         VkSwapchainKHR fresh = VK_NULL_HANDLE;
         VkResult r = vkCreateSwapchainKHR(vk(), &ci, nullptr, &fresh);
+        dev->note_result(r, "vkCreateSwapchainKHR");
         if (r == VK_SUCCESS) vk_gauge_swapchains().add(1);
         destroy_targets();
         if (old) {
@@ -634,6 +636,7 @@ Renderer::~Renderer() {
 
 bool Renderer::begin_frame(FrameInfo* out) {
     Impl& s = *impl_;
+    if (s.dev->device_lost()) { s.st.skipped++; return false; }
     if (s.in_frame) end_frame();   // a forgotten end_frame must not wedge the slot
     int pw = static_cast<int>(s.headless_w), ph = static_cast<int>(s.headless_h);
     if (!s.headless) platform::pixel_size(&pw, &ph);
@@ -658,14 +661,21 @@ bool Renderer::begin_frame(FrameInfo* out) {
     if (s.kind != extras::OutputKind::Sdr8 && extras::hdr_state().metadata_serial != s.md_serial) s.apply_hdr_metadata();   // the game declared new levels
 
     Impl::Slot& slot = s.slots[s.cur_slot];
-    vkWaitForFences(s.vk(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    VkResult r = vkWaitForFences(s.vk(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    s.dev->note_result(r, "vkWaitForFences (present)");
+    if (r != VK_SUCCESS) {
+        if (!s.dev->device_lost()) NXLOG_E(kTag, "vkWaitForFences failed (%d)", static_cast<int>(r));
+        s.st.skipped++;
+        return false;
+    }
     s.read_timestamps(slot);
 
     uint32_t idx = 0;
     if (s.headless) {
         idx = static_cast<uint32_t>(s.frame_number % s.targets.size());
     } else {
-        VkResult r = vkAcquireNextImageKHR(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
+        r = vkAcquireNextImageKHR(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
+        s.dev->note_result(r, "vkAcquireNextImageKHR");
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
             s.dirty = true;
             s.st.out_of_date++;
@@ -676,7 +686,7 @@ bool Renderer::begin_frame(FrameInfo* out) {
             s.dirty = true;     // finish this frame, rebuild before the next
             s.st.out_of_date++;
         } else if (r != VK_SUCCESS) {
-            NXLOG_E(kTag, "vkAcquireNextImageKHR failed (%d)", static_cast<int>(r));
+            if (!s.dev->device_lost()) NXLOG_E(kTag, "vkAcquireNextImageKHR failed (%d)", static_cast<int>(r));
             s.st.skipped++;
             return false;
         }
@@ -704,6 +714,10 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
     Impl& s = *impl_;
     if (!s.in_frame) return;
     s.in_frame = false;
+    if (s.dev->device_lost()) {
+        if (prefix) prefix->submitted = false;
+        return;
+    }
     Impl::Slot& slot = s.slots[s.cur_slot];
     Impl::Target& t = s.targets[s.cur_image];
     if (s.overlay) s.overlay(s.info);
@@ -795,10 +809,14 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
     {
         std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
         VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &si, slot.fence);
-        if (r != VK_SUCCESS) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
-        else if (probe_value) s.probe_published.store(probe_value);
+        s.dev->note_result(r, "vkQueueSubmit2 (present)");
+        if (r != VK_SUCCESS) {
+            if (!s.dev->device_lost()) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
+        } else if (probe_value) {
+            s.probe_published.store(probe_value);
+        }
         if (prefix) prefix->submitted = r == VK_SUCCESS;
-        if (!s.headless) {
+        if (r == VK_SUCCESS && !s.headless) {
             VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
             pi.waitSemaphoreCount = 1;
             pi.pWaitSemaphores = &t.render_done;
@@ -812,11 +830,12 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
                 pi.pNext = &pid;
             }
             r = vkQueuePresentKHR(s.dev->queue(), &pi);
+            s.dev->note_result(r, "vkQueuePresentKHR");
             s.st.presents++;
             if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
                 s.dirty = true;
                 s.st.out_of_date++;
-            } else if (r != VK_SUCCESS) {
+            } else if (r != VK_SUCCESS && !s.dev->device_lost()) {
                 NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
             }
         }

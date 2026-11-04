@@ -10,6 +10,7 @@
 #pragma once
 #include <volk.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -165,6 +166,11 @@ public:
     float timestamp_period_ns() const { return props_.limits.timestampPeriod; }
     bool timestamps_supported() const { return timestamp_valid_bits_ > 0; }
 
+    // A lost Vulkan device cannot be recovered in-process. The first caller that observes
+    // VK_ERROR_DEVICE_LOST records it here; renderers and back ends then stop issuing GPU work.
+    void note_result(VkResult result, const char* operation);
+    bool device_lost() const { return device_lost_.load(std::memory_order_acquire); }
+
     // Validation (debug builds, or [gfx] validation). The counters cover everything the layer reported since create/reset.
     bool validation_enabled() const { return validation_; }
     ValidationStats validation_stats() const;
@@ -218,6 +224,7 @@ private:
     bool validation_ = false;
     bool debug_utils_ = false;
     bool owns_platform_surface_ = false;
+    std::atomic<bool> device_lost_{false};
     Impl* impl_ = nullptr;
 };
 
