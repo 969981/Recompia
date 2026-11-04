@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The lobby under the ldn HLE (multiplayer phase 2): rooms (= LDN networks) on a relay server, and the vnet::Link that carries a room's
+// UDP datagrams. Game-independent.
+//
+//   Lobby          abstract: connect (HELLO), scan, create, join, leave, set_advertise, reject, plus one event sink (room state pushes and
+//                  "you are out of the room"). Each Lobby is also the Link of its node while it is in a room (link()).
+//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v1: the reference is
+//                  launcher/src-tauri/src/relay/mod.rs). A reader thread turns frames into events, request answers and Link deliveries;
+//                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer.
+//   LoopbackRelay  an in-process server with the relay's semantics (unit tests): client() hands out LoopbackLobby objects.
+//
+// Room semantics (the server's): room R (1..254) is 169.254.R.0/24, the host is .1 (node 0), guests the lowest free .2...8 (node N-1),
+// node MAC 02:00:a9:fe:R:N. A datagram to .255 goes to every other member, never back to the sender; to a member's vIP, to that member.
+//
+// Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient; for the loopback, the thread of
+// whichever client caused them). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
+// (scan/create/join) of the same lobby. Requests are serialised per lobby; call them from one thread at a time anyway (the ldn HLE does).
+#pragma once
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "vnet.h"
+
+namespace nxrt::vnet {
+
+// ---- protocol values -------------------------------------------------------------------------------------------------------------------
+constexpr uint16_t kRelayProto = 1;
+constexpr uint16_t kRelayDefaultPort = 39660;
+constexpr size_t kMaxNick = 32, kMaxAdvertise = 384;
+constexpr uint8_t kMaxNodes = 8;
+
+// Lobby results: 0 ok, 1..10 the relay's ERROR codes, 100+ local failures.
+enum LobbyErr : int {
+    kLobbyOk = 0,
+    kLobbyBadProto = 1, kLobbyBuild = 2, kLobbyPassword = 3, kLobbyRoomFull = 4, kLobbyNoRoom = 5, kLobbyVersion = 6,
+    kLobbyNotHost = 7, kLobbyRejected = 8, kLobbyRate = 9, kLobbyBadFrame = 10,
+    kLobbyTimeout = 100,      // no answer in time
+    kLobbyNoServer = 101,     // not connected / the connection failed or was lost
+    kLobbyState = 102,        // CREATE/JOIN while in a room, LEAVE/ADVERTISE/REJECT while in none (checked locally)
+};
+const char* lobby_err_str(int e);
+
+// Why the lobby left a room on its own (LEFT reasons 0..3 of the protocol, plus the connection going away).
+enum class LeftReason : uint16_t { YouLeft = 0, HostClosed = 1, Rejected = 2, Shutdown = 3, ConnectionLost = 0x100 };
+
+struct RoomNode {
+    uint8_t node_id = 0;
+    uint32_t vip = 0;
+    std::array<uint8_t, 6> mac{};
+    std::string nickname;
+};
+
+struct Room {
+    uint32_t room_id = 0;
+    uint64_t local_comm_id = 0;
+    uint16_t scene_id = 0;
+    int16_t comm_version = 0;
+    uint8_t node_count_max = 0;
+    uint8_t security_mode = 0;
+    std::vector<RoomNode> nodes;   // in the server's order (node 0, the host, first)
+    std::vector<uint8_t> adv;
+};
+
+struct RoomConfig {
+    uint64_t local_comm_id = 0;
+    uint16_t scene_id = 0;
+    int16_t comm_version = 0;
+    uint8_t node_count_max = kMaxNodes;   // 1..8
+    uint8_t security_mode = 1;
+    std::array<uint8_t, 16> pass_hash{};
+    std::vector<uint8_t> adv;            // <= 384 B
+};
+
+struct Joined {
+    uint32_t room_id = 0;
+    uint32_t vip = 0;
+    uint8_t node_id = 0;
+};
+
+struct LobbyEvents {
+    std::function<void(const Room&)> room_state;   // a ROOM_STATE of the room this lobby is in (join, leave, advertise)
+    std::function<void(LeftReason)> left;          // out of the room without asking (host closed, rejected, shutdown, connection lost)
+};
+
+class Lobby {
+public:
+    virtual ~Lobby() = default;
+    // Connects and says HELLO when not connected yet. kLobbyOk or the failure (the ERROR code answering HELLO, kLobbyNoServer ...).
+    virtual int connect() = 0;
+    virtual bool connected() const = 0;
+    // Rooms that are not full and match (local_comm_id 0 = any, scene_id 0xffff = any).
+    virtual int scan(uint64_t local_comm_id, uint16_t scene_id, std::vector<Room>* out) = 0;
+    virtual int create(const RoomConfig& cfg, Joined* out) = 0;
+    virtual int join(uint32_t room_id, int16_t comm_version, const std::array<uint8_t, 16>& pass_hash, Joined* out) = 0;
+    // Leaves the room (host: closes it). No event follows for this lobby.
+    virtual void leave() = 0;
+    virtual int set_advertise(const std::vector<uint8_t>& adv) = 0;   // host only
+    virtual int reject(uint32_t vip) = 0;                              // host only
+    // The latest state of the room this lobby is in (room_id 0 when in none) and whether it is in one.
+    virtual Room room() const = 0;
+    virtual bool in_room() const = 0;
+    // This node's datagram link (its local_ip() is the vIP while in a room, 0 otherwise).
+    virtual std::shared_ptr<Link> link() = 0;
+    // Replaces the event sink. Waits for an event in progress to finish, so it must not be called from inside a sink.
+    virtual void set_events(LobbyEvents ev) = 0;
+};
+
+// ---- RelayClient ----------------------------------------------------------------------------------------------------------------------
+struct RelayOptions {
+    std::string host;             // name or IPv4 address
+    uint16_t port = kRelayDefaultPort;
+    std::string nickname = "Player";
+    std::string password;
+    std::string build_stamp;      // empty: build_stamp()
+    int timeout_ms = 5000;        // connect, HELLO and request answers
+    int ping_ms = 5000;
+};
+
+// Parses "host:port" (port optional, default 39660). False when empty or the port is bad.
+bool parse_server(const std::string& s, std::string* host, uint16_t* port);
+
+std::shared_ptr<Lobby> make_relay_client(const RelayOptions& opt);
+
+// ---- LoopbackRelay ---------------------------------------------------------------------------------------------------------------------
+class LoopbackRelay {
+public:
+    LoopbackRelay();
+    ~LoopbackRelay();
+    std::shared_ptr<Lobby> client(const std::string& nickname);
+    struct State;
+
+private:
+    std::shared_ptr<State> st_;
+};
+
+// ---- helpers -----------------------------------------------------------------------------------------------------------------------------
+// What HELLO sends as the build stamp: identifies the runtime's relay client (NXRT_BUILD_STAMP at compile time, else a fixed string).
+const char* build_stamp();
+// The relay's passphrase hash: the first 16 bytes of SHA-256 of the passphrase bytes.
+std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n);
+std::array<uint8_t, 32> sha256(const void* p, size_t n);
+
+}  // namespace nxrt::vnet
