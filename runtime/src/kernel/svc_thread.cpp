@@ -8,8 +8,10 @@
 #include <string>
 
 #include <cstdio>
+#include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/dispatch.h"
+#include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/runtime.h"
@@ -67,8 +69,32 @@ void svc_start_thread(::Ctx* c) { svc_ret(c, thread_start(static_cast<uint32_t>(
 
 void svc_exit_thread(::Ctx*) { thread_exit(); }
 
+// The registered game's polling sleeps (nxrt/game.h PollSleep); none while [sched] poll_sleeps is off. Read once.
+struct PollSleeps {
+    const game::PollSleep* table = nullptr;
+    uint32_t n = 0;
+    uint64_t base = 0;
+};
+const PollSleeps& poll_sleeps() {
+    static const PollSleeps t = [] {
+        PollSleeps p;
+        const game::Info& g = game::info();
+        if (!g.poll_sleeps || !g.poll_sleep_count || !config_get_bool("sched", "poll_sleeps", true)) return p;
+        p.table = g.poll_sleeps;
+        p.n = g.poll_sleep_count;
+        p.base = g.main_base;
+        NXLOG_I("svc", "[sched] poll_sleeps: %u sleeps in the game's polling loops are shortened", p.n);
+        return p;
+    }();
+    return t;
+}
+
 void svc_sleep_thread(::Ctx* c) {              // x0 ns (0, -1, -2 = yield variants)
     int64_t ns = static_cast<int64_t>(X(c, 0));
+    if (ns >= 1000000) {   // nn::os::SleepThread is a leaf that ends in the svc, so lr is the game's call site
+        const PollSleeps& p = poll_sleeps();
+        ns = poll_sleep_ns(p.table, p.n, p.base, X(c, 30), ns);
+    }
     if (ns > 0) sleep_ns(ns);
     else yield_host();
 }
@@ -266,5 +292,14 @@ void svc_register_thread_group() {
     svc_register(0x36, svc_nop_void);        // SynchronizePreemptionState
     svc_register(0x45, svc_create_event);
 }
+
+namespace kernel {
+int64_t poll_sleep_ns(const game::PollSleep* table, uint32_t count, uint64_t main_base, uint64_t lr, int64_t ns) {
+    if (!table || ns < 1000000) return ns;
+    for (uint32_t i = 0; i < count; ++i)
+        if (main_base + table[i].ret == lr) return table[i].ns < ns ? table[i].ns : ns;
+    return ns;
+}
+}  // namespace kernel
 
 }  // namespace nxrt
