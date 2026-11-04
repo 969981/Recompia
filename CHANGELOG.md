@@ -3,31 +3,48 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.4.0 (build H)
 
 ### What's new
-- Much faster on the Legion Go S. In the open world at its native 1920x1200, with no upscaler, the frame rate rises from about
-  56 to about 78 fps (+39%), and the slowest frames are smoother. At 67% render scale it runs at about 90 fps. These are numbers
-  from the development build; the release build will be measured again before it ships.
+- Much faster on the Legion Go S: in the world at its native 1920x1200, with no upscaler, about 55 -> 75 fps (+36%), and the slowest
+  frames are smoother (1% low 31 -> 38 fps). Measured on this release build, three before/after pairs.
 - Windows PCs gain too: the game needs about 20% less CPU time per frame to hand its drawing work to the graphics card (RX 9060 XT:
   6.9 -> 5.5 ms per frame).
-- Each change has its own setting in `pkp.ini` (see the developer notes below), so a problem on one machine can be
-  switched off without losing the rest.
-
-### Launcher
-- The launcher shows an "Update available" banner with a "What's new" link when GitHub has a newer release. One request at start, silent when offline, nothing is downloaded. Not shown in untagged dev builds; Proton/handheld players do not see it (the launcher does not run there).
+- Each speed-up has its own setting in `pkp.ini` (see the developer notes below), so a problem on one machine can be switched off
+  without losing the rest.
+- The launcher shows an "Update available" banner with a "What's new" link when a newer release is out. One request at start,
+  silent when offline, nothing is downloaded.
 
 ### Fixes
 - Render resolutions of about 3800x2140 and up (4K) no longer crash at start: the game's graphics memory now grows with the render
   size. 1920x1080 and below are unchanged. Very large sizes (above about 5300x2990) are lowered to the largest that fits, with a
   warning in the log. Setup builds pkp.exe again once (new hook sites).
+- Xbox and PlayStation button prompts now show in the game when picked in the settings or by "auto" (before, Switch prompts stayed).
+- When the graphics driver loses the GPU, the game shows one clear error and closes, instead of hanging and filling the log.
+- Timed waits inside the game no longer end too early (they assumed the wrong console clock rate).
+
+### Known issues
+- The launcher does not start under Proton/Linux: it needs Microsoft's WebView2, which Proton does not include. So Steam Deck and
+  Legion Go S players do not see the update banner.
+- Legion Go S: about 75 fps at native, not yet a steady 90.
+
+---
 
 ### Release notes for developers
-- **#49** `pkp_gfx_heap.cpp`: mid hooks at `0x710112f008` (pool config: general `sp+0x40`, render targets `sp+0xa0`) and `0x710112fb08`
+
+Base: fork 0.3.0 (`9edefb8`).
+
+- **#59** (fixes #49) `pkp_gfx_heap.cpp`: mid hooks at `0x710112f008` (pool config: general `sp+0x40`, render targets `sp+0xa0`) and `0x710112fb08`
   (graphics arena `[x3+0x48]`), registered only for game targets above 1920x1080. General pool +28 B per extra pixel, render-target
   pool only past 3500 MiB (937.6 MiB + 160 B/pixel + 1 GiB), arena by the sum; pools capped under 4 GiB, larger sizes clamped.
   `main.sites` changed: installs re-lift.
-- **Performance overhaul** (runtime only; no re-lift). Each item names its ini key and default:
+- **#40** pkp prompts: the UI atlas glyph patch (`pkp_kbm.cpp`) now covers the Xbox and PlayStation styles, not only keyboard
+  (fixes #39).
+- **#50** Kernel wait deadlines use the registered console tick frequency instead of 19.2 MHz; regression test with 10 ms hook slicing.
+- **#51** The first `VK_ERROR_DEVICE_LOST` is latched at the Vulkan device layer: replay, acquire, submit and present stop, NVN serials
+  complete on the CPU so game threads leave GPU waits, one error on the main thread, then exit.
+- **#42**, **#43**, **#56** README: multiplayer work-in-progress note, new layout, link to the multiplayer tracking issue.
+- **#71** Performance overhaul (runtime only; no re-lift). Each item names its ini key and default:
   - Config lookups cached per thread (`[config] cache`, on). Idea from ultratears (GPL-3.0).
   - Self-sampling draws use `VK_EXT_attachment_feedback_loop_layout` instead of a copy of the attachment (`[nvn] feedback_loop`,
     auto). Legion Go S: +9% on its own.
@@ -41,7 +58,11 @@ of the game (version 2.0.1a): the download contains no game files.
     wait, one frame less latency).
   - A submit thread for NVN submissions and presents (`[nvn] submit_thread`, off: no gain at the frame rate on the Legion Go S).
   - Profiling: `[prof] gpu_passes`, `replay_fine`, `render_split` and the `ftrace_report.py` / `gpu_pass_report.py` scripts (all off).
-  - Legion Go S numbers: SteamOS, Proton 11, in the world on a time-based walk, 3 runs per side in ABAB order.
+  - Legion Go S numbers: SteamOS, Proton 11, in the world at native 1920x1200 on a time-based walk, three ABAB pairs on the release
+    build: 54.0 / 55.3 / 56.9 -> 74.5 / 76.1 / 75.0 fps (mean 55.4 -> 75.2, +36%), 1% low 31.3 -> 37.5, 0 error lines.
+- **#72** `launcher/src-tauri/src/update.rs`: one GET of `/repos/featureJosh/pokopia-recomp/releases/latest` at start (ureq 2 +
+  rustls, 5 s timeout), semver compare against the launcher's own version; untagged builds (0.0.0, 0.1.1) skip it. The banner's link
+  opens only `https://github.com/` URLs.
 
 ## 0.3.0 (build G)
 
