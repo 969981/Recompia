@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <set>
 #include <vector>
 
 #include "nxrt/log.h"
@@ -58,6 +59,18 @@ struct AccState {
 AccState& state() {
     static AccState s;
     return s;
+}
+
+// First use of a command, for the Info log lines below (one line per key for the life of the process; acc_reset() clears it). The keys
+// are the command id for acc:u0 / acc:u1 and 0x10000 + id for IManagerForApplication. The game's nn::account calls are lifted SDK code,
+// so these IPC lines are the only trace of which account answers (the network service account id) the game was given; NXRT_HLE_TRACE
+// does not see them. Commands nobody answers are logged by the IPC layer (Warn "<service> cmd N not implemented", once per command).
+constexpr uint32_t kMgrKey = 0x10000;
+std::mutex g_seen_mu;
+std::set<uint32_t> g_seen;
+bool first_use(uint32_t key) {
+    std::lock_guard<std::mutex> lk(g_seen_mu);
+    return g_seen.insert(key).second;
 }
 
 // Only one user exists: the local one.
@@ -152,15 +165,28 @@ std::shared_ptr<ipc::Service> make_license_async_context() {
 
 // nn::account::baas::IManagerForApplication: CheckAvailability (0), GetAccountId (1), EnsureIdTokenCacheAsync (2).
 // The local user has no network service account. GetAccountId answers the id ScarletNX and Ryujinx make for a user (uid[0] ^ uid[1]);
-// the network calls behind it fail (EnsureIdTokenCacheAsync's context).
+// the network calls behind it fail (EnsureIdTokenCacheAsync's context). Every command logs its first use at Info with what it answered
+// (the account id in hex): a game's online/local session layer may build its player id from it (Pokopia's KTGL member id, see
+// work/mp/join-reject-analysis.md), so two PCs must be seen to get different ids.
 std::shared_ptr<ipc::Service> make_manager(const Uid& u) {
     return make_iface("IManagerForApplication", [u](ipc::Service& s) {
-        s.add_cmd(0, "CheckAvailability", [](ipc::Request&, ipc::Response&) -> uint32_t { return 0; });
+        s.add_cmd(0, "CheckAvailability", [u](ipc::Request&, ipc::Response&) -> uint32_t {
+            if (first_use(kMgrKey + 0))
+                NXLOG_I("acc", "IManagerForApplication cmd 0 CheckAvailability: user %016llx_%016llx -> 0 (available) (first use)",
+                        static_cast<unsigned long long>(u.hi), static_cast<unsigned long long>(u.lo));
+            return 0;
+        });
         s.add_cmd(1, "GetAccountId", [u](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.push<uint64_t>(u.hi ^ u.lo);
+            const uint64_t id = u.hi ^ u.lo;
+            if (first_use(kMgrKey + 1))
+                NXLOG_I("acc", "IManagerForApplication cmd 1 GetAccountId: user %016llx_%016llx -> account id 0x%016llx (first use)",
+                        static_cast<unsigned long long>(u.hi), static_cast<unsigned long long>(u.lo), static_cast<unsigned long long>(id));
+            rsp.push<uint64_t>(id);
             return 0;
         });
         s.add_cmd(2, "EnsureIdTokenCacheAsync", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            if (first_use(kMgrKey + 2))
+                NXLOG_I("acc", "IManagerForApplication cmd 2 EnsureIdTokenCacheAsync -> IAsyncContext (done, GetResult 110-300) (first use)");
             rsp.push_object(make_async_context());
             return 0;
         });
@@ -168,12 +194,20 @@ std::shared_ptr<ipc::Service> make_manager(const Uid& u) {
         // vtable slot 0x40 = cmd 4). There is no token: 124-200 NetworkServiceAccountRegistrationRequired, which the SDK wrapper hands
         // back to the game (sdk 0x7500189ed0, no abort).
         for (uint32_t id : {3u, 4u}) {
-            s.add_cmd(id, id == 3 ? "LoadIdTokenCacheDeprecated" : "LoadIdTokenCache",
-                      [](ipc::Request&, ipc::Response&) -> uint32_t { return kNsaRegistrationRequired; });
+            const char* name = id == 3 ? "LoadIdTokenCacheDeprecated" : "LoadIdTokenCache";
+            s.add_cmd(id, name, [id, name](ipc::Request&, ipc::Response&) -> uint32_t {
+                if (first_use(kMgrKey + id))
+                    NXLOG_I("acc", "IManagerForApplication cmd %u %s -> 0x%x (124-200, no id token) (first use)", id, name,
+                            kNsaRegistrationRequired);
+                return kNsaRegistrationRequired;
+            });
         }
         // 170 LoadNetworkServiceLicenseKindAsync / EnsureIdTokenCacheForOnlinePlayAsync (nn::account::LoadNetworkServiceLicenseInfoAsync,
         // slot 0x60): an async context that is done and failed like the others, so the game reads "no Switch Online licence".
         s.add_cmd(170, "LoadNetworkServiceLicenseKindAsync", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            if (first_use(kMgrKey + 170))
+                NXLOG_I("acc", "IManagerForApplication cmd 170 LoadNetworkServiceLicenseKindAsync -> IAsyncContext (done, GetResult 110-300, "
+                        "licence kind 0) (first use)");
             rsp.push_object(make_license_async_context());
             return 0;
         });
@@ -237,11 +271,16 @@ void add_shared(ipc::Service& s, bool system_side) {
     });
 }
 
-// GetBaasAccountManagerForApplication (101) and LoadOpenContext (130): an IManagerForApplication for a known user.
+// GetBaasAccountManagerForApplication (101) and LoadOpenContext (130): an IManagerForApplication for a known user. The first use of
+// each logs the user asked for and the answer.
 uint32_t get_baas_manager(ipc::Request& req, ipc::Response& rsp) {
     const Uid u = arg_uid(req, 0);
-    if (u.null()) return res(124, 20);
-    if (!user_exists(u)) return res(124, 100);
+    const uint32_t r = u.null() ? res(124, 20) : !user_exists(u) ? res(124, 100) : 0;
+    if (first_use(req.cmd))
+        NXLOG_I("acc", "cmd %u %s: user %016llx_%016llx -> 0x%x (first use)", req.cmd,
+                req.cmd == 101 ? "GetBaasAccountManagerForApplication" : "LoadOpenContext", static_cast<unsigned long long>(u.hi),
+                static_cast<unsigned long long>(u.lo), r);
+    if (r) return r;
     rsp.push_object(make_manager(u));
     return 0;
 }
@@ -294,6 +333,10 @@ void register_acc() {
 }
 
 void acc_reset() {
+    {
+        std::lock_guard<std::mutex> lk(g_seen_mu);
+        g_seen.clear();
+    }
     std::lock_guard<std::mutex> lk(state().mu);
     state().opened.assign(1, local_uid());
 }
