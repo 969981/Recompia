@@ -18,5 +18,15 @@ bool host_is_steam_deck();
 
 // Running under Wine (Proton, SteamOS): ntdll exports wine_get_version. Read once; any thread.
 bool host_is_wine();
+// Steam's on-screen keyboard for text the game asks for (the software keyboard applet). Wanted under Wine (Proton) on a Steam Deck
+// (host_is_steam_deck), on SteamOS (SteamOS=1) and in Steam's gamepad UI (SteamGamepadUI=1); [applet] steam_keyboard = auto (default)
+// | on | off overrides it. Not on Windows by default: a steam:// URL there would start the Steam client if it is not running.
+bool host_steam_keyboard_wanted();
+// Shows Steam's keyboard (steam://open/keyboard), keeping the text field at window pixels (x, y, w, h) uncovered; Steam types into the
+// window like a real keyboard. Close hides it again (steam://close/keyboard). Both return at once: a worker hands the URLs to Steam in
+// order (under Proton through the prefix's steam.exe, Proton's helper that forwards steam:// to the native client).
+void host_steam_keyboard_open(int x, int y, int w, int h);
+void host_steam_keyboard_close();
+)
 
 }  // namespace nxrt
