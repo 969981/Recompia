@@ -600,7 +600,16 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     // The display's aspect ([display] aspect: auto = the window's, or the fixed render size's when one is set). Anything but 16:9 gives the
     // game targets of that shape (1080 high when wider, 1920 wide when narrower; the back end's scale on top) and the camera / UI hooks above.
     const bool fixed_size = d.render_width > 0 && d.render_height > 0;
-    const double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
+    double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
+    // auto on a shape taller than 16:9 (16:10 handhelds): 16:9 with bars. The taller view below is matrix-only (fix_camera leaves the
+    // camera's FOV and aspect at 16:9), and the draws that rebuild their projection from those fields (objects, characters) then sit too
+    // high above the screen centre and too low below it (#73). A forced [display] aspect still gets the taller view.
+    const bool taller_auto = !(d.aspect > 0) && aspect < kAspect169 && !close_to(aspect, kAspect169);
+    if (taller_auto) {
+        NXLOG_I(kTag, "aspect auto: the window (%dx%d) is taller than 16:9, so the picture stays 16:9 with bars (#73; [display] aspect forces a "
+                "shape)", fixed_size ? d.render_width : window_w, fixed_size ? d.render_height : window_h);
+        aspect = kAspect169;
+    }
     Wide& wd = wide();
     wd.aspect = close_to(aspect, kAspect169) ? kAspect169 : aspect;
     const bool override_size = config_get_bool("pkp", "render_override", true);
