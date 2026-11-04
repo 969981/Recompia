@@ -170,6 +170,7 @@ Rules:
 | `system` | `nickname` | `nxrt` | `NXRT_SYSTEM_NICKNAME` | `src/services/common.cpp` | Console nickname. |
 | `account` | `nickname` | `Samus` | `NXRT_ACCOUNT_NICKNAME` | `src/services/common.cpp` | Nickname of the local user. |
 | `account` | `uid` | empty (`00000000000000014d50525265636f6d`) | `NXRT_ACCOUNT_UID` | `src/services/common.cpp` | Local user id as 32 hex digits. Anything that is not 32 hex digits keeps the default. |
+| `account` | `network_account_id` | empty (a hash of the Windows MachineGuid and `uid`) | `NXRT_ACCOUNT_NETWORK_ACCOUNT_ID` | `src/services/acc.cpp` | The user's network service account id (IManagerForApplication GetAccountId) as 16 hex digits, nonzero. Games build their player id for local play from it (Pokopia refuses a second player with the same id: error 9005), so it must differ between the PCs of a session. The default does, even with the default `uid`: a stable hash of `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` (per Wine prefix under Proton) and `uid`; if the registry cannot be read, `uid` hi XOR lo. Anything that is not 16 hex digits or is zero keeps the default (Warn). The id in use is logged once at Info under tag `acc`. |
 | `fs` | `romfs` | `game/romfs` | `NXRT_FS_ROMFS` | `src/services/common.cpp` | Host folder served as the game's RomFS, relative to the working directory. |
 | `fs` | `save_dir` | empty (`%APPDATA%\MPRRecomp\save`) | `NXRT_FS_SAVE_DIR` | `src/services/common.cpp` | Folder for save data. Empty: the APPDATA default. |
 | `album` | `dir` | `album` | `NXRT_ALBUM_DIR` | `src/services/album.cpp` | Folder the game's photos (caps:su SaveScreenShotEx0/1/2) are written to, one PNG per photo named by the local date and time (`YYYY-MM-DD_HH-MM-SS-mmm.png`). A relative path is taken from the exe's folder. Created when the first photo is saved. |
@@ -453,6 +454,7 @@ nickname = nxrt
 [account]
 nickname = Samus
 ; uid =  (empty: the built-in local user id)
+; network_account_id =  (empty: a hash of this PC's MachineGuid and uid)
 
 [fs]
 romfs = game/romfs
