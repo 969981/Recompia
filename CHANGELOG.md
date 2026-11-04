@@ -5,6 +5,15 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### What's new
+- Much faster on the Legion Go S. In the open world at its native 1920x1200, with no upscaler, the frame rate rises from about
+  56 to about 78 fps (+39%), and the slowest frames are smoother. At 67% render scale it runs at about 90 fps. These are numbers
+  from the development build; the release build will be measured again before it ships.
+- Windows PCs gain too: the game needs about 20% less CPU time per frame to hand its drawing work to the graphics card (RX 9060 XT:
+  6.9 -> 5.5 ms per frame).
+- Each change has its own setting in `pkp.ini` (see the developer notes below), so a problem on one machine can be
+  switched off without losing the rest.
+
 ### Fixes
 - Render resolutions of about 3800x2140 and up (4K) no longer crash at start: the game's graphics memory now grows with the render
   size. 1920x1080 and below are unchanged. Very large sizes (above about 5300x2990) are lowered to the largest that fits, with a
@@ -15,6 +24,19 @@ of the game (version 2.0.1a): the download contains no game files.
   (graphics arena `[x3+0x48]`), registered only for game targets above 1920x1080. General pool +28 B per extra pixel, render-target
   pool only past 3500 MiB (937.6 MiB + 160 B/pixel + 1 GiB), arena by the sum; pools capped under 4 GiB, larger sizes clamped.
   `main.sites` changed: installs re-lift.
+- **Performance overhaul** (runtime only; no re-lift). Each item names its ini key and default:
+  - Config lookups cached per thread (`[config] cache`, on). Idea from ultratears (GPL-3.0).
+  - Self-sampling draws use `VK_EXT_attachment_feedback_loop_layout` instead of a copy of the attachment (`[nvn] feedback_loop`,
+    auto). Legion Go S: +9% on its own.
+  - Guest memory is imported into Vulkan lazily in 16 MiB pieces when first bound under Wine (`[nvn] pool_lazy`, auto = Wine only).
+  - Descriptor sets are reused when the bindings did not change (`[nvn] set_reuse`, on).
+  - Fewer Vulkan calls per draw: dynamic state and bindings are only set when they change (`[nvn] bind_coalesce`, on); texture
+    handles are resolved once per draw (`[nvn] resolve_once`, on) with a pool lookup cache (`[nvn] pool_cache`, on). PC: dynamic-state
+    calls 1542 -> 384 per frame, resolves 4.2 -> 1.0 per draw.
+  - Cheaper per replay call setup: write-watch polls read a summary bitmap (`[nvn] setup_coalesce`, on). PC: 1.5 -> 0.24 ms per frame.
+  - A submit thread for NVN submissions and presents (`[nvn] submit_thread`, off: no gain at the frame rate on the Legion Go S).
+  - Profiling: `[prof] gpu_passes`, `replay_fine`, `render_split` and the `ftrace_report.py` / `gpu_pass_report.py` scripts (all off).
+  - Legion Go S numbers: SteamOS, Proton 11, in the world on a time-based walk, 3 runs per side in ABAB order.
 
 ## 0.3.0 (build G)
 
