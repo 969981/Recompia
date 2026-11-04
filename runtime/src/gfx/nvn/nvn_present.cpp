@@ -75,6 +75,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
     if (!rend || !pp) return;
     { NXFT("present.tex"); if (!tex_gpu(t)) return; }
     extras::pace_note_present();
+    submit_drain();     // [nvn] submit_thread: the previous present has run (swapchain, frame slot fence, `dirty`) before the hook and begin_frame
     if (FrameLimiter* lim = limiter()) {
         // the pre-frame hook (present mode changes) always runs here; the wait runs here only when no frame boundary has paced this present (S18)
         { NXFT("present.hook"); lim->run_pre_frame_hook(); }

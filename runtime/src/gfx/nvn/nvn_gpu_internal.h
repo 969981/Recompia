@@ -50,6 +50,9 @@ std::string unsupported_report();
 // Hands the submissions recorded so far to the GPU ([nvn] submit_batch keeps them back). Call before a queue operation that must come after
 // them: the present, sparse binds.
 void submit_recorded();
+// [nvn] submit_thread: returns once the submit worker has run everything handed to it (no-op when off). Before a queue operation of
+// the render thread itself (sparse bind, debug wait-idle submit) and before swapchain work (present_on_render_thread).
+void submit_drain();
 // The present: with [nvn] submit_batch = frame, the batch goes in the present's own vkQueueSubmit2 (one kernel submission a frame).
 // true: p is filled (cmds holds its command buffers); call present_batch_done(p) after Renderer::end_frame(p). false: the batch is
 // submitted already (submit_recorded), call end_frame without a prefix.

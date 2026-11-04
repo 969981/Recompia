@@ -33,6 +33,7 @@
 #include "nvn_impl.h"
 #include "nvn_pipeline.h"
 #include "nvn_present_pass.h"
+#include "nvn_submit_worker.h"
 #include "extras/output_pass.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -127,6 +128,35 @@ struct Gpu {
     bool output_ok = false;
     std::mutex unsupported_mu;
     std::map<std::string, uint64_t> unsupported;
+
+    // [nvn] submit_thread (default off): the vkQueueSubmit2 of flush_batch and the present's submit + vkQueuePresentKHR run on this one
+    // FIFO worker (nvn_submit_worker.h) instead of the render thread. null = off: everything inline, as before.
+    //
+    // What depends on a submission having been made, and how each is kept right with the worker:
+    // - CPU waits on the timeline: wait_serial_blocking (render thread: slot reuse in acquire_slot, run_frame_sync readbacks, finish,
+    //   tear_down) and wait_serial (game threads: nvnSyncWait, the low-latency GPU wait, compute out_fetch) first wait until the worker
+    //   has submitted the serial (sw->wait_submitted, zone submit.wait_submitted), then on the timeline. A serial completed on the CPU
+    //   (device lost, failed submit) counts as submitted.
+    // - Polls (serial_done, poll_completed, nvnSyncWait with timeout 0) read the timeline value only: a value cannot be reached before it
+    //   was submitted, so a poll never answers early; it answers "not yet" a little longer at most. want_flush is unchanged: `flushed`
+    //   now means "handed to the worker", which will submit it without being asked again.
+    // - Slot reuse (command pool / descriptor pool / upload ring / staging buffers reset in acquire_slot): only after the slot's serial
+    //   completed on the GPU, which needs it submitted first (above). Frame trace / GPU pass query results are read there too.
+    // - defer_destroy / Frame::defer: run in retire() when the timeline reached their serial: after the worker submitted it.
+    // - Submit failure: the worker signals the timeline on the CPU (vkSignalSemaphore) and publishes, as flush_batch / present_batch_done
+    //   did inline. Device lost: the worker submits nothing, completes the serial on the CPU and publishes, so no waiter hangs.
+    // - Swapchain (acquire, recreate on resize / OUT_OF_DATE, present mode change from the pre-frame hook) and the frame slot's fence:
+    //   present_on_render_thread drains the worker first (submit_drain), so the previous present has run and its `dirty` is visible.
+    //   A screenshot frame drains right after queueing (it waits on the fence and reads the copy back).
+    // - Pool mirror / compute copy-back paths wait through wait_serial (above); texture readbacks through run_frame_sync (above).
+    // - Sparse binds (vkQueueBindSparse, nvn_gpu_texture.cpp) and the debug submit with vkQueueWaitIdle drain first: they must follow
+    //   everything recorded before them on the queue.
+    // - Shutdown: the render thread's last flush goes to the worker, then tear_down stops (drains) the worker before vkDeviceWaitIdle and
+    //   before any object is destroyed; the renderer's submit queue is unset.
+    // Queue access: the VkQueue stays protected by the one Device::queue_mutex (the worker holds it for submit + present; the one-shot
+    // device submits, the low-latency markers and the sparse bind take it too). The render thread itself no longer calls vkQueueSubmit2
+    // while the worker runs, except the drained debug / sparse paths.
+    std::unique_ptr<SubmitWorker> sw;
 };
 
 Gpu* g = nullptr;
@@ -246,21 +276,14 @@ VkDescriptorPool new_dpool() {
 // serial (the earlier ones of the batch complete with it). Every kernel submission costs a pass over all memory the device holds: on Linux
 // (Proton, RADV) the multi-gigabyte host-memory pool imports are user pages the kernel looks up again on each one, about 2 ms a
 // submission on a Legion Go S, so 11 submissions a frame took 20 of its 25 ms. Render thread.
-void flush_batch() {
-    if (g->batch.empty()) return;
-    ft::SplitScope sp_submit(ft::kSplSubmit);
-    if (g->dev->device_lost()) {
-        const uint64_t serial = g->batch.back()->serial;
+// The kernel submission of flush_batch: inline on the render thread, or as a job on the submit worker ([nvn] submit_thread; worker = true:
+// no render-thread hitch phases, and the serial is published as submitted afterwards).
+void submit_cbs(const std::vector<VkCommandBufferSubmitInfo>& cbi, uint64_t serial, bool worker) {
+    if (worker && g->dev->device_lost()) {      // lost after the hand-over: nothing goes to the queue, the waiters are released
         complete_serial(serial);
-        g->flushed = serial;
-        g->flushed_pub.store(serial);
-        g->flush_wanted.store(false);
-        g->batch.clear();
+        g->sw->publish(serial);
         return;
     }
-    std::vector<VkCommandBufferSubmitInfo> cbi(g->batch.size(), VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO});
-    for (size_t i = 0; i < g->batch.size(); i++) cbi[i].commandBuffer = g->batch[i]->cb;
-    const uint64_t serial = g->batch.back()->serial;
     VkSemaphoreSubmitInfo sig = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     sig.semaphore = g->timeline;
     sig.value = serial;
@@ -271,7 +294,10 @@ void flush_batch() {
     si.signalSemaphoreInfoCount = 1;
     si.pSignalSemaphoreInfos = &sig;
     VkResult r;
-    {
+    if (worker) {
+        std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
+        r = vkQueueSubmit2(g->dev->queue(), 1, &si, VK_NULL_HANDLE);
+    } else {
         nxrt::HitchTimer ht(nxrt::kHpRenderSubmit);
         const uint64_t tl = nxrt::hitch_ticks();
         std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
@@ -293,11 +319,45 @@ void flush_batch() {
             complete_serial(serial);
         }
     }
+    if (worker) g->sw->publish(serial);
+}
+
+void flush_batch() {
+    if (g->batch.empty()) return;
+    ft::SplitScope sp_submit(ft::kSplSubmit);     // [prof] render_split: with the worker, only the hand-over
+    if (g->dev->device_lost()) {
+        const uint64_t serial = g->batch.back()->serial;
+        complete_serial(serial);
+        if (g->sw) g->sw->publish(serial);
+        g->flushed = serial;
+        g->flushed_pub.store(serial);
+        g->flush_wanted.store(false);
+        g->batch.clear();
+        return;
+    }
+    std::vector<VkCommandBufferSubmitInfo> cbi(g->batch.size(), VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO});
+    for (size_t i = 0; i < g->batch.size(); i++) cbi[i].commandBuffer = g->batch[i]->cb;
+    const uint64_t serial = g->batch.back()->serial;
+    if (g->sw) {    // [nvn] submit_thread: the worker submits; `flushed` = handed over (it will reach the queue without being asked again)
+        g->sw->push([cbi = std::move(cbi), serial] {
+            NXFT("submit.worker");
+            submit_cbs(cbi, serial, true);
+        });
+    } else {
+        submit_cbs(cbi, serial, false);
+    }
     g->flushed = serial;
     g->flushed_pub.store(serial);
     g->flush_wanted.store(false);
     g->batch.clear();
     g->ctr.submits.fetch_add(1);
+}
+
+// [nvn] submit_thread: waits until the worker has submitted `serial` (or it completed another way). Any thread. true without the worker.
+bool wait_submitted(uint64_t serial, uint64_t timeout_ns = UINT64_MAX) {
+    if (!g->sw || !serial || g->sw->submitted() >= serial) return true;
+    NXFT("submit.wait_submitted");
+    return g->sw->wait_submitted(serial, timeout_ns, [serial] { return g->completed.load() >= serial || g->dev->device_lost(); });
 }
 
 // submit_batch = frame: a thread outside the render thread waits for a serial that may still sit in the batch; the render thread flushes
@@ -315,6 +375,7 @@ bool wait_serial_blocking(uint64_t serial) {
         return false;
     }
     if (serial > g->flushed && on_render_thread()) flush_batch();     // a serial still in the batch would never signal
+    wait_submitted(serial);     // [nvn] submit_thread: the worker has it in the queue first
     if (g->dev->device_lost()) {
         complete_serial(serial);
         return false;
@@ -690,6 +751,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
         return serial;
     }
     flush_batch();      // debug path: submitted on its own, after everything recorded before it, signalling nothing
+    submit_drain();     // [nvn] submit_thread: ... and after the worker has submitted that
     VkCommandBufferSubmitInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
     cbi.commandBuffer = s.cb;
     VkSubmitInfo2 si = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -716,6 +778,12 @@ void submit_recorded() {
     if (g) flush_batch();
 }
 
+void submit_drain() {
+    if (!g || !g->sw) return;
+    NXFT("submit.drain");
+    g->sw->drain();
+}
+
 bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::SubmitPrefix* p) {
     if (!g || !g->frame_batch || g->batch.empty()) {
         submit_recorded();
@@ -727,11 +795,27 @@ bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::S
     p->count = static_cast<uint32_t>(cmds->size());
     p->timeline = g->timeline;
     p->value = g->batch.back()->serial;
+    if (g->sw) {    // [nvn] submit_thread: what present_batch_done does with the result happens on the worker, right after the submit
+        const uint64_t value = p->value;
+        p->after_submit = [value](bool submitted) {
+            if (!submitted && !g->dev->device_lost()) {
+                VkSemaphoreSignalInfo ssi = {VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO};
+                ssi.semaphore = g->timeline;
+                ssi.value = value;
+                vkSignalSemaphore(g->dev->device(), &ssi);
+            } else if (!submitted) {
+                complete_serial(value);
+            }
+            g->sw->publish(value);
+        };
+    }
     return true;
 }
 
 void present_batch_done(const gfx::Renderer::SubmitPrefix& p) {
-    if (!p.submitted && !g->dev->device_lost()) {   // as flush_batch: keep the timeline moving so waiters do not hang
+    if (p.queued) {
+        // [nvn] submit_thread: the worker runs p.after_submit. end_frame returned early (device lost) when it did not queue: below.
+    } else if (!p.submitted && !g->dev->device_lost()) {   // as flush_batch: keep the timeline moving so waiters do not hang
         VkSemaphoreSignalInfo ssi = {VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO};
         ssi.semaphore = g->timeline;
         ssi.value = p.value;
@@ -739,6 +823,7 @@ void present_batch_done(const gfx::Renderer::SubmitPrefix& p) {
     } else if (!p.submitted) {
         complete_serial(p.value);
     }
+    if (g->sw && !p.queued) g->sw->publish(p.value);
     g->flushed = p.value;
     g->flushed_pub.store(p.value);
     g->flush_wanted.store(false);
@@ -860,7 +945,13 @@ std::string gpu_report() {
                   static_cast<unsigned long long>(g_wait_serial.load()), static_cast<unsigned long long>(g_wait_timeout.load()),
                   static_cast<unsigned long long>(g_waits_begun.load()), static_cast<unsigned long long>(g_waits_done.load()),
                   static_cast<unsigned long long>(g->ctr.submits.load()), static_cast<unsigned long long>(g->ctr.presents.load()), got ? "" : "(busy) ", q);
-    return b;
+    std::string out = b;
+    if (g->sw) {
+        std::snprintf(b, sizeof b, "NVN submit thread: submitted serial %llu, jobs queued or running %zu\n",
+                      static_cast<unsigned long long>(g->sw->submitted()), g->sw->depth());
+        out += b;
+    }
+    return out;
 }
 }  // namespace
 
@@ -878,6 +969,18 @@ bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
     g_wait_serial.store(serial);
     g_wait_timeout.store(timeout_ns);
     struct Counted { Counted() { g_waiters++; g_waits_begun++; } ~Counted() { g_waiters--; g_waits_done++; } } counted;
+    if (g->sw) {    // [nvn] submit_thread: wait for the worker to submit it first, within the same timeout
+        const auto t0 = std::chrono::steady_clock::now();
+        if (!wait_submitted(serial, timeout_ns)) return false;
+        if (timeout_ns != UINT64_MAX) {
+            const uint64_t spent = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
+            timeout_ns = spent >= timeout_ns ? 0 : timeout_ns - spent;
+        }
+        if (g->dev->device_lost()) {
+            complete_serial(std::max(serial, g->reserved.load()));
+            return true;
+        }
+    }
     VkSemaphoreWaitInfo wi = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
     wi.semaphoreCount = 1;
     wi.pSemaphores = &g->timeline;
@@ -1104,6 +1207,21 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     static const bool report_registered = (diag_add_report(gpu_report), true);   // the freeze dump shows the GPU state
     (void)report_registered;
     register_counter_gauges();
+    // [nvn] submit_thread (default off): see Gpu::sw. Started before the render thread, so every submission of the run goes through it.
+    if (nxrt::config_get_bool("nvn", "submit_thread", false)) {
+        gp->sw = std::make_unique<SubmitWorker>();
+        gp->sw->start([] {
+            log_set_thread_name("nvn-submit");
+            diag_register_thread("nvn-submit", nullptr);
+        });
+        if (rend) rend->set_submit_queue([](std::function<void()> job) {
+            g->sw->push([job = std::move(job)] {
+                NXFT("submit.worker");
+                job();
+            });
+        }, [] { submit_drain(); });
+        NXLOG_I(kTag, "submit_thread on: submissions and presents go to the queue from the nvn-submit thread");
+    }
     gp->th = std::thread(render_loop);
     // wait for the thread id to be published
     for (int i = 0; i < 1000 && gp->tid == std::thread::id(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1155,7 +1273,8 @@ void tear_down() {
             std::lock_guard<std::mutex> l2(gp->pmu);
             gp->last_window = nullptr;
         }
-        wait_serial_blocking(gp->submitted);
+        submit_drain();     // [nvn] submit_thread: every submit and present handed over has run before anything is destroyed
+        wait_serial_blocking(gp->submitted);   // (flushes the batch and waits for the worker to submit it)
         retire();
         replay_shutdown();
         tex_shutdown();
@@ -1178,6 +1297,10 @@ void tear_down() {
     }
     gp->qcv.notify_all();
     if (gp->th.joinable()) gp->th.join();
+    if (gp->sw) {   // [nvn] submit_thread: the render thread's last flush runs, then nothing more goes to the queue from the worker
+        gp->sw->stop();
+        if (gp->rend) gp->rend->set_submit_queue({}, {});
+    }
     gfx::Device& d = *gp->dev;
     vkDeviceWaitIdle(d.device());
     for (Slot& s : gp->slots) {

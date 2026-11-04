@@ -282,8 +282,17 @@ public:
         uint32_t count = 0;
         VkSemaphore timeline = VK_NULL_HANDLE;
         uint64_t value = 0;
-        bool submitted = false;           // out: vkQueueSubmit2 succeeded
+        bool submitted = false;           // out: vkQueueSubmit2 succeeded (only when !queued)
+        // With a submit queue (set_submit_queue): runs on the queue's thread right after vkQueueSubmit2, with its success (also when the
+        // device is lost and nothing was submitted: false). `queued` (out): the submit went to the queue, `submitted` is not known yet.
+        std::function<void(bool submitted)> after_submit;
+        bool queued = false;
     };
+    // [nvn] submit_thread: end_frame hands the vkQueueSubmit2 + vkQueuePresentKHR (and what depends on their results: present stats,
+    // `dirty` on OUT_OF_DATE, the low-latency present_end) to `q`, which runs its jobs in order on one thread. The caller must drain `q`
+    // before the next begin_frame, set_present_mode or the Renderer's destruction (swapchain calls are externally synchronised and the frame
+    // slot's fence is waited there). A frame with a screenshot calls `drain` after queueing (the copy is read back at once). Empty: inline (default).
+    void set_submit_queue(std::function<void(std::function<void()>)> q, std::function<void()> drain);
     // Runs the overlay hook, finishes and submits the command buffer (GPU timestamp 1), saves a requested screenshot and
     // presents.
     void end_frame(SubmitPrefix* prefix = nullptr);

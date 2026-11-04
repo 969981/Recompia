@@ -393,6 +393,7 @@ bool sparse_flush_binds(TexGpu& g) {
     VkFence fence = VK_NULL_HANDLE;
     if (vkCreateFence(vkdev(), &fi, nullptr, &fence) != VK_SUCCESS) return false;
     if (on_render_thread()) submit_recorded();     // binds come after the submissions recorded before them, as without a batch
+    submit_drain();                                // [nvn] submit_thread: ... and after the worker has put them on the queue
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(device().queue_mutex());
