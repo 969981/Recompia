@@ -92,6 +92,7 @@ struct Thunk {
     HleFn fn = nullptr;       // null: logging stub
     std::atomic<uint64_t> calls{0};
     std::atomic<int> ft_zone{-1};   // frame trace zone ("hle:<name>"), registered on the first slow call
+    std::atomic<bool> leaf{false};  // hle_mark_leaf: an import call runs fn directly (no count, trace or import bookkeeping)
 };
 std::mutex g_hle_lock;
 std::vector<std::unique_ptr<Thunk>> g_thunks;        // index = (addr - kHleBase) / 16
@@ -228,6 +229,18 @@ HleFn hle_lookup(const char* name) {
     std::lock_guard<std::mutex> lk(g_hle_lock);
     auto it = g_thunk_by_name.find(name);
     return it == g_thunk_by_name.end() ? nullptr : g_thunks[it->second]->fn;
+}
+
+void hle_mark_leaf(const char* name) {
+    std::lock_guard<std::mutex> lk(g_hle_lock);
+    auto it = g_thunk_by_name.find(name);
+    if (it != g_thunk_by_name.end() && g_thunks[it->second]->fn) g_thunks[it->second]->leaf.store(true, std::memory_order_release);
+}
+
+HleFn hle_leaf_fn(uint64_t addr) {
+    if (!hle_is_thunk(addr)) return nullptr;
+    const Thunk& t = *g_thunks[thunk_index(addr)];
+    return t.leaf.load(std::memory_order_acquire) ? t.fn : nullptr;
 }
 
 bool hle_is_thunk(uint64_t addr) {

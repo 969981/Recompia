@@ -39,6 +39,10 @@ void host_import(Ctx* c, uint32_t import_id) {
         nxrt::trap(what, import_id);
     }
     nxrt::detail::count_import();
+    if (nxrt::HleFn leaf = nxrt::hle_leaf_fn(target)) {   // strlen and friends: tens of millions of calls in a boot, no bookkeeping
+        leaf(c);
+        return;
+    }
     const char* saved_name = c->in_import;
     const uint64_t saved_from = c->import_from;
     c->in_import = nxrt::import_name(import_id);
