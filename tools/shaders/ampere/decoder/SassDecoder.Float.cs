@@ -10,12 +10,16 @@ namespace Nx.Shaders.Ampere
 
         static void FloatMods(Ctx c, bool dnz, bool pdiv)
         {
-            if (c.B(80)) c.Mod("FTZ");
+            // 80 = FTZ, 76 = FMZ; both together are reserved (nvdisasm: INVALID3) [xcheck probe on FFMA, FMUL]
+            if (c.B(80)) c.Mod(dnz && c.B(76) ? "INVALID3" : "FTZ");
             else if (dnz && c.B(76)) c.Mod("FMZ");
             if (pdiv) c.Mod(84, 3, PDiv);
             c.Mod(78, 2, Rnd);
             c.Mod(c.B(77), "SAT");
         }
+
+        // DSETP compare 76..79: FCmp with 0 = MIN and 15 = MAX (min/max select predicates) [probe]
+        static readonly string[] DCmp = { "MIN", "LT", "EQ", "LE", "GT", "NE", "GE", "NUM", "NAN", "LTU", "EQU", "LEU", "GTU", "NEU", "GEU", "MAX" };
 
         static void RegisterFloat()
         {
@@ -25,8 +29,8 @@ namespace Nx.Shaders.Ampere
             Op9(0x020, c => { c.Op = "FMUL"; FloatMods(c, true, true); c.ImmK = ImmKind.F32; c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2()); });
             // FADD [NAK] 0x021
             Op9(0x021, c => { c.Op = "FADD"; c.Src2Slot = 2; FloatMods(c, false, false); c.ImmK = ImmKind.F32; c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2()); });
-            // FMNMX [NAK] 0x009
-            Op9(0x009, c => { c.Op = "FMNMX"; c.Mod(c.B(80), "FTZ"); c.ImmK = ImmKind.F32; c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2(), c.P(87, 90)); });
+            // FMNMX [NAK] 0x009; .NAN 81, .XORSIGN 82 [probe]
+            Op9(0x009, c => { c.Op = "FMNMX"; c.Mod(c.B(80), "FTZ"); c.Mod(c.B(81), "NAN"); c.Mod(c.B(82), "XORSIGN"); c.ImmK = ImmKind.F32; c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2(), c.P(87, 90)); });
             // FSEL 0x008 [oracle] (same layout as SEL)
             Op9(0x008, c => { c.Op = "FSEL"; c.ImmK = ImmKind.F32; c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2(), c.P(87, 90)); });
             // FSET [NAK] 0x00a; nvdisasm always spells .BF on SM86 [oracle]
@@ -55,7 +59,7 @@ namespace Nx.Shaders.Ampere
             Op9(0x02b, c => { c.Op = "DFMA"; c.Mod(78, 2, Rnd); c.ImmK = ImmKind.None; c.Dst = 1; c.Add(c.R(16), c.SrcA()); var (b, d) = c.SrcBC(); c.Add(D64(c, b), D64(c, d)); });
             Op9(0x02a, c =>
             {
-                c.Op = "DSETP"; c.Mod(76, 4, FCmp); c.Mod(74, 2, PSet); c.ImmK = ImmKind.None;
+                c.Op = "DSETP"; c.Mod(76, 4, DCmp); c.Mod(74, 2, PSet); c.ImmK = ImmKind.None;
                 c.Dst = 2; c.Add(c.P(81), c.P(84), c.SrcA(), D64(c, c.Src2()), c.P(87, 90));
             });
         }

@@ -66,14 +66,15 @@ namespace Nx.Shaders.Ampere
             // I2FP 0x045 [oracle]: always F32 then S32/U32 (signed 74), rounding 78..80
             Op9(0x045, c =>
             {
-                c.Op = "I2FP"; c.Mod("F32"); c.Mod(c.B(74) ? "S32" : "U32"); c.Mod(78, 2, Rnd);
+                c.Op = "I2FP"; c.Mod("F32"); c.Mod(c.B(74) ? "S32" : "U32"); c.Mod(78, 2, null, "INVALID1", "INVALID2", "RZ");   // I2FP rounds RN or RZ only [xcheck probe]
                 c.ANeg = -1; c.AAbs = -1; c.BAbs = -1; c.BNeg = -1; c.ImmK = ImmKind.SHex; c.Dst = 1; c.Add(c.R(16), c.Src2());
             });
             // F2FP 0x03e [NAK]: MERGE_C 78 (dst, B slot, R64; .H1 72), else PACK_AB (dst, A, B slot); rounding 79..81
             Op9(0x03e, c =>
             {
                 c.Op = "F2FP"; bool merge = c.B(78);
-                c.Mod(c.B(77), "RELU"); // [probe] see probe findings
+                // [probe] SATFINITE 77, RELU 75, BF16 76, printed in that order before the form
+                c.Mod(c.B(77), "SATFINITE"); c.Mod(c.B(75), "RELU"); c.Mod(c.B(76), "BF16");
                 c.Mod(merge ? "MERGE_C" : "PACK_AB");
                 c.Mod(c.B(72) && merge, "H1");
                 c.Mod(79, 2, Rnd);

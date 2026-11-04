@@ -298,8 +298,9 @@ namespace Ryujinx.Graphics.Shader.Translation
             {
                 case "LDL": case "STL": features |= FeatureFlags.LocalMemory; break;
                 case "LDS": case "STS": case "ATOMS": features |= FeatureFlags.SharedMemory; break;
+                case "LDSM": features |= FeatureFlags.SharedMemory | FeatureFlags.Shuffle; break;
                 case "STG": case "ATOMG": case "ATOM": case "RED": case "SUST": case "SUATOM": case "SURED": features |= FeatureFlags.Store; break;
-                case "SHFL": case "REDUX": case "MATCH": case "FSWZADD": features |= FeatureFlags.Shuffle; break;
+                case "SHFL": case "REDUX": case "MATCH": case "FSWZADD": case "HMMA": case "MOVM": features |= FeatureFlags.Shuffle; break;
                 case "ALD": case "AST": case "IPA":
                     AttributeUses(definitions, usage, ref features, ref clip, i);
                     break;

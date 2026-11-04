@@ -10,9 +10,12 @@ namespace Nx.Shaders.Ampere
 {
     public static partial class SassDecoder
     {
-        static readonly string[] TexDim = { "1D", "2D", "3D", "CUBE", "ARRAY_1D", "ARRAY_2D", "?dim6", "ARRAY_CUBE" };
+        static readonly string[] TexDim = { "1D", "2D", "3D", "CUBE", "ARRAY_1D", "ARRAY_2D", "INVALID6", "ARRAY_CUBE" };
+        // TLD and TXD have no cube, TXD no 3D [xcheck probe]
+        static readonly string[] TexDimTld = { "1D", "2D", "3D", "INVALID3", "ARRAY_1D", "ARRAY_2D", "INVALID6", "INVALID7" };
+        static readonly string[] TexDimTxd = { "1D", "2D", "INVALID2", "INVALID3", "ARRAY_1D", "ARRAY_2D", "INVALID6", "INVALID7" };
         static readonly string?[] TexLod = { null, "LZ", "LB", "LL", "LC", "LB.LC", "?lod6", "?lod7" };
-        static readonly string[] ImgDim = { "1D", "1D_BUFFER", "1D_ARRAY", "2D", "2D_ARRAY", "3D", "?6", "?7" };
+        static readonly string[] ImgDim = { "1D", "1D_BUFFER", "1D_ARRAY", "2D", "2D_ARRAY", "3D", "INVALID6", "INVALID7" };
 
         static void TexHandle(Ctx c, bool bindless)
         {
@@ -26,7 +29,7 @@ namespace Nx.Shaders.Ampere
         }
 
         /// TEX / TLD / TLD4 / TMML / TXD common shape: R64, R16, R24, [R32], handle, dim, [mask]
-        static void TexCommon(Ctx c, string op, bool bindless, Action<Ctx> mods)
+        static void TexCommon(Ctx c, string op, bool bindless, Action<Ctx> mods, string[]? dims = null)
         {
             c.Op = op;
             c.Mod(c.B(60), "SCR");
@@ -40,27 +43,41 @@ namespace Nx.Shaders.Ampere
             c.Add(c.R(24, reuse: false));
             if (c.I(32, 8) != 255) c.Add(c.R(32, reuse: false));
             TexHandle(c, bindless);
+            c.Add(c.Text((dims ?? TexDim)[c.I(61, 3)]));
+            TexMask(c);
+        }
+
+        static void Tmml(Ctx c, bool bindless)
+        {
+            c.Op = "TMML"; c.Mod(bindless, "B"); c.Mod("LOD"); c.Mod(c.B(77), "NDV"); c.Mod(c.B(90), "NODEP");
+            c.Dst = 2;
+            c.Add(c.R(64, reuse: false), c.R(16, reuse: false), c.R(24, reuse: false));
+            if (c.I(32, 8) != 255) c.Add(c.R(32, reuse: false));
+            TexHandle(c, bindless);
             c.Add(c.Text(TexDim[c.I(61, 3)]));
             TexMask(c);
         }
 
         static void RegisterTex()
         {
-            Action<Ctx> texMods = c => { c.Mod(87, 3, TexLod); c.Mod(c.B(76), "AOFFI"); c.Mod(c.B(78), "DC"); c.Mod(c.B(77), "NDV"); };
+            // TEX bits 79..80: .F16.RN / .F16.RZ (fp16 results packed in pairs), 3 is reserved [xcheck probe; 2 Pokopia TEX.SCR.F16.RN words]
+            Action<Ctx> texMods = c => { c.Mod(79, 2, null, "F16.RN", "F16.RZ", "INVALID3"); c.Mod(87, 3, TexLod); c.Mod(c.B(76), "AOFFI"); c.Mod(c.B(78), "DC"); c.Mod(c.B(77), "NDV"); };
             Action<Ctx> tldMods = c => { c.Mod(87, 3, TexLod); c.Mod(c.B(76), "AOFFI"); c.Mod(c.B(78), "MS"); c.Mod(c.B(77), "CL"); };
             Action<Ctx> tld4Mods = c => { c.Mod(87, 2, "R", "G", "B", "A"); c.Mod(76, 2, null, "AOFFI", "PTP", "?3"); c.Mod(c.B(78), "DC"); };
-            Action<Ctx> tmmlMods = c => { c.Mod(c.B(77), "NDV"); };
             Action<Ctx> txdMods = c => { c.Mod(c.B(76), "AOFFI"); };
             Op12(0xb60, c => TexCommon(c, "TEX", false, texMods));
             Op12(0x361, c => TexCommon(c, "TEX", true, texMods));
-            Op12(0xb66, c => TexCommon(c, "TLD", false, tldMods));
-            Op12(0x367, c => TexCommon(c, "TLD", true, tldMods));
+            Op12(0xb66, c => TexCommon(c, "TLD", false, tldMods, TexDimTld));
+            Op12(0x367, c => TexCommon(c, "TLD", true, tldMods, TexDimTld));
             Op12(0xb63, c => TexCommon(c, "TLD4", false, tld4Mods));
             Op12(0x364, c => TexCommon(c, "TLD4", true, tld4Mods));
-            Op12(0xb69, c => TexCommon(c, "TMML", false, tmmlMods));
-            Op12(0x36a, c => TexCommon(c, "TMML", true, tmmlMods));
-            Op12(0xb6c, c => TexCommon(c, "TXD", false, txdMods));
-            Op12(0x36d, c => TexCommon(c, "TXD", true, txdMods));
+            // TMML [probe]: always .LOD, no SCR, no eviction field and no residency predicate (bits 60, 81, 84..86 do nothing); .NDV 77, .NODEP 90.
+            // Printed as "TMML[.B].LOD[.NDV][.NODEP] Rd2, Rd, Ra, [Rb,] bank, handle, dim, mask"; it used to be decoded like TEX, which made bits 81 and 84..86
+            // a P0 destination and an eviction hint.
+            Op12(0xb69, c => Tmml(c, false));
+            Op12(0x36a, c => Tmml(c, true));
+            Op12(0xb6c, c => TexCommon(c, "TXD", false, txdMods, TexDimTxd));
+            Op12(0x36d, c => TexCommon(c, "TXD", true, txdMods, TexDimTxd));
             // TXQ: R64, R16, R24, query, handle, mask
             Action<Ctx> txq = c =>
             {
@@ -78,7 +95,20 @@ namespace Nx.Shaders.Ampere
             Op12(0x998, c => Surface(c, true, true));
             Op12(0xb9b, c => Surface(c, false, false));
             Op12(0x99c, c => Surface(c, false, true));
+            // SURED 0x59f [probe] (Mario Kart World ee145ba8782ff91f@0xc0: "SURED.D.2D.ADD.STRONG.GPU.IGN [R4], R0, 0x0, 0xc"): BA 72, shape
+            // 61..63, op 87..89 (atomic op table), type 73..75 (SuatomSize order), evict 84..86, memory order 77..80, clamp 59..60
+            // (0 IGN, 1 none, 2 TRAP); operands [Ra] (coordinates), Rb (data), bank 54..58, handle 40..53
+            Op12(0x59f, c =>
+            {
+                c.Op = "SURED"; c.Mod("D"); c.Mod(c.B(72), "BA"); c.Mod(ImgDim[c.I(61, 3)]);
+                c.Mod(87, 3, AtomOp); c.Mod(73, 3, SuredType); c.Mod(84, 3, Evict); MemOrder(c);
+                c.Mod(59, 2, "IGN", null, "TRAP", "INVALID3");
+                c.Dst = 0; c.Add(MemOp(c, c.I(24, 8), null, -1, 0), c.R(32));
+                TexHandle(c, false);
+            });
         }
+
+        static readonly string?[] SuredType = { null, "S32", "U64", "F32.FTZ.RN", "F16x2.RN", "S64", "SD32", "SD64" };
 
         static string Channels(int m)
         {

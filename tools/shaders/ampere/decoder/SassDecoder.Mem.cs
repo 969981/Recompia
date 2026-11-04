@@ -10,22 +10,22 @@ namespace Nx.Shaders.Ampere
 {
     public static partial class SassDecoder
     {
-        static readonly string?[] MemType = { "U8", "S8", "U16", "S16", null, "64", "128", "U.128" };
+        // 3-bit access size at 73..75. LDG/STG/ATOM/RED: 7 is reserved; LDC/ULDC (MemTypeC) have no 128-bit access [xcheck probe on SM86]
+        static readonly string?[] MemType = { "U8", "S8", "U16", "S16", null, "64", "128", "INVALID7" };
+        static readonly string?[] MemTypeC = { "U8", "S8", "U16", "S16", null, "64", "INVALID6", "INVALID7" };
         static readonly string?[] Evict = { "EF", null, "EL", "LU", "EU", "NA", "?ev6", "?ev7" };
 
         /// [NAK] set_mem_order (SM80+): 77..81 combined
-        static void MemOrder(Ctx c)
+        // 77..80, all 16 values probed with nvdisasm on LDG, STG, RED and ATOMG (same spelling everywhere; only 4 differs: a load is .CONSTANT, the rest
+        // .STRONG.SM.PRIVATE)
+        static readonly string[] Order = { "", "CONSTANT.PRIVATE", "CONSTANT.CTA", "CONSTANT.CTA.PRIVATE", "STRONG.SM.PRIVATE", "STRONG.SM", "STRONG.GPU.PRIVATE", "STRONG.GPU",
+            "MMIO.GPU", "CONSTANT.SM", "STRONG.SYS", "CONSTANT.SM.PRIVATE", "MMIO.SYS", "CONSTANT.VC", "CONSTANT.VC.PRIVATE", "CONSTANT.GPU" };
+
+        static void MemOrder(Ctx c, bool load = false)
         {
             int v = c.I(77, 4);
-            switch (v)
-            {
-                case 0: break;
-                case 4: c.Mod("CONSTANT"); break;
-                case 5: c.Mod("STRONG"); c.Mod("SM"); break;
-                case 7: c.Mod("STRONG"); c.Mod("GPU"); break;
-                case 0xa: c.Mod("STRONG"); c.Mod("SYS"); break;
-                default: c.Mod("?ord" + v); c.Unknown = true; break;
-            }
+            string s = v == 4 && load ? "CONSTANT" : Order[v];
+            if (s.Length > 0) foreach (var m in s.Split('.')) c.Mod(m);
         }
 
         /// [base(.sfx)+URn+offset] memory operand.
@@ -53,17 +53,17 @@ namespace Nx.Shaders.Ampere
             // LDC [NAK] 0xb82: dst, c[bank][Ra+off]; type 73..76, mode 78..80
             Op12(0xb82, c =>
             {
-                c.Op = "LDC"; c.Mod(73, 3, MemType); c.Mod(78, 2, null, "IL", "IS", "ISL");
+                c.Op = "LDC"; c.Mod(73, 3, MemTypeC); c.Mod(78, 2, null, "IL", "IS", "ISL");
                 int r = c.I(24, 8);
                 long off = r != 255 ? c.S(38, 16) : (long)c.F(38, 16);
                 c.Dst = 1;
                 c.Add(c.R(16), new Operand(OperandKind.CBuf, Bank: c.I(54, 5), Offset: off, IndexReg: r != 255 ? r : -1));
             });
             // ULDC [NAK] 0xab9; 0xabb = with UR index at 24 [oracle]
-            Op12(0xab9, c => { c.Op = "ULDC"; c.UGuard = true; c.Mod(73, 3, MemType); c.Dst = 1; c.Add(c.UR(16), new Operand(OperandKind.CBuf, Bank: c.I(54, 5), Offset: (long)c.F(38, 16))); });
+            Op12(0xab9, c => { c.Op = "ULDC"; c.UGuard = true; c.Mod(73, 3, MemTypeC); c.Dst = 1; c.Add(c.UR(16), new Operand(OperandKind.CBuf, Bank: c.I(54, 5), Offset: (long)c.F(38, 16))); });
             Op12(0xabb, c =>
             {
-                c.Op = "ULDC"; c.UGuard = true; c.Mod(73, 3, MemType); c.Dst = 1;
+                c.Op = "ULDC"; c.UGuard = true; c.Mod(73, 3, MemTypeC); c.Dst = 1;
                 int ur = c.I(24, 6);
                 c.Add(c.UR(16), new Operand(OperandKind.CBuf, Bank: c.I(54, 5), Offset: ur != 63 ? c.S(38, 16) : (long)c.F(38, 16), IndexReg: ur != 63 ? ur : -1, IndexIsUReg: true));
             });
@@ -71,7 +71,7 @@ namespace Nx.Shaders.Ampere
             // LDG 0x381 / 0x981 (UR form): .E 72, 32-bit base when UR form and 90 clear (.U32)
             Op9(0x181, c =>
             {
-                c.Op = "LDG"; c.Mod(c.B(72), "E"); c.Mod(73, 3, MemType); MemOrder(c); c.Mod(84, 3, Evict);
+                c.Op = "LDG"; c.Mod(c.B(72), "E"); c.Mod(73, 3, MemType); MemOrder(c, load: true); c.Mod(84, 3, Evict);
                 bool u = c.B(91);
                 c.Dst = 1; c.Add(c.R(16), MemOp(c, c.I(24, 8), u && !c.B(90) ? ".U32" : (!u && !c.B(72) ? null : null), u ? c.I(32, 6) : -1, c.S(40, 24)));
                 if (!IsPT(c, 81)) { c.O.Insert(1, c.P(81)); c.Dst++; }
@@ -161,11 +161,18 @@ namespace Nx.Shaders.Ampere
                 c.Add(new Operand(OperandKind.Attr, Offset: (long)c.F(64, 8) << 2));
                 if (loc == 2 || c.I(32, 8) != 255) c.Add(c.R(32));
             });
-            // ISBERD [NAK] 0x923
+            // ISBERD [NAK] 0x923: ISBERD[.O].<PATCH|PRIM|ATTR>[.SKEW][.U16|.32] Rd, [Ra+off]; the space comes before SKEW and the offset is unsigned [xcheck probe]
             Op12(0x923, c =>
             {
-                c.Op = "ISBERD"; c.Mod(c.B(79), "O"); c.Mod(c.B(78), "SKEW"); c.Mod(76, 2, null, "PATCH", "PRIM", "ATTR"); c.Mod(74, 2, null, "U16", "32", "?3");
-                c.Dst = 1; c.Add(c.R(16), MemOp(c, c.I(24, 8), null, -1, c.S(40, 16)));
+                c.Op = "ISBERD"; c.Mod(c.B(79), "O"); c.Mod(76, 2, null, "PATCH", "PRIM", "ATTR"); c.Mod(c.B(78), "SKEW"); c.Mod(74, 2, null, "U16", "32", "INVALID3");
+                c.Dst = 1; c.Add(c.R(16), MemOp(c, c.I(24, 8), null, -1, (long)c.F(40, 16)));
+            });
+            // ISBEWR 0x927 (store to the internal stage buffer; task and mesh shaders, Mario Kart World): ISBEWR.O.<ATTR>[.SKEW][.U16|.32] [Ra+off], Rb.
+            // Bit 79 must be set (nvdisasm prints ???0 otherwise), the space field 76..77 only has 3 = ATTR [xcheck probe]
+            Op12(0x927, c =>
+            {
+                c.Op = "ISBEWR"; c.Mod(c.B(79) ? "O" : "???0"); c.Mod(76, 2, null, "INVALID1", "INVALID2", "ATTR"); c.Mod(c.B(78), "SKEW"); c.Mod(74, 2, null, "U16", "32", "INVALID3");
+                c.Dst = 0; c.Add(MemOp(c, c.I(24, 8), null, -1, (long)c.F(40, 16)), c.R(32));
             });
         }
 

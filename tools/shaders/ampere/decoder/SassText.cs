@@ -21,10 +21,13 @@ namespace Nx.Shaders.Ampere
             }
             sb.Append(i.Opcode);
             foreach (var m in i.Mods) sb.Append('.').Append(m);
+            // nvdisasm puts a space between the bank and the offset of a constant buffer operand of a packed-half instruction: c[0x7] [0xf0].H0_H0
+            // [xcheck: HADD2.F32 / HFMA2 / HSETP2 words; probed on HFMA2, HADD2, HMUL2, HSET2, HSETP2]
+            bool half = i.Opcode is "HADD2" or "HFMA2" or "HMUL2" or "HSET2" or "HSETP2" or "HMNMX2";
             for (int k = 0; k < i.Operands.Count; k++)
             {
                 sb.Append(k == 0 ? " " : ", ");
-                AppendOperand(sb, i.Operands[k]);
+                AppendOperand(sb, i.Operands[k], half);
             }
             sb.Append(" ;");
             return sb.ToString();
@@ -43,7 +46,7 @@ namespace Nx.Shaders.Ampere
             return sb.ToString();
         }
 
-        static void AppendOperand(StringBuilder sb, Operand o)
+        static void AppendOperand(StringBuilder sb, Operand o, bool half = false)
         {
             string core;
             switch (o.Kind)
@@ -52,7 +55,7 @@ namespace Nx.Shaders.Ampere
                 case OperandKind.UReg: core = URegName(o.Reg); break;
                 case OperandKind.Pred: core = PredName(o.Reg, false); break;
                 case OperandKind.UPred: core = PredName(o.Reg, true); break;
-                case OperandKind.CBuf: core = CBufText(o); break;
+                case OperandKind.CBuf: core = CBufText(o, half); break;
                 case OperandKind.Label: core = Hex(o.Offset); break;
                 case OperandKind.Attr:
                     core = o.Text.Length > 0 ? o.Text : "a[" + (o.IndexReg >= 0 ? RegName(o.IndexReg) + (o.Offset != 0 ? "+" + Hex(o.Offset) : "") : Hex(o.Offset)) + "]";
@@ -73,7 +76,7 @@ namespace Nx.Shaders.Ampere
 
         static bool IsScalarSel(string s) => s.Length == 3 && s[0] == '.' && (s[1] == 'H' || s[1] == 'B') && char.IsDigit(s[2]);
 
-        static string CBufText(Operand o)
+        static string CBufText(Operand o, bool half = false)
         {
             if (o.Text.Length > 0) return o.Text;
             string bank = o.BankIsUReg ? "cx[" + URegName(o.Bank) + "]" : "c[" + Hex(o.Bank) + "]";
@@ -83,8 +86,9 @@ namespace Nx.Shaders.Ampere
                 string r = o.IndexIsUReg ? URegName(o.IndexReg) : RegName(o.IndexReg);
                 idx = o.Offset != 0 ? r + "+" + Hex(o.Offset) : r;
             }
-            else idx = Hex(o.Offset);
-            return bank + "[" + idx + "]";
+            // the 16-bit offset field is printed signed by nvdisasm: c[0x9][-0x5a44] for 0xa5bc [xcheck: Pokopia FFMA/FMUL/MOV words]
+            else idx = Hex(o.Offset is >= 0x8000 and <= 0xffff ? o.Offset - 0x10000 : o.Offset);
+            return bank + (half ? " [" : "[") + idx + "]";
         }
 
         // ---- float immediates -------------------------------------------------------------------------------------
@@ -98,7 +102,7 @@ namespace Nx.Shaders.Ampere
                 if ((bits & 0x7fffff) == 0) return neg ? "-INF " : "+INF ";
                 return ((bits & 0x400000) != 0 ? (neg ? "-QNAN " : "+QNAN ") : (neg ? "-SNAN " : "+SNAN "));
             }
-            return G20(BitConverter.Int32BitsToSingle((int)bits));
+            return G20(BitConverter.Int32BitsToSingle((int)bits), 1e9);   // fp32: nvdisasm switches to %.20e from 1e9 up [xcheck probe on FMUL/FSEL]
         }
 
         public static string F64(ulong bits)
@@ -124,11 +128,12 @@ namespace Nx.Shaders.Ampere
             return G20((double)BitConverter.UInt16BitsToHalf((ushort)bits));
         }
 
-        /// C printf("%.20g", v), except |v| >= 2^63, which nvdisasm prints as "%.20e" [oracle].
-        public static string G20(double v)
+        /// C printf("%.20g", v), except |v| >= bigFrom, which nvdisasm prints as "%.20e": 1e9 for fp32 immediates (999999936 prints plain, 1e9 as
+        /// 1.00000000000000000000e+09, FMUL and FSEL alike), 2^63 for the other widths [oracle].
+        public static string G20(double v, double bigFrom = 9223372036854775808.0)
         {
             if (v == 0) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-0" : "0";
-            if (Math.Abs(v) >= 9223372036854775808.0)
+            if (Math.Abs(v) >= bigFrom)
             {
                 string x = v.ToString("E20", CultureInfo.InvariantCulture);
                 int p = x.IndexOf('E');

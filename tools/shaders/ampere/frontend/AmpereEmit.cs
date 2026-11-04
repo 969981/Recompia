@@ -342,7 +342,17 @@ namespace Ryujinx.Graphics.Shader.Instructions
                 case "FMNMX":
                     {
                         IrOperand a = FSrc(ctx, o[1]), b = FSrc(ctx, o[2]);
-                        Dst(ctx, o[0], ctx.ConditionalSelect(Src(ctx, o[3]), ctx.FPMinimum(a, b), ctx.FPMaximum(a, b)));
+                        IrOperand r = ctx.ConditionalSelect(Src(ctx, o[3]), ctx.FPMinimum(a, b), ctx.FPMaximum(a, b));
+                        // .NAN: a NaN input gives NaN (canonical 0x7fffffff); .XORSIGN: the result's sign is the XOR of the sources'
+                        // signs before |x| (max.xorsign.abs)
+                        if (Has(i, "NAN"))
+                            r = ctx.ConditionalSelect(ctx.BitwiseOr(ctx.IsNan(a), ctx.IsNan(b)), Const(0x7fffffff), r);
+                        if (Has(i, "XORSIGN"))
+                        {
+                            IrOperand sgn = ctx.BitwiseAnd(ctx.BitwiseExclusiveOr(Raw(ctx, o[1]), Raw(ctx, o[2])), Const(unchecked((int)0x80000000)));
+                            r = ctx.BitwiseOr(ctx.BitwiseAnd(r, Const(0x7fffffff)), sgn);
+                        }
+                        Dst(ctx, o[0], r);
                         return;
                     }
                 case "FSETP": EmitFsetpAmpere(ctx, i, setp: true); return;
@@ -402,11 +412,20 @@ namespace Ryujinx.Graphics.Shader.Instructions
                     }
                 case "SGXT":
                     {
+                        // SGXT[.W][.U32] Rd, a, n: sign/zero-extend the low n bits of a. n is masked to 0..31 with .W, otherwise
+                        // clamped to 32 (unsigned); n = 32 leaves a unchanged (hwcheck, RTX 3080).
                         IrOperand a = Src(ctx, o[1]), bits = Src(ctx, o[2]);
-                        Dst(ctx, o[0], Has(i, "U32") ? ctx.BitfieldExtractU32(a, Const(0), bits) : ctx.BitfieldExtractS32(a, Const(0), bits));
+                        bits = Has(i, "W") ? ctx.BitwiseAnd(bits, Const(31)) : ctx.IMinimumU32(bits, Const(32));
+                        IrOperand n = ctx.IMinimumU32(bits, Const(31));
+                        IrOperand x = Has(i, "U32") ? ctx.BitfieldExtractU32(a, Const(0), n) : ctx.BitfieldExtractS32(a, Const(0), n);
+                        Dst(ctx, o[0], ctx.ConditionalSelect(ctx.ICompareEqual(bits, Const(32)), a, x));
                         return;
                     }
                 case "PRMT": EmitPrmtAmpere(ctx, i); return;
+                case "BMSK": EmitBmskAmpere(ctx, i); return;
+                case "I2I": EmitI2iAmpere(ctx, i); return;
+                case "IDP": EmitIdpAmpere(ctx, i); return;
+                case "VABSDIFF": EmitVabsdiffAmpere(ctx, i); return;
 
                 // ---- constants and memory
                 case "LDC": case "ULDC": EmitLdcAmpere(ctx, i); return;
@@ -436,17 +455,26 @@ namespace Ryujinx.Graphics.Shader.Instructions
                 case "FSWZADD": EmitFswzaddAmpere(ctx, i); return;
                 case "SUST": EmitSustAmpere(ctx, i); return;
                 case "SULD": EmitSuldAmpere(ctx, i); return;
+                case "SURED": EmitSuredAmpere(ctx, i); return;
 
                 // ---- warp
                 case "SHFL": EmitShflAmpere(ctx, i); return;
                 case "VOTE": case "VOTEU": EmitVoteAmpere(ctx, i); return;
                 case "REDUX": EmitReduxAmpere(ctx, i); return;
                 case "MATCH": EmitMatchAmpere(ctx, i); return;
+
+                // ---- tensor cores (AmpereEmit.Tensor.cs)
+                case "HMMA": EmitHmmaAmpere(ctx, i); return;
+                case "LDSM": EmitLdsmAmpere(ctx, i); return;
+                case "MOVM": EmitMovmAmpere(ctx, i); return;
             }
             throw Unsup();
         }
 
         static IrOperand FinishF(EmitterContext ctx, SassInst i, IrOperand r) => Has(i, "SAT") ? ctx.FPSaturate(r) : r;
+
+        static IrOperand Finite(EmitterContext ctx, IrOperand v) =>
+            ctx.ICompareNotEqual(ctx.BitwiseAnd(v, Const(0x7f800000)), Const(0x7f800000));
 
         // ---- comparisons ------------------------------------------------------------------------------------------
 
@@ -481,11 +509,28 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitIsetpAmpere(EmitterContext ctx, SassInst i)
         {
-            if (Has(i, "EX")) throw Unsup("64-bit compare chain");
             int c = Array.FindIndex(ICompNames, n => i.Mods.Contains(n));
             if (c < 0) throw Unsup("no comparison");
             IReadOnlyList<Op> o = i.Operands;
-            IrOperand cmp = GetIntComparison(ctx, (IComp)c, Src(ctx, o[2]), Src(ctx, o[3]), !Has(i, "U32"));
+            IrOperand cmp;
+            if (Has(i, "EX"))
+            {
+                // .EX: the high words of a 64-bit compare; the last operand is the low words' result (same comparison, unsigned):
+                // EQ: eq & low, NE: ne | low, LT/LE: lt | (eq & low), GT/GE: gt | (eq & low)
+                IrOperand ha = Src(ctx, o[2]), hb = Src(ctx, o[3]), low = Src(ctx, o[5]);
+                bool sgn = !Has(i, "U32");
+                IrOperand eq = ctx.ICompareEqual(ha, hb);
+                cmp = (IComp)c switch
+                {
+                    IComp.Eq => ctx.BitwiseAnd(eq, low),
+                    IComp.Ne => ctx.BitwiseOr(ctx.ICompareNotEqual(ha, hb), low),
+                    IComp.Lt or IComp.Le => ctx.BitwiseOr(sgn ? ctx.ICompareLess(ha, hb) : ctx.ICompareLessUnsigned(ha, hb), ctx.BitwiseAnd(eq, low)),
+                    IComp.Gt or IComp.Ge => ctx.BitwiseOr(sgn ? ctx.ICompareGreater(ha, hb) : ctx.ICompareGreaterUnsigned(ha, hb), ctx.BitwiseAnd(eq, low)),
+                    IComp.T => Const(IrConsts.True),
+                    _ => Const(IrConsts.False),
+                };
+            }
+            else cmp = GetIntComparison(ctx, (IComp)c, Src(ctx, o[2]), Src(ctx, o[3]), !Has(i, "U32"));
             BoolOp bop = BopOf(i);
             IrOperand pc = Src(ctx, o[4]);
             Dst(ctx, o[0], GetPredLogicalOp(ctx, bop, cmp, pc));
@@ -508,13 +553,17 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitLop3Ampere(EmitterContext ctx, SassInst i)
         {
-            // LOP3.LUT Rd, [Pd,] a, b, c, lut, Pin
+            // LOP3.LUT [Pd,] Rd, a, b, c, lut, Pin: the predicate destination is printed first (decoder: bit 81 when not PT) and is
+            // set when the result is non-zero (hwcheck, RTX 3080). Only Pin = !PT is seen (the compiler's and NAK's encoding).
             if (!Has(i, "LUT")) throw Unsup();
             IReadOnlyList<Op> o = i.Operands;
-            int s = IsPredKind(o[1]) ? 2 : 1;
+            bool pd = IsPredKind(o[0]);
+            int s = pd ? 2 : 1;
+            Op pin = o[s + 4];
+            if (pd && !(IsPredKind(pin) && pin.Reg == 7 && pin.Not)) throw Unsup("predicate input");
             IrOperand r = Lop3Expression.GetFromTruthTable(ctx, Src(ctx, o[s]), Src(ctx, o[s + 1]), Src(ctx, o[s + 2]), (int)o[s + 3].ImmBits & 0xff);
-            Dst(ctx, o[0], r);
-            if (s == 2) Dst(ctx, o[1], ctx.ICompareNotEqual(r, Const(0)));
+            Dst(ctx, o[s - 1], r);
+            if (pd) Dst(ctx, o[0], ctx.ICompareNotEqual(r, Const(0)));
         }
 
         // ---- integer arithmetic -----------------------------------------------------------------------------------
@@ -570,8 +619,23 @@ namespace Ryujinx.Graphics.Shader.Instructions
                 if (co != null) throw Unsup("carry out");
                 return;
             }
-            IrOperand c = Src(ctx, o[k + 2]);
-            IrOperand prod = Has(i, "HI") ? (unsigned ? ctx.MultiplyHighU32(a, b) : ctx.MultiplyHighS32(a, b)) : ctx.IMultiply(a, b);
+            IrOperand c, prod;
+            if (Has(i, "HI"))
+            {
+                // IMAD.HI: high word of a*b + {Rc+1:Rc} (the addend is a 64-bit register pair; hwcheck, RTX 3080)
+                Op cop = o[k + 2];
+                if (!(cop.Kind == OperandKind.Reg && !cop.Neg && !cop.Not && !cop.Abs)) throw Unsup("IMAD.HI addend not a register pair");
+                IrOperand clo = Raw(ctx, cop, 0);
+                c = Raw(ctx, cop, 1);
+                IrOperand plo = ctx.IMultiply(a, b);
+                IrOperand carry = Bool(ctx, ctx.ICompareLessUnsigned(ctx.IAdd(plo, clo), plo));
+                prod = ctx.IAdd(unsigned ? ctx.MultiplyHighU32(a, b) : ctx.MultiplyHighS32(a, b), carry);
+            }
+            else
+            {
+                c = Src(ctx, o[k + 2]);
+                prod = ctx.IMultiply(a, b);
+            }
             IrOperand r = ctx.IAdd(prod, c);
             IrOperand carries = co != null ? Bool(ctx, ctx.ICompareLessUnsigned(r, prod)) : null;
             if (Has(i, "X"))
@@ -592,19 +656,20 @@ namespace Ryujinx.Graphics.Shader.Instructions
         {
             // LEA Rd, [Pco,] a, b, shift [, Pci]       = (a << shift) + b
             // LEA.HI Rd, [Pco,] a, b, c, shift [, Pci] = high word of ({c:a} << shift) + b
+            // LEA.HI.SX32 Rd, [Pco,] a, b, shift [, Pci] = the same with c = the sign of a (a sign-extended to 64 bits), no c operand
             IReadOnlyList<Op> o = i.Operands;
             int k = 1;
             Op co = null;
             if (IsPredKind(o[1])) { co = o[1]; k = 2; }
             IrOperand a = Src(ctx, o[k]), b = Src(ctx, o[k + 1]);
-            bool hi = Has(i, "HI");
-            Op shOp = o[hi ? k + 3 : k + 2];
+            bool hi = Has(i, "HI"), sx = hi && Has(i, "SX32"), hasC = hi && !sx;
+            Op shOp = o[hasC ? k + 3 : k + 2];
             if (shOp.Kind != OperandKind.Imm) throw Unsup("register shift");
             int sh = (int)shOp.ImmBits & 31;
             IrOperand shifted;
             if (hi)
             {
-                IrOperand c = Src(ctx, o[k + 2]);
+                IrOperand c = sx ? ctx.ShiftRightS32(a, Const(31)) : Src(ctx, o[k + 2]);
                 shifted = sh == 0 ? c : ctx.BitwiseOr(ctx.ShiftLeft(c, Const(sh)), ctx.ShiftRightU32(a, Const(32 - sh)));
             }
             else
@@ -615,7 +680,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
             IrOperand carries = co != null ? Bool(ctx, ctx.ICompareLessUnsigned(r, b)) : null;
             if (Has(i, "X"))
             {
-                for (int n = (hi ? k + 4 : k + 3); n < o.Count; n++)
+                for (int n = (hasC ? k + 4 : k + 3); n < o.Count; n++)
                 {
                     if (!IsPredKind(o[n])) continue;
                     IrOperand prev = r;
@@ -630,8 +695,8 @@ namespace Ryujinx.Graphics.Shader.Instructions
         static void EmitShfAmpere(EmitterContext ctx, SassInst i)
         {
             // SHF.L|R.U32|S32[.HI][.W] Rd, lo, shift, hi: funnel shift of the 64-bit {hi:lo}.
-            if (Has(i, "U64") || Has(i, "S64")) throw Unsup("64-bit funnel shift");
             IReadOnlyList<Op> o = i.Operands;
+            if (Has(i, "U64") || Has(i, "S64")) { EmitShf64Ampere(ctx, i); return; }
             IrOperand lo = Src(ctx, o[1]), hiw = Src(ctx, o[3]);
             bool left = Has(i, "L"), high = Has(i, "HI"), signed = Has(i, "S32");
             Op shOp = o[2];
@@ -656,33 +721,151 @@ namespace Ryujinx.Graphics.Shader.Instructions
             }
             else
             {
-                // Register shift: amount masked to 0..31 (exact for .W; without .W amounts >= 32 differ, not seen in practice).
-                IrOperand s = ctx.BitwiseAnd(Src(ctx, shOp), Const(31));
+                // Register shift: .W wraps the amount (& 31); otherwise it is clamped to 32 as an unsigned value, like the
+                // immediate form (hwcheck, RTX 3080: amounts >= 32, including ones with bit 31 set, shift by exactly 32).
+                IrOperand s = Has(i, "W") ? ctx.BitwiseAnd(Src(ctx, shOp), Const(31)) : ctx.IMinimumU32(Src(ctx, shOp), Const(32));
                 IrOperand zero = ctx.ICompareEqual(s, Const(0));
-                IrOperand inv = ctx.ISubtract(Const(32), s);
+                IrOperand full = ctx.ICompareEqual(s, Const(32));
+                IrOperand s31 = ctx.BitwiseAnd(s, Const(31));
+                IrOperand inv = ctx.BitwiseAnd(ctx.ISubtract(Const(32), s), Const(31));
                 if (left)
                 {
-                    r = high ? ctx.ConditionalSelect(zero, hiw, ctx.BitwiseOr(ctx.ShiftLeft(hiw, s), ctx.ShiftRightU32(lo, inv)))
-                             : ctx.ShiftLeft(lo, s);
+                    r = high ? ctx.ConditionalSelect(zero, hiw, ctx.ConditionalSelect(full, lo, ctx.BitwiseOr(ctx.ShiftLeft(hiw, s31), ctx.ShiftRightU32(lo, inv))))
+                             : ctx.ConditionalSelect(full, Const(0), ctx.ShiftLeft(lo, s31));
                 }
                 else if (high)
                 {
-                    r = signed ? ctx.ShiftRightS32(hiw, s) : ctx.ShiftRightU32(hiw, s);
+                    r = signed ? ctx.ShiftRightS32(hiw, ctx.IMinimumU32(s, Const(31)))
+                               : ctx.ConditionalSelect(full, Const(0), ctx.ShiftRightU32(hiw, s31));
                 }
                 else
                 {
-                    r = ctx.ConditionalSelect(zero, lo, ctx.BitwiseOr(ctx.ShiftRightU32(lo, s), ctx.ShiftLeft(hiw, inv)));
+                    r = ctx.ConditionalSelect(zero, lo, ctx.ConditionalSelect(full, hiw, ctx.BitwiseOr(ctx.ShiftRightU32(lo, s31), ctx.ShiftLeft(hiw, inv))));
                 }
             }
             Dst(ctx, o[0], r);
         }
 
+        static void EmitShf64Ampere(EmitterContext ctx, SassInst i)
+        {
+            // SHF.L|R.U64|S64[.HI][.W] Rd, lo, shift, hi: a 64-bit shift of {hi:lo}; Rd = its low word, or with .HI its high word.
+            // The amount is masked to 0..63 with .W, otherwise clamped to 64 (inferred from the 32-bit forms: & 31 / clamp 32).
+            IReadOnlyList<Op> o = i.Operands;
+            IrOperand lo = Src(ctx, o[1]), hi = Src(ctx, o[3]);
+            bool left = Has(i, "L"), high = Has(i, "HI"), signed = Has(i, "S64");
+            IrOperand s = Has(i, "W") ? ctx.BitwiseAnd(Src(ctx, o[2]), Const(63)) : ctx.IMinimumU32(Src(ctx, o[2]), Const(64));
+            IrOperand s31 = ctx.BitwiseAnd(s, Const(31)), inv = ctx.BitwiseAnd(ctx.ISubtract(Const(32), s31), Const(31));
+            IrOperand zero = ctx.ICompareEqual(s31, Const(0));
+            IrOperand ge32 = ctx.ICompareGreaterOrEqualUnsigned(s, Const(32)), ge64 = ctx.ICompareGreaterOrEqualUnsigned(s, Const(64));
+            IrOperand rlo, rhi;
+            if (left)
+            {
+                // s < 32: hi' = hi << s | lo >> (32 - s), lo' = lo << s; 32 <= s < 64: hi' = lo << (s - 32), lo' = 0
+                IrOperand h1 = ctx.ConditionalSelect(zero, hi, ctx.BitwiseOr(ctx.ShiftLeft(hi, s31), ctx.ShiftRightU32(lo, inv)));
+                IrOperand l1 = ctx.ShiftLeft(lo, s31);
+                rhi = ctx.ConditionalSelect(ge64, Const(0), ctx.ConditionalSelect(ge32, ctx.ShiftLeft(lo, s31), h1));
+                rlo = ctx.ConditionalSelect(ge32, Const(0), l1);
+            }
+            else
+            {
+                IrOperand fill = signed ? ctx.ShiftRightS32(hi, Const(31)) : Const(0);
+                IrOperand l1 = ctx.ConditionalSelect(zero, lo, ctx.BitwiseOr(ctx.ShiftRightU32(lo, s31), ctx.ShiftLeft(hi, inv)));
+                IrOperand h1 = signed ? ctx.ShiftRightS32(hi, s31) : ctx.ShiftRightU32(hi, s31);
+                rlo = ctx.ConditionalSelect(ge64, fill, ctx.ConditionalSelect(ge32, h1, l1));
+                rhi = ctx.ConditionalSelect(ge32, fill, h1);
+            }
+            Dst(ctx, o[0], high ? rhi : rlo);
+        }
+
+        static void EmitBmskAmpere(EmitterContext ctx, SassInst i)
+        {
+            // BMSK[.W] Rd, pos, width: ((1 << width) - 1) << pos, bits past 31 dropped. Without .W both are clamped to 32 (unsigned),
+            // with .W both are taken mod 32 (PTX bmsk.clamp / bmsk.wrap).
+            IReadOnlyList<Op> o = i.Operands;
+            IrOperand pos = Src(ctx, o[1]), w = Src(ctx, o[2]);
+            if (Has(i, "W")) { pos = ctx.BitwiseAnd(pos, Const(31)); w = ctx.BitwiseAnd(w, Const(31)); }
+            else { pos = ctx.IMinimumU32(pos, Const(32)); w = ctx.IMinimumU32(w, Const(32)); }
+            IrOperand ones = ctx.ConditionalSelect(ctx.ICompareEqual(w, Const(32)), Const(-1), ctx.ISubtract(ctx.ShiftLeft(Const(1), ctx.BitwiseAnd(w, Const(31))), Const(1)));
+            Dst(ctx, o[0], ctx.ConditionalSelect(ctx.ICompareEqual(pos, Const(32)), Const(0), ctx.ShiftLeft(ones, ctx.BitwiseAnd(pos, Const(31)))));
+        }
+
+        static void EmitI2iAmpere(EmitterContext ctx, SassInst i)
+        {
+            // I2I.{U8,S8,U16,S16}.S32.SAT Rd, b: the signed source clamped to the destination range (signed results sign-extended)
+            IReadOnlyList<Op> o = i.Operands;
+            (int lo, int hi) = Has(i, "U8") ? (0, 255) : Has(i, "S8") ? (-128, 127) : Has(i, "U16") ? (0, 65535) : (-32768, 32767);
+            Dst(ctx, o[0], ctx.IMinimumS32(ctx.IMaximumS32(Src(ctx, o[1]), Const(lo)), Const(hi)));
+        }
+
+        static void EmitIdpAmpere(EmitterContext ctx, SassInst i)
+        {
+            // IDP.4A.{U8,S8}.{U8,S8} Rd, a, b, c: c + sum of a.byte[k] * b.byte[k]; IDP.2A.{LO,HI}.{U16,S16}.{U8,S8}: c + a.half[k] *
+            // b.byte[k] (bytes 0..1 for LO, 2..3 for HI). The second type is b's, the first a's (PTX dp4a / dp2a).
+            IReadOnlyList<Op> o = i.Operands;
+            IrOperand a = Src(ctx, o[1]), b = Src(ctx, o[2]), acc = Src(ctx, o[3]);
+            bool two = Has(i, "2A");
+            bool aSigned = i.Mods.Count > 2 && i.Mods[two ? 2 : 1].StartsWith("S"), bSigned = i.Mods[^1] == "S8";
+            int bBase = two && Has(i, "HI") ? 2 : 0;
+            for (int k = 0; k < (two ? 2 : 4); k++)
+            {
+                int aw = two ? 16 : 8;
+                IrOperand ea = aSigned ? ctx.BitfieldExtractS32(a, Const(k * aw), Const(aw)) : ctx.BitfieldExtractU32(a, Const(k * aw), Const(aw));
+                IrOperand eb = bSigned ? ctx.BitfieldExtractS32(b, Const((bBase + k) * 8), Const(8)) : ctx.BitfieldExtractU32(b, Const((bBase + k) * 8), Const(8));
+                acc = ctx.IAdd(acc, ctx.IMultiply(ea, eb));
+            }
+            Dst(ctx, o[0], acc);
+        }
+
+        static void EmitVabsdiffAmpere(EmitterContext ctx, SassInst i)
+        {
+            // VABSDIFF[.U32] Rd, a, b, c: |a - b| + c (PTX sad). The predicate-destination form is not known.
+            IReadOnlyList<Op> o = i.Operands;
+            if (i.DstCount != 1) throw Unsup("VABSDIFF with a predicate destination");
+            IrOperand a = Src(ctx, o[1]), b = Src(ctx, o[2]);
+            bool u = Has(i, "U32");
+            IrOperand max = u ? ctx.IMaximumU32(a, b) : ctx.IMaximumS32(a, b), min = u ? ctx.IMinimumU32(a, b) : ctx.IMinimumS32(a, b);
+            Dst(ctx, o[0], ctx.IAdd(ctx.ISubtract(max, min), Src(ctx, o[3])));
+        }
+
         static void EmitPrmtAmpere(EmitterContext ctx, SassInst i)
         {
-            // PRMT Rd, a, sel, b: byte k of the result = byte (sel nibble k & 7) of {b:a}; nibble bit 3 replicates its sign.
-            if (i.Mods.Count != 0) throw Unsup("PRMT mode");
+            // PRMT[.mode] Rd, a, sel, b: byte k of the result = byte n_k of {b:a}. Default mode: n_k = sel nibble k & 7, nibble bit 3
+            // replicates the byte's sign. Modes (PTX prmt, s = sel & 3): F4E n_k = s + k, B4E s - k (mod 8), RC8 s, ECL max(k, s),
+            // ECR min(k, s), RC16 2 (s & 1) + (k & 1).
             IReadOnlyList<Op> o = i.Operands;
-            if (o[2].Kind != OperandKind.Imm) throw Unsup("register selector");
+            string mode = i.Mods.Count == 0 ? null : i.Mods[0];
+            if (mode is not (null or "F4E" or "B4E" or "RC8" or "ECL" or "ECR" or "RC16")) throw Unsup("PRMT mode");
+            if (mode != null || o[2].Kind != OperandKind.Imm)
+            {
+                IrOperand ra = Src(ctx, o[1]), rb = Src(ctx, o[3]), selv = Src(ctx, o[2]);
+                IrOperand s = ctx.BitwiseAnd(selv, Const(3));
+                IrOperand res = Const(0);
+                for (int k = 0; k < 4; k++)
+                {
+                    IrOperand n, signRep = null;
+                    switch (mode)
+                    {
+                        case null:
+                            IrOperand nib = ctx.BitwiseAnd(ctx.ShiftRightU32(selv, Const(k * 4)), Const(0xf));
+                            n = ctx.BitwiseAnd(nib, Const(7));
+                            signRep = ctx.ICompareNotEqual(ctx.BitwiseAnd(nib, Const(8)), Const(0));
+                            break;
+                        case "F4E": n = ctx.BitwiseAnd(ctx.IAdd(s, Const(k)), Const(7)); break;
+                        case "B4E": n = ctx.BitwiseAnd(ctx.ISubtract(s, Const(k)), Const(7)); break;
+                        case "RC8": n = s; break;
+                        case "ECL": n = ctx.IMaximumU32(s, Const(k)); break;
+                        case "ECR": n = ctx.IMinimumU32(s, Const(k)); break;
+                        default: n = ctx.IAdd(ctx.ShiftLeft(ctx.BitwiseAnd(s, Const(1)), Const(1)), Const(k & 1)); break;
+                    }
+                    IrOperand word = ctx.ConditionalSelect(ctx.ICompareNotEqual(ctx.BitwiseAnd(n, Const(4)), Const(0)), rb, ra);
+                    IrOperand v = ctx.BitfieldExtractU32(word, ctx.ShiftLeft(ctx.BitwiseAnd(n, Const(3)), Const(3)), Const(8));
+                    if (signRep != null)
+                        v = ctx.ConditionalSelect(signRep, ctx.BitwiseAnd(ctx.ShiftRightS32(ctx.ShiftLeft(v, Const(24)), Const(31)), Const(0xff)), v);
+                    res = ctx.BitwiseOr(res, k == 0 ? v : ctx.ShiftLeft(v, Const(k * 8)));
+                }
+                Dst(ctx, o[0], res);
+                return;
+            }
             int sel = (int)o[2].ImmBits;
             IrOperand a = Src(ctx, o[1]), b = Src(ctx, o[3]);
             IrOperand r = Const(0);
@@ -717,10 +900,13 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitR2pAmpere(EmitterContext ctx, SassInst i)
         {
-            // R2P PR, a, mask
+            // R2P PR, a[.B1-.B3], mask: the byte select is a suffix of the source (R2P PR, R6.reuse.B1, 0x70), not an instruction modifier
             IReadOnlyList<Op> o = i.Operands;
             if (o[0].Text != "PR" || o[2].Kind != OperandKind.Imm) throw Unsup();
-            int shift = Has(i, "B1") ? 8 : Has(i, "B2") ? 16 : Has(i, "B3") ? 24 : 0;
+            int shift = 0;
+            if (o[1].Suffixes != null)
+                foreach (string s in o[1].Suffixes)
+                    shift = s.EndsWith(".B1") ? 8 : s.EndsWith(".B2") ? 16 : s.EndsWith(".B3") ? 24 : shift;
             int mask = (int)o[2].ImmBits & 0x7f;
             IrOperand a = Src(ctx, o[1]);
             for (int p = 0; p < 7; p++)
@@ -756,8 +942,20 @@ namespace Ryujinx.Graphics.Shader.Instructions
             else if (Has(i, "LG2")) r = ctx.FPLogarithmB2(a);
             // Volta+ MUFU.SIN/COS take the angle in turns (sin(2*pi*x)): there is no RRO, the compiler emits
             // FMUL.RZ x, 1/(2*pi) before them (Mesa NAK builder.rs fsin/fcos, sm >= 70). Maxwell's MUFU took radians after RRO.
-            else if (Has(i, "SIN")) r = ctx.FPSine(ctx.FPMultiply(a, ConstF(TwoPi)));
-            else if (Has(i, "COS")) r = ctx.FPCosine(ctx.FPMultiply(a, ConstF(TwoPi)));
+            // The hardware reduces the angle in turns: whole turns are dropped first (hwcheck, RTX 3080: MUFU.COS of -808768.375 is
+            // cos(0.375 turns)); x - round(x) is exact in fp32, so scale only the fraction.
+            else if (Has(i, "SIN")) r = ctx.FPSine(ctx.FPMultiply(ctx.FPAdd(a, ctx.FPNegate(ctx.FPRound(a))), ConstF(TwoPi)));
+            else if (Has(i, "COS")) r = ctx.FPCosine(ctx.FPMultiply(ctx.FPAdd(a, ctx.FPNegate(ctx.FPRound(a))), ConstF(TwoPi)));
+            else if (Has(i, "TANH"))
+            {
+                // tanh x = 1 - 2 / (e^2x + 1); below |x| = 1/16 the series x - x^3/3 + 2x^5/15 (no cancellation, keeps -0)
+                IrOperand e = ctx.FPExponentB2(ctx.FPMultiply(a, ConstF(2.88539008177792681f)));   // 2 / ln 2
+                IrOperand big = ctx.FPSubtract(ConstF(1), ctx.FPDivide(ConstF(2), ctx.FPAdd(e, ConstF(1))));
+                IrOperand x2 = ctx.FPMultiply(a, a);
+                IrOperand poly = ctx.FPMultiply(a, ctx.FPFusedMultiplyAdd(x2, ctx.FPFusedMultiplyAdd(x2, ConstF(2f / 15), ConstF(-1f / 3)), ConstF(1)));
+                r = ctx.ConditionalSelect(ctx.FPCompareLess(ctx.FPAbsolute(a), ConstF(0.0625f)), poly, big);
+                r = ctx.ConditionalSelect(ctx.IsNan(a), a, r);
+            }
             else throw Unsup();
             if (f16) r = ctx.PackHalf2x16(r, ConstF(0));   // inferred: the F16 result is in the low half
             Dst(ctx, o[0], r);
@@ -765,7 +963,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitF2iAmpere(EmitterContext ctx, SassInst i)
         {
-            if (Has(i, "F64") || Has(i, "U64") || Has(i, "S64")) throw Unsup("64-bit");
+            if (Has(i, "F64") || Has(i, "U64") || Has(i, "S64")) { EmitF2i64Ampere(ctx, i); return; }
             IReadOnlyList<Op> o = i.Operands;
             IrOperand src = Has(i, "F16") ? HalfLane(ctx, o[1]) : FSrc(ctx, o[1]);
             src = Has(i, "TRUNC") ? ctx.FPTruncate(src) : Has(i, "FLOOR") ? ctx.FPFloor(src) : Has(i, "CEIL") ? ctx.FPCeiling(src) : ctx.FPRound(src);
@@ -781,7 +979,8 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitI2fAmpere(EmitterContext ctx, SassInst i)
         {
-            if (Has(i, "F64") || Has(i, "F16") || Has(i, "U64") || Has(i, "S64")) throw Unsup();
+            if (Has(i, "F64") || Has(i, "U64") || Has(i, "S64")) { EmitI2f64Ampere(ctx, i); return; }
+            if (Has(i, "F16")) throw Unsup();
             IReadOnlyList<Op> o = i.Operands;
             IrOperand v = Raw(ctx, o[1]);
             bool unsigned = Has(i, "U8") || Has(i, "U16") || Has(i, "U32");
@@ -797,8 +996,9 @@ namespace Ryujinx.Graphics.Shader.Instructions
         static void EmitF2fAmpere(EmitterContext ctx, SassInst i)
         {
             IReadOnlyList<Op> o = i.Operands;
-            int f16 = IndexOfMod(i, "F16"), f32 = IndexOfMod(i, "F32");
-            if (f16 < 0 || f32 < 0 || Has(i, "F64")) throw Unsup();
+            int f16 = IndexOfMod(i, "F16"), f32 = IndexOfMod(i, "F32"), f64 = IndexOfMod(i, "F64");
+            if (f64 >= 0 && f32 >= 0) { EmitF2f64Ampere(ctx, i, toF64: f64 < f32); return; }
+            if (f16 < 0 || f32 < 0 || f64 >= 0) throw Unsup();
             if (f16 < f32)
             {
                 // F2F.F16.F32: f32 -> f16 in the low half
@@ -813,20 +1013,61 @@ namespace Ryujinx.Graphics.Shader.Instructions
         static void EmitF2fpAmpere(EmitterContext ctx, SassInst i)
         {
             IReadOnlyList<Op> o = i.Operands;
+            if (Has(i, "SATFINITE")) throw Unsup("SATFINITE");
             if (Has(i, "PACK_AB"))
             {
                 // {a -> high half, b -> low half}
-                Dst(ctx, o[0], ctx.PackHalf2x16(FSrc(ctx, o[2]), FSrc(ctx, o[1])));
+                if (Has(i, "RM") || Has(i, "RP")) throw Unsup();
+                IrOperand hi = FSrc(ctx, o[1]), lo = FSrc(ctx, o[2]);
+                // .RELU: negative values (-0 too) become +0 before the conversion, NaN stays NaN
+                if (Has(i, "RELU")) { hi = ReluBits(ctx, hi); lo = ReluBits(ctx, lo); }
+                if (Has(i, "BF16"))
+                {
+                    if (Has(i, "RZ")) throw Unsup("BF16 rounding mode");
+                    Dst(ctx, o[0], ctx.BitwiseOr(Bf16Rn(ctx, lo), ctx.ShiftLeft(Bf16Rn(ctx, hi), Const(16))));
+                    return;
+                }
+                if (!Has(i, "RZ"))
+                {
+                    Dst(ctx, o[0], ctx.PackHalf2x16(lo, hi));
+                    return;
+                }
+                // .RZ: the round-to-nearest half, one step toward zero when it came out larger in magnitude than the input
+                // (finite overflow to infinity gives 0x7bff the same way). hwcheck, RTX 3080.
+                IrOperand Half(IrOperand x)
+                {
+                    IrOperand h = ctx.BitwiseAnd(ctx.PackHalf2x16(x, ConstF(0)), Const(0xffff));
+                    IrOperand back = ctx.UnpackHalf2x16Low(h);
+                    IrOperand over = ctx.BitwiseAnd(ctx.FPCompareLess(ctx.FPAbsolute(x), ctx.FPAbsolute(back)), Finite(ctx, x));
+                    return ctx.ConditionalSelect(over, ctx.ISubtract(h, Const(1)), h);
+                }
+                Dst(ctx, o[0], ctx.BitwiseOr(Half(lo), ctx.ShiftLeft(Half(hi), Const(16))));
                 return;
             }
             if (Has(i, "MERGE_C"))
             {
+                if (Has(i, "RELU") || Has(i, "BF16") || Has(i, "RZ") || Has(i, "RM") || Has(i, "RP")) throw Unsup("MERGE_C form");
                 // inferred from the compiler's use: Rd = {low half of c -> high half, f16(a) -> low half}
                 IrOperand lo = ctx.BitwiseAnd(ctx.PackHalf2x16(FSrc(ctx, o[1]), ConstF(0)), Const(0xffff));
                 Dst(ctx, o[0], ctx.BitwiseOr(lo, ctx.ShiftLeft(Src(ctx, o[2]), Const(16))));
                 return;
             }
             throw Unsup();
+        }
+
+        /// fp32 bits with negative values (-0 included) replaced by +0; NaN kept.
+        static IrOperand ReluBits(EmitterContext ctx, IrOperand x)
+        {
+            IrOperand nan = ctx.ICompareGreaterUnsigned(ctx.BitwiseAnd(x, Const(0x7fffffff)), Const(0x7f800000));
+            return ctx.ConditionalSelect(ctx.BitwiseAnd(ctx.ICompareLess(x, Const(0)), ctx.Add(Instruction.LogicalNot, Local(), nan)), Const(0), x);
+        }
+
+        /// fp32 bits to bf16 (low 16 bits), round to nearest even; NaN gives 0x7fff.
+        static IrOperand Bf16Rn(EmitterContext ctx, IrOperand x)
+        {
+            IrOperand nan = ctx.ICompareGreaterUnsigned(ctx.BitwiseAnd(x, Const(0x7fffffff)), Const(0x7f800000));
+            IrOperand r = ctx.ShiftRightU32(ctx.IAdd(ctx.IAdd(x, Const(0x7fff)), ctx.BitwiseAnd(ctx.ShiftRightU32(x, Const(16)), Const(1))), Const(16));
+            return ctx.ConditionalSelect(nan, Const(0x7fff), r);
         }
 
         /// Both lanes of a packed-half source. Immediates come as one operand (raw bits) or two FImm operands.
@@ -912,17 +1153,23 @@ namespace Ryujinx.Graphics.Shader.Instructions
                 case "HMNMX2":
                     {
                         IrOperand p = Src(ctx, o[k]);
-                        for (int n = 0; n < 2; n++) r[n] = ctx.ConditionalSelect(p, ctx.FPMinimum(a[n], b[n]), ctx.FPMaximum(a[n], b[n]));
+                        for (int n = 0; n < 2; n++)
+                        {
+                            r[n] = ctx.ConditionalSelect(p, ctx.FPMinimum(a[n], b[n]), ctx.FPMaximum(a[n], b[n]));
+                            // .NAN: a NaN input gives NaN
+                            if (Has(i, "NAN")) r[n] = ctx.ConditionalSelect(ctx.BitwiseOr(ctx.IsNan(a[n]), ctx.IsNan(b[n])), ConstF(float.NaN), r[n]);
+                        }
                         break;
                     }
             }
             for (int n = 0; n < 2; n++)
             {
                 if (Has(i, "SAT")) r[n] = ctx.FPSaturate(r[n]);
-                if (Has(i, "RELU")) r[n] = ctx.FPMaximum(r[n], ConstF(0));
+                // .RELU keeps NaN (the hardware returns the canonical NaN); max(NaN, 0) would give 0
+                if (Has(i, "RELU")) r[n] = ctx.ConditionalSelect(ctx.IsNan(r[n]), r[n], ctx.FPMaximum(r[n], ConstF(0)));
             }
             if (Has(i, "F32")) Dst(ctx, o[0], r[0]);
-            else if (i.Mods.All(m => m is "SAT" or "RELU" or "FTZ" or "MMA")) Dst(ctx, o[0], ctx.PackHalf2x16(r[0], r[1]));
+            else if (i.Mods.All(m => m is "SAT" or "RELU" or "FTZ" or "MMA" or "NAN")) Dst(ctx, o[0], ctx.PackHalf2x16(r[0], r[1]));
             else throw Unsup();
         }
 
@@ -1449,7 +1696,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
             if (rd.Reg >= 255 && rd2.Reg >= 255) return;
             foreach (string m in i.Mods)
             {
-                if (m is not ("NDV" or "NODEP" or "EF" or "EL" or "LU" or "EU" or "NA")) throw Unsup($"modifier {m}");
+                if (m is not ("LOD" or "NDV" or "NODEP" or "EF" or "EL" or "LU" or "EU" or "NA")) throw Unsup($"modifier {m}");
             }
             (SamplerType type, bool array) = DimOf(dim);
             int coords = (type & SamplerType.Mask) switch { SamplerType.Texture1D => 1, SamplerType.Texture2D => 2, _ => 3 };
@@ -1583,6 +1830,43 @@ namespace Ryujinx.Graphics.Shader.Instructions
             ctx.ImageStore(type, format, TextureFlags.None, binding, sources.ToArray());
         }
 
+        static void EmitSuredAmpere(EmitterContext ctx, SassInst i)
+        {
+            // SURED.D.dim.op[.type] [Ra], Rb, bank, handle: image atomic without a result (Ryujinx's Maxwell SURED: coordinates from Ra,
+            // Ra+1, ..., then the array index; the format from the type, or the bound image's for SD32/SD64)
+            IReadOnlyList<Op> o = i.Operands;
+            if (Has(i, "BA") || o.Count < 4 || o[0].Kind != OperandKind.Mem || o[1].Kind != OperandKind.Reg) throw Unsup("form");
+            string dim = i.Mods.FirstOrDefault(m => m is "1D" or "2D" or "3D" or "1D_BUFFER" or "1D_ARRAY" or "2D_ARRAY") ?? throw Unsup("shape");
+            SamplerType type = dim switch
+            {
+                "1D" => SamplerType.Texture1D, "2D" => SamplerType.Texture2D, "3D" => SamplerType.Texture3D, "1D_BUFFER" => SamplerType.TextureBuffer,
+                "1D_ARRAY" => SamplerType.Texture1D | SamplerType.Array, _ => SamplerType.Texture2D | SamplerType.Array,
+            };
+            SuatomOp op = Has(i, "ADD") ? SuatomOp.Add : Has(i, "MIN") ? SuatomOp.Min : Has(i, "MAX") ? SuatomOp.Max : Has(i, "INC") ? SuatomOp.Inc
+                : Has(i, "DEC") ? SuatomOp.Dec : Has(i, "AND") ? SuatomOp.And : Has(i, "OR") ? SuatomOp.Or : Has(i, "XOR") ? SuatomOp.Xor : throw Unsup("op");
+            SuatomSize size = Has(i, "S32") ? SuatomSize.S32 : Has(i, "U64") ? SuatomSize.U64 : Has(i, "F32") ? SuatomSize.F32FtzRn : Has(i, "F16x2") ? SuatomSize.F16x2FtzRn
+                : Has(i, "S64") ? SuatomSize.S64 : Has(i, "SD32") ? SuatomSize.Sd32 : Has(i, "SD64") ? SuatomSize.Sd64 : SuatomSize.U32;
+            int ra = o[0].Reg;
+            if (ra >= 255 || o[0].IndexReg >= 0 || o[0].Offset != 0) throw Unsup("address");
+            int bank = (int)o[2].ImmBits, handle = (int)o[3].ImmBits;
+            List<IrOperand> sources = new();
+            int k = 0;
+            for (int c = 0; c < type.Dimensions; c++) sources.Add(ctx.Copy(Gpr(ra + k++)));
+            if (Sample1DAs2D && (type & SamplerType.Mask) == SamplerType.Texture1D)
+            {
+                sources.Add(Const(0));
+                type = SamplerType.Texture2D | (type & SamplerType.Array);
+            }
+            if (type.HasFlag(SamplerType.Array)) sources.Add(ctx.Copy(Gpr(ra + k++)));
+            TextureFormat format = size is SuatomSize.Sd32 or SuatomSize.Sd64
+                ? Ryujinx.Graphics.Shader.StructuredIr.ShaderProperties.GetTextureFormatAtomic(ctx.TranslatorContext.GpuAccessor, handle)
+                : GetTextureFormat(size);
+            sources.Add(o[1].Reg >= 255 ? Const(0) : ctx.Copy(Gpr(o[1].Reg)));
+            TextureFlags flags = GetAtomicOpFlags(op);
+            SetBindingPair binding = ctx.ResourceManager.GetTextureOrImageBinding(Instruction.ImageAtomic, type, format, flags, CbufSlotOf(ctx, bank), handle);
+            ctx.ImageAtomic(type, format, flags, binding, sources.ToArray());
+        }
+
         static void EmitSuldAmpere(EmitterContext ctx, SassInst i)
         {
             // SULD.P.dim[.RGBA subset].IGN Rd, [Ra], bank, handle   (formatted load; the components named, or all four, land in Rd, Rd+1, ...
@@ -1622,9 +1906,10 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitShflAmpere(EmitterContext ctx, SassInst i)
         {
-            // SHFL.IDX|UP|DOWN|BFLY Pd, Rd, a, b, c
+            // SHFL.IDX|UP|DOWN|BFLY Pd, Rd, a, b, c. Only the low 5 bits of the lane / delta / xor mask b count (hwcheck, RTX 3080:
+            // SHFL.DOWN by 0x371e0289 reads lane + 9); Ryujinx's helpers use all 32.
             IReadOnlyList<Op> o = i.Operands;
-            IrOperand a = Src(ctx, o[2]), b = Src(ctx, o[3]), c = Src(ctx, o[4]);
+            IrOperand a = Src(ctx, o[2]), b = ctx.BitwiseAnd(Src(ctx, o[3]), Const(0x1f)), c = Src(ctx, o[4]);
             (IrOperand res, IrOperand valid) = Has(i, "IDX") ? ctx.Shuffle(a, b, c) : Has(i, "UP") ? ctx.ShuffleUp(a, b, c)
                 : Has(i, "DOWN") ? ctx.ShuffleDown(a, b, c) : Has(i, "BFLY") ? ctx.ShuffleXor(a, b, c) : throw Unsup();
             Dst(ctx, o[1], res);
@@ -1670,8 +1955,24 @@ namespace Ryujinx.Graphics.Shader.Instructions
         static void EmitMatchAmpere(EmitterContext ctx, SassInst i)
         {
             // MATCH.ALL[.U64] [Pd,] Rd, Ra: Pd = every active lane has the same Ra (Ra pair for .U64); Rd = the active mask then, else 0
-            if (!Has(i, "ALL")) throw Unsup("MATCH.ANY");
             IReadOnlyList<Op> o = i.Operands;
+            if (Has(i, "ANY"))
+            {
+                // MATCH.ANY[.U64] Rd, Ra: the active lanes whose Ra (pair) equals this lane's
+                Op rs = o[^1];
+                if (rs.Kind != OperandKind.Reg) throw Unsup("source");
+                IrOperand act = EmitBallot(ctx, Const(IrConsts.True));
+                IrOperand vlo = Src(ctx, rs), vhi = Has(i, "U64") ? (rs.Reg < 254 ? Gpr(rs.Reg + 1) : Const(0)) : null;
+                IrOperand m = Const(0);
+                for (int l = 0; l < 32; l++)
+                {
+                    IrOperand same = ctx.ICompareEqual(ReadLane(ctx, vlo, Const(l)), vlo);
+                    if (vhi != null) same = ctx.BitwiseAnd(same, ctx.ICompareEqual(ReadLane(ctx, vhi, Const(l)), vhi));
+                    m = ctx.BitwiseOr(m, ctx.ConditionalSelect(same, Const(1 << l), Const(0)));
+                }
+                Dst(ctx, o[^2], ctx.BitwiseAnd(m, act));
+                return;
+            }
             int k = IsPredKind(o[0]) ? 1 : 0;
             Op ra = o[k + 1];
             if (ra.Kind != OperandKind.Reg) throw Unsup("source");

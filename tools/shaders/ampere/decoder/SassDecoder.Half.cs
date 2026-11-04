@@ -28,10 +28,10 @@ namespace Nx.Shaders.Ampere
                 c.Op = "HADD2"; c.Src2Slot = 2; c.Mod(c.B(78), "F32"); c.Mod(c.B(80), "FTZ"); c.Mod(c.B(77), "SAT"); HalfSetup(c);
                 c.Dst = 1; c.Add(c.R(16), c.SrcA(), c.Src2());
             });
-            // HFMA2 0x031: DNZ 76, SAT 77, F32 78, RELU 79, FTZ 80
+            // HFMA2 0x031: BF16_V2 85 [probe], DNZ 76, SAT 77, F32 78, RELU 79, FTZ 80
             Op9(0x031, c =>
             {
-                c.Op = "HFMA2"; c.Mod(c.B(78), "F32"); c.Mod(c.B(80), "FTZ"); c.Mod(!c.B(80) && c.B(76), "FMZ"); c.Mod(c.B(77), "SAT"); c.Mod(c.B(79), "RELU"); HalfSetup(c);
+                c.Op = "HFMA2"; c.Mod(c.B(85), "BF16_V2"); c.Mod(c.B(78), "F32"); c.Mod(c.B(80), "FTZ"); c.Mod(!c.B(80) && c.B(76), "FMZ"); c.Mod(c.B(77), "SAT"); c.Mod(c.B(79), "RELU"); HalfSetup(c);
                 c.Dst = 1; c.Add(c.R(16), c.SrcA()); var (b, d) = c.SrcBC(); c.Add(b, d); if (c.B(79) && !(IsPT(c, 87) && !c.B(90))) c.Add(c.P(87, 90)); // RELU predicate [probe]
             });
             // HMUL2 0x032

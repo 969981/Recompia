@@ -106,7 +106,8 @@ namespace Nx.Shaders.Ampere
             {
                 c.Op = "MATCH"; c.Mod(c.B(79) ? "ANY" : "ALL"); c.Mod(c.B(73), "U64");
                 c.Dst = 1;
-                if (!IsPT(c, 81)) { c.Add(c.P(81)); c.Dst++; }
+                // [probe] MATCH.ALL always prints its predicate destination (PT too); MATCH.ANY has none
+                if (!c.B(79) || !IsPT(c, 81)) { c.Add(c.P(81)); c.Dst++; }
                 c.Add(c.R(16), c.R(24));
             });
             // FSWZADD 0x822 [NAK]: lanes 32..40 printed as P/N per bit, MSB first [oracle]
