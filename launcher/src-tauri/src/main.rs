@@ -7,6 +7,7 @@ mod gamebuild;
 mod ini;
 mod nup;
 mod play;
+mod relay;
 mod settings;
 mod shaders;
 
@@ -362,11 +363,121 @@ fn test_report(text: String) -> Result<(), String> {
     std::fs::write(format!("{path}.out"), text).map_err(|e| e.to_string())
 }
 
+/// The relay server the launcher runs on a thread (Host button, phase 4). None: not running.
+#[derive(Default)]
+struct RelayState(Mutex<Option<relay::RelayServer>>);
+
+/// Starts the relay on 0.0.0.0:port (0 or none: the default port). A running one is stopped first.
+#[tauri::command]
+fn relay_start(state: State<RelayState>, port: Option<u16>, password: Option<String>) -> Result<relay::Status, String> {
+    let mut slot = state.0.lock().unwrap();
+    if let Some(mut old) = slot.take() {
+        old.stop();
+    }
+    let port = port.filter(|p| *p != 0).unwrap_or(relay::DEFAULT_PORT);
+    let cfg = relay::Config { password: password.filter(|p| !p.is_empty()), ..Default::default() };
+    let srv = relay::RelayServer::start(("0.0.0.0", port), cfg).map_err(|e| format!("Cannot open port {}: {}", port, e))?;
+    let status = srv.status();
+    *slot = Some(srv);
+    Ok(status)
+}
+
+#[tauri::command]
+fn relay_stop(state: State<RelayState>) {
+    // take it out first: stopping joins threads, the lock is not held meanwhile
+    let srv = state.0.lock().unwrap().take();
+    if let Some(mut srv) = srv {
+        srv.stop();
+    }
+}
+
+#[tauri::command]
+fn relay_status(state: State<RelayState>) -> Option<relay::Status> {
+    state.0.lock().unwrap().as_ref().map(|s| s.status())
+}
+
+/// `--host [--port N] [--password P]`: the relay alone, no window, log lines on stdout, until Ctrl+C.
+fn run_headless(args: &[String]) -> i32 {
+    #[cfg(windows)]
+    win_console::attach_and_hook_ctrl_c();
+    let mut port = relay::DEFAULT_PORT;
+    let mut password = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--host" => {}
+            "--port" => match it.next().and_then(|p| p.parse::<u16>().ok()) {
+                Some(p) => port = p,
+                None => {
+                    eprintln!("--port needs a number (1-65535)");
+                    return 2;
+                }
+            },
+            "--password" => match it.next() {
+                Some(p) => password = Some(p.clone()).filter(|p| !p.is_empty()),
+                None => {
+                    eprintln!("--password needs a value");
+                    return 2;
+                }
+            },
+            other => {
+                eprintln!("unknown argument {}. Usage: PokopiaLauncher --host [--port N] [--password P]", other);
+                return 2;
+            }
+        }
+    }
+    let log: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|line: &str| println!("{}", line));
+    let cfg = relay::Config { password, log: Some(log), ..Default::default() };
+    let mut srv = match relay::RelayServer::start(("0.0.0.0", port), cfg) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("cannot open port {}: {}", port, e);
+            return 1;
+        }
+    };
+    println!("Pokopia relay running on {}. Ctrl+C stops it.", srv.local_addr());
+    while !win_console::CTRL_C.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    srv.stop();
+    0
+}
+
+/// A GUI-subsystem exe has no console: attach to the terminal that started it, and turn Ctrl+C into a clean stop.
+mod win_console {
+    use std::sync::atomic::AtomicBool;
+    pub static CTRL_C: AtomicBool = AtomicBool::new(false);
+
+    #[cfg(windows)]
+    pub fn attach_and_hook_ctrl_c() {
+        use std::sync::atomic::Ordering;
+        const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+        extern "system" {
+            fn AttachConsole(pid: u32) -> i32;
+            fn SetConsoleCtrlHandler(handler: Option<unsafe extern "system" fn(u32) -> i32>, add: i32) -> i32;
+        }
+        unsafe extern "system" fn on_ctrl(_kind: u32) -> i32 {
+            CTRL_C.store(true, Ordering::SeqCst);
+            1 // handled: main() stops the server and returns
+        }
+        // fails harmlessly when there is no parent console or the exe already has one (debug builds)
+        unsafe {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+            SetConsoleCtrlHandler(Some(on_ctrl), 1);
+        }
+    }
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--host") {
+        std::process::exit(run_headless(&args));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(play::PlayState::default())
         .manage(Arc::new(SetupState::default()))
+        .manage(RelayState::default())
         .setup(|app| {
             // Test runs drive the page without input: PKP_LAUNCHER_EVAL_FILE=<path>. A JS file written there is run in the page once and
             // deleted; it reports back through document.title (the window title). WebView2's DevTools port does not open for Tauri apps here.
@@ -404,6 +515,9 @@ fn main() {
             game_status,
             open_game_file,
             open_game_dir,
+            relay_start,
+            relay_stop,
+            relay_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");
