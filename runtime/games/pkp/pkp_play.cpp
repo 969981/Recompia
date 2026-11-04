@@ -51,6 +51,7 @@
 // the branch last ran: counts read while the branch is closed are applied when it opens again within that time (the view ends where the
 // hand moved it) and dropped after it (a scripted camera does not jump when control comes back).
 #include "pkp_play.h"
+#include "pkp_gfx_heap.h"
 #include "pkp_kbm.h"
 #include "pkp_movie_test.h"
 
@@ -560,6 +561,19 @@ void pick_size(const play::DisplaySettings& d, int window_w, int window_h, int* 
     *out_h = h;
 }
 
+// Game targets above 1920x1080 need larger graphics pools than the game's fixed ones (pkp_gfx_heap.h): grows them (nothing is hooked at
+// 1920x1080 and below) and clamps a size whose pools would not fit, before the targets' size is installed. Only the paths where the game
+// itself builds its targets at the new size come here; with render_override off the game keeps 1920x1080 targets (the back end scales them).
+void game_target_memory(uint64_t base, int* w, int* h) {
+    const GfxHeapPlan plan = gfx_heap_plan(*w, *h);
+    if (plan.clamped)
+        NXLOG_W(kTag, "render resolution %dx%d needs more graphics memory than the game's pools can hold (4 GiB each): using %dx%d", *w, *h,
+                plan.w, plan.h);
+    *w = plan.w;
+    *h = plan.h;
+    gfx_heap_install(base, plan, &st().hooks);
+}
+
 }  // namespace
 
 void play_install_render(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h) {
@@ -596,6 +610,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         else gh = static_cast<int>(std::lround(kTableW / wd.aspect)) & ~1;
         gw = std::clamp(gw, 640, 8192);
         gh = std::clamp(gh, 360, 8192);
+        game_target_memory(base, &gw, &gh);
         s.w.store(gw);
         s.h.store(gh);
         const struct { uint64_t off; SiteHookFn fn; } table[] = {
@@ -648,6 +663,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         s.render_installed = true;
         return;
     }
+    game_target_memory(base, &w, &h);
     s.w.store(w);
     s.h.store(h);
     const struct { uint64_t off; SiteHookFn fn; } table[] = {
