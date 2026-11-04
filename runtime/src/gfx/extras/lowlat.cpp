@@ -292,7 +292,10 @@ void LowLatency::sim_begin() {
     {   // [latency] gpu_frames_ahead (lowlat.h): the GPU's own queue is bounded too, right before the input is sampled
         static const int gpu_back = static_cast<int>(std::clamp<int64_t>(config_get_int("latency", "gpu_frames_ahead", 1), -1, 3));
         const uint64_t lp = s.last_present_ns.load(std::memory_order_relaxed);
-        if (gpu_back >= 0 && s.paced && s.live_on && lp && FrameLimiter::now_ns() - lp < 250000000ull)
+        // Not while the limiter runs a loading screen unpaced ([display] unpaced_loading: light frames only): the game's loading advances
+        // once per frame, and waiting for the GPU to finish the last frame was a quarter of a light frame. The present backpressure
+        // ([nvn] present_ahead) and the swapchain still bound how far the game runs ahead.
+        if (gpu_back >= 0 && s.paced && s.live_on && lp && FrameLimiter::now_ns() - lp < 250000000ull && !frame_limiter_unpaced())
             if (auto fn = g_gpu_wait_fn.load()) fn(gpu_back, 50ull * 1000 * 1000);
     }
     VkSwapchainKHR sc;
