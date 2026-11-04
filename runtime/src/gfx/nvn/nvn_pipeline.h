@@ -74,7 +74,8 @@ struct GraphicsKey {
     uint8_t xfb = 0;                            // the vertex shader runs with transform feedback (captured outputs, no fragment stage)
     uint8_t dual_src = 0;                       // a blend factor of an enabled attachment reads the second source (fragment output moved to Location 0, Index 1)
     uint8_t no_out = 0;                         // the pass has no colour attachment: the fragment shader's outputs become private variables
-    uint8_t pad[0 + 1] = {};
+    uint8_t fb_loop = 0;                        // a colour attachment is in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (the draw samples it): built whole with
+                                                // COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT, never linked from parts (was the pad byte: the key file layout is the same)
     // Tessellation control and evaluation stages (null: none). Last, so that the prewarm key file keeps its record layout (it records the bytes
     // before these and never a tessellated key). A key with them has topology PATCH_LIST and patch_control_points = the NVN patch size.
     const ShaderInfo* tess[2] = {};

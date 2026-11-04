@@ -154,9 +154,15 @@ struct Pass {
     bool depth_ro = false;      // the depth attachment is in DEPTH_STENCIL_READ_ONLY_OPTIMAL (it is also sampled by the draws of this pass)
     uint32_t samples = 1;
     float scale = 1.0f;         // resolution scale of the attachments ([gfx] render_scale): viewports and scissors are multiplied by it
+    uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)
 };
 
 Pass P;
+uint8_t g_fbl_want = 0;         // colour slots the current draw samples through the feedback loop layout (feedback_prepare -> ensure_pass)
+
+VkImageLayout color_layout(uint8_t fbl, uint32_t slot) {
+    return (fbl >> slot) & 1 ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+}
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
@@ -273,6 +279,7 @@ const ProgLayout* g_pl = nullptr;
 VkPipeline g_pipe = VK_NULL_HANDLE;
 VkPrimitiveTopology g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
 VkPrimitiveTopology g_pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+bool g_pipe_fbl = false;        // g_pipe was made for a pass with a feedback loop attachment (GraphicsKey::fb_loop)
 bool g_restart = false, g_restart_valid = false;
 uint32_t g_key_attr_count = 0;
 uint8_t g_key_binding[16] = {};
@@ -497,7 +504,7 @@ void end_pass(bool to_pass = false) {
             for (const PendingWrite& w : g_pending) if (w.tex.get() == t) return;
             g_pending.push_back({Ref<Texture>::share(t), l});
         };
-        for (uint32_t i = 0; i < P.ncolor; ++i) remember(P.color[i].tex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        for (uint32_t i = 0; i < P.ncolor; ++i) remember(P.color[i].tex, color_layout(P.fbl, i));
         if (!P.depth_ro) remember(P.depth.tex, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     } else {
         memory_barrier(F->cb);
@@ -573,13 +580,14 @@ float attach_targets(bool fix) {
     return lo;
 }
 
-// Starts a pass on the current render targets if none is open for them. False when there is nothing to render to.
-bool ensure_pass(bool depth_ro = false) {
-    if (P.open && targets_match() && P.depth_ro == depth_ro) return true;
+// Starts a pass on the current render targets if none is open for them. False when there is nothing to render to. fbl: the colour slots
+// that are in the feedback loop layout (a pass in another layout mode is ended: the layouts and the pipelines' feedback flag go together).
+bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0) {
+    if (P.open && targets_match() && P.depth_ro == depth_ro && P.fbl == fbl) return true;
     end_pass(true);
     if (!g_pending.empty()) {
         bool conflict = false;
-        for (uint32_t i = 0; i < S.ncolor && !conflict; ++i) conflict = pending_conflict(S.color_tex[i].get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        for (uint32_t i = 0; i < S.ncolor && !conflict; ++i) conflict = pending_conflict(S.color_tex[i].get(), color_layout(fbl, i));
         if (!conflict && S.depth_tex)
             conflict = pending_conflict(S.depth_tex.get(), depth_ro ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         if (conflict) {
@@ -594,6 +602,7 @@ bool ensure_pass(bool depth_ro = false) {
     P = Pass();
     P.depth_ro = depth_ro;
     P.scale = pass_scale;
+    P.fbl = fbl;
     VkRenderingAttachmentInfo colors[8] = {};
     VkRenderingAttachmentInfo depth = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     VkRenderingAttachmentInfo stencil = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -606,12 +615,13 @@ bool ensure_pass(bool depth_ro = false) {
         P.color[i] = make_target(t, S.color_view[i], S.color_has_view[i]);
         if (!t || !tex_gpu(t)) continue;
         const bool fresh = tex_layout(t) == VK_IMAGE_LAYOUT_UNDEFINED;
-        tex_transition(t, *F, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        tex_mark_gpu_written(t);
+        const VkImageLayout cl = color_layout(fbl, i);
+        tex_transition_attach(t, *F, cl, P.color[i].level);   // the pass writes this level only (tex_write_gen: the feedback copies)
+        tex_mark_gpu_written(t, static_cast<int>(P.color[i].level));
         VkImageView v = tex_attachment_view(t, P.color[i].level, P.color[i].layer, P.color[i].layers, P.color[i].view_format);
         if (!v) continue;
         colors[i].imageView = v;
-        colors[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         colors[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         P.color_fmt[i] = tex_attachment_format(t, P.color[i].view_format);
@@ -868,16 +878,53 @@ bool is_color_feedback(Texture* t) {
 }
 
 // A draw that samples its own colour attachment (the bloom composite of some frames reads the tone-mapped picture while it writes it back, one
-// pixel at a time): the console allows that, Vulkan has no such loop. The draw samples a copy of the image made just before it, which holds the
-// same values a pointwise read sees on the hardware (and the right ones when the shader reads another mip level of the attachment).
+// pixel at a time; the bloom mip chain renders one level of a texture while it samples the others through a view of all levels): the console
+// allows that, plain Vulkan has no such loop. Two ways, per draw:
+// - feedback loop ([nvn] feedback_loop, VK_EXT_attachment_feedback_loop_layout): the image (remade once with the feedback loop usage) is
+//   attachment and sampled texture at once in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT, with a pipeline made with the feedback loop flag. The pass
+//   before the draw is ended (a barrier: the draw reads what the draws before it wrote) and the draw's pass begins in that layout. No copy. A
+//   pointwise read sees the pixel before the draw writes it, as on the console.
+// - copy: the draw samples a copy of the image made just before it, which holds the same values a pointwise read sees on the hardware (and the
+//   right ones when the shader reads another mip level of the attachment). [nvn] feedback_copy_levels: only the levels the draw's view covers
+//   that were written since the copy was last brought up to date are copied (tex_write_gen); the mip chain's draws each copy one level.
 struct FbClone {
     Ref<Texture> tex;
     uint64_t last = 0;                                     // serial of the last submission that used the copy
+    uint64_t gen[16] = {};                                 // the attachment's write generation of each level when it was copied (0: never)
 };
 std::unordered_map<Texture*, FbClone> g_fb_clone;          // attachment -> its copy (same shape, no storage in game memory)
 std::unordered_map<Texture*, Texture*> g_fb_use;           // attachment -> the copy the current draw samples
 bool g_fb_seen = false;                                    // the last check found a feedback binding: check every draw until it goes away
 std::atomic<int64_t> g_fb_clone_n{0};                      // g_fb_clone's size, mirrored for the gauge (the map itself is render thread only)
+
+// [nvn] feedback_loop: auto (default) = the feedback loop layout where the GPU has VK_EXT_attachment_feedback_loop_layout, off = the copy.
+bool fb_loop_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "feedback_loop", "auto");
+        const bool want = v != "off" && v != "0" && v != "false";
+        const bool have = device().features().attachment_feedback_loop;
+        NXLOG_I(kTag, "feedback draws: %s ([nvn] feedback_loop = %s, VK_EXT_attachment_feedback_loop_layout %s)", want && have ? "feedback loop layout" : "copy",
+                v.c_str(), have ? "yes" : "no");
+        return want && have;
+    }();
+    return on;
+}
+// [nvn] feedback_copy_levels: auto (default) = the copy path copies only the levels that changed, off = every level each time.
+bool fb_levels_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "feedback_copy_levels", "auto");
+        return v != "off" && v != "0" && v != "false";
+    }();
+    return on;
+}
+
+// The texture is the image of a colour slot that the open pass has in the feedback loop layout (its draw samples it there).
+bool fbl_sampled(Texture* t) {
+    if (!P.open || !P.fbl || !t) return false;
+    for (uint32_t i = 0; i < P.ncolor && i < 8; ++i)
+        if (((P.fbl >> i) & 1) && shares_image(t, P.color[i].tex)) return true;
+    return false;
+}
 
 Texture* feedback_clone(Texture* t) {
     FbClone& fe = g_fb_clone[t];
@@ -898,13 +945,27 @@ Texture* feedback_clone(Texture* t) {
         c = Ref<Texture>(n);
         static uint32_t next_id = 0x7f000000;
         n->id = next_id++;
+        for (uint64_t& g : fe.gen) g = 0;
     }
     return tex_gpu_scaled(c.get(), tex_scale(t)) ? c.get() : nullptr;
 }
 
+// GPU pass profiler label: size, format, levels, the level the pass writes and the levels the draw samples.
+void feedback_label(const TexResolved& r, const char* what) {
+    uint32_t att_lv = 0;
+    for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) { att_lv = S.color_level[i]; break; }
+    char fb[112];
+    std::snprintf(fb, sizeof fb, "feedback %s %ux%u %s lv%u w%u s%d+%d", what, r.tex->b.width, r.tex->b.height, r.tex->fmt ? r.tex->fmt->name : "?",
+                  tex_levels(r.tex), att_lv, r.has_view && r.view.has_levels ? r.view.min_level : 0,
+                  r.has_view && r.view.has_levels ? r.view.num_levels : static_cast<int>(tex_levels(r.tex)));
+    gpass_stamp(*F, fb, 0);
+}
+
 void feedback_prepare(const ProgLayout& pl) {
     g_fb_use.clear();
+    g_fbl_want = 0;
     bool any = false;
+    TexResolved loop_label;
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
@@ -912,35 +973,76 @@ void feedback_prepare(const ProgLayout& pl) {
         const TexResolved r = resolve_texture(d);
         if (!r.tex || !tex_gpu(r.tex) || !is_color_feedback(r.tex) || r.tex->b.samples > 1 || g_fb_use.count(r.tex)) continue;
         any = true;
+        if (fb_loop_on()) {
+            uint8_t slots = 0;
+            for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) slots |= static_cast<uint8_t>(1u << i);
+            if (slots && (g_fbl_want & slots) == slots) continue;          // another binding of the same image
+            if (!tex_has_feedback_loop(r.tex)) {                          // the first feedback draw of this image: remade with the usage (once)
+                end_pass();
+                tex_enable_feedback_loop(r.tex, *F);
+            }
+            if (slots && tex_has_feedback_loop(r.tex)) {
+                if (!tex_current_on_gpu(r.tex)) {
+                    end_pass();
+                    tex_ensure_current(r.tex, *F);
+                }
+                g_fbl_want |= slots;
+                if (gpass_on() && !loop_label.tex) loop_label = r;   // stamped after the pass ends below (the open pass's draws are its own interval)
+                continue;
+            }
+        }
         Texture* c = feedback_clone(r.tex);
         if (!c) continue;
-        end_pass();
-        tex_ensure_current(r.tex, *F);                                    // storage the game wrote since the image was made reaches the copy too
-        tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
-        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        if (!tex_current_on_gpu(r.tex)) {
+            end_pass();
+            tex_ensure_current(r.tex, *F);                                // storage the game wrote since the image was made reaches the copy too
+        }
+        FbClone& fe = g_fb_clone[r.tex];
+        const uint32_t nlv = tex_levels(r.tex);
+        // the levels the draw's view covers (a level outside it may stay stale: its generation says so when a later view covers it)
+        uint32_t lo = 0, hi = nlv;
+        if (r.has_view && r.view.has_levels) {
+            lo = std::min<uint32_t>(static_cast<uint32_t>(std::max(0, static_cast<int>(r.view.min_level))), nlv);
+            if (r.view.num_levels > 0) hi = std::min<uint32_t>(nlv, lo + static_cast<uint32_t>(r.view.num_levels));
+        }
+        const bool by_level = fb_levels_on() && nlv <= 16;
+        if (!by_level) { lo = 0; hi = nlv; }
         std::vector<VkImageCopy> regions;
-        for (uint32_t lv = 0; lv < tex_levels(r.tex); ++lv) {
-            const VkExtent3D e = tex_image_extent(r.tex, lv);
+        uint64_t gens[16] = {};
+        for (uint32_t lv = lo; lv < hi; ++lv) {
+            if (by_level) {
+                gens[lv] = tex_write_gen(r.tex, lv);
+                if (gens[lv] != 0 && gens[lv] == fe.gen[lv]) continue;  // not written since it was copied
+            }
             VkImageCopy rc = {};
             rc.srcSubresource = {tex_aspect(r.tex), lv, 0, tex_layers(r.tex)};
             rc.dstSubresource = {tex_aspect(c), lv, 0, tex_layers(c)};
-            rc.extent = e;
+            rc.extent = tex_image_extent(r.tex, lv);
             regions.push_back(rc);
         }
+        g_fb_use[r.tex] = c;
+        if (regions.empty()) continue;                                    // the copy is current for every level the draw samples (no pass break)
+        end_pass();
+        tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
+        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkCmdCopyImage(F->cb, tex_image(r.tex), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(c), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), regions.data());
         tex_mark_gpu_written(c);
         tex_transition(c, *F, tex_sampled_layout(c));
-        g_fb_use[r.tex] = c;
+        if (by_level)
+            for (const VkImageCopy& rc : regions) fe.gen[rc.srcSubresource.mipLevel] = gens[rc.srcSubresource.mipLevel];
         counters().copies.fetch_add(1, std::memory_order_relaxed);
-        if (gpass_on()) {   // which feedback this is: size, format, levels, the level the pass writes and the levels the draw samples
-            uint32_t att_lv = 0;
-            for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) { att_lv = S.color_level[i]; break; }
-            char fb[112];
-            std::snprintf(fb, sizeof fb, "feedback copy %ux%u %s lv%u w%u s%d+%d", r.tex->b.width, r.tex->b.height, r.tex->fmt ? r.tex->fmt->name : "?",
-                          tex_levels(r.tex), att_lv, r.has_view && r.view.has_levels ? r.view.min_level : 0,
-                          r.has_view && r.view.has_levels ? r.view.num_levels : static_cast<int>(tex_levels(r.tex)));
-            gpass_stamp(*F, fb, 0);
+        if (gpass_on()) {
+            char what[24];
+            if (regions.size() == hi - lo) std::snprintf(what, sizeof what, "copy");
+            else std::snprintf(what, sizeof what, "copy %zul", regions.size());   // only that many of the sampled levels were copied
+            feedback_label(r, what);
         }
+    }
+    // The draws before this one wrote the attachment it reads through the feedback loop layout: the pass ends (with a barrier) and the draw's
+    // pass begins in that layout (ensure_pass). Each such draw gets its own pass, as each copy did.
+    if (g_fbl_want) {
+        end_pass();
+        if (loop_label.tex) feedback_label(loop_label, "loop");
     }
     g_fb_seen = any;
 }
@@ -1652,11 +1754,12 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             }
             // a compute dispatch is never inside the graphics pass: a colour attachment of the last pass is an ordinary texture to it
             const bool feedback = r.tex && d.nvn_stage != kCompute && is_color_feedback(r.tex);
-            if (r.tex && tex_gpu(r.tex) && !feedback) {
+            const bool loop = feedback && fbl_sampled(r.tex);      // sampled in the feedback loop layout of the open pass (feedback_prepare)
+            if (r.tex && tex_gpu(r.tex) && (!feedback || loop)) {
                 VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
                 if (v) {
                     ii.imageView = v;
-                    ii.imageLayout = tex_sampled_layout(r.tex);
+                    ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
                     if (r.has_sampler) ii.sampler = sampler_for(r.smp);
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
@@ -2276,14 +2379,16 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     }
     if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;
-    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro); }
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_fbl_want); }
     if (!pass_ok) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
     if (g_prog_writes || g_xfb_active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
-    if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe) {
+    if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {
         RpScope rp_(kRpPipe);
         GraphicsKey key;
         build_key(key, topo);
+        key.fb_loop = P.fbl != 0 ? 1 : 0;   // the pass has an attachment in the feedback loop layout
+        g_pipe_fbl = key.fb_loop != 0;
         g_pipe = graphics_pipeline(key, *pl);
         g_pipe_xfb = key.xfb != 0;
         g_pipe_topo = topo;

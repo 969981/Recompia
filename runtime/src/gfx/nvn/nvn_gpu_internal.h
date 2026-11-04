@@ -232,8 +232,20 @@ void tex_poll_cpu_writes();   // start of a submission: textures of coherent poo
 // Moves the whole image to `layout` (no-op if already there). Call with no render pass open.
 void tex_transition(Texture* t, Frame& f, VkImageLayout layout);
 VkImageLayout tex_layout(Texture* t);
-// The texture has been (or is about to be) written by the GPU: no more uploads from memory until the CPU writes it.
-void tex_mark_gpu_written(Texture* t);
+// tex_transition for a render pass that writes level `level` only: the move counts as a write of that level (tex_write_gen), not of all.
+void tex_transition_attach(Texture* t, Frame& f, VkImageLayout layout, uint32_t level);
+// The texture has been (or is about to be) written by the GPU: no more uploads from memory until the CPU writes it. `level` >= 0: only
+// that level is written (a render pass), else any level may be.
+void tex_mark_gpu_written(Texture* t, int level = -1);
+// Write generation of an image level: a globally unique number that changes whenever the level may have been written (any layout change
+// into a writable layout, a pass on it, a new image). Equal numbers at two times: the level was not written in between. 0: no image.
+uint64_t tex_write_gen(Texture* t, uint32_t level);
+// Remakes the image with VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT (content copied over) unless it has it. Once per image; false
+// when the image cannot have it (the caller keeps the feedback copy). No render pass open.
+bool tex_enable_feedback_loop(Texture* t, Frame& f);
+bool tex_has_feedback_loop(Texture* t);
+// tex_ensure_current would do nothing: the image holds the newest content (rendered or uploaded, the CPU did not write since).
+bool tex_current_on_gpu(Texture* t);
 void tex_sparse_before_copy(Texture* t, uint32_t layer, uint32_t level);   // a sparse texture: bind the mapped tiles a copy writes
 VkImage tex_image(Texture* t);
 VkFormat tex_vk_format(Texture* t);

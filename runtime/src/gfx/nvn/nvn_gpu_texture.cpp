@@ -47,6 +47,9 @@
 
 namespace nxrt::nvn::be {
 
+constexpr uint32_t kGenLevels = 16;
+static uint64_t g_wgen_next = 0;                        // render thread only (move_layout, the replay)
+
 // The Vulkan side of a texture: Texture::gpu points to it (created by gpu::tex_gpu, freed by gpu::tex_destroy).
 static std::mutex g_live_mu;
 static std::set<struct TexGpu*> g_live_set;
@@ -60,6 +63,7 @@ struct TexGpu {
     VkExtent3D base = {1, 1, 1};                        // level 0 extent (depth for 3D images)
     uint32_t levels = 1, layers = 1;
     VkImageUsageFlags usage = 0;
+    VkImageCreateFlags cflags = 0;                      // the create flags the image was made with
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;   // tracked layout (the same for every level and layer)
     bool failed = false;                                // no image: the texture is not usable on the GPU (logged once)
@@ -79,6 +83,13 @@ struct TexGpu {
     bool streamed = false;                              // rewritten by the CPU frame after frame: not write-watched, read again once per present
     uint32_t streamed_at = 0;                           // present count of the last read in that mode
     bool untiled = false;                               // the last upload went through gpu_untile (cheap enough to repeat every frame)
+    // Write generations per level (kGenLevels; deeper levels share the last slot): a level gets a new, globally unique number whenever it may
+    // have been written. A copy of the image (the feedback copies of nvn_replay.cpp) remembers the numbers it copied and copies again only
+    // the levels whose number changed. Every write goes through a layout change into a writable layout (move_layout: all levels) or is a
+    // render pass (tex_transition_attach / tex_mark_gpu_written with its level), so a copy that leaves the image in TRANSFER_SRC sees each later
+    // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
+    uint64_t wgen[kGenLevels] = {};
+    bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
 };
 
 // A virtual-pool texture too big to back fully (Mario Kart World's terrain virtual texture caches: 8192x8192 arrays of 68 layers, 1.4 to
@@ -506,6 +517,18 @@ bool create_sparse_texture(Texture* t, TexGpu* g, const Shape& s, std::string* w
 
 // ---- creation -------------------------------------------------------------------------------------------------------------
 // Makes the image of t (or the failed marker when no format works). Stores the result in t->gpu, which is never null afterwards.
+// A new write generation for one level (level >= 0) or for all of them (level < 0).
+void bump_gen(TexGpu& g, int level) {
+    if (level >= 0) { g.wgen[std::min<uint32_t>(static_cast<uint32_t>(level), kGenLevels - 1)] = ++g_wgen_next; return; }
+    for (uint64_t& w : g.wgen) w = ++g_wgen_next;
+}
+
+// Layouts nothing writes the image in: a move into any other one counts as a write of every level (or of `level` alone).
+bool read_only_layout(VkImageLayout l) {
+    return l == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
+           l == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || l == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+}
+
 TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto* g = new TexGpu();
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live_set.insert(g); }
@@ -609,6 +632,8 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
                     static_cast<unsigned>(flags), static_cast<unsigned>(usage));
     }
     g->usage = usage;
+    g->cflags = flags;
+    bump_gen(*g, -1);
 
     // Resolution scale: the image is the NVN size times the scale. Other modules keep the NVN size (tex_extent) and ask tex_scale /
     // tex_image_extent where the image size matters (render area, viewports, copies, the support buffer's render_scale).
@@ -700,8 +725,9 @@ float attachment_scale(const Texture& t) {
 }
 
 // ---- barriers and copies ----------------------------------------------------------------------------------------------------
-void move_layout(Frame& f, TexGpu& g, VkImageLayout to) {
+void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level = -1) {
     if (g.layout == to) return;
+    if (!read_only_layout(to)) bump_gen(g, write_level);
     // A 3D image created with 2D_ARRAY_COMPATIBLE: without maintenance9 the layer range of a barrier means all depth slices.
     const uint32_t layer_count = g.type == VK_IMAGE_TYPE_3D ? VK_REMAINING_ARRAY_LAYERS : g.layers;
     image_barrier(f.cb, g.img.image, g.layout, to, g.aspect, 0, g.levels, 0, layer_count);
@@ -969,7 +995,12 @@ VkImageView view_for(TexGpu& g, VkImageViewType type, uint32_t base_level, uint3
     // A view takes the usages of its image; a format of the view that cannot do one of them (an sRGB view cannot be stored to) restricts it.
     VkImageViewUsageCreateInfo uc = {VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO};
     {
-        constexpr VkImageUsageFlags kViewUsages = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        // VK_EXT_attachment_feedback_loop_layout: a view used as an attachment in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL must carry
+        // ATTACHMENT_FEEDBACK_LOOP_BIT_EXT in its usage (VUID-VkRenderingAttachmentInfo-imageView-10780), so a restricted usage keeps it
+        // whenever the image has it. It has no format feature of its own: the image already passed its creation-time check (colour
+        // attachment + sampled), and the view's own SAMPLED/COLOR_ATTACHMENT bits are still format-checked below.
+        constexpr VkImageUsageFlags kViewUsages = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                  VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
         VkFormatProperties fp = {};
         vkGetPhysicalDeviceFormatProperties(device().physical(), fmt, &fp);
         VkImageUsageFlags u = g.usage & kViewUsages;
@@ -1441,6 +1472,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     g->img = ni;
     g->base = s.base;
     g->layout = nl;
+    bump_gen(*g, -1);
     g->scale = to;
     if (to == 1.0f) g->scale_blocked = true;
     return true;
@@ -1825,9 +1857,88 @@ void tex_sparse_before_copy(Texture* t, uint32_t layer, uint32_t level) {
     if (g && g->sparse) sparse_bind_for_copy(t, *g, layer, level);
 }
 
-void tex_mark_gpu_written(Texture* t) {
+void tex_transition_attach(Texture* t, Frame& f, VkImageLayout layout, uint32_t level) {
+    TexGpu* g = tex_or_null(t);
+    if (g) move_layout(f, *g, layout, static_cast<int>(level));
+}
+
+bool tex_current_on_gpu(Texture* t) {
+    const TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g && !t->cpu_dirty.load() && !g->streamed && (g->gpu_written || g->uploaded);
+}
+
+bool tex_has_feedback_loop(Texture* t) {
+    const TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g && (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) != 0;
+}
+
+// Only images that show a feedback draw get the usage: on some GPUs it costs the colour compression of the image (RADV turns DCC off for
+// feedback loop images on older chips), so it is not given to every render target at creation. Same shape, format, scale and flags; every
+// level and layer is copied over.
+bool tex_enable_feedback_loop(Texture* t, Frame& f) {
+    TexGpu* g = tex_or_null(t);
+    if (!g) return false;
+    if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;
+    if (g->fb_loop_tried) return false;
+    g->fb_loop_tried = true;
+    Shape s = shape_of(*t);
+    s.base = g->base;
+    if (!device().features().attachment_feedback_loop || g->sparse || g->depth || s.samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
+        !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+        return false;
+    const VkImageUsageFlags nu = g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
+    gfx::Image ni;
+    std::string err;
+    if (!device().image_supported(make_desc(s, g->format, nu, g->cflags), &err) ||
+        device().create_image(make_desc(s, g->format, nu, g->cflags), &ni, &err) != VK_SUCCESS) {
+        NXLOG_W(kTag, "texture %u (%s %ux%u): no feedback loop usage (%s): its feedback draws keep the copy", t->id, g->fmt ? g->fmt->name : "?", g->base.width,
+                g->base.height, err.c_str());
+        return false;
+    }
+    static int logged = 0;
+    if (logged++ < 40)
+        NXLOG_I(kTag, "texture %u: %s %ux%u (%u levels) remade with feedback loop usage (a draw samples it while rendering to it)", t->id, g->fmt ? g->fmt->name : "?",
+                g->base.width, g->base.height, g->levels);
+    VkImageLayout nl = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (g->layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+        move_layout(f, *g, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        image_barrier(f.cb, ni.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, g->aspect, 0, g->levels, 0, g->layers);
+        std::vector<VkImageCopy> regions;
+        for (uint32_t l = 0; l < g->levels; ++l) {
+            VkImageCopy r = {};
+            r.srcSubresource = {g->aspect, l, 0, g->layers};
+            r.dstSubresource = {g->aspect, l, 0, g->layers};
+            r.extent = level_extent(g->base, l);
+            regions.push_back(r);
+        }
+        vkCmdCopyImage(f.cb, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ni.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()),
+                       regions.data());
+        nl = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    }
+    gfx::Image old = g->img;
+    std::vector<VkImageView> views;
+    for (auto& kv : g->views) views.push_back(kv.second);
+    g->views.clear();
+    defer_destroy([old, views]() mutable {
+        for (VkImageView v : views) { vkDestroyImageView(vkdev(), v, nullptr); vk_gauge_image_views().sub(1); }
+        device().destroy_image(old);
+    });
+    g->img = ni;
+    g->layout = nl;
+    g->usage = nu;
+    bump_gen(*g, -1);
+    return true;
+}
+
+uint64_t tex_write_gen(Texture* t, uint32_t level) {
+    TexGpu* g = (t && t->gpu && !t->gpu->failed) ? t->gpu : nullptr;
+    return g ? g->wgen[std::min(level, kGenLevels - 1)] : 0;
+}
+
+void tex_mark_gpu_written(Texture* t, int level) {
     TexGpu* g = tex_or_null(t);
     if (!g) return;
+    bump_gen(*g, level);
     g->gpu_written = true;
     t->cpu_dirty.store(false);                   // the GPU data is the newer one until the CPU writes again
 }

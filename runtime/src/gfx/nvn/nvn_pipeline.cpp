@@ -647,6 +647,7 @@ VkPipeline build_graphics_pipeline(const GraphicsKey& key, const ProgLayout& lay
     gi.pColorBlendState = &cb;
     gi.pDynamicState = pipeline_dynamic_state();
     gi.layout = layout.layout;
+    if (key.fb_loop) gi.flags |= VK_PIPELINE_CREATE_COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;   // the draw samples its own colour attachment
     VkPipeline pipe = VK_NULL_HANDLE;
     const VkResult r = create_graphics_pipeline_tracked(vkdev(), g_cache, &gi, &pipe);
     const double ms_taken = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

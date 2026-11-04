@@ -756,7 +756,7 @@ VkPipeline gpl_link(const GraphicsKey& key, const ProgLayout& layout, std::share
     if (pending) *pending = false;
     if (!gpl_active()) return VK_NULL_HANDLE;
     // stream-out and tessellated draws, and anything without both a vertex and a fragment shader, are built whole
-    if (!key.stage[0] || !key.stage[1] || key.xfb || key.patch_control_points || key.tess[0] || key.tess[1]) return VK_NULL_HANDLE;
+    if (!key.stage[0] || !key.stage[1] || key.xfb || key.fb_loop || key.patch_control_points || key.tess[0] || key.tess[1]) return VK_NULL_HANDLE;
     NXFT("pipe.link");
     const auto t0 = Clock::now();
     StageModules sm;
@@ -836,7 +836,7 @@ VkPipeline gpl_link(const GraphicsKey& key, const ProgLayout& layout, std::share
 
 namespace {
 bool link_eligible(const GraphicsKey& key) {
-    return key.stage[0] && key.stage[1] && !key.xfb && !key.patch_control_points && !key.tess[0] && !key.tess[1];
+    return key.stage[0] && key.stage[1] && !key.xfb && !key.fb_loop && !key.patch_control_points && !key.tess[0] && !key.tess[1];
 }
 RasterKey raster_of(const GraphicsKey& key) {
     RasterKey r;
