@@ -2,7 +2,7 @@ import './theme.css';
 import './layout.css';
 import './components.css';
 import { listen } from '@tauri-apps/api/event';
-import { api, icon, refreshIcons, errText, toast } from './util.js';
+import { api, esc, icon, refreshIcons, errText, toast } from './util.js';
 import * as play from './pages/play.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
@@ -17,6 +17,7 @@ const PAGES = {
 
 const nav = document.getElementById('nav');
 const view = document.getElementById('view');
+const updateBar = document.getElementById('update');
 let current = null;
 let statusHandler = null;
 let setupHandler = null;
@@ -52,6 +53,27 @@ async function go(page, opts = {}) {
   refreshIcons();
 }
 
+/** Asks the launcher (in the background) whether a newer release exists; shows a banner only when one does. Failures stay silent. */
+async function checkUpdate() {
+  let info = null;
+  try {
+    info = await api('check_update');
+  } catch {
+    return;
+  }
+  if (!info) return;
+  updateBar.innerHTML =
+    `<div class="banner info">${icon('circle-alert')}<div class="grow">Update available: ${esc(info.name)} (${esc(info.tag)})</div>` +
+    `<button class="btn" id="update-open">What's new</button><button class="btn quiet" id="update-dismiss">Dismiss</button></div>`;
+  updateBar.hidden = false;
+  refreshIcons();
+  document.getElementById('update-open').addEventListener('click', () => api('open_release_url', { url: info.url }).catch((e) => toast(errText(e), 'error')));
+  document.getElementById('update-dismiss').addEventListener('click', () => {   // this session only
+    updateBar.hidden = true;
+    updateBar.innerHTML = '';
+  });
+}
+
 async function boot() {
   await listen('game-status', (ev) => statusHandler && statusHandler(ev.payload));
   await listen('setup-status', (ev) => setupHandler && setupHandler(ev.payload));
@@ -63,6 +85,7 @@ async function boot() {
   }
   // first run: no game files chosen yet
   go(cfg.dump_dir ? 'play' : 'setup', { firstRun: !cfg.dump_dir });
+  checkUpdate();
 }
 
 boot();
