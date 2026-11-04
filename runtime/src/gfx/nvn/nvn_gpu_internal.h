@@ -103,6 +103,9 @@ uint64_t current_serial();        // the serial of the submission being recorded
 bool gpass_on();
 void gpass_stamp(Frame& f, const char* label, uint32_t arg = 0);
 
+// ---- descriptors ([nvn] set_reuse; read once, nvn_gpu.cpp) ---------------------------------------------------------------------
+bool set_reuse_on();              // a descriptor set whose bindings did not change since the last draw is not resolved again (build_set)
+
 // ---- barriers ---------------------------------------------------------------------------------------------------------------
 void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImageLayout to, VkImageAspectFlags aspect,
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);

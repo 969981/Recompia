@@ -534,6 +534,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live_set.insert(g); }
     g_gauge_textures_live.add(1);
     t->gpu = g;
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);
     const Shape s = shape_of(*t);
     g->fmt = t->fmt;
     g->type = s.type;
@@ -544,6 +545,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto fail = [&](const std::string& why) -> TexGpu* {
         NXLOG_E(kTag, "texture %u: no image (%s): the texture is not usable on the GPU", t->id, why.c_str());
         g->failed = true;
+        g_bind_gen.fetch_add(1, std::memory_order_relaxed);
         counters().textures_failed.fetch_add(1);
         return g;
     };
@@ -670,6 +672,7 @@ TexGpu* tex_or_null(Texture* t, float want_scale = 1.0f) {
             // the same bytes under another texture object: one image (the object rendered to and the one that is sampled are not the same
             // object); what the image holds is as current for this object as for the one it was made for
             t->gpu = ag;
+            g_bind_gen.fetch_add(1, std::memory_order_relaxed);
             ++ag->refs;
             if (ag->uploaded || ag->gpu_written) t->cpu_dirty.store(false);
             static int logged = 0;
@@ -1476,6 +1479,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     std::vector<VkImageView> views;
     for (auto& kv : g->views) views.push_back(kv.second);
     g->views.clear();
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);   // the views of the old image go
     defer_destroy([old, views]() mutable {
         for (VkImageView v : views) { vkDestroyImageView(vkdev(), v, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(old);
@@ -1932,6 +1936,7 @@ bool tex_enable_feedback_loop(Texture* t, Frame& f) {
     std::vector<VkImageView> views;
     for (auto& kv : g->views) views.push_back(kv.second);
     g->views.clear();
+    g_bind_gen.fetch_add(1, std::memory_order_relaxed);   // the views of the old image go (set_reuse memos must not outlive them)
     defer_destroy([old, views]() mutable {
         for (VkImageView v : views) { vkDestroyImageView(vkdev(), v, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(old);

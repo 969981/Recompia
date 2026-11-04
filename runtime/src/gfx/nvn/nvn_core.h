@@ -223,6 +223,9 @@ void textures_note_bound(TexturePool* tp, const uint64_t* handles, int count);
 // textures_note_bound remembers, per thread, which handles it has looked at since the last bump: a command list binds thousands of handles per frame and
 // nearly all of them are textures that were looked at long ago.
 extern std::atomic<uint64_t> g_tex_scan_epoch;
+// Bumped whenever what a texture or sampler handle resolves to on the GPU may have changed: a texture or sampler registered in a pool, a
+// texture initialized, a texture's image made, replaced, failed or released. The replay's descriptor set reuse ([nvn] set_reuse) keys on it.
+extern std::atomic<uint64_t> g_bind_gen;
 extern std::atomic<bool> g_tex_prep_on;       // background texture preparation is running ([nvn] tex_prep); set by nvn_texprep.cpp when it starts
 void virtual_textures_remapped(const MemoryPool* vpool, uint64_t voff, uint64_t size);
 bool texture_gather_virtual(const Texture& t, std::vector<uint8_t>& out);

@@ -794,6 +794,12 @@ namespace {
 std::atomic<uint64_t> g_idle_serial{0};   // without a back end submissions still get serials and complete at once (tests, tools)
 }
 
+// [nvn] set_reuse (default on): see build_set.
+bool set_reuse_on() {
+    static const bool on = nxrt::config_get_bool("nvn", "set_reuse", true);
+    return on;
+}
+
 // [nvn] async_submit (default on): the game thread queues its command lists and goes on; the render thread records and submits them in
 // order. The serial is known at once (reserved in queue order), so sync objects and waits work as before: a wait for a serial the render
 // thread has not submitted yet waits on the timeline until it has (wait-before-signal).
@@ -987,6 +993,7 @@ void release_texture_gpu(Texture* t) {
             if (!x->destroyed.load() || !x->gpu) return;   // initialized again meanwhile, or never got an image
             TexGpu* img = x->gpu;
             x->gpu = nullptr;
+            g_bind_gen.fetch_add(1, std::memory_order_relaxed);
             destroy_texture_gpu(img);
         });
         g_gauge_render_queue.add(1);

@@ -184,15 +184,19 @@ UploadAlloc g_draw_support;     // the support buffer the next descriptor sets b
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
+// [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
+// targets, a feedback or 3D copy, a GPU write, a new submission). With be::g_bind_gen (pools, texture images) it keys the per-set memo of build_set.
+uint64_t g_rp_epoch = 1;
+inline void rp_bump() { ++g_rp_epoch; ft::split_count(ft::kCntEpoch); }
 
 // Replay phase profile (frame trace only, [prof] trace): time and count per phase of the draw / dispatch setup, summed over a
 // submission and written as one event per phase at its end (t0 = submission start, duration = the sum, arg = the count), so the
 // per-thread zone totals of ftrace_report.py split the "replay" zone without one event per draw (thousands a frame overflow the
 // event array). Off: one relaxed load per site.
-enum RpPhase { kRpDraw, kRpSets, kRpSetBuild, kRpSetWrite, kRpSetBind, kRpPrep, kRpPass, kRpPipe, kRpDyn, kRpVb, kRpDispatch, kRpSet0, kRpSet1, kRpSet2, kRpSet3, kRpMiss0, kRpMiss1, kRpMiss2, kRpMiss3, kRpBuf, kRpTex, kRpTexel, kRpSame0, kRpSame1, kRpSame2, kRpSame3, kRpBegin, kRpEnd, kRpOpIn, kRpOp, kRpTail, kRpTexPoll, kRpMirror, kRpOutEnd, kRpCount };
+enum RpPhase { kRpDraw, kRpSets, kRpSetBuild, kRpSetWrite, kRpSetBind, kRpPrep, kRpPass, kRpPipe, kRpDyn, kRpVb, kRpDispatch, kRpSet0, kRpSet1, kRpSet2, kRpSet3, kRpMiss0, kRpMiss1, kRpMiss2, kRpMiss3, kRpBuf, kRpTex, kRpTexel, kRpSame0, kRpSame1, kRpSame2, kRpSame3, kRpReuse, kRpBegin, kRpEnd, kRpOpIn, kRpOp, kRpTail, kRpTexPoll, kRpMirror, kRpOutEnd, kRpCount };
 constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
                                             "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
-                                            "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3",
+                                            "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3", "rp.reuse",
                                             "rp.begin", "rp.end", "rp.opin", "rp.op", "rp.tail", "rp.texpoll", "rp.mirror", "rp.outend"};
 // Stamps are TSC ticks (ft::tsc), converted to ns in rp_flush. Disjoint "top" phases that together cover the replay zone: rp.begin and rp.end
 // (per replay call: tex_poll_cpu_writes, mirror_begin_submit, out_end_submit, end_pass, ...), rp.opin (mark_dirty + out_before_op per op),
@@ -269,6 +273,7 @@ bool gw_settled(uint64_t addr, uint64_t size) {
 }
 
 void gpu_wrote(uint64_t addr, uint64_t size, int use) {
+    rp_bump();
     note_gw(addr, size);
     if (note_gpu_write(addr, size, use)) {
         g_dirty |= kVb | kDesc;
@@ -479,6 +484,7 @@ bool same_image(Texture* a, Texture* b) { return a == b || (a && b && a->gpu && 
 // then ends without a barrier when it only wrote its attachments. Any other caller gets a full barrier, also for passes ended earlier
 // without one.
 void end_pass(bool to_pass = false) {
+    rp_bump();
     if (!P.open) {
         if (!to_pass && !g_pending.empty()) {
             memory_barrier(F->cb);
@@ -683,6 +689,7 @@ bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0) {
     gstamp("pass setup");
     vkCmdBeginRendering(F->cb, &ri);
     P.open = true;
+    rp_bump();
     counters().passes.fetch_add(1, std::memory_order_relaxed);
     g_bound_pipeline = VK_NULL_HANDLE;
     return true;
@@ -962,7 +969,7 @@ void feedback_label(const TexResolved& r, const char* what) {
 }
 
 void feedback_prepare(const ProgLayout& pl) {
-    g_fb_use.clear();
+    if (!g_fb_use.empty()) { g_fb_use.clear(); rp_bump(); }
     g_fbl_want = 0;
     bool any = false;
     TexResolved loop_label;
@@ -1021,6 +1028,7 @@ void feedback_prepare(const ProgLayout& pl) {
             regions.push_back(rc);
         }
         g_fb_use[r.tex] = c;
+        rp_bump();   // [nvn] set_reuse: what this texture resolves to changed
         if (regions.empty()) continue;                                    // the copy is current for every level the draw samples (no pass break)
         end_pass();
         tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
@@ -1030,6 +1038,7 @@ void feedback_prepare(const ProgLayout& pl) {
         tex_transition(c, *F, tex_sampled_layout(c));
         if (by_level)
             for (const VkImageCopy& rc : regions) fe.gen[rc.srcSubresource.mipLevel] = gens[rc.srcSubresource.mipLevel];
+        rp_bump();
         counters().copies.fetch_add(1, std::memory_order_relaxed);
         if (gpass_on()) {
             char what[24];
@@ -1138,6 +1147,7 @@ void vol3d_prepare(const ProgLayout& pl) {
                         r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.target, d.shader->hash.c_str(), b.name.c_str());
         }
         g_vol3d_use[r.tex] = c.get();
+        rp_bump();
     }
 }
 
@@ -1594,9 +1604,77 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
     return extras::temporal_jitter_block(words, n_words, e.width, e.height, g_tsr_frame);
 }
 
-// Descriptor set number `set` of the bound program, from the current state: a set of this submission with the same contents (g_set_cache), or a new one.
+// Descriptor set number `set` of the bound program: the one of the last draw (SetMemo below), a set of this submission with the same contents (g_set_cache), or a new one.
 // Render thread only (scratch arrays below are reused).
+// [nvn] set_reuse: the inputs of the last set built for each set number. A set whose bindings are all sampled textures (combined image
+// samplers by binding or by handle in a uniform block) resolves to the same descriptors as long as the program, the handles, the pools,
+// the replay epoch (g_rp_epoch: passes, render targets, feedback and 3D copies, GPU writes, submissions), be::g_bind_gen (pool
+// registrations, texture images made, replaced or released) and the scene upscaler's override are the same: such a draw takes the set of
+// the one before without resolving every texture again (about 45 % of the texture sets of a frame are the one before, typically a
+// per-object uniform block changed between two draws of one material). Texel buffer, storage and uniform bindings are never reused
+// (their resolution has side effects or reads pool copies that change inside a submission).
+struct SetMemo {
+    const ProgLayout* pl = nullptr;
+    uint64_t epoch = 0, gen = 0;
+    const void* tpool = nullptr;
+    const void* spool = nullptr;
+    const void* su_tex = nullptr;
+    VkImageView su_view = VK_NULL_HANDLE;
+    uint32_t n = 0;
+    uint64_t h[32] = {};
+    VkDescriptorSet ds = VK_NULL_HANDLE;
+};
+SetMemo g_set_memo[4];
+// Fills m with the current inputs of set set of pl; false when the set cannot be reused (a binding of another kind, too many bindings).
+bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
+    m.pl = &pl;
+    m.epoch = g_rp_epoch;
+    m.gen = be::g_bind_gen.load(std::memory_order_relaxed);
+    m.tpool = S.tpool.get();
+    m.spool = S.spool.get();
+    m.su_tex = g_su_tex;
+    m.su_view = g_su_view;
+    m.n = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.set != set) continue;
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || m.n >= 32) return false;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        uint64_t handle = 0;
+        if (b.nvn.source == NvnSource::SamplerBinding) {
+            if (b.nvn.index >= 0 && b.nvn.index < 64) handle = S.tex[d.nvn_stage][b.nvn.index];
+        } else if (b.nvn.source == NvnSource::HandleInUniform) {
+            handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+        } else {
+            return false;
+        }
+        m.h[m.n++] = handle;
+    }
+    return m.n > 0;
+}
+bool set_memo_same(const SetMemo& a, const SetMemo& b) {
+    return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
+           a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
+}
+VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
+    static const bool reuse_on = set_reuse_on();
+    if (!reuse_on || g_trace || g_shadowing) return build_set_resolved(pl, set);
+    SetMemo now;
+    if (!set_memo_inputs(pl, set, now)) return build_set_resolved(pl, set);
+    SetMemo& last = g_set_memo[set & 3];
+    if (last.ds && set_memo_same(now, last)) {
+        rp_count(kRpReuse);
+        ft::split_count(ft::kCntSetHit);
+        return last.ds;
+    }
+    ft::split_count(ft::kCntSetMiss);
+    now.ds = build_set_resolved(pl, set);
+    last = now;
+    return now.ds;
+}
+
+// The set resolved from the current state: a set of this submission with the same contents (g_set_cache), or a new one.
+VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
     RpScope rp_(kRpSetBuild);
     RpScope rps_(kRpSet0 + static_cast<int>(set & 3));
     // reused across calls (no heap allocation per draw); the pointers the writes keep stay valid: capacity is reserved for every binding
@@ -3325,7 +3403,7 @@ void mark_dirty(const RecordReader& r) {
         case Op::SetLineWidth: case Op::SetRasterizerDiscard: case Op::SetPrimitiveRestart: g_dirty |= kDynRaster; break;
         case Op::SetPatchSize: g_dirty |= kPipe; break;   // patch control points are part of the pipeline
         case Op::SetPolygonOffsetClamp: g_dirty |= kDynBias; break;
-        case Op::SetRenderTargets: g_dirty = kAllDirty; break;
+        case Op::SetRenderTargets: g_dirty = kAllDirty; rp_bump(); break;
         default: break;
     }
 }
@@ -3790,6 +3868,7 @@ void replay_begin_submit(Frame& f) {
     static const bool fine_init = (g_rp_fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
     (void)fine_init;
     rp_flush();
+    rp_bump();                    // the sets of the last submission are gone with its descriptor pools
     ft::split_count(ft::kCntSubmissions);
     g_rp_t0 = ft::on() ? ft::now_ns() : 0;
     RpScope rp_begin(kRpBegin);
