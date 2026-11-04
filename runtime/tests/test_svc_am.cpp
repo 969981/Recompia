@@ -366,10 +366,10 @@ uint32_t make_storage(nxsvc::Session& creator, const std::vector<uint8_t>& bytes
 }  // namespace
 
 // The 0x530-byte keyboard config of library version 0x140010 (Pokopia's name entry) keeps use_utf8 at 0x3AA, not at the 0x3BD of the
-// older layout: the answer must come back as UTF-8, or the game reads "Josh" as "J" (fork issue #6).
+// older layout: the answer must come back as UTF-8, or the game reads "Alex" as "A" (fork issue #6).
 NXTEST(am_swkbd_packed_config_utf8) {
     nxsvc::Env env;
-    config_set("applet", "swkbd_text", "Josh");
+    config_set("applet", "swkbd_text", "Alex");
     nxsvc::Session proxy = open_proxy();
     REQUIRE(proxy.valid());
     nxsvc::Session creator = proxy.sub(proxy.call(11));
@@ -390,16 +390,16 @@ NXTEST(am_swkbd_packed_config_utf8) {
     nxsvc::Session acc = os.sub(os.call(0));
     uint8_t buf[12] = {0xEE};
     CHECK_EQ(acc.call(11, nxsvc::Args().i64(0).buf_b(buf, sizeof buf)).result, 0u);
-    const uint8_t want[12] = {0, 0, 0, 0, 'J', 'o', 's', 'h', 0, 0, 0, 0};   // SwkbdResult Ok, then UTF-8 with its NUL
+    const uint8_t want[12] = {0, 0, 0, 0, 'A', 'l', 'e', 'x', 0, 0, 0, 0};   // SwkbdResult Ok, then UTF-8 with its NUL
     CHECK(std::memcmp(buf, want, sizeof want) == 0);
     clear_config();
 }
 
-// With use_text_check on (0x48D of the 0x530 config), the text goes to the game's check first, in the config's encoding: UTF-8 "Josh"
-// with its byte size (NUL included). Before this, UTF-16 here made the game read "J" and refuse the name (fork issue #6).
+// With use_text_check on (0x48D of the 0x530 config), the text goes to the game's check first, in the config's encoding: UTF-8 "Alex"
+// with its byte size (NUL included). Before this, UTF-16 here made the game read "A" and refuse the name (fork issue #6).
 NXTEST(am_swkbd_text_check_utf8) {
     nxsvc::Env env;
-    config_set("applet", "swkbd_text", "Josh");
+    config_set("applet", "swkbd_text", "Alex");
     nxsvc::Session proxy = open_proxy();
     REQUIRE(proxy.valid());
     nxsvc::Session creator = proxy.sub(proxy.call(11));
@@ -422,7 +422,7 @@ NXTEST(am_swkbd_text_check_utf8) {
         nxsvc::Session acc = cs.sub(cs.call(0));
         uint8_t buf[16] = {0xEE};
         CHECK_EQ(acc.call(11, nxsvc::Args().i64(0).buf_b(buf, sizeof buf)).result, 0u);
-        const uint8_t want[16] = {5, 0, 0, 0, 0, 0, 0, 0, 'J', 'o', 's', 'h', 0, 0, 0, 0};   // u64 size 5, then UTF-8 with its NUL
+        const uint8_t want[16] = {5, 0, 0, 0, 0, 0, 0, 0, 'A', 'l', 'e', 'x', 0, 0, 0, 0};   // u64 size 5, then UTF-8 with its NUL
         CHECK(std::memcmp(buf, want, sizeof want) == 0);
     }
     std::vector<uint8_t> verdict(0x7D8, 0);           // SwkbdTextCheck: Success
@@ -433,7 +433,7 @@ NXTEST(am_swkbd_text_check_utf8) {
     nxsvc::Session acc = os.sub(os.call(0));
     uint8_t buf[12] = {0xEE};
     CHECK_EQ(acc.call(11, nxsvc::Args().i64(0).buf_b(buf, sizeof buf)).result, 0u);
-    const uint8_t want[12] = {0, 0, 0, 0, 'J', 'o', 's', 'h', 0, 0, 0, 0};   // SwkbdResult Ok, then UTF-8
+    const uint8_t want[12] = {0, 0, 0, 0, 'A', 'l', 'e', 'x', 0, 0, 0, 0};   // SwkbdResult Ok, then UTF-8
     CHECK(std::memcmp(buf, want, sizeof want) == 0);
     clear_config();
 }
@@ -468,10 +468,10 @@ NXTEST(swkbdui_ask_answer) {
     Sleep(30);
     CHECK(!done.load());
     CHECK(sk::pending(nullptr) == id);
-    sk::answer(id, true, "Josh");
+    sk::answer(id, true, "Alex");
     t.join();
     CHECK(ok);
-    CHECK(got == "Josh");
+    CHECK(got == "Alex");
     CHECK(sk::pending(nullptr) == 0);
 
     std::string got2 = "unchanged";
