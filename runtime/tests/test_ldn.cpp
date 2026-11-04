@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -137,6 +138,92 @@ int32_t game_socket(nxsvc::Session& bsd) {
     bsd.call(13, nxsvc::Args().i32(fd).buf_a(any, 16));
     return fd;
 }
+
+// A lobby whose room state comes late, the gap a relay leaves between JOINED and the ROOM_STATE behind it: join() succeeds at once, but
+// until delay_ms has passed room() lists no node and has no advertise data, and the room_state event is held back. delay_ms < 0: the state
+// never comes.
+class LateRoomState final : public vnet::Lobby {
+public:
+    LateRoomState(std::shared_ptr<vnet::Lobby> in, int delay_ms) : in_(std::move(in)), delay_ms_(delay_ms) {}
+    ~LateRoomState() override {
+        if (t_.joinable()) t_.join();
+    }
+    void set_delay(int ms) { delay_ms_ = ms; }
+
+    int connect() override { return in_->connect(); }
+    bool connected() const override { return in_->connected(); }
+    int scan(uint64_t lcid, uint16_t scene, std::vector<vnet::Room>* out) override { return in_->scan(lcid, scene, out); }
+    int create(const vnet::RoomConfig& c, vnet::Joined* out) override { return in_->create(c, out); }
+    int join(uint32_t id, int16_t ver, const std::array<uint8_t, 16>& hash, vnet::Joined* out) override {
+        if (t_.joinable()) t_.join();
+        held_ = true;
+        const int e = in_->join(id, ver, hash, out);
+        if (e) {
+            held_ = false;
+            return e;
+        }
+        const int delay = delay_ms_;
+        if (delay >= 0) {
+            t_ = std::thread([this, delay] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+                held_ = false;
+                vnet::LobbyEvents ev;
+                {
+                    std::lock_guard<std::mutex> lk(ev_mu_);
+                    ev = ev_;
+                }
+                if (ev.room_state && in_->in_room()) ev.room_state(in_->room());
+            });
+        }
+        return e;
+    }
+    void leave() override { in_->leave(); }
+    int set_advertise(const std::vector<uint8_t>& adv) override { return in_->set_advertise(adv); }
+    int reject(uint32_t vip) override { return in_->reject(vip); }
+    vnet::Room room() const override {
+        vnet::Room r = in_->room();
+        if (held_) {
+            r.nodes.clear();
+            r.adv.clear();
+        }
+        return r;
+    }
+    bool in_room() const override { return in_->in_room(); }
+    std::shared_ptr<vnet::Link> link() override { return in_->link(); }
+    void set_events(vnet::LobbyEvents ev) override {
+        {
+            std::lock_guard<std::mutex> lk(ev_mu_);
+            ev_ = std::move(ev);
+        }
+        vnet::LobbyEvents fwd;
+        fwd.room_state = [this](const vnet::Room& r) {
+            if (held_) return;
+            vnet::LobbyEvents e;
+            {
+                std::lock_guard<std::mutex> lk(ev_mu_);
+                e = ev_;
+            }
+            if (e.room_state) e.room_state(r);
+        };
+        fwd.left = [this](vnet::LeftReason why) {
+            vnet::LobbyEvents e;
+            {
+                std::lock_guard<std::mutex> lk(ev_mu_);
+                e = ev_;
+            }
+            if (e.left) e.left(why);
+        };
+        in_->set_events(std::move(fwd));
+    }
+
+private:
+    std::shared_ptr<vnet::Lobby> in_;
+    std::atomic<int> delay_ms_;
+    std::atomic<bool> held_{false};
+    std::thread t_;
+    std::mutex ev_mu_;
+    vnet::LobbyEvents ev_;
+};
 
 template <class F>
 bool wait_until(F&& f, int ms = 3000) {
@@ -426,6 +513,60 @@ NXTEST(ldn_station_over_loopback) {
     CHECK_EQ(l.call(301).result, 0u);                                      // CloseStation
     CHECK_EQ(l.call(401).result, 0u);
     kernel::handle_close(ev);
+}
+
+// Connect returns only once the room state that lists this node is applied: with the state 300 ms behind JOINED, GetNetworkInfo right
+// after Connect already has the host as node 0 (connected), this node and the advertise data. With no room state at all Connect fails
+// after the 5 s wait and the node is out of the room again.
+NXTEST(ldn_connect_waits_for_room_state) {
+    nxsvc::Env env;
+    vnet::LoopbackRelay relay;
+    auto host = relay.client("Hosty");
+    vnet::Joined hj;
+    REQUIRE(host->create(room_config(), &hj) == 0);
+    auto late = std::make_shared<LateRoomState>(relay.client("Josh"), 300);
+    services::ldn_set_lobby(late);
+
+    nxsvc::Session l = open_ldn();
+    REQUIRE(l.valid());
+    CHECK_EQ(l.call(400, nxsvc::Args().with_pid().u64(0)).result, 0u);
+    CHECK_EQ(l.call(300).result, 0u);                                      // OpenStation
+    std::vector<uint8_t> filter(0x60, 0);
+    put<uint64_t>(filter, 0, kLcid);
+    put<uint32_t>(filter, 0x5C, 1);
+    std::vector<uint8_t> nis(4 * kNi);
+    REQUIRE(l.call(102, nxsvc::Args().u16(0).pad(6).bytes(filter.data(), 0x60).buf_b(nis.data(), nis.size())).get<uint16_t>(0) == 1);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK_EQ(l.call(302, nxsvc::Args().bytes(connect_args(kVersion).data(), 0x7C).buf_x(nis.data(), kNi)).result, 0u);
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(waited >= 250);                                                   // Connect waited for the state
+    CHECK_EQ(state(l), 5u);
+    std::vector<uint8_t> ni(kNi);
+    CHECK_EQ(l.call(1, nxsvc::Args().buf_c(ni.data(), kNi)).result, 0u);    // GetNetworkInfo, at once
+    CHECK_EQ(ni[kLdn + 0x17], 2);
+    CHECK_EQ(at<uint32_t>(ni, kNodes), vnet::ip(169, 254, 1, 1));           // node 0: the host
+    CHECK_EQ(ni[kNodes + 0xA], 0);
+    CHECK_EQ(ni[kNodes + 0xB], 1);                                          // isConnected
+    CHECK(std::strcmp(reinterpret_cast<const char*>(ni.data() + kNodes + 0xC), "Hosty") == 0);
+    CHECK_EQ(at<uint32_t>(ni, kNodes + 0x40), vnet::ip(169, 254, 1, 2));    // node 1: this node
+    CHECK_EQ(ni[kNodes + 0x40 + 0xB], 1);
+    CHECK(std::strcmp(reinterpret_cast<const char*>(ni.data() + kNodes + 0x40 + 0xC), "GuestUser") == 0);
+    CHECK_EQ(at<uint16_t>(ni, kLdn + 0x21A), 3);                            // the advertise data
+    CHECK(std::memcmp(ni.data() + kLdn + 0x21C, "adv", 3) == 0);
+    CHECK_EQ(l.call(304).result, 0u);                                      // Disconnect
+    CHECK(wait_until([&] { return host->room().nodes.size() == 1; }));
+
+    // No room state ever: kConnectFailure after the wait, back in Station, the host alone again.
+    late->set_delay(-1);
+    const auto t1 = std::chrono::steady_clock::now();
+    CHECK_EQ(l.call(302, nxsvc::Args().bytes(connect_args(kVersion).data(), 0x7C).buf_x(nis.data(), kNi)).result, kConnectFailure);
+    CHECK(std::chrono::steady_clock::now() - t1 >= std::chrono::milliseconds(4900));
+    CHECK_EQ(state(l), 4u);
+    CHECK(!late->in_room());
+    CHECK_EQ(host->room().nodes.size(), 1u);
+    CHECK(vnet::current_link() == nullptr);
+    CHECK_EQ(l.call(401).result, 0u);
 }
 
 // Two relay clients through a real server (launcher --host): create, scan, join, unicast + broadcast, reject, leave, host close.

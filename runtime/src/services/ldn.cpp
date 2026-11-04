@@ -29,6 +29,8 @@
 #include "ldn.h"
 
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -176,6 +178,9 @@ constexpr size_t kConnectUser = 0x44, kConnectVersion = 0x74;                   
 constexpr size_t kConnPrivSecParam = 0x44, kConnPrivUser = 0x64, kConnPrivVersion = 0x94, kConnPrivNetCfg = 0xA0;   // ConnectPrivate
 constexpr uint32_t kSubnetMask = 0xFFFFFF00;   // the game asks MakeSubnetMask(24) too
 constexpr uint8_t kSessionTag[4] = {'p', 'k', 'p', 'R'};
+// Connect waits this long for the room state that lists the new node (the relay sends ROOM_STATE right behind JOINED); the lobby's own
+// request timeout is 5 s too (vnet::RelayOptions::timeout_ms).
+constexpr int kRoomStateWaitMs = 5000;
 
 // ---- process lobby ------------------------------------------------------------------------------------------------------------------
 struct LobbySlot {
@@ -228,6 +233,16 @@ uint32_t room_of_session(const uint8_t (&sid)[16]) {
     uint32_t id;
     std::memcpy(&id, sid + 4, 4);
     return id;
+}
+
+// Whether a room state lists the host (node 0) and the node with address vip.
+bool room_lists(const vnet::Room& r, uint32_t vip) {
+    bool host = false, me = false;
+    for (const vnet::RoomNode& n : r.nodes) {
+        host |= n.node_id == 0;
+        me |= n.vip == vip;
+    }
+    return host && me;
 }
 
 // The NetworkInfo of a lobby room. own_vip/own_name: this node's entry uses the game's UserConfig name.
@@ -359,6 +374,7 @@ private:
 
     std::mutex op_mu_;
     std::mutex mu_;
+    std::condition_variable room_cv_;    // notified (under mu_) on every lobby event; join() waits on it for its first room state
     ServiceEvent ev_;
     uint32_t state_ = kNone;
     int16_t reason_ = kReasonNone;
@@ -429,6 +445,7 @@ void Ldn::set_state(uint32_t s) {
 
 void Ldn::on_room_state(const vnet::Room& r) {
     std::lock_guard<std::mutex> lk(mu_);
+    room_cv_.notify_all();
     if (!in_network() || r.room_id != room_id_) return;
     apply_room(r);
     ev_.signal();
@@ -436,6 +453,7 @@ void Ldn::on_room_state(const vnet::Room& r) {
 
 void Ldn::on_left(vnet::LeftReason why) {
     std::lock_guard<std::mutex> lk(mu_);
+    room_cv_.notify_all();
     if (!in_network()) return;
     int16_t reason = kSignalLost;
     switch (why) {
@@ -644,7 +662,9 @@ uint32_t Ldn::create(const SecurityConfig& sec, const UserConfig& user, const Ne
     node_vip_ = {};
     latest_ = {};
     vnet::Room r = lobby->room();
-    if (r.room_id != j.room_id || r.nodes.empty()) {   // no ROOM_STATE yet: the host alone
+    // No ROOM_STATE yet: the host alone. This is the whole room (node 0 = this node, connected, with the advertise data), so CreateNetwork
+    // needs no wait; a ROOM_STATE that comes later replaces it.
+    if (r.room_id != j.room_id || r.nodes.empty()) {
         r.room_id = j.room_id;
         r.local_comm_id = rc.local_comm_id;
         r.scene_id = rc.scene_id;
@@ -776,18 +796,32 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
             default: return kConnectFailure;   // wrong passphrase, no server
         }
     }
-    std::lock_guard<std::mutex> lk(mu_);
+    // JOINED carries only the room id and this node's address; the node table and the advertise data come in the ROOM_STATE behind it.
+    // The game reads both as soon as Connect returns (GetNetworkInfo: node[0] is the host it sends to, isConnected and the advertise data
+    // with the host's session member id), so Connect returns only once the room state that lists the host and this node has been applied.
+    // The room events notify room_cv_; the 50 ms slices also catch a state that came without an event. No such state within
+    // kRoomStateWaitMs, or the lobby left the room meanwhile (its room() is then cleared): leave and fail like a failed join.
+    std::unique_lock<std::mutex> lk(mu_);
+    vnet::Room r;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kRoomStateWaitMs);
+    for (;;) {
+        r = lobby->room();
+        if (r.room_id != j.room_id || room_lists(r, j.vip) || std::chrono::steady_clock::now() >= deadline) break;
+        room_cv_.wait_for(lk, std::chrono::milliseconds(50));
+    }
+    if (r.room_id != j.room_id || !room_lists(r, j.vip)) {
+        lk.unlock();
+        NXLOG_I("net", "ldn: Connect to room %u: %s, leaving", j.room_id,
+                r.room_id != j.room_id ? "out of the room before its state came" : "no room state listing this node within 5 s");
+        lobby->leave();
+        return kConnectFailure;
+    }
     room_id_ = j.room_id;
     vip_ = j.vip;
     reason_ = kReasonNone;
     node_vip_ = {};
     latest_ = {};
-    vnet::Room r = lobby->room();
-    if (r.room_id == j.room_id && !r.nodes.empty()) apply_room(r);   // else the ROOM_STATE right behind JOINED fills it in
-    else {
-        info_ = NetworkInfo{};
-        info_.ldn.nodes[j.node_id & 7].ipv4 = j.vip;
-    }
+    apply_room(r);
     vnet::set_current_link(lobby->link());
     NXLOG_I("net", "ldn: joined room %u as %s (node %u)", room_id_, vnet::ip_str(vip_).c_str(), j.node_id);
     set_state(kStationConnected);
