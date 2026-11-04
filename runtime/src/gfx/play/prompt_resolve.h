@@ -75,6 +75,12 @@ bool input_for_button(const Settings& s, Ctx ctx, Btn b, InputId* out);
 // Pack entry name of an input: "kbm/w", "kbm/left ctrl", "kbm/mouse1", "kbm/wheelup".
 std::string kbm_pack_name(const InputId& id);
 
+// Pack entry name for a pad style and one Switch button bit (hid::btn(kBtnA) ...): the icon of the physical pad button that
+// presses that button, following the pad remap and label_abxy ("" when nothing presses it). Any d-pad bit gives the d-pad
+// icon; a bit no pad button has (a stick click) gives "". For games whose prompts are their own glyph slots in an atlas
+// rather than the small icon textures of a PromptGame (Pokopia).
+std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit);
+
 // Which style "auto" shows: keyboard and mouse once the last input came from them, else the kind of the pad used last.
 // Pad kinds are input::PadKind values: 0 other, 1 Xbox, 2 PlayStation, 3 Switch. connected_pad_kind is -1 without a pad. Before any
 // input: the first pad if one is connected, else the keyboard.

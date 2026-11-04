@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, keyboard and mouse button prompts (pkp_kbm.cpp): the game's inline button glyphs (the text tag ^30~<action>~) show the key
-// bound to that button while the keyboard and mouse were used last. Installed by pkp_play.cpp.
+// Pokémon Pokopia, button prompts (pkp_kbm.cpp): the game's inline button glyphs (the text tag ^30~<action>~) show the key bound to that
+// button while a keyboard style shows, or the pad's own button icon (from the prompt icon pack) while an xbox/playstation style shows.
+// Installed by pkp_play.cpp.
 #pragma once
 #include <cstdint>
 #include <vector>
