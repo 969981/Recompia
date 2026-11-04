@@ -10,6 +10,9 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 namespace nxrt::ft {
 
@@ -23,6 +26,30 @@ void mark(const char* name, uint32_t arg = 0);
 void frame();                              // the "frame" mark (one per presented frame); also feeds the stall sampler
 void start_from_config();                  // reads [prof] trace / trace_events; a no-op when unset or already started
 void stop();                               // final flush
+
+// Cheap stamps for hot paths (per-draw scopes, the render-thread split): the TSC, converted to time only when reported. tsc_to_ns
+// uses a ratio calibrated against QueryPerformanceCounter at tsc_init() and refined as the run goes on. Durations only.
+inline uint64_t tsc() { return __rdtsc(); }
+void tsc_init();                           // first calibration (about 20 ms); called by start_from_config and split_init
+uint64_t tsc_to_ns(uint64_t ticks);
+
+// [prof] render_split: always-on, near-free render-thread time split and per-frame counters, one log line per 10 s. Buckets are TSC
+// deltas of existing top-level scopes. Counters are bumped on the render thread only (when the split is on).
+enum SplitBucket { kSplReplay, kSplPresent, kSplPresentEnd, kSplSubmit, kSplGpuWait, kSplIdle, kSplBuckets };
+enum SplitCount { kCntDraws, kCntCmdBind, kCntCmdDraw, kCntCmdDyn, kCntCmdBarrier, kCntPasses, kCntEpoch, kCntSetHit, kCntSetMiss, kCntSubmissions, kCntCounts };
+extern bool g_split_on;
+extern uint64_t g_split_ticks[kSplBuckets];
+extern uint64_t g_split_cnt[kCntCounts];
+void split_init();                         // reads [prof] render_split
+void split_frame(uint64_t presents);       // render thread, once per present: logs the line every 10 s
+inline void split_count(SplitCount c) { if (g_split_on) ++g_split_cnt[c]; }
+// Adds the scope's TSC time to a bucket. Render thread only for the buckets of that thread.
+struct SplitScope {
+    int b;
+    uint64_t t0;
+    explicit SplitScope(int bucket) : b(bucket), t0(g_split_on && bucket < kSplBuckets ? tsc() : 0) {}
+    ~SplitScope() { if (t0) g_split_ticks[b] += tsc() - t0; }
+};
 
 struct Scope {
     uint16_t id;

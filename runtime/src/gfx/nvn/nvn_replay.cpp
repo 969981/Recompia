@@ -40,6 +40,42 @@
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
 
+// [prof] render_split: the Vulkan commands of the replay are counted by kind (binds, draws, dynamic state, passes) with one branch when off.
+// The macros call the real function (a macro name is not expanded again inside its own expansion).
+#define vkCmdBindPipeline(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindPipeline(__VA_ARGS__))
+#define vkCmdBindDescriptorSets(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindDescriptorSets(__VA_ARGS__))
+#define vkCmdBindVertexBuffers2(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindVertexBuffers2(__VA_ARGS__))
+#define vkCmdBindIndexBuffer(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdBind), vkCmdBindIndexBuffer(__VA_ARGS__))
+#define vkCmdDraw(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDraw(__VA_ARGS__))
+#define vkCmdDrawIndexed(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexed(__VA_ARGS__))
+#define vkCmdDrawIndirect(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirect(__VA_ARGS__))
+#define vkCmdDrawIndexedIndirect(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexedIndirect(__VA_ARGS__))
+#define vkCmdDrawIndirectCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirectCount(__VA_ARGS__))
+#define vkCmdDrawIndexedIndirectCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndexedIndirectCount(__VA_ARGS__))
+#define vkCmdDrawIndirectByteCountEXT(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDraw), vkCmdDrawIndirectByteCountEXT(__VA_ARGS__))
+#define vkCmdSetViewportWithCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetViewportWithCount(__VA_ARGS__))
+#define vkCmdSetScissorWithCount(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetScissorWithCount(__VA_ARGS__))
+#define vkCmdSetStencilWriteMask(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilWriteMask(__VA_ARGS__))
+#define vkCmdSetStencilTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilTestEnable(__VA_ARGS__))
+#define vkCmdSetStencilReference(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilReference(__VA_ARGS__))
+#define vkCmdSetStencilOp(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilOp(__VA_ARGS__))
+#define vkCmdSetStencilCompareMask(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetStencilCompareMask(__VA_ARGS__))
+#define vkCmdSetRasterizerDiscardEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetRasterizerDiscardEnable(__VA_ARGS__))
+#define vkCmdSetPrimitiveTopology(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetPrimitiveTopology(__VA_ARGS__))
+#define vkCmdSetPrimitiveRestartEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetPrimitiveRestartEnable(__VA_ARGS__))
+#define vkCmdSetLineWidth(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetLineWidth(__VA_ARGS__))
+#define vkCmdSetFrontFace(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetFrontFace(__VA_ARGS__))
+#define vkCmdSetDepthWriteEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthWriteEnable(__VA_ARGS__))
+#define vkCmdSetDepthTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthTestEnable(__VA_ARGS__))
+#define vkCmdSetDepthCompareOp(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthCompareOp(__VA_ARGS__))
+#define vkCmdSetDepthBoundsTestEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBoundsTestEnable(__VA_ARGS__))
+#define vkCmdSetDepthBounds(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBounds(__VA_ARGS__))
+#define vkCmdSetDepthBiasEnable(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBiasEnable(__VA_ARGS__))
+#define vkCmdSetDepthBias(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetDepthBias(__VA_ARGS__))
+#define vkCmdSetCullMode(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetCullMode(__VA_ARGS__))
+#define vkCmdSetBlendConstants(...) (::nxrt::ft::split_count(::nxrt::ft::kCntCmdDyn), vkCmdSetBlendConstants(__VA_ARGS__))
+#define vkCmdBeginRendering(...) (::nxrt::ft::split_count(::nxrt::ft::kCntPasses), vkCmdBeginRendering(__VA_ARGS__))
+
 namespace nxrt::nvn::be::gpu {
 namespace {
 
@@ -142,6 +178,52 @@ UploadAlloc g_draw_support;     // the support buffer the next descriptor sets b
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
+
+// Replay phase profile (frame trace only, [prof] trace): time and count per phase of the draw / dispatch setup, summed over a
+// submission and written as one event per phase at its end (t0 = submission start, duration = the sum, arg = the count), so the
+// per-thread zone totals of ftrace_report.py split the "replay" zone without one event per draw (thousands a frame overflow the
+// event array). Off: one relaxed load per site.
+enum RpPhase { kRpDraw, kRpSets, kRpSetBuild, kRpSetWrite, kRpSetBind, kRpPrep, kRpPass, kRpPipe, kRpDyn, kRpVb, kRpDispatch, kRpSet0, kRpSet1, kRpSet2, kRpSet3, kRpMiss0, kRpMiss1, kRpMiss2, kRpMiss3, kRpBuf, kRpTex, kRpTexel, kRpSame0, kRpSame1, kRpSame2, kRpSame3, kRpBegin, kRpEnd, kRpOpIn, kRpOp, kRpTail, kRpTexPoll, kRpMirror, kRpOutEnd, kRpCount };
+constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
+                                            "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
+                                            "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3",
+                                            "rp.begin", "rp.end", "rp.opin", "rp.op", "rp.tail", "rp.texpoll", "rp.mirror", "rp.outend"};
+// Stamps are TSC ticks (ft::tsc), converted to ns in rp_flush. Disjoint "top" phases that together cover the replay zone: rp.begin and rp.end
+// (per replay call: tex_poll_cpu_writes, mirror_begin_submit, out_end_submit, end_pass, ...), rp.opin (mark_dirty + out_before_op per op),
+// rp.draw (begin_draw), rp.tail (what a draw op does after begin_draw: index resolve, vkCmdDraw*), rp.op (every other op, dispatch setup
+// excluded: rp.dispatch), plus the NXFT zones rp.cbsetup / rp.cbend of nvn_gpu.cpp (slot, begin / end command buffer, query resets, batch
+// flush). rp.texpoll, rp.mirror, rp.outend are parts of rp.begin / rp.end. The per-binding phases (rp.buf, rp.tex, rp.texel) run only with
+// [prof] replay_fine (a scope each costs more than the work of a cached binding).
+uint64_t g_rp_ns[kRpCount] = {};     // ticks until rp_flush
+uint32_t g_rp_n[kRpCount] = {};
+uint64_t g_rp_t0 = 0;
+uint64_t g_rp_inner = 0;             // ticks of rp.draw / rp.dispatch scopes and finished ops, so an op's own time can be told from them
+bool g_rp_fine = false;
+struct RpScope {
+    int ph;
+    uint64_t t0;
+    explicit RpScope(int p, bool en = true) : ph(p), t0(en && ft::on() ? ft::tsc() : 0) {}
+    ~RpScope() {
+        if (!t0) return;
+        const uint64_t dt = ft::tsc() - t0;
+        g_rp_ns[ph] += dt;
+        ++g_rp_n[ph];
+        if (ph == kRpDraw || ph == kRpDispatch) g_rp_inner += dt;
+    }
+};
+void rp_count(int ph) { if (ft::on()) ++g_rp_n[ph]; }   // a count without time (cache hits)
+void rp_flush() {
+    if (!g_rp_t0) return;
+    static uint16_t ids[kRpCount];
+    static bool named = false;
+    if (!named) { for (int i = 0; i < kRpCount; ++i) ids[i] = ft::zone_id(kRpNames[i]); named = true; }
+    for (int i = 0; i < kRpCount; ++i)
+        if (g_rp_n[i]) ft::event(ids[i], g_rp_t0, g_rp_t0 + ft::tsc_to_ns(g_rp_ns[i]), g_rp_n[i]);
+    std::memset(g_rp_ns, 0, sizeof g_rp_ns);
+    std::memset(g_rp_n, 0, sizeof g_rp_n);
+    g_rp_t0 = 0;
+    g_rp_inner = 0;
+}
 
 // What changed since the last draw. Ops set bits (mark_dirty); a draw handles and clears the groups it needs. A new submission, a
 // new pass and anything that binds other pipelines sets them all (a new command buffer has no dynamic state, a new pass has other
@@ -850,7 +932,15 @@ void feedback_prepare(const ProgLayout& pl) {
         tex_transition(c, *F, tex_sampled_layout(c));
         g_fb_use[r.tex] = c;
         counters().copies.fetch_add(1, std::memory_order_relaxed);
-        gstamp("feedback copy");
+        if (gpass_on()) {   // which feedback this is: size, format, levels, the level the pass writes and the levels the draw samples
+            uint32_t att_lv = 0;
+            for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) { att_lv = S.color_level[i]; break; }
+            char fb[112];
+            std::snprintf(fb, sizeof fb, "feedback copy %ux%u %s lv%u w%u s%d+%d", r.tex->b.width, r.tex->b.height, r.tex->fmt ? r.tex->fmt->name : "?",
+                          tex_levels(r.tex), att_lv, r.has_view && r.view.has_levels ? r.view.min_level : 0,
+                          r.has_view && r.view.has_levels ? r.view.num_levels : static_cast<int>(tex_levels(r.tex)));
+            gpass_stamp(*F, fb, 0);
+        }
     }
     g_fb_seen = any;
 }
@@ -1402,12 +1492,22 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
     return extras::temporal_jitter_block(words, n_words, e.width, e.height, g_tsr_frame);
 }
 
+// Descriptor set number `set` of the bound program, from the current state: a set of this submission with the same contents (g_set_cache), or a new one.
+// Render thread only (scratch arrays below are reused).
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
-    std::vector<VkWriteDescriptorSet> writes;
-    std::vector<VkDescriptorBufferInfo> binfo;
-    std::vector<VkDescriptorImageInfo> iinfo;
-    std::vector<VkBufferView> tinfo;
+    RpScope rp_(kRpSetBuild);
+    RpScope rps_(kRpSet0 + static_cast<int>(set & 3));
+    // reused across calls (no heap allocation per draw); the pointers the writes keep stay valid: capacity is reserved for every binding
+    static std::vector<VkWriteDescriptorSet> writes;
+    static std::vector<VkDescriptorBufferInfo> binfo;
+    static std::vector<VkDescriptorImageInfo> iinfo;
+    static std::vector<VkBufferView> tinfo;
+    writes.clear();
+    binfo.clear();
+    iinfo.clear();
+    tinfo.clear();
     const size_t nb = pl.bindings.size();
+    writes.reserve(nb);
     binfo.reserve(nb);
     iinfo.reserve(nb);
     tinfo.reserve(nb);
@@ -1422,6 +1522,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
         w.descriptorCount = 1;
         w.descriptorType = d.type;
         if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+            RpScope rpb_(kRpBuf, g_rp_fine);
             VkDescriptorBufferInfo bi = {dummy_buffer(), 0, 65536};
             switch (b.nvn.source) {
                 case NvnSource::SupportBuffer:
@@ -1528,6 +1629,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             w.pBufferInfo = &binfo.back();
             mix(reinterpret_cast<uint64_t>(bi.buffer)); mix(bi.offset); mix(bi.range);
         } else if (d.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+            RpScope rpt_(kRpTex, g_rp_fine);
             VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             TexResolved r = resolve_texture(d);
             if (r.tex) {
@@ -1605,6 +1707,7 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
             w.pImageInfo = &iinfo.back();
             mix(reinterpret_cast<uint64_t>(ii.imageView));
         } else if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
+            RpScope rpx_(kRpTexel, g_rp_fine);
             // NVN BUFFER-target textures (samplerBuffer / imageBuffer): a texel buffer view over the pool memory that holds the texels
             const bool storage = d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             const VkFormat shader_fmt = storage ? image_format_vk(b.image.format) : VK_FORMAT_UNDEFINED;
@@ -1655,8 +1758,15 @@ VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
         }
         writes.push_back(w);
     }
+    if (ft::on()) {   // profile: the same contents as the last build of this set number
+        static uint64_t last[4];
+        if (last[set & 3] == key) rp_count(kRpSame0 + static_cast<int>(set & 3));
+        last[set & 3] = key;
+    }
     auto it = g_set_cache.find(key);
     if (it != g_set_cache.end()) return it->second;
+    RpScope rpw_(kRpSetWrite);
+    rp_count(kRpMiss0 + static_cast<int>(set & 3));
     VkDescriptorSet ds = F->alloc_set(pl.sets[set]);
     if (!ds) return VK_NULL_HANDLE;
     for (auto& w : writes) w.dstSet = ds;
@@ -1736,6 +1846,7 @@ void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp) {
     for (uint32_t set = 0; set < 4; ++set) {
         if (!pl.has_set[set]) continue;
         VkDescriptorSet ds = build_set(pl, set);
+        RpScope rp_(kRpSetBind);
         if (ds) vkCmdBindDescriptorSets(F->cb, bp, pl.layout, set, 1, &ds, 0, nullptr);
     }
 }
@@ -2109,6 +2220,7 @@ const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderInfo* te
 const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl] : g_gen_tcs; }
 
 bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
+    RpScope rp_all(kRpDraw);
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
@@ -2140,6 +2252,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     if (!pl) return false;
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
+        RpScope rp_(kRpPrep);
         g_prog_writes = false;
         for (const BindingDesc& d : pl->bindings) g_prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         attach_targets(false);
@@ -2162,10 +2275,13 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
         scene_upscale_for_draw(*pl);
     }
     if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
-    if (!ensure_pass(g_want_depth_ro)) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
+    bool pass_ok;
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro); }
+    if (!pass_ok) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
     if (g_prog_writes || g_xfb_active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
     if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe) {
+        RpScope rp_(kRpPipe);
         GraphicsKey key;
         build_key(key, topo);
         g_pipe = graphics_pipeline(key, *pl);
@@ -2307,8 +2423,9 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
             note_unsupported("transform feedback into an address outside every pool");
         }
     }
-    set_dynamic_state(g_dirty, topo, indexed, index_type);
+    { RpScope rp_(kRpDyn); set_dynamic_state(g_dirty, topo, indexed, index_type); }
     if (g_dirty & kDesc) {
+        RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
     }
@@ -2326,6 +2443,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
                     S.tess_outer[0], S.tess_outer[1], S.tess_outer[2], S.tess_outer[3], S.tess_inner[0], S.tess_inner[1]);
     }
     if (g_dirty & (kVb | kPipe)) {
+        RpScope rp_(kRpVb);
         for (uint32_t i = 0; i < g_key_attr_count; ++i) {
             const uint32_t binding = g_key_binding[i];
             bool done = false;
@@ -2467,7 +2585,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
         if (!bind_u32_indices(idx)) return;
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, 0, p.base_instance);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     trace_snap_after_draw();
@@ -2554,7 +2672,7 @@ void do_draw_elements(const P_DrawElements& p) {
         vkCmdBindIndexBuffer(F->cb, br.buffer, br.offset, vk_index_type(static_cast<int>(p.type)));
         vkCmdDrawIndexed(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     trace_snap_after_draw();
@@ -2630,7 +2748,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
         drew = true;
     }
     if (drew) {
-        counters().draws.fetch_add(1, std::memory_order_relaxed);
+        counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
         g_pass_draws++;
     } else {
         counters().draws_skipped.fetch_add(1);
@@ -2669,7 +2787,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     } else {
         vkCmdDrawIndirect(F->cb, ib.buffer, ib.offset, 1, 16);
     }
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     trace_snap_after_draw();
 }
@@ -2698,7 +2816,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     for (uint32_t b = 0; !stride && b < 16; ++b) stride = S.stream[b].stride;
     if (!stride) { note_unsupported("DrawTransformFeedback with no vertex stream stride"); counters().draws_skipped.fetch_add(1); return; }
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb_counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
-    counters().draws.fetch_add(1, std::memory_order_relaxed);
+    counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     trace_snap_after_draw();
 }
@@ -2706,6 +2824,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
 std::string g_cs_missing;   // trace: the untranslated block(s) of the bound compute program ("cs -" dispatches)
 
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
+    RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
     TRACE("dispatch %u %u %u indirect %llx cs %s%s%s", x, y, z, static_cast<unsigned long long>(indirect), cs ? cs->hash.c_str() : "-",
           !cs && !g_cs_missing.empty() ? " missing " : "", !cs ? g_cs_missing.c_str() : "");
@@ -3138,13 +3257,36 @@ bool counter_window_has_gpu_draw(RecordReader look, uint32_t type) {
     return false;
 }
 
+// Time of one op of the list, split into rp.opin (mark_dirty, out_before_op) and the op itself (rp.tail for draws, rp.op otherwise).
+struct RpOpScope {
+    bool on;
+    Op op;
+    uint64_t ta = 0, tb = 0, inner0 = 0;
+    RpOpScope(bool rt, Op o) : on(rt), op(o) { if (on) { inner0 = g_rp_inner; ta = ft::tsc(); } }
+    void mid() { if (on) tb = ft::tsc(); }
+    ~RpOpScope() {
+        if (!on) return;
+        const uint64_t tc = ft::tsc();
+        const uint64_t exec = tc - tb, inner = g_rp_inner - inner0;
+        const int ph = (op == Op::DrawArrays || op == Op::DrawElements || op == Op::DrawIndirect || op == Op::DrawXfb) ? kRpTail : kRpOp;
+        g_rp_ns[ph] += exec > inner ? exec - inner : 0;
+        ++g_rp_n[ph];
+        g_rp_ns[kRpOpIn] += tb - ta;
+        ++g_rp_n[kRpOpIn];
+        g_rp_inner = inner0 + (tc - ta);
+    }
+};
+
 void run_list(const CmdList& list, int depth) {
     if (depth > kMaxDepth) { log_once("depth", "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
+    const bool rt = ft::on() && g_rp_t0;
     for (RecordReader r(list); r.next();) {
+        RpOpScope rpo(rt, r.op());
         mark_dirty(r);
         if (out_lazy()) out_before_op(r);                                                   // compute shadows: results back to the pool first
         else if (out_any() && !compute_out_may_wait(r.op())) flush_compute_out(kOutOther);
+        rpo.mid();
         switch (r.op()) {
             case Op::Nop: break;
             case Op::BindProgram: apply_bind_program(r.payload<P_BindProgram>()); break;
@@ -3540,10 +3682,16 @@ void note_frame_for_pacing() {
 }
 
 void replay_begin_submit(Frame& f) {
+    static const bool fine_init = (g_rp_fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
+    (void)fine_init;
+    rp_flush();
+    ft::split_count(ft::kCntSubmissions);
+    g_rp_t0 = ft::on() ? ft::now_ns() : 0;
+    RpScope rp_begin(kRpBegin);
     gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_async defers draws only while frames are flowing
     note_frame_for_pacing();
     F = &f;
-    tex_poll_cpu_writes();
+    { RpScope rp_(kRpTexPoll); tex_poll_cpu_writes(); }
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)
     if (g_trace_frame == -2) {
         // [nvn] trace_frame = "6050" or "6050,9300": every listed presented frame is traced (the first one is the main one)
@@ -3594,6 +3742,7 @@ void replay_begin_submit(Frame& f) {
         set_narrow_barriers(g_tracked);
         g_pending.clear();
         g_pass_unsafe = false;
+        RpScope rp_(kRpMirror);
         mirror_begin_submit(f, on);
     }
     S.window_origin = window_origin_mode();
@@ -3663,9 +3812,11 @@ void fb_sweep(uint64_t serial) {
 }
 
 void replay_end_submit(Frame& f) {
+    const uint64_t rp_te = ft::on() ? ft::tsc() : 0;
     F = &f;
     if (out_any()) {         // every compute result is in game memory, or held and guarded, before the submission's serial signals
         end_pass();
+        RpScope rp_(kRpOutEnd);
         out_end_submit(F->cb, F->serial);
     }
     end_pass();
@@ -3686,6 +3837,8 @@ void replay_end_submit(Frame& f) {
         g_cw[k].active = -1;
     }
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
+    if (rp_te) { g_rp_ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp_n[kRpEnd]; }
+    rp_flush();
     F = nullptr;
 }
 

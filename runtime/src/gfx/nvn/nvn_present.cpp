@@ -61,6 +61,7 @@ bool shot_wanted(int64_t n) {
 void present_on_render_thread(Window* w, int index, bool again) {
     NXFT("present");
     nxrt::HitchTimer ht_present(nxrt::kHpRenderPresent);
+    ft::SplitScope sp_present(ft::kSplPresent);
     CaptureEnd capture_end;
     gfx::Renderer* rend = renderer();
     PresentPass* pp = present_pass();
@@ -68,6 +69,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
     Texture* t = w->textures[index].get();
     if (!t) return;
     if (!again) counters().presents.fetch_add(1, std::memory_order_relaxed);
+    ft::split_frame(counters().presents.load(std::memory_order_relaxed));
     // the freeze watchdog counts presented frames (and the test runner its frames); a frame shown again while the game waits on the player counts too
     { NXFT("present.frame_tick"); diag_frame_tick(); }
     if (!rend || !pp) return;
@@ -136,7 +138,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
     static thread_local std::vector<VkCommandBuffer> cmds;
     gfx::Renderer::SubmitPrefix pre;
     const bool merged = take_batch_for_present(&cmds, &pre);
-    { NXFT("present.end"); nxrt::HitchTimer ht(nxrt::kHpRenderPresentEnd); rend->end_frame(merged ? &pre : nullptr); }
+    { NXFT("present.end"); ft::SplitScope sp_end(ft::kSplPresentEnd); nxrt::HitchTimer ht(nxrt::kHpRenderPresentEnd); rend->end_frame(merged ? &pre : nullptr); }
     if (merged) present_batch_done(pre);
 }
 

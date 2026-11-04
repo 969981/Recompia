@@ -988,6 +988,7 @@ void mirror_begin_submit(Frame& f, bool on) {
         VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         di.memoryBarrierCount = 1;
         di.pMemoryBarriers = &b;
+        ft::split_count(ft::kCntCmdBarrier);
         vkCmdPipelineBarrier2(f.cb, &di);
         if (gpass_on()) gpass_stamp(f, "mirror", 0);      // GPU pass profiler: the copies of this submission
     }
@@ -1123,6 +1124,7 @@ void copy_barrier_host(VkCommandBuffer cb) {                         // the copi
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.memoryBarrierCount = 1;
     di.pMemoryBarriers = &b;
+    ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 

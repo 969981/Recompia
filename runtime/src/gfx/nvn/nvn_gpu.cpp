@@ -183,6 +183,7 @@ void render_loop() {
             }
             if (!g->stop && g->queue.empty()) {
                 nxrt::HitchTimer ht(nxrt::kHpRenderIdle);      // the hitch line: the render thread waited for the game
+                ft::SplitScope sp_idle(ft::kSplIdle);
                 g->qcv.wait(lk, [] { return g->stop || !g->queue.empty() || (g->flush_wanted.load() && !g->batch.empty()); });
                 if (g->queue.empty() && !g->stop) continue;    // woken to flush
             }
@@ -247,6 +248,7 @@ VkDescriptorPool new_dpool() {
 // submission on a Legion Go S, so 11 submissions a frame took 20 of its 25 ms. Render thread.
 void flush_batch() {
     if (g->batch.empty()) return;
+    ft::SplitScope sp_submit(ft::kSplSubmit);
     if (g->dev->device_lost()) {
         const uint64_t serial = g->batch.back()->serial;
         complete_serial(serial);
@@ -318,6 +320,7 @@ bool wait_serial_blocking(uint64_t serial) {
         return false;
     }
     NXFT("gpu.wait");
+    ft::SplitScope sp_gw(on_render_thread() ? ft::kSplGpuWait : ft::kSplBuckets);
     VkSemaphoreWaitInfo wi = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
     wi.semaphoreCount = 1;
     wi.pSemaphores = &g->timeline;
@@ -594,6 +597,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.imageMemoryBarrierCount = 1;
     di.pImageMemoryBarriers = &b;
+    ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 
@@ -607,6 +611,7 @@ void memory_barrier(VkCommandBuffer cb) {
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.memoryBarrierCount = 1;
     di.pMemoryBarriers = &b;
+    ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 
@@ -617,6 +622,7 @@ namespace {
 // it takes the next serial when nothing queued holds one, else it signals nothing and the queue is drained after it.
 uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint64_t serial = 0) {
     NXFT("replay");
+    ft::SplitScope sp_replay(ft::kSplReplay);
     nxrt::HitchTimer ht_replay(nxrt::kHpRenderReplay);
     const auto t0 = std::chrono::steady_clock::now();
     if (g->dev->device_lost()) {
@@ -627,6 +633,8 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
         }
         return serial;
     }
+    static const uint16_t z_cbsetup = ft::zone_id("rp.cbsetup"), z_cbend = ft::zone_id("rp.cbend");
+    const uint64_t t_cb0 = ft::on() ? ft::now_ns() : 0;
     Slot* acquired = acquire_slot();
     if (!acquired) {
         if (serial) {
@@ -664,7 +672,9 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
         s.timed = true;
         s.cpu_t0 = ft::now_ns();
     }
+    if (t_cb0) ft::event(z_cbsetup, t_cb0, ft::now_ns());   // slot, begin command buffer, query resets
     record(f);
+    const uint64_t t_cb1 = ft::on() ? ft::now_ns() : 0;
     if (g->gpool) gpass_stamp(f, "tail", 0);
     if (g->qpool) vkCmdWriteTimestamp(s.cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g->qpool, qi + 1);
     vkEndCommandBuffer(s.cb);
@@ -675,6 +685,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
         g->recording = 0;
         g->batch.push_back(&s);
         if (g->batch.size() >= g->batch_max) flush_batch();
+        if (t_cb1) ft::event(z_cbend, t_cb1, ft::now_ns());     // end command buffer, the batch flush
         g->ctr.submit_replay_ns.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()));
         return serial;
     }

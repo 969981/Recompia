@@ -68,12 +68,22 @@ def analyse(path, skip=8.0, seconds=60.0, stall_ms=50.0, top=8):
                p50=round(pct(iv, .5), 3), p90=round(pct(iv, .9), 3), p99=round(pct(iv, .99), 3), p999=round(pct(iv, .999), 3), max=round(max(iv), 2),
                stalls50=sum(1 for d in iv if d > 50), stalls100=sum(1 for d in iv if d > 100), stalls_user=sum(1 for d in iv if d > stall_ms))
     # zone totals per thread inside the window
-    tot = collections.defaultdict(lambda: [0, 0, 0])
+    tot = collections.defaultdict(lambda: [0, 0, 0, 0])
     for t, d, th, z, a in ev:
         if t < t0 or t > t1 or name(z) == 'frame' or name(z) == 'main.update': continue
         k = (threads.get(th, (0, '?'))[1], zn(z, a))
         r = tot[k]; r[0] += 1; r[1] += d; r[2] = max(r[2], d)
+        r[3] += a
     out['zones'] = sorted(([k[0], k[1], v[0], round(v[1] / 1e6, 1), round(v[2] / 1e6, 2)] for k, v in tot.items()), key=lambda r: -r[3])
+    # replay phases (nvn_replay.cpp RpPhase): one event per submission, duration = the phase's sum, arg = how many times it ran
+    nf = max(1, len(iv))
+    out['replay_phases'] = sorted(([k[1], round(v[1] / 1e6 / nf, 3), round(v[3] / nf, 1), round(v[1] / v[3]) if v[3] else 0] for k, v in tot.items() if k[1].startswith('rp.')),
+                                  key=lambda r: -r[1])
+    # how much of the replay zone the disjoint rp.* top phases explain
+    tops = ('rp.begin', 'rp.end', 'rp.opin', 'rp.op', 'rp.tail', 'rp.draw', 'rp.dispatch', 'rp.cbsetup', 'rp.cbend')
+    rep = sum(v[1] for k, v in tot.items() if k[1] == 'replay')
+    cov = sum(v[1] for k, v in tot.items() if k[1] in tops)
+    out['replay_cover'] = [round(rep / 1e6 / nf, 3), round(cov / 1e6 / nf, 3), round(100.0 * cov / rep, 1) if rep else 0]
     # worst stalls
     idx = sorted(range(len(iv)), key=lambda i: -iv[i])[:top]
     st = []
@@ -116,6 +126,11 @@ def main():
         r['frames'], r['seconds'], r['fps'], r['p50'], r['p90'], r['p99'], r['p999'], r['max'], r['stalls50'], r['stalls100']))
     print('\nzone time in the window (thread, zone, count, total ms, max ms):')
     for z in r['zones'][:30]: print('  %-14s %-16s %7d %10.1f %9.2f' % tuple(z))
+    if r.get('replay_phases'):
+        print('\nreplay phases per frame (zone, ms/frame, times/frame, ns each):')
+        for z in r['replay_phases']: print('  %-16s %9.3f %9.1f %9d' % tuple(z))
+    if r.get('replay_cover'):
+        print('replay zone %.3f ms/frame, covered by the rp.* top phases (begin end opin op tail draw dispatch cbsetup cbend) %.3f ms = %.1f %%' % tuple(r['replay_cover']))
     print('\nworst intervals:')
     for s in r['worst']:
         print('  at %.2fs  %.1f ms' % (s['at_s'], s['ms']))
