@@ -18,6 +18,12 @@ You need your own extracted copy of the game, version 2.0.1a. Not affiliated wit
 
 F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for placing items.
 
+## Multiplayer (work in progress)
+
+Link Play (two players on one island, PC to PC through a small relay server) is being built on the
+[`experimental-coop`](../../tree/experimental-coop) branch. A first session has worked, but it is not in any release yet and is
+not ready to play. Builds from `main` stay offline.
+
 ## Reporting problems
 
 [Open an issue](../../issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version.
