@@ -137,6 +137,11 @@ entryhook 0x71017c0420
 #   render resolution: the terrain occlusion pass (0x710073d73c) calling its 80x45 G-buffer copy 0x71010f48d8: x3 the source colour texture,
 #   x5 the source rect {x, y, w, h}, taken from a viewport recorded as 1920x1080 (becomes the source's size on render-size targets)
 midhook 0x710073d824
+#   render resolution: graphics memory for targets above 1920x1080 (pkp_gfx_heap.cpp): 0x710112ec80 calling the graphics init 0x7101793db0
+#   (x1 = sp+8, the pool config: general pool u64 at sp+0x40, render-target pool at sp+0xa0), and the memory-config callback 0x710112fae4
+#   branching on (x3 = the struct, the graphics arena size u64 at +0x48)
+midhook 0x710112f008
+midhook 0x710112fb08
 #   aspect ratio: the scene camera handed to the render view (0x71008cbe64, x20 = the camera), the KTGL camera's projection builder
 #   (0x7101f12114) after its prologue (x0 = the camera), the screen-layout camera (0x7101fbab60) after its prologue (x2 = int[2] size)
 midhook 0x71008cc124
