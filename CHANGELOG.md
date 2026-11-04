@@ -34,6 +34,8 @@ of the game (version 2.0.1a): the download contains no game files.
     handles are resolved once per draw (`[nvn] resolve_once`, on) with a pool lookup cache (`[nvn] pool_cache`, on). PC: dynamic-state
     calls 1542 -> 384 per frame, resolves 4.2 -> 1.0 per draw.
   - Cheaper per replay call setup: write-watch polls read a summary bitmap (`[nvn] setup_coalesce`, on). PC: 1.5 -> 0.24 ms per frame.
+  - The GPU wait before the input sample lets the GPU hold two frames instead of one (`[latency] gpu_frames_ahead`, 2; 1 = the old
+    wait, one frame less latency).
   - A submit thread for NVN submissions and presents (`[nvn] submit_thread`, off: no gain at the frame rate on the Legion Go S).
   - Profiling: `[prof] gpu_passes`, `replay_fine`, `render_split` and the `ftrace_report.py` / `gpu_pass_report.py` scripts (all off).
   - Legion Go S numbers: SteamOS, Proton 11, in the world on a time-based walk, 3 runs per side in ABAB order.
