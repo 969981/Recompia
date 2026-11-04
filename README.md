@@ -45,7 +45,6 @@
     <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend (work in progress)</sub></td>
   </tr>
 </table>
-<p align="center"><sub>Placeholders: drop real screenshots into <code>docs/assets/screenshots/</code> and point the <code>&lt;img&gt;</code> tags at them.</sub></p>
 
 ## Progress
 
