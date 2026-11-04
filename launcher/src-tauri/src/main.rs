@@ -196,7 +196,10 @@ fn play(app: AppHandle) -> Result<(), String> {
             gamebuild::Built::No => return Err("Build the game first (Game files, Set up).".into()),
         }
     }
-    if !shaders::is_complete(&dir) {
+    if shaders::is_stale(&dir, &tools_dir) {
+        return Err("This release has a newer shader translator: set up again to translate the shaders again (Game files, Set up).".into());
+    }
+    if !shaders::is_complete(&dir, &tools_dir) {
         return Err("Finish the shader setup first (Game files, Set up).".into());
     }
     settings::ensure_play_paths(&dir, &exefs, &romfs)?;
@@ -219,6 +222,8 @@ struct SetupStatus {
     started: bool,
     /// pkp.exe is from an older release whose game code this one changes: Set up rebuilds it
     rebuild: bool,
+    /// the shader cache was made by another translator version than this release's: Set up translates it again
+    retranslate: bool,
 }
 
 #[tauri::command]
@@ -233,9 +238,10 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     let started = !shaders::read_marker(&dir).romfs.is_empty() || dir.join("build").join("state.json").is_file();
     SetupStatus {
         progress,
-        complete: state == gamebuild::Built::Current && shaders::is_complete(&dir),
+        complete: state == gamebuild::Built::Current && shaders::is_complete(&dir, &tools_dir),
         started,
         rebuild: state == gamebuild::Built::Stale,
+        retranslate: shaders::is_stale(&dir, &tools_dir),
     }
 }
 
@@ -284,7 +290,7 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             let tools = shaders::find_tools(&tools_dir)?;
             // a finished cache of the same romfs has nothing left to translate (re-extracting would only find that out)
             let same = shaders::read_marker(&job.game_dir).romfs == job.romfs.to_string_lossy().replace('\\', "/");
-            let done = same && shaders::is_complete(&job.game_dir);
+            let done = same && shaders::is_complete(&job.game_dir, &tools_dir);
             if !done && !shaders::run(&job, &tools, &st.cancel, |p| emit(p))? {
                 return Ok(false);
             }

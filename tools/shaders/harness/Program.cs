@@ -3,6 +3,8 @@
 //   spirv_harness <code.bin> <ctrl.bin> [-o out.spv] [--glsl]
 //       one stage: code block + NVN control section as written by containers.py --extract
 //       (--glsl: Vulkan GLSL text instead of SPIR-V, to read what the translator made or compare backends)
+//   spirv_harness --version
+//       prints the translator version (TranslatorVersion.cs) that every results.tsv row records in column `translator`
 //   spirv_harness --batch <extracted dir> --out <dir> [--jobs 2] [--limit N] [--no-val] [--no-retry] [--debug-mode] [--target-env vulkan1.3] [--host desktop|moltenvk]
 //       every distinct code block named in any manifest.tsv under <extracted dir>; writes <hash>.spv, results.tsv
 //       (one line per block) and summary.txt (counts, exceptions and translator messages grouped by text)
@@ -55,6 +57,11 @@ namespace SpirvHarness
 
         static int Main(string[] args)
         {
+            if (args.Length == 1 && args[0] == "--version")
+            {
+                Console.WriteLine(TranslatorVersion.Value);
+                return 0;
+            }
             NoRetry = args.Contains("--no-retry");
             StaticGpuAccessor.DesktopHost = Opt(args, "--host", "desktop") != "moltenvk";
             Debug = args.Contains("--debug-mode");
@@ -67,7 +74,8 @@ namespace SpirvHarness
             {
                 Console.Error.WriteLine(e.Message);
             }
-            Console.Error.WriteLine("usage: spirv_harness <code.bin> <ctrl.bin> [-o out.spv] [--glsl] [--glslc <GLSLC output, NVN2>]\n" +
+            Console.Error.WriteLine("usage: spirv_harness --version\n" +
+                                    "       spirv_harness <code.bin> <ctrl.bin> [-o out.spv] [--glsl] [--glslc <GLSLC output, NVN2>]\n" +
                                     "       spirv_harness --batch <extracted dir> --out <dir> [--jobs N] [--limit N] [--no-val] [--no-retry] [--debug-mode] [--target-env E] [--host desktop|moltenvk] [--spirv-val PATH] [--reflect <Ampere corpus>]");
             return 2;
         }
@@ -445,12 +453,12 @@ namespace SpirvHarness
         static void WriteResults(string path, List<Result> all)
         {
             using StreamWriter w = new(path) { NewLine = "\n" };  // LF on Windows too: same bytes as on macOS
-            w.WriteLine("hash\tgroup\tstage\tstages_using\tstatus\tms\tspv_bytes\tresources\ttranslator_messages\terror\tdraw_time_queries\tglslc_reflection");
+            w.WriteLine("hash\tgroup\tstage\tstages_using\tstatus\tms\tspv_bytes\tresources\ttranslator_messages\terror\tdraw_time_queries\tglslc_reflection\ttranslator");
             foreach (Result r in all)
             {
                 string err = (r.Error + " " + r.ValError).Trim().Replace('\t', ' ').Replace('\n', ' ');
                 w.WriteLine($"{r.Hash}\t{r.Group}\t{r.Stage}\t{r.Stages}\t{r.Status}\t{r.Ms:F1}\t{r.SpvBytes}\t{r.Resources}\t" +
-                            $"{string.Join(" | ", r.Messages).Replace('\t', ' ')}\t{err}\t{r.Queries}\t{r.Reflection}");
+                            $"{string.Join(" | ", r.Messages).Replace('\t', ' ')}\t{err}\t{r.Queries}\t{r.Reflection}\t{TranslatorVersion.Value}");
             }
         }
 
@@ -461,7 +469,7 @@ namespace SpirvHarness
         {
             StringBuilder sb = new();
             int stagesTotal = all.Sum(r => r.Stages);
-            sb.AppendLine($"blocks {all.Count} (stages using them: {stagesTotal}), {elapsed.TotalSeconds:F0} s, spirv-val --target-env {targetEnv}");
+            sb.AppendLine($"blocks {all.Count} (stages using them: {stagesTotal}), {elapsed.TotalSeconds:F0} s, spirv-val --target-env {targetEnv}, translator {TranslatorVersion.Value}");
             sb.AppendLine();
             sb.AppendLine("status        blocks   stages   (per stage kind)");
             foreach (var g in all.GroupBy(r => r.Status).OrderByDescending(g => g.Count()))

@@ -41,6 +41,7 @@ export async function render(el, ctx) {
     if (chosen && ov.exe_exists && !setup.complete) {
       problems.push(setup.progress.state === 'running' ? 'Setup is still running (Game files).'
         : setup.rebuild ? 'This update changes the game code: open Game files and press Set up again to rebuild pkp.exe (about 7 minutes). Your shaders and saves are kept.'
+        : setup.retranslate ? 'This update has a newer shader translator: open Game files and press Set up again to translate the shaders again. Your saves are kept.'
         : 'Setup is not finished yet: open Game files and press Set up.');
     }
     const ready = problems.length === 0;

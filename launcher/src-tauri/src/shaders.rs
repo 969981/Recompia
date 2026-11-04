@@ -9,7 +9,10 @@
 //!
 //! Resumable: the full block list is kept as `corpus/unique_all.tsv`; translation runs in chunks (the harness reads
 //! `corpus/unique.tsv`, rewritten per chunk) into `shader_cache/stage`, and a chunk counts only once its `.spv` files are
-//! moved into `spirv/` and its rows appended to `spirv/results.tsv`. A block with a row there is never translated again.
+//! moved into `spirv/` and its rows appended to `spirv/results.tsv`. A block with a row there is never translated again
+//! by the same translator: every row records the translator version that made it (column `translator`, see the harness's
+//! TranslatorVersion.cs), and a row of any other version is dropped with its .spv before setup or the run-time check
+//! translates anything (`drop_stale`), so a launcher with a newer translator re-translates an existing cache.
 //! `shader_cache/setup.json` records what is done. The tools run at below-normal priority.
 //! No crate-local imports, so `examples/shader_setup.rs` can build this file alone.
 
@@ -21,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Folder (in the game folder) the runtime opens by default; also what setup writes as `[nvn] shader_cache`.
@@ -32,6 +36,8 @@ pub const MISSING_REL: &str = "shader_cache/missing";
 /// can check that all of them are translated without running the game.
 pub const RUNTIME_REL: &str = "shader_cache/runtime";
 const CHUNK: usize = 1000;
+/// results.tsv column with the translator version that made the row (a row without it: version 0, before versioning).
+const TRANSLATOR_COL: &str = "translator";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -41,6 +47,8 @@ pub struct Marker {
     pub extracted: bool,
     pub blocks: usize,
     pub complete: bool,
+    /// translator version the finished cache was made with (0 = before versioning); `complete` holds only for this version
+    pub translator: u32,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -85,9 +93,89 @@ fn write_marker(game_dir: &Path, m: &Marker) -> Result<(), String> {
     fs::rename(&tmp, &p).map_err(|e| format!("cannot replace {}: {}", p.display(), e))
 }
 
-/// True when a finished setup's cache is in place.
-pub fn is_complete(game_dir: &Path) -> bool {
-    read_marker(game_dir).complete && game_dir.join(SPIRV_REL).join("results.tsv").is_file()
+fn harness_exe(tools_dir: &Path) -> PathBuf {
+    tools_dir.join("spirv_harness").join("spirv_harness.exe")
+}
+
+/// The translator version of a harness (`spirv_harness --version`), asked once per process and harness. None: it cannot
+/// be run, or it predates versioning (it then prints its usage and exits 2).
+pub fn translator_version(harness: &Path) -> Option<u32> {
+    static SEEN: OnceLock<Mutex<Vec<(PathBuf, Option<u32>)>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    if let Some((_, v)) = seen.lock().unwrap().iter().find(|(p, _)| p == harness) {
+        return *v;
+    }
+    let mut c = Command::new(harness);
+    c.arg("--version").stdin(Stdio::null()).stderr(Stdio::null());
+    quiet(&mut c);
+    let v = c.output().ok().filter(|o| o.status.success()).and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok());
+    seen.lock().unwrap().push((harness.to_path_buf(), v));
+    v
+}
+
+/// True when a finished setup's cache is in place and was made by the shipped translator. A harness that cannot report its
+/// version does not judge the cache (the marker decides).
+pub fn is_complete(game_dir: &Path, tools_dir: &Path) -> bool {
+    let m = read_marker(game_dir);
+    m.complete && game_dir.join(SPIRV_REL).join("results.tsv").is_file() && !is_stale_marker(&m, tools_dir)
+}
+
+/// True when the cache was finished by another translator version than the shipped one: Set up translates it again.
+pub fn is_stale(game_dir: &Path, tools_dir: &Path) -> bool {
+    let m = read_marker(game_dir);
+    m.complete && is_stale_marker(&m, tools_dir)
+}
+
+fn is_stale_marker(m: &Marker, tools_dir: &Path) -> bool {
+    translator_version(&harness_exe(tools_dir)).is_some_and(|v| v != m.translator)
+}
+
+/// Removes every results.tsv row (and its .spv) that another translator version made, so the usual "no row / no .spv =
+/// translate it" rules pick those blocks up again. Returns the number of rows dropped.
+/// The .spv files go first, then results.tsv is replaced through a temporary file: a crash in between leaves rows whose
+/// .spv is gone, still stale, so the next call finishes the job; never a stale .spv without its row (translate_missing
+/// would take it for a current translation).
+pub fn drop_stale(spirv: &Path, version: u32) -> Result<usize, String> {
+    let results = spirv.join("results.tsv");
+    if !results.is_file() {
+        return Ok(0);
+    }
+    let (header, rows) = read_tsv(&results)?;
+    let k = header.split('\t').position(|h| h == TRANSLATOR_COL);
+    let current = |r: &str| k.and_then(|k| r.split('\t').nth(k)).and_then(|x| x.parse::<u32>().ok()) == Some(version);
+    let (keep, stale): (Vec<&String>, Vec<&String>) = rows.iter().partition(|r| current(r));
+    if stale.is_empty() {
+        return Ok(0);
+    }
+    for r in &stale {
+        let f = spirv.join(format!("{}.spv", first_col(r)));
+        if f.is_file() {
+            fs::remove_file(&f).map_err(|e| format!("cannot remove {}: {}", f.display(), e))?;
+        }
+    }
+    if keep.is_empty() {
+        // no current row: the file goes, the next harness run writes its own header
+        fs::remove_file(&results).map_err(|e| format!("cannot remove {}: {}", results.display(), e))?;
+        return Ok(stale.len());
+    }
+    let mut text = String::with_capacity(header.len() + keep.iter().map(|r| r.len() + 1).sum::<usize>() + 1);
+    text.push_str(&header);
+    text.push('\n');
+    for r in &keep {
+        text.push_str(r);
+        text.push('\n');
+    }
+    let tmp = spirv.join("results.tsv.tmp");
+    fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
+    fs::rename(&tmp, &results).map_err(|e| format!("cannot replace {}: {}", results.display(), e))?;
+    Ok(stale.len())
+}
+
+/// The harness's version; an error when it reports none (a tools folder from another release).
+fn require_version(harness: &Path) -> Result<u32, String> {
+    translator_version(harness).ok_or_else(|| {
+        format!("the shader translator ({}) did not report its version. Re-extract the launcher's release folder so tools/ is complete.", harness.display())
+    })
 }
 
 fn quiet(cmd: &mut Command) {
@@ -114,7 +202,7 @@ fn on_path(exe: &str) -> Vec<PathBuf> {
 /// python.exe on PATH that has `lz4`. Every missing piece is named in the error.
 pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
     let mut missing = Vec::new();
-    let harness = tools_dir.join("spirv_harness").join("spirv_harness.exe");
+    let harness = harness_exe(tools_dir);
     if !harness.is_file() {
         missing.push(format!("the shader translator ({})", harness.display()));
     }
@@ -264,6 +352,8 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
 
     let spirv = game_dir.join(SPIRV_REL);
     let Ok((header, rows)) = read_tsv(&list) else { return Ok(0) };
+    // a cache of another translator: its run-time blocks are made again here (the romfs ones by Set up, which is_complete asks for)
+    drop_stale(&spirv, require_version(&harness_exe(tools_dir))?)?;
     // ponytail: a block the translator fails on has no .spv and is tried again at every start (a second or two)
     let todo: Vec<&String> = rows.iter().filter(|r| !spirv.join(format!("{}.spv", col(r, 10))).is_file()).collect();
     if todo.is_empty() {
@@ -288,7 +378,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     }
     fs::write(input.join("manifest.tsv"), text).map_err(|e| format!("cannot write {}: {}", input.display(), e))?;
     let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).to_string();
-    let mut cmd = Command::new(tools_dir.join("spirv_harness").join("spirv_harness.exe"));
+    let mut cmd = Command::new(harness_exe(tools_dir));
     cmd.arg("--batch").arg(&input).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
     cmd.env("DOTNET_gcServer", "1");
     if !run_tool(cmd, &AtomicBool::new(false), |_| {})? {
@@ -352,6 +442,9 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     }
     marker.complete = false;
     write_marker(&job.game_dir, &marker)?;
+    // rows of another translator version go first, so step 2 counts their blocks as not done
+    let version = require_version(&tools.harness)?;
+    drop_stale(&spirv, version)?;
     let jobs = job.jobs.max(1).to_string();
     let p = |phase: &str, done: u64, total: u64, message: String| Progress { state: "running".into(), phase: phase.into(), done, total, message };
 
@@ -430,6 +523,68 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let _ = fs::remove_dir_all(&corpus);
     marker.extracted = false;
     marker.complete = true;
+    marker.translator = version;
     write_marker(&job.game_dir, &marker)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("pkp-shaders-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    const HEADER: &str = "hash\tgroup\tstage\tstages_using\tstatus\tms\tspv_bytes\tresources\ttranslator_messages\terror\tdraw_time_queries\tglslc_reflection\ttranslator";
+
+    fn row(h: &str, v: u32) -> String {
+        format!("{}\tps\tfragment\t1\tok\t1.0\t4\tcb0=s0b1\t\t\t\t\t{}", h, v)
+    }
+
+    #[test]
+    fn unversioned_cache_is_dropped_whole() {
+        // results.tsv of a harness before versioning: no translator column, every row is version 0
+        let d = temp("unversioned");
+        fs::write(d.join("results.tsv"), "hash\tgroup\tstage\tresources\naaaa\tps\tfragment\tcb0=s0b1\n").unwrap();
+        fs::write(d.join("aaaa.spv"), b"spv").unwrap();
+        assert_eq!(drop_stale(&d, 1).unwrap(), 1);
+        assert!(!d.join("results.tsv").exists() && !d.join("aaaa.spv").exists());
+        assert_eq!(drop_stale(&d, 1).unwrap(), 0);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn only_other_versions_are_dropped() {
+        let d = temp("mixed");
+        fs::write(d.join("results.tsv"), format!("{}\n{}\n{}\n{}\n", HEADER, row("aaaa", 1), row("bbbb", 2), row("cccc", 3))).unwrap();
+        for h in ["aaaa", "bbbb", "cccc"] {
+            fs::write(d.join(format!("{}.spv", h)), b"spv").unwrap();
+        }
+        assert_eq!(drop_stale(&d, 2).unwrap(), 2);
+        let (header, rows) = read_tsv(&d.join("results.tsv")).unwrap();
+        assert_eq!(header, HEADER);
+        assert_eq!(rows, vec![row("bbbb", 2)]);
+        assert!(d.join("bbbb.spv").is_file() && !d.join("aaaa.spv").exists() && !d.join("cccc.spv").exists());
+        assert!(!d.join("results.tsv.tmp").exists());
+        // a current cache is left as it is
+        assert_eq!(drop_stale(&d, 2).unwrap(), 0);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn marker_without_version_reads_as_zero() {
+        let d = temp("marker");
+        fs::create_dir_all(d.join(SPIRV_REL)).unwrap();
+        fs::write(d.join(SPIRV_REL).join("results.tsv"), format!("{}\n", HEADER)).unwrap();
+        // setup.json of a launcher before versioning
+        fs::write(cache_dir(&d).join("setup.json"), "{\"romfs\": \"x\", \"extracted\": false, \"blocks\": 3, \"complete\": true}").unwrap();
+        assert_eq!(read_marker(&d).translator, 0);
+        // no harness in this tools folder: it cannot report a version, so the marker decides
+        assert!(is_complete(&d, &d.join("tools")) && !is_stale(&d, &d.join("tools")));
+        fs::remove_dir_all(&d).unwrap();
+    }
 }

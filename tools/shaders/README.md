@@ -45,7 +45,9 @@ dotnet tools\shaders\build\bin\Release\net10.0\spirv_harness.dll <code.bin> <ctr
 ```
 
 Output: `<hash>.spv`, `results.tsv` (hash, group, stage, status, spirv-val result, bound resources in Maxwell and Vulkan
-terms, translator messages, draw-time queries) and `summary.txt`. The binding scheme is Ryujinx's Vulkan one (set 0
+terms, translator messages, draw-time queries, GLSLC reflection, translator version) and `summary.txt`. The translator version
+(`harness/TranslatorVersion.cs`, also printed by `spirv_harness --version`) is what lets the launcher re-translate a cache
+made by an older translator: bump it with every change that can change some block's output. The binding scheme is Ryujinx's Vulkan one (set 0
 uniform buffers with binding 0 reserved for the support buffer, set 1 storage buffers, set 2 textures, set 3 images; see
 `refs\SuperMarioWonderRecomp\docs\nvn\TRANSLATOR.md`, which also explains the `ok-retry` status).
 
