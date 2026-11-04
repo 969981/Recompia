@@ -114,13 +114,13 @@ ShaderControl read_control(const uint8_t* control) {
     c.valid = rd32(control) == kShaderControlMagic;
     if (c.valid && rd32(control + 4) == 201) {
         // NVN2 (Switch 2) layout, from the game's GLSLC outputs (tools/shaders/docs/AMPERE.md section 3): program length +0x38,
-        // constants +0x3c/+0x40, code area +0x44, shared memory +0x50, stage u16 +0x56, compute work group +0x58.
+        // constants +0x3c/+0x40, code area +0x44, local memory +0x50 (not read), stage u16 +0x56, compute work group +0x58, shared memory +0x64.
         c.nvn2 = true;
         c.program_size = rd32(control + 0x38);
         c.const_size = rd32(control + 0x3c);
         c.const_offset = rd32(control + 0x40);
         c.code_size = rd32(control + 0x44);
-        c.shared_size = rd32(control + 0x50);
+        c.shared_size = rd32(control + 0x64);   // +0x50 is the local memory size (non-zero exactly when the SASS has LDL/STL)
         c.stage = static_cast<int>(*reinterpret_cast<const uint16_t*>(control + 0x56));
         c.program_start = 0;   // graphics: 0x80-byte SPH v4 at +0, instructions from +0x80; compute: instructions from +0
         if (c.stage == 5) {

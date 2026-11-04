@@ -61,7 +61,8 @@ Statistics over all 99,012 distinct code blocks; confirmed on the 12 control sec
 | +0x40 | u32 constant data offset in the code area (0x100-aligned) | +0x40 + +0x3c ≤ code size in every block |
 | **+0x44** | **u32 code area length** (what to hash / upload) | = GPU code header code length in all 99,012 |
 | +0x4c | u32 register count (*inferred*: 0x6..0xff, typical 0x40-0x80) | |
-| +0x50 | u32 shared memory bytes (compute; 0, 0x400, 0xc00...) | *inferred*; +0x68 = +0x50 / 32 |
+| +0x50 | u32 local memory bytes per thread (0, 0x200, 0x400, 0xc00, 0x1800...) | non-zero exactly when the SASS has LDL/STL (upstream's cross-check over 3 corpora); was documented as shared memory before. Compute: +0x68 = +0x50 / 32 |
+| +0x64 | u32 compute shared memory bytes (0, 0x400, 0xb00, 0xf00, 0xbc00...) | non-zero exactly when the SASS has LDS/STS/ATOMS, and every static LDS/STS/ATOMS address of the 98 compute blocks with one ends within it. (tes/tcs: GL winding, next row) |
 | **+0x56** | **u16 stage: 0 vs, 1 ps, 2 gs, 3 tcs, 4 tes, 5 cs** | agrees with the SPH shader type of every graphics block |
 | +0x58/+0x5c/+0x60 | u32 compute work group x, y, z (8,8,1 most common) | compute only; graphics use these for other flags |
 | +0x58/+0x5c/+0x64 (tes) | u32 GLSL input layout as GL enums: domain (GL_TRIANGLES 4, GL_QUADS 7, GL_ISOLINES 0x8e7a), spacing (GL_EQUAL 0x202, GL_FRACTIONAL_ODD 0x8e7b, GL_FRACTIONAL_EVEN 0x8e7c), winding (GL_CW 0x900, GL_CCW 0x901) | all 527 tes: 4 / 0x8e7b / 0x901 (triangles, fractional odd, ccw); the SASS reads gl_TessCoord.xy and computes z = 1 - x - y (triangle domain). gs: +0x58 = input primitive (0 points ×7, 4 triangles ×2). tcs: 4 / 0x202 / 0x901 in all 50 (*inferred* defaults). The harness's StaticGpuAccessor turns the tes values into Ryujinx's TessPatchType/TessSpacing/TessCw |

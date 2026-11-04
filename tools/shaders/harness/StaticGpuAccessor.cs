@@ -59,13 +59,14 @@ namespace SpirvHarness
             _localX = _localY = _localZ = 1;
             if (Program.IsNvn2(ctrl))
             {
-                // NVN2 (Switch 2) control section, docs/AMPERE.md section 3: work group +0x58..+0x60, shared memory +0x50.
+                // NVN2 (Switch 2) control section, docs/AMPERE.md section 3: work group +0x58..+0x60, shared memory +0x64 (+0x50 is the local
+                // memory size, non-zero exactly when the SASS has LDL/STL).
                 if (stage == ShaderStage.Compute)
                 {
                     _localX = Math.Max(1, BitConverter.ToInt32(ctrl, 0x58));
                     _localY = Math.Max(1, BitConverter.ToInt32(ctrl, 0x5c));
                     _localZ = Math.Max(1, BitConverter.ToInt32(ctrl, 0x60));
-                    _sharedSize = BitConverter.ToInt32(ctrl, 0x50);
+                    _sharedSize = BitConverter.ToInt32(ctrl, 0x64);
                 }
                 if (stage == ShaderStage.TessellationEvaluation)
                     (_tessPatchType, _tessSpacing, _tessCw) = TessFromNvn2Control(ctrl, Messages);

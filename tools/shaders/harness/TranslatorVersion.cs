@@ -15,6 +15,7 @@ namespace SpirvHarness
     static class TranslatorVersion
     {
         // 1: first versioned translator (rows without the column count as version 0).
-        public const int Value = 1;
+        // 2: NVN2 compute shared memory size read from control +0x64 (was +0x50, the local memory size).
+        public const int Value = 2;
     }
 }
