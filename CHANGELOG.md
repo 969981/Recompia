@@ -5,6 +5,9 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Launcher
+- The launcher shows an "Update available" banner with a "What's new" link when GitHub has a newer release. One request at start, silent when offline, nothing is downloaded. Not shown in untagged dev builds; Proton/handheld players do not see it (the launcher does not run there).
+
 ### Fixes
 - Render resolutions of about 3800x2140 and up (4K) no longer crash at start: the game's graphics memory now grows with the render
   size. 1920x1080 and below are unchanged. Very large sizes (above about 5300x2990) are lowered to the largest that fits, with a

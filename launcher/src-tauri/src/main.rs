@@ -9,6 +9,7 @@ mod nup;
 mod play;
 mod settings;
 mod shaders;
+mod update;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -72,6 +73,30 @@ fn get_config(app: AppHandle) -> Config {
 fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     settings::write_atomic(&config_path(&app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
+}
+
+/// Background update check (see update.rs). None: no update, a dev build, or any error.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Option<update::UpdateInfo> {
+    #[allow(unused_mut)]
+    let mut version = app.package_info().version.to_string();
+    #[cfg(debug_assertions)]
+    if let Ok(v) = std::env::var("PKP_LAUNCHER_UPDATE_CHECK_AS") {
+        version = v; // debug builds only: pretend to be this version (dev builds otherwise skip the check)
+    }
+    if update::is_dev_version(&version) {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || update::check(&version)).await.ok().flatten()
+}
+
+/// Opens a release page in the default browser.
+#[tauri::command]
+fn open_release_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/") || url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&') {
+        return Err("That link cannot be opened from here.".into());
+    }
+    play::open_url(&url)
 }
 
 #[tauri::command]
@@ -386,6 +411,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             test_report,
             get_config,
+            check_update,
+            open_release_url,
             save_config,
             get_overview,
             pick_folder,
