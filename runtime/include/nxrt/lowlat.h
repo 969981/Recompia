@@ -98,7 +98,7 @@ LowLatency* lowlat();
 void lowlat_set(LowLatency* l);
 // Frame trace probe (S18): the GPU submissions still unfinished, read at each simulation start (set by the NVN back end).
 void lowlat_set_backlog_fn(uint64_t (*fn)());
-// GPU wait before the input sample ([latency] gpu_frames_ahead, default 1; -1 = off): sim_begin waits, after the frames_ahead wait and before the
+// GPU wait before the input sample ([latency] gpu_frames_ahead, default 2; -1 = off): sim_begin waits, after the frames_ahead wait and before the
 // Reflex sleep, until the GPU has finished the game's work of the frame presented that many presents before the latest one (1: the GPU keeps at
 // most the latest frame queued, so a GPU-bound game does not pile frames up between the input and the screen, and the GPU never runs dry; 0: the
 // latest one too, which serialises the CPU and the GPU). fn(frames_back, timeout_ns) is set by the NVN back end; it returns at once when the

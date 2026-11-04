@@ -290,7 +290,7 @@ void LowLatency::sim_begin() {
     }
     wait_in_flight();      // frames_ahead: the simulation of a frame starts only when at most that many earlier frames are still on their way to the screen
     {   // [latency] gpu_frames_ahead (lowlat.h): the GPU's own queue is bounded too, right before the input is sampled
-        static const int gpu_back = static_cast<int>(std::clamp<int64_t>(config_get_int("latency", "gpu_frames_ahead", 1), -1, 3));
+        static const int gpu_back = static_cast<int>(std::clamp<int64_t>(config_get_int("latency", "gpu_frames_ahead", 2), -1, 3));
         const uint64_t lp = s.last_present_ns.load(std::memory_order_relaxed);
         if (gpu_back >= 0 && s.paced && s.live_on && lp && FrameLimiter::now_ns() - lp < 250000000ull)
             if (auto fn = g_gpu_wait_fn.load()) fn(gpu_back, 50ull * 1000 * 1000);
