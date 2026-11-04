@@ -1978,7 +1978,11 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             // a compute dispatch is never inside the graphics pass: a colour attachment of the last pass is an ordinary texture to it
             const bool feedback = r.tex && d.nvn_stage != kCompute && is_color_feedback(r.tex);
             const bool loop = feedback && fbl_sampled(r.tex);      // sampled in the feedback loop layout of the open pass (feedback_prepare)
-            if (r.tex && tex_gpu(r.tex) && (!feedback || loop)) {
+            // a shader that samples with depth comparison (sampler2DShadow) needs a depth-format image: the game leaves colour textures in some
+            // of those slots, which Vulkan does not allow (VUID-vkCmdDrawIndexed-None-06479). They get the depth dummy instead.
+            const bool shadow_mismatch = r.tex && b.image.depth && !tex_is_depth(r.tex);
+            if (shadow_mismatch) log_once("shadow-colour", "a depth-comparison sampler is bound to a colour texture: the depth dummy is bound");
+            if (r.tex && tex_gpu(r.tex) && (!feedback || loop) && !shadow_mismatch) {
                 VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
                 if (v) {
                     ii.imageView = v;
