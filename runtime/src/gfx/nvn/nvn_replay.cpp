@@ -4132,7 +4132,7 @@ void replay_begin_submit(Frame& f) {
     gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_async defers draws only while frames are flowing
     note_frame_for_pacing();
     F = &f;
-    { RpScope rp_(kRpTexPoll); tex_poll_cpu_writes(); }
+    { RpScope rp_(kRpTexPoll); ft::SplitScope sp_(ft::kSplSetup); tex_poll_cpu_writes(); }   // per call: see setup_coalesce_on (nvn_gpu_texture.cpp)
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)
     if (g_trace_frame == -2) {
         // [nvn] trace_frame = "6050" or "6050,9300": every listed presented frame is traced (the first one is the main one)
@@ -4184,6 +4184,7 @@ void replay_begin_submit(Frame& f) {
         g_pending.clear();
         g_pass_unsafe = false;
         RpScope rp_(kRpMirror);
+        ft::SplitScope sp_(ft::kSplSetup);
         mirror_begin_submit(f, on);
     }
     S.window_origin = window_origin_mode();
@@ -4259,6 +4260,7 @@ void replay_end_submit(Frame& f) {
     if (out_any()) {         // every compute result is in game memory, or held and guarded, before the submission's serial signals
         end_pass();
         RpScope rp_(kRpOutEnd);
+        ft::SplitScope sp_(ft::kSplSetup);
         out_end_submit(F->cb, F->serial);
     }
     end_pass();

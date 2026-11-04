@@ -245,6 +245,9 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why);
 // Must be called with no render pass open on `f.cb`. Leaves the image in SHADER_READ_ONLY_OPTIMAL after an upload.
 void tex_ensure_current(Texture* t, Frame& f);
 void tex_poll_cpu_writes();   // start of a submission: textures of coherent pools whose pages the CPU wrote become dirty (nvn_gpu_texture.cpp)
+// [nvn] setup_coalesce (default on): the per replay call write-watch polls read only the bitmap words a summary marks, and the mirror walks
+// only the range of pages draws wanted (nvn_gpu_texture.cpp; same pages found, same copies made). Logs its activation once.
+bool setup_coalesce_on();
 // Moves the whole image to `layout` (no-op if already there). Call with no render pass open.
 void tex_transition(Texture* t, Frame& f, VkImageLayout layout);
 VkImageLayout tex_layout(Texture* t);

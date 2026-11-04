@@ -740,6 +740,7 @@ struct Mirror {
     std::vector<uint8_t> backoff;       // how often the page has been hot in a row (the hold doubles each time)
     std::vector<uint32_t> hot_until;    // present count until which the page is not copied
     bool any_want = false;
+    uint64_t want_lo = UINT64_MAX, want_hi = 0;   // [nvn] setup_coalesce: the pages [want_lo, want_hi] hold every set bit of `want`
     int pool_flags = 0;
     int64_t st_written = 0, st_copied = 0;   // pages the CPU wrote after a copy, pages copied (summary line)
     uint64_t pool_bytes = 0;
@@ -904,7 +905,14 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
 // a hold that doubles every time it comes back.
 void absorb_writes(Mirror& m, uint32_t now) {
     g_written_tmp.clear();
+    const uint64_t w0 = ft::g_split_on ? mem::ww::take_stats().words : 0;
     mem::ww::take_written(m.ww, g_written_tmp);
+    if (ft::g_split_on) {
+        ft::split_count(ft::kCntAbsorb);
+        if (g_written_tmp.empty()) ft::split_count(ft::kCntAbsorbEmpty);
+        ft::split_add(ft::kCntAbsorbPages, g_written_tmp.size());
+        ft::split_add(ft::kCntWwWords, mem::ww::take_stats().words - w0);
+    }
     m.st_written += static_cast<int64_t>(g_written_tmp.size());
     for (uint64_t p : g_written_tmp) {
         const size_t i = static_cast<size_t>(p);
@@ -1059,6 +1067,8 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     g_use_host[use % 3]++;
     for (uint64_t p = first; p <= last; ++p) bit_put(m->want, p, true);
     m->any_want = true;
+    m->want_lo = std::min(m->want_lo, first);
+    m->want_hi = std::max(m->want_hi, last);
     g_st_host_binds.fetch_add(1, std::memory_order_relaxed);
     return out;
 }
@@ -1172,6 +1182,7 @@ bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use) {
 }
 
 void mirror_begin_submit(Frame& f, bool on) {
+    const bool coalesce = setup_coalesce_on();
     lazy_drop_idle();
     g_mirror_on = on && mirror_mode() != MirrorMode::Off;
     out_retire();
@@ -1192,13 +1203,22 @@ void mirror_begin_submit(Frame& f, bool on) {
         if (!arm_in_budget()) continue;   // the wanted pages wait (any_want stays set)
         m.any_want = false;
         g_copy_tmp.clear();
-        uint64_t p = 0;
-        while (p < m.npages) {
+        // setup_coalesce: only [want_lo, want_hi] can hold a wanted page (bits are set only by mirror_bind, which widens the range; outside
+        // it every word is zero, which the full walk skips anyway). The range is reset here and set again from where a budget stop leaves.
+        uint64_t p = coalesce ? std::min(m.want_lo, m.npages) : 0;
+        const uint64_t p_end = coalesce ? std::min(m.want_hi + 1, m.npages) : m.npages;
+        m.want_lo = UINT64_MAX;
+        m.want_hi = 0;
+        while (p < p_end) {
             if (!m.want[static_cast<size_t>(p >> 6)]) { p = (p | 63) + 1; continue; }     // a word with nothing wanted
             if (!bit_get(m.want, p)) { ++p; continue; }
             if (!copyable(m, p, now)) { bit_put(m.want, p, false); ++p; continue; }     // valid already, hot or banned: the next draw asks again
-            if (budget < kPageBytes) { m.any_want = true; break; }                      // the rest waits for the next submission
-            if (!arm_in_budget()) { m.any_want = true; break; }                         // arming took its time for this submission: the same
+            if (budget < kPageBytes || !arm_in_budget()) {     // the rest waits for the next submission (copy budget or arming time used up)
+                m.any_want = true;
+                m.want_lo = std::min(m.want_lo, p);
+                m.want_hi = std::max(m.want_hi, p_end - 1);
+                break;
+            }
             const uint64_t chunk_pages = kChunkBytes / kPageBytes;
             const uint64_t chunk_end = (p / chunk_pages + 1) * chunk_pages;
             uint64_t src_base = 0;

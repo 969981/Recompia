@@ -169,6 +169,8 @@ void split_frame(uint64_t presents) {
             c[kCntResolve], c[kCntDraws] > 0 ? c[kCntResolve] / c[kCntDraws] : 0.0, c[kCntResolveHit], pl, pl > 0 ? 100.0 * c[kCntPoolHit] / pl : 0.0,
             sets > 0 ? 100.0 * c[kCntSetHit] / sets : 0.0, c[kCntEpGpuWrote], c[kCntEpEndPass], c[kCntEpBeginPass], c[kCntEpFeedback], c[kCntEpVol3d], c[kCntEpTargets],
             c[kCntEpSubmit], c[kCntEpSkipEndPass], c[kCntEpSkipTargets]);
+    NXLOG_I("prof", "render split setup, ms/frame %.3f (texpoll + mirror + outend) | per frame: tex polls %.1f (empty %.1f, pages %.1f), absorb_writes %.1f (empty %.1f, pages %.1f = %.0f KiB), write-watch words read %.0f",
+            ms[kSplSetup], c[kCntTexPoll], c[kCntTexPollEmpty], c[kCntTexPages], c[kCntAbsorb], c[kCntAbsorbEmpty], c[kCntAbsorbPages], c[kCntAbsorbPages] * 4.0, c[kCntWwWords]);
     t_last = now;
     p_last = presents;
 }

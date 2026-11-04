@@ -35,19 +35,24 @@ uint64_t tsc_to_ns(uint64_t ticks);
 
 // [prof] render_split: always-on, near-free render-thread time split and per-frame counters, one log line per 10 s. Buckets are TSC
 // deltas of existing top-level scopes. Counters are bumped on the render thread only (when the split is on).
-enum SplitBucket { kSplReplay, kSplPresent, kSplPresentEnd, kSplSubmit, kSplGpuWait, kSplIdle, kSplBuckets };
+// kSplSetup: per replay call setup (tex_poll_cpu_writes + mirror_begin_submit + out_end_submit), inside kSplReplay.
+enum SplitBucket { kSplReplay, kSplPresent, kSplPresentEnd, kSplSubmit, kSplGpuWait, kSplIdle, kSplSetup, kSplBuckets };
 enum SplitCount { kCntDraws, kCntCmdBind, kCntCmdDraw, kCntCmdDyn, kCntCmdBarrier, kCntPasses, kCntEpoch, kCntSetHit, kCntSetMiss, kCntSubmissions, kCntSkipped, kCntMerged,
                   // [nvn] resolve_once / pool_lookup cache / epoch_exact (second render split line): texture resolutions done and served
                   // from the per-draw array, pool_lookup last-hit cache hits and misses (every thread, approximate), epoch bumps by source
                   // and the bumps epoch_exact skipped
                   kCntResolve, kCntResolveHit, kCntPoolHit, kCntPoolMiss, kCntEpGpuWrote, kCntEpEndPass, kCntEpBeginPass, kCntEpFeedback,
-                  kCntEpVol3d, kCntEpTargets, kCntEpSubmit, kCntEpSkipEndPass, kCntEpSkipTargets, kCntCounts };
+                  kCntEpVol3d, kCntEpTargets, kCntEpSubmit, kCntEpSkipEndPass, kCntEpSkipTargets, 
+                  // write-watch polls at the start of a replay call: texture region polls (and those that found no page), its pages,
+                  // mirror absorb_writes calls (and those that found none), their pages, bitmap words read by take_written
+                  kCntTexPoll, kCntTexPollEmpty, kCntTexPages, kCntAbsorb, kCntAbsorbEmpty, kCntAbsorbPages, kCntWwWords, kCntCounts };
 extern bool g_split_on;
 extern uint64_t g_split_ticks[kSplBuckets];
 extern uint64_t g_split_cnt[kCntCounts];
 void split_init();                         // reads [prof] render_split
 void split_frame(uint64_t presents);       // render thread, once per present: logs the line every 10 s
 inline void split_count(SplitCount c, uint64_t n = 1) { if (g_split_on) g_split_cnt[c] += n; }
+inline void split_add(SplitCount c, uint64_t n) { if (g_split_on) g_split_cnt[c] += n; }
 // Adds the scope's TSC time to a bucket. Render thread only for the buckets of that thread.
 struct SplitScope {
     int b;

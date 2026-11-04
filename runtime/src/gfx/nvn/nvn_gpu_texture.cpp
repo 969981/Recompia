@@ -1493,10 +1493,36 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     return true;
 }
 
+// Why the polls run at the start of every replay call (contract): NVN pool memory is shared with the GPU on the console; a CPU write the
+// game made before nvnQueueSubmit (and, for a cached pool, nvnMemoryPoolFlushMappedRange) is seen by the commands of that submission. Here
+// the GPU reads the game's memory through device-local copies (pool mirror) and uploaded images (textures of coherent pools), so writes since
+// the last replay call must invalidate them before this call's commands are recorded. The game writes pool memory between the submissions
+// of one frame (uniform/vertex rings, CPU-written textures), so one poll per frame would bind stale copies to later submissions. The
+// poll itself stays per call; setup_coalesce only makes it cheaper: an empty poll reads the summary (~220 words for an 8 GiB region)
+// instead of every word of the bitmap.
+bool setup_coalesce_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "setup_coalesce", true);
+        mem::ww::set_summary_scan(v);
+        NXLOG_I(kTag, "setup_coalesce %s ([nvn] setup_coalesce): write-watch polls read %s; the mirror walks %s", v ? "on" : "off",
+                v ? "the summary bitmap" : "every bitmap word", v ? "the wanted page range" : "every page");
+        return v;
+    }();
+    return on;
+}
+
 void tex_poll_cpu_writes() {
+    (void)setup_coalesce_on();
     if (!g_tex_ww) return;
     g_tex_ww_pages.clear();
+    const uint64_t w0 = ft::g_split_on ? mem::ww::take_stats().words : 0;
     mem::ww::take_written(g_tex_ww, g_tex_ww_pages);
+    if (ft::g_split_on) {
+        ft::split_count(ft::kCntTexPoll);
+        if (g_tex_ww_pages.empty()) ft::split_count(ft::kCntTexPollEmpty);
+        ft::split_add(ft::kCntTexPages, g_tex_ww_pages.size());
+        ft::split_add(ft::kCntWwWords, mem::ww::take_stats().words - w0);
+    }
     if (g_tex_ww_pages.empty()) return;
     std::sort(g_tex_ww_pages.begin(), g_tex_ww_pages.end());
     const uint64_t base = mem::ww::region_base(g_tex_ww);
