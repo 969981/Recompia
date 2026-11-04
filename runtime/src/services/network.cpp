@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Offline network services (S3c): nifm, bsd, bsdcfg, ssl, nim:eca, friend, prepo, pctl, bcat, ldn, nsd, sfdnsres, ntc, ngct, ngc, notif.
 // The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives. The one
-// exception is bsd's UDP sockets, which run on the virtual local-wireless LAN (net/vsock.h) when a vnet link is up.
+// exceptions are ldn (local wireless over the relay server: services/ldn.cpp registers ldn:u's objects, this file the name) and bsd's UDP
+// sockets, which run on the virtual local-wireless LAN (net/vsock.h) when ldn has a vnet link up.
 // Adapted from ScarletNX (GPL-3.0-or-later): src/nx/hle/services/network/nifm.swipc, bsd.swipc, ssl.swipc, dns.swipc, ldn.swipc and
 //   src/nx/hle/services/misc.swipc (pctl, friend, prepo, bcat, ngct, nsd). Command ids, names and layouts.
 // Adapted from Ryujinx (MIT): src/Ryujinx.HLE/HOS/Services/Nifm/*, Sockets/Bsd/IClient.cs, Ssl/ResultCode.cs, Nim/Ntc/*,
@@ -10,9 +11,9 @@
 // Switchbrew pages followed for the command tables: Network_Interface_services, Sockets_services, SSL_services, Friend_services,
 //   Parental_Control_services. The result codes are module | (description << 9) (services.h).
 //
-// Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ldn
-// state, the ssl context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every
-// socket and drops the current vnet link). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
+// Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ssl
+// context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every socket, drops the
+// current vnet link and the ldn relay connection). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
 #include <cstring>
 #include <functional>
 #include <initializer_list>
@@ -34,9 +35,6 @@ namespace {
 
 // ---- result codes ---------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t kNifmNoConnection = res(110, 300);         // nifm NoInternetConnection (Ryujinx Nifm/ResultCode.cs)
-constexpr uint32_t kLdnInvalidState = res(203, 32);           // ldn InvalidState (Ryujinx Ldn/ResultCode.cs)
-constexpr uint32_t kLdnDeviceNotAvailable = res(203, 16);     // ldn DeviceNotAvailable
-constexpr uint32_t kLdnConnectNotFound = res(203, 65);        // ldn ConnectNotFound
 constexpr uint32_t kTimeNetworkNotAvailable = res(116, 1000); // time NetworkTimeNotAvailable (Ryujinx Time/ResultCode.cs)
 constexpr uint32_t kTimeTaskCanceled = res(116, 1003);        // time NetworkTimeTaskCanceled
 constexpr uint32_t kSslInvalidSocket = res(123, 106);         // ssl InvalidSocket (Ryujinx Ssl/ResultCode.cs)
@@ -45,7 +43,6 @@ constexpr uint32_t kFsPathNotFound = res(2, 1002);            // fs PathNotFound
 constexpr uint32_t kBsdNetDown = 100;                         // ENETDOWN (Linux errno numbers, as Switchbrew's bsd page says)
 constexpr uint32_t kNetdbHostNotFound = 1;                    // HOST_NOT_FOUND
 constexpr int32_t kEaiNoName = -2;                            // EAI_NONAME
-constexpr uint32_t kLdnStateNone = 0, kLdnStateInitialized = 1;   // nn::ldn::State
 
 // ---- process state -----------------------------------------------------------------------------------------------------------------------
 struct NetState {
@@ -54,7 +51,6 @@ struct NetState {
     uint32_t next_client_id = 1;         // nifm ClientId, one per IGeneralService
     uint32_t next_cancel_handle = 1;     // sfdnsres cancel handle
     uint64_t next_pki_id = 1;            // ssl Import*/Register* ids
-    uint32_t ldn_state = kLdnStateNone;
     int ssl_contexts = 0;                // live ISslContext objects
 };
 NetState& st() {
@@ -1062,88 +1058,6 @@ std::shared_ptr<ipc::Service> make_bcat_creator() {
 }
 
 // =============================================================================================================================================
-// ldn: ldn:u (IUserServiceCreator). Local wireless: the state machine starts at None, Initialize moves it to Initialized. The scans find
-// nothing; anything that needs a network fails with the ldn result a console without a radio gives.
-// =============================================================================================================================================
-
-std::shared_ptr<ipc::Service> make_ldn_local() {
-    auto ev = std::make_shared<ServiceEvent>();   // the state never changes on its own
-    return make_iface("nn::ldn::detail::IUserLocalCommunicationService", [ev](ipc::Service& s) {
-        cmd(s, "ldn", 0, "GetState", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            rsp.push(static_cast<uint32_t>(n.ldn_state));
-            return 0;
-        });
-        cmd(s, "ldn", 100, "AttachStateChangeEvent", [ev](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.out_copy.push_back(ev->new_handle());
-            return 0;
-        });
-        auto create = [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            return n.ldn_state == kLdnStateNone ? kLdnInvalidState : kLdnDeviceNotAvailable;
-        };
-        cmd(s, "ldn", 202, "CreateNetwork", create);
-        cmd(s, "ldn", 203, "CreateNetworkPrivate", create);
-        auto init = [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            n.ldn_state = kLdnStateInitialized;
-            return 0;
-        };
-        cmd(s, "ldn", 400, "Initialize", init);
-        cmd(s, "ldn", 402, "InitializeWithVersion", init);
-        cmd(s, "ldn", 401, "Finalize", [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            n.ldn_state = kLdnStateNone;
-            return 0;
-        });
-        rows(s, "ldn", {
-            {1, "GetNetworkInfo", K::Fail, kLdnInvalidState},
-            {2, "GetIpv4Address", K::Fail, kLdnInvalidState},
-            {3, "GetDisconnectReason", K::Zeros, 0, 2},
-            {4, "GetSecurityParameter", K::Zeros, 0, 0x20},
-            {5, "GetNetworkConfig", K::Zeros, 0, 0x20},
-            {101, "GetNetworkInfoLatestUpdate", K::Fail, kLdnInvalidState},
-            {102, "Scan", K::Zeros, 0, 2},          // count 0
-            {103, "ScanPrivate", K::Zeros, 0, 2},   // count 0
-            {104, "SetWirelessControllerRestriction", K::Ok},
-            {106, "SetProtocol", K::Ok},
-            {200, "OpenAccessPoint", K::Ok},
-            {201, "CloseAccessPoint", K::Ok},
-            {204, "DestroyNetwork", K::Fail, kLdnInvalidState},
-            {205, "Reject", K::Fail, kLdnInvalidState},
-            {206, "SetAdvertiseData", K::Ok},
-            {207, "SetStationAcceptPolicy", K::Ok},
-            {208, "AddAcceptFilterEntry", K::Ok},
-            {209, "ClearAcceptFilter", K::Ok},
-            {300, "OpenStation", K::Ok},
-            {301, "CloseStation", K::Ok},
-            {302, "Connect", K::Fail, kLdnConnectNotFound},
-            {303, "ConnectPrivate", K::Fail, kLdnConnectNotFound},
-            {304, "Disconnect", K::Ok},
-        });
-    });
-}
-
-std::shared_ptr<ipc::Service> make_ldn_user_creator() {
-    return make_iface("nn::ldn::detail::IUserServiceCreator", [](ipc::Service& s) {
-        cmd(s, "ldn", 0, "CreateUserLocalCommunicationService", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.push_object(make_ldn_local());
-            return 0;
-        });
-        cmd(s, "ldn", 1, "CreateClientProcessMonitor", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.push_object(make_iface("nn::ldn::detail::IClientProcessMonitor", [](ipc::Service& m) {
-                rows(m, "ldn", {{0, "RegisterClient", K::Ok}});
-            }));
-            return 0;
-        });
-    });
-}
-
-// =============================================================================================================================================
 // nsd: nsd:u, nsd:a (IManager). The environment is the retail one (lp1); Resolve returns the name as it was given.
 // =============================================================================================================================================
 
@@ -1419,8 +1333,8 @@ void network_reset() {
     s.next_client_id = 1;
     s.next_cancel_handle = 1;
     s.next_pki_id = 1;
-    s.ldn_state = kLdnStateNone;
     s.ssl_contexts = 0;
+    ldn_reset();   // drops the relay connection (services/ldn.cpp)
     vnet::set_current_link(nullptr);
     vsock::stack().reset();
 }

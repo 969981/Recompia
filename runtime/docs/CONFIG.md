@@ -176,6 +176,8 @@ Rules:
 | `fatal` | `report_path` | unset (`<exe path without extension>_fatal.txt`) | `NXRT_FATAL_REPORT_PATH` | `src/services/logfault.cpp` | Fatal-error report file. Once the key is set, even to empty, its value is used. Empty: no file is written. |
 | `fatal` | `terminate` | `true` | `NXRT_FATAL_TERMINATE` | `src/services/logfault.cpp` | `true` ends the process with exit code 5 after a fatal report. `false` returns. |
 | `net` | `offline` | `true` | `NXRT_NET_OFFLINE` | `src/services/network.cpp` | `true`: no connection, no friends and no BCAT data (the start-up log line says so). |
+| `net` | `server` | empty | `NXRT_NET_SERVER` | `src/services/ldn.cpp` | Relay server for local wireless play (the launcher's `--host`): `host:port`, port 39660 when left out. Empty: local wireless is off (ldn scans find nothing, creating a network fails), as before. The connection opens in the background when the game initializes ldn; the outcome is logged once at Info under tag `net` (`ldn: relay 1.2.3.4:39660 connected as Josh` or the error). The player name sent to the server is `[account] nickname`. |
+| `net` | `password` | empty | `NXRT_NET_PASSWORD` | `src/services/ldn.cpp` | Password of the relay server (sent in its HELLO). Empty: none. |
 | `pl` | `font_dir` | empty | `NXRT_PL_FONT_DIR` | `src/services/pl.cpp` | Folder searched first for `DejaVuSans.ttf` and the shared font dumps. Empty: the search goes on to `fonts\` next to the exe, then `assets\fonts\` under the working directory, then the exe's folder. |
 | `play` | `controls` | `controls.ini` | `NXRT_PLAY_CONTROLS` | `src/gfx/play/play.cpp` | Settings file of play mode (controls, sensitivity, display); written with the factory settings when missing. |
 | `play` | `capture_mouse` | `true` | `NXRT_PLAY_CAPTURE_MOUSE` | `src/gfx/play/play.cpp` | Capture the pointer (relative mode) while the game is in play. |
@@ -462,6 +464,8 @@ terminate = true
 
 [net]
 offline = true
+; server =  (host:port of the relay server for local wireless play; empty: off)
+; password =
 
 [pl]
 ; font_dir =  (empty: the default search folders)
