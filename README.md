@@ -1,4 +1,4 @@
-# Pokopia Recomp
+# Pokopia Recomp /w Multiplayer Support
 
 Pokémon Pokopia (Switch 2) recompiled to run natively on Windows.
 
