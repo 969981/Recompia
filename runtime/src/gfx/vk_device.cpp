@@ -723,7 +723,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
 }
 
 Device::~Device() {
-    if (device_) vkDeviceWaitIdle(device_);
+    if (device_ && !device_lost()) vkDeviceWaitIdle(device_);
     if (impl_) {
         if (impl_->once_fence) { vkDestroyFence(device_, impl_->once_fence, nullptr); vk_gauge_fences().sub(1); }
         if (impl_->once_pool) { vkDestroyCommandPool(device_, impl_->once_pool, nullptr); vk_gauge_command_pools().sub(1); }
@@ -735,6 +735,13 @@ Device::~Device() {
     if (messenger_) vkDestroyDebugUtilsMessengerEXT(instance_, messenger_, nullptr);
     if (instance_) vkDestroyInstance(instance_, nullptr);
     delete impl_;
+}
+
+void Device::note_result(VkResult result, const char* operation) {
+    if (result != VK_ERROR_DEVICE_LOST) return;
+    bool expected = false;
+    if (device_lost_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+        NXLOG_E(kTag, "graphics device lost in %s (VK_ERROR_DEVICE_LOST); stopping further GPU work", operation ? operation : "Vulkan");
 }
 
 // ---- validation -------------------------------------------------------------------------------------------------------
@@ -940,6 +947,7 @@ void Device::invalidate_buffer(const Buffer& b) {
 
 // ---- one-shot submit, idle, stats -------------------------------------------------------------------------------------
 bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
+    if (device_lost()) return false;
     std::lock_guard<std::mutex> lk(impl_->once_mu);
     VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool = impl_->once_pool;
@@ -956,21 +964,27 @@ bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
     VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
-    bool ok;
+    VkResult result;
     {
         std::lock_guard<std::mutex> ql(queue_mutex_);
-        ok = vkQueueSubmit(queue_, 1, &si, impl_->once_fence) == VK_SUCCESS;
+        result = vkQueueSubmit(queue_, 1, &si, impl_->once_fence);
     }
-    if (ok) ok = vkWaitForFences(device_, 1, &impl_->once_fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
-    vkResetFences(device_, 1, &impl_->once_fence);
+    note_result(result, "vkQueueSubmit (one-shot)");
+    if (result == VK_SUCCESS) {
+        result = vkWaitForFences(device_, 1, &impl_->once_fence, VK_TRUE, UINT64_MAX);
+        note_result(result, "vkWaitForFences (one-shot)");
+    }
+    if (!device_lost()) vkResetFences(device_, 1, &impl_->once_fence);
     vkFreeCommandBuffers(device_, impl_->once_pool, 1, &cmd);
     vk_gauge_command_buffers().sub(1);
-    return ok;
+    return result == VK_SUCCESS;
 }
 
 void Device::wait_idle() {
+    if (device_lost()) return;
     std::lock_guard<std::mutex> ql(queue_mutex_);
-    vkDeviceWaitIdle(device_);
+    const VkResult result = vkDeviceWaitIdle(device_);
+    note_result(result, "vkDeviceWaitIdle");
 }
 
 Device::MemoryStats Device::memory_stats() {
