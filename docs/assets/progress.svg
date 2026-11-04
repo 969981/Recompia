@@ -1,26 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 288" width="900" height="288" role="img" aria-label="Progress by area: single player on Windows done; on-screen keyboard and name entry done; fast boot with shader preload pack done; gamepad prompts and stick options done; Steam Deck, Legion Go S and SteamOS 60 percent; Link Play two-player multiplayer 15 percent">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 288" width="900" height="288" role="img" aria-label="Progress by area: single player done; on-screen keyboard done; fast boot done; gamepad prompts done; handheld support (Steam Deck, Legion Go S, SteamOS) 60 percent; multiplayer (Link Play) 15 percent">
   <rect x="0.5" y="0.5" width="899" height="287" rx="12" fill="#1b2740" stroke="#3a4a6b"/>
-  <text x="32" y="48" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Single player on Windows</text>
+  <text x="32" y="48" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Single player</text>
   <rect x="292" y="36" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="36" width="426.0" height="12" rx="6" fill="#3fb950"/>
   <text x="738" y="48" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#3fb950">Done</text>
-  <text x="32" y="88" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">On-screen keyboard and name entry</text>
+  <text x="32" y="88" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">On-screen keyboard</text>
   <rect x="292" y="76" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="76" width="426.0" height="12" rx="6" fill="#3fb950"/>
   <text x="738" y="88" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#3fb950">Done</text>
-  <text x="32" y="128" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Fast boot (shader preload pack)</text>
+  <text x="32" y="128" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Fast boot</text>
   <rect x="292" y="116" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="116" width="426.0" height="12" rx="6" fill="#3fb950"/>
   <text x="738" y="128" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#3fb950">Done</text>
-  <text x="32" y="168" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Gamepad prompts and stick options</text>
+  <text x="32" y="168" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Gamepad prompts</text>
   <rect x="292" y="156" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="156" width="426.0" height="12" rx="6" fill="#3fb950"/>
   <text x="738" y="168" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#3fb950">Done</text>
-  <text x="32" y="208" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Steam Deck / Legion Go S / SteamOS</text>
+  <text x="32" y="208" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Handheld support</text>
   <rect x="292" y="196" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="196" width="255.6" height="12" rx="6" fill="#d8b46a"/>
   <text x="738" y="208" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#d8b46a">60%</text>
-  <text x="32" y="248" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Link Play (2-player multiplayer)</text>
+  <text x="32" y="248" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#e6edf3">Multiplayer</text>
   <rect x="292" y="236" width="426" height="12" rx="6" fill="#21262d"/>
   <rect x="292" y="236" width="63.9" height="12" rx="6" fill="#d29922"/>
   <text x="738" y="248" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#d29922">15%</text>

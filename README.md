@@ -1,7 +1,7 @@
 <h1 align="center">🏝️ Pokopia Recomp</h1>
 
 <p align="center">
-  <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows — with multiplayer support.</b>
+  <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, with multiplayer support.</b>
 </p>
 
 <p align="center">
@@ -28,10 +28,10 @@
 </p>
 
 > [!IMPORTANT]
-> **No game files are included.** You need your own extracted copy of the game, version **2.0.1a** — this project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
+> **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
 
 > [!NOTE]
-> **Built with AI, supervised by a human.** This project is developed primarily with AI, with me as the supervisor — a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by me before it lands.
+> **Built with AI, supervised by a human.** This project is developed primarily with AI, with me as the supervisor. I have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by me before it lands.
 
 ## Screenshots
 
@@ -45,13 +45,13 @@
     <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend (work in progress)</sub></td>
   </tr>
 </table>
-<p align="center"><sub>Placeholders — drop real screenshots into <code>docs/assets/screenshots/</code> and point the <code>&lt;img&gt;</code> tags at them.</sub></p>
+<p align="center"><sub>Placeholders: drop real screenshots into <code>docs/assets/screenshots/</code> and point the <code>&lt;img&gt;</code> tags at them.</sub></p>
 
 ## Progress
 
-<p align="center"><img src="docs/assets/progress.svg" alt="Progress bars: single player, on-screen keyboard, fast boot and gamepad options done; Steam Deck / Legion Go S / SteamOS at 60 percent; Link Play multiplayer at 15 percent" width="100%"></p>
+<p align="center"><img src="docs/assets/progress.svg" alt="Progress bars: single player, on-screen keyboard, fast boot and gamepad prompts done; handheld support at 60 percent; multiplayer at 15 percent" width="100%"></p>
 
-Link Play (two players on one island, PC ↔ PC through a relay) is being built on the [`experimental-coop`](https://github.com/featureJosh/pokopia-recomp/tree/experimental-coop) branch — a first session has worked, but it is not in any release yet. Builds from `main` stay offline. What changed per version: [CHANGELOG.md](CHANGELOG.md).
+Handheld support covers Steam Deck, Legion Go S and SteamOS. Link Play (two players on one island, PC ↔ PC through a relay) is being built on the [`experimental-coop`](https://github.com/featureJosh/pokopia-recomp/tree/experimental-coop) branch. A first session has worked, but it is not in any release yet. Builds from `main` stay offline. What changed per version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
