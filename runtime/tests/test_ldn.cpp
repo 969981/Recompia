@@ -293,8 +293,8 @@ NXTEST(ldn_without_server) {
 NXTEST(ldn_host_over_loopback) {
     nxsvc::Env env;
     vnet::LoopbackRelay relay;
-    services::ldn_set_lobby(relay.client("Josh"));
-    auto guest = relay.client("Legolas");
+    services::ldn_set_lobby(relay.client("Host"));
+    auto guest = relay.client("Guest");
     vnet::LeftReason guest_left = vnet::LeftReason::YouLeft;
     int guest_lefts = 0;
     guest->set_events({nullptr, [&](vnet::LeftReason r) { guest_left = r; ++guest_lefts; }});
@@ -328,7 +328,7 @@ NXTEST(ldn_host_over_loopback) {
     CHECK_EQ(rooms[0].comm_version, kVersion);
     CHECK_EQ(rooms[0].node_count_max, 4);
     REQUIRE(rooms[0].nodes.size() == 1);
-    CHECK(rooms[0].nodes[0].nickname == "Josh");
+    CHECK(rooms[0].nodes[0].nickname == "Host");
     CHECK(rooms[0].adv == std::vector<uint8_t>(adv, adv + 8));
     std::vector<vnet::Room> none;
     CHECK_EQ(guest->scan(kLcid + 1, 0xFFFF, &none), 0);
@@ -358,7 +358,7 @@ NXTEST(ldn_host_over_loopback) {
     CHECK_EQ(at<uint32_t>(ni, kNodes + 0x40), vnet::ip(169, 254, 1, 2));
     CHECK_EQ(ni[kNodes + 0x40 + 0xA], 1);
     CHECK_EQ(ni[kNodes + 0x40 + 0xB], 1);
-    CHECK(std::strcmp(reinterpret_cast<const char*>(ni.data() + kNodes + 0x40 + 0xC), "Legolas") == 0);
+    CHECK(std::strcmp(reinterpret_cast<const char*>(ni.data() + kNodes + 0x40 + 0xC), "Guest") == 0);
     CHECK_EQ(at<int16_t>(ni, kNodes + 0x40 + 0x2E), kVersion);
     CHECK_EQ(at<uint16_t>(ni, kLdn + 0x21A), 8);
     CHECK(std::memcmp(ni.data() + kLdn + 0x21C, adv, 8) == 0);
@@ -435,7 +435,7 @@ NXTEST(ldn_station_over_loopback) {
     auto host = relay.client("Hosty");
     vnet::Joined hj;
     REQUIRE(host->create(room_config(), &hj) == 0);
-    services::ldn_set_lobby(relay.client("Josh"));
+    services::ldn_set_lobby(relay.client("Host"));
 
     nxsvc::Session l = open_ldn();
     REQUIRE(l.valid());
@@ -524,7 +524,7 @@ NXTEST(ldn_connect_waits_for_room_state) {
     auto host = relay.client("Hosty");
     vnet::Joined hj;
     REQUIRE(host->create(room_config(), &hj) == 0);
-    auto late = std::make_shared<LateRoomState>(relay.client("Josh"), 300);
+    auto late = std::make_shared<LateRoomState>(relay.client("Host"), 300);
     services::ldn_set_lobby(late);
 
     nxsvc::Session l = open_ldn();
