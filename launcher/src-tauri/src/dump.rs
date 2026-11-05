@@ -501,6 +501,18 @@ mod tests {
     }
 
     #[test]
+    fn directly_picked_patch_only_update_without_base_says_incomplete() {
+        // #155 selected updates/327680 itself: its 22-file update-only RomFS must not reach the game's start-up crash.
+        let d = tmp("patchdirectnobase");
+        patch_dump(&d, false);
+        let update = d.join("updates").join("327680");
+        let r = scan_need(&update.to_string_lossy(), want(), Some(NEED));
+        assert!(r.chosen.is_none());
+        assert!(r.errors[0].contains("incomplete") && r.errors[0].contains("1 of 3 files") && r.errors[0].contains("base game"), "{:?}", r.errors);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn patch_only_update_without_base_says_incomplete() {
         let d = tmp("patchnobase");
         patch_dump(&d, false);
