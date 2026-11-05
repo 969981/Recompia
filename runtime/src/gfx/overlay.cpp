@@ -320,8 +320,6 @@ void Overlay::Impl::build_ui() {
                 }
                 ImGui::EndCombo();
             }
-            if (const double m = ctx.limiter->max_fps(); m > 0 && !(t > 0 && t <= m))
-                ImGui::TextDisabled("the game runs at most %.0f fps (its own ceiling)", m);
             const float hz = platform::has_window() ? platform::display_refresh_hz() : 0.f;
             if (hz > 0) {
                 ImGui::TextDisabled("display %.2f Hz; VRR-friendly cap %.1f fps", hz, suggest_vrr_cap(hz));

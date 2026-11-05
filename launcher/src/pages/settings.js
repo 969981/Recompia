@@ -16,7 +16,7 @@ const SECTIONS = [
       { id: 'render_scale', type: 'autonum', label: 'Render scale', sec: 'display', key: 'render_scale', def: 'auto',
         min: 25, max: 400, numDefault: 100, unit: '%', autoLabel: 'Auto', hint: 'Auto follows the window height. 100 is 1920x1080.' },
       { id: 'fps_limit', type: 'autonum', label: 'Frame rate limit', sec: 'display', key: 'fps_limit', def: 'auto',
-        min: 0, max: 1000, numDefault: 60, unit: 'fps', autoLabel: 'Auto', hint: 'Auto follows the display refresh rate. 0 is unlimited. The game itself runs at most 60 fps.' },
+        min: 0, max: 1000, numDefault: 60, unit: 'fps', autoLabel: 'Auto', hint: 'Auto follows the display refresh rate. 0 is unlimited.' },
       { id: 'vsync', type: 'toggle', label: 'VSync', sec: 'display', key: 'vsync', def: '1' },
     ],
   },

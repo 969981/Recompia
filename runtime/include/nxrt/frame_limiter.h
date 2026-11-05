@@ -21,13 +21,6 @@ public:
     void set_target_fps(double fps);
     double target_fps() const;
 
-    // The game's own ceiling (0 = none): frames never start closer together than 1 / max, whatever the target (unlimited included). For a game
-    // whose frame logic is only built for steps of at least one 60 Hz frame (Pokopia, #144). Loading frames (frame_limiter_unpaced) stay unpaced.
-    // Safe to call from any thread.
-    void set_max_fps(double fps);
-    double max_fps() const;
-    double effective_fps() const;       // what begin_frame paces to: the target, lowered to the ceiling (0 = no pacing)
-
     // A function that runs at the very start of every begin_frame(), on the thread that calls it (the presenting thread). Play mode uses it to
     // apply present-mode changes at a point where nothing else touches the swapchain. nullptr removes it. Safe to call from any thread.
     using PreFrameFn = void (*)(void* user);

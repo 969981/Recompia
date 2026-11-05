@@ -21,14 +21,10 @@
 // Frame rate. The main loop's frame step (0xbfc404) turns the measured frame time into a frame multiplier in 60 Hz units that 90 functions
 // read (the float at 0x34c03f0): 1.0 within 1.5 ms of 1/60 s, else dt * 60 clamped to [1, 3]. Faster than 60 fps the multiplier stays 1
 // and the game runs fast. The mid hook at the join point (0xbfc4fc: s0 the multiplier, s8 the frame time) lets frames shorter than 1/60 s
-// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes.
-// That fractional multiplier is outside what the game's frame logic is built for (the retail rule never goes below 1), and some of it
-// breaks on it: e.g. a scene sequence (0x71004459a4) steps a timer by the multiplier and fires its event only when the timer equals a whole
-// frame count exactly, which steps of 0.3 never do. Above 60 fps (a 144 / 240 Hz display with fps_limit = auto, uncapped, or the unpaced
-// loading frames) leaving an area stalled with the iris wipe half open and the controls locked (#144). pokopia-native only ever runs 60 or
-// 30 fps. So by default ([pkp] above_60fps off) the game's frames are held to 60 Hz at most (the frame limiter's ceiling, which every
-// fps_limit including auto and unlimited is lowered to) and the multiplier keeps the retail rule; above_60fps = true is the old behaviour,
-// experimental.
+// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes. The area-transition scene sequence at 0x445994
+// adds that multiplier to its timer and originally fired only on exact equality (b.ne at 0x4459bc), so a fractional step could cross the
+// target and leave its iris wipe closed forever (#144). main.sites changes that branch to b.lo: the event fires on equality or a crossing,
+// while the timer and every other multiplier consumer keep their measured high-frame-rate steps.
 // The 60 fps cap is the game's own: the main loop's frame step (0x89def8, profiler zone "Sync") waits, sleeping in 200 us task-graph waits,
 // until tick frequency / 60 ticks (60 = 60 / 0x13fc00(), a constant 1.0) have passed since the previous frame began. The mid hook right
 // after that division (0x89e27c, x22 = the period in ticks) sets the period to 0, so the runtime's frame limiter at the frame boundary
@@ -76,11 +72,8 @@
 #include "nxrt/hooks.h"
 #include "nxrt/host_device.h"
 #include "nxrt/jc2_mouse.h"
-#include "nxrt/frame_limiter.h"
 #include "nxrt/log.h"
-#include "nxrt/lowlat.h"
 #include "nxrt/memory.h"
-#include "nxrt/play.h"
 #include "play_display.h"
 
 namespace nxrt::games::pkp {
@@ -97,7 +90,6 @@ constexpr uint64_t kReplayViewports = 0x17b6c98;                            // m
 constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // mid: the command context's SetViewport (x1 rect) / SetViewports (w1 n, x2 rects)
 constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
 constexpr uint64_t kLowCopy = 0x73d824;                                    // mid: 0x73d73c calling the 80x45 copy 0x10f48d8 (x3 source texture, x5 source rect)
-constexpr double kGameMaxFps = 60.0;                                      // the frame logic's design rate ([pkp] above_60fps off)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
@@ -124,7 +116,7 @@ struct State {
     play::GameHost* host = nullptr;
     std::atomic<int> w{kTableW}, h{kTableH};
     std::atomic<bool> dynres{false};
-    std::atomic<bool> fps_fix{false};     // [pkp] above_60fps && frame_time_fix
+    std::atomic<bool> fps_fix{true};
     std::atomic<bool> game_limit{false};
     std::atomic<uint64_t> sync_calls{0}, fixed_calls{0};
     std::atomic<bool> mouse_cam{true};
@@ -781,15 +773,7 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     if (s.installed) return;
     s.base = base;
     s.host = host;
-    // [pkp] above_60fps (default off, #144): the game's frame logic is built for steps of at least one 60 Hz frame, so its frames are held
-    // to 60 Hz at most and the multiplier keeps the retail rule. On: the runtime's fps_limit alone paces it and frame_time_fix scales the
-    // multiplier below 1 (scripted transitions can stall).
-    const bool above_60 = config_get_bool("pkp", "above_60fps", false);
-    s.fps_fix.store(above_60 && config_get_bool("pkp", "frame_time_fix", true));
-    if (FrameLimiter* lim = play::limiter()) {
-        lim->set_max_fps(above_60 ? 0.0 : kGameMaxFps);
-        extras::lowlat_note_cap(lim->effective_fps());
-    }
+    s.fps_fix.store(config_get_bool("pkp", "frame_time_fix", true));
     s.mouse_cam.store(config_get_bool("pkp", "mouse_camera", true));
     s.game_limit.store(config_get_bool("pkp", "game_frame_limit", false));
     s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
@@ -803,8 +787,7 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     kbm_install(base, &s.hooks);
     s.installed = true;
     play_settings_changed(set);
-    NXLOG_I(kTag, "frame rate: %s; frame-time fix %s, game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
-            above_60 ? "above 60 fps allowed ([pkp] above_60fps, experimental: transitions can stall, #144)" : "at most 60 fps (the game's frame logic, #144)",
+    NXLOG_I(kTag, "frame-time fix %s, game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
             s.fps_fix.load() ? "on" : "off", s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
             s.mouse_cam.load() ? "on" : "off", s.cam_every_frame.load() ? "every frame" : "game's 120 Hz tick",
             static_cast<unsigned long long>(s.grace_ns / 1000000ull));

@@ -324,8 +324,7 @@ void apply_frame_cap(const Settings& s) {
         if (cap <= 0 || (hz > 0 && cap >= hz)) cap = (vsync_cap && hz > 0) ? static_cast<double>(hz) * 0.9995 : 0;
     }
     st.limiter.set_target_fps(cap);
-    // Reflex / Anti-Lag pace to the same cap (remembered for a renderer that is created later), the game's ceiling included (set_max_fps)
-    extras::lowlat_note_cap(st.limiter.effective_fps());
+    extras::lowlat_note_cap(cap);     // Reflex / Anti-Lag pace to the same cap (remembered for a renderer that is created later)
 }
 
 // ---- hooks ----------------------------------------------------------------------------------------------------------------------------
