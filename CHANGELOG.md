@@ -10,6 +10,9 @@ of the game (version 2.0.1a): the download contains no game files.
   yet is compiled in the background and the object appears a frame or two later, instead of the whole game pausing for it
   (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
 
+- Frame limits now divide the screen's refresh rate for even pacing: on the 90 Hz Steam Deck OLED, 40 fps runs at 30; pick 80 Hz in
+  Steam's Performance menu for 40. 45 fps can be chosen in F1. (`[display] fps_snap = auto|true|false`; auto snaps under Proton only.)
+
 ### Fixes
 - Leaving an area above 60 fps no longer leaves the Poké Ball wipe covering the game (#144). The transition's timer now fires when a
   fractional frame step reaches or passes its target, rather than only on exact equality. The temporary global 60 fps ceiling and its
