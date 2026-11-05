@@ -23,7 +23,7 @@ uint64_t flush() { return g_serial.load(); }
 void finish() {}
 uint64_t last_serial() { return g_serial.load(); }
 bool wait_serial(uint64_t, uint64_t) { return true; }
-bool serial_done(uint64_t) { return true; }
+bool serial_done(uint64_t, PollKind) { return true; }
 void present(Window*, int) {}
 void destroy_texture_gpu(TexGpu*) {}
 void destroy_pool_gpu(PoolGpu*) {}
@@ -34,7 +34,7 @@ void program_bound(const ShaderInfo* const*) {}
 void mark_texture_cpu_dirty(Texture*) {}
 void texture_bound(Texture*) {}
 void texture_registered(Texture*) {}
-bool download_texture(Texture*) { return false; }
+bool download_texture(Texture*, uint32_t, uint32_t, uint32_t, uint32_t) { return false; }
 void cpu_will_read(uint64_t, uint64_t) {}
 void set_window_modes(int, int) {}
 uint64_t timestamp_ns() {

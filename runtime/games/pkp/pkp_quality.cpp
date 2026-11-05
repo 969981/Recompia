@@ -80,7 +80,7 @@ constexpr Preset kPresets[] = {
     {"switch2", 1.0, 0.0, 0, false, 0, 0},
     {"high", 1.5, -0.5, 8, false, 0, 0},
     {"ultra", 2.0, -1.0, 16, false, 0, 0},
-    {"steamdeck", 1.0, 0.0, 4, true, 75, 40},     // 1440 x 810 for the 1280 x 800 screen, 40 fps (the LCD and OLED both run 40 Hz)
+    {"steamdeck", 1.0, 0.0, 4, true, 75, 40},     // 1440 x 810 for the 1280 x 800 screen; 40 fps: runs at 40 where the refresh is a multiple (80 Hz OLED / 40 Hz LCD in Steam's Performance menu), else at 30 (90 Hz OLED default)
     {"legion_go_s", 1.25, 0.0, 8, true, 80, 60},  // 1536 x 864 for the 1920 x 1200 screen, 60 fps
     {"laptop", 1.0, 0.0, 4, true, 75, 60},        // integrated / entry graphics: fewer pixels, 60 fps
     {"desktop", 2.0, -0.5, 16, true, 0, -1},      // a dedicated GPU: the window's size (at least 1080p), the display's refresh rate

@@ -15,7 +15,8 @@
 //
 // Time shared memory (0x1000 bytes, offsets as TimeSharedMemory.cs writes them). A block is a u32 index at `off`, `pad` bytes, then two
 // slots; the live slot is (index & 1). Writers bump the index after writing the free slot.
-//   0x000 SteadyClockContext x2 (pad 4; slots 0x008, 0x020; 0x18 each): u64 internal_offset (= epoch + internal + test, ns), uuid source
+//   0x000 SteadyClockContext x2 (pad 4; slots 0x008, 0x020; 0x18 each): u64 internal_offset (= epoch + internal + test - start tick, ns:
+//         the guest adds the raw tick), uuid source
 //   0x038 Local SystemClockContext x2 (pad 4; slots 0x040, 0x060; 0x20 each): i64 offset, {i64 time_point, uuid}
 //   0x080 Network SystemClockContext x2 (pad 4; slots 0x088, 0x0A8)
 //   0x0C8 automatic correction flag x2 (pad 0; slots 0x0CC, 0x0CD; 1 byte each)
@@ -26,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -43,6 +45,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/kernel.h"
+#include "nxrt/log.h"
 #include "nxrt/tt.h"
 #include "services_internal.h"
 #include "timezone.h"
@@ -198,9 +201,15 @@ void ensure_hosts(State& s) {
     s.utc_rule.assign(tz::kRuleSize, 0);
     tz::make_utc_rule(s.utc_rule.data());
     std::string name;
-    tz::make_host_rule(s.host_rule.data(), &name);
+    const bool built = tz::make_host_rule(s.host_rule.data(), &name);
     s.host_name = name.empty() ? std::string("UTC") : name;
     s.hosts_ready = true;
+    tz::CalendarTime c{};
+    tz::CalendarAdditionalInfo i{};
+    const bool ok = tz::to_calendar(s.host_rule.data(), static_cast<int64_t>(std::time(nullptr)), &c, &i);
+    NXLOG_I("time", "host time zone %s (%s): now %04d-%02d-%02d %02d:%02d %.8s, UTC%+d s%s", s.host_name.c_str(),
+            built ? "rule built" : "no host rule, using UTC", c.year, c.month, c.day, c.hour, c.minute, i.tz_name, i.utc_offset,
+            ok ? "" : " (conversion failed)");
 }
 const uint8_t* device_rule(State& s) {
     ensure_hosts(s);
@@ -243,7 +252,11 @@ void write_shm(State& s) {
     const Now n = now_of(s);
 
     SteadyCtx sc{};
-    sc.internal_offset = static_cast<uint64_t>(static_cast<int64_t>(kSteadyEpochNs) + s.internal_ns + s.test_ns);
+    // The guest's fast path reads the steady clock as internal_offset + the raw tick in ns (CNTPCT, which counts from host boot,
+    // not from start-up), so the offset is our steady time minus the raw tick time (Ryubing TimeSharedMemory.SetupStandardSteadyClock).
+    // It wraps when the host has been up longer than the epoch; the guest's u64 add wraps back. Without the - tick0_ns every local
+    // time the game showed was ahead by the host uptime at start-up (issue #120: 29 h on a handheld).
+    sc.internal_offset = static_cast<uint64_t>(static_cast<int64_t>(kSteadyEpochNs) + s.internal_ns + s.test_ns) - s.tick0_ns;
     std::memcpy(sc.source, kSourceId, 16);
     lifo_write(b, kOffSteady, kPadSteady, &sc, sizeof sc);
 
@@ -516,6 +529,8 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             tz::CalendarTime cal{};
             tz::CalendarAdditionalInfo info{};
             if (!tz::to_calendar(device_rule(state_locked()), posix, &cal, &info)) return err_tz_conversion();
+            NXLOG_T("time", "ToCalendarTimeWithMyRule(%lld) -> %04d-%02d-%02d %02d:%02d:%02d %.8s UTC%+d s", static_cast<long long>(posix),
+                    cal.year, cal.month, cal.day, cal.hour, cal.minute, cal.second, info.tz_name, info.utc_offset);
             rsp.push(cal);
             rsp.push(info);
             return 0;
@@ -537,6 +552,9 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             int64_t times[2] = {0, 0};
             int n = tz::to_posix(device_rule(state_locked()), cal, times);
             if (n < 0 || n > 2) n = 0;
+            NXLOG_T("time", "ToPosixTimeWithMyRule(%04d-%02d-%02d %02d:%02d:%02d) -> %d: %lld %lld (out buffer %llu bytes)", cal.year,
+                    cal.month, cal.day, cal.hour, cal.minute, cal.second, n, static_cast<long long>(times[0]),
+                    static_cast<long long>(times[1]), static_cast<unsigned long long>(req.out_buf(0).size));
             if (n > 0) buf_write(req.out_buf(0), times, static_cast<uint64_t>(n) * 8);
             rsp.push<uint32_t>(static_cast<uint32_t>(n));
             return 0;

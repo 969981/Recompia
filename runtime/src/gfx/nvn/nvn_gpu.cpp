@@ -50,6 +50,18 @@ nxrt::GaugeCounter g_gauge_deferred("nvn.deferred_destroy");     // closures wai
 nxrt::GaugeCounter g_gauge_render_queue("nvn.render_queue");     // jobs queued for the render thread
 nxrt::GaugeCounter g_gauge_barriers_mem("nvn.cnt.barriers_mem");   // full memory barriers recorded (cumulative; per frame = delta / frames)
 nxrt::GaugeCounter g_gauge_barriers_img("nvn.cnt.barriers_img");   // image layout barriers recorded (cumulative)
+// [nvn] poll_flush: what flushed the batch in submit_batch = frame (cumulative; only batches a poll or wait asked for are attributed).
+nxrt::GaugeCounter g_gauge_flush_poll("nvn.flush.by_poll");               // a poll flushed it at once (poll_flush = now)
+nxrt::GaugeCounter g_gauge_flush_deadline("nvn.flush.by_deadline");       // the poll_flush = <ms> deadline passed first
+nxrt::GaugeCounter g_gauge_flush_present("nvn.flush.by_present");         // a deferred poll was pending and the batch went some other way (the present)
+nxrt::GaugeCounter g_gauge_flush_wait("nvn.flush.by_wait");               // a blocking wait flushed it
+nxrt::GaugeCounter g_gauge_polls_deferred("nvn.flush.polls_deferred");    // polls that did not flush (all kinds)
+nxrt::GaugeCounter g_gauge_polls_deferred_sync("nvn.flush.polls_deferred.sync");   // ... nvnSyncWait with timeout 0
+constexpr uint64_t kPollDeferred = UINT64_MAX;   // flush_deadline_ns: a poll was deferred and there is no deadline (poll_flush = defer)
+
+uint64_t steady_ns() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 struct Slot {
     VkCommandPool pool = VK_NULL_HANDLE;
@@ -90,6 +102,16 @@ struct Gpu {
     bool frame_batch = false;
     std::atomic<uint64_t> flushed_pub{0};          // `flushed`, readable from any thread
     std::atomic<bool> flush_wanted{false};         // a thread waits for (or polls) a serial still in the batch
+    // [nvn] poll_flush (only with frame_batch): 0 = now (a poll flushes at once), -1 = defer (the batch goes with the present), N > 0 = defer for at
+    // most N ms. Read once at start.
+    int poll_flush_ms = 0;
+    // A poll of a serial in the batch was deferred. 0 = none pending; kPollDeferred = pending without a deadline; else the steady_clock deadline
+    // in ns. Set by any polling thread (compare-exchange from 0, the first deferred poll of the batch), cleared by the render thread when the
+    // batch is flushed or gone.
+    std::atomic<uint64_t> flush_deadline_ns{0};
+    std::atomic<uint64_t> flush_poll_serial{0};    // the highest serial a deferred poll asked for (it may still be queued, not yet in the batch)
+    std::atomic<bool> flush_by_wait{false};        // the pending flush_wanted came from (or was upgraded by) a blocking wait, not a poll
+    uint64_t pf_logged_presents = 0;               // render thread: presents at the last summary line
     uint64_t recording = 0;               // render thread: serial of the submission being recorded (0 outside)
     std::atomic<uint64_t> last_submitted{0};
     // Serials are handed out when a submission is queued (the game thread gets its serial at once and goes on while the render thread
@@ -206,15 +228,44 @@ void render_loop() {
         std::function<void()> job;
         {
             std::unique_lock<std::mutex> lk(g->qmu);
-            if (!g->batch.empty() && (g->flush_wanted.load() || (!g->frame_batch && !g->stop && g->queue.empty()))) {
-                lk.unlock();
-                flush_batch();      // nothing more to record for now (or a thread waits for it): the GPU gets what there is
-                lk.lock();
+            if (!g->batch.empty()) {
+                const bool wanted = g->flush_wanted.load();
+                const uint64_t dl = g->flush_deadline_ns.load();
+                const bool due = dl && dl != kPollDeferred && steady_ns() >= dl;
+                if (wanted || due || (!g->frame_batch && !g->stop && g->queue.empty())) {
+                    lk.unlock();
+                    if (wanted) (g->flush_by_wait.exchange(false) ? g_gauge_flush_wait : g_gauge_flush_poll).add();
+                    else if (due) { g_gauge_flush_deadline.add(); ft::mark("submit.poll_deadline"); }
+                    flush_batch();      // nothing more to record for now (or a thread waits for it): the GPU gets what there is
+                    if (g->flushed >= g->flush_poll_serial.load()) g->flush_deadline_ns.store(0);   // else the polled submission is still to be recorded: stays armed
+                    lk.lock();
+                }
+            } else if (g->flush_deadline_ns.load() && g->flushed >= g->flush_poll_serial.load() && g->flush_deadline_ns.exchange(0)) {
+                g_gauge_flush_present.add();    // the batch went with the present (or filled up) while a deferred poll was pending
+            }
+            if (g->frame_batch && g->poll_flush_ms != 0) {      // poll_flush summary line, every 1200 presents
+                const uint64_t pr = g->ctr.presents.load(std::memory_order_relaxed);
+                if (pr >= g->pf_logged_presents + 1200) {
+                    g->pf_logged_presents = pr;
+                    NXLOG_I(kTag, "poll_flush: %lld polls deferred (sync %lld); flushes by poll %lld, deadline %lld, present %lld, wait %lld; submits %llu, presents %llu",
+                            static_cast<long long>(g_gauge_polls_deferred.get()), static_cast<long long>(g_gauge_polls_deferred_sync.get()),
+                            static_cast<long long>(g_gauge_flush_poll.get()), static_cast<long long>(g_gauge_flush_deadline.get()),
+                            static_cast<long long>(g_gauge_flush_present.get()), static_cast<long long>(g_gauge_flush_wait.get()),
+                            static_cast<unsigned long long>(g->ctr.submits.load()), static_cast<unsigned long long>(pr));
+                }
             }
             if (!g->stop && g->queue.empty()) {
                 nxrt::HitchTimer ht(nxrt::kHpRenderIdle);      // the hitch line: the render thread waited for the game
                 ft::SplitScope sp_idle(ft::kSplIdle);
-                g->qcv.wait(lk, [] { return g->stop || !g->queue.empty() || (g->flush_wanted.load() && !g->batch.empty()); });
+                // A poll_flush = <ms> deadline wakes the render thread to flush; a deadline set while it waits wakes it to re-arm.
+                const uint64_t dl0 = g->flush_deadline_ns.load();
+                auto ready = [dl0] {
+                    return g->stop || !g->queue.empty() || (g->flush_wanted.load() && !g->batch.empty()) || g->flush_deadline_ns.load() != dl0;
+                };
+                if (dl0 && dl0 != kPollDeferred && !g->batch.empty())
+                    g->qcv.wait_until(lk, std::chrono::steady_clock::time_point(std::chrono::nanoseconds(dl0)), ready);
+                else
+                    g->qcv.wait(lk, ready);
                 if (g->queue.empty() && !g->stop) continue;    // woken to flush
             }
             if (g->queue.empty()) {   // stop requested and drained
@@ -272,6 +323,20 @@ VkDescriptorPool new_dpool() {
     return p;
 }
 
+// [diag] slow_submit_ms (default 30, [diag] stutter_logs): a vkQueueSubmit2 that took longer logs one line, at most one per second.
+void note_slow_submit(double ms, size_t cbs, bool worker) {
+    static const bool on = config_get_bool("diag", "stutter_logs", true);
+    static const double limit = static_cast<double>(config_get_int("diag", "slow_submit_ms", 30));
+    static std::atomic<int64_t> last_ns{INT64_MIN};
+    if (!on || ms <= limit) return;
+    const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    int64_t prev = last_ns.load(std::memory_order_relaxed);
+    if (prev != INT64_MIN && now - prev < 1000000000ll) return;
+    if (!last_ns.compare_exchange_strong(prev, now)) return;
+    NXLOG_I(kTag, "slow submission %.1f ms (%zu command buffers, worker %d, lazy live %lld MiB, memory objects %lld)", ms, cbs, worker ? 1 : 0,
+            static_cast<long long>(pool_lazy_stats().live_bytes >> 20), static_cast<long long>(vk_gauge_memory_allocs().get()));
+}
+
 // Hands the recorded submissions of the batch to the GPU in one vkQueueSubmit2, in recording order, signalling the timeline with the last
 // serial (the earlier ones of the batch complete with it). Every kernel submission costs a pass over all memory the device holds: on Linux
 // (Proton, RADV) the multi-gigabyte host-memory pool imports are user pages the kernel looks up again on each one, about 2 ms a
@@ -296,13 +361,17 @@ void submit_cbs(const std::vector<VkCommandBufferSubmitInfo>& cbi, uint64_t seri
     VkResult r;
     if (worker) {
         std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
+        const auto s0 = std::chrono::steady_clock::now();
         r = vkQueueSubmit2(g->dev->queue(), 1, &si, VK_NULL_HANDLE);
+        note_slow_submit(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count(), cbi.size(), true);
     } else {
         nxrt::HitchTimer ht(nxrt::kHpRenderSubmit);
         const uint64_t tl = nxrt::hitch_ticks();
         std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
         nxrt::hitch_phase_add(nxrt::kHpRenderLockWait, nxrt::hitch_ticks() - tl);
+        const auto s0 = std::chrono::steady_clock::now();
         r = vkQueueSubmit2(g->dev->queue(), 1, &si, VK_NULL_HANDLE);
+        note_slow_submit(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count(), cbi.size(), false);
     }
     if (r != VK_SUCCESS) {
         g->dev->note_result(r, "vkQueueSubmit2 (NVN)");
@@ -364,10 +433,33 @@ bool wait_submitted(uint64_t serial, uint64_t timeout_ns = UINT64_MAX) {
 
 // submit_batch = frame: a thread outside the render thread waits for a serial that may still sit in the batch; the render thread flushes
 // it at once instead of with the next present (which that thread may be the one to queue).
-void want_flush(uint64_t serial) {
-    if (!g->frame_batch || serial <= g->flushed_pub.load() || g->flush_wanted.exchange(true)) return;
+// by_wait: a blocking wait asks (a poll may be deferred, see poll_flush_request; a wait never is).
+void want_flush(uint64_t serial, bool by_wait = true) {
+    if (!g->frame_batch || serial <= g->flushed_pub.load()) return;
+    if (by_wait) g->flush_by_wait.store(true);
+    if (g->flush_wanted.exchange(true)) return;
     std::lock_guard<std::mutex> lk(g->qmu);
     g->qcv.notify_one();
+}
+
+// [nvn] poll_flush: a poll of a serial still in the batch. now: flush at once (want_flush). defer / <ms>: leave it in the batch; the first deferred poll of
+// the batch arms the deadline (or the no-deadline marker) and, with a deadline, wakes the render thread so its idle wait ends at it. Any thread.
+void poll_flush_request(uint64_t serial, PollKind kind) {
+    if (!g->frame_batch || serial <= g->flushed_pub.load()) return;
+    if (g->poll_flush_ms == 0 || kind != PollKind::Sync) {
+        want_flush(serial, kind == PollKind::Wait);
+        return;
+    }
+    ft::mark("submit.poll_deferred");      // the poll that did not flush
+    g_gauge_polls_deferred.add();
+    g_gauge_polls_deferred_sync.add();
+    for (uint64_t cur = g->flush_poll_serial.load(); cur < serial && !g->flush_poll_serial.compare_exchange_weak(cur, serial);) {}
+    uint64_t none = 0;
+    const uint64_t dl = g->poll_flush_ms < 0 ? kPollDeferred : steady_ns() + static_cast<uint64_t>(g->poll_flush_ms) * 1000000ull;
+    if (g->flush_deadline_ns.compare_exchange_strong(none, dl) && g->poll_flush_ms > 0) {
+        std::lock_guard<std::mutex> lk(g->qmu);
+        g->qcv.notify_one();
+    }
 }
 
 bool wait_serial_blocking(uint64_t serial) {
@@ -870,6 +962,25 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
     return queue_submit(fn, true, true);
 }
 
+// [nvn] readback_async (download_texture): the job is recorded in queue order (after every submission queued before it) and this returns
+// once the render thread has recorded it. No GPU wait, on either thread; the caller waits for the serial itself (wait_serial_grace).
+uint64_t queue_record(std::function<void(Frame&)> record) {
+    return queue_submit(std::move(record), true, false);
+}
+
+// Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the
+// next present), polling every 0.5 ms, then waits for it on the GPU (wait_serial: a serial still in the batch is flushed at once, an
+// extra kernel submission). grace_ns 0: wait_serial at once. Not on the render thread (it is the one that flushes).
+bool wait_serial_grace(uint64_t serial, uint64_t grace_ns) {
+    if (!g || !serial) return true;
+    if (grace_ns > 0 && serial > g->flushed_pub.load()) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(grace_ns);
+        while (serial > g->flushed_pub.load() && g->completed.load() < serial && !g->dev->device_lost() && std::chrono::steady_clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
+    }
+    return wait_serial(serial, UINT64_MAX);
+}
+
 // ---- gpu.h ---------------------------------------------------------------------------------------------------------------
 bool active() { return g != nullptr; }
 void cpu_will_read(uint64_t addr, uint64_t size) {
@@ -916,7 +1027,7 @@ void finish() {
     });
 }
 
-bool serial_done(uint64_t serial) {
+bool serial_done(uint64_t serial, PollKind kind) {
     if (!g || !serial) return true;
     if (g->dev->device_lost()) {
         complete_serial(std::max(serial, g->reserved.load()));
@@ -924,7 +1035,7 @@ bool serial_done(uint64_t serial) {
     }
     if (g->completed.load() >= serial) return true;
     if (read_completed() >= serial) return true;
-    want_flush(serial);     // polled: it must reach the GPU to ever complete
+    poll_flush_request(serial, kind);     // polled: it must reach the GPU to ever complete (poll_flush: now, or with the present / the deadline)
     return false;
 }
 
@@ -963,7 +1074,7 @@ bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
         complete_serial(std::max(serial, g->reserved.load()));
         return true;
     }
-    if (serial_done(serial)) return true;
+    if (serial_done(serial, timeout_ns == 0 ? PollKind::Sync : PollKind::Wait)) return true;
     if (timeout_ns == 0) return false;
     want_flush(serial);
     NXFT("sync.wait");
@@ -1160,6 +1271,16 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
         gp->frame_batch = b == "frame";
         gp->batch_max = gp->frame_batch ? kSlots / 2 : static_cast<uint32_t>(std::clamp<int64_t>(std::atoll(b.c_str()), 1, kSlots / 2));
         NXLOG_I(kTag, "submit_batch %s (%s)", gp->frame_batch ? "frame" : std::to_string(gp->batch_max).c_str(), how.c_str());
+    }
+    {   // [nvn] poll_flush: auto = now (a poll of a batched serial flushes at once); defer = leave it for the present; 1-50 = defer at most that many ms.
+        // Only with submit_batch = frame.
+        const std::string v = nxrt::config_get_str("nvn", "poll_flush", "auto");
+        int ms = 0;
+        if (v == "defer") ms = -1;
+        else if (v != "auto" && v != "now") ms = static_cast<int>(std::clamp<int64_t>(std::atoll(v.c_str()), 0, 50));   // junk reads as 0 = now
+        if (!gp->frame_batch) ms = 0;
+        gp->poll_flush_ms = ms;
+        NXLOG_I(kTag, "poll_flush %s%s", ms < 0 ? "defer" : ms > 0 ? (std::to_string(ms) + " ms").c_str() : "now", gp->frame_batch ? "" : " (submit_batch is not frame)");
     }
     g = gp;
     if (!dev.features().timeline_semaphore) {

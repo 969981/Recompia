@@ -742,3 +742,15 @@ NXTEST(compute_discards_and_nop_debug_zcull) {
     }
     CHECK(w.at_end());
 }
+
+// The replay's bound on indirect arguments the CPU reads (draw_indirect_cpu, indirect_index_span): a stale 1.0f instance count and a
+// count that would size a multi-GiB index list are refused, real draws are not.
+NXTEST(indirect_args_plausible_bounds) {
+    CHECK(indirect_args_plausible(6, 1));
+    CHECK(indirect_args_plausible(0, 0));
+    CHECK(indirect_args_plausible(kIndirectMaxCount, kIndirectMaxInstances));
+    CHECK(!indirect_args_plausible(6, 1065353216u));   // 1.0f
+    CHECK(!indirect_args_plausible(6, kIndirectMaxInstances + 1));
+    CHECK(!indirect_args_plausible(kIndirectMaxCount + 1, 1));
+    CHECK(!indirect_args_plausible(0xFFFFFFFFu, 1));
+}

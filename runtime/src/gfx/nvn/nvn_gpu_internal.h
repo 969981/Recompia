@@ -384,5 +384,28 @@ uint32_t pool_flags_at(uint64_t gpu_address);
 // True once download_texture copied the texture's image into game memory (the CPU reads it): [nvn] async_compute never skips a dispatch
 // that writes it (nvn_gpu_texture.cpp). Render thread; creates nothing.
 bool tex_was_read_back(Texture* t);
+// ---- readback ([nvn] readback_async, nvn_gpu.cpp / nvn_gpu_texture.cpp) -----------------------------------------------------------
+// Any thread but the render thread. queue_record: queue_submit without the GPU wait (returns the serial once the render thread recorded
+// the job). wait_serial_grace: up to grace_ns for the render thread to flush the serial itself, then wait_serial(serial, UINT64_MAX).
+uint64_t queue_record(std::function<void(struct Frame&)> record);
+bool wait_serial_grace(uint64_t serial, uint64_t grace_ns);
+// download_texture's counts (any thread; tests, the summary): copies recorded, readbacks skipped as unchanged, readbacks in all.
+struct ReadbackStats { uint64_t copies = 0, skipped = 0, calls = 0; };
+ReadbackStats readback_stats();
+
+// ---- pool import attribution ([diag] stutter_logs; nvn_gpu_pool.cpp import_range) -----------------------------------------------------
+// Why the code on this thread is resolving pool memory: import_range counts every import under the reason current when it ran
+// (gauges nvn.pool.import.reason.<name>). Render thread; an import on another thread counts as kReasonOther.
+enum PoolReason { kReasonOther, kReasonVertex, kReasonIndex, kReasonUniform, kReasonStorage, kReasonTexel, kReasonIndirect, kReasonCopy,
+                  kReasonImageCopy, kReasonUpdate, kReasonUntile, kReasonCount };
+inline thread_local PoolReason t_pool_reason = kReasonOther;
+struct PoolReasonScope {
+    PoolReason saved;
+    explicit PoolReasonScope(PoolReason r) : saved(t_pool_reason) { t_pool_reason = r; }
+    ~PoolReasonScope() { t_pool_reason = saved; }
+    PoolReasonScope(const PoolReasonScope&) = delete;
+    PoolReasonScope& operator=(const PoolReasonScope&) = delete;
+};
+inline PoolReason pool_reason() { return t_pool_reason; }
 
 }  // namespace nxrt::nvn::be::gpu
