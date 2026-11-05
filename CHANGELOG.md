@@ -7,6 +7,11 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Fixes
+- The F1 page's **Upscaling -> Scene resolution** slider works now (#116). It did nothing in Pokopia: the 3D scene always
+  rendered at full size, so FSR 1 had nothing to upscale and FSR 3 ran at full size as anti-aliasing only (and slowly). Now the
+  scene renders at that percent per side while the HUD stays sharp, and FSR 1, NIS, FSR 3 or DLSS upscale it (without one, the
+  game stretches it itself). FSR 3 and DLSS take the size from their Quality setting (Quality = 67%), so on a handheld FSR 3
+  can now actually save GPU time. Applies live; the line under the slider shows what is in force.
 - The dashed outline of the cross-shaped placement indicator on the ground shows again (#120). The game draws the indicator
   with a depth range of 0 to 0, which pins it to one depth, and the runtime widened that to 0 to 1. Now it keeps the game's
   range.
@@ -45,6 +50,13 @@ of the game (version 2.0.1a): the download contains no game files.
   -> `pkp.ini` `[fs] romfs_base`), `RomfsImage::build(dir, err, base_dir)` serves the union (the update's files win),
   `extract_corpus.py --romfs-base`, and `pkp_main.cpp` `check_romfs()` (`game::Info` `romfs_min_files` / `romfs_min_bytes`,
   `[fs] romfs_check`). The shader marker records `<romfs> over <base>`, so Play asks for Set up once when the base is added.
+- **#116** `extras::upscale_scene_scale()` had no caller. `pkp_play.cpp` `hook_copy_params` (the dynres manager's per-frame copy,
+  0x22d1e0, now hooked on every render path) writes the scene viewport (+32 / +36) at that percent and publishes
+  `extras::scene_fraction` (scene / target, dynamic resolution off and one view only). The composite pass samples the scene at
+  `uv * c5[11].zw + c5[11].xy`, so at the tone-map draw the replay upscales the top-left part and binds an image of
+  `output / fraction` (rounded down, zeroed once) with the result in its top-left output-sized corner: `SpatialUpscaler::upscale`
+  and `temporal_evaluate` take an optional `out_tex` (FSR 1 / NIS / FFX / Streamline only write the output viewport). The temporal
+  jitter is half a pixel of the scene part.
 
 ## 0.5.0 (build I: Iguana)
 
