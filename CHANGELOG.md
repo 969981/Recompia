@@ -3,18 +3,48 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.5.0
 
 ### What's new
-- Steam Deck, Legion Go S and other Linux / SteamOS players: the game now hands its drawing work to the graphics card from a separate
-  thread by default (`[nvn] submit_thread = auto`). On a Steam Deck this about doubles the frame rate (26 -> 53 fps, measured by a
-  player). Windows is unchanged. Set `submit_thread = false` in `pkp.ini` to go back.
-- Steam Deck, Legion Go S and other 16:10 screens: with `aspect = auto` the picture now fills the whole screen again, with the taller
-  view and objects and players at the right height (#73), instead of 16:9 with bars. Not yet verified in the world. Set
-  `taller_fov = false` under `[pkp]` in `pkp.ini` to go back to the bars.
-- A way out of the game besides Alt+F4 (#70): hold Select and Start (View and Menu on an Xbox pad) together, or press the
-  new "Quit game" button on the F1 page, and confirm "Close the game?" with A (B cancels). Save in the game first. The buttons can be
-  changed and a keyboard key added on the F1 page (Controls), or in `controls.ini` under `[quit]`.
+- Multiplayer (Link Play) is part of every release now. A new Link Play page in the launcher: play alone, host on this PC or visit
+  a friend. Hosting shows the address to give out (LAN, Tailscale or ZeroTier) with Copy buttons, warns when Windows treats your
+  network as Public, and gives you a room code. In the game, pick Local connection. Each player needs their own save: a copied save
+  can't join its original.
+- Room codes: a room hosted with a code is hidden from everyone else and only players with the code can join. Rooms without a code
+  work as before on a LAN. Every player and the host need this version (older ones are refused with a message).
+- Game traffic can travel over UDP to the relay, so a lossy internet link no longer stalls everything. TCP stays as the fallback
+  (`[net] udp = off` to always use TCP).
+- Steam Deck, Legion Go S and other 16:10 screens: with `aspect = auto` the picture fills the whole screen with the taller view, and
+  objects and players at the right height (#73). Not yet verified in the world. `taller_fov = false` under `[pkp]` goes back to bars.
+- Import your save from Eden or Ryujinx (or any folder) on the Settings page. Your current save is moved to a dated backup first.
+- Set up: a setup log (Open setup log button), checks before it starts (free disk space, Vulkan, memory, a warning for Intel
+  13th/14th gen desktop CPUs), and a "fewer cores" option that keeps the PC usable while it builds.
+- "Set up again" is much faster after an update: compiled game code is kept and reused (up to 3 GB, `--cache-mb`).
+- .nup dumps: checked against their checksums, the version is checked before the big unpack, free space is checked, and the unpack
+  can be cancelled.
+- Clearer dump errors: files copied over FTP in text mode, an older game version or a base-only dump now tell you what to do.
+- Both sticks reach full speed by default (outer zone 0.92, new `right_stick_max`). Saved settings keep their value.
+- A way out of the game besides Alt+F4 (#70): hold Select and Start (View and Menu on an Xbox pad) together, or press "Quit game" on
+  the F1 page, and confirm with A.
+- Steam Deck, Legion Go S and other Linux / SteamOS players: drawing work is handed to the graphics card from a separate thread by
+  default (`[nvn] submit_thread = auto`); about 26 -> 53 fps on a Steam Deck (measured by a player).
+
+### Fixes
+- Saves: if a save can't be written (full disk, a file locked by OneDrive or antivirus), the last good save is kept and a notice
+  says so. Before, a half-written save could replace it.
+- Sound comes back after unplugging headphones, a Bluetooth reconnect or the monitor turning off, instead of staying silent.
+- Windows 11 no longer slows the game down when its window is behind other windows or on a second monitor.
+- Graphics: particles, light culling and a volume effect get their real buffer sizes; depth-of-field blur and lens flares get the
+  right instance; volumetric fog sees its real size; shadow tests on default textures match the console.
+- A rare hang in the game's waiting loops is prevented (needs Set up again).
+- Safer on GPUs that lack some formats (blending, filtering and vertex formats are checked; signed 10-bit textures fall back).
+- Faster pipeline lookups (less CPU per frame).
+
+### For developers
+- New opt-in keys, all off: `[sched] precise_sleep`, `[sched] precise_waits`, `[sched] yield_backoff`, `[diag] yield_census`,
+  `[nvn] shader_key_check`, `[nvn] reduced_precision`. On by default: `[sched] power_throttling`, `[nvn] pipe_last`. See CONFIG.md.
+- Releases run the launcher tests first and ship SHA256SUMS.txt; pull requests are scanned for private text.
+- Uses code and ideas from pokopia-native (MIT), credited in CREDITS.md.
 
 ## 0.4.1
 
