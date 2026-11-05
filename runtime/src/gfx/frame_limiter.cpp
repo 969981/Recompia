@@ -31,7 +31,6 @@ constexpr std::size_t kRing = 8192;         // frame intervals kept for stats()
 
 struct FrameLimiter::Impl {
     std::atomic<double> target_fps{0.0};
-    std::atomic<double> max_fps{0.0};        // the game's ceiling (set_max_fps); 0 = none
     std::atomic<FrameLimiter::PreFrameFn> pre_fn{nullptr};
     std::atomic<void*> pre_user{nullptr};
     HANDLE timer = nullptr;  // high-resolution waitable timer; null means the Sleep(1) coarse wait
@@ -121,16 +120,6 @@ void FrameLimiter::set_target_fps(double fps) { impl_->target_fps.store(fps > 0.
 
 double FrameLimiter::target_fps() const { return impl_->target_fps.load(); }
 
-void FrameLimiter::set_max_fps(double fps) { impl_->max_fps.store(fps > 0.0 ? fps : 0.0); }
-
-double FrameLimiter::max_fps() const { return impl_->max_fps.load(); }
-
-double FrameLimiter::effective_fps() const {
-    const double t = impl_->target_fps.load(), m = impl_->max_fps.load();
-    if (!(m > 0.0)) return t;
-    return t > 0.0 ? std::min(t, m) : m;
-}
-
 void FrameLimiter::set_pre_frame_hook(PreFrameFn fn, void* user) {
     impl_->pre_user.store(user, std::memory_order_relaxed);
     impl_->pre_fn.store(fn, std::memory_order_release);
@@ -154,7 +143,7 @@ bool frame_limiter_unpaced() { return g_unpaced.load(std::memory_order_relaxed);
 uint64_t FrameLimiter::begin_frame_nohook() {
     Impl& s = *impl_;
     const uint64_t entry = now_ns();
-    const double fps = effective_fps();
+    const double fps = s.target_fps.load();
 
     if (!(fps > 0.0) || g_unpaced.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lk(s.mu);
