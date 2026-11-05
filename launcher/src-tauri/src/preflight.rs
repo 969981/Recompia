@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Checks before Set up starts: free disk space, Vulkan, RAM, and a warning for the Intel Core CPUs that crash under long
-//! heavy loads. Every check except the disk space is a warning the player can continue past. `evaluate` is a pure function
+//! Checks before Set up starts: free disk space, write access to the game folder (writecheck.rs), Vulkan, RAM, and a warning
+//! for the Intel Core CPUs that crash under long heavy loads. Every check except the disk space and the write access is a
+//! warning the player can continue past. `evaluate` is a pure function
 //! of `Facts` (tests below); `probe` fills `Facts` from Windows.
 //!
 //! The Intel check and the "gentle" job count follow pokopia-native (MIT), nxs2.py `intel_microcode_warning` and
 //! `gentle_jobs` @7c3655d: 13th/14th generation desktop CPUs need Intel's 0x12B microcode (a BIOS update) or sustained
 //! all-core loads such as the shader translation can crash Windows.
 
-use crate::shaders;
+use crate::{shaders, writecheck};
 use serde::Serialize;
 use std::path::Path;
 
@@ -78,6 +79,9 @@ pub struct Facts {
     pub free_bytes: Option<u64>,
     pub need_bytes: u64,
     pub drive: String,
+    /// the game folder: the write test of it and its setup subfolders
+    pub game_dir: String,
+    pub write: Result<(), writecheck::WriteError>,
     pub vulkan: Vulkan,
     pub ram_total: Option<u64>,
     pub cpu_brand: Option<String>,
@@ -175,6 +179,11 @@ pub fn evaluate(f: &Facts) -> Report {
         ),
         Some(free) => push("disk", Level::Ok, "Free disk space", format!("{} free on {}; setup needs about {}.", gb(free), f.drive, gb(f.need_bytes))),
         None => push("disk", Level::Warn, "Free disk space unknown", format!("Could not read the free space of {}. Setup needs about {}.", f.drive, gb(f.need_bytes))),
+    }
+
+    match &f.write {
+        Ok(()) => push("write", Level::Ok, "Game folder", format!("Setup can write in {}.", f.game_dir)),
+        Err(e) => push("write", Level::Fail, e.title(), e.message()),
     }
 
     match &f.vulkan {
@@ -276,6 +285,8 @@ pub fn probe(game_dir: &Path, r: &Remaining) -> Facts {
         free_bytes: sys::free_bytes(game_dir),
         need_bytes: need,
         drive: drive_of(game_dir),
+        game_dir: game_dir.to_string_lossy().into_owned(),
+        write: writecheck::check(game_dir),
         vulkan: sys::vulkan(),
         ram_total: sys::ram_total(),
         cpu_brand: brand,
@@ -485,6 +496,8 @@ mod tests {
             free_bytes: Some(200 * GB),
             need_bytes: 36 * GB,
             drive: "D:".into(),
+            game_dir: r"D:\Games\Pokopia".into(),
+            write: Ok(()),
             vulkan: Vulkan::Gpus(vec![Gpu { name: "Test GPU".into(), api: (1, 3), software: false }]),
             ram_total: Some(32 * GB),
             cpu_brand: Some("AMD Ryzen 7 5800X 8-Core Processor".into()),
@@ -538,6 +551,26 @@ mod tests {
         let r = evaluate(&f);
         assert!(!r.blocked);
         assert_eq!(level(&r, "disk"), Level::Warn);
+    }
+
+    #[test]
+    fn blocked_folder_blocks() {
+        let mut f = facts();
+        let code = if cfg!(windows) { 5 } else { 13 };
+        f.write = Err(writecheck::WriteError {
+            dir: r"D:\Downloads\Pokopia".into(),
+            step: writecheck::Step::Create,
+            code: Some(code),
+            os: "Access is denied.".into(),
+            cause: writecheck::cause_of(writecheck::Step::Create, Some(code)),
+        });
+        let r = evaluate(&f);
+        assert!(r.blocked);
+        assert_eq!(level(&r, "write"), Level::Fail);
+        let c = r.checks.iter().find(|c| c.id == "write").unwrap();
+        assert_eq!(c.title, "Windows is blocking writes in the game folder");
+        assert!(c.detail.contains("Controlled folder access"));
+        assert_eq!(level(&evaluate(&facts()), "write"), Level::Ok);
     }
 
     #[test]

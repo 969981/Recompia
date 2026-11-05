@@ -167,6 +167,19 @@ struct Device::Impl {
     std::mutex once_mu;
     VkCommandPool once_pool = VK_NULL_HANDLE;
     VkFence once_fence = VK_NULL_HANDLE;
+
+    // GPU checkpoints (record_checkpoint, report_lost): what checkpoint number s was is in ck[s % kCkRing]. Each entry is a seqlock: seq
+    // is 0 while a writer fills it, then s; the report keeps a copy only when seq read s before and after. Allocated only with the extension.
+    // 16384 entries keep a few frames of dispatches and draws (`all` records thousands a frame; frames in flight and the submit batch add up).
+    struct CkEntry {
+        std::atomic<uint64_t> seq{0};
+        std::atomic<uint64_t> hash[4] = {};   // two 16-character shader hashes
+        std::atomic<uint64_t> ab{0};          // a | b << 32
+        std::atomic<uint64_t> c_kind{0};      // c | kind << 32 | indirect << 40
+    };
+    static constexpr uint64_t kCkRing = 16384;
+    std::unique_ptr<CkEntry[]> ck;
+    std::atomic<uint64_t> ck_seq{0};
 };
 
 namespace {
@@ -551,6 +564,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     VkPhysicalDeviceAttachmentFeedbackLoopLayoutFeaturesEXT afbl = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_FEATURES_EXT};
     VkPhysicalDevicePresentIdFeaturesKHR apid = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
     VkPhysicalDeviceAntiLagFeaturesAMD aal = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ANTI_LAG_FEATURES_AMD};
+    VkPhysicalDeviceFaultFeaturesEXT afault = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT};
     std::vector<const char*> dev_exts;
     void* chain = nullptr;
     auto add_ext = [&](const char* name, void* feat_struct) {
@@ -588,6 +602,15 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.external_memory_host = has_dext(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (features_.external_memory_host) dev_exts.push_back(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (has_dext(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) { dev_exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME); features_.push_descriptor = true; }
+    // device-lost diagnostics (report_lost): checkpoints before each dispatch (`dispatch`, the default) or each dispatch and draw (`all`);
+    // `off` leaves the extension off (NVIDIA's driver may track checkpoints once it is enabled). The fault report is on whenever offered.
+    const std::string ck_mode = lower(config_get_str("gfx", "gpu_checkpoints", "dispatch"));
+    const int ck_level = ck_mode == "off" ? 0 : ck_mode == "all" ? 2 : 1;
+    if (ck_mode != "off" && ck_mode != "all" && ck_mode != "dispatch")
+        NXLOG_W(kTag, "[gfx] gpu_checkpoints = '%s' is not dispatch, all or off: using dispatch", ck_mode.c_str());
+    const bool x_ck = ck_level > 0 && has_dext(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+    if (x_ck) dev_exts.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+    const bool x_fault = add_ext(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, &afault);
     // availability query: one chain holding all the structs
     a11.pNext = &a12; a12.pNext = &a13; a13.pNext = chain;
     VkPhysicalDeviceFeatures2 avail = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &a11};
@@ -660,6 +683,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.present_id = x_pid && apid.presentId;
     features_.low_latency2 = x_ll2 && features_.present_id;
     features_.anti_lag = x_aal && aal.antiLag;
+    afault.deviceFaultVendorBinary = VK_FALSE;   // the report reads the description, addresses and vendor codes, never the binary dump
+    features_.device_fault = x_fault && afault.deviceFault;
+    features_.checkpoints = x_ck;
     NXLOG_I(kTag, "texture compression on this GPU: BC %s, ASTC-LDR %s, ETC2 %s", features_.bc ? "yes" : "no",
             features_.astc_ldr ? "yes" : "no", features_.etc2 ? "yes" : "no");
     NXLOG_I(kTag, "features: geometry %d float64 %d int64 %d dualSrc %d logicOp %d multiViewport %d drawParams %d descIndexing %d interlock %d depthClipControl %d customBorder %d hostMemImport %d pushDesc %d feedbackLoop %d",
@@ -701,6 +727,21 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     std::vector<VkQueueFamilyProperties> qf(nq);
     vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, qf.data());
     timestamp_valid_bits_ = qf[queue_family_].timestampValidBits;
+    VkPipelineStageFlags2 ck_stages = 0;
+    if (x_ck) {
+        VkQueueFamilyCheckpointProperties2NV cp = {VK_STRUCTURE_TYPE_QUEUE_FAMILY_CHECKPOINT_PROPERTIES_2_NV};
+        std::vector<VkQueueFamilyProperties2> qf2(nq, VkQueueFamilyProperties2{VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2});
+        qf2[queue_family_].pNext = &cp;
+        vkGetPhysicalDeviceQueueFamilyProperties2(physical_, &nq, qf2.data());
+        ck_stages = cp.checkpointExecutionStageMask;
+        impl_->ck = std::make_unique<Impl::CkEntry[]>(Impl::kCkRing);
+        checkpoint_level_ = vkCmdSetCheckpointNV && vkGetQueueCheckpointData2NV ? ck_level : 0;
+    }
+    if (!ck_level) NXLOG_I(kTag, "device-lost diagnostics: GPU checkpoints off ([gfx] gpu_checkpoints), driver fault report %s",
+                           features_.device_fault ? "on" : "not offered");
+    else NXLOG_I(kTag, "device-lost diagnostics: GPU checkpoints %s (stages %#llx), driver fault report %s",
+                 checkpoint_level_ == 2 ? "before every dispatch and draw" : checkpoint_level_ ? "before every dispatch" : "not offered (NVIDIA only)",
+                 static_cast<unsigned long long>(ck_stages), features_.device_fault ? "on" : "not offered");
 
     VmaVulkanFunctions vf = {};
     vf.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
@@ -745,8 +786,121 @@ Device::~Device() {
 void Device::note_result(VkResult result, const char* operation) {
     if (result != VK_ERROR_DEVICE_LOST) return;
     bool expected = false;
-    if (device_lost_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-        NXLOG_E(kTag, "graphics device lost in %s (VK_ERROR_DEVICE_LOST); stopping further GPU work", operation ? operation : "Vulkan");
+    if (device_lost_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) report_lost(operation);
+}
+
+// ---- device-lost diagnostics ------------------------------------------------------------------------------------------
+// Ported from pokopia-native (MIT) windows/src/nxrt/vk/vk_dev.c @555813a (vk_checkpoint / vk_lost), on this device's ring and config.
+void Device::record_checkpoint(VkCommandBuffer cb, Checkpoint kind, const std::string* shader, const std::string* shader2, uint32_t a, uint32_t b,
+                               uint32_t c, bool indirect) {
+    Impl& m = *impl_;
+    const uint64_t s = m.ck_seq.fetch_add(1, std::memory_order_relaxed) + 1;
+    uint64_t h[4] = {};
+    if (shader) std::memcpy(h, shader->data(), std::min<size_t>(shader->size(), 16));
+    if (shader2) std::memcpy(h + 2, shader2->data(), std::min<size_t>(shader2->size(), 16));
+    Impl::CkEntry& e = m.ck[s % Impl::kCkRing];
+    e.seq.store(0, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    for (int i = 0; i < 4; ++i) e.hash[i].store(h[i], std::memory_order_relaxed);
+    e.ab.store(a | static_cast<uint64_t>(b) << 32, std::memory_order_relaxed);
+    e.c_kind.store(c | static_cast<uint64_t>(kind) << 32 | static_cast<uint64_t>(indirect) << 40, std::memory_order_relaxed);
+    e.seq.store(s, std::memory_order_release);
+    vkCmdSetCheckpointNV(cb, reinterpret_cast<const void*>(static_cast<uintptr_t>(s)));
+}
+
+namespace {
+// What checkpoint s was, from the ring (or that it has been overwritten since).
+std::string checkpoint_text(Device::Impl& m, uint64_t s) {
+    char t[256];
+    const Device::Impl::CkEntry* e = s && m.ck ? &m.ck[s % Device::Impl::kCkRing] : nullptr;
+    uint64_t h[4] = {}, ab = 0, ck = 0;
+    bool ok = false;
+    if (e && e->seq.load(std::memory_order_acquire) == s) {
+        for (int i = 0; i < 4; ++i) h[i] = e->hash[i].load(std::memory_order_relaxed);
+        ab = e->ab.load(std::memory_order_relaxed);
+        ck = e->c_kind.load(std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        ok = e->seq.load(std::memory_order_relaxed) == s;
+    }
+    if (!ok) {
+        std::snprintf(t, sizeof t, "#%llu (no longer kept)", static_cast<unsigned long long>(s));
+        return t;
+    }
+    char h0[17] = {}, h1[17] = {};
+    std::memcpy(h0, h, 16);
+    std::memcpy(h1, h + 2, 16);
+    const uint32_t a = static_cast<uint32_t>(ab), b = static_cast<uint32_t>(ab >> 32), c = static_cast<uint32_t>(ck);
+    const auto kind = static_cast<Device::Checkpoint>((ck >> 32) & 0xff);
+    const bool indirect = (ck >> 40) & 1;
+    const unsigned long long n = s, addr = ab;
+    if (kind == Device::Checkpoint::Dispatch) {
+        if (indirect) std::snprintf(t, sizeof t, "#%llu dispatch cs %s, indirect (arguments at guest %#llx)", n, h0[0] ? h0 : "-", addr);
+        else std::snprintf(t, sizeof t, "#%llu dispatch cs %s, %ux%ux%u groups", n, h0[0] ? h0 : "-", a, b, c);
+    } else {
+        if (indirect) std::snprintf(t, sizeof t, "#%llu draw vs %s fs %s, indirect (arguments at guest %#llx, up to %u draws)", n, h0[0] ? h0 : "-",
+                                    h1[0] ? h1 : "-", addr, c);
+        else std::snprintf(t, sizeof t, "#%llu draw vs %s fs %s, %u vertices x %u instances", n, h0[0] ? h0 : "-", h1[0] ? h1 : "-", a, b);
+    }
+    return t;
+}
+}  // namespace
+
+void Device::report_lost(const char* operation) {
+    NXLOG_E(kTag, "graphics device lost in %s (VK_ERROR_DEVICE_LOST); stopping further GPU work", operation ? operation : "Vulkan");
+    // Checkpoints: per pipeline stage, the last marker the GPU reached there. A marker sits before its dispatch or draw, so top of pipe at s
+    // means the work of s may have started and bottom of pipe at s means everything before s finished: the fault is in between.
+    if (checkpoint_level_) {
+        uint32_t n = 0;
+        vkGetQueueCheckpointData2NV(queue_, &n, nullptr);
+        std::vector<VkCheckpointData2NV> cd(n, VkCheckpointData2NV{VK_STRUCTURE_TYPE_CHECKPOINT_DATA_2_NV});
+        if (n) vkGetQueueCheckpointData2NV(queue_, &n, cd.data());
+        uint64_t done = 0, reached = 0;
+        for (uint32_t i = 0; i < n && i < cd.size(); ++i) {
+            const uint64_t s = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(cd[i].pCheckpointMarker));
+            const char* at = cd[i].stage == VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT ? "the GPU had reached" :
+                             cd[i].stage == VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT ? "everything had finished before" : "this stage had reached";
+            NXLOG_E(kTag, "  checkpoint (stage %#llx): %s %s", static_cast<unsigned long long>(cd[i].stage), at, checkpoint_text(*impl_, s).c_str());
+            if (cd[i].stage == VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT) done = std::max(done, s);
+            else reached = std::max(reached, s);
+        }
+        if (!n) NXLOG_E(kTag, "  no checkpoint was reached (the lost work came before the first marker, or is not the replay's)");
+        for (uint64_t s = done; done && s <= reached && s < done + 8; ++s) NXLOG_E(kTag, "  in flight: %s", checkpoint_text(*impl_, s).c_str());
+        if (done && reached >= done + 8) NXLOG_E(kTag, "  in flight: ... up to #%llu", static_cast<unsigned long long>(reached));
+    } else {
+        NXLOG_E(kTag, "  no GPU checkpoints (%s)", features_.checkpoints ? "[gfx] gpu_checkpoints = off" : "they need NVIDIA's VK_NV_device_diagnostic_checkpoints");
+    }
+    // The driver's fault report: a counts query, then the address and vendor records and the description (never the vendor binary).
+    if (!features_.device_fault || !vkGetDeviceFaultInfoEXT) {
+        NXLOG_E(kTag, "  no driver fault report (VK_EXT_device_fault not offered)");
+        return;
+    }
+    VkDeviceFaultCountsEXT fc = {VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT};
+    VkResult r = vkGetDeviceFaultInfoEXT(device_, &fc, nullptr);
+    if (r != VK_SUCCESS) {
+        NXLOG_E(kTag, "  the driver's fault report could not be read (%d)", static_cast<int>(r));
+        return;
+    }
+    std::vector<VkDeviceFaultAddressInfoEXT> ai(fc.addressInfoCount);
+    std::vector<VkDeviceFaultVendorInfoEXT> vi(fc.vendorInfoCount);
+    fc.vendorBinarySize = 0;
+    VkDeviceFaultInfoEXT fi = {VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT};
+    fi.pAddressInfos = ai.empty() ? nullptr : ai.data();
+    fi.pVendorInfos = vi.empty() ? nullptr : vi.data();
+    r = vkGetDeviceFaultInfoEXT(device_, &fc, &fi);
+    if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
+        NXLOG_E(kTag, "  the driver's fault report could not be read (%d)", static_cast<int>(r));
+        return;
+    }
+    static const char* const kAddrType[] = {"none", "invalid read", "invalid write", "invalid execute", "unknown instruction pointer",
+                                            "invalid instruction pointer", "instruction pointer of the fault"};
+    NXLOG_E(kTag, "  driver fault report: %s (%u addresses, %u vendor records)", fi.description[0] ? fi.description : "(no description)",
+            fc.addressInfoCount, fc.vendorInfoCount);
+    for (uint32_t i = 0; i < fc.addressInfoCount && i < ai.size(); ++i)
+        NXLOG_E(kTag, "  fault address: %s at %#llx (precision %#llx)", ai[i].addressType < 7 ? kAddrType[ai[i].addressType] : "?",
+                static_cast<unsigned long long>(ai[i].reportedAddress), static_cast<unsigned long long>(ai[i].addressPrecision));
+    for (uint32_t i = 0; i < fc.vendorInfoCount && i < vi.size(); ++i)
+        NXLOG_E(kTag, "  vendor fault: %s (code %#llx, data %#llx)", vi[i].description, static_cast<unsigned long long>(vi[i].vendorFaultCode),
+                static_cast<unsigned long long>(vi[i].vendorFaultData));
 }
 
 // ---- validation -------------------------------------------------------------------------------------------------------

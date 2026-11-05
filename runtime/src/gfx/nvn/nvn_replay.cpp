@@ -109,7 +109,10 @@ struct GState {
     uint32_t nvp = 0;
     int32_t sc[16][4] = {};
     uint32_t nsc = 0;
-    float dr[16][2] = {};
+    // near/far per viewport; NVN's default range is 0..1. A game-set 0..0 is a real range (the placement indicator draws
+    // its outline and fill with it to pin them to depth 0, issue #120), so it is passed through, never widened.
+    float dr[16][2] = {{0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1},
+                       {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}};
     bool depth_bounds = false;
     float db_near = 0, db_far = 1;
     uint32_t stencil_ref[2] = {0, 0}, stencil_vmask[2] = {0xff, 0xff}, stencil_wmask[2] = {0xff, 0xff};
@@ -801,8 +804,8 @@ void set_viewports_and_scissors() {
         // Upper-left origin: window y is the image row from the top and NDC +y is the top edge of the rectangle (negative height).
         // Lower-left origin (the GL convention): window y 0 is memory row 0 and NDC -y is the first row, so no flip.
         const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
-        vp[i] = lower_left ? VkViewport{x, y, w, h, S.dr[i][0], S.dr[i][1] == 0.0f && S.dr[i][0] == 0.0f ? 1.0f : S.dr[i][1]}
-                           : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1] == 0.0f && S.dr[i][0] == 0.0f ? 1.0f : S.dr[i][1]};
+        vp[i] = lower_left ? VkViewport{x, y, w, h, S.dr[i][0], S.dr[i][1]}
+                           : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1]};
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
     }
@@ -1586,6 +1589,7 @@ uint64_t indirect_index_span(const P_DrawIndirect& p) {
     for (uint64_t i = 0; i < n; ++i) {
         uint32_t v[3];
         std::memcpy(v, a + i * stride, sizeof v);   // count, instance count, first index
+        if (!indirect_args_plausible(v[0], v[1])) return whole();   // not what the GPU will read (stale): the whole pool, as when unreadable
         if (v[0] && v[1]) end = std::max(end, (static_cast<uint64_t>(v[2]) + v[0]) * isz);
     }
     return end;
@@ -3074,12 +3078,22 @@ bool bind_u32_indices(const std::vector<uint32_t>& idx) {
     return true;
 }
 
+// [gfx] gpu_checkpoints = all: a checkpoint before the draw names it (vertex and fragment shader, counts) if the device is lost while it runs.
+// One compare when off or without NVIDIA's extension. Indirect: a, b = the guest address of the arguments, c = the draw count limit.
+void checkpoint_draw(uint32_t a, uint32_t b, uint32_t c, bool indirect) {
+    gfx::Device& d = device();
+    if (!d.checkpoints_on(gfx::Device::Checkpoint::Draw)) return;
+    d.checkpoint(F->cb, gfx::Device::Checkpoint::Draw, S.stage[kVertex] ? &S.stage[kVertex]->hash : nullptr,
+                 S.stage[kFragment] ? &S.stage[kFragment]->hash : nullptr, a, b, c, indirect);
+}
+
 void do_draw_arrays(const P_DrawArrays& p) {
     count_primitives(p.mode, p.count, p.instance_count);
     g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
+    checkpoint_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
     if (conv == PrimConversion::None) {
         TRACE("    vertices %u instances %u first %u", p.count, p.instance_count, p.first);
         vkCmdDraw(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), p.first, p.base_instance);
@@ -3161,6 +3175,7 @@ void do_draw_elements(const P_DrawElements& p) {
     const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     const uint8_t* src = host_ptr(p.index_address);
+    checkpoint_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
     if (conv != PrimConversion::None || isz == 1) {
         // widen to 32 bit and/or convert the primitive
         std::vector<uint32_t> in(p.count);
@@ -3231,6 +3246,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
         std::memcpy(v, a, cmd_size);
         const uint32_t count = v[0], instances = v[1];
         if (!count || !instances) continue;
+        if (!indirect_args_plausible(count, instances)) { note_unsupported("indirect draw conversion: implausible arguments (stale guest memory?)"); continue; }
         std::vector<uint32_t> in(count);
         int32_t base_vertex = 0;
         uint32_t base_instance = v[3];
@@ -3252,6 +3268,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
         count_primitives(p.mode, count, instances);
         const std::vector<uint32_t> idx = convert_prim_indices(conv, in);
         if (idx.empty() || !bind_u32_indices(idx)) continue;
+        checkpoint_draw(count, instances, 0, false);   // the CPU read the arguments: a direct draw
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), instances, 0, base_vertex, base_instance);
         drew = true;
     }
@@ -3288,6 +3305,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
         BufRef xb = resolve_buffer(p.index_address, 4);
         bind_index_buffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
+    checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), static_cast<uint32_t>(n_cmds), true);
     if (p.multi && p.count_address) {
         BufRef cb = held_or_pool(p.count_address, 4, kOutIndirect, false);
         const uint32_t stride = static_cast<uint32_t>(p.stride ? p.stride : cmd_size);
@@ -3327,6 +3345,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     uint32_t stride = g_key_attr_count ? S.stream[g_key_binding[0]].stride : 0;
     for (uint32_t b = 0; !stride && b < 16; ++b) stride = S.stream[b].stride;
     if (!stride) { note_unsupported("DrawTransformFeedback with no vertex stream stride"); counters().draws_skipped.fetch_add(1); return; }
+    checkpoint_draw(static_cast<uint32_t>(p.control), static_cast<uint32_t>(p.control >> 32), 1, true);   // the count is the section's byte counter
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb_counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
@@ -3388,6 +3407,13 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     if (g_sh_copied) {
         memory_barrier(F->cb);     // the copies into the shadows before the dispatch reads them
         gstamp("shadow in");
+    }
+    // [gfx] gpu_checkpoints: a checkpoint before the dispatch names it (shader, groups or the guest address of indirect arguments) if the
+    // device is lost while it runs. One compare when off or without NVIDIA's extension.
+    if (device().checkpoints_on(gfx::Device::Checkpoint::Dispatch)) {
+        if (indirect) device().checkpoint(F->cb, gfx::Device::Checkpoint::Dispatch, &cs->hash, nullptr, static_cast<uint32_t>(indirect),
+                                          static_cast<uint32_t>(indirect >> 32), 0, true);
+        else device().checkpoint(F->cb, gfx::Device::Checkpoint::Dispatch, &cs->hash, nullptr, x, y, z, false);
     }
     if (indirect) {
         vkCmdDispatchIndirect(F->cb, ind.buffer, ind.offset);
