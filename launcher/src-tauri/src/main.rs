@@ -403,6 +403,29 @@ fn lan_report() -> lan::LanReport {
     lan::report()
 }
 
+/// A new room code for a host, XXXX-XXXX-XXXX-XXXX (80 bits from the OS random source). The launcher writes it to pkp.ini
+/// `[net] room_code` so the game hosts with it and the page can show it before the game starts.
+#[tauri::command]
+fn room_code_new() -> Result<String, String> {
+    relay::room_code::new_code().map(|c| relay::room_code::format(&c)).map_err(|e| format!("Cannot make a room code: {}", e))
+}
+
+/// A visitor's typed code: the display form, or the error text to show.
+#[tauri::command]
+fn room_code_check(code: String) -> Result<String, String> {
+    relay::room_code::normalize(&code)
+        .map(|c| relay::room_code::format(&c))
+        .ok_or_else(|| "A room code has 16 letters and digits: XXXX-XXXX-XXXX-XXXX.".to_string())
+}
+
+/// The room code the running game uses, from `<game folder>/room-code.txt` (written by the game when it starts local wireless
+/// with `[net] room_code` set, removed when it runs without one). None: no file or no valid code in it.
+#[tauri::command]
+fn room_code_host(app: AppHandle) -> Option<String> {
+    let text = fs::read_to_string(game_dir_of(&load_config(&app)).join("room-code.txt")).ok()?;
+    relay::room_code::normalize(text.trim()).map(|c| relay::room_code::format(&c))
+}
+
 /// `--host [--port N] [--password P]`: the relay alone, no window, log lines on stdout, until Ctrl+C.
 fn run_headless(args: &[String]) -> i32 {
     #[cfg(windows)]
@@ -529,6 +552,9 @@ fn main() {
             relay_stop,
             relay_status,
             lan_report,
+            room_code_new,
+            room_code_check,
+            room_code_host,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");
