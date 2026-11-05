@@ -7,6 +7,9 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Fixes
+- A PC whose page file is off or too small no longer crashes at start with "pkp.exe exited with code 4". The game reserves
+  about 10.4 GB for its memory as it starts, and when Windows has no room left for that (RAM plus page file used up) the game
+  crashed on its first write. Now it says so and how to turn the page file on, and ends with code 6.
 - The dashed outline of the cross-shaped placement indicator on the ground shows again (#120). The game draws the indicator
   with a depth range of 0 to 0, which pins it to one depth, and the runtime widened that to 0 to 1. Now it keeps the game's
   range.
