@@ -363,7 +363,9 @@ Both are on the launcher's Tweaks tab and the F1 page's Tweaks tab (a switch, th
 
 `[pad] deadzone`, default `0.10`, range `0` to `0.5`: the dead zone of the left stick (movement). Before the right stick got its own key, this was the only stick dead zone.
 
-`[pad] stick_max`, default `1.0`, range `0.5` to `1.0`: how far the left stick must be pushed to count as fully pushed, as a fraction of its travel. At `1.0` nothing changes. Some pads (a worn DualSense, for one) top out at 0.9 to 0.97 of the range, so the game never sees a full push and the character moves slower than with the keyboard; lowering this to about `0.9` fixes that. The travel between `deadzone` and `stick_max` is rescaled to 0..1.
+`[pad] stick_max`, default `0.92`, range `0.5` to `1.0`: how far the left stick must be pushed to count as fully pushed, as a fraction of its travel. Some pads (a worn pad, a DualSense at about 0.96) top out at 0.9 to 0.97 of the range, so the game never sees a full push and the character moves slower than with the keyboard; the default makes those reach full speed. At `1.0` the outer zone is off. The travel between `deadzone` and `stick_max` is rescaled to 0..1 along the radius. The default used to be `1.0`; a `controls.ini` that already has a `stick_max` line keeps its value.
+
+`[pad] right_stick_max`, default `0.92`, range `0.5` to `1.0`: the same for the right stick (looking), so the camera turns at full speed on a pad that does not reach the edge. A file with `stick_max` but no `right_stick_max` gives the right stick the value of `stick_max` when read. The next save writes both keys.
 
 `[pad] right_deadzone`, default `0.10`, range `0` to `0.5`: the dead zone of the right stick (looking). A file with `deadzone` but no `right_deadzone` gives the right stick the value of `deadzone` when read. The next save writes both keys.
 

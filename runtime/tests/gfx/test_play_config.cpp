@@ -96,7 +96,7 @@ bool same_settings(const Settings& a, const Settings& b) {
     const PadSettings &pa = a.pad, &pb = b.pad;
     if (!(pa.label_abxy == pb.label_abxy && pa.stick_deadzone == pb.stick_deadzone && pa.trigger_threshold == pb.trigger_threshold &&
           pa.gyro == pb.gyro && pa.gyro_scale == pb.gyro_scale && pa.rumble == pb.rumble && pa.rumble_scale == pb.rumble_scale &&
-          pa.right_deadzone == pb.right_deadzone && pa.stick_max == pb.stick_max && pa.invert_y == pb.invert_y && pa.look_sens == pb.look_sens && pa.alt_orbit == pb.alt_orbit))
+          pa.right_deadzone == pb.right_deadzone && pa.stick_max == pb.stick_max && pa.right_stick_max == pb.right_stick_max && pa.invert_y == pb.invert_y && pa.look_sens == pb.look_sens && pa.alt_orbit == pb.alt_orbit))
         return false;
     const TimingSettings &ta = a.timing, &tb = b.timing;
     if (!(ta.tap_ms == tb.tap_ms && ta.hold_ms == tb.hold_ms && ta.double_ms == tb.double_ms && ta.pulse_ms == tb.pulse_ms)) return false;
@@ -1610,6 +1610,33 @@ NXTEST(pad_right_deadzone_default_kept_without_pad_deadzone) {
     std::string err;
     REQUIRE_MSG(parse_settings("[mouse]\nyaw = 0.001\n", &s, &err), err);
     CHECK(near(s.pad.right_deadzone, 0.10));
+}
+
+NXTEST(pad_stick_max_defaults_and_keys) {
+    Settings s;
+    std::string err;
+    CHECK(near(s.pad.stick_max, 0.92));
+    CHECK(near(s.pad.right_stick_max, 0.92));
+    // no stick_max line: both keep the default
+    REQUIRE_MSG(parse_settings("[pad]\ndeadzone = 0.2\n", &s, &err), err);
+    CHECK(near(s.pad.stick_max, 0.92));
+    CHECK(near(s.pad.right_stick_max, 0.92));
+    // an explicit stick_max (even 1.0) is kept; the right stick follows it when the file has no right_stick_max
+    Settings o;
+    REQUIRE_MSG(parse_settings("[pad]\nstick_max = 1.0\n", &o, &err), err);
+    CHECK(near(o.pad.stick_max, 1.0));
+    CHECK(near(o.pad.right_stick_max, 1.0));
+    // both keys explicit, and they round-trip
+    Settings b;
+    REQUIRE_MSG(parse_settings("[pad]\nright_stick_max = 0.8\nstick_max = 0.95\n", &b, &err), err);
+    CHECK(near(b.pad.stick_max, 0.95));
+    CHECK(near(b.pad.right_stick_max, 0.8));
+    Settings r;
+    REQUIRE_MSG(parse_settings(format_settings(b), &r, &err), err);
+    CHECK(near(r.pad.right_stick_max, 0.8));
+    // range
+    Settings bad;
+    CHECK(!parse_settings("[pad]\nright_stick_max = 0.2\n", &bad, &err));
 }
 
 // ---- the alternate body's camera (mpr: the morph ball camera, S48): [mouse] alt_camera, alt_sensitivity ------------------------------------
