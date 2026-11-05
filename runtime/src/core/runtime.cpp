@@ -40,6 +40,7 @@ bool init(const InitOptions& opt) {
     if (g_up) return true;
     const char* ini = opt.ini_path ? opt.ini_path : std::getenv("NXRT_INI");
     config_load_file(ini && *ini ? ini : "nxrt.ini");
+    if (opt.cache_env) config_cache_env(true);
     LogOptions lo;
     lo.path = opt.log_path;
     log_init(lo);
@@ -60,6 +61,7 @@ bool init(const InitOptions& opt) {
     if (opt.services) {
         services::register_all();
         kernel::install_busy_mutex_hle();   // the SDK's spin lock yields under the console core model
+        install_libc_hle();           // the SDK's string and memory functions as host code ([hle] libc)
         media::install_movie_hle();   // movie:: on Media Foundation ([media] movie = off keeps the library in subsdk0); Switch 1 only
         media::install_video_codec_hle();   // Switch 2: nn::codec VP9/VP8 decoders + fences on libvpx (src/media/video_codec.cpp)
         install_switch2_hle();        // Switch 2: the GPU driver boot answers on the host (src/core/switch2.cpp)

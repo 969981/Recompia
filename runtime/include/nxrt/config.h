@@ -31,6 +31,10 @@ bool config_has(const char* section, const char* key);                          
 const char* config_source(const char* section, const char* key);
 // Logs (Info, tag "config") every key read so far with its effective value and source.
 void config_log_effective();
+// Caches lookups per thread from now on (on = true) or stops caching. The caller promises that the process environment does not
+// change any more (the cache cannot see _putenv); ini changes through this API are seen at once. [config] cache = false refuses.
+// Returns whether the cache is on. nxrt::init turns it on when InitOptions::cache_env is set (the game exe), never in unit tests.
+bool config_cache_env(bool on);
 // The environment variable name used for a key, e.g. NXRT_DIAG_WATCHDOG_SECONDS.
 std::string config_env_name(const char* section, const char* key);
 

@@ -270,6 +270,7 @@ std::vector<Ref<Texture>> texture_registry_collect(bool (*pred)(const Texture& t
 }
 
 std::atomic<uint64_t> g_tex_scan_epoch{1};
+std::atomic<uint64_t> g_bind_gen{1};
 std::atomic<bool> g_tex_prep_on{false};
 
 void textures_note_bound(TexturePool* tp, const uint64_t* handles, int count) {

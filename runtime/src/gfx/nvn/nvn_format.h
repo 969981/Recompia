@@ -40,4 +40,15 @@ VkFormat vertex_format(int nvn_format);
 bool vk_format_is_integer(VkFormat f);
 bool vk_format_is_signed_int(VkFormat f);
 
+// The unit a buffer <-> image copy of format f moves for `aspect` (VkBufferImageCopy addresses the buffer in it): bytes and texels of one
+// block (1x1 for uncompressed formats; the depth or stencil part alone for a depth/stencil aspect). bytes = 0: a format the NVN table
+// does not use.
+struct CopyBlock {
+    uint32_t bytes = 0, w = 1, h = 1;
+};
+CopyBlock vk_copy_block(VkFormat f, VkImageAspectFlags aspect);
+// A buffer copy of an image in format `image` addresses the buffer like one of an image in format `nvn` (the NVN format's own Vulkan
+// format, whose layout the game's buffer has): same block size and bytes. False when either is unknown.
+bool vk_copy_layout_matches(VkFormat image, VkFormat nvn, VkImageAspectFlags aspect);
+
 }  // namespace nxrt::nvn

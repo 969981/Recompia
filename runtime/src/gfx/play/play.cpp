@@ -404,7 +404,7 @@ void vib_sink(uint32_t slot, int hand, const hid::VibrationValue& v, void*) {
 
 }  // namespace
 
-[[noreturn]] void exit_process(int code, const char* verdict, const std::string& message) {
+[[noreturn]] void exit_process_impl(int code, const char* verdict, const std::string& message, bool flush_gpu_cache) {
     G& st = g();
     NXLOG_I(kTag, "ending the process (%s): %s", verdict, message.c_str());
     if (st.dirty) {
@@ -413,11 +413,15 @@ void vib_sink(uint32_t slot, int hand, const hid::VibrationValue& v, void*) {
         if (!save_settings(st.path, st.settings, &err)) NXLOG_W(kTag, "cannot save %s: %s", st.path.c_str(), err.c_str());
         st.dirty = false;
     }
-    nvn::backend_flush_caches();                    // the pipeline cache; this path does not shut the back end down
+    if (flush_gpu_cache) nvn::backend_flush_caches();   // unsafe after VK_ERROR_DEVICE_LOST; normal early-exit paths still save it
     nxrt::log_flush();
     if (tt::enabled() && !tt::finished()) tt::end_run(code, verdict, message);     // writes result.json, then terminates
     TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
     for (;;) Sleep(1000);
+}
+
+[[noreturn]] void exit_process(int code, const char* verdict, const std::string& message) {
+    exit_process_impl(code, verdict, message, true);
 }
 
 namespace {
@@ -678,6 +682,11 @@ thread_local bool t_in_update = false;
 
 int update_hook(::Ctx*, uint64_t, void*) {
     G& st = g();
+    if (st.device && st.device->device_lost()) {
+        const char* message = "The graphics device was lost, so Pokopia must close. Restart the game and attach pkp.log if the problem repeats.";
+        if (st.window) MessageBoxA(static_cast<HWND>(platform::native_hwnd()), message, "Pokopia - graphics device lost", MB_OK | MB_ICONERROR);
+        exit_process_impl(2, "fail", message, false);
+    }
     ft::mark("main.update");
     struct InUpdate {
         InUpdate() { t_in_update = true; }

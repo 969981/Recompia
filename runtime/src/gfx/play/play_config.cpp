@@ -332,6 +332,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "deadzone") return set_real(0.0, 0.5, &s->pad.stick_deadzone);
             if (k == "right_deadzone") return set_real(0.0, 0.5, &s->pad.right_deadzone);
             if (k == "stick_max") return set_real(0.5, 1.0, &s->pad.stick_max);
+            if (k == "right_stick_max") return set_real(0.5, 1.0, &s->pad.right_stick_max);
             if (k == "invert_y") return set_bool(&s->pad.invert_y);
             if (k == "look_sens") return set_real(0.25, 3.0, &s->pad.look_sens);
             if (k == "trigger_threshold") return set_real(0.05, 1.0, &s->pad.trigger_threshold);
@@ -677,7 +678,7 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
     Sec sec = Sec::None;
     Ctx ctx = Ctx::All;
     // Which of the two dead-zone keys the [pad] section has, for the rule after the loop (right_deadzone takes deadzone's value when only deadzone is there).
-    bool pad_has_deadzone = false, pad_has_right_deadzone = false;
+    bool pad_has_deadzone = false, pad_has_right_deadzone = false, pad_has_stick_max = false, pad_has_right_stick_max = false;
     for (size_t i = 0; i < lines.size(); ++i) {
         std::string line = trim(lines[i]);
         if (line.empty()) continue;
@@ -770,11 +771,15 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
         if (sec == Sec::Pad) {
             if (lower(key) == "deadzone") pad_has_deadzone = true;
             if (lower(key) == "right_deadzone") pad_has_right_deadzone = true;
+            if (lower(key) == "stick_max") pad_has_stick_max = true;
+            if (lower(key) == "right_stick_max") pad_has_right_stick_max = true;
         }
     }
 
     // A file written before right_deadzone existed has one dead zone (deadzone), so the right stick takes its value.
     if (pad_has_deadzone && !pad_has_right_deadzone) s->pad.right_deadzone = s->pad.stick_deadzone;
+    // Same for stick_max: it only ever covered the left stick, so a file that sets it and has no right_stick_max gives the right stick the same value.
+    if (pad_has_stick_max && !pad_has_right_stick_max) s->pad.right_stick_max = s->pad.stick_max;
 
     if (has_bindings) {
         // A file with bindings written by an older revision gets the newer factory bindings it lacks (see GameDefaults).
@@ -877,6 +882,7 @@ std::string format_settings(const Settings& s) {
     kv("look_sens", num(s.pad.look_sens));
     kv("trigger_threshold", num(s.pad.trigger_threshold));
     kv("stick_max", num(s.pad.stick_max));
+    kv("right_stick_max", num(s.pad.right_stick_max));
     kv("gyro", flag(s.pad.gyro));
     kv("gyro_scale", num(s.pad.gyro_scale));
     kv("rumble", flag(s.pad.rumble));

@@ -239,7 +239,7 @@ constexpr FormatInfo kTable[] = {
      VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED},
     // RGB10A2 signed, integer and scaled forms (0x69..0x6C)
     {"RGB10A2SN", NVN_FORMAT_RGB10A2SN, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, true, false, false,
-     VK_FORMAT_A2B10G10R10_SNORM_PACK32, VK_FORMAT_UNDEFINED},
+     VK_FORMAT_A2B10G10R10_SNORM_PACK32, VK_FORMAT_R16G16B16A16_SNORM},   // A2B10G10R10_SNORM is optional; prepare_texture widens the texels
     {"RGB10A2I", NVN_FORMAT_RGB10A2I, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, false, true, false,
      VK_FORMAT_A2B10G10R10_SINT_PACK32, VK_FORMAT_UNDEFINED},
     {"RGB10A2_UI2F", NVN_FORMAT_RGB10A2_UI2F, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, false, false, false,
@@ -409,6 +409,38 @@ bool vk_format_is_integer(VkFormat f) {
         default:
             return false;
     }
+}
+
+CopyBlock vk_copy_block(VkFormat f, VkImageAspectFlags aspect) {
+    CopyBlock b;
+    // the depth or stencil part of a depth/stencil format: Vulkan's buffer layout of that aspect (D24 in 4 bytes, S8 in 1)
+    if (aspect & VK_IMAGE_ASPECT_STENCIL_BIT) {
+        if (f == VK_FORMAT_S8_UINT || f == VK_FORMAT_D16_UNORM_S8_UINT || f == VK_FORMAT_D24_UNORM_S8_UINT || f == VK_FORMAT_D32_SFLOAT_S8_UINT) b.bytes = 1;
+        return b;
+    }
+    if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) {
+        if (f == VK_FORMAT_D16_UNORM || f == VK_FORMAT_D16_UNORM_S8_UINT) b.bytes = 2;
+        else if (f == VK_FORMAT_X8_D24_UNORM_PACK32 || f == VK_FORMAT_D24_UNORM_S8_UINT || f == VK_FORMAT_D32_SFLOAT || f == VK_FORMAT_D32_SFLOAT_S8_UINT) b.bytes = 4;
+        return b;
+    }
+    if (f == VK_FORMAT_UNDEFINED) return b;
+    // colour: the NVN entry with this Vulkan format has the texel (block) size (every image format the runtime makes is one: the NVN
+    // format, its fallback, BC7 or RGBA8 for ASTC, RGBA16F for a promoted target)
+    for (int i = 0; i < kCount; ++i) {
+        const FormatInfo& e = kTable[i];
+        if (e.vk != f || e.aspect != kAspectColor) continue;
+        b.bytes = e.bytes;
+        b.w = e.block_w;
+        b.h = e.block_h;
+        return b;
+    }
+    return b;
+}
+
+bool vk_copy_layout_matches(VkFormat image, VkFormat nvn, VkImageAspectFlags aspect) {
+    if (image == nvn) return image != VK_FORMAT_UNDEFINED;
+    const CopyBlock a = vk_copy_block(image, aspect), b = vk_copy_block(nvn, aspect);
+    return a.bytes != 0 && a.bytes == b.bytes && a.w == b.w && a.h == b.h;
 }
 
 }  // namespace nxrt::nvn

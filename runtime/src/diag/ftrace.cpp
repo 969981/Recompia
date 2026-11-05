@@ -95,6 +95,86 @@ void writer_main() {
 
 }  // namespace
 
+// TSC -> ns. The ratio comes from a (QPC, TSC) pair taken at tsc_init and is refreshed from the same anchor at most once a second, so
+// it gets more exact the longer the run is. Plain doubles: written only under g_tsc_mu, read racily (a torn read is impossible for a
+// double on x64 and a stale ratio is as good as the new one).
+namespace {
+std::mutex g_tsc_mu;
+uint64_t g_tsc_q0 = 0, g_tsc_c0 = 0, g_tsc_last_q = 0;
+double g_ns_per_tick = 0.0;
+uint64_t qpc_now() { LARGE_INTEGER c; QueryPerformanceCounter(&c); return static_cast<uint64_t>(c.QuadPart); }
+double q_to_ns(uint64_t dq) { return static_cast<double>(dq) * 1e9 / static_cast<double>(qpc_freq()); }
+}  // namespace
+
+void tsc_init() {
+    std::lock_guard<std::mutex> lk(g_tsc_mu);
+    if (g_ns_per_tick > 0) return;
+    g_tsc_q0 = qpc_now();
+    g_tsc_c0 = __rdtsc();
+    Sleep(20);
+    const uint64_t q1 = qpc_now(), c1 = __rdtsc();
+    const double ns = q_to_ns(q1 - g_tsc_q0);
+    g_ns_per_tick = c1 > g_tsc_c0 && ns > 0 ? ns / static_cast<double>(c1 - g_tsc_c0) : 0.3;
+    g_tsc_last_q = q1;
+}
+
+uint64_t tsc_to_ns(uint64_t ticks) {
+    if (g_ns_per_tick <= 0) tsc_init();
+    const uint64_t q = qpc_now();
+    if (q - g_tsc_last_q > qpc_freq()) {
+        std::lock_guard<std::mutex> lk(g_tsc_mu);
+        const uint64_t c = __rdtsc();
+        const double ns = q_to_ns(q - g_tsc_q0);
+        if (c > g_tsc_c0 && ns > 1e8) g_ns_per_tick = ns / static_cast<double>(c - g_tsc_c0);
+        g_tsc_last_q = q;
+    }
+    return static_cast<uint64_t>(static_cast<double>(ticks) * g_ns_per_tick);
+}
+
+bool g_split_on = false;
+uint64_t g_split_ticks[kSplBuckets] = {};
+uint64_t g_split_cnt[kCntCounts] = {};
+
+void split_init() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    if (!config_get_bool("prof", "render_split", false)) return;
+    tsc_init();
+    g_split_on = true;
+    NXLOG_I("prof", "render split on: one line per 10 s");
+}
+
+void split_frame(uint64_t presents) {
+    if (!g_split_on) return;
+    static uint64_t t_last = 0, p_last = 0, ticks_last[kSplBuckets] = {}, cnt_last[kCntCounts] = {};
+    const uint64_t now = __rdtsc();
+    if (!t_last) { t_last = now; p_last = presents; return; }
+    const uint64_t el = tsc_to_ns(now - t_last);
+    if (el < 10000000000ull) return;
+    const uint64_t frames = presents > p_last ? presents - p_last : 0;
+    if (frames == 0) { t_last = now; return; }
+    const double f = static_cast<double>(frames);
+    double ms[kSplBuckets];
+    for (int i = 0; i < kSplBuckets; ++i) { ms[i] = static_cast<double>(tsc_to_ns(g_split_ticks[i] - ticks_last[i])) / 1e6 / f; ticks_last[i] = g_split_ticks[i]; }
+    double c[kCntCounts];
+    for (int i = 0; i < kCntCounts; ++i) { c[i] = static_cast<double>(g_split_cnt[i] - cnt_last[i]) / f; cnt_last[i] = g_split_cnt[i]; }
+    const double interval = static_cast<double>(el) / 1e6 / f;
+    const double busy = interval - ms[kSplIdle];
+    NXLOG_I("prof", "render split, %llu frames, %.1f fps, ms/frame: interval %.2f, render busy %.2f, idle %.2f | replay %.2f (gpu_wait %.2f), present %.2f (end %.2f), submit %.2f, other %.2f | per frame: draws %.0f, cmds bind %.0f draw %.0f dyn %.0f barrier %.0f, passes %.1f, epoch bumps %.0f, set_reuse hit %.0f miss %.0f, submissions %.1f | bind_coalesce: calls skipped %.0f, merged away %.0f",
+            static_cast<unsigned long long>(frames), 1000.0 / interval, interval, busy, ms[kSplIdle], ms[kSplReplay], ms[kSplGpuWait], ms[kSplPresent], ms[kSplPresentEnd], ms[kSplSubmit],
+            busy - ms[kSplReplay] - ms[kSplPresent] - ms[kSplSubmit], c[kCntDraws], c[kCntCmdBind], c[kCntCmdDraw], c[kCntCmdDyn], c[kCntCmdBarrier], c[kCntPasses], c[kCntEpoch], c[kCntSetHit], c[kCntSetMiss], c[kCntSubmissions], c[kCntSkipped], c[kCntMerged]);
+    const double pl = c[kCntPoolHit] + c[kCntPoolMiss], sets = c[kCntSetHit] + c[kCntSetMiss];
+    NXLOG_I("prof", "render split resolve, per frame: texture resolves %.0f (%.2f per draw) + %.0f from the draw's array | pool_lookup %.0f, cache hit %.1f %% | set_reuse hit %.1f %% | epoch bumps: gpu_wrote %.0f, end_pass %.0f, begin pass %.0f, feedback %.0f, vol3d %.0f, targets %.0f, submission %.1f, skipped end_pass %.0f targets %.0f",
+            c[kCntResolve], c[kCntDraws] > 0 ? c[kCntResolve] / c[kCntDraws] : 0.0, c[kCntResolveHit], pl, pl > 0 ? 100.0 * c[kCntPoolHit] / pl : 0.0,
+            sets > 0 ? 100.0 * c[kCntSetHit] / sets : 0.0, c[kCntEpGpuWrote], c[kCntEpEndPass], c[kCntEpBeginPass], c[kCntEpFeedback], c[kCntEpVol3d], c[kCntEpTargets],
+            c[kCntEpSubmit], c[kCntEpSkipEndPass], c[kCntEpSkipTargets]);
+    NXLOG_I("prof", "render split setup, ms/frame %.3f (texpoll + mirror + outend) | per frame: tex polls %.1f (empty %.1f, pages %.1f), absorb_writes %.1f (empty %.1f, pages %.1f = %.0f KiB), write-watch words read %.0f",
+            ms[kSplSetup], c[kCntTexPoll], c[kCntTexPollEmpty], c[kCntTexPages], c[kCntAbsorb], c[kCntAbsorbEmpty], c[kCntAbsorbPages], c[kCntAbsorbPages] * 4.0, c[kCntWwWords]);
+    t_last = now;
+    p_last = presents;
+}
+
 uint64_t now_ns() {
     LARGE_INTEGER c;
     QueryPerformanceCounter(&c);
@@ -222,6 +302,7 @@ void frame() {
 }
 
 void start_from_config() {
+    split_init();
     std::lock_guard<std::mutex> lk(g_mu);
     if (g_started) return;
     const std::string path = config_get_str("prof", "trace", "");
@@ -232,6 +313,7 @@ void start_from_config() {
     g_file = std::fopen(path.c_str(), "wb");
     if (!g_file) { VirtualFree(g_ev, 0, MEM_RELEASE); g_ev = nullptr; return; }
     g_started = true;
+    tsc_init();
     g_on.store(true);
     g_writer = std::thread(writer_main);
     if (const int64_t sm = config_get_int("prof", "stall_ms", 0); sm > 0) {

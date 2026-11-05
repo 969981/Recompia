@@ -72,7 +72,7 @@ uint64_t nxmodule_find_export(const char* name, const NxModule* except = nullptr
 void import_cache_invalidate();                    // forget every resolved import (module_override_symbol calls it)
 // Number of host_import calls made through the registry (all ids): end-of-run report. Calls that ended in a logging stub are
 // counted by dispatch.h (hle_list: stub entries with calls).
-uint64_t import_calls();
+uint64_t import_calls();   // imports through the registry; each thread adds its calls in blocks of 4096, so it is short by under 4096 per thread
 namespace detail {
 void count_import();      // abi_glue.cpp: host_import bookkeeping
 }

@@ -52,6 +52,12 @@ void sleep_once(int64_t ns) {
         } while (n.QuadPart - s.QuadPart < ticks);
         return;
     }
+    // [sched] precise_sleep: the timer is asked for less by its learned lateness (precise_wait.cpp). Pokopia's main thread waits out each
+    // frame in about 900 SleepThread(1 ms) a second; uncorrected, each takes about 1.4-1.5 ms (pokopia-native m4-title: title 59.3 Hz).
+    if (precise_sleep_enabled()) {
+        precise_wait_ns(ns, nullptr);
+        return;
+    }
     if (!timer && !no_timer) {
         timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
         if (!timer) no_timer = true;

@@ -188,6 +188,8 @@ struct Renderer::Impl {
     FrameInfo info;
 
     std::function<void(const FrameInfo&)> overlay;
+    std::function<void(std::function<void()>)> submit_queue;   // [nvn] submit_thread (set_submit_queue); empty = inline
+    std::function<void()> submit_drain;
 
     // pending capture
     // set by the thread that asks for a screenshot, read by end_frame and by capture_pending() (overlay, presenting thread)
@@ -374,6 +376,7 @@ struct Renderer::Impl {
 
     bool recreate(uint32_t want_w, uint32_t want_h) {
         dev->wait_idle();
+        if (dev->device_lost()) return false;
         if (headless) {
             destroy_targets();
             extent = {want_w, want_h};
@@ -487,6 +490,7 @@ struct Renderer::Impl {
         if (latency) latency->prepare_swapchain(&ci);
         VkSwapchainKHR fresh = VK_NULL_HANDLE;
         VkResult r = vkCreateSwapchainKHR(vk(), &ci, nullptr, &fresh);
+        dev->note_result(r, "vkCreateSwapchainKHR");
         if (r == VK_SUCCESS) vk_gauge_swapchains().add(1);
         destroy_targets();
         if (old) {
@@ -634,6 +638,7 @@ Renderer::~Renderer() {
 
 bool Renderer::begin_frame(FrameInfo* out) {
     Impl& s = *impl_;
+    if (s.dev->device_lost()) { s.st.skipped++; return false; }
     if (s.in_frame) end_frame();   // a forgotten end_frame must not wedge the slot
     int pw = static_cast<int>(s.headless_w), ph = static_cast<int>(s.headless_h);
     if (!s.headless) platform::pixel_size(&pw, &ph);
@@ -658,14 +663,21 @@ bool Renderer::begin_frame(FrameInfo* out) {
     if (s.kind != extras::OutputKind::Sdr8 && extras::hdr_state().metadata_serial != s.md_serial) s.apply_hdr_metadata();   // the game declared new levels
 
     Impl::Slot& slot = s.slots[s.cur_slot];
-    vkWaitForFences(s.vk(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    VkResult r = vkWaitForFences(s.vk(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    s.dev->note_result(r, "vkWaitForFences (present)");
+    if (r != VK_SUCCESS) {
+        if (!s.dev->device_lost()) NXLOG_E(kTag, "vkWaitForFences failed (%d)", static_cast<int>(r));
+        s.st.skipped++;
+        return false;
+    }
     s.read_timestamps(slot);
 
     uint32_t idx = 0;
     if (s.headless) {
         idx = static_cast<uint32_t>(s.frame_number % s.targets.size());
     } else {
-        VkResult r = vkAcquireNextImageKHR(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
+        r = vkAcquireNextImageKHR(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
+        s.dev->note_result(r, "vkAcquireNextImageKHR");
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
             s.dirty = true;
             s.st.out_of_date++;
@@ -676,7 +688,7 @@ bool Renderer::begin_frame(FrameInfo* out) {
             s.dirty = true;     // finish this frame, rebuild before the next
             s.st.out_of_date++;
         } else if (r != VK_SUCCESS) {
-            NXLOG_E(kTag, "vkAcquireNextImageKHR failed (%d)", static_cast<int>(r));
+            if (!s.dev->device_lost()) NXLOG_E(kTag, "vkAcquireNextImageKHR failed (%d)", static_cast<int>(r));
             s.st.skipped++;
             return false;
         }
@@ -704,6 +716,10 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
     Impl& s = *impl_;
     if (!s.in_frame) return;
     s.in_frame = false;
+    if (s.dev->device_lost()) {
+        if (prefix) prefix->submitted = false;
+        return;
+    }
     Impl::Slot& slot = s.slots[s.cur_slot];
     Impl::Target& t = s.targets[s.cur_image];
     if (s.overlay) s.overlay(s.info);
@@ -792,36 +808,64 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             pr.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
     }
-    {
-        std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
-        VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &si, slot.fence);
-        if (r != VK_SUCCESS) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
-        else if (probe_value) s.probe_published.store(probe_value);
-        if (prefix) prefix->submitted = r == VK_SUCCESS;
-        if (!s.headless) {
-            VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-            pi.waitSemaphoreCount = 1;
-            pi.pWaitSemaphores = &t.render_done;
-            pi.swapchainCount = 1;
-            pi.pSwapchains = &s.swapchain;
-            pi.pImageIndices = &s.cur_image;
-            VkPresentIdKHR pid = {VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
-            if (present_id) {
-                pid.swapchainCount = 1;
-                pid.pPresentIds = &present_id;
-                pi.pNext = &pid;
+    // The submit and the present. Everything they need is copied into the job: with a submit queue ([nvn] submit_thread) it runs on that
+    // thread after this function has returned (the caller drains the queue before the next begin_frame, so the frame slot, its fence and
+    // the swapchain are not touched by both threads at once). A screenshot frame drains the queue at once: its copy is read back below.
+    // Off (no queue): the job runs right here, as before.
+    auto job = [&s, cbs = std::move(cbs), si, wait, sigs = std::vector<VkSemaphoreSubmitInfo>(signals, signals + si.signalSemaphoreInfoCount),
+                fence = slot.fence, render_done = t.render_done, swapchain = s.swapchain, image = s.cur_image, present_id, probe_value,
+                after = prefix ? prefix->after_submit : std::function<void(bool)>{}, prefix_sync = s.submit_queue ? nullptr : prefix]() mutable {
+        VkSubmitInfo2 sub = si;
+        sub.pCommandBufferInfos = cbs.data();
+        sub.pWaitSemaphoreInfos = sub.waitSemaphoreInfoCount ? &wait : nullptr;
+        sub.pSignalSemaphoreInfos = sigs.data();
+        bool ok = false;
+        {
+            std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
+            VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &sub, fence);
+            s.dev->note_result(r, "vkQueueSubmit2 (present)");
+            if (r != VK_SUCCESS) {
+                if (!s.dev->device_lost()) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
+            } else if (probe_value) {
+                s.probe_published.store(probe_value);
             }
-            r = vkQueuePresentKHR(s.dev->queue(), &pi);
-            s.st.presents++;
-            if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
-                s.dirty = true;
-                s.st.out_of_date++;
-            } else if (r != VK_SUCCESS) {
-                NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
+            ok = r == VK_SUCCESS;
+            if (prefix_sync) prefix_sync->submitted = ok;
+            if (after) after(ok);
+            if (r == VK_SUCCESS && !s.headless) {
+                VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+                pi.waitSemaphoreCount = 1;
+                pi.pWaitSemaphores = &render_done;
+                pi.swapchainCount = 1;
+                pi.pSwapchains = &swapchain;
+                pi.pImageIndices = &image;
+                VkPresentIdKHR pid = {VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+                if (present_id) {
+                    pid.swapchainCount = 1;
+                    pid.pPresentIds = &present_id;
+                    pi.pNext = &pid;
+                }
+                r = vkQueuePresentKHR(s.dev->queue(), &pi);
+                s.dev->note_result(r, "vkQueuePresentKHR");
+                s.st.presents++;
+                if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
+                    s.dirty = true;
+                    s.st.out_of_date++;
+                } else if (r != VK_SUCCESS && !s.dev->device_lost()) {
+                    NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
+                }
             }
         }
+        if (!s.headless && s.latency) s.latency->present_end();
+    };
+    if (s.submit_queue) {
+        if (prefix) prefix->queued = true;
+        s.submit_queue(std::move(job));
+        if (cap && s.submit_drain) s.submit_drain();   // the readback below waits on the fence: the submit must have happened
+    } else {
+        if (prefix) prefix->queued = false;
+        job();
     }
-    if (!s.headless && s.latency) s.latency->present_end();
     s.st.frames++;
     s.frame_number++;
     {   // [gfx] log_fps = 1: one line per second with the presented frame rate and the GPU time of the present command buffer (output pass, FSR 1)
@@ -890,6 +934,10 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
 }
 
 void Renderer::set_overlay_hook(std::function<void(const FrameInfo&)> hook) { impl_->overlay = std::move(hook); }
+void Renderer::set_submit_queue(std::function<void(std::function<void()>)> q, std::function<void()> drain) {
+    impl_->submit_queue = std::move(q);
+    impl_->submit_drain = std::move(drain);
+}
 
 bool Renderer::set_present_mode(PresentMode m) {
     Impl& s = *impl_;

@@ -36,6 +36,9 @@ public:
     Sha1();
     void update(const void* data, size_t size);
     void finish(uint8_t digest[20]);  // the object is spent afterwards
+    // update() uses the CPU's SHA instructions for whole blocks when it has them (CPUID, same digest as the portable loop).
+    static bool shani_available();
+    static void force_portable(bool on);   // tests: true keeps update() on the portable loop
 
 private:
     void block(const uint8_t* p);
@@ -189,6 +192,9 @@ bool apply_harness(ShaderReflection& refl, const std::vector<HarnessResource>& r
 // The "resources" text the harness would print for this reflection (after apply_harness); the test compares it.
 std::string describe_like_harness(const ShaderReflection& refl);
 std::string sampler_type_text(const ImageShape& s);  // Ryujinx SamplerType text of an image shape
+// NVN2 compute: the NVN binding of each storage buffer, texture and image from the program's c[0] resource table (control
+// +0xb1..+0xb6). make_shader_info calls it; a no-op for other stages and Switch 1 blocks.
+void apply_nvn2_compute_table(ShaderReflection& refl, const ShaderControl& c);
 
 // ---- Ryujinx's support buffer ---------------------------------------------------------------------------------------
 // Set 0, binding 0 of every stage (std140), declared by every translated shader. Layout copied from Ryujinx

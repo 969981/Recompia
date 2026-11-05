@@ -191,6 +191,24 @@ static inline V128 rdv(uint64_t a, int n) { V128 v; v.d[0] = 0; v.d[1] = 0; memc
 static inline void wrv(uint64_t a, const V128 *v, int n) { memcpy((void *)(uintptr_t)a, v, (size_t)n); }
 static inline void vzero(V128 *v) { v->d[0] = 0; v->d[1] = 0; }
 
+/* Poll loads: the plain loads of a busy-wait loop (nxrecomp/spin.py). A relaxed atomic load is one real load per pass (the
+ * same mov on x64): the compiler may neither hoist it out of the loop nor merge it, and it is a side effect, so the loop is
+ * not assumed to end. 16 bytes are two 8-byte loads (a 16-byte atomic load would be a cmpxchg16b, a write). */
+#define NX_DEF_POLL(bits) \
+    static inline uint##bits##_t rdp##bits(uint64_t a) { return __atomic_load_n((uint##bits##_t *)(uintptr_t)a, __ATOMIC_RELAXED); }
+NX_DEF_POLL(8) NX_DEF_POLL(16) NX_DEF_POLL(32) NX_DEF_POLL(64)
+static inline V128 rdvp(uint64_t a, int n) {
+    V128 v; v.d[0] = 0; v.d[1] = 0;
+    switch (n) {
+    case 1: v.b[0] = rdp8(a); break;
+    case 2: v.h[0] = rdp16(a); break;
+    case 4: v.w[0] = rdp32(a); break;
+    case 8: v.d[0] = rdp64(a); break;
+    default: v.d[0] = rdp64(a); v.d[1] = rdp64(a + 8); break;
+    }
+    return v;
+}
+
 /* ======================================================================================================== */
 /* flags and integer helpers                                                                                  */
 /* ======================================================================================================== */

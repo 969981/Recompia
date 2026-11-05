@@ -45,6 +45,24 @@ NX_INLINE void st(uint64_t a, T v) {
     std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T));
 }
 
+// The loads of a busy-wait loop (nxrecomp/spin.py): relaxed atomic loads, so the compiler repeats them every pass (ctx.h rdp*).
+template <typename T>
+NX_INLINE T ld_poll(uint64_t a) {
+    T v;
+    if constexpr (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8) {
+        using U = std::conditional_t<sizeof(T) == 1, uint8_t, std::conditional_t<sizeof(T) == 2, uint16_t,
+                  std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t>>>;
+        U u = __atomic_load_n(reinterpret_cast<const U*>(a), __ATOMIC_RELAXED);
+        std::memcpy(&v, &u, sizeof(T));
+    } else {
+        static_assert(sizeof(T) == 16, "ld_poll: 1, 2, 4, 8 or 16 bytes");
+        uint64_t p[2] = {__atomic_load_n(reinterpret_cast<const uint64_t*>(a), __ATOMIC_RELAXED),
+                         __atomic_load_n(reinterpret_cast<const uint64_t*>(a + 8), __ATOMIC_RELAXED)};
+        std::memcpy(&v, p, 16);
+    }
+    return v;
+}
+
 template <typename T>
 NX_INLINE T ld_acq(uint64_t a) {
     return __atomic_load_n(reinterpret_cast<T*>(a), __ATOMIC_ACQUIRE);

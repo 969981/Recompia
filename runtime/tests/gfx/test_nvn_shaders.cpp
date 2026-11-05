@@ -105,6 +105,30 @@ NXTEST(harness_numbers_out_of_range) {
     CHECK(!parse_harness_resources("sb[c0+0x100000000]=s0b1", r));
 }
 
+// The SHA-NI path and the portable loop give the same digest, for sizes around block boundaries and split updates. The standard vectors
+// above run on whichever path this CPU picks; this one forces both (the SHA-NI half runs only where the CPU has the instructions).
+NXTEST(sha1_shani_matches_portable) {
+    std::vector<uint8_t> data(5000);
+    uint32_t x = 12345;
+    for (auto& b : data) b = static_cast<uint8_t>((x = x * 1664525u + 1013904223u) >> 24);
+    const size_t sizes[] = {0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 1000, 4096, 5000};
+    for (size_t n : sizes) {
+        Sha1::force_portable(true);
+        const std::string ref = sha1_hex(data.data(), n);
+        Sha1::force_portable(false);
+        CHECK_EQ(sha1_hex(data.data(), n), ref);
+        Sha1 s;                                              // the same bytes in uneven pieces
+        for (size_t o = 0, step = 7; o < n; o += step, step += 13) s.update(data.data() + o, std::min(step, n - o));
+        uint8_t d[20];
+        s.finish(d);
+        static const char* hx = "0123456789abcdef";
+        std::string got;
+        for (uint8_t b : d) got += {hx[b >> 4], hx[b & 15]};
+        CHECK_EQ(got, ref);
+    }
+    Sha1::force_portable(false);
+}
+
 NXTEST(shader_hash_is_sha1_prefix) {
     CHECK_EQ(shader_hash(reinterpret_cast<const uint8_t*>("abc"), 3), std::string("a9993e364706816a"));
 }
@@ -124,6 +148,56 @@ NXTEST(read_control_fields) {
     CHECK_EQ(c.local_size[2], 2u);
     std::memset(ctrl, 0, sizeof ctrl);
     CHECK(!read_control(ctrl).valid);
+}
+
+// The c[0] table of 0034791c's shape: 2 uniform blocks, 1 storage buffer, 30 textures, 1 image. Uniform rows 0x10/0x20, storage
+// 0x30, textures 0x40 + 8n, the image at 0x130. The image's size query is a texture binding at the image's word.
+NXTEST(nvn2_compute_table_maps_image_size_query) {
+    ShaderControl c;
+    c.valid = c.nvn2 = true;
+    c.stage = 5;
+    c.c0_ubos = 2;
+    c.c0_ssbos = 1;
+    c.c0_textures = 30;
+    c.c0_images = 1;
+    ShaderReflection refl;
+    auto add = [&](DescriptorType type, int word, int c0_offset) {
+        DescriptorBinding b;
+        b.type = type;
+        b.binding = static_cast<uint32_t>(refl.bindings.size());
+        b.nvn.bank = 0;
+        b.nvn.word = word;
+        b.nvn.c0_offset = c0_offset;
+        refl.bindings.push_back(b);
+    };
+    add(DescriptorType::StorageBuffer, -1, 0x20);                       // 0: uniform block 1 as storage
+    add(DescriptorType::StorageBuffer, -1, 0x30);                       // 1: storage buffer 0
+    add(DescriptorType::CombinedImageSampler, 0x48 / 4, -1);            // 2: texture 1
+    add(DescriptorType::StorageImage, 0x130 / 4, -1);                   // 3: image 0
+    add(DescriptorType::CombinedImageSampler, 0x130 / 4, -1);           // 4: image 0's size query
+    add(DescriptorType::StorageImage, 0x48 / 4, -1);                    // 5: an image word in the texture range: left alone
+    add(DescriptorType::CombinedImageSampler, 0x138 / 4, -1);           // 6: past the table: left alone
+    apply_nvn2_compute_table(refl, c);
+    const auto& b = refl.bindings;
+    CHECK(b[0].nvn.source == NvnSource::UniformAsStorage);
+    CHECK_EQ(b[0].nvn.index, 1);
+    CHECK(b[1].nvn.source == NvnSource::StorageBuffer);
+    CHECK_EQ(b[1].nvn.index, 0);
+    CHECK(b[2].nvn.source == NvnSource::SamplerBinding);
+    CHECK_EQ(b[2].nvn.index, 1);
+    CHECK(b[3].nvn.source == NvnSource::ImageBinding);
+    CHECK_EQ(b[3].nvn.index, 0);
+    CHECK(b[4].nvn.source == NvnSource::ImageBinding);
+    CHECK_EQ(b[4].nvn.index, 0);
+    CHECK(b[5].nvn.source == NvnSource::Unknown);
+    CHECK(b[6].nvn.source == NvnSource::Unknown);
+    // graphics and Switch 1 blocks: untouched
+    ShaderReflection g;
+    g.bindings.push_back(b[4]);
+    g.bindings[0].nvn.source = NvnSource::Unknown;
+    c.stage = 1;
+    apply_nvn2_compute_table(g, c);
+    CHECK(g.bindings[0].nvn.source == NvnSource::Unknown);
 }
 
 NXTEST(read_control_on_first_corpus_block) {

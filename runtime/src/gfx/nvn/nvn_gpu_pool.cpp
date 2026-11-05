@@ -4,6 +4,11 @@
 // (buffer, offset) with no copy, and anything the GPU writes (compute, copies, queries, events) is visible to the CPU through
 // the same pages. Measured on the RTX 3080 and the UHD 770 with MapViewOfFile views: imports work with 4096-byte alignment,
 // and GPU writes are visible through every view of the section.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -39,6 +44,8 @@ struct PoolChunk {
     VkDeviceSize size = 0;
     bool tried = false;               // import attempted
     bool failed = false;
+    uint32_t used_at = 0;             // lazy pools: present count of the last bind that resolved to it
+    uint64_t used_serial = 0;         // lazy pools: the submission being recorded at that bind (dropped only once it has completed)
 };
 
 // A pool is imported whole (one chunk; the background importer does it) or, when it is larger than one chunk ([nvn] pool_import_chunk_mb), in
@@ -58,6 +65,15 @@ struct PoolGpu {
     std::deque<PoolChunk> spans;      // imports of ranges longer than the overlap that cross a stride boundary (deque: stable addresses)
     gpu::Mirror* mirror = nullptr;  // device-local copy of the pages draws read (S38, [nvn] pool_mirror); render thread
     bool mirror_tried = false;
+    // [nvn] pool_lazy: imported in pieces as binds first touch them (stride = the cell size). The pool is cut into cells; an import (ext) is
+    // a run of whole cells, made when a bind touches cells no import holds yet, and no two of them share a page (same-address imports
+    // that overlap are refused by some drivers: VK_ERROR_INVALID_EXTERNAL_HANDLE on the RX 9060 XT). cell_ext[k] = index in ext of the
+    // import holding cell k, -1: none. A bind that runs from one import into cells another one holds gets a span (overlapping; spans).
+    // An import no bind used for [nvn] pool_lazy_idle presents is dropped (lazy_drop_idle).
+    bool lazy = false;
+    std::deque<PoolChunk> ext;
+    std::vector<int32_t> cell_ext;
+    std::vector<int32_t> ext_free;    // indices of dropped imports in ext, reused
 };
 
 MemoryPool::~MemoryPool() {
@@ -94,6 +110,72 @@ uint64_t import_stride() {
     return s;
 }
 uint64_t import_overlap() { return import_stride() / 4; }
+
+// [nvn] pool_lazy = auto (default: on under Wine) | on | off. Under Proton the heap is private memory (no section, no private views), so
+// every pool was imported whole: ~4.7 GiB of amdgpu userptr memory. RADV puts every allocation on its global BO list and amdgpu walks the
+// pages of every userptr BO of a submission again (hmm_range_fault), so each kernel submission cost ~2-5 ms (HANDOFF session 4b). Draws
+// read a small part of a pool in place (LASRecomp measured 15-28 MB a frame of a 3.2 GB heap): with pool_lazy a pool larger than one cell
+// ([nvn] pool_lazy_chunk_mb, default 16) is imported a run of cells at a time, the first time a bind touches them, imports nobody bound for
+// a while are dropped, and textures whose storage is not imported are untiled on the CPU (gpu_untile) instead of importing it. Approach
+// after peiikai/LASRecomp runtime/nvn/vulkan/exec.c (lazy 16 MB heap chunks, MIT).
+bool wine_host() {
+    static const bool w = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt && GetProcAddress(nt, "wine_get_version");
+    }();
+    return w;
+}
+
+bool lazy_on() {
+    static const bool on = [] {
+        const std::string v = config_get_str("nvn", "pool_lazy", "auto");
+        const bool r = v == "auto" ? wine_host() : (v == "on" || v == "1" || v == "true");
+        NXLOG_I(kTag, "pool_lazy %s (%s%s)", r ? "on" : "off", v.c_str(), v == "auto" ? (wine_host() ? ", Wine" : ", not Wine") : "");
+        return r;
+    }();
+    return on;
+}
+
+uint64_t lazy_cell() {
+    static const uint64_t c = [] {
+        const int64_t mb = std::clamp<int64_t>(config_get_int("nvn", "pool_lazy_chunk_mb", 16), 1, 1024);
+        return static_cast<uint64_t>(mb) << 20;
+    }();
+    return c;
+}
+
+uint32_t lazy_idle() {
+    static const uint32_t n = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_lazy_idle", 1800), 0, 1 << 30));
+    return n;
+}
+
+bool lazy_cpu_untile() {
+    static const bool on = config_get_bool("nvn", "pool_lazy_cpu_untile", true);
+    return on;
+}
+
+// statistics of the lazy imports (the summary line, gauges)
+std::atomic<int64_t> g_lz_live_bytes{0};
+std::atomic<uint64_t> g_lz_imported_bytes{0}, g_lz_imports{0}, g_lz_dropped{0}, g_lz_dropped_bytes{0}, g_lz_spans{0}, g_lz_cpu_untiles{0};
+
+// After a failed import: what the pages of [p, p + size) are (runs of one state, protection and allocation), for the log. Drivers refuse
+// host pointers that are not committed read-write memory (amdgpu, and the AMD Windows driver with VK_ERROR_INVALID_EXTERNAL_HANDLE).
+void log_pages(const void* p, uint64_t size) {
+    const uint8_t* a = static_cast<const uint8_t*>(p);
+    const uint8_t* end = a + size;
+    int n = 0;
+    while (a < end && n < 8) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(a, &mbi, sizeof mbi)) break;
+        const uint8_t* rend = std::min<const uint8_t*>(static_cast<const uint8_t*>(mbi.BaseAddress) + mbi.RegionSize, end);
+        NXLOG_W(kTag, "  pages %p..%p: state 0x%lx, protect 0x%lx, type 0x%lx, allocation %p", static_cast<const void*>(a),
+                static_cast<const void*>(rend), static_cast<unsigned long>(mbi.State), static_cast<unsigned long>(mbi.Protect),
+                static_cast<unsigned long>(mbi.Type), mbi.AllocationBase);
+        a = rend;
+        ++n;
+    }
+    if (a < end) NXLOG_W(kTag, "  (more runs up to %p)", static_cast<const void*>(end));
+}
 
 // Imports pool bytes [off, off + size) of g into c. False (c.failed) when it cannot.
 bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, size_t index, size_t count) {
@@ -141,6 +223,7 @@ bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const c
     if (r != VK_SUCCESS) {
         NXLOG_E(kTag, "importing pool %p %s %zu of %zu (offset 0x%llx, 0x%llx bytes) failed (%d)", static_cast<void*>(g->base), what, index, count,
                 static_cast<unsigned long long>(off), static_cast<unsigned long long>(size), static_cast<int>(r));
+        log_pages(import_ptr, size);
         c.mem = VK_NULL_HANDLE;
         c.failed = true;
         return false;
@@ -213,10 +296,12 @@ PoolGpu* import_pool(MemoryPool* p) {
     static const bool use_view = config_get_bool("nvn", "pool_view", true);      // [nvn] pool_view = 0: import the pool's own address (slow)
     const bool viewed = use_view && mem::heap_has_section() && start >= mem::kHeapBase && start + size <= mem::kHeapBase + mem::heap_reserved();
     const uint64_t stride = import_stride();
+    // [nvn] pool_lazy: a pool larger than one cell is imported in runs of cells as binds touch them (lazy_chunk), viewed or not.
+    const bool lazy = lazy_on() && size > lazy_cell();
     // Chunks overlap, and without private views two of them would import the same host pages: the driver refuses the second
     // (VK_ERROR_INVALID_EXTERNAL_HANDLE, seen on the RX 9060 XT with [memory] heap_section = 0). Unviewed pools are imported whole.
-    const bool chunked = viewed && stride && size > stride + import_overlap();
-    if (!chunked && size > dev.limits_ext().max_buffer_size && dev.limits_ext().max_buffer_size) {
+    const bool chunked = !lazy && viewed && stride && size > stride + import_overlap();
+    if (!chunked && !lazy && size > dev.limits_ext().max_buffer_size && dev.limits_ext().max_buffer_size) {
         NXLOG_W(kTag, "pool of 0x%llx bytes is larger than maxBufferSize 0x%llx: the tail is not reachable by the GPU",
                 static_cast<unsigned long long>(size), static_cast<unsigned long long>(dev.limits_ext().max_buffer_size));
         size = dev.limits_ext().max_buffer_size & ~(align - 1);
@@ -224,7 +309,15 @@ PoolGpu* import_pool(MemoryPool* p) {
     g->base = reinterpret_cast<uint8_t*>(start);
     g->size = size;
     g->viewed = viewed;
-    if (chunked) {
+    if (lazy) {
+        g->lazy = true;
+        g->stride = lazy_cell();
+        g->clen = g->stride;
+        g->cell_ext.assign(static_cast<size_t>((size + g->stride - 1) / g->stride), -1);
+        NXLOG_I(kTag, "pool %p, %llu MiB (flags 0x%x): imported lazily in cells of %llu MiB as binds first touch them (%s)", static_cast<void*>(g->base),
+                static_cast<unsigned long long>(size >> 20), static_cast<unsigned>(p->flags), static_cast<unsigned long long>(g->stride >> 20),
+                viewed ? "through private views" : "at its own address");
+    } else if (chunked) {
         g->stride = stride;
         g->clen = stride + import_overlap();
         g->chunks.resize(static_cast<size_t>((size + stride - 1) / stride));
@@ -277,6 +370,80 @@ PoolChunk* pool_span(PoolGpu* g, uint64_t off, uint64_t size) {
         return nullptr;
     }
     return &s;
+}
+
+// [nvn] pool_lazy: the import of a lazy pool holding bytes [off, off + size) (clipped to the pool), imported now when no import holds the
+// cells it touches yet: one import over exactly those cells. A range that starts in one import and runs into cells another import holds
+// gets a span (pool_span). Null: it cannot be imported (a failed import is not tried again). Render thread.
+PoolChunk* lazy_chunk(PoolGpu* g, uint64_t off, uint64_t size) {
+    const uint64_t cell = g->stride;
+    const uint64_t end = std::min<uint64_t>(off + std::max<uint64_t>(size, 1), g->size);
+    const size_t c0 = static_cast<size_t>(off / cell), c1 = static_cast<size_t>((end - 1) / cell);
+    PoolChunk* c = nullptr;
+    const int32_t e = g->cell_ext[c0];
+    if (e >= 0) {
+        PoolChunk& x = g->ext[static_cast<size_t>(e)];
+        if (x.failed || !x.buffer) return nullptr;
+        if (end <= x.off + x.size) c = &x;
+    } else {
+        bool free = true;
+        for (size_t k = c0 + 1; k <= c1 && free; ++k) free = g->cell_ext[k] < 0;
+        if (free) {
+            int32_t idx;
+            if (!g->ext_free.empty()) { idx = g->ext_free.back(); g->ext_free.pop_back(); }
+            else { idx = static_cast<int32_t>(g->ext.size()); g->ext.emplace_back(); }
+            PoolChunk& x = g->ext[static_cast<size_t>(idx)];
+            const uint64_t xo = c0 * cell, xs = std::min<uint64_t>((c1 + 1) * cell, g->size) - xo;
+            // Pages a write watch made read-only (tex_write_watch) go back to read-write first: neither amdgpu (userptr) nor the Windows
+            // AMD driver (VK_ERROR_INVALID_EXTERNAL_HANDLE) imports read-only pages. They count as written, so the texture watch uploads
+            // its textures there again and arms them after the import, which the import survives (a whole pool's import does the same).
+            bool ok;
+            {
+                std::lock_guard<std::mutex> ilk(tex_arm_import_mutex());   // no arm of the worker in between
+                mem::ww::forget(reinterpret_cast<uint64_t>(g->base) + xo, xs, false);
+                ok = import_range(g, x, xo, xs, "lazy chunk", c0, g->cell_ext.size());
+            }
+            for (size_t k = c0; k <= c1; ++k) g->cell_ext[k] = idx;    // a failure too: not tried again
+            if (!ok) return nullptr;
+            g_lz_imports.fetch_add(1, std::memory_order_relaxed);
+            g_lz_imported_bytes.fetch_add(xs, std::memory_order_relaxed);
+            g_lz_live_bytes.fetch_add(static_cast<int64_t>(xs), std::memory_order_relaxed);
+            c = &x;
+        }
+    }
+    if (!c) {
+        const size_t before = g->spans.size();
+        const uint64_t s0 = off / cell * cell, s1 = std::min<uint64_t>((end + cell - 1) / cell * cell, g->size);   // pool_span's range
+        {
+            std::lock_guard<std::mutex> ilk(tex_arm_import_mutex());
+            mem::ww::forget(reinterpret_cast<uint64_t>(g->base) + s0, s1 - s0, false);
+            c = pool_span(g, off, end - off);
+        }
+        if (g->spans.size() != before && c) {
+            g_lz_spans.fetch_add(1, std::memory_order_relaxed);
+            g_lz_imported_bytes.fetch_add(c->size, std::memory_order_relaxed);
+            g_lz_live_bytes.fetch_add(static_cast<int64_t>(c->size), std::memory_order_relaxed);
+        }
+    }
+    if (c) {
+        c->used_at = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));
+        c->used_serial = current_serial();
+    }
+    return c;
+}
+
+// True when a lazy pool holds [off, off + size) in one import already (nothing is imported).
+bool lazy_resident(const PoolGpu* g, uint64_t off, uint64_t size) {
+    if (off >= g->size) return false;
+    const uint64_t end = std::min<uint64_t>(off + std::max<uint64_t>(size, 1), g->size);
+    const int32_t e = g->cell_ext[static_cast<size_t>(off / g->stride)];
+    if (e >= 0) {
+        const PoolChunk& x = g->ext[static_cast<size_t>(e)];
+        if (x.buffer && !x.failed && end <= x.off + x.size) return true;
+    }
+    for (const PoolChunk& sp : g->spans)
+        if (sp.buffer && !sp.failed && off >= sp.off && end <= sp.off + sp.size) return true;
+    return false;
 }
 
 // ---- background import --------------------------------------------------------------------------------------------------
@@ -335,6 +502,7 @@ void prefetch_pool(MemoryPool* p) {
     if (!enabled || !p || p->is_virtual || !p->base || !p->size || !active()) return;
     // a pool larger than one chunk is imported chunk by chunk as the render thread touches it (pool_chunk), never whole
     if (import_stride() && p->size > import_stride() + import_overlap()) return;
+    if (lazy_on() && p->size > lazy_cell()) return;   // [nvn] pool_lazy: imported as binds touch it (lazy_chunk)
     std::lock_guard<std::mutex> lk(g_pf_mu);
     if (g_pf_stop) return;
     int expect = 0;
@@ -383,7 +551,9 @@ BufRef resolve_in_pool(uint64_t gpu_address, uint64_t size, MemoryPool** pool_ou
     // the import starts at the aligned base, which may be below the pool's own base
     const uint64_t off = pg ? gpu_address - reinterpret_cast<uint64_t>(pg->base) : 0;
     const PoolChunk* c = nullptr;
-    if (pg && !pg->failed && off < pg->size) {
+    if (pg && !pg->failed && off < pg->size && pg->lazy) {
+        c = lazy_chunk(pg, off, size);
+    } else if (pg && !pg->failed && off < pg->size) {
         c = pool_chunk(pg, off / pg->stride);
         // a range longer than the overlap that runs past its chunk (and not past the pool): a span import holds all of it
         if (c && size && off + size > c->off + c->size && off + size <= pg->size)
@@ -443,6 +613,84 @@ void pool_shutdown() {
 
 uint64_t pool_imports() { return counters().pools_imported.load(); }
 
+PoolLazyStats pool_lazy_stats() {
+    PoolLazyStats st;
+    st.on = lazy_on();
+    st.live_bytes = g_lz_live_bytes.load();
+    st.imported_bytes = g_lz_imported_bytes.load();
+    st.imports = g_lz_imports.load();
+    st.spans = g_lz_spans.load();
+    st.dropped = g_lz_dropped.load();
+    st.cpu_untiles = g_lz_cpu_untiles.load();
+    return st;
+}
+
+bool pool_lazy_wants_cpu(uint64_t gpu_address, uint64_t size) {
+    if (!lazy_on() || !lazy_cpu_untile()) return false;
+    const PoolHit hit = pool_lookup(gpu_address);
+    if (!hit.pool) return false;
+    bool cpu;
+    if (const PoolGpu* pg = hit.pool->gpu) {
+        if (!pg->lazy || pg->failed) return false;
+        cpu = !lazy_resident(pg, gpu_address - reinterpret_cast<uint64_t>(pg->base), size);
+    } else {
+        cpu = !hit.pool->is_virtual && hit.pool->size > lazy_cell();   // a lazy pool nothing has touched yet
+    }
+    if (cpu) g_lz_cpu_untiles.fetch_add(1, std::memory_order_relaxed);
+    return cpu;
+}
+
+// [nvn] pool_lazy: imports of lazy pools no bind resolved to for [nvn] pool_lazy_idle presents, whose last submission has completed, are
+// destroyed (their cells are imported again at the next bind). Their pages leave every later submission's BO list. Nothing outside one
+// submission keeps a pool buffer except texel buffer views, which destroy_chunk forgets. Checked every 64 presents, and a summary line every
+// 1200. Render thread, start of a submission (mirror_begin_submit), before anything of it is recorded.
+void lazy_drop_idle() {
+    if (!lazy_on()) return;
+    const uint32_t now = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));
+    static uint32_t last = 0, last_log = 0;
+    const uint32_t idle = lazy_idle();
+    if (now - last < (idle ? std::min<uint32_t>(64, idle) : 64)) return;
+    last = now;
+    if (idle) {
+        const uint64_t done = poll_completed();
+        const uint64_t cur = current_serial();
+        const auto idle_now = [&](const PoolChunk& c) {
+            return c.buffer && !c.failed && now - c.used_at > idle && c.used_serial <= done && c.used_serial < cur;
+        };
+        std::lock_guard<std::mutex> lk(g_live_mu);
+        for (PoolGpu* g : g_live) {
+            if (!g->lazy) continue;
+            for (size_t i = 0; i < g->ext.size(); ++i) {
+                PoolChunk& c = g->ext[i];
+                if (!idle_now(c)) continue;
+                for (size_t k = static_cast<size_t>(c.off / g->stride); k < g->cell_ext.size() && k * g->stride < c.off + c.size; ++k)
+                    g->cell_ext[k] = -1;
+                g_lz_dropped.fetch_add(1, std::memory_order_relaxed);
+                g_lz_dropped_bytes.fetch_add(c.size, std::memory_order_relaxed);
+                g_lz_live_bytes.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
+                destroy_chunk(c);
+                g->ext_free.push_back(static_cast<int32_t>(i));
+            }
+            for (auto it = g->spans.begin(); it != g->spans.end();) {
+                if (!idle_now(*it)) { ++it; continue; }
+                g_lz_dropped.fetch_add(1, std::memory_order_relaxed);
+                g_lz_dropped_bytes.fetch_add(it->size, std::memory_order_relaxed);
+                g_lz_live_bytes.fetch_sub(static_cast<int64_t>(it->size), std::memory_order_relaxed);
+                destroy_chunk(*it);
+                it = g->spans.erase(it);
+            }
+        }
+    }
+    if (now - last_log >= 1200) {
+        last_log = now;
+        NXLOG_I(kTag, "lazy pool imports: %lld MiB live; imported %llu MiB in %llu chunks and %llu spans so far, dropped %llu MiB in %llu; %llu texture uploads on the CPU instead of an import",
+                static_cast<long long>(g_lz_live_bytes.load() >> 20), static_cast<unsigned long long>(g_lz_imported_bytes.load() >> 20),
+                static_cast<unsigned long long>(g_lz_imports.load()), static_cast<unsigned long long>(g_lz_spans.load()),
+                static_cast<unsigned long long>(g_lz_dropped_bytes.load() >> 20), static_cast<unsigned long long>(g_lz_dropped.load()),
+                static_cast<unsigned long long>(g_lz_cpu_untiles.load()));
+    }
+}
+
 void pool_gpu_destroy(PoolGpu* p) {
     if (!p) return;
     bool was_live = false;
@@ -454,7 +702,14 @@ void pool_gpu_destroy(PoolGpu* p) {
     if (was_live) g_gauge_pools_live.sub(1);
     if (p->mirror) mirror_destroy(p);
     for (PoolChunk& c : p->chunks) destroy_chunk(c);
-    for (PoolChunk& c : p->spans) destroy_chunk(c);
+    for (PoolChunk& c : p->spans) {
+        if (p->lazy && c.buffer) g_lz_live_bytes.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
+        destroy_chunk(c);
+    }
+    for (PoolChunk& c : p->ext) {
+        if (c.buffer) g_lz_live_bytes.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
+        destroy_chunk(c);
+    }
     delete p;
 }
 
@@ -485,6 +740,7 @@ struct Mirror {
     std::vector<uint8_t> backoff;       // how often the page has been hot in a row (the hold doubles each time)
     std::vector<uint32_t> hot_until;    // present count until which the page is not copied
     bool any_want = false;
+    uint64_t want_lo = UINT64_MAX, want_hi = 0;   // [nvn] setup_coalesce: the pages [want_lo, want_hi] hold every set bit of `want`
     int pool_flags = 0;
     int64_t st_written = 0, st_copied = 0;   // pages the CPU wrote after a copy, pages copied (summary line)
     uint64_t pool_bytes = 0;
@@ -607,6 +863,8 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
     // Tracked copies change the protection of the CPU's view of the pages. With [nvn] pool_view = false the GPU import is that same view;
     // that combination is not tried: no copy.
     if (!pg->viewed) return nullptr;
+    // A lazy pool's imports are runs of cells, not the 64 MiB-aligned chunks the copy's chunks read from (mirror_src), and come and go.
+    if (pg->lazy) return nullptr;
     const uint64_t budget = mirror_cap_bytes();
     if (budget == 0) return nullptr;
 
@@ -647,7 +905,14 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
 // a hold that doubles every time it comes back.
 void absorb_writes(Mirror& m, uint32_t now) {
     g_written_tmp.clear();
+    const uint64_t w0 = ft::g_split_on ? mem::ww::take_stats().words : 0;
     mem::ww::take_written(m.ww, g_written_tmp);
+    if (ft::g_split_on) {
+        ft::split_count(ft::kCntAbsorb);
+        if (g_written_tmp.empty()) ft::split_count(ft::kCntAbsorbEmpty);
+        ft::split_add(ft::kCntAbsorbPages, g_written_tmp.size());
+        ft::split_add(ft::kCntWwWords, mem::ww::take_stats().words - w0);
+    }
     m.st_written += static_cast<int64_t>(g_written_tmp.size());
     for (uint64_t p : g_written_tmp) {
         const size_t i = static_cast<size_t>(p);
@@ -713,15 +978,17 @@ struct MirrorGauges {
         nxrt::gauge_register("nvn.mirror.dev_binds", [] { return g_st_dev_binds.load(std::memory_order_relaxed); });
         nxrt::gauge_register("nvn.mirror.host_binds", [] { return g_st_host_binds.load(std::memory_order_relaxed); });
         nxrt::gauge_register("nvn.mirror.hot_pages", [] { return g_st_hot.load(std::memory_order_relaxed); });
+        nxrt::gauge_register("nvn.pool.lazy_mb", [] { return g_lz_live_bytes.load(std::memory_order_relaxed) >> 20; });
         // the hitch log (nxrt/gauge.h): growth during a slow frame
         nxrt::hitch_add_counter("pool_mirror_copied_kb", []() -> uint64_t { return static_cast<uint64_t>(g_st_copied.load(std::memory_order_relaxed)) >> 10; });
         nxrt::hitch_add_counter("write_faults", []() -> uint64_t { return mem::ww::faults(); });
         nxrt::hitch_add_counter("mirror_arms_deferred", []() -> uint64_t { return g_st_arm_deferred.load(std::memory_order_relaxed); });
         nxrt::hitch_add_counter("pool_mirror_chunks_mb", []() -> uint64_t { return g_st_chunk_bytes_made.load(std::memory_order_relaxed) >> 20; });
+        nxrt::hitch_add_counter("pool_lazy_imported_mb", []() -> uint64_t { return g_lz_imported_bytes.load(std::memory_order_relaxed) >> 20; });
         nxrt::hitch_add_counter("pools_imported", []() -> uint64_t { Counters* c = counters_if(); return c ? c->pools_imported.load(std::memory_order_relaxed) : 0; });
     }
     ~MirrorGauges() {
-        for (const char* n : {"nvn.mirror.bytes", "nvn.mirror.copied_mb", "nvn.mirror.dev_binds", "nvn.mirror.host_binds", "nvn.mirror.hot_pages"}) nxrt::gauge_unregister(n);
+        for (const char* n : {"nvn.mirror.bytes", "nvn.mirror.copied_mb", "nvn.mirror.dev_binds", "nvn.mirror.host_binds", "nvn.mirror.hot_pages", "nvn.pool.lazy_mb"}) nxrt::gauge_unregister(n);
     }
 };
 MirrorGauges g_mirror_gauges;
@@ -800,6 +1067,8 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     g_use_host[use % 3]++;
     for (uint64_t p = first; p <= last; ++p) bit_put(m->want, p, true);
     m->any_want = true;
+    m->want_lo = std::min(m->want_lo, first);
+    m->want_hi = std::max(m->want_hi, last);
     g_st_host_binds.fetch_add(1, std::memory_order_relaxed);
     return out;
 }
@@ -913,6 +1182,8 @@ bool note_gpu_write(uint64_t gpu_address, uint64_t size, int use) {
 }
 
 void mirror_begin_submit(Frame& f, bool on) {
+    const bool coalesce = setup_coalesce_on();
+    lazy_drop_idle();
     g_mirror_on = on && mirror_mode() != MirrorMode::Off;
     out_retire();
     out_log();
@@ -932,13 +1203,22 @@ void mirror_begin_submit(Frame& f, bool on) {
         if (!arm_in_budget()) continue;   // the wanted pages wait (any_want stays set)
         m.any_want = false;
         g_copy_tmp.clear();
-        uint64_t p = 0;
-        while (p < m.npages) {
+        // setup_coalesce: only [want_lo, want_hi] can hold a wanted page (bits are set only by mirror_bind, which widens the range; outside
+        // it every word is zero, which the full walk skips anyway). The range is reset here and set again from where a budget stop leaves.
+        uint64_t p = coalesce ? std::min(m.want_lo, m.npages) : 0;
+        const uint64_t p_end = coalesce ? std::min(m.want_hi + 1, m.npages) : m.npages;
+        m.want_lo = UINT64_MAX;
+        m.want_hi = 0;
+        while (p < p_end) {
             if (!m.want[static_cast<size_t>(p >> 6)]) { p = (p | 63) + 1; continue; }     // a word with nothing wanted
             if (!bit_get(m.want, p)) { ++p; continue; }
             if (!copyable(m, p, now)) { bit_put(m.want, p, false); ++p; continue; }     // valid already, hot or banned: the next draw asks again
-            if (budget < kPageBytes) { m.any_want = true; break; }                      // the rest waits for the next submission
-            if (!arm_in_budget()) { m.any_want = true; break; }                         // arming took its time for this submission: the same
+            if (budget < kPageBytes || !arm_in_budget()) {     // the rest waits for the next submission (copy budget or arming time used up)
+                m.any_want = true;
+                m.want_lo = std::min(m.want_lo, p);
+                m.want_hi = std::max(m.want_hi, p_end - 1);
+                break;
+            }
             const uint64_t chunk_pages = kChunkBytes / kPageBytes;
             const uint64_t chunk_end = (p / chunk_pages + 1) * chunk_pages;
             uint64_t src_base = 0;
@@ -988,6 +1268,7 @@ void mirror_begin_submit(Frame& f, bool on) {
         VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         di.memoryBarrierCount = 1;
         di.pMemoryBarriers = &b;
+        ft::split_count(ft::kCntCmdBarrier);
         vkCmdPipelineBarrier2(f.cb, &di);
         if (gpass_on()) gpass_stamp(f, "mirror", 0);      // GPU pass profiler: the copies of this submission
     }
@@ -1123,6 +1404,7 @@ void copy_barrier_host(VkCommandBuffer cb) {                         // the copi
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.memoryBarrierCount = 1;
     di.pMemoryBarriers = &b;
+    ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 

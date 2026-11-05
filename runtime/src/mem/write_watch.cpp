@@ -4,6 +4,8 @@
 //   valid   armed and not written since (the owner's copy of the page is current)
 //   written the CPU wrote it since the owner last asked (take_written)
 //   ban     never arm (another view of the page exists)
+// plus a summary of `written`: one bit per word of it (wsum), set after the word's bit, so take_written reads only the words that may hold
+// a written page instead of the whole bitmap (a region over the 3.5+ GiB heap is ~14k words: ~0.1 ms a call, ~11 calls a frame).
 // The fault handler and before_os_write may run on any thread at any time; they only use atomics, VirtualProtect and the region's
 // slim reader/writer lock: whoever makes pages writable holds it shared, arm() and region_destroy() hold it exclusive, so a page's bit
 // and its protection change together as seen by everybody else (no page ends up read-only without its bit, or armed and writable). Regions are
@@ -43,6 +45,8 @@ struct Region {
     uint64_t nwords = 0;
     std::unique_ptr<std::atomic<uint64_t>[]> prot, valid, written, ban;
     std::unique_ptr<std::atomic<uint64_t>[]> guard;     // PAGE_NOACCESS because of guard() (a subset of prot)
+    std::unique_ptr<std::atomic<uint64_t>[]> wsum;      // bit w: written[w] may be non-zero (set after written[w]; never cleared before it is read)
+    uint64_t nsum = 0;
     int slot = -1;
     SRWLOCK lock = SRWLOCK_INIT;
     std::unique_ptr<std::atomic<uint16_t>[]> releasing;   // per page: releasers that saw it armed and have not finished its VirtualProtect (release_page)
@@ -91,6 +95,22 @@ bool os_write_overlaps(uint64_t lo, uint64_t hi) {
 }
 
 uint64_t bit(uint64_t page) { return uint64_t{1} << (page & 63); }
+
+std::atomic<bool> g_sum_scan{true};                    // take_written reads wsum (set_summary_scan); off: every word, as before
+std::atomic<uint64_t> g_st_takes{0}, g_st_takes_empty{0}, g_st_take_pages{0}, g_st_take_words{0};
+
+// The written bits of pages [first, first + count) are set: their summary bits follow (after, so a reader that clears a summary bit and
+// then reads the word sees every page whose summary bit it cleared).
+void sum_mark(Region* r, uint64_t first, uint64_t count) {
+    if (!count) return;
+    const uint64_t w0 = first >> 6, w1 = (first + count - 1) >> 6;
+    for (uint64_t w = w0; w <= w1;) {
+        const uint64_t s = w >> 6, lo = w & 63, hi = std::min<uint64_t>(64, lo + (w1 - w + 1));
+        const uint64_t mask = (hi - lo == 64) ? ~uint64_t{0} : (((uint64_t{1} << (hi - lo)) - 1) << lo);
+        r->wsum[s].fetch_or(mask, std::memory_order_acq_rel);
+        w += hi - lo;
+    }
+}
 
 bool test(const std::atomic<uint64_t>* bm, uint64_t page) { return (bm[page >> 6].load(std::memory_order_acquire) & bit(page)) != 0; }
 
@@ -157,6 +177,7 @@ bool release_page(Region* r, uint64_t page) {
     const uint64_t old = r->prot[w].fetch_and(~b, std::memory_order_acq_rel);
     r->valid[w].fetch_and(~b, std::memory_order_acq_rel);
     r->written[w].fetch_or(b, std::memory_order_acq_rel);
+    r->wsum[w >> 6].fetch_or(uint64_t{1} << (w & 63), std::memory_order_acq_rel);
     const uint64_t addr = r->base + page * kPage;
     if (old & b) {
         bool ok = true;
@@ -356,6 +377,9 @@ Region* region_create(uint64_t addr, uint64_t size) {
     }
     r->releasing.reset(new std::atomic<uint16_t>[r->npages]);
     for (uint64_t i = 0; i < r->npages; ++i) r->releasing[i].store(0, std::memory_order_relaxed);
+    r->nsum = (r->nwords + 63) / 64;
+    r->wsum.reset(new std::atomic<uint64_t>[r->nsum]);
+    for (uint64_t i = 0; i < r->nsum; ++i) r->wsum[i].store(0, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lk(g_mu);
         if (!g_veh) g_veh = AddVectoredExceptionHandler(1, on_fault);
@@ -492,18 +516,57 @@ bool all_armed(const Region* r, uint64_t first, uint64_t count) {
 
 uint64_t guard_faults() { return g_guard_faults.load(std::memory_order_relaxed); }
 
+namespace {
+void take_word(Region* r, uint64_t w, std::vector<uint64_t>& out) {
+    if (!r->written[w].load(std::memory_order_relaxed)) return;
+    uint64_t v = r->written[w].exchange(0, std::memory_order_acq_rel);
+    while (v) {
+        const unsigned long b = static_cast<unsigned long>(__builtin_ctzll(v));
+        v &= v - 1;
+        const uint64_t page = w * 64 + b;
+        if (page < r->npages) out.push_back(page);
+    }
+}
+}  // namespace
+
+// A write that completed before this call (its fault handler returned: both its written bit and its summary bit are set) is found: the
+// summary bit is cleared (exchange) before its word is read, so a bit set in between is either read now or leaves its summary bit for the
+// next call. Same result as reading every word; a write racing with the call shows here or in the next call, as before.
 void take_written(Region* r, std::vector<uint64_t>& out) {
     if (!r) return;
-    for (uint64_t w = 0; w < r->nwords; ++w) {
-        if (!r->written[w].load(std::memory_order_relaxed)) continue;
-        uint64_t v = r->written[w].exchange(0, std::memory_order_acq_rel);
-        while (v) {
-            const unsigned long b = static_cast<unsigned long>(__builtin_ctzll(v));
-            v &= v - 1;
-            const uint64_t page = w * 64 + b;
-            if (page < r->npages) out.push_back(page);
+    const size_t n0 = out.size();
+    g_st_takes.fetch_add(1, std::memory_order_relaxed);
+    if (g_sum_scan.load(std::memory_order_relaxed)) {
+        uint64_t words = 0;
+        for (uint64_t s = 0; s < r->nsum; ++s) {
+            if (!r->wsum[s].load(std::memory_order_relaxed)) continue;
+            uint64_t v = r->wsum[s].exchange(0, std::memory_order_acq_rel);
+            while (v) {
+                const uint64_t w = s * 64 + static_cast<uint64_t>(__builtin_ctzll(v));
+                v &= v - 1;
+                ++words;
+                if (w < r->nwords) take_word(r, w, out);
+            }
         }
+        g_st_take_words.fetch_add(words, std::memory_order_relaxed);
+    } else {
+        for (uint64_t w = 0; w < r->nwords; ++w) take_word(r, w, out);
+        for (uint64_t s = 0; s < r->nsum; ++s) r->wsum[s].store(0, std::memory_order_relaxed);   // (stale bits only cost a word read later)
+        g_st_take_words.fetch_add(r->nwords, std::memory_order_relaxed);
     }
+    if (out.size() == n0) g_st_takes_empty.fetch_add(1, std::memory_order_relaxed);
+    g_st_take_pages.fetch_add(out.size() - n0, std::memory_order_relaxed);
+}
+
+void set_summary_scan(bool on) { g_sum_scan.store(on, std::memory_order_relaxed); }
+
+TakeStats take_stats() {
+    TakeStats t;
+    t.calls = g_st_takes.load(std::memory_order_relaxed);
+    t.empty = g_st_takes_empty.load(std::memory_order_relaxed);
+    t.pages = g_st_take_pages.load(std::memory_order_relaxed);
+    t.words = g_st_take_words.load(std::memory_order_relaxed);
+    return t;
 }
 
 namespace {
@@ -591,6 +654,7 @@ void forget(uint64_t addr, uint64_t size, bool ban) {
             if (test(r->prot.get(), q)) release_page(r, q);
         set_bits(r->valid.get(), first, count, false);
         set_bits(r->written.get(), first, count, true);
+        sum_mark(r, first, count);
     });
 }
 

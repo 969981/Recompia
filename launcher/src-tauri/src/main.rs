@@ -8,9 +8,13 @@ mod ini;
 mod lan;
 mod nup;
 mod play;
+mod preflight;
 mod relay;
+mod saveimport;
 mod settings;
+mod setuplog;
 mod shaders;
+mod update;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -30,6 +34,8 @@ struct Config {
     /// Folder with pkp.exe. Empty: the folder the launcher is in.
     game_dir: String,
     minimize_on_play: bool,
+    /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
+    gentle_build: bool,
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -74,6 +80,30 @@ fn get_config(app: AppHandle) -> Config {
 fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     settings::write_atomic(&config_path(&app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
+}
+
+/// Background update check (see update.rs). None: no update, a dev build, or any error.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Option<update::UpdateInfo> {
+    #[allow(unused_mut)]
+    let mut version = app.package_info().version.to_string();
+    #[cfg(debug_assertions)]
+    if let Ok(v) = std::env::var("PKP_LAUNCHER_UPDATE_CHECK_AS") {
+        version = v; // debug builds only: pretend to be this version (dev builds otherwise skip the check)
+    }
+    if update::is_dev_version(&version) {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || update::check(&version)).await.ok().flatten()
+}
+
+/// Opens a release page in the default browser.
+#[tauri::command]
+fn open_release_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/") || url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&') {
+        return Err("That link cannot be opened from here.".into());
+    }
+    play::open_url(&url)
 }
 
 #[tauri::command]
@@ -122,6 +152,8 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
     let out = game_dir_of(&load_config(&app)).join("nup_dump");
     let src = PathBuf::from(path.trim());
     let emitter = app.clone();
+    let st = state.inner().clone();
+    st.nup_cancel.store(false, Ordering::SeqCst);
     let res = tauri::async_runtime::spawn_blocking(move || {
         let mut last = 0u64;
         nup::extract(
@@ -134,12 +166,18 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
                     let _ = emitter.emit("nup-progress", NupProgress { done, total, file: file.to_string() });
                 }
             },
-            &|| false,
+            &|| st.nup_cancel.load(Ordering::SeqCst),
         )
     })
     .await
     .map_err(|e| e.to_string())??;
     Ok(dump::fwd(&res))
+}
+
+/// Stops a running .nup unpack (the call to `import_nup` then returns an error).
+#[tauri::command]
+fn cancel_nup(state: State<Arc<SetupState>>) {
+    state.nup_cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -210,6 +248,8 @@ fn play(app: AppHandle) -> Result<(), String> {
 struct SetupState {
     progress: Mutex<shaders::Progress>,
     cancel: AtomicBool,
+    /// Cancel flag of a running .nup unpack.
+    nup_cancel: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -244,8 +284,9 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
 /// First-run setup: (a) the pkp.ini paths, (b) in a model (b) release, pkp.exe built from the player's dump
 /// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
-fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), String> {
+fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<bool>) -> Result<(), String> {
     let cfg = load_config(&app);
+    let gentle = gentle.unwrap_or(cfg.gentle_build);
     let report = dump::scan(&cfg.dump_dir);
     let chosen = report.chosen.ok_or_else(|| "Choose usable game files first.".to_string())?;
     let dir = game_dir_of(&cfg);
@@ -264,11 +305,29 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
     settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs)?;
     let st = state.inner().clone();
     st.cancel.store(false, Ordering::SeqCst);
-    let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1)).unwrap_or(2).max(1);
-    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: jobs + 1 };
-    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0 };
+    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(3);
+    let (jobs, build_jobs) = preflight::jobs_for(cpus, gentle);
+    let slog = Arc::new(setuplog::SetupLog::open(&dir));
+    let log: shaders::LogFn = {
+        let l = slog.clone();
+        Arc::new(move |t: &str| l.line(t))
+    };
+    log(&format!(
+        "=== Set up started: launcher {}, {} threads, {} jobs{}",
+        env!("CARGO_PKG_VERSION"),
+        cpus,
+        jobs,
+        if gentle { ", gentle (idle priority)" } else { "" }
+    ));
+    log(&format!("game files: {}", dump::fwd(Path::new(&chosen.exefs))));
+    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: build_jobs, idle: gentle, log: Some(log.clone()) };
+    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, idle: gentle, log: Some(log.clone()), limit: 0 };
     std::thread::spawn(move || {
-        let emit = |p: shaders::Progress| {
+        let mut last = (String::new(), 0u64, String::new());
+        let mut emit = |p: shaders::Progress| {
+            if setuplog::progress_worth_logging(&mut last, &p.phase, p.done, p.total, &p.message) && p.state == "running" {
+                log(&format!("[{}] {}", p.phase, p.message));
+            }
             *st.progress.lock().unwrap() = p.clone();
             let _ = app.emit("setup-status", p);
         };
@@ -305,9 +364,40 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             Ok(false) => shaders::Progress { state: "cancelled".into(), message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },
             Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
         };
+        slog.line(&format!("=== Set up ended: {}{}", end.state, if end.message.is_empty() { String::new() } else { format!(": {}", end.message) }));
         emit(end);
     });
     Ok(())
+}
+
+/// The checks shown before Set up starts (preflight.rs). Reads the disk and loads Vulkan, so it runs off the UI thread.
+#[tauri::command]
+async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
+    let dir = game_dir_of(&load_config(&app));
+    let tools_dir = exe_dir().join("tools");
+    tauri::async_runtime::spawn_blocking(move || {
+        let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir);
+        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending));
+        let report = preflight::evaluate(&facts);
+        // into the setup log too: a failed setup report then shows what the PC looked like
+        let log = setuplog::SetupLog::open(&dir);
+        for c in &report.checks {
+            log.line(&format!("preflight {:?}: {}: {}", c.level, c.title, c.detail));
+        }
+        report
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Opens setup.log (next to pkp.exe) in the default editor.
+#[tauri::command]
+fn open_setup_log(app: AppHandle) -> Result<(), String> {
+    let path = setuplog::path_of(&game_dir_of(&load_config(&app)));
+    if !path.is_file() {
+        return Err("There is no setup log yet: it is written when Set up starts.".into());
+    }
+    play::open_with_shell(&path)
 }
 
 #[tauri::command]
@@ -332,6 +422,50 @@ async fn fetch_dlss(app: AppHandle) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Where the runtime keeps the save and which account folder the game uses, from pkp.ini.
+fn save_paths(app: &AppHandle) -> (PathBuf, String) {
+    let dir = game_dir_of(&load_config(app));
+    let pkp = settings::read(&dir).pkp;
+    let get = |k: &str| pkp.get(k).cloned().unwrap_or_default();
+    // NXRT_FS_SAVE_DIR overrides the ini in the runtime, so it does here
+    let env = std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default();
+    let sd = saveimport::save_dir_of(&dir, &if env.trim().is_empty() { get("fs.save_dir") } else { env });
+    let key = saveimport::target_key(&sd, &get("account.uid"));
+    (sd, key)
+}
+
+/// Eden and Ryujinx saves of the game found on this PC, newest first.
+#[tauri::command]
+fn save_sources() -> Vec<saveimport::Source> {
+    saveimport::find_sources_here()
+}
+
+/// Imports a save: `source` is a picked folder, or None for the newest one found in Eden / Ryujinx.
+#[tauri::command]
+fn import_save(app: AppHandle, state: State<play::PlayState>, source: Option<String>) -> Result<saveimport::Report, String> {
+    if state.0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then import the save.".into());
+    }
+    let src = match source.filter(|s| !s.trim().is_empty()) {
+        Some(p) => saveimport::resolve_picked(Path::new(p.trim()))
+            .ok_or_else(|| format!("{} holds no Pokopia save (it needs the G00 and S00 folders).", p.trim()))?,
+        None => {
+            let found = saveimport::find_sources_here();
+            let first = found.first().ok_or("No Pokopia save found in Eden or Ryujinx. Use \"Pick a folder\" instead.")?;
+            PathBuf::from(&first.path)
+        }
+    };
+    let (sd, key) = save_paths(&app);
+    saveimport::import(&sd, &key, &src)
+}
+
+#[tauri::command]
+fn open_save_dir(app: AppHandle) -> Result<(), String> {
+    let (sd, _) = save_paths(&app);
+    fs::create_dir_all(&sd).map_err(|e| e.to_string())?;
+    play::open_with_shell(&sd)
 }
 
 #[tauri::command]
@@ -530,22 +664,30 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             test_report,
             get_config,
+            check_update,
+            open_release_url,
             save_config,
             get_overview,
             pick_folder,
             validate_dump,
             pick_nup,
             import_nup,
+            cancel_nup,
             save_dump,
             read_settings,
             write_settings,
             play,
             setup_status,
             start_setup,
+            preflight,
+            open_setup_log,
             cancel_setup,
             dlss_status,
             fetch_dlss,
             game_status,
+            save_sources,
+            import_save,
+            open_save_dir,
             open_game_file,
             open_game_dir,
             relay_start,

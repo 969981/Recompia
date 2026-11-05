@@ -920,6 +920,33 @@ NXTEST(sleep_ns_and_sleep_svc) {
     end_case();
 }
 
+// The game's polling sleeps (game.h PollSleep): a call from a listed return address gets the shorter sleep, nothing else changes.
+NXTEST(poll_sleep_ns_lookup) {
+    constexpr nxrt::game::PollSleep table[] = {{0x5aae44, 1000000}, {0x231580, 2000000}, {0x545328, 500 * 1000000ll}};
+    constexpr uint64_t base = 0x7100000000ull;
+    constexpr int64_t s1 = 1000000000;
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x5aae44, s1), 1000000);        // listed: 1 s becomes 1 ms
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x231580, 100 * 1000000ll), 2000000);
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x5aae48, s1), s1);             // not a listed return address
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, 0x5aae44, s1), s1);                    // offsets are relative to main_base
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x545328, 100 * 1000000ll), 100 * 1000000ll);  // never lengthens a shorter request
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x5aae44, 500000), 500000);     // under 1 ms: left alone
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x5aae44, 0), 0);               // yield variants
+    CHECK_EQ(k::poll_sleep_ns(table, 3, base, base + 0x5aae44, -1), -1);
+    CHECK_EQ(k::poll_sleep_ns(nullptr, 0, base, base + 0x5aae44, s1), s1);           // no table (poll_sleeps off or no game)
+}
+
+// The registered game's own table (Pokopia lists 10): every entry shortens and the addresses are distinct.
+NXTEST(poll_sleep_registered_game_table_is_sane) {
+    const nxrt::game::Info& g = nxrt::game::info();
+    if (!g.poll_sleeps) return;                              // a game without polling sleeps
+    REQUIRE(g.poll_sleep_count > 0);
+    for (uint32_t i = 0; i < g.poll_sleep_count; i++) {
+        CHECK(g.poll_sleeps[i].ns > 0 && g.poll_sleeps[i].ns <= 1000000);
+        for (uint32_t j = i + 1; j < g.poll_sleep_count; j++) CHECK(g.poll_sleeps[i].ret != g.poll_sleeps[j].ret);
+    }
+}
+
 // ---- handle table ------------------------------------------------------------------------------------------------------------------------------
 
 NXTEST(handle_table_add_get_close) {
