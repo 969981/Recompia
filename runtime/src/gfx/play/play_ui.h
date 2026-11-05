@@ -46,6 +46,8 @@ public:
     virtual void cancel_capture() = 0;
     // An input the page must not let the player bind (the key that opens this menu). The page keeps waiting for another one.
     virtual bool reserved_key(const InputId& id) const { (void)id; return false; }
+    // Opens the overlay's "Close the game?" prompt (the Quit button); the prompt itself ends the process when the player confirms.
+    virtual void request_quit_prompt() {}
 };
 
 // Draws the settings menu: pages Display, Graphics, Controls (mouse, keyboard bindings, gamepad, Switch layout, status), Audio and About, plus

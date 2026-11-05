@@ -49,11 +49,18 @@ public:
     // clicks its keys; the pad walks the key grid (d-pad or left stick, with repeat): A types the key, B deletes, Y space, X shift, L/R
     // move the caret, + answers, - cancels. Nothing here depends on the menu being visible.
     bool keyboard_open() const;
-    bool blocks_game() const;                // the menu is visible or the on-screen keyboard is open: the game gets no input
+    bool blocks_game() const;                // the menu is visible, the on-screen keyboard or the quit prompt is open: the game gets no input
+    // The "Close the game?" prompt (play mode's quit shortcut and the F1 page's Quit button): drawn over the game, menu or not (the menu and
+    // the on-screen keyboard are not drawn meanwhile). It takes the keyboard, the mouse and the pad: Enter / Space or pad A quits, Escape or
+    // pad B cancels, the mouse clicks its buttons. open_quit_prompt: any thread. Quitting only records the answer: the owner of the process
+    // polls take_quit_confirmed() on its main thread and ends the process there (the prompt stays up, holding the game back, until it does).
+    void open_quit_prompt();
+    bool quit_prompt_open() const;
+    bool take_quit_confirmed();              // true once after Quit was chosen
     void set_keyboard_abxy(bool by_label);   // how the face buttons are named in the keyboard's help line (play settings label_abxy)
     // The merged pad of this poll (Switch buttons after the player's mapping, left stick -32767..32767, up = +), before it is held back
-    // from the game. Returns the buttons the game must not see: all while the keyboard is open, then those still held from the press
-    // that closed it until they are released. Call it on every pad poll.
+    // from the game. Returns the buttons the game must not see: all while the keyboard or the quit prompt is open, then those still held from
+    // the press that closed it until they are released. Call it on every pad poll. The quit prompt reads its A / B presses here.
     uint64_t set_keyboard_pad(uint64_t buttons, int lx, int ly);
     bool wants_input() const;                // visible and ImGui wants the mouse or keyboard
     bool wants_mouse() const;                // visible and the pointer is over the menu or a widget is being dragged

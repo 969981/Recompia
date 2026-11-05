@@ -83,6 +83,7 @@ struct Page {
     std::string out_err[kActCount];        // parse error of each field; empty when its text is valid
     bool aspect_custom = false;            // Display tab: the Custom aspect entry is picked (local, not saved)
     bool fps_capture = false;              // Display tab: the frame rate counter's hotkey waits for a key (local, not saved)
+    bool quit_capture = false;             // Keyboard tab: the quit key waits for a key (local, not saved)
     std::string notice;                    // a line under the buttons: a refused or conflicting binding (cleared by the next rebind)
     bool notice_warn = false;              // the notice is a warning (drawn in orange), not information
     std::vector<std::string> monitors;     // Display page: "1: name (w x h @ hz)", refreshed every couple of seconds while the page is open
@@ -97,10 +98,11 @@ const char* yes_no(bool b) { return b ? "yes" : "no"; }
 const char* cstr(const char* s) { return s ? s : ""; }
 const char* act_label(Act a) { return a == Act::None ? "none (input off)" : act_info(a).name; }
 
-// Stops our rebind. The host's capture is cancelled only when it is ours.
+// Stops our rebind (a binding row or the quit key). The host's capture is cancelled only when it is ours.
 void stop_rebind(UiHost& host, Page& p) {
-    if (p.rebind >= 0 && host.capturing()) host.cancel_capture();
+    if ((p.rebind >= 0 || p.quit_capture) && host.capturing()) host.cancel_capture();
     p.rebind = -1;
+    p.quit_capture = false;
 }
 
 // Ends the frame rate counter's hotkey capture. The host's capture is cancelled only when it is ours.
@@ -147,10 +149,28 @@ void poll_capture(UiHost& host, Page& p) {
                 cur.fps.key = id;
                 host.apply(cur);   // live: not part of the working copy
             }
-        } else if (p.rebind >= 0 && p.rebind < static_cast<int>(p.edit.bindings.size())) {
+        } else if (p.quit_capture) {
+            // The quit key: keyboard keys only (a mouse button or a wheel notch is dropped and the capture ends), part of the working copy.
             const Settings cur = host.settings();
             if (reserved || (id.kind == InKind::Key && id == cur.fps.key)) {
-                set_notice(p, name + (reserved ? " opens this menu" : " is the frame rate counter hotkey") + " and cannot be bound. Press another input, Escape cancels.", true);
+                set_notice(p, name + (reserved ? " opens this menu" : " is the frame rate counter hotkey") + " and cannot be the quit key. Press another key, Escape cancels.", true);
+                host.begin_capture();
+                return;
+            }
+            p.quit_capture = false;
+            if (id.kind == InKind::Key) {
+                p.edit.quit.key = id;
+                mark(p);
+                bool used = false;
+                for (const Binding& b : p.edit.bindings) used = used || b.in == id;
+                if (used) set_notice(p, name + " is the quit key now; its bindings no longer reach the game.", true);
+                else set_notice(p, name + " is the quit key.", false);
+            }
+        } else if (p.rebind >= 0 && p.rebind < static_cast<int>(p.edit.bindings.size())) {
+            const Settings cur = host.settings();
+            if (reserved || (id.kind == InKind::Key && (id == cur.fps.key || id == p.edit.quit.key))) {
+                set_notice(p, name + (reserved ? " opens this menu" : id == cur.fps.key ? " is the frame rate counter hotkey" : " is the quit key") +
+                                  " and cannot be bound. Press another input, Escape cancels.", true);
                 host.begin_capture();
                 return;
             }
@@ -165,9 +185,10 @@ void poll_capture(UiHost& host, Page& p) {
             }
         }
         p.rebind = -1;
-    } else if ((p.rebind >= 0 || p.fps_capture) && !host.capturing()) {
+    } else if ((p.rebind >= 0 || p.fps_capture || p.quit_capture) && !host.capturing()) {
         p.rebind = -1;   // Escape, or the host ended the capture without a result
         p.fps_capture = false;
+        p.quit_capture = false;
         set_notice(p, "Rebinding cancelled.", false);
     }
 }
@@ -402,6 +423,39 @@ void pad_buttons_group(Page& p) {
     }
 }
 
+// The quit combination ([quit] pad): two controller buttons held together open the "Close the game?" prompt; both none = off. A file may
+// name more buttons: the combos then show the first two, and changing either keeps only what they show.
+void quit_pad_group(Page& p) {
+    ImGui::SeparatorText("Quit shortcut");
+    uint32_t& bits = p.edit.quit.pad;
+    int sel[2] = {-1, -1}, n = 0;
+    for (int i = 0; i < kPadSrcCount; ++i) {
+        if (!(bits & pad_src_bit(static_cast<PadSrc>(i)))) continue;
+        if (n < 2) sel[n] = i;
+        ++n;
+    }
+    for (int k = 0; k < 2; ++k) {
+        ImGui::PushID(k);
+        if (ImGui::BeginCombo(k == 0 ? "Quit: button 1" : "Quit: button 2", sel[k] < 0 ? "none" : kPadSrcLabels[sel[k]])) {
+            for (int c = -1; c < kPadSrcCount; ++c) {
+                if (ImGui::Selectable(c < 0 ? "none" : kPadSrcLabels[c], c == sel[k]) && c != sel[k]) {
+                    int next[2] = {sel[0], sel[1]};
+                    next[k] = c;
+                    bits = 0;
+                    for (int v : next)
+                        if (v >= 0) bits |= pad_src_bit(static_cast<PadSrc>(v));
+                    mark(p);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+    }
+    tip("Holding these controller buttons together asks \"Close the game?\" (A quits, B cancels). They are the physical buttons, whatever they "
+        "press on the Switch pad. Both none turns the shortcut off.");
+    if (n > 2) ImGui::TextColored(kOrange, "controls.ini names %d buttons (%s); changing one here keeps only the two shown.", n, pad_combo_text(bits).c_str());
+}
+
 // The button prompt style: which icons the game shows (Auto follows the last device used). Shared by the keyboard and the pad.
 void prompts_row(const LiveStatus& live, Page& p) {
     PromptSettings& prompts = p.edit.prompts;
@@ -454,6 +508,7 @@ void pad_tab(const LiveStatus& live, Page& p) {   // the Gamepad tab of the Cont
     if (slider("Rumble scale", &pad.rumble_scale, 0.0, 2.0, "%.2f")) mark(p);
 
     pad_buttons_group(p);
+    quit_pad_group(p);
 
     ImGui::SeparatorText("Gamepad");
     if (live.pads == 0) ImGui::TextUnformatted("No gamepad open.");
@@ -1105,6 +1160,34 @@ std::string input_button_text(const Binding& b, bool waiting) {
     return name.empty() ? "?" : name;
 }
 
+// The quit key ([quit] key): opens the "Close the game?" prompt and never reaches the game. Part of the working copy.
+void quit_key_group(UiHost& host, Page& p) {
+    ImGui::SeparatorText("Quit shortcut");
+    const std::string key = p.edit.quit.key.kind == InKind::Key ? input_name(p.edit.quit.key) : std::string();
+    ImGui::Text("Quit key: %s", key.empty() ? "none" : key.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Change##quit_key")) {
+        stop_rebind(host, p);
+        stop_fps_capture(host, p);
+        set_notice(p, "", false);
+        p.quit_capture = true;
+        host.begin_capture();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(p.edit.quit.key.kind == InKind::None);
+    if (ImGui::Button("Clear##quit_key")) {
+        if (p.quit_capture) stop_rebind(host, p);
+        p.edit.quit.key = {};
+        mark(p);
+    }
+    ImGui::EndDisabled();
+    if (p.quit_capture) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("press a keyboard key...");
+    }
+    tip("A keyboard key that asks \"Close the game?\". The key never reaches the game. The gamepad's combination is on the Gamepad tab.");
+}
+
 void bindings_tab(UiHost& host, Page& p) {
     if (ImGui::BeginCombo("Context", ctx_name(p.ctx))) {
         for (int c = 0; c < kCtxCount; ++c) {
@@ -1150,6 +1233,7 @@ void bindings_tab(UiHost& host, Page& p) {
             }
             if (clicked) {
                 stop_fps_capture(host, p);
+                p.quit_capture = false;
                 set_notice(p, "", false);
                 p.rebind = row;
                 host.begin_capture();
@@ -1210,6 +1294,7 @@ void bindings_tab(UiHost& host, Page& p) {
         b.ms = 0;
         p.edit.bindings.push_back(b);
         stop_fps_capture(host, p);
+        p.quit_capture = false;
         set_notice(p, "", false);
         p.rebind = static_cast<int>(p.edit.bindings.size()) - 1;
         host.begin_capture();
@@ -1229,6 +1314,7 @@ void bindings_tab(UiHost& host, Page& p) {
     }
     ImGui::TextWrapped("Click an input and press the key or mouse button (or turn the wheel) to bind it, Escape cancels. "
                        "Bindings of a context win over the 'all' layer for the same input. Action 'none' switches an input off in that context.");
+    quit_key_group(host, p);
 }
 
 // ---- Switch layout ------------------------------------------------------------------------------------------------------------------
@@ -1380,6 +1466,9 @@ void draw_settings_page(UiHost& host) {
     ImGui::SameLine();
     if (ImGui::Button("Factory defaults")) load_factory(host, p);
     tip("Loads the factory settings into the page. Nothing changes until Apply and save.");
+    ImGui::SameLine();
+    if (ImGui::Button("Quit game")) host.request_quit_prompt();
+    tip("Asks before closing the game. Unsaved settings changes are lost; the game's own save is not touched - save in the game first.");
     ImGui::Separator();
 
     ImGui::PushItemWidth(std::max(px(200.0f), ImGui::GetContentRegionAvail().x * 0.42f));

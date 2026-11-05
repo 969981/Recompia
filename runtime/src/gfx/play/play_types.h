@@ -134,6 +134,11 @@ constexpr int kPadSrcCount = static_cast<int>(PadSrc::kCount);
 const char* pad_src_name(PadSrc s);                      // the file's word: "south" "east" "west" "north" "left_shoulder" ... "dpad_right"
 bool parse_pad_src(const std::string& name, PadSrc* out);   // case-insensitive, '-' and ' ' equal '_'
 constexpr uint64_t kPadDefault = ~0ull;                  // PadSettings::remap value: the built-in mapping
+constexpr uint32_t pad_src_bit(PadSrc s) { return 1u << static_cast<int>(s); }
+// A set of pad buttons held together (QuitSettings::pad): PadSrc names joined by '+' ("back+start"), "none" (or empty) = no buttons.
+// Case-insensitive like parse_pad_src; false for an unknown name. pad_combo_text writes them in PadSrc order, "none" for 0.
+bool parse_pad_combo(const std::string& text, uint32_t* out);
+std::string pad_combo_text(uint32_t bits);
 
 struct PadSettings {
     uint64_t remap[kPadSrcCount] = {kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault,
@@ -241,6 +246,14 @@ struct CameraSettings {
     bool gun_drives_view = true;   // [camera] gun_drives_view: the arm cannon is fixed to the view, so its idle drift, walking bob and landing dip move the view
 };
 
+// ---- quit shortcut ------------------------------------------------------------------------------------------------------------
+// A pad combination and a keyboard key that open the overlay's "Close the game?" prompt (the same prompt as the F1 page's Quit button).
+// Neither reaches the game. The pad buttons are physical ones (before [padmap]), all held on one pad.
+struct QuitSettings {
+    uint32_t pad = pad_src_bit(PadSrc::Back) | pad_src_bit(PadSrc::Start);   // [quit] pad: bits of PadSrc, 0 = off (Select + Start)
+    InputId key = {};                                                        // [quit] key: a keyboard key, kind None = off
+};
+
 struct Settings {
     MouseSettings mouse;
     AimSettings aim;
@@ -253,6 +266,7 @@ struct Settings {
     extras::Settings extras;       // the [hdr] [upscale] [latency] [picture] sections (nxrt/extras.h): HDR output, upscaling, low latency
     PromptSettings prompts;
     FpsSettings fps;
+    QuitSettings quit;
     FastbootSettings fastboot;     // [tweaks] skip_intro skip_boot_logos fast_menus menu_speed (play_fastboot.h, S46)
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
@@ -353,6 +367,7 @@ const char* key_alt_sens();
 //   [tweaks]   skip_intro skip_boot_logos fast_menus (1/0) menu_speed (1..4)   (play_fastboot.h)
 //              glow_color (off | R,G,B) suit_glow ball_glow gun_glow (auto | off | R,G,B)   (play_tweaks.h)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
+//   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
 //   [switch]   <action> = <output>      e.g.  fire = ZR    beam_1 = X+UP    (missing actions keep the default)

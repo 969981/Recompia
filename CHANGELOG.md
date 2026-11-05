@@ -12,6 +12,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Steam Deck, Legion Go S and other 16:10 screens: with `aspect = auto` the picture now fills the whole screen again, with the taller
   view and objects and players at the right height (#73), instead of 16:9 with bars. Not yet verified in the world. Set
   `taller_fov = false` under `[pkp]` in `pkp.ini` to go back to the bars.
+- A way out of the game besides Alt+F4 (#70): hold Select and Start (View and Menu on an Xbox pad) together, or press the
+  new "Quit game" button on the F1 page, and confirm "Close the game?" with A (B cancels). Save in the game first. The buttons can be
+  changed and a keyboard key added on the F1 page (Controls), or in `controls.ini` under `[quit]`.
 
 ## 0.4.1
 
