@@ -40,6 +40,11 @@ bool page_banned(const Region* r, uint64_t page);
 void invalidate(Region* r, uint64_t first, uint64_t count);
 // Owner: appends the pages written by the CPU since the last call (page indices) and clears that record.
 void take_written(Region* r, std::vector<uint64_t>& out);
+// take_written reads only the words a summary bitmap marks (on, default) or every word of the region (off; [nvn] setup_coalesce = false).
+// Both give the same pages.
+void set_summary_scan(bool on);
+struct TakeStats { uint64_t calls = 0, empty = 0, pages = 0, words = 0; };   // take_written calls, calls that found none, pages, words read
+TakeStats take_stats();
 
 // Any thread: the operating system is about to write [p, p + n) (a file read into guest memory): armed pages in the range become writable
 // and count as written. Cheap when no region exists.

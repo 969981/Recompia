@@ -140,3 +140,8 @@ pub fn open_with_shell(path: &Path) -> Result<(), String> {
     // explorer opens a file in its default app and a folder in a window
     Command::new("explorer.exe").arg(path).spawn().map(|_| ()).map_err(|e| format!("Could not open {}: {}", path.display(), e))
 }
+
+/// Opens an http(s) link in the default browser (same explorer.exe route as open_with_shell).
+pub fn open_url(url: &str) -> Result<(), String> {
+    Command::new("explorer.exe").arg(url).spawn().map(|_| ()).map_err(|e| format!("Could not open {}: {}", url, e))
+}

@@ -15,6 +15,7 @@ struct InitOptions {
     bool memory_init = true;            // reserve the stack and kernel regions
     bool load_symbols = true;           // load the linker map next to the exe
     bool services = true;               // register the Horizon system services (services.h) in the ipc registry
+    bool cache_env = false;             // config lookups cached per thread (config_cache_env): the environment is fixed from here on
 };
 
 // Idempotent. Logs the effective configuration. Returns false when a mandatory piece (the address-space layout) failed.

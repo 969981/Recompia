@@ -3,6 +3,7 @@
 // not the graphics one.
 #include "pkp_game.h"
 
+#include "nxrt/game.h"
 #include "nxrt/services.h"
 #include "nxrt/tt.h"
 
@@ -33,6 +34,19 @@ void title_defaults(services::TitleProfile& p) {
     p.user_uid_lo = 0x41434e4852656370ull;     // "PKPRecmp"
 }
 
+// Polling sleeps on the boot path (IDA, 2.0.1; [sched] poll_sleeps, nxrt/game.h). The save manager (the object behind 0x71005ac980 and
+// its siblings, run on the loader job thread from 0x710112e2cc) queues each save-file request (SYDAT.BIN and the other save files) on the
+// request queue of a worker thread and then waits for it with `while (!request->done) SleepThread(1 s)`, or sets its state word (+0x628)
+// and waits `while (state < n) SleepThread(1 s)`. The request takes milliseconds, so every one of them cost a full second: 12 of them on
+// a boot to the title screen with a save, ~12 s of the 45 s. The boot state machine at 0x7100230b00 (state 8) sleeps 100 ms and returns
+// while what it waits for is not ready (it runs again on the next step), 11 times on that boot. The BCAT polls (500 ms) never run offline
+// but are the same kind of loop. All of them only check more often with 1 ms.
+constexpr game::PollSleep kPollSleeps[] = {
+    {0x5aae44, 1000000}, {0x5abc00, 1000000}, {0x5ac350, 1000000}, {0x5ac9fc, 1000000}, {0x5aca6c, 1000000}, {0x5ad21c, 1000000},
+    {0x231580, 1000000},
+    {0x545328, 1000000}, {0x545408, 1000000}, {0x583384, 1000000},
+};
+
 }  // namespace
 
 const game::Info& core_info() {
@@ -40,6 +54,8 @@ const game::Info& core_info() {
         game::Info g = data_info();
         g.title_defaults = &title_defaults;
         g.probes = &tt::pkp::pkp_game_probes();
+        g.poll_sleeps = kPollSleeps;
+        g.poll_sleep_count = sizeof kPollSleeps / sizeof kPollSleeps[0];
         return g;
     }();
     return info;

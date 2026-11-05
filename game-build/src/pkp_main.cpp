@@ -358,6 +358,7 @@ int main(int argc, char** argv) {
     nxrt::InitOptions opt;
     opt.ini_path = ini;
     opt.log_path = logp;
+    opt.cache_env = true;   // every _putenv above is done; nothing in the game process sets environment variables after this
     if (!nxrt::init(opt)) die("runtime start-up failed (address-space layout)");
     for (const auto& kv : boot_opts) nxrt::config_set("boot", kv.first.c_str(), kv.second.c_str());
     if (installed && !nxrt::config_has("fs", "romfs")) nxrt::config_set("fs", "romfs", "romfs");   // pkp.ini missing or without [fs]

@@ -190,6 +190,54 @@ NXTEST(a_switch_button_nothing_presses_has_no_pad_icon) {
     CHECK_EQ(name_of(t, PromptStyle::Xbox, Ctx::Menu, Icon::Y), std::string("xbox/y"));
 }
 
+NXTEST(pad_pack_name_resolves_one_switch_button_bit) {
+    const Settings s = default_settings();
+    using namespace hid;
+    // label mode: the pad's south button presses Switch A
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnA)), std::string("ps/cross"));
+    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnA)), std::string("xbox/a"));
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnB)), std::string("ps/circle"));
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnZR)), std::string("ps/r2"));
+    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnPlus)), std::string("xbox/menu"));
+    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnMinus)), std::string("xbox/view"));
+    // by position (label_abxy off): Switch A is the pad's east button
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, false, btn(kBtnA)), std::string("ps/circle"));
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, false, btn(kBtnB)), std::string("ps/cross"));
+    // any d-pad bit gives the d-pad icon
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnUp)), std::string("ps/dpad"));
+    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnLeft)), std::string("xbox/dpad"));
+    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnDown)), std::string("xbox/dpad"));
+    // a stick click has no pad icon; neither do a zero or a multi-bit value, nor a style that is not a pad style
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnStickL)), std::string());
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, 0), std::string());
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnA) | btn(kBtnB)), std::string());
+    CHECK_EQ(pad_pack_name(PromptStyle::Switch, s.pad, true, btn(kBtnA)), std::string());
+    CHECK_EQ(pad_pack_name(PromptStyle::Keyboard, s.pad, true, btn(kBtnA)), std::string());
+}
+
+NXTEST(pad_pack_name_follows_a_pad_remap) {
+    Settings s = default_settings();
+    s.pad.remap[static_cast<int>(PadSrc::South)] = hid::btn(hid::kBtnX);   // south now presses X
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, hid::btn(hid::kBtnX)), std::string("ps/cross"));
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, hid::btn(hid::kBtnA)), std::string());   // nothing presses A now
+    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, hid::btn(hid::kBtnB)), std::string("ps/circle"));
+}
+
+NXTEST(the_shipped_pack_has_every_pad_icon_a_switch_button_can_ask_for) {
+    IconPack p;
+    CHECK_MSG(p.load_file(pack_path().string()), p.error());
+    const Settings s = default_settings();
+    const hid::NpadButtonBit btns[] = {hid::kBtnA,   hid::kBtnB,  hid::kBtnX,  hid::kBtnY,   hid::kBtnL,  hid::kBtnR,  hid::kBtnZL,
+                                       hid::kBtnZR,  hid::kBtnPlus, hid::kBtnMinus, hid::kBtnLeft, hid::kBtnUp, hid::kBtnRight,
+                                       hid::kBtnDown};
+    for (PromptStyle st : {PromptStyle::Xbox, PromptStyle::PlayStation})
+        for (bool label : {true, false})
+            for (hid::NpadButtonBit b : btns) {
+                const std::string n = pad_pack_name(st, s.pad, label, hid::btn(b));
+                CHECK_MSG(!n.empty() && p.find(n) != nullptr, n);
+            }
+}
+
 NXTEST(map_sticks_show_the_mouse_buttons_that_drive_the_map) {
     const Settings s = default_settings();
     // the map: left drag rotates it (button 1), middle drag moves it (button 2)

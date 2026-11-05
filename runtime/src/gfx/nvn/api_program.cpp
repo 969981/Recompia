@@ -114,6 +114,7 @@ NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderD
     for (int s = 0; s < 6; ++s) {
         p->stage[s] = nullptr;
         p->code_hash[s] = 0;
+        p->src_code[s] = p->src_control[s] = nullptr;
     }
     p->missing[0] = 0;
     ++p->serial;
@@ -147,6 +148,8 @@ NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderD
         }
         p->stage[stage] = si;
         p->code_hash[stage] = parse_hash(si->hash);
+        p->src_code[stage] = code;
+        p->src_control[stage] = control;
     }
     p->linked = all_found;
     if (all_found && gpu::active()) gpu::prewarm_program_shaders(p->stage);

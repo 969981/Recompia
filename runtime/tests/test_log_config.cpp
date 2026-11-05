@@ -442,6 +442,40 @@ NXTEST(config_set_and_load_replace) {
     CHECK(config_get_int("x", "k", 0) == 0);  // clear empties everything
 }
 
+NXTEST(config_cache_keeps_env_and_sees_ini_changes) {
+    clear_env();
+    config_load_string("[c]\nk = 1\n");
+    _putenv_s("NXRT_C_E", "5");
+    REQUIRE(config_cache_env(true));
+    CHECK(config_get_int("c", "k", 0) == 1);
+    CHECK(config_get_int("c", "e", 0) == 5);
+    _putenv_s("NXRT_C_E", "6");                 // unseen by design: the cache promises a fixed environment
+    CHECK(config_get_int("c", "e", 0) == 5);
+    CHECK(std::string(config_source("c", "e")) == "env");
+    config_set("c", "k", "2");                  // ini changes empty the cache, and that re-reads the env too
+    CHECK(config_get_int("c", "k", 0) == 2);
+    CHECK(config_get_int("c", "e", 0) == 6);
+    CHECK(config_get_str("c", "k", "") == "2");
+    CHECK(config_get_bool("c", "missing", true));
+    CHECK(!config_has("c", "missing"));
+    std::string sec = "c", key = "k";           // same text from other buffers: same answer
+    CHECK(config_get_int(sec.c_str(), key.c_str(), 0) == 2);
+    int from_thread = 0;
+    std::thread([&] { from_thread = static_cast<int>(config_get_int("c", "k", 0)); }).join();
+    CHECK(from_thread == 2);
+    config_load_string("[c]\nk = 3\n");
+    CHECK(config_get_int("c", "k", 0) == 3);
+    config_clear();
+    CHECK(config_get_int("c", "k", 0) == 0);
+    _putenv_s("NXRT_CONFIG_CACHE", "false");    // the kill switch
+    CHECK(!config_cache_env(true));
+    _putenv_s("NXRT_CONFIG_CACHE", "");
+    _putenv_s("NXRT_C_E", "7");
+    CHECK(config_get_int("c", "e", 0) == 7);    // off: every lookup reads the environment again
+    CHECK(!config_cache_env(false));
+    _putenv_s("NXRT_C_E", "");
+}
+
 NXTEST(config_env_name_examples) {
     CHECK(config_env_name("diag", "watchdog_seconds") == "NXRT_DIAG_WATCHDOG_SECONDS");
     CHECK(config_env_name("", "foo") == "NXRT_FOO");

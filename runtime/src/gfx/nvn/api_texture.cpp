@@ -251,6 +251,7 @@ NVNboolean nvnTextureInitialize(NVNtexture* texture, const NVNtextureBuilder* bu
     be::tev(t, "init", static_cast<uint64_t>(info.offset), t->storage_size);
     be::tx_mark("tx.init", t);
     be::g_tex_scan_epoch.fetch_add(1, std::memory_order_relaxed);
+    be::g_bind_gen.fetch_add(1, std::memory_order_relaxed);
     return 1;
 }
 

@@ -548,6 +548,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT agpl = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT};
     VkPhysicalDeviceTransformFeedbackFeaturesEXT atfb = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT};
     VkPhysicalDeviceIndexTypeUint8FeaturesEXT au8 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_EXT};
+    VkPhysicalDeviceAttachmentFeedbackLoopLayoutFeaturesEXT afbl = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_FEATURES_EXT};
     VkPhysicalDevicePresentIdFeaturesKHR apid = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
     VkPhysicalDeviceAntiLagFeaturesAMD aal = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ANTI_LAG_FEATURES_AMD};
     std::vector<const char*> dev_exts;
@@ -571,6 +572,8 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool x_tfb = add_ext(VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME, &atfb);
     // 8-bit index buffers (the EXT and the KHR extension share the feature struct)
     const bool x_u8 = add_ext(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME, &au8) || add_ext("VK_KHR_index_type_uint8", &au8);
+    // draws that sample their own colour attachment (the NVN replay's feedback draws) without a copy of it
+    const bool x_fbl = add_ext(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME, &afbl);
     // pipelines linked from separately compiled shader parts (nvn_gpl.cpp): needs VK_KHR_pipeline_library next to the extension itself
     const bool x_gpl = has_dext(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) && has_dext(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME) &&
                        add_ext(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME, &agpl);
@@ -637,6 +640,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.dynamic_rendering_unused_attachments = x_drua && adrua.dynamicRenderingUnusedAttachments;
     features_.transform_feedback = x_tfb && atfb.transformFeedback;
     features_.index_type_uint8 = x_u8 && au8.indexTypeUint8;
+    features_.attachment_feedback_loop = x_fbl && afbl.attachmentFeedbackLoopLayout;
     if (features_.transform_feedback) {   // transformFeedbackQueries is a property: the primitive counters of indirect draws under feedback need it
         VkPhysicalDeviceTransformFeedbackPropertiesEXT tfp = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT};
         VkPhysicalDeviceProperties2 tfpp = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &tfp};
@@ -658,10 +662,11 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.anti_lag = x_aal && aal.antiLag;
     NXLOG_I(kTag, "texture compression on this GPU: BC %s, ASTC-LDR %s, ETC2 %s", features_.bc ? "yes" : "no",
             features_.astc_ldr ? "yes" : "no", features_.etc2 ? "yes" : "no");
-    NXLOG_I(kTag, "features: geometry %d float64 %d int64 %d dualSrc %d logicOp %d multiViewport %d drawParams %d descIndexing %d interlock %d depthClipControl %d customBorder %d hostMemImport %d pushDesc %d",
+    NXLOG_I(kTag, "features: geometry %d float64 %d int64 %d dualSrc %d logicOp %d multiViewport %d drawParams %d descIndexing %d interlock %d depthClipControl %d customBorder %d hostMemImport %d pushDesc %d feedbackLoop %d",
             features_.geometry_shader, features_.shader_float64, features_.shader_int64, features_.dual_src_blend, features_.logic_op,
             features_.multi_viewport, features_.shader_draw_parameters, features_.descriptor_indexing, features_.fragment_shader_interlock,
-            features_.depth_clip_control, features_.custom_border_color, features_.external_memory_host, features_.push_descriptor);
+            features_.depth_clip_control, features_.custom_border_color, features_.external_memory_host, features_.push_descriptor,
+            features_.attachment_feedback_loop);
     {
         VkPhysicalDeviceExternalMemoryHostPropertiesEXT xh = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT};
         VkPhysicalDeviceVulkan11Properties p11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES, features_.external_memory_host ? &xh : nullptr};
@@ -723,7 +728,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
 }
 
 Device::~Device() {
-    if (device_) vkDeviceWaitIdle(device_);
+    if (device_ && !device_lost()) vkDeviceWaitIdle(device_);
     if (impl_) {
         if (impl_->once_fence) { vkDestroyFence(device_, impl_->once_fence, nullptr); vk_gauge_fences().sub(1); }
         if (impl_->once_pool) { vkDestroyCommandPool(device_, impl_->once_pool, nullptr); vk_gauge_command_pools().sub(1); }
@@ -735,6 +740,13 @@ Device::~Device() {
     if (messenger_) vkDestroyDebugUtilsMessengerEXT(instance_, messenger_, nullptr);
     if (instance_) vkDestroyInstance(instance_, nullptr);
     delete impl_;
+}
+
+void Device::note_result(VkResult result, const char* operation) {
+    if (result != VK_ERROR_DEVICE_LOST) return;
+    bool expected = false;
+    if (device_lost_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+        NXLOG_E(kTag, "graphics device lost in %s (VK_ERROR_DEVICE_LOST); stopping further GPU work", operation ? operation : "Vulkan");
 }
 
 // ---- validation -------------------------------------------------------------------------------------------------------
@@ -940,6 +952,7 @@ void Device::invalidate_buffer(const Buffer& b) {
 
 // ---- one-shot submit, idle, stats -------------------------------------------------------------------------------------
 bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
+    if (device_lost()) return false;
     std::lock_guard<std::mutex> lk(impl_->once_mu);
     VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool = impl_->once_pool;
@@ -956,21 +969,27 @@ bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
     VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
-    bool ok;
+    VkResult result;
     {
         std::lock_guard<std::mutex> ql(queue_mutex_);
-        ok = vkQueueSubmit(queue_, 1, &si, impl_->once_fence) == VK_SUCCESS;
+        result = vkQueueSubmit(queue_, 1, &si, impl_->once_fence);
     }
-    if (ok) ok = vkWaitForFences(device_, 1, &impl_->once_fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
-    vkResetFences(device_, 1, &impl_->once_fence);
+    note_result(result, "vkQueueSubmit (one-shot)");
+    if (result == VK_SUCCESS) {
+        result = vkWaitForFences(device_, 1, &impl_->once_fence, VK_TRUE, UINT64_MAX);
+        note_result(result, "vkWaitForFences (one-shot)");
+    }
+    if (!device_lost()) vkResetFences(device_, 1, &impl_->once_fence);
     vkFreeCommandBuffers(device_, impl_->once_pool, 1, &cmd);
     vk_gauge_command_buffers().sub(1);
-    return ok;
+    return result == VK_SUCCESS;
 }
 
 void Device::wait_idle() {
+    if (device_lost()) return;
     std::lock_guard<std::mutex> ql(queue_mutex_);
-    vkDeviceWaitIdle(device_);
+    const VkResult result = vkDeviceWaitIdle(device_);
+    note_result(result, "vkDeviceWaitIdle");
 }
 
 Device::MemoryStats Device::memory_stats() {

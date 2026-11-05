@@ -117,6 +117,47 @@ NXTEST(memory_pool_lifecycle_and_lookup) {
     CHECK_EQ(get_size(&pool), size_t(0));
 }
 
+// pool_lookup's last-hit cache ([nvn] pool_cache) is dropped by every registry change: a pool unregistered is not found again from the
+// cache, another pool registered at the same base with another size is the one found, and two pools looked up in turn both stay found.
+NXTEST(pool_lookup_cache_follows_the_registry) {
+    setup();
+    constexpr uint64_t kBase = 0x0000300000000000ull;
+    be::MemoryPool* a = new be::MemoryPool();
+    a->gpu_base = kBase;
+    a->size = 1u << 20;
+    be::MemoryPool* c = new be::MemoryPool();
+    c->gpu_base = kBase + (4u << 20);
+    c->size = 1u << 20;
+    const uint64_t g0 = be::pool_registry_gen();
+    be::pool_register(a);
+    be::pool_register(c);
+    CHECK(be::pool_registry_gen() > g0);
+    for (int i = 0; i < 3; ++i) {                                            // fills the cache, then hits it, alternating
+        CHECK(be::pool_lookup(kBase + 64).pool == a);
+        CHECK(be::pool_lookup(kBase + (4u << 20) + 128).pool == c);
+    }
+    CHECK_EQ(be::pool_lookup(kBase + 4096).offset, uint64_t(4096));
+    CHECK(be::pool_lookup(kBase + (1u << 20)).pool == nullptr);              // past a's end: not served from the cached entry
+    const uint64_t g1 = be::pool_registry_gen();
+    be::pool_unregister(a);
+    CHECK(be::pool_registry_gen() > g1);
+    CHECK(be::pool_lookup(kBase + 64).pool == nullptr);                      // gone, although the cache held it
+    CHECK(be::pool_lookup(kBase + (4u << 20) + 128).pool == c);
+    be::MemoryPool* b = new be::MemoryPool();                                // same base, twice the size
+    b->gpu_base = kBase;
+    b->size = 2u << 20;
+    be::pool_register(b);
+    CHECK(be::pool_lookup(kBase + 64).pool == b);
+    CHECK(be::pool_lookup(kBase + (1u << 20) + 64).pool == b);
+    be::pool_unregister(b);
+    be::pool_unregister(c);
+    CHECK(be::pool_lookup(kBase + 64).pool == nullptr);
+    CHECK(be::pool_lookup(kBase + (4u << 20) + 128).pool == nullptr);
+    a->unref();
+    b->unref();
+    c->unref();
+}
+
 NXTEST(memory_pool_rejects_bad_builders_and_accepts_unaligned) {
     setup();
     auto b_defaults = abi::proc<PFNNVNMEMORYPOOLBUILDERSETDEFAULTSPROC>("nvnMemoryPoolBuilderSetDefaults");

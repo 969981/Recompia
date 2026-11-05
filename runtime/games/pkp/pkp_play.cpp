@@ -51,6 +51,7 @@
 // the branch last ran: counts read while the branch is closed are applied when it opens again within that time (the view ends where the
 // hand moved it) and dropped after it (a scripted camera does not jump when control comes back).
 #include "pkp_play.h"
+#include "pkp_gfx_heap.h"
 #include "pkp_kbm.h"
 #include "pkp_movie_test.h"
 
@@ -317,7 +318,9 @@ int hook_low_copy(::Ctx* c, uint64_t, void*) {
 // Wider than 16:9 (Hor+): the vertical FOV stays, P[0][0] = P[1][1] / aspect and +332 = aspect, so the game's own later rebuilds stay wide
 // (and the mid hook in the builder, 0x1f12130 with x0 = the camera, puts the aspect back into a known scene camera whenever the game resets it)
 // and everything that culls from the camera sees the wider frustum. Narrower than 16:9: the horizontal reach stays and the view grows above and
-// below (P[1][1] = P[0][0] * aspect; +332 is left alone, so this one is matrix-only).
+// below (P[1][1] = P[0][0] * aspect; +332 is left alone, so this one is matrix-only: draws that use the 16:9 projection then sit at the
+// wrong height, #73; by default ([pkp] taller_fov on) it is made through the camera's FOV and aspect instead, see taller_fields; with it off,
+// auto keeps 16:9 there).
 // The UI's screen-layout camera (0x1fbab60(out, eye, int size[2]): an orthographic camera whose P[0][0] / P[1][1] are 2 / w, 2 / h of the size,
 // origin at the canvas centre) gets a size of the display's shape when it is asked for the 1920x1080 canvas (mid hook 0x1fbab98, x2 the size):
 // the 16:9 layouts stay 16:9, centred over the wider (or taller) scene.
@@ -330,7 +333,9 @@ constexpr double kAspect169 = 16.0 / 9.0;
 struct Wide {
     double aspect = kAspect169;               // the display's aspect (16:9 = nothing to do)
     std::atomic<uint64_t> cams[8]{};          // scene cameras seen at the render-view hand-over
-    std::atomic<uint64_t> cam_fixes{0}, aspect_puts{0}, ui_fixes{0};
+    std::atomic<uint32_t> fov_put[8]{};       // [pkp] taller_fov: the FOV bits last written into cams[i] (0 = none)
+    bool taller_fov = true;                   // [pkp] taller_fov (default on): narrower than 16:9 through the camera's FOV and aspect, not the matrix only
+    std::atomic<uint64_t> cam_fixes{0}, aspect_puts{0}, fov_puts{0}, ui_fixes{0};
     std::atomic<bool> fov_logged{false};
     uint64_t ui_size = 0;                     // guest int[2] the layout camera reads instead of 1920x1080
 };
@@ -386,18 +391,55 @@ void fix_camera(uint64_t cam) {
     }
 }
 
+void taller_fields(uint64_t cam);   // [pkp] taller_fov, below
+
 int hook_cam_submit(::Ctx* c, uint64_t, void*) {
     const uint64_t cam = c->x[20];
     if (!cam || !mem::is_mapped(cam, 360)) return 0;
     remember_cam(cam);
     fix_camera(cam);
+    if (wide().taller_fov && wide().aspect < kAspect169) taller_fields(cam);   // the next projection build is taller at the source
     return 0;
+}
+
+int cam_index(uint64_t cam) {
+    for (int i = 0; i < 8; ++i)
+        if (wide().cams[i].load(std::memory_order_relaxed) == cam) return i;
+    return -1;
+}
+
+// [pkp] taller_fov, narrower than 16:9 (16:10): the camera itself gets the taller shape before the builder computes P, so every later use of
+// its projection agrees (the matrix-only fix_camera path patches P at the render-view hand-over, after the game may already have used the
+// 16:9 one: objects then sat at the wrong height, #73). The horizontal reach stays the game's: tan(fov' / 2) = tan(fov / 2) * (16 / 9) /
+// aspect, +332 = aspect, so P[0][0] = cot(fov' / 2) / aspect is the 16:9 one and P[1][1] grows. fov_put[] remembers what was written: a
+// FOV that differs is a new game value (zoom, cutscene) and is converted again; ours is never converted twice.
+void taller_fields(uint64_t cam) {
+    Wide& w = wide();
+    const int i = cam_index(cam);
+    if (i < 0 || (rd<uint32_t>(cam + 344) & 1)) return;   // unknown, or orthographic
+    const float a = rd<float>(cam + kCamAspect), f = rd<float>(cam + kCamFov);
+    uint32_t fb;
+    std::memcpy(&fb, &f, 4);
+    if (close_to(a, w.aspect) && fb == w.fov_put[i].load(std::memory_order_relaxed)) return;   // already ours
+    if (!close_to(a, kAspect169) && !close_to(a, w.aspect)) return;                             // some other shape: leave it
+    if (!(f > 0.05f && f < 3.0f)) return;
+    const float nf = static_cast<float>(2.0 * std::atan(std::tan(f * 0.5) * kAspect169 / w.aspect));
+    wr<float>(cam + kCamFov, nf);
+    wr<float>(cam + kCamAspect, static_cast<float>(w.aspect));
+    std::memcpy(&fb, &nf, 4);
+    w.fov_put[i].store(fb, std::memory_order_relaxed);
+    w.fov_puts.fetch_add(1, std::memory_order_relaxed);
 }
 
 int hook_proj_build(::Ctx* c, uint64_t, void*) {
     Wide& w = wide();
     const uint64_t cam = c->x[0];
-    if (!(w.aspect > kAspect169) || !cam || !known_cam(cam)) return 0;
+    if (!cam || !known_cam(cam)) return 0;
+    if (w.aspect < kAspect169 && w.taller_fov) {
+        taller_fields(cam);
+        return 0;
+    }
+    if (!(w.aspect > kAspect169)) return 0;
     if (close_to(rd<float>(cam + kCamAspect), kAspect169)) {
         wr<float>(cam + kCamAspect, static_cast<float>(w.aspect));
         w.aspect_puts.fetch_add(1, std::memory_order_relaxed);
@@ -560,6 +602,19 @@ void pick_size(const play::DisplaySettings& d, int window_w, int window_h, int* 
     *out_h = h;
 }
 
+// Game targets above 1920x1080 need larger graphics pools than the game's fixed ones (pkp_gfx_heap.h): grows them (nothing is hooked at
+// 1920x1080 and below) and clamps a size whose pools would not fit, before the targets' size is installed. Only the paths where the game
+// itself builds its targets at the new size come here; with render_override off the game keeps 1920x1080 targets (the back end scales them).
+void game_target_memory(uint64_t base, int* w, int* h) {
+    const GfxHeapPlan plan = gfx_heap_plan(*w, *h);
+    if (plan.clamped)
+        NXLOG_W(kTag, "render resolution %dx%d needs more graphics memory than the game's pools can hold (4 GiB each): using %dx%d", *w, *h,
+                plan.w, plan.h);
+    *w = plan.w;
+    *h = plan.h;
+    gfx_heap_install(base, plan, &st().hooks);
+}
+
 }  // namespace
 
 void play_install_render(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h) {
@@ -586,7 +641,18 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     // The display's aspect ([display] aspect: auto = the window's, or the fixed render size's when one is set). Anything but 16:9 gives the
     // game targets of that shape (1080 high when wider, 1920 wide when narrower; the back end's scale on top) and the camera / UI hooks above.
     const bool fixed_size = d.render_width > 0 && d.render_height > 0;
-    const double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
+    double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
+    // Taller than 16:9 (16:10 handhelds): by default (taller_fov on) the taller view is made through the camera's FOV and aspect (taller_fields),
+    // so every draw agrees on the projection (#73). With [pkp] taller_fov = false the view is matrix-only (fix_camera leaves the camera's FOV
+    // and aspect at 16:9), the draws that rebuild their projection from those fields (objects, characters) sit at the wrong height, and
+    // auto falls back to 16:9 with bars (the 0.4.1 letterbox). A forced [display] aspect then still gets the matrix-only taller view.
+    wide().taller_fov = config_get_bool("pkp", "taller_fov", true);
+    const bool taller_auto = !wide().taller_fov && !(d.aspect > 0) && aspect < kAspect169 && !close_to(aspect, kAspect169);
+    if (taller_auto) {
+        NXLOG_I(kTag, "aspect auto: the window (%dx%d) is taller than 16:9, so the picture stays 16:9 with bars (#73; [display] aspect forces a "
+                "shape)", fixed_size ? d.render_width : window_w, fixed_size ? d.render_height : window_h);
+        aspect = kAspect169;
+    }
     Wide& wd = wide();
     wd.aspect = close_to(aspect, kAspect169) ? kAspect169 : aspect;
     const bool override_size = config_get_bool("pkp", "render_override", true);
@@ -596,6 +662,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         else gh = static_cast<int>(std::lround(kTableW / wd.aspect)) & ~1;
         gw = std::clamp(gw, 640, 8192);
         gh = std::clamp(gh, 360, 8192);
+        game_target_memory(base, &gw, &gh);
         s.w.store(gw);
         s.h.store(gh);
         const struct { uint64_t off; SiteHookFn fn; } table[] = {
@@ -626,7 +693,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         gfx::tuning().render_scale.store(scale);
         NXLOG_I(kTag, "aspect %.4f (%s, window %dx%d): %dx%d game targets at scale %.3f, 3D view %s, UI kept 16:9 and centred, dynamic resolution %s",
                 wd.aspect, d.aspect > 0 ? "[display] aspect" : "auto", window_w, window_h, gw, gh, scale,
-                wd.aspect > kAspect169 ? "Hor+ (same vertical FOV, wider horizontal)" : "16:9 width kept, taller", d.dynamic_resolution ? "on" : "off");
+                wd.aspect > kAspect169 ? "Hor+ (same vertical FOV, wider horizontal)" : wd.taller_fov ? "16:9 width kept, taller (camera FOV and aspect, [pkp] taller_fov)" : "16:9 width kept, taller", d.dynamic_resolution ? "on" : "off");
         s.render_installed = true;
         return;
     }
@@ -648,6 +715,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         s.render_installed = true;
         return;
     }
+    game_target_memory(base, &w, &h);
     s.w.store(w);
     s.h.store(h);
     const struct { uint64_t off; SiteHookFn fn; } table[] = {
@@ -771,9 +839,9 @@ void play_status_text(char* buf, size_t n) {
     int k2 = k;
     if (k > 0 && static_cast<size_t>(k) < n && wide_on()) {
         const Wide& w = wide();
-        const int m = std::snprintf(buf + k, n - k, " aspect=%.3f cam_fixes=%llu aspect_puts=%llu ui_fixes=%llu", w.aspect,
+        const int m = std::snprintf(buf + k, n - k, " aspect=%.3f cam_fixes=%llu aspect_puts=%llu fov_puts=%llu ui_fixes=%llu", w.aspect,
                                     static_cast<unsigned long long>(w.cam_fixes.load()), static_cast<unsigned long long>(w.aspect_puts.load()),
-                                    static_cast<unsigned long long>(w.ui_fixes.load()));
+                                    static_cast<unsigned long long>(w.fov_puts.load()), static_cast<unsigned long long>(w.ui_fixes.load()));
         if (m > 0) k2 += m;
     }
     if (k2 > 0 && static_cast<size_t>(k2) < n) kbm_status_text(buf + k2, n - k2);

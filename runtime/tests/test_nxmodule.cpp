@@ -366,8 +366,10 @@ NXTEST(import_counts) {
 
     CHECK_EQ(nxrt::import_calls(), 0u);
     ::Ctx c{};
-    for (int i = 0; i < 3; i++) host_import(&c, NX_IMPORT_ID(0, 0));
-    CHECK_EQ(nxrt::import_calls(), 3u);
+    // The count is kept per thread and added to the shared one every 4096 calls, so it is exact in whole blocks of 4096 whatever
+    // this thread's partial count is.
+    for (int i = 0; i < 3 * 4096; i++) host_import(&c, NX_IMPORT_ID(0, 0));
+    CHECK_EQ(nxrt::import_calls(), 3u * 4096u);
 
     reset();
     CHECK_EQ(nxrt::import_calls(), 0u);

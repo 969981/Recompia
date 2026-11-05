@@ -26,8 +26,13 @@ uint64_t guest_function_of(uint64_t host_rip);
 // Each thunk is a 16-byte slot in [mem::kHleBase, +mem::kHleSize). Calling the address through call_indirect runs the host
 // handler with the guest registers; the handler returns by writing x0.. and returning (the caller continues after the call).
 uint64_t hle_register(const char* name, HleFn fn);        // makes/updates the thunk for `name`; returns its address
+void install_libc_hle();                                  // the SDK's strlen / strcmp / memcpy / ... as host code (libc_hle.cpp, [hle] libc)
 uint64_t hle_address(const char* name);                   // thunk for `name`; an unknown name gets a logging stub (x0 = 0)
 HleFn hle_lookup(const char* name);                       // the registered handler or nullptr (stubs are not "registered")
+// A leaf handler (no guest calls, no faults it must report as the import's, called often: strlen, memcpy) that an import call runs
+// directly, skipping the per-thunk call count, [hle] trace and the in_import bookkeeping. The name must be registered first.
+void hle_mark_leaf(const char* name);
+HleFn hle_leaf_fn(uint64_t addr);                         // the handler of a leaf thunk at addr, else nullptr
 bool hle_is_thunk(uint64_t addr);
 const char* hle_name_at(uint64_t addr);                   // name behind a thunk address or nullptr
 size_t hle_count();

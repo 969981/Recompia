@@ -39,6 +39,7 @@ struct ProgLayout {
     bool has_set[4] = {};
     VkShaderStageFlags push_stages = 0;         // push constant range [0, push_bytes) of generated stages (ShaderInfo::push_bytes); 0 = none
     uint32_t push_bytes = 0;
+    bool c0_graphics = false;                   // a graphics stage reads c[0]: its bank holds the draw's base instance (nvn_driver_bank.h)
 };
 
 // Stages by NVN stage index (0 vertex, 1 fragment, 2 geometry, 5 compute); null = absent.
@@ -74,7 +75,10 @@ struct GraphicsKey {
     uint8_t xfb = 0;                            // the vertex shader runs with transform feedback (captured outputs, no fragment stage)
     uint8_t dual_src = 0;                       // a blend factor of an enabled attachment reads the second source (fragment output moved to Location 0, Index 1)
     uint8_t no_out = 0;                         // the pass has no colour attachment: the fragment shader's outputs become private variables
-    uint8_t pad[0 + 1] = {};
+    uint8_t fb_loop = 0;                        // a colour attachment is in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (the draw samples it): built whole with
+                                                // COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT, never linked from parts (was the pad byte: the key file layout is the same)
+    uint8_t pad_[7] = {};                       // explicit, always zero: the compiler's padding before `tess` (same offsets, so the key file layout is unchanged);
+                                                // with it the struct has no padding bytes and hash() / operator== (word / memcmp) see only defined values
     // Tessellation control and evaluation stages (null: none). Last, so that the prewarm key file keeps its record layout (it records the bytes
     // before these and never a tessellated key). A key with them has topology PATCH_LIST and patch_control_points = the NVN patch size.
     const ShaderInfo* tess[2] = {};

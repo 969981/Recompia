@@ -15,6 +15,14 @@ namespace fsapi {
 uint32_t ensure_account_save(uint64_t uid_hi, uint64_t uid_lo, bool* created);
 // Size and journal size of the account save data (the values nn::fs::GetSaveDataSize reports); the fs "path not found" result when absent.
 uint32_t account_save_size(uint64_t uid_hi, uint64_t uid_lo, int64_t* size, int64_t* journal);
+// Save commits that failed (fs_volume.cpp: a write failed, or the commit itself could not be written) since the start, and the Win32 error
+// of the last one. The last good save is kept. The overlay shows a notice when the count grows. Any thread.
+struct SaveFailures {
+    uint32_t count = 0;
+    uint32_t host_error = 0;
+};
+SaveFailures save_failures();
+const char* save_failure_reason(uint32_t host_error);   // "the disk is full", ... (for the notice)
 }  // namespace fsapi
 
 // ---- am (am.cpp): console state changes from the host --------------------------------------------------------------------------------

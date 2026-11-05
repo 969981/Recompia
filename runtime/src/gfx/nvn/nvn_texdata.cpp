@@ -262,7 +262,7 @@ std::vector<LevelGeom> level_geometry(const TextureBuilderInfo& b, const TexLayo
     return g;
 }
 
-enum class Mode { Passthrough, Bc7, Rgba8, Bc5 };
+enum class Mode { Passthrough, Bc7, Rgba8, Bc5, Snorm10Wide };
 
 // The output level table of a mode (offsets and sizes in PreparedTexture::data; all layers of a level together).
 void build_level_table(Mode mode, const std::vector<LevelGeom>& geo, uint32_t layers, PreparedTexture& out) {
@@ -286,6 +286,11 @@ void build_level_table(Mode mode, const std::vector<LevelGeom>& geo, uint32_t la
                 layer_bytes = static_cast<uint64_t>(pl.row_blocks) * div_up(g.h, 4) * 16 * g.d;
                 pl.offset = out.level.empty() ? 0 : out.level.back().offset + out.level.back().size;
                 break;
+            case Mode::Snorm10Wide:
+                pl.row_blocks = g.w;
+                layer_bytes = static_cast<uint64_t>(g.w) * g.h * 8 * g.d;
+                pl.offset = out.level.empty() ? 0 : out.level.back().offset + out.level.back().size;
+                break;
             case Mode::Rgba8:
                 pl.row_blocks = g.w;
                 layer_bytes = static_cast<uint64_t>(g.w) * g.h * 4 * g.d;
@@ -296,6 +301,29 @@ void build_level_table(Mode mode, const std::vector<LevelGeom>& geo, uint32_t la
         out.level.push_back(pl);
     }
 }
+
+// A2B10G10R10 SNORM texels (R in bits 0..9, G 10..19, B 20..29, A 30..31, two's complement) widened to R16G16B16A16 SNORM.
+// Vulkan's normalisation: v / (2^(n-1) - 1), clamped at -1.
+static int16_t widen_snorm(int32_t v, int bits) {
+    const int32_t m = (1 << (bits - 1)) - 1;
+    if (v < -m) v = -m;
+    return static_cast<int16_t>((v * 32767 + (v >= 0 ? m / 2 : -(m / 2))) / m);
+}
+
+}  // namespace
+
+void snorm10_to_snorm16(const uint8_t* src, uint8_t* dst, uint64_t texels) {
+    for (uint64_t i = 0; i < texels; ++i) {
+        uint32_t w;
+        std::memcpy(&w, src + i * 4, 4);
+        const int32_t r = static_cast<int32_t>(w << 22) >> 22, g = static_cast<int32_t>(w << 12) >> 22, b = static_cast<int32_t>(w << 2) >> 22,
+                      a = static_cast<int32_t>(w) >> 30;
+        const int16_t o[4] = {widen_snorm(r, 10), widen_snorm(g, 10), widen_snorm(b, 10), widen_snorm(a, 2)};
+        std::memcpy(dst + i * 8, o, 8);
+    }
+}
+
+namespace {
 
 // The source image as a tight linear buffer: untiled (block-linear) or copied row by row (pitch-linear).
 bool make_linear(const TexLayout& L, const std::vector<LevelGeom>& geo, const FormatInfo& fmt, const uint8_t* src_mem, std::vector<uint8_t>& lin) {
@@ -611,7 +639,16 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
     if (mode == Mode::Passthrough && fmt.vk == VK_FORMAT_UNDEFINED)
         return fail(std::string("format ") + fmt.name + " has no Vulkan format");
 
+    // RGB10A2SN into an R16G16B16A16_SNORM image (the GPU cannot sample A2B10G10R10_SNORM): the texels are widened below.
+    if (mode == Mode::Passthrough && fmt.nvn == NVN_FORMAT_RGB10A2SN && caps.image_format == VK_FORMAT_R16G16B16A16_SNORM) mode = Mode::Snorm10Wide;
+
     switch (mode) {
+        case Mode::Snorm10Wide:
+            out.format = VK_FORMAT_R16G16B16A16_SNORM;
+            out.block_w = 1;
+            out.block_h = 1;
+            out.block_bytes = 8;
+            break;
         case Mode::Passthrough:
             out.format = fmt.vk;
             out.block_w = fmt.block_w;
@@ -730,6 +767,19 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
     std::vector<uint8_t> lin;
     if (!make_linear(L, geo, fmt, src_mem, lin)) return fail("untile failed");
 
+    if (mode == Mode::Snorm10Wide) {
+        out.data.assign(static_cast<size_t>(out_total), 0);
+        for (size_t i = 0; i < geo.size(); ++i) {
+            const LevelGeom& g = geo[i];
+            // a level's layers sit one after the other in both buffers: convert layer by layer
+            const uint64_t per_layer = static_cast<uint64_t>(g.w) * g.h * g.d;
+            for (uint32_t layer = 0; layer < L.layers; ++layer)
+                snorm10_to_snorm16(lin.data() + g.lin_off + static_cast<uint64_t>(layer) * g.slice,
+                                   out.data.data() + out.level[i].offset + static_cast<uint64_t>(layer) * per_layer * 8, per_layer);
+        }
+        out.transcoded = false;
+        return true;
+    }
     if (mode == Mode::Passthrough) {
         // button prompt icons and the like: a host hook may replace the pixels of a small single-level BC7 sRGB texture
         if (fmt.vk == VK_FORMAT_BC7_SRGB_BLOCK && L.levels == 1 && L.layers == 1 && geo[0].d == 1 && geo[0].w <= 128 &&

@@ -229,3 +229,34 @@ NXTEST(writers_race_for_the_same_armed_pages) {
     CHECK(ww::faults() > faults0);
     teardown(r);
 }
+
+// [nvn] setup_coalesce: take_written through the summary bitmap finds the same pages as a read of every word, in a region of several
+// summary words (fault writes and forget's range marks), and a second call finds none.
+NXTEST(take_written_summary_matches_full_scan) {
+    mem::shutdown();
+    const uint64_t pages = kHeap / kPg;   // 16384 pages: 256 words, 4 summary words
+    REQUIRE(mem::init() && mem::heap_create(kHeap) && mem::heap_commit(0, kHeap));
+    ww::Region* r = ww::region_create(mem::kHeapBase, kHeap);
+    REQUIRE(r != nullptr);
+    const uint64_t hit[] = {5, 63, 64, 4095, 4096, 6403, 9000, pages - 1};
+    for (int round = 0; round < 2; ++round) {
+        ww::set_summary_scan(round == 1);
+        for (uint64_t p : hit) CHECK(ww::arm(r, p, 1));
+        for (uint64_t p : hit) *reinterpret_cast<volatile uint32_t*>(mem::kHeapBase + p * kPg) = 7;
+        std::vector<uint64_t> w;
+        ww::take_written(r, w);
+        std::sort(w.begin(), w.end());
+        CHECK(w == std::vector<uint64_t>(std::begin(hit), std::end(hit)));
+        w.clear();
+        ww::take_written(r, w);
+        CHECK(w.empty());
+    }
+    ww::set_summary_scan(true);
+    CHECK(ww::arm(r, 8000, 200));                       // forget marks a range written (across word and summary-word boundaries)
+    ww::forget(mem::kHeapBase + 8000 * kPg, 200 * kPg, false);
+    std::vector<uint64_t> w;
+    ww::take_written(r, w);
+    CHECK_EQ(w.size(), static_cast<size_t>(200));
+    CHECK(!w.empty() && w.front() == 8000 && w.back() == 8199);
+    teardown(r);
+}

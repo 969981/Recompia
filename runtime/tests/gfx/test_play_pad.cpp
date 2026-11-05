@@ -416,12 +416,34 @@ NXTEST(left_and_right_dead_zones_differ) {
     CHECK(sw.right.x > 0);
 }
 
-NXTEST(stick_max_default_changes_nothing) {
-    // stick_max 1 is the plain dead zone rescale: 0.96 of the travel gives (0.96 - 0.1) / 0.9 = 0.9556 of full.
+NXTEST(stick_max_default_is_092_on_both_sticks) {
+    // Defaults: outer zone 0.92 on both sticks. A pad that tops out at 0.96 gives full deflection; half travel is (0.5 - 0.1) / (0.92 - 0.1) = 0.4878.
+    play::PadSettings cfg;
+    CHECK(cfg.stick_max == 0.92 && cfg.right_stick_max == 0.92);
     platform::GamepadRaw raw;
-    raw.axes[1] = -31457;   // 0.96 up
-    const hid::StickValue v = run(raw, play::PadSettings{}).left;
-    CHECK_MSG(v.y > 31100 && v.y < 31500, "default gave " + std::to_string(v.y));
+    raw.axes[1] = -31457;   // left 0.96 up
+    raw.axes[3] = -31457;   // right 0.96 up
+    const hid::NpadInput full = run(raw, cfg);
+    CHECK_EQ(full.left.y, 32767);
+    CHECK_EQ(full.right.y, 32767);
+    raw.axes[1] = -16384;
+    raw.axes[3] = -16384;
+    const hid::NpadInput half = run(raw, cfg);
+    CHECK_MSG(half.left.y > 15900 && half.left.y < 16050, "left half gave " + std::to_string(half.left.y));
+    CHECK_MSG(half.right.y > 15900 && half.right.y < 16050, "right half gave " + std::to_string(half.right.y));
+}
+
+NXTEST(stick_max_one_is_the_plain_dead_zone_rescale) {
+    // stick_max 1 turns the outer zone off: 0.96 of the travel gives (0.96 - 0.1) / 0.9 = 0.9556 of full, on both sticks.
+    platform::GamepadRaw raw;
+    raw.axes[1] = -31457;
+    raw.axes[3] = -31457;
+    play::PadSettings cfg;
+    cfg.stick_max = 1.0;
+    cfg.right_stick_max = 1.0;
+    const hid::NpadInput out = run(raw, cfg);
+    CHECK_MSG(out.left.y > 31100 && out.left.y < 31500, "left gave " + std::to_string(out.left.y));
+    CHECK_MSG(out.right.y > 31100 && out.right.y < 31500, "right gave " + std::to_string(out.right.y));
 }
 
 NXTEST(stick_max_gives_full_push_at_the_pad_limit) {
@@ -445,13 +467,30 @@ NXTEST(stick_max_gives_full_push_at_the_pad_limit) {
     CHECK_MSG(len <= 32767 * 1.0001, "diagonal length " + std::to_string(len));
 }
 
-NXTEST(stick_max_leaves_the_right_stick_alone) {
+NXTEST(stick_max_sticks_are_independent) {
+    // Each stick uses its own key: the left at 1 (off), the right at 0.9 (0.96 is past it).
     platform::GamepadRaw raw;
-    raw.axes[3] = -31457;   // right stick 0.96 up
+    raw.axes[1] = -31457;
+    raw.axes[3] = -31457;
     play::PadSettings cfg;
-    cfg.stick_max = 0.5;
+    cfg.stick_max = 1.0;
+    cfg.right_stick_max = 0.9;
+    const hid::NpadInput out = run(raw, cfg);
+    CHECK_MSG(out.left.y > 31100 && out.left.y < 31500, "left gave " + std::to_string(out.left.y));
+    CHECK_EQ(out.right.y, 32767);
+}
+
+NXTEST(right_stick_max_is_radial_not_per_axis) {
+    // A diagonal at radius 0.9 (0.636 on each axis) is full deflection with the outer zone at 0.9, and the direction is kept (x == -y).
+    platform::GamepadRaw raw;
+    raw.axes[2] = 20860;
+    raw.axes[3] = 20860;
+    play::PadSettings cfg;
+    cfg.right_stick_max = 0.9;
     const hid::StickValue r = run(raw, cfg).right;
-    CHECK_MSG(r.y > 31100 && r.y < 31500, "right gave " + std::to_string(r.y));
+    const double len = std::sqrt(static_cast<double>(r.x) * r.x + static_cast<double>(r.y) * r.y);
+    CHECK_MSG(len > 32767 * 0.995 && len <= 32767 * 1.0001, "length " + std::to_string(len));
+    CHECK(std::abs(r.x + r.y) <= 2);
 }
 
 NXTEST(look_stick_identity_at_defaults) {

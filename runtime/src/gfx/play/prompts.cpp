@@ -108,9 +108,6 @@ namespace {
 struct State {
     std::mutex mu;
     bool hook_set = false;
-    // pack
-    bool pack_tried = false;
-    IconPack pack;
     // identity of the game's icon textures: (size of the tiled buffer, hash of it) -> icon
     bool ids_tried = false;
     std::map<std::pair<size_t, uint64_t>, Icon> ids;
@@ -131,28 +128,35 @@ State& st() {
     return s;
 }
 
-void load_pack_locked(State& s) {
-    if (s.pack_tried) return;
-    s.pack_tried = true;
-    std::vector<std::filesystem::path> cands;
-    const std::string dir = config_get_str("prompts", "dir", "");
-    if (!dir.empty()) cands.push_back(std::filesystem::path(dir) / "prompt_icons.pak");
-    const std::filesystem::path ex = exe_dir();
-    if (!ex.empty()) cands.push_back(ex / "prompts" / "prompt_icons.pak");
-    std::error_code ec;
-    cands.push_back(std::filesystem::current_path(ec) / "assets" / "prompts" / "prompt_icons.pak");
-    if (!ex.empty()) cands.push_back(ex / "prompt_icons.pak");
-    for (const auto& p : cands) {
-        std::vector<uint8_t> b;
-        if (!read_file(p, b)) continue;
-        if (s.pack.load_memory(std::move(b))) {
-            NXLOG_I(kTag, "icon pack %s: %zu icons of %ux%u", p.string().c_str(), s.pack.size(), s.pack.width(), s.pack.height());
-            return;
+}  // namespace
+
+const IconPack* prompts_pack() {
+    static const IconPack* pack = [] {
+        static IconPack p;   // stable address, filled once
+        std::vector<std::filesystem::path> cands;
+        const std::string dir = config_get_str("prompts", "dir", "");
+        if (!dir.empty()) cands.push_back(std::filesystem::path(dir) / "prompt_icons.pak");
+        const std::filesystem::path ex = exe_dir();
+        if (!ex.empty()) cands.push_back(ex / "prompts" / "prompt_icons.pak");
+        std::error_code ec;
+        cands.push_back(std::filesystem::current_path(ec) / "assets" / "prompts" / "prompt_icons.pak");
+        if (!ex.empty()) cands.push_back(ex / "prompt_icons.pak");
+        for (const auto& path : cands) {
+            std::vector<uint8_t> b;
+            if (!read_file(path, b)) continue;
+            if (p.load_memory(std::move(b))) {
+                NXLOG_I(kTag, "icon pack %s: %zu icons of %ux%u", path.string().c_str(), p.size(), p.width(), p.height());
+                return &p;
+            }
+            NXLOG_W(kTag, "icon pack %s: %s", path.string().c_str(), p.error().c_str());
         }
-        NXLOG_W(kTag, "icon pack %s: %s", p.string().c_str(), s.pack.error().c_str());
-    }
-    NXLOG_W(kTag, "no icon pack (prompt_icons.pak) found: the game's own button icons stay");
+        NXLOG_W(kTag, "no icon pack (prompt_icons.pak) found: the game's own button icons stay");
+        return static_cast<IconPack*>(nullptr);
+    }();
+    return pack;
 }
+
+namespace {
 
 // Asks the game to read its icon textures from the player's own files and remembers a hash of each tiled buffer, so the hook can tell them
 // from other textures (PromptGame::scan; an icon can have more than one copy).
@@ -179,16 +183,17 @@ bool hook(const gfx::TexOverrideReq& r, uint8_t* rgba, void*) {
     std::lock_guard<std::mutex> lk(s.mu);
     if (!s.any_name) return false;
     scan_ids_locked(s);
-    load_pack_locked(s);
+    const IconPack* pack = prompts_pack();
+    if (!pack) return false;
     for (size_t n : s.id_sizes) {
         if (r.tiled_size < n) continue;
         auto it = s.ids.find({n, prompt_hash(r.tiled, n)});
         if (it == s.ids.end()) continue;
         const std::string& name = s.names[static_cast<int>(it->second)];
         if (name.empty()) return false;
-        const uint8_t* px = s.pack.find(name);
-        if (!px && name.compare(0, 4, "kbm/") == 0) px = s.pack.find("kbm/any");
-        if (!px || s.pack.width() != kIconSize || s.pack.height() != kIconSize) return false;
+        const uint8_t* px = pack->find(name);
+        if (!px && name.compare(0, 4, "kbm/") == 0) px = pack->find("kbm/any");
+        if (!px || pack->width() != kIconSize || pack->height() != kIconSize) return false;
         // A game that stores its UI textures upside down (row 0 of the storage is the bottom row of the picture; the UI flips v when it draws) gets
         // the upright icon of the pack with its rows reversed.
         for (uint32_t y = 0; y < kIconSize; ++y)
@@ -260,8 +265,7 @@ void prompts_reset() {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     s.hook_set = false;
-    s.pack_tried = s.ids_tried = false;
-    s.pack = IconPack();
+    s.ids_tried = false;
     s.ids.clear();
     s.id_sizes.clear();
     for (auto& n : s.names) n.clear();

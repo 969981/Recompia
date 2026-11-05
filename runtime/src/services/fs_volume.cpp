@@ -16,6 +16,7 @@
 #include <sstream>
 
 #include "nxrt/log.h"
+#include "nxrt/services_api.h"
 #include "nxrt/write_watch.h"
 
 namespace stdfs = std::filesystem;
@@ -25,6 +26,44 @@ namespace nxrt::services::fs {
 namespace {
 
 std::atomic<int> g_crash_point{0};
+
+// Test hook (set_io_failure_for_tests): the `g_fail_nth`-th host operation at `g_fail_point` fails with `g_fail_err`.
+std::atomic<int> g_fail_point{0}, g_fail_nth{0};
+std::atomic<uint32_t> g_fail_err{0};
+bool injected_failure(Volume::IoPoint point, DWORD* err) {
+    if (g_fail_point.load() != static_cast<int>(point) || g_fail_nth.load() <= 0) return false;
+    if (g_fail_nth.fetch_sub(1) != 1) return false;
+    *err = g_fail_err.load();
+    NXLOG_W("fs", "test: injected host failure %lu at point %d", static_cast<unsigned long>(*err), static_cast<int>(point));
+    return true;
+}
+
+// Refused save commits, for the player notice (services_api.h fsapi::save_failures).
+std::atomic<uint32_t> g_save_fail_count{0}, g_save_fail_err{0};
+void report_save_failure(DWORD err) {
+    g_save_fail_err.store(err);
+    g_save_fail_count.fetch_add(1);
+}
+
+bool disk_full(DWORD e) { return e == ERROR_DISK_FULL || e == ERROR_HANDLE_DISK_FULL; }
+// The guest result of a failed host operation: "usable space not enough" for a full disk, a generic failure otherwise.
+uint32_t host_rc(DWORD e) { return disk_full(e) ? rc::kUsableSpaceNotEnough : rc::kGenericFailure; }
+// FlushFileBuffers results that mean "this file system does not flush" (Wine maps an fsync EINVAL to one of these): the data written is
+// in the cache and not suspect, so they neither fail a flush nor taint a save.
+bool flush_unsupported(DWORD e) { return e == ERROR_INVALID_FUNCTION || e == ERROR_NOT_SUPPORTED || e == ERROR_INVALID_PARAMETER; }
+
+// The first host failure while changing a journalled volume since its last commit (Win32 error, 0 = none). The game does not check the
+// results of Write / SetSize and commits anyway, so a full disk or a file held by an antivirus or OneDrive would otherwise commit a
+// truncated or torn file over the last good save. commit() refuses a tainted transaction and drops its work folder. The policy is
+// pokopia-native's (MIT), windows/src/nxrt/hle/hle_fs.c @7c3655d (save_poison_txn, the refusal in commit_mount_locked); the code is new.
+struct Taint {
+    std::atomic<uint32_t> err{0};
+    void set(DWORD e) {
+        uint32_t z = 0;
+        if (err.compare_exchange_strong(z, e ? e : ERROR_GEN_FAILURE))
+            NXLOG_E("fs", "save write failed (host error %lu): the next commit of this save is refused", static_cast<unsigned long>(e));
+    }
+};
 
 stdfs::path u8(const std::string& s) { return stdfs::u8path(s); }
 std::string to_u8(const stdfs::path& p) {
@@ -42,7 +81,7 @@ std::string parent_of(const std::string& path) {
 // Positioned I/O on a Win32 handle (several threads may call it at once).
 class HostFile final : public VFile {
 public:
-    HostFile(HANDLE h, uint32_t mode) : h_(h), mode_(mode) {}
+    HostFile(HANDLE h, uint32_t mode, std::shared_ptr<Taint> taint) : h_(h), mode_(mode), taint_(std::move(taint)) {}
     ~HostFile() override {
         if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
     }
@@ -84,22 +123,34 @@ public:
             OVERLAPPED ov{};
             ov.Offset = static_cast<DWORD>(static_cast<uint64_t>(offset) & 0xFFFFFFFFu);
             ov.OffsetHigh = static_cast<DWORD>(static_cast<uint64_t>(offset) >> 32);
-            DWORD n = 0;
-            if (!WriteFile(h_, s, chunk, &n, &ov) || n == 0) return rc::kGenericFailure;
+            DWORD n = 0, e = 0;
+            if (injected_failure(Volume::IoPoint::kWrite, &e)) return failed(e);
+            if (!WriteFile(h_, s, chunk, &n, &ov)) return failed(GetLastError());
+            if (n == 0) return failed(ERROR_DISK_FULL);
             s += n;
             offset += n;
             size -= n;
         }
         return 0;
     }
-    uint32_t flush() override { return (mode_ & kModeWrite) ? (FlushFileBuffers(h_) ? 0 : rc::kGenericFailure) : 0; }
+    uint32_t flush() override {
+        if (!(mode_ & kModeWrite)) return 0;
+        DWORD e = 0;
+        if (!injected_failure(Volume::IoPoint::kFlush, &e)) {
+            if (FlushFileBuffers(h_)) return 0;
+            e = GetLastError();
+        }
+        return flush_unsupported(e) ? 0 : failed(e);
+    }
     uint32_t set_size(int64_t size) override {
         if (!(mode_ & kModeWrite)) return rc::kWriteNotPermitted;
         if (size < 0) return rc::kOutOfRange;
         std::lock_guard<std::mutex> lk(size_mu_);
         LARGE_INTEGER li;
         li.QuadPart = size;
-        if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN) || !SetEndOfFile(h_)) return rc::kGenericFailure;
+        DWORD e = 0;
+        if (injected_failure(Volume::IoPoint::kSetSize, &e)) return failed(e);
+        if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN) || !SetEndOfFile(h_)) return failed(GetLastError());
         return 0;
     }
     uint32_t get_size(int64_t* size) override {
@@ -110,8 +161,13 @@ public:
     }
 
 private:
+    uint32_t failed(DWORD e) {
+        if (taint_) taint_->set(e);
+        return host_rc(e);
+    }
     HANDLE h_;
     uint32_t mode_;
+    std::shared_ptr<Taint> taint_;   // the save transaction of a write handle on a journalled volume (null otherwise)
     std::mutex size_mu_;
 };
 
@@ -176,7 +232,12 @@ int apply_marker(const stdfs::path& marker, int stop_after = 0) {
             const stdfs::path a = work / u8(arg), b = root / u8(arg);
             if (stdfs::exists(a, ec)) {
                 stdfs::create_directories(b.parent_path(), ec);
-                stdfs::rename(a, b, ec);
+                // An antivirus scan or a sync client (OneDrive) may hold the committed file for a moment: a few short retries.
+                for (int tries = 0; tries < 6; ++tries) {
+                    if (tries) Sleep(50 * tries);
+                    stdfs::rename(a, b, ec);
+                    if (!ec) break;
+                }
                 if (ec) {
                     NXLOG_E("fs", "commit: moving %s failed: %s", arg.c_str(), ec.message().c_str());
                     return -1;
@@ -249,7 +310,25 @@ struct Volume::Impl {
     stdfs::path root, work, marker, journal_file;
     std::mutex mu;
     std::set<std::string> tomb;   // committed paths deleted since the last commit (journalled volumes)
+    std::shared_ptr<Taint> taint = std::make_shared<Taint>();   // shared with the write handles: they may outlive the volume
     bool journal = false, ro = false, ok = false;
+
+    // A host failure while changing a journalled volume taints its transaction (see Taint). Returns the guest result.
+    uint32_t host_fail(DWORD e) {
+        if (journal) taint->set(e);
+        return host_rc(e);
+    }
+    uint32_t host_fail(const std::error_code& ec) { return host_fail(ec.value() ? static_cast<DWORD>(ec.value()) : ERROR_GEN_FAILURE); }
+
+    // Drops the uncommitted changes: the visible tree is the committed one again. False when files are left in the work folder (a handle
+    // without FILE_SHARE_DELETE, e.g. an antivirus scan, holds them).
+    bool discard_work() {
+        std::error_code ec;
+        tomb.clear();
+        stdfs::remove_all(work, ec);
+        stdfs::create_directories(work, ec);
+        return stdfs::is_directory(work, ec) && stdfs::is_empty(work, ec);
+    }
 
     bool direct() const { return !journal; }
     stdfs::path cpath(const std::string& path) const { return root / u8(rel_of(path)); }
@@ -300,7 +379,7 @@ struct Volume::Impl {
         if (!f.exists || !f.is_dir) return rc::kPathNotFound;
         std::error_code ec;
         stdfs::create_directories(wpath(par), ec);
-        return ec ? rc::kGenericFailure : 0;
+        return ec ? host_fail(ec) : 0;
     }
 
     // Makes sure a committed file also exists in the work layer (copy on write).
@@ -310,7 +389,10 @@ struct Volume::Impl {
         if (!committed_visible(path)) return rc::kPathNotFound;
         if (const uint32_t r = ensure_parents(path)) return r;
         stdfs::copy_file(cpath(path), wpath(path), stdfs::copy_options::overwrite_existing, ec);
-        return ec ? rc::kGenericFailure : 0;
+        if (!ec) return 0;
+        std::error_code e2;
+        stdfs::remove(wpath(path), e2);   // a partial copy must not stand in for the committed file
+        return host_fail(ec);
     }
 
     // Copies the visible committed subtree under `path` into the work layer (before a directory rename).
@@ -405,6 +487,12 @@ bool Volume::ok() const { return p_->ok; }
 
 void Volume::set_crash_point_for_tests(int point) { g_crash_point = point; }
 
+void Volume::set_io_failure_for_tests(IoPoint point, int nth, uint32_t win32_error) {
+    g_fail_err = win32_error;
+    g_fail_nth = nth;
+    g_fail_point = static_cast<int>(point);
+}
+
 void Volume::recover(const std::string& root_s) {
     const stdfs::path root = u8(root_s);
     RootLock lock(root_s);
@@ -439,12 +527,12 @@ uint32_t Volume::create_file(const std::string& path, int64_t size) {
     if (p_->lookup(path).exists) return rc::kPathAlreadyExists;
     if (const uint32_t r = p_->ensure_parents(path)) return r;
     HANDLE h = open_host(p_->wpath(path), true, CREATE_NEW);
-    if (h == INVALID_HANDLE_VALUE) return rc::kGenericFailure;
+    if (h == INVALID_HANDLE_VALUE) return p_->host_fail(GetLastError());
     uint32_t r = 0;
     if (size) {
         LARGE_INTEGER li;
         li.QuadPart = size;
-        if (!SetFilePointerEx(h, li, nullptr, FILE_BEGIN) || !SetEndOfFile(h)) r = rc::kGenericFailure;
+        if (!SetFilePointerEx(h, li, nullptr, FILE_BEGIN) || !SetEndOfFile(h)) r = p_->host_fail(GetLastError());
     }
     CloseHandle(h);
     p_->tomb.erase(path);   // harmless when absent; a re-created path is served from the work layer
@@ -458,6 +546,7 @@ uint32_t Volume::delete_file(const std::string& path) {
     if (!f.exists || f.is_dir) return rc::kPathNotFound;
     std::error_code ec;
     stdfs::remove(p_->wpath(path), ec);
+    if (ec) return p_->host_fail(ec);
     if (p_->committed_visible(path)) p_->tomb.insert(path);
     return 0;
 }
@@ -469,7 +558,7 @@ uint32_t Volume::create_dir(const std::string& path) {
     if (const uint32_t r = p_->ensure_parents(path)) return r;
     std::error_code ec;
     stdfs::create_directory(p_->wpath(path), ec);
-    return ec ? rc::kGenericFailure : 0;
+    return ec ? p_->host_fail(ec) : 0;
 }
 
 uint32_t Volume::delete_dir(const std::string& path) {
@@ -493,6 +582,7 @@ uint32_t Volume::delete_dir_recursive(const std::string& path) {
     if (path == "/" || !f.exists || !f.is_dir) return rc::kPathNotFound;
     std::error_code ec;
     stdfs::remove_all(p_->wpath(path), ec);
+    if (ec) return p_->host_fail(ec);
     if (p_->committed_visible(path)) p_->tomb.insert(path);
     // work-layer tombstones below a re-created directory no longer apply
     for (auto it = p_->tomb.begin(); it != p_->tomb.end();)
@@ -526,7 +616,7 @@ uint32_t Volume::rename_file(const std::string& from, const std::string& to) {
     if (const uint32_t r = p_->materialize_file(from)) return r;
     std::error_code ec;
     stdfs::rename(p_->wpath(from), p_->wpath(to), ec);
-    if (ec) return rc::kGenericFailure;
+    if (ec) return p_->host_fail(ec);
     if (p_->committed_visible(from)) p_->tomb.insert(from);
     return 0;
 }
@@ -543,7 +633,7 @@ uint32_t Volume::rename_dir(const std::string& from, const std::string& to) {
     if (const uint32_t r = p_->materialize_tree(from)) return r;
     std::error_code ec;
     stdfs::rename(p_->wpath(from), p_->wpath(to), ec);
-    if (ec) return rc::kGenericFailure;
+    if (ec) return p_->host_fail(ec);
     if (p_->committed_visible(from)) p_->tomb.insert(from);
     return 0;
 }
@@ -569,7 +659,7 @@ uint32_t Volume::open_file(const std::string& path, uint32_t mode, std::shared_p
     }
     HANDLE h = open_host(host, write, OPEN_EXISTING);
     if (h == INVALID_HANDLE_VALUE) return rc::kPathNotFound;
-    *out = std::make_shared<HostFile>(h, mode);
+    *out = std::make_shared<HostFile>(h, mode, write && p_->journal ? p_->taint : nullptr);
     return 0;
 }
 
@@ -600,6 +690,27 @@ uint64_t Volume::used_bytes() {
     return p_->used("/");
 }
 
+namespace {
+
+// Flushes one changed file before the commit is decided. 0 when it is on disk (or the file system does not flush), else the Win32 error.
+// `opened` tells whether the file could be opened at all: a file held without sharing (an antivirus scan) gets a few short retries.
+DWORD flush_path(const stdfs::path& p, bool* opened) {
+    *opened = false;
+    HANDLE h = INVALID_HANDLE_VALUE;
+    for (int tries = 0; tries < 6 && h == INVALID_HANDLE_VALUE; ++tries) {
+        if (tries) Sleep(50 * tries);
+        h = CreateFileW(p.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    }
+    if (h == INVALID_HANDLE_VALUE) return GetLastError();
+    *opened = true;
+    DWORD e = 0;
+    if (!injected_failure(Volume::IoPoint::kCommitFlush, &e) && !FlushFileBuffers(h)) e = GetLastError();
+    CloseHandle(h);
+    return flush_unsupported(e) ? 0 : e;
+}
+
+}  // namespace
+
 uint32_t Volume::commit() {
     if (!p_->journal) return 0;
     if (read_only_) return 0;
@@ -608,27 +719,53 @@ uint32_t Volume::commit() {
     RootLock lock(to_u8(s.root));
     std::error_code ec;
     if (s.tomb.empty() && !stdfs::exists(s.work, ec)) return 0;
+    const std::string root_u8 = to_u8(s.root);
+
+    // A commit that cannot go ahead. The committed folder is not touched either way. `drop` (the work folder holds a truncated or torn
+    // file) also discards the uncommitted changes, so the game's next save starts again from the last good one; otherwise they stay and
+    // the next Commit tries again. Either way the player is told (fsapi::save_failures) and the game gets a failure result.
+    auto refuse = [&](DWORD e, const char* what, bool drop) -> uint32_t {
+        std::error_code e2;
+        stdfs::remove(s.journal_file, e2);
+        bool left = false;
+        if (drop) {
+            left = !s.discard_work();
+            if (left) s.taint->set(e);   // still tainted: the next commit is refused again and retries the discard
+        }
+        NXLOG_E("fs", "save commit of %s refused: %s (host error %lu); the last committed save is kept%s", root_u8.c_str(), what,
+                static_cast<unsigned long>(e), !drop ? ", the changes stay for the next commit"
+                                           : left ? "; [the work folder could not be emptied: files are still held open]"
+                                                  : ", the uncommitted changes were dropped");
+        report_save_failure(e);
+        return host_rc(e);
+    };
+    if (const uint32_t e = s.taint->err.exchange(0)) return refuse(e, "a save write failed since the last commit", true);
 
     // Phase 1: flush the changed files, write the change list, make it the decided marker with one rename.
-    std::string body = "W " + to_u8(s.work) + "\nR " + to_u8(s.root) + "\n";
+    std::string body = "W " + to_u8(s.work) + "\nR " + root_u8 + "\n";
     for (const std::string& t : s.tomb) body += "D " + rel_of(t) + "\n";
     int changes = static_cast<int>(s.tomb.size());
     std::vector<std::string> files, dirs;
-    for (stdfs::recursive_directory_iterator it(s.work, ec), end; !ec && it != end; it.increment(ec)) {
-        const std::string rel = to_u8(stdfs::relative(it->path(), s.work, ec));
-        std::string g = rel;
+    std::error_code walk;
+    for (stdfs::recursive_directory_iterator it(s.work, walk), end; !walk && it != end; it.increment(walk)) {
+        std::error_code e2;
+        std::string g = to_u8(stdfs::relative(it->path(), s.work, e2));
         std::replace(g.begin(), g.end(), '\\', '/');
-        if (it->is_directory(ec)) {
+        const bool is_dir = !e2 && it->is_directory(e2);
+        if (e2) return refuse(static_cast<DWORD>(e2.value()), "the changed files could not be listed", false);
+        if (is_dir) {
             dirs.push_back(g);
-        } else {
-            files.push_back(g);
-            HANDLE h = CreateFileW(it->path().c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (h != INVALID_HANDLE_VALUE) {
-                FlushFileBuffers(h);
-                CloseHandle(h);
-            }
+            continue;
+        }
+        files.push_back(g);
+        bool opened = false;
+        if (const DWORD fe = flush_path(it->path(), &opened)) {
+            // Could not open it: the data the game wrote is intact, only held (try again later). Opened but the flush failed: a full
+            // disk or an I/O error lost cached data, the file is suspect.
+            return refuse(fe, opened ? "flushing a changed file failed" : "a changed file is held by another program", opened);
         }
     }
+    if (walk) return refuse(static_cast<DWORD>(walk.value()), "the changed files could not be listed", false);
     for (const std::string& d : dirs) body += "M " + d + "\n";
     for (const std::string& f : files) body += "F " + f + "\n";
     changes += static_cast<int>(dirs.size() + files.size());
@@ -636,27 +773,56 @@ uint32_t Volume::commit() {
         std::ofstream j(s.journal_file, std::ios::binary | std::ios::trunc);
         j << body;
         j.flush();
-        if (!j) return rc::kGenericFailure;
+        if (!j) return refuse(ERROR_DISK_FULL, "writing the commit journal failed", false);   // ofstream keeps no error code; a full disk is the likely one
     }
     {
-        HANDLE h = CreateFileW(s.journal_file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-        if (h != INVALID_HANDLE_VALUE) {
-            FlushFileBuffers(h);
-            CloseHandle(h);
-        }
+        bool opened = false;
+        if (const DWORD fe = flush_path(s.journal_file, &opened)) return refuse(fe, "flushing the commit journal failed", false);
     }
-    if (!MoveFileExW(s.journal_file.c_str(), s.marker.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return rc::kGenericFailure;
+    DWORD me = 0;
+    if (injected_failure(IoPoint::kDecide, &me) ||
+        !MoveFileExW(s.journal_file.c_str(), s.marker.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        if (!me) me = GetLastError();
+        return refuse(me, "the commit marker could not be written", false);
+    }
     if (g_crash_point == 1) return rc::kGenericFailure;   // decided, nothing applied
 
-    // Phase 2: apply. A crash in here is repaired by the next recover().
+    // Phase 2: apply. The commit is decided: a failure in here leaves the marker, which the next commit replaces with a superset (the
+    // files still in the work folder plus the same deletions) and the next open of the save finishes (recover()).
     const int applied = apply_marker(s.marker, g_crash_point == 2 ? 1 : 0);
     if (g_crash_point == 2) return rc::kGenericFailure;
-    if (applied < 0) return rc::kGenericFailure;
+    if (applied < 0) {
+        NXLOG_E("fs", "save commit of %s: applying it failed; it is finished by the next commit or the next start", root_u8.c_str());
+        report_save_failure(ERROR_SHARING_VIOLATION);
+        return rc::kGenericFailure;
+    }
     s.tomb.clear();
     stdfs::remove_all(s.work, ec);
     stdfs::create_directories(s.work, ec);
-    NXLOG_D("fs", "commit %s: %d changes", to_u8(s.root).c_str(), changes);
+    NXLOG_D("fs", "commit %s: %d changes", root_u8.c_str(), changes);
     return 0;
 }
 
 }  // namespace nxrt::services::fs
+
+namespace nxrt::services::fsapi {
+
+SaveFailures save_failures() {
+    SaveFailures f;
+    f.host_error = fs::g_save_fail_err.load();
+    f.count = fs::g_save_fail_count.load();
+    return f;
+}
+
+const char* save_failure_reason(uint32_t host_error) {
+    switch (host_error) {
+        case ERROR_DISK_FULL:
+        case ERROR_HANDLE_DISK_FULL: return "the disk is full";
+        case ERROR_SHARING_VIOLATION:
+        case ERROR_LOCK_VIOLATION:
+        case ERROR_ACCESS_DENIED: return "a save file is held by another program";
+        default: return "a disk error";
+    }
+}
+
+}  // namespace nxrt::services::fsapi

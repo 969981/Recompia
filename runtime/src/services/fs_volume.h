@@ -8,6 +8,10 @@
 //     the rename on the commit is decided; (2) the changes are applied (deletions, folders, files moved over the committed ones) and the
 //     marker is removed. A process killed in phase 1 leaves the committed state untouched; one killed in phase 2 leaves the marker and
 //     the next open of the save finishes the apply (roll forward). Work folders and journals of dead processes are discarded.
+//     A host failure while changing the work folder (Write / SetSize / Flush on a full disk, a file held by another program) taints the
+//     transaction: the next commit() is refused, the committed folder stays as it was and the work folder is emptied (the game ignores
+//     those results and commits anyway, which would turn a truncated file into the save). A failure in phase 1 itself refuses the commit
+//     too. Refusals return a failure result (kUsableSpaceNotEnough for a full disk) and are counted for the player notice (fsapi).
 // The idea (committed folder + copy-on-write work folder + tombstones + a decided-by-rename two-phase commit) is from smo-recomp
 // runtime/fs/nnfs.c (GPL-3.0); the code is new.
 #pragma once
@@ -26,6 +30,7 @@ constexpr uint32_t kPathNotFound = 0x202, kPathAlreadyExists = 0x402, kTargetLoc
 constexpr uint32_t kTargetNotFound = 0x7D402, kPortSdCardNoDevice = 0xFA202, kNotImplemented = 0x177202, kOutOfRange = 0x177A02;
 constexpr uint32_t kInvalidArgument = 0x2EE202, kTooLongPath = 0x2EE602, kNoAppend = 0x307202, kReadNotPermitted = 0x307402;
 constexpr uint32_t kWriteNotPermitted = 0x307602, kReadOnlyFileSystem = 0x313802, kGenericFailure = 0x3E802;
+constexpr uint32_t kUsableSpaceNotEnough = 0x3C02;
 }  // namespace rc
 
 enum OpenMode : uint32_t { kModeRead = 1, kModeWrite = 2, kModeAppend = 4 };
@@ -85,6 +90,9 @@ public:
     // Test hook: when set to 1 commit() stops after phase 1 (the marker is written, nothing applied); 2 stops inside phase 2 after the
     // first applied change. The volume object is left as a crashed process would leave the folders.
     static void set_crash_point_for_tests(int point);
+    // Test hook: the `nth` host operation at `point` from now on fails with the Win32 error `win32_error` (nth 0 = off). Process-wide.
+    enum class IoPoint : int { kNone = 0, kWrite, kSetSize, kFlush, kCommitFlush, kDecide };
+    static void set_io_failure_for_tests(IoPoint point, int nth, uint32_t win32_error);
 
 private:
     struct Impl;

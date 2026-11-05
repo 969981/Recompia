@@ -49,6 +49,11 @@ struct PromptInputs {
     int connected_pad_kind = -1;                       // kind of the first connected pad, -1 without one
 };
 
+// The icon pack, loaded once (thread-safe) from [prompts] dir, then <exe folder>/prompts/, assets/prompts/ under the working
+// directory and the exe folder (prompt_icons.pak). nullptr when no pack is found. Shared by the texture hook below and by
+// games that patch their own glyph atlases instead (Pokopia, pkp_kbm.cpp).
+const IconPack* prompts_pack();
+
 // Main thread, once per frame (cheap when nothing changed): works out the style that shows now and the icon for every game icon, and
 // asks the graphics back end to upload the icon textures again when an answer changed. `s` is read only when the keyboard style shows.
 void prompts_update(const Settings& s, const PromptInputs& in);
