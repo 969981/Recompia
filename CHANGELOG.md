@@ -11,6 +11,8 @@ of the game (version 2.0.1a): the download contains no game files.
   (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
 
 ### Fixes
+- Lamp light and other deferred lighting no longer appear as a displaced glow or a second copy at 16:10, 1440p and other render sizes
+  besides 1920x1080 (#44). The affected lighting targets now follow the render size. `[pkp] target_fix = off` restores the old behaviour.
 - Leaving an area above 60 fps no longer leaves the Poké Ball wipe covering the game (#144). The transition's timer now fires when a
   fractional frame step reaches or passes its target, rather than only on exact equality. The temporary global 60 fps ceiling and its
   `[pkp] above_60fps` switch are removed: frame limits above 60 and unlimited mode work normally again.
