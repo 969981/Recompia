@@ -25,6 +25,7 @@
 set(NXRECOMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "recomp/ folder")
 set(NX_PYTHON "${NXRECOMP_ROOT}/../tools/.venv/Scripts/python.exe" CACHE FILEPATH "Python with the nxrecomp requirements")
 set(NX_OPT "/O1" CACHE STRING "optimisation flag of the lifted code (clang-cl syntax)")
+option(NX_SPIN_YIELD "spin-loop heads of the lifted code call nx_spin_hint(2) (nxrecomp/spin.py; lift --spin-yield)" OFF)
 option(NX_USE_LAUNCHER "wrap lifted-code compiles in cmake/nx_cc_launcher.py (time-limit fallback to optnone / -O0)" OFF)
 
 file(GLOB NX_LIFTER_SOURCES CONFIGURE_DEPENDS
@@ -65,6 +66,9 @@ function(nxrecomp_add_module target)
   endif()
   if(A_SITES)
     list(APPEND extra --sites ${A_SITES})
+  endif()
+  if(NX_SPIN_YIELD)
+    list(APPEND extra --spin-yield)
   endif()
   set(outs "${A_OUTDIR}/funcs.h" "${A_OUTDIR}/module_${A_NAME}.cpp")
   set(shard_srcs "")
