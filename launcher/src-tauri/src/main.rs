@@ -7,9 +7,11 @@ mod gamebuild;
 mod ini;
 mod nup;
 mod play;
+mod preflight;
 mod relay;
 mod saveimport;
 mod settings;
+mod setuplog;
 mod shaders;
 mod update;
 
@@ -31,6 +33,8 @@ struct Config {
     /// Folder with pkp.exe. Empty: the folder the launcher is in.
     game_dir: String,
     minimize_on_play: bool,
+    /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
+    gentle_build: bool,
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -279,8 +283,9 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
 /// First-run setup: (a) the pkp.ini paths, (b) in a model (b) release, pkp.exe built from the player's dump
 /// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
-fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), String> {
+fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<bool>) -> Result<(), String> {
     let cfg = load_config(&app);
+    let gentle = gentle.unwrap_or(cfg.gentle_build);
     let report = dump::scan(&cfg.dump_dir);
     let chosen = report.chosen.ok_or_else(|| "Choose usable game files first.".to_string())?;
     let dir = game_dir_of(&cfg);
@@ -299,11 +304,29 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
     settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs)?;
     let st = state.inner().clone();
     st.cancel.store(false, Ordering::SeqCst);
-    let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1)).unwrap_or(2).max(1);
-    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: jobs + 1 };
-    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0 };
+    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(3);
+    let (jobs, build_jobs) = preflight::jobs_for(cpus, gentle);
+    let slog = Arc::new(setuplog::SetupLog::open(&dir));
+    let log: shaders::LogFn = {
+        let l = slog.clone();
+        Arc::new(move |t: &str| l.line(t))
+    };
+    log(&format!(
+        "=== Set up started: launcher {}, {} threads, {} jobs{}",
+        env!("CARGO_PKG_VERSION"),
+        cpus,
+        jobs,
+        if gentle { ", gentle (idle priority)" } else { "" }
+    ));
+    log(&format!("game files: {}", dump::fwd(Path::new(&chosen.exefs))));
+    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: build_jobs, idle: gentle, log: Some(log.clone()) };
+    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, idle: gentle, log: Some(log.clone()), limit: 0 };
     std::thread::spawn(move || {
-        let emit = |p: shaders::Progress| {
+        let mut last = (String::new(), 0u64, String::new());
+        let mut emit = |p: shaders::Progress| {
+            if setuplog::progress_worth_logging(&mut last, &p.phase, p.done, p.total, &p.message) && p.state == "running" {
+                log(&format!("[{}] {}", p.phase, p.message));
+            }
             *st.progress.lock().unwrap() = p.clone();
             let _ = app.emit("setup-status", p);
         };
@@ -340,9 +363,40 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             Ok(false) => shaders::Progress { state: "cancelled".into(), message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },
             Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
         };
+        slog.line(&format!("=== Set up ended: {}{}", end.state, if end.message.is_empty() { String::new() } else { format!(": {}", end.message) }));
         emit(end);
     });
     Ok(())
+}
+
+/// The checks shown before Set up starts (preflight.rs). Reads the disk and loads Vulkan, so it runs off the UI thread.
+#[tauri::command]
+async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
+    let dir = game_dir_of(&load_config(&app));
+    let tools_dir = exe_dir().join("tools");
+    tauri::async_runtime::spawn_blocking(move || {
+        let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir);
+        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending));
+        let report = preflight::evaluate(&facts);
+        // into the setup log too: a failed setup report then shows what the PC looked like
+        let log = setuplog::SetupLog::open(&dir);
+        for c in &report.checks {
+            log.line(&format!("preflight {:?}: {}: {}", c.level, c.title, c.detail));
+        }
+        report
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Opens setup.log (next to pkp.exe) in the default editor.
+#[tauri::command]
+fn open_setup_log(app: AppHandle) -> Result<(), String> {
+    let path = setuplog::path_of(&game_dir_of(&load_config(&app)));
+    if !path.is_file() {
+        return Err("There is no setup log yet: it is written when Set up starts.".into());
+    }
+    play::open_with_shell(&path)
 }
 
 #[tauri::command]
@@ -592,6 +646,8 @@ fn main() {
             play,
             setup_status,
             start_setup,
+            preflight,
+            open_setup_log,
             cancel_setup,
             dlss_status,
             fetch_dlss,

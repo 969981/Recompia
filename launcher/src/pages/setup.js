@@ -30,7 +30,25 @@ function candidateHtml(c, chosen) {
     </div>`;
 }
 
-function shadersHtml(s, saved) {
+function preflightHtml(pre) {
+  if (!pre) return '';
+  const rows = pre.checks
+    .filter((c) => c.level !== 'ok')
+    .map((c) => `<li class="${c.level === 'fail' ? 'bad' : 'warn'}">${icon(c.level === 'fail' ? 'circle-x' : 'triangle-alert')}<div><strong>${esc(c.title)}</strong><br>${esc(c.detail)}</div></li>`)
+    .join('');
+  return `<div class="banner ${pre.blocked ? 'danger' : 'warn'}" id="preflight">
+      <div class="stack">
+        <div><strong>${pre.blocked ? 'Set up cannot start yet' : 'Check these before you start'}</strong></div>
+        <ul class="preflight">${rows}</ul>
+        <div class="row">
+          ${pre.blocked ? '' : `<button class="btn primary" id="setup-anyway">${icon('wrench')}Set up anyway</button>`}
+          <button class="btn" id="setup-recheck">${icon('circle-check')}Check again</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function shadersHtml(s, saved, gentle, pre) {
   const p = s.progress;
   const running = p.state === 'running';
   const pct = p.total ? Math.floor((100 * p.done) / p.total) : 0;
@@ -54,11 +72,14 @@ function shadersHtml(s, saved) {
       <h2>${icon('wrench')}Set up</h2>
       <div class="stack">
         ${body}
+        ${running ? '' : preflightHtml(pre)}
+        ${running ? '' : `<label class="row"><input type="checkbox" id="gentle" ${gentle ? 'checked' : ''} /> <span>Use fewer cores (cooler, the PC stays usable; setup takes longer)</span></label>`}
         <div class="row">
           ${running
             ? `<button class="btn" id="setup-cancel">${icon('circle-x')}Pause</button>`
             : `<button class="btn ${s.complete ? '' : 'primary'}" id="setup-run" ${saved ? '' : 'disabled'}>${icon('wrench')}${label}</button>`}
           ${s.complete && !running ? `<button class="btn primary" id="to-play">${icon('play')}Go to Play</button>` : ''}
+          ${s.started || s.complete || s.progress.state === 'error' ? `<button class="btn quiet" id="setup-log">${icon('file-text')}Open setup log</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -100,6 +121,8 @@ export async function render(el, ctx) {
   let dlssProgress = null;
   let nupBusy = false;
   let nupProgress = null;
+  let gentle = !!cfg.gentle_build;
+  let pre = null;
 
   function draw() {
     const ok = report && report.chosen;
@@ -132,7 +155,7 @@ export async function render(el, ctx) {
           ${ctx.firstRun ? '' : '<button class="btn quiet" id="cancel">Back</button>'}
         </div>
 
-        ${shadersHtml(setup, ok && saved === path)}
+        ${shadersHtml(setup, ok && saved === path, gentle, pre)}
 
         ${dlssHtml(dlss, dlssBusy, dlssProgress)}
       </div>`;
@@ -181,15 +204,44 @@ export async function render(el, ctx) {
     });
     el.querySelector('#cancel')?.addEventListener('click', () => ctx.go('play'));
     el.querySelector('#to-play')?.addEventListener('click', () => ctx.go('play'));
-    el.querySelector('#setup-run')?.addEventListener('click', async () => {
+    const startSetup = async () => {
       try {
-        await api('start_setup');
+        pre = null;
+        await api('start_setup', { gentle });
         setup = await api('setup_status');
         draw();
       } catch (e) {
         toast(errText(e), 'error');
       }
+    };
+    // pre-flight: all fine starts at once; warnings can be continued past, a failed check (disk space) cannot
+    const runPreflight = async () => {
+      try {
+        pre = await api('preflight');
+      } catch (e) {
+        pre = null;
+        toast(errText(e), 'error');
+        return startSetup();
+      }
+      if (pre.blocked || pre.warnings) {
+        if (pre.suggest_gentle) gentle = true;
+        draw();
+        return;
+      }
+      startSetup();
+    };
+    el.querySelector('#setup-run')?.addEventListener('click', runPreflight);
+    el.querySelector('#setup-recheck')?.addEventListener('click', runPreflight);
+    el.querySelector('#setup-anyway')?.addEventListener('click', startSetup);
+    el.querySelector('#gentle')?.addEventListener('change', async (e) => {
+      gentle = e.target.checked;
+      try {
+        await api('save_config', { config: { ...(await api('get_config')), gentle_build: gentle } });
+      } catch (err) {
+        toast(errText(err), 'error');
+      }
     });
+    el.querySelector('#setup-log')?.addEventListener('click', () => api('open_setup_log').catch((e) => toast(errText(e), 'error')));
     el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
     el.querySelector('#dlss-get')?.addEventListener('click', async () => {
       dlssBusy = true;
@@ -234,7 +286,7 @@ export async function render(el, ctx) {
     if (was === 'running' && p.state === 'running' && el.querySelector('progress')) {
       const card = el.querySelector('#setup-cancel')?.closest('.card');
       if (card) {
-        card.outerHTML = shadersHtml(setup, true);
+        card.outerHTML = shadersHtml(setup, true, gentle, null);
         refreshIcons();
         el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
         return;
