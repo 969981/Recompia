@@ -166,7 +166,9 @@ NXTEST(overlay_shows_through_the_key_and_changes_the_picture) {
     CHECK_EQ(r.validation.warnings, 0ull);
     const ImageDiff df = compare_rgba(plain.data(), w, h, with_overlay.data(), w, h);
     std::printf("    overlay vs plain: mean abs %.4f, pixels over 8: %.4f\n", df.mean_abs, df.fraction_over_8);
-    CHECK(df.fraction_over_8 > 0.05);   // the menu covers a good part of the 640x360 picture
+    // on first use the menu is the Diagnostics window folded to its title bar at the top right (overlay.cpp build_ui): 420 x ~22 px, about
+    // 4% of the 640x360 picture. At least half of that must change.
+    CHECK(df.fraction_over_8 > 0.02);
 
     // overlay created but never shown: the picture is the plain one
     d.overlay_visible_from_frame = -1;
