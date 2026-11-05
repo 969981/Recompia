@@ -340,7 +340,9 @@ void flush_batch() {
     const uint64_t serial = g->batch.back()->serial;
     if (g->sw) {    // [nvn] submit_thread: the worker submits; `flushed` = handed over (it will reach the queue without being asked again)
         g->sw->push([cbi = std::move(cbi), serial] {
-            NXFT("submit.worker");
+            // the batch's vkQueueSubmit2 (+ the queue lock wait); arg = command buffers in it. The present job is submit.worker.present.
+            static const uint16_t z_batch = ft::zone_id("submit.worker.batch");
+            ft::Scope sc(z_batch, 0, static_cast<uint32_t>(cbi.size()));
             submit_cbs(cbi, serial, true);
         });
     } else {
@@ -1221,7 +1223,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
         });
         if (rend) rend->set_submit_queue([](std::function<void()> job) {
             g->sw->push([job = std::move(job)] {
-                NXFT("submit.worker");
+                NXFT("submit.worker.present");     // the present's vkQueueSubmit2 + vkQueuePresentKHR (zones present.vk_submit / present.vk_present)
                 job();
             });
         }, [] { submit_drain(); });

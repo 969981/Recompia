@@ -822,7 +822,10 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
         bool ok = false;
         {
             std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
+            static const uint16_t z_vsub = ft::zone_id("present.vk_submit"), z_vpres = ft::zone_id("present.vk_present");
+            uint64_t ft0 = ft::on() ? ft::now_ns() : 0;
             VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &sub, fence);
+            if (ft0) ft::event(z_vsub, ft0, ft::now_ns(), sub.commandBufferInfoCount);   // arg = command buffers (the NVN batch rides in it)
             s.dev->note_result(r, "vkQueueSubmit2 (present)");
             if (r != VK_SUCCESS) {
                 if (!s.dev->device_lost()) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
@@ -845,7 +848,9 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
                     pid.pPresentIds = &present_id;
                     pi.pNext = &pid;
                 }
+                ft0 = ft::on() ? ft::now_ns() : 0;
                 r = vkQueuePresentKHR(s.dev->queue(), &pi);
+                if (ft0) ft::event(z_vpres, ft0, ft::now_ns());
                 s.dev->note_result(r, "vkQueuePresentKHR");
                 s.st.presents++;
                 if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
