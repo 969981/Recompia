@@ -27,7 +27,10 @@ void finish();
 uint64_t last_serial();
 // Waits for `serial` to complete (timeout_ns: 0 poll, UINT64_MAX forever). True when it did.
 bool wait_serial(uint64_t serial, uint64_t timeout_ns);
-bool serial_done(uint64_t serial);
+// What asks: Sync = a guest poll (nvnSyncWait with timeout 0), which [nvn] poll_flush may leave in the batch; Wait = the caller goes on to block on the
+// serial (or needs it at once), so the batch is flushed immediately.
+enum class PollKind { Wait, Sync };
+bool serial_done(uint64_t serial, PollKind kind = PollKind::Wait);
 
 // Window: texture `index` of the window is shown (after the submissions already made). The call returns when the frame has
 // been handed to the swapchain; it honours the shell's frame limiter.
