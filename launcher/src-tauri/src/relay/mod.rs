@@ -3,7 +3,7 @@
 //! through this server. Every player, the host player too, keeps one TCP connection to it. The server keeps rooms
 //! (LDN networks) and routes datagrams between virtual IPs inside a room; it never parses game data.
 //!
-//! # Wire protocol v1 (reference for the C++ client)
+//! # Wire protocol v2 (reference for the C++ client)
 //!
 //! TCP, all integers little-endian.
 //!
@@ -16,10 +16,10 @@
 //!
 //! | type | name      | payload |
 //! |------|-----------|---------|
-//! | 0x01 | HELLO     | u16 proto=1, str build stamp, str nickname (<= 32 B), str password |
-//! | 0x02 | SCAN      | u64 local_comm_id (0 = any), u16 scene_id (0xffff = any) |
-//! | 0x03 | CREATE    | u64 local_comm_id, u16 scene_id, s16 comm_version, u8 node_count_max (1..8), u8 security_mode, 16 B passphrase hash, u16 adv_len + adv bytes (<= 384) |
-//! | 0x04 | JOIN      | u32 room_id, s16 comm_version, 16 B passphrase hash |
+//! | 0x01 | HELLO     | u16 proto=2, str build stamp, str nickname (<= 32 B), str password |
+//! | 0x02 | SCAN      | u64 local_comm_id (0 = any), u16 scene_id (0xffff = any), 16 B room key |
+//! | 0x03 | CREATE    | u64 local_comm_id, u16 scene_id, s16 comm_version, u8 node_count_max (1..8), u8 security_mode, 16 B passphrase hash, 16 B room key, u16 adv_len + adv bytes (<= 384) |
+//! | 0x04 | JOIN      | u32 room_id, s16 comm_version, 16 B passphrase hash, 16 B room key |
 //! | 0x05 | LEAVE     | - |
 //! | 0x06 | ADVERTISE | u16 len + bytes (<= 384), host only |
 //! | 0x07 | REJECT    | u32 vip, host only |
@@ -43,19 +43,36 @@
 //! u8 node_count, node_count x {u8 node_id, u32 vip, 6 B mac, str nickname}, u16 adv_len + adv bytes.
 //!
 //! ERROR codes: 1 bad proto, 2 build mismatch, 3 password, 4 room full, 5 room not found, 6 version mismatch,
-//! 7 not host, 8 rejected, 9 rate limit, 10 bad frame. An ERROR answering HELLO, ERROR 9 and ERROR 10 for a malformed
+//! 7 not host, 8 rejected, 9 rate limit, 10 bad frame, 11 wrong room code. An ERROR answering HELLO, ERROR 9 and ERROR 10 for a malformed
 //! frame close the connection; the others leave it open. The message is plain English for the launcher/game to show; it never carries raw io errors.
+//!
+//! Protocol 2 = protocol 1 + the room key in SCAN, CREATE and JOIN (and ERROR 11). A protocol 1 client gets ERROR 1 with a
+//! message saying to update the game.
+//!
+//! # Room codes
+//!
+//! A host may create its room with a room code: 16 symbols of Crockford base32 (`0-9 A-Z` without I L O U, 80 bits from the
+//! OS random source), shown as `XXXX-XXXX-XXXX-XXXX`; on input case, `-` and spaces do not matter and O reads as 0, I and L as 1
+//! (format from pokopia-native's coop_auth.c). The code never goes over the wire: clients send the room key, the first 16 bytes
+//! of SHA-256("pokopia-relay room v1" + the 16 normalized symbols). A key of 16 zero bytes means "no code".
+//! A room created with no code is an open room, listed to everyone (LAN play as before). A room created with a key is listed only
+//! to SCANs carrying that key and joined only by JOINs carrying it. Wrong codes are counted and limited (see JOIN).
 //!
 //! # Semantics
 //!
-//! - HELLO must be the first frame. proto must be 1 (else ERROR 1); the build stamp must equal the server's when the
+//! - HELLO must be the first frame. proto must be 2 (else ERROR 1); the build stamp must equal the server's when the
 //!   server has one (else ERROR 2); the password must equal the server's when it has one (else ERROR 3).
 //!   Success: WELCOME. Any other frame before HELLO, or a second HELLO: ERROR 10 + close.
-//! - SCAN -> ROOM_LIST of the rooms that are not full and match the filter. The list is cut so the frame stays
+//! - SCAN -> ROOM_LIST of the open rooms plus the rooms whose key equals the SCAN's, that are not full and match the filter. The list is cut so the frame stays
 //!   <= 8192 B (a full ROOM_INFO is up to 757 B, 64 rooms would not fit).
 //! - CREATE (caller in no room): new room R = lowest free 1..254, subnet 169.254.R.0/24; the caller is its host,
 //!   vip 169.254.R.1, node 0. Reply JOINED then ROOM_STATE. No free room (64 max): ERROR 4.
-//! - JOIN (caller in no room): room must exist (5), the caller not rejected from it (8), not full (4), comm_version
+//! - Room keys (SCAN, CREATE, JOIN): a connection keeps the first nonzero key it sends; a different nonzero key later counts as
+//!   a wrong code (ERROR 11). Keys are compared in constant time.
+//! - JOIN (caller in no room): room must exist (5); a room with a key: the JOIN's key must equal it (11, checked before anything
+//!   else; no key counts as wrong). 5 wrong codes on one connection: ERROR 9 + close. 30 wrong codes from one IP address in
+//!   10 minutes (the first keyed SCAN of a connection that finds nothing counts too): every request with a key from that address
+//!   gets ERROR 9 + close until the window ends. Then: the caller not rejected from it (8), not full (4), comm_version
 //!   equal (6), passphrase hash equal (3). Member gets vip 169.254.R.N with N = lowest free 2..=8, node id N-1.
 //!   Reply JOINED, then ROOM_STATE to every member (the new one included).
 //!   CREATE/JOIN while already in a room: ERROR 10 (connection stays open).
@@ -79,6 +96,7 @@
 
 mod codec;
 mod proto;
+pub mod room_code;
 mod server;
 #[cfg(test)]
 mod tests;

@@ -4,11 +4,11 @@
 //! (sends are `try_send` into the queues).
 
 use super::codec::{self, MAX_FRAME};
-use super::proto::{err, left, ClientMsg, CreateReq, NodeInfo, RoomInfo, ServerMsg, MAX_NODES, PROTO};
+use super::proto::{err, left, ClientMsg, CreateReq, NodeInfo, RoomInfo, ServerMsg, MAX_NODES, NO_KEY, PROTO};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, ErrorKind, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -21,6 +21,13 @@ const MAX_FRAMES_PER_SEC: u32 = 2000;
 /// Frames queued for one client before it counts as too slow and is dropped.
 const SEND_QUEUE: usize = 256;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Wrong room codes one connection may present before it is dropped (ERROR 9).
+const CODE_FAILS_PER_CONN: u32 = 5;
+/// Wrong room codes (and first keyed scans that found nothing) from one IP address within CODE_FAIL_WINDOW; past it every request
+/// carrying a room key from that address gets ERROR 9. A room code has 80 bits: this only stops an online guesser from trying
+/// codes at line speed, it is not what keeps the code safe.
+const CODE_FAILS_PER_IP: u32 = 30;
+const CODE_FAIL_WINDOW: Duration = Duration::from_secs(600);
 
 pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -67,6 +74,8 @@ pub struct RoomStatus {
     /// Hex: a u64 does not fit a JS number.
     pub local_comm_id: String,
     pub node_count_max: u8,
+    /// Created with a room code: listed only to players presenting it (the code itself is never known to the server).
+    pub private: bool,
     pub players: Vec<PlayerStatus>,
 }
 
@@ -86,6 +95,13 @@ struct Client {
     sock: TcpStream,
     /// (room id, host octet N of 169.254.R.N).
     room: Option<(u32, u8)>,
+    ip: IpAddr,
+    /// The first room key this connection presented; another key later counts as a wrong code.
+    key: Option<[u8; 16]>,
+    /// Wrong room codes so far (CODE_FAILS_PER_CONN).
+    code_fails: u32,
+    /// A keyed SCAN that found no room was counted against the IP once already.
+    miss_counted: bool,
 }
 
 struct Room {
@@ -96,6 +112,8 @@ struct Room {
     node_count_max: u8,
     security_mode: u8,
     pass_hash: [u8; 16],
+    /// None: an open room (listed to everyone, as in protocol 1).
+    room_key: Option<[u8; 16]>,
     adv: Vec<u8>,
     /// Host octet N -> client id. N = 1 is the host.
     members: BTreeMap<u8, u32>,
@@ -112,13 +130,85 @@ pub fn vip_str(v: u32) -> String {
     format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3])
 }
 
+/// Equal without an early exit (room keys and passphrase hashes).
+fn ct_eq(a: &[u8; 16], b: &[u8; 16]) -> bool {
+    let mut d = 0u8;
+    for i in 0..16 {
+        d |= a[i] ^ b[i];
+    }
+    std::hint::black_box(d) == 0
+}
+
 #[derive(Default)]
 struct State {
     clients: HashMap<u32, Client>,
     rooms: BTreeMap<u32, Room>,
+    /// Wrong room codes per address: (count, start of the window).
+    ip_fails: HashMap<IpAddr, (u32, Instant)>,
+}
+
+/// Outcome of a room-key check.
+enum Code {
+    Ok,
+    /// ERROR 11, the connection stays open.
+    Wrong,
+    /// ERROR 9 + close (this connection or its address is over the budget).
+    Limit,
 }
 
 impl State {
+    fn ip_blocked(&mut self, ip: IpAddr) -> bool {
+        match self.ip_fails.get(&ip) {
+            Some(&(_, t)) if t.elapsed() >= CODE_FAIL_WINDOW => {
+                self.ip_fails.remove(&ip);
+                false
+            }
+            Some(&(n, _)) => n >= CODE_FAILS_PER_IP,
+            None => false,
+        }
+    }
+
+    fn count_ip_fail(&mut self, ip: IpAddr) {
+        self.ip_fails.retain(|_, (_, t)| t.elapsed() < CODE_FAIL_WINDOW);
+        self.ip_fails.entry(ip).or_insert((0, Instant::now())).0 += 1;
+    }
+
+    /// One wrong code: counted for the connection and its address.
+    fn code_failed(&mut self, id: u32) -> Code {
+        let Some(c) = self.clients.get_mut(&id) else { return Code::Limit };
+        c.code_fails += 1;
+        let (n, ip) = (c.code_fails, c.ip);
+        self.count_ip_fail(ip);
+        if n >= CODE_FAILS_PER_CONN || self.ip_blocked(ip) {
+            Code::Limit
+        } else {
+            Code::Wrong
+        }
+    }
+
+    /// A request carrying `key` (SCAN, CREATE, JOIN). NO_KEY always passes. A blocked address may present no key; a connection
+    /// keeps the first key it presents, a different one later counts as a wrong code.
+    fn present_key(&mut self, id: u32, key: &[u8; 16]) -> Code {
+        if ct_eq(key, &NO_KEY) {
+            return Code::Ok;
+        }
+        let Some(c) = self.clients.get(&id) else { return Code::Limit };
+        let (ip, first) = (c.ip, c.key);
+        if self.ip_blocked(ip) {
+            return Code::Limit;
+        }
+        match first {
+            None => {
+                if let Some(c) = self.clients.get_mut(&id) {
+                    c.key = Some(*key);
+                }
+                Code::Ok
+            }
+            Some(k) if ct_eq(&k, key) => Code::Ok,
+            Some(_) => self.code_failed(id),
+        }
+    }
+
     /// Queues a frame. A full queue drops the client (its reader then cleans up).
     fn send(&self, id: u32, frame: Vec<u8>) {
         if let Some(c) = self.clients.get(&id) {
@@ -262,6 +352,7 @@ impl RelayServer {
                 room_id: r.id,
                 local_comm_id: format!("{:016x}", r.local_comm_id),
                 node_count_max: r.node_count_max,
+                private: r.room_key.is_some(),
                 players: st
                     .info(r)
                     .nodes
@@ -320,7 +411,10 @@ fn admit(sh: &Arc<Shared>, mut sock: TcpStream, peer: SocketAddr) -> io::Result<
     let id = sh.next_id.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = sync_channel(SEND_QUEUE);
     let writer_sock = sock.try_clone()?;
-    st.clients.insert(id, Client { nickname: String::new(), tx, sock: sock.try_clone()?, room: None });
+    st.clients.insert(
+        id,
+        Client { nickname: String::new(), tx, sock: sock.try_clone()?, room: None, ip: peer.ip(), key: None, code_fails: 0, miss_counted: false },
+    );
     drop(st);
     sh.log(&format!("client {} connected from {}", id, peer));
     let writer = std::thread::Builder::new().name(format!("relay-w{}", id)).spawn(move || writer_loop(writer_sock, rx));
@@ -459,8 +553,13 @@ fn hello(sh: &Shared, id: u32, msg: ClientMsg, done: &mut bool) -> Flow {
         sh.lock().send(id, error(code, text));
         Flow::Close(why.into())
     };
+    if proto < PROTO {
+        let why = format!("bad proto {}", proto);
+        return refuse(err::BAD_PROTO, "This server needs a newer game (relay protocol 2, room codes). Update the game.", &why);
+    }
     if proto != PROTO {
-        return refuse(err::BAD_PROTO, "This server speaks another protocol version. Update the game or the launcher.", "bad proto");
+        let why = format!("bad proto {}", proto);
+        return refuse(err::BAD_PROTO, "This server is older than the game (relay protocol 2). Update the launcher that runs it.", &why);
     }
     if sh.cfg.build_stamp.as_deref().is_some_and(|s| s != build) {
         return refuse(err::BUILD, "This server runs another game build. Only identical builds can play together.", "build mismatch");
@@ -489,31 +588,72 @@ fn handle(sh: &Shared, id: u32, msg: ClientMsg) -> Flow {
             return Flow::Close("second hello".into());
         }
         ClientMsg::Ping(n) => st.send(id, ServerMsg::Pong(n).encode()),
-        ClientMsg::Scan { local_comm_id, scene_id } => {
-            let rooms = st
+        ClientMsg::Scan { local_comm_id, scene_id, room_key } => {
+            if let Some(flow) = key_refused(&mut st, id, &room_key) {
+                return flow;
+            }
+            // open rooms, and the rooms whose key is the one presented (hidden from everyone else)
+            let mut keyed_match = false;
+            let rooms: Vec<RoomInfo> = st
                 .rooms
                 .values()
+                .filter(|r| match &r.room_key {
+                    None => true,
+                    Some(k) => {
+                        let hit = ct_eq(k, &room_key);
+                        keyed_match |= hit;
+                        hit
+                    }
+                })
                 .filter(|r| r.members.len() < r.node_count_max as usize)
                 .filter(|r| local_comm_id == 0 || r.local_comm_id == local_comm_id)
                 .filter(|r| scene_id == 0xffff || r.scene_id == scene_id)
                 .map(|r| st.info(r))
                 .collect();
+            // a guesser on fresh connections tries one key each: the first fruitless keyed scan of a connection counts for its address
+            if !keyed_match && !ct_eq(&room_key, &NO_KEY) {
+                if let Some(c) = st.clients.get_mut(&id).filter(|c| !c.miss_counted) {
+                    c.miss_counted = true;
+                    let ip = c.ip;
+                    st.count_ip_fail(ip);
+                }
+            }
             st.send(id, ServerMsg::RoomList(rooms).encode());
         }
         ClientMsg::Create(c) => {
+            if let Some(flow) = key_refused(&mut st, id, &c.room_key) {
+                return flow;
+            }
+            let private = !ct_eq(&c.room_key, &NO_KEY);
             if my_room.is_some() {
                 st.send(id, error(err::BAD_FRAME, "Already in a room."));
             } else if let Some(room) = create(&mut st, id, c) {
                 drop(st);
-                sh.log(&format!("room {} created by client {}", room, id));
+                sh.log(&format!("room {} created by client {}{}", room, id, if private { " (room code)" } else { "" }));
             } else {
                 st.send(id, error(err::ROOM_FULL, "The server has no free room."));
             }
         }
-        ClientMsg::Join { room_id, comm_version, pass_hash } => {
+        ClientMsg::Join { room_id, comm_version, pass_hash, room_key } => {
+            if let Some(flow) = key_refused(&mut st, id, &room_key) {
+                return flow;
+            }
             if my_room.is_some() {
                 st.send(id, error(err::BAD_FRAME, "Already in a room."));
-            } else if let Err((code, text)) = join(&mut st, id, room_id, comm_version, pass_hash) {
+                return Flow::Go;
+            }
+            // a room with a code: the code is checked before anything else about the room is told
+            let wrong = st.rooms.get(&room_id).and_then(|r| r.room_key).is_some_and(|k| !ct_eq(&k, &room_key));
+            if wrong {
+                return match st.code_failed(id) {
+                    Code::Limit => limit(&st, id),
+                    _ => {
+                        st.send(id, error(err::ROOM_CODE, "Wrong room code."));
+                        Flow::Go
+                    }
+                };
+            }
+            if let Err((code, text)) = join(&mut st, id, room_id, comm_version, pass_hash) {
                 st.send(id, error(code, text));
             }
         }
@@ -568,6 +708,23 @@ fn handle(sh: &Shared, id: u32, msg: ClientMsg) -> Flow {
     Flow::Go
 }
 
+fn limit(st: &State, id: u32) -> Flow {
+    st.send(id, error(err::RATE, "Too many wrong room codes. Try again in a few minutes."));
+    Flow::Close("too many wrong room codes".into())
+}
+
+/// Some(flow) when the key a request carries is refused (the ERROR is queued already).
+fn key_refused(st: &mut State, id: u32, key: &[u8; 16]) -> Option<Flow> {
+    match st.present_key(id, key) {
+        Code::Ok => None,
+        Code::Limit => Some(limit(st, id)),
+        Code::Wrong => {
+            st.send(id, error(err::ROOM_CODE, "Wrong room code."));
+            Some(Flow::Go)
+        }
+    }
+}
+
 /// New room with `id` as host (.1, node 0). None: no free room id or the room cap is reached.
 fn create(st: &mut State, id: u32, c: CreateReq) -> Option<u32> {
     if st.rooms.len() >= MAX_ROOMS {
@@ -584,6 +741,7 @@ fn create(st: &mut State, id: u32, c: CreateReq) -> Option<u32> {
             node_count_max: c.node_count_max,
             security_mode: c.security_mode,
             pass_hash: c.pass_hash,
+            room_key: Some(c.room_key).filter(|k| !ct_eq(k, &NO_KEY)),
             adv: c.adv,
             members: BTreeMap::from([(1, id)]),
             rejected: HashSet::new(),
@@ -606,7 +764,7 @@ fn join(st: &mut State, id: u32, room: u32, comm_version: i16, pass_hash: [u8; 1
     if r.comm_version != comm_version {
         return Err((err::VERSION, "That room runs another game version."));
     }
-    if r.pass_hash != pass_hash {
+    if !ct_eq(&r.pass_hash, &pass_hash) {
         return Err((err::PASSWORD, "Wrong room passphrase."));
     }
     let n = (2..=MAX_NODES).find(|n| !r.members.contains_key(n)).ok_or((err::ROOM_FULL, "That room is full."))?;
