@@ -274,16 +274,33 @@ NXTEST(pad_pack_name_resolves_one_switch_button_bit) {
     // by position (label_abxy off): Switch A is the pad's east button
     CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, false, btn(kBtnA)), std::string("ps/circle"));
     CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, false, btn(kBtnB)), std::string("ps/cross"));
-    // any d-pad bit gives the d-pad icon
-    CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnUp)), std::string("ps/dpad"));
-    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnLeft)), std::string("xbox/dpad"));
-    CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, true, btn(kBtnDown)), std::string("xbox/dpad"));
+    // a d-pad bit gives the d-pad with that direction lit (issue #95: the whole cross did not say which way)
+    for (bool label : {true, false}) {
+        CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, label, btn(kBtnUp)), std::string("xbox/dpad_up"));
+        CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, label, btn(kBtnDown)), std::string("xbox/dpad_down"));
+        CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, label, btn(kBtnLeft)), std::string("xbox/dpad_left"));
+        CHECK_EQ(pad_pack_name(PromptStyle::Xbox, s.pad, label, btn(kBtnRight)), std::string("xbox/dpad_right"));
+        CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, label, btn(kBtnUp)), std::string("ps/dpad_up"));
+        CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, label, btn(kBtnDown)), std::string("ps/dpad_down"));
+        CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, label, btn(kBtnLeft)), std::string("ps/dpad_left"));
+        CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, label, btn(kBtnRight)), std::string("ps/dpad_right"));
+    }
     // a stick click has no pad icon; neither do a zero or a multi-bit value, nor a style that is not a pad style
     CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnStickL)), std::string());
     CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, 0), std::string());
     CHECK_EQ(pad_pack_name(PromptStyle::PlayStation, s.pad, true, btn(kBtnA) | btn(kBtnB)), std::string());
     CHECK_EQ(pad_pack_name(PromptStyle::Switch, s.pad, true, btn(kBtnA)), std::string());
     CHECK_EQ(pad_pack_name(PromptStyle::Keyboard, s.pad, true, btn(kBtnA)), std::string());
+}
+
+NXTEST(pad_pack_fallback_gives_the_whole_dpad_for_a_direction) {
+    CHECK_EQ(pad_pack_fallback("xbox/dpad_up"), std::string("xbox/dpad"));
+    CHECK_EQ(pad_pack_fallback("xbox/dpad_right"), std::string("xbox/dpad"));
+    CHECK_EQ(pad_pack_fallback("ps/dpad_down"), std::string("ps/dpad"));
+    CHECK_EQ(pad_pack_fallback("ps/dpad_left"), std::string("ps/dpad"));
+    CHECK_EQ(pad_pack_fallback("ps/dpad"), std::string());
+    CHECK_EQ(pad_pack_fallback("ps/cross"), std::string());
+    CHECK_EQ(pad_pack_fallback(""), std::string());
 }
 
 NXTEST(pad_pack_name_follows_a_pad_remap) {
@@ -307,6 +324,13 @@ NXTEST(the_shipped_pack_has_every_pad_icon_a_switch_button_can_ask_for) {
                 const std::string n = pad_pack_name(st, s.pad, label, hid::btn(b));
                 CHECK_MSG(!n.empty() && p.find(n) != nullptr, n);
             }
+    // the whole cross stays for the games with one d-pad icon (Icon::DPad), and a lit direction is not the whole cross
+    for (const char* n : {"xbox/dpad", "ps/dpad", "xbox/dpad_pressed", "ps/dpad_pressed"}) CHECK_MSG(p.find(n) != nullptr, n);
+    for (const char* n : {"xbox/dpad_up", "ps/dpad_left"}) {
+        const uint8_t* dir = p.find(n);
+        const uint8_t* cross = p.find(pad_pack_fallback(n));
+        CHECK_MSG(dir && cross && std::memcmp(dir, cross, size_t{p.width()} * p.height() * 4) != 0, n);
+    }
 }
 
 NXTEST(map_sticks_show_the_mouse_buttons_that_drive_the_map) {
