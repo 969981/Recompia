@@ -209,9 +209,29 @@ uint64_t read_completed() {
     if (g && g->dev->device_lost()) return g->completed.load();
     uint64_t v = 0;
     if (g && g->timeline) vkGetSemaphoreCounterValue(g->dev->device(), g->timeline, &v);
+    // [nvn] pool_copy: the GPU writes of every serial up to v go back into guest memory before v is published, so no caller (a sync wait,
+    // a poll, the render thread's touch) sees a serial complete whose writes have not landed (nvn_pool_copy.cpp)
+    if (g && pool_copy_any()) pcopy_land(v);
     if (g) complete_serial(v);
     return g->completed.load();
 }
+
+}  // namespace
+
+// [nvn] pool_copy's landing thread: blocks until the timeline reaches serial (or timeout_ns). Any thread.
+bool timeline_wait(uint64_t serial, uint64_t timeout_ns) {
+    if (!g || !g->timeline || g->dev->device_lost()) return false;
+    VkSemaphoreWaitInfo wi = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+    wi.semaphoreCount = 1;
+    wi.pSemaphores = &g->timeline;
+    wi.pValues = &serial;
+    return vkWaitSemaphores(g->dev->device(), &wi, timeout_ns) == VK_SUCCESS;
+}
+
+// [nvn] pool_copy: the serial being recorded, 0 outside a recording (current_serial() gives the last submitted one there). Render thread.
+uint64_t recording_serial() { return g ? g->recording : 0; }
+
+namespace {
 
 void drain_pending_destroy() {
     std::vector<std::function<void()>> pend;

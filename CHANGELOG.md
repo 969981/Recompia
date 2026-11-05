@@ -6,6 +6,8 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### What's new
+- Steam Deck / Linux: the game's GPU memory is copied instead of shared with the graphics driver (`[nvn] pool_copy`),
+  which removes a cost every frame paid for the shared memory. Not yet measured on a Deck. `pool_copy = off` goes back.
 - Steam Deck / Linux: the part of a frame that the game sends to the GPU early now goes together with the rest of the frame when
   the submit thread has not got to it yet, so it makes one costly submission for that frame instead of two (`[nvn] one_submit`).
   Not yet measured on a Deck.
