@@ -735,6 +735,42 @@ Failure, Windows / Proton, Docs, Acceptance.
 
 ---
 
+### WP21-gplup-wine: background whole-pipeline upgrades off under Wine (added from addendum 2)
+`claude/deck-stutter/wp21-gplup-wine` · wave 1 · Sonnet · depends: none.
+
+- **Why:** `ds/BASELINE-ADDENDUM-2.md` §1: `gpl_upgrade = off` is +6 to +12 fps and p99 -15 to -24 ms in every Deck segment.
+- **Touches:** `nvn/nvn_gpl.cpp`, only the place that reads `[nvn] gpl_upgrade` (and its log line); CONFIG.md `gpl_upgrade` row.
+- **Behaviour:** new value `auto` (the default): `off` under Wine (`wine_host()`), `whole` elsewhere; `whole` / `lto` / `off` as today.
+  Log once: `nvn.gpl: gpl_upgrade <value> (auto, Wine|auto, not Wine|set)`.
+- **Toggle:** `gpl_upgrade = whole` = today's default.
+- **Windows / Proton:** native Windows unchanged (auto = whole). Go S: same as Deck (Proton).
+- **Docs:** CONFIG.md row updated (default `auto`, the measured Deck gain). CHANGELOG: "Steam Deck / Linux: pipelines are no longer
+  rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`)."
+- **Acceptance:** merge gate (PC: default unchanged, on/off identical). CP1: `cp1_w*` vs `cp1_gplupwhole` (`NXRT_NVN_GPL_UPGRADE=whole`).
+  WP10 (wave 2) decides whether a yielding upgrade thread can bring the optimised pipelines back at no cost.
+
+### WP22-one-submit: the frame's batch goes in the present's submission (added from addendum 2)
+`claude/deck-stutter/wp22-one-submit` · wave 1 · Opus · depends: none (rebases on WP01 / WP04 for `nvn_gpu.cpp`).
+
+- **Why:** addendum 2 §3: per frame the worker makes two kernel submissions of ~15 ms each (the batch flush and the present's
+  `vkQueueSubmit2`); each pays the per-CS userptr validation. One submission per frame removes one of them now and halves the fixed
+  per-CS cost after copy mode.
+- **Touches:** owned in `nvn/nvn_gpu.cpp`: `flush_batch`, the present job lambda of the submit worker (the `submit.worker.present`
+  zone), and the struct fields they need; `runtime/src/gfx/vk_renderer.cpp`: the present submit (`present.vk_submit`) so it can take
+  extra command buffers and signals. Not `submit_cbs` (WP01), `want_flush`/`serial_done`/`render_loop`/`wait_serial` (WP04),
+  `read_completed` (WP02).
+- **Behaviour:** `[nvn] one_submit` = `auto` (on under Wine with `submit_batch = frame`, off elsewhere): when the batch would be flushed
+  because the present is next, its command buffers and timeline signals go into the present's `vkQueueSubmit2` (one call; prefer one
+  `VkSubmitInfo2` for the batch command buffers without the acquire wait, then the present's own, in the same call; measure whether RADV
+  issues one CS for it and log that once). A flush forced earlier (poll, blocking wait, slot shortage) still submits on its own. Serial
+  ordering, `flushed_pub` and `wait_submitted` semantics unchanged; a CPU wait on a batched serial still forces a flush.
+- **Toggle:** `one_submit = off` = today.
+- **Zones:** `present.vk_submit` arg = command buffers in the call; counter `nvn.submit.merged_into_present`.
+- **Failure:** `vkQueueSubmit2` error -> the same handling as today's present submit; device lost as today.
+- **Windows / Proton:** Wine only by default (PC uses `submit_batch 1`, no frame batch). One forced-on PC run for correctness.
+- **Acceptance:** merge gate; unit tests for serial ordering if the submit path has tests. CP1: `cp1_w*` vs `cp1_onesubmitoff`:
+  worker jobs per frame ~1, worker busy % down by >= 25 % relative, no error lines / device lost, screenshots equal.
+
 ## 5. Waves and checkpoints
 
 ### 5.1 Checkpoint tooling (Haiku, in `ds/`, git-ignored, PM reviews directly; before CP1)
@@ -749,7 +785,10 @@ Failure, Windows / Proton, Docs, Acceptance.
 - T5 `ds/earlier-deck-findings.md` corrections (J-F Fix 13: `vkm_sync_all` is :368-386; totk figure is 27-31 -> 60 fps same scene).
 
 ### 5.2 Addendum-2 runs
-`BASELINE-ADDENDUM-2.md` is not in (Deck offline). What each run gates: `d_gplup_off` x2 -> WP10's start; `d_cell64` -> WP08's start; the
+**Update (PM, after the runs landed): `ds/BASELINE-ADDENDUM-2.md` is in.** `d_gplup_off` = +6-12 fps in every segment -> new WP21
+(wave 1) makes it the Wine default and WP10's gate counts as passed; `d_cell64` is worse everywhere -> WP08 is cancelled; the `i1`
+split shows two ~15 ms kernel submissions per frame (batch + present) and only ~0.08 poll flushes per frame -> new WP22 (wave 1).
+The `a2_*` CP1 lines are removed. Original text, for the record: `BASELINE-ADDENDUM-2.md` is not in (Deck offline). What each run gates: `d_gplup_off` x2 -> WP10's start; `d_cell64` -> WP08's start; the
 `i1` submit split -> the reading of WP04's result and the priority of WP15/WP16 (and every "17.8 ms per submission" figure). If still missing
 at CP1 they fold in: `a2_gplup_off1/2` and `a2_cell64` on `base0.dll` (first lines of the CP1 queue); the `i1` split is carried by
 `cp1_alloff1/2` (the CP1 DLL contains `3dc1a05` and every wave-1 toggle is set to its old path there).
@@ -772,9 +811,9 @@ CP1 queue (`ds/checkpoints/cp1.q`; `cp1.dll` = integration head after the last w
 the snapped stock cap is 30 on the 90 Hz panel; the all-off and snap-off runs run at 40):
 
 ```
-a2_gplup_off1  base0.dll p0.nxs warm 200 NXRT_NVN_GPL_UPGRADE=off
-a2_gplup_off2  base0.dll p0.nxs warm 200 NXRT_NVN_GPL_UPGRADE=off
-a2_cell64      base0.dll p0.nxs warm 200 NXRT_NVN_POOL_LAZY_CHUNK_MB=64
+
+
+
 cp1_w1         cp1.dll   p0.nxs warm 200 TARGET_MS=33.333
 cp1_w2         cp1.dll   p0.nxs warm 200 TARGET_MS=33.333
 cp1_w3         cp1.dll   p0.nxs warm 200 TARGET_MS=33.333
@@ -789,6 +828,8 @@ cp1_pf8a       cp1.dll   p0.nxs warm 200 TARGET_MS=33.333 NXRT_NVN_POLL_FLUSH=8
 cp1_pf8b       cp1.dll   p0.nxs warm 200 TARGET_MS=33.333 NXRT_NVN_POLL_FLUSH=8
 cp1_pfdefer    cp1.dll   p0.nxs warm 200 TARGET_MS=33.333 NXRT_NVN_POLL_FLUSH=defer
 cp1_snapoff    cp1.dll   p0.nxs warm 200 TARGET_MS=25 NXRT_DISPLAY_FPS_SNAP=false
+cp1_gplupwhole cp1.dll   p0.nxs warm 200 TARGET_MS=33.333 NXRT_NVN_GPL_UPGRADE=whole
+cp1_onesubmitoff cp1.dll p0.nxs warm 200 TARGET_MS=33.333 NXRT_NVN_ONE_SUBMIT=off
 cp1_steamcold  cp1.dll   p0.nxs steamcold 200 TARGET_MS=33.333
 cp1_cold1      cp1.dll   p0.nxs cold 200 TARGET_MS=33.333
 cp1_coldgploff cp1.dll   p0.nxs cold 200 TARGET_MS=33.333 NXRT_NVN_GPL_GATE=time NXRT_NVN_ASYNC_WHOLE=false NXRT_NVN_ASYNC_COMPUTE=false NXRT_NVN_COMPUTE_PREWARM=false
