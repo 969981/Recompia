@@ -6,6 +6,8 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### What's new
+- Fewer hitches about once a second (a texture read back from the GPU no longer stops rendering). Not yet measured on a Deck.
+  `[nvn] readback_async = false` brings the old way back.
 - Steam Deck, Legion Go S and other Linux / SteamOS players: fewer hitches the first time something is drawn. A shader that is not ready
   yet is compiled in the background and the object appears a frame or two later, instead of the whole game pausing for it
   (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.

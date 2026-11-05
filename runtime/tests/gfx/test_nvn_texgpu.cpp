@@ -683,6 +683,100 @@ NXTEST(download_render_target_after_clear) {
     teardown(r);
 }
 
+namespace {
+// Clears the first `levels` levels of the image to one colour on the GPU and marks it written (a render target the game draws to).
+void clear_on_gpu(Texture* t, const float rgba[4], uint32_t levels) {
+    gpu::run_frame_sync([&](Frame& f) {
+        gpu::tex_transition(t, f, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearColorValue c = {};
+        std::memcpy(c.float32, rgba, sizeof c.float32);
+        const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, 1};
+        vkCmdClearColorImage(f.cb, gpu::tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &c, 1, &range);
+        gpu::tex_transition(t, f, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        gpu::tex_mark_gpu_written(t);
+    });
+}
+
+// Every texel of level `level` (layer 0) of the storage is `want` (RGBA8).
+bool storage_level_is(const Tex& x, uint32_t level, const uint8_t want[4]) {
+    const tegra::LevelLayout& lv = x.L.layout.levels[level];
+    std::vector<uint8_t> lin(static_cast<size_t>(lv.linear_slice_size), 0);
+    tegra::untile_level(x.L.desc, lv, x.mem.data() + lv.tiled_offset, lin.data());
+    for (uint32_t y = 0; y < lv.height; ++y)
+        for (uint32_t i = 0; i < lv.width; ++i)
+            if (std::memcmp(&lin[y * lv.linear_row_stride + i * 4], want, 4) != 0) return false;
+    return true;
+}
+}  // namespace
+
+// ---- 10b: [nvn] readback_async: reading a level twice with no GPU write in between copies once; a GPU write in between copies again ----
+NXTEST(readback_dedupe_by_write_generation) {
+    Rig r;
+    if (!bring_up(r)) {
+        CHECK(false);
+        return;
+    }
+    {
+        Tex x;
+        CHECK(make_tex(x, info(NVN_TEXTURE_TARGET_2D, 64, 64, 1, 1, NVN_FORMAT_RGBA8)));
+        Texture* t = x.t.get();
+        const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f}, blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+        const uint8_t red8[4] = {255, 0, 0, 255}, blue8[4] = {0, 0, 255, 255};
+        clear_on_gpu(t, red, 1);
+        const gpu::ReadbackStats s0 = gpu::readback_stats();
+        CHECK(gpu::download_texture(t, 0, 1, 0, 1));
+        CHECK(storage_level_is(x, 0, red8));
+        CHECK(gpu::download_texture(t, 0, 1, 0, 1));   // nothing wrote it: not copied again
+        CHECK(storage_level_is(x, 0, red8));
+        const gpu::ReadbackStats s1 = gpu::readback_stats();
+        CHECK_EQ(s1.copies - s0.copies, 1ull);
+        CHECK_EQ(s1.skipped - s0.skipped, 1ull);
+        clear_on_gpu(t, blue, 1);                       // a GPU write: the next read copies
+        CHECK(gpu::download_texture(t, 0, 1, 0, 1));
+        CHECK(storage_level_is(x, 0, blue8));
+        const gpu::ReadbackStats s2 = gpu::readback_stats();
+        CHECK_EQ(s2.copies - s0.copies, 2ull);
+        CHECK_EQ(s2.skipped - s0.skipped, 1ull);
+        std::printf("    readbacks: %llu copied, %llu skipped (async %s)\n", static_cast<unsigned long long>(s2.copies - s0.copies),
+                    static_cast<unsigned long long>(s2.skipped - s0.skipped), config_get_bool("nvn", "readback_async", true) ? "on" : "off");
+    }
+    teardown(r);
+}
+
+// ---- 10c: a one-level readback writes that level exactly as a whole-texture readback does, and no other level ------------------------
+NXTEST(readback_one_level_matches_full) {
+    Rig r;
+    if (!bring_up(r)) {
+        CHECK(false);
+        return;
+    }
+    {
+        Tex x;
+        CHECK(make_tex(x, info(NVN_TEXTURE_TARGET_2D, 64, 64, 1, 4, NVN_FORMAT_RGBA8)));
+        Texture* t = x.t.get();
+        fill_random(x.lin, 21);
+        tile_into_storage(x);
+        gpu::run_frame_sync([&](Frame& f) { gpu::tex_ensure_current(t, f); });
+        gpu::run_on_render_thread([&] { gpu::tex_mark_gpu_written(t); });   // the image holds the newest data
+        const std::vector<uint8_t> want = x.mem;
+        std::fill(x.mem.begin(), x.mem.end(), uint8_t{0});
+        CHECK(gpu::download_texture(t, 2, 1, 0, 1));
+        const tegra::LevelLayout& l2 = x.L.layout.levels[2];
+        const tegra::LevelLayout& l0 = x.L.layout.levels[0];
+        const bool level_eq = std::memcmp(x.mem.data() + l2.tiled_offset, want.data() + l2.tiled_offset, static_cast<size_t>(l2.tiled_size)) == 0;
+        CHECK(level_eq);
+        bool rest_zero = true;
+        for (uint64_t i = 0; i < l0.tiled_size; ++i) rest_zero = rest_zero && x.mem[static_cast<size_t>(l0.tiled_offset + i)] == 0;
+        CHECK_MSG(rest_zero, "level 0 was written by a level 2 readback");
+        CHECK(gpu::download_texture(t));                // every level
+        const bool all_eq = std::memcmp(x.mem.data(), want.data(), static_cast<size_t>(x.L.layout.tiled_size)) == 0;
+        CHECK(all_eq);
+        std::printf("    level 2 alone: %s, level 0 untouched: %s; whole texture: %s\n", level_eq ? "equal" : "DIFFERS", rest_zero ? "yes" : "NO",
+                    all_eq ? "equal" : "DIFFERS");
+    }
+    teardown(r);
+}
+
 // ---- 11: a format the device cannot make: null, counted once --------------------------------------------------------------------
 NXTEST(failure_no_format) {
     Rig r;
