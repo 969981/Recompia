@@ -100,7 +100,7 @@ constexpr int kFullLevel = 30;
 constexpr int kTableW = 1920, kTableH = 1080;
 
 // dynres manager layout: per view (stride 28) +16 target w/h, +24 largest scene w/h, +32 scene w/h, +40 levels (target, largest, current)
-constexpr size_t kViewStride = 28, kMaxW = 24, kMaxH = 28, kCurW = 32, kCurH = 36, kLvlMax = 41, kLvlCur = 42;
+constexpr size_t kViewStride = 28, kTgtW = 16, kTgtH = 20, kMaxW = 24, kMaxH = 28, kCurW = 32, kCurH = 36, kLvlMax = 41, kLvlCur = 42;
 
 // follow camera layout
 constexpr size_t kCamPlayer = 8, kCamPitch = 0xa0, kCamYaw = 0xa4, kCamPitchMax = 0xd4, kCamPitchMin = 0xd8, kCamManual = 0xff,
@@ -170,22 +170,53 @@ int hook_level_h(::Ctx* c, uint64_t, void*) {
 int hook_full_w(::Ctx* c, uint64_t, void*) { c->x[0] = static_cast<uint64_t>(st().w.load()); return 1; }
 int hook_full_h(::Ctx* c, uint64_t, void*) { c->x[0] = static_cast<uint64_t>(st().h.load()); return 1; }
 
+// [upscale] scene_scale (#116; extras::upscale_scene_scale: percent per side, or the temporal quality preset's) shrinks the scene viewport
+// (+32 / +36) the way the game's own dynamic resolution does: the scene passes render into the top-left of the full-size targets and the
+// composite pass (the tone-map draw, KTGL cbComposite: scene UV = uv * c5[11].zw + c5[11].xy) stretches that part over the frame with one
+// bilinear tap; the HUD and the post chain stay at full size. With dynamic resolution on, the game's own pick is capped at that size.
+// extras::scene_fraction tells the back end's scene upscalers (FSR 1 / NIS / FSR 3 / DLSS at the tone-map draw) which part to upscale. It is
+// published only with dynamic resolution off and one view: a size that changes every frame or a split screen keeps the game's own stretch.
+std::atomic<int> g_scene_pct{-1};   // the percent the last copy applied (logged when it changes)
+uint32_t scene_side(uint32_t full, int pct) { return std::max<uint32_t>(2, static_cast<uint32_t>((static_cast<uint64_t>(full) * pct + 50) / 100) & ~1u); }
+
 int hook_copy_params(::Ctx* c, uint64_t, void*) {
     State& s = st();
-    if (s.dynres.load(std::memory_order_relaxed)) return 0;
+    const bool dyn = s.dynres.load(std::memory_order_relaxed);
+    const int pct = std::clamp(extras::upscale_scene_scale(), 25, 100);
+    if (g_scene_pct.exchange(pct, std::memory_order_relaxed) != pct)
+        NXLOG_I(kTag, "scene resolution %d%%: %ux%u of the %dx%d targets ([upscale] scene_scale%s)", pct, scene_side(s.w.load(), pct),
+                scene_side(s.h.load(), pct), s.w.load(), s.h.load(), dyn ? "; the cap of the game's dynamic resolution, upscaled by the game" : "");
     const uint64_t mgr = c->x[0];
-    if (!mgr || !mem::is_mapped(mgr, 16 + 2 * kViewStride)) return 0;
+    if ((dyn && pct >= 100) || !mgr || !mem::is_mapped(mgr, 16 + 2 * kViewStride)) {
+        extras::scene_fraction_set(1.0f, 1.0f);
+        return 0;
+    }
     int views = 1;
     const uint64_t vo = rd<uint64_t>(s.base + kViewsGlobal);
     if (vo && mem::is_mapped(vo + 562, 1) && rd<uint8_t>(vo + 562)) views = 2;
+    float fx = 1.0f, fy = 1.0f;
     for (int i = 0; i < views; ++i) {
         const uint64_t v = mgr + i * kViewStride;
-        wr<uint32_t>(v + kCurW, rd<uint32_t>(v + kMaxW));
-        wr<uint32_t>(v + kCurH, rd<uint32_t>(v + kMaxH));
+        const uint32_t mw = rd<uint32_t>(v + kMaxW), mh = rd<uint32_t>(v + kMaxH);
+        const uint32_t sw = pct >= 100 ? mw : scene_side(mw, pct), sh = pct >= 100 ? mh : scene_side(mh, pct);
+        if (dyn) {
+            wr<uint32_t>(v + kCurW, std::min(rd<uint32_t>(v + kCurW), sw));
+            wr<uint32_t>(v + kCurH, std::min(rd<uint32_t>(v + kCurH), sh));
+            continue;
+        }
+        wr<uint32_t>(v + kCurW, sw);
+        wr<uint32_t>(v + kCurH, sh);
         wr<uint8_t>(v + kLvlCur, rd<uint8_t>(v + kLvlMax));
+        const uint32_t tw = rd<uint32_t>(v + kTgtW), th = rd<uint32_t>(v + kTgtH);   // the targets the scene is drawn into
+        if (i == 0 && tw > 0 && th > 0) {
+            fx = static_cast<float>(sw) / static_cast<float>(tw);
+            fy = static_cast<float>(sh) / static_cast<float>(th);
+        }
     }
+    if (dyn || views > 1) fx = fy = 1.0f;
+    extras::scene_fraction_set(fx, fy);
     s.copy_calls.fetch_add(1, std::memory_order_relaxed);
-    return 0;                                       // the game's copy runs with the full size in place
+    return 0;                                       // the game's copy runs with the chosen size in place
 }
 
 // The scene passes store their viewports as authored for 1920x1080 (the render thread replays them; the targets themselves follow the new
@@ -700,8 +731,8 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     if (!override_size) {
         // The game's own size (the back end's [gfx] render_scale enlarges it). Its dynamic resolution still drops the scene viewport below
         // 1920x1080 when frames run late (1664x936 seen at 1440p: the scene then covers part of the targets, a hard-edged band): with
-        // [display] dynamic_resolution off, the per-frame copy of the parameters keeps the top level.
-        if (!d.dynamic_resolution) s.hooks.push_back(hook_add_entry(base + kCopyParams, hook_copy_params));
+        // [display] dynamic_resolution off, the per-frame copy of the parameters keeps the top level ([upscale] scene_scale below it).
+        s.hooks.push_back(hook_add_entry(base + kCopyParams, hook_copy_params));
         // [display] render_scale for the NVN back end, which renders the game's targets at that factor: a fixed size by its height, auto
         // by the window's height (at least 1), a percentage of the console's 1920x1080
         float scale = 1.0f;
