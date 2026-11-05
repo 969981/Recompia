@@ -8,7 +8,7 @@ let nupHandler = null;
 listen('nup-progress', (ev) => nupHandler && nupHandler(ev.payload));
 
 function candidateHtml(c, chosen) {
-  const title = c.kind === 'base' ? 'Base game' : `Update ${esc(c.version)}`;
+  const title = c.kind === 'base' ? 'Base game' : c.kind === 'folder' ? 'Picked folder' : `Update ${esc(c.version)}`;
   const used = chosen && chosen.path === c.path;
   // an incomplete folder that another one makes unnecessary (an empty base/ next to a full update) is not an error
   const unneeded = chosen && !used && !c.ok;

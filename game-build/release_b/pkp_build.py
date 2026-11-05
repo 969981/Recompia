@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -144,6 +145,23 @@ def write_json(path, value):
     os.replace(tmp, path)
 
 
+def nso_short(path):
+    """How many bytes an NSO lacks against the segments its header lists (0 = complete; a text-mode FTP copy drops a byte per CR LF pair).
+    From pokopia-native (MIT), nxs2.py nso_short @7c3655d."""
+    with open(path, 'rb') as f:
+        h = f.read(0x70)
+    if len(h) < 0x70 or h[:4] != b'NSO0':
+        return 0
+    flags = struct.unpack_from('<I', h, 0xC)[0]
+    end = max(struct.unpack_from('<I', h, 0x10 + 0x10 * i)[0] + struct.unpack_from('<I', h, 0x60 + 4 * i if flags & (1 << i) else 0x18 + 0x10 * i)[0]
+              for i in range(3))
+    return max(0, end - os.path.getsize(path))
+
+
+# main build ID (first 16 bytes) of the older game version; their sources disagree on its number, so player text says "an older version"
+OLDER_MAIN_BUILD = '816c5358e8178d802fcec4a7ce5a741a'
+
+
 def verify(exefs):
     want = json.load(open(os.path.join(HERE, 'dump_hashes.json'), encoding='utf-8'))
     missing = [n for n in want['sha256'] if not os.path.isfile(os.path.join(exefs, n))]
@@ -154,10 +172,17 @@ def verify(exefs):
     if head[:4] != b'NSO0':
         raise Fail('exefs/main is not a decrypted NSO. Extract the game files with your own keys first (decrypted exefs and romfs).')
     bid = head[0x40:0x54].hex()
+    if bid != want['main_build_id'] and bid.startswith(OLDER_MAIN_BUILD):
+        raise Fail('These game files are from an older version. Update the game on your Switch 2 to %s, then dump again.' % want['version'].split()[0])
     if bid != want['main_build_id']:
         raise Fail('This is a different version of the game (main build ID %s). This release supports %s (build ID %s).'
                    % (bid, want['version'], want['main_build_id']))
     names = list(want['sha256'])
+    for n in names:
+        short = nso_short(os.path.join(exefs, n))
+        if short:
+            raise Fail('exefs/%s is %d bytes shorter than its own header says: the dump was copied in text mode, which damages it. '
+                       'Copy the exefs folder again in binary mode (FileZilla: Transfer > Transfer type > Binary).' % (n, short))
     for i, n in enumerate(names):
         progress('verify', i, len(names), 'Checking your game files: %s' % n)
         got = sha256(os.path.join(exefs, n))
