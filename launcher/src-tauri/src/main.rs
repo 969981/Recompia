@@ -147,6 +147,8 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
     let out = game_dir_of(&load_config(&app)).join("nup_dump");
     let src = PathBuf::from(path.trim());
     let emitter = app.clone();
+    let st = state.inner().clone();
+    st.nup_cancel.store(false, Ordering::SeqCst);
     let res = tauri::async_runtime::spawn_blocking(move || {
         let mut last = 0u64;
         nup::extract(
@@ -159,12 +161,18 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
                     let _ = emitter.emit("nup-progress", NupProgress { done, total, file: file.to_string() });
                 }
             },
-            &|| false,
+            &|| st.nup_cancel.load(Ordering::SeqCst),
         )
     })
     .await
     .map_err(|e| e.to_string())??;
     Ok(dump::fwd(&res))
+}
+
+/// Stops a running .nup unpack (the call to `import_nup` then returns an error).
+#[tauri::command]
+fn cancel_nup(state: State<Arc<SetupState>>) {
+    state.nup_cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -235,6 +243,8 @@ fn play(app: AppHandle) -> Result<(), String> {
 struct SetupState {
     progress: Mutex<shaders::Progress>,
     cancel: AtomicBool,
+    /// Cancel flag of a running .nup unpack.
+    nup_cancel: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -575,6 +585,7 @@ fn main() {
             validate_dump,
             pick_nup,
             import_nup,
+            cancel_nup,
             save_dump,
             read_settings,
             write_settings,
