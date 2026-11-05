@@ -21,6 +21,10 @@ of the game (version 2.0.1a): the download contains no game files.
   higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
 - With Xbox or PlayStation button icons, d-pad prompts now show which direction to press (#95): the d-pad icon lights up the
   arm to press (up, down, left or right) instead of showing the whole d-pad.
+- The F1 Display page now shows the size the game really renders at, live, and what happens to it on the way to the screen, for
+  example "Rendering 960 x 600 -> upscaled with FSR 1 to 1280 x 800" (#117). Before, it only showed the window size, so a lower
+  render scale looked like it did nothing. "Window size" is now called "Windowed size" and is greyed out in borderless and
+  fullscreen, where it is not used.
 
 ### What's new
 - New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
