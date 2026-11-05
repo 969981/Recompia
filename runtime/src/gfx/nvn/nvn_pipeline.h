@@ -121,11 +121,15 @@ void prewarm_record(const GraphicsKey& key);                              // a d
 size_t prewarm_program(const ShaderInfo* const stages[6]);                // a program got its shaders: its recorded pipelines go first in line (how many)
 // True with *out: the pipeline was built ahead. False: build it here, except that when a background build of it is under way and can_link()
 // says the draw can link it from parts now, *later gets the whole pipeline that will replace the linked one (link with no upgrade of its own).
-bool prewarm_take(const GraphicsKey& key, VkPipeline* out, const std::function<bool()>& can_link, std::shared_ptr<PipeUpgrade>* later);
+// no_wait ([nvn] async_whole): a build that is queued or running is neither waited for nor taken over by the draw; *later gets it instead
+// (a queued one moves to the front) and the draw goes without a pipeline until it is ready.
+bool prewarm_take(const GraphicsKey& key, VkPipeline* out, const std::function<bool()>& can_link, std::shared_ptr<PipeUpgrade>* later,
+                  bool no_wait = false);
 void prewarm_shutdown();                                                  // stops the workers (before the device is torn down)
 struct PrewarmStats {
     uint64_t recorded = 0, loaded = 0, queued = 0, built = 0, taken = 0, waited = 0, claimed = 0;
     uint64_t failed = 0, promoted = 0, linked_meanwhile = 0;   // builds that failed; jobs moved ahead by a program set; draws linked while the whole build ran
+    uint64_t no_wait = 0;                                      // [nvn] async_whole: draws that went without a pipeline instead of waiting for this build
     double wait_ms = 0;
 };
 PrewarmStats prewarm_stats();
@@ -135,6 +139,14 @@ VkShaderModule shader_module(const ShaderInfo* s);
 // parts built for the stand-in shaders of the key file are found again by the game's own. Any thread.
 uint64_t module_content_id(VkShaderModule m);
 uint64_t pipelines_built_at_draw();          // whole pipelines the render thread built itself at a draw (session)
+// [nvn] async_whole (default auto: on under Wine, i.e. Proton / SteamOS). While frames are flowing, a pipeline that would be built whole on the
+// render thread at a draw (no key-file build, no pipeline-library link: depth-only draws, feedback loops, tessellation, a driver without
+// VK_EXT_graphics_pipeline_library) is built on a background thread instead, and the draw is skipped until it is ready (a missing object for
+// a frame or two instead of a 5-50 ms hitch). Draws no longer wait for a key-file build that is running either. Stream-out draws, and every
+// draw while the game loads (no present for 100 ms), are built at the draw as before.
+bool async_whole_on();                       // first call reads the setting
+uint64_t pipelines_built_async();            // whole pipelines built in the background for a skipped draw (session)
+uint64_t draws_skipped_async();              // draws skipped while their pipeline was built in the background (session)
 // Bytes of one captured vertex of the vertex shader's transform feedback variant (0: none could be made).
 uint32_t xfb_stride(const ShaderInfo* vs);
 
@@ -160,6 +172,7 @@ VkPipeline gpl_link(const GraphicsKey& key, const ProgLayout& layout, std::share
 // again later); the parts compile on the background threads ahead of everything else. While the game loads (no present for 100 ms) the draw
 // builds them itself as before, so one-time renders of a loading screen are never lost.
 void gpl_note_presents(uint64_t presents);   // the replay, once per submission: when presents were last seen moving
+bool gpl_frames_flowing();                   // a present was seen in the last 100 ms (the game is not loading)
 bool gpl_ab_whole();                                                 // measurement only ([nvn] gpl_ab): true in the windows that run the optimised pipelines
 void gpl_take_upgrade(VkPipeline& current, VkPipeline& alt, std::shared_ptr<PipeUpgrade>& up);   // render thread: swaps in the finished optimised pipeline (the old one is destroyed once the GPU is done with it)
 void gpl_program(const ShaderInfo* const stages[6], bool covered);   // a program got its shaders: queue its shader parts (covered: the key file has pipelines for it, skip)

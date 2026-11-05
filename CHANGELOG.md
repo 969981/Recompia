@@ -3,6 +3,13 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### What's new
+- Steam Deck, Legion Go S and other Linux / SteamOS players: fewer hitches the first time something is drawn. A shader that is not ready
+  yet is compiled in the background and the object appears a frame or two later, instead of the whole game pausing for it
+  (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
+
 ## 0.5.0 (build I: Iguana)
 
 ### What's new
