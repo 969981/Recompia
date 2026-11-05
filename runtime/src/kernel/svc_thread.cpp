@@ -4,13 +4,17 @@
 // Argument registers (AArch64): see include/nxrt/svc.h.
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include <cstdio>
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/dispatch.h"
+#include "nxrt/ftrace.h"
 #include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
@@ -18,6 +22,8 @@
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
+#include "nxrt/tt.h"
+#include "kernel_internal.h"
 
 namespace nxrt {
 namespace {
@@ -89,6 +95,93 @@ const PollSleeps& poll_sleeps() {
     return t;
 }
 
+// [sched] yield_backoff (kernel.h yield_backoff_step), default off. Read once.
+struct YieldBackoff {
+    bool on = false;
+    YieldBackoffCfg cfg;
+};
+const YieldBackoff& yield_backoff() {
+    static const YieldBackoff b = [] {
+        YieldBackoff y;
+        y.on = config_get_bool("sched", "yield_backoff", false) && !tt::deterministic();   // deterministic mode: yields stay yields
+        if (!y.on) return y;
+        const int64_t start = config_get_int("sched", "yield_backoff_start_us", 2000), cap = config_get_int("sched", "yield_backoff_cap_us", 250);
+        y.cfg.start_ns = static_cast<uint64_t>(std::max<int64_t>(start, 0)) * 1000;
+        y.cfg.cap_ns = std::max<uint64_t>(static_cast<uint64_t>(std::max<int64_t>(cap, 0)) * 1000, y.cfg.min_ns);
+        NXLOG_I("svc", "[sched] yield_backoff: a run of yields with no other SVC sleeps after %llu us, at most %llu us at a time",
+                static_cast<unsigned long long>(y.cfg.start_ns / 1000), static_cast<unsigned long long>(y.cfg.cap_ns / 1000));
+        return y;
+    }();
+    return b;
+}
+
+// [diag] yield_census (default off): every 10 s one line with the yield SVCs per second, all threads and the busiest six, and how many of
+// them the back-off turned into sleeps. The counters always run (one relaxed store per yield on the thread's own object).
+bool yield_census_on() {
+    static const bool on = config_get_bool("diag", "yield_census", false);
+    return on;
+}
+constexpr uint64_t kCensusPeriodNs = 10000000000ull;
+std::atomic<uint64_t> g_census_next{0};
+std::mutex g_census_lock;
+uint64_t g_census_t0 = 0;   // under g_census_lock
+void yield_census(uint64_t now) {
+    if (now < g_census_next.load(std::memory_order_relaxed)) return;
+    std::unique_lock<std::mutex> lk(g_census_lock, std::try_to_lock);
+    if (!lk.owns_lock() || now < g_census_next.load(std::memory_order_relaxed)) return;
+    g_census_next.store(now + kCensusPeriodNs, std::memory_order_relaxed);
+    struct Row { uint64_t y, b; std::string name; };
+    std::vector<Row> rows;
+    uint64_t ty = 0, tb = 0;
+    for (const auto& t : threads()) {
+        const uint64_t y = t->nyield.load(std::memory_order_relaxed), b = t->nbackoff.load(std::memory_order_relaxed);
+        const uint64_t dy = y - t->census_yield, db = b - t->census_backoff;
+        t->census_yield = y;
+        t->census_backoff = b;
+        if (!dy) continue;
+        ty += dy;
+        tb += db;
+        char h[16];
+        std::snprintf(h, sizeof h, "0x%x", t->handle);
+        rows.push_back({dy, db, t->name.empty() ? std::string(h) : t->name});
+    }
+    const uint64_t t0 = g_census_t0;
+    g_census_t0 = now;
+    if (!t0) return;   // the first call only takes the baseline
+    const double secs = static_cast<double>(now - t0) / 1e9;
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.y > b.y; });
+    std::string top;
+    for (size_t i = 0; i < rows.size() && i < 6; ++i) {
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "%s%s %.0f/s (%.0f slept)", i ? ", " : "", rows[i].name.c_str(), rows[i].y / secs, rows[i].b / secs);
+        top += buf;
+    }
+    NXLOG_I("svc", "yield census over %.1f s: %.0f yields/s (%.0f slept) in %zu threads%s%s", secs, ty / secs, tb / secs, rows.size(),
+            top.empty() ? "" : "; busiest: ", top.c_str());
+}
+
+// A yield variant of SleepThread: counted, then a host yield, or under [sched] yield_backoff the run's step.
+void guest_yield(::Ctx* c) {
+    KThread* t = current_thread();
+    if (!t) return yield_host();
+    t->nyield.store(t->nyield.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    const YieldBackoff& b = yield_backoff();
+    const bool census = yield_census_on();
+    if (!b.on && !census) return yield_host();
+    const uint64_t now = ft::now_ns();
+    if (census) yield_census(now);
+    if (!b.on) return yield_host();
+    const YieldStep st = yield_backoff_step(t->yrun, b.cfg, t->nsvc, now, yield_regs_sig(*c));
+    if (st.act == YieldAct::Sleep) {
+        t->nbackoff.store(t->nbackoff.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        detail::sleep_timer_ns(static_cast<int64_t>(st.ns));
+    } else if (st.act == YieldAct::Sleep0 && !t->aged.load(std::memory_order_relaxed)) {
+        Sleep(0);   // aged (starvation guard): yield_host keeps the processor instead
+    } else {
+        yield_host();
+    }
+}
+
 void svc_sleep_thread(::Ctx* c) {              // x0 ns (0, -1, -2 = yield variants)
     int64_t ns = static_cast<int64_t>(X(c, 0));
     if (ns >= 1000000) {   // nn::os::SleepThread is a leaf that ends in the svc, so lr is the game's call site
@@ -96,7 +189,7 @@ void svc_sleep_thread(::Ctx* c) {              // x0 ns (0, -1, -2 = yield varia
         ns = poll_sleep_ns(p.table, p.n, p.base, X(c, 30), ns);
     }
     if (ns > 0) sleep_ns(ns);
-    else yield_host();
+    else guest_yield(c);
 }
 
 void svc_get_thread_priority(::Ctx* c) {       // w1 handle -> w1 priority
@@ -299,6 +392,30 @@ int64_t poll_sleep_ns(const game::PollSleep* table, uint32_t count, uint64_t mai
     for (uint32_t i = 0; i < count; ++i)
         if (main_base + table[i].ret == lr) return table[i].ns < ns ? table[i].ns : ns;
     return ns;
+}
+
+// From pokopia-native (MIT), windows/src/nxrt/host/hle_thread.c @7c3655d (thr_yield, yield_backoff_ns), as a pure step with a Sleep(0) tier.
+YieldStep yield_backoff_step(YieldRun& r, const YieldBackoffCfg& c, uint64_t nsvc, uint64_t now, uint64_t sig) {
+    const bool consecutive = r.n && r.svc + 1 == nsvc;               // no other SVC of the thread since the run's last yield
+    const bool moved = consecutive && sig != r.sig && sig != r.sig2;  // the loop got somewhere since its last two yields
+    if (!consecutive || moved) {
+        r.t0 = now;
+        r.n = 0;
+    }
+    r.n++;
+    r.svc = nsvc;
+    r.sig2 = r.sig;
+    r.sig = sig;
+    if (r.n <= c.plain) return {YieldAct::Yield, 0};
+    const uint64_t run = now > r.t0 ? now - r.t0 : 0;
+    if (run < c.start_ns) return {YieldAct::Sleep0, 0};
+    return {YieldAct::Sleep, std::min(std::max(run / 8, c.min_ns), c.cap_ns)};
+}
+
+uint64_t yield_regs_sig(const ::Ctx& c) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (int i = 19; i <= 28; ++i) h = (h ^ c.x[i]) * 0x100000001b3ull;
+    return h;
 }
 }  // namespace kernel
 

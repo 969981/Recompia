@@ -18,5 +18,8 @@ bool block_on_wake(KThread& t, int64_t timeout_ns);
 void wake_thread(KThread& t, uint32_t result = 0);   // g_k held
 // The set_blocked_hook function when the calling thread is the one it names, else null (kernel_sync.cpp).
 void (*blocked_hook_here())();
+// The sleep of the yield back-off: always the high-resolution timer, never the yield loop sleep_ns uses for spans up to
+// 200 us (time.cpp). Windows wakes it ~0.5 ms late at the shortest; Wine/Proton sleeps about the span asked for.
+void sleep_timer_ns(int64_t ns);
 
 }  // namespace nxrt::kernel::detail

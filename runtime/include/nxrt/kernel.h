@@ -86,6 +86,33 @@ template <class T>
 std::shared_ptr<T> handle_as(uint32_t h) { return std::dynamic_pointer_cast<T>(handle_get(h)); }
 void handles_reset();                                      // tests
 
+// ---- yield back-off ([sched] yield_backoff; svc_thread.cpp) ----------------------------------------------------------------
+// A run of yields is SleepThread(0/-1/-2) calls of one thread with no other SVC of that thread between them and no progress: the caller's
+// callee-saved x19..x28 hash equals one of the run's last two yields'. Such a loop waits for another thread, and every host yield of it
+// is a busy spin (on a handheld that shares one power budget between CPU and GPU, spin watts come out of the GPU clock). The step:
+// the run's first `plain` yields hand the processor over (yield_host); then Sleep(0) until the run has lasted start_ns; then each yield
+// sleeps an eighth of the run so far, clamped to [min_ns, cap_ns]. Any other SVC, or changed registers, starts a new run.
+// Run shape from pokopia-native host/hle_thread.c yield_backoff_ns / thr_yield (MIT) @7c3655d; the Sleep(0) step is ours.
+struct YieldBackoffCfg {
+    uint32_t plain = 64;                 // the run's first yields: SwitchToThread
+    uint64_t start_ns = 2000000;         // until the run has lasted this long: Sleep(0)
+    uint64_t min_ns = 10000, cap_ns = 250000;
+};
+struct YieldRun {
+    uint64_t svc = 0;                    // the thread's SVC count at the run's last yield
+    uint64_t t0 = 0;                     // when the run started
+    uint32_t n = 0;                      // yields in the run
+    uint64_t sig = 0, sig2 = 0;          // register hashes of the last two yields
+};
+enum class YieldAct : uint8_t { Yield, Sleep0, Sleep };
+struct YieldStep {
+    YieldAct act;
+    uint64_t ns;                         // Sleep only
+};
+// nsvc: the thread's SVC count including this yield; now: host ns; sig: yield_regs_sig of the caller. Pure (tests).
+YieldStep yield_backoff_step(YieldRun& r, const YieldBackoffCfg& c, uint64_t nsvc, uint64_t now, uint64_t sig);
+uint64_t yield_regs_sig(const ::Ctx& c); // FNV-1a over x19..x28
+
 // ---- guest threads ---------------------------------------------------------------------------------------------------------
 struct KThread : KObject {
     uint64_t id = 0;                    // svcGetThreadId value
@@ -105,6 +132,10 @@ struct KThread : KObject {
     std::atomic<bool> aged{false};      // starvation guard (starvation_guard.cpp): the host leaves this thread ready, so its yields keep the processor
     std::atomic<uint64_t> host_affinity{0};   // the host affinity mask sched_apply (or a starvation boost) last gave the host thread
     std::atomic<int> last_proc{-1};     // host processor the thread was on at its last SVC (svc_dispatch), for the starvation line
+    uint64_t nsvc = 0;                  // SVCs the thread made (svc_dispatch; only the thread itself writes it)
+    YieldRun yrun;                      // [sched] yield_backoff state (svc_thread.cpp; own thread only)
+    std::atomic<uint64_t> nyield{0}, nbackoff{0};   // yield SVCs, and of them the ones that slept (written by the thread, read by the census)
+    uint64_t census_yield = 0, census_backoff = 0;  // [diag] yield_census: the counts at the previous summary (under the census lock)
     // wait state, protected by the kernel lock (kernel_sync.cpp)
     bool wake = false;
     uint32_t wait_result = 0;
