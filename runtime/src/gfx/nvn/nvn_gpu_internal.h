@@ -398,5 +398,11 @@ struct PoolReasonScope {
     PoolReasonScope& operator=(const PoolReasonScope&) = delete;
 };
 inline PoolReason pool_reason() { return t_pool_reason; }
+// [nvn] one_submit (render thread, in the present): present_take_parked takes the batch flushes whose submit-worker jobs have not started
+// yet, before the present's submit_drain; take_batch_for_present then puts them in the present's vkQueueSubmit2 ahead of the frame's own
+// batch. present_give_back hands what was taken and not used back to the worker, each flush on its own (a present that ends early, or
+// one about to wait in the frame limiter). No-ops when one_submit is off.
+void present_take_parked();
+void present_give_back();
 
 }  // namespace nxrt::nvn::be::gpu

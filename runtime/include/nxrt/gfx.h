@@ -297,7 +297,8 @@ public:
     // to draw (window minimised / zero extent, swapchain being recreated): the caller waits for events and tries again.
     bool begin_frame(FrameInfo* out);
     // Command buffers that go to the GPU in end_frame's own vkQueueSubmit2, before the frame's command buffer, and a timeline value
-    // that submission signals: one kernel submission for a frame's work and its present. They wait for the swapchain image with the rest.
+    // that submission signals: one kernel submission for a frame's work and its present. They wait for the swapchain image with the rest
+    // (unless `split`).
     struct SubmitPrefix {
         const VkCommandBuffer* cmds = nullptr;
         uint32_t count = 0;
@@ -308,6 +309,9 @@ public:
         // device is lost and nothing was submitted: false). `queued` (out): the submit went to the queue, `submitted` is not known yet.
         std::function<void(bool submitted)> after_submit;
         bool queued = false;
+        // true: the prefix goes in a VkSubmitInfo2 of its own ahead of the frame's, in the same vkQueueSubmit2, and signals the timeline
+        // there: only the frame's own command buffer waits for the swapchain image ([nvn] one_submit = split).
+        bool split = false;
     };
     // [nvn] submit_thread: end_frame hands the vkQueueSubmit2 + vkQueuePresentKHR (and what depends on their results: present stats,
     // `dirty` on OUT_OF_DATE, the low-latency present_end) to `q`, which runs its jobs in order on one thread. The caller must drain `q`

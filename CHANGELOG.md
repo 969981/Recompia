@@ -6,6 +6,9 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### What's new
+- Steam Deck / Linux: the part of a frame that the game sends to the GPU early now goes together with the rest of the frame when
+  the submit thread has not got to it yet, so it makes one costly submission for that frame instead of two (`[nvn] one_submit`).
+  Not yet measured on a Deck.
 - Fewer hitches about once a second (a texture read back from the GPU no longer stops rendering). Not yet measured on a Deck.
   `[nvn] readback_async = false` brings the old way back.
 - Steam Deck, Legion Go S and other Linux / SteamOS players: fewer hitches the first time something is drawn. A shader that is not ready
