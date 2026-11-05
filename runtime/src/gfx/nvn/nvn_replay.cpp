@@ -2036,7 +2036,7 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 if (v) {
                     ii.imageView = v;
                     ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
-                    if (r.has_sampler) ii.sampler = sampler_for(r.smp);
+                    if (r.has_sampler) ii.sampler = sampler_for(r.smp, r.tex);
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;

@@ -37,6 +37,7 @@
 #include "vk_gauges.h"
 #include "nvn_enums.h"
 #include "nvn_format.h"
+#include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
 #include "extras/hdr_nvn.h"
 #include "nvn_texdata.h"
@@ -2374,6 +2375,18 @@ VkSampler sampler_for(const SamplerInfo& game_sampler) {
     if (v == VK_NULL_HANDLE) return dummy_sampler();
     bucket.emplace_back(s, v);
     return v;
+}
+
+VkSampler sampler_for(const SamplerInfo& s, VkFormat image_format) {
+    SamplerInfo l = s;
+    float aniso = l.max_anisotropy;
+    if (format_guard().limit_sampler(image_format, &l.min_filter, &l.mag_filter, &aniso)) l.max_anisotropy = aniso;
+    return sampler_for(l);
+}
+
+VkSampler sampler_for(const SamplerInfo& s, Texture* sampled) {
+    const TexGpu* g = sampled ? tex_gpu(sampled) : nullptr;
+    return g ? sampler_for(s, g->format) : sampler_for(s);
 }
 
 void tex_destroy(TexGpu* g) {

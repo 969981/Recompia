@@ -60,6 +60,10 @@ struct PreparedTexture {
 // no Vulkan format, a codec error, ...). Never crashes on a bad texture.
 bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out);
 
+// A2B10G10R10 SNORM texels (4 bytes each) widened to R16G16B16A16 SNORM (8 bytes each): the image format used when the GPU cannot sample
+// A2B10G10R10_SNORM. Vulkan normalisation per channel (10 bits: /511, alpha 2 bits: /1), -1 clamped.
+void snorm10_to_snorm16(const uint8_t* src, uint8_t* dst, uint64_t texels);
+
 // The format the disk cache entry of an ASTC texture holds when that is not BC7: R8G8B8A8 (UNORM or SRGB as the texture) or BC5_UNORM (a
 // two-channel normal map). VK_FORMAT_UNDEFINED: no entry, or a BC7 entry. The GPU layer makes the image in this format (docs/S4f.md).
 VkFormat cache_entry_format(const Texture& t);
