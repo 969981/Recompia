@@ -12,15 +12,20 @@ The game thinks it is on local wireless. The runtime's `ldn` service turns its n
 `bsd` UDP sockets carry the game's packets through that server on a virtual 169.254.R.N/24 network. The game code above `nn::ldn`
 is untouched.
 
-    pkp.exe (host) --TCP--> relay server <--TCP-- pkp.exe (guest)
+    pkp.exe (host) --TCP+UDP--> relay server <--TCP+UDP-- pkp.exe (guest)
+
+The TCP connection carries the lobby (rooms, joins, keepalive). The game's packets go over UDP to the same port once the relay
+has checked the player's UDP address; when UDP is blocked they stay on the TCP connection, as before. On a lossy link (Wi-Fi,
+mobile, long distance) UDP avoids one lost packet holding up every packet behind it. `[net] udp = off` keeps a player on TCP.
 
 ## Trying it
 
 The launcher has a **Link Play** page that does steps 1 and 2 below for you: pick Alone, Host on this PC (starts the relay, shows the
 address and a room code) or Visit (type the host address and code). It writes `[net] server` and `room_code` in pkp.ini.
 
-1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it). Other PCs on the LAN need
-   that port reachable (Windows Firewall: allow it on private networks).
+1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it; `--no-udp`: TCP only).
+   Other PCs on the LAN need that port reachable (Windows Firewall: allow it on private networks). A relay behind a router
+   needs TCP **and** UDP 39660 forwarded (TCP alone works, without the UDP benefit).
 2. On every player's PC, `pkp.ini`:
 
        [net]

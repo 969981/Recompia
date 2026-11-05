@@ -4,9 +4,14 @@
 //
 //   Lobby          abstract: connect (HELLO), scan, create, join, leave, set_advertise, reject, plus one event sink (room state pushes and
 //                  "you are out of the room"). Each Lobby is also the Link of its node while it is in a room (link()).
-//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v2: the reference is
+//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v3: the reference is
 //                  launcher/src-tauri/src/relay/mod.rs). A reader thread turns frames into events, request answers and Link deliveries;
-//                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer.
+//                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer. A v2 relay (ERROR 1 to the
+//                  v3 HELLO) is dialled again with proto 2: everything as before, TCP only.
+//                  UDP datagram path (v3, RelayOptions::udp): in a room the relay hands out a token (UDP_OFFER); a third thread proves
+//                  it over UDP to the relay's port (HELLO every 100 ms for 3 s, then every 5 s as keepalive / NAT refresh) and on the
+//                  first ACK switches the game datagrams to UDP both ways (UDP_MODE 1). No ACK for 15 s: back to TCP (UDP_MODE 0),
+//                  still probing. Until then, and whenever UDP is blocked, datagrams go over the TCP connection as in v2.
 //   LoopbackRelay  an in-process server with the relay's semantics (unit tests): client() hands out LoopbackLobby objects.
 //
 // Room semantics (the server's): room R (1..254) is 169.254.R.0/24, the host is .1 (node 0), guests the lowest free .2...8 (node N-1),
@@ -31,7 +36,8 @@
 namespace nxrt::vnet {
 
 // ---- protocol values -------------------------------------------------------------------------------------------------------------------
-constexpr uint16_t kRelayProto = 2;   // 2: room keys in SCAN / CREATE / JOIN
+constexpr uint16_t kRelayProto = 3;      // 2: room keys in SCAN / CREATE / JOIN; 3: the UDP datagram path
+constexpr uint16_t kRelayMinProto = 2;   // the oldest relay the client still talks to (TCP only)
 constexpr uint16_t kRelayDefaultPort = 39660;
 constexpr size_t kMaxNick = 32, kMaxAdvertise = 384;
 constexpr uint8_t kMaxNodes = 8;
@@ -110,6 +116,8 @@ public:
     virtual std::shared_ptr<Link> link() = 0;
     // Replaces the event sink. Waits for an event in progress to finish, so it must not be called from inside a sink.
     virtual void set_events(LobbyEvents ev) = 0;
+    // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
+    virtual bool udp_active() const { return false; }
 };
 
 // ---- RelayClient ----------------------------------------------------------------------------------------------------------------------
@@ -122,6 +130,8 @@ struct RelayOptions {
     std::array<uint8_t, 16> room_key{};   // room_key(code); all zero: no room code (open rooms only)
     int timeout_ms = 5000;        // connect, HELLO and request answers
     int ping_ms = 5000;
+    bool udp = true;              // [net] udp: try the v3 UDP datagram path (false: TCP only)
+    uint16_t udp_test_port = 0;   // tests: send the UDP packets to this port instead of the offered one (a dead port = blocked UDP)
 };
 
 // Parses "host:port" (port optional, default 39660). False when empty or the port is bad.

@@ -264,6 +264,11 @@ std::shared_ptr<vnet::Lobby> process_lobby() {
     if (o.nickname.empty()) o.nickname = "Player";
     o.password = config_get_str("net", "password", "");
     if (!room_code_setup(&o.room_key)) return nullptr;
+    std::string udp = config_get_str("net", "udp", "auto");
+    for (char& ch : udp) ch = static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+    o.udp = !(udp == "off" || udp == "0" || udp == "false" || udp == "no" || udp == "tcp");
+    if (o.udp && udp != "auto" && udp != "on" && udp != "1" && udp != "true" && udp != "yes")
+        NXLOG_W("net", "ldn: [net] udp = \"%s\" is not auto or off: auto", udp.c_str());
     s.lobby = vnet::make_relay_client(o);
     return s.lobby;
 }

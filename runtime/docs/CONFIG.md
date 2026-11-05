@@ -208,6 +208,7 @@ Rules:
 | `net` | `offline` | `true` | `NXRT_NET_OFFLINE` | `src/services/network.cpp` | `true`: no connection, no friends and no BCAT data (the start-up log line says so). |
 | `net` | `server` | empty | `NXRT_NET_SERVER` | `src/services/ldn.cpp` | Relay server for local wireless play (the launcher's `--host`): `host:port`, port 39660 when left out. Empty: local wireless is off (ldn scans find nothing, creating a network fails), as before. The connection opens in the background when the game initializes ldn; the outcome is logged once at Info under tag `net` (`ldn: relay 1.2.3.4:39660 connected as Player` or the error). The player name sent to the server is `[account] nickname`. |
 | `net` | `password` | empty | `NXRT_NET_PASSWORD` | `src/services/ldn.cpp` | Password of the relay server (sent in its HELLO). Empty: none. |
+| `net` | `udp` | `auto` | `NXRT_NET_UDP` | `src/services/ldn.cpp`, `src/net/lobby.cpp` | `auto`: in a relay room the game's datagrams go over UDP to the relay's port (relay protocol 3) once the relay answers there; until then, when UDP is blocked, and with an older relay they go over the TCP connection as before. Avoids TCP's head-of-line stalls on lossy links. Logged once at Info, tag `net` (`ldn: relay UDP path up` / `lost`). `off`: always TCP. |
 | `net` | `room_code` | empty | `NXRT_NET_ROOM_CODE` | `src/services/ldn.cpp` | Room code for play over a shared or internet relay. Empty: rooms you host are open (every player on the relay sees and can join them) and you see open rooms only, as before. A code (`XXXX-XXXX-XXXX-XXXX`, 16 of `0-9 A-Z` without I L O U; case, dashes and spaces do not matter, O reads as 0, I/L as 1): a room you host is listed only to players with the same code, and your scans show open rooms plus rooms with that code. `new`: this run makes a fresh code (OS random source, 80 bits). The code in use is logged (`ldn: room code ...`) and written to `room-code.txt` beside `pkp.log` for the launcher to show; the file is removed on a run without one. The code itself never leaves the PC: the relay gets a key derived from it (relay protocol 2, needs a launcher with room codes). Not a code: logged, local wireless off. |
 | `pl` | `font_dir` | empty | `NXRT_PL_FONT_DIR` | `src/services/pl.cpp` | Folder searched first for `DejaVuSans.ttf` and the shared font dumps. Empty: the search goes on to `fonts\` next to the exe, then `assets\fonts\` under the working directory, then the exe's folder. |
 | `play` | `controls` | `controls.ini` | `NXRT_PLAY_CONTROLS` | `src/gfx/play/play.cpp` | Settings file of play mode (controls, sensitivity, display); written with the factory settings when missing. |
@@ -512,6 +513,7 @@ offline = true
 ; server =  (host:port of the relay server for local wireless play; empty: off)
 ; password =
 ; room_code =  (XXXX-XXXX-XXXX-XXXX: host/see only rooms with this code; new: make one; empty: open rooms)
+; udp = auto  (game datagrams over UDP to the relay when it answers there; off: TCP only)
 
 [pl]
 ; font_dir =  (empty: the default search folders)
