@@ -319,6 +319,9 @@ VkImageView dummy_storage_view(VkImageViewType type, VkFormat format);
 VkImageView tex_present_view(Texture* t);
 // Dummy 1x1 views used when a binding cannot be resolved: black texture of the requested type.
 VkImageView dummy_view(VkImageViewType type, bool depth_compare);
+// Stand-in for a depth-comparison sampler that meets the colour texture t: a 1x1 depth image holding the red value of t's first texel (what the console
+// compares against), viewed as `type`. Cached by value and per texture.
+VkImageView dcmp_view(Texture* t, VkImageViewType type);
 // A black 2D (or 2D array) texture of the given size, for a binding whose only use is a size query over an image that cannot be
 // viewed with the shader's type (a 2D view of a 3D image is no sampled view without VK_EXT_image_2d_view_of_3d). Cached per size;
 // null for other types or sizes past the device limits.
