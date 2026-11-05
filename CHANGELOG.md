@@ -7,6 +7,9 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Fixes
+- The in-game clock now follows your real local time (#120). The game read the time hours ahead: by as long as the PC or
+  handheld had been running when the game started (29 hours on one handheld). Time zones were already right; the clock
+  underneath was not.
 - The dashed outline of the cross-shaped placement indicator on the ground shows again (#120). The game draws the indicator
   with a depth range of 0 to 0, which pins it to one depth, and the runtime widened that to 0 to 1. Now it keeps the game's
   range.
@@ -33,6 +36,11 @@ of the game (version 2.0.1a): the download contains no game files.
   afterwards switches to Custom, as before. The render scale part applies after a restart.
 
 ### Release notes for developers
+- **#120 (clock)** The game reads the steady clock through the time shared memory as `internal_offset` + the raw tick in ns
+  (CNTPCT, which counts from host boot), then asks `ToCalendarTimeWithMyRule` / `ToPosixTimeWithMyRule` (time trace on a
+  handheld: 82 + 56 calls to the world). `write_shm()` wrote `internal_offset` = epoch + offsets without subtracting the start
+  tick, so every posix time the game built was ahead by the host uptime at start-up. Now `internal_offset` = steady time - raw tick
+  time (as Ryubing's `TimeSharedMemory`). The host zone is logged once (`time: host time zone ...`) and both conversions at Trace.
 - **#120** The indicator's outline (fs `8010f4846df5fa37`) and fill (fs `86aa3b2142238a33`) are the only draws with viewport
   depth range 0..0 (found by drakolordx7/switch2-recomp#42). `set_viewports_and_scissors()` turned every 0..0 into 0..1 because
   `GState::dr` started zeroed, so an unset range and a real 0..0 looked the same. `dr` now starts at NVN's default 0..1 and
