@@ -116,6 +116,21 @@ NXTEST(vrr_cap_values) {
     CHECK_MSG(nxrt::suggest_vrr_cap(1.0) == 1.0, "suggest_vrr_cap must never go below 1");
 }
 
+NXTEST(snap_frame_cap_table) {
+    struct Row { double cap, hz, want_cap; int want_k; };
+    const Row rows[] = {
+        {40, 90, 30, 3}, {45, 90, 45, 2}, {30, 90, 30, 3}, {40, 80, 40, 2}, {40, 60, 30, 2}, {45, 60, 30, 2},
+        {40, 40, 40, 0}, {40, 79.98, 79.98 / 2, 2}, {60, 90, 45, 2}, {89.9, 90, 89.9, 0}, {40, 0, 40, 0}, {0, 90, 0, 0},
+        {120, 90, 120, 0}, {30, 144, 28.8, 5}, {40, 144, 36, 4},
+    };
+    for (const Row& r : rows) {
+        const nxrt::FrameSnap s = nxrt::snap_frame_cap(r.cap, r.hz);
+        std::printf("    snap(%.2f @ %.2f Hz) = %.4f k=%d\n", r.cap, r.hz, s.cap, s.k);
+        CHECK_MSG(s.k == r.want_k, "snap_frame_cap divisor differs from the table");
+        CHECK_MSG(std::fabs(s.cap - r.want_cap) < 1e-9, "snap_frame_cap cap differs from the table");
+    }
+}
+
 NXTEST(unlimited_no_wait) {
     FrameLimiter l;
     l.set_target_fps(0);

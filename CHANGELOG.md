@@ -12,6 +12,9 @@ of the game (version 2.0.1a): the download contains no game files.
   yet is compiled in the background and the object appears a frame or two later, instead of the whole game pausing for it
   (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
 
+- Frame limits now divide the screen's refresh rate for even pacing: on the 90 Hz Steam Deck OLED, 40 fps runs at 30; pick 80 Hz in
+  Steam's Performance menu for 40. 45 fps can be chosen in F1. (`[display] fps_snap = auto|true|false`; auto snaps under Proton only.)
+
 ### Fixes
 - Steam Deck / Linux: pipelines are no longer rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`).
 - Lamp light and other deferred lighting no longer appear as a displaced glow or a second copy at 16:10, 1440p and other render sizes
