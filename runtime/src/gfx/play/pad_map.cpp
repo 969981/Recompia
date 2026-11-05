@@ -96,7 +96,7 @@ void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadI
     out->buttons = bits;
     const double lmax = std::clamp(cfg.stick_max, 0.5, 1.0);
     out->left = stick(norm_axis(raw.axes[kAxisLeftX]), -norm_axis(raw.axes[kAxisLeftY]), dz, lmax);
-    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz, 1.0);
+    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz, std::clamp(cfg.right_stick_max, 0.5, 1.0));
 }
 
 hid::StickValue adjust_look_stick(hid::StickValue right, const PadSettings& cfg) {
