@@ -226,6 +226,12 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every
     // module goes through here, the ones spirv_add_outputs / spirv_gs_passthrough rewrote included. [nvn] init_outputs = false: off (A/B).
+    // [nvn] reduced_precision (default off): the module as the translator's reduced-precision mode writes it (spirv_reduced_precision:
+    // no NoContraction, Invariant Position). Done here, so a toggle costs new pipelines, not a new translation; the module words differ,
+    // so module_content_id, the driver's caches and the VkPipelineCache never hand a pipeline of the other mode.
+    static const bool reduced = config_get_bool("nvn", "reduced_precision", false);
+    std::vector<uint32_t> reduced_words;
+    if (reduced && spirv_reduced_precision(*code, reduced_words)) code = &reduced_words;
     static const bool init_outputs = config_get_bool("nvn", "init_outputs", true);
     std::vector<uint32_t> initialised;
     if (init_outputs && spirv_init_outputs(*code, initialised)) code = &initialised;

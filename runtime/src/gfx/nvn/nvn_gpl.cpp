@@ -1028,7 +1028,11 @@ std::string prepare_key(uint64_t programs) {
     char b[512];
     std::snprintf(b, sizeof b, "scheme=%d programs=%llu gpu=%s driver=%u api=%u cache=%s salt=%s", kPrepareScheme, static_cast<unsigned long long>(programs),
                   p.deviceName, p.driverVersion, p.apiVersion, uuid, config_get_str("nvn", "spirv_salt", "").c_str());
-    return b;
+    // [nvn] reduced_precision changes every module: a preparation made in the other mode did not compile these pipelines. Appended only
+    // when on, so the key of an existing preparation (made at full precision) stays the same.
+    std::string key = b;
+    if (config_get_bool("nvn", "reduced_precision", false)) key += " reduced=1";
+    return key;
 }
 
 bool prepare_state_ready(const std::string& path, const std::string& key) {
