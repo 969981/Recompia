@@ -4090,13 +4090,18 @@ void run_list(const CmdList& list, int depth) {
 // presented frame. Loading = presented frames with fewer than 16 draws (boot's black screen draws 3: exposure, bloom, tone map; the
 // loading screen a few more) AND the game still stalling: a present gap over 100 ms in the last 1.5 s. A light screen that presents
 // steadily (the title screen, a menu) is paced again within 1.5 s, so it does not run at 1000 fps; so is any frame with 16+ draws.
+// Boot only: until the first frame with 16+ draws, a boot loading screen presents steadily but its loading still advances once per frame
+// (Pokopia: 14 s at 60 fps before the title), so a run of light frames stays unpaced for up to [display] unpaced_loading_s (20, 0 = off)
+// seconds even without stalls. Once the game has drawn a real scene the stall rule alone applies, so a light screen in the world (a
+// menu, a fade) is never unpaced just for being light, and a frame with 16+ draws is always paced.
 void note_frame_for_pacing() {
     static const bool on = nxrt::config_get_bool("display", "unpaced_loading", true);
     if (!on) return;
     using clk = std::chrono::steady_clock;
     static uint64_t last_p = 0, last_d = 0;
     static int low = 0;
-    static clk::time_point last_present{}, last_stall{};
+    static bool full = false;
+    static clk::time_point last_present{}, last_stall{}, low_since{};
     const uint64_t p = counters().presents.load(std::memory_order_relaxed);
     if (p == last_p) return;
     const auto now = clk::now();
@@ -4107,14 +4112,16 @@ void note_frame_for_pacing() {
     if (last_present == clk::time_point{} || now - last_present > std::chrono::milliseconds(100)) last_stall = now;
     last_present = now;
     low = per < 16 ? low + 1 : 0;
-    const bool want = low >= 3 && now - last_stall < std::chrono::milliseconds(1500);
+    if (low == 1) low_since = now;
+    static const double boot_s = std::max(0.0, nxrt::config_get_double("display", "unpaced_loading_s", 20.0));
+    const bool boot_run = !full && now - low_since < std::chrono::duration<double>(boot_s);
+    const bool want = low >= 3 && (now - last_stall < std::chrono::milliseconds(1500) || boot_run);
     if (want != nxrt::frame_limiter_unpaced()) {
         nxrt::frame_limiter_set_unpaced(want);
         ft::mark(want ? "pace.loading" : "pace.playing", static_cast<uint32_t>(per));
         NXLOG_I(kTag, "pacing %s (present %llu, %llu draws)", want ? "off: loading" : "on", static_cast<unsigned long long>(p),
                 static_cast<unsigned long long>(per));
     }
-    static bool full = false;
     if (!full && per >= 16) {
         full = true;
         NXLOG_I(kTag, "first frame with 16+ draws (present %llu, %llu draws)", static_cast<unsigned long long>(p), static_cast<unsigned long long>(per));
