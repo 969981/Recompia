@@ -377,3 +377,39 @@ NXTEST(vertex_format_cases) {
     CHECK_EQ(vertex_format(NVN_FORMAT_NONE), VK_FORMAT_UNDEFINED);
     CHECK_EQ(vertex_format(9999), VK_FORMAT_UNDEFINED);
 }
+
+NXTEST(copy_block_sizes) {
+    constexpr VkImageAspectFlags kColor = VK_IMAGE_ASPECT_COLOR_BIT;
+    CHECK_EQ(vk_copy_block(VK_FORMAT_R8G8B8A8_SRGB, kColor).bytes, 4u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_R16G16B16A16_SFLOAT, kColor).bytes, 8u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_B10G11R11_UFLOAT_PACK32, kColor).bytes, 4u);
+    const CopyBlock bc7 = vk_copy_block(VK_FORMAT_BC7_UNORM_BLOCK, kColor);
+    CHECK_EQ(bc7.bytes, 16u);
+    CHECK_EQ(bc7.w, 4u);
+    CHECK_EQ(bc7.h, 4u);
+    const CopyBlock astc = vk_copy_block(VK_FORMAT_ASTC_8x8_UNORM_BLOCK, kColor);
+    CHECK_EQ(astc.bytes, 16u);
+    CHECK_EQ(astc.w, 8u);
+    CHECK_EQ(astc.h, 8u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_D16_UNORM, VK_IMAGE_ASPECT_DEPTH_BIT).bytes, 2u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT).bytes, 4u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT).bytes, 4u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT).bytes, 1u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_UNDEFINED, kColor).bytes, 0u);
+    CHECK_EQ(vk_copy_block(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_DEPTH_BIT).bytes, 0u);
+}
+
+// Issue #76: a buffer copy of an HDR-promoted RGBA8 target (RGBA16F image) must not be issued as it is (twice the bytes)
+NXTEST(copy_layout_matches) {
+    constexpr VkImageAspectFlags kColor = VK_IMAGE_ASPECT_COLOR_BIT;
+    CHECK(vk_copy_layout_matches(VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB, kColor));
+    CHECK(vk_copy_layout_matches(VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB, kColor));
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R8G8B8A8_SRGB, kColor));
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_B10G11R11_UFLOAT_PACK32, kColor));   // R11G11B10F fallback
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM, VK_IMAGE_ASPECT_DEPTH_BIT));         // DEPTH16 fallback
+    CHECK(vk_copy_layout_matches(VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT));
+    CHECK(vk_copy_layout_matches(VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_ASTC_4x4_UNORM_BLOCK, kColor));
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_ASTC_8x8_UNORM_BLOCK, kColor));
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_ASTC_4x4_UNORM_BLOCK, kColor));
+    CHECK(!vk_copy_layout_matches(VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED, kColor));
+}

@@ -272,6 +272,16 @@ void tex_sparse_before_copy(Texture* t, uint32_t layer, uint32_t level);   // a 
 VkImage tex_image(Texture* t);
 VkFormat tex_vk_format(Texture* t);
 VkImageAspectFlags tex_aspect(Texture* t);
+// HDR scene pipeline: the 8-bit sRGB render target is kept as RGBA16F (its image format is not the NVN one).
+bool tex_promoted(Texture* t);
+// A buffer <-> image copy of a texture whose image lays texels out unlike its NVN format (vk_copy_layout_matches false: an HDR-promoted
+// target, a wider fallback). `c` is in NVN terms (texels, the buffer in the NVN format's layout); it goes through a transient image in
+// the NVN format that is blitted from or to the texture (the GPU converts; a scaled image's region is scaled). The texture must be in
+// TRANSFER_DST_OPTIMAL (to_texture) or TRANSFER_SRC_OPTIMAL. False with *why set when no conversion is possible: nothing recorded.
+bool tex_copy_buffer_converted(Texture* t, Frame& f, VkBuffer buffer, const VkBufferImageCopy& c, bool to_texture, const char** why);
+// vkCmdResolveImage of s into d when their formats differ (d HDR-promoted): resolved into a transient image of s's format, blitted into
+// d. s in TRANSFER_SRC_OPTIMAL, d in TRANSFER_DST_OPTIMAL. False with *why set: nothing recorded.
+bool tex_resolve_converted(Texture* s, Texture* d, Frame& f, const VkImageResolve& r, const char** why);
 VkExtent3D tex_extent(Texture* t, uint32_t level = 0);
 uint32_t tex_levels(Texture* t);
 uint32_t tex_layers(Texture* t);
