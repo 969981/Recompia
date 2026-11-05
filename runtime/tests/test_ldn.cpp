@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -425,6 +426,105 @@ NXTEST(ldn_host_over_loopback) {
     CHECK_EQ(l.call(401).result, 0u);                                      // Finalize
     CHECK_EQ(state(l), 0u);
     kernel::handle_close(ev);
+}
+
+// Host: a new station's datagrams wait until the game has read a NetworkInfo that lists the station (KTGL drops a sender outside its member
+// table), then come in their order; without a read they come after the hold time (300 ms). A node that rejoins on the same address waits
+// again.
+NXTEST(ldn_host_holds_new_node_until_read) {
+    nxsvc::Env env;
+    vnet::LoopbackRelay relay;
+    services::ldn_set_lobby(relay.client("Host"));
+    nxsvc::Session l = open_ldn();
+    REQUIRE(l.valid());
+    CHECK_EQ(l.call(400, nxsvc::Args().with_pid().u64(0)).result, 0u);
+    CHECK_EQ(l.call(200).result, 0u);
+    CHECK_EQ(l.call(202, nxsvc::Args().bytes(create_args(4).data(), 0x98)).result, 0u);
+    nxsvc::Session bsd = nxsvc::connect("bsd:u");
+    REQUIRE(bsd.valid());
+    const int32_t fd = game_socket(bsd);
+    std::vector<uint8_t> rbuf(0x1000);
+    auto recv = [&](std::string* got) {   // RecvFrom(MSG_DONTWAIT): the byte count, -1 when nothing is queued
+        uint8_t sa[16] = {};
+        nxsvc::Reply rf = bsd.call(9, nxsvc::Args().i32(fd).i32(0x80).buf_b(rbuf.data(), 0x1000).buf_b(sa, 16));
+        const int32_t n = rf.get<int32_t>(0);
+        if (got) got->assign(reinterpret_cast<const char*>(rbuf.data()), n > 0 ? static_cast<size_t>(n) : 0);
+        return n;
+    };
+    std::vector<uint8_t> ni(kNi), up(64);
+    const vsock::Addr host_addr{vnet::ip(169, 254, 1, 1), kPort};
+    std::vector<vnet::Room> rooms;
+    auto guest = relay.client("Guest");
+    REQUIRE(guest->scan(kLcid, 0xFFFF, &rooms) == 0 && rooms.size() == 1);
+    vnet::Joined j;
+    REQUIRE(guest->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+
+    {
+        vsock::Stack gs(guest->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        // Sent before the host game read the new node table: held.
+        CHECK_EQ(gs.sendto(gfd, "join", 4, 0, &host_addr).ret, 4);
+        CHECK_EQ(gs.sendto(gfd, "two", 3, 0, &host_addr).ret, 3);
+        CHECK_EQ(recv(nullptr), -1);
+        // The host's own sends are not held: the guest gets its broadcast at once.
+        const uint8_t bc[16] = {16, 2, 0xC1, 0x7A, 169, 254, 1, 255};
+        const char all[] = "all";
+        CHECK_EQ(bsd.call(11, nxsvc::Args().i32(fd).i32(0).buf_a(all, 3).buf_a(bc, 16)).get<int32_t>(0), 3);
+        char gb[8] = {};
+        CHECK_EQ(gs.recvfrom(gfd, gb, sizeof gb, vsock::kMsgDontwait, nullptr).ret, 3);
+        // GetNetworkInfo lists the guest: both datagrams come, in order; later ones pass straight through.
+        CHECK_EQ(l.call(1, nxsvc::Args().buf_c(ni.data(), kNi)).result, 0u);
+        CHECK_EQ(ni[kLdn + 0x17], 2);
+        std::string got;
+        CHECK_EQ(recv(&got), 4);
+        CHECK(got == "join");
+        CHECK_EQ(recv(&got), 3);
+        CHECK(got == "two");
+        CHECK_EQ(gs.sendto(gfd, "3", 1, 0, &host_addr).ret, 1);
+        CHECK_EQ(recv(&got), 1);
+        CHECK(got == "3");
+    }
+
+    // The guest leaves and rejoins on the same address: held again until a read (GetNetworkInfoLatestUpdate counts as one).
+    guest->leave();
+    CHECK(wait_until([&] {
+        l.call(1, nxsvc::Args().buf_c(ni.data(), kNi));
+        return ni[kLdn + 0x17] == 1;
+    }));
+    REQUIRE(guest->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+    CHECK_EQ(j.vip, vnet::ip(169, 254, 1, 2));
+    {
+        vsock::Stack gs(guest->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        CHECK_EQ(gs.sendto(gfd, "again", 5, 0, &host_addr).ret, 5);
+        CHECK_EQ(recv(nullptr), -1);
+        CHECK_EQ(l.call(101, nxsvc::Args().buf_c(ni.data(), kNi).buf_c(up.data(), 64)).result, 0u);
+        std::string got;
+        CHECK_EQ(recv(&got), 5);
+        CHECK(got == "again");
+    }
+
+    // A third player, and the game reads nothing: its datagram comes anyway after the hold time, not before.
+    auto g3 = relay.client("Third");
+    REQUIRE(g3->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+    {
+        vsock::Stack gs(g3->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        const auto t0 = std::chrono::steady_clock::now();
+        CHECK_EQ(gs.sendto(gfd, "late", 4, 0, &host_addr).ret, 4);
+        CHECK_EQ(recv(nullptr), -1);
+        std::string got;
+        CHECK(wait_until([&] { return recv(&got) == 4; }, 2000));
+        CHECK(got == "late");
+        CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(250));
+    }
+
+    CHECK_EQ(l.call(204).result, 0u);   // DestroyNetwork
+    CHECK(vnet::current_link() == nullptr);
+    CHECK_EQ(l.call(401).result, 0u);
 }
 
 // The process is the station: Scan finds a lobby host's room (NetworkInfo fields), Connect joins it; wrong version / passphrase fail;
