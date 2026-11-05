@@ -9,6 +9,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Steam Deck, Legion Go S and other Linux / SteamOS players: the game now hands its drawing work to the graphics card from a separate
   thread by default (`[nvn] submit_thread = auto`). On a Steam Deck this about doubles the frame rate (26 -> 53 fps, measured by a
   player). Windows is unchanged. Set `submit_thread = false` in `pkp.ini` to go back.
+- Steam Deck, Legion Go S and other 16:10 screens: with `aspect = auto` the picture now fills the whole screen again, with the taller
+  view and objects and players at the right height (#73), instead of 16:9 with bars. Not yet verified in the world. Set
+  `taller_fov = false` under `[pkp]` in `pkp.ini` to go back to the bars.
 
 ## 0.4.1
 
