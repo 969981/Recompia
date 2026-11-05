@@ -17,6 +17,7 @@
 #include "nxrt/extras.h"
 #include "extras/temporal.h"
 #include "nxrt/frame_limiter.h"
+#include "nxrt/gfx_tuning.h"
 #include "nxrt/input_source.h"
 #include "nxrt/lowlat.h"
 #include "nxrt/overlay.h"
@@ -871,7 +872,10 @@ void window_group(const LiveStatus& live, Page& p) {
         if (kSizePresets[i][0] == d.width && kSizePresets[i][1] == d.height) preset = i;
     char size_label[48];
     std::snprintf(size_label, sizeof size_label, "%d x %d%s", d.width, d.height, preset < 0 ? " (custom)" : "");
-    if (ImGui::BeginCombo("Window size", size_label)) {
+    // Only the windowed mode's size; the picture's own size is under Resolution. Greyed out in the fullscreen modes (#117).
+    const bool windowed = window_mode_index(d.window_mode) == window_mode_index("windowed");
+    ImGui::BeginDisabled(!windowed);
+    if (ImGui::BeginCombo("Windowed size", size_label)) {
         for (int i = 0; i < kSizePresetCount; ++i) {
             char name[32];
             std::snprintf(name, sizeof name, "%d x %d", kSizePresets[i][0], kSizePresets[i][1]);
@@ -883,10 +887,13 @@ void window_group(const LiveStatus& live, Page& p) {
         }
         ImGui::EndCombo();
     }
-    tip("The size of the game window in windowed mode. It changes at once when the window is windowed; in fullscreen it is the size the window returns to.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", windowed ? "The size of the game window in windowed mode. It is not the size the game renders at: see Resolution below."
+                                         : "Only used in windowed mode: the size the window returns to. Fullscreen shows the display's size; the size "
+                                           "the game renders at is under Resolution below.");
     if (int_field("Width##win_w", &d.width, 320, 16384, 1, 100)) mark(p);
     if (int_field("Height##win_h", &d.height, 320, 16384, 1, 100)) mark(p);
-    if (live.width > 0 && (live.width != d.width || live.height != d.height)) {
+    if (windowed && live.width > 0 && (live.width != d.width || live.height != d.height)) {
         if (ImGui::Button("Use the current window size")) {
             d.width = live.width;
             d.height = live.height;
@@ -895,6 +902,7 @@ void window_group(const LiveStatus& live, Page& p) {
         ImGui::SameLine();
         ImGui::TextDisabled("now %d x %d", live.width, live.height);
     }
+    ImGui::EndDisabled();
     if (ImGui::Checkbox("Keep the 16:9 picture, letterbox the rest", &d.keep_aspect)) mark(p);
 }
 
@@ -933,9 +941,35 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
     fps_group(host, p);
 }
 
+// The size the game renders at and what happens to it on the way to the screen, live (#117): the picture the NVN back end presented last
+// (the window texture's crop at the render scale) against the swapchain size, and the upscaler that fills the difference.
+void render_size_line() {
+    const gfx::Tuning& tu = gfx::tuning();
+    const int sw = tu.present_src_w.load(std::memory_order_relaxed), sh = tu.present_src_h.load(std::memory_order_relaxed);
+    const int ow = tu.present_out_w.load(std::memory_order_relaxed), oh = tu.present_out_h.load(std::memory_order_relaxed);
+    if (sw <= 0 || sh <= 0 || ow <= 0 || oh <= 0) {
+        ImGui::TextDisabled("Rendering: not known yet (no frame presented)");
+        return;
+    }
+    const extras::UpscaleMode m = extras::upscale_mode();
+    const char* how = "stretched";
+    if (sw > ow || sh > oh) how = "scaled down";
+    else if (m == extras::UpscaleMode::Fsr1) how = "upscaled with FSR 1";
+    else if (m == extras::UpscaleMode::Nis) how = "upscaled with NIS";
+    if (sw == ow && sh == oh) {
+        ImGui::Text("Rendering %d x %d, shown at that size (no upscaling)", sw, sh);
+    } else {
+        ImGui::Text("Rendering %d x %d -> %s to %d x %d", sw, sh, how, ow, oh);
+        if (sw < ow && sh <= oh && m != extras::UpscaleMode::Fsr1 && m != extras::UpscaleMode::Nis)
+            ImGui::TextDisabled("Below the output size: FSR 1 or NIS (Graphics page) upscale it sharper than the plain stretch.");
+    }
+    tip("The game's picture size right now (its targets times the render scale) and the size it is shown at (the window or the display).");
+}
+
 void resolution_group(Page& p) {
     DisplaySettings& d = p.edit.display;
     ImGui::SeparatorText("Resolution");
+    render_size_line();
     bool autos = d.render_scale <= 0;
     if (ImGui::Checkbox("Automatic render scale", &autos)) {
         d.render_scale = autos ? 0 : 100;

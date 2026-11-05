@@ -1,7 +1,17 @@
 # Contributing
 
-- Open pull requests against `main` and say what you tested on which GPU (the PR template asks for exactly that).
+- Open pull requests against `main` and say what they change.
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.
+
+## Keeping up with pokopia-native
+
+[pokopia-native](https://github.com/xFractals/pokopia-native) is this project's parent. Every update it publishes gets mirrored here:
+
+1. Read its commits since the last reviewed one (named at the top of [CHANGELOG.md](CHANGELOG.md)): `git remote add native https://github.com/xFractals/pokopia-native.git`, `git fetch native`, `git log <last reviewed>..native/main`.
+2. For each change that touches the game, the runtime, the builder or the launcher, decide: we already have it, take it, or skip it (Mac/iPhone-only, or not how this project works). Its runtime is different code, so taking a change usually means writing the same fix in ours.
+3. One pull request per change taken, saying "Based on pokopia-native (MIT) `<path>` @`<commit>`"; copied code gets a header comment naming the file and commit.
+4. Only a version that works is merged; behaviour changes for all players go behind their own ini key unless they are plain bug fixes.
+5. Move the "last reviewed" commit at the top of the changelog, and the commit named in `runtime/THIRD_PARTY_NOTICES.md` if code was copied.
 
 ## Building from source
 

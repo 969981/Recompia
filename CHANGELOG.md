@@ -1,6 +1,7 @@
 # Changelog
 
-This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
+Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
+(last reviewed: pokopia-native 1.2.4, `555813a`). This fork started from [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
@@ -11,6 +12,9 @@ of the game (version 2.0.1a): the download contains no game files.
   scene renders at that percent per side while the HUD stays sharp, and FSR 1, NIS, FSR 3 or DLSS upscale it (without one, the
   game stretches it itself). FSR 3 and DLSS take the size from their Quality setting (Quality = 67%), so on a handheld FSR 3
   can now actually save GPU time. Applies live; the line under the slider shows what is in force.
+- The dashed outline of the cross-shaped placement indicator on the ground shows again (#120). The game draws the indicator
+  with a depth range of 0 to 0, which pins it to one depth, and the runtime widened that to 0 to 1. Now it keeps the game's
+  range.
 - The game no longer crashes at start with "pkp.exe exited with code 4" when the game data is incomplete (#128). Some dumping
   tools write the update's `romfs` without the base game's files under it (an update only holds the files it changes): the
   launcher used to accept that, and the game then crashed while starting. Now the launcher checks that `romfs` holds the whole
@@ -20,6 +24,12 @@ of the game (version 2.0.1a): the download contains no game files.
 - Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
   into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
   higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
+- With Xbox or PlayStation button icons, d-pad prompts now show which direction to press (#95): the d-pad icon lights up the
+  arm to press (up, down, left or right) instead of showing the whole d-pad.
+- The F1 Display page now shows the size the game really renders at, live, and what happens to it on the way to the screen, for
+  example "Rendering 960 x 600 -> upscaled with FSR 1 to 1280 x 800" (#117). Before, it only showed the window size, so a lower
+  render scale looked like it did nothing. "Window size" is now called "Windowed size" and is greyed out in borderless and
+  fullscreen, where it is not used.
 
 ### What's new
 - New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
@@ -28,6 +38,10 @@ of the game (version 2.0.1a): the download contains no game files.
   afterwards switches to Custom, as before. The render scale part applies after a restart.
 
 ### Release notes for developers
+- **#120** The indicator's outline (fs `8010f4846df5fa37`) and fill (fs `86aa3b2142238a33`) are the only draws with viewport
+  depth range 0..0 (found by drakolordx7/switch2-recomp#42). `set_viewports_and_scissors()` turned every 0..0 into 0..1 because
+  `GState::dr` started zeroed, so an unset range and a real 0..0 looked the same. `dr` now starts at NVN's default 0..1 and
+  the replay passes the game's range through unchanged.
 - **#128** Every complete 2.0.1 RomFS in the issue logs is 36 files, 8 folders, 7,246,052,773 bytes (#44, #47, #49, #69, #76, #95,
   #119; #69 and #95 have 8 small extra files). #128's `updates/327680/romfs` had the right exefs (main build `76a489f3...`) and 22
   files, 6 folders, 6,582,857,631 bytes; the game's start-up then read a null pointer in `f_710022f520` (from `f_7100ba3b80`, right
