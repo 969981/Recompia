@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "nxrt/abi.h"
+#include "nxrt/game.h"
 
 namespace nxrt::kernel {
 
@@ -180,6 +181,9 @@ constexpr uint64_t kTickHzSwitch1 = 19200000;   // Switch 1 system tick (CNTFRQ_
 constexpr uint64_t kTickHzSwitch2 = 31250000;   // Switch 2 system tick (SDK 20.5 for Switch 2 uses 31.25 MHz)
 uint64_t tick_hz();                      // the registered game's platform tick frequency
 void sleep_ns(int64_t ns);               // high-resolution sleep; <= 0 yields
+// SleepThread with the game's polling sleeps shortened: the sleep a call from `lr` gets (`ns` unchanged when lr is not in the table, the
+// request is under 1 ms, or the listed sleep is not shorter). Table entries are offsets from main_base (game.h PollSleep).
+int64_t poll_sleep_ns(const game::PollSleep* table, uint32_t count, uint64_t main_base, uint64_t lr, int64_t ns);
 
 // ---- kernel-level synchronisation (the SVC semantics; kernel_sync.cpp) -------------------------------------------------------
 // ArbitrateLock / WaitProcessWideKeyAtomic / WaitForAddress ... operate on guest memory words. Exposed for tests and for HLE code.
