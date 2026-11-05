@@ -46,6 +46,51 @@
   </tr>
 </table>
 
+## Features
+
+### Your game, your way in
+- **Folder dumps or a `.nup` package.** Pick the folder that holds `base` and `updates`, or a single `.nup` file. The launcher checks a `.nup` against its checksums and its version before the big unpack, checks free space, and lets you cancel.
+- **Clear dump checks.** An older game version, a dump without the update, or files damaged by a text-mode FTP copy each get their own message saying what to do.
+- **Set up with checks first.** Before it starts, Set up checks free disk space, Vulkan, memory and the processor (with a warning for Intel 13th/14th gen desktop CPUs). **Use fewer cores** keeps the PC usable while it builds, and **Open setup log** shows every step. Setup can be paused and continued.
+- **Fast updates.** Set up again after an update reuses the compiled game code that did not change.
+- **Update banner.** The launcher tells you when a new release is out, with a "What's new" link. Nothing is downloaded for you.
+
+### Bring your island
+- **Import a save from Eden or Ryujinx.** **Settings**, **Save data**: **Find Eden / Ryujinx save and import** finds the newest Pokopia save on this PC and imports it. The emulator's save is only read.
+- **Or from anywhere else.** **Pick a folder to import** takes any folder that holds the game's save folders, `B00`, `G00` and `S00`: another emulator's, a backup, a save from a friend's PC. In Eden, right-click the game, **Open Save Data Location** shows it.
+- **Nothing is lost.** Your current save is moved to a dated `save.before-<date>` folder first and never deleted. Close the game before you import.
+- **Safe saves.** If a save cannot be written (full disk, a file locked by OneDrive or antivirus), the last good save is kept and the game tells you.
+
+### Multiplayer (Link Play)
+Play on one island with friends, on the same network or over the internet. The game thinks it is using local wireless, and the launcher runs a small relay that carries it between PCs. See [Playing together](#playing-together) for the steps.
+- Host or visit from the launcher's **Link Play** page, no files to edit.
+- Room codes keep strangers out of a shared relay.
+- The host page lists the addresses to give out (your network, Tailscale or ZeroTier) with Copy buttons, and warns when Windows treats your network as Public.
+- Game traffic goes over UDP when it can, so a lossy link does not stall, and falls back to TCP.
+
+### Picture
+- **Any resolution**, including 4K and above, with **Render scale** to trade sharpness for speed.
+- **Upscalers:** AMD FSR 1, NVIDIA Image Scaling, AMD FSR 3 (included), and NVIDIA DLSS / DLAA on RTX cards (the launcher downloads `nvngx_dlss.dll` from NVIDIA for you, under **Game files**).
+- **Quality presets** (Switch 2, High, Ultra), longer view distance, texture anisotropy.
+- **HDR output** on HDR displays.
+- **Windowed, borderless or exclusive full screen**, a monitor picker, a frame rate limit and a frame rate counter. Alt+Enter switches modes while playing.
+- **16:10 screens** (Steam Deck, Legion Go S) fill the whole screen with a taller view instead of bars.
+
+### Controls
+- **Controllers:** Xbox, PlayStation, Switch Pro and others, with rumble and motion, and the Switch face-button layout by default. Rebind every button and set dead zones and stick range on the F1 **Controls** page. If a pad does not show up, close Steam or turn off Steam Input for it.
+- **Keyboard and mouse,** fully rebindable. The mouse works in the game's menus: click to confirm, the wheel to move.
+- **Joy-Con 2 mouse mode** for placing items: middle mouse toggles it.
+- **Button prompts** in the game match what you use: keyboard, Xbox, PlayStation or Switch icons, picked automatically or by hand.
+- **On-screen keyboard** for name entry that works with a pad, mouse or keyboard, including Steam's Game Mode.
+- **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or press **Quit game** on the F1 page.
+
+### Handhelds and Linux
+- Steam Deck, Legion Go S and other handhelds are detected: prompts stay as controller icons on the touchscreen and trackpad, and the render scale follows the screen.
+- Runs under Proton on SteamOS and Linux, with speed-ups tuned there (about 26 -> 53 fps on a Steam Deck, 55 -> 75 fps on a Legion Go S, measured by players). The launcher does not start under Proton yet (it needs Microsoft's WebView2): set up on a Windows PC and copy the game folder over.
+
+### In-game settings (F1)
+F1 opens a settings page over the game: Display, Graphics, Controls, Audio (volume, output device, mute when unfocused) and Game. Most changes apply live. Everything is also in `pkp.ini` and `controls.ini`; [runtime/docs/CONFIG.md](runtime/docs/CONFIG.md) lists every key.
+
 ## Quick start
 
 1. Download the zip from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere.
@@ -65,6 +110,27 @@ Your saves, settings and shaders stay.
 
 Copy the `save` folder somewhere first if you want a backup. A save that a newer version wrote may not load in an older one.
 
+## Playing together
+
+Link Play puts two players on one island. Every player needs this release, and **each player needs their own save**: a copy of someone else's save cannot join its original.
+
+**To host**
+1. In the launcher, open **Link Play** and pick **Host on this PC**, then **Start hosting**.
+2. Give your friends one of the addresses it shows (the first one is for your own network) and the room code. Use **Copy** for both.
+3. Keep the launcher open while you play, and press **Play**.
+
+**To visit**
+1. In the launcher, open **Link Play**, pick **Visit**, type the host's address and room code, and press **Save**.
+2. Press **Play**.
+
+**Before you start (Windows):** the first time, Windows Firewall asks about the launcher: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**). On a Public network Windows keeps the other PCs out; the host page warns you.
+
+**In the game**, open the PC in your first house, then **Link Play** (it unlocks after Environment Level 2 in the Withered Wasteland) and pick **Local connection**. (**Online connection** is Nintendo's own service and does not work here.) The host picks **Invite Others to Visit**, the visitor **Visit a Friend**.
+
+**Over the internet:** the easy way is [Tailscale](https://tailscale.com) or [ZeroTier](https://www.zerotier.com) (both free for personal use) on every PC: no router settings, and the traffic between you is encrypted. The host page lists that address too. Without one, the host forwards port **39660, TCP and UDP**, to their PC on the router's port forwarding page, and gives out their internet address (search "what is my IP" on the host's network). TCP alone works, but UDP keeps a lossy link from stalling. Always use a room code then, and remove the forward when you are done: the relay checks the code but does not encrypt the game's traffic.
+
+Link Play is still being tested: joining and walking around together work, long sessions and more than two players are not tested yet. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
+
 ## Common problems
 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
@@ -78,6 +144,8 @@ Copy the `save` folder somewhere first if you want a backup. A save that a newer
   - Start in **Borderless** on a 4K screen and the game draws at 4K. That is heavy. Lower **Render scale**.
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
   - Set **Frame rate limit** to what your screen can show.
+- **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save. Each player needs their own save.
+- **Link Play: the visitor cannot find the host.** Check that the host pressed **Start hosting** and still has the launcher open, that both typed the same room code, and that both networks are Private in Windows. Over the internet, check the port forward (39660, TCP and UDP) or use Tailscale or ZeroTier. Every player needs the same release. Changes on the Link Play page apply the next time the game starts.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.
 
 If it is none of these, see [Reporting problems](#reporting-problems).
