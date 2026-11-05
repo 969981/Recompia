@@ -15,6 +15,7 @@ mod settings;
 mod setuplog;
 mod shaders;
 mod update;
+mod writecheck;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -149,7 +150,10 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
     if state.progress.lock().unwrap().state == "running" {
         return Err("Setup is running. Pause it first.".into());
     }
-    let out = game_dir_of(&load_config(&app)).join("nup_dump");
+    let game_dir = game_dir_of(&load_config(&app));
+    let out = game_dir.join("nup_dump");
+    // a blocked folder fails here, in words, instead of halfway through with an OS error (writecheck.rs)
+    writecheck::check(&game_dir).map_err(|e| e.message())?;
     let src = PathBuf::from(path.trim());
     let emitter = app.clone();
     let st = state.inner().clone();
@@ -308,6 +312,8 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<boo
     if !package_b && !dir.join("pkp.exe").is_file() {
         return Err(format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe or set the game folder in Settings.", dump::fwd(&dir)));
     }
+    // the build, the shader tools and pkp.ini all write in the game folder: a blocked one fails here, in words (writecheck.rs)
+    writecheck::check(&dir).map_err(|e| e.message())?;
     {
         let mut p = state.progress.lock().unwrap();
         if p.state == "running" {
