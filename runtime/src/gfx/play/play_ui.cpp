@@ -40,7 +40,7 @@ constexpr const char* kWindowModeNames[kWindowModeCount] = {"Windowed", "Borderl
 constexpr const char* kWindowModeKeys[kWindowModeCount] = {"windowed", "borderless", "exclusive"};
 constexpr int kSizePresets[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr int kSizePresetCount = static_cast<int>(sizeof kSizePresets / sizeof kSizePresets[0]);
-constexpr int kFpsChoices[] = {-1, 0, 30, 60, 72, 90, 120, 144, 165, 240, 360};   // -1 = the refresh rate
+constexpr int kFpsChoices[] = {-1, 0, 30, 40, 60, 72, 90, 120, 144, 165, 240, 360};   // -1 = the refresh rate
 // The aspect ratio combo: Auto stores 0, the presets store their ratio, Custom shows a slider (index kAspectCustom, no value of its own).
 constexpr const char* kAspectNames[] = {"Auto", "16:9", "16:10", "21:9", "32:9", "Custom"};
 constexpr double kAspectValues[] = {0.0, 16.0 / 9.0, 1.6, 21.0 / 9.0, 32.0 / 9.0};
@@ -895,6 +895,7 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
             fps_label(fps, name, sizeof name);
             if (ImGui::Selectable(name, fps == d.fps_cap) && fps != d.fps_cap) {
                 d.fps_cap = fps;
+                quality_preset_edited(d, QualityField::FrameLimit);
                 mark(p);
             }
         }
@@ -904,6 +905,7 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
     ImGui::BeginDisabled(live.refresh_hz <= 0.0f);
     if (ImGui::Button("Just under the refresh rate")) {
         d.fps_cap = static_cast<int>(std::floor(nxrt::suggest_vrr_cap(live.refresh_hz)));
+        quality_preset_edited(d, QualityField::FrameLimit);
         mark(p);
     }
     ImGui::EndDisabled();
@@ -920,12 +922,16 @@ void resolution_group(Page& p) {
     bool autos = d.render_scale <= 0;
     if (ImGui::Checkbox("Automatic render scale", &autos)) {
         d.render_scale = autos ? 0 : 100;
+        quality_preset_edited(d, QualityField::RenderScale);
         mark(p);
     }
     tip("Auto renders at the size of the window (never below the game's own 1080p). Turn it off to pick a percentage.");
     restart_badge();
     if (!autos) {
-        if (ImGui::SliderInt("Render scale", &d.render_scale, 25, 400, "%d%%")) mark(p);
+        if (ImGui::SliderInt("Render scale", &d.render_scale, 25, 400, "%d%%")) {
+            quality_preset_edited(d, QualityField::RenderScale);
+            mark(p);
+        }
         tip("The game's internal resolution as a percentage of its own size (100% = 1920 x 1080). Above 100% renders more pixels than the console did.");
         restart_badge();
     }
@@ -933,24 +939,66 @@ void resolution_group(Page& p) {
 
 // ---- Graphics -----------------------------------------------------------------------------------------------------------------------
 
-// The game's quality preset (kDisplayOptQuality): picking one writes its view distance, texture LOD bias and anisotropy; changing one of
-// those afterwards makes it Custom.
-constexpr const char* kQualityIds[] = {"switch2", "high", "ultra", "custom"};
-constexpr const char* kQualityNames[] = {"Switch 2 (console)", "High", "Ultra", "Custom"};
-constexpr int kQualityCount = 4;
+// The game's quality preset (kDisplayOptQuality, the presets of play_types.h quality_presets()): picking one writes its values (view
+// distance, texture LOD bias and anisotropy; a device preset also the render scale and the frame limit); changing one of those afterwards
+// makes it Custom (quality_preset_edited).
+
+// What a preset sets, in plain words, from the values the game's hook writes.
+std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* gp, const DisplaySettings& now) {
+    std::string t = q.about;
+    if (!gp || !gp->quality_preset) return t;
+    DisplaySettings v = now;
+    if (!gp->quality_preset(q.id, v)) return t;
+    char buf[160];
+    t += "\n";
+    if (q.sets_frame) {
+        if (v.render_scale <= 0) {
+            t += "Render scale: automatic (the window's size). ";
+        } else {
+            std::snprintf(buf, sizeof buf, "Render scale: %d%% (%d x %d). ", v.render_scale, 1920 * v.render_scale / 100, 1080 * v.render_scale / 100);
+            t += buf;
+        }
+        if (v.fps_cap < 0) {
+            t += "Frame limit: the display's refresh rate. ";
+        } else if (v.fps_cap == 0) {
+            t += "Frame limit: none. ";
+        } else {
+            std::snprintf(buf, sizeof buf, "Frame limit: %d fps. ", v.fps_cap);
+            t += buf;
+        }
+    }
+    std::snprintf(buf, sizeof buf, "View distance: x%.3g. ", v.view_distance);
+    t += buf;
+    if (v.anisotropy > 0) {
+        std::snprintf(buf, sizeof buf, "Texture filtering: %dx. ", v.anisotropy);
+        t += buf;
+    } else {
+        t += "Texture filtering: the game's. ";
+    }
+    t += v.lod_bias < 0 ? "Textures: sharper." : v.lod_bias > 0 ? "Textures: softer." : "Textures: the game's sharpness.";
+    if (q.sets_frame) t += "\nThe render scale applies on restart.";
+    return t;
+}
 
 void quality_preset_combo(Page& p, const GamePlay* gp) {
     DisplaySettings& d = p.edit.display;
-    int sel = kQualityCount - 1;
-    for (int i = 0; i < kQualityCount; ++i)
-        if (d.quality_preset == kQualityIds[i]) sel = i;
-    if (ImGui::BeginCombo("Quality preset", kQualityNames[sel])) {
-        for (int i = 0; i < kQualityCount - 1; ++i) {
-            if (ImGui::Selectable(kQualityNames[i], i == sel) && i != sel && gp->quality_preset && gp->quality_preset(kQualityIds[i], d)) mark(p);
+    int count = 0;
+    const QualityPresetInfo* qs = quality_presets(&count);
+    int sel = count - 1;   // custom
+    for (int i = 0; i < count; ++i)
+        if (d.quality_preset == qs[i].id) sel = i;
+    if (ImGui::BeginCombo("Quality preset", qs[sel].name)) {
+        for (int i = 0; i < count - 1; ++i) {
+            if (ImGui::Selectable(qs[i].name, i == sel) && i != sel && gp->quality_preset && gp->quality_preset(qs[i].id, d)) mark(p);
+            if (ImGui::IsItemHovered()) {
+                const std::string t = quality_preset_summary(qs[i], gp, d);
+                ImGui::SetItemTooltip("%s", t.c_str());
+            }
         }
         ImGui::EndCombo();
     }
-    tip("Sets the view distance, texture LOD bias and anisotropy together. Switch 2 is the console's picture.");
+    tip("Sets several picture settings together. Switch 2 is the console's picture; High and Ultra are sharper and reach farther. The device "
+        "presets also pick a render scale and a frame limit for that kind of PC. Changing one of those settings afterwards makes it Custom.");
 }
 
 void picture_group(Page& p) {
@@ -1000,12 +1048,12 @@ void picture_group(Page& p) {
 
     const bool quality = (opts & kDisplayOptQuality) != 0;
     if (quality) quality_preset_combo(p, gp);
-    auto custom = [&] {
-        if (quality) d.quality_preset = "custom";
+    auto custom = [&](QualityField f) {
+        if (quality) quality_preset_edited(d, f);
         mark(p);
     };
     if (quality) {
-        if (slider("View distance", &d.view_distance, 1.0, 4.0, "x%.2f")) custom();
+        if (slider("View distance", &d.view_distance, 1.0, 4.0, "x%.2f")) custom(QualityField::ViewDistance);
         tip("Multiplies the camera's far clip: terrain and large scenery reach farther. 1 is the console's.");
     }
     int aniso_sel = 0;
@@ -1015,13 +1063,13 @@ void picture_group(Page& p) {
         for (int i = 0; i < kAnisoCount; ++i) {
             if (ImGui::Selectable(kAnisoNames[i], i == aniso_sel) && i != aniso_sel) {
                 d.anisotropy = kAnisoValues[i];
-                custom();
+                custom(QualityField::Anisotropy);
             }
         }
         ImGui::EndCombo();
     }
     tip("Sharper textures at a slant. Game default keeps what the game asks for; the other entries are a minimum on every filtering sampler.");
-    if (slider("Texture LOD bias", &d.lod_bias, -2.0, 2.0, "%.2f")) custom();
+    if (slider("Texture LOD bias", &d.lod_bias, -2.0, 2.0, "%.2f")) custom(QualityField::LodBias);
     tip("Negative values pick sharper texture levels, positive values softer ones.");
     if (opts & kDisplayOptBloom) {
         if (ImGui::Checkbox("Bloom", &d.bloom)) mark(p);

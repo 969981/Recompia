@@ -467,12 +467,12 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "chromatic_aberration") return set_bool(&s->display.chromatic_aberration);
             if (k == "view_distance") return set_real(1.0, 4.0, &s->display.view_distance);
             if (k == "quality_preset") {
-                const std::string q = lower(v);
-                if (q != "switch2" && q != "high" && q != "ultra" && q != "custom") {
-                    *msg = "quality_preset must be switch2, high, ultra or custom, got '" + v + "'";
+                const QualityPresetInfo* q = find_quality_preset(v);
+                if (!q) {
+                    *msg = "quality_preset must be switch2, high, ultra, steamdeck, legion_go_s, laptop, desktop or custom, got '" + v + "'";
                     return false;
                 }
-                s->display.quality_preset = q;
+                s->display.quality_preset = q->id;
                 return true;
             }
             if (k == "fast_gpu_memory") return set_bool(&s->display.fast_gpu_memory);

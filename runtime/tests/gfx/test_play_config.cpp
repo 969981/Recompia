@@ -1850,3 +1850,69 @@ NXTEST(game_vocabulary_names_the_slots_while_it_is_registered) {
     CHECK_EQ(std::string(ctx_name(Ctx::Play)), std::string("play"));
     CHECK_EQ(std::string(key_alt_camera()), std::string("alt_camera"));
 }
+
+// ---- quality presets (#122) -------------------------------------------------------------------------------------------------------
+
+NXTEST(quality_preset_ids_parse_and_round_trip) {
+    int count = 0;
+    const QualityPresetInfo* qs = quality_presets(&count);
+    REQUIRE(count == 8);
+    const char* ids[] = {"switch2", "high", "ultra", "steamdeck", "legion_go_s", "laptop", "desktop", "custom"};
+    for (int i = 0; i < count; ++i) CHECK_EQ(std::string(qs[i].id), std::string(ids[i]));
+    for (const char* id : ids) {
+        Settings s = default_settings();
+        std::string err;
+        REQUIRE_MSG(parse_settings(std::string("[display]\nquality_preset = ") + id + "\n", &s, &err), err);
+        CHECK_EQ(s.display.quality_preset, std::string(id));
+        Settings back;
+        REQUIRE_MSG(parse_settings(format_settings(s), &back, &err), err);
+        CHECK_EQ(back.display.quality_preset, std::string(id));
+    }
+    // case and '-' are forgiven; the stored id is the lowercase one
+    Settings s;
+    std::string err;
+    REQUIRE_MSG(parse_settings("[display]\nquality_preset = Legion-Go-S\n", &s, &err), err);
+    CHECK_EQ(s.display.quality_preset, std::string("legion_go_s"));
+    REQUIRE_MSG(parse_settings("[display]\nquality_preset = SteamDeck\n", &s, &err), err);
+    CHECK_EQ(s.display.quality_preset, std::string("steamdeck"));
+}
+
+NXTEST(quality_preset_unknown_id_is_an_error) {
+    Settings s;
+    std::string err;
+    CHECK(!parse_settings("[display]\nquality_preset = potato\n", &s, &err));
+    CHECK_MSG(starts_with(err, "line 2: quality_preset must be switch2, high, ultra, steamdeck, legion_go_s, laptop, desktop or custom, got 'potato'"),
+              err);
+}
+
+NXTEST(quality_preset_edit_makes_custom) {
+    // a picture preset: its own values make it custom; the render scale and the frame limit do not (it never set them)
+    for (const char* id : {"switch2", "high", "ultra"}) {
+        for (QualityField f : {QualityField::ViewDistance, QualityField::LodBias, QualityField::Anisotropy}) {
+            DisplaySettings d;
+            d.quality_preset = id;
+            CHECK(quality_preset_edited(d, f));
+            CHECK_EQ(d.quality_preset, std::string("custom"));
+        }
+        for (QualityField f : {QualityField::RenderScale, QualityField::FrameLimit}) {
+            DisplaySettings d;
+            d.quality_preset = id;
+            CHECK(!quality_preset_edited(d, f));
+            CHECK_EQ(d.quality_preset, std::string(id));
+        }
+    }
+    // a device preset: every value it set makes it custom
+    for (const char* id : {"steamdeck", "legion_go_s", "laptop", "desktop"}) {
+        for (QualityField f : {QualityField::ViewDistance, QualityField::LodBias, QualityField::Anisotropy, QualityField::RenderScale,
+                               QualityField::FrameLimit}) {
+            DisplaySettings d;
+            d.quality_preset = id;
+            CHECK(quality_preset_edited(d, f));
+            CHECK_EQ(d.quality_preset, std::string("custom"));
+        }
+    }
+    DisplaySettings d;
+    d.quality_preset = "custom";
+    CHECK(!quality_preset_edited(d, QualityField::LodBias));
+    CHECK_EQ(d.quality_preset, std::string("custom"));
+}
