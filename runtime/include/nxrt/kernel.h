@@ -111,6 +111,7 @@ struct KThread : KObject {
     uint64_t wait_mutex = 0, wait_key = 0, wait_addr = 0;
     uint32_t wait_tag = 0;
     void* cv_storage[1] = {nullptr};    // CONDITION_VARIABLE is pointer sized: this thread's own wake-up (kernel_sync.cpp)
+    void* precise_event = nullptr;      // [sched] precise_waits: the event the thread waits on in a wait's last stretch, set too on a wake
     std::weak_ptr<KThread> self;
     ~KThread() override;                // closes host_handle
     ObjType type() const override { return ObjType::Thread; }
@@ -184,6 +185,22 @@ void sleep_ns(int64_t ns);               // high-resolution sleep; <= 0 yields
 // SleepThread with the game's polling sleeps shortened: the sleep a call from `lr` gets (`ns` unchanged when lr is not in the table, the
 // request is under 1 ms, or the listed sleep is not shorter). Table entries are offsets from main_base (game.h PollSleep).
 int64_t poll_sleep_ns(const game::PollSleep* table, uint32_t count, uint64_t main_base, uint64_t lr, int64_t ns);
+// Precise waits (precise_wait.cpp). [sched] precise_sleep: SleepThread over 200 us ends on its deadline (timer lateness corrected, the
+// last kPreciseSpinMaxNs or less spun through). [sched] precise_waits: timed kernel waits end on the deadline instead of being rounded
+// up to the next whole millisecond. Both off by default, read once.
+constexpr int64_t kPreciseSpinMaxNs = 200000;   // the most a precise wait spins (pause loop) instead of sleeping on the timer
+// Pure: what to ask the timer for with rem_ns left and the timer waking late_ns late; 0 = spin the rest (rem_ns <= kPreciseSpinMaxNs).
+int64_t precise_timer_request(int64_t rem_ns, int64_t late_ns);
+// Pure: the lateness estimate after one timer wait asked for asked_ns that took took_ns (moving average 1/16, 0..2 ms; samples that came
+// back early or 2 ms or more late are ignored).
+int64_t precise_late_update(int64_t late_ns, int64_t asked_ns, int64_t took_ns);
+int64_t precise_late_ns();               // the current estimate (also gauge kernel.timer_late_us)
+bool precise_sleep_enabled();
+bool precise_waits_enabled();
+void set_precise_timing(int sleep, int waits);   // tests: 1 on, 0 off, -1 leave, -2 re-read the config
+// Waits ns on the calling thread's waitable timer, never ending before ns have passed unless wake_event (a HANDLE, may be null) is set;
+// true when the event ended it.
+bool precise_wait_ns(int64_t ns, void* wake_event);
 
 // ---- kernel-level synchronisation (the SVC semantics; kernel_sync.cpp) -------------------------------------------------------
 // ArbitrateLock / WaitProcessWideKeyAtomic / WaitForAddress ... operate on guest memory words. Exposed for tests and for HLE code.
