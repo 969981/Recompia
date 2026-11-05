@@ -16,6 +16,10 @@ of the game (version 2.0.1a): the download contains no game files.
 - Leaving an area above 60 fps no longer leaves the Poké Ball wipe covering the game (#144). The transition's timer now fires when a
   fractional frame step reaches or passes its target, rather than only on exact equality. The temporary global 60 fps ceiling and its
   `[pkp] above_60fps` switch are removed: frame limits above 60 and unlimited mode work normally again.
+- The in-game clock shows your real local time (#120). It was off by how long the PC or handheld had been running when the game
+  started, minus an hour: a day ahead on a handheld left on, 52 minutes behind on one just rebooted. The game reads the clock from a
+  part of the time data the runtime filled wrongly. Time points saved by earlier versions are treated as from another clock (as on
+  the console after its clock is reset).
 
 ## 0.5.0 (build I: Iguana)
 
