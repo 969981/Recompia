@@ -778,3 +778,50 @@ NXTEST(romfs_from_nup_package) {
         o.check_layout(2, 2);
     }
 }
+
+// An update that holds only the files it changes, served over the base game's RomFS (build's base_dir, [fs] romfs_base; fork #128):
+// the image holds the union, the update's copy of a file in both wins, folders in both are merged.
+NXTEST(romfs_update_over_base) {
+    TempTree t;
+    const std::vector<Item> top{
+        {"/motor_asset_re/KIDS/a.fdata", false, pattern(100, 1)},   // changed by the update
+        {"/motor_asset_re/KIDS/new.fdata", false, pattern(7, 2)},   // new in the update
+        {"/top_only", true, {}},
+    };
+    const std::vector<Item> base{
+        {"/motor_asset_re/KIDS/a.fdata", false, pattern(50, 9)},    // the base's older copy: not served
+        {"/motor_asset_re/KIDS/data/b.file", false, pattern(33, 3)},
+        {"/LD_C0_R.BIN", false, pattern(5000, 4)},
+        {"/base_only/empty", true, {}},
+    };
+    write_host(t.root / "update", top);
+    write_host(t.root / "base", base);
+    RomfsImage img;
+    std::string err;
+    const bool ok = img.build(utf8(t.root / "update"), &err, utf8(t.root / "base"));
+    CHECK_MSG(ok, err);
+    REQUIRE(ok);
+    std::vector<Item> want = top;
+    want.push_back(base[1]);
+    want.push_back(base[2]);
+    want.push_back(base[3]);
+    check_tree(img, want);
+    CHECK_EQ(img.stats().files, 4u);
+    CHECK_EQ(img.stats().base_files, 2u);
+    CHECK_EQ(img.stats().data_bytes, 100ull + 7 + 33 + 5000);
+    uint64_t off = 0, size = 0;
+    REQUIRE(img.file_extent("/motor_asset_re/KIDS/a.fdata", &off, &size));
+    CHECK_EQ(size, 100ull);
+
+    // without a base the update alone is served, as before
+    REQUIRE(build_from(t.root / "update", img));
+    CHECK_EQ(img.stats().files, 2u);
+    CHECK_EQ(img.stats().base_files, 0u);
+
+    // a missing base folder, and a file in one layer where the other has a folder, are errors
+    CHECK(!img.build(utf8(t.root / "update"), &err, utf8(t.root / "no_such_base")));
+    CHECK(err.find("base game") != std::string::npos);
+    write_host(t.root / "clash", {{"/top_only", false, pattern(3, 5)}});
+    CHECK(!img.build(utf8(t.root / "update"), &err, utf8(t.root / "clash")));
+    CHECK(err.find("/top_only") != std::string::npos);
+}

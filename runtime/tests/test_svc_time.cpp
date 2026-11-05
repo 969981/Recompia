@@ -12,6 +12,7 @@
 
 #include "../src/services/timezone.h"
 #include "nxrt/config.h"
+#include "nxrt/kernel.h"
 #include "nxrt/services.h"
 #include "svc_test_util.h"
 
@@ -28,7 +29,6 @@ constexpr uint32_t kOutOfRange = 0x70C74;
 constexpr uint32_t kTzConversionFailed = 0x70E74;
 constexpr uint32_t kTzNotFound = 0x7BA74;
 constexpr int64_t kEpochUnix2000 = 946684800;        // 2000-01-01T00:00:00Z
-constexpr int64_t kSteadyEpochNs = 3600000000000ll;  // 3600 s, the start of the steady clock
 constexpr uint8_t kSourceId[16] = {'n', 'x', 'r', 't', '-', 's', 't', 'e', 'a', 'd', 'y', '-', 'c', 'l', 'k', '1'};
 
 int64_t host_unix() {
@@ -197,6 +197,21 @@ NXTEST(svc_time_steady_rtc_flags_and_setup) {
     CHECK_EQ(internal.get<int64_t>(0), 0);
 }
 
+// The guest's fast path (nn::time over the shared memory): steady time = internal_offset + the raw tick (CNTPCT, counted from host
+// boot) in ns; posix = the system clock context's offset + that steady time in seconds.
+static int64_t guest_steady_secs(const uint8_t* base) {
+    uint64_t internal = 0;
+    std::memcpy(&internal, live_slot(base, 0x00, 4, 0x18), 8);
+    const uint64_t t = kernel::system_tick(), hz = kernel::tick_hz();
+    const uint64_t raw_ns = (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
+    return static_cast<int64_t>(internal + raw_ns) / 1000000000;   // u64 add: the offset wraps when the host was up longer than the epoch
+}
+static int64_t guest_posix(const uint8_t* base, uint32_t ctx_off) {
+    int64_t offset = 0;
+    std::memcpy(&offset, live_slot(base, ctx_off, 4, 0x20), 8);
+    return offset + guest_steady_secs(base);
+}
+
 NXTEST(svc_time_static_internal_offset) {
     nxsvc::Env env;
     nxsvc::Session user = nxsvc::connect("time:u");
@@ -216,12 +231,15 @@ NXTEST(svc_time_shared_memory_layout) {
     REQUIRE(base != nullptr);
     CHECK_EQ(size, 0x1000u);
 
-    // Steady clock context, pad 4 at 0x00: internal offset = 3600 s epoch (no offsets set), source uuid.
+    // Steady clock context, pad 4 at 0x00: internal offset (steady time - raw tick time), source uuid. Read the guest's way, the
+    // steady clock starts at the 3600 s epoch and the local and network clocks give the host time (issue #120: they were ahead by
+    // the host uptime).
     const uint8_t* steady = live_slot(base, 0x00, 4, 0x18);
-    int64_t internal = 0;
-    std::memcpy(&internal, steady, 8);
-    CHECK_EQ(internal, kSteadyEpochNs);
     CHECK(std::memcmp(steady + 8, kSourceId, 16) == 0);
+    CHECK(guest_steady_secs(base) >= 3600);
+    CHECK(guest_steady_secs(base) < 3600 + 600);
+    CHECK(abs64(guest_posix(base, 0x38) - host_unix()) <= 3);
+    CHECK(abs64(guest_posix(base, 0x80) - host_unix()) <= 3);
 
     // Local and network system clock contexts, pad 4 at 0x38 and 0x80: {i64 offset, {i64 time_point, uuid}}, 0x20 each.
     for (uint32_t off : {0x38u, 0x80u}) {
@@ -278,10 +296,8 @@ NXTEST(svc_time_shared_memory_keeps_posix_across_steady_offset) {
     // The steady clock moved by 1000 s; the posix time read through the shared memory must not.
     CHECK(abs64(offset + tp - host_unix()) <= 3);
     CHECK(tp >= 4600);
-    const uint8_t* steady_ctx = live_slot(base, 0x00, 4, 0x18);
-    int64_t internal = 0;
-    std::memcpy(&internal, steady_ctx, 8);
-    CHECK_EQ(internal, kSteadyEpochNs + 1000000000000ll);
+    CHECK(guest_steady_secs(base) >= 4600);
+    CHECK(abs64(guest_posix(base, 0x38) - host_unix()) <= 3);
 }
 
 NXTEST(svc_time_automatic_correction_flag) {
