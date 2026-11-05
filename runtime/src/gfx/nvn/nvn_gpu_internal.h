@@ -375,4 +375,19 @@ void trace_dump_targets();
 void present_on_render_thread(Window* w, int index, bool again = false);   // again: present_again (not counted as a game present)
 void present_again();
 
+// ---- pool import attribution ([diag] stutter_logs; nvn_gpu_pool.cpp import_range) -----------------------------------------------------
+// Why the code on this thread is resolving pool memory: import_range counts every import under the reason current when it ran
+// (gauges nvn.pool.import.reason.<name>). Render thread; an import on another thread counts as kReasonOther.
+enum PoolReason { kReasonOther, kReasonVertex, kReasonIndex, kReasonUniform, kReasonStorage, kReasonTexel, kReasonIndirect, kReasonCopy,
+                  kReasonImageCopy, kReasonUpdate, kReasonUntile, kReasonCount };
+inline thread_local PoolReason t_pool_reason = kReasonOther;
+struct PoolReasonScope {
+    PoolReason saved;
+    explicit PoolReasonScope(PoolReason r) : saved(t_pool_reason) { t_pool_reason = r; }
+    ~PoolReasonScope() { t_pool_reason = saved; }
+    PoolReasonScope(const PoolReasonScope&) = delete;
+    PoolReasonScope& operator=(const PoolReasonScope&) = delete;
+};
+inline PoolReason pool_reason() { return t_pool_reason; }
+
 }  // namespace nxrt::nvn::be::gpu

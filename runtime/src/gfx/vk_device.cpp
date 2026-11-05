@@ -278,6 +278,7 @@ void register_vma_gauges(VmaAllocator a, VkPhysicalDeviceType type) {
     nxrt::gauge_register("vma.alloc_count", [a, cache] { return static_cast<int64_t>(vma_totals(a, *cache).total.statistics.allocationCount); });
     nxrt::gauge_register("vma.alloc_mb", [a, cache] { return static_cast<int64_t>(vma_totals(a, *cache).total.statistics.allocationBytes >> 20); });
     nxrt::gauge_register("vma.block_count", [a, cache] { return static_cast<int64_t>(vma_totals(a, *cache).total.statistics.blockCount); });
+    nxrt::gauge_register("vk.vma_blocks", [a, cache] { return static_cast<int64_t>(vma_totals(a, *cache).total.statistics.blockCount); });   // WP01: same count, named with vk.memory_allocs
     nxrt::gauge_register("vma.block_mb", [a, cache] { return static_cast<int64_t>(vma_totals(a, *cache).total.statistics.blockBytes >> 20); });
 }
 
@@ -288,7 +289,7 @@ void unregister_vma_gauges() {
         g_guard_vma = nullptr;
         g_guard_heap = -1;
     }
-    const char* const names[] = {"vma.device_usage_mb", "vma.device_budget_mb", "vma.alloc_count", "vma.alloc_mb", "vma.block_count", "vma.block_mb"};
+    const char* const names[] = {"vma.device_usage_mb", "vma.device_budget_mb", "vma.alloc_count", "vma.alloc_mb", "vma.block_count", "vma.block_mb", "vk.vma_blocks"};
     for (const char* n : names) nxrt::gauge_unregister(n);
 }
 
@@ -585,6 +586,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool x_ll2 = x_pid && has_dext(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     if (x_ll2) dev_exts.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     const bool x_aal = !headless && add_ext(VK_AMD_ANTI_LAG_EXTENSION_NAME, &aal);
+    const bool pw_exposed = has_dext("VK_KHR_present_wait"), pid_exposed = has_dext(VK_KHR_PRESENT_ID_EXTENSION_NAME);   // offered by the device (log line only)
     features_.external_memory_host = has_dext(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (features_.external_memory_host) dev_exts.push_back(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (has_dext(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) { dev_exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME); features_.push_descriptor = true; }
@@ -714,6 +716,22 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     r = vmaCreateAllocator(&aci, &vma_);
     if (r != VK_SUCCESS) return fail("vmaCreateAllocator failed (" + std::to_string(r) + ")");
     register_vma_gauges(vma_, props_.deviceType);
+    if (config_get_bool("diag", "stutter_logs", true)) {   // [diag] stutter_logs: what the driver offers for import sizing and present pacing
+        const VkPhysicalDeviceMemoryProperties* mp = nullptr;
+        vmaGetMemoryProperties(vma_, &mp);
+        std::string heaps, types;
+        char b[96];
+        for (uint32_t i = 0; mp && i < mp->memoryHeapCount; ++i) {
+            std::snprintf(b, sizeof b, "%s%u:%llu MiB/0x%x", i ? " " : "", i, static_cast<unsigned long long>(mp->memoryHeaps[i].size >> 20), static_cast<unsigned>(mp->memoryHeaps[i].flags));
+            heaps += b;
+        }
+        for (uint32_t i = 0; mp && i < mp->memoryTypeCount; ++i) {
+            std::snprintf(b, sizeof b, "%s%u:heap%u/0x%x", i ? " " : "", i, mp->memoryTypes[i].heapIndex, static_cast<unsigned>(mp->memoryTypes[i].propertyFlags));
+            types += b;
+        }
+        NXLOG_I(kTag, "vk: memory heaps %s; types %s; maxBufferSize %llu; VK_KHR_present_wait %s; VK_KHR_present_id %s", heaps.c_str(), types.c_str(),
+                static_cast<unsigned long long>(limits_.max_buffer_size), pw_exposed ? "yes" : "no", pid_exposed ? "yes" : "no");
+    }
 
     VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     cpi.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

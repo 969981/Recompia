@@ -1674,7 +1674,7 @@ bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
     // the GOBs of every block row, whole blocks: what the shader may read
     const uint64_t tiled = static_cast<uint64_t>((lv.blocks_y + 8 * lv.gob_blocks_y - 1) / (8 * lv.gob_blocks_y)) * gobs_x * lv.gob_blocks_y * 512;
     if (tiled > t->storage_size) return *why = "storage size", false;
-    const BufRef br = resolve_buffer(reinterpret_cast<uint64_t>(t->mem), tiled);
+    const BufRef br = [&] { PoolReasonScope pr_(kReasonUntile); return resolve_buffer(reinterpret_cast<uint64_t>(t->mem), tiled); }();
     if (!br.ok) return *why = "not in a pool", false;
     if (!untiler_init()) return false;
     Untiler& u = g_untile;

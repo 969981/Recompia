@@ -1566,6 +1566,7 @@ const uint8_t* cpu_view(uint64_t addr, uint64_t size);   // below
 // arguments (and draw count) when the CPU can read them (not a held result, not written by a submission that has not completed).
 // Otherwise the GPU writes them too and nobody knows the count here: everything from index_address to the end of its pool.
 uint64_t indirect_index_span(const P_DrawIndirect& p) {
+    PoolReasonScope pr_(kReasonIndirect);
     const uint32_t isz0 = index_size_bytes(static_cast<int>(p.type));
     const uint64_t isz = isz0 ? isz0 : 4;
     const uint64_t stride = p.stride ? static_cast<uint64_t>(p.stride) : 20;
@@ -1933,6 +1934,8 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
         w.dstBinding = d.binding;
         w.descriptorCount = 1;
         w.descriptorType = d.type;
+        PoolReasonScope pr_(d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ? kReasonUniform : d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ? kReasonStorage :
+                            d.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER ? kReasonTexel : pool_reason());
         if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
             RpScope rpb_(kRpBuf, g_rp_fine);
             VkDescriptorBufferInfo bi = {dummy_buffer(), 0, 65536};
@@ -2686,6 +2689,7 @@ const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl] : g_g
 
 bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
     RpScope rp_all(kRpDraw);
+    PoolReasonScope pr_(kReasonVertex);
     ResolveScope rs_;
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
@@ -3099,6 +3103,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
 }
 
 void do_draw_elements(const P_DrawElements& p) {
+    PoolReasonScope pr_(kReasonIndex);
     count_primitives(p.mode, p.count, p.instance_count);
     g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
@@ -3265,6 +3270,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
 }
 
 void do_draw_indirect(const P_DrawIndirect& p) {
+    PoolReasonScope pr_(kReasonIndirect);
     const bool indexed = p.type != 0xffffffffu;
     // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
     // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
@@ -3557,6 +3563,7 @@ void do_clear_texture(const P_ClearTexture& p) {
 }
 
 void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
+    PoolReasonScope pr_(kReasonImageCopy);
     Texture* t = p.tex;
     if (t && t->b.target == NVN_TEXTURE_TARGET_3D) {
         static int logged = 0;
@@ -3759,6 +3766,7 @@ void do_downsample(const P_Downsample& p) {
 }
 
 void do_write_memory(uint64_t gpu_addr, const void* data, uint32_t size) {
+    PoolReasonScope pr_(kReasonUpdate);
     // a GPU-ordered write of up to 64 KiB into pool memory (UpdateUniformBuffer, counters, events)
     end_pass();
     memory_barrier(F->cb);
@@ -4047,6 +4055,7 @@ void run_list(const CmdList& list, int depth) {
             case Op::ClearTexture: do_clear_texture(r.payload<P_ClearTexture>()); break;
             case Op::ClearBuffer: {
                 const auto& p = r.payload<P_ClearBuffer>();
+                PoolReasonScope pr_(kReasonCopy);
                 end_pass();
                 BufRef b = resolve_buffer(p.address, p.size);
                 if (b.ok) vkCmdFillBuffer(F->cb, b.buffer, b.offset, p.size & ~3ull, p.value);
@@ -4058,6 +4067,7 @@ void run_list(const CmdList& list, int depth) {
             }
             case Op::CopyBufferToBuffer: {
                 const auto& p = r.payload<P_CopyBufferToBuffer>();
+                PoolReasonScope pr_(kReasonCopy);
                 end_pass();
                 BufRef s = held_or_pool(p.src, p.size, kOutBufferRead, true), d = resolve_buffer(p.dst, p.size);
                 if (s.ok && d.ok) {
