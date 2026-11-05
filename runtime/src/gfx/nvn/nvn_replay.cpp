@@ -1798,7 +1798,11 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
     Texture* d = S.depth_tex.get();
     if (!d || !tex_gpu(d)) return false;
     const VkExtent3D e = tex_image_extent(d, 0);
-    return extras::temporal_jitter_block(words, n_words, e.width, e.height, g_tsr_frame);
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);   // the scene's viewport is that part of the target: half a pixel of it
+    const uint32_t w = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.width * fx)));
+    const uint32_t h = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.height * fy)));
+    return extras::temporal_jitter_block(words, n_words, w, h, g_tsr_frame);
 }
 
 // Descriptor set number `set` of the bound program: the one of the last draw (SetMemo below), a set of this submission with the same contents (g_set_cache), or a new one.
@@ -2509,6 +2513,28 @@ void temporal_gbuffer_note() {
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
 
+// The game's scene covers only part of its targets (extras::scene_fraction, Pokopia's [upscale] scene_scale, #116): the part of a scene
+// image of size `scene` that holds it, and the size of the image the tone-map draw then needs, out / fraction, so that its own lookup at
+// uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
+bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex) {
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);
+    if (fx >= 1.0f && fy >= 1.0f) return false;
+    part->width = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.width * fx)), 1, scene.width);
+    part->height = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.height * fy)), 1, scene.height);
+    // rounded down: fraction * out_tex <= out, so the draw's lookups at uv * fraction stay inside the written out-sized corner
+    out_tex->width = std::max<uint32_t>(out.width, static_cast<uint32_t>(out.width / fx));
+    out_tex->height = std::max<uint32_t>(out.height, static_cast<uint32_t>(out.height / fy));
+    static bool told = false;
+    if (!told) {
+        told = true;
+        NXLOG_I(kTag, "scene upscale: the scene covers %ux%u of its %ux%u target (fraction %.3f x %.3f): %ux%u -> %ux%u, handed to the tone-map draw "
+                "in a %ux%u image", part->width, part->height, scene.width, scene.height, fx, fy, part->width, part->height, out.width, out.height,
+                out_tex->width, out_tex->height);
+    }
+    return true;
+}
+
 // The tone-map draw with a temporal mode: the largest 2D colour input is the HDR scene; the SDK's result (target size) replaces it for this draw.
 void temporal_for_draw(const ProgLayout& pl) {
     ++g_tsr_frame;                                                        // one tone-map draw per frame: the next frame's jitter phase
@@ -2554,7 +2580,8 @@ void temporal_for_draw(const ProgLayout& pl) {
     }
     const DescriptorBinding& b = best->shader->refl.bindings[best->index];
     const VkExtent3D ce = tex_image_extent(best_r.tex, 0), de = tex_image_extent(depth, 0), te = tex_image_extent(target, 0);
-    const VkExtent2D render{std::min(ce.width, de.width), std::min(ce.height, de.height)};
+    VkExtent2D render{std::min(ce.width, de.width), std::min(ce.height, de.height)}, out_tex{};
+    if (VkExtent2D part{}; scene_part(render, VkExtent2D{te.width, te.height}, &part, &out_tex)) render = part;
     end_pass();                                                           // compute work cannot run inside a render pass
     tex_ensure_current(best_r.tex, *F);
     tex_transition(best_r.tex, *F, tex_sampled_layout(best_r.tex));
@@ -2565,7 +2592,7 @@ void temporal_for_draw(const ProgLayout& pl) {
     VkImageView dv = tex_sampled_view(depth, dr);
     if (!src || !dv) return;
     VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
-                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W);
+                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex);
     g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
     shadow_invalidate();
     if (out) {
@@ -2585,7 +2612,7 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
     if (!fs || !extras::scene_upscale_wanted() || S.ncolor == 0 || !S.color_tex[0] || !extras::hdr_is_tonemap(fs->spirv, fs->hash)) return;
     Texture* target = S.color_tex[0].get();
     if (!tex_gpu(target)) return;
-    const VkExtent3D te = tex_extent(target, 0);
+    const VkExtent3D te = tex_image_extent(target, 0);   // image sizes: with a render scale the upscaler works on the real pixels
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
@@ -2593,17 +2620,20 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
         if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D) continue;
         TexResolved r = resolve_texture(d);
         if (!r.tex || !tex_gpu(r.tex) || shares_image(r.tex, S.depth_tex.get())) continue;
-        const VkExtent3D se = tex_extent(r.tex, 0);
-        if (se.width >= te.width && se.height >= te.height) return;          // nothing to enlarge
-        extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height});
+        const VkExtent3D se = tex_image_extent(r.tex, 0);
+        // the scene is either a smaller image or the top-left part of a full-size one (scene_part)
+        VkExtent2D in_view{se.width, se.height}, out_tex{};
+        if (!scene_part(in_view, VkExtent2D{te.width, te.height}, &in_view, &out_tex) && se.width >= te.width && se.height >= te.height) return;   // nothing to enlarge
+        if (in_view.width >= te.width && in_view.height >= te.height) return;
+        extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), in_view, VkExtent2D{te.width, te.height});
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass
         tex_ensure_current(r.tex, *F);
         tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
         VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
         if (!src) return;
-        VkImageView up = su->upscale(F->cb, src, VkExtent2D{se.width, se.height}, VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height}, true,
-                                     extras::scene_upscale_prescale(), extras::upscale_sharpness());
+        VkImageView up = su->upscale(F->cb, src, in_view, VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height}, true,
+                                     extras::scene_upscale_prescale(), extras::upscale_sharpness(), out_tex);
         shadow_invalidate();
         if (up) {
             g_su_tex = r.tex;

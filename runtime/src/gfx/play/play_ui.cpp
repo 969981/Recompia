@@ -754,7 +754,24 @@ void upscale_group(Page& p) {
     if (slider("Sharpness", &u.sharpness, 0.0, 1.0, "%.2f")) mark(p);
     tip("How much FSR 1, NIS or FSR 3 sharpens the upscaled picture; 1 is the sharpest (DLSS has no sharpening).");
     if (ImGui::SliderInt("Scene resolution##upscale_scene", &u.scene_scale, 25, 100, "%d%%")) mark(p);
-    tip("Renders the 3D scene at this percent of the output size per side; the game scales it up and keeps the HUD and the post effects at full size. 100 turns it off. Applies live.");
+    tip("Renders the 3D scene at this percent of the output size per side; the game scales it up and keeps the HUD and the post effects at full size. 100 turns it off. "
+        "FSR 3 and DLSS use their quality preset's percent instead, unless it is Custom. Applies live.");
+    {   // what is in force now (#116): the percent the game module applies and who enlarges the scene
+        const int pct = extras::upscale_scene_scale();
+        float fx = 1.0f, fy = 1.0f;
+        extras::scene_fraction(&fx, &fy);
+        const extras::UpscaleMode m = extras::upscale_mode();
+        if (pct >= 100) {
+            ImGui::TextDisabled("Scene: full size%s", extras::upscale_temporal() ? " (the temporal upscaler runs as anti-aliasing)" : "");
+        } else if (fx >= 1.0f && fy >= 1.0f) {
+            ImGui::TextDisabled("Scene: %d%% per side, stretched by the game (dynamic resolution or split screen on, or not in the game yet)", pct);
+        } else {
+            const char* who = m == extras::UpscaleMode::Fsr1 ? "upscaled with FSR 1" : m == extras::UpscaleMode::Nis ? "upscaled with NIS"
+                            : m == extras::UpscaleMode::Fsr3 ? "upscaled with FSR 3" : m == extras::UpscaleMode::Dlss ? "upscaled with DLSS"
+                            : "stretched by the game (pick an upscaler to make it sharper)";
+            ImGui::TextDisabled("Scene: %d%% per side, %s", pct, who);
+        }
+    }
     ImGui::TextDisabled("Or render everything below the window size with the render scale above; the upscaler then fills the rest.");
 }
 
