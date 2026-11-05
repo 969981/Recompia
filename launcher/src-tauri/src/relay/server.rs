@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The relay server: an accept thread, per client a reader thread (parses frames, applies them to the room table) and a
 //! writer thread fed by a bounded queue. All room/client state sits in one mutex; nothing blocks while holding it
-//! (sends are `try_send` into the queues).
+//! (sends are `try_send` into the queues, or one UDP `send_to`).
+//! Protocol v3 adds a UDP socket on the same port and a thread reading it (`udp_loop`): datagrams of clients that proved
+//! their UDP endpoint go over it, everyone else's over TCP as in v1.
 
 use super::codec::{self, MAX_FRAME};
-use super::proto::{err, left, ClientMsg, CreateReq, NodeInfo, RoomInfo, ServerMsg, MAX_NODES, NO_KEY, PROTO};
+use super::proto::{err, left, udp, ClientMsg, CreateReq, NodeInfo, RoomInfo, ServerMsg, MAX_NODES, MIN_PROTO, NO_KEY, PROTO};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, ErrorKind, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -21,6 +23,8 @@ const MAX_FRAMES_PER_SEC: u32 = 2000;
 /// Frames queued for one client before it counts as too slow and is dropped.
 const SEND_QUEUE: usize = 256;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+/// UDP packets per second one token may send (the game sends about 50 a second per player); more are dropped.
+const UDP_PACKETS_PER_SEC: u32 = 2000;
 /// Wrong room codes one connection may present before it is dropped (ERROR 9).
 const CODE_FAILS_PER_CONN: u32 = 5;
 /// Wrong room codes (and first keyed scans that found nothing) from one IP address within CODE_FAIL_WINDOW; past it every request
@@ -43,6 +47,10 @@ pub struct Config {
     pub server_version: String,
     /// One plain line per event (start, connect/disconnect, room create/close).
     pub log: Option<LogFn>,
+    /// Open the UDP datagram path (v3) on the same port. False, or the UDP bind failing: TCP only, as v2.
+    pub udp: bool,
+    /// UDP packets per second per token before the rest of that second is dropped.
+    pub udp_rate: u32,
 }
 
 impl Default for Config {
@@ -53,6 +61,8 @@ impl Default for Config {
             keepalive_timeout: Duration::from_secs(15),
             server_version: format!("pokopia-launcher {}", env!("CARGO_PKG_VERSION")),
             log: None,
+            udp: true,
+            udp_rate: UDP_PACKETS_PER_SEC,
         }
     }
 }
@@ -61,6 +71,8 @@ impl Default for Config {
 #[derive(Serialize, Clone, Debug)]
 pub struct Status {
     pub addr: String,
+    /// The UDP datagram path is open (same port as `addr`).
+    pub udp: bool,
     /// Connections, including ones in no room.
     pub clients: usize,
     /// Nicknames of players connected but in no room.
@@ -85,6 +97,8 @@ pub struct PlayerStatus {
     pub vip: String,
     pub node_id: u8,
     pub host: bool,
+    /// Gets its datagrams over UDP (else TCP).
+    pub udp: bool,
 }
 
 struct Client {
@@ -102,6 +116,16 @@ struct Client {
     code_fails: u32,
     /// A keyed SCAN that found no room was counted against the IP once already.
     miss_counted: bool,
+    /// HELLO's proto (0 before HELLO).
+    proto: u16,
+    /// UDP token from UDP_OFFER, valid while in a room; 0: none (v2 client, no UDP socket, or in no room).
+    token: u64,
+    /// Where this client's last valid UDP HELLO came from.
+    udp_addr: Option<SocketAddr>,
+    /// The client said UDP_MODE 1: its datagrams go to udp_addr.
+    udp_on: bool,
+    /// Rate window start and UDP packets in it.
+    udp_window: (Instant, u32),
 }
 
 struct Room {
@@ -145,6 +169,10 @@ struct State {
     rooms: BTreeMap<u32, Room>,
     /// Wrong room codes per address: (count, start of the window).
     ip_fails: HashMap<IpAddr, (u32, Instant)>,
+    /// UDP token -> client id.
+    tokens: HashMap<u64, u32>,
+    /// The UDP socket (None: TCP only). Sends from under the state lock: UDP send_to does not wait on the peer.
+    udp: Option<Arc<UdpSocket>>,
 }
 
 /// Outcome of a room-key check.
@@ -218,6 +246,64 @@ impl State {
         }
     }
 
+    /// A v3 client entered a room (after an authorised CREATE/JOIN): a fresh random token for its UDP packets, sent as
+    /// UDP_OFFER right behind JOINED. No UDP socket, a v2 client, or no random bytes: none, the client stays on TCP.
+    fn udp_grant(&mut self, id: u32) {
+        let Some(port) = self.udp.as_ref().and_then(|u| u.local_addr().ok()).map(|a| a.port()) else { return };
+        if self.clients.get(&id).is_none_or(|c| c.proto < 3) {
+            return;
+        }
+        let token = new_token();
+        if token == 0 || self.tokens.contains_key(&token) {
+            return;
+        }
+        self.udp_revoke(id);
+        self.tokens.insert(token, id);
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.token = token;
+        }
+        self.send(id, ServerMsg::UdpOffer { token, port }.encode());
+    }
+
+    /// The client left its room (or the connection): its token stops counting, its datagrams are TCP again.
+    fn udp_revoke(&mut self, id: u32) {
+        let Some(c) = self.clients.get_mut(&id) else { return };
+        let token = std::mem::take(&mut c.token);
+        c.udp_addr = None;
+        c.udp_on = false;
+        if token != 0 {
+            self.tokens.remove(&token);
+        }
+    }
+
+    /// One game datagram to client `id`: over UDP when it has a proven endpoint and asked for it, else a TCP frame.
+    /// A failed UDP send is a lost datagram (UDP semantics), never a fallback.
+    fn send_datagram(&self, id: u32, src_ip: u32, src_port: u16, dst_ip: u32, dst_port: u16, data: &[u8]) {
+        let Some(c) = self.clients.get(&id) else { return };
+        if let (true, Some(addr), Some(sock)) = (c.udp_on, c.udp_addr, &self.udp) {
+            let pkt = udp::encode(c.token, &udp::Packet::SData { src_ip, src_port, dst_ip, dst_port, data });
+            let _ = sock.send_to(&pkt, addr);
+            return;
+        }
+        self.send(id, ServerMsg::Datagram { src_ip, src_port, dst_ip, dst_port, data: data.to_vec() }.encode());
+    }
+
+    /// A datagram from member `n` of `room` (either transport): src_ip is the sender's vip; .255 goes to every other member,
+    /// a member's vip to that member; anything else is dropped.
+    fn route(&self, room: u32, n: u8, src_port: u16, dst_ip: u32, dst_port: u16, data: &[u8]) {
+        let Some(r) = self.rooms.get(&room) else { return };
+        let src_ip = vip(room, n);
+        if dst_ip == vip(room, 255) {
+            for (_, other) in r.members.iter().filter(|(&m, _)| m != n) {
+                self.send_datagram(*other, src_ip, src_port, dst_ip, dst_port, data);
+            }
+        } else if dst_ip & !0xff == vip(room, 0) && (dst_ip & 0xff) as u8 != n {
+            if let Some(other) = r.members.get(&((dst_ip & 0xff) as u8)) {
+                self.send_datagram(*other, src_ip, src_port, dst_ip, dst_port, data);
+            }
+        }
+    }
+
     fn info(&self, r: &Room) -> RoomInfo {
         RoomInfo {
             room_id: r.id,
@@ -253,12 +339,14 @@ impl State {
     /// Returns a log line when a room closed.
     fn leave_room(&mut self, id: u32, notify: bool) -> Option<String> {
         let (room, n) = self.clients.get_mut(&id)?.room.take()?;
+        self.udp_revoke(id);
         if n == 1 {
             let r = self.rooms.remove(&room)?;
             for (_, other) in r.members.iter().filter(|(&m, _)| m != 1) {
                 if let Some(c) = self.clients.get_mut(other) {
                     c.room = None;
                 }
+                self.udp_revoke(*other);
                 if notify {
                     self.send(*other, ServerMsg::Left(left::HOST_CLOSED).encode());
                 }
@@ -277,6 +365,7 @@ impl State {
 
 struct Shared {
     cfg: Config,
+    udp: Option<Arc<UdpSocket>>,
     state: Mutex<State>,
     stop: AtomicBool,
     next_id: AtomicU32,
@@ -299,6 +388,7 @@ pub struct RelayServer {
     shared: Arc<Shared>,
     addr: SocketAddr,
     accept: Option<JoinHandle<()>>,
+    udp_thread: Option<JoinHandle<()>>,
 }
 
 impl RelayServer {
@@ -306,17 +396,50 @@ impl RelayServer {
         let listener = TcpListener::bind(bind)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
+        // UDP on the same address and port. A failure (port taken by another program) only costs the UDP path.
+        let mut udp_note = None;
+        let udp = if cfg.udp {
+            match UdpSocket::bind(addr).and_then(|u| u.set_read_timeout(Some(Duration::from_millis(100))).map(|_| u)) {
+                Ok(u) => Some(Arc::new(u)),
+                Err(e) => {
+                    udp_note = Some(format!("UDP port {} unavailable ({}): datagrams go over TCP", addr.port(), e));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let shared = Arc::new(Shared {
             cfg,
-            state: Mutex::new(State::default()),
+            udp: udp.clone(),
+            state: Mutex::new(State { udp, ..Default::default() }),
             stop: AtomicBool::new(false),
             next_id: AtomicU32::new(1),
             threads: Mutex::new(Vec::new()),
         });
-        shared.log(&format!("relay listening on {}", addr));
+        shared.log(&format!("relay listening on {} (TCP{})", addr, if shared.udp.is_some() { " and UDP" } else { "" }));
+        if let Some(n) = udp_note {
+            shared.log(&n);
+        }
+        let udp_thread = match shared.udp.clone() {
+            Some(u) => {
+                let sh = shared.clone();
+                Some(std::thread::Builder::new().name("relay-udp".into()).spawn(move || udp_loop(sh, u))?)
+            }
+            None => None,
+        };
         let sh = shared.clone();
-        let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(sh, listener))?;
-        Ok(RelayServer { shared, addr, accept: Some(accept) })
+        let accept = match std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(sh, listener)) {
+            Ok(a) => a,
+            Err(e) => {
+                shared.stop.store(true, Ordering::SeqCst);
+                if let Some(t) = udp_thread {
+                    let _ = t.join();
+                }
+                return Err(e);
+            }
+        };
+        Ok(RelayServer { shared, addr, accept: Some(accept), udp_thread })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -336,6 +459,9 @@ impl RelayServer {
             self.shared.stop.store(true, Ordering::SeqCst);
         }
         let _ = accept.join();
+        if let Some(t) = self.udp_thread.take() {
+            let _ = t.join();
+        }
         let threads = std::mem::take(&mut *self.shared.threads.lock().unwrap_or_else(|e| e.into_inner()));
         for t in threads {
             let _ = t.join();
@@ -357,14 +483,17 @@ impl RelayServer {
                     .info(r)
                     .nodes
                     .into_iter()
-                    .map(|n| PlayerStatus { nickname: n.nickname, vip: vip_str(n.vip), node_id: n.node_id, host: n.node_id == 0 })
+                    .map(|n| {
+                        let udp = r.members.get(&(n.node_id + 1)).and_then(|id| st.clients.get(id)).is_some_and(|c| c.udp_on);
+                        PlayerStatus { nickname: n.nickname, vip: vip_str(n.vip), node_id: n.node_id, host: n.node_id == 0, udp }
+                    })
                     .collect(),
             })
             .collect();
         let mut lobby: Vec<String> =
             st.clients.values().filter(|c| c.room.is_none() && !c.nickname.is_empty()).map(|c| c.nickname.clone()).collect();
         lobby.sort();
-        Status { addr: self.addr.to_string(), clients: st.clients.len(), lobby, rooms }
+        Status { addr: self.addr.to_string(), udp: self.shared.udp.is_some(), clients: st.clients.len(), lobby, rooms }
     }
 }
 
@@ -411,10 +540,22 @@ fn admit(sh: &Arc<Shared>, mut sock: TcpStream, peer: SocketAddr) -> io::Result<
     let id = sh.next_id.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = sync_channel(SEND_QUEUE);
     let writer_sock = sock.try_clone()?;
-    st.clients.insert(
-        id,
-        Client { nickname: String::new(), tx, sock: sock.try_clone()?, room: None, ip: peer.ip(), key: None, code_fails: 0, miss_counted: false },
-    );
+    let client = Client {
+        nickname: String::new(),
+        tx,
+        sock: sock.try_clone()?,
+        room: None,
+        ip: peer.ip(),
+        key: None,
+        code_fails: 0,
+        miss_counted: false,
+        proto: 0,
+        token: 0,
+        udp_addr: None,
+        udp_on: false,
+        udp_window: (Instant::now(), 0),
+    };
+    st.clients.insert(id, client);
     drop(st);
     sh.log(&format!("client {} connected from {}", id, peer));
     let writer = std::thread::Builder::new().name(format!("relay-w{}", id)).spawn(move || writer_loop(writer_sock, rx));
@@ -508,7 +649,11 @@ fn reader_loop(sh: Arc<Shared>, id: u32, mut sock: TcpStream, writer: JoinHandle
     let (nick, closed) = {
         let mut st = sh.lock();
         let closed = st.leave_room(id, !sh.stop.load(Ordering::SeqCst));
-        let nick = st.clients.remove(&id).map(|c| c.nickname).unwrap_or_default();
+        let gone = st.clients.remove(&id);
+        if let Some(c) = gone.as_ref().filter(|c| c.token != 0) {
+            st.tokens.remove(&c.token);
+        }
+        let nick = gone.map(|c| c.nickname).unwrap_or_default();
         (nick, closed)
     };
     if let Some(line) = closed {
@@ -553,13 +698,13 @@ fn hello(sh: &Shared, id: u32, msg: ClientMsg, done: &mut bool) -> Flow {
         sh.lock().send(id, error(code, text));
         Flow::Close(why.into())
     };
-    if proto < PROTO {
+    if proto < MIN_PROTO {
         let why = format!("bad proto {}", proto);
         return refuse(err::BAD_PROTO, "This server needs a newer game (relay protocol 2, room codes). Update the game.", &why);
     }
-    if proto != PROTO {
+    if proto > PROTO {
         let why = format!("bad proto {}", proto);
-        return refuse(err::BAD_PROTO, "This server is older than the game (relay protocol 2). Update the launcher that runs it.", &why);
+        return refuse(err::BAD_PROTO, "This server is older than the game (relay protocol 3). Update the launcher that runs it.", &why);
     }
     if sh.cfg.build_stamp.as_deref().is_some_and(|s| s != build) {
         return refuse(err::BUILD, "This server runs another game build. Only identical builds can play together.", "build mismatch");
@@ -571,6 +716,7 @@ fn hello(sh: &Shared, id: u32, msg: ClientMsg, done: &mut bool) -> Flow {
     let mut st = sh.lock();
     if let Some(c) = st.clients.get_mut(&id) {
         c.nickname = if nickname.is_empty() { format!("player{}", id) } else { nickname.clone() };
+        c.proto = proto;
     }
     st.send(id, ServerMsg::Welcome { client_id: id, version: sh.cfg.server_version.clone() }.encode());
     drop(st);
@@ -588,6 +734,21 @@ fn handle(sh: &Shared, id: u32, msg: ClientMsg) -> Flow {
             return Flow::Close("second hello".into());
         }
         ClientMsg::Ping(n) => st.send(id, ServerMsg::Pong(n).encode()),
+        ClientMsg::UdpMode(on) => {
+            let Some(c) = st.clients.get_mut(&id) else { return Flow::Go };
+            if c.proto < 3 {
+                st.send(id, bad_frame());
+                return Flow::Close("UDP_MODE from a v2 client".into());
+            }
+            // on: only with a proven endpoint (the client sends it after a UDP ACK, so it has one)
+            let now_on = on && c.udp_addr.is_some();
+            let changed = now_on != c.udp_on;
+            c.udp_on = now_on;
+            drop(st);
+            if changed {
+                sh.log(&format!("client {} datagrams over {}", id, if now_on { "UDP" } else { "TCP" }));
+            }
+        }
         ClientMsg::Scan { local_comm_id, scene_id, room_key } => {
             if let Some(flow) = key_refused(&mut st, id, &room_key) {
                 return flow;
@@ -691,17 +852,8 @@ fn handle(sh: &Shared, id: u32, msg: ClientMsg) -> Flow {
             _ => st.send(id, error(err::NOT_HOST, "Only the host can do that.")),
         },
         ClientMsg::Datagram { src_port, dst_ip, dst_port, data } => {
-            let Some((room, n)) = my_room else { return Flow::Go };
-            let Some(r) = st.rooms.get(&room) else { return Flow::Go };
-            let frame = ServerMsg::Datagram { src_ip: vip(room, n), src_port, dst_ip, dst_port, data }.encode();
-            if dst_ip == vip(room, 255) {
-                for (_, other) in r.members.iter().filter(|(&m, _)| m != n) {
-                    st.send(*other, frame.clone());
-                }
-            } else if dst_ip & !0xff == vip(room, 0) && (dst_ip & 0xff) as u8 != n {
-                if let Some(other) = r.members.get(&((dst_ip & 0xff) as u8)) {
-                    st.send(*other, frame);
-                }
+            if let Some((room, n)) = my_room {
+                st.route(room, n, src_port, dst_ip, dst_port, &data);
             }
         }
     }
@@ -749,6 +901,7 @@ fn create(st: &mut State, id: u32, c: CreateReq) -> Option<u32> {
     );
     st.clients.get_mut(&id)?.room = Some((room, 1));
     st.send(id, ServerMsg::Joined { room_id: room, vip: vip(room, 1), node_id: 0 }.encode());
+    st.udp_grant(id);
     st.push_room_state(room);
     Some(room)
 }
@@ -773,6 +926,90 @@ fn join(st: &mut State, id: u32, room: u32, comm_version: i16, pass_hash: [u8; 1
         c.room = Some((room, n));
     }
     st.send(id, ServerMsg::Joined { room_id: room, vip: vip(room, n), node_id: n - 1 }.encode());
+    st.udp_grant(id);
     st.push_room_state(room);
     Ok(())
+}
+
+/// Reads the UDP socket until the server stops. Every packet is checked before anything is sent: a packet that is
+/// malformed, carries an unknown token, comes from another IP than its token's TCP connection, or is over its token's rate
+/// is dropped without an answer. The only answer is ACK to a valid HELLO, the same size as the HELLO, so the server never
+/// sends an address more bytes than it got from it, and sends nothing to an address that did not prove a token.
+fn udp_loop(sh: Arc<Shared>, sock: Arc<UdpSocket>) {
+    let mut buf = vec![0u8; udp::MAX_PACKET + 1];
+    while !sh.stop.load(Ordering::SeqCst) {
+        // errors are timeouts, or on Windows ICMP port-unreachable resets from earlier sends: keep reading
+        if let Ok((n, from)) = sock.recv_from(&mut buf) {
+            udp_packet(&sh, &sock, &buf[..n], from);
+        }
+    }
+}
+
+fn udp_packet(sh: &Shared, sock: &UdpSocket, b: &[u8], from: SocketAddr) {
+    let Some((token, pkt)) = udp::decode(b) else { return };
+    let mut st = sh.lock();
+    let Some(&id) = st.tokens.get(&token) else { return };
+    let rate = sh.cfg.udp_rate;
+    let Some(c) = st.clients.get_mut(&id) else { return };
+    if from.ip() != c.ip {
+        return;
+    }
+    let (start, count) = &mut c.udp_window;
+    if start.elapsed() >= Duration::from_secs(1) {
+        (*start, *count) = (Instant::now(), 0);
+    }
+    *count += 1;
+    if *count > rate {
+        return;
+    }
+    match pkt {
+        udp::Packet::Hello => {
+            // the endpoint is wherever the latest HELLO came from (a NAT may move it)
+            let first = c.udp_addr.is_none();
+            let moved = c.udp_addr.is_some_and(|a| a != from);
+            c.udp_addr = Some(from);
+            let _ = sock.send_to(&udp::encode(token, &udp::Packet::Ack), from);
+            drop(st);
+            if first || moved {
+                sh.log(&format!("client {} UDP endpoint {}{}", id, from, if moved { " (moved)" } else { "" }));
+            }
+        }
+        udp::Packet::Data { src_port, dst_ip, dst_port, data } => {
+            if c.udp_addr != Some(from) {
+                return;
+            }
+            if let Some((room, n)) = c.room {
+                st.route(room, n, src_port, dst_ip, dst_port, data);
+            }
+        }
+        udp::Packet::Ack | udp::Packet::SData { .. } => {}
+    }
+}
+
+/// A random u64 token from the OS random source; 0 when that fails (the client then stays on TCP).
+fn new_token() -> u64 {
+    let mut b = [0u8; 8];
+    if os_random(&mut b).is_err() {
+        return 0;
+    }
+    u64::from_le_bytes(b)
+}
+
+#[cfg(windows)]
+fn os_random(buf: &mut [u8]) -> io::Result<()> {
+    const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 2;
+    #[link(name = "bcrypt")]
+    extern "system" {
+        fn BCryptGenRandom(alg: *mut std::ffi::c_void, buf: *mut u8, len: u32, flags: u32) -> i32;
+    }
+    let st = unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
+    if st < 0 {
+        return Err(io::Error::other(format!("BCryptGenRandom failed: 0x{:08x}", st as u32)));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn os_random(buf: &mut [u8]) -> io::Result<()> {
+    std::fs::File::open("/dev/urandom")?.read_exact(buf)
 }

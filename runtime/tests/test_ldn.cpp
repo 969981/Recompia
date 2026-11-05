@@ -780,6 +780,75 @@ NXTEST(ldn_live_relay) {
     std::printf("  live: room code: hidden from a client without it, wrong code refused, right code joined\n");
 }
 
+// Relay protocol v3 UDP path through a real server: host and one guest prove UDP and switch to it, a second guest whose UDP goes to a
+// dead port (UDP blocked) stays on TCP; datagrams flow every way. NXRT_TEST_RELAY_NO_UDP=1: the relay runs with --no-udp, nobody switches.
+NXTEST(ldn_live_relay_udp) {
+    const char* addr = std::getenv("NXRT_TEST_RELAY");
+    if (!addr || !*addr) {
+        nxtest::skip("NXRT_TEST_RELAY not set");
+        return;
+    }
+    const char* no_udp_env = std::getenv("NXRT_TEST_RELAY_NO_UDP");
+    const bool no_udp = no_udp_env && *no_udp_env == '1';
+    vnet::RelayOptions o;
+    REQUIRE(vnet::parse_server(addr, &o.host, &o.port));
+    o.nickname = "UdpHost";
+    auto a = vnet::make_relay_client(o);
+    o.nickname = "UdpGuest";
+    auto b = vnet::make_relay_client(o);
+    o.nickname = "TcpGuest";
+    o.udp_test_port = 1;   // nothing listens there: this guest's UDP never gets an answer
+    auto c = vnet::make_relay_client(o);
+    vnet::RoomConfig cfg = room_config();
+    cfg.local_comm_id = kLcid ^ static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    vnet::Joined ja, jb, jc;
+    REQUIRE(a->create(cfg, &ja) == 0);
+    REQUIRE(b->join(ja.room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    REQUIRE(c->join(ja.room_id, kVersion, cfg.pass_hash, &jc) == 0);
+    CHECK(wait_until([&] { return a->room().nodes.size() == 3; }));
+    if (no_udp) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        CHECK(!a->udp_active());
+        CHECK(!b->udp_active());
+    } else {
+        CHECK(wait_until([&] { return a->udp_active() && b->udp_active(); }));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    CHECK(!c->udp_active());
+    std::printf("  live udp: host %s, guest %s, blocked guest %s\n", a->udp_active() ? "UDP" : "TCP", b->udp_active() ? "UDP" : "TCP",
+                c->udp_active() ? "UDP" : "TCP");
+
+    vsock::Stack sa(a->link()), sb(b->link()), sc(c->link());
+    const int fa = sa.socket(2, 2, 0).ret, fb = sb.socket(2, 2, 0).ret, fc = sc.socket(2, 2, 0).ret;
+    REQUIRE(sa.bind(fa, {0, kPort}).ret == 0);
+    REQUIRE(sb.bind(fb, {0, kPort}).ret == 0);
+    REQUIRE(sc.bind(fc, {0, kPort}).ret == 0);
+    auto got = [&](vsock::Stack& st, int fd, const char* want, uint32_t from_ip) {
+        char buf[64] = {};
+        vsock::Addr from;
+        int n = -1;
+        wait_until([&] { return (n = st.recvfrom(fd, buf, sizeof buf, vsock::kMsgDontwait, &from).ret) > 0; });
+        return n == static_cast<int>(std::strlen(want)) && std::memcmp(buf, want, n) == 0 && from.ip == from_ip;
+    };
+    const vsock::Addr to_a{ja.vip, kPort}, to_b{jb.vip, kPort}, to_c{jc.vip, kPort};
+    CHECK_EQ(sa.sendto(fa, "a to b", 6, 0, &to_b).ret, 6);
+    CHECK(got(sb, fb, "a to b", ja.vip));
+    CHECK_EQ(sb.sendto(fb, "b to a", 6, 0, &to_a).ret, 6);
+    CHECK(got(sa, fa, "b to a", jb.vip));
+    CHECK_EQ(sa.sendto(fa, "a to c", 6, 0, &to_c).ret, 6);   // UDP in, TCP out
+    CHECK(got(sc, fc, "a to c", ja.vip));
+    CHECK_EQ(sc.sendto(fc, "c to b", 6, 0, &to_b).ret, 6);   // TCP in, UDP out
+    CHECK(got(sb, fb, "c to b", jc.vip));
+    std::printf("  live udp: host<->guest, host->blocked guest, blocked guest->guest delivered\n");
+
+    // leaving drops the room's token: the guest is back on TCP, a new join brings UDP back
+    b->leave();
+    CHECK(!b->udp_active());
+    REQUIRE(b->join(ja.room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    if (!no_udp) CHECK(wait_until([&] { return b->udp_active(); }));
+    a->leave();
+}
+
 // The ldn service itself on a RelayClient (events and datagrams arrive on the reader thread): the process hosts through IPC, a second
 // relay client joins, sends to the game's socket, leaves.
 NXTEST(ldn_live_relay_ipc) {

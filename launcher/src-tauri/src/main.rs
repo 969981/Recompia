@@ -560,16 +560,19 @@ fn room_code_host(app: AppHandle) -> Option<String> {
     relay::room_code::normalize(text.trim()).map(|c| relay::room_code::format(&c))
 }
 
-/// `--host [--port N] [--password P]`: the relay alone, no window, log lines on stdout, until Ctrl+C.
+/// `--host [--port N] [--password P] [--no-udp]`: the relay alone, no window, log lines on stdout, until Ctrl+C.
+/// `--no-udp`: game datagrams only over TCP (no UDP socket on the port).
 fn run_headless(args: &[String]) -> i32 {
     #[cfg(windows)]
     win_console::attach_and_hook_ctrl_c();
     let mut port = relay::DEFAULT_PORT;
     let mut password = None;
+    let mut udp = true;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--host" => {}
+            "--no-udp" => udp = false,
             "--port" => match it.next().and_then(|p| p.parse::<u16>().ok()) {
                 Some(p) => port = p,
                 None => {
@@ -585,13 +588,13 @@ fn run_headless(args: &[String]) -> i32 {
                 }
             },
             other => {
-                eprintln!("unknown argument {}. Usage: PokopiaLauncher --host [--port N] [--password P]", other);
+                eprintln!("unknown argument {}. Usage: PokopiaLauncher --host [--port N] [--password P] [--no-udp]", other);
                 return 2;
             }
         }
     }
     let log: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|line: &str| println!("{}", line));
-    let cfg = relay::Config { password, log: Some(log), ..Default::default() };
+    let cfg = relay::Config { password, log: Some(log), udp, ..Default::default() };
     let mut srv = match relay::RelayServer::start(("0.0.0.0", port), cfg) {
         Ok(s) => s,
         Err(e) => {

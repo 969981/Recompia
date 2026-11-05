@@ -118,4 +118,11 @@ void close(Handle h) {
     if (h != kBad) closesocket(static_cast<SOCKET>(h));
 }
 
+uint32_t peer_ip(Handle h) {
+    sockaddr_in a{};
+    int len = sizeof a;
+    if (h == kBad || getpeername(static_cast<SOCKET>(h), reinterpret_cast<sockaddr*>(&a), &len) != 0 || a.sin_family != AF_INET) return 0;
+    return ntohl(a.sin_addr.s_addr);
+}
+
 }  // namespace nxrt::tcp

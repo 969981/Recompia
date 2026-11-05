@@ -17,5 +17,6 @@ bool send_all(Handle h, const void* p, size_t n);   // false: the connection fai
 bool recv_all(Handle h, void* p, size_t n);         // false: closed or failed before n bytes arrived
 void shutdown(Handle h);                            // wakes a thread blocked in recv_all on h; the handle stays open
 void close(Handle h);
+uint32_t peer_ip(Handle h);                         // the peer's IPv4 address in host order (1.2.3.4 = 0x01020304), 0 if unknown
 
 }  // namespace nxrt::tcp
