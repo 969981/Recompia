@@ -57,8 +57,11 @@ void texture_registered(Texture* t);   // the registration half of the above: on
 
 // The GPU image of a texture is copied back into the texture's storage in the game's memory in its block-linear layout (for
 // nvnTextureReadTexels / CopyTextureToBuffer users that read render targets on the CPU). Waits for the GPU. False when the
-// texture has no GPU image yet or cannot be read back.
-bool download_texture(Texture* t);
+// texture has no GPU image yet or cannot be read back. [nvn] readback_async (default true): only the levels and layers asked for
+// (counts clamped to the texture; the defaults ask for all), the render thread records the copy and does not wait for it, and a
+// level the GPU did not write since its last readback is not copied again. false: every level, with the GPU drained first (as before).
+bool download_texture(Texture* t, uint32_t level_first = 0, uint32_t level_count = UINT32_MAX, uint32_t layer_first = 0,
+                      uint32_t layer_count = UINT32_MAX);
 
 // nvnMemoryPoolInvalidateMappedRange / nvnBufferInvalidateMappedRange: the CPU is about to read [addr, +size), which the GPU may have
 // written. Compute results the back end holds in video memory there are copied back first (waits for the GPU). Any thread.

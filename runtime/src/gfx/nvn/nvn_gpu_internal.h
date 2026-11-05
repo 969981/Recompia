@@ -375,4 +375,13 @@ void trace_dump_targets();
 void present_on_render_thread(Window* w, int index, bool again = false);   // again: present_again (not counted as a game present)
 void present_again();
 
+// ---- readback ([nvn] readback_async, nvn_gpu.cpp / nvn_gpu_texture.cpp) -----------------------------------------------------------
+// Any thread but the render thread. queue_record: queue_submit without the GPU wait (returns the serial once the render thread recorded
+// the job). wait_serial_grace: up to grace_ns for the render thread to flush the serial itself, then wait_serial(serial, UINT64_MAX).
+uint64_t queue_record(std::function<void(struct Frame&)> record);
+bool wait_serial_grace(uint64_t serial, uint64_t grace_ns);
+// download_texture's counts (any thread; tests, the summary): copies recorded, readbacks skipped as unchanged, readbacks in all.
+struct ReadbackStats { uint64_t copies = 0, skipped = 0, calls = 0; };
+ReadbackStats readback_stats();
+
 }  // namespace nxrt::nvn::be::gpu

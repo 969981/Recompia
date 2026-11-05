@@ -870,6 +870,25 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
     return queue_submit(fn, true, true);
 }
 
+// [nvn] readback_async (download_texture): the job is recorded in queue order (after every submission queued before it) and this returns
+// once the render thread has recorded it. No GPU wait, on either thread; the caller waits for the serial itself (wait_serial_grace).
+uint64_t queue_record(std::function<void(Frame&)> record) {
+    return queue_submit(std::move(record), true, false);
+}
+
+// Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the
+// next present), polling every 0.5 ms, then waits for it on the GPU (wait_serial: a serial still in the batch is flushed at once, an
+// extra kernel submission). grace_ns 0: wait_serial at once. Not on the render thread (it is the one that flushes).
+bool wait_serial_grace(uint64_t serial, uint64_t grace_ns) {
+    if (!g || !serial) return true;
+    if (grace_ns > 0 && serial > g->flushed_pub.load()) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(grace_ns);
+        while (serial > g->flushed_pub.load() && g->completed.load() < serial && !g->dev->device_lost() && std::chrono::steady_clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
+    }
+    return wait_serial(serial, UINT64_MAX);
+}
+
 // ---- gpu.h ---------------------------------------------------------------------------------------------------------------
 bool active() { return g != nullptr; }
 void cpu_will_read(uint64_t addr, uint64_t size) {
