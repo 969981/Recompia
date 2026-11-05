@@ -15,6 +15,8 @@ of the game (version 2.0.1a): the download contains no game files.
 - Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
   into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
   higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
+- With Xbox or PlayStation button icons, d-pad prompts now show which direction to press (#95): the d-pad icon lights up the
+  arm to press (up, down, left or right) instead of showing the whole d-pad.
 
 ### What's new
 - New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
