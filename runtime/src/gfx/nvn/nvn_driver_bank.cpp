@@ -45,4 +45,15 @@ uint32_t fill_driver_bank_nvn2_compute(uint8_t* d, const ShaderControl& c, const
     return static_cast<uint32_t>(std::min<int>(t.end, kDriverBankBytes));
 }
 
+uint32_t fill_driver_bank_graphics(uint8_t* d, int nvn_stage, const DriverRange ssbo[16], uint32_t base_instance) {
+    std::memset(d, 0, kDriverBankBytes);
+    // NVN stage -> hardware stage (Ryujinx's order): vertex 0, tess control 1, tess evaluation 2, geometry 3, fragment 4
+    static const int kHw[5] = {0, 4, 3, 1, 2};
+    if (nvn_stage >= 0 && nvn_stage < 5)
+        for (int n = 0; n < 16; ++n) put_range(d, 0x110 + 0x100 * kHw[nvn_stage] + 0x10 * n, ssbo[n]);
+    std::memcpy(d + kDriverBankPointSize, &kDriverBankMaxPointSize, 4);
+    std::memcpy(d + kDriverBankBaseInstance, &base_instance, 4);
+    return kDriverBankBaseInstance + 4;
+}
+
 }  // namespace nxrt::nvn::be

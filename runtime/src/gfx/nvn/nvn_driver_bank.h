@@ -13,6 +13,15 @@
 // zeros fails every such check. The idea of filling it per dispatch is pokopia-native's drv_fill (MIT,
 // windows/src/nxrt/vk/vk_replay.c @7c3655d); the offsets are checked against our translator's c[0] reads (results.tsv sb[c0+...]
 // words) and spirv-cross output of the five compute shaders that read sizes.
+//
+// Graphics stages share the fixed Maxwell layout:
+//   0x110 + 0x100 * hardware stage + 0x10 * n   storage buffer n {address lo, address hi, size} (vertex 0, tess control 1, tess
+//                                               evaluation 2, geometry 3, fragment 4; storage_slot_for in nvn_replay.cpp)
+//   0x610                                       the largest point size (float; the agl vertex shaders clamp gl_PointSize to it)
+//   0x644                                       the draw's base instance, which GLSLC adds to the hardware instance ID: the DOF
+//                                               bokeh and lens flare sprites read c0[100].y. Vertex modules get that read replaced by
+//                                               Vulkan's BaseInstance (spirv_base_instance_from_c0), which also covers indirect draws;
+//                                               the word here is the direct draw's value for any read the rewrite does not match.
 #pragma once
 #include <cstdint>
 
@@ -40,5 +49,14 @@ Nvn2ComputeTable nvn2_compute_table(const ShaderControl& c);
 // table's end, clamped to kDriverBankBytes), so a caller can key a cache on d[0, n).
 uint32_t fill_driver_bank_nvn2_compute(uint8_t* d, const ShaderControl& c, const DriverRange ubo[16], const DriverRange ssbo[16],
                                        const uint64_t tex[64], const uint64_t img[16]);
+
+// c[0] offsets of the graphics layout above.
+constexpr uint32_t kDriverBankPointSize = 0x610;
+constexpr uint32_t kDriverBankBaseInstance = 0x644;
+constexpr float kDriverBankMaxPointSize = 64.0f;   // what the shared bank has always held
+
+// Fills d[0, kDriverBankBytes) for graphics stage `nvn_stage` (NVN numbering: 0 vertex, 1 fragment, 2 geometry, 3 tess control,
+// 4 tess evaluation): zeros, its storage buffer table, the point size and the base instance. Returns the bytes up to the last word.
+uint32_t fill_driver_bank_graphics(uint8_t* d, int nvn_stage, const DriverRange ssbo[16], uint32_t base_instance);
 
 }  // namespace nxrt::nvn::be

@@ -185,6 +185,8 @@ UploadAlloc g_support;
 UploadAlloc g_draw_support;     // the support buffer the next descriptor sets bind: g_support, or one with render scales (support_for_draw)
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
 std::unordered_map<uint64_t, UploadAlloc> g_driver_banks;     // this submission's filled c[0] banks (driver_bank_for), by content
+uint32_t g_draw_base_instance = 0;   // the base instance of the draw being set up, for graphics c[0] + 0x644 (0 for indirect draws)
+uint32_t g_bank_base_instance = 0;   // the one the bound descriptor sets hold
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
 // [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
@@ -1803,21 +1805,25 @@ bool set_memo_same(const SetMemo& a, const SetMemo& b) {
            a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
 }
 // c[0] of a stage that reads it, filled from the current bindings (nvn_driver_bank.h): a Switch 2 compute program's resource table
-// (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels). Copied into the upload ring
-// once per distinct content per submission. A stage the fill does not cover gets the shared bank (zeros, point size).
+// (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels); a graphics stage's storage
+// buffer table, point size and the draw's base instance. Copied into the upload ring once per distinct content per submission. A stage
+// the fill does not cover (Switch 1 compute) gets the shared bank (zeros, point size).
 VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
     VkDeviceSize range = 0;
     VkBuffer shared = driver_constants_buffer(&range);
     VkDescriptorBufferInfo bi = {shared ? shared : dummy_buffer(), 0, shared ? range : 65536};
     const ShaderControl& c = d.shader->control;
-    if (d.nvn_stage != kCompute || !c.nvn2 || c.stage != 5) return bi;
+    const bool compute = d.nvn_stage == kCompute;
+    if (compute && (!c.nvn2 || c.stage != 5)) return bi;
+    if (d.nvn_stage < 0 || d.nvn_stage > kCompute) return bi;
     uint8_t bank[kDriverBankBytes];
     DriverRange ubo[16], ssbo[16];
     for (int n = 0; n < 16; ++n) {
-        ubo[n] = {S.ubo[kCompute][n].addr, S.ubo[kCompute][n].size};
-        ssbo[n] = {S.ssbo[kCompute][n].addr, S.ssbo[kCompute][n].size};
+        ubo[n] = {S.ubo[d.nvn_stage][n].addr, S.ubo[d.nvn_stage][n].size};
+        ssbo[n] = {S.ssbo[d.nvn_stage][n].addr, S.ssbo[d.nvn_stage][n].size};
     }
-    const uint32_t used = fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute]);
+    const uint32_t used = compute ? fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute])
+                                  : fill_driver_bank_graphics(bank, d.nvn_stage, ssbo, g_draw_base_instance);
     uint64_t key = 1469598103934665603ull ^ used;
     for (uint32_t i = 0; i < used; ++i) key = (key ^ bank[i]) * 1099511628211ull;
     auto it = g_driver_banks.find(key);
@@ -2648,6 +2654,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     }
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
+    if (pl->c0_graphics && g_draw_base_instance != g_bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
     rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
@@ -2829,6 +2836,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
         RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        g_bank_base_instance = g_draw_base_instance;
     }
     if (pl->push_bytes && g_gen_tcs) {
         // the pass-through control shader's tessellation levels (NVN's fixed SetInner/OuterTessellationLevels), every draw: cheap, and
@@ -3005,6 +3013,7 @@ bool bind_u32_indices(const std::vector<uint32_t>& idx) {
 
 void do_draw_arrays(const P_DrawArrays& p) {
     count_primitives(p.mode, p.count, p.instance_count);
+    g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
@@ -3028,6 +3037,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
 
 void do_draw_elements(const P_DrawElements& p) {
     count_primitives(p.mode, p.count, p.instance_count);
+    g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (g_trace) {   // the indices and the first attributes of the first vertices
@@ -3193,6 +3203,9 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
 
 void do_draw_indirect(const P_DrawIndirect& p) {
     const bool indexed = p.type != 0xffffffffu;
+    // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
+    // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
+    g_draw_base_instance = 0;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), indexed, indexed ? static_cast<int>(p.type) : 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
@@ -3245,6 +3258,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     const uint32_t slot = it->second;
     end_pass();
     memory_barrier(F->cb);   // the section's writes (feedback buffer, counter) before the vertex fetch and the indirect read
+    g_draw_base_instance = 0;   // vkCmdDrawIndirectByteCountEXT draws from instance 0
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     uint32_t stride = g_key_attr_count ? S.stream[g_key_binding[0]].stride : 0;

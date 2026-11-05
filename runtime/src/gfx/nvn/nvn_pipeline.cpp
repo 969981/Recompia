@@ -195,6 +195,10 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
             code = &fixed;
         }
     }
+    // c[0] + 0x644 (the draw's base instance, which GLSLC adds to the instance ID) read as Vulkan's BaseInstance: right for direct,
+    // indirect and multi-draw indirect draws alike (spirv_base_instance_from_c0; the replay's c[0] bank holds only a direct draw's).
+    std::vector<uint32_t> base_inst;
+    if (spirv_base_instance_from_c0(*code, base_inst)) code = &base_inst;
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every
     // module goes through here, the ones spirv_add_outputs / spirv_gs_passthrough rewrote included. [nvn] init_outputs = false: off (A/B).
@@ -407,6 +411,8 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
             }
         }
     }
+    for (const BindingDesc& d : pl.bindings)
+        pl.c0_graphics |= d.nvn_stage != 5 && d.shader->refl.bindings[d.index].nvn.source == NvnSource::DriverConstants;
     // by (set, binding), as ProgLayout promises (build_set and the set_reuse memo walk this list in that order)
     std::sort(pl.bindings.begin(), pl.bindings.end(), [](const BindingDesc& a, const BindingDesc& b) {
         return a.set != b.set ? a.set < b.set : a.binding < b.binding;
