@@ -76,6 +76,8 @@ struct GraphicsKey {
     uint8_t no_out = 0;                         // the pass has no colour attachment: the fragment shader's outputs become private variables
     uint8_t fb_loop = 0;                        // a colour attachment is in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (the draw samples it): built whole with
                                                 // COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT, never linked from parts (was the pad byte: the key file layout is the same)
+    uint8_t pad_[7] = {};                       // explicit, always zero: the compiler's padding before `tess` (same offsets, so the key file layout is unchanged);
+                                                // with it the struct has no padding bytes and hash() / operator== (word / memcmp) see only defined values
     // Tessellation control and evaluation stages (null: none). Last, so that the prewarm key file keeps its record layout (it records the bytes
     // before these and never a tessellated key). A key with them has topology PATCH_LIST and patch_control_points = the NVN patch size.
     const ShaderInfo* tess[2] = {};
