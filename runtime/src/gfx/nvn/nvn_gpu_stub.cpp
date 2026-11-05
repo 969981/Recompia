@@ -23,7 +23,7 @@ uint64_t flush() { return g_serial.load(); }
 void finish() {}
 uint64_t last_serial() { return g_serial.load(); }
 bool wait_serial(uint64_t, uint64_t) { return true; }
-bool serial_done(uint64_t) { return true; }
+bool serial_done(uint64_t, PollKind) { return true; }
 void present(Window*, int) {}
 void destroy_texture_gpu(TexGpu*) {}
 void destroy_pool_gpu(PoolGpu*) {}
