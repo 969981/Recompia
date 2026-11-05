@@ -7,6 +7,9 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Fixes
+- A PC whose page file is off or too small no longer crashes at start with "pkp.exe exited with code 4". The game reserves
+  about 10.4 GB for its memory as it starts, and when Windows has no room left for that (RAM plus page file used up) the game
+  crashed on its first write. Now it says so and how to turn the page file on, and ends with code 6.
 - The F1 page's **Upscaling -> Scene resolution** slider works now (#116). It did nothing in Pokopia: the 3D scene always
   rendered at full size, so FSR 1 had nothing to upscale and FSR 3 ran at full size as anti-aliasing only (and slowly). Now the
   scene renders at that percent per side while the HUD stays sharp, and FSR 1, NIS, FSR 3 or DLSS upscale it (without one, the

@@ -74,6 +74,7 @@ std::map<uint64_t, VmInfo> g_vm;          // start -> block, guarded by g_vm_mu
 std::mutex g_heap_mu;
 HANDLE g_section = nullptr;
 uint64_t g_heap_size = 0;                 // 0 = no heap; otherwise the section size = size of the primary view
+uint32_t g_heap_commit_error = 0;         // GetLastError of the last failed heap_commit (heap_commit_error)
 std::vector<uint64_t> g_commit_bits;      // one bit per 4 KiB page of the section, set by heap_commit
 uint64_t g_committed = 0;                 // bytes of pages whose bit is set
 // Per 4 KiB page of the section, what the host reports for it: 0 never committed, 1 committed but no-access (a decommitted page or one
@@ -534,9 +535,11 @@ bool heap_commit(uint64_t offset, uint64_t size) {
     if (!VirtualAlloc(reinterpret_cast<void*>(kHeapBase + start), static_cast<SIZE_T>(end - start), MEM_COMMIT,
                       PAGE_READWRITE)) {
         DWORD e = GetLastError();
-        NXLOG_E(kTag, "heap_commit [%llx, +%llx): VirtualAlloc failed, error %lu",
+        g_heap_commit_error = e;
+        NXLOG_E(kTag, "heap_commit [0x%llx, +0x%llx) (%.2f GiB): VirtualAlloc failed, error %lu%s",
                 static_cast<unsigned long long>(start), static_cast<unsigned long long>(end - start),
-                static_cast<unsigned long>(e));
+                static_cast<double>(end - start) / (1024.0 * 1024.0 * 1024.0), static_cast<unsigned long>(e),
+                e == ERROR_COMMITMENT_LIMIT ? " (Windows' commit limit: RAM plus page file is used up; the page file is likely off or too small)" : "");
         return false;
     }
     for (uint64_t p = start / kPage; p < end / kPage; p++) {
@@ -588,6 +591,11 @@ bool heap_decommit(uint64_t offset, uint64_t size) {
         p = run;
     }
     return true;
+}
+
+uint32_t heap_commit_error() {
+    std::lock_guard lk(g_heap_mu);
+    return g_heap_commit_error;
 }
 
 uint64_t heap_committed() {
