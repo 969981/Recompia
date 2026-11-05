@@ -86,6 +86,17 @@ bool spirv_outputs_to_private(const std::vector<uint32_t>& in, std::vector<uint3
 // nothing to initialise.
 bool spirv_init_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
 
+// [nvn] reduced_precision: the module as the translator would have written it with QueryHostReducedPrecision() = true (Ryujinx's
+// HostCapabilities.ReducedPrecision, the mode pokopia-native translates with), without translating again. That mode changes exactly two
+// things in SPIR-V (tools/shaders/third_party/ryubing CodeGen/Spirv): no NoContraction on the float results of binary / ternary ops, so the
+// driver may fuse a multiply and an add, except on the ops ForcePreciseEnable marks (fragment stage only: the FP32 add of a constant whose
+// result is the divisor of 1.0 / x, so a small bias against a division by zero is not rounded away); and Invariant on every BuiltIn Position
+// (the variable, or member of a gl_PerVertex block). Here every OpDecorate NoContraction goes except, in a fragment module, the one on an
+// OpFAdd whose second operand is a float constant and whose result reaches the divisor of an OpFDiv with constant 1.0 as dividend, directly
+// or through a Function variable (stores and loads, bitcasts peeled). That keeps a superset of the translator's precise ops. A BuiltIn
+// Position decoration gets an Invariant next to it. False (out untouched) when the module is malformed or nothing changes.
+bool spirv_reduced_precision(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
+
 struct SpvXfbOutput {
     uint32_t location, components, offset;   // offset in bytes inside a captured vertex
 };

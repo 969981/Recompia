@@ -665,3 +665,214 @@ NXTEST(base_instance_from_c0_on_the_sprite_shaders) {
         if (have_val && !out.empty()) CHECK_MSG(run_spirv_val(out, std::string("bi_") + h, log) == 0, std::string(h) + ": " + log);
     }
 }
+
+// [nvn] reduced_precision (spirv_reduced_precision). Hand-written modules, assembled by the SDK's spirv-as: the translator's reduced mode
+// (Ryujinx HostCapabilities.ReducedPrecision) drops NoContraction except on the ForcePreciseEnable adds of a fragment shader (x + constant
+// as the divisor of 1.0 / x) and puts Invariant on BuiltIn Position. The rewritten module must pass spirv-val.
+namespace {
+
+const char* kSpirvAs = "C:\\VulkanSDK\\1.4.363.0\\Bin\\spirv-as.exe";
+
+bool assemble(const char* text, const std::string& tag, std::vector<uint32_t>& w) {
+    const std::string src = tag + ".spvasm", spv = tag + ".spv";
+    {
+        std::ofstream f(src);
+        f << text;
+    }
+    const std::string cmd = std::string(kSpirvAs) + " --target-env vulkan1.3 " + src + " -o " + spv;
+    const int rc = std::system(cmd.c_str());
+    const bool ok = rc == 0 && load_words(spv, w);
+    std::error_code ec;
+    fs::remove(src, ec);
+    fs::remove(spv, ec);
+    return ok;
+}
+
+const char* absent_tools() {
+    std::error_code ec;
+    if (!fs::exists(kSpirvAs, ec) || !fs::exists(kSpirvVal, ec)) return "spirv-as / spirv-val not found at C:\\VulkanSDK\\1.4.363.0\\Bin";
+    return nullptr;
+}
+
+struct Op {
+    uint32_t op;
+    std::vector<uint32_t> w;   // the whole instruction
+};
+std::vector<Op> ops(const std::vector<uint32_t>& w) {
+    std::vector<Op> out;
+    for (size_t i = 5; i < w.size();) {
+        const uint32_t len = w[i] >> 16;
+        if (!len || i + len > w.size()) break;
+        out.push_back({w[i] & 0xffff, std::vector<uint32_t>(w.begin() + std::ptrdiff_t(i), w.begin() + std::ptrdiff_t(i + len))});
+        i += len;
+    }
+    return out;
+}
+size_t count_deco(const std::vector<uint32_t>& w, uint32_t deco) {
+    size_t n = 0;
+    for (const Op& o : ops(w))
+        if ((o.op == 71 && o.w.size() >= 3 && o.w[2] == deco) || (o.op == 72 && o.w.size() >= 4 && o.w[3] == deco)) ++n;
+    return n;
+}
+
+const char* kRpVertexBlock = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %pv %in0
+               OpDecorate %pv_t Block
+               OpMemberDecorate %pv_t 0 BuiltIn Position
+               OpMemberDecorate %pv_t 1 BuiltIn PointSize
+               OpDecorate %in0 Location 0
+               OpDecorate %mul NoContraction
+               OpDecorate %add NoContraction
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %v4 = OpTypeVector %float 4
+       %pv_t = OpTypeStruct %v4 %float
+      %ppv = OpTypePointer Output %pv_t
+         %pv = OpVariable %ppv Output
+      %pin = OpTypePointer Input %v4
+        %in0 = OpVariable %pin Input
+       %int = OpTypeInt 32 1
+      %int0 = OpConstant %int 0
+      %pov = OpTypePointer Output %v4
+       %two = OpConstant %float 2
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+          %x = OpLoad %v4 %in0
+        %mul = OpVectorTimesScalar %v4 %x %two
+        %add = OpFAdd %v4 %mul %x
+          %p = OpAccessChain %pov %pv %int0
+               OpStore %p %add
+               OpReturn
+               OpFunctionEnd
+)";
+const char* kRpVertexVar = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %pos
+               OpDecorate %pos BuiltIn Position
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %v4 = OpTypeVector %float 4
+      %pov = OpTypePointer Output %v4
+        %pos = OpVariable %pov Output
+       %zero = OpConstantNull %v4
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+               OpStore %pos %zero
+               OpReturn
+               OpFunctionEnd
+)";
+const char* kRpFragment = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main" %in0 %o0
+               OpExecutionMode %main OriginUpperLeft
+               OpDecorate %in0 Location 0
+               OpDecorate %o0 Location 0
+               OpDecorate %bias NoContraction
+               OpDecorate %bias2 NoContraction
+               OpDecorate %plain NoContraction
+               OpDecorate %mul NoContraction
+               OpDecorate %fd NoContraction
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %int = OpTypeInt 32 1
+      %pin = OpTypePointer Input %float
+        %in0 = OpVariable %pin Input
+      %pout = OpTypePointer Output %float
+         %o0 = OpVariable %pout Output
+      %pfn = OpTypePointer Function %int
+        %one = OpConstant %float 1
+        %eps = OpConstant %float 0.0001
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+        %loc = OpVariable %pfn Function
+          %x = OpLoad %float %in0
+       %bias = OpFAdd %float %x %eps
+          %r = OpFDiv %float %one %bias
+      %bias2 = OpFAdd %float %x %eps
+         %bc = OpBitcast %int %bias2
+               OpStore %loc %bc
+         %ld = OpLoad %int %loc
+        %ldf = OpBitcast %float %ld
+         %r2 = OpFDiv %float %one %ldf
+      %plain = OpFAdd %float %r %r2
+        %mul = OpFMul %float %plain %x
+         %fd = OpFDiv %float %one %mul
+               OpStore %o0 %fd
+               OpReturn
+               OpFunctionEnd
+)";
+
+}  // namespace
+
+NXTEST(reduced_precision_vertex_block) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpVertexBlock, "rp_vs", in));
+    CHECK_EQ(count_deco(in, 42), size_t(2));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    CHECK_EQ(count_deco(out, 42), size_t(0));   // NoContraction: none left outside a fragment shader
+    CHECK_EQ(count_deco(out, 18), size_t(1));   // Invariant on gl_PerVertex member 0 (gl_Position), not on PointSize
+    bool member0 = false;
+    for (const Op& o : ops(out))
+        if (o.op == 72 && o.w.size() == 4 && o.w[3] == 18) member0 = o.w[2] == 0;
+    CHECK(member0);
+    CHECK_EQ(out[3], in[3]);
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_vs", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+    std::vector<uint32_t> again;
+    CHECK(!gpu::spirv_reduced_precision(out, again));   // a second pass changes nothing
+}
+
+NXTEST(reduced_precision_vertex_position_variable) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpVertexVar, "rp_vs2", in));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    size_t inv = 0;
+    for (const Op& o : ops(out))
+        if (o.op == 71 && o.w.size() == 3 && o.w[2] == 18) ++inv;
+    CHECK_EQ(inv, size_t(1));
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_vs2", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+}
+
+NXTEST(reduced_precision_fragment_keeps_forced_precise_adds) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpFragment, "rp_fs", in));
+    CHECK_EQ(count_deco(in, 42), size_t(5));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    // left: the two adds of a constant that feed 1.0 / x (directly, and through a Function variable with bitcasts); gone: the add of two
+    // values, the multiply, and the division itself
+    const std::vector<Op> o = ops(out);
+    std::set<uint32_t> consts, kept;
+    for (const Op& x : o) {
+        if (x.op == 43) consts.insert(x.w[2]);
+        if (x.op == 71 && x.w.size() == 3 && x.w[2] == 42) kept.insert(x.w[1]);
+    }
+    CHECK_EQ(kept.size(), size_t(2));
+    for (const Op& x : o)
+        if (x.w.size() >= 3 && kept.count(x.w[2]) && x.op != 71) CHECK_MSG(x.op == 129 && consts.count(x.w[4]), "a kept NoContraction is not on an add of a constant");
+    CHECK_EQ(count_deco(out, 18), size_t(0));   // no Position in a fragment shader
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_fs", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+    std::vector<uint32_t> keep = {0x07230203u, 0x10000u, 0u, 9u, 0u}, out2 = keep;   // no entry point
+    CHECK(!gpu::spirv_reduced_precision(keep, out2));
+    CHECK(out2 == keep);
+}
