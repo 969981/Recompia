@@ -3571,14 +3571,6 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
     }
     if (!t || !tex_gpu(t)) return;
     end_pass();
-    if (tex_scale(t) != 1.0f) {
-        static int logged = 0;
-        if (logged++ < 10) {
-            char a[96];
-            NXLOG_W(kTag, "%s a scaled render target %s: the copy uses NVN texel coordinates (wrong part of the image)", to_texture ? "buffer copied into" : "copy from",
-                    tex_desc(t, a, sizeof a));
-        }
-    }
     SubRes s = sub_of(p.view, p.has_view);
     const VkExtent3D ext = tex_extent(t, s.level);
     P_CopyRegion r = p.has_region ? p.region : P_CopyRegion{0, 0, 0, static_cast<int32_t>(ext.width), static_cast<int32_t>(ext.height), static_cast<int32_t>(ext.depth)};
@@ -3597,14 +3589,46 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
     c.imageExtent = {rw, rh, rd};
     if (t->b.target != NVN_TEXTURE_TARGET_3D && t->layers > 1 && !p.has_view) { c.imageSubresource.layerCount = tex_layers(t); c.imageExtent.depth = 1; }
     if (t->b.target != NVN_TEXTURE_TARGET_3D && rd > 1) { c.imageSubresource.layerCount = rd; c.imageSubresource.baseArrayLayer = s.layer + static_cast<uint32_t>(std::max(0, r.z)); c.imageOffset.z = 0; c.imageExtent.depth = 1; }
-    const uint64_t buf_bytes = stride * ((rh + bh - 1) / bh) * rd;
+    // The bytes Vulkan touches: every layer / slice and row at the buffer's strides, the last row only as wide as the region. A copy
+    // whose buffer does not hold all of it (an address in no importable pool resolves to the 64 KiB dummy buffer, a chunk or span
+    // import shorter than the range, a copy of every layer sized for one) would read or write past the end of a VkBuffer: device lost
+    // on NVIDIA (issue #121, saving a Pokédex photo reads a whole screen back into a buffer). Such copies are skipped.
+    const uint64_t rows = (rh + bh - 1) / bh;
+    if (c.imageSubresource.layerCount <= 1 && c.imageExtent.depth <= 1) c.bufferImageHeight = 0;   // one slice: the image stride is not used
+    const uint64_t row_len = c.bufferRowLength ? (c.bufferRowLength + bw - 1) / bw * bpb : row_bytes;
+    const uint64_t slice_rows = c.bufferImageHeight ? (c.bufferImageHeight + bh - 1) / bh : rows;
+    const uint64_t slices = static_cast<uint64_t>(c.imageSubresource.layerCount) * std::max<uint32_t>(1, c.imageExtent.depth);
+    const bool layout_ok = rw && rh && rows && (!c.bufferRowLength || c.bufferRowLength >= rw) && (!c.bufferImageHeight || c.bufferImageHeight >= rh);
+    const uint64_t buf_bytes = layout_ok ? ((slices - 1) * slice_rows + (rows - 1)) * row_len + row_bytes : 0;
+    const auto refused = [&](const char* why) {
+        static int logged = 0;
+        if (logged++ < 20) {
+            char a[96];
+            NXLOG_W(kTag, "%s %s skipped: %s (buffer %llx, %llu bytes, %ux%u region, row %lld image %lld)", to_texture ? "buffer copy into" : "copy to a buffer from",
+                    tex_desc(t, a, sizeof a), why, static_cast<unsigned long long>(p.address), static_cast<unsigned long long>(buf_bytes), rw, rh,
+                    static_cast<long long>(p.row_stride), static_cast<long long>(p.image_stride));
+        }
+    };
+    if (!layout_ok) { refused("the region is empty or the buffer strides are smaller than it"); return; }
     if (!to_texture) compute_out_guard(p.address, buf_bytes, kOutBufferWrite);     // written: held results there go back first
     BufRef br = to_texture ? held_or_pool(p.address, buf_bytes, kOutBufferRead, true) : resolve_buffer(p.address, buf_bytes);
+    if (!br.ok || br.avail < buf_bytes) { refused("the buffer range is not wholly in an imported memory pool"); return; }
     c.bufferOffset = br.offset;
     // The region and buffer layout above are in the NVN format. An image in another layout (an HDR-promoted RGBA16F target, a wider
     // fallback, transcoded ASTC) would make Vulkan address the buffer in its own texel size: past the game's bytes (issue #76: device
-    // lost on NVIDIA) and in the wrong encoding. Such copies convert through a blit, or are skipped.
+    // lost on NVIDIA) and in the wrong encoding. Such copies convert through a blit, or are skipped. A scaled render target goes through
+    // the same blit (its region in image texels, filtered down to the NVN size) so the buffer gets the whole picture at the size the
+    // game asked for; when that blit is not possible it is copied as before (the NVN texels: the top-left part of the image).
     const bool convert = fi && !vk_copy_layout_matches(tex_vk_format(t), fi->vk, c.imageSubresource.aspectMask);
+    const bool rescale = fi && !convert && tex_scale(t) != 1.0f;
+    const auto unscaled = [&](const char* why) {
+        static int logged = 0;
+        if (logged++ < 10) {
+            char a[96];
+            NXLOG_W(kTag, "%s a scaled render target %s: no scaling blit (%s), the copy uses NVN texel coordinates (wrong part of the image)",
+                    to_texture ? "buffer copied into" : "copy from", tex_desc(t, a, sizeof a), why ? why : "?");
+        }
+    };
     const auto skipped = [&](const char* why) {
         static int logged = 0;
         if (logged++ < 20) {
@@ -3619,16 +3643,24 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
         tev(t, "copy_buffer_to_texture", p.address, p.has_view ? 1 : 0);
         for (uint32_t i = 0; i < c.imageSubresource.layerCount; ++i) tex_sparse_before_copy(t, c.imageSubresource.baseArrayLayer + i, s.level);
         const char* why = nullptr;
-        if (!convert) vkCmdCopyBufferToImage(F->cb, br.buffer, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
-        else if (!tex_copy_buffer_converted(t, *F, br.buffer, c, true, &why)) { skipped(why); return; }
+        if (convert) {
+            if (!tex_copy_buffer_converted(t, *F, br.buffer, c, true, &why)) { skipped(why); return; }
+        } else if (!rescale || !tex_copy_buffer_converted(t, *F, br.buffer, c, true, &why)) {
+            if (rescale) unscaled(why);
+            vkCmdCopyBufferToImage(F->cb, br.buffer, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+        }
         tex_mark_gpu_written(t);
     } else {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         const char* why = nullptr;
-        if (!convert) vkCmdCopyImageToBuffer(F->cb, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, br.buffer, 1, &c);
-        else if (!tex_copy_buffer_converted(t, *F, br.buffer, c, false, &why)) { skipped(why); return; }
-        gpu_wrote(p.address, stride * ((rh + bh - 1) / bh) * rd, kWriteImageCopy);
+        if (convert) {
+            if (!tex_copy_buffer_converted(t, *F, br.buffer, c, false, &why)) { skipped(why); return; }
+        } else if (!rescale || !tex_copy_buffer_converted(t, *F, br.buffer, c, false, &why)) {
+            if (rescale) unscaled(why);
+            vkCmdCopyImageToBuffer(F->cb, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, br.buffer, 1, &c);
+        }
+        gpu_wrote(p.address, buf_bytes, kWriteImageCopy);
     }
     memory_barrier(F->cb);
     counters().copies.fetch_add(1, std::memory_order_relaxed);
