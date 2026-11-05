@@ -28,11 +28,18 @@ constexpr uint64_t ms(uint64_t v) { return v * 1000000ull; }
 // The [timing] defaults (play_types.h), put in front of every test settings text.
 const char* const kTiming = "[timing]\ntap_ms = 200\nhold_ms = 250\ndouble_ms = 300\npulse_ms = 80\n";
 
-// Parses kTiming plus the given body. A parse error fails the test.
+// Outputs for the game-action slots the tests bind. The test game (Pokopia) names no slot and gives them no factory output
+// (play_types.cpp kActs), so the tests give them one: primary ZR, target ZL, secondary R, jump B, alt_form Y, and set A as X plus a
+// d-pad direction (1 up, 2 right, 3 down, 4 left).
+const char* const kSlots =
+    "[switch]\nprimary = ZR\ntarget = ZL\nsecondary = R\njump = B\nalt_form = Y\n"
+    "set_a_1 = X+UP\nset_a_2 = X+RIGHT\nset_a_3 = X+DOWN\nset_a_4 = X+LEFT\n";
+
+// Parses kTiming and kSlots plus the given body. A parse error fails the test.
 Settings settings_from(const std::string& body) {
     Settings s;
     std::string err;
-    const bool ok = play::parse_settings(std::string(kTiming) + body, &s, &err);
+    const bool ok = play::parse_settings(std::string(kTiming) + kSlots + body, &s, &err);
     CHECK_MSG(ok, "parse_settings: " + err);
     return s;
 }
@@ -63,17 +70,17 @@ play::InputId key_in(int scancode) {
     return id;
 }
 
-// Layers used by the context tests: Mouse1 is fire in gameplay and confirm in the menu (menu_cursor off), W is in `all` only,
-// Left Ctrl is morph in `all` and switched off in the menu.
+// Layers used by the context tests: Mouse1 is primary in play and confirm in the menu (menu_cursor off), W is in `all` only,
+// Left Ctrl is alt_form in `all` and switched off in the menu.
 const char* const kLayers =
     "[mouse]\nmenu_cursor = 0\n"
-    "[bindings.all]\nMouse1 = fire\nW = move_forward\nLeft Ctrl = morph\n"
+    "[bindings.all]\nMouse1 = primary\nW = move_forward\nLeft Ctrl = alt_form\n"
     "[bindings.menu]\nMouse1 = confirm\nLeft Ctrl = none\n";
 
 }  // namespace
 
 NXTEST(press_key_and_mouse) {
-    Engine e(settings_from("[bindings.all]\nSpace = jump\nMouse1 = fire\n"));
+    Engine e(settings_from("[bindings.all]\nSpace = jump\nMouse1 = primary\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_SPACE, true, ms(1100));
     CHECK(has(e.output(ms(1150)), hid::kBtnB));
@@ -86,7 +93,7 @@ NXTEST(press_key_and_mouse) {
 }
 
 NXTEST(tap_pulses_after_quick_release) {
-    Engine e(settings_from("[bindings.all]\nF = missile tap\n"));
+    Engine e(settings_from("[bindings.all]\nF = secondary tap\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_F, true, ms(1000));
     CHECK(!has(e.output(ms(1050)), hid::kBtnR));   // while held a tap is not active
@@ -103,7 +110,7 @@ NXTEST(tap_pulses_after_quick_release) {
 }
 
 NXTEST(hold_starts_after_delay) {
-    Engine e(settings_from("[bindings.all]\nLeft Ctrl = morph hold\n"));
+    Engine e(settings_from("[bindings.all]\nLeft Ctrl = alt_form hold\n"));
     to_gameplay(e);   // default hold delay 250 ms
     e.key(SDL_SCANCODE_LCTRL, true, ms(2000));
     CHECK(!has(e.output(ms(2100)), hid::kBtnY));
@@ -118,7 +125,7 @@ NXTEST(hold_starts_after_delay) {
 }
 
 NXTEST(hold_custom_delay) {
-    Engine e(settings_from("[bindings.all]\nLeft Ctrl = morph hold 500\n"));
+    Engine e(settings_from("[bindings.all]\nLeft Ctrl = alt_form hold 500\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_LCTRL, true, ms(3000));
     CHECK(!has(e.output(ms(3300)), hid::kBtnY));   // 300 ms: still before the 500 ms delay
@@ -147,7 +154,7 @@ NXTEST(toggle_flips_per_press) {
 }
 
 NXTEST(doubletap_active_only_on_quick_second_press) {
-    Engine e(settings_from("[bindings.all]\nQ = lock_on doubletap\n"));
+    Engine e(settings_from("[bindings.all]\nQ = target doubletap\n"));
     to_gameplay(e);
     // A single press does nothing, before or after its release.
     e.key(SDL_SCANCODE_Q, true, ms(1000));
@@ -170,9 +177,9 @@ NXTEST(doubletap_active_only_on_quick_second_press) {
 }
 
 NXTEST(wheel_notch_pulses_beam_select) {
-    Engine e(settings_from("[bindings.all]\nWheelUp = beam_prev\nWheelDown = beam_next\n"));
+    Engine e(settings_from("[bindings.all]\nWheelUp = set_a_prev\nWheelDown = set_a_next\n"));
     to_gameplay(e);
-    e.wheel(-1, ms(1000));   // WheelDown = beam_next: tracked beam 0 -> 1 (wave, X+RIGHT)
+    e.wheel(-1, ms(1000));   // WheelDown = set_a_next: tracked cycle 0 -> 1 (X+RIGHT)
     const uint64_t want = hid::btn(hid::kBtnX) | hid::btn(hid::kBtnRight);
     const EngineOut at40 = e.output(ms(1040));
     CHECK(at40.buttons == want);
@@ -181,7 +188,7 @@ NXTEST(wheel_notch_pulses_beam_select) {
 }
 
 NXTEST(wheel_notches_are_serialised) {
-    Engine e(settings_from("[bindings.all]\nWheelUp = beam_prev\nWheelDown = beam_next\n"));
+    Engine e(settings_from("[bindings.all]\nWheelUp = set_a_prev\nWheelDown = set_a_next\n"));
     to_gameplay(e);
     e.wheel(-1, ms(2000));   // beam 0 -> 1 (X+RIGHT)
     e.wheel(-1, ms(2010));   // beam 1 -> 2 (X+DOWN), 10 ms later
@@ -207,23 +214,23 @@ NXTEST(wheel_non_select_action_is_pulse) {
 }
 
 NXTEST(beam_key_pulses_select_only) {
-    Engine e(settings_from("[bindings.all]\n1 = beam_1\n2 = beam_2\n3 = beam_3\n4 = beam_4\nE = beam_next\nR = beam_prev\n"));
+    Engine e(settings_from("[bindings.all]\n1 = set_a_1\n2 = set_a_2\n3 = set_a_3\n4 = set_a_4\nE = set_a_next\nR = set_a_prev\n"));
     to_gameplay(e);
-    // Beam 4 (plasma, X+LEFT), a quick press: tracked beam becomes 3.
+    // set_a_4 (X+LEFT), a quick press: tracked cycle becomes 3.
     e.key(SDL_SCANCODE_4, true, ms(1000));
     CHECK(e.output(ms(1040)).buttons == (hid::btn(hid::kBtnX) | hid::btn(hid::kBtnLeft)));
     e.key(SDL_SCANCODE_4, false, ms(1100));
     CHECK(e.tracked_cycle() == 3);
     CHECK(idle(e.output(ms(1150))));
 
-    // Beam 1 (power, X+UP) held for one second: the select pulse is 80 ms long, the hold does not extend it.
+    // set_a_1 (X+UP) held for one second: the select pulse is 80 ms long, the hold does not extend it.
     e.key(SDL_SCANCODE_1, true, ms(1300));
     CHECK(e.output(ms(1340)).buttons == (hid::btn(hid::kBtnX) | hid::btn(hid::kBtnUp)));
     CHECK(idle(e.output(ms(1500))));
     e.key(SDL_SCANCODE_1, false, ms(2300));
     CHECK(e.tracked_cycle() == 0);
 
-    // beam_next cycles 0 -> 1 -> 2 -> 3 -> 0 over the owned beams (all four by default).
+    // beam_next cycles 0 -> 1 -> 2 -> 3 -> 0 over the selectable members (all four by default).
     e.key(SDL_SCANCODE_E, true, ms(3000));
     e.key(SDL_SCANCODE_E, false, ms(3050));
     CHECK(e.tracked_cycle() == 1);
@@ -239,7 +246,7 @@ NXTEST(beam_key_pulses_select_only) {
 }
 
 NXTEST(beam_cycle_skips_unowned_beams) {
-    Engine e(settings_from("[bindings.all]\nE = beam_next\nR = beam_prev\n"));
+    Engine e(settings_from("[bindings.all]\nE = set_a_next\nR = set_a_prev\n"));
     to_gameplay(e);
     e.set_cycle_hint(2, 0b0101, ms(0));   // owns beams 0 and 2 only; currently on beam 2
     CHECK(e.tracked_cycle() == 2);
@@ -255,7 +262,7 @@ NXTEST(context_layers_win_over_all) {
     Engine e(settings_from(kLayers));
     e.set_context(Ctx::Play, ms(1000));
     e.mouse_button(1, true, ms(1100));
-    CHECK(has(e.output(ms(1150)), hid::kBtnZR));   // gameplay: fire from [bindings.all]
+    CHECK(has(e.output(ms(1150)), hid::kBtnZR));   // play: primary from [bindings.all]
     e.mouse_button(1, false, ms(1200));
 
     e.set_context(Ctx::Menu, ms(1300));
@@ -274,7 +281,7 @@ NXTEST(context_layers_win_over_all) {
     e.key(SDL_SCANCODE_LCTRL, false, ms(1900));
 
     e.set_context(Ctx::Play, ms(2000));
-    e.key(SDL_SCANCODE_LCTRL, true, ms(2100));      // back in gameplay: morph (Y)
+    e.key(SDL_SCANCODE_LCTRL, true, ms(2100));      // back in play: alt_form (Y)
     CHECK(has(e.output(ms(2150)), hid::kBtnY));
     e.key(SDL_SCANCODE_LCTRL, false, ms(2200));
 }
@@ -308,7 +315,7 @@ NXTEST(context_switch_keeps_identical_binding) {
 
 NXTEST(menu_cursor_owns_left_click) {
     // Default menu_cursor = 1: in the menu the left click belongs to the pointer, so a binding of Mouse1 gets nothing there.
-    Engine e(settings_from("[bindings.all]\nMouse1 = fire\n"));
+    Engine e(settings_from("[bindings.all]\nMouse1 = primary\n"));
     CHECK(e.context() == Ctx::Menu);               // engines start in the menu context
     e.mouse_button(1, true, ms(1000));
     CHECK(idle(e.output(ms(1050))));
@@ -349,7 +356,7 @@ NXTEST(stick_diagonal_is_normalised) {
 }
 
 NXTEST(release_all_clears_everything) {
-    Engine e(settings_from("[bindings.all]\nW = move_forward\nMouse1 = fire\nF = missile tap\n"));
+    Engine e(settings_from("[bindings.all]\nW = move_forward\nMouse1 = primary\nF = secondary tap\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_W, true, ms(1000));
     e.mouse_button(1, true, ms(1000));
@@ -368,7 +375,7 @@ NXTEST(release_all_clears_everything) {
 }
 
 NXTEST(set_settings_consumes_rebound_held_input) {
-    Engine e(settings_from("[bindings.all]\nMouse1 = fire\nW = move_forward\n"));
+    Engine e(settings_from("[bindings.all]\nMouse1 = primary\nW = move_forward\n"));
     to_gameplay(e);
     e.mouse_button(1, true, ms(1100));
     e.key(SDL_SCANCODE_W, true, ms(1100));
@@ -390,18 +397,18 @@ NXTEST(set_settings_consumes_rebound_held_input) {
 // Probe: a binding added in front of the held key's binding moves that binding's index in Settings::bindings, but the held key's
 // own bindings did not change. play_engine.cpp compares the indices (effective() returns indices), so this is expected to fail.
 NXTEST(set_settings_keeps_unrelated_held_key_when_bindings_shift) {
-    Engine e(settings_from("[bindings.all]\nMouse1 = fire\nW = move_forward\n"));
+    Engine e(settings_from("[bindings.all]\nMouse1 = primary\nW = move_forward\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_W, true, ms(1100));
     CHECK(close_to(e.output(ms(1150)).ly, 1.0));
 
-    e.set_settings(settings_from("[bindings.all]\nQ = lock_on\nMouse1 = fire\nW = move_forward\n"), ms(1200));
+    e.set_settings(settings_from("[bindings.all]\nQ = target\nMouse1 = primary\nW = move_forward\n"), ms(1200));
     CHECK_MSG(close_to(e.output(ms(1250)).ly, 1.0), "W is still held and its binding did not change, but it was consumed");
     e.key(SDL_SCANCODE_W, false, ms(1300));
 }
 
 NXTEST(activations_count_edges) {
-    Engine e(settings_from("[bindings.all]\nMouse1 = fire\nF = missile tap\n"));
+    Engine e(settings_from("[bindings.all]\nMouse1 = primary\nF = secondary tap\n"));
     to_gameplay(e);
     CHECK(e.activations(Act::Primary) == 0);
     e.mouse_button(1, true, ms(1100));
@@ -422,6 +429,7 @@ NXTEST(activations_count_edges) {
 }
 
 NXTEST(default_settings_smoke) {
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_game.cpp kSettingsText).
     Engine e(play::default_settings());
     CHECK(e.context() == Ctx::Menu);
 
@@ -431,47 +439,56 @@ NXTEST(default_settings_smoke) {
     e.key(SDL_SCANCODE_W, false, ms(1200));
 
     e.mouse_button(1, true, ms(1300));
-    CHECK(has(e.output(ms(1350)), hid::kBtnZR));     // Mouse1 = fire
+    CHECK(has(e.output(ms(1350)), hid::kBtnZR));     // Mouse1 = btn_zr (use move)
     e.mouse_button(1, false, ms(1400));
 
     e.mouse_button(3, true, ms(1500));
-    CHECK(has(e.output(ms(1550)), hid::kBtnZL));     // Mouse3 = lock_on
+    CHECK(has(e.output(ms(1550)), hid::kBtnZL));     // Mouse3 = btn_zl (strafe)
     e.mouse_button(3, false, ms(1600));
 
     e.key(SDL_SCANCODE_F, true, ms(1700));
-    CHECK(has(e.output(ms(1750)), hid::kBtnR));      // F = missile (press)
+    CHECK(has(e.output(ms(1750)), hid::kBtnY));      // F = btn_y (pick up)
     e.key(SDL_SCANCODE_F, false, ms(1800));
 
     e.key(SDL_SCANCODE_SPACE, true, ms(1900));
-    CHECK(has(e.output(ms(1950)), hid::kBtnB));      // Space = jump
+    CHECK(has(e.output(ms(1950)), hid::kBtnR));      // Space = btn_r (jump)
     e.key(SDL_SCANCODE_SPACE, false, ms(2000));
 
-    e.key(SDL_SCANCODE_LCTRL, true, ms(2100));
-    CHECK(has(e.output(ms(2150)), hid::kBtnY));      // Left Ctrl = morph (press)
-    e.key(SDL_SCANCODE_LCTRL, false, ms(2200));
+    e.key(SDL_SCANCODE_LSHIFT, true, ms(2100));
+    CHECK(has(e.output(ms(2150)), hid::kBtnB));      // Left Shift = btn_b (run)
+    e.key(SDL_SCANCODE_LSHIFT, false, ms(2200));
 
     e.key(SDL_SCANCODE_TAB, true, ms(2300));
-    CHECK(has(e.output(ms(2350)), hid::kBtnPlus));   // Tab = map
+    CHECK(has(e.output(ms(2350)), hid::kBtnX));      // Tab = btn_x (bag)
     e.key(SDL_SCANCODE_TAB, false, ms(2400));
 
     e.set_context(Ctx::Menu, ms(2500));
     e.key(SDL_SCANCODE_RETURN, true, ms(2600));
-    CHECK(has(e.output(ms(2650)), hid::kBtnA));      // Return = confirm
+    CHECK(has(e.output(ms(2650)), hid::kBtnA));      // Return = btn_a
     e.key(SDL_SCANCODE_RETURN, false, ms(2700));
 
     e.key(SDL_SCANCODE_ESCAPE, true, ms(2800));
-    CHECK(has(e.output(ms(2850)), hid::kBtnB));      // Escape = back
+    CHECK(has(e.output(ms(2850)), hid::kBtnPlus));   // Escape = btn_plus (main menu)
     e.key(SDL_SCANCODE_ESCAPE, false, ms(2900));
 
     e.key(SDL_SCANCODE_Q, true, ms(3000));
     CHECK(has(e.output(ms(3050)), hid::kBtnL));      // Q = btn_l
     e.key(SDL_SCANCODE_Q, false, ms(3100));
+
+    e.mouse_button(3, true, ms(3200));
+    const EngineOut back = e.output(ms(3250));       // the menu's own Mouse3 = btn_b beats the `all` layer's btn_zl
+    CHECK(has(back, hid::kBtnB));
+    CHECK(!has(back, hid::kBtnZL));
+    e.mouse_button(3, false, ms(3300));
+
+    e.wheel(1, ms(3400));
+    CHECK(has(e.output(ms(3440)), hid::kBtnUp));     // WheelUp = dpad_up in the menu
 }
 
 NXTEST(select_pulse_survives_a_slow_game_frame) {
     // The game polls once per frame and a frame can take 100 ms or more: a pulse that started and ended between two polls must still be
     // reported once, and two selects must never show in the same poll.
-    Engine e(settings_from("[bindings.all]\n1 = beam_1\n2 = beam_2\n"));
+    Engine e(settings_from("[bindings.all]\n1 = set_a_1\n2 = set_a_2\n"));
     to_gameplay(e);
     e.key(SDL_SCANCODE_1, true, ms(1000));
     e.key(SDL_SCANCODE_1, false, ms(1010));
@@ -489,7 +506,7 @@ NXTEST(select_pulse_survives_a_slow_game_frame) {
 }
 
 NXTEST(select_pulse_holds_for_frame_boundaries_once_they_are_counted) {
-    Engine e(settings_from("[bindings.all]\n2 = beam_2\n"));
+    Engine e(settings_from("[bindings.all]\n2 = set_a_2\n"));
     to_gameplay(e);
     e.frame_tick();
     e.key(SDL_SCANCODE_2, true, ms(1000));
