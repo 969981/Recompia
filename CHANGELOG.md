@@ -10,6 +10,10 @@ of the game (version 2.0.1a): the download contains no game files.
   view distance and texture sharpness they also pick a render scale and a frame limit (Steam Deck 40 fps, Legion Go S and
   Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
   afterwards switches to Custom, as before. The render scale part applies after a restart.
+- Fewer hitches the first time something is drawn: shaders compile in the background and the object appears a frame later, on every
+  platform, compute shaders included (they are also remembered and built at the next start). The game no longer falls back to compiling
+  on the spot after one slow frame. `[nvn] gpl_gate = time`, `async_whole = false`, `async_compute = false` and `compute_prewarm = false`
+  bring back the old behaviour. Not yet measured on a Deck.
 
 ### Fixes
 - Steam Deck / Linux: pipelines are no longer rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`).

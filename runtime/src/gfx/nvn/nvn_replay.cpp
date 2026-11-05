@@ -20,6 +20,7 @@
 #include <tuple>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "nxrt/config.h"
 #include "nxrt/frame_limiter.h"
@@ -3335,6 +3336,44 @@ void do_draw_xfb(const P_DrawXfb& p) {
 
 std::string g_cs_missing;   // trace: the untranslated block(s) of the bound compute program ("cs -" dispatches)
 
+// ---- [nvn] async_compute: which dispatches may be skipped while their pipeline builds -----------------------------------------------
+// Only one whose writes the CPU cannot see: every storage buffer it binds lies in one pool with NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS (not
+// virtual: its physical backing may be CPU-visible) and in no 64 KiB granule a buffer copy ever read into a CPU-visible pool, and no storage
+// image it binds is a texture download_texture read back. Image buffers (storage texel buffers) are not checked: such a dispatch is never
+// skipped. Render thread.
+std::unordered_set<uint64_t> g_cs_cpu_read;   // granules (address >> 16) copied into CPU-visible pools (run_list, CopyBufferToBuffer)
+
+void note_copy_for_cpu(uint64_t src, uint64_t dst, uint64_t size) {
+    static const bool on = async_compute_on();
+    if (!on || !size || (pool_flags_at(dst) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) return;
+    size = std::min<uint64_t>(size, 1ull << 34);              // a malformed size: bounded (the copy itself fails to resolve)
+    for (uint64_t g = src >> 16, e = (src + size - 1) >> 16; g <= e; ++g) g_cs_cpu_read.insert(g);
+}
+
+bool dispatch_cpu_blind(const ProgLayout& pl) {
+    for (const BindingDesc& d : pl.bindings) {
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) return false;
+        if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+            const TexResolved r = resolve_image(d);
+            if (r.tex && tex_was_read_back(r.tex)) return false;
+            continue;
+        }
+        if (d.type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || b.nvn.source != NvnSource::StorageBuffer) continue;   // read only, or ours
+        const int slot = b.nvn.index >= 0 ? b.nvn.index : storage_slot_for(d.nvn_stage, b.nvn.c0_offset);       // as bind_sets
+        if (slot < 0 || slot >= 16 || !S.ssbo[d.nvn_stage][slot].addr) continue;                                // the dummy is bound
+        const GState::Bind& bind = S.ssbo[d.nvn_stage][slot];
+        if (!bind.size) return false;                         // the range would be the rest of the pool: not checked
+        const uint64_t lo = bind.addr, hi = bind.addr + bind.size - 1;
+        const uint32_t f = pool_flags_at(lo);
+        if (!(f & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || (f & NVN_MEMORY_POOL_FLAGS_VIRTUAL)) return false;
+        if (pool_lookup(lo).pool != pool_lookup(hi).pool) return false;
+        for (uint64_t g = lo >> 16; g <= (hi >> 16); ++g)
+            if (g_cs_cpu_read.count(g)) return false;
+    }
+    return true;
+}
+
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
@@ -3374,6 +3413,18 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
                 TRACE("    cs b%u %s type %d -> %s @%p:%s", d.binding, b.name.c_str(), static_cast<int>(d.type), tex_desc(r.tex, c, sizeof c), r.tex ? static_cast<void*>(r.tex->mem) : nullptr, words.c_str());
             }
         }
+    }
+    // [nvn] async_compute in play (the loading gate): a dispatch whose pipeline is not built and whose writes the CPU cannot see is skipped
+    // while its pipeline goes first in line on the async threads (pop-in for a frame or two). Any other is built here as before and logged.
+    if (async_compute_on() && gpl_gate_open() && !compute_pipeline_done(cs, *pl) && dispatch_cpu_blind(*pl) && compute_queue_front(cs, *pl)) {
+        compute_note_skipped();
+        ft::mark("cs.skip");
+        static int logged = 0;
+        if (logged < 50) {
+            ++logged;
+            NXLOG_I(kTag, "compute: dispatch skipped while its pipeline builds in the background: %s", cs->hash.c_str());
+        }
+        return;
     }
     VkPipeline pipe = compute_pipeline(cs, *pl);
     if (!pipe) return;
@@ -4058,6 +4109,7 @@ void run_list(const CmdList& list, int depth) {
             }
             case Op::CopyBufferToBuffer: {
                 const auto& p = r.payload<P_CopyBufferToBuffer>();
+                note_copy_for_cpu(p.src, p.dst, p.size);   // [nvn] async_compute: what is copied into a CPU-visible pool, the CPU reads
                 end_pass();
                 BufRef s = held_or_pool(p.src, p.size, kOutBufferRead, true), d = resolve_buffer(p.dst, p.size);
                 if (s.ok && d.ok) {
@@ -4262,9 +4314,13 @@ void run_list(const CmdList& list, int depth) {
 // (Pokopia: 14 s at 60 fps before the title), so a run of light frames stays unpaced for up to [display] unpaced_loading_s (20, 0 = off)
 // seconds even without stalls. Once the game has drawn a real scene the stall rule alone applies, so a light screen in the world (a
 // menu, a fade) is never unpaced just for being light, and a frame with 16+ draws is always paced.
+// The detection always runs: its result (`want`) is also the loading gate of the compile paths (replay_loading, [nvn] gpl_gate = state).
+// Only the limiter action depends on [display] unpaced_loading.
+static bool g_loading = true;      // the detector's current `want`; loading until the first present (render thread)
+bool replay_loading() { return g_loading; }
+
 void note_frame_for_pacing() {
     static const bool on = nxrt::config_get_bool("display", "unpaced_loading", true);
-    if (!on) return;
     using clk = std::chrono::steady_clock;
     static uint64_t last_p = 0, last_d = 0;
     static int low = 0;
@@ -4284,9 +4340,15 @@ void note_frame_for_pacing() {
     static const double boot_s = std::max(0.0, nxrt::config_get_double("display", "unpaced_loading_s", 20.0));
     const bool boot_run = !full && now - low_since < std::chrono::duration<double>(boot_s);
     const bool want = low >= 3 && (now - last_stall < std::chrono::milliseconds(1500) || boot_run);
-    if (want != nxrt::frame_limiter_unpaced()) {
-        nxrt::frame_limiter_set_unpaced(want);
+    if (want != g_loading) {
+        g_loading = want;
         ft::mark(want ? "pace.loading" : "pace.playing", static_cast<uint32_t>(per));
+        if (!on)
+            NXLOG_I(kTag, "%s (present %llu, %llu draws; pacing unchanged: [display] unpaced_loading is false)", want ? "loading" : "playing",
+                    static_cast<unsigned long long>(p), static_cast<unsigned long long>(per));
+    }
+    if (on && want != nxrt::frame_limiter_unpaced()) {
+        nxrt::frame_limiter_set_unpaced(want);
         NXLOG_I(kTag, "pacing %s (present %llu, %llu draws)", want ? "off: loading" : "on", static_cast<unsigned long long>(p),
                 static_cast<unsigned long long>(per));
     }
@@ -4304,8 +4366,9 @@ void replay_begin_submit(Frame& f) {
     ft::split_count(ft::kCntSubmissions);
     g_rp_t0 = ft::on() ? ft::now_ns() : 0;
     RpScope rp_begin(kRpBegin);
-    gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_async defers draws only while frames are flowing
+    gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_gate = time: frames flowing = play
     note_frame_for_pacing();
+    gpl_latch_play(!replay_loading());   // [nvn] gpl_gate = state: play vs loading for the whole submission (a stall inside it cannot flip it)
     F = &f;
     { RpScope rp_(kRpTexPoll); ft::SplitScope sp_(ft::kSplSetup); tex_poll_cpu_writes(); }   // per call: see setup_coalesce_on (nvn_gpu_texture.cpp)
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)

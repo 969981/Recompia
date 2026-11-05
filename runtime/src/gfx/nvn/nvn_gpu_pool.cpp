@@ -1729,5 +1729,11 @@ void out_log() {
     p_end = end; p_gpu = gpu; p_fault = fault; p_inval = inval; pn_fault = nf; pn_inval = ni; pn_def = nd; pn_read = nr; pn_ng = ng; pn_gf = ngf; p_gfaults = gfaults;
 }
 
+// The NVNmemoryPoolFlags of the pool holding a GPU address (0: in no pool). [nvn] async_compute's skip rule (do_dispatch). Any thread.
+uint32_t pool_flags_at(uint64_t gpu_address) {
+    const PoolHit hit = pool_lookup(gpu_address);
+    return hit.pool ? static_cast<uint32_t>(hit.pool->flags) : 0u;
+}
+
 }  // namespace gpu
 }  // namespace nxrt::nvn::be
