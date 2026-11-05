@@ -1,6 +1,7 @@
 # Changelog
 
-This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
+Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
+(last reviewed: pokopia-native 1.2.4, `555813a`). This fork started from [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
