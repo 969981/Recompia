@@ -582,6 +582,19 @@ void upgrade_main() {
     }
 }
 
+// Wine / Proton host (the same test as the pool's wine_host()).
+bool running_under_wine() {
+#if defined(_WIN32)
+    static const bool w = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt && GetProcAddress(nt, "wine_get_version");
+    }();
+    return w;
+#else
+    return false;
+#endif
+}
+
 void init_once() {
     std::lock_guard<std::mutex> lk(g_mu);
     if (g_inited) return;
@@ -591,7 +604,10 @@ void init_once() {
     g_lto = config_get_bool("nvn", "gpl_lto", false);
     g_cold = config_get_bool("nvn", "gpl_cold", true);
     {
-        const std::string m = config_get_str("nvn", "gpl_upgrade", "whole");
+        std::string m = config_get_str("nvn", "gpl_upgrade", "auto");
+        const bool is_auto = m != "off" && m != "false" && m != "0" && m != "lto" && m != "whole";
+        if (is_auto) m = running_under_wine() ? "off" : "whole";
+        NXLOG_I(kTag, "gpl_upgrade %s (%s)", m.c_str(), is_auto ? (running_under_wine() ? "auto, Wine" : "auto, not Wine") : "set");
         g_up_mode = (m == "off" || m == "false" || m == "0") ? UpMode::Off : (m == "lto") ? UpMode::Lto : UpMode::Whole;
         g_retain = g_lto || g_up_mode == UpMode::Lto;
     }
