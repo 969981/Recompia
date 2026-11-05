@@ -16,6 +16,9 @@ is untouched.
 
 ## Trying it
 
+The launcher has a **Link Play** page that does steps 1 and 2 below for you: pick Alone, Host on this PC (starts the relay, shows the
+address and a room code) or Visit (type the host address and code). It writes `[net] server` and `room_code` in pkp.ini.
+
 1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it). Other PCs on the LAN need
    that port reachable (Windows Firewall: allow it on private networks).
 2. On every player's PC, `pkp.ini`:

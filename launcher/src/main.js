@@ -4,12 +4,14 @@ import './components.css';
 import { listen } from '@tauri-apps/api/event';
 import { api, icon, refreshIcons, errText, toast } from './util.js';
 import * as play from './pages/play.js';
+import * as linkplay from './pages/linkplay.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
 import * as about from './pages/about.js';
 
 const PAGES = {
   play: { mod: play, label: 'Play', icon: 'play' },
+  linkplay: { mod: linkplay, label: 'Link Play', icon: 'users' },
   settings: { mod: settings, label: 'Settings', icon: 'settings' },
   setup: { mod: setup, label: 'Game files', icon: 'folder-open' },
   about: { mod: about, label: 'About', icon: 'info' },
