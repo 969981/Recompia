@@ -30,6 +30,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## pokopia-native (MIT; ampere-lower/ GPL-3.0-or-later)
+
+Source: https://github.com/xFractals/pokopia-native at 7c3655d, `LICENSE`, reproduced verbatim:
+
+```text
+MIT License
+
+Copyright (c) 2026 the pokopia-native contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment.
+
+Its `ampere-lower/` folder is separate: it is GPL-3.0-or-later, not MIT. Per its `NOTICE.md` it is a cut-down build of the `ampere-spirv` tool from the Eden-NS2 emulator fork (https://github.com/0x2593/Eden-NS2, GPL-3.0-or-later): the Switch 2 (Ampere) shader capture and the Ampere-to-Maxwell lowering headers from `src/shader_recompiler/frontend/ampere/`, with `main.cpp` reduced to the lowering stage. The headers are unchanged except for four Pokopia fixes (FSEL operand modifiers, HFMA2 `.H0_NH1` lane swap). Its `LICENSE` is the GPL-3.0 text, the same as the `LICENSE` file at the repository root.
+
 ## smo-recomp, ScarletNX and ssbu-recomp (GPL-3.0)
 
 `src/media/movie_mf.cpp` (the `movie::` library on Media Foundation) follows the design of smo-recomp `runtime/services/nnmovie_mf.c` (GPL-3.0): the object layouts of the library, the decoder's two buffer pools, and the token that carries a decoded sample from the extractor to a decoder. The code is rewritten for nxrt (C++, a decode-ahead worker, edit lists, the plain exported wrappers instead of virtual calls).
