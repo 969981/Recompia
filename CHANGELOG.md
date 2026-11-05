@@ -11,6 +11,11 @@ of the game (version 2.0.1a): the download contains no game files.
   Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
   afterwards switches to Custom, as before. The render scale part applies after a restart.
 
+### Fixes
+- Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
+  into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
+  higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
+
 ## 0.5.0 (build I: Iguana)
 
 ### What's new
