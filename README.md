@@ -22,6 +22,7 @@
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="CREDITS.md">Credits</a> ·
+  <a href="https://github.com/xFractals/pokopia-native">Parent: pokopia-native</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="LEGAL.md">Legal</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a>
@@ -29,6 +30,9 @@
 
 > [!IMPORTANT]
 > **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
+
+> [!NOTE]
+> **Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native).** This project follows pokopia-native: whenever it ships an update, the parts that apply here are brought over in a tested build (see [CONTRIBUTING.md](CONTRIBUTING.md#keeping-up-with-pokopia-native)). It started as a fork of [Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1.
 
 > [!NOTE]
 > **Built with AI, supervised by a human.** This project is developed primarily with AI, with me as the supervisor. I have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by me before it lands.
@@ -139,6 +143,7 @@ Link Play is still being tested: joining and walking around together work, long 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
 - **The launcher says the game files are from an older version, or that the update is missing.** This release needs version 2.0.1a. Dump the game again with the update installed. The base game alone is not enough.
 - **The launcher says it found no usable game files, or Set up says a file does not match.** Pick the folder that holds `base` and `updates` (for example `Pokopia_v2.0.1a`). Each needs `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) and `romfs`. A file that does not match is damaged. Dump it again, or copy it again.
+- **The launcher says the game data (romfs) is incomplete, or the game closed at start with "pkp.exe exited with code 4".** Your dumping tool wrote the update's `romfs` without the base game's files under it (an update only holds the files it changes). Keep the base game in the same dump (`base` next to `updates`, each with `exefs` and `romfs`) and pick the folder that holds both: the launcher adds the missing files from `base` itself. Then press **Set up** once more. Otherwise dump the game again with the update merged into the base game.
 - **The launcher says the dump was copied in text mode.** You copied it with FTP in text mode, which damages `main`, `sdk` and `subsdk0`. Copy the `exefs` and `romfs` folders again with the transfer type set to **Binary** (FileZilla: Transfer, Transfer type, Binary).
 - **Your dump is one file** (`.nsp`, `.xci`). The launcher takes the game as folders, or as a `.nup`. Extract the `.nsp` or `.xci` to folders with your dumping tool.
 - **Setup stops with an error about a file that cannot be opened or removed.** Put the folder somewhere plain, like `C:\Pokopia`, not in a folder that OneDrive syncs. Your antivirus may be scanning the files it is building: wait for it, or allow the folder. **Open setup log** shows where it stopped.

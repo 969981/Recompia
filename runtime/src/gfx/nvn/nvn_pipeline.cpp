@@ -1,22 +1,36 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pipeline layouts, shader modules and pipelines (see nvn_pipeline.h). Pipeline creation is synchronous on the render thread; a
+// Pipeline layouts, shader modules and pipelines (see nvn_pipeline.h). A pipeline the key file's prewarm or the pipeline libraries do not
+// provide is created on the render thread at its first draw, or with [nvn] async_whole on a background thread while the draw is skipped; a
 // VkPipelineCache persists between runs ([nvn] pipeline_cache, default "pipeline_cache.bin").
 #include "nvn_pipeline.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 #if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
+#endif
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 #include "nxrt/config.h"
@@ -82,6 +96,87 @@ nxrt::GaugeCounter g_gfx_keys{"nvn.pipeline_keys"};              // entries in g
 nxrt::GaugeCounter g_compute_keys{"nvn.compute_pipeline_keys"};  // entries in g_compute
 nxrt::GaugeCounter g_const_n{"nvn.const_buffers"};               // entries in g_const_bufs
 nxrt::GaugeCounter g_const_bytes{"nvn.const_buffers.bytes"};     // bytes of the constant buffers in g_const_bufs
+
+// ---- [nvn] async_whole (nvn_pipeline.h) --------------------------------------------------------------------------------------
+// Whole pipelines for draws that are skipped meanwhile. The job's `up` is the bucket entry's: the lookup swaps the pipeline in with
+// gpl_take_upgrade once state is 1 (the entry's own pipeline is null until then, so the draw is skipped).
+struct AsyncJob {
+    GraphicsKey key;
+    const ProgLayout* layout = nullptr;   // layouts live as long as the back end
+    std::shared_ptr<PipeUpgrade> up;
+};
+std::mutex g_aw_mu;
+std::condition_variable g_aw_cv;
+std::deque<AsyncJob> g_aw_q;
+std::vector<std::thread> g_aw_threads;
+bool g_aw_stop = false;
+std::atomic<uint64_t> g_aw_built{0}, g_aw_failed{0}, g_aw_skipped{0};
+
+bool wine_host() {
+#if defined(_WIN32)
+    static const bool w = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt && GetProcAddress(nt, "wine_get_version");
+    }();
+    return w;
+#else
+    return false;
+#endif
+}
+
+void aw_main() {
+    log_set_thread_name("nvn-async-pipe");
+    set_compile_thread_priority();
+    for (;;) {
+        AsyncJob j;
+        {
+            std::unique_lock<std::mutex> lk(g_aw_mu);
+            g_aw_cv.wait(lk, [] { return g_aw_stop || !g_aw_q.empty(); });
+            if (g_aw_stop) return;
+            j = std::move(g_aw_q.front());
+            g_aw_q.pop_front();
+        }
+        VkPipeline p = VK_NULL_HANDLE;
+        {
+            NXFT("pipe.async_whole");
+            p = build_graphics_pipeline(j.key, *j.layout);
+        }
+        (p ? g_aw_built : g_aw_failed).fetch_add(1, std::memory_order_relaxed);
+        j.up->pipe = p;
+        j.up->state.store(1, std::memory_order_release);
+    }
+}
+
+// Render thread. The entry's upgrade, built on the async threads.
+std::shared_ptr<PipeUpgrade> aw_queue(const GraphicsKey& key, const ProgLayout& layout) {
+    std::lock_guard<std::mutex> lk(g_aw_mu);
+    if (g_aw_stop) return nullptr;
+    if (g_aw_threads.empty()) {
+        const int n = static_cast<int>(std::clamp<int64_t>(nxrt::config_get_int("nvn", "async_whole_threads", 1), 1, 4));
+        for (int i = 0; i < n; ++i) g_aw_threads.emplace_back(aw_main);
+        NXLOG_I(kTag, "async_whole: %d background thread%s for pipelines that would be built at the draw", n, n == 1 ? "" : "s");
+    }
+    AsyncJob j;
+    j.key = key;
+    j.layout = &layout;
+    j.up = std::make_shared<PipeUpgrade>();
+    auto up = j.up;
+    g_aw_q.push_back(std::move(j));
+    g_aw_cv.notify_one();
+    return up;
+}
+
+void aw_stop() {
+    std::vector<std::thread> t;
+    {
+        std::lock_guard<std::mutex> lk(g_aw_mu);
+        g_aw_stop = true;
+        g_aw_q.clear();               // their entries keep state 0: nothing to destroy
+        t.swap(g_aw_threads);
+    }
+    g_aw_cv.notify_all();
+    for (auto& th : t) th.join();
+}
 
 VkShaderStageFlagBits stage_bit(ShaderStage s) {
     switch (s) {
@@ -723,6 +818,7 @@ static VkPipeline take_entry(GfxEntry& e) {
     counters().pipeline_cache_hits.fetch_add(1, std::memory_order_relaxed);
     if (e.up && e.up->state.load(std::memory_order_acquire) != 0) gpl_take_upgrade(e.second, e.alt, e.up);
     if (e.alt && gpl_ab_whole()) return e.alt;
+    if (!e.second && e.up) g_aw_skipped.fetch_add(1, std::memory_order_relaxed);   // still being built in the background: skipped
     return e.second;
 }
 
@@ -742,8 +838,11 @@ VkPipeline graphics_pipeline(const GraphicsKey& key, const ProgLayout& layout) {
     prewarm_init();
     VkPipeline pipe = VK_NULL_HANDLE;
     std::shared_ptr<PipeUpgrade> later;          // the key file's whole pipeline, still being built: it replaces the linked one
-    // compiled ahead on a worker; one being compiled is linked from its parts meanwhile when they are built (else waited for)
-    if (prewarm_take(key, &pipe, [&] { return gpl_ready(key, layout); }, &later)) {
+    // [nvn] async_whole while the game is not loading: nothing is built whole or waited for here (stream-out draws excepted)
+    const bool no_stall = async_whole_on() && !key.xfb && gpl_frames_flowing();
+    // compiled ahead on a worker; one being compiled is linked from its parts meanwhile when they are built (else waited for, or with
+    // no_stall left to the worker while the draw is skipped)
+    if (prewarm_take(key, &pipe, [&] { return gpl_ready(key, layout); }, &later, no_stall)) {
         ++g_pipeline_count;
         g_gfx_keys.add(1);
         bucket.push_back({key, pipe, VK_NULL_HANDLE, nullptr});
@@ -764,6 +863,15 @@ VkPipeline graphics_pipeline(const GraphicsKey& key, const ProgLayout& layout) {
     if (pending) {                               // (rare) parts gone missing between the check and the link: skipped until the whole pipeline is in
         bucket.push_back({key, VK_NULL_HANDLE, VK_NULL_HANDLE, up});
         return VK_NULL_HANDLE;
+    }
+    if (no_stall) {                              // [nvn] async_whole: the key file's build, or one of our own, replaces the empty entry
+        if (!up) up = aw_queue(key, layout);
+        if (up) {
+            ++g_pipeline_count;                  // counted now: the swap in gpl_take_upgrade replaces, it does not add
+            bucket.push_back({key, VK_NULL_HANDLE, VK_NULL_HANDLE, up});
+            g_aw_skipped.fetch_add(1, std::memory_order_relaxed);
+            return VK_NULL_HANDLE;
+        }
     }
     NXFT("pipe.create");
     pipe = build_graphics_pipeline(key, layout);
@@ -868,10 +976,25 @@ uint64_t module_content_id(VkShaderModule m) {
 }
 
 uint64_t pipelines_built_at_draw() { return g_built_at_draw.load(std::memory_order_relaxed); }
+uint64_t pipelines_built_async() { return g_aw_built.load(std::memory_order_relaxed); }
+uint64_t draws_skipped_async() { return g_aw_skipped.load(std::memory_order_relaxed); }
+
+bool async_whole_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "async_whole", "auto");
+        bool r = v == "auto" ? wine_host() : (v == "on" || v == "1" || v == "true");
+        // [nvn] gpl_ab keeps a finished build as the measured alternative instead of swapping it in: an empty entry would stay empty
+        if (r && nxrt::config_get_int("nvn", "gpl_ab", 0) > 0) r = false;
+        NXLOG_I(kTag, "async_whole %s (%s%s)", r ? "on" : "off", v.c_str(), v == "auto" ? (wine_host() ? ", Wine" : ", not Wine") : "");
+        return r;
+    }();
+    return on;
+}
 
 void pipeline_shutdown() {
     VkDevice d = vkdev();
     prewarm_shutdown();
+    aw_stop();
     gpl_stop();
     if (!g_cache_big || g_new_since_save.load() >= 300) save_cache();
     for (auto& [h, bucket] : g_gfx)

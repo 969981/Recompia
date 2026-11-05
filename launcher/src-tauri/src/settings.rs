@@ -105,10 +105,18 @@ pub fn portable(dir: &Path, p: &str) -> String {
     }
 }
 
-pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), String> {
+/// `romfs_base`: the base game's romfs to layer under `romfs` ([fs] romfs_base; empty: none). It follows the launcher's choice while
+/// [fs] romfs is the launcher's own value; a romfs the user pointed elsewhere keeps the romfs_base the user set with it.
+pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str) -> Result<(), String> {
     let path = dir.join(PKP_INI);
     let mut ini = load(&path).unwrap_or_else(Ini::empty);
     let mut changed = !path.exists();
+    let resolve = |v: &str| {
+        let p = Path::new(v.trim());
+        let full = if p.is_absolute() { p.to_path_buf() } else { dir.join(p) };
+        fs::canonicalize(&full).unwrap_or(full)
+    };
+    let romfs_was_ours = ini.get("fs", "romfs").map_or(true, |cur| cur.trim().is_empty() || resolve(&cur) == resolve(romfs));
 
     // [fs] exefs and [fs] romfs: kept while they name an existing folder or .nup (the user may have pointed them elsewhere)
     for (key, value) in [("exefs", exefs), ("romfs", romfs)] {
@@ -118,6 +126,14 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str) -> Result<(), Str
         let cur_full = if cur_path.is_absolute() { cur_path.to_path_buf() } else { dir.join(cur_path) };
         if cur.trim().is_empty() || !(cur_full.is_dir() || cur_full.is_file()) {
             ini.set("fs", key, &portable(dir, value));
+            changed = true;
+        }
+    }
+    let romfs_is_ours = ini.get("fs", "romfs").map_or(false, |cur| resolve(&cur) == resolve(romfs));
+    if romfs_was_ours && romfs_is_ours {
+        let want = if romfs_base.is_empty() { String::new() } else { portable(dir, romfs_base) };
+        if ini.get("fs", "romfs_base").unwrap_or_default().trim() != want {
+            ini.set("fs", "romfs_base", &want);
             changed = true;
         }
     }
@@ -164,13 +180,13 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let d = crate::dump::fwd(&dir);
-        ensure_play_paths(&dir, &d, &d).unwrap();
+        ensure_play_paths(&dir, &d, &d, "").unwrap();
         assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(crate::shaders::MISSING_REL));
         // the user turned it off: kept
         let mut ini = load(&dir.join(PKP_INI)).unwrap();
         ini.set("nvn", "dump_missing", "");
         write_atomic(&dir.join(PKP_INI), &ini.to_text()).unwrap();
-        ensure_play_paths(&dir, &d, &d).unwrap();
+        ensure_play_paths(&dir, &d, &d, "").unwrap();
         assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(""));
         let _ = fs::remove_dir_all(&dir);
     }

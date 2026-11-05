@@ -18,6 +18,7 @@
 #include "../src/net/vnet.h"
 #include "../src/net/vsock.h"
 #include "../src/services/ldn.h"
+#include "nxrt/services_api.h"
 #include "nxrt/svc.h"
 #include "svc_test_util.h"
 
@@ -962,4 +963,59 @@ NXTEST(ldn_room_codes) {
     CHECK_EQ(host->room().nodes.size(), 2u);
     REQUIRE(wrong->join(lj.room_id, kVersion, ph, &j) == 0);   // an open room takes a lobby with any code
     CHECK_EQ(lan_host->room().nodes.size(), 2u);
+}
+
+// Session variant (services_api.h ldnapi): it rides in bits 12..14 of the version on the wire and the relay's version check refuses a
+// player whose variant differs (ConnectRejected, as an older build without variants is); the game sees its own version only.
+NXTEST(ldn_session_variant) {
+    nxsvc::Env env;
+    vnet::LoopbackRelay relay;
+    auto host = relay.client("Hosty");
+    vnet::RoomConfig rc = room_config();
+    rc.comm_version = static_cast<int16_t>(kVersion | (1 << services::ldnapi::kVariantShift));   // a host with variant 1
+    vnet::Joined hj;
+    REQUIRE(host->create(rc, &hj) == 0);
+    services::ldn_set_lobby(relay.client("Guest"));
+    services::ldnapi::set_session_variant(0, "Test mod");
+
+    nxsvc::Session l = open_ldn();
+    REQUIRE(l.valid());
+    CHECK_EQ(l.call(400, nxsvc::Args().with_pid().u64(0)).result, 0u);
+    CHECK_EQ(l.call(300).result, 0u);                                      // OpenStation
+    std::vector<uint8_t> filter(0x60, 0);
+    put<uint64_t>(filter, 0, kLcid);
+    put<uint32_t>(filter, 0x5C, 1);
+    std::vector<uint8_t> nis(24 * kNi);
+    nxsvc::Reply sc = l.call(102, nxsvc::Args().u16(0).pad(6).bytes(filter.data(), 0x60).buf_b(nis.data(), nis.size()));
+    REQUIRE(sc.get<uint16_t>(0) == 1);
+    std::vector<uint8_t> ni(nis.begin(), nis.begin() + kNi);
+    CHECK_EQ(at<int16_t>(ni, kNodes + 0x2E), kVersion);                    // the game's own version
+    CHECK_EQ(l.call(302, nxsvc::Args().bytes(connect_args(kVersion).data(), 0x7C).buf_x(ni.data(), kNi)).result, kConnectRejected);
+    CHECK_EQ(state(l), 4u);
+    CHECK_EQ(host->room().nodes.size(), 1u);
+    services::ldnapi::set_session_variant(1, "Test mod");
+    CHECK_EQ(l.call(302, nxsvc::Args().bytes(connect_args(kVersion).data(), 0x7C).buf_x(ni.data(), kNi)).result, 0u);
+    CHECK_EQ(state(l), 5u);
+    std::vector<uint8_t> cur(kNi);
+    CHECK_EQ(l.call(1, nxsvc::Args().buf_c(cur.data(), kNi)).result, 0u);
+    CHECK_EQ(at<int16_t>(cur, kNodes + 0x2E), kVersion);
+    CHECK_EQ(l.call(304).result, 0u);                                      // Disconnect
+    CHECK_EQ(l.call(301).result, 0u);                                      // CloseStation
+    host->leave();
+
+    // Hosting with variant 1: the room carries it on the wire; a peer without it is refused, one with it joins.
+    CHECK_EQ(l.call(200).result, 0u);                                      // OpenAccessPoint
+    CHECK_EQ(l.call(202, nxsvc::Args().bytes(create_args(4).data(), 0x98)).result, 0u);
+    auto peer = relay.client("Peer");
+    std::vector<vnet::Room> rooms;
+    CHECK_EQ(peer->scan(kLcid, 0xFFFF, &rooms), 0);
+    REQUIRE(rooms.size() == 1);
+    CHECK_EQ(rooms[0].comm_version, static_cast<int16_t>(kVersion | 0x1000));
+    vnet::Joined j;
+    CHECK_EQ(peer->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j), vnet::kLobbyVersion);
+    CHECK_EQ(peer->join(rooms[0].room_id, static_cast<int16_t>(kVersion | 0x1000), vnet::passphrase_hash(pass(), 64), &j), 0);
+    CHECK_EQ(l.call(204).result, 0u);                                      // DestroyNetwork
+    CHECK_EQ(l.call(201).result, 0u);                                      // CloseAccessPoint
+    CHECK_EQ(l.call(401).result, 0u);
+    services::ldnapi::set_session_variant(0, "");
 }

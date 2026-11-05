@@ -229,7 +229,7 @@ void worker_main() {
 
 // The summary line every 30 s: what was deferred, built at the draw and built in the background since the last one (session totals in brackets).
 void log_summary_locked() {
-    struct Snap { uint64_t deferred = 0, linked = 0, whole_draw = 0, whole_bg = 0, parts_bg = 0, upgrades = 0; };
+    struct Snap { uint64_t deferred = 0, linked = 0, whole_draw = 0, whole_bg = 0, parts_bg = 0, upgrades = 0, aw_skipped = 0, aw_built = 0; };
     static Snap last;
     const GplStats g = gpl_stats();
     Snap now;
@@ -239,16 +239,20 @@ void log_summary_locked() {
     now.whole_bg = g_stats.built;
     now.parts_bg = g.parts_ahead;
     now.upgrades = g.upgrades_done;
+    now.aw_skipped = draws_skipped_async();
+    now.aw_built = pipelines_built_async();
     size_t waiting = 0;
     for (const auto& j : g_rec_jobs)
         if (j && j->state <= 1) ++waiting;
     auto d = [](uint64_t a, uint64_t b) { return static_cast<unsigned long long>(a - b); };
     auto u = [](uint64_t a) { return static_cast<unsigned long long>(a); };
     NXLOG_I("nvn.pipe", "pipelines, last 30 s (session): draws deferred %llu (%llu), linked at the draw %llu (%llu), built whole at the draw %llu (%llu); "
-                        "background builds %llu (%llu): whole %llu, parts %llu, upgrades %llu; keys known %zu (%llu from the file, %llu new), %zu still to build",
+                        "background builds %llu (%llu): whole %llu, parts %llu, upgrades %llu; async_whole: draws skipped %llu (%llu), built %llu (%llu); "
+                        "keys known %zu (%llu from the file, %llu new), %zu still to build",
             d(now.deferred, last.deferred), u(now.deferred), d(now.linked, last.linked), u(now.linked), d(now.whole_draw, last.whole_draw), u(now.whole_draw),
             d(now.whole_bg + now.parts_bg + now.upgrades, last.whole_bg + last.parts_bg + last.upgrades), u(now.whole_bg + now.parts_bg + now.upgrades),
-            d(now.whole_bg, last.whole_bg), d(now.parts_bg, last.parts_bg), d(now.upgrades, last.upgrades), g_recs.size(), u(g_stats.loaded), u(g_stats.recorded),
+            d(now.whole_bg, last.whole_bg), d(now.parts_bg, last.parts_bg), d(now.upgrades, last.upgrades), d(now.aw_skipped, last.aw_skipped),
+            u(now.aw_skipped), d(now.aw_built, last.aw_built), u(now.aw_built), g_recs.size(), u(g_stats.loaded), u(g_stats.recorded),
             waiting);
     last = now;
 }
@@ -370,7 +374,8 @@ size_t prewarm_program(const ShaderInfo* const stages[6]) {
     return ahead.size();
 }
 
-bool prewarm_take(const GraphicsKey& key, VkPipeline* out, const std::function<bool()>& can_link, std::shared_ptr<PipeUpgrade>* later) {
+bool prewarm_take(const GraphicsKey& key, VkPipeline* out, const std::function<bool()>& can_link, std::shared_ptr<PipeUpgrade>* later,
+                  bool no_wait) {
     Rec want;
     if (!rec_of(key, &want)) return false;
     const uint64_t digest = digest_of(want.h, want.rest);
@@ -408,6 +413,17 @@ bool prewarm_take(const GraphicsKey& key, VkPipeline* out, const std::function<b
                 ++g_stats.linked_meanwhile;
                 return false;
             }
+        }
+        if (no_wait && later) {                                  // [nvn] async_whole: the draw is skipped, the worker's build fills *later
+            j->up = std::make_shared<PipeUpgrade>();
+            *later = j->up;
+            erase_job_locked(j);
+            if (j->state == 0) {                                 // still queued: first in line
+                g_queue.push_front(j);
+                g_cv.notify_all();
+            }
+            ++g_stats.no_wait;
+            return false;
         }
         if (j->state == 0) {                                     // still queued: build it here instead of behind the others
             j->state = 3;

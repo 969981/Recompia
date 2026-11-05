@@ -364,3 +364,27 @@ NXTEST(malformed_images_are_rejected) {
     }
     reset();
 }
+
+// An NSO keeps its header's module id as the build id (hex); an ELF has none.
+NXTEST(nso_build_id) {
+    reset();
+    std::vector<uint8_t> nso(0x100 + 3 * 0x1000, 0);
+    std::memcpy(nso.data(), "NSO0", 4);
+    for (uint32_t i = 0; i < 3; i++) {
+        const uint32_t seg[3] = {0x100 + i * 0x1000, i * 0x1000, 0x1000};   // file offset, memory offset, size (stored uncompressed)
+        std::memcpy(nso.data() + 0x10 + 0x10 * i, seg, sizeof seg);
+        const uint32_t csize = 0x1000;
+        std::memcpy(nso.data() + 0x60 + 4 * i, &csize, 4);
+    }
+    for (int i = 0; i < 32; i++) nso[0x40 + i] = static_cast<uint8_t>(i < 20 ? 0xA0 + i : 0);
+    nso[0x100] = 0x1f; nso[0x101] = 0x20; nso[0x102] = 0x03; nso[0x103] = 0xd5;   // nop at text 0; no MOD0 (loaded without relocations)
+    std::string err;
+    Module* m = module_load_nso_memory(nso.data(), nso.size(), {}, &err);
+    REQUIRE(m);
+    CHECK(m->build_id() == "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000000000000000");
+    reset();
+    Module* e = load_linked();
+    REQUIRE(e);
+    CHECK(e->build_id().empty());
+    reset();
+}
