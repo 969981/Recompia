@@ -319,6 +319,10 @@ VkImageView dummy_storage_view(VkImageViewType type, VkFormat format);
 VkImageView tex_present_view(Texture* t);
 // Dummy 1x1 views used when a binding cannot be resolved: black texture of the requested type.
 VkImageView dummy_view(VkImageViewType type, bool depth_compare);
+// A black 2D (or 2D array) texture of the given size, for a binding whose only use is a size query over an image that cannot be
+// viewed with the shader's type (a 2D view of a 3D image is no sampled view without VK_EXT_image_2d_view_of_3d). Cached per size;
+// null for other types or sizes past the device limits.
+VkImageView dummy_view_sized(VkImageViewType type, uint32_t width, uint32_t height, uint32_t layers);
 VkSampler dummy_sampler();
 // Sampler for the NVN sampler state (cached forever). Never null.
 VkSampler sampler_for(const SamplerInfo& s);

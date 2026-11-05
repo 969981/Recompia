@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <tuple>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1055,14 +1056,18 @@ struct Shared {
     Dummy color[6];
     Dummy depth[6];
     std::map<std::pair<int, int>, Dummy> storage;   // (view type, format): GENERAL-layout 1x1 storage images
+    std::map<std::tuple<int, uint32_t, uint32_t, uint32_t>, Dummy> sized;   // (view type, width, height, layers): dummy_view_sized
 };
 Shared g_sh;
 
-bool make_dummy(Dummy& d, VkImageViewType type, bool depth) {
+bool make_dummy(Dummy& d, VkImageViewType type, bool depth, uint32_t width = 1, uint32_t height = 1, uint32_t layers2d = 1) {
     d.tried = true;
     const VkFormat fmt = depth ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     gfx::ImageDesc id;
     id.format = fmt;
+    id.width = width;
+    id.height = height;
+    if (type == VK_IMAGE_VIEW_TYPE_2D_ARRAY) id.array_layers = layers2d;
     id.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     id.create_view = false;
     id.name = depth ? "nvn dummy depth" : "nvn dummy";
@@ -2274,6 +2279,17 @@ VkImageView dummy_view(VkImageViewType type, bool depth_compare) {
     return d.view;
 }
 
+VkImageView dummy_view_sized(VkImageViewType type, uint32_t width, uint32_t height, uint32_t layers) {
+    if (type != VK_IMAGE_VIEW_TYPE_2D && type != VK_IMAGE_VIEW_TYPE_2D_ARRAY) return VK_NULL_HANDLE;
+    const auto& lim = device().properties().limits;
+    if (!width || !height || width > lim.maxImageDimension2D || height > lim.maxImageDimension2D) return VK_NULL_HANDLE;
+    if (type == VK_IMAGE_VIEW_TYPE_2D) layers = 1;
+    if (!layers || layers > lim.maxImageArrayLayers) return VK_NULL_HANDLE;
+    Dummy& d = g_sh.sized[{static_cast<int>(type), width, height, layers}];
+    if (!d.tried) make_dummy(d, type, false, width, height, layers);
+    return d.view;
+}
+
 VkImageView dummy_storage_view(VkImageViewType type, VkFormat format) {
     if (format == VK_FORMAT_UNDEFINED) format = VK_FORMAT_R8G8B8A8_UNORM;
     if (type == VK_IMAGE_VIEW_TYPE_CUBE || type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY) type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -2409,6 +2425,10 @@ void tex_shutdown() {
     g_sh.samplers.clear();
     if (g_sh.dummy_sampler != VK_NULL_HANDLE) { vkDestroySampler(vkdev(), g_sh.dummy_sampler, nullptr); vk_gauge_samplers().sub(1); }
     for (auto& kv : g_sh.storage) {
+        if (kv.second.view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), kv.second.view, nullptr); vk_gauge_image_views().sub(1); }
+        device().destroy_image(kv.second.img);
+    }
+    for (auto& kv : g_sh.sized) {
         if (kv.second.view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), kv.second.view, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(kv.second.img);
     }
