@@ -22,10 +22,16 @@ pub struct Tools {
     pub script: PathBuf,
 }
 
+/// Where setup writes its log lines (the launcher's setup.log); a closure so this file needs no crate-local import.
+pub type LogFn = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct Job {
     pub game_dir: PathBuf,
     pub exefs: PathBuf,
     pub jobs: usize,
+    /// "Gentle build": the script and its compilers run at idle priority (the default is below normal).
+    pub idle: bool,
+    pub log: Option<LogFn>,
 }
 
 /// One progress line of the script: phase ("verify", "lift", "compile", "link", "finish"), done, total, text.
@@ -82,7 +88,7 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     };
     let mut cmd = Command::new(&tools.python);
     cmd.arg("-I").arg(&tools.script).arg("--check").arg("--game").arg(game_dir);
-    quiet(&mut cmd);
+    quiet(&mut cmd, false);
     let Ok(out) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() else {
         return Built::Stale; // not cached: the next look tries again
     };
@@ -117,13 +123,15 @@ pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
     Ok(Tools { python, script })
 }
 
-fn quiet(cmd: &mut Command) {
+fn quiet(cmd: &mut Command, idle: bool) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS (the compilers it starts inherit it)
-        cmd.creation_flags(0x0800_0000 | 0x0000_4000);
+        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, or IDLE_PRIORITY_CLASS when idle (the compilers it starts inherit it)
+        cmd.creation_flags(0x0800_0000 | if idle { 0x0000_0040 } else { 0x0000_4000 });
     }
+    #[cfg(not(windows))]
+    let _ = (cmd, idle);
 }
 
 /// Runs the build. Ok(true) = pkp.exe built, Ok(false) = paused, Err = what went wrong, in the script's words.
@@ -135,15 +143,25 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let mut cmd = Command::new(&tools.python);
     cmd.arg("-I").arg(&tools.script).arg("--exefs").arg(&job.exefs).arg("--game").arg(&job.game_dir);
     cmd.args(["--jobs", &job.jobs.max(1).to_string()]);
-    quiet(&mut cmd);
+    quiet(&mut cmd, job.idle);
+    let say = |t: &str| {
+        if let Some(f) = &job.log {
+            f(t)
+        }
+    };
+    say(&format!("run: {} {}", tools.python.display(), cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect::<Vec<_>>().join(" ")));
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("could not start the game build ({}): {}", tools.python.display(), e))?;
     let out = child.stdout.take().unwrap();
     let err = child.stderr.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || BufReader::new(out).lines().map_while(Result::ok).for_each(|l| drop(tx.send(l))));
+    let elog = job.log.clone();
     let err_tail = std::thread::spawn(move || {
         let mut tail: Vec<String> = Vec::new();
         for l in BufReader::new(err).lines().map_while(Result::ok) {
+            if let Some(f) = &elog {
+                f(&format!("stderr: {}", l));
+            }
             tail.push(l);
             if tail.len() > 12 {
                 tail.remove(0);
@@ -171,8 +189,12 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
                     report(Tick { phase, done, total, message });
                 } else if let Some(rest) = l.strip_prefix("@error ") {
                     error = Some(rest.replace("\\n", "\n"));
+                    say(&format!("error: {}", rest.replace("\\n", "\n")));
                 } else if l.starts_with("@cancelled") {
                     paused = true;
+                    say("the script reported: paused");
+                } else {
+                    say(&format!("out: {}", l));
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -182,12 +204,15 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let st = child.wait().map_err(|e| e.to_string())?;
     let _ = fs::remove_file(&cancel_file);
     if paused || (asked && st.code() == Some(2)) {
+        say("game build paused by the player");
         return Ok(false);
     }
     if st.success() {
+        say("game build finished");
         return Ok(true);
     }
     let tail = err_tail.join().unwrap_or_default();
+    say(&format!("FAILED: game build ({}). Last error output:\n{}", st, tail));
     Err(error.unwrap_or_else(|| format!("The game build failed ({}). {}", st, tail.trim())))
 }
 
