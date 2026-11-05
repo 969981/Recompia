@@ -14,13 +14,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pkp_build as pb  # noqa: E402
 
-# the fake compiler: logs the source name, sleeps $FAKE_SLEEP seconds, writes "OBJ" + the source to -o
+# the fake compiler: records the source name as a file in $FAKE_LOG, sleeps $FAKE_SLEEP seconds, writes "OBJ" + the source to -o
 # (exit 1 when $FAKE_FAIL is part of the source path)
 FAKE = r"""
 import os, sys, time
 a = sys.argv[1:]
 src, out = a[a.index('-c') + 1], a[a.index('-o') + 1]
-open(os.environ['FAKE_LOG'], 'a').write(os.path.basename(src) + '\n')
+open(os.path.join(os.environ['FAKE_LOG'], os.path.basename(src)), 'w').close()   # one file per run: appends can race
 time.sleep(float(os.environ.get('FAKE_SLEEP', '0')))
 if os.environ.get('FAKE_FAIL') and os.environ['FAKE_FAIL'] in src:
     sys.exit(1)
@@ -43,7 +43,8 @@ class CacheTest(unittest.TestCase):
         pb.RECOMP = os.path.join(t, 'recomp')
         pb.COMPILER = [sys.executable, '-I', fake]
         pb.progress = lambda *a: None
-        os.environ['FAKE_LOG'] = os.path.join(t, 'log.txt')
+        os.environ['FAKE_LOG'] = os.path.join(t, 'log')
+        os.makedirs(os.environ['FAKE_LOG'])
         os.environ.pop('FAKE_FAIL', None)
         os.environ['FAKE_SLEEP'] = '0'
         for name, *_ in pb.MODULES:
@@ -68,10 +69,10 @@ class CacheTest(unittest.TestCase):
     def build(self, cache='default'):
         """Compile everything into a fresh obj folder; the sorted names of the sources the compiler really ran on."""
         shutil.rmtree(self.obj, ignore_errors=True)
-        open(os.environ['FAKE_LOG'], 'w').close()
+        shutil.rmtree(os.environ['FAKE_LOG'], ignore_errors=True)
+        os.makedirs(os.environ['FAKE_LOG'])
         pb.compile_all(self.runner, self.gen, self.obj, 2, dict(os.environ), self.cache() if cache == 'default' else cache)
-        with open(os.environ['FAKE_LOG']) as f:
-            return sorted(f.read().split())
+        return sorted(os.listdir(os.environ['FAKE_LOG']))
 
     def entries(self):
         return sorted(os.listdir(self.cdir))
