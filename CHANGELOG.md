@@ -12,6 +12,9 @@ of the game (version 2.0.1a): the download contains no game files.
   game (36 files, 7.25 GB for 2.0.1). When the dump also has `base/romfs`, the launcher adds the missing files from it itself
   (run Set up again once, so their shaders are prepared too). Otherwise it says what is missing. `pkp.exe` started without the
   launcher (Steam Deck, Proton) checks too and shows a message instead of crashing.
+- Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
+  into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
+  higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
 
 ### What's new
 - New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
