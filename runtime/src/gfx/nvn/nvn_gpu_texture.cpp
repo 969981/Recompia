@@ -34,6 +34,7 @@
 #include "nxrt/memory.h"
 #include "nxrt/write_watch.h"
 #include "vk_gauges.h"
+#include "nvn_dcmp.h"
 #include "nvn_enums.h"
 #include "nvn_format.h"
 #include "nvn_gpu_internal.h"
@@ -1055,10 +1056,13 @@ struct Shared {
     Dummy color[6];
     Dummy depth[6];
     std::map<std::pair<int, int>, Dummy> storage;   // (view type, format): GENERAL-layout 1x1 storage images
+    DcmpValues dcmp_vals;                           // depth-compare stand-ins by cleared value (dcmp_view)
+    Dummy dcmp[kDcmpMaxValues][6];                  // ... per value and view type
+    std::unordered_map<uint32_t, std::pair<uint32_t, float>> dcmp_tex;   // texture id -> (prep_gen when read, red of texel 0)
 };
 Shared g_sh;
 
-bool make_dummy(Dummy& d, VkImageViewType type, bool depth) {
+bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 1.0f) {
     d.tried = true;
     const VkFormat fmt = depth ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     gfx::ImageDesc id;
@@ -1088,7 +1092,7 @@ bool make_dummy(Dummy& d, VkImageViewType type, bool depth) {
         image_barrier(cmd, img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, asp, 0, 1, 0, layers);
         const VkImageSubresourceRange range = {asp, 0, 1, 0, layers};
         if (depth) {
-            VkClearDepthStencilValue v = {1.0f, 0};
+            VkClearDepthStencilValue v = {depth_value, 0};
             vkCmdClearDepthStencilImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &v, 1, &range);
         } else {
             VkClearColorValue c = {};
@@ -2274,6 +2278,39 @@ VkImageView dummy_view(VkImageViewType type, bool depth_compare) {
     return d.view;
 }
 
+// The red value of texel 0 of a colour texture, read once from its storage in the game's memory (no GPU work: texel (0, 0) is the first bytes in the
+// block-linear and the pitch-linear layout) and read again only when the CPU wrote the texture since. 1.0 (lit, what the stand-in was before) when the
+// texture has no CPU storage (a render target), is compressed, or has a format dcmp_red does not decode.
+static float dcmp_red_of(Texture* t) {
+    const uint32_t gen = t->prep_gen.load(std::memory_order_acquire);
+    const auto it = g_sh.dcmp_tex.find(t->id);
+    if (it != g_sh.dcmp_tex.end() && it->second.first == gen) return it->second.second;
+    float v = 1.0f;
+    uint8_t px[16] = {};
+    const FormatInfo* f = t->fmt;
+    bool have = false;
+    if (f && !f->compressed && f->bytes <= sizeof px) {
+        if (t->mem && t->storage_size >= f->bytes) { std::memcpy(px, t->mem, f->bytes); have = true; }
+        else if (t->vpool) have = texture_read_virtual(*t, 0, f->bytes, px);
+    }
+    bool ok = false;
+    if (have) v = dcmp_red(f->vk, px, &ok);
+    if (!ok) v = 1.0f;
+    if (g_sh.dcmp_tex.size() > 4096) g_sh.dcmp_tex.clear();
+    g_sh.dcmp_tex[t->id] = {gen, v};
+    NXLOG_I(kTag, "depth comparison on a colour texture %u (%s %dx%d): compared with its red channel, %.3f%s", t->id, f ? f->name : "?", t->b.width, t->b.height, v,
+            ok ? "" : " (format not read: 1.0)");
+    return v;
+}
+
+VkImageView dcmp_view(Texture* t, VkImageViewType type) {
+    const int slot = g_sh.dcmp_vals.slot(dcmp_red_of(t));
+    const int idx = dummy_index(type);
+    Dummy& d = g_sh.dcmp[slot][idx];
+    if (!d.tried) make_dummy(d, kDummyTypes[idx], true, g_sh.dcmp_vals.v[slot]);
+    return d.view;
+}
+
 VkImageView dummy_storage_view(VkImageViewType type, VkFormat format) {
     if (format == VK_FORMAT_UNDEFINED) format = VK_FORMAT_R8G8B8A8_UNORM;
     if (type == VK_IMAGE_VIEW_TYPE_CUBE || type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY) type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -2412,7 +2449,7 @@ void tex_shutdown() {
         if (kv.second.view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), kv.second.view, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(kv.second.img);
     }
-    for (Dummy* set : {g_sh.color, g_sh.depth}) {
+    for (Dummy* set : {g_sh.color, g_sh.depth, g_sh.dcmp[0], g_sh.dcmp[1], g_sh.dcmp[2], g_sh.dcmp[3], g_sh.dcmp[4], g_sh.dcmp[5], g_sh.dcmp[6], g_sh.dcmp[7]}) {
         for (int i = 0; i < 6; ++i) {
             if (set[i].view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), set[i].view, nullptr); vk_gauge_image_views().sub(1); }
             device().destroy_image(set[i].img);

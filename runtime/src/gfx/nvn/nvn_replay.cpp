@@ -1981,7 +1981,11 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             // a shader that samples with depth comparison (sampler2DShadow) needs a depth-format image: the game leaves colour textures in some
             // of those slots, which Vulkan does not allow (VUID-vkCmdDrawIndexed-None-06479). They get the depth dummy instead.
             const bool shadow_mismatch = r.tex && b.image.depth && !tex_is_depth(r.tex);
-            if (shadow_mismatch) log_once("shadow-colour", "a depth-comparison sampler is bound to a colour texture: the depth dummy is bound");
+            if (shadow_mismatch) {   // the stand-in holds the texture's red value (dcmp_view), the console compares against it
+                log_once("shadow-colour", "a depth-comparison sampler is bound to a colour texture: a depth stand-in with its red value is bound");
+                if (VkImageView sv = dcmp_view(r.tex, view_type_for(b))) ii.imageView = sv;
+                if (r.has_sampler) ii.sampler = sampler_for(r.smp);
+            }
             if (r.tex && tex_gpu(r.tex) && (!feedback || loop) && !shadow_mismatch) {
                 VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
                 if (v) {
