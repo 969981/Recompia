@@ -48,48 +48,51 @@
 
 ## Features
 
-### Your game, your way in
-- **Folder dumps or a `.nup` package.** Pick the folder that holds `base` and `updates`, or a single `.nup` file. The launcher checks a `.nup` against its checksums and its version before the big unpack, checks free space, and lets you cancel.
-- **Clear dump checks.** An older game version, a dump without the update, or files damaged by a text-mode FTP copy each get their own message saying what to do.
-- **Set up with checks first.** Before it starts, Set up checks free disk space, Vulkan, memory and the processor (with a warning for Intel 13th/14th gen desktop CPUs). **Use fewer cores** keeps the PC usable while it builds, and **Open setup log** shows every step. Setup can be paused and continued.
-- **Fast updates.** Set up again after an update reuses the compiled game code that did not change.
-- **Update banner.** The launcher tells you when a new release is out, with a "What's new" link. Nothing is downloaded for you.
+### Play together (Link Play)
+- **Visit a friend's island, or invite them to yours**, on the same Wi-Fi or over the internet.
+- Set it up in the launcher's **Link Play** page: press **Host** and share the address and code it shows, or press **Visit** and type them in. No files to edit.
+- A **room code** keeps strangers out.
+- Step-by-step guide: [Playing together](#playing-together).
 
-### Bring your island
-- **Import a save from Eden or Ryujinx.** **Settings**, **Save data**: **Find Eden / Ryujinx save and import** finds the newest Pokopia save on this PC and imports it. The emulator's save is only read.
-- **Or from anywhere else.** **Pick a folder to import** takes any folder that holds the game's save folders, `B00`, `G00` and `S00`: another emulator's, a backup, a save from a friend's PC. In Eden, right-click the game, **Open Save Data Location** shows it.
-- **Nothing is lost.** Your current save is moved to a dated `save.before-<date>` folder first and never deleted. Close the game before you import.
-- **Safe saves.** If a save cannot be written (full disk, a file locked by OneDrive or antivirus), the last good save is kept and the game tells you.
+### Import your saves
+- **Already playing on Eden or Ryujinx?** One button in **Settings** finds your save and brings it over. Your emulator's copy isn't touched.
+- **Got a save somewhere else?** Pick its folder (the one with `B00`, `G00` and `S00` inside).
+- **Your current save is never deleted.** It's kept as a backup folder first.
+- If a save can't be written (a full disk, OneDrive or antivirus holding the file), your last good save is kept and the game tells you.
 
-### Multiplayer (Link Play)
-Play on one island with friends, on the same network or over the internet. The game thinks it is using local wireless, and the launcher runs a small relay that carries it between PCs. See [Playing together](#playing-together) for the steps.
-- Host or visit from the launcher's **Link Play** page, no files to edit.
-- Room codes keep strangers out of a shared relay.
-- The host page lists the addresses to give out (your network, Tailscale or ZeroTier) with Copy buttons, and warns when Windows treats your network as Public.
-- Game traffic goes over UDP when it can, so a lossy link does not stall, and falls back to TCP.
-
-### Picture
-- **Any resolution**, including 4K and above, with **Render scale** to trade sharpness for speed.
-- **Upscalers:** AMD FSR 1, NVIDIA Image Scaling, AMD FSR 3 (included), and NVIDIA DLSS / DLAA on RTX cards (the launcher downloads `nvngx_dlss.dll` from NVIDIA for you, under **Game files**).
-- **Quality presets** (Switch 2, High, Ultra), longer view distance, texture anisotropy.
-- **HDR output** on HDR displays.
-- **Windowed, borderless or exclusive full screen**, a monitor picker, a frame rate limit and a frame rate counter. Alt+Enter switches modes while playing.
-- **16:10 screens** (Steam Deck, Legion Go S) fill the whole screen with a taller view instead of bars.
+### Easy setup
+- **Use your dump as it comes:** a folder (with `base` and `updates`) or a single `.nup` file.
+- **Clear messages if something is wrong with your dump:** the wrong game version, a missing update, or files damaged while copying. The launcher tells you what to do.
+- **Checks before it starts:** enough disk space, a working graphics driver, enough memory.
+- **Use fewer cores** keeps your PC usable while it builds. You can pause and carry on later.
+- **Updates are quick:** only the parts that changed are rebuilt.
+- The launcher tells you when a new version is out.
 
 ### Controls
-- **Controllers:** Xbox, PlayStation, Switch Pro and others, with rumble and motion, and the Switch face-button layout by default. Rebind every button and set dead zones and stick range on the F1 **Controls** page. If a pad does not show up, close Steam or turn off Steam Input for it.
-- **Keyboard and mouse,** fully rebindable. The mouse works in the game's menus: click to confirm, the wheel to move.
-- **Joy-Con 2 mouse mode** for placing items: middle mouse toggles it.
-- **Button prompts** in the game match what you use: keyboard, Xbox, PlayStation or Switch icons, picked automatically or by hand.
-- **On-screen keyboard** for name entry that works with a pad, mouse or keyboard, including Steam's Game Mode.
-- **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or press **Quit game** on the F1 page.
+- **Any controller:** Xbox, PlayStation, Switch Pro and more, with rumble and motion. Buttons follow the Switch layout by default.
+- **Keyboard and mouse.** The mouse also works in menus: click to pick, scroll to move.
+- **Change any button** on the F1 **Controls** page.
+- **Joy-Con 2 mouse mode** for placing items: press the middle mouse button.
+- **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation or Switch.
+- **Typing your name** works with a controller, mouse or keyboard.
+- **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or use **Quit game** in F1.
 
-### Handhelds and Linux
-- Steam Deck, Legion Go S and other handhelds are detected: prompts stay as controller icons on the touchscreen and trackpad, and the render scale follows the screen.
-- Runs under Proton on SteamOS and Linux, with speed-ups tuned there (about 26 -> 53 fps on a Steam Deck, 55 -> 75 fps on a Legion Go S, measured by players). The launcher does not start under Proton yet (it needs Microsoft's WebView2): set up on a Windows PC and copy the game folder over.
+### Steam Deck and handhelds
+- Steam Deck, Legion Go S and other handhelds are recognised: controller icons stay on screen and the picture size suits the screen.
+- 16:10 screens are filled edge to edge, with no black bars.
+- Runs through Proton on SteamOS, with handheld speed-ups (about 26 to 53 fps on a Steam Deck and 55 to 75 fps on a Legion Go S, measured by players).
+- The launcher doesn't run under Proton yet. Set up on a Windows PC, then copy the game folder over.
 
-### In-game settings (F1)
-F1 opens a settings page over the game: Display, Graphics, Controls, Audio (volume, output device, mute when unfocused) and Game. Most changes apply live. Everything is also in `pkp.ini` and `controls.ini`; [runtime/docs/CONFIG.md](runtime/docs/CONFIG.md) lists every key.
+### Graphics
+- **Play at any resolution**, 4K and above. Lower **Render scale** if it runs slowly.
+- **Quality presets** (Switch 2, High, Ultra) set how far you can see and how sharp textures are.
+- **HDR** on HDR screens.
+- **Window, borderless or full screen.** Choose the monitor, cap the frame rate, show an FPS counter. Alt+Enter switches modes while playing.
+- **Upscalers:** FSR 1 and NVIDIA Image Scaling work.
+- **FSR 3 and DLSS / DLAA are there but don't look good yet** and need rework. Leave them off for now.
+
+### In-game settings
+Press **F1** in the game to change graphics, controls and sound (volume, output device, mute when the window is in the background). Most changes apply straight away.
 
 ## Quick start
 
