@@ -5,6 +5,7 @@ mod dlss;
 mod dump;
 mod gamebuild;
 mod ini;
+mod lan;
 mod nup;
 mod play;
 mod relay;
@@ -396,6 +397,12 @@ fn relay_status(state: State<RelayState>) -> Option<relay::Status> {
     state.0.lock().unwrap().as_ref().map(|s| s.status())
 }
 
+/// LAN address to give visitors, other addresses, and the Windows Public-network warning (read only).
+#[tauri::command]
+fn lan_report() -> lan::LanReport {
+    lan::report()
+}
+
 /// `--host [--port N] [--password P]`: the relay alone, no window, log lines on stdout, until Ctrl+C.
 fn run_headless(args: &[String]) -> i32 {
     #[cfg(windows)]
@@ -436,6 +443,9 @@ fn run_headless(args: &[String]) -> i32 {
         }
     };
     println!("Pokopia relay running on {}. Ctrl+C stops it.", srv.local_addr());
+    for line in lan::log_lines(&lan::report(), srv.local_addr().port()) {
+        println!("{}", line);
+    }
     while !win_console::CTRL_C.load(Ordering::SeqCst) {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
@@ -518,6 +528,7 @@ fn main() {
             relay_start,
             relay_stop,
             relay_status,
+            lan_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");
