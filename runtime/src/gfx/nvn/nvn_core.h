@@ -260,6 +260,8 @@ struct Program : Obj {
     // stages indexed by the NVNshaderStage value: 0 vertex, 1 fragment, 2 geometry, 3 tess control, 4 tess eval, 5 compute
     const ShaderInfo* stage[6] = {};
     uint64_t code_hash[6] = {};
+    const uint8_t* src_code[6] = {};        // the code and control addresses SetShaders hashed (for [nvn] shader_key_check)
+    const uint8_t* src_control[6] = {};
     char missing[64] = {};                  // keys of the blocks SetShaders found no translation for (trace: "cs -" dispatches)
     bool linked = false;
     uint32_t serial = 0;
