@@ -1,13 +1,10 @@
 # Builds the player zip (game-build/scripts/make-release.ps1). A tag v<x.y.z> publishes it as a GitHub release, its notes taken from
-# that version's section of CHANGELOG.md. Pull requests and manual runs only build it (artifact).
+# that version's section of CHANGELOG.md. Manual runs only build it (artifact). No pull request checks for now.
 name: Release
 
 on:
   push:
     tags: ['v*']
-  pull_request:
-    branches: [main]
-    paths: ['runtime/**', 'game-build/**', 'launcher/**', 'recomp/**', 'tools/shaders/**', 'CHANGELOG.md', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
