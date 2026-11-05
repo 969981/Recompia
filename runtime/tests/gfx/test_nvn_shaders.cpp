@@ -105,6 +105,30 @@ NXTEST(harness_numbers_out_of_range) {
     CHECK(!parse_harness_resources("sb[c0+0x100000000]=s0b1", r));
 }
 
+// The SHA-NI path and the portable loop give the same digest, for sizes around block boundaries and split updates. The standard vectors
+// above run on whichever path this CPU picks; this one forces both (the SHA-NI half runs only where the CPU has the instructions).
+NXTEST(sha1_shani_matches_portable) {
+    std::vector<uint8_t> data(5000);
+    uint32_t x = 12345;
+    for (auto& b : data) b = static_cast<uint8_t>((x = x * 1664525u + 1013904223u) >> 24);
+    const size_t sizes[] = {0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 1000, 4096, 5000};
+    for (size_t n : sizes) {
+        Sha1::force_portable(true);
+        const std::string ref = sha1_hex(data.data(), n);
+        Sha1::force_portable(false);
+        CHECK_EQ(sha1_hex(data.data(), n), ref);
+        Sha1 s;                                              // the same bytes in uneven pieces
+        for (size_t o = 0, step = 7; o < n; o += step, step += 13) s.update(data.data() + o, std::min(step, n - o));
+        uint8_t d[20];
+        s.finish(d);
+        static const char* hx = "0123456789abcdef";
+        std::string got;
+        for (uint8_t b : d) got += {hx[b >> 4], hx[b & 15]};
+        CHECK_EQ(got, ref);
+    }
+    Sha1::force_portable(false);
+}
+
 NXTEST(shader_hash_is_sha1_prefix) {
     CHECK_EQ(shader_hash(reinterpret_cast<const uint8_t*>("abc"), 3), std::string("a9993e364706816a"));
 }
