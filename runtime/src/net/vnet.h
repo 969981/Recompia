@@ -67,6 +67,37 @@ private:
     std::shared_ptr<State> st_;
 };
 
+// ---- HoldLink -----------------------------------------------------------------------------------------------------------------------------
+// A Link in front of another one that holds inbound datagrams from senders its owner has not admitted yet, then delivers them in arrival
+// order. For the ldn host: the game (KTGL) knows senders only from the node table of the NetworkInfo it last read and drops a datagram
+// from anyone else, and a new station sends its first datagram (Pokopia's join request) as soon as its Connect returns, which can be
+// before the host game's next GetNetworkInfo on a slow host frame.
+//   admit(vips)    the addresses of the table the game just read: they pass from now on, their held datagrams go first.
+//   members(vips)  the room's addresses now: a sender that is no longer a member is admitted again only by a read (or the timeout), so a
+//                  node that rejoins on the same address waits like a new one.
+//   hold_ms        a sender's held datagrams go anyway this long after its first one was held; the sender then passes until it leaves.
+//   cap            at most this many datagrams held (all senders), the oldest dropped.
+// Sends, local_ip() and broadcasts' delivery rules are the inner link's. detach() unhooks it from the inner link (which may then be used
+// directly again), drops what is held and stops its timer thread; the destructor does it too, but an owner that reuses the inner link
+// must call it first.
+class HoldLink final : public Link {
+public:
+    HoldLink(std::shared_ptr<Link> inner, int hold_ms, size_t cap);
+    ~HoldLink() override;
+    uint32_t local_ip() const override;
+    bool send(const Datagram& d) override;
+    void admit(const std::vector<uint32_t>& vips);
+    void members(const std::vector<uint32_t>& vips);
+    void detach();
+    size_t held() const;
+
+private:
+    struct State;
+    void release(const std::vector<uint32_t>& srcs);   // caller holds the state lock: srcs pass, their held datagrams go in arrival order
+    std::shared_ptr<Link> inner_;
+    std::unique_ptr<State> st_;
+};
+
 // ---- the process-wide current link ----------------------------------------------------------------------------------------------------
 // Setting a link wires it to the process inbound receiver; replacing or clearing it unwires the old one.
 void set_current_link(std::shared_ptr<Link> link);
