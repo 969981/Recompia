@@ -429,7 +429,7 @@ NXTEST(activations_count_edges) {
 }
 
 NXTEST(default_settings_smoke) {
-    // The test game's factory bindings (Pokopia: games/pkp/pkp_game.cpp kSettingsText).
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_data.cpp kSettingsText).
     Engine e(play::default_settings());
     CHECK(e.context() == Ctx::Menu);
 

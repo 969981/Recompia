@@ -68,7 +68,7 @@ bool near(double a, double b) { return std::fabs(a - b) < 1e-12; }
 
 bool starts_with(const std::string& s, const std::string& prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
 
-// The test game's factory-defaults revision (Pokopia: games/pkp/pkp_game.cpp, defaults_rev 5). A file at this revision is not migrated, so
+// The test game's factory-defaults revision (Pokopia: games/pkp/pkp_data.cpp, defaults_rev 5). A file at this revision is not migrated, so
 // the reader tests that are not about the migration put it into their [bindings.*] files.
 constexpr int kPkpRev = 5;
 const char* const kCurrentRev = "[meta]\ndefaults_rev = 5\n";
@@ -380,7 +380,7 @@ NXTEST(input_every_scancode_name_parses_back) {
 // ---- factory settings --------------------------------------------------------------------------------------------------------
 
 NXTEST(default_settings_bindings_and_outputs) {
-    // The test game's factory bindings (Pokopia: games/pkp/pkp_game.cpp kSettingsText): raw Switch buttons in [bindings.all], the mouse
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_data.cpp kSettingsText): raw Switch buttons in [bindings.all], the mouse
     // mode key in play, and the right button and the wheel in the menus.
     const Settings s = default_settings();
     CHECK(act_at(s, "W", Ctx::All) == Act::MoveForward);
@@ -440,7 +440,7 @@ NXTEST(file_with_only_mouse_keeps_default_bindings) {
 }
 
 NXTEST(old_factory_render_scale_moves_to_auto_once) {
-    // The test game's factory changes (Pokopia: games/pkp/pkp_game.cpp kChanges; revision 2: [display] render_scale 100 -> auto).
+    // The test game's factory changes (Pokopia: games/pkp/pkp_data.cpp kChanges; revision 2: [display] render_scale 100 -> auto).
     // A rev 1 file still on the old factory value takes the new one; the same value in a file at revision 2 is the player's own and stays.
     Settings s;
     std::string err;
@@ -600,7 +600,7 @@ NXTEST(camera_gun_drives_view_parses_and_round_trips) {
 }
 
 NXTEST(camera_and_aim_defaults_are_classic_and_on) {
-    // The test game's factory text (Pokopia: games/pkp/pkp_game.cpp) has no [aim] or [camera] section: the built-in defaults apply.
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp) has no [aim] or [camera] section: the built-in defaults apply.
     const Settings d = default_settings();
     CHECK(d.aim.lock_mode == LockMode::Classic);
     CHECK(d.aim.free_lock_margin == 0.15);
@@ -828,7 +828,7 @@ NXTEST(save_then_load_round_trip) {
 
 NXTEST(display_render_keys_defaults) {
     const DisplaySettings d = default_settings().display;
-    // The test game's factory [display] (Pokopia: games/pkp/pkp_game.cpp kSettingsText): render_scale = auto and fps_limit = auto;
+    // The test game's factory [display] (Pokopia: games/pkp/pkp_data.cpp kSettingsText): render_scale = auto and fps_limit = auto;
     // every other key keeps the built-in default (play_types.h DisplaySettings).
     CHECK_EQ(d.render_scale, 0);
     CHECK_EQ(d.fps_cap, -1);
@@ -846,7 +846,7 @@ NXTEST(display_render_keys_defaults) {
 }
 
 NXTEST(factory_file_has_display_keys) {
-    // The test game's factory text (Pokopia: games/pkp/pkp_game.cpp kSettingsText) sets only the two automatic display values ...
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp kSettingsText) sets only the two automatic display values ...
     const std::string factory = default_settings_text();
     const size_t at = factory.find("[display]");
     REQUIRE_MSG(at != std::string::npos, "[display] in the factory text");
@@ -1323,7 +1323,7 @@ NXTEST(prompt_style_round_trip_every_style) {
 }
 
 NXTEST(factory_file_has_prompts_section) {
-    // The test game's factory text (Pokopia: games/pkp/pkp_game.cpp) has no [prompts]; the file written from the factory settings has it.
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp) has no [prompts]; the file written from the factory settings has it.
     const std::string text = format_settings(default_settings());
     const size_t at = text.find("[prompts]");
     REQUIRE_MSG(at != std::string::npos, "[prompts] section");
@@ -1454,7 +1454,7 @@ NXTEST(file_without_fps_and_padmap_keeps_defaults) {
 }
 
 // ---- factory-defaults revision ([meta] defaults_rev, GameDefaults::additions) ---------------------------------------------------------
-// The test game's additions (Pokopia: games/pkp/pkp_game.cpp kAdditions): revision 4 adds Mouse3 = btn_b, WheelUp = dpad_up and
+// The test game's additions (Pokopia: games/pkp/pkp_data.cpp kAdditions): revision 4 adds Mouse3 = btn_b, WheelUp = dpad_up and
 // WheelDown = dpad_down to [bindings.menu], revision 5 adds Mouse2 = mouse_mode to [bindings.play]. The current revision is 5.
 
 NXTEST(old_file_gets_new_factory_bindings_in_the_menu) {

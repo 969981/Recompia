@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The Pokémon Pokopia game module (docs/GAME_BOUNDARY.md, pkp_game.h). Libraries, each a superset of the one before:
-#   nxrt_game_pkp_data   identity, branding (pure data; the launcher links it)
+#   nxrt_game_pkp_data   identity, branding, factory controls.ini (pure data; the launcher links it)
 #   nxrt_game_pkp_core   + title facts, test probes (links nxrt)
 #   nxrt_game_pkp        + play-mode hooks (links nxrt_gfx; only with NXRT_BUILD_GFX). pkp.exe links this one.
 set(_pkp "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -154,7 +154,7 @@ NXTEST(xbox_and_playstation_names_by_label_and_by_position) {
 }
 
 NXTEST(keyboard_style_follows_the_bindings_of_the_context) {
-    // The test game's factory bindings (Pokopia: games/pkp/pkp_game.cpp kSettingsText), all raw Switch buttons in [bindings.all]:
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_data.cpp kSettingsText), all raw Switch buttons in [bindings.all]:
     // E / Return = A, Left Shift / Backspace = B, Tab = X, F = Y, Q = L, Space = R, Mouse1 = ZR, Mouse3 = ZL, Escape = +, C = -,
     // 1..4 = the d-pad; in the menus Mouse3 = B and the wheel moves the selection. The first binding in file order wins.
     TestPrompts tp;

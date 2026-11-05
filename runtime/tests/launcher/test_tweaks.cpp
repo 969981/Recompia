@@ -125,7 +125,7 @@ NXTEST(tweaks_suit_part_and_reset) {
 }
 
 NXTEST(tweaks_factory_file_has_the_section_off) {
-    // The test game's factory text (Pokopia: games/pkp/pkp_game.cpp) has no [tweaks]: the factory settings have the looks off, and the
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp) has no [tweaks]: the factory settings have the looks off, and the
     // file written from them has the section with the off values.
     Settings s;
     std::string err;
