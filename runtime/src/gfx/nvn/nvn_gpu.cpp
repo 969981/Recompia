@@ -323,6 +323,20 @@ VkDescriptorPool new_dpool() {
     return p;
 }
 
+// [diag] slow_submit_ms (default 30, [diag] stutter_logs): a vkQueueSubmit2 that took longer logs one line, at most one per second.
+void note_slow_submit(double ms, size_t cbs, bool worker) {
+    static const bool on = config_get_bool("diag", "stutter_logs", true);
+    static const double limit = static_cast<double>(config_get_int("diag", "slow_submit_ms", 30));
+    static std::atomic<int64_t> last_ns{INT64_MIN};
+    if (!on || ms <= limit) return;
+    const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    int64_t prev = last_ns.load(std::memory_order_relaxed);
+    if (prev != INT64_MIN && now - prev < 1000000000ll) return;
+    if (!last_ns.compare_exchange_strong(prev, now)) return;
+    NXLOG_I(kTag, "slow submission %.1f ms (%zu command buffers, worker %d, lazy live %lld MiB, memory objects %lld)", ms, cbs, worker ? 1 : 0,
+            static_cast<long long>(pool_lazy_stats().live_bytes >> 20), static_cast<long long>(vk_gauge_memory_allocs().get()));
+}
+
 // Hands the recorded submissions of the batch to the GPU in one vkQueueSubmit2, in recording order, signalling the timeline with the last
 // serial (the earlier ones of the batch complete with it). Every kernel submission costs a pass over all memory the device holds: on Linux
 // (Proton, RADV) the multi-gigabyte host-memory pool imports are user pages the kernel looks up again on each one, about 2 ms a
@@ -347,13 +361,17 @@ void submit_cbs(const std::vector<VkCommandBufferSubmitInfo>& cbi, uint64_t seri
     VkResult r;
     if (worker) {
         std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
+        const auto s0 = std::chrono::steady_clock::now();
         r = vkQueueSubmit2(g->dev->queue(), 1, &si, VK_NULL_HANDLE);
+        note_slow_submit(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count(), cbi.size(), true);
     } else {
         nxrt::HitchTimer ht(nxrt::kHpRenderSubmit);
         const uint64_t tl = nxrt::hitch_ticks();
         std::lock_guard<std::mutex> lk(g->dev->queue_mutex());
         nxrt::hitch_phase_add(nxrt::kHpRenderLockWait, nxrt::hitch_ticks() - tl);
+        const auto s0 = std::chrono::steady_clock::now();
         r = vkQueueSubmit2(g->dev->queue(), 1, &si, VK_NULL_HANDLE);
+        note_slow_submit(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count(), cbi.size(), false);
     }
     if (r != VK_SUCCESS) {
         g->dev->note_result(r, "vkQueueSubmit2 (NVN)");

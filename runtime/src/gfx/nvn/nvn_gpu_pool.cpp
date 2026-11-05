@@ -177,6 +177,49 @@ void log_pages(const void* p, uint64_t size) {
     if (a < end) NXLOG_W(kTag, "  (more runs up to %p)", static_cast<const void*>(end));
 }
 
+// [diag] stutter_logs (WP01): every successful import is counted by size (MiB, <=), by duration (ms, <) and by the pool_reason() current
+// on the importing thread; every 64th import logs the three histograms. Gauges nvn.pool.import.{size_le*,ms_lt*,reason.*}; atomics only.
+bool stutter_logs_on() {
+    static const bool on = config_get_bool("diag", "stutter_logs", true);
+    return on;
+}
+struct ImportHist {
+    nxrt::GaugeCounter size[5] = {nxrt::GaugeCounter("nvn.pool.import.size_le1"), nxrt::GaugeCounter("nvn.pool.import.size_le4"),
+                                  nxrt::GaugeCounter("nvn.pool.import.size_le16"), nxrt::GaugeCounter("nvn.pool.import.size_le64"),
+                                  nxrt::GaugeCounter("nvn.pool.import.size_leinf")};
+    nxrt::GaugeCounter ms[5] = {nxrt::GaugeCounter("nvn.pool.import.ms_lt1"), nxrt::GaugeCounter("nvn.pool.import.ms_lt4"),
+                                nxrt::GaugeCounter("nvn.pool.import.ms_lt16"), nxrt::GaugeCounter("nvn.pool.import.ms_lt50"),
+                                nxrt::GaugeCounter("nvn.pool.import.ms_ltinf")};
+    nxrt::GaugeCounter reason[kReasonCount] = {
+        nxrt::GaugeCounter("nvn.pool.import.reason.other"), nxrt::GaugeCounter("nvn.pool.import.reason.vertex"),
+        nxrt::GaugeCounter("nvn.pool.import.reason.index"), nxrt::GaugeCounter("nvn.pool.import.reason.uniform"),
+        nxrt::GaugeCounter("nvn.pool.import.reason.storage"), nxrt::GaugeCounter("nvn.pool.import.reason.texel"),
+        nxrt::GaugeCounter("nvn.pool.import.reason.indirect"), nxrt::GaugeCounter("nvn.pool.import.reason.copy"),
+        nxrt::GaugeCounter("nvn.pool.import.reason.imagecopy"), nxrt::GaugeCounter("nvn.pool.import.reason.update"),
+        nxrt::GaugeCounter("nvn.pool.import.reason.untile")};
+    std::atomic<uint64_t> n{0};
+};
+ImportHist& import_hist() {
+    static ImportHist* h = new ImportHist;     // leaked: the gauges outlive the render thread's last import
+    return *h;
+}
+void note_import(uint64_t size, double ms) {
+    ImportHist& h = import_hist();
+    const int si = size <= (1ull << 20) ? 0 : size <= (4ull << 20) ? 1 : size <= (16ull << 20) ? 2 : size <= (64ull << 20) ? 3 : 4;
+    const int mi = ms < 1.0 ? 0 : ms < 4.0 ? 1 : ms < 16.0 ? 2 : ms < 50.0 ? 3 : 4;
+    h.size[si].add(1);
+    h.ms[mi].add(1);
+    h.reason[pool_reason()].add(1);
+    if (!stutter_logs_on() || (h.n.fetch_add(1, std::memory_order_relaxed) + 1) % 64) return;
+    NXLOG_I(kTag, "pool imports so far, by size (MiB <=1/4/16/64/more): %lld/%lld/%lld/%lld/%lld; by time (ms <1/4/16/50/more): %lld/%lld/%lld/%lld/%lld; "
+            "by reason (other/vertex/index/uniform/storage/texel/indirect/copy/imagecopy/update/untile): %lld/%lld/%lld/%lld/%lld/%lld/%lld/%lld/%lld/%lld/%lld",
+            (long long)h.size[0].get(), (long long)h.size[1].get(), (long long)h.size[2].get(), (long long)h.size[3].get(), (long long)h.size[4].get(),
+            (long long)h.ms[0].get(), (long long)h.ms[1].get(), (long long)h.ms[2].get(), (long long)h.ms[3].get(), (long long)h.ms[4].get(),
+            (long long)h.reason[0].get(), (long long)h.reason[1].get(), (long long)h.reason[2].get(), (long long)h.reason[3].get(),
+            (long long)h.reason[4].get(), (long long)h.reason[5].get(), (long long)h.reason[6].get(), (long long)h.reason[7].get(),
+            (long long)h.reason[8].get(), (long long)h.reason[9].get(), (long long)h.reason[10].get());
+}
+
 // Imports pool bytes [off, off + size) of g into c. False (c.failed) when it cannot.
 bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, size_t index, size_t count) {
     c.tried = true;
@@ -253,6 +296,7 @@ bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const c
         const auto tm3 = std::chrono::steady_clock::now();
         auto msd = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
         const double total = msd(tm0, tm3);
+        note_import(size, total);
         if (total >= 20.0)
             NXLOG_I(kTag, "slow pool import: %p, %llu MiB (flags 0x%x, %s %zu of %zu, %s): %.1f ms (host pointer properties %.1f, vkAllocateMemory %.1f, buffer and bind %.1f) on %s",
                     reinterpret_cast<void*>(start), static_cast<unsigned long long>(size >> 20), static_cast<unsigned>(g->flags), what, index, count,
