@@ -1,6 +1,6 @@
 # Contributing
 
-- Open pull requests against `main` and say what you tested on which GPU (the PR template asks for exactly that).
+- Open pull requests against `main` and say what they change.
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.
 
 ## Building from source
