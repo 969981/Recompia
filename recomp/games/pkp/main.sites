@@ -191,3 +191,6 @@ midhook 0x7101f78030
 midhook 0x7101f78124
 midhook 0x7101f7aa2c
 midhook 0x7101f7fe48
+#   Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): the permission-mask builder 0x71000b0f60, story-area
+#   online block at `movk x13, #1, lsl #32` (x13 = the pattern's bits 0-31, x22 = the session's Spectator flag)
+midhook 0x71000b1030
