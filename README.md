@@ -46,18 +46,6 @@
   </tr>
 </table>
 
-## Progress
-
-<p align="center"><img src="docs/assets/progress.svg" alt="Progress bars: single player, on-screen keyboard, fast boot and gamepad prompts done; handheld support at 60 percent; multiplayer at 15 percent" width="100%"></p>
-
-Handheld support covers Steam Deck, Legion Go S and SteamOS. Link Play (two players on one island, PC ↔ PC through a relay) is being built on the [`experimental-coop`](https://github.com/featureJosh/pokopia-recomp/tree/experimental-coop) branch. A first session has worked, but it is not in any release yet. Progress, screenshots and known issues: [#54](https://github.com/featureJosh/pokopia-recomp/issues/54). Builds from `main` stay offline. What changed per version: [CHANGELOG.md](CHANGELOG.md).
-
-## Requirements
-
-- Windows 10 or 11, 64-bit
-- GPU with Vulkan 1.3
-- 16 GB of RAM
-
 ## Quick start
 
 1. Download the zip from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere.
