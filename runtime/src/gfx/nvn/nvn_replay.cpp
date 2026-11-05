@@ -38,6 +38,7 @@
 #include "extras/fsr1_spatial.h"
 #include "extras/spatial_upscaler.h"
 #include "extras/temporal.h"
+#include "nvn_key_check.h"
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
 
@@ -2648,6 +2649,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
     ++g_draw_idx;
+    if (key_check_on()) key_check_draw(counters().presents.load(std::memory_order_relaxed));
     if (S.stage[kFragment] && skip_fs_draw(S.stage[kFragment]->hash)) return false;
     // Tessellation: Vulkan runs it only with both shaders and a patch list. NVN also allows an evaluation shader alone (fixed levels from
     // SetInner/OuterTessellationLevels): those draws get a generated pass-through control shader (passthrough_tcs_for).
@@ -3690,6 +3692,11 @@ void do_write_memory(uint64_t gpu_addr, const void* data, uint32_t size) {
 void apply_bind_program(const P_BindProgram& p) {
     for (int st = 0; st < 6; ++st)
         if (p.stages & (1u << st)) S.stage[st] = p.program ? p.program->stage[st] : nullptr;
+    if (key_check_on() && p.program) {   // [nvn] shader_key_check: a by-value copy of what SetShaders hashed, re-hashed at the first draw
+        KeyStage ks[6];
+        for (int st = 0; st < 6; ++st) ks[st] = {p.program->src_code[st], p.program->src_control[st], p.program->code_hash[st]};
+        key_check_bind(reinterpret_cast<uintptr_t>(p.program) ^ (static_cast<uintptr_t>(p.program->serial) << 48), ks);
+    }
     if (g_trace && (p.stages & (1u << kCompute))) {
         g_cs_missing = (p.program && !p.program->stage[kCompute]) ? std::string(p.program->missing) : std::string();
         if (!g_cs_missing.empty()) TRACE("bind program: compute block(s) %s not in the shader cache", g_cs_missing.c_str());
