@@ -3,6 +3,14 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### What's new
+- New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
+  view distance and texture sharpness they also pick a render scale and a frame limit (Steam Deck 40 fps, Legion Go S and
+  Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
+  afterwards switches to Custom, as before. The render scale part applies after a restart.
+
 ## 0.5.0 (build I: Iguana)
 
 ### What's new
