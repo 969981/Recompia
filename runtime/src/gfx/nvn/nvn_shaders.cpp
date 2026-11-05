@@ -10,6 +10,7 @@
 // neither the names nor the numbers carry is the c[0] offset a storage buffer's address was loaded from; that comes
 // from the harness's results.tsv (apply_harness).
 #include "nvn_shaders.h"
+#include "nvn_driver_bank.h"
 
 #include <windows.h>
 
@@ -822,8 +823,8 @@ std::string describe_like_harness(const ShaderReflection& refl) {
 // Unknown and the query saw the 1x1 dummy. 255 compute blocks of the cache (volumetric fog, light injection) do this.
 void apply_nvn2_compute_table(ShaderReflection& refl, const ShaderControl& c) {
     if (!c.nvn2 || c.stage != 5) return;
-    const int ub0 = 0x10, sb0 = ub0 + 0x10 * c.c0_ubos, tex0 = sb0 + 0x10 * c.c0_ssbos;
-    const int img0 = tex0 + 8 * c.c0_textures, end = img0 + 8 * c.c0_images;
+    const Nvn2ComputeTable t = nvn2_compute_table(c);   // the same layout the replay fills (nvn_driver_bank.h)
+    const int ub0 = t.ubo0, sb0 = t.ssbo0, tex0 = t.tex0, img0 = t.img0, end = t.end;
     for (DescriptorBinding& b : refl.bindings) {
         NvnMeaning& m = b.nvn;
         if (b.type == DescriptorType::StorageBuffer) {

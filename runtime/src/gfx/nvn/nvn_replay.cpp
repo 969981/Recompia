@@ -28,6 +28,7 @@
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/log.h"
 #include "nvn_decoded.h"
+#include "nvn_driver_bank.h"
 #include "nvn_enums.h"
 #include "nvn_format.h"
 #include "nvn_mask_clear.h"
@@ -183,6 +184,7 @@ VkPipeline g_bound_pipeline = VK_NULL_HANDLE;
 UploadAlloc g_support;
 UploadAlloc g_draw_support;     // the support buffer the next descriptor sets bind: g_support, or one with render scales (support_for_draw)
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
+std::unordered_map<uint64_t, UploadAlloc> g_driver_banks;     // this submission's filled c[0] banks (driver_bank_for), by content
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
 // [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
@@ -1849,6 +1851,35 @@ bool set_memo_same(const SetMemo& a, const SetMemo& b) {
     return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
            a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
 }
+// c[0] of a stage that reads it, filled from the current bindings (nvn_driver_bank.h): a Switch 2 compute program's resource table
+// (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels). Copied into the upload ring
+// once per distinct content per submission. A stage the fill does not cover gets the shared bank (zeros, point size).
+VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
+    VkDeviceSize range = 0;
+    VkBuffer shared = driver_constants_buffer(&range);
+    VkDescriptorBufferInfo bi = {shared ? shared : dummy_buffer(), 0, shared ? range : 65536};
+    const ShaderControl& c = d.shader->control;
+    if (d.nvn_stage != kCompute || !c.nvn2 || c.stage != 5) return bi;
+    uint8_t bank[kDriverBankBytes];
+    DriverRange ubo[16], ssbo[16];
+    for (int n = 0; n < 16; ++n) {
+        ubo[n] = {S.ubo[kCompute][n].addr, S.ubo[kCompute][n].size};
+        ssbo[n] = {S.ssbo[kCompute][n].addr, S.ssbo[kCompute][n].size};
+    }
+    const uint32_t used = fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute]);
+    uint64_t key = 1469598103934665603ull ^ used;
+    for (uint32_t i = 0; i < used; ++i) key = (key ^ bank[i]) * 1099511628211ull;
+    auto it = g_driver_banks.find(key);
+    if (it == g_driver_banks.end()) {
+        const VkDeviceSize align = std::max<VkDeviceSize>(device().properties().limits.minUniformBufferOffsetAlignment, 256);
+        UploadAlloc u = F->upload(kDriverBankBytes, align);
+        if (!u) return bi;
+        std::memcpy(u.ptr, bank, kDriverBankBytes);
+        it = g_driver_banks.emplace(key, u).first;
+    }
+    return {it->second.buffer, it->second.offset, kDriverBankBytes};
+}
+
 VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     static const bool reuse_on = set_reuse_on();
@@ -1903,12 +1934,9 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     bi = g_draw_support ? VkDescriptorBufferInfo{g_draw_support.buffer, g_draw_support.offset, sizeof(SupportBuffer)}
                                         : VkDescriptorBufferInfo{g_support.buffer, g_support.offset, sizeof(SupportBuffer)};
                     break;
-                case NvnSource::DriverConstants: {
-                    VkDeviceSize range = 0;
-                    VkBuffer buf = driver_constants_buffer(&range);
-                    if (buf) bi = {buf, 0, range};
+                case NvnSource::DriverConstants:
+                    bi = driver_bank_for(d);
                     break;
-                }
                 case NvnSource::ConstantData: {
                     VkDeviceSize range = 0;
                     VkBuffer buf = constant_data_buffer(d.shader, &range);
@@ -4293,6 +4321,7 @@ void replay_begin_submit(Frame& f) {
     // one support buffer per submission (Ryujinx SupportBuffer: render scales 1.0, no BGRA remap)
     g_support = f.upload(sizeof(SupportBuffer), 256);
     g_support_scaled.clear();
+    g_driver_banks.clear();
     g_draw_support = UploadAlloc();
     if (g_support) {
         SupportBuffer sb = support_buffer_defaults();

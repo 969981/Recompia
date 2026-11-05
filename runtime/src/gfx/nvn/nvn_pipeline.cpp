@@ -815,6 +815,7 @@ VkBuffer constant_data_buffer(const ShaderInfo* s, VkDeviceSize* range) {
     return it->second.first.buffer;
 }
 
+// The shared c[0] for the stages the replay does not fill per draw / dispatch (driver_bank_for in nvn_replay.cpp, nvn_driver_bank.h).
 VkBuffer driver_constants_buffer(VkDeviceSize* range) {
     if (!g_driver_const_made) {
         g_driver_const_made = true;
