@@ -150,7 +150,7 @@ Settings builtin_settings() {
     return s;
 }
 
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Switch, Aim, Camera, Tweaks, Bindings };
+enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Switch, Aim, Camera, Tweaks, Bindings };
 
 // The factory-defaults revision this build writes ([meta] defaults_rev) and the factory bindings an older controls.ini does not have: the
 // game's (play_types.h GameDefaults).
@@ -174,6 +174,7 @@ const char* sec_label(Sec s) {
         case Sec::Picture: return "[picture]";
         case Sec::Prompts: return "[prompts]";
         case Sec::Fps: return "[fps]";
+        case Sec::Quit: return "[quit]";
         case Sec::Switch: return "[switch]";
         case Sec::Aim: return "[aim]";
         case Sec::Camera: return "[camera]";
@@ -377,6 +378,28 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             }
             if (k == "detail") return set_int(0, 2, &s->fps.detail);
             if (k == "in_screenshots") return set_bool(&s->fps.in_screenshots);
+            break;
+        case Sec::Quit:
+            if (k == "pad") {
+                if (!parse_pad_combo(v, &s->quit.pad)) {
+                    *msg = "pad must be none or pad buttons joined by '+' (back+start, left_shoulder+right_shoulder ...), got '" + v + "'";
+                    return false;
+                }
+                return true;
+            }
+            if (k == "key") {
+                InputId id;
+                if (lower(v) == "none" || v.empty()) {
+                    s->quit.key = {};
+                    return true;
+                }
+                if (!parse_input(v, &id) || id.kind != InKind::Key) {
+                    *msg = "key must be none or a keyboard key name (F4, End, Pause ...), got '" + v + "'";
+                    return false;
+                }
+                s->quit.key = id;
+                return true;
+            }
             break;
         case Sec::PadMap: {
             PadSrc src;
@@ -590,6 +613,7 @@ Sec fixed_sec(const std::string& key) {
     if (key == "picture") return Sec::Picture;
     if (key == "prompts") return Sec::Prompts;
     if (key == "fps") return Sec::Fps;
+    if (key == "quit") return Sec::Quit;
     if (key == "aim") return Sec::Aim;
     if (key == "camera") return Sec::Camera;
     if (key == "tweaks") return Sec::Tweaks;
@@ -968,6 +992,10 @@ std::string format_settings(const Settings& s) {
     kv("corner", corner_name(s.fps.corner));
     kv("detail", std::to_string(s.fps.detail));
     kv("in_screenshots", flag(s.fps.in_screenshots));
+
+    o += "\n[quit]\n";
+    kv("pad", pad_combo_text(s.quit.pad));
+    kv("key", s.quit.key.kind == InKind::Key ? input_name(s.quit.key) : std::string("none"));
 
     o += "\n[switch]\n";
     for (int a = 1; a < kActCount; ++a) {   // every action except none

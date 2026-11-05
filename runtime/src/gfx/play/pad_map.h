@@ -26,6 +26,10 @@ void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadI
 // onto the unit circle. Menus and the map do not call this (their stick is not a look).
 hid::StickValue adjust_look_stick(hid::StickValue right, const PadSettings& cfg);
 
+// The physical sources held on the raw pad, as a PadSrc bitmask (pad_src_bit): face buttons by position, the triggers past
+// cfg.trigger_threshold. Ignores cfg.remap (the quit shortcut, play.cpp, names physical buttons).
+uint32_t pad_src_held(const platform::GamepadRaw& raw, const PadSettings& cfg);
+
 // The Switch button bits the built-in mapping gives a physical source (the kPadDefault case of map_pad), for a pad with the printed labels
 // A B X Y on SOUTH EAST WEST NORTH (label_abxy true: South A, East B, West X, North Y; false: South B, East A, West Y, North X).
 // LEFT_TRIGGER -> ZL, RIGHT_TRIGGER -> ZR, the other sources as in map_pad. Returns 0 for kCount.
