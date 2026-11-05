@@ -129,7 +129,7 @@ struct Gpu {
     std::mutex unsupported_mu;
     std::map<std::string, uint64_t> unsupported;
 
-    // [nvn] submit_thread (default off): the vkQueueSubmit2 of flush_batch and the present's submit + vkQueuePresentKHR run on this one
+    // [nvn] submit_thread (default auto: on under Wine): the vkQueueSubmit2 of flush_batch and the present's submit + vkQueuePresentKHR run on this one
     // FIFO worker (nvn_submit_worker.h) instead of the render thread. null = off: everything inline, as before.
     //
     // What depends on a submission having been made, and how each is kept right with the worker:
@@ -1148,11 +1148,11 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     gp->rend = rend;
     gp->limiter = limiter;
     gp->keep_aspect = keep_aspect;
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    const bool wine = nt && GetProcAddress(nt, "wine_get_version");
     {   // [nvn] submit_batch: auto = frame under Wine (each kernel submission walks the imported pools again, flush_batch), 1 elsewhere.
         // frame: one kernel submission per frame, the present's; N: flush every N submissions and whenever the render thread idles.
         std::string b = nxrt::config_get_str("nvn", "submit_batch", "auto");
-        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-        const bool wine = nt && GetProcAddress(nt, "wine_get_version");
         const std::string how = b == "auto" ? (wine ? "auto, Wine" : "auto, not Wine") : b;
         if (b == "auto") b = wine ? "frame" : "1";
         gp->frame_batch = b == "frame";
@@ -1207,8 +1207,13 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     static const bool report_registered = (diag_add_report(gpu_report), true);   // the freeze dump shows the GPU state
     (void)report_registered;
     register_counter_gauges();
-    // [nvn] submit_thread (default off): see Gpu::sw. Started before the render thread, so every submission of the run goes through it.
-    if (nxrt::config_get_bool("nvn", "submit_thread", false)) {
+    // [nvn] submit_thread: see Gpu::sw. Started before the render thread, so every submission of the run goes through it. auto = on under
+    // Wine, where a kernel submission can block the render thread for most of a frame (Steam Deck: 25-41 ms, 26 -> 53 fps with the
+    // worker), off on Windows, where it measured no change.
+    const std::string st = nxrt::config_get_str("nvn", "submit_thread", "auto");
+    const bool st_on = st == "auto" ? wine : (st == "on" || st == "1" || st == "true");
+    if (!st_on) NXLOG_I(kTag, "submit_thread off (%s%s)", st.c_str(), st == "auto" ? ", not Wine" : "");
+    if (st_on) {
         gp->sw = std::make_unique<SubmitWorker>();
         gp->sw->start([] {
             log_set_thread_name("nvn-submit");
@@ -1220,7 +1225,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
                 job();
             });
         }, [] { submit_drain(); });
-        NXLOG_I(kTag, "submit_thread on: submissions and presents go to the queue from the nvn-submit thread");
+        NXLOG_I(kTag, "submit_thread on (%s%s): submissions and presents go to the queue from the nvn-submit thread", st.c_str(), st == "auto" ? ", Wine" : "");
     }
     gp->th = std::thread(render_loop);
     // wait for the thread id to be published

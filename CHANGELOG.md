@@ -3,6 +3,13 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### What's new
+- Steam Deck, Legion Go S and other Linux / SteamOS players: the game now hands its drawing work to the graphics card from a separate
+  thread by default (`[nvn] submit_thread = auto`). On a Steam Deck this about doubles the frame rate (26 -> 53 fps, measured by a
+  player). Windows is unchanged. Set `submit_thread = false` in `pkp.ini` to go back.
+
 ## 0.4.1
 
 ### Fixes
