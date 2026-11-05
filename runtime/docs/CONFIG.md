@@ -288,6 +288,8 @@ When the sink has a clock of its own (XAudio2, or `paced`), the audio renderer k
 
 `device` chooses where the XAudio2 sink plays. `default` (or an empty value) uses the system's default output. Any other text is looked for first as an exact endpoint id, then as part of a device's friendly name, ignoring upper and lower case. The first match wins. If nothing matches, the log gets a warning and the default device is used. Each time the XAudio2 sink opens, the log lists the active output devices with their names and ids, so the text for this key can be copied from there.
 
+If the output device is lost while the game runs (headphones unplugged, Bluetooth gone, the HDMI monitor turned off), the XAudio2 sink logs a warning and keeps the audio renderer's pacing on a silent stand-in queue that drains at the sample rate, so the game does not stall. It then tries to open the output again after 1, 2 and 4 s and every 5 s after that (a `device` that is gone falls back to the default device) and switches back to real output as soon as that works. Nothing is configurable; with no device loss nothing changes.
+
 While a sink is active, a line `sink <name>: queue avg A ms (min..max ms), underruns +N (total), dropped +D, written F frames/s (rate R)` is logged every `stats_interval` seconds. The queue is the audio waiting in the device, which is the output latency; `written` should match the rate (lower: the game is starved or the stream is stretched). When a sink closes, it writes one line to the log with its counters: frames written, accepted, dropped, underruns (times the device ran out of audio after playback had started) and the largest number of buffers queued at once.
 
 ## Keyboard beam and visor keys (`controls.ini`)
