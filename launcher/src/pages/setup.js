@@ -118,7 +118,7 @@ export async function render(el, ctx) {
               <button class="btn" id="browse" ${nupBusy ? 'disabled' : ''}>${icon('folder-open')}Browse</button>
               <button class="btn" id="browse-nup" ${nupBusy ? 'disabled' : ''}>${icon('file-archive')}.nup</button>
             </div>
-            ${nupBusy ? `<p class="dim" id="nup-msg">${nupMsg(nupProgress)}</p><progress max="100" value="${nupPct(nupProgress)}"></progress>` : ''}
+            ${nupBusy ? `<p class="dim" id="nup-msg">${nupMsg(nupProgress)}</p><progress max="100" value="${nupPct(nupProgress)}"></progress><button class="btn" id="cancel-nup">Cancel unpacking</button>` : ''}
             <p class="faint">Or pick a <code>.nup</code> package instead of a folder: it is unpacked once into <code>nup_dump/</code> next to the game and used from there (needs the free space of the full game).</p>
             <p class="faint">Expected layout: <code>base/</code> and <code>updates/&lt;version&gt;/</code>, each with <code>exefs/</code> (main, sdk, subsdk0, rtld, main.npdm) and <code>romfs/</code>. The highest valid update is used, otherwise the base game.</p>
           </div>
@@ -168,6 +168,7 @@ export async function render(el, ctx) {
       nupBusy = false;
       draw();
     });
+    el.querySelector('#cancel-nup')?.addEventListener('click', () => api('cancel_nup'));
     el.querySelector('#use').addEventListener('click', async () => {
       try {
         await api('save_dump', { path });

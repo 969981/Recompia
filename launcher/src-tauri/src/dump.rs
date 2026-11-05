@@ -55,14 +55,14 @@ pub fn fwd(p: &Path) -> String {
 
 /// The build this release supports, from `tools/build/dump_hashes.json` next to the launcher: (main build ID, version text).
 /// None in a dev checkout without the file: then any version passes here and the build script still checks the hashes.
-fn supported() -> Option<(String, String)> {
+pub(crate) fn supported() -> Option<(String, String)> {
     let p = std::env::current_exe().ok()?.parent()?.join("tools").join("build").join("dump_hashes.json");
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(p).ok()?).ok()?;
     Some((v["main_build_id"].as_str()?.to_lowercase(), v["version"].as_str()?.to_string()))
 }
 
 /// Build ID of a decrypted NSO (20 bytes at 0x40), lower-case hex; None if the file is missing, short or not an NSO.
-fn main_build_id(main: &Path) -> Option<String> {
+pub(crate) fn main_build_id(main: &Path) -> Option<String> {
     let mut h = [0u8; 0x54];
     fs::File::open(main).ok()?.read_exact(&mut h).ok()?;
     if &h[..4] != b"NSO0" {
