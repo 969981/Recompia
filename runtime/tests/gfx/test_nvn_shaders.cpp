@@ -150,6 +150,56 @@ NXTEST(read_control_fields) {
     CHECK(!read_control(ctrl).valid);
 }
 
+// The c[0] table of 0034791c's shape: 2 uniform blocks, 1 storage buffer, 30 textures, 1 image. Uniform rows 0x10/0x20, storage
+// 0x30, textures 0x40 + 8n, the image at 0x130. The image's size query is a texture binding at the image's word.
+NXTEST(nvn2_compute_table_maps_image_size_query) {
+    ShaderControl c;
+    c.valid = c.nvn2 = true;
+    c.stage = 5;
+    c.c0_ubos = 2;
+    c.c0_ssbos = 1;
+    c.c0_textures = 30;
+    c.c0_images = 1;
+    ShaderReflection refl;
+    auto add = [&](DescriptorType type, int word, int c0_offset) {
+        DescriptorBinding b;
+        b.type = type;
+        b.binding = static_cast<uint32_t>(refl.bindings.size());
+        b.nvn.bank = 0;
+        b.nvn.word = word;
+        b.nvn.c0_offset = c0_offset;
+        refl.bindings.push_back(b);
+    };
+    add(DescriptorType::StorageBuffer, -1, 0x20);                       // 0: uniform block 1 as storage
+    add(DescriptorType::StorageBuffer, -1, 0x30);                       // 1: storage buffer 0
+    add(DescriptorType::CombinedImageSampler, 0x48 / 4, -1);            // 2: texture 1
+    add(DescriptorType::StorageImage, 0x130 / 4, -1);                   // 3: image 0
+    add(DescriptorType::CombinedImageSampler, 0x130 / 4, -1);           // 4: image 0's size query
+    add(DescriptorType::StorageImage, 0x48 / 4, -1);                    // 5: an image word in the texture range: left alone
+    add(DescriptorType::CombinedImageSampler, 0x138 / 4, -1);           // 6: past the table: left alone
+    apply_nvn2_compute_table(refl, c);
+    const auto& b = refl.bindings;
+    CHECK(b[0].nvn.source == NvnSource::UniformAsStorage);
+    CHECK_EQ(b[0].nvn.index, 1);
+    CHECK(b[1].nvn.source == NvnSource::StorageBuffer);
+    CHECK_EQ(b[1].nvn.index, 0);
+    CHECK(b[2].nvn.source == NvnSource::SamplerBinding);
+    CHECK_EQ(b[2].nvn.index, 1);
+    CHECK(b[3].nvn.source == NvnSource::ImageBinding);
+    CHECK_EQ(b[3].nvn.index, 0);
+    CHECK(b[4].nvn.source == NvnSource::ImageBinding);
+    CHECK_EQ(b[4].nvn.index, 0);
+    CHECK(b[5].nvn.source == NvnSource::Unknown);
+    CHECK(b[6].nvn.source == NvnSource::Unknown);
+    // graphics and Switch 1 blocks: untouched
+    ShaderReflection g;
+    g.bindings.push_back(b[4]);
+    g.bindings[0].nvn.source = NvnSource::Unknown;
+    c.stage = 1;
+    apply_nvn2_compute_table(g, c);
+    CHECK(g.bindings[0].nvn.source == NvnSource::Unknown);
+}
+
 NXTEST(read_control_on_first_corpus_block) {
     std::string manifest, code, ctrl;
     if (!read_file(fs::path(kCorpusDir) / "manifest.tsv", manifest)) {
