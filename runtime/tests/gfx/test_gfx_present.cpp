@@ -4,9 +4,11 @@
 #include <SDL3/SDL.h>
 
 #include "gfx_test_util.h"
+#include "vk_gauges.h"
 NXTEST_GROUP(gfx_present)
 
 using namespace gfxtest;
+using namespace nxrt;   // vk_gauge_*
 
 NXTEST(present_mode_switching_and_resizing_with_a_window) {
     DWORD handles_start = handle_count();
@@ -49,8 +51,12 @@ NXTEST(present_mode_switching_and_resizing_with_a_window) {
 NXTEST(no_handle_or_memory_growth_over_hundreds_of_swapchain_recreations) {
     // One device, one window, 700 frames with a present-mode change or a resize every 3 frames (about 300 swapchain rebuilds,
     // the overlay on). After a warm-up the process handle count, the private bytes and the allocator's live allocations must not
-    // grow. (Creating and destroying whole devices is not what this checks: the NVIDIA driver on this machine keeps 5 handles per
-    // vkDestroyDevice, see docs/debug/006.md.)
+    // grow, nor the live Vulkan objects of the runtime (vk_gauges.h). (Creating and destroying whole devices is not what this checks: the
+    // NVIDIA driver on this machine keeps 5 handles per vkDestroyDevice, see docs/debug/006.md.)
+    // The AMD driver (RX 9060 XT, Adrenalin driver 0x80018b) keeps about 190 KB of process memory per swapchain it creates and destroys: a
+    // bare Vulkan program that only recreates a swapchain on one window, with none of the runtime, grows the same way (~90 MiB over 450
+    // rebuilds, linearly). There the private bytes say nothing about the runtime, so that bound is only checked on other GPUs; the object
+    // counts below cover the runtime's side on every GPU.
     SceneRunDesc d = base_desc();
     d.headless = false;
     d.width = 640;
@@ -65,9 +71,23 @@ NXTEST(no_handle_or_memory_growth_over_hundreds_of_swapchain_recreations) {
         GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pm), sizeof pm);
         return static_cast<double>(pm.PrivateUsage) / (1024.0 * 1024.0);
     };
+    // Vulkan objects the runtime holds; the swapchain's image views and semaphores are compared separately (one more image in mailbox mode)
+    struct Live {
+        int64_t fixed = 0, per_image = 0;
+    };
+    auto live = [] {
+        Live l;
+        for (auto* g : {&vk_gauge_images(), &vk_gauge_buffers(), &vk_gauge_samplers(), &vk_gauge_pipelines(), &vk_gauge_descriptor_pools(),
+                        &vk_gauge_descriptor_sets(), &vk_gauge_command_pools(), &vk_gauge_command_buffers(), &vk_gauge_fences(),
+                        &vk_gauge_query_pools(), &vk_gauge_swapchains(), &vk_gauge_memory_allocs()})
+            l.fixed += g->get();
+        l.per_image = vk_gauge_image_views().get() + vk_gauge_semaphores().get();
+        return l;
+    };
+    Live live_start, live_end;
     d.per_frame = [&](uint64_t frame, Renderer& r) {
-        if (frame == 100) { h_start = handle_count(); mb_start = private_mb(); }
-        if (frame == 699) { h_end = handle_count(); mb_end = private_mb(); }
+        if (frame == 100) { h_start = handle_count(); mb_start = private_mb(); live_start = live(); }
+        if (frame == 699) { h_end = handle_count(); mb_end = private_mb(); live_end = live(); }
         const PresentMode order[] = {PresentMode::Mailbox, PresentMode::Immediate, PresentMode::FifoRelaxed, PresentMode::Fifo};
         if (frame % 6 == 0) r.set_present_mode(order[(frame / 6) % 4]);
         if (frame % 6 == 3) {
@@ -85,7 +105,13 @@ NXTEST(no_handle_or_memory_growth_over_hundreds_of_swapchain_recreations) {
     CHECK(r.renderer.swapchain_creates >= 200);
     CHECK_EQ(r.memory_end.allocations, 0ull);
     CHECK(h_end <= h_start + 2);
-    CHECK(mb_end - mb_start < 8.0);
+    std::printf("    live Vulkan objects %lld -> %lld, swapchain image views + semaphores %lld -> %lld\n", static_cast<long long>(live_start.fixed),
+                static_cast<long long>(live_end.fixed), static_cast<long long>(live_start.per_image), static_cast<long long>(live_end.per_image));
+    CHECK_EQ(live_end.fixed, live_start.fixed);
+    CHECK(live_end.per_image <= live_start.per_image + 2);
+    const bool amd = r.gpu_name.find("AMD") != std::string::npos || r.gpu_name.find("Radeon") != std::string::npos;
+    if (amd) std::printf("    private bytes not checked: the AMD driver keeps ~190 KB per swapchain rebuild (see the comment above)\n");
+    else CHECK(mb_end - mb_start < 8.0);
 }
 
 NXTEST(headless_resize_and_present_mode_calls) {

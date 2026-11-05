@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <string>
+#include <vector>
 
 #ifdef NXRT_TEST_GAME_REGISTER
 void NXRT_TEST_GAME_REGISTER();     // the test game (CMakeLists.txt NXRT_TEST_GAME): the tests run with its tables registered (docs/GAME_BOUNDARY.md)
@@ -32,9 +34,38 @@ void skip(const char* why) {
 }
 }  // namespace nxtest
 
+namespace {
+// Settings in the environment win over the ini (config.cpp lookup: env > ini), so a player's own NXRT_* variables would override what the
+// tests set with config_set: NXRT_FS_SAVE_DIR sent the save tests into the real save folder. The test process drops every inherited
+// NXRT_* variable except the test inputs below (paths to game data, reference updates, tool paths). Child processes inherit the cleaned
+// environment, plus whatever their parent test sets for them, so --child keeps its environment as it is.
+bool test_input(const std::string& name) {
+    static const char* const kKeep[] = {"NXRT_ROOT",           "NXRT_NVN_SHADER_CACHE", "NXRT_NVN_CORPUS",       "NXRT_NVN_BC7_CACHE",
+                                        "NXRT_REFS_DIR",       "NXRT_GFX_UPDATE_REF",   "NXRT_NVN_UPDATE_REFS",  "NXRT_NVN_DUMP_COVERAGE",
+                                        "NXRT_SPIRV_VAL",      "NXRT_CSMP_DIR"};
+    for (const char* k : kKeep)
+        if (_stricmp(name.c_str(), k) == 0) return true;
+    return _strnicmp(name.c_str(), "NXRT_TEST_", 10) == 0 || _strnicmp(name.c_str(), "NXRT_MOVIE_", 11) == 0;
+}
+void drop_inherited_settings() {
+    std::vector<std::string> drop;
+    for (char** e = _environ; e && *e; ++e) {
+        const char* eq = std::strchr(*e, '=');
+        if (!eq || eq == *e) continue;
+        const std::string name(*e, static_cast<size_t>(eq - *e));
+        if (_strnicmp(name.c_str(), "NXRT_", 5) == 0 && !test_input(name)) drop.push_back(name);
+    }
+    for (const std::string& n : drop) {
+        std::printf("test env: ignoring %s (a runtime setting; the tests set their own)\n", n.c_str());
+        _putenv_s(n.c_str(), "");
+    }
+}
+}  // namespace
+
 int main(int argc, char** argv) {
     using namespace nxtest;
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    if (!(argc >= 2 && !std::strcmp(argv[1], "--child"))) drop_inherited_settings();
 #ifdef NXRT_TEST_GAME_REGISTER
     NXRT_TEST_GAME_REGISTER();
 #endif

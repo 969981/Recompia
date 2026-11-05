@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <thread>
 
+#include <windows.h>
+
 #include "nxrt/abi.h"
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
@@ -188,11 +190,23 @@ NXTEST(info_thread_tick_count_pseudo_handle) {
 }
 
 namespace {
-// Burns host CPU for about `ms` milliseconds (a CPU-bound loop, so its CPU time is about its wall time).
+// The calling thread's CPU time (kernel + user) in 100 ns units: the counter ThreadTickCount reads (svc_info.cpp thread_cpu_ticks).
+uint64_t own_cpu_100ns() {
+    FILETIME created{}, exited{}, kernel_time{}, user_time{};
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel_time, &user_time)) return 0;
+    auto to_u64 = [](const FILETIME& f) { return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+    return to_u64(kernel_time) + to_u64(user_time);
+}
+
+// Burns host CPU until the thread's own CPU time has grown by `ms` milliseconds (at most 10 s of wall time). Windows charges CPU time per
+// clock interrupt (~15.6 ms), so a loop of `ms` wall milliseconds can be charged nothing when the thread is preempted or the run falls
+// between two interrupts (a 20 ms loop came back 0 under a parallel ctest run).
 void burn_cpu(int ms) {
-    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    const uint64_t start = own_cpu_100ns();
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     volatile uint64_t x = 0;
-    while (std::chrono::steady_clock::now() < end) x = x + 1;
+    while (own_cpu_100ns() - start < static_cast<uint64_t>(ms) * 10000 && std::chrono::steady_clock::now() < give_up)
+        for (int i = 0; i < 100000; ++i) x = x + 1;
 }
 }  // namespace
 

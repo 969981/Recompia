@@ -14,6 +14,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "nxrt/input_source.h"
+#include "play/play_game.h"
 #include "play/play_ui.h"
 
 NXTEST_GROUP(play_ui)
@@ -87,42 +88,67 @@ void run_frames(play::UiHost& host, int n) {
     }
 }
 
-// The tab bar of the settings page inside the Controls window, or nullptr before the first frame.
-ImGuiTabBar* settings_tab_bar() {
-    ImGuiWindow* win = ImGui::FindWindowByName("Controls");
-    return win ? ImGui::TabBarFindByID(win->GetID("settings_tabs")) : nullptr;
-}
+// The page has two levels of tabs: the pages (Display, Graphics, Controls, Audio, the game's own page, About) and the Controls page's
+// own tabs (Mouse, keyboard bindings, Gamepad, Switch layout, Status). The pages (play_ui.cpp draw_settings_page, controls_page).
+const char* const kPages[] = {"Display", "Graphics", "Controls", "Audio", "Game", "About"};
+const char* const kControlsTabs[] = {"Mouse", "Keyboard and mouse buttons", "Gamepad", "Switch layout", "Status"};
 
-// Asks the tab bar to open the named tab at the next frame. A tab's id is its label hashed with the tab bar's id as the seed (the tab
-// bar is on the ID stack while its tabs are drawn). TabBarQueueFocus by name needs a current window, which there is not between frames.
-void open_tab(const char* name) {
-    ImGuiWindow* win = ImGui::FindWindowByName("Controls");
-    ImGuiTabBar* bar = settings_tab_bar();
-    if (win && bar) bar->NextSelectedTabId = ImHashStr(name, 0, win->GetID("settings_tabs"));
-}
-
-// Returns true when the open tab has this name. Checked through the tab bar's selected id.
-bool tab_open(const char* name) {
-    ImGuiTabBar* bar = settings_tab_bar();
-    if (!bar) return false;
-    for (int i = 0; i < bar->Tabs.Size; ++i) {
-        if (bar->Tabs[i].ID == bar->SelectedTabId) return std::strcmp(ImGui::TabBarGetTabName(bar, &bar->Tabs[i]), name) == 0;
+// The tab bar that has a tab with this label, and the tab; nullptr when no tab bar drawn so far has it. Tabs are looked up by their
+// label in every tab bar of the context, so the test does not depend on how the page nests its ID stack.
+ImGuiTabBar* bar_with_tab(const char* name, ImGuiTabItem** tab) {
+    ImGuiContext& g = *GImGui;
+    for (int i = 0; i < g.TabBars.GetMapSize(); ++i) {
+        ImGuiTabBar* bar = g.TabBars.TryGetMapData(i);
+        if (!bar) continue;
+        for (int t = 0; t < bar->Tabs.Size; ++t) {
+            if (std::strcmp(ImGui::TabBarGetTabName(bar, &bar->Tabs[t]), name) == 0) {
+                *tab = &bar->Tabs[t];
+                return bar;
+            }
+        }
     }
+    return nullptr;
+}
+
+// Asks the tab's bar to open it at the next frame. TabBarQueueFocus by name needs a current window, which there is not between frames.
+void open_tab(const char* name) {
+    ImGuiTabItem* tab = nullptr;
+    if (ImGuiTabBar* bar = bar_with_tab(name, &tab)) bar->NextSelectedTabId = tab->ID;
+}
+
+// Returns true when the named tab is the open one of its bar.
+bool tab_open(const char* name) {
+    ImGuiTabItem* tab = nullptr;
+    ImGuiTabBar* bar = bar_with_tab(name, &tab);
+    return bar && bar->SelectedTabId == tab->ID;
+}
+
+bool open_and_check(play::UiHost& host, const char* name) {
+    open_tab(name);
+    run_frames(host, 2);
+    if (tab_open(name)) return true;
+    std::printf("    tab did not open: %s\n", name);
     return false;
 }
 
-// Draws every tab: one frame so the tabs exist, then each tab is opened in turn with two frames, and checked to be the open one.
+// Draws every tab: one frame so the pages exist, then each page is opened in turn with two frames and checked to be the open one; on the
+// Controls page each of its own tabs is opened the same way. The game's page is there only when the game has one (GamePlay::tweaks_tab).
 // Returns false when a tab did not open.
 bool draw_all_tabs(play::UiHost& host) {
-    static const char* const kTabs[] = {"Mouse", "Controller", "Display", "Bindings", "Switch layout", "Status"};
+    const play::GamePlay* gp = play::game_play();
+    const bool game_page = gp && gp->tweaks_tab;
     bool ok = true;
     run_frames(host, 1);
-    for (const char* t : kTabs) {
-        open_tab(t);
-        run_frames(host, 2);
-        if (!tab_open(t)) {
-            std::printf("    tab did not open: %s\n", t);
-            ok = false;
+    for (const char* page : kPages) {
+        if (std::strcmp(page, "Game") == 0 && !game_page) continue;
+        ok = open_and_check(host, page) && ok;
+        if (std::strcmp(page, "Controls") != 0) continue;
+        for (const char* t : kControlsTabs) {
+            ok = open_and_check(host, t) && ok;
+            if (!tab_open("Controls")) {
+                std::printf("    the Controls page closed while opening %s\n", t);
+                ok = false;
+            }
         }
     }
     return ok;

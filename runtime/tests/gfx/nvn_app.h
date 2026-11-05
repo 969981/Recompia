@@ -367,10 +367,13 @@ public:
         return idx;
     }
     // Presents window texture `idx` and returns what the renderer showed (the headless frame, RGBA8, width x height).
+    // The present only queues the frame for the render thread ([nvn] present_ahead, default 1); Finish runs on that thread after it,
+    // so the frame and its capture are done when it returns.
     bool present_and_capture(int idx, std::vector<uint8_t>* px) {
         uint32_t w = 0, h = 0;
         rend->capture_next_frame(px, &w, &h);
         api.nvnQueuePresentTexture(queue.get(), window.get(), idx);
+        api.nvnQueueFinish(queue.get());
         return w == width && h == height && !px->empty();
     }
 

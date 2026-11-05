@@ -24,6 +24,7 @@
 #include "play/prompts.h"
 #include "tegra_tiling.h"
 #include "test_framework.h"
+#include "play_test_game.h"
 #include "project_root.h"
 #if __has_include("pak.h")   // Metroid Prime Remastered pak/TXTR readers (mprs): only the real-data cases below use them
 #include "pak.h"
@@ -39,6 +40,49 @@ namespace fs = std::filesystem;
 namespace {
 
 fs::path pack_path() { return fs::path(__FILE__).parent_path().parent_path().parent_path() / "assets" / "prompts" / "prompt_icons.pak"; }
+
+// The resolver maps the game's button icon textures (PromptGame, nxrt/game.h Info::prompts) to pack entries. The test game, Pokopia,
+// registers no PromptGame: its prompts are glyphs in one UI atlas, patched by games/pkp/pkp_kbm.cpp through pad_pack_name() (tested
+// below). So the resolver tests install this table: one texture per Icon, in Icon order, in the shape of a game whose prompts are small
+// per-button textures (the upstream runtime's first game, Metroid Prime Remastered, was one). Only the button and pressed columns
+// matter to the resolver; the names and ids are made up.
+#define TEST_ICON(btn, pressed, n, front) {Btn::btn, pressed, "TXTR_Test" #n, "00000000-0000-0000-0000-0000000000" #n, "Test/Gui.pak", front}
+const PromptIcon kTestIcons[kIconCount] = {
+    TEST_ICON(A, false, 01, "00000000-0000-0000-0000-000000000101"),   // one icon with a second copy
+    TEST_ICON(A, true, 02, nullptr),
+    TEST_ICON(B, false, 03, nullptr),
+    TEST_ICON(B, true, 04, nullptr),
+    TEST_ICON(X, false, 05, nullptr),
+    TEST_ICON(Y, false, 06, nullptr),
+    TEST_ICON(L, false, 07, nullptr),
+    TEST_ICON(R, false, 08, nullptr),
+    TEST_ICON(R, true, 09, nullptr),
+    TEST_ICON(ZL, false, 10, nullptr),
+    TEST_ICON(ZL, true, 11, nullptr),
+    TEST_ICON(ZR, false, 12, nullptr),
+    TEST_ICON(ZR, true, 13, nullptr),
+    TEST_ICON(Plus, false, 14, nullptr),
+    TEST_ICON(Plus, true, 15, nullptr),
+    TEST_ICON(Minus, false, 16, nullptr),
+    TEST_ICON(DPad, false, 17, nullptr),
+    TEST_ICON(None, false, 18, nullptr),   // LStick
+    TEST_ICON(None, false, 19, nullptr),   // RStick
+};
+#undef TEST_ICON
+
+PromptGame test_prompt_game() {
+    PromptGame g;
+    g.icons = kTestIcons;
+    g.front_pak = "Test/Front.pak";
+    g.icon_size = 36;
+    return g;
+}
+
+// Installs the table above for the life of one test (the registered game comes back after it).
+struct TestPrompts {
+    PromptGame game = test_prompt_game();
+    nxtest::ScopedGame scope{nullptr, &game};
+};
 
 std::string name_of(const Settings& s, PromptStyle st, Ctx c, Icon i, bool label = true) {
     ResolveIn r;
@@ -73,11 +117,13 @@ std::vector<uint8_t> make_pack(const std::vector<std::pair<std::string, uint8_t>
 
 // ---- the resolver ------------------------------------------------------------------------------------------------------------------
 NXTEST(switch_style_keeps_the_games_icons) {
+    TestPrompts tp;
     const Settings s = default_settings();
     for (int i = 0; i < kIconCount; ++i) CHECK_EQ(name_of(s, PromptStyle::Switch, Ctx::Menu, static_cast<Icon>(i)), std::string());
 }
 
 NXTEST(xbox_and_playstation_names_by_label_and_by_position) {
+    TestPrompts tp;
     const Settings s = default_settings();
     CHECK_EQ(name_of(s, PromptStyle::Xbox, Ctx::Menu, Icon::A), std::string("xbox/a"));
     CHECK_EQ(name_of(s, PromptStyle::Xbox, Ctx::Menu, Icon::B), std::string("xbox/b"));
@@ -108,60 +154,84 @@ NXTEST(xbox_and_playstation_names_by_label_and_by_position) {
 }
 
 NXTEST(keyboard_style_follows_the_bindings_of_the_context) {
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_data.cpp kSettingsText), all raw Switch buttons in [bindings.all]:
+    // E / Return = A, Left Shift / Backspace = B, Tab = X, F = Y, Q = L, Space = R, Mouse1 = ZR, Mouse3 = ZL, Escape = +, C = -,
+    // 1..4 = the d-pad; in the menus Mouse3 = B and the wheel moves the selection. The first binding in file order wins.
+    TestPrompts tp;
     const Settings s = default_settings();
-    // menu: confirm = Return, back = Escape; gameplay: jump (B) = Space, morph (Y) = Left Ctrl, fire (ZR) = left mouse button
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::A), std::string("kbm/return"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::B), std::string("kbm/escape"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::B), std::string("kbm/space"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::Y), std::string("kbm/left ctrl"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::A), std::string("kbm/e"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::B), std::string("kbm/left shift"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::B), std::string("kbm/left shift"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::Y), std::string("kbm/f"));
     CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::ZR), std::string("kbm/mouse1"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::BPressed), std::string("kbm/space_pressed"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::ZL), std::string("kbm/mouse3"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::BPressed), std::string("kbm/left shift_pressed"));
     CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::L), std::string("kbm/q"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::R), std::string("kbm/e"));
-    // A is only bound in menus and the map: in gameplay the prompt still shows the menu key
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::A), std::string("kbm/return"));
-    // X is bound only in the map (its Key / Legend button): the map shows it, and the other contexts find it there
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Map, Icon::X), std::string("kbm/x"));
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::X), std::string("kbm/x"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::R), std::string("kbm/space"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::X), std::string("kbm/tab"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::Plus), std::string("kbm/escape"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::Minus), std::string("kbm/c"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::DPad), std::string("kbm/1"));
 }
 
 NXTEST(keyboard_style_follows_a_rebind) {
+    TestPrompts tp;
     Settings s = default_settings();
     InputId in;
     CHECK(parse_input("G", &in));
     Binding b;
     b.in = in;
     b.ctx = Ctx::Play;
-    b.act = Act::Jump;
-    s.bindings.insert(s.bindings.begin(), b);           // G jumps now, ahead of Space
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::B), std::string("kbm/g"));
-    // the [switch] table: jump on A instead of B moves the prompt
+    b.act = Act::BtnR;
+    s.bindings.insert(s.bindings.begin(), b);           // G presses R in play now, ahead of Space
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::R), std::string("kbm/g"));
+    // the [switch] table: btn_r on A instead of R (and btn_a on nothing) moves the A prompt to btn_r's key
     Settings t = default_settings();
     Output o;
     CHECK(parse_output("A", &o));
-    t.out[static_cast<int>(Act::Jump)] = o;
+    t.out[static_cast<int>(Act::BtnR)] = o;
+    t.out[static_cast<int>(Act::BtnA)] = Output{};
     CHECK_EQ(name_of(t, PromptStyle::Keyboard, Ctx::Play, Icon::A), std::string("kbm/space"));
-    // a context binding beats the `all` layer for the same input: Space confirms in menus, so it is not the key of jump there
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Menu, Icon::B), std::string("kbm/escape"));
+    // a named action's binding is shown before a raw btn_ one: confirm (A) on G beats btn_a's E
+    Settings c = default_settings();
+    Binding cb;
+    cb.in = in;
+    cb.ctx = Ctx::Menu;
+    cb.act = Act::Confirm;
+    c.bindings.push_back(cb);
+    CHECK_EQ(name_of(c, PromptStyle::Keyboard, Ctx::Menu, Icon::A), std::string("kbm/g"));
+    // a context binding beats the `all` layer for the same input: Left Shift does nothing in menus, so the menu shows B's next key
+    Settings m = default_settings();
+    InputId shift;
+    CHECK(parse_input("Left Shift", &shift));
+    Binding off;
+    off.in = shift;
+    off.ctx = Ctx::Menu;
+    off.act = Act::None;
+    m.bindings.push_back(off);
+    CHECK_EQ(name_of(m, PromptStyle::Keyboard, Ctx::Menu, Icon::B), std::string("kbm/backspace"));
+    CHECK_EQ(name_of(m, PromptStyle::Keyboard, Ctx::Play, Icon::B), std::string("kbm/left shift"));
 }
 
-NXTEST(keyboard_style_follows_a_rebound_jump_key) {
-    // the one binding of jump (Space in gameplay) moves to G: the B prompt follows it
+NXTEST(keyboard_style_follows_a_rebound_key) {
+    // the one binding of btn_r (Space in [bindings.all]) moves to G: the R prompt follows it
+    TestPrompts tp;
     Settings s = default_settings();
     InputId g;
     CHECK(parse_input("G", &g));
     int changed = 0;
     for (Binding& b : s.bindings) {
-        if (b.act != Act::Jump) continue;
+        if (b.act != Act::BtnR) continue;
         b.in = g;
         ++changed;
     }
     CHECK_EQ(changed, 1);
-    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::B), std::string("kbm/g"));
+    CHECK_EQ(name_of(s, PromptStyle::Keyboard, Ctx::Play, Icon::R), std::string("kbm/g"));
 }
 
 NXTEST(pad_styles_follow_a_pad_remap) {
     // South remapped to the Switch X button: the X icon is the bottom button, which prints A (Xbox) or cross (PlayStation)
+    TestPrompts tp;
     Settings s = default_settings();
     s.pad.remap[static_cast<int>(PadSrc::South)] = hid::btn(hid::kBtnX);
     CHECK_EQ(name_of(s, PromptStyle::Xbox, Ctx::Menu, Icon::X), std::string("xbox/a"));
@@ -178,6 +248,7 @@ NXTEST(pad_styles_follow_a_pad_remap) {
 }
 
 NXTEST(a_switch_button_nothing_presses_has_no_pad_icon) {
+    TestPrompts tp;
     Settings s = default_settings();
     s.pad.remap[static_cast<int>(PadSrc::LeftShoulder)] = 0;   // remapped to nothing: L has no pad button now
     CHECK_EQ(name_of(s, PromptStyle::Xbox, Ctx::Menu, Icon::L), std::string());
@@ -271,30 +342,38 @@ NXTEST(auto_follows_the_last_used_device) {
     CHECK(auto_style(LastDevice::None, 0, 2) == PromptStyle::PlayStation);   // nothing used yet, a DualSense is connected
 }
 
-NXTEST(every_icon_has_an_id_and_a_pak) {
-    std::set<std::string> uuids;
+NXTEST(icon_accessors_are_neutral_without_a_prompt_table) {
+    // the test game (Pokopia) registers no PromptGame: no icon is a button, every name is empty, and every style keeps the game's own icon
+    CHECK(prompt_game() == nullptr);
+    const Settings s = default_settings();
     for (int i = 0; i < kIconCount; ++i) {
         const Icon ic = static_cast<Icon>(i);
-        CHECK_EQ(std::strlen(icon_asset_uuid(ic)), size_t(36));
-        CHECK(uuids.insert(icon_asset_uuid(ic)).second);
-        CHECK(std::strstr(icon_asset_name(ic), "TXTR_") == icon_asset_name(ic));
-        CHECK(std::strstr(icon_pak_file(ic), ".pak") != nullptr);
-        CHECK(std::strlen(icon_pak_file(ic)) > 0);
-        const auto canonical = [](const char* id) {   // lower-case hex and dashes, the canonical text of the pak ids
-            for (const char* c = id; *c; ++c)
-                if (!((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '-')) return false;
-            return true;
-        };
-        CHECK(canonical(icon_asset_uuid(ic)));
-        if (const char* front = icon_front_uuid(ic)) {   // the front end's own copy (title screen, menus)
-            CHECK_EQ(std::strlen(front), size_t(36));
-            CHECK(canonical(front));
-            CHECK(uuids.insert(front).second);
-        }
+        CHECK(icon_button(ic) == Btn::None);
+        CHECK(!icon_pressed(ic));
+        CHECK_EQ(std::string(icon_asset_name(ic)), std::string());
+        CHECK_EQ(std::string(icon_asset_uuid(ic)), std::string());
+        CHECK_EQ(std::string(icon_pak_file(ic)), std::string());
+        CHECK(icon_front_uuid(ic) == nullptr);
+        if (ic == Icon::LStick || ic == Icon::RStick) continue;   // the map's stick icons do not need the table
+        for (PromptStyle st : {PromptStyle::Xbox, PromptStyle::PlayStation, PromptStyle::Keyboard})
+            CHECK_EQ(name_of(s, st, Ctx::Menu, ic), std::string());
     }
-    int with_front = 0;
-    for (int i = 0; i < kIconCount; ++i) with_front += icon_front_uuid(static_cast<Icon>(i)) != nullptr;
-    CHECK_EQ(with_front, 18);   // every icon but the d-pad (whose id is the same in both interfaces), the two sticks included
+}
+
+NXTEST(icon_accessors_read_the_games_prompt_table) {
+    TestPrompts tp;
+    CHECK(prompt_game() == &tp.game);
+    for (int i = 0; i < kIconCount; ++i) {
+        const Icon ic = static_cast<Icon>(i);
+        CHECK(icon_button(ic) == kTestIcons[i].btn);
+        CHECK(icon_pressed(ic) == kTestIcons[i].pressed);
+        CHECK_EQ(std::string(icon_asset_name(ic)), std::string(kTestIcons[i].asset));
+        CHECK_EQ(std::string(icon_asset_uuid(ic)), std::string(kTestIcons[i].uuid));
+        CHECK_EQ(std::string(icon_pak_file(ic)), std::string(kTestIcons[i].pak));
+        CHECK(icon_front_uuid(ic) == kTestIcons[i].front_uuid);
+    }
+    CHECK(icon_button(Icon::ZRPressed) == Btn::ZR && icon_pressed(Icon::ZRPressed));
+    CHECK(icon_button(Icon::LStick) == Btn::None);
 }
 
 // ---- the pack ------------------------------------------------------------------------------------------------------------------------
@@ -318,6 +397,7 @@ NXTEST(pack_reader_finds_entries_and_rejects_bad_files) {
 }
 
 NXTEST(the_shipped_pack_has_every_icon_every_style_can_ask_for) {
+    TestPrompts tp;   // a table with every button, so the pad styles ask for every pad icon
     IconPack p;
     CHECK_MSG(p.load_file(pack_path().string()), p.error());
     CHECK_EQ(p.width(), 36u);

@@ -13,6 +13,7 @@
 
 #include "nxrt/input_source.h"
 #include "play/play_types.h"
+#include "play_test_game.h"
 #include "test_framework.h"
 NXTEST_GROUP(play_config)
 
@@ -66,6 +67,11 @@ InputId key_id(int scancode) {
 bool near(double a, double b) { return std::fabs(a - b) < 1e-12; }
 
 bool starts_with(const std::string& s, const std::string& prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
+
+// The test game's factory-defaults revision (Pokopia: games/pkp/pkp_data.cpp, defaults_rev 5). A file at this revision is not migrated, so
+// the reader tests that are not about the migration put it into their [bindings.*] files.
+constexpr int kPkpRev = 5;
+const char* const kCurrentRev = "[meta]\ndefaults_rev = 5\n";
 
 // The action bound to `input` in `c` (first match), or Act::kCount when there is no such binding.
 Act act_at(const Settings& s, const char* input, Ctx c) {
@@ -173,8 +179,10 @@ NXTEST(act_table_is_complete) {
 
 NXTEST(parse_act_is_lenient) {
     Act a = Act::None;
-    CHECK(parse_act("FIRE", &a));
+    CHECK(parse_act("PRIMARY", &a));
     CHECK(a == Act::Primary);
+    CHECK(parse_act("Alt-Form", &a));
+    CHECK(a == Act::AltForm);
     CHECK(parse_act("move-forward", &a));
     CHECK(a == Act::MoveForward);
     CHECK(parse_act("Dpad-Up", &a));
@@ -224,9 +232,10 @@ NXTEST(output_parse_terms) {
 
     REQUIRE(parse_output("X+UP", &o));
     CHECK(o == make_out(btn(kBtnX) | btn(kBtnUp)));
-    Output beam1;   // the Beam1 default must be the same output
-    REQUIRE(parse_output(act_info(Act::SetA1).default_out, &beam1));
-    CHECK(o == beam1);
+    Output x, up;   // the same as the default outputs of btn_x and dpad_up together
+    REQUIRE(parse_output(act_info(Act::BtnX).default_out, &x));
+    REQUIRE(parse_output(act_info(Act::DpadUp).default_out, &up));
+    CHECK(o == make_out(x.buttons | up.buttons));
 
     REQUIRE(parse_output(" x + up ", &o));   // case and spaces
     CHECK(o == make_out(btn(kBtnX) | btn(kBtnUp)));
@@ -371,17 +380,25 @@ NXTEST(input_every_scancode_name_parses_back) {
 // ---- factory settings --------------------------------------------------------------------------------------------------------
 
 NXTEST(default_settings_bindings_and_outputs) {
+    // The test game's factory bindings (Pokopia: games/pkp/pkp_data.cpp kSettingsText): raw Switch buttons in [bindings.all], the mouse
+    // mode key in play, and the right button and the wheel in the menus.
     const Settings s = default_settings();
     CHECK(act_at(s, "W", Ctx::All) == Act::MoveForward);
-    CHECK(act_at(s, "Mouse1", Ctx::All) == Act::Primary);
-    CHECK(act_at(s, "Mouse1", Ctx::Menu) == Act::Confirm);
-    CHECK(act_at(s, "WheelUp", Ctx::All) == Act::SetAPrev);
-    CHECK(act_at(s, "Return", Ctx::Menu) == Act::Confirm);
-    CHECK(act_at(s, "Left Ctrl", Ctx::All) == Act::AltForm);
+    CHECK(act_at(s, "Mouse1", Ctx::All) == Act::BtnZR);
+    CHECK(act_at(s, "Mouse3", Ctx::All) == Act::BtnZL);
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::BtnB);
+    CHECK(act_at(s, "WheelUp", Ctx::Menu) == Act::DpadUp);
+    CHECK(act_at(s, "Mouse2", Ctx::Play) == Act::MouseMode);
+    CHECK(act_at(s, "Return", Ctx::All) == Act::BtnA);
+    CHECK(act_at(s, "Left Ctrl", Ctx::All) == Act::BtnLStick);
     CHECK(act_at(s, "W", Ctx::Menu) == Act::kCount);   // menus have no move binding of their own
 
-    CHECK(s.out[(int)Act::Primary] == make_out(btn(kBtnZR)));
-    CHECK(s.out[(int)Act::SetA1] == make_out(btn(kBtnX) | btn(kBtnUp)));
+    // Pokopia names no action slot (no GameVocabulary), so the generic outputs apply: the raw buttons press themselves, the game-action
+    // slots press nothing until a [switch] line says so.
+    CHECK(s.out[(int)Act::BtnZR] == make_out(btn(kBtnZR)));
+    CHECK(s.out[(int)Act::BtnX] == make_out(btn(kBtnX)));
+    CHECK(s.out[(int)Act::Primary].empty());
+    CHECK(s.out[(int)Act::SetA1].empty());
     CHECK(s.out[(int)Act::Confirm] == make_out(btn(kBtnA)));
 
     CHECK_EQ(s.timing.hold_ms, 250);
@@ -422,23 +439,29 @@ NXTEST(file_with_only_mouse_keeps_default_bindings) {
     CHECK(act_at(s, "W", Ctx::All) == Act::MoveForward);
 }
 
-NXTEST(old_factory_lock_mode_moves_to_free_once) {
-    // A rev 2 file still on the old factory value takes the new one; a player's own choice in a current file stays.
+NXTEST(old_factory_render_scale_moves_to_auto_once) {
+    // The test game's factory changes (Pokopia: games/pkp/pkp_data.cpp kChanges; revision 2: [display] render_scale 100 -> auto).
+    // A rev 1 file still on the old factory value takes the new one; the same value in a file at revision 2 is the player's own and stays.
     Settings s;
     std::string err;
-    REQUIRE(parse_settings("[aim]\nlock_mode = classic\n[bindings.all]\nW = fire\n[meta]\ndefaults_rev = 2\n", &s, &err));
-    CHECK(s.aim.lock_mode == LockMode::Free);
+    REQUIRE(parse_settings("[display]\nrender_scale = 100\n[bindings.all]\nW = move_forward\n[meta]\ndefaults_rev = 1\n", &s, &err));
+    CHECK_EQ(s.display.render_scale, 0);
     CHECK(s.migrated);
-    CHECK(s.migration_added.find("lock_mode = free") != std::string::npos);
+    CHECK(s.migration_added.find("render_scale = auto") != std::string::npos);
     Settings k;
-    REQUIRE(parse_settings("[aim]\nlock_mode = classic\n[bindings.all]\nW = fire\n[meta]\ndefaults_rev = 3\n", &k, &err));
-    CHECK(k.aim.lock_mode == LockMode::Classic);
+    REQUIRE(parse_settings("[display]\nrender_scale = 100\n[bindings.all]\nW = move_forward\n[meta]\ndefaults_rev = 2\n", &k, &err));
+    CHECK_EQ(k.display.render_scale, 100);
+    // a value the player picked that is not the old factory one stays too
+    Settings p;
+    REQUIRE(parse_settings("[display]\nrender_scale = 150\n[bindings.all]\nW = move_forward\n[meta]\ndefaults_rev = 1\n", &p, &err));
+    CHECK_EQ(p.display.render_scale, 150);
+    CHECK(p.migration_added.find("render_scale") == std::string::npos);
 }
 
 NXTEST(one_bindings_section_drops_default_bindings) {
     Settings s;
     std::string err;
-    REQUIRE(parse_settings("[bindings.menu]\nReturn = confirm\n[meta]\ndefaults_rev = 2\n", &s, &err));
+    REQUIRE(parse_settings(std::string("[bindings.menu]\nReturn = confirm\n") + kCurrentRev, &s, &err));
     CHECK_EQ(s.bindings.size(), 1u);
     CHECK(act_at(s, "Return", Ctx::Menu) == Act::Confirm);
     CHECK(act_at(s, "W", Ctx::All) == Act::kCount);
@@ -447,7 +470,7 @@ NXTEST(one_bindings_section_drops_default_bindings) {
 NXTEST(binding_trigger_and_ms_parse) {
     Settings s;
     std::string err;
-    REQUIRE(parse_settings("[bindings.gameplay]\nLeft Ctrl = morph hold 250\nSpace = jump toggle\nMouse1 = fire tap\n[meta]\ndefaults_rev = 2\n", &s, &err));
+    REQUIRE(parse_settings(std::string("[bindings.play]\nLeft Ctrl = alt_form hold 250\nSpace = jump toggle\nMouse1 = primary tap\n") + kCurrentRev, &s, &err));
     REQUIRE_MSG(s.bindings.size() == 3u, "three bindings");
     CHECK(s.bindings[0].in == key_id(SDL_SCANCODE_LCTRL));
     CHECK(s.bindings[0].ctx == Ctx::Play);
@@ -474,7 +497,7 @@ NXTEST(binding_keys_equals_and_semicolon) {
 NXTEST(inline_comments_and_case) {
     Settings s;
     std::string err;
-    REQUIRE(parse_settings("[mouse] # the mouse\ninvert_y = 1 ; yes\nwheel_beams = off # no\n", &s, &err));
+    REQUIRE(parse_settings("[mouse] # the mouse\ninvert_y = 1 ; yes\nwheel_cycles = off # no\n", &s, &err));
     CHECK(s.mouse.invert_y);
     CHECK(!s.mouse.wheel_cycles);
 
@@ -576,9 +599,10 @@ NXTEST(camera_gun_drives_view_parses_and_round_trips) {
     CHECK(same_settings(s, r));
 }
 
-NXTEST(camera_and_aim_defaults_are_free_and_on) {
+NXTEST(camera_and_aim_defaults_are_classic_and_on) {
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp) has no [aim] or [camera] section: the built-in defaults apply.
     const Settings d = default_settings();
-    CHECK(d.aim.lock_mode == LockMode::Free);
+    CHECK(d.aim.lock_mode == LockMode::Classic);
     CHECK(d.aim.free_lock_margin == 0.15);
     CHECK(d.camera.gun_drives_view);
 }
@@ -589,16 +613,16 @@ NXTEST(parse_errors_name_the_line) {
         const char* expect;   // the start of err
     };
     const Case cases[] = {
-        {"[mouse]\n\n[bindings.all]\nFoo = fire\n", "line 4: unknown input 'Foo'"},
+        {"[mouse]\n\n[bindings.all]\nFoo = primary\n", "line 4: unknown input 'Foo'"},
         {"[timing]\ntap_ms = 0\n", "line 2: tap_ms must be 1..5000"},
         {"[bindings.all]\nW = fly\n", "line 2: unknown action 'fly'"},
-        {"[bindings.all]\nW = fire sideways\n", "line 2: unknown trigger 'sideways'"},
-        {"[bindings.all]\nW = fire hold 0\n", "line 2: ms must be 1..5000"},
+        {"[bindings.all]\nW = primary sideways\n", "line 2: unknown trigger 'sideways'"},
+        {"[bindings.all]\nW = primary hold 0\n", "line 2: ms must be 1..5000"},
         {"[display]\nwindow_mode = fullscreen\n", "line 2: window_mode must be windowed, borderless or exclusive"},
         {"[pad]\ndeadzone = 0.7\n", "line 2: deadzone must be 0..0.5"},
         {"[mouse]\nyaw = nope\n", "line 2: yaw must be a number"},
-        {"[switch]\nfire = X+FOO\n", "line 2: unknown output term 'FOO'"},
-        {"[bindings.all\nW = fire\n", "line 1: section header without ']'"},
+        {"[switch]\nprimary = X+FOO\n", "line 2: unknown output term 'FOO'"},
+        {"[bindings.all\nW = primary\n", "line 1: section header without ']'"},
         {"[mouse]\njust words\n", "line 2: expected 'key = value'"},
         {"[display]\nfps_cap = 5000\n", "line 2: fps_cap must be 0..1000"},
     };
@@ -622,7 +646,7 @@ NXTEST(unknown_keys_and_sections_warn) {
     Settings s;
     std::string err;
     std::vector<std::string> w;
-    REQUIRE(parse_settings("[mouse]\nbogus = 1\n[nosuch]\nx = 1\n[bindings.all]\nW = fire\n[meta]\ndefaults_rev = 2\n", &s, &err, &w));
+    REQUIRE(parse_settings(std::string("[mouse]\nbogus = 1\n[nosuch]\nx = 1\n[bindings.all]\nW = primary\n") + kCurrentRev, &s, &err, &w));
     REQUIRE_MSG(w.size() == 2u, "two warnings");
     CHECK_EQ(w[0], std::string("line 2: unknown key 'bogus' in [mouse]"));
     CHECK_EQ(w[1], std::string("line 3: unknown section '[nosuch]'"));
@@ -633,8 +657,10 @@ NXTEST(unknown_keys_and_sections_warn) {
 
 NXTEST(format_has_sections_in_order) {
     const std::string text = format_settings(default_settings());
-    const char* order[] = {"[mouse]", "[pad]", "[timing]", "[display]", "[hdr]", "[upscale]", "[latency]", "[prompts]", "[switch]", "[bindings.all]", "[bindings.gameplay]",
-                           "[bindings.morph]", "[bindings.map]", "[bindings.menu]", "[bindings.scan]"};
+    // The context sections carry the generic names: the test game (Pokopia) names no context.
+    const char* order[] = {"[meta]", "[mouse]", "[aim]", "[camera]", "[tweaks]", "[pad]", "[padmap]", "[timing]", "[display]", "[audio]",
+                           "[hdr]", "[upscale]", "[latency]", "[picture]", "[prompts]", "[fps]", "[switch]", "[bindings.all]",
+                           "[bindings.play]", "[bindings.alt]", "[bindings.map]", "[bindings.menu]", "[bindings.inspect]"};
     size_t at = 0;
     for (const char* h : order) {
         const size_t p = text.find(h, at);
@@ -802,7 +828,10 @@ NXTEST(save_then_load_round_trip) {
 
 NXTEST(display_render_keys_defaults) {
     const DisplaySettings d = default_settings().display;
-    CHECK_EQ(d.render_scale, 100);
+    // The test game's factory [display] (Pokopia: games/pkp/pkp_data.cpp kSettingsText): render_scale = auto and fps_limit = auto;
+    // every other key keeps the built-in default (play_types.h DisplaySettings).
+    CHECK_EQ(d.render_scale, 0);
+    CHECK_EQ(d.fps_cap, -1);
     CHECK_EQ(d.render_width, 0);
     CHECK_EQ(d.render_height, 0);
     CHECK(d.aspect == 0.0);
@@ -816,17 +845,19 @@ NXTEST(display_render_keys_defaults) {
     CHECK(d.fewer_gpu_waits);
 }
 
-NXTEST(default_settings_text_has_display_keys) {
-    const std::string text = default_settings_text();
-    const char* lines[] = {"render_scale = 100", "render_width = 0",  "render_height = 0", "aspect = 0",        "fov_offset = 0",
-                           "dynamic_resolution = 0", "anisotropy = 0", "lod_bias = 0",    "bloom = 1",       "chromatic_aberration = 1",
-                           "fast_gpu_memory = 1",    "fewer_gpu_waits = 1"};
+NXTEST(factory_file_has_display_keys) {
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp kSettingsText) sets only the two automatic display values ...
+    const std::string factory = default_settings_text();
+    const size_t at = factory.find("[display]");
+    REQUIRE_MSG(at != std::string::npos, "[display] in the factory text");
+    CHECK(factory.find("\nrender_scale = auto\n", at) != std::string::npos);
+    CHECK(factory.find("\nfps_limit = auto\n", at) != std::string::npos);
+    // ... and the file written from the factory settings has every display key with its factory value.
+    const std::string text = format_settings(default_settings());
+    const char* lines[] = {"render_scale = auto",    "render_width = 0", "render_height = 0", "aspect = auto",  "fov_offset = 0",
+                           "dynamic_resolution = 0", "anisotropy = 0",   "lod_bias = 0",      "bloom = 1",      "chromatic_aberration = 1",
+                           "fast_gpu_memory = 1",    "fewer_gpu_waits = 1", "fps_limit = auto"};
     for (const char* l : lines) CHECK_MSG(text.find(std::string("\n") + l + "\n") != std::string::npos, l);
-    // The four that only apply at the next start say so next to their key.
-    size_t restart_notes = 0;
-    for (size_t p = text.find("applies at the next start"); p != std::string::npos; p = text.find("applies at the next start", p + 1))
-        ++restart_notes;
-    CHECK(restart_notes >= 4u);
 }
 
 NXTEST(display_render_keys_parse) {
@@ -1069,9 +1100,10 @@ NXTEST(extras_bad_enum_words_name_the_allowed_ones) {
         const char* expect;
     };
     const Case bad[] = {
-        {"[hdr]\nmode = maybe\n", "line 2: mode must be off, auto or on, got 'maybe'"},
+        // the word lists of play_config.cpp kHdrModeWords / kUpscaleWords (hdr native, upscale nis and dlaa)
+        {"[hdr]\nmode = maybe\n", "line 2: mode must be off, auto, on or native, got 'maybe'"},
         {"[hdr]\nformat = hdr12\n", "line 2: format must be auto, hdr10 or scrgb, got 'hdr12'"},
-        {"[upscale]\nmode = taa\n", "line 2: mode must be off, fsr1, spatial, fsr3, dlss or xess, got 'taa'"},
+        {"[upscale]\nmode = sharp\n", "line 2: mode must be off, fsr1, spatial, fsr3, dlss, xess, nis or dlaa, got 'sharp'"},
         {"[latency]\nmode = fast\n", "line 2: mode must be off, auto, on or boost, got 'fast'"},
         {"[latency]\nlog_timings = maybe\n", "line 2: log_timings must be 1/0"},
         {"[upscale]\nframe_generation = x\n", "line 2: frame_generation must be 1/0"},
@@ -1144,7 +1176,7 @@ NXTEST(extras_keys_and_words_case_insensitive) {
 NXTEST(extras_defaults_are_written) {
     const std::string text = format_settings(default_settings());
     CHECK(text.find("[hdr]\nmode = auto\nformat = auto\npeak_nits = 0\npaper_white_nits = 0\nhighlight_boost = 1\n") != std::string::npos);
-    CHECK(text.find("[upscale]\nmode = off\nsharpness = 0.8\nscene_scale = 100\nfsr_dll = \ndlss_dll = \nxess_dll = \nframe_generation = 0\n") !=
+    CHECK(text.find("[upscale]\nmode = off\nquality = quality\nsharpness = 0.8\nscene_scale = 100\nfsr_dll = \ndlss_dll = \nxess_dll = \nframe_generation = 0\n") !=
           std::string::npos);
     CHECK(text.find("[latency]\nmode = off\nframes_ahead = 1\nlog_timings = 0\n") != std::string::npos);
 }
@@ -1156,7 +1188,7 @@ NXTEST(extras_full_file_round_trip) {
     const std::string text = format_settings(s);
     CHECK(text.find("[hdr]\nmode = on\nformat = hdr10\npeak_nits = 1000\npaper_white_nits = 250\nhighlight_boost = 1.5\n") !=
           std::string::npos);
-    CHECK(text.find("[upscale]\nmode = fsr1\nsharpness = 0.5\nscene_scale = 100\nfsr_dll = C:\\Tools\\amd_fidelityfx_vk.dll\n") != std::string::npos);
+    CHECK(text.find("[upscale]\nmode = fsr1\nquality = quality\nsharpness = 0.5\nscene_scale = 100\nfsr_dll = C:\\Tools\\amd_fidelityfx_vk.dll\n") != std::string::npos);
     CHECK(text.find("xess_dll = \nframe_generation = 1\n") != std::string::npos);
     CHECK(text.find("[latency]\nmode = boost\nframes_ahead = 2\nlog_timings = 1\n") != std::string::npos);
 
@@ -1290,8 +1322,9 @@ NXTEST(prompt_style_round_trip_every_style) {
     }
 }
 
-NXTEST(default_settings_text_has_prompts_section) {
-    const std::string text = default_settings_text();
+NXTEST(factory_file_has_prompts_section) {
+    // The test game's factory text (Pokopia: games/pkp/pkp_data.cpp) has no [prompts]; the file written from the factory settings has it.
+    const std::string text = format_settings(default_settings());
     const size_t at = text.find("[prompts]");
     REQUIRE_MSG(at != std::string::npos, "[prompts] section");
     CHECK(text.find("style = auto\n", at) != std::string::npos);
@@ -1420,45 +1453,60 @@ NXTEST(file_without_fps_and_padmap_keeps_defaults) {
     }
 }
 
-// ---- factory-defaults revision ([meta] defaults_rev, kDefaultAdditions in play_config.cpp) --------------------------------------------
+// ---- factory-defaults revision ([meta] defaults_rev, GameDefaults::additions) ---------------------------------------------------------
+// The test game's additions (Pokopia: games/pkp/pkp_data.cpp kAdditions): revision 4 adds Mouse3 = btn_b, WheelUp = dpad_up and
+// WheelDown = dpad_down to [bindings.menu], revision 5 adds Mouse2 = mouse_mode to [bindings.play]. The current revision is 5.
 
-NXTEST(old_file_gets_new_factory_binding_on_map) {
+NXTEST(old_file_gets_new_factory_bindings_in_the_menu) {
     Settings s;
     std::string err;
-    REQUIRE_MSG(parse_settings("[bindings.map]\nReturn = confirm\n", &s, &err), err);
+    REQUIRE_MSG(parse_settings("[bindings.menu]\nReturn = btn_a\n", &s, &err), err);   // no [meta]: revision 0
     CHECK(s.migrated);
-    CHECK_EQ(s.defaults_rev, 3);
-    CHECK(act_at(s, "X", Ctx::Map) == Act::BtnX);
-    CHECK(act_at(s, "Return", Ctx::Map) == Act::Confirm);   // the file's own binding is kept
-    CHECK_EQ(static_cast<int>(bindings_in(s, static_cast<int>(Ctx::Map)).size()), 2);
+    CHECK_EQ(s.defaults_rev, kPkpRev);
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::BtnB);
+    CHECK(act_at(s, "WheelUp", Ctx::Menu) == Act::DpadUp);
+    CHECK(act_at(s, "WheelDown", Ctx::Menu) == Act::DpadDown);
+    CHECK(act_at(s, "Mouse2", Ctx::Play) == Act::MouseMode);
+    CHECK(act_at(s, "Return", Ctx::Menu) == Act::BtnA);   // the file's own binding is kept
+    CHECK_EQ(static_cast<int>(bindings_in(s, static_cast<int>(Ctx::Menu)).size()), 4);
+    CHECK(s.migration_added.find("Mouse2 = mouse_mode in [bindings.play]") != std::string::npos);
 }
 
-NXTEST(old_file_keeps_users_own_key_on_map) {
+NXTEST(old_file_keeps_users_own_key_in_the_menu) {
     Settings s;
     std::string err;
-    REQUIRE_MSG(parse_settings("[bindings.map]\nX = back\n", &s, &err), err);
+    REQUIRE_MSG(parse_settings("[bindings.menu]\nMouse3 = btn_x\n", &s, &err), err);
     CHECK(s.migrated);
-    CHECK(act_at(s, "X", Ctx::Map) == Act::Back);
-    CHECK_EQ(static_cast<int>(bindings_in(s, static_cast<int>(Ctx::Map)).size()), 1);
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::BtnX);   // not replaced by the factory's btn_b
+    CHECK_EQ(static_cast<int>(bindings_in(s, static_cast<int>(Ctx::Menu)).size()), 3);   // Mouse3 and the two wheel additions
+}
+
+NXTEST(file_between_revisions_gets_only_the_newer_additions) {
+    Settings s;
+    std::string err;
+    REQUIRE_MSG(parse_settings("[meta]\ndefaults_rev = 4\n[bindings.menu]\nReturn = btn_a\n", &s, &err), err);
+    CHECK(s.migrated);
+    CHECK(act_at(s, "Mouse2", Ctx::Play) == Act::MouseMode);   // revision 5
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::kCount);      // revision 4: the file already had it and the user removed it
 }
 
 NXTEST(file_at_current_revision_is_not_migrated) {
     Settings s;
     std::string err;
-    REQUIRE_MSG(parse_settings("[meta]\ndefaults_rev = 3\n[bindings.map]\nReturn = confirm\n", &s, &err), err);
+    REQUIRE_MSG(parse_settings(std::string(kCurrentRev) + "[bindings.menu]\nReturn = btn_a\n", &s, &err), err);
     CHECK(!s.migrated);
-    CHECK_EQ(s.defaults_rev, 3);
-    CHECK(act_at(s, "X", Ctx::Map) == Act::kCount);   // the user removed X: it stays removed
+    CHECK_EQ(s.defaults_rev, kPkpRev);
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::kCount);   // the user removed Mouse3: it stays removed
 }
 
 NXTEST(format_round_trip_keeps_defaults_rev) {
     const Settings s = default_settings();
     const std::string text = format_settings(s);
-    CHECK(text.find("[meta]\ndefaults_rev = 3\n") != std::string::npos);
+    CHECK(text.find(kCurrentRev) != std::string::npos);
     Settings back;
     std::string err;
     REQUIRE_MSG(parse_settings(text, &back, &err), err);
-    CHECK_EQ(back.defaults_rev, 3);
+    CHECK_EQ(back.defaults_rev, kPkpRev);
     CHECK(!back.migrated);
     CHECK(same_settings(s, back));
 }
@@ -1467,17 +1515,18 @@ NXTEST(factory_text_is_at_current_revision) {
     Settings s;
     std::string err;
     REQUIRE_MSG(parse_settings(default_settings_text(), &s, &err), err);
-    CHECK_EQ(s.defaults_rev, 3);
+    CHECK_EQ(s.defaults_rev, kPkpRev);
     CHECK(!s.migrated);
-    CHECK_EQ(default_settings().defaults_rev, 3);
-    CHECK(act_at(default_settings(), "X", Ctx::Map) == Act::BtnX);
+    CHECK_EQ(default_settings().defaults_rev, kPkpRev);
+    CHECK(act_at(default_settings(), "Mouse3", Ctx::Menu) == Act::BtnB);      // the newest additions are in the factory text too
+    CHECK(act_at(default_settings(), "Mouse2", Ctx::Play) == Act::MouseMode);
 }
 
 NXTEST(meta_defaults_rev_is_known_and_unknown_meta_key_warns) {
     Settings s;
     std::string err;
     std::vector<std::string> w;
-    REQUIRE_MSG(parse_settings("[meta]\ndefaults_rev = 3\n[bindings.all]\nW = fire\n", &s, &err, &w), err);
+    REQUIRE_MSG(parse_settings(std::string(kCurrentRev) + "[bindings.all]\nW = primary\n", &s, &err, &w), err);
     CHECK(w.empty());
     std::vector<std::string> w2;
     REQUIRE_MSG(parse_settings("[meta]\nfoo = 1\n", &s, &err, &w2), err);
@@ -1490,8 +1539,8 @@ NXTEST(file_without_bindings_gets_factory_bindings_at_current_revision) {
     std::string err;
     REQUIRE_MSG(parse_settings("[mouse]\nyaw = 0.001\n", &s, &err), err);
     CHECK(!s.migrated);
-    CHECK_EQ(s.defaults_rev, 3);
-    CHECK(act_at(s, "X", Ctx::Map) == Act::BtnX);
+    CHECK_EQ(s.defaults_rev, kPkpRev);
+    CHECK(act_at(s, "Mouse3", Ctx::Menu) == Act::BtnB);
 }
 
 // ---- controller sticks: right_deadzone, invert_y, look_sens ([pad]) ----------------------------------------------------------------
@@ -1568,8 +1617,8 @@ NXTEST(pad_stick_keys_range_errors) {
         {"[pad]\nlook_sens = 3.5\n", "line 2: look_sens must be 0.25..3, got 3.5"},
         {"[pad]\nlook_sens = fast\n", "line 2: look_sens must be a number"},
         {"[pad]\ninvert_y = maybe\n", "line 2: invert_y must be 1/0"},
-        {"[pad]\nball_orbit = -1\n", "line 2: ball_orbit must be 0..6, got -1"},
-        {"[pad]\nball_orbit = 7\n", "line 2: ball_orbit must be 0..6, got 7"},
+        {"[pad]\nalt_orbit = -1\n", "line 2: alt_orbit must be 0..6, got -1"},   // the generic key: Pokopia has no vocabulary
+        {"[pad]\nalt_orbit = 7\n", "line 2: alt_orbit must be 0..6, got 7"},
     };
     for (const auto& c : cases) {
         Settings s;
@@ -1716,8 +1765,21 @@ NXTEST(alt_sensitivity_keeps_a_separate_vertical) {
     CHECK(r.mouse.alt_pitch_rad == 0.0005);
 }
 
-NXTEST(ball_camera_keys_with_the_mpr_vocabulary) {
-    // the test executable registers Metroid Prime Remastered: its words for the alternate body's camera keys
+NXTEST(alt_camera_keys_are_generic_without_a_vocabulary) {
+    // the test game (Pokopia) names none of the alternate body's keys: the generic ones are read and written
+    CHECK_EQ(std::string(key_alt_camera()), std::string("alt_camera"));
+    CHECK_EQ(std::string(key_alt_sens()), std::string("alt_sensitivity"));
+    CHECK_EQ(std::string(key_alt_yaw()), std::string("alt_yaw"));
+    CHECK_EQ(std::string(key_alt_pitch()), std::string("alt_pitch"));
+    CHECK_EQ(std::string(key_wheel_cycles()), std::string("wheel_cycles"));
+    CHECK_EQ(std::string(key_alt_orbit()), std::string("alt_orbit"));
+    CHECK_EQ(std::string(ctx_name(Ctx::Play)), std::string("play"));
+}
+
+NXTEST(alt_camera_keys_with_a_game_vocabulary) {
+    // a game that names the alternate body's keys (a test vocabulary in the style of the upstream runtime's first game: ball_camera ...)
+    nxtest::TestVocabulary tv;
+    nxtest::ScopedGame game(&tv.defaults);
     REQUIRE(std::string(key_alt_camera()) == "ball_camera");
     REQUIRE(std::string(key_alt_sens()) == "ball_sensitivity");
     REQUIRE(std::string(key_alt_yaw()) == "morph_yaw");
@@ -1742,14 +1804,49 @@ NXTEST(ball_camera_keys_with_the_mpr_vocabulary) {
     CHECK(near(s.mouse.alt_yaw_rad, rad_per_count(3.0)) && s.mouse.alt_pitch_rad == 0.001);
 }
 
-NXTEST(ball_sensitivity_range) {
+NXTEST(alt_sensitivity_range) {
     Settings s;
     std::string err;
-    for (const char* bad : {"0", "-1", "0.05", "25", "1e9"})
-        CHECK(!parse_settings(std::string("[mouse]\nball_sensitivity = ") + bad + "\n", &s, &err));
+    const std::string sens = std::string("[mouse]\n") + key_alt_sens() + " = ";
+    for (const char* bad : {"0", "-1", "0.05", "25", "1e9"}) CHECK(!parse_settings(sens + bad + "\n", &s, &err));
     for (const char* bad : {"0", "-0.001", "1"}) {
-        CHECK(!parse_settings(std::string("[mouse]\nmorph_yaw = ") + bad + "\n", &s, &err));
-        CHECK(!parse_settings(std::string("[mouse]\nmorph_pitch = ") + bad + "\n", &s, &err));
+        CHECK(!parse_settings(std::string("[mouse]\n") + key_alt_yaw() + " = " + bad + "\n", &s, &err));
+        CHECK(!parse_settings(std::string("[mouse]\n") + key_alt_pitch() + " = " + bad + "\n", &s, &err));
     }
-    for (const char* ok : {"0.1", "2", "20"}) REQUIRE_MSG(parse_settings(std::string("[mouse]\nball_sensitivity = ") + ok + "\n", &s, &err), err);
+    for (const char* ok : {"0.1", "2", "20"}) REQUIRE_MSG(parse_settings(sens + ok + "\n", &s, &err), err);
+}
+
+NXTEST(game_vocabulary_names_the_slots_while_it_is_registered) {
+    {
+        nxtest::TestVocabulary tv;
+        nxtest::ScopedGame game(&tv.defaults);
+        Act a = Act::None;
+        CHECK(parse_act("FIRE", &a));
+        CHECK(a == Act::Primary);
+        CHECK(!parse_act("primary", &a));   // the game's table replaces the generic names
+        Ctx c = Ctx::All;
+        CHECK(parse_ctx("Gameplay", &c));
+        CHECK(c == Ctx::Play);
+        CHECK(!parse_ctx("play", &c));
+        // the game's factory outputs fill the [switch] table
+        CHECK(default_settings().out[(int)Act::Primary] == make_out(btn(kBtnZR)));
+        CHECK(default_settings().out[(int)Act::SetA1] == make_out(btn(kBtnX) | btn(kBtnUp)));
+        Settings s;
+        std::string err;
+        REQUIRE_MSG(parse_settings(std::string("[bindings.gameplay]\nMouse1 = fire\nLeft Ctrl = morph hold 250\n") + kCurrentRev, &s, &err), err);
+        CHECK(act_at(s, "Mouse1", Ctx::Play) == Act::Primary);
+        CHECK(act_at(s, "Left Ctrl", Ctx::Play) == Act::AltForm);
+        const std::string text = format_settings(s);
+        CHECK(text.find("\n[bindings.gameplay]\nMouse1 = fire\nLeft Ctrl = morph hold 250\n") != std::string::npos);
+        CHECK(text.find("\n[bindings.morph]\n") != std::string::npos);
+        CHECK(text.find("\nfire = ZR\n") != std::string::npos);
+        CHECK(text.find("\nwheel_beams = 1\n") != std::string::npos);
+        CHECK(text.find("\nball_orbit = ") != std::string::npos);
+    }
+    // the guard put the registered game back: the generic names again
+    Act a = Act::None;
+    CHECK(!parse_act("fire", &a));
+    CHECK(parse_act("primary", &a));
+    CHECK_EQ(std::string(ctx_name(Ctx::Play)), std::string("play"));
+    CHECK_EQ(std::string(key_alt_camera()), std::string("alt_camera"));
 }
