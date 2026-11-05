@@ -239,6 +239,9 @@ void fn_many(::Ctx*) { g_many.fetch_add(1); }
 // Console-model probe: samples the host processor every 1 ms while it spins.
 struct Probe {
     int64_t spin_ns = 200 * kMs;
+    // Spins on past spin_ns until it has this many samples (one per ms it runs; 10 s at most): on a loaded machine the pinned thread
+    // can be preempted for most of the 200 ms (a parallel ctest run left one probe under 50 samples), which says nothing about where it ran.
+    size_t min_samples = 100;
     uint64_t sched_core = 99, svc_core = 99;
     std::vector<std::pair<int64_t, uint32_t>> samples;   // (monotonic ns, host processor number)
 };
@@ -252,7 +255,7 @@ void fn_probe(::Ctx* c) {
     int64_t next = 0;
     for (;;) {
         const int64_t t = mono_ns();
-        if (t >= end) break;
+        if ((t >= end && p->samples.size() >= p->min_samples) || t >= end + 10000 * kMs) break;
         if (t >= next) {
             PROCESSOR_NUMBER pn{};
             GetCurrentProcessorNumberEx(&pn);
