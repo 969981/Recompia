@@ -1326,7 +1326,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
             v = 0;
         }
         gp->one_submit = v;
-        const int64_t hold = std::clamp<int64_t>(nxrt::config_get_int("nvn", "one_submit_hold_ms", 2), 0, 50);
+        const int64_t hold = std::clamp<int64_t>(nxrt::config_get_int("nvn", "one_submit_hold_ms", 0), 0, 50);
         gp->park_hold = std::chrono::milliseconds(hold);
         if (v) NXLOG_I(kTag, "one_submit %s (%s): batch flushes still queued at the present go in its vkQueueSubmit2 (%s), hold %lld ms",
                        v == 2 ? "split" : "on", o.c_str(), v == 2 ? "own VkSubmitInfo2" : "one VkSubmitInfo2", static_cast<long long>(hold));
