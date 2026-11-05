@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -14,6 +15,9 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <intrin.h>
+#endif
 
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
@@ -166,11 +170,30 @@ void pipeline_cache_flush() {
 }
 
 bool GraphicsKey::operator==(const GraphicsKey& o) const { return std::memcmp(this, &o, sizeof *this) == 0; }
+// In-process only: g_gfx buckets. The prewarm key file stores the key bytes and its own digest (nvn_prewarm.cpp digest_of), never this value,
+// so the function may change freely. The key has no padding (static_assert), so hashing its words covers exactly the bytes operator== compares.
+static_assert(sizeof(GraphicsKey) % 8 == 0 && alignof(GraphicsKey) >= 8, "GraphicsKey is hashed in 8-byte words");
+static_assert(offsetof(GraphicsKey, pad_) + sizeof(GraphicsKey::pad_) == offsetof(GraphicsKey, tess), "no padding before tess");
+static_assert(sizeof(KeyAttr) == 8, "KeyAttr has no padding");
 uint64_t GraphicsKey::hash() const {
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(this);
-    uint64_t h = 1469598103934665603ull;
-    for (size_t i = 0; i < sizeof *this; ++i) h = (h ^ p[i]) * 1099511628211ull;
-    return h;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(this);
+    constexpr uint64_t k0 = 0x9E3779B97F4A7C15ull, k1 = 0xC2B2AE3D27D4EB4Full;
+    uint64_t h = k0;
+    for (size_t i = 0; i < sizeof *this; i += 8) {
+        uint64_t w;
+        std::memcpy(&w, p + i, 8);
+        h ^= w;
+#if defined(_MSC_VER) && defined(_M_X64)
+        uint64_t hi;
+        const uint64_t lo = _umul128(h, k1, &hi);
+        h = lo ^ hi;
+#else
+        const unsigned __int128 m = static_cast<unsigned __int128>(h) * k1;
+        h = static_cast<uint64_t>(m) ^ static_cast<uint64_t>(m >> 64);
+#endif
+        h += k0;
+    }
+    return h ^ (h >> 32);
 }
 
 // A module for SPIR-V words. The translator declares OpCapability Float64 in every module although no module uses a 64-bit float;
@@ -671,16 +694,35 @@ VkPipeline build_graphics_pipeline(const GraphicsKey& key, const ProgLayout& lay
     return pipe;
 }
 
+// The entry of the previous call (same key as the last draw: most state changes only re-ask for the same pipeline): skips hashing and the map.
+// Render thread only like g_gfx; `gen` drops it when g_gfx is cleared. Node pointers of unordered_map are stable; the vector inside is addressed by index.
+static uint32_t g_gfx_gen = 1;
+struct LastGfx {
+    GraphicsKey key;
+    std::vector<GfxEntry>* bucket = nullptr;
+    size_t idx = 0;
+    uint32_t gen = 0;
+};
+
+static VkPipeline take_entry(GfxEntry& e) {
+    counters().pipeline_cache_hits.fetch_add(1, std::memory_order_relaxed);
+    if (e.up && e.up->state.load(std::memory_order_acquire) != 0) gpl_take_upgrade(e.second, e.alt, e.up);
+    if (e.alt && gpl_ab_whole()) return e.alt;
+    return e.second;
+}
+
 VkPipeline graphics_pipeline(const GraphicsKey& key, const ProgLayout& layout) {
     ensure_cache();
+    static const bool use_last = nxrt::config_get_bool("nvn", "pipe_last", true);
+    static thread_local LastGfx last;
+    if (use_last && last.gen == g_gfx_gen && last.bucket && last.idx < last.bucket->size() && last.key == key)
+        return take_entry((*last.bucket)[last.idx]);
     const uint64_t h = key.hash();
     auto& bucket = g_gfx[h];
-    for (auto& e : bucket)
-        if (e.first == key) {
-            counters().pipeline_cache_hits.fetch_add(1, std::memory_order_relaxed);
-            if (e.up && e.up->state.load(std::memory_order_acquire) != 0) gpl_take_upgrade(e.second, e.alt, e.up);
-            if (e.alt && gpl_ab_whole()) return e.alt;
-            return e.second;
+    for (size_t i = 0; i < bucket.size(); ++i)
+        if (bucket[i].first == key) {
+            if (use_last) { last.key = key; last.bucket = &bucket; last.idx = i; last.gen = g_gfx_gen; }
+            return take_entry(bucket[i]);
         }
     prewarm_init();
     VkPipeline pipe = VK_NULL_HANDLE;
@@ -823,6 +865,7 @@ void pipeline_shutdown() {
             if (e.up && e.up->state.load() == 1 && e.up->pipe) vkDestroyPipeline(d, e.up->pipe, nullptr);     // built and never taken
         }
     g_gfx.clear();
+    ++g_gfx_gen;
     g_gfx_keys.sub(g_gfx_keys.get());
     gpl_shutdown();                              // the parts the pipelines were linked from
     for (auto& [k, p] : g_compute)
