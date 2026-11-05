@@ -116,6 +116,10 @@ midhook 0x7100bfc4fc
 midhook 0x710089e27c
 #   frame rate: its fixed-step frame time (1 / s0, s0 = 60.0), before the division
 midhook 0x710089e398
+#   frame rate: the area-transition scene sequence adds the frame multiplier to its timer, then skips its event while
+#   timer != target. With fractional multipliers above 60 fps it can step past the target and leave the iris wipe closed
+#   forever (#144). Skip only while timer < target instead, so equality or a crossing fires the event; no frame-rate cap.
+patch 0x71004459bc 0x54000121 0x54000123
 #   mouse camera: the follow camera's update (0x7100087840), right after it loaded the right stick's X (s0), x19 = the camera
 midhook 0x7100087d30
 #   mouse camera: the same update past its scene-state check, before the turn gate (every frame the follow camera runs), x19 = the camera
