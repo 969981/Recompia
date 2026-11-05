@@ -1586,6 +1586,7 @@ uint64_t indirect_index_span(const P_DrawIndirect& p) {
     for (uint64_t i = 0; i < n; ++i) {
         uint32_t v[3];
         std::memcpy(v, a + i * stride, sizeof v);   // count, instance count, first index
+        if (!indirect_args_plausible(v[0], v[1])) return whole();   // not what the GPU will read (stale): the whole pool, as when unreadable
         if (v[0] && v[1]) end = std::max(end, (static_cast<uint64_t>(v[2]) + v[0]) * isz);
     }
     return end;
@@ -3231,6 +3232,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
         std::memcpy(v, a, cmd_size);
         const uint32_t count = v[0], instances = v[1];
         if (!count || !instances) continue;
+        if (!indirect_args_plausible(count, instances)) { note_unsupported("indirect draw conversion: implausible arguments (stale guest memory?)"); continue; }
         std::vector<uint32_t> in(count);
         int32_t base_vertex = 0;
         uint32_t base_instance = v[3];
