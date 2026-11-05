@@ -16,6 +16,7 @@ fn create_req(max: u8) -> CreateReq {
         node_count_max: max,
         security_mode: 1,
         pass_hash: [7; 16],
+        room_key: NO_KEY,
         adv: b"adv-1".to_vec(),
     }
 }
@@ -35,10 +36,10 @@ fn room_info(nodes: u8, adv: usize) -> RoomInfo {
 
 fn client_msgs() -> Vec<ClientMsg> {
     vec![
-        ClientMsg::Hello { proto: 1, build: "stamp".into(), nickname: "ナンジャモ".into(), password: "".into() },
-        ClientMsg::Scan { local_comm_id: u64::MAX, scene_id: 0xffff },
+        ClientMsg::Hello { proto: PROTO, build: "stamp".into(), nickname: "ナンジャモ".into(), password: "".into() },
+        ClientMsg::Scan { local_comm_id: u64::MAX, scene_id: 0xffff, room_key: [0x11; 16] },
         ClientMsg::Create(create_req(8)),
-        ClientMsg::Join { room_id: 0xffff_fffe, comm_version: -1, pass_hash: [0xee; 16] },
+        ClientMsg::Join { room_id: 0xffff_fffe, comm_version: -1, pass_hash: [0xee; 16], room_key: [0x5a; 16] },
         ClientMsg::Leave,
         ClientMsg::Advertise(vec![1; MAX_ADV]),
         ClientMsg::Reject { vip: 0xa9fe_0104 },
@@ -219,7 +220,7 @@ impl Tc {
         }
     }
     fn rooms(&mut self, local_comm_id: u64, scene_id: u16) -> Vec<RoomInfo> {
-        self.send(ClientMsg::Scan { local_comm_id, scene_id });
+        self.send(ClientMsg::Scan { local_comm_id, scene_id, room_key: NO_KEY });
         match self.recv() {
             ServerMsg::RoomList(r) => r,
             m => panic!("expected ROOM_LIST, got {:?}", m),
@@ -254,8 +255,10 @@ fn hello_is_checked() {
     for (msg, code) in [
         (hello_msg("B2", "a", "pw"), err::BUILD),
         (hello_msg("B1", "a", "nope"), err::PASSWORD),
-        (ClientMsg::Hello { proto: 2, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
-        (ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff }, err::BAD_FRAME),
+        // protocol 1 (no room keys) and a newer one are refused
+        (ClientMsg::Hello { proto: 1, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
+        (ClientMsg::Hello { proto: PROTO + 1, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
+        (ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: NO_KEY }, err::BAD_FRAME),
     ] {
         let mut c = Tc::connect(addr);
         c.send(msg);
@@ -292,18 +295,18 @@ fn four_players() {
     assert!(g1.rooms(0, 2).is_empty());
 
     // join errors
-    g1.send(ClientMsg::Join { room_id: 9, comm_version: 3, pass_hash: H });
+    g1.send(ClientMsg::Join { room_id: 9, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g1.expect_error(err::NO_ROOM);
-    g1.send(ClientMsg::Join { room_id: 1, comm_version: 4, pass_hash: H });
+    g1.send(ClientMsg::Join { room_id: 1, comm_version: 4, pass_hash: H, room_key: NO_KEY });
     g1.expect_error(err::VERSION);
-    g1.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: [8; 16] });
+    g1.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: [8; 16], room_key: NO_KEY });
     g1.expect_error(err::PASSWORD);
 
     // three joins: .2 .3 .4, ROOM_STATE to every member
     let mut members = vec![(0, ip(1, 1), "host".to_string())];
     for (i, g) in [&mut g1, &mut g2, &mut g3].into_iter().enumerate() {
         let n = i as u8 + 2;
-        g.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+        g.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
         assert_eq!(g.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, n), node_id: n - 1 });
         members.push((n - 1, ip(1, n), format!("g{}", i + 1)));
         assert_eq!(vips(&g.room_state()), members);
@@ -322,7 +325,7 @@ fn four_players() {
     // room full: a 5th player cannot join and no longer sees it in SCAN
     let mut g4 = player(addr, "g4");
     assert!(g4.rooms(0, 0xffff).is_empty());
-    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g4.expect_error(err::ROOM_FULL);
 
     let st = srv.status();
@@ -369,7 +372,7 @@ fn four_players() {
     for c in [&mut host, &mut g1, &mut g2] {
         assert_eq!(vips(&c.room_state()), members);
     }
-    g3.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g3.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g3.expect_error(err::REJECTED);
 
     // guest leaves: LEFT 0, ROOM_STATE to the rest
@@ -380,7 +383,7 @@ fn four_players() {
         assert_eq!(vips(&c.room_state()), members);
     }
     // g4 takes the lowest free address again (.3)
-    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     assert_eq!(g4.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 3), node_id: 2 });
     g4.room_state();
     host.room_state();
@@ -406,7 +409,7 @@ fn keepalive_timeout_drops_silent_clients() {
     host.recv();
     host.room_state();
     let mut guest = player(addr, "guest");
-    guest.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    guest.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     guest.recv();
     guest.room_state();
     host.room_state();
@@ -466,4 +469,119 @@ fn rate_limit_and_server_full_and_stop() {
         assert!(c.closed(Duration::from_secs(5)));
     }
     assert!(TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_err());
+}
+
+// ---- room codes ----
+
+const K: [u8; 16] = [0x4b; 16];
+const W: [u8; 16] = [0x57; 16];
+
+fn keyed(max: u8, key: [u8; 16]) -> CreateReq {
+    CreateReq { room_key: key, ..create_req(max) }
+}
+
+impl Tc {
+    fn rooms_with(&mut self, key: [u8; 16]) -> Vec<u32> {
+        self.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: key });
+        match self.recv() {
+            ServerMsg::RoomList(r) => r.iter().map(|r| r.room_id).collect(),
+            m => panic!("expected ROOM_LIST, got {:?}", m),
+        }
+    }
+    fn join_with(&mut self, room_id: u32, key: [u8; 16]) {
+        self.send(ClientMsg::Join { room_id, comm_version: 3, pass_hash: H, room_key: key });
+    }
+}
+
+#[test]
+fn room_code_hides_and_guards_the_room() {
+    let srv = server(Duration::from_secs(15));
+    let addr = srv.local_addr();
+    // room 1 with code K, room 2 open (LAN play as before)
+    let mut host = player(addr, "host");
+    host.send(ClientMsg::Create(keyed(4, K)));
+    assert_eq!(host.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 1), node_id: 0 });
+    host.room_state();
+    let mut open = player(addr, "open");
+    open.send(ClientMsg::Create(create_req(4)));
+    assert!(matches!(open.recv(), ServerMsg::Joined { room_id: 2, .. }));
+    open.room_state();
+    let st = srv.status();
+    assert_eq!(st.rooms.iter().map(|r| (r.room_id, r.private)).collect::<Vec<_>>(), vec![(1, true), (2, false)]);
+
+    // hidden: no key or another key sees only the open room; the right key sees both
+    let mut stranger = player(addr, "stranger");
+    assert_eq!(stranger.rooms_with(NO_KEY), vec![2]);
+    let mut other = player(addr, "other");
+    assert_eq!(other.rooms_with(W), vec![2]);
+    let mut visitor = player(addr, "visitor");
+    assert_eq!(visitor.rooms_with(K), vec![1, 2]);
+
+    // wrong code: no key or a wrong key -> ERROR 11 before any other check (the room is not full, version is right ...)
+    stranger.join_with(1, NO_KEY);
+    stranger.expect_error(err::ROOM_CODE);
+    other.join_with(1, W);
+    other.expect_error(err::ROOM_CODE);
+    // a connection keeps its first key: switching keys counts as a wrong code
+    other.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: K });
+    other.expect_error(err::ROOM_CODE);
+    // the open room takes anyone, with or without a key
+    stranger.join_with(2, NO_KEY);
+    assert!(matches!(stranger.recv(), ServerMsg::Joined { room_id: 2, .. }));
+
+    // right code joins
+    visitor.join_with(1, K);
+    assert_eq!(visitor.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 2), node_id: 1 });
+    assert_eq!(vips(&visitor.room_state()).len(), 2);
+    assert_eq!(vips(&host.room_state()).len(), 2);
+}
+
+#[test]
+fn room_code_rate_limit() {
+    let srv = server(Duration::from_secs(15));
+    let addr = srv.local_addr();
+    let mut host = player(addr, "host");
+    host.send(ClientMsg::Create(keyed(8, K)));
+    host.recv();
+    host.room_state();
+
+    // per connection: 4 wrong codes answered with ERROR 11, the 5th gets ERROR 9 and the connection is closed
+    let mut guesser = player(addr, "guess");
+    for i in 0..4u8 {
+        guesser.join_with(1, [i + 1; 16]);
+        guesser.expect_error(err::ROOM_CODE);
+    }
+    guesser.join_with(1, [9; 16]);
+    guesser.expect_error(err::RATE);
+    assert!(guesser.closed(Duration::from_secs(5)));
+
+    // per address: 30 wrong codes (5 so far) in 10 minutes, then every request with a key from it is refused, the right key too;
+    // requests without a key still work
+    let mut fails = 5;
+    let mut conns = 0;
+    while fails < 30 {
+        let mut g = player(addr, "guess");
+        conns += 1;
+        for i in 0..4u8 {
+            g.join_with(1, [0x80 + i; 16]);
+            fails += 1;
+            if fails >= 30 {
+                g.expect_error(err::RATE);
+                assert!(g.closed(Duration::from_secs(5)));
+                break;
+            }
+            g.expect_error(err::ROOM_CODE);
+        }
+    }
+    assert!(conns <= 7, "{}", conns);
+    let mut late = player(addr, "late");
+    late.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: K });
+    late.expect_error(err::RATE);
+    assert!(late.closed(Duration::from_secs(5)));
+    let mut lan = player(addr, "lan");
+    assert!(lan.rooms_with(NO_KEY).is_empty());
+    lan.join_with(1, K);
+    lan.expect_error(err::RATE);
+    // the host's room is untouched
+    host.quiet();
 }

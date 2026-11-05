@@ -24,6 +24,8 @@
 // AccessPoint with GetDisconnectReason set (DestroyedByUser 3 when the host destroyed the room, Rejected 5, DestroyedBySystem 4 on server
 // shutdown, SignalLost 6 when the connection to the server is lost); the state change event is signalled on every state change and on
 // every node join/leave.
+// [net] room_code: the lobby's room key (vnet::room_key); a room hosted with one is hidden from players without it. A Connect refused for a
+// wrong code answers ConnectNotFound.
 // No lobby ([net] server empty): the state machine runs, Scan finds nothing, Connect answers ConnectNotFound and CreateNetwork
 // DeviceNotAvailable (the answers of the offline stub this replaces).
 #include "ldn.h"
@@ -193,6 +195,47 @@ LobbySlot& slot() {
     return s;
 }
 
+// room-code.txt beside the log (the game folder for pkp.exe): the code in use, for the launcher to show (launcher room_code_host).
+std::string room_code_file() {
+    const std::string log = log_path();
+    const size_t cut = log.find_last_of("/\\");
+    return (cut == std::string::npos ? std::string() : log.substr(0, cut + 1)) + "room-code.txt";
+}
+
+// [net] room_code -> the lobby's room key (zero: none). While a code is in use it is logged and written to room_code_file(), else
+// that file is removed (a code from an earlier run must not be shown). False: the value is not a code (local wireless stays off).
+bool room_code_setup(std::array<uint8_t, 16>* key) {
+    std::string v = config_get_str("net", "room_code", "");
+    const std::string file = room_code_file();
+    std::string lower = v, norm;
+    for (char& c : lower) c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    if (v.empty()) {
+        std::remove(file.c_str());
+        return true;
+    }
+    if (lower == "new") {
+        norm = vnet::room_code_new();
+        if (norm.empty()) {
+            NXLOG_W("net", "ldn: [net] room_code = new: no random source: local wireless off");
+            std::remove(file.c_str());
+            return false;
+        }
+    } else if (!vnet::room_code_normalize(v, &norm)) {
+        NXLOG_W("net", "ldn: [net] room_code is not a room code (16 letters and digits, XXXX-XXXX-XXXX-XXXX): local wireless off");
+        std::remove(file.c_str());
+        return false;
+    }
+    *key = vnet::room_key(norm);
+    const std::string shown = vnet::room_code_format(norm);
+    if (FILE* f = std::fopen(file.c_str(), "wb")) {
+        std::fprintf(f, "%s\n", shown.c_str());
+        std::fclose(f);
+    }
+    NXLOG_I("net", "ldn: room code %s%s: a room hosted here is seen only by players with this code; scans show open rooms and rooms with it",
+            shown.c_str(), lower == "new" ? " (new)" : "");
+    return true;
+}
+
 std::shared_ptr<vnet::Lobby> process_lobby() {
     LobbySlot& s = slot();
     std::lock_guard<std::mutex> lk(s.mu);
@@ -202,6 +245,7 @@ std::shared_ptr<vnet::Lobby> process_lobby() {
     vnet::RelayOptions o;
     if (server.empty()) {
         NXLOG_I("net", "ldn: [net] server is empty: local wireless off (scans find nothing)");
+        std::remove(room_code_file().c_str());
         return nullptr;
     }
     if (!vnet::parse_server(server, &o.host, &o.port)) {
@@ -211,6 +255,7 @@ std::shared_ptr<vnet::Lobby> process_lobby() {
     o.nickname = profile().user_nickname;
     if (o.nickname.empty()) o.nickname = "Player";
     o.password = config_get_str("net", "password", "");
+    if (!room_code_setup(&o.room_key)) return nullptr;
     s.lobby = vnet::make_relay_client(o);
     return s.lobby;
 }
@@ -788,7 +833,8 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
     if (e) {
         NXLOG_I("net", "ldn: Connect to room %u failed: %s", room_id, vnet::lobby_err_str(e));
         switch (e) {
-            case vnet::kLobbyNoRoom: return kConnectNotFound;
+            case vnet::kLobbyNoRoom:
+            case vnet::kLobbyRoomCode: return kConnectNotFound;   // a room with another code: as if it were not there
             case vnet::kLobbyRoomFull: return kTooManyPlayers;
             case vnet::kLobbyVersion: return version < room_version ? kVersionTooLow : kVersionTooHigh;
             case vnet::kLobbyRejected: return kConnectRejected;

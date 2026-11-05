@@ -658,6 +658,26 @@ NXTEST(ldn_live_relay) {
         return c->scan(cfg.local_comm_id, 0xFFFF, &r) == 0 && r.empty();
     }));
     std::printf("  live: reject, rejoin refused, leave, host close: ok (%d room states seen by the host)\n", a_states.load());
+
+    // Room codes (protocol 2): a host with a code is hidden from a client without it; a wrong code is refused; the right one joins.
+    vnet::RelayOptions ko = o;
+    ko.room_key = vnet::room_key(vnet::room_code_new());
+    ko.nickname = "CodeHost";
+    auto kh = vnet::make_relay_client(ko);
+    ko.nickname = "CodeGuest";
+    auto kg = vnet::make_relay_client(ko);
+    vnet::Joined jk;
+    REQUIRE(kh->create(cfg, &jk) == 0);
+    std::vector<vnet::Room> seen;
+    REQUIRE(c->scan(cfg.local_comm_id, 0xFFFF, &seen) == 0);
+    CHECK(seen.empty());
+    CHECK_EQ(c->join(jk.room_id, kVersion, cfg.pass_hash, &jb), vnet::kLobbyRoomCode);
+    REQUIRE(kg->scan(cfg.local_comm_id, 0xFFFF, &seen) == 0);
+    REQUIRE(seen.size() == 1);
+    REQUIRE(kg->join(seen[0].room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    CHECK(wait_until([&] { return kh->room().nodes.size() == 2; }));
+    kh->leave();
+    std::printf("  live: room code: hidden from a client without it, wrong code refused, right code joined\n");
 }
 
 // The ldn service itself on a RelayClient (events and datagrams arrive on the reader thread): the process hosts through IPC, a second
@@ -730,4 +750,47 @@ NXTEST(ldn_live_relay_ipc) {
     CHECK_EQ(l.call(401).result, 0u);
     std::printf("  live ipc: guest left, network destroyed\n");
     kernel::handle_close(ev);
+}
+
+// Room codes: the code format (Crockford base32, pokopia-native's rules), the key that goes on the wire, and the relay's rule on the
+// loopback: a room made with a code is listed to and joinable by lobbies with the same code only; open rooms stay visible to everyone.
+NXTEST(ldn_room_codes) {
+    std::string n;
+    CHECK(vnet::room_code_normalize("abcd-efgh-jkmn-pqrs", &n));
+    CHECK(n == "ABCDEFGHJKMNPQRS");
+    CHECK(vnet::room_code_normalize(" o1il 2345 6789 TVWX ", &n));
+    CHECK(n == "011123456789TVWX");
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQR", &n));     // 15 symbols
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQRST", &n));   // 17
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQRU", &n));    // U is not in the alphabet
+    CHECK(vnet::room_code_format("ABCDEFGHJKMNPQRS") == "ABCD-EFGH-JKMN-PQRS");
+    const std::string a = vnet::room_code_new(), b = vnet::room_code_new();
+    CHECK(vnet::room_code_normalize(vnet::room_code_format(a), &n) && n == a);
+    CHECK(a != b);
+    // SHA-256("pokopia-relay room v1ABCDEFGHJKMNPQRS"), first 16 bytes (written out with Python's hashlib)
+    const std::array<uint8_t, 16> want{0x64, 0xe8, 0x1a, 0x86, 0x97, 0x5b, 0x93, 0x50, 0x6e, 0xe7, 0x85, 0x3f, 0xd6, 0xa3, 0xaa, 0x18};
+    CHECK(vnet::room_key("ABCDEFGHJKMNPQRS") == want);
+
+    vnet::LoopbackRelay relay;
+    const auto key = vnet::room_key(a), other_key = vnet::room_key(b);
+    auto host = relay.client("Host", key), lan_host = relay.client("LanHost");
+    auto visitor = relay.client("Visitor", key), stranger = relay.client("Stranger"), wrong = relay.client("Wrong", other_key);
+    vnet::Joined hj, lj, j;
+    REQUIRE(host->create(room_config(), &hj) == 0);
+    REQUIRE(lan_host->create(room_config(), &lj) == 0);
+    std::vector<vnet::Room> rooms;
+    CHECK_EQ(stranger->scan(0, 0xFFFF, &rooms), 0);
+    REQUIRE(rooms.size() == 1);
+    CHECK_EQ(rooms[0].room_id, lj.room_id);
+    CHECK_EQ(wrong->scan(0, 0xFFFF, &rooms), 0);
+    CHECK_EQ(rooms.size(), 1u);
+    CHECK_EQ(visitor->scan(0, 0xFFFF, &rooms), 0);
+    CHECK_EQ(rooms.size(), 2u);
+    const auto ph = room_config().pass_hash;
+    CHECK_EQ(stranger->join(hj.room_id, kVersion, ph, &j), vnet::kLobbyRoomCode);
+    CHECK_EQ(wrong->join(hj.room_id, kVersion - 1, ph, &j), vnet::kLobbyRoomCode);   // the code is checked before the version
+    REQUIRE(visitor->join(hj.room_id, kVersion, ph, &j) == 0);
+    CHECK_EQ(host->room().nodes.size(), 2u);
+    REQUIRE(wrong->join(lj.room_id, kVersion, ph, &j) == 0);   // an open room takes a lobby with any code
+    CHECK_EQ(lan_host->room().nodes.size(), 2u);
 }

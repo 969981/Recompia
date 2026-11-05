@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Lobby implementations (see lobby.h): the relay protocol v1 client and the in-process LoopbackRelay, plus SHA-256 for the passphrase hash.
+// Lobby implementations (see lobby.h): the relay protocol v2 client and the in-process LoopbackRelay, plus SHA-256 for the passphrase hash.
 // Relay wire format (launcher/src-tauri/src/relay/mod.rs is the reference): frame = u32 len (bytes after it, 1..8192) + u8 type + payload,
 // little-endian; str = u8 len + UTF-8.
 // SHA-256 follows FIPS 180-4 (the round constants and the initial hash are the standard's).
@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -16,6 +17,18 @@
 
 #include "nxrt/log.h"
 #include "tcp.h"
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt")
+#endif
 
 #ifndef NXRT_BUILD_STAMP
 #define NXRT_BUILD_STAMP "nxrt-ldn-relay-1"
@@ -38,6 +51,7 @@ const char* lobby_err_str(int e) {
         case kLobbyRejected: return "rejected by the host";
         case kLobbyRate: return "rate limited by the server";
         case kLobbyBadFrame: return "the server refused a frame";
+        case kLobbyRoomCode: return "wrong room code";
         case kLobbyTimeout: return "no answer from the server";
         case kLobbyNoServer: return "not connected to the server";
         case kLobbyState: return "not allowed in this state";
@@ -117,6 +131,54 @@ std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n) {
     return out;
 }
 
+// From pokopia-native (MIT), windows/src/coop/coop_auth.c @7c3655d: the alphabet, coop_room_normalize, coop_room_new, coop_room_format.
+static const char kB32[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";   // Crockford's base32
+
+bool room_code_normalize(const std::string& in, std::string* out) {
+    std::string s;
+    for (char ch : in) {
+        if (ch == '-' || ch == ' ') continue;
+        if (ch >= 'a' && ch <= 'z') ch = static_cast<char>(ch - 'a' + 'A');
+        if (ch == 'O') ch = '0';
+        else if (ch == 'I' || ch == 'L') ch = '1';   // Crockford's reading of the look-alikes
+        if (!ch || !std::strchr(kB32, ch) || s.size() == kRoomCodeLen) return false;
+        s.push_back(ch);
+    }
+    if (s.size() != kRoomCodeLen) return false;
+    if (out) *out = s;
+    return true;
+}
+
+std::string room_code_format(const std::string& norm) {
+    std::string s;
+    for (size_t i = 0; i < norm.size(); ++i) {
+        if (i && i % 4 == 0) s.push_back('-');
+        s.push_back(norm[i]);
+    }
+    return s;
+}
+
+std::string room_code_new() {
+    uint8_t r[kRoomCodeLen];
+#ifdef _WIN32
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(nullptr, r, sizeof r, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) return {};
+#else
+    FILE* f = std::fopen("/dev/urandom", "rb");
+    const bool ok = f && std::fread(r, 1, sizeof r, f) == sizeof r;
+    if (f) std::fclose(f);
+    if (!ok) return {};
+#endif
+    std::string s(kRoomCodeLen, '0');
+    for (size_t i = 0; i < kRoomCodeLen; ++i) s[i] = kB32[r[i] & 31];   // 256 is a multiple of 32: no bias
+    std::memset(r, 0, sizeof r);
+    return s;
+}
+
+std::array<uint8_t, 16> room_key(const std::string& norm) {
+    const std::string m = "pokopia-relay room v1" + norm;
+    return passphrase_hash(m.data(), m.size());
+}
+
 namespace {
 
 std::array<uint8_t, 6> node_mac(uint32_t vip) {   // 02:00:a9:fe:R:N, the server's rule
@@ -124,7 +186,7 @@ std::array<uint8_t, 6> node_mac(uint32_t vip) {   // 02:00:a9:fe:R:N, the server
 }
 
 // =============================================================================================================================================
-// Relay protocol v1 codec
+// Relay protocol v2 codec
 // =============================================================================================================================================
 
 constexpr size_t kMaxFrame = 8192;
@@ -229,7 +291,7 @@ public:
         std::lock_guard<std::mutex> rq(req_mu_);
         if (const int e = connect_locked()) return e;
         Out o(kScan);
-        o.u64(lcid).u16(scene);
+        o.u64(lcid).u16(scene).raw(opt_.room_key.data(), 16);
         const int e = request(o.finish(), kRoomList);
         if (e == 0 && out) {
             std::lock_guard<std::mutex> lk(mu_);
@@ -243,7 +305,7 @@ public:
         if (in_room()) return kLobbyState;
         Out o(kCreate);
         o.u64(c.local_comm_id).u16(c.scene_id).u16(static_cast<uint16_t>(c.comm_version)).u8(c.node_count_max).u8(c.security_mode);
-        o.raw(c.pass_hash.data(), 16);
+        o.raw(c.pass_hash.data(), 16).raw(opt_.room_key.data(), 16);
         std::vector<uint8_t> adv = c.adv;
         if (adv.size() > kMaxAdvertise) adv.resize(kMaxAdvertise);
         o.blob(adv);
@@ -254,7 +316,7 @@ public:
         if (const int e = connect_locked()) return e;
         if (in_room()) return kLobbyState;
         Out o(kJoin);
-        o.u32(room_id).u16(static_cast<uint16_t>(ver)).raw(hash.data(), 16);
+        o.u32(room_id).u16(static_cast<uint16_t>(ver)).raw(hash.data(), 16).raw(opt_.room_key.data(), 16);
         return finish_join(request(o.finish(), kJoined), out);
     }
     void leave() override {
@@ -637,6 +699,7 @@ struct LoopbackRelay::State {
     struct RoomS {
         Room info;
         std::array<uint8_t, 16> hash{};
+        std::array<uint8_t, 16> key{};   // all zero: an open room
         std::map<uint8_t, LoopbackLobby*> members;   // node id -> client
         std::set<const LoopbackLobby*> banned;
     };
@@ -649,7 +712,8 @@ public:
     using State = LoopbackRelay::State;
     using Work = std::vector<std::function<void()>>;   // what to run after the relay lock is released
 
-    LoopbackLobby(std::shared_ptr<State> st, std::string nick) : st_(std::move(st)), nick_(std::move(nick)) {}
+    LoopbackLobby(std::shared_ptr<State> st, std::string nick, const std::array<uint8_t, 16>& key)
+        : st_(std::move(st)), nick_(std::move(nick)), key_(key) {}
     ~LoopbackLobby() override { leave(); }
 
     int connect() override { return kLobbyOk; }
@@ -659,6 +723,7 @@ public:
         std::lock_guard<std::mutex> lk(st_->mu);
         out->clear();
         for (const auto& [id, r] : st_->rooms) {
+            if (r.key != std::array<uint8_t, 16>{} && r.key != key_) continue;   // hidden from lobbies without its code
             if (r.info.nodes.size() >= r.info.node_count_max) continue;
             if (lcid && r.info.local_comm_id != lcid) continue;
             if (scene != 0xFFFF && r.info.scene_id != scene) continue;
@@ -684,6 +749,7 @@ public:
             r.info.security_mode = c.security_mode;
             r.info.adv = c.adv;
             r.hash = c.pass_hash;
+            r.key = key_;
             enter(r, 0, &w);
             *out = {id, vip_, 0};
         }
@@ -699,6 +765,7 @@ public:
             auto it = st_->rooms.find(room_id);
             if (it == st_->rooms.end()) return kLobbyNoRoom;
             State::RoomS& r = it->second;
+            if (r.key != std::array<uint8_t, 16>{} && r.key != key_) return kLobbyRoomCode;   // checked first, like the relay
             if (r.banned.count(this)) return kLobbyRejected;
             if (r.info.nodes.size() >= r.info.node_count_max) return kLobbyRoomFull;
             if (r.info.comm_version != ver) return kLobbyVersion;
@@ -859,6 +926,7 @@ private:
 
     std::shared_ptr<State> st_;
     std::string nick_;
+    std::array<uint8_t, 16> key_{};
     uint32_t room_id_ = 0;
     uint8_t node_ = 0;
     bool node_was_host_ = false;
@@ -872,6 +940,8 @@ private:
 LoopbackRelay::LoopbackRelay() : st_(std::make_shared<State>()) {}
 LoopbackRelay::~LoopbackRelay() = default;
 
-std::shared_ptr<Lobby> LoopbackRelay::client(const std::string& nickname) { return std::make_shared<LoopbackLobby>(st_, nickname); }
+std::shared_ptr<Lobby> LoopbackRelay::client(const std::string& nickname, const std::array<uint8_t, 16>& room_key) {
+    return std::make_shared<LoopbackLobby>(st_, nickname, room_key);
+}
 
 }  // namespace nxrt::vnet
