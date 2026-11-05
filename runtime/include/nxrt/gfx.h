@@ -131,6 +131,9 @@ struct DeviceFeatures {
     bool present_id = false;              // VK_KHR_present_id (feature presentId)
     bool low_latency2 = false;            // VK_NV_low_latency2 (NVIDIA Reflex)
     bool anti_lag = false;                // VK_AMD_anti_lag (AMD Anti-Lag 2)
+    // Device-lost diagnostics: enabled whenever offered ([gfx] gpu_checkpoints = off leaves the checkpoints off)
+    bool checkpoints = false;             // VK_NV_device_diagnostic_checkpoints (NVIDIA)
+    bool device_fault = false;            // VK_EXT_device_fault (feature deviceFault; the vendor binary stays off)
 };
 
 struct DeviceLimitsExt {
@@ -168,9 +171,23 @@ public:
     bool timestamps_supported() const { return timestamp_valid_bits_ > 0; }
 
     // A lost Vulkan device cannot be recovered in-process. The first caller that observes
-    // VK_ERROR_DEVICE_LOST records it here; renderers and back ends then stop issuing GPU work.
+    // VK_ERROR_DEVICE_LOST records it here; renderers and back ends then stop issuing GPU work. That first call also logs what the GPU
+    // was doing: the checkpoints each pipeline stage last reached (below) and the driver's fault report (VK_EXT_device_fault). It may be
+    // called with or without queue_mutex held (vkGetQueueCheckpointData2NV does not synchronize the queue).
     void note_result(VkResult result, const char* operation);
     bool device_lost() const { return device_lost_.load(std::memory_order_acquire); }
+
+    // GPU checkpoints ([gfx] gpu_checkpoints, VK_NV_device_diagnostic_checkpoints, so NVIDIA only): a marker before each dispatch (and
+    // each draw with `all`) whose sequence number indexes a ring of what it was (kind, shader hashes, sizes). Any thread may record;
+    // without the extension or with the key off a call is one compare. shader / shader2: the 16-character hashes (null: none).
+    // a, b, c: dispatch group counts, or a draw's vertex / index count and instances; indirect: a, b are the guest address of the
+    // arguments (low, high) and c the draw count limit of a multi-draw.
+    enum class Checkpoint : uint8_t { Dispatch = 1, Draw = 2 };
+    bool checkpoints_on(Checkpoint kind) const { return checkpoint_level_ >= static_cast<int>(kind); }
+    void checkpoint(VkCommandBuffer cb, Checkpoint kind, const std::string* shader, const std::string* shader2, uint32_t a, uint32_t b, uint32_t c,
+                    bool indirect) {
+        if (checkpoints_on(kind)) record_checkpoint(cb, kind, shader, shader2, a, b, c, indirect);
+    }
 
     // Validation (debug builds, or [gfx] validation). The counters cover everything the layer reported since create/reset.
     bool validation_enabled() const { return validation_; }
@@ -205,6 +222,9 @@ public:
 private:
     Device() = default;
     bool init(const DeviceDesc& desc, std::string* error);
+    void record_checkpoint(VkCommandBuffer cb, Checkpoint kind, const std::string* shader, const std::string* shader2, uint32_t a, uint32_t b,
+                           uint32_t c, bool indirect);
+    void report_lost(const char* operation);   // the first VK_ERROR_DEVICE_LOST: checkpoints and the fault report
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
@@ -226,6 +246,7 @@ private:
     bool debug_utils_ = false;
     bool owns_platform_surface_ = false;
     std::atomic<bool> device_lost_{false};
+    int checkpoint_level_ = 0;            // 0 off, 1 dispatches, 2 dispatches and draws (set once in init)
     Impl* impl_ = nullptr;
 };
 
