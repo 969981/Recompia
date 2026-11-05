@@ -68,16 +68,16 @@ Copy the `save` folder somewhere first if you want a backup. A save that a newer
 ## Common problems
 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
-- **The launcher says the game files are a different version.** This release needs version 2.0.1a. Dump the game again with the update installed. The base game alone is not enough.
+- **The launcher says the game files are from an older version, or that the update is missing.** This release needs version 2.0.1a. Dump the game again with the update installed. The base game alone is not enough.
 - **The launcher says it found no usable game files, or Set up says a file does not match.** Pick the folder that holds `base` and `updates` (for example `Pokopia_v2.0.1a`). Each needs `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) and `romfs`. A file that does not match is damaged. Dump it again, or copy it again.
-- **You copied the dump with FTP.** Set the transfer type to **Binary** (FileZilla: Transfer, Transfer type, Binary). In text mode some programs change the bytes of `main`, `sdk` and `subsdk0`, and Set up stops with a "does not match" error.
+- **The launcher says the dump was copied in text mode.** You copied it with FTP in text mode, which damages `main`, `sdk` and `subsdk0`. Copy the `exefs` and `romfs` folders again with the transfer type set to **Binary** (FileZilla: Transfer, Transfer type, Binary).
 - **Your dump is one file** (`.nsp`, `.xci`). The launcher takes the game as folders, or as a `.nup`. Extract the `.nsp` or `.xci` to folders with your dumping tool.
-- **Setup stops with an error about a file that cannot be opened or removed.** Put the folder somewhere plain, like `C:\Pokopia`, not in a folder that OneDrive syncs. Your antivirus may be scanning the files it is building: wait for it, or allow the folder. Setup needs about 36 GB free while it runs.
+- **Setup stops with an error about a file that cannot be opened or removed.** Put the folder somewhere plain, like `C:\Pokopia`, not in a folder that OneDrive syncs. Your antivirus may be scanning the files it is building: wait for it, or allow the folder. **Open setup log** shows where it stopped.
+- **Set up warns before it starts.** It checks free disk space (about 36 GB while it runs), Vulkan, memory and the processor first. On an Intel 13th or 14th generation desktop CPU, update the BIOS before you set up: without Intel's fix these CPUs can crash under long full load. If the PC gets hot or hard to use while it builds, tick **Use fewer cores**.
 - **Low frame rate, or a blurry picture.** The picture size is fixed when the game starts. It is the size of the window or screen at that moment (**Settings**, **Display**).
   - Start in **Borderless** on a 4K screen and the game draws at 4K. That is heavy. Lower **Render scale**.
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
   - Set **Frame rate limit** to what your screen can show.
-- **The game slows down when you are not looking at it.** Windows 11 can slow a window that is minimised or hidden. Keep the game window in front.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.
 
 If it is none of these, see [Reporting problems](#reporting-problems).
