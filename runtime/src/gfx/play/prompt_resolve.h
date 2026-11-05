@@ -54,7 +54,7 @@ const char* icon_front_uuid(Icon i);    // nullptr when the icon has no second c
 
 struct ResolveIn {
     PromptStyle style = PromptStyle::Switch;   // never Auto: the caller resolves Auto first
-    bool label_abxy = true;                    // [pad] label_abxy: Xbox A is Switch A (true) or by position (false)
+    bool label_abxy = false;                   // [pad] label_abxy: Xbox A is Switch A (true) or by position, the default (false)
     Ctx ctx = Ctx::Menu;                       // where the player is
     const Settings* settings = nullptr;        // bindings (keyboard style) and the pad remap (pad styles); null: the built-in mapping
 };

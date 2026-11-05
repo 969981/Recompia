@@ -1498,11 +1498,27 @@ NXTEST(file_without_bindings_gets_factory_bindings_at_current_revision) {
 
 NXTEST(pad_stick_keys_defaults) {
     const PadSettings d = default_settings().pad;
+    CHECK(!d.label_abxy);   // the Switch layout (by position) out of the box
+    CHECK(!PadSettings{}.label_abxy);
     CHECK(near(d.stick_deadzone, 0.10));
     CHECK(near(d.right_deadzone, 0.10));
     CHECK(!d.invert_y);
     CHECK(d.look_sens == 1.0);
     CHECK(d.alt_orbit == 2.0);
+}
+
+NXTEST(pad_label_abxy_default_off_and_kept_from_file) {
+    // new installs get the Switch layout and save it explicitly; a file that already says 1 (the old default) keeps it
+    const std::string text = format_settings(default_settings());
+    CHECK(text.find("\nlabel_abxy = 0\n") != std::string::npos);
+    Settings r;
+    std::string err;
+    REQUIRE_MSG(parse_settings(text, &r, &err), err);
+    CHECK(!r.pad.label_abxy);
+    Settings old;
+    REQUIRE_MSG(parse_settings("[pad]\nlabel_abxy = 1\n", &old, &err), err);
+    CHECK(old.pad.label_abxy);
+    CHECK(format_settings(old).find("\nlabel_abxy = 1\n") != std::string::npos);
 }
 
 NXTEST(pad_stick_keys_round_trip) {

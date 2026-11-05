@@ -373,6 +373,10 @@ Both are on the launcher's Tweaks tab and the F1 page's Tweaks tab (a switch, th
 
 `NXRT_TINT_TEST_FILE` (environment, test aid): a file of `[tweaks]` lines (`suit_color = ...`, `gun_color = ...`). When it changes, its values replace the saved ones in the running game (checked twice a second).
 
+### Controller face buttons (`controls.ini`, `[pad]`)
+
+`[pad] label_abxy`, default `0`: how the pad's face buttons map to the Switch's. `0` is the Switch layout, by position: the right button is Switch A (confirm), the bottom B, the left Y, the top X, whatever is printed on them. `1` is the Xbox layout, by the printed letter: the pad's A is Switch A wherever it sits (the bottom button on an Xbox pad). The launcher's Controller page and the F1 page's Gamepad tab call them "Switch layout" and "Xbox layout". The default was `1` before; a file that already has the key keeps its value. `[padmap]` overrides single buttons on top of either.
+
 ### Controller sticks (`controls.ini`, `[pad]`)
 
 `[pad] deadzone`, default `0.10`, range `0` to `0.5`: the dead zone of the left stick (movement). Before the right stick got its own key, this was the only stick dead zone.

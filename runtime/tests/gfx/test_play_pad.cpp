@@ -90,10 +90,10 @@ struct ButtonCase {
 }  // namespace
 
 NXTEST(every_sdl_button_maps) {
-    // Default settings: label mode, labels {0,1,2,3}, so SOUTH is Switch A, EAST B, WEST X, NORTH Y.
+    // Default settings: position mode (the Switch layout), so SOUTH is Switch B, EAST A, WEST Y, NORTH X.
     const ButtonCase cases[] = {
-        {kSouth, hid::btn(hid::kBtnA)},        {kEast, hid::btn(hid::kBtnB)},        {kWest, hid::btn(hid::kBtnX)},
-        {kNorth, hid::btn(hid::kBtnY)},        {kBack, hid::btn(hid::kBtnMinus)},    {kGuide, 0},
+        {kSouth, hid::btn(hid::kBtnB)},        {kEast, hid::btn(hid::kBtnA)},        {kWest, hid::btn(hid::kBtnY)},
+        {kNorth, hid::btn(hid::kBtnX)},        {kBack, hid::btn(hid::kBtnMinus)},    {kGuide, 0},
         {kStart, hid::btn(hid::kBtnPlus)},     {kLeftStick, hid::btn(hid::kBtnStickL)},
         {kRightStick, hid::btn(hid::kBtnStickR)}, {kLeftShoulder, hid::btn(hid::kBtnL)},
         {kRightShoulder, hid::btn(hid::kBtnR)}, {kDpadUp, hid::btn(hid::kBtnUp)},
@@ -323,7 +323,7 @@ NXTEST(rumble_off_gives_zero) {
 
 // ---- pad button remapping ----------------------------------------------------------------------------------------------------------
 NXTEST(default_remap_adds_built_in_buttons_together) {
-    // Four presses at once, label mode and the default labels: each adds its built-in buttons.
+    // Four presses at once, default (position) mode: each adds its built-in buttons.
     platform::GamepadRaw raw = xbox_buttons((1u << kSouth) | (1u << kEast) | (1u << kLeftShoulder) | (1u << kStart));
     raw.axes[4] = 32767;
     const uint64_t expect = hid::btn(hid::kBtnA) | hid::btn(hid::kBtnB) | hid::btn(hid::kBtnL) | hid::btn(hid::kBtnPlus) | hid::btn(hid::kBtnZL);
@@ -331,10 +331,10 @@ NXTEST(default_remap_adds_built_in_buttons_together) {
 }
 
 NXTEST(remapped_face_button_presses_the_remap) {
-    // South remapped to X: the bottom button gives X only, and East keeps its built-in B.
+    // South remapped to X: the bottom button gives X only, and East keeps its built-in A (position mode).
     const play::PadSettings cfg = remapped(play::PadSrc::South, hid::btn(hid::kBtnX));
     CHECK_EQ(run(xbox_buttons(1u << kSouth), cfg).buttons, hid::btn(hid::kBtnX));
-    CHECK_EQ(run(xbox_buttons(1u << kEast), cfg).buttons, hid::btn(hid::kBtnB));
+    CHECK_EQ(run(xbox_buttons(1u << kEast), cfg).buttons, hid::btn(hid::kBtnA));
 }
 
 NXTEST(remapped_source_drops_its_built_in_buttons) {
@@ -362,7 +362,7 @@ NXTEST(remap_to_zero_does_nothing) {
 }
 
 NXTEST(remap_to_two_buttons_gives_both) {
-    // East remapped to ZL + L: one press gives both bits, and not B.
+    // East remapped to ZL + L: one press gives both bits, and not its built-in A.
     const uint64_t zl_l = hid::btn(hid::kBtnZL) | hid::btn(hid::kBtnL);
     CHECK_EQ(run(xbox_buttons(1u << kEast), remapped(play::PadSrc::East, zl_l)).buttons, zl_l);
 }

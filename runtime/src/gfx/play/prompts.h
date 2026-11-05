@@ -41,7 +41,7 @@ uint64_t prompt_hash(const void* data, size_t size);
 
 struct PromptInputs {
     PromptStyle requested = PromptStyle::Switch;       // [prompts] style
-    bool label_abxy = true;
+    bool label_abxy = false;                           // [pad] label_abxy (PadSettings default)
     Ctx ctx = Ctx::Menu;
     uint64_t settings_epoch = 0;                       // changes whenever the bindings or the [switch] table may have changed
     LastDevice last = LastDevice::None;

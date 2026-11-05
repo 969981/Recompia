@@ -425,14 +425,16 @@ void prompts_row(const LiveStatus& live, Page& p) {
 void pad_tab(const LiveStatus& live, Page& p) {   // the Gamepad tab of the Controls page
     PadSettings& pad = p.edit.pad;
     const bool by_label = pad.label_abxy;
-    if (ImGui::RadioButton("Buttons by label (Xbox A = Switch A)", by_label) && !by_label) {
-        pad.label_abxy = true;
-        mark(p);
-    }
-    if (ImGui::RadioButton("Buttons by position (bottom button = Switch B)", !by_label) && by_label) {
+    if (ImGui::RadioButton("Switch layout (right = A, bottom = B)", !by_label) && by_label) {
         pad.label_abxy = false;
         mark(p);
     }
+    tip("Face buttons by position, as on a Switch pad: the right button confirms (Switch A), the bottom one goes back (Switch B).");
+    if (ImGui::RadioButton("Xbox layout (A = A, B = B)", by_label) && !by_label) {
+        pad.label_abxy = true;
+        mark(p);
+    }
+    tip("Face buttons by the letter printed on them: the pad's A is Switch A wherever it sits (on an Xbox pad, the bottom button confirms).");
 
     ImGui::SeparatorText("Sticks and triggers");
     if (slider("Left stick dead zone", &pad.stick_deadzone, 0.0, 0.5, "%.2f")) mark(p);
