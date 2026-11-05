@@ -1998,6 +1998,167 @@ VkFormat tex_vk_format(Texture* t) {
     return g ? g->format : VK_FORMAT_UNDEFINED;
 }
 
+bool tex_promoted(Texture* t) {
+    TexGpu* g = tex_or_null(t);
+    return g && g->promoted;
+}
+
+// ---- converting transfers: an image whose format is not the NVN one (an HDR-promoted target, a wider fallback) holds the same texels in
+// another layout. A buffer copy addresses the buffer in the image's texel size, so a copy straight into or out of it reads or writes past
+// the game's bytes (issue #76: RGBA16F for RGBA8 is twice the bytes, VK_ERROR_DEVICE_LOST on NVIDIA). These go through a transient image
+// in the other format and a blit, which converts on the GPU. The transient images are made per transfer (rare) and freed after the frame.
+namespace {
+
+bool format_has(VkFormat f, VkFormatFeatureFlags need) {
+    VkFormatProperties fp = {};
+    vkGetPhysicalDeviceFormatProperties(device().physical(), f, &fp);
+    return (fp.optimalTilingFeatures & need) == need;
+}
+
+// A blit can convert between a and b: colour, not block compressed, not integer (a blit does not convert integers to or from floats).
+bool blit_convertible(VkFormat a, VkFormat b) {
+    for (VkFormat f : {a, b})
+        if (f == VK_FORMAT_UNDEFINED || is_block_format(f) || vk_format_is_integer(f)) return false;
+    return true;
+}
+
+bool make_transient(VkImageType type, VkFormat fmt, VkExtent3D e, uint32_t layers, gfx::Image* out, std::string* why) {
+    gfx::ImageDesc d;
+    d.type = type;
+    d.format = fmt;
+    d.width = e.width;
+    d.height = e.height;
+    d.depth = type == VK_IMAGE_TYPE_3D ? e.depth : 1;
+    d.array_layers = type == VK_IMAGE_TYPE_3D ? 1 : layers;
+    d.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    d.create_view = false;
+    d.name = "nvn converting transfer";
+    return device().create_image(d, out, why) == VK_SUCCESS;
+}
+
+void free_transient(gfx::Image img) {
+    defer_destroy([img]() mutable { device().destroy_image(img); });
+}
+
+}  // namespace
+
+bool tex_copy_buffer_converted(Texture* t, Frame& f, VkBuffer buffer, const VkBufferImageCopy& c, bool to_texture, const char** why) {
+    TexGpu* g = tex_or_null(t);
+    *why = nullptr;
+    if (!g || !g->fmt) { *why = "no image"; return false; }
+    const VkFormat nf = g->fmt->vk;
+    if (g->depth || c.imageSubresource.aspectMask != VK_IMAGE_ASPECT_COLOR_BIT) { *why = "depth/stencil"; return false; }
+    if (!blit_convertible(g->format, nf)) { *why = "no blit between the formats"; return false; }
+    if (shape_of(*t).samples > 1) { *why = "multisampled"; return false; }
+    if (!(g->usage & (to_texture ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : VK_IMAGE_USAGE_TRANSFER_SRC_BIT))) { *why = "image lacks transfer usage"; return false; }
+    // the texture blits to the transient (to a buffer) or from it (from a buffer); the transient is copied to or from the buffer
+    const VkFormatFeatureFlags img_need = to_texture ? VK_FORMAT_FEATURE_BLIT_DST_BIT : VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+    const VkFormatFeatureFlags tmp_need = to_texture ? (VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT)
+                                                     : (VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT);
+    if (!format_has(g->format, img_need) || !format_has(nf, tmp_need)) { *why = "format lacks blit support"; return false; }
+    const uint32_t layers = c.imageSubresource.layerCount;
+    if (!c.imageExtent.width || !c.imageExtent.height || !c.imageExtent.depth || !layers) { *why = "empty region"; return false; }
+
+    // the region in the image: the NVN texels times the image's scale, clipped to the level
+    const VkExtent3D le = level_extent(g->base, c.imageSubresource.mipLevel);
+    const float sc = g->scale;
+    const auto scaled = [sc](int32_t v, uint32_t lim) { return std::clamp<int32_t>(static_cast<int32_t>(std::lround(v * sc)), 0, static_cast<int32_t>(lim)); };
+    const int32_t w = static_cast<int32_t>(c.imageExtent.width), h = static_cast<int32_t>(c.imageExtent.height), dp = static_cast<int32_t>(c.imageExtent.depth);
+    VkOffset3D i0 = {scaled(c.imageOffset.x, le.width), scaled(c.imageOffset.y, le.height), c.imageOffset.z};
+    VkOffset3D i1 = {scaled(c.imageOffset.x + w, le.width), scaled(c.imageOffset.y + h, le.height), c.imageOffset.z + dp};
+    VkOffset3D t1 = {w, h, dp};
+    if (g->type != VK_IMAGE_TYPE_3D) { i0.z = 0; i1.z = 1; t1.z = 1; }
+    if (i1.x <= i0.x || i1.y <= i0.y) { *why = "region outside the image"; return false; }
+
+    gfx::Image tmp;
+    std::string err;
+    if (!make_transient(g->type, nf, c.imageExtent, layers, &tmp, &err)) {
+        static int logged = 0;
+        if (logged++ < 5) NXLOG_W(kTag, "texture %u: no transient %ux%u image for a converting copy: %s", t->id, c.imageExtent.width, c.imageExtent.height, err.c_str());
+        *why = "transient image refused";
+        return false;
+    }
+    const VkImageSubresourceLayers ts = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layers};
+    VkBufferImageCopy tc = c;
+    tc.imageSubresource = ts;
+    tc.imageOffset = {0, 0, 0};
+    // same size: nearest (an exact conversion); a scaled image: linear when the blit's source format filters
+    const bool same_size = i1.x - i0.x == w && i1.y - i0.y == h;
+    const VkFilter filter = !same_size && format_has(to_texture ? nf : g->format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    VkImageBlit b = {};
+    image_barrier(f.cb, tmp.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers);
+    if (to_texture) {
+        vkCmdCopyBufferToImage(f.cb, buffer, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &tc);
+        image_barrier(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers);
+        b.srcSubresource = ts;
+        b.srcOffsets[1] = t1;
+        b.dstSubresource = c.imageSubresource;
+        b.dstOffsets[0] = i0;
+        b.dstOffsets[1] = i1;
+        vkCmdBlitImage(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, filter);
+    } else {
+        b.srcSubresource = c.imageSubresource;
+        b.srcOffsets[0] = i0;
+        b.srcOffsets[1] = i1;
+        b.dstSubresource = ts;
+        b.dstOffsets[1] = t1;
+        vkCmdBlitImage(f.cb, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, filter);
+        image_barrier(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers);
+        vkCmdCopyImageToBuffer(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &tc);
+    }
+    free_transient(tmp);
+    static int logged = 0;
+    if (logged++ < 20)
+        NXLOG_I(kTag, "texture %u: copy %s %s %ux%u (level %u, %u layer(s)) converted through a %s blit (image format %d)", t->id, to_texture ? "buffer ->" : "-> buffer",
+                g->fmt->name, c.imageExtent.width, c.imageExtent.height, c.imageSubresource.mipLevel, layers, g->promoted ? "HDR float16" : "fallback",
+                static_cast<int>(g->format));
+    return true;
+}
+
+bool tex_resolve_converted(Texture* s, Texture* d, Frame& f, const VkImageResolve& r, const char** why) {
+    TexGpu *gs = tex_or_null(s), *gd = tex_or_null(d);
+    *why = nullptr;
+    if (!gs || !gd) { *why = "no image"; return false; }
+    if (gs->depth || gd->depth) { *why = "depth/stencil"; return false; }
+    if (!blit_convertible(gs->format, gd->format)) { *why = "no blit between the formats"; return false; }
+    if (shape_of(*d).samples > 1) { *why = "multisampled destination"; return false; }
+    if (!(gd->usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) { *why = "destination lacks transfer usage"; return false; }
+    // s resolves into a transient of its own format (a resolve destination needs the colour attachment feature), blitted into d
+    if (!format_has(gs->format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT) || !format_has(gd->format, VK_FORMAT_FEATURE_BLIT_DST_BIT)) {
+        *why = "format lacks blit support";
+        return false;
+    }
+    if (!r.extent.width || !r.extent.height) { *why = "empty region"; return false; }
+    gfx::Image tmp;
+    std::string err;
+    if (!make_transient(VK_IMAGE_TYPE_2D, gs->format, r.extent, 1, &tmp, &err)) {
+        static int logged = 0;
+        if (logged++ < 5) NXLOG_W(kTag, "texture %u: no transient %ux%u image for a converting resolve: %s", d->id, r.extent.width, r.extent.height, err.c_str());
+        *why = "transient image refused";
+        return false;
+    }
+    const VkImageSubresourceLayers ts = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    VkImageResolve tr = r;
+    tr.dstSubresource = ts;
+    tr.dstOffset = {0, 0, 0};
+    image_barrier(f.cb, tmp.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+    vkCmdResolveImage(f.cb, gs->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &tr);
+    image_barrier(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+    VkImageBlit b = {};
+    b.srcSubresource = ts;
+    b.srcOffsets[1] = {static_cast<int32_t>(r.extent.width), static_cast<int32_t>(r.extent.height), 1};
+    b.dstSubresource = r.dstSubresource;
+    b.dstOffsets[0] = r.dstOffset;
+    b.dstOffsets[1] = {r.dstOffset.x + static_cast<int32_t>(r.extent.width), r.dstOffset.y + static_cast<int32_t>(r.extent.height), r.dstOffset.z + 1};
+    vkCmdBlitImage(f.cb, tmp.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, gd->img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_NEAREST);
+    free_transient(tmp);
+    static int logged = 0;
+    if (logged++ < 20)
+        NXLOG_I(kTag, "texture %u: downsample of texture %u (%ux%u) converted through a %s blit (format %d -> %d)", d->id, s->id, r.extent.width, r.extent.height,
+                gd->promoted ? "HDR float16" : "fallback", static_cast<int>(gs->format), static_cast<int>(gd->format));
+    return true;
+}
+
 VkImageAspectFlags tex_aspect(Texture* t) {
     TexGpu* g = tex_or_null(t);
     return g ? g->aspect : VK_IMAGE_ASPECT_COLOR_BIT;

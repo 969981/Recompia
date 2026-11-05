@@ -3496,17 +3496,33 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
     if (!to_texture) compute_out_guard(p.address, buf_bytes, kOutBufferWrite);     // written: held results there go back first
     BufRef br = to_texture ? held_or_pool(p.address, buf_bytes, kOutBufferRead, true) : resolve_buffer(p.address, buf_bytes);
     c.bufferOffset = br.offset;
+    // The region and buffer layout above are in the NVN format. An image in another layout (an HDR-promoted RGBA16F target, a wider
+    // fallback, transcoded ASTC) would make Vulkan address the buffer in its own texel size: past the game's bytes (issue #76: device
+    // lost on NVIDIA) and in the wrong encoding. Such copies convert through a blit, or are skipped.
+    const bool convert = fi && !vk_copy_layout_matches(tex_vk_format(t), fi->vk, c.imageSubresource.aspectMask);
+    const auto skipped = [&](const char* why) {
+        static int logged = 0;
+        if (logged++ < 20) {
+            char a[96];
+            NXLOG_W(kTag, "%s %s skipped: the image (format %d) is not laid out like the NVN format and cannot be converted (%s)",
+                    to_texture ? "buffer copy into" : "copy to a buffer from", tex_desc(t, a, sizeof a), static_cast<int>(tex_vk_format(t)), why);
+        }
+    };
     if (to_texture) {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         tev(t, "copy_buffer_to_texture", p.address, p.has_view ? 1 : 0);
         for (uint32_t i = 0; i < c.imageSubresource.layerCount; ++i) tex_sparse_before_copy(t, c.imageSubresource.baseArrayLayer + i, s.level);
+        const char* why = nullptr;
+        if (!convert) vkCmdCopyBufferToImage(F->cb, br.buffer, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+        else if (!tex_copy_buffer_converted(t, *F, br.buffer, c, true, &why)) { skipped(why); return; }
         tex_mark_gpu_written(t);
-        vkCmdCopyBufferToImage(F->cb, br.buffer, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
     } else {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        vkCmdCopyImageToBuffer(F->cb, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, br.buffer, 1, &c);
+        const char* why = nullptr;
+        if (!convert) vkCmdCopyImageToBuffer(F->cb, tex_image(t), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, br.buffer, 1, &c);
+        else if (!tex_copy_buffer_converted(t, *F, br.buffer, c, false, &why)) { skipped(why); return; }
         gpu_wrote(p.address, stride * ((rh + bh - 1) / bh) * rd, kWriteImageCopy);
     }
     memory_barrier(F->cb);
@@ -3589,7 +3605,17 @@ void do_downsample(const P_Downsample& p) {
     if (tex_scale(s) != tex_scale(d)) log_once("downsample-scale", "Downsample between a scaled and an unscaled texture: only the common part is resolved");
     const VkExtent3D e = tex_image_extent(d, 0), es = tex_image_extent(s, 0);
     rs.extent = {std::min(e.width, es.width), std::min(e.height, es.height), 1};
-    vkCmdResolveImage(F->cb, tex_image(s), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(d), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rs);
+    // a resolve needs one format on both sides: an HDR-promoted destination (RGBA16F for the source's RGBA8) resolves through a blit
+    const char* why = nullptr;
+    if (tex_vk_format(s) == tex_vk_format(d)) vkCmdResolveImage(F->cb, tex_image(s), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(d), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rs);
+    else if (!tex_resolve_converted(s, d, *F, rs, &why)) {
+        static int logged = 0;
+        if (logged++ < 20) {
+            char a[96], b[96];
+            NXLOG_W(kTag, "downsample of %s into %s skipped: formats %d and %d differ and cannot be converted (%s)", tex_desc(s, a, sizeof a), tex_desc(d, b, sizeof b),
+                    static_cast<int>(tex_vk_format(s)), static_cast<int>(tex_vk_format(d)), why);
+        }
+    }
     memory_barrier(F->cb);
     counters().copies.fetch_add(1, std::memory_order_relaxed);
     gstamp("downsample");
