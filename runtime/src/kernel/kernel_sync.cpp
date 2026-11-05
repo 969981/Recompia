@@ -19,6 +19,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "nxrt/tt.h"
 
 namespace nxrt::kernel {
 namespace detail {
@@ -103,18 +104,50 @@ void sleep_locked(KThread& t, DWORD ms) {
     SleepConditionVariableSRW(thread_cv(t), &g_k, ms, 0);
 }
 
+// Wakes t's current sleep (g_k held): its condition variable, and its event while it is in a precise wait's last stretch.
+void kick(KThread& t) {
+    WakeConditionVariable(thread_cv(t));
+    if (t.precise_event) SetEvent(static_cast<HANDLE>(t.precise_event));
+}
+
+// One sleep of a timed wait with rem_ns (> 0) left, or forever (rem_ns < 0); g_k held, released while sleeping. The caller loops and
+// re-checks its condition and the deadline. Default: whole ms rounded up, so a 100 us timeout takes 1 ms (2 ms and more at a coarse timer).
+// [sched] precise_waits: whole ms rounded down while more than 2.5 ms remain, then the last stretch on the thread's waitable timer with the
+// lateness correction (precise_wait.cpp), ended early by kick(). From pokopia-native (MIT), windows/src/nxrt/host/hle_thread.c block @7c3655d
+// (their last stretch cannot be woken; here an event is). Not under the deterministic clock (now_ns is then virtual time).
+void sleep_rem_locked(KThread& t, int64_t rem_ns) {
+    if (rem_ns < 0) return sleep_locked(t, INFINITE);
+    if (precise_waits_enabled() && !tt::deterministic()) {
+        if (rem_ns > 2500000) return sleep_locked(t, static_cast<DWORD>(std::min<int64_t>((rem_ns - 1500000) / 1000000, 0x7FFFFFFE)));
+        struct Event {
+            HANDLE h = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            ~Event() { if (h) CloseHandle(h); }
+        };
+        static thread_local Event tl_ev;   // closed when the thread ends
+        if (const HANDLE ev = tl_ev.h) {
+            t.precise_event = ev;
+            ReleaseSRWLockExclusive(&g_k);
+            precise_wait_ns(rem_ns, ev);
+            AcquireSRWLockExclusive(&g_k);
+            t.precise_event = nullptr;
+            ResetEvent(ev);      // a kick that came after the wait ended must not end the next one
+            return;
+        }
+    }
+    const int64_t m = (rem_ns + 999999) / 1000000;
+    sleep_locked(t, static_cast<DWORD>(m > 0x7FFFFFFE ? 0x7FFFFFFE : m));
+}
+
 // Waits (g_k held, released while sleeping) until t.wake or the timeout; false on timeout.
 bool block_on_wake(KThread& t, int64_t timeout_ns) {
     const int64_t until = timeout_ns < 0 ? 0 : now_ns() + timeout_ns;
     while (!t.wake) {
-        DWORD ms = INFINITE;
+        int64_t rem = -1;
         if (timeout_ns >= 0) {
-            int64_t rem = until - now_ns();
+            rem = until - now_ns();
             if (rem <= 0) return false;
-            int64_t m = (rem + 999999) / 1000000;
-            ms = static_cast<DWORD>(m > 0x7FFFFFFE ? 0x7FFFFFFE : m);
         }
-        sleep_locked(t, ms);
+        sleep_rem_locked(t, rem);
     }
     return true;
 }
@@ -122,13 +155,13 @@ bool block_on_wake(KThread& t, int64_t timeout_ns) {
 void wake_thread(KThread& t, uint32_t result) {
     t.wake = true;
     t.wait_result = result;
-    WakeConditionVariable(thread_cv(t));
+    kick(t);
 }
 
 void thread_mark_exited(KThread& t) {
     Guard g;
     t.exited = true;
-    for (KThread* w : g_sync_waiters) WakeConditionVariable(thread_cv(*w));
+    for (KThread* w : g_sync_waiters) kick(*w);
 }
 
 void sync_reset() {
@@ -343,14 +376,12 @@ uint32_t wait_synchronization(const uint32_t* handles, int32_t count, int64_t ti
             return kOk;
         }
         if (timeout_ns == 0) return kTimedOut;
-        DWORD ms = INFINITE;
+        int64_t rem = -1;
         if (timeout_ns > 0) {
-            int64_t rem = until - now_ns();
+            rem = until - now_ns();
             if (rem <= 0) return kTimedOut;
-            int64_t m = (rem + 999999) / 1000000;
-            ms = static_cast<DWORD>(m > 0x7FFFFFFE ? 0x7FFFFFFE : m);
         }
-        sleep_locked(me, ms);
+        sleep_rem_locked(me, rem);
     }
 }
 
@@ -371,13 +402,13 @@ uint32_t cancel_synchronization(uint32_t thread_handle) {
     if (!t) return kInvalidHandle;
     Guard g;
     t->cancel_sync = true;
-    if (std::find(g_sync_waiters.begin(), g_sync_waiters.end(), t.get()) != g_sync_waiters.end()) WakeConditionVariable(thread_cv(*t));
+    if (std::find(g_sync_waiters.begin(), g_sync_waiters.end(), t.get()) != g_sync_waiters.end()) kick(*t);
     return kOk;
 }
 
 void notify_waitable_changed() {
     Guard g;
-    for (KThread* t : g_sync_waiters) WakeConditionVariable(thread_cv(*t));
+    for (KThread* t : g_sync_waiters) kick(*t);
 }
 
 // ---- gauges (include/nxrt/gauge.h): wait-queue lengths ----
