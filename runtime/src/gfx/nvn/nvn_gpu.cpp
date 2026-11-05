@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -33,6 +34,7 @@
 #include "nvn_impl.h"
 #include "nvn_pipeline.h"
 #include "nvn_present_pass.h"
+#include "nvn_submit_park.h"
 #include "nvn_submit_worker.h"
 #include "extras/output_pass.h"
 
@@ -50,6 +52,8 @@ nxrt::GaugeCounter g_gauge_deferred("nvn.deferred_destroy");     // closures wai
 nxrt::GaugeCounter g_gauge_render_queue("nvn.render_queue");     // jobs queued for the render thread
 nxrt::GaugeCounter g_gauge_barriers_mem("nvn.cnt.barriers_mem");   // full memory barriers recorded (cumulative; per frame = delta / frames)
 nxrt::GaugeCounter g_gauge_barriers_img("nvn.cnt.barriers_img");   // image layout barriers recorded (cumulative)
+nxrt::GaugeCounter g_gauge_merged("nvn.submit.merged_into_present");   // [nvn] one_submit: batch flushes that rode in a present's submission (cumulative)
+nxrt::GaugeCounter g_gauge_park_expired("nvn.submit.park_expired");    // [nvn] one_submit: held batch flushes the present did not take in time (cumulative)
 
 struct Slot {
     VkCommandPool pool = VK_NULL_HANDLE;
@@ -157,6 +161,17 @@ struct Gpu {
     // device submits, the low-latency markers and the sparse bind take it too). The render thread itself no longer calls vkQueueSubmit2
     // while the worker runs, except the drained debug / sparse paths.
     std::unique_ptr<SubmitWorker> sw;
+
+    // [nvn] one_submit (needs submit_batch = frame and the worker): a batch flush handed to the worker is parked (nvn_submit_park.h) until
+    // its job submits it, or the next present takes it while the job has not started (the game's fence polls flush part of each frame
+    // early, and under Proton every kernel submission pays the userptr validation again). Taken flushes ride in the present's
+    // vkQueueSubmit2, before the frame's own batch, and are published by its after_submit. 0 off, 1 on (in the present's VkSubmitInfo2),
+    // 2 split (a VkSubmitInfo2 of their own in the same call, without the swapchain acquire wait).
+    int one_submit = 0;
+    std::chrono::nanoseconds park_hold{0};     // [nvn] one_submit_hold_ms: how long a job waits for a present that is already queued
+    using Cbi = std::vector<VkCommandBufferSubmitInfo>;
+    SubmitPark<Cbi> park;
+    std::vector<SubmitPark<Cbi>::Entry> taken;     // render thread: taken by the present being built, in serial order
 };
 
 Gpu* g = nullptr;
@@ -322,6 +337,32 @@ void submit_cbs(const std::vector<VkCommandBufferSubmitInfo>& cbi, uint64_t seri
     if (worker) g->sw->publish(serial);
 }
 
+// [nvn] one_submit: the worker job of a parked batch flush. When a present is already queued on the render thread, it waits up to
+// [nvn] one_submit_hold_ms for that present to take the flush (zone submit.park.hold, arg = how it ended: 1 taken by the present,
+// 2 released by a CPU wait or a drain, 3 hold time over); a CPU wait for one of its serials (wait_submitted) or a drain ends the wait at once.
+// Taken by the present: nothing to do here, the present's submit publishes the serial. Worker thread.
+void park_job(uint64_t serial) {
+    using Took = SubmitPark<Gpu::Cbi>::Took;
+    bool coming = false;
+    if (g->park_hold.count() > 0) {
+        std::lock_guard<std::mutex> lk(g->pmu);
+        coming = g->presents_pending > 0;
+    }
+    Took how = Took::Now;
+    std::optional<Gpu::Cbi> cbi;
+    {
+        static const uint16_t z_hold = ft::zone_id("submit.park.hold");
+        const uint64_t t0 = coming && ft::on() ? ft::now_ns() : 0;
+        cbi = g->park.take_for_job(serial, g->park_hold, coming, &how);
+        if (t0) ft::event(z_hold, t0, ft::now_ns(), static_cast<uint32_t>(how));
+    }
+    if (!cbi) return;
+    if (how == Took::Expired) g_gauge_park_expired.add(1);
+    static const uint16_t z_batch = ft::zone_id("submit.worker.batch");     // as flush_batch's own job
+    ft::Scope sc(z_batch, 0, static_cast<uint32_t>(cbi->size()));
+    submit_cbs(*cbi, serial, true);
+}
+
 void flush_batch() {
     if (g->batch.empty()) return;
     ft::SplitScope sp_submit(ft::kSplSubmit);     // [prof] render_split: with the worker, only the hand-over
@@ -338,7 +379,10 @@ void flush_batch() {
     std::vector<VkCommandBufferSubmitInfo> cbi(g->batch.size(), VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO});
     for (size_t i = 0; i < g->batch.size(); i++) cbi[i].commandBuffer = g->batch[i]->cb;
     const uint64_t serial = g->batch.back()->serial;
-    if (g->sw) {    // [nvn] submit_thread: the worker submits; `flushed` = handed over (it will reach the queue without being asked again)
+    if (g->sw && g->one_submit) {   // [nvn] one_submit: its job submits it, unless the next present takes it first (still "handed over")
+        g->park.park(g->flushed + 1, serial, std::move(cbi));
+        g->sw->push([serial] { park_job(serial); });
+    } else if (g->sw) {    // [nvn] submit_thread: the worker submits; `flushed` = handed over (it will reach the queue without being asked again)
         g->sw->push([cbi = std::move(cbi), serial] {
             // the batch's vkQueueSubmit2 (+ the queue lock wait); arg = command buffers in it. The present job is submit.worker.present.
             static const uint16_t z_batch = ft::zone_id("submit.worker.batch");
@@ -358,6 +402,11 @@ void flush_batch() {
 // [nvn] submit_thread: waits until the worker has submitted `serial` (or it completed another way). Any thread. true without the worker.
 bool wait_submitted(uint64_t serial, uint64_t timeout_ns = UINT64_MAX) {
     if (!g->sw || !serial || g->sw->submitted() >= serial) return true;
+    if (g->one_submit) {    // [nvn] one_submit: a CPU wait sends its serial now, never held back for a present
+        g->park.release(serial);
+        // the render thread itself, inside a present that has taken parked flushes: it cannot wait for that present's submit
+        if (on_render_thread() && !g->taken.empty() && serial >= g->taken.front().first) present_give_back();
+    }
     NXFT("submit.wait_submitted");
     return g->sw->wait_submitted(serial, timeout_ns, [serial] { return g->completed.load() >= serial || g->dev->device_lost(); });
 }
@@ -783,20 +832,59 @@ void submit_recorded() {
 void submit_drain() {
     if (!g || !g->sw) return;
     NXFT("submit.drain");
+    if (g->one_submit) g->park.release_all();     // [nvn] one_submit: a parked flush is not held for a present while anything drains
     g->sw->drain();
 }
 
+void present_take_parked() {
+    if (!g || !g->one_submit) return;
+    for (auto& e : g->park.take_for_present()) g->taken.push_back(std::move(e));
+    if (!g->taken.empty()) {
+        static const uint16_t z_take = ft::zone_id("present.park.take");     // arg = batch flushes taken
+        if (ft::on()) { const uint64_t t = ft::now_ns(); ft::event(z_take, t, t, static_cast<uint32_t>(g->taken.size())); }
+    }
+}
+
+void present_give_back() {
+    if (!g || g->taken.empty()) return;
+    for (auto& e : g->taken)    // in serial order, each on its own as flush_batch's job would have (they were never published)
+        g->sw->push([cbi = std::move(e.payload), serial = e.serial] {
+            static const uint16_t z_batch = ft::zone_id("submit.worker.batch");
+            ft::Scope sc(z_batch, 0, static_cast<uint32_t>(cbi.size()));
+            submit_cbs(cbi, serial, true);
+        });
+    g->taken.clear();
+}
+
 bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::SubmitPrefix* p) {
-    if (!g || !g->frame_batch || g->batch.empty()) {
+    if (!g || !g->frame_batch || (g->batch.empty() && g->taken.empty())) {
         submit_recorded();
         return false;
     }
     cmds->clear();
+    uint64_t value = 0;
+    if (!g->taken.empty()) {    // [nvn] one_submit: the parked flushes first (earlier serials), then the frame's own batch
+        const size_t n = g->taken.size();
+        for (auto& e : g->taken) {
+            for (const VkCommandBufferSubmitInfo& c : e.payload) cmds->push_back(c.commandBuffer);
+            value = e.serial;
+        }
+        g_gauge_merged.add(static_cast<int64_t>(n));
+        static bool logged = false;
+        if (!logged) {
+            logged = true;
+            NXLOG_I(kTag, "one_submit: first merged present: %zu parked flush(es) + %zu batched + the frame's own command buffer in one vkQueueSubmit2 (%s)",
+                    n, g->batch.size(), g->one_submit == 2 ? "split: 2 VkSubmitInfo2" : "1 VkSubmitInfo2");
+        }
+        g->taken.clear();
+    }
     for (Slot* s : g->batch) cmds->push_back(s->cb);
+    if (!g->batch.empty()) value = g->batch.back()->serial;
     p->cmds = cmds->data();
     p->count = static_cast<uint32_t>(cmds->size());
     p->timeline = g->timeline;
-    p->value = g->batch.back()->serial;
+    p->value = value;
+    p->split = g->one_submit == 2;
     if (g->sw) {    // [nvn] submit_thread: what present_batch_done does with the result happens on the worker, right after the submit
         const uint64_t value = p->value;
         p->after_submit = [value](bool submitted) {
@@ -826,8 +914,8 @@ void present_batch_done(const gfx::Renderer::SubmitPrefix& p) {
         complete_serial(p.value);
     }
     if (g->sw && !p.queued) g->sw->publish(p.value);
-    g->flushed = p.value;
-    g->flushed_pub.store(p.value);
+    g->flushed = std::max(g->flushed, p.value);     // ([nvn] one_submit: a present of parked flushes only carries serials already flushed)
+    g->flushed_pub.store(g->flushed);
     g->flush_wanted.store(false);
     g->batch.clear();
     g->ctr.submits.fetch_add(1);
@@ -1229,6 +1317,21 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
         }, [] { submit_drain(); });
         NXLOG_I(kTag, "submit_thread on (%s%s): submissions and presents go to the queue from the nvn-submit thread", st.c_str(), st == "auto" ? ", Wine" : "");
     }
+    {   // [nvn] one_submit: see Gpu::one_submit. auto = on under Wine with submit_batch = frame and the worker; on | split | off.
+        const std::string o = nxrt::config_get_str("nvn", "one_submit", "auto");
+        const bool can = gp->frame_batch && gp->sw;
+        int v = o == "auto" ? (wine && can ? 1 : 0) : (o == "on" || o == "1" || o == "true") ? 1 : o == "split" ? 2 : 0;
+        if (v && !can) {
+            NXLOG_W(kTag, "one_submit %s: no effect without submit_batch = frame and submit_thread on", o.c_str());
+            v = 0;
+        }
+        gp->one_submit = v;
+        const int64_t hold = std::clamp<int64_t>(nxrt::config_get_int("nvn", "one_submit_hold_ms", 2), 0, 50);
+        gp->park_hold = std::chrono::milliseconds(hold);
+        if (v) NXLOG_I(kTag, "one_submit %s (%s): batch flushes still queued at the present go in its vkQueueSubmit2 (%s), hold %lld ms",
+                       v == 2 ? "split" : "on", o.c_str(), v == 2 ? "own VkSubmitInfo2" : "one VkSubmitInfo2", static_cast<long long>(hold));
+        else NXLOG_I(kTag, "one_submit off (%s%s)", o.c_str(), o == "auto" ? (can ? ", not Wine" : ", no frame batch or no submit thread") : "");
+    }
     gp->th = std::thread(render_loop);
     // wait for the thread id to be published
     for (int i = 0; i < 1000 && gp->tid == std::thread::id(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1305,6 +1408,7 @@ void tear_down() {
     gp->qcv.notify_all();
     if (gp->th.joinable()) gp->th.join();
     if (gp->sw) {   // [nvn] submit_thread: the render thread's last flush runs, then nothing more goes to the queue from the worker
+        gp->park.release_all();     // [nvn] one_submit: no present comes any more
         gp->sw->stop();
         if (gp->rend) gp->rend->set_submit_queue({}, {});
     }

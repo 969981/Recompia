@@ -783,8 +783,12 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
         si.pWaitSemaphoreInfos = &wait;
         signals[si.signalSemaphoreInfoCount++] = signal;
     }
+    // split prefix ([nvn] one_submit = split): its command buffers get a VkSubmitInfo2 of their own, first in the same call, which signals
+    // the timeline and does not wait for the swapchain image; the frame's own command buffer keeps the acquire wait and render_done.
+    const uint32_t split_n = prefix && prefix->split ? prefix->count : 0;
+    VkSemaphoreSubmitInfo pre_sig = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     if (prefix && prefix->timeline) {
-        VkSemaphoreSubmitInfo& tl = signals[si.signalSemaphoreInfoCount++];
+        VkSemaphoreSubmitInfo& tl = split_n ? pre_sig : signals[si.signalSemaphoreInfoCount++];
         tl = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
         tl.semaphore = prefix->timeline;
         tl.value = prefix->value;
@@ -813,10 +817,22 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
     // the swapchain are not touched by both threads at once). A screenshot frame drains the queue at once: its copy is read back below.
     // Off (no queue): the job runs right here, as before.
     auto job = [&s, cbs = std::move(cbs), si, wait, sigs = std::vector<VkSemaphoreSubmitInfo>(signals, signals + si.signalSemaphoreInfoCount),
-                fence = slot.fence, render_done = t.render_done, swapchain = s.swapchain, image = s.cur_image, present_id, probe_value,
+                fence = slot.fence, render_done = t.render_done, swapchain = s.swapchain, image = s.cur_image, present_id, probe_value, split_n, pre_sig,
                 after = prefix ? prefix->after_submit : std::function<void(bool)>{}, prefix_sync = s.submit_queue ? nullptr : prefix]() mutable {
-        VkSubmitInfo2 sub = si;
-        sub.pCommandBufferInfos = cbs.data();
+        VkSubmitInfo2 subs[2] = {};
+        uint32_t nsub = 0;
+        if (split_n) {
+            VkSubmitInfo2& pre = subs[nsub++];
+            pre = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            pre.commandBufferInfoCount = split_n;
+            pre.pCommandBufferInfos = cbs.data();
+            pre.signalSemaphoreInfoCount = pre_sig.semaphore ? 1u : 0u;
+            pre.pSignalSemaphoreInfos = pre_sig.semaphore ? &pre_sig : nullptr;
+        }
+        VkSubmitInfo2& sub = subs[nsub++];
+        sub = si;
+        sub.commandBufferInfoCount = static_cast<uint32_t>(cbs.size()) - split_n;
+        sub.pCommandBufferInfos = cbs.data() + split_n;
         sub.pWaitSemaphoreInfos = sub.waitSemaphoreInfoCount ? &wait : nullptr;
         sub.pSignalSemaphoreInfos = sigs.data();
         bool ok = false;
@@ -824,8 +840,9 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
             static const uint16_t z_vsub = ft::zone_id("present.vk_submit"), z_vpres = ft::zone_id("present.vk_present");
             uint64_t ft0 = ft::on() ? ft::now_ns() : 0;
-            VkResult r = vkQueueSubmit2(s.dev->queue(), 1, &sub, fence);
-            if (ft0) ft::event(z_vsub, ft0, ft::now_ns(), sub.commandBufferInfoCount);   // arg = command buffers (the NVN batch rides in it)
+            VkResult r = vkQueueSubmit2(s.dev->queue(), nsub, subs, fence);
+            // arg = command buffers in the call (the NVN batch and, with [nvn] one_submit, the parked flushes ride in it)
+            if (ft0) ft::event(z_vsub, ft0, ft::now_ns(), static_cast<uint32_t>(cbs.size()));
             s.dev->note_result(r, "vkQueueSubmit2 (present)");
             if (r != VK_SUCCESS) {
                 if (!s.dev->device_lost()) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));

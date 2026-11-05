@@ -10,6 +10,9 @@ of the game (version 2.0.1a): the download contains no game files.
   view distance and texture sharpness they also pick a render scale and a frame limit (Steam Deck 40 fps, Legion Go S and
   Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
   afterwards switches to Custom, as before. The render scale part applies after a restart.
+- Steam Deck / Linux: the part of a frame that the game sends to the GPU early now goes together with the rest of the frame when
+  the frame is ready soon after, so the submit thread makes one costly submission per frame instead of two (`[nvn] one_submit`).
+  Not yet measured on a Deck.
 
 ### Fixes
 - Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
