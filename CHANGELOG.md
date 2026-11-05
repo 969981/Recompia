@@ -15,6 +15,10 @@ of the game (version 2.0.1a): the download contains no game files.
   above 60 fps (a 144 or 240 Hz screen with the frame limit on auto, or unlimited): the game's own timers are built for steps of a
   60 fps frame or more, and some never fire with smaller steps. The game now runs at most 60 fps, whatever the frame limit (as on the console and in
   pokopia-native). `above_60fps = true` under `[pkp]` brings back the old behaviour, experimental.
+- The in-game clock shows your real local time (#120). It was off by how long the PC or handheld had been running when the game
+  started, minus an hour: a day ahead on a handheld left on, 52 minutes behind on one just rebooted. The game reads the clock from a
+  part of the time data the runtime filled wrongly. Time points saved by earlier versions are treated as from another clock (as on
+  the console after its clock is reset).
 
 ## 0.5.0 (build I: Iguana)
 

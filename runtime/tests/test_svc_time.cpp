@@ -29,7 +29,7 @@ constexpr uint32_t kOutOfRange = 0x70C74;
 constexpr uint32_t kTzConversionFailed = 0x70E74;
 constexpr uint32_t kTzNotFound = 0x7BA74;
 constexpr int64_t kEpochUnix2000 = 946684800;        // 2000-01-01T00:00:00Z
-constexpr uint8_t kSourceId[16] = {'n', 'x', 'r', 't', '-', 's', 't', 'e', 'a', 'd', 'y', '-', 'c', 'l', 'k', '1'};
+constexpr uint8_t kSourceId[16] = {'n', 'x', 'r', 't', '-', 's', 't', 'e', 'a', 'd', 'y', '-', 'c', 'l', 'k', '2'};
 
 int64_t host_unix() {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -128,7 +128,7 @@ NXTEST(svc_time_system_clock_context) {
     REQUIRE(r.out.size() >= 0x20);
     const int64_t offset = r.get<int64_t>(0);
     const int64_t time_point = r.get<int64_t>(8);
-    CHECK(time_point >= 3600);                        // steady clock starts at the 3600 s epoch
+    CHECK(abs64(time_point - (host_unix() - kEpochUnix2000)) <= 3);   // steady clock starts at the host RTC value
     CHECK(abs64(offset + time_point - host_unix()) <= 3);   // posix = steady + offset
     CHECK(std::memcmp(r.out.data() + 16, kSourceId, 16) == 0);
 }
@@ -197,19 +197,42 @@ NXTEST(svc_time_steady_rtc_flags_and_setup) {
     CHECK_EQ(internal.get<int64_t>(0), 0);
 }
 
-// The guest's fast path (nn::time over the shared memory): steady time = internal_offset + the raw tick (CNTPCT, counted from host
-// boot) in ns; posix = the system clock context's offset + that steady time in seconds.
-static int64_t guest_steady_secs(const uint8_t* base) {
-    uint64_t internal = 0;
-    std::memcpy(&internal, live_slot(base, 0x00, 4, 0x18), 8);
+static int64_t raw_tick_ns() {
     const uint64_t t = kernel::system_tick(), hz = kernel::tick_hz();
-    const uint64_t raw_ns = (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
-    return static_cast<int64_t>(internal + raw_ns) / 1000000000;   // u64 add: the offset wraps when the host was up longer than the epoch
+    return static_cast<int64_t>((t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz);
+}
+
+// Pokopia's SDK fast path (nn::time::detail::SharedMemoryClient, sdk +0x557160 GetStandardSteadyClockCurrentTimePoint and +0x5572c0
+// CalculateSystemClockCurrentTime, transcribed from the disassembly): the steady time comes from the ContinuousAdjustmentTimePoint at
+// 0xD0, not from the steady context at 0x00; posix = the system clock context's offset + that steady time in seconds.
+static int64_t guest_steady_secs(const uint8_t* base) {
+    const uint8_t* a = live_slot(base, 0xD0, 4, 0x38);
+    int64_t clock_offset = 0, mult = 0, shift = 0, lo = 0, limit = 0;
+    std::memcpy(&clock_offset, a + 0x00, 8);
+    std::memcpy(&mult, a + 0x08, 8);
+    std::memcpy(&shift, a + 0x10, 8);
+    std::memcpy(&lo, a + 0x18, 8);
+    std::memcpy(&limit, a + 0x20, 8);
+    const int64_t raw = raw_tick_ns();
+    int64_t adj = ((raw - clock_offset) * mult >> shift) + lo;
+    adj = mult < 0 ? (adj > limit ? adj : limit) : (adj < limit ? adj : limit);
+    return (raw + adj) / 1000000000;
 }
 static int64_t guest_posix(const uint8_t* base, uint32_t ctx_off) {
     int64_t offset = 0;
     std::memcpy(&offset, live_slot(base, ctx_off, 4, 0x20), 8);
     return offset + guest_steady_secs(base);
+}
+// Older SDKs (Ryubing's model): steady time = the steady context's internal_offset + the raw tick in ns.
+static int64_t legacy_steady_secs(const uint8_t* base) {
+    uint64_t internal = 0;
+    std::memcpy(&internal, live_slot(base, 0x00, 4, 0x18), 8);
+    return static_cast<int64_t>(internal + static_cast<uint64_t>(raw_tick_ns())) / 1000000000;
+}
+// The service's own steady time (ISteadyClock::GetCurrentTimePoint).
+static int64_t service_steady_secs(nxsvc::Session& st) {
+    nxsvc::Session steady = st.sub(st.call(2));
+    return steady.call(0).get<int64_t>(0);
 }
 
 NXTEST(svc_time_static_internal_offset) {
@@ -231,13 +254,15 @@ NXTEST(svc_time_shared_memory_layout) {
     REQUIRE(base != nullptr);
     CHECK_EQ(size, 0x1000u);
 
-    // Steady clock context, pad 4 at 0x00: internal offset (steady time - raw tick time), source uuid. Read the guest's way, the
-    // steady clock starts at the 3600 s epoch and the local and network clocks give the host time (issue #120: they were ahead by
-    // the host uptime).
+    // Read the way Pokopia's SDK reads them, the steady clock is the service's (it starts at the host RTC value, seconds since
+    // 2000) and the local and network clocks give the host time (issue #120: they were off by the host counter at start-up - 3600 s:
+    // +29 h on a handheld up for a day, -52 min on one rebooted 8 min earlier). The older SDKs' steady context at 0x00 agrees.
     const uint8_t* steady = live_slot(base, 0x00, 4, 0x18);
     CHECK(std::memcmp(steady + 8, kSourceId, 16) == 0);
-    CHECK(guest_steady_secs(base) >= 3600);
-    CHECK(guest_steady_secs(base) < 3600 + 600);
+    const int64_t svc_steady = service_steady_secs(st);
+    CHECK(abs64(svc_steady - (host_unix() - kEpochUnix2000)) <= 3);
+    CHECK(abs64(guest_steady_secs(base) - svc_steady) <= 1);
+    CHECK(abs64(legacy_steady_secs(base) - svc_steady) <= 1);
     CHECK(abs64(guest_posix(base, 0x38) - host_unix()) <= 3);
     CHECK(abs64(guest_posix(base, 0x80) - host_unix()) <= 3);
 
@@ -256,15 +281,20 @@ NXTEST(svc_time_shared_memory_layout) {
     CHECK_EQ(*live_slot(base, 0xC8, 0, 1), 0u);
 
     // ContinuousAdjustmentTimePoint, pad 4 at 0xD0, 0x38 per slot: {u64 clock_offset, i64 multiplier, i64 divisor_log2,
-    // SystemClockContext {i64 offset, {i64 time_point, uuid}}}: multiplier 1, divisor 0, context steady time point 0, source uuid.
+    // i64 base_offset, i64 limit_offset, uuid}: no slew (multiplier 0), base = limit = steady - raw, source uuid (the SDK refuses a
+    // context whose uuid differs).
     const uint8_t* adj = live_slot(base, 0xD0, 4, 0x38);
-    int64_t mult = 0, div = -1, ctx_tp = -1;
+    int64_t mult = -1, div = -1, lo = 0, limit = 1;
+    uint64_t internal = 0;
     std::memcpy(&mult, adj + 8, 8);
     std::memcpy(&div, adj + 16, 8);
-    std::memcpy(&ctx_tp, adj + 32, 8);
-    CHECK_EQ(mult, 1);
+    std::memcpy(&lo, adj + 24, 8);
+    std::memcpy(&limit, adj + 32, 8);
+    std::memcpy(&internal, steady, 8);
+    CHECK_EQ(mult, 0);
     CHECK_EQ(div, 0);
-    CHECK_EQ(ctx_tp, 0);
+    CHECK_EQ(lo, limit);
+    CHECK_EQ(lo, static_cast<int64_t>(internal));
     CHECK(std::memcmp(adj + 40, kSourceId, 16) == 0);
 }
 
@@ -288,15 +318,17 @@ NXTEST(svc_time_shared_memory_keeps_posix_across_steady_offset) {
     nxsvc::Session steady = st.sub(st.call(2));
     const uint8_t* base = shm_of(st);
     REQUIRE(base != nullptr);
+    const int64_t before = guest_steady_secs(base);
     REQUIRE(steady.call(3, nxsvc::Args().i64(1000000000000ll)).ok());   // +1000 s on the steady clock
     const uint8_t* local = live_slot(base, 0x38, 4, 0x20);
     int64_t offset = 0, tp = 0;
     std::memcpy(&offset, local, 8);
     std::memcpy(&tp, local + 8, 8);
-    // The steady clock moved by 1000 s; the posix time read through the shared memory must not.
+    // The steady clock moved by 1000 s, also as the game reads it; the posix time read through the shared memory must not.
     CHECK(abs64(offset + tp - host_unix()) <= 3);
-    CHECK(tp >= 4600);
-    CHECK(guest_steady_secs(base) >= 4600);
+    const int64_t after = guest_steady_secs(base);
+    CHECK(after - before >= 1000 && after - before <= 1002);
+    CHECK(abs64(tp - after) <= 1);
     CHECK(abs64(guest_posix(base, 0x38) - host_unix()) <= 3);
 }
 
