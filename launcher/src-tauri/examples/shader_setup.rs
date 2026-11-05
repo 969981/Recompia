@@ -21,6 +21,7 @@ fn main() {
         main: PathBuf::from(&a[2]),
         limit: a.get(4).and_then(|x| x.parse().ok()).unwrap_or(0),
         jobs: a.get(5).and_then(|x| x.parse().ok()).unwrap_or(2),
+        part: shaders::Part::All,
     };
     let tools = shaders::find_tools(&PathBuf::from(&a[3])).unwrap_or_else(|e| {
         eprintln!("{}", e);

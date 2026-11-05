@@ -28,6 +28,8 @@ struct Config {
     /// Folder with pkp.exe. Empty: the folder the launcher is in.
     game_dir: String,
     minimize_on_play: bool,
+    /// Play waits for every shader of the corpus (the old setup), not just the used ones (shaders.rs, Part::Used)
+    full_shader_setup: bool,
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -196,10 +198,14 @@ fn play(app: AppHandle) -> Result<(), String> {
             gamebuild::Built::No => return Err("Build the game first (Game files, Set up).".into()),
         }
     }
+    if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
+        return Err("Setup is still running (Game files).".into());
+    }
     if shaders::is_stale(&dir, &tools_dir) {
         return Err("This release has a newer shader translator: set up again to translate the shaders again (Game files, Set up).".into());
     }
-    if !shaders::is_complete(&dir, &tools_dir) {
+    let ready = if cfg.full_shader_setup { shaders::is_complete(&dir, &tools_dir) } else { shaders::is_playable(&dir, &tools_dir) };
+    if !ready {
         return Err("Finish the shader setup first (Game files, Set up).".into());
     }
     settings::ensure_play_paths(&dir, &exefs, &romfs)?;
@@ -224,6 +230,14 @@ struct SetupStatus {
     rebuild: bool,
     /// the shader cache was made by another translator version than this release's: Set up translates it again
     retranslate: bool,
+    /// Play may start: complete, or the used shaders are done (and the launcher option does not ask for all of them)
+    playable: bool,
+    /// the used shaders are done, the rest is not: the background translation has work
+    rest_pending: bool,
+    /// the background translation's last progress ("idle" before its first run in this session)
+    background: shaders::Progress,
+    /// the user paused the background translation (until Resume or the next launch)
+    background_paused: bool,
 }
 
 #[tauri::command]
@@ -236,12 +250,23 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     let tools_dir = exe_dir().join("tools");
     let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
     let started = !shaders::read_marker(&dir).romfs.is_empty() || dir.join("build").join("state.json").is_file();
+    let full = load_config(&app).full_shader_setup;
+    let bg = app.state::<Arc<shaders::Background>>();
+    let mut background = bg.progress.lock().unwrap().clone();
+    if background.state.is_empty() {
+        background.state = "idle".into();
+    }
     SetupStatus {
         progress,
         complete: state == gamebuild::Built::Current && shaders::is_complete(&dir, &tools_dir),
         started,
         rebuild: state == gamebuild::Built::Stale,
         retranslate: shaders::is_stale(&dir, &tools_dir),
+        playable: state == gamebuild::Built::Current
+            && if full { shaders::is_complete(&dir, &tools_dir) } else { shaders::is_playable(&dir, &tools_dir) },
+        rest_pending: shaders::rest_pending(&dir),
+        background,
+        background_paused: bg.paused(),
     }
 }
 
@@ -270,7 +295,11 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
     st.cancel.store(false, Ordering::SeqCst);
     let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1)).unwrap_or(2).max(1);
     let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: jobs + 1 };
-    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0 };
+    // the used shaders only (Play turns on after them, the rest follows in the background), unless the option asks for all
+    let part = if cfg.full_shader_setup { shaders::Part::All } else { shaders::Part::Used };
+    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0, part };
+    // Set up and the background translation never run at once (both write the cache)
+    let hold = app.state::<Arc<shaders::Background>>().inner().hold();
     std::thread::spawn(move || {
         let emit = |p: shaders::Progress| {
             *st.progress.lock().unwrap() = p.clone();
@@ -290,7 +319,8 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             let tools = shaders::find_tools(&tools_dir)?;
             // a finished cache of the same romfs has nothing left to translate (re-extracting would only find that out)
             let same = shaders::read_marker(&job.game_dir).romfs == job.romfs.to_string_lossy().replace('\\', "/");
-            let done = same && shaders::is_complete(&job.game_dir, &tools_dir);
+            let done = same
+                && if job.part == shaders::Part::All { shaders::is_complete(&job.game_dir, &tools_dir) } else { shaders::is_playable(&job.game_dir, &tools_dir) };
             if !done && !shaders::run(&job, &tools, &st.cancel, |p| emit(p))? {
                 return Ok(false);
             }
@@ -310,8 +340,62 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>) -> Result<(), Stri
             Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
         };
         emit(end);
+        drop(hold);
+        start_background(&app);
     });
     Ok(())
+}
+
+/// Starts the background translation of the shaders outside the used set (shaders.rs, Part::Rest) when there is work and
+/// nothing holds it: after Set up, after the game exits, at launch (a run cut short by closing the launcher continues),
+/// and on Resume. Half the cores at idle priority; it stops while the game runs.
+pub(crate) fn start_background(app: &AppHandle) {
+    let cfg = load_config(app);
+    let dir = game_dir_of(&cfg);
+    let tools_dir = exe_dir().join("tools");
+    if !shaders::rest_pending(&dir) || shaders::is_stale(&dir, &tools_dir) {
+        return;
+    }
+    let Some(chosen) = dump::scan(&cfg.dump_dir).chosen else { return };
+    let romfs = PathBuf::from(&chosen.romfs);
+    if shaders::read_marker(&dir).romfs != romfs.to_string_lossy().replace('\\', "/") {
+        return;
+    }
+    let Ok(tools) = shaders::find_tools(&tools_dir) else { return };
+    let bg = app.state::<Arc<shaders::Background>>().inner().clone();
+    if !bg.begin() {
+        return;
+    }
+    let jobs = std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(1).max(1);
+    let job = shaders::Job { game_dir: dir, romfs, main: PathBuf::from(&chosen.exefs).join("main"), jobs, limit: 0, part: shaders::Part::Rest };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let emit = |p: shaders::Progress| {
+            *bg.progress.lock().unwrap() = p.clone();
+            let _ = app.emit("background-status", p);
+        };
+        let result = shaders::run(&job, &tools, &bg.stop, |p| emit(p));
+        bg.end();
+        emit(match result {
+            Ok(true) => shaders::Progress { state: "done".into(), phase: "finish".into(), message: "All shaders are translated.".into(), ..Default::default() },
+            Ok(false) => {
+                let why = if bg.paused() { "Paused. Resume, or it continues at the next launch." } else { "Paused while the game runs; it continues afterwards." };
+                shaders::Progress { state: "cancelled".into(), message: why.into(), ..Default::default() }
+            }
+            Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
+        });
+    });
+}
+
+#[tauri::command]
+fn pause_background(state: State<Arc<shaders::Background>>) {
+    state.set_paused(true);
+}
+
+#[tauri::command]
+fn resume_background(app: AppHandle, state: State<Arc<shaders::Background>>) {
+    state.set_paused(false);
+    start_background(&app);
 }
 
 #[tauri::command]
@@ -373,7 +457,11 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(play::PlayState::default())
         .manage(Arc::new(SetupState::default()))
+        .manage(Arc::new(shaders::Background::default()))
         .setup(|app| {
+            // the background translation a closed launcher left unfinished continues
+            let handle = app.handle().clone();
+            std::thread::spawn(move || start_background(&handle));
             // Test runs drive the page without input: PKP_LAUNCHER_EVAL_FILE=<path>. A JS file written there is run in the page once and
             // deleted; it reports back through document.title (the window title). WebView2's DevTools port does not open for Tauri apps here.
             if let Ok(path) = std::env::var("PKP_LAUNCHER_EVAL_FILE") {
@@ -405,12 +493,30 @@ fn main() {
             setup_status,
             start_setup,
             cancel_setup,
+            pause_background,
+            resume_background,
             dlss_status,
             fetch_dlss,
             game_status,
             open_game_file,
             open_game_dir,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the launcher");
+        .build(tauri::generate_context!())
+        .expect("error while running the launcher")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // a harness is a separate process and would go on writing the cache after the launcher is gone (racing
+                // the next launch): stop the running tools and give them a moment to be killed
+                let bg = app.state::<Arc<shaders::Background>>().inner().clone();
+                let _hold = bg.hold();
+                let setup = app.state::<Arc<SetupState>>().inner().clone();
+                setup.cancel.store(true, Ordering::SeqCst);
+                for _ in 0..20 {
+                    if !bg.running() && setup.progress.lock().unwrap().state != "running" {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        });
 }

@@ -64,6 +64,7 @@ Put "$root\launcher\release\Play.bat" 'Play.bat'
 Put "$root\LICENSE" 'LICENSE.txt'
 Put "$root\CHANGELOG.md" 'CHANGELOG.txt'
 Put "$root\tools\shaders\ampere\extract_corpus.py" 'tools\shaders\extract_corpus.py'
+Put "$root\game-build\release_b\used_shaders.txt" 'tools\shaders\used_shaders.txt'   # hashes only (tools\shaders\scripts\used_shaders.py): translated first
 Mirror "$root\runtime\assets\prompts" 'assets\prompts'   # button prompt icon pack prompt_icons.pak (Kenney CC0, licence in the folder)
 Put "$root\recomp\LICENSE" 'tools\build\recomp\LICENSE'
 Mirror "$root\recomp\nxrecomp" 'tools\build\recomp\nxrecomp' @('*__pycache__*', '*.pyc')

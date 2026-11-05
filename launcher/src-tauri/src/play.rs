@@ -74,6 +74,9 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         "Checking the shaders the game builds while it runs..."
     };
     set_status(app, Status { state: "running".into(), message: first.into(), ..Default::default() });
+    // no background translation while the game (or its warm-up) runs: it would take CPU from the game for shaders it only
+    // reads at its next start (shaders.rs). Stops a running one at once; released after the exit's translate_missing.
+    let hold = app.state::<std::sync::Arc<crate::shaders::Background>>().inner().hold();
     std::thread::spawn(move || {
         // every start: the run-time shaders seen so far must all be translated (the warm-up run collects them the first
         // time, e.g. for a setup finished before it existed). A failure here is logged in the status, the game still starts.
@@ -95,6 +98,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             Ok(c) => c,
             Err(e) => {
                 set_status(&app2, Status { state: "exited".into(), crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
+                drop(hold);
+                crate::start_background(&app2);
                 return;
             }
         };
@@ -126,6 +131,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             (None, None) => "pkp.exe was ended by the system.".to_string(),
         };
         set_status(&app2, Status { state: "exited".into(), code, crashed, files, message: message + &prep + &shaders });
+        drop(hold);
+        crate::start_background(&app2);
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.unminimize();

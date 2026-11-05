@@ -1,4 +1,5 @@
 import { api, esc, icon, refreshIcons, toast, errText } from '../util.js';
+import { backgroundHtml, wireBackground } from './setup.js';
 
 const hex = (c) => '0x' + (c >>> 0).toString(16).toUpperCase().padStart(8, '0');
 
@@ -27,7 +28,7 @@ function reportHtml(s) {
 }
 
 export async function render(el, ctx) {
-  const [cfg, ov, setup] = await Promise.all([api('get_config'), api('get_overview'), api('setup_status')]);
+  let [cfg, ov, setup] = await Promise.all([api('get_config'), api('get_overview'), api('setup_status')]);
   const report = cfg.dump_dir ? await api('validate_dump', { path: cfg.dump_dir }) : null;
   const chosen = report && report.chosen;
   let status = await api('game_status');
@@ -38,7 +39,7 @@ export async function render(el, ctx) {
     if (!cfg.dump_dir) problems.push('No game files chosen yet.');
     else if (!chosen) problems.push(`The game files at ${cfg.dump_dir} are not usable: ${report.errors.join(' ')}`);
     if (!ov.exe_exists) problems.push(`pkp.exe was not found in ${ov.game_dir}. Put the launcher next to pkp.exe, or set the game folder in Settings.`);
-    if (chosen && ov.exe_exists && !setup.complete) {
+    if (chosen && ov.exe_exists && !setup.playable) {
       problems.push(setup.progress.state === 'running' ? 'Setup is still running (Game files).'
         : setup.rebuild ? 'This update changes the game code: open Game files and press Set up again to rebuild pkp.exe (about 7 minutes). Your shaders and saves are kept.'
         : setup.retranslate ? 'This update has a newer shader translator: open Game files and press Set up again to translate the shaders again. Your saves are kept.'
@@ -54,7 +55,7 @@ export async function render(el, ctx) {
         </div>
 
         ${problems.map((p) => `<div class="banner danger">${icon('circle-x')}<div>${esc(p)}</div></div>`).join('')}
-        ${problems.length && (!chosen || !setup.complete) ? `<div><button class="btn primary" id="to-setup">${icon(chosen ? 'wrench' : 'folder-open')}${chosen ? 'Set up' : 'Choose game files'}</button></div>` : ''}
+        ${problems.length && (!chosen || !setup.playable) ? `<div><button class="btn primary" id="to-setup">${icon(chosen ? 'wrench' : 'folder-open')}${chosen ? 'Set up' : 'Choose game files'}</button></div>` : ''}
 
         <div class="row wrap">
           <button class="btn primary big" id="play" ${ready && !running ? '' : 'disabled'}>${icon('play')}${running ? 'Running' : 'Play'}</button>
@@ -69,10 +70,11 @@ export async function render(el, ctx) {
             <dt>Game files</dt>
             <dd>${chosen ? `${chosen.kind === 'base' ? 'Base game' : 'Update ' + esc(chosen.version)}<div class="path">${esc(chosen.path)}</div>` : '<span class="faint">not set</span>'}</dd>
             <dt>Shaders</dt>
-            <dd>${setup.complete ? 'ready' : '<span class="faint">not set up</span>'}</dd>
+            <dd>${setup.complete ? 'ready' : setup.playable ? 'ready to play; the rest is translated in the background' : '<span class="faint">not set up</span>'}</dd>
             <dt>Game folder</dt>
             <dd>${ov.exe_exists ? 'pkp.exe found' : '<span class="faint">pkp.exe missing</span>'}<div class="path">${esc(ov.game_dir)}</div></dd>
           </dl>
+          ${setup.playable && !setup.complete ? backgroundHtml(setup) : ''}
           <div class="row" style="margin-top: var(--space-4)">
             <button class="btn" id="open-dir">${icon('folder-open')}Open game folder</button>
             <button class="btn quiet" id="change">Change game files</button>
@@ -89,6 +91,7 @@ export async function render(el, ctx) {
       }
     });
     el.querySelector('#to-setup')?.addEventListener('click', () => ctx.go('setup'));
+    wireBackground(el, refreshSetup);
     el.querySelector('#change')?.addEventListener('click', () => ctx.go('setup'));
     el.querySelector('#open-dir')?.addEventListener('click', () => api('open_game_dir').catch((e) => toast(errText(e), 'error')));
     el.querySelectorAll('[data-open]').forEach((b) =>
@@ -96,8 +99,18 @@ export async function render(el, ctx) {
     );
   }
 
+  async function refreshSetup() {
+    setup = await api('setup_status');
+    draw();
+  }
+
   ctx.onStatus((s) => {
     status = s;
+    draw();
+  });
+  ctx.onBackground(async (b) => {
+    if (b.state !== 'running') return refreshSetup();
+    setup = { ...setup, background: b };
     draw();
   });
   draw();

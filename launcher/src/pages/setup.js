@@ -30,6 +30,35 @@ function candidateHtml(c, chosen) {
     </div>`;
 }
 
+// the shaders outside the used set, translated in the background once Play is on (shaders.rs, Part::Rest)
+export function backgroundHtml(s) {
+  if (!s.rest_pending) return '';
+  const b = s.background;
+  const running = b.state === 'running';
+  const pct = b.total ? Math.floor((100 * b.done) / b.total) : 0;
+  const text = running ? esc(b.message)
+    : b.state === 'error' ? `Stopped: ${esc(b.message)}`
+    : s.background_paused ? 'Paused. Resume, or it continues the next time the launcher starts.'
+    : b.state === 'cancelled' ? esc(b.message)
+    : 'Waiting (it runs while the launcher is open and the game is not).';
+  return `
+    <div class="stack" id="bg-shaders">
+      <p class="dim">You can play now: the shaders the game is known to use are translated. The other shaders are translated in the background while the launcher is open, at the lowest priority, and pause while the game runs. A shader the game needs before then is drawn without it in that run and translated when the game exits.</p>
+      <p class="faint">${text}</p>
+      ${running ? `<progress max="100" value="${b.total ? pct : ''}"></progress>` : ''}
+      <div class="row">
+        ${s.background_paused
+          ? `<button class="btn" id="bg-resume">${icon('play')}Resume</button>`
+          : `<button class="btn" id="bg-pause">${icon('circle-x')}Pause</button>`}
+      </div>
+    </div>`;
+}
+
+export function wireBackground(el, refresh) {
+  el.querySelector('#bg-pause')?.addEventListener('click', async () => { await api('pause_background'); refresh(); });
+  el.querySelector('#bg-resume')?.addEventListener('click', async () => { await api('resume_background'); refresh(); });
+}
+
 function shadersHtml(s, saved) {
   const p = s.progress;
   const running = p.state === 'running';
@@ -43,14 +72,16 @@ function shadersHtml(s, saved) {
     body = `<div class="banner danger">${icon('circle-x')}<div style="white-space: pre-wrap">${esc(p.message)}</div></div>`;
   } else if (s.complete) {
     body = `<p class="dim">${icon('circle-check')} Done. pkp.exe is built and the game's shaders are in <code>shader_cache/spirv</code> next to it.</p>`;
+  } else if (s.playable && s.rest_pending) {
+    body = backgroundHtml(s);
   } else if (s.retranslate && !s.rebuild && p.state !== 'cancelled') {
     body = `<p class="dim">This update has a newer shader translator, so the game's shaders are translated again from your romfs (needs the same free space as the first setup). You can pause and continue later. Your saves are kept.</p>`;
   } else if (s.rebuild && p.state !== 'cancelled') {
     body = `<p class="dim">This update changes the game code, so pkp.exe has to be built again from your game files (about 7 minutes). The old pkp.exe stays until the new one is ready. Your shaders and saves are kept.</p>`;
   } else {
-    body = `<p class="dim">${p.state === 'cancelled' ? esc(p.message) : 'Checks your game files, builds pkp.exe from them on this PC (the download contains no game code; the compile takes a while and needs a few GB free while it runs), then translates the game\'s shaders from your romfs (about 100,000 shaders; needs about 36 GB free while it runs and keeps about 26 GB). You can pause and continue later.'}</p>`;
+    body = `<p class="dim">${p.state === 'cancelled' ? esc(p.message) : 'Checks your game files, builds pkp.exe from them on this PC (the download contains no game code; the compile takes a while and needs a few GB free while it runs), then translates the game\'s shaders from your romfs: the ~6,000 the game is known to use first, then Play turns on and the rest (about 100,000 in all; needs about 36 GB free while it runs and keeps about 26 GB) is translated in the background. You can pause and continue later.'}</p>`;
   }
-  const label = s.complete || ((s.rebuild || s.retranslate) && p.state !== 'cancelled') ? 'Set up again' : s.started ? 'Continue setup' : 'Set up';
+  const label = s.complete || s.playable || ((s.rebuild || s.retranslate) && p.state !== 'cancelled') ? 'Set up again' : s.started ? 'Continue setup' : 'Set up';
   return `
     <div class="card">
       <h2>${icon('wrench')}Set up</h2>
@@ -59,8 +90,8 @@ function shadersHtml(s, saved) {
         <div class="row">
           ${running
             ? `<button class="btn" id="setup-cancel">${icon('circle-x')}Pause</button>`
-            : `<button class="btn ${s.complete ? '' : 'primary'}" id="setup-run" ${saved ? '' : 'disabled'}>${icon('wrench')}${label}</button>`}
-          ${s.complete && !running ? `<button class="btn primary" id="to-play">${icon('play')}Go to Play</button>` : ''}
+            : `<button class="btn ${s.complete || s.playable ? '' : 'primary'}" id="setup-run" ${saved ? '' : 'disabled'}>${icon('wrench')}${label}</button>`}
+          ${(s.complete || s.playable) && !running ? `<button class="btn primary" id="to-play">${icon('play')}Go to Play</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -192,6 +223,7 @@ export async function render(el, ctx) {
       }
     });
     el.querySelector('#setup-cancel')?.addEventListener('click', () => api('cancel_setup'));
+    wireBackground(el, refreshBackground);
     el.querySelector('#dlss-get')?.addEventListener('click', async () => {
       dlssBusy = true;
       dlssProgress = null;
@@ -227,6 +259,22 @@ export async function render(el, ctx) {
       refreshIcons();
     }
   };
+
+  async function refreshBackground() {
+    setup = await api('setup_status');
+    draw();
+  }
+
+  // background ticks replace only that block, so the path field keeps its focus
+  ctx.onBackground(async (b) => {
+    if (b.state !== 'running') return refreshBackground();
+    setup = { ...setup, background: b };
+    const block = el.querySelector('#bg-shaders');
+    if (!block) return;
+    block.outerHTML = backgroundHtml(setup);
+    refreshIcons();
+    wireBackground(el, refreshBackground);
+  });
 
   ctx.onSetup(async (p) => {
     const was = setup.progress.state;

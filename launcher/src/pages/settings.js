@@ -54,6 +54,8 @@ const SECTIONS = [
     fields: [
       { id: 'game_dir', type: 'path', label: 'Game folder', sec: '', key: 'game_dir', def: '', placeholder: 'the launcher\'s own folder', hint: 'The folder with pkp.exe, pkp.ini and controls.ini.' },
       { id: 'minimize_on_play', type: 'toggle', label: 'Minimise while the game runs', sec: '', key: 'minimize_on_play', def: '0' },
+      { id: 'full_shader_setup', type: 'toggle', label: 'Translate every shader before Play', sec: '', key: 'full_shader_setup', def: '0',
+        hint: 'Off: Play turns on once the shaders the game is known to use are translated (minutes) and the rest follows in the background. On: Play waits for all of them (1 to 2 hours), as before.' },
     ],
   },
 ];
@@ -65,7 +67,7 @@ const fwd = (s) => String(s).trim().replace(/\\/g, '/');
 
 export async function render(el, ctx) {
   const [data, cfg, status] = await Promise.all([api('read_settings'), api('get_config'), api('game_status')]);
-  const files = { pkp: data.pkp, controls: data.controls, config: { 'game_dir': cfg.game_dir, 'minimize_on_play': cfg.minimize_on_play ? '1' : '0' } };
+  const files = { pkp: data.pkp, controls: data.controls, config: { 'game_dir': cfg.game_dir, 'minimize_on_play': cfg.minimize_on_play ? '1' : '0', 'full_shader_setup': cfg.full_shader_setup ? '1' : '0' } };
   const exists = { pkp: true, controls: data.controls_exists, config: true };
   const keyOf = (f, k) => (f.file === 'config' ? k : `${f.sec}.${k}`);
   const get = (f, k, def) => files[f.file][keyOf(f, k)] ?? def;
@@ -206,7 +208,7 @@ export async function render(el, ctx) {
     for (const f of dirtyFields()) {
       for (const [sec, key, value] of WRITE[f.type](f, model[f.id])) {
         if (f.file === 'config') {
-          cfgNew[key] = key === 'minimize_on_play' ? value === '1' : fwd(value);
+          cfgNew[key] = key === 'minimize_on_play' || key === 'full_shader_setup' ? value === '1' : fwd(value);
         } else {
           edits.push({ file: f.file, section: sec, key, value });
         }

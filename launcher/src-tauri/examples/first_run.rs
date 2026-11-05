@@ -60,6 +60,7 @@ fn main() {
         main: PathBuf::from(&a[1]).join("main"),
         limit: a.get(4).and_then(|x| x.parse().ok()).unwrap_or(0),
         jobs,
+        part: shaders::Part::All,
     };
     if let Err(e) = shaders::run(&job, &tools, &cancel, |p| tick(&p.phase, &p.message)) {
         fail(e)

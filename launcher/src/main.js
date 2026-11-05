@@ -20,11 +20,13 @@ const view = document.getElementById('view');
 let current = null;
 let statusHandler = null;
 let setupHandler = null;
+let backgroundHandler = null;
 
 const ctx = {
   go,
   onStatus(fn) { statusHandler = fn; },
   onSetup(fn) { setupHandler = fn; },
+  onBackground(fn) { backgroundHandler = fn; },
 };
 
 function drawNav() {
@@ -41,6 +43,7 @@ async function go(page, opts = {}) {
   current = page;
   statusHandler = null;
   setupHandler = null;
+  backgroundHandler = null;
   drawNav();
   view.scrollTop = 0;
   try {
@@ -55,6 +58,7 @@ async function go(page, opts = {}) {
 async function boot() {
   await listen('game-status', (ev) => statusHandler && statusHandler(ev.payload));
   await listen('setup-status', (ev) => setupHandler && setupHandler(ev.payload));
+  await listen('background-status', (ev) => backgroundHandler && backgroundHandler(ev.payload));
   let cfg = { dump_dir: '' };
   try {
     cfg = await api('get_config');
