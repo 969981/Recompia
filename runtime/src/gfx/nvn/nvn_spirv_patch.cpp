@@ -866,3 +866,87 @@ bool spirv_init_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>& 
 }
 
 }  // namespace nxrt::nvn::be::gpu
+
+namespace nxrt::nvn::be::gpu {
+
+bool spirv_base_instance_from_c0(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
+    enum : uint32_t { OpNameOp = 5, OpConstantOp = 43, OpLoadOp = 61, OpAccessChainOp = 65, OpInBoundsAccessChainOp = 66, OpBitcastOp = 124,
+                      DecBuiltIn = 11, BuiltInBaseInstance = 4425, StorageInput = 1, StorageUniform = 2, ModelVertex = 0 };
+    if (in.size() < 5) return false;
+    std::vector<Inst> insts;
+    for (size_t i = 5; i < in.size();) {
+        const uint32_t len = in[i] >> 16;
+        if (!len || i + len > in.size()) return false;
+        insts.push_back({i, in[i] & 0xffff, len});
+        i += len;
+    }
+    uint32_t bound = in[3];
+    bool vertex = false;
+    uint32_t base_var = 0;
+    std::map<uint32_t, uint32_t> const_value, var_ptr, scalar_width;     // OpConstant value; variable -> pointer type; 32-bit scalar types
+    std::map<uint32_t, std::pair<uint32_t, uint32_t>> ptr_of;            // pointer type -> (storage class, pointee)
+    std::map<uint32_t, bool> c0_named;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpEntryPoint && n.len >= 3) vertex = w[1] == ModelVertex;
+        else if (n.op == OpNameOp && n.len >= 3) {
+            // "c0" or "<stage>_c0" (the translator's names: vp_c0)
+            const char* s = reinterpret_cast<const char*>(&w[2]);
+            const size_t cap = (n.len - 2) * 4;
+            const size_t len = strnlen(s, cap);
+            if (len >= 2 && std::memcmp(s + len - 2, "c0", 2) == 0 && (len == 2 || s[len - 3] == '_')) c0_named[w[1]] = true;
+        }
+        else if (n.op == OpDecorate && n.len == 4 && w[2] == DecBuiltIn && w[3] == BuiltInBaseInstance) base_var = w[1];
+        else if ((n.op == OpTypeInt || n.op == OpTypeFloat) && n.len >= 3 && w[2] == 32) scalar_width[w[1]] = 32;
+        else if (n.op == OpTypePointer && n.len == 4) ptr_of[w[1]] = {w[2], w[3]};
+        else if (n.op == OpConstantOp && n.len == 4) const_value[w[2]] = w[3];
+        else if (n.op == OpVariable && n.len >= 4) var_ptr[w[2]] = w[1];
+    }
+    if (!vertex || !base_var || !var_ptr.count(base_var)) return false;
+    const auto bp = ptr_of.find(var_ptr[base_var]);
+    if (bp == ptr_of.end() || bp->second.first != StorageInput || !scalar_width.count(bp->second.second)) return false;
+    const uint32_t int_type = bp->second.second;
+    // the c[0] variable: a Uniform variable with the translator's c0 name
+    std::map<uint32_t, bool> c0_var;
+    for (const auto& [v, pt] : var_ptr) {
+        const auto p = ptr_of.find(pt);
+        if (c0_named.count(v) && p != ptr_of.end() && p->second.first == StorageUniform) c0_var[v] = true;
+    }
+    if (c0_var.empty()) return false;
+    // pointers to c0[0][100].y: member 0 (the vec4 array), element 0x644 / 16, component (0x644 % 16) / 4
+    auto is_const = [&](uint32_t id, uint32_t v) { const auto it = const_value.find(id); return it != const_value.end() && it->second == v; };
+    std::map<uint32_t, bool> word_ptr;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if ((n.op == OpAccessChainOp || n.op == OpInBoundsAccessChainOp) && n.len == 7 && c0_var.count(w[3]) && is_const(w[4], 0) &&
+            is_const(w[5], 0x644 / 16) && is_const(w[6], (0x644 % 16) / 4))
+            word_ptr[w[2]] = true;
+    }
+    if (word_ptr.empty()) return false;
+    std::vector<uint32_t> result;
+    result.reserve(in.size() + 8);
+    result.insert(result.end(), in.begin(), in.begin() + 5);
+    bool changed = false;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpLoadOp && n.len >= 4 && word_ptr.count(w[3]) && scalar_width.count(w[1])) {
+            // %r = OpLoad %float %c0_word  ->  %t = OpLoad %int %gl_BaseInstance; %r = OpBitcast %float %t
+            if (w[1] == int_type) {
+                result.insert(result.end(), {(4u << 16) | OpLoadOp, int_type, w[2], base_var});
+            } else {
+                const uint32_t t = bound++;
+                result.insert(result.end(), {(4u << 16) | OpLoadOp, int_type, t, base_var});
+                result.insert(result.end(), {(4u << 16) | OpBitcastOp, w[1], w[2], t});
+            }
+            changed = true;
+            continue;
+        }
+        result.insert(result.end(), in.begin() + static_cast<std::ptrdiff_t>(n.at), in.begin() + static_cast<std::ptrdiff_t>(n.at + n.len));
+    }
+    if (!changed) return false;
+    result[3] = bound;
+    out = std::move(result);
+    return true;
+}
+
+}  // namespace nxrt::nvn::be::gpu

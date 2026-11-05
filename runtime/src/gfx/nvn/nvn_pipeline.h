@@ -39,6 +39,7 @@ struct ProgLayout {
     bool has_set[4] = {};
     VkShaderStageFlags push_stages = 0;         // push constant range [0, push_bytes) of generated stages (ShaderInfo::push_bytes); 0 = none
     uint32_t push_bytes = 0;
+    bool c0_graphics = false;                   // a graphics stage reads c[0]: its bank holds the draw's base instance (nvn_driver_bank.h)
 };
 
 // Stages by NVN stage index (0 vertex, 1 fragment, 2 geometry, 5 compute); null = absent.

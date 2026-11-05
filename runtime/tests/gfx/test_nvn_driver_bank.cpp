@@ -138,3 +138,25 @@ NXTEST(counts_past_the_replay_slots_stay_in_the_bank) {
     CHECK_EQ(word(d, 16, 2), 0x10fu);   // uniform block 15
     CHECK_EQ(word(d, 17, 2), 0u);       // block 16: the replay keeps 16
 }
+
+// Graphics: the storage buffer tables the translator reports (vertex sb[c0+0x50] = byte 0x140 = slot 3; fragment row 0x55 = byte
+// 0x550 = slot 4), the point size and c0[100].y = the base instance.
+NXTEST(graphics_tables_point_size_and_base_instance) {
+    Bindings b;
+    uint8_t d[kDriverBankBytes];
+    const uint32_t n = fill_driver_bank_graphics(d, 0, b.ssbo, 7);
+    CHECK_EQ(n, 0x648u);
+    CHECK_EQ(word(d, 0x14, 0), 0x30040u);   // vertex slot 3 at 0x140
+    CHECK_EQ(word(d, 0x14, 2), 0x2030u);
+    CHECK_EQ(word(d, 100, 1), 7u);          // c0[100].y
+    float ps;
+    std::memcpy(&ps, d + 0x610, 4);
+    CHECK_EQ(ps, 64.0f);
+    for (int row = 0x21; row < 0x61; ++row) CHECK_EQ(word(d, row, 0), 0u);   // other stages' tables stay zero
+    fill_driver_bank_graphics(d, 1, b.ssbo, 0);
+    CHECK_EQ(word(d, 0x55, 0), 0x40040u);   // fragment slot 4 at 0x550
+    CHECK_EQ(word(d, 0x11, 0), 0u);         // no vertex table
+    CHECK_EQ(word(d, 100, 1), 0u);
+    fill_driver_bank_graphics(d, 2, b.ssbo, 0);
+    CHECK_EQ(word(d, 0x41, 0), 0x40u);      // geometry slot 0 at 0x410 (arc0017_s1: sb[c0+0x104])
+}
