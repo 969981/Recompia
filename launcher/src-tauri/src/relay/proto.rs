@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Protocol v2 messages (layouts in mod.rs). Both directions encode and decode: the server uses client decode + server
+//! Protocol v3 messages (layouts in mod.rs; v3 = v2 + UDP_MODE / UDP_OFFER and the UDP datagrams in `udp`). Both directions
+//! encode and decode: the server uses client decode + server
 //! encode; the tests (and the C++ client, by mirror) use the other half.
 
 use super::codec::{BadFrame, In, Out, MAX_FRAME};
 
-pub const PROTO: u16 = 2;
+/// Newest protocol; the server also accepts MIN_PROTO (a v2 client gets exactly v2: TCP only).
+pub const PROTO: u16 = 3;
+pub const MIN_PROTO: u16 = 2;
 /// A room key of all zeros: no room code (an open room, listed to everyone).
 pub const NO_KEY: [u8; 16] = [0; 16];
 pub const MAX_NICK: usize = 32;
@@ -57,6 +60,8 @@ pub enum ClientMsg {
     Reject { vip: u32 },
     Datagram { src_port: u16, dst_ip: u32, dst_port: u16, data: Vec<u8> },
     Ping(u32),
+    /// v2: true = "UDP_ACKs reach me, send my datagrams over UDP"; false = back to TCP.
+    UdpMode(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +94,8 @@ pub enum ServerMsg {
     Datagram { src_ip: u32, src_port: u16, dst_ip: u32, dst_port: u16, data: Vec<u8> },
     Left(u16),
     Pong(u32),
+    /// v2: this connection's UDP token and the server's UDP port.
+    UdpOffer { token: u64, port: u16 },
 }
 
 impl ClientMsg {
@@ -124,6 +131,11 @@ impl ClientMsg {
             0x07 => ClientMsg::Reject { vip: r.u32()? },
             0x08 => ClientMsg::Datagram { src_port: r.u16()?, dst_ip: r.u32()?, dst_port: r.u16()?, data: r.blob(MAX_DATA)? },
             0x09 => ClientMsg::Ping(r.u32()?),
+            0x0a => ClientMsg::UdpMode(match r.u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err(BadFrame),
+            }),
             _ => return Err(BadFrame),
         };
         r.end()?;
@@ -173,6 +185,11 @@ impl ClientMsg {
             ClientMsg::Ping(n) => {
                 let mut o = Out::new(0x09);
                 o.u32(*n);
+                o.finish()
+            }
+            ClientMsg::UdpMode(on) => {
+                let mut o = Out::new(0x0a);
+                o.u8(*on as u8);
                 o.finish()
             }
         }
@@ -257,6 +274,11 @@ impl ServerMsg {
                 o.u32(*n);
                 o.finish()
             }
+            ServerMsg::UdpOffer { token, port } => {
+                let mut o = Out::new(0x89);
+                o.u64(*token).u16(*port);
+                o.finish()
+            }
         }
     }
 
@@ -279,9 +301,96 @@ impl ServerMsg {
             0x86 => ServerMsg::Datagram { src_ip: r.u32()?, src_port: r.u16()?, dst_ip: r.u32()?, dst_port: r.u16()?, data: r.blob(MAX_DATA)? },
             0x87 => ServerMsg::Left(r.u16()?),
             0x88 => ServerMsg::Pong(r.u32()?),
+            0x89 => ServerMsg::UdpOffer { token: r.u64()?, port: r.u16()? },
             _ => return Err(BadFrame),
         };
         r.end()?;
         Ok(m)
+    }
+}
+
+/// v2 UDP datagrams (layouts in mod.rs): one game datagram or one HELLO/ACK per UDP packet, no length prefix.
+pub mod udp {
+    use super::MAX_DATA;
+
+    pub const HELLO: u8 = 0x01;
+    pub const DATA: u8 = 0x08;
+    pub const ACK: u8 = 0x81;
+    pub const SDATA: u8 = 0x86;
+    /// u8 type + u64 token.
+    pub const HDR: usize = 9;
+    /// Client DATA: header + u16 src_port, u32 dst_ip, u16 dst_port.
+    pub const DATA_HDR: usize = HDR + 8;
+    /// Server DATA: header + u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port.
+    pub const SDATA_HDR: usize = HDR + 12;
+    /// Largest packet either side sends.
+    pub const MAX_PACKET: usize = SDATA_HDR + MAX_DATA;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum Packet<'a> {
+        Hello,
+        Ack,
+        Data { src_port: u16, dst_ip: u32, dst_port: u16, data: &'a [u8] },
+        SData { src_ip: u32, src_port: u16, dst_ip: u32, dst_port: u16, data: &'a [u8] },
+    }
+
+    fn u16_at(b: &[u8], o: usize) -> u16 {
+        u16::from_le_bytes([b[o], b[o + 1]])
+    }
+    fn u32_at(b: &[u8], o: usize) -> u32 {
+        u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]])
+    }
+
+    /// (token, packet). None: short, over-long, unknown type, or trailing bytes after HELLO/ACK.
+    pub fn decode(b: &[u8]) -> Option<(u64, Packet<'_>)> {
+        if b.len() < HDR || b.len() > MAX_PACKET {
+            return None;
+        }
+        let token = u64::from_le_bytes(b[1..9].try_into().ok()?);
+        let p = match b[0] {
+            HELLO if b.len() == HDR => Packet::Hello,
+            ACK if b.len() == HDR => Packet::Ack,
+            DATA if b.len() >= DATA_HDR && b.len() - DATA_HDR <= MAX_DATA => {
+                Packet::Data { src_port: u16_at(b, 9), dst_ip: u32_at(b, 11), dst_port: u16_at(b, 15), data: &b[DATA_HDR..] }
+            }
+            SDATA if b.len() >= SDATA_HDR => Packet::SData {
+                src_ip: u32_at(b, 9),
+                src_port: u16_at(b, 13),
+                dst_ip: u32_at(b, 15),
+                dst_port: u16_at(b, 19),
+                data: &b[SDATA_HDR..],
+            },
+            _ => return None,
+        };
+        Some((token, p))
+    }
+
+    pub fn encode(token: u64, p: &Packet) -> Vec<u8> {
+        let mut v = Vec::with_capacity(SDATA_HDR + 64);
+        let ty = match p {
+            Packet::Hello => HELLO,
+            Packet::Ack => ACK,
+            Packet::Data { .. } => DATA,
+            Packet::SData { .. } => SDATA,
+        };
+        v.push(ty);
+        v.extend_from_slice(&token.to_le_bytes());
+        match p {
+            Packet::Hello | Packet::Ack => {}
+            Packet::Data { src_port, dst_ip, dst_port, data } => {
+                v.extend_from_slice(&src_port.to_le_bytes());
+                v.extend_from_slice(&dst_ip.to_le_bytes());
+                v.extend_from_slice(&dst_port.to_le_bytes());
+                v.extend_from_slice(data);
+            }
+            Packet::SData { src_ip, src_port, dst_ip, dst_port, data } => {
+                v.extend_from_slice(&src_ip.to_le_bytes());
+                v.extend_from_slice(&src_port.to_le_bytes());
+                v.extend_from_slice(&dst_ip.to_le_bytes());
+                v.extend_from_slice(&dst_port.to_le_bytes());
+                v.extend_from_slice(data);
+            }
+        }
+        v
     }
 }
