@@ -23,6 +23,12 @@ is untouched.
        [net]
        server = <relay PC's IP>:39660
 
+   For a relay that other people use too (or one reachable from the internet), the host adds `room_code = new` under `[net]`:
+   the game makes a code (`XXXX-XXXX-XXXX-XXXX`), logs it and writes it to `room-code.txt` in the game folder. The visitors
+   put that code in their own `[net] room_code`. A room made with a code is listed only to players with the same code. Without
+   `room_code` everything works as before: rooms are open to everyone on the relay. The relay and every player need a build
+   with room codes (relay protocol 2); an older game is refused with a message saying to update it.
+
 3. In game: the PC in your first house -> Link Play (unlocked after Environment Level 2 in Withered Wasteland). One player picks
    **Invite Others to Visit**, the other **Visit a Friend**.
 

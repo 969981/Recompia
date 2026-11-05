@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Protocol v1 messages (layouts in mod.rs). Both directions encode and decode: the server uses client decode + server
+//! Protocol v2 messages (layouts in mod.rs). Both directions encode and decode: the server uses client decode + server
 //! encode; the tests (and the C++ client, by mirror) use the other half.
 
 use super::codec::{BadFrame, In, Out, MAX_FRAME};
 
-pub const PROTO: u16 = 1;
+pub const PROTO: u16 = 2;
+/// A room key of all zeros: no room code (an open room, listed to everyone).
+pub const NO_KEY: [u8; 16] = [0; 16];
 pub const MAX_NICK: usize = 32;
 pub const MAX_ADV: usize = 384;
 pub const MAX_DATA: usize = 4096;
@@ -21,6 +23,7 @@ pub mod err {
     pub const REJECTED: u16 = 8;
     pub const RATE: u16 = 9;
     pub const BAD_FRAME: u16 = 10;
+    pub const ROOM_CODE: u16 = 11;
 }
 
 pub mod left {
@@ -38,15 +41,17 @@ pub struct CreateReq {
     pub node_count_max: u8,
     pub security_mode: u8,
     pub pass_hash: [u8; 16],
+    /// NO_KEY: an open room. Else the room is listed to, and joinable by, clients presenting this key only.
+    pub room_key: [u8; 16],
     pub adv: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMsg {
     Hello { proto: u16, build: String, nickname: String, password: String },
-    Scan { local_comm_id: u64, scene_id: u16 },
+    Scan { local_comm_id: u64, scene_id: u16, room_key: [u8; 16] },
     Create(CreateReq),
-    Join { room_id: u32, comm_version: i16, pass_hash: [u8; 16] },
+    Join { room_id: u32, comm_version: i16, pass_hash: [u8; 16], room_key: [u8; 16] },
     Leave,
     Advertise(Vec<u8>),
     Reject { vip: u32 },
@@ -99,7 +104,7 @@ impl ClientMsg {
                 }
                 ClientMsg::Hello { proto, build, nickname, password: r.str()? }
             }
-            0x02 => ClientMsg::Scan { local_comm_id: r.u64()?, scene_id: r.u16()? },
+            0x02 => ClientMsg::Scan { local_comm_id: r.u64()?, scene_id: r.u16()?, room_key: r.arr()? },
             0x03 => ClientMsg::Create(CreateReq {
                 local_comm_id: r.u64()?,
                 scene_id: r.u16()?,
@@ -110,9 +115,10 @@ impl ClientMsg {
                 },
                 security_mode: r.u8()?,
                 pass_hash: r.arr()?,
+                room_key: r.arr()?,
                 adv: r.blob(MAX_ADV)?,
             }),
-            0x04 => ClientMsg::Join { room_id: r.u32()?, comm_version: r.i16()?, pass_hash: r.arr()? },
+            0x04 => ClientMsg::Join { room_id: r.u32()?, comm_version: r.i16()?, pass_hash: r.arr()?, room_key: r.arr()? },
             0x05 => ClientMsg::Leave,
             0x06 => ClientMsg::Advertise(r.blob(MAX_ADV)?),
             0x07 => ClientMsg::Reject { vip: r.u32()? },
@@ -132,20 +138,20 @@ impl ClientMsg {
                 o.u16(*proto).str(build).str(nickname).str(password);
                 o.finish()
             }
-            ClientMsg::Scan { local_comm_id, scene_id } => {
+            ClientMsg::Scan { local_comm_id, scene_id, room_key } => {
                 let mut o = Out::new(0x02);
-                o.u64(*local_comm_id).u16(*scene_id);
+                o.u64(*local_comm_id).u16(*scene_id).raw(room_key);
                 o.finish()
             }
             ClientMsg::Create(c) => {
                 let mut o = Out::new(0x03);
                 o.u64(c.local_comm_id).u16(c.scene_id).i16(c.comm_version).u8(c.node_count_max).u8(c.security_mode);
-                o.raw(&c.pass_hash).blob(&c.adv);
+                o.raw(&c.pass_hash).raw(&c.room_key).blob(&c.adv);
                 o.finish()
             }
-            ClientMsg::Join { room_id, comm_version, pass_hash } => {
+            ClientMsg::Join { room_id, comm_version, pass_hash, room_key } => {
                 let mut o = Out::new(0x04);
-                o.u32(*room_id).i16(*comm_version).raw(pass_hash);
+                o.u32(*room_id).i16(*comm_version).raw(pass_hash).raw(room_key);
                 o.finish()
             }
             ClientMsg::Leave => Out::new(0x05).finish(),
