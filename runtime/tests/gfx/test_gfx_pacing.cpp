@@ -4,8 +4,8 @@
 // four attempts, and it must never be the cause of jitter in any attempt: frames that had to wait start on the schedule (late
 // p99 < 0.5 ms, max < 3 ms) and no interval is shorter than the period minus the lateness of the frame before it and the 10 %
 // catch-up allowance (no bursts). A frame loop is also bound by the GPU and by other processes: when more than 0.5 % of the
-// frames have a body that overran the period (other programs on the GPU or on every core), a low rate is not the limiter's
-// doing: such an attempt only counts when it lands on the rate anyway. A low rate in an attempt without overruns is a failure.
+// frames have a body that overran the period, or one frame stalled for more than two periods (other programs on the GPU or on every
+// core, the compositor), a low rate is not the limiter's doing: such an attempt only counts when it lands on the rate anyway. A low rate in an attempt without overruns is a failure.
 // When no attempt lands on the rate and all were disturbed, the case is SKIP, never a pass.
 #include "gfx_test_util.h"
 NXTEST_GROUP(gfx_pacing)
@@ -38,7 +38,10 @@ Attempt run_attempt(bool windowed, double fps, uint32_t frames, int n) {
     if (!a.r.ok) return a;
     const auto& p = a.r.pacing;
     a.err = std::fabs(p.fps - fps) / fps;
-    a.contended = p.overran_fraction > 0.005;
+    // disturbed: many frame bodies overran the period, or one stalled for more than two periods (the window's compositor, another program;
+    // seen: one 81 ms frame cost 2.7 % of a 360-frame run at 120 fps). The limiter does not burst to make up a stall (the no-burst rule
+    // below), so a stall lowers the mean rate without being its fault. Its own wake-ups are checked by `accurate`.
+    a.contended = p.overran_fraction > 0.005 || p.max_ms > 2.0 * a.period;
     // at most 2 % of the waited frames may start more than 0.5 ms late (p99 over ~140 frames is one or two samples: a single late wake-up decided it)
     a.accurate = p.late_over_half_ms <= 0.02 && p.late_max_ms < 3.0 && p.min_ms >= a.period - p.late_max_ms - 0.1 * a.period - 0.1;
     std::printf("    %s %3.0f fps, attempt %d: %.4f fps (%.3f %%), p99 %.3f ms, min %.3f, max %.3f ms | waited %llu, overran %.1f %%, late p99 %.3f ms max %.3f ms%s%s\n",
