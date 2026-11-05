@@ -755,6 +755,8 @@ void queue_exact_locked(const std::string& key, std::function<VkPipeline()> buil
 }
 }  // namespace
 
+bool gpl_frames_flowing() { return frames_flowing(); }
+
 VkPipeline gpl_link(const GraphicsKey& key, const ProgLayout& layout, std::shared_ptr<PipeUpgrade>* up, bool* pending) {
     if (pending) *pending = false;
     if (!gpl_active()) return VK_NULL_HANDLE;
