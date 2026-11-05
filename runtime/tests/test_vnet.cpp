@@ -189,3 +189,78 @@ NXTEST(blocking_recvfrom_wakes) {
     t2.join();
     CHECK_EQ(got.err, vsock::kEbadf);
 }
+
+// HoldLink: held per sender until admitted, in arrival order, the oldest dropped past the cap; members() forgets a sender that left;
+// detach() hands the inner link back.
+NXTEST(hold_link_admit_cap_members) {
+    vnet::LoopbackHub hub;
+    const uint32_t kIpD = vnet::ip(169, 254, 1, 3);
+    auto inner = hub.add(kIpA);
+    auto hold = std::make_shared<vnet::HoldLink>(inner, 60000, 3);   // no timeout within the test
+    vsock::Stack a(hold), b(hub.add(kIpB)), d(hub.add(kIpD));
+    const int fa = udp(a), fb = udp(b), fd = udp(d);
+    REQUIRE(fa >= 0 && fb >= 0 && fd >= 0);
+    char buf[16] = {};
+    vsock::Addr from;
+    CHECK_EQ(send_str(b, fb, kIpA, "b1").ret, 2);
+    CHECK_EQ(send_str(d, fd, kIpA, "d1").ret, 2);
+    CHECK_EQ(send_str(b, fb, kIpA, "b2").ret, 2);
+    CHECK_EQ(send_str(b, fb, kIpA, "b3").ret, 2);   // the 4th: "b1" is dropped
+    CHECK_EQ(hold->held(), 3u);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).err, vsock::kEagain);
+    CHECK_EQ(send_str(a, fa, kIpB, "out").ret, 3);   // sends are not held
+    CHECK_EQ(b.recvfrom(fb, buf, sizeof buf, 0, &from).ret, 3);
+    hold->admit({kIpA, kIpB});
+    CHECK_EQ(hold->held(), 1u);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+    CHECK(std::memcmp(buf, "b2", 2) == 0);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+    CHECK(std::memcmp(buf, "b3", 2) == 0);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).err, vsock::kEagain);   // d's stays held
+    CHECK_EQ(send_str(b, fb, kIpA, "b4").ret, 2);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);                 // admitted: straight through
+    // b left the room: held again until the next admit.
+    hold->members({kIpA, kIpD});
+    CHECK_EQ(send_str(b, fb, kIpA, "b5").ret, 2);
+    CHECK_EQ(hold->held(), 2u);
+    hold->admit({kIpA, kIpB, kIpD});
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+    CHECK(std::memcmp(buf, "d1", 2) == 0);   // arrival order across senders is kept for what one admit releases
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+    CHECK(std::memcmp(buf, "b5", 2) == 0);
+    // detach(): nothing reaches the hold link any more; the inner link can take a new receiver.
+    hold->detach();
+    CHECK_EQ(hold->held(), 0u);
+    vsock::Stack a2(inner);
+    const int fa2 = udp(a2);
+    CHECK_EQ(send_str(b, fb, kIpA, "new").ret, 3);
+    CHECK_EQ(a2.recvfrom(fa2, buf, sizeof buf, 0, &from).ret, 3);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).err, vsock::kEagain);
+}
+
+// HoldLink: without an admit a sender's datagrams come after hold_ms.
+NXTEST(hold_link_timeout) {
+    vnet::LoopbackHub hub;
+    auto hold = std::make_shared<vnet::HoldLink>(hub.add(kIpA), 100, 32);
+    vsock::Stack a(hold), b(hub.add(kIpB));
+    const int fa = udp(a), fb = udp(b);
+    REQUIRE(fa >= 0 && fb >= 0);
+    char buf[16] = {};
+    vsock::Addr from;
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK_EQ(send_str(b, fb, kIpA, "x1").ret, 2);
+    CHECK_EQ(send_str(b, fb, kIpA, "x2").ret, 2);
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).err, vsock::kEagain);
+    bool came = false;
+    for (int i = 0; i < 200 && !came; ++i) {
+        came = a.recvfrom(fa, buf, sizeof buf, 0, &from).ret == 2;
+        if (!came) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(came);
+    CHECK(std::memcmp(buf, "x1", 2) == 0);
+    CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(90));
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+    CHECK(std::memcmp(buf, "x2", 2) == 0);
+    CHECK_EQ(send_str(b, fb, kIpA, "x3").ret, 2);   // passes from now on
+    CHECK_EQ(a.recvfrom(fa, buf, sizeof buf, 0, &from).ret, 2);
+}
