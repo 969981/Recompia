@@ -5,16 +5,32 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Fixes
+- The game no longer crashes at start with "pkp.exe exited with code 4" when the game data is incomplete (#128). Some dumping
+  tools write the update's `romfs` without the base game's files under it (an update only holds the files it changes): the
+  launcher used to accept that, and the game then crashed while starting. Now the launcher checks that `romfs` holds the whole
+  game (36 files, 7.25 GB for 2.0.1). When the dump also has `base/romfs`, the launcher adds the missing files from it itself
+  (run Set up again once, so their shaders are prepared too). Otherwise it says what is missing. `pkp.exe` started without the
+  launcher (Steam Deck, Proton) checks too and shows a message instead of crashing.
+- Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
+  into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
+  higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
+
 ### What's new
 - New quality presets on the F1 Graphics page for your device: Steam Deck, Legion Go S, Laptop and Desktop PC (#122). Next to
   view distance and texture sharpness they also pick a render scale and a frame limit (Steam Deck 40 fps, Legion Go S and
   Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
   afterwards switches to Custom, as before. The render scale part applies after a restart.
 
-### Fixes
-- Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
-  into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
-  higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
+### Release notes for developers
+- **#128** Every complete 2.0.1 RomFS in the issue logs is 36 files, 8 folders, 7,246,052,773 bytes (#44, #47, #49, #69, #76, #95,
+  #119; #69 and #95 have 8 small extra files). #128's `updates/327680/romfs` had the right exefs (main build `76a489f3...`) and 22
+  files, 6 folders, 6,582,857,631 bytes; the game's start-up then read a null pointer in `f_710022f520` (from `f_7100ba3b80`, right
+  after opening the account save), after a 10 s freeze at frame 1. New: `dump_hashes.json` `"romfs": {files, bytes}` (the
+  launcher's minimum), `dump.rs` layers `base/romfs` under an incomplete update when that completes it (`Candidate.romfs_base`
+  -> `pkp.ini` `[fs] romfs_base`), `RomfsImage::build(dir, err, base_dir)` serves the union (the update's files win),
+  `extract_corpus.py --romfs-base`, and `pkp_main.cpp` `check_romfs()` (`game::Info` `romfs_min_files` / `romfs_min_bytes`,
+  `[fs] romfs_check`). The shader marker records `<romfs> over <base>`, so Play asks for Set up once when the base is added.
 
 ## 0.5.0 (build I: Iguana)
 
