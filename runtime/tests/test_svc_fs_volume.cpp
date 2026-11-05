@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Host-folder volumes (fs_volume.h): plain file operations, the journalled save semantics (copy on write, tombstones, two-phase commit,
-// recovery after a crash between the phases) and path hygiene.
+// recovery after a crash between the phases, refused commits after a failed host write) and path hygiene.
 #define _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
 #include <windows.h>
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 #include "../src/services/fs_volume.h"
+#include "nxrt/services_api.h"
 #include "test_framework.h"
 
 NXTEST_GROUP(svc_fs_volume)
@@ -327,4 +329,96 @@ NXTEST(journal_space_accounting) {
     CHECK_EQ(v.used_bytes(), 300u);
     CHECK_EQ(v.delete_file("/f"), 0u);
     CHECK_EQ(v.used_bytes(), 0u);
+}
+
+namespace {
+std::string committed_bytes(const stdfs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return "<missing>";
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+}  // namespace
+
+// The game truncates a save file, the write fails (disk full) and the game commits anyway: the commit is refused, the last good save stays
+// on disk and in view, the player notice counts it, and the next save that writes fine commits as usual.
+NXTEST(journal_failed_write_keeps_committed_save) {
+    TempDir t("wfail");
+    Volume v(t.root("save"), true, false, 0);
+    CHECK(put(v, "/CMNDAT", "GOOD SAVE"));
+    CHECK_EQ(v.commit(), 0u);
+    const uint32_t fails0 = nxrt::services::fsapi::save_failures().count;
+
+    std::shared_ptr<VFile> f;
+    CHECK_EQ(v.open_file("/CMNDAT", kModeWrite | kModeAppend, &f), 0u);
+    CHECK_EQ(f->set_size(0), 0u);
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kWrite, 1, ERROR_DISK_FULL);
+    const std::string next = "NEXT SAVE";
+    CHECK_EQ(f->write(0, next.data(), next.size()), rc::kUsableSpaceNotEnough);
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kNone, 0, 0);
+    CHECK(put(v, "/STGDAT", "new file of the same save"));
+    CHECK_EQ(v.commit(), rc::kUsableSpaceNotEnough);    // the game ignored the write result; the commit is refused
+    f.reset();
+
+    CHECK_EQ(committed_bytes(t.p / "save" / "CMNDAT"), std::string("GOOD SAVE"));
+    CHECK(!stdfs::exists(t.p / "save" / "STGDAT"));
+    CHECK(!stdfs::exists(t.p / "save.commit"));
+    CHECK_EQ(read_all(v, "/CMNDAT"), std::string("GOOD SAVE"));   // the uncommitted (torn) changes were dropped
+    CHECK_EQ(v.entry_type("/STGDAT", nullptr), rc::kPathNotFound);
+    CHECK_EQ(nxrt::services::fsapi::save_failures().count, fails0 + 1);
+    CHECK_EQ(nxrt::services::fsapi::save_failures().host_error, static_cast<uint32_t>(ERROR_DISK_FULL));
+
+    CHECK(put(v, "/CMNDAT", "NEXT SAVE", false));   // the game's next full save
+    CHECK_EQ(v.commit(), 0u);
+    CHECK_EQ(committed_bytes(t.p / "save" / "CMNDAT"), std::string("NEXT SAVE"));
+}
+
+NXTEST(journal_failed_set_size_and_flush_refuse_commit) {
+    TempDir t("sfail");
+    Volume v(t.root("save"), true, false, 0);
+    CHECK(put(v, "/f", "base"));
+    CHECK_EQ(v.commit(), 0u);
+    {
+        std::shared_ptr<VFile> f;
+        CHECK_EQ(v.open_file("/f", kModeWrite | kModeAppend, &f), 0u);
+        Volume::set_io_failure_for_tests(Volume::IoPoint::kSetSize, 1, ERROR_WRITE_FAULT);
+        CHECK_EQ(f->set_size(100), rc::kGenericFailure);
+        Volume::set_io_failure_for_tests(Volume::IoPoint::kNone, 0, 0);
+    }
+    CHECK(v.commit() != 0);
+    CHECK_EQ(committed_bytes(t.p / "save" / "f"), std::string("base"));
+    // A flush that fails at commit time (cached data lost) refuses and drops too.
+    CHECK(put(v, "/f", "torn", false));
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kCommitFlush, 1, ERROR_DISK_FULL);
+    CHECK_EQ(v.commit(), rc::kUsableSpaceNotEnough);
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kNone, 0, 0);
+    CHECK_EQ(committed_bytes(t.p / "save" / "f"), std::string("base"));
+    CHECK_EQ(read_all(v, "/f"), std::string("base"));
+    // "Flush not supported" (Wine on some mounts) is not a failure.
+    {
+        std::shared_ptr<VFile> f;
+        CHECK(put(v, "/f", "ok", false));
+        CHECK_EQ(v.open_file("/f", kModeWrite, &f), 0u);
+        Volume::set_io_failure_for_tests(Volume::IoPoint::kFlush, 1, ERROR_INVALID_FUNCTION);
+        CHECK_EQ(f->flush(), 0u);
+        Volume::set_io_failure_for_tests(Volume::IoPoint::kNone, 0, 0);
+    }
+    CHECK_EQ(v.commit(), 0u);
+    CHECK_EQ(committed_bytes(t.p / "save" / "f"), std::string("ok"));
+}
+
+// The marker rename fails (the data the game wrote is fine): refused, the changes stay, the next Commit goes through.
+NXTEST(journal_failed_decision_keeps_changes_for_retry) {
+    TempDir t("dfail");
+    Volume v(t.root("save"), true, false, 0);
+    CHECK(put(v, "/f", "base"));
+    CHECK_EQ(v.commit(), 0u);
+    CHECK(put(v, "/f", "new", false));
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kDecide, 1, ERROR_SHARING_VIOLATION);
+    CHECK_EQ(v.commit(), rc::kGenericFailure);
+    Volume::set_io_failure_for_tests(Volume::IoPoint::kNone, 0, 0);
+    CHECK_EQ(committed_bytes(t.p / "save" / "f"), std::string("base"));
+    CHECK(!stdfs::exists(t.p / "save.commit"));
+    CHECK_EQ(read_all(v, "/f"), std::string("new"));
+    CHECK_EQ(v.commit(), 0u);
+    CHECK_EQ(committed_bytes(t.p / "save" / "f"), std::string("new"));
 }

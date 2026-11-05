@@ -234,6 +234,12 @@ struct Overlay::Impl {
     int note_peak = 0;
     bool note_visible(double now_s);
     void draw_note(const FrameInfo& f);
+    // The "Save failed" notice (services_api.h fsapi::save_failures): shown for 10 s after a save commit was refused. Always on, also in
+    // screenshots: the player has to see it.
+    uint32_t save_seen = 0;
+    double save_until_s = -1.0;
+    bool save_notice_visible(double now_s);
+    void draw_save_notice(const FrameInfo& f);
 
     // The on-screen keyboard (services_api.h swkbdui). kb_mu guards the question and its text: key events edit it on the game's main thread,
     // the pad and the mouse in draw() on the presenting thread. Lock order: mu (ImGui), then kb_mu, then the swkbdui question's own lock.
@@ -965,6 +971,29 @@ void Overlay::Impl::draw_note(const FrameInfo& f) {
     dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 220), text);
 }
 
+bool Overlay::Impl::save_notice_visible(double now_s) {
+    const uint32_t n = services::fsapi::save_failures().count;
+    if (n != save_seen) {
+        save_seen = n;
+        save_until_s = now_s + 10.0;
+    }
+    return now_s < save_until_s;
+}
+
+void Overlay::Impl::draw_save_notice(const FrameInfo& f) {
+    char text[160];
+    std::snprintf(text, sizeof text, "Save failed: %s. The last good save is kept.", services::fsapi::save_failure_reason(services::fsapi::save_failures().host_error));
+    ImFont* font = ImGui::GetFont();
+    const float size = std::clamp(std::round(static_cast<float>(f.extent.height) / 45.f), 14.f, 36.f);
+    const float pad = size * 0.5f;
+    const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    const float W = static_cast<float>(f.extent.width);
+    const float x0 = (W - sz.x) * 0.5f - pad, y0 = size;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + sz.x + 2.f * pad, y0 + sz.y + 2.f * pad), IM_COL32(120, 0, 0, 200), size * 0.3f);
+    dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 255), text);
+}
+
 void Overlay::draw(const FrameInfo& f) {
     Impl& s = *impl_;
     const bool counter_on = s.counter_show.load(std::memory_order_relaxed);
@@ -973,7 +1002,8 @@ void Overlay::draw(const FrameInfo& f) {
     const bool note_on = s.note_visible(now_s) && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
     const bool ptr_on = s.ptr_show.load(std::memory_order_relaxed) && (s.ptr_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
     const bool kb_on = s.kb_poll();
-    if (!s.visible && !counter_on && !note_on && !ptr_on && !kb_on) {
+    const bool save_on = s.save_notice_visible(now_s);
+    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on) {
         s.last_frame = now;
         s.counter_was_on = false;
         return;
@@ -996,7 +1026,7 @@ void Overlay::draw(const FrameInfo& f) {
     }
     // a screenshot leaves the counter out unless asked for; with the menu hidden there is then nothing to draw
     const bool show_counter = counter_on && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    if (!s.visible && !show_counter && !note_on && !ptr_on && !kb_on) {
+    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on) {
         s.last_frame = now;
         return;
     }
@@ -1018,6 +1048,7 @@ void Overlay::draw(const FrameInfo& f) {
     if (kb_on) s.draw_keyboard(now_s);
     if (show_counter) s.draw_counter(f, now_s);
     if (note_on) s.draw_note(f);
+    if (save_on) s.draw_save_notice(f);
     if (ptr_on) {   // a plain arrow, white with a dark outline, sized with the frame height
         const float k = std::max(1.f, static_cast<float>(f.extent.height) / 720.f);
         const float x = s.ptr_x.load(std::memory_order_relaxed), y = s.ptr_y.load(std::memory_order_relaxed);
