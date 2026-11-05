@@ -211,6 +211,7 @@ namespace SpirvHarness
                 StaticGpuAccessor gpu = new(code, constOff, constSize, stage, ctrl);
                 if (refl != null) foreach (var h in refl.BufferTextureHandles(nvnStage, ctrl)) gpu.BufferTextures.Add(h);
                 else foreach (var h in BufferFetchHandles(insts, compute)) gpu.BufferTextures.Add(h);
+                if (refl != null && compute) foreach (var (slot, h, t) in refl.ComputeImageTypes(ctrl)) gpu.DeclaredTypes[(slot, h)] = t;
                 TranslationFlags flags = (compute ? TranslationFlags.Compute : TranslationFlags.None) |
                                          (attempt == 2 || Debug ? TranslationFlags.DebugMode : TranslationFlags.None);
                 TranslationOptions options = new(glsl ? TargetLanguage.Glsl : TargetLanguage.Spirv, TargetApi.Vulkan, flags);

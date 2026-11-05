@@ -160,8 +160,13 @@ namespace SpirvHarness
         public SamplerType QuerySamplerType(int handle, int cbufSlot = -1)
         {
             DrawTimeQueries.Add("samplerType");
+            if (DeclaredTypes.TryGetValue((cbufSlot, handle), out SamplerType declared)) return declared;
             return BufferTextures.Contains((cbufSlot, handle)) ? SamplerType.TextureBuffer : SamplerType.Texture2D;
         }
+
+        // Texture or image handles (slot, handle word) whose type the GLSLC reflection declares; so far the compute image handles
+        // (Nvn2Reflection.ComputeImageTypes), whose size queries otherwise get the 2D default.
+        public readonly Dictionary<(int Slot, int Handle), SamplerType> DeclaredTypes = new();
 
         // Texture handles (constant bank slot as the translator passes it, handle word) that the GLSLC reflection declares as buffer
         // samplers (samplerBuffer / isamplerBuffer / usamplerBuffer): their 1D fetches become texelFetch on a texel buffer.

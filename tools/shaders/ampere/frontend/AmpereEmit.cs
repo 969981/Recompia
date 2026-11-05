@@ -1793,7 +1793,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
             {
                 if ((mask & (1 << c)) == 0) continue;
                 // A component past the sampler type's size vector (depth of a 2D texture) reads as 1 (inferred); index 3 is
-                // the mip count. Compute texture types are not known, so the accessor's 2D default meets depth queries.
+                // the mip count. The type is the accessor's: compute image handles from the GLSLC reflection, else 2D.
                 int dims = ((type & SamplerType.Mask) == SamplerType.TextureCube ? 2 : type.Dimensions) + (type.HasFlag(SamplerType.Array) ? 1 : 0);
                 ctx.Copy(dests[n++], c < 3 && c >= dims ? Const(1) : ctx.TextureQuerySize(type, TextureFlags.None, binding, c, [lod]));
             }

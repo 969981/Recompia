@@ -18,6 +18,7 @@ namespace SpirvHarness
         // 2: NVN2 compute shared memory size read from control +0x64 (was +0x50, the local memory size).
         // 3: Ampere decoder/front end fixes (LOP3 predicate destination, LEA.HI.SX32, P2R/R2P byte select, TMML, IMAD.HI addend,
         //    SHF amounts >= 32, SHFL lane mask, MUFU.SIN/COS turn reduction, ISETP.EX, new instruction forms).
-        public const int Value = 3;
+        // 4: NVN2 compute size queries (TXQ) on an image handle typed from the GLSLC reflection's image type (3D, 2D array), was 2D.
+        public const int Value = 4;
     }
 }
