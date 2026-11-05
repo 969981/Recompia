@@ -221,6 +221,7 @@ struct G {
     bool pointer_draw = false;         // [play] pointer_draw: the menu pointer is also drawn into the frame (screenshots show it); a test aid
     bool late_sample = true;           // pump the window's events again right before the mouse counts are taken (S11: the counts are as new as ProcessInput)
     double pitch_limit_deg = 0;
+    bool quit_combo_held = false;      // poll_pads: the [quit] pad combination was held on a pad at the last poll (the prompt opens on the rising edge)
 
     // frame state (main thread)
     uint64_t update_seq = 0, aim_seq = 0;
@@ -522,6 +523,13 @@ void handle_event(const input::Event& e, uint64_t now) {
         if (e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) toggle_fps_counter();
         return;
     }
+    // The quit key: opens the "Close the game?" prompt and never reaches the game (press, repeat and release). Not while the on-screen
+    // keyboard is up: a letter key must type there.
+    if (st.overlay && (e.type == EventType::KeyDown || e.type == EventType::KeyUp) && st.settings.quit.key.kind == InKind::Key &&
+        e.u.key.scancode == st.settings.quit.key.code && !st.overlay->keyboard_open()) {
+        if (e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) st.overlay->open_quit_prompt();
+        return;
+    }
     if (st.overlay && st.overlay->handle_event(e)) return;
     const bool menu_blocked = st.overlay && st.overlay->blocks_game();
     if ((e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) || e.type == EventType::MouseButtonDown || e.type == EventType::MouseWheel)
@@ -627,9 +635,13 @@ void poll_pads(uint64_t now) {
     const bool look_ctx = cx == Ctx::Play || cx == Ctx::Alt || cx == Ctx::Inspect;      // the right stick is a look only in play
     const bool rumble_changed = lo != st.rumble_lo || hi != st.rumble_hi;
     const bool rumble_refresh = (lo || hi) && now - st.last_rumble_ns > 100 * kMs;
+    const uint32_t quit_combo = st.settings.quit.pad;
+    bool quit_held = false;
     for (size_t i = 0; i < n; ++i) {
         platform::GamepadRaw raw;
         if (!platform::gamepad_poll(infos[i].id, &raw)) continue;
+        // the quit combination: every button of it held on this one pad (physical buttons, before [padmap])
+        if (quit_combo && (pad_src_held(raw, st.settings.pad) & quit_combo) == quit_combo) quit_held = true;
         hid::NpadInput tmp;
         map_pad(raw, st.settings.pad, &tmp);
         {   // a pressed button or a stick well off centre makes this the pad the prompts follow
@@ -661,7 +673,12 @@ void poll_pads(uint64_t now) {
         st.rumble_hi = hi;
         st.last_rumble_ns = now;
     }
-    // The on-screen keyboard reads the merged pad before it is held back; what it returns stays away from the game (everything while it is
+    // The quit prompt opens on the rising edge of the combination. It opens before the overlay sees this poll, so the combination's buttons
+    // are held back from now on (set_keyboard_pad below), and after the prompt closes until they are released. A button of it pressed alone a
+    // poll earlier did reach the game.
+    if (st.overlay && quit_held && !st.quit_combo_held) st.overlay->open_quit_prompt();
+    st.quit_combo_held = quit_held;
+    // The on-screen keyboard and the quit prompt read the merged pad before it is held back; what it returns stays away from the game (everything while it is
     // open, then the button that closed it until it is released).
     if (st.overlay) {
         st.overlay->set_keyboard_abxy(st.settings.pad.label_abxy);
@@ -773,6 +790,9 @@ int update_hook(::Ctx*, uint64_t, void*) {
         for (size_t i = 0; i < got; ++i) handle_event(buf[i], now);
     }
     poll_pads(now);
+    // Quit was chosen in the overlay's prompt (keyboard, pad or mouse; the mouse answers on the presenting thread): the process ends here,
+    // on the main thread, the way the window's close button does it.
+    if (st.overlay && st.overlay->take_quit_confirmed()) quit_now("quit from the menu");
     const GamePlay* gp = game_play();
     if (gp && gp->frame_begin) gp->frame_begin();
     if (st.engine) st.engine->frame_tick();
@@ -941,6 +961,7 @@ void keyboard_service() {
         for (size_t i = 0; i < got; ++i) handle_event(buf[i], now);
     }
     poll_pads(now);
+    if (st.overlay->take_quit_confirmed()) quit_now("quit from the menu");
     nvn::present_last_frame_again();
 }
 
@@ -1050,6 +1071,9 @@ public:
     bool reserved_key(const InputId& id) const override {
         G& st = g();
         return st.overlay && id.kind == InKind::Key && id.code == st.overlay->toggle_scancode();
+    }
+    void request_quit_prompt() override {
+        if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
     }
 };
 Host g_host;

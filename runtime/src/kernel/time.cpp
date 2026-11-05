@@ -32,9 +32,23 @@ uint64_t system_tick() {
 // 1 ms or 15.6 ms grid, so the wait runs on a high-resolution waitable timer (100 ns units); Sleep() is only the fallback.
 // A zero or negative span yields, as on the console.
 namespace {
-void sleep_once(int64_t ns) {
+// The calling thread's high-resolution waitable timer for ns (> 0); Sleep() in whole milliseconds without one.
+void timer_wait(int64_t ns) {
     static thread_local HANDLE timer = nullptr;
     static thread_local bool no_timer = false;
+    if (!timer && !no_timer) {
+        timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        if (!timer) no_timer = true;
+    }
+    LARGE_INTEGER due;
+    due.QuadPart = -((ns + 99) / 100);
+    if (!timer || !SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
+        Sleep(static_cast<DWORD>((ns + 999999) / 1000000));
+    else
+        WaitForSingleObject(timer, INFINITE);
+}
+
+void sleep_once(int64_t ns) {
     if (ns <= 0) {
         yield_host();
         return;
@@ -52,18 +66,20 @@ void sleep_once(int64_t ns) {
         } while (n.QuadPart - s.QuadPart < ticks);
         return;
     }
-    if (!timer && !no_timer) {
-        timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-        if (!timer) no_timer = true;
+    // [sched] precise_sleep: the timer is asked for less by its learned lateness (precise_wait.cpp). Pokopia's main thread waits out each
+    // frame in about 900 SleepThread(1 ms) a second; uncorrected, each takes about 1.4-1.5 ms (pokopia-native m4-title: title 59.3 Hz).
+    if (precise_sleep_enabled()) {
+        precise_wait_ns(ns, nullptr);
+        return;
     }
-    LARGE_INTEGER due;
-    due.QuadPart = -((ns + 99) / 100);
-    if (!timer || !SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
-        Sleep(static_cast<DWORD>((ns + 999999) / 1000000));
-    else
-        WaitForSingleObject(timer, INFINITE);
+    timer_wait(ns);
 }
 }  // namespace
+
+void detail::sleep_timer_ns(int64_t ns) {
+    if (ns <= 0 || tt::virtual_sleep(ns)) return;
+    timer_wait(ns);
+}
 
 // On the thread set_blocked_hook names, a sleep longer than 10 ms is cut into 10 ms slices with the hook run between them, as in the kernel
 // waits: Pokopia's main thread sleeps in SleepThread while the software keyboard applet is open (the freeze report's main stack).

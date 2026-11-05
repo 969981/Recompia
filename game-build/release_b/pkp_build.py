@@ -17,6 +17,11 @@ changes any of them makes an older stamp stale: Set up then lifts, compiles and 
 stays until the new one is linked over it). --check compares <game>/build/done.json with this package's tools only (no
 dump check, well under a second) and prints one JSON line {"current": bool, "reason": text}; exit 0 current, 3 not.
 
+Object cache: every compiled object is also kept in <game>/build/objcache under a key of its source text, the generated headers,
+the lifter's include/ tree, the compiler and the flags (class ObjCache), so Set up again after a release that changes only some
+translation units compiles only those. It survives the stamp reset and the cleanup after linking, is trimmed to --cache-mb
+(default 3072, 0 = off) and never serves a partial or damaged entry.
+
 Resumable: a module's lift counts once its marker file is written, an object once it is renamed into place, so a stopped
 build continues where it stopped. A file named <game>/build/cancel stops it (the launcher's Pause).
 Output for the launcher, one per line on stdout:  @progress <phase> <done> <total> <text>  /  @error <text>
@@ -27,6 +32,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -55,6 +61,8 @@ MODULES = [
 # recomp/cmake/NxRecomp.cmake flags for the lifted code, in clang (not clang-cl) syntax
 CXXFLAGS = ['-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-std=c++20', '-O1', '-w', '-fno-exceptions', '-fno-rtti',
             '-fno-strict-aliasing', '-ffp-contract=off', '-fno-threadsafe-statics']
+COMPILER = [ZIG, 'c++']                 # the compile command before the flags (tests put a fake one here)
+CACHE_MB = 3072                         # default size cap of <game>/build/objcache
 CREATE_NO_WINDOW = 0x08000000
 BELOW_NORMAL = 0x00004000
 
@@ -144,6 +152,23 @@ def write_json(path, value):
     os.replace(tmp, path)
 
 
+def nso_short(path):
+    """How many bytes an NSO lacks against the segments its header lists (0 = complete; a text-mode FTP copy drops a byte per CR LF pair).
+    From pokopia-native (MIT), nxs2.py nso_short @7c3655d."""
+    with open(path, 'rb') as f:
+        h = f.read(0x70)
+    if len(h) < 0x70 or h[:4] != b'NSO0':
+        return 0
+    flags = struct.unpack_from('<I', h, 0xC)[0]
+    end = max(struct.unpack_from('<I', h, 0x10 + 0x10 * i)[0] + struct.unpack_from('<I', h, 0x60 + 4 * i if flags & (1 << i) else 0x18 + 0x10 * i)[0]
+              for i in range(3))
+    return max(0, end - os.path.getsize(path))
+
+
+# main build ID (first 16 bytes) of the older game version; their sources disagree on its number, so player text says "an older version"
+OLDER_MAIN_BUILD = '816c5358e8178d802fcec4a7ce5a741a'
+
+
 def verify(exefs):
     want = json.load(open(os.path.join(HERE, 'dump_hashes.json'), encoding='utf-8'))
     missing = [n for n in want['sha256'] if not os.path.isfile(os.path.join(exefs, n))]
@@ -154,10 +179,17 @@ def verify(exefs):
     if head[:4] != b'NSO0':
         raise Fail('exefs/main is not a decrypted NSO. Extract the game files with your own keys first (decrypted exefs and romfs).')
     bid = head[0x40:0x54].hex()
+    if bid != want['main_build_id'] and bid.startswith(OLDER_MAIN_BUILD):
+        raise Fail('These game files are from an older version. Update the game on your Switch 2 to %s, then dump again.' % want['version'].split()[0])
     if bid != want['main_build_id']:
         raise Fail('This is a different version of the game (main build ID %s). This release supports %s (build ID %s).'
                    % (bid, want['version'], want['main_build_id']))
     names = list(want['sha256'])
+    for n in names:
+        short = nso_short(os.path.join(exefs, n))
+        if short:
+            raise Fail('exefs/%s is %d bytes shorter than its own header says: the dump was copied in text mode, which damages it. '
+                       'Copy the exefs folder again in binary mode (FileZilla: Transfer > Transfer type > Binary).' % (n, short))
     for i, n in enumerate(names):
         progress('verify', i, len(names), 'Checking your game files: %s' % n)
         got = sha256(os.path.join(exefs, n))
@@ -257,7 +289,121 @@ def free_memory():
         return None
 
 
-def compile_all(runner, gen, obj, jobs, env):
+class ObjCache:
+    """Compiled objects kept by content, so a lifter or main.sites change recompiles only the translation units whose text changed.
+
+    An entry is <key>-<size>.o in the cache folder. key = sha256 of the unit's source bytes, the generated headers next to it,
+    the lifter's include/ tree, the compiler (its file hash) and the flags. The compiler or the flags changing gives other keys,
+    so nothing stale is ever hit. An entry is written to a .tmp file and renamed, and a hit must have exactly the size in its
+    name, so a cut-off write or a damaged file is a miss (and is deleted). Hits are copied out, never linked. The folder is
+    trimmed to the size cap, least recently used first (a hit refreshes the entry's time). Any cache error is a miss."""
+
+    def __init__(self, folder, cap_bytes, compiler_id, flags_text, include_hash):
+        self.folder = folder
+        self.cap = cap_bytes
+        self.base = '\0'.join([compiler_id, flags_text, include_hash])
+        self.headers = {}                 # folder of the sources -> hash of the .h files in it
+        self.lock = threading.Lock()
+        self.hits = self.misses = 0
+        os.makedirs(folder, exist_ok=True)
+
+    def _headers(self, d):
+        with self.lock:
+            if d not in self.headers:
+                h = hashlib.sha256()
+                for n in sorted(os.listdir(d)):
+                    if n.endswith(('.h', '.hpp', '.inc')):
+                        h.update(('%s\0%s\0' % (n, sha256(os.path.join(d, n)))).encode())
+                self.headers[d] = h.hexdigest()
+            return self.headers[d]
+
+    def key(self, src):
+        h = hashlib.sha256()
+        h.update(self.base.encode())
+        h.update(b'\0' + self._headers(os.path.dirname(src)).encode() + b'\0')
+        h.update(sha256(src).encode())
+        return h.hexdigest()
+
+    def _find(self, key):
+        try:
+            for n in os.listdir(self.folder):
+                if n.startswith(key + '-') and n.endswith('.o'):
+                    return n
+        except OSError:
+            pass
+        return None
+
+    def fetch(self, key, dst):
+        """Copy the cached object for key to dst (through dst + '.tmp'); False on a miss or a bad entry."""
+        n = self._find(key)
+        if n:
+            src = os.path.join(self.folder, n)
+            tmp = dst + '.tmp'
+            try:
+                want = int(n[len(key) + 1:-2])
+                if want > 0 and os.path.getsize(src) == want:
+                    shutil.copyfile(src, tmp)
+                    if os.path.getsize(tmp) == want:
+                        os.replace(tmp, dst)
+                        os.utime(src)
+                        self.hits += 1
+                        return True
+                    os.remove(tmp)
+                else:
+                    os.remove(src)        # not the size it says: damaged, never used
+            except (OSError, ValueError):
+                pass
+        self.misses += 1
+        return False
+
+    def store(self, key, obj):
+        try:
+            size = os.path.getsize(obj)
+            if size <= 0:
+                return
+            final = os.path.join(self.folder, '%s-%d.o' % (key, size))
+            tmp = final + '.%d.tmp' % threading.get_ident()
+            shutil.copyfile(obj, tmp)
+            if os.path.getsize(tmp) != size:
+                os.remove(tmp)
+                return
+            os.replace(tmp, final)
+        except OSError:
+            pass
+
+    def trim(self):
+        """Delete leftover .tmp files, then the least recently used entries until the folder fits the cap."""
+        try:
+            items = []
+            for n in os.listdir(self.folder):
+                p = os.path.join(self.folder, n)
+                if n.endswith('.tmp'):
+                    os.remove(p)
+                elif n.endswith('.o'):
+                    st = os.stat(p)
+                    items.append((st.st_mtime, st.st_size, p))
+            total = sum(i[1] for i in items)
+            for _, size, p in sorted(items):
+                if total <= self.cap:
+                    break
+                os.remove(p)
+                total -= size
+        except OSError:
+            pass
+
+
+def make_cache(folder, cap_mb):
+    """The object cache for this package's compiler and flags, or None when cap_mb is 0 or the compiler cannot be hashed."""
+    if cap_mb <= 0:
+        return None
+    try:
+        compiler = ','.join(sha256(c) if os.path.isfile(c) else c for c in COMPILER)
+        return ObjCache(folder, cap_mb << 20, compiler, ' '.join(CXXFLAGS), tree_hash(RECOMP, ['include']))
+    except OSError:
+        return None
+
+
+def compile_all(runner, gen, obj, jobs, env, cache=None):
     units = []
     for name, _, _, _, shards in MODULES:
         d = os.path.join(gen, name)
@@ -271,20 +417,32 @@ def compile_all(runner, gen, obj, jobs, env):
         if not os.path.isfile(o):
             todo.append((name, src, o))
     done = total - len(todo)
-    progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
     for name, _, _, _, _ in MODULES:
         os.makedirs(os.path.join(obj, name), exist_ok=True)
+    keys = {}
+    if cache:
+        rest = []
+        for t in todo:
+            keys[t[1]] = cache.key(t[1])
+            if cache.fetch(keys[t[1]], t[2]):
+                done += 1
+            else:
+                rest.append(t)
+        todo = rest
+    progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
     # biggest first, so the long ones do not end up last on a single core
     todo.sort(key=lambda t: -os.path.getsize(t[1]))
 
     def one(t):
         name, src, o = t
         tmp = o + '.tmp'
-        cmd = [ZIG, 'c++'] + CXXFLAGS + ['-I', os.path.join(RECOMP, 'include'), '-I', os.path.dirname(src), '-c', src, '-o', tmp]
+        cmd = COMPILER + CXXFLAGS + ['-I', os.path.join(RECOMP, 'include'), '-I', os.path.dirname(src), '-c', src, '-o', tmp]
         rc, tail = runner.run(cmd, env=env)
         if rc != 0:
             return 'Compiling %s/%s failed (exit %d):\n%s' % (name, os.path.basename(src), rc, tail)
         os.replace(tmp, o)
+        if cache:
+            cache.store(keys[src], o)
         return None
 
     # a big unit takes a GB or two in clang; with too many at once memory runs out and clang dies on every unit with
@@ -316,6 +474,8 @@ def compile_all(runner, gen, obj, jobs, env):
             raise Fail(err)
         done += 1
         progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
+    if cache:
+        cache.trim()
 
 
 def clear_high_entropy_va(exe):
@@ -370,6 +530,7 @@ def main():
     ap.add_argument('--exefs')
     ap.add_argument('--game')
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument('--cache-mb', type=int, default=CACHE_MB, help='size cap of the compiled-object cache in MiB (0 = off)')
     ap.add_argument('--keep', action='store_true', help='keep the generated sources and objects')
     ap.add_argument('--check', action='store_true', help='only say whether <game>/build/done.json matches these tools')
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
@@ -419,7 +580,7 @@ def main():
         lift(runner, a.exefs, gen, a.jobs)
         times['lift'] = round(time.time() - t, 1)
         t = time.time()
-        compile_all(runner, gen, obj, a.jobs, env)
+        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(build, 'objcache'), a.cache_mb))
         times['compile'] = round(time.time() - t, 1)
         t = time.time()
         exe = link(runner, obj, game, env)

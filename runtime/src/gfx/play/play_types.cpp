@@ -137,6 +137,36 @@ bool parse_pad_src(const std::string& name, PadSrc* out) {
     return false;
 }
 
+bool parse_pad_combo(const std::string& text, uint32_t* out) {
+    const std::string t = trim(text);
+    uint32_t bits = 0;
+    if (!t.empty() && lower(t) != "none") {
+        size_t b = 0;
+        for (;;) {
+            const size_t e = t.find('+', b);
+            PadSrc src;
+            if (!parse_pad_src(trim(t.substr(b, e == std::string::npos ? std::string::npos : e - b)), &src)) return false;
+            bits |= pad_src_bit(src);
+            if (e == std::string::npos) break;
+            b = e + 1;
+        }
+    }
+    if (out) *out = bits;
+    return true;
+}
+
+std::string pad_combo_text(uint32_t bits) {
+    std::string o;
+    for (int j = 0; j < kPadSrcCount; ++j) {
+        // PadSrc order, except back before start: the default reads "back+start" (Select + Start)
+        const int i = j == static_cast<int>(PadSrc::Start) ? static_cast<int>(PadSrc::Back) : j == static_cast<int>(PadSrc::Back) ? static_cast<int>(PadSrc::Start) : j;
+        if (!(bits & pad_src_bit(static_cast<PadSrc>(i)))) continue;
+        if (!o.empty()) o += '+';
+        o += kPadSrcNames[i];
+    }
+    return o.empty() ? "none" : o;
+}
+
 const char* corner_name(Corner c) { return kCornerNames[static_cast<int>(c)]; }
 
 bool parse_corner(const std::string& name, Corner* out) {

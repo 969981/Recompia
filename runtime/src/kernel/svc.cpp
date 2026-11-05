@@ -188,7 +188,10 @@ void svc_set_busy_hook(void (*fn)()) { g_busy_hook.store(fn, std::memory_order_r
 
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     GameSvcTimer game_timer(number);
-    if (kernel::KThread* self = kernel::current_thread()) self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);   // the starvation line
+    if (kernel::KThread* self = kernel::current_thread()) {
+        self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);   // the starvation line
+        self->nsvc++;                                                                                       // runs of yields (svc_thread.cpp)
+    }
     if (auto fn = g_busy_hook.load(std::memory_order_relaxed)) fn();
     if (tt::detail::svc_every.load(std::memory_order_relaxed)) tt::detail::on_svc(c);      // test tooling: frame_source = svc:N
     SvcHandler h = svc_handler(number);

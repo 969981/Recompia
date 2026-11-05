@@ -866,3 +866,184 @@ bool spirv_init_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>& 
 }
 
 }  // namespace nxrt::nvn::be::gpu
+
+namespace nxrt::nvn::be::gpu {
+
+bool spirv_base_instance_from_c0(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
+    enum : uint32_t { OpNameOp = 5, OpConstantOp = 43, OpLoadOp = 61, OpAccessChainOp = 65, OpInBoundsAccessChainOp = 66, OpBitcastOp = 124,
+                      DecBuiltIn = 11, BuiltInBaseInstance = 4425, StorageInput = 1, StorageUniform = 2, ModelVertex = 0 };
+    if (in.size() < 5) return false;
+    std::vector<Inst> insts;
+    for (size_t i = 5; i < in.size();) {
+        const uint32_t len = in[i] >> 16;
+        if (!len || i + len > in.size()) return false;
+        insts.push_back({i, in[i] & 0xffff, len});
+        i += len;
+    }
+    uint32_t bound = in[3];
+    bool vertex = false;
+    uint32_t base_var = 0;
+    std::map<uint32_t, uint32_t> const_value, var_ptr, scalar_width;     // OpConstant value; variable -> pointer type; 32-bit scalar types
+    std::map<uint32_t, std::pair<uint32_t, uint32_t>> ptr_of;            // pointer type -> (storage class, pointee)
+    std::map<uint32_t, bool> c0_named;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpEntryPoint && n.len >= 3) vertex = w[1] == ModelVertex;
+        else if (n.op == OpNameOp && n.len >= 3) {
+            // "c0" or "<stage>_c0" (the translator's names: vp_c0)
+            const char* s = reinterpret_cast<const char*>(&w[2]);
+            const size_t cap = (n.len - 2) * 4;
+            const size_t len = strnlen(s, cap);
+            if (len >= 2 && std::memcmp(s + len - 2, "c0", 2) == 0 && (len == 2 || s[len - 3] == '_')) c0_named[w[1]] = true;
+        }
+        else if (n.op == OpDecorate && n.len == 4 && w[2] == DecBuiltIn && w[3] == BuiltInBaseInstance) base_var = w[1];
+        else if ((n.op == OpTypeInt || n.op == OpTypeFloat) && n.len >= 3 && w[2] == 32) scalar_width[w[1]] = 32;
+        else if (n.op == OpTypePointer && n.len == 4) ptr_of[w[1]] = {w[2], w[3]};
+        else if (n.op == OpConstantOp && n.len == 4) const_value[w[2]] = w[3];
+        else if (n.op == OpVariable && n.len >= 4) var_ptr[w[2]] = w[1];
+    }
+    if (!vertex || !base_var || !var_ptr.count(base_var)) return false;
+    const auto bp = ptr_of.find(var_ptr[base_var]);
+    if (bp == ptr_of.end() || bp->second.first != StorageInput || !scalar_width.count(bp->second.second)) return false;
+    const uint32_t int_type = bp->second.second;
+    // the c[0] variable: a Uniform variable with the translator's c0 name
+    std::map<uint32_t, bool> c0_var;
+    for (const auto& [v, pt] : var_ptr) {
+        const auto p = ptr_of.find(pt);
+        if (c0_named.count(v) && p != ptr_of.end() && p->second.first == StorageUniform) c0_var[v] = true;
+    }
+    if (c0_var.empty()) return false;
+    // pointers to c0[0][100].y: member 0 (the vec4 array), element 0x644 / 16, component (0x644 % 16) / 4
+    auto is_const = [&](uint32_t id, uint32_t v) { const auto it = const_value.find(id); return it != const_value.end() && it->second == v; };
+    std::map<uint32_t, bool> word_ptr;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if ((n.op == OpAccessChainOp || n.op == OpInBoundsAccessChainOp) && n.len == 7 && c0_var.count(w[3]) && is_const(w[4], 0) &&
+            is_const(w[5], 0x644 / 16) && is_const(w[6], (0x644 % 16) / 4))
+            word_ptr[w[2]] = true;
+    }
+    if (word_ptr.empty()) return false;
+    std::vector<uint32_t> result;
+    result.reserve(in.size() + 8);
+    result.insert(result.end(), in.begin(), in.begin() + 5);
+    bool changed = false;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpLoadOp && n.len >= 4 && word_ptr.count(w[3]) && scalar_width.count(w[1])) {
+            // %r = OpLoad %float %c0_word  ->  %t = OpLoad %int %gl_BaseInstance; %r = OpBitcast %float %t
+            if (w[1] == int_type) {
+                result.insert(result.end(), {(4u << 16) | OpLoadOp, int_type, w[2], base_var});
+            } else {
+                const uint32_t t = bound++;
+                result.insert(result.end(), {(4u << 16) | OpLoadOp, int_type, t, base_var});
+                result.insert(result.end(), {(4u << 16) | OpBitcastOp, w[1], w[2], t});
+            }
+            changed = true;
+            continue;
+        }
+        result.insert(result.end(), in.begin() + static_cast<std::ptrdiff_t>(n.at), in.begin() + static_cast<std::ptrdiff_t>(n.at + n.len));
+    }
+    if (!changed) return false;
+    result[3] = bound;
+    out = std::move(result);
+    return true;
+}
+
+}  // namespace nxrt::nvn::be::gpu
+
+namespace nxrt::nvn::be::gpu {
+
+bool spirv_reduced_precision(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
+    enum : uint32_t { OpConstantOp = 43, OpLoadOp = 61, OpStoreOp = 62, OpMemberDecorateOp = 72, OpBitcastOp = 124, OpFAddOp = 129,
+                      OpFDivOp = 136, DecInvariant = 18, DecBuiltIn = 11, DecNoContraction = 42, BuiltInPosition = 0, ModelFragment = 4,
+                      StorageFunction = 7, kOne = 0x3f800000u };
+    if (in.size() < 5) return false;
+    std::vector<Inst> insts;
+    for (size_t i = 5; i < in.size();) {
+        const uint32_t len = in[i] >> 16;
+        if (!len || i + len > in.size()) return false;
+        insts.push_back({i, in[i] & 0xffff, len});
+        i += len;
+    }
+    bool fragment = false, have_entry = false;
+    std::map<uint32_t, bool> f32_type;                   // OpTypeFloat 32 ids
+    std::map<uint32_t, uint32_t> f32_const;              // OpConstant of a 32-bit float -> its bits
+    std::map<uint32_t, const uint32_t*> def;             // result id -> OpFAdd / OpLoad / OpBitcast defining it
+    std::map<uint32_t, bool> function_var;
+    std::multimap<uint32_t, uint32_t> stored;            // Function variable -> every object stored to it
+    std::vector<uint32_t> divisors;                      // operand 2 of OpFDiv float32 1.0, x
+    std::map<uint32_t, bool> invariant;                  // OpDecorate Invariant targets
+    std::map<std::pair<uint32_t, uint32_t>, bool> member_invariant;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpEntryPoint && n.len >= 3 && !have_entry) {
+            have_entry = true;
+            fragment = w[1] == ModelFragment;
+        } else if (n.op == OpTypeFloat && n.len >= 3 && w[2] == 32) f32_type[w[1]] = true;
+        else if (n.op == OpConstantOp && n.len == 4 && f32_type.count(w[1])) f32_const[w[2]] = w[3];
+        else if ((n.op == OpFAddOp && n.len == 5) || (n.op == OpLoadOp && n.len >= 4) || (n.op == OpBitcastOp && n.len == 4)) def[w[2]] = w;
+        else if (n.op == OpVariable && n.len >= 4 && w[3] == StorageFunction) function_var[w[2]] = true;
+        else if (n.op == OpStoreOp && n.len >= 3) stored.insert({w[1], w[2]});
+        else if (n.op == OpFDivOp && n.len == 5 && f32_type.count(w[1])) {
+            auto c = f32_const.find(w[3]);
+            if (c != f32_const.end() && c->second == kOne) divisors.push_back(w[4]);
+        } else if (n.op == OpDecorate && n.len == 3 && w[2] == DecInvariant) invariant[w[1]] = true;
+        else if (n.op == OpMemberDecorateOp && n.len == 4 && w[3] == DecInvariant) member_invariant[{w[1], w[2]}] = true;
+    }
+    if (!have_entry) return false;
+
+    // The ForcePreciseEnable adds of a fragment module: walk back from each divisor through bitcasts and Function-variable loads.
+    std::map<uint32_t, bool> keep;
+    if (fragment) {
+        std::vector<uint32_t> todo = divisors;
+        std::map<uint32_t, bool> seen;
+        while (!todo.empty()) {
+            const uint32_t id = todo.back();
+            todo.pop_back();
+            if (seen[id]) continue;
+            seen[id] = true;
+            auto d = def.find(id);
+            if (d == def.end()) continue;
+            const uint32_t* w = d->second;
+            const uint32_t op = w[0] & 0xffff;
+            if (op == OpBitcastOp) todo.push_back(w[3]);
+            else if (op == OpLoadOp && function_var.count(w[3])) {
+                auto r = stored.equal_range(w[3]);
+                for (auto it = r.first; it != r.second; ++it) todo.push_back(it->second);
+            } else if (op == OpFAddOp && f32_type.count(w[1]) && f32_const.count(w[4])) keep[id] = true;
+        }
+    }
+
+    std::vector<uint32_t> result;
+    result.reserve(in.size() + 64);
+    result.insert(result.end(), in.begin(), in.begin() + 5);
+    bool changed = false;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpDecorate && n.len == 3 && w[2] == DecNoContraction && !keep.count(w[1])) {
+            changed = true;
+            continue;
+        }
+        if (n.op == OpMemberDecorateOp && n.len == 4 && w[3] == DecNoContraction) {   // the translator never writes one; dropped all the same
+            changed = true;
+            continue;
+        }
+        // Invariant goes in front of the BuiltIn decoration, where the translator writes it
+        if (n.op == OpDecorate && n.len == 4 && w[2] == DecBuiltIn && w[3] == BuiltInPosition && !invariant.count(w[1])) {
+            result.insert(result.end(), {(3u << 16) | OpDecorate, w[1], DecInvariant});
+            invariant[w[1]] = true;
+            changed = true;
+        } else if (n.op == OpMemberDecorateOp && n.len == 5 && w[3] == DecBuiltIn && w[4] == BuiltInPosition &&
+                   !member_invariant.count({w[1], w[2]})) {
+            result.insert(result.end(), {(4u << 16) | OpMemberDecorateOp, w[1], w[2], DecInvariant});
+            member_invariant[{w[1], w[2]}] = true;
+            changed = true;
+        }
+        result.insert(result.end(), in.begin() + static_cast<std::ptrdiff_t>(n.at), in.begin() + static_cast<std::ptrdiff_t>(n.at + n.len));
+    }
+    if (!changed) return false;
+    out.swap(result);
+    return true;
+}
+
+}  // namespace nxrt::nvn::be::gpu

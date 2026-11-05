@@ -947,6 +947,76 @@ NXTEST(poll_sleep_registered_game_table_is_sane) {
     }
 }
 
+// [sched] yield_backoff: a run of yields with no other SVC and unchanged registers yields, then Sleep(0)s, then sleeps run/8 within [min, cap].
+NXTEST(yield_backoff_step_tiers) {
+    k::YieldBackoffCfg c;
+    c.plain = 4;
+    c.start_ns = 2000000;
+    c.min_ns = 10000;
+    c.cap_ns = 250000;
+    k::YieldRun r;
+    uint64_t svc = 100, t = 1000000000;
+    for (int i = 0; i < 4; i++) CHECK(k::yield_backoff_step(r, c, ++svc, t += 1000, 7).act == k::YieldAct::Yield);   // the first `plain` yields
+    CHECK(k::yield_backoff_step(r, c, ++svc, t += 1000, 7).act == k::YieldAct::Sleep0);                            // run 5 us < start
+    const uint64_t t0 = r.t0;
+    k::YieldStep s = k::yield_backoff_step(r, c, ++svc, t0 + 2000000, 7);                                          // run = start: 2 ms / 8
+    CHECK(s.act == k::YieldAct::Sleep);
+    CHECK_EQ(s.ns, 250000ull);
+    c.start_ns = 50000;                                                                                            // a short start: min clamp
+    k::YieldRun r2;
+    for (int i = 0; i < 4; i++) k::yield_backoff_step(r2, c, 10 + i, 1000 + i, 7);
+    s = k::yield_backoff_step(r2, c, 14, r2.t0 + 60000, 7);                                                        // 60 us / 8 = 7.5 us -> 10 us
+    CHECK(s.act == k::YieldAct::Sleep);
+    CHECK_EQ(s.ns, 10000ull);
+    s = k::yield_backoff_step(r2, c, 15, r2.t0 + 800000, 7);                                                       // 800 us / 8 = 100 us
+    CHECK_EQ(s.ns, 100000ull);
+    s = k::yield_backoff_step(r2, c, 16, r2.t0 + 100000000, 7);                                                    // capped
+    CHECK_EQ(s.ns, 250000ull);
+}
+
+NXTEST(yield_backoff_step_resets) {
+    k::YieldBackoffCfg c;
+    c.plain = 2;
+    c.start_ns = 0;
+    k::YieldRun r;
+    uint64_t t = 5000000;
+    k::yield_backoff_step(r, c, 1, t, 7);
+    k::yield_backoff_step(r, c, 2, t, 7);
+    CHECK(k::yield_backoff_step(r, c, 3, t += 100000, 7).act == k::YieldAct::Sleep);
+    // another SVC in between (count jumped by 2): a new run, back to plain yields
+    CHECK(k::yield_backoff_step(r, c, 5, t += 100000, 7).act == k::YieldAct::Yield);
+    CHECK_EQ(r.n, 1u);
+    CHECK_EQ(r.t0, t);
+    k::yield_backoff_step(r, c, 6, t, 7);
+    CHECK(k::yield_backoff_step(r, c, 7, t += 100000, 7).act == k::YieldAct::Sleep);
+    // registers changed (progress): a new run
+    CHECK(k::yield_backoff_step(r, c, 8, t += 100000, 9).act == k::YieldAct::Yield);
+    CHECK_EQ(r.n, 1u);
+    // a loop that alternates between two register states (9, 7, 9, ...) is still one run
+    CHECK(k::yield_backoff_step(r, c, 9, t, 7).act == k::YieldAct::Yield);    // 7 is the one before last
+    CHECK_EQ(r.n, 2u);
+    CHECK(k::yield_backoff_step(r, c, 10, t, 9).act == k::YieldAct::Sleep);
+    CHECK_EQ(r.n, 3u);
+    // a third state is progress
+    CHECK(k::yield_backoff_step(r, c, 11, t, 11).act == k::YieldAct::Yield);
+    CHECK_EQ(r.n, 1u);
+}
+
+// The register hash covers x19..x28 only (the callee-saved registers a loop keeps its progress in).
+NXTEST(yield_regs_sig_callee_saved_only) {
+    ::Ctx a{}, b{};
+    CHECK_EQ(k::yield_regs_sig(a), k::yield_regs_sig(b));
+    b.x[0] = 1;
+    b.x[18] = 2;
+    b.x[29] = 3;
+    CHECK_EQ(k::yield_regs_sig(a), k::yield_regs_sig(b));
+    b.x[19] = 1;
+    CHECK(k::yield_regs_sig(a) != k::yield_regs_sig(b));
+    b.x[19] = 0;
+    b.x[28] = 1;
+    CHECK(k::yield_regs_sig(a) != k::yield_regs_sig(b));
+}
+
 // ---- handle table ------------------------------------------------------------------------------------------------------------------------------
 
 NXTEST(handle_table_add_get_close) {

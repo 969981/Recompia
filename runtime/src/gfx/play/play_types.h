@@ -134,14 +134,20 @@ constexpr int kPadSrcCount = static_cast<int>(PadSrc::kCount);
 const char* pad_src_name(PadSrc s);                      // the file's word: "south" "east" "west" "north" "left_shoulder" ... "dpad_right"
 bool parse_pad_src(const std::string& name, PadSrc* out);   // case-insensitive, '-' and ' ' equal '_'
 constexpr uint64_t kPadDefault = ~0ull;                  // PadSettings::remap value: the built-in mapping
+constexpr uint32_t pad_src_bit(PadSrc s) { return 1u << static_cast<int>(s); }
+// A set of pad buttons held together (QuitSettings::pad): PadSrc names joined by '+' ("back+start"), "none" (or empty) = no buttons.
+// Case-insensitive like parse_pad_src; false for an unknown name. pad_combo_text writes them in PadSrc order, "none" for 0.
+bool parse_pad_combo(const std::string& text, uint32_t* out);
+std::string pad_combo_text(uint32_t bits);
 
 struct PadSettings {
     uint64_t remap[kPadSrcCount] = {kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault,
                                     kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault};
-    bool label_abxy = true;        // true: buttons by the label printed on them (Xbox A = Switch A); false: by position (bottom = Switch B)
+    bool label_abxy = false;       // false (default): Switch layout, by position (right = Switch A, bottom = B); true: Xbox layout, by label (A = A)
     double stick_deadzone = 0.10;  // left stick, radial, 0..0.5, applied before the game's own dead zone
     double right_deadzone = 0.10;  // right stick (looking), same rule
-    double stick_max = 1.0;        // left stick, 0.5..1: the fraction of the travel that counts as full deflection (1 = off). A pad whose stick tops out below 1 reaches full speed with this lowered
+    double stick_max = 0.92;       // left stick, 0.5..1: the fraction of the travel that counts as full deflection (1 = off). A pad whose stick tops out below 1 (a worn pad, a DualSense near 0.96) reaches full speed with this lowered. Default 0.92 as in pokopia-native
+    double right_stick_max = 0.92; // right stick (looking), same rule
     bool invert_y = false;         // right stick up looks down (in play only: menus and the map keep the stick as it is). Stacks with the game's own option.
     double look_sens = 1.0;        // 0.25..3: the right stick's deflection is multiplied by this in play (below 1 the turn speed tops out lower, above 1 it tops out sooner)
     double trigger_threshold = 0.35;   // analog trigger travel (0..1) that counts as ZL / ZR pressed
@@ -240,6 +246,14 @@ struct CameraSettings {
     bool gun_drives_view = true;   // [camera] gun_drives_view: the arm cannon is fixed to the view, so its idle drift, walking bob and landing dip move the view
 };
 
+// ---- quit shortcut ------------------------------------------------------------------------------------------------------------
+// A pad combination and a keyboard key that open the overlay's "Close the game?" prompt (the same prompt as the F1 page's Quit button).
+// Neither reaches the game. The pad buttons are physical ones (before [padmap]), all held on one pad.
+struct QuitSettings {
+    uint32_t pad = pad_src_bit(PadSrc::Back) | pad_src_bit(PadSrc::Start);   // [quit] pad: bits of PadSrc, 0 = off (Select + Start)
+    InputId key = {};                                                        // [quit] key: a keyboard key, kind None = off
+};
+
 struct Settings {
     MouseSettings mouse;
     AimSettings aim;
@@ -252,6 +266,7 @@ struct Settings {
     extras::Settings extras;       // the [hdr] [upscale] [latency] [picture] sections (nxrt/extras.h): HDR output, upscaling, low latency
     PromptSettings prompts;
     FpsSettings fps;
+    QuitSettings quit;
     FastbootSettings fastboot;     // [tweaks] skip_intro skip_boot_logos fast_menus menu_speed (play_fastboot.h, S46)
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
@@ -336,7 +351,7 @@ const char* key_alt_sens();
 //              yaw_source / pitch_source = 2.0 are accepted as well (Source scale); when both forms appear the last one wins
 //              alt_camera = 1 (the alternate body's camera follows the mouse and the right stick), alt_sensitivity = 2.0 (its sensitivity, Source
 //              scale, both directions; alt_yaw / alt_pitch in radians per count set one direction each)
-//   [pad]      label_abxy deadzone stick_max trigger_threshold gyro gyro_scale rumble rumble_scale alt_orbit
+//   [pad]      label_abxy (0 = Switch layout, the default; 1 = Xbox layout, by label) deadzone stick_max right_stick_max trigger_threshold gyro gyro_scale rumble rumble_scale alt_orbit
 //   [timing]   tap_ms hold_ms double_ms pulse_ms
 //   [display]  window_mode vsync fps_limit (number, 0 = unlimited, auto = refresh rate; fps_cap is read too) width height keep_aspect render_scale render_width render_height aspect fov_offset
 //              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm astc_quality (fast high uncompressed)
@@ -352,6 +367,7 @@ const char* key_alt_sens();
 //   [tweaks]   skip_intro skip_boot_logos fast_menus (1/0) menu_speed (1..4)   (play_fastboot.h)
 //              glow_color (off | R,G,B) suit_glow ball_glow gun_glow (auto | off | R,G,B)   (play_tweaks.h)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
+//   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
 //   [switch]   <action> = <output>      e.g.  fire = ZR    beam_1 = X+UP    (missing actions keep the default)

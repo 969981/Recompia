@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -427,6 +428,105 @@ NXTEST(ldn_host_over_loopback) {
     kernel::handle_close(ev);
 }
 
+// Host: a new station's datagrams wait until the game has read a NetworkInfo that lists the station (KTGL drops a sender outside its member
+// table), then come in their order; without a read they come after the hold time (300 ms). A node that rejoins on the same address waits
+// again.
+NXTEST(ldn_host_holds_new_node_until_read) {
+    nxsvc::Env env;
+    vnet::LoopbackRelay relay;
+    services::ldn_set_lobby(relay.client("Host"));
+    nxsvc::Session l = open_ldn();
+    REQUIRE(l.valid());
+    CHECK_EQ(l.call(400, nxsvc::Args().with_pid().u64(0)).result, 0u);
+    CHECK_EQ(l.call(200).result, 0u);
+    CHECK_EQ(l.call(202, nxsvc::Args().bytes(create_args(4).data(), 0x98)).result, 0u);
+    nxsvc::Session bsd = nxsvc::connect("bsd:u");
+    REQUIRE(bsd.valid());
+    const int32_t fd = game_socket(bsd);
+    std::vector<uint8_t> rbuf(0x1000);
+    auto recv = [&](std::string* got) {   // RecvFrom(MSG_DONTWAIT): the byte count, -1 when nothing is queued
+        uint8_t sa[16] = {};
+        nxsvc::Reply rf = bsd.call(9, nxsvc::Args().i32(fd).i32(0x80).buf_b(rbuf.data(), 0x1000).buf_b(sa, 16));
+        const int32_t n = rf.get<int32_t>(0);
+        if (got) got->assign(reinterpret_cast<const char*>(rbuf.data()), n > 0 ? static_cast<size_t>(n) : 0);
+        return n;
+    };
+    std::vector<uint8_t> ni(kNi), up(64);
+    const vsock::Addr host_addr{vnet::ip(169, 254, 1, 1), kPort};
+    std::vector<vnet::Room> rooms;
+    auto guest = relay.client("Guest");
+    REQUIRE(guest->scan(kLcid, 0xFFFF, &rooms) == 0 && rooms.size() == 1);
+    vnet::Joined j;
+    REQUIRE(guest->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+
+    {
+        vsock::Stack gs(guest->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        // Sent before the host game read the new node table: held.
+        CHECK_EQ(gs.sendto(gfd, "join", 4, 0, &host_addr).ret, 4);
+        CHECK_EQ(gs.sendto(gfd, "two", 3, 0, &host_addr).ret, 3);
+        CHECK_EQ(recv(nullptr), -1);
+        // The host's own sends are not held: the guest gets its broadcast at once.
+        const uint8_t bc[16] = {16, 2, 0xC1, 0x7A, 169, 254, 1, 255};
+        const char all[] = "all";
+        CHECK_EQ(bsd.call(11, nxsvc::Args().i32(fd).i32(0).buf_a(all, 3).buf_a(bc, 16)).get<int32_t>(0), 3);
+        char gb[8] = {};
+        CHECK_EQ(gs.recvfrom(gfd, gb, sizeof gb, vsock::kMsgDontwait, nullptr).ret, 3);
+        // GetNetworkInfo lists the guest: both datagrams come, in order; later ones pass straight through.
+        CHECK_EQ(l.call(1, nxsvc::Args().buf_c(ni.data(), kNi)).result, 0u);
+        CHECK_EQ(ni[kLdn + 0x17], 2);
+        std::string got;
+        CHECK_EQ(recv(&got), 4);
+        CHECK(got == "join");
+        CHECK_EQ(recv(&got), 3);
+        CHECK(got == "two");
+        CHECK_EQ(gs.sendto(gfd, "3", 1, 0, &host_addr).ret, 1);
+        CHECK_EQ(recv(&got), 1);
+        CHECK(got == "3");
+    }
+
+    // The guest leaves and rejoins on the same address: held again until a read (GetNetworkInfoLatestUpdate counts as one).
+    guest->leave();
+    CHECK(wait_until([&] {
+        l.call(1, nxsvc::Args().buf_c(ni.data(), kNi));
+        return ni[kLdn + 0x17] == 1;
+    }));
+    REQUIRE(guest->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+    CHECK_EQ(j.vip, vnet::ip(169, 254, 1, 2));
+    {
+        vsock::Stack gs(guest->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        CHECK_EQ(gs.sendto(gfd, "again", 5, 0, &host_addr).ret, 5);
+        CHECK_EQ(recv(nullptr), -1);
+        CHECK_EQ(l.call(101, nxsvc::Args().buf_c(ni.data(), kNi).buf_c(up.data(), 64)).result, 0u);
+        std::string got;
+        CHECK_EQ(recv(&got), 5);
+        CHECK(got == "again");
+    }
+
+    // A third player, and the game reads nothing: its datagram comes anyway after the hold time, not before.
+    auto g3 = relay.client("Third");
+    REQUIRE(g3->join(rooms[0].room_id, kVersion, vnet::passphrase_hash(pass(), 64), &j) == 0);
+    {
+        vsock::Stack gs(g3->link());
+        const int gfd = gs.socket(2, 2, 0).ret;
+        REQUIRE(gs.bind(gfd, {0, kPort}).ret == 0);
+        const auto t0 = std::chrono::steady_clock::now();
+        CHECK_EQ(gs.sendto(gfd, "late", 4, 0, &host_addr).ret, 4);
+        CHECK_EQ(recv(nullptr), -1);
+        std::string got;
+        CHECK(wait_until([&] { return recv(&got) == 4; }, 2000));
+        CHECK(got == "late");
+        CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(250));
+    }
+
+    CHECK_EQ(l.call(204).result, 0u);   // DestroyNetwork
+    CHECK(vnet::current_link() == nullptr);
+    CHECK_EQ(l.call(401).result, 0u);
+}
+
 // The process is the station: Scan finds a lobby host's room (NetworkInfo fields), Connect joins it; wrong version / passphrase fail;
 // the host's Reject and its leaving disconnect the station with the reason set.
 NXTEST(ldn_station_over_loopback) {
@@ -658,6 +758,95 @@ NXTEST(ldn_live_relay) {
         return c->scan(cfg.local_comm_id, 0xFFFF, &r) == 0 && r.empty();
     }));
     std::printf("  live: reject, rejoin refused, leave, host close: ok (%d room states seen by the host)\n", a_states.load());
+
+    // Room codes (protocol 2): a host with a code is hidden from a client without it; a wrong code is refused; the right one joins.
+    vnet::RelayOptions ko = o;
+    ko.room_key = vnet::room_key(vnet::room_code_new());
+    ko.nickname = "CodeHost";
+    auto kh = vnet::make_relay_client(ko);
+    ko.nickname = "CodeGuest";
+    auto kg = vnet::make_relay_client(ko);
+    vnet::Joined jk;
+    REQUIRE(kh->create(cfg, &jk) == 0);
+    std::vector<vnet::Room> seen;
+    REQUIRE(c->scan(cfg.local_comm_id, 0xFFFF, &seen) == 0);
+    CHECK(seen.empty());
+    CHECK_EQ(c->join(jk.room_id, kVersion, cfg.pass_hash, &jb), vnet::kLobbyRoomCode);
+    REQUIRE(kg->scan(cfg.local_comm_id, 0xFFFF, &seen) == 0);
+    REQUIRE(seen.size() == 1);
+    REQUIRE(kg->join(seen[0].room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    CHECK(wait_until([&] { return kh->room().nodes.size() == 2; }));
+    kh->leave();
+    std::printf("  live: room code: hidden from a client without it, wrong code refused, right code joined\n");
+}
+
+// Relay protocol v3 UDP path through a real server: host and one guest prove UDP and switch to it, a second guest whose UDP goes to a
+// dead port (UDP blocked) stays on TCP; datagrams flow every way. NXRT_TEST_RELAY_NO_UDP=1: the relay runs with --no-udp, nobody switches.
+NXTEST(ldn_live_relay_udp) {
+    const char* addr = std::getenv("NXRT_TEST_RELAY");
+    if (!addr || !*addr) {
+        nxtest::skip("NXRT_TEST_RELAY not set");
+        return;
+    }
+    const char* no_udp_env = std::getenv("NXRT_TEST_RELAY_NO_UDP");
+    const bool no_udp = no_udp_env && *no_udp_env == '1';
+    vnet::RelayOptions o;
+    REQUIRE(vnet::parse_server(addr, &o.host, &o.port));
+    o.nickname = "UdpHost";
+    auto a = vnet::make_relay_client(o);
+    o.nickname = "UdpGuest";
+    auto b = vnet::make_relay_client(o);
+    o.nickname = "TcpGuest";
+    o.udp_test_port = 1;   // nothing listens there: this guest's UDP never gets an answer
+    auto c = vnet::make_relay_client(o);
+    vnet::RoomConfig cfg = room_config();
+    cfg.local_comm_id = kLcid ^ static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    vnet::Joined ja, jb, jc;
+    REQUIRE(a->create(cfg, &ja) == 0);
+    REQUIRE(b->join(ja.room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    REQUIRE(c->join(ja.room_id, kVersion, cfg.pass_hash, &jc) == 0);
+    CHECK(wait_until([&] { return a->room().nodes.size() == 3; }));
+    if (no_udp) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        CHECK(!a->udp_active());
+        CHECK(!b->udp_active());
+    } else {
+        CHECK(wait_until([&] { return a->udp_active() && b->udp_active(); }));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    CHECK(!c->udp_active());
+    std::printf("  live udp: host %s, guest %s, blocked guest %s\n", a->udp_active() ? "UDP" : "TCP", b->udp_active() ? "UDP" : "TCP",
+                c->udp_active() ? "UDP" : "TCP");
+
+    vsock::Stack sa(a->link()), sb(b->link()), sc(c->link());
+    const int fa = sa.socket(2, 2, 0).ret, fb = sb.socket(2, 2, 0).ret, fc = sc.socket(2, 2, 0).ret;
+    REQUIRE(sa.bind(fa, {0, kPort}).ret == 0);
+    REQUIRE(sb.bind(fb, {0, kPort}).ret == 0);
+    REQUIRE(sc.bind(fc, {0, kPort}).ret == 0);
+    auto got = [&](vsock::Stack& st, int fd, const char* want, uint32_t from_ip) {
+        char buf[64] = {};
+        vsock::Addr from;
+        int n = -1;
+        wait_until([&] { return (n = st.recvfrom(fd, buf, sizeof buf, vsock::kMsgDontwait, &from).ret) > 0; });
+        return n == static_cast<int>(std::strlen(want)) && std::memcmp(buf, want, n) == 0 && from.ip == from_ip;
+    };
+    const vsock::Addr to_a{ja.vip, kPort}, to_b{jb.vip, kPort}, to_c{jc.vip, kPort};
+    CHECK_EQ(sa.sendto(fa, "a to b", 6, 0, &to_b).ret, 6);
+    CHECK(got(sb, fb, "a to b", ja.vip));
+    CHECK_EQ(sb.sendto(fb, "b to a", 6, 0, &to_a).ret, 6);
+    CHECK(got(sa, fa, "b to a", jb.vip));
+    CHECK_EQ(sa.sendto(fa, "a to c", 6, 0, &to_c).ret, 6);   // UDP in, TCP out
+    CHECK(got(sc, fc, "a to c", ja.vip));
+    CHECK_EQ(sc.sendto(fc, "c to b", 6, 0, &to_b).ret, 6);   // TCP in, UDP out
+    CHECK(got(sb, fb, "c to b", jc.vip));
+    std::printf("  live udp: host<->guest, host->blocked guest, blocked guest->guest delivered\n");
+
+    // leaving drops the room's token: the guest is back on TCP, a new join brings UDP back
+    b->leave();
+    CHECK(!b->udp_active());
+    REQUIRE(b->join(ja.room_id, kVersion, cfg.pass_hash, &jb) == 0);
+    if (!no_udp) CHECK(wait_until([&] { return b->udp_active(); }));
+    a->leave();
 }
 
 // The ldn service itself on a RelayClient (events and datagrams arrive on the reader thread): the process hosts through IPC, a second
@@ -730,4 +919,47 @@ NXTEST(ldn_live_relay_ipc) {
     CHECK_EQ(l.call(401).result, 0u);
     std::printf("  live ipc: guest left, network destroyed\n");
     kernel::handle_close(ev);
+}
+
+// Room codes: the code format (Crockford base32, pokopia-native's rules), the key that goes on the wire, and the relay's rule on the
+// loopback: a room made with a code is listed to and joinable by lobbies with the same code only; open rooms stay visible to everyone.
+NXTEST(ldn_room_codes) {
+    std::string n;
+    CHECK(vnet::room_code_normalize("abcd-efgh-jkmn-pqrs", &n));
+    CHECK(n == "ABCDEFGHJKMNPQRS");
+    CHECK(vnet::room_code_normalize(" o1il 2345 6789 TVWX ", &n));
+    CHECK(n == "011123456789TVWX");
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQR", &n));     // 15 symbols
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQRST", &n));   // 17
+    CHECK(!vnet::room_code_normalize("ABCDEFGHJKMNPQRU", &n));    // U is not in the alphabet
+    CHECK(vnet::room_code_format("ABCDEFGHJKMNPQRS") == "ABCD-EFGH-JKMN-PQRS");
+    const std::string a = vnet::room_code_new(), b = vnet::room_code_new();
+    CHECK(vnet::room_code_normalize(vnet::room_code_format(a), &n) && n == a);
+    CHECK(a != b);
+    // SHA-256("pokopia-relay room v1ABCDEFGHJKMNPQRS"), first 16 bytes (written out with Python's hashlib)
+    const std::array<uint8_t, 16> want{0x64, 0xe8, 0x1a, 0x86, 0x97, 0x5b, 0x93, 0x50, 0x6e, 0xe7, 0x85, 0x3f, 0xd6, 0xa3, 0xaa, 0x18};
+    CHECK(vnet::room_key("ABCDEFGHJKMNPQRS") == want);
+
+    vnet::LoopbackRelay relay;
+    const auto key = vnet::room_key(a), other_key = vnet::room_key(b);
+    auto host = relay.client("Host", key), lan_host = relay.client("LanHost");
+    auto visitor = relay.client("Visitor", key), stranger = relay.client("Stranger"), wrong = relay.client("Wrong", other_key);
+    vnet::Joined hj, lj, j;
+    REQUIRE(host->create(room_config(), &hj) == 0);
+    REQUIRE(lan_host->create(room_config(), &lj) == 0);
+    std::vector<vnet::Room> rooms;
+    CHECK_EQ(stranger->scan(0, 0xFFFF, &rooms), 0);
+    REQUIRE(rooms.size() == 1);
+    CHECK_EQ(rooms[0].room_id, lj.room_id);
+    CHECK_EQ(wrong->scan(0, 0xFFFF, &rooms), 0);
+    CHECK_EQ(rooms.size(), 1u);
+    CHECK_EQ(visitor->scan(0, 0xFFFF, &rooms), 0);
+    CHECK_EQ(rooms.size(), 2u);
+    const auto ph = room_config().pass_hash;
+    CHECK_EQ(stranger->join(hj.room_id, kVersion, ph, &j), vnet::kLobbyRoomCode);
+    CHECK_EQ(wrong->join(hj.room_id, kVersion - 1, ph, &j), vnet::kLobbyRoomCode);   // the code is checked before the version
+    REQUIRE(visitor->join(hj.room_id, kVersion, ph, &j) == 0);
+    CHECK_EQ(host->room().nodes.size(), 2u);
+    REQUIRE(wrong->join(lj.room_id, kVersion, ph, &j) == 0);   // an open room takes a lobby with any code
+    CHECK_EQ(lan_host->room().nodes.size(), 2u);
 }

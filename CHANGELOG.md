@@ -3,6 +3,19 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### What's new
+- Steam Deck, Legion Go S and other Linux / SteamOS players: the game now hands its drawing work to the graphics card from a separate
+  thread by default (`[nvn] submit_thread = auto`). On a Steam Deck this about doubles the frame rate (26 -> 53 fps, measured by a
+  player). Windows is unchanged. Set `submit_thread = false` in `pkp.ini` to go back.
+- Steam Deck, Legion Go S and other 16:10 screens: with `aspect = auto` the picture now fills the whole screen again, with the taller
+  view and objects and players at the right height (#73), instead of 16:9 with bars. Not yet verified in the world. Set
+  `taller_fov = false` under `[pkp]` in `pkp.ini` to go back to the bars.
+- A way out of the game besides Alt+F4 (#70): hold Select and Start (View and Menu on an Xbox pad) together, or press the
+  new "Quit game" button on the F1 page, and confirm "Close the game?" with A (B cancels). Save in the game first. The buttons can be
+  changed and a keyboard key added on the F1 page (Controls), or in `controls.ini` under `[quit]`.
+
 ## 0.4.1
 
 ### Fixes

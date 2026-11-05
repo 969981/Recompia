@@ -18,13 +18,17 @@ namespace nxrt::play {
 //  sticks    raw axis / 32768 (clamped to -1..1), y flipped (SDL y down = +, hid y up = +), radial dead zone cfg.stick_deadzone with the
 //            remaining travel rescaled to 0..1 ((len - dz) / (1 - dz)), then * 32767 rounded; the result is within +-32767.
 // Stick dead zones: cfg.stick_deadzone for the left stick, cfg.right_deadzone for the right one.
-// Outer zone (left stick only): cfg.stick_max (0.5..1, default 1 = off). The travel from the dead zone to stick_max is rescaled to 0..1, so a raw
-// radius at or past stick_max gives full deflection.
+// Outer zone: cfg.stick_max for the left stick, cfg.right_stick_max for the right one (0.5..1, default 0.92, 1 = off). The travel from the dead zone to
+// the outer zone is rescaled to 0..1 along the radius, so a raw radius at or past it gives full deflection.
 void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadInput* out);
 
 // The right stick as the game's look input, in play: vertical flipped when cfg.invert_y, both axes times cfg.look_sens (clamped to 0.25..3), then pulled back
 // onto the unit circle. Menus and the map do not call this (their stick is not a look).
 hid::StickValue adjust_look_stick(hid::StickValue right, const PadSettings& cfg);
+
+// The physical sources held on the raw pad, as a PadSrc bitmask (pad_src_bit): face buttons by position, the triggers past
+// cfg.trigger_threshold. Ignores cfg.remap (the quit shortcut, play.cpp, names physical buttons).
+uint32_t pad_src_held(const platform::GamepadRaw& raw, const PadSettings& cfg);
 
 // The Switch button bits the built-in mapping gives a physical source (the kPadDefault case of map_pad), for a pad with the printed labels
 // A B X Y on SOUTH EAST WEST NORTH (label_abxy true: South A, East B, West X, North Y; false: South B, East A, West Y, North X).

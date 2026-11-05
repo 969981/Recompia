@@ -10,6 +10,7 @@
 // neither the names nor the numbers carry is the c[0] offset a storage buffer's address was loaded from; that comes
 // from the harness's results.tsv (apply_harness).
 #include "nvn_shaders.h"
+#include "nvn_driver_bank.h"
 
 #include <windows.h>
 
@@ -810,17 +811,20 @@ std::string describe_like_harness(const ShaderReflection& refl) {
 
 // ---- one stage ------------------------------------------------------------------------------------------------------
 
-namespace {
 // NVN2 compute shaders read their resources from a per-program table in c[0] (Switch 1 used 0x210/0x310 and c[2]):
 // 0x10 header bytes, then 0x10 per uniform block descriptor, 0x10 per storage buffer descriptor, 8 per texture handle,
 // 8 per image handle, slot n = NVN binding n. The counts are control bytes +0xb1/+0xb2/+0xb3/+0xb6, and the table size at
 // u16 +0xba equals 0x10 + 0x10 * (ubos + ssbos) + 8 * (textures + images) in all 3,142 compute blocks of the corpus.
 // Checked on e764a3f2 (sb at 0x10), 62619a57 (3 ubos: sb at 0x40, texture at 0x50), 7dbc445a (texture 0x40, image 0x48)
 // and 0034791c (2 ubos, 30 textures from 0x30 by GLSLC binding, image at 0x120).
+// A texture binding whose handle word is in the image range is a size query (TXQ) on image n: the translator declares the
+// image's own handle as a texture next to the storage image (0034791c: texTexture2D[c0:72] and imgTexture3D[c0:72], the
+// froxel volume's textureSize). It is image binding n, read as a texture (nvn_replay.cpp image_as_texture); before, it stayed
+// Unknown and the query saw the 1x1 dummy. 255 compute blocks of the cache (volumetric fog, light injection) do this.
 void apply_nvn2_compute_table(ShaderReflection& refl, const ShaderControl& c) {
     if (!c.nvn2 || c.stage != 5) return;
-    const int ub0 = 0x10, sb0 = ub0 + 0x10 * c.c0_ubos, tex0 = sb0 + 0x10 * c.c0_ssbos;
-    const int img0 = tex0 + 8 * c.c0_textures, end = img0 + 8 * c.c0_images;
+    const Nvn2ComputeTable t = nvn2_compute_table(c);   // the same layout the replay fills (nvn_driver_bank.h)
+    const int ub0 = t.ubo0, sb0 = t.ssbo0, tex0 = t.tex0, img0 = t.img0, end = t.end;
     for (DescriptorBinding& b : refl.bindings) {
         NvnMeaning& m = b.nvn;
         if (b.type == DescriptorType::StorageBuffer) {
@@ -831,14 +835,13 @@ void apply_nvn2_compute_table(ShaderReflection& refl, const ShaderControl& c) {
         } else if (b.type != DescriptorType::UniformBuffer && m.bank == 0 && m.word >= 0) {
             const int off = m.word * 4;
             const bool image = b.type == DescriptorType::StorageImage || b.type == DescriptorType::StorageTexelBuffer;
-            const int base = image ? img0 : tex0, limit = image ? end : img0;
-            if (off < base || off >= limit || off % 8) continue;
-            m.source = image ? NvnSource::ImageBinding : NvnSource::SamplerBinding;
-            m.index = (off - base) / 8;
+            if (off % 8 || off < tex0 || off >= end || (image && off < img0)) continue;
+            const bool in_images = off >= img0;   // a texture here: the image's size query (above)
+            m.source = in_images ? NvnSource::ImageBinding : NvnSource::SamplerBinding;
+            m.index = (off - (in_images ? img0 : tex0)) / 8;
         }
     }
 }
-}  // namespace
 
 bool make_shader_info(const uint8_t* code, const uint8_t* control, std::vector<uint32_t> spirv,
                       const std::string* resources, ShaderInfo& out, std::string* error, const ShaderReflection* pre_refl) {

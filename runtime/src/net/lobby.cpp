@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Lobby implementations (see lobby.h): the relay protocol v1 client and the in-process LoopbackRelay, plus SHA-256 for the passphrase hash.
+// Lobby implementations (see lobby.h): the relay protocol v3 client and the in-process LoopbackRelay, plus SHA-256 for the passphrase hash.
 // Relay wire format (launcher/src-tauri/src/relay/mod.rs is the reference): frame = u32 len (bytes after it, 1..8192) + u8 type + payload,
 // little-endian; str = u8 len + UTF-8.
 // SHA-256 follows FIPS 180-4 (the round constants and the initial hash are the standard's).
@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -16,6 +17,19 @@
 
 #include "nxrt/log.h"
 #include "tcp.h"
+#include "udp.h"
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt")
+#endif
 
 #ifndef NXRT_BUILD_STAMP
 #define NXRT_BUILD_STAMP "nxrt-ldn-relay-1"
@@ -38,6 +52,7 @@ const char* lobby_err_str(int e) {
         case kLobbyRejected: return "rejected by the host";
         case kLobbyRate: return "rate limited by the server";
         case kLobbyBadFrame: return "the server refused a frame";
+        case kLobbyRoomCode: return "wrong room code";
         case kLobbyTimeout: return "no answer from the server";
         case kLobbyNoServer: return "not connected to the server";
         case kLobbyState: return "not allowed in this state";
@@ -117,6 +132,54 @@ std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n) {
     return out;
 }
 
+// From pokopia-native (MIT), windows/src/coop/coop_auth.c @7c3655d: the alphabet, coop_room_normalize, coop_room_new, coop_room_format.
+static const char kB32[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";   // Crockford's base32
+
+bool room_code_normalize(const std::string& in, std::string* out) {
+    std::string s;
+    for (char ch : in) {
+        if (ch == '-' || ch == ' ') continue;
+        if (ch >= 'a' && ch <= 'z') ch = static_cast<char>(ch - 'a' + 'A');
+        if (ch == 'O') ch = '0';
+        else if (ch == 'I' || ch == 'L') ch = '1';   // Crockford's reading of the look-alikes
+        if (!ch || !std::strchr(kB32, ch) || s.size() == kRoomCodeLen) return false;
+        s.push_back(ch);
+    }
+    if (s.size() != kRoomCodeLen) return false;
+    if (out) *out = s;
+    return true;
+}
+
+std::string room_code_format(const std::string& norm) {
+    std::string s;
+    for (size_t i = 0; i < norm.size(); ++i) {
+        if (i && i % 4 == 0) s.push_back('-');
+        s.push_back(norm[i]);
+    }
+    return s;
+}
+
+std::string room_code_new() {
+    uint8_t r[kRoomCodeLen];
+#ifdef _WIN32
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(nullptr, r, sizeof r, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) return {};
+#else
+    FILE* f = std::fopen("/dev/urandom", "rb");
+    const bool ok = f && std::fread(r, 1, sizeof r, f) == sizeof r;
+    if (f) std::fclose(f);
+    if (!ok) return {};
+#endif
+    std::string s(kRoomCodeLen, '0');
+    for (size_t i = 0; i < kRoomCodeLen; ++i) s[i] = kB32[r[i] & 31];   // 256 is a multiple of 32: no bias
+    std::memset(r, 0, sizeof r);
+    return s;
+}
+
+std::array<uint8_t, 16> room_key(const std::string& norm) {
+    const std::string m = "pokopia-relay room v1" + norm;
+    return passphrase_hash(m.data(), m.size());
+}
+
 namespace {
 
 std::array<uint8_t, 6> node_mac(uint32_t vip) {   // 02:00:a9:fe:R:N, the server's rule
@@ -124,15 +187,31 @@ std::array<uint8_t, 6> node_mac(uint32_t vip) {   // 02:00:a9:fe:R:N, the server
 }
 
 // =============================================================================================================================================
-// Relay protocol v1 codec
+// Relay protocol v3 codec
 // =============================================================================================================================================
 
 constexpr size_t kMaxFrame = 8192;
 
 enum : uint8_t {
     kHello = 0x01, kScan = 0x02, kCreate = 0x03, kJoin = 0x04, kLeave = 0x05, kAdvertise = 0x06, kReject = 0x07, kDatagram = 0x08, kPing = 0x09,
+    kUdpMode = 0x0A,
     kWelcome = 0x81, kError = 0x82, kRoomList = 0x83, kJoined = 0x84, kRoomState = 0x85, kSDatagram = 0x86, kLeft = 0x87, kPong = 0x88,
+    kUdpOffer = 0x89,
 };
+
+// v3 UDP packets: u8 type + u64 token, then (DATA) the datagram header and payload; no length prefix.
+enum : uint8_t { kUHello = 0x01, kUData = 0x08, kUAck = 0x81, kUSData = 0x86 };
+constexpr size_t kUHdr = 9, kUDataHdr = kUHdr + 8, kUSDataHdr = kUHdr + 12;
+constexpr int kUdpProbeMs = 100, kUdpProbeForMs = 3000, kUdpKeepaliveMs = 5000, kUdpDeadMs = 15000;
+
+void put_le(std::vector<uint8_t>& b, uint64_t v, int n) {
+    for (int i = 0; i < n; ++i) b.push_back(static_cast<uint8_t>(v >> (8 * i)));
+}
+uint64_t get_le(const uint8_t* p, int n) {
+    uint64_t v = 0;
+    for (int i = n - 1; i >= 0; --i) v = (v << 8) | p[i];
+    return v;
+}
 
 struct Out {
     std::vector<uint8_t> b;
@@ -229,7 +308,7 @@ public:
         std::lock_guard<std::mutex> rq(req_mu_);
         if (const int e = connect_locked()) return e;
         Out o(kScan);
-        o.u64(lcid).u16(scene);
+        o.u64(lcid).u16(scene).raw(opt_.room_key.data(), 16);
         const int e = request(o.finish(), kRoomList);
         if (e == 0 && out) {
             std::lock_guard<std::mutex> lk(mu_);
@@ -243,7 +322,7 @@ public:
         if (in_room()) return kLobbyState;
         Out o(kCreate);
         o.u64(c.local_comm_id).u16(c.scene_id).u16(static_cast<uint16_t>(c.comm_version)).u8(c.node_count_max).u8(c.security_mode);
-        o.raw(c.pass_hash.data(), 16);
+        o.raw(c.pass_hash.data(), 16).raw(opt_.room_key.data(), 16);
         std::vector<uint8_t> adv = c.adv;
         if (adv.size() > kMaxAdvertise) adv.resize(kMaxAdvertise);
         o.blob(adv);
@@ -254,7 +333,7 @@ public:
         if (const int e = connect_locked()) return e;
         if (in_room()) return kLobbyState;
         Out o(kJoin);
-        o.u32(room_id).u16(static_cast<uint16_t>(ver)).raw(hash.data(), 16);
+        o.u32(room_id).u16(static_cast<uint16_t>(ver)).raw(hash.data(), 16).raw(opt_.room_key.data(), 16);
         return finish_join(request(o.finish(), kJoined), out);
     }
     void leave() override {
@@ -299,12 +378,25 @@ public:
         const uint32_t me = local_ip();
         if (!me) return false;
         if (d.dst_ip == me) return true;   // the server drops self traffic; vsock already looped it back
+        const size_t n = d.data.size() < kMaxDatagram ? d.data.size() : kMaxDatagram;
+        if (udp_up_.load(std::memory_order_acquire)) {
+            std::vector<uint8_t> b;
+            b.reserve(kUDataHdr + n);
+            b.push_back(kUData);
+            put_le(b, udp_token_live_.load(std::memory_order_acquire), 8);
+            put_le(b, d.src_port, 2);
+            put_le(b, d.dst_ip, 4);
+            put_le(b, d.dst_port, 2);
+            b.insert(b.end(), d.data.data(), d.data.data() + n);
+            if (udp::send(udp_sock_.load(std::memory_order_acquire), b.data(), b.size())) return true;
+            // not sent (socket going away): this one over TCP
+        }
         Out o(kDatagram);
         o.u16(d.src_port).u32(d.dst_ip).u16(d.dst_port);
-        const size_t n = d.data.size() < kMaxDatagram ? d.data.size() : kMaxDatagram;
         o.u16(static_cast<uint16_t>(n)).raw(d.data.data(), n);
         return send_frame(o.finish());
     }
+    bool udp_active() const override { return udp_up_.load(std::memory_order_acquire); }
 
 private:
     enum Want : uint8_t { kNone = 0, kWantWelcome = kWelcome, kWantList = kRoomList, kWantJoined = kJoined };
@@ -318,26 +410,34 @@ private:
             if (last_err_ && std::chrono::steady_clock::now() - last_try_ < std::chrono::seconds(3)) return last_err_;
             last_try_ = std::chrono::steady_clock::now();
         }
-        join_threads();
-        std::string why;
-        const tcp::Handle h = tcp::dial(opt_.host, opt_.port, opt_.timeout_ms, opt_.timeout_ms, &why);
         const std::string where = opt_.host + ":" + std::to_string(opt_.port);
-        if (h == tcp::kBad) return fail_connect(kLobbyNoServer, where + ": " + why);
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            sock_ = h;
-            connected_ = true;   // provisional: the reader runs; WELCOME confirms
-            stop_ = false;
-        }
-        reader_ = std::thread([this] { read_loop(); });
-        Out o(kHello);
-        o.u16(kRelayProto).str(opt_.build_stamp).str(opt_.nickname, kMaxNick).str(opt_.password);
-        const int e = request(o.finish(), kWantWelcome);
-        if (e != kLobbyOk) {
+        for (;;) {
+            join_threads();
+            std::string why;
+            const tcp::Handle h = tcp::dial(opt_.host, opt_.port, opt_.timeout_ms, opt_.timeout_ms, &why);
+            if (h == tcp::kBad) return fail_connect(kLobbyNoServer, where + ": " + why);
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                sock_ = h;
+                connected_ = true;   // provisional: the reader runs; WELCOME confirms
+                stop_ = false;
+            }
+            reader_ = std::thread([this] { read_loop(); });
+            Out o(kHello);
+            o.u16(proto_).str(opt_.build_stamp).str(opt_.nickname, kMaxNick).str(opt_.password);
+            const int e = request(o.finish(), kWantWelcome);
+            if (e == kLobbyOk) break;
             disconnect();
+            if (e == kLobbyBadProto && proto_ > kRelayMinProto) {
+                // a relay from before the UDP path: the same connection again as protocol 2 (TCP only), and from now on
+                --proto_;
+                NXLOG_I("net", "ldn: relay %s speaks an older protocol: protocol %u, datagrams over TCP", where.c_str(), proto_);
+                continue;
+            }
             return fail_connect(e, where + ": " + (err_msg_.empty() ? lobby_err_str(e) : err_msg_));
         }
         pinger_ = std::thread([this] { ping_loop(); });
+        if (proto_ >= 3 && opt_.udp) udp_thread_ = std::thread([this] { udp_loop(); });
         {
             std::lock_guard<std::mutex> lk(mu_);
             last_err_ = 0;
@@ -403,6 +503,13 @@ private:
     }
 
     void clear_room() {   // caller holds mu_
+        // the relay drops the room's UDP token with the room: back to TCP until the next room's UDP_OFFER
+        if (udp_token_) {
+            udp_token_ = 0;
+            ++udp_gen_;
+            cv_.notify_all();
+        }
+        udp_up_.store(false, std::memory_order_release);
         in_room_ = false;
         vip_.store(0, std::memory_order_release);
         room_ = Room{};
@@ -516,6 +623,17 @@ private:
                 break;
             }
             case kPong: break;
+            case kUdpOffer: {
+                const uint64_t token = in.u64();
+                const uint16_t port = in.u16();
+                std::lock_guard<std::mutex> lk(mu_);
+                if (!in.ok || !in_room_) break;   // a token belongs to the room this lobby is in
+                udp_token_ = token;
+                udp_port_ = port;
+                ++udp_gen_;
+                cv_.notify_all();
+                break;
+            }
             default: NXLOG_D("net", "ldn: relay frame type 0x%02x ignored", type); break;
         }
     }
@@ -584,8 +702,98 @@ private:
         clear_room();
     }
 
+    // The v3 UDP datagram path (lobby.h, RelayClient). Owns the UDP socket; game threads only read udp_sock_ / udp_up_ to send.
+    void udp_loop() {
+        using clock = std::chrono::steady_clock;
+        uint32_t ip;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            ip = tcp::peer_ip(sock_);
+        }
+        udp::Handle u = udp::kBad;
+        uint64_t token = 0;
+        uint32_t gen = 0;
+        clock::time_point probe_until{}, next_hello{}, last_ack{};
+        bool socket_failed_logged = false;
+        std::vector<uint8_t> buf(kUSDataHdr + kMaxDatagram + 1);
+        auto close_socket = [&] {
+            udp_up_.store(false, std::memory_order_release);
+            udp_sock_.store(udp::kBad, std::memory_order_release);
+            udp::close(u);
+            u = udp::kBad;
+        };
+        auto mode = [&](bool on) {
+            Out o(kUdpMode);
+            o.u8(on ? 1 : 0);
+            send_frame(o.finish());
+        };
+        std::unique_lock<std::mutex> lk(mu_);
+        while (!stop_ && connected_) {
+            if (udp_gen_ != gen) {   // a new room's token, or the room is gone
+                gen = udp_gen_;
+                token = udp_token_;
+                const uint16_t port = opt_.udp_test_port ? opt_.udp_test_port : udp_port_;
+                udp_token_live_.store(token, std::memory_order_release);
+                lk.unlock();
+                close_socket();
+                if (token && ip) {
+                    std::string why;
+                    u = udp::open(ip, port, kUdpProbeMs, &why);
+                    if (u == udp::kBad && !socket_failed_logged) {
+                        NXLOG_W("net", "ldn: relay UDP socket: %s (datagrams stay on TCP)", why.c_str());
+                        socket_failed_logged = true;
+                    }
+                    udp_sock_.store(u, std::memory_order_release);
+                    probe_until = clock::now() + std::chrono::milliseconds(kUdpProbeForMs);
+                    next_hello = clock::now();
+                }
+                lk.lock();
+                continue;
+            }
+            if (!token || u == udp::kBad) {
+                cv_.wait_for(lk, std::chrono::milliseconds(250), [&] { return stop_ || !connected_ || udp_gen_ != gen; });
+                continue;
+            }
+            lk.unlock();
+            const auto now = clock::now();
+            if (now >= next_hello) {
+                std::vector<uint8_t> b{kUHello};
+                put_le(b, token, 8);
+                udp::send(u, b.data(), b.size());
+                next_hello = now + std::chrono::milliseconds(now < probe_until ? kUdpProbeMs : kUdpKeepaliveMs);
+            }
+            if (udp_up_.load(std::memory_order_acquire) && now - last_ack > std::chrono::milliseconds(kUdpDeadMs)) {
+                udp_up_.store(false, std::memory_order_release);
+                mode(false);
+                NXLOG_W("net", "ldn: relay UDP path lost (no answer for %d s): datagrams over TCP", kUdpDeadMs / 1000);
+            }
+            const int n = udp::recv(u, buf.data(), buf.size() - 1);   // waits up to kUdpProbeMs
+            if (n >= static_cast<int>(kUHdr) && n <= static_cast<int>(kUSDataHdr + kMaxDatagram) && get_le(buf.data() + 1, 8) == token) {
+                if (buf[0] == kUAck && n == static_cast<int>(kUHdr)) {
+                    last_ack = clock::now();
+                    if (!udp_up_.load(std::memory_order_acquire)) {
+                        udp_up_.store(true, std::memory_order_release);
+                        mode(true);
+                        NXLOG_I("net", "ldn: relay UDP path up: game datagrams over UDP");
+                    }
+                } else if (buf[0] == kUSData && n >= static_cast<int>(kUSDataHdr)) {
+                    Datagram d;
+                    d.src_ip = static_cast<uint32_t>(get_le(buf.data() + 9, 4));
+                    d.src_port = static_cast<uint16_t>(get_le(buf.data() + 13, 2));
+                    d.dst_ip = static_cast<uint32_t>(get_le(buf.data() + 15, 4));
+                    d.dst_port = static_cast<uint16_t>(get_le(buf.data() + 19, 2));
+                    d.data.assign(buf.data() + kUSDataHdr, buf.data() + n);
+                    if (local_ip() != 0) deliver(d);
+                }
+            }
+            lk.lock();
+        }
+        lk.unlock();
+        close_socket();
+    }
+
     void join_threads() {
-        for (std::thread* t : {&reader_, &pinger_}) {
+        for (std::thread* t : {&reader_, &pinger_, &udp_thread_}) {
             if (!t->joinable()) continue;
             if (t->get_id() == std::this_thread::get_id()) t->detach();   // the last owner let go inside an event sink
             else t->join();
@@ -606,7 +814,14 @@ private:
     std::condition_variable cv_;
     tcp::Handle sock_ = tcp::kBad;
     bool connected_ = false, stop_ = false;
-    std::thread reader_, pinger_;
+    std::thread reader_, pinger_, udp_thread_;
+    uint16_t proto_ = kRelayProto;   // drops to kRelayMinProto for an older relay
+    uint64_t udp_token_ = 0;         // the room's UDP token (0: none)
+    uint16_t udp_port_ = 0;
+    uint32_t udp_gen_ = 0;           // bumped on every token change
+    std::atomic<uint64_t> udp_token_live_{0};          // the token udp_sock_ proves (read by send())
+    std::atomic<udp::Handle> udp_sock_{udp::kBad};
+    std::atomic<bool> udp_up_{false};                  // ACKs come back: datagrams go over UDP
     uint8_t want_ = kNone;
     bool got_ = false;
     int got_err_ = 0;
@@ -637,6 +852,7 @@ struct LoopbackRelay::State {
     struct RoomS {
         Room info;
         std::array<uint8_t, 16> hash{};
+        std::array<uint8_t, 16> key{};   // all zero: an open room
         std::map<uint8_t, LoopbackLobby*> members;   // node id -> client
         std::set<const LoopbackLobby*> banned;
     };
@@ -649,7 +865,8 @@ public:
     using State = LoopbackRelay::State;
     using Work = std::vector<std::function<void()>>;   // what to run after the relay lock is released
 
-    LoopbackLobby(std::shared_ptr<State> st, std::string nick) : st_(std::move(st)), nick_(std::move(nick)) {}
+    LoopbackLobby(std::shared_ptr<State> st, std::string nick, const std::array<uint8_t, 16>& key)
+        : st_(std::move(st)), nick_(std::move(nick)), key_(key) {}
     ~LoopbackLobby() override { leave(); }
 
     int connect() override { return kLobbyOk; }
@@ -659,6 +876,7 @@ public:
         std::lock_guard<std::mutex> lk(st_->mu);
         out->clear();
         for (const auto& [id, r] : st_->rooms) {
+            if (r.key != std::array<uint8_t, 16>{} && r.key != key_) continue;   // hidden from lobbies without its code
             if (r.info.nodes.size() >= r.info.node_count_max) continue;
             if (lcid && r.info.local_comm_id != lcid) continue;
             if (scene != 0xFFFF && r.info.scene_id != scene) continue;
@@ -684,6 +902,7 @@ public:
             r.info.security_mode = c.security_mode;
             r.info.adv = c.adv;
             r.hash = c.pass_hash;
+            r.key = key_;
             enter(r, 0, &w);
             *out = {id, vip_, 0};
         }
@@ -699,6 +918,7 @@ public:
             auto it = st_->rooms.find(room_id);
             if (it == st_->rooms.end()) return kLobbyNoRoom;
             State::RoomS& r = it->second;
+            if (r.key != std::array<uint8_t, 16>{} && r.key != key_) return kLobbyRoomCode;   // checked first, like the relay
             if (r.banned.count(this)) return kLobbyRejected;
             if (r.info.nodes.size() >= r.info.node_count_max) return kLobbyRoomFull;
             if (r.info.comm_version != ver) return kLobbyVersion;
@@ -859,6 +1079,7 @@ private:
 
     std::shared_ptr<State> st_;
     std::string nick_;
+    std::array<uint8_t, 16> key_{};
     uint32_t room_id_ = 0;
     uint8_t node_ = 0;
     bool node_was_host_ = false;
@@ -872,6 +1093,8 @@ private:
 LoopbackRelay::LoopbackRelay() : st_(std::make_shared<State>()) {}
 LoopbackRelay::~LoopbackRelay() = default;
 
-std::shared_ptr<Lobby> LoopbackRelay::client(const std::string& nickname) { return std::make_shared<LoopbackLobby>(st_, nickname); }
+std::shared_ptr<Lobby> LoopbackRelay::client(const std::string& nickname, const std::array<uint8_t, 16>& room_key) {
+    return std::make_shared<LoopbackLobby>(st_, nickname, room_key);
+}
 
 }  // namespace nxrt::vnet

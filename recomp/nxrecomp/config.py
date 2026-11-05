@@ -41,6 +41,10 @@ class GameConfig:
     # time-limit fallback (cmake/nx_cc_launcher.py) lowers it when a file still takes too long
     optnone_insns = 20000
 
+    # spin loops (spin.py): their head also calls nx_spin_hint(2), the runtime's spin hook (`lift --spin-yield` turns it on too).
+    # Their loads are lifted as poll loads either way.
+    spin_yield = False
+
     # host function names to treat as noreturn-like terminators (none by default)
     noreturn_imports = ()
 

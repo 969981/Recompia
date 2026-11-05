@@ -123,8 +123,8 @@ public:
             },
             [](int v) { return std::to_wstring(v) + L"%"; });
         f.combo(
-            L"Face buttons", {L"By letter (Xbox A = Switch A)", L"By position"},
-            [](const Settings& s) { return s.pad.label_abxy ? 0 : 1; }, [](Settings& s, int i) { s.pad.label_abxy = (i == 0); });
+            L"Face buttons", {L"Switch layout (right = A, bottom = B)", L"Xbox layout (A = A, B = B)"},
+            [](const Settings& s) { return s.pad.label_abxy ? 1 : 0; }, [](Settings& s, int i) { s.pad.label_abxy = (i == 1); });
 
         f.columns(1);
         f.heading(L"Button layout");

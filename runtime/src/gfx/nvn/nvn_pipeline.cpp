@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -14,11 +15,15 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <intrin.h>
+#endif
 
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
+#include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_spirv_patch.h"
 #include "extras/hdr_nvn.h"
@@ -166,11 +171,30 @@ void pipeline_cache_flush() {
 }
 
 bool GraphicsKey::operator==(const GraphicsKey& o) const { return std::memcmp(this, &o, sizeof *this) == 0; }
+// In-process only: g_gfx buckets. The prewarm key file stores the key bytes and its own digest (nvn_prewarm.cpp digest_of), never this value,
+// so the function may change freely. The key has no padding (static_assert), so hashing its words covers exactly the bytes operator== compares.
+static_assert(sizeof(GraphicsKey) % 8 == 0 && alignof(GraphicsKey) >= 8, "GraphicsKey is hashed in 8-byte words");
+static_assert(offsetof(GraphicsKey, pad_) + sizeof(GraphicsKey::pad_) == offsetof(GraphicsKey, tess), "no padding before tess");
+static_assert(sizeof(KeyAttr) == 8, "KeyAttr has no padding");
 uint64_t GraphicsKey::hash() const {
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(this);
-    uint64_t h = 1469598103934665603ull;
-    for (size_t i = 0; i < sizeof *this; ++i) h = (h ^ p[i]) * 1099511628211ull;
-    return h;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(this);
+    constexpr uint64_t k0 = 0x9E3779B97F4A7C15ull, k1 = 0xC2B2AE3D27D4EB4Full;
+    uint64_t h = k0;
+    for (size_t i = 0; i < sizeof *this; i += 8) {
+        uint64_t w;
+        std::memcpy(&w, p + i, 8);
+        h ^= w;
+#if defined(_MSC_VER) && defined(_M_X64)
+        uint64_t hi;
+        const uint64_t lo = _umul128(h, k1, &hi);
+        h = lo ^ hi;
+#else
+        const unsigned __int128 m = static_cast<unsigned __int128>(h) * k1;
+        h = static_cast<uint64_t>(m) ^ static_cast<uint64_t>(m >> 64);
+#endif
+        h += k0;
+    }
+    return h ^ (h >> 32);
 }
 
 // A module for SPIR-V words. The translator declares OpCapability Float64 in every module although no module uses a 64-bit float;
@@ -195,9 +219,19 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
             code = &fixed;
         }
     }
+    // c[0] + 0x644 (the draw's base instance, which GLSLC adds to the instance ID) read as Vulkan's BaseInstance: right for direct,
+    // indirect and multi-draw indirect draws alike (spirv_base_instance_from_c0; the replay's c[0] bank holds only a direct draw's).
+    std::vector<uint32_t> base_inst;
+    if (spirv_base_instance_from_c0(*code, base_inst)) code = &base_inst;
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every
     // module goes through here, the ones spirv_add_outputs / spirv_gs_passthrough rewrote included. [nvn] init_outputs = false: off (A/B).
+    // [nvn] reduced_precision (default off): the module as the translator's reduced-precision mode writes it (spirv_reduced_precision:
+    // no NoContraction, Invariant Position). Done here, so a toggle costs new pipelines, not a new translation; the module words differ,
+    // so module_content_id, the driver's caches and the VkPipelineCache never hand a pipeline of the other mode.
+    static const bool reduced = config_get_bool("nvn", "reduced_precision", false);
+    std::vector<uint32_t> reduced_words;
+    if (reduced && spirv_reduced_precision(*code, reduced_words)) code = &reduced_words;
     static const bool init_outputs = config_get_bool("nvn", "init_outputs", true);
     std::vector<uint32_t> initialised;
     if (init_outputs && spirv_init_outputs(*code, initialised)) code = &initialised;
@@ -407,6 +441,8 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
             }
         }
     }
+    for (const BindingDesc& d : pl.bindings)
+        pl.c0_graphics |= d.nvn_stage != 5 && d.shader->refl.bindings[d.index].nvn.source == NvnSource::DriverConstants;
     // by (set, binding), as ProgLayout promises (build_set and the set_reuse memo walk this list in that order)
     std::sort(pl.bindings.begin(), pl.bindings.end(), [](const BindingDesc& a, const BindingDesc& b) {
         return a.set != b.set ? a.set < b.set : a.binding < b.binding;
@@ -577,7 +613,9 @@ VkPipeline build_graphics_pipeline(const GraphicsKey& key, const ProgLayout& lay
     bool binding_seen[16] = {};
     for (uint32_t i = 0; i < key.attr_count && i < 16; ++i) {
         const KeyAttr& a = key.attr[i];
-        va[nva++] = {a.location, a.binding, static_cast<VkFormat>(a.format), a.offset};
+        const VkFormat vf = format_guard().vertex_fetch_format(static_cast<VkFormat>(a.format));   // device without vertex fetch for it: sibling or left out
+        if (vf == VK_FORMAT_UNDEFINED) continue;
+        va[nva++] = {a.location, a.binding, vf, a.offset};
         if (!binding_seen[a.binding]) {
             binding_seen[a.binding] = true;
             vb[nvb++] = {a.binding, 0, key.binding_instance[a.binding] ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX};
@@ -616,7 +654,7 @@ VkPipeline build_graphics_pipeline(const GraphicsKey& key, const ProgLayout& lay
     VkPipelineColorBlendAttachmentState cba[8];
     for (uint32_t i = 0; i < key.color_count && i < 8; ++i) {
         cba[i] = {};
-        cba[i].blendEnable = key.blend_enable[i] ? VK_TRUE : VK_FALSE;
+        cba[i].blendEnable = key.blend_enable[i] && format_guard().blend_allowed(static_cast<VkFormat>(key.color_format[i])) ? VK_TRUE : VK_FALSE;
         cba[i].srcColorBlendFactor = static_cast<VkBlendFactor>(key.blend_src_rgb[i]);
         cba[i].dstColorBlendFactor = static_cast<VkBlendFactor>(key.blend_dst_rgb[i]);
         cba[i].colorBlendOp = static_cast<VkBlendOp>(key.blend_op_rgb[i]);
@@ -671,16 +709,35 @@ VkPipeline build_graphics_pipeline(const GraphicsKey& key, const ProgLayout& lay
     return pipe;
 }
 
+// The entry of the previous call (same key as the last draw: most state changes only re-ask for the same pipeline): skips hashing and the map.
+// Render thread only like g_gfx; `gen` drops it when g_gfx is cleared. Node pointers of unordered_map are stable; the vector inside is addressed by index.
+static uint32_t g_gfx_gen = 1;
+struct LastGfx {
+    GraphicsKey key;
+    std::vector<GfxEntry>* bucket = nullptr;
+    size_t idx = 0;
+    uint32_t gen = 0;
+};
+
+static VkPipeline take_entry(GfxEntry& e) {
+    counters().pipeline_cache_hits.fetch_add(1, std::memory_order_relaxed);
+    if (e.up && e.up->state.load(std::memory_order_acquire) != 0) gpl_take_upgrade(e.second, e.alt, e.up);
+    if (e.alt && gpl_ab_whole()) return e.alt;
+    return e.second;
+}
+
 VkPipeline graphics_pipeline(const GraphicsKey& key, const ProgLayout& layout) {
     ensure_cache();
+    static const bool use_last = nxrt::config_get_bool("nvn", "pipe_last", true);
+    static thread_local LastGfx last;
+    if (use_last && last.gen == g_gfx_gen && last.bucket && last.idx < last.bucket->size() && last.key == key)
+        return take_entry((*last.bucket)[last.idx]);
     const uint64_t h = key.hash();
     auto& bucket = g_gfx[h];
-    for (auto& e : bucket)
-        if (e.first == key) {
-            counters().pipeline_cache_hits.fetch_add(1, std::memory_order_relaxed);
-            if (e.up && e.up->state.load(std::memory_order_acquire) != 0) gpl_take_upgrade(e.second, e.alt, e.up);
-            if (e.alt && gpl_ab_whole()) return e.alt;
-            return e.second;
+    for (size_t i = 0; i < bucket.size(); ++i)
+        if (bucket[i].first == key) {
+            if (use_last) { last.key = key; last.bucket = &bucket; last.idx = i; last.gen = g_gfx_gen; }
+            return take_entry(bucket[i]);
         }
     prewarm_init();
     VkPipeline pipe = VK_NULL_HANDLE;
@@ -770,6 +827,7 @@ VkBuffer constant_data_buffer(const ShaderInfo* s, VkDeviceSize* range) {
     return it->second.first.buffer;
 }
 
+// The shared c[0] for the stages the replay does not fill per draw / dispatch (driver_bank_for in nvn_replay.cpp, nvn_driver_bank.h).
 VkBuffer driver_constants_buffer(VkDeviceSize* range) {
     if (!g_driver_const_made) {
         g_driver_const_made = true;
@@ -823,6 +881,7 @@ void pipeline_shutdown() {
             if (e.up && e.up->state.load() == 1 && e.up->pipe) vkDestroyPipeline(d, e.up->pipe, nullptr);     // built and never taken
         }
     g_gfx.clear();
+    ++g_gfx_gen;
     g_gfx_keys.sub(g_gfx_keys.get());
     gpl_shutdown();                              // the parts the pipelines were linked from
     for (auto& [k, p] : g_compute)

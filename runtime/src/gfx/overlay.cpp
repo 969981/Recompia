@@ -234,6 +234,12 @@ struct Overlay::Impl {
     int note_peak = 0;
     bool note_visible(double now_s);
     void draw_note(const FrameInfo& f);
+    // The "Save failed" notice (services_api.h fsapi::save_failures): shown for 10 s after a save commit was refused. Always on, also in
+    // screenshots: the player has to see it.
+    uint32_t save_seen = 0;
+    double save_until_s = -1.0;
+    bool save_notice_visible(double now_s);
+    void draw_save_notice(const FrameInfo& f);
 
     // The on-screen keyboard (services_api.h swkbdui). kb_mu guards the question and its text: key events edit it on the game's main thread,
     // the pad and the mouse in draw() on the presenting thread. Lock order: mu (ImGui), then kb_mu, then the swkbdui question's own lock.
@@ -259,6 +265,16 @@ struct Overlay::Impl {
     bool kb_press(const KbKey& k);        // kb_mu held: an on-screen key; true when it answered the question
     bool kb_key_event(const input::Event& e);   // a physical key or text; kb_mu and mu not held
     void draw_keyboard(double now_s);     // mu held, inside an ImGui frame
+
+    // The quit prompt (Overlay::open_quit_prompt). Flags only: opened from any thread, answered by key events (main thread), the pad
+    // (set_keyboard_pad, main thread) or the mouse (draw, presenting thread). A confirmed prompt stays open until the process ends.
+    std::atomic<bool> quit_open{false}, quit_confirmed{false};
+    void quit_answer(bool ok) {
+        if (ok) quit_confirmed = true;
+        else quit_open = false;
+    }
+    bool quit_key_event(const input::Event& e);   // a physical key while the prompt is open; always consumed
+    void draw_quit_prompt();              // mu held, inside an ImGui frame
 };
 
 void Overlay::Impl::build_ui() {
@@ -765,8 +781,66 @@ void Overlay::Impl::draw_keyboard(double now_s) {
     if (closed) clear_imgui_input(imgui);
 }
 
+bool Overlay::Impl::quit_key_event(const input::Event& e) {
+    if (e.type == input::EventType::KeyDown && !(e.flags & input::kFlagRepeat) && !quit_confirmed) {
+        switch (e.u.key.scancode) {
+            case SDL_SCANCODE_RETURN:
+            case SDL_SCANCODE_KP_ENTER:
+            case SDL_SCANCODE_SPACE: quit_answer(true); break;
+            case SDL_SCANCODE_ESCAPE: quit_answer(false); break;
+            default: break;
+        }
+    }
+    return true;
+}
+
+void Overlay::Impl::draw_quit_prompt() {
+    const ImVec2 disp = ImGui::GetIO().DisplaySize;
+    const float k = ui_scale > 0.f ? ui_scale : 1.f;
+    const float w = std::max(280.f, std::min(440.f * k, disp.x - 32.f * k));
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 110));
+    ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(w, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowFocus();
+    const ImGuiWindowFlags wf = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+                                ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar;
+    bool cancelled = false;
+    if (ImGui::Begin("Close the game?###nxrt_quit", nullptr, wf)) {
+        const bool done = quit_confirmed.load();
+        ImGui::PushTextWrapPos(0.f);
+        ImGui::TextUnformatted(done ? "Closing ..." : "Progress since the game's last save is lost.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const ImVec2 bs((ImGui::GetContentRegionAvail().x - gap) * 0.5f, std::round(ImGui::GetFontSize() * 2.2f));
+        ImGui::BeginDisabled(done);
+        if (ImGui::Button("Quit", bs)) quit_answer(true);
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", bs)) {
+            quit_answer(false);
+            cancelled = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::Spacing();
+        // the face buttons are Switch buttons after the player's mapping, named as in the on-screen keyboard's help line
+        const bool lab = kb_by_label.load(std::memory_order_relaxed);
+        ImGui::PushTextWrapPos(0.f);
+        ImGui::TextDisabled("Pad: %s quit, %s cancel", lab ? "A" : "A (right)", lab ? "B" : "B (bottom)");
+        ImGui::TextDisabled("Keyboard: Enter quit, Esc cancel");
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+    if (cancelled) clear_imgui_input(imgui);
+}
+
+void Overlay::open_quit_prompt() {
+    if (!impl_->quit_open.exchange(true)) NXLOG_I(kTag, "quit prompt opened");
+}
+bool Overlay::quit_prompt_open() const { return impl_->quit_open; }
+bool Overlay::take_quit_confirmed() { return impl_->quit_confirmed.exchange(false); }
+
 bool Overlay::keyboard_open() const { return impl_->kb_poll(); }
-bool Overlay::blocks_game() const { return impl_->visible || impl_->kb_poll(); }
+bool Overlay::blocks_game() const { return impl_->visible || impl_->quit_open || impl_->kb_poll(); }
 void Overlay::set_keyboard_abxy(bool by_label) { impl_->kb_by_label.store(by_label, std::memory_order_relaxed); }
 
 uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
@@ -777,8 +851,14 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
     if (lx >= kHalf) b |= hid::btn(hid::kBtnStickLRight);
     if (ly >= kHalf) b |= hid::btn(hid::kBtnStickLUp);       // hid y: up = +
     if (ly <= -kHalf) b |= hid::btn(hid::kBtnStickLDown);
-    const bool open = s.kb_poll();
-    if (open) {
+    const bool quit = s.quit_open;
+    const bool open = quit || s.kb_poll();
+    if (quit) {                      // the prompt takes the pad before the keyboard does: fresh presses of A and B answer it
+        const uint64_t fresh = b & ~s.pad_prev;
+        if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnA))) s.quit_answer(true);
+        else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnB))) s.quit_answer(false);
+        s.pad_mask = b;
+    } else if (open) {
         s.pad_new.fetch_or(b & ~s.pad_prev);
         s.pad_mask = b;
     } else {
@@ -802,8 +882,11 @@ bool Overlay::handle_event(const input::Event& e) {
         if (e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) toggle();
         return true;   // the toggle key never reaches the game (press, repeat and release)
     }
-    const bool kb = s.kb_poll();
-    if (kb && (e.type == EventType::KeyDown || e.type == EventType::KeyUp || e.type == EventType::Text)) return s.kb_key_event(e);
+    if (s.quit_open) {               // the quit prompt takes every key; the mouse goes to ImGui (its buttons), not to the game
+        if (e.type == EventType::KeyDown || e.type == EventType::KeyUp || e.type == EventType::Text) return s.quit_key_event(e);
+    }
+    const bool kb = s.kb_poll() || s.quit_open;
+    if (kb && !s.quit_open && (e.type == EventType::KeyDown || e.type == EventType::KeyUp || e.type == EventType::Text)) return s.kb_key_event(e);
     if (!s.visible && !kb) return false;
     std::lock_guard<std::mutex> lk(s.mu);
     ImGuiContext* prev = ImGui::GetCurrentContext();
@@ -844,7 +927,7 @@ bool Overlay::handle_event(const input::Event& e) {
         default: break;
     }
     ImGui::SetCurrentContext(prev);
-    // the on-screen keyboard takes the whole mouse while it is up
+    // the on-screen keyboard and the quit prompt take the whole mouse while they are up
     if (kb) consumed = e.type == EventType::MouseMotion || e.type == EventType::MouseButtonDown || e.type == EventType::MouseButtonUp || e.type == EventType::MouseWheel;
     return consumed;
 }
@@ -965,6 +1048,29 @@ void Overlay::Impl::draw_note(const FrameInfo& f) {
     dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 220), text);
 }
 
+bool Overlay::Impl::save_notice_visible(double now_s) {
+    const uint32_t n = services::fsapi::save_failures().count;
+    if (n != save_seen) {
+        save_seen = n;
+        save_until_s = now_s + 10.0;
+    }
+    return now_s < save_until_s;
+}
+
+void Overlay::Impl::draw_save_notice(const FrameInfo& f) {
+    char text[160];
+    std::snprintf(text, sizeof text, "Save failed: %s. The last good save is kept.", services::fsapi::save_failure_reason(services::fsapi::save_failures().host_error));
+    ImFont* font = ImGui::GetFont();
+    const float size = std::clamp(std::round(static_cast<float>(f.extent.height) / 45.f), 14.f, 36.f);
+    const float pad = size * 0.5f;
+    const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    const float W = static_cast<float>(f.extent.width);
+    const float x0 = (W - sz.x) * 0.5f - pad, y0 = size;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + sz.x + 2.f * pad, y0 + sz.y + 2.f * pad), IM_COL32(120, 0, 0, 200), size * 0.3f);
+    dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 255), text);
+}
+
 void Overlay::draw(const FrameInfo& f) {
     Impl& s = *impl_;
     const bool counter_on = s.counter_show.load(std::memory_order_relaxed);
@@ -972,8 +1078,10 @@ void Overlay::draw(const FrameInfo& f) {
     const double now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
     const bool note_on = s.note_visible(now_s) && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
     const bool ptr_on = s.ptr_show.load(std::memory_order_relaxed) && (s.ptr_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    const bool kb_on = s.kb_poll();
-    if (!s.visible && !counter_on && !note_on && !ptr_on && !kb_on) {
+    const bool quit_on = s.quit_open;
+    const bool kb_on = !quit_on && s.kb_poll();
+    const bool save_on = s.save_notice_visible(now_s);
+    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on) {
         s.last_frame = now;
         s.counter_was_on = false;
         return;
@@ -996,7 +1104,7 @@ void Overlay::draw(const FrameInfo& f) {
     }
     // a screenshot leaves the counter out unless asked for; with the menu hidden there is then nothing to draw
     const bool show_counter = counter_on && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    if (!s.visible && !show_counter && !note_on && !ptr_on && !kb_on) {
+    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on) {
         s.last_frame = now;
         return;
     }
@@ -1014,10 +1122,13 @@ void Overlay::draw(const FrameInfo& f) {
     s.update_scale(f.extent);
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
-    if (s.visible && !kb_on) s.build_ui();    // the keyboard is modal: the menu comes back once it is answered
+    // the keyboard and the quit prompt are modal: the menu (and a keyboard under the prompt) comes back once they are answered
+    if (s.visible && !kb_on && !quit_on) s.build_ui();
     if (kb_on) s.draw_keyboard(now_s);
+    if (quit_on) s.draw_quit_prompt();
     if (show_counter) s.draw_counter(f, now_s);
     if (note_on) s.draw_note(f);
+    if (save_on) s.draw_save_notice(f);
     if (ptr_on) {   // a plain arrow, white with a dark outline, sized with the frame height
         const float k = std::max(1.f, static_cast<float>(f.extent.height) / 720.f);
         const float x = s.ptr_x.load(std::memory_order_relaxed), y = s.ptr_y.load(std::memory_order_relaxed);

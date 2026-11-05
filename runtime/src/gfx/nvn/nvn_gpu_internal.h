@@ -322,9 +322,17 @@ VkImageView dummy_view(VkImageViewType type, bool depth_compare);
 // Stand-in for a depth-comparison sampler that meets the colour texture t: a 1x1 depth image holding the red value of t's first texel (what the console
 // compares against), viewed as `type`. Cached by value and per texture.
 VkImageView dcmp_view(Texture* t, VkImageViewType type);
+// A black 2D (or 2D array) texture of the given size, for a binding whose only use is a size query over an image that cannot be
+// viewed with the shader's type (a 2D view of a 3D image is no sampled view without VK_EXT_image_2d_view_of_3d). Cached per size;
+// null for other types or sizes past the device limits.
+VkImageView dummy_view_sized(VkImageViewType type, uint32_t width, uint32_t height, uint32_t layers);
 VkSampler dummy_sampler();
 // Sampler for the NVN sampler state (cached forever). Never null.
 VkSampler sampler_for(const SamplerInfo& s);
+// sampler_for for a sampler that reads an image of `image_format`: linear filters become nearest when the device cannot filter that format
+// (nvn_format_guard.h).
+VkSampler sampler_for(const SamplerInfo& s, VkFormat image_format);
+VkSampler sampler_for(const SamplerInfo& s, Texture* sampled);   // the image format of `sampled` (null or no image: unchanged)
 // Buffer <-> image copies with the NVN conventions (used by the replay for CopyBufferToTexture etc.).
 // Debug: the content of level 0 / layer 0 of a texture the GPU has written, as a PNG (HDR values squashed with x / (1 + x), integer
 // formats show their low bytes as colour) and its per-channel statistics. Render thread; waits for the GPU. False: not dumpable.

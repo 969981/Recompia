@@ -28,6 +28,7 @@
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/log.h"
 #include "nvn_decoded.h"
+#include "nvn_driver_bank.h"
 #include "nvn_enums.h"
 #include "nvn_format.h"
 #include "nvn_mask_clear.h"
@@ -38,6 +39,7 @@
 #include "extras/fsr1_spatial.h"
 #include "extras/spatial_upscaler.h"
 #include "extras/temporal.h"
+#include "nvn_key_check.h"
 #include "nvn_pipeline.h"
 #include "nvn_shaders.h"
 
@@ -183,6 +185,9 @@ VkPipeline g_bound_pipeline = VK_NULL_HANDLE;
 UploadAlloc g_support;
 UploadAlloc g_draw_support;     // the support buffer the next descriptor sets bind: g_support, or one with render scales (support_for_draw)
 std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
+std::unordered_map<uint64_t, UploadAlloc> g_driver_banks;     // this submission's filled c[0] banks (driver_bank_for), by content
+uint32_t g_draw_base_instance = 0;   // the base instance of the draw being set up, for graphics c[0] + 0x644 (0 for indirect draws)
+uint32_t g_bank_base_instance = 0;   // the one the bound descriptor sets hold
 MaskClear g_mask;
 bool g_mask_ready = false, g_mask_ok = false;
 // [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
@@ -914,6 +919,8 @@ TexResolved resolve_handle(uint64_t handle) {
     return r;
 }
 
+// ImageBinding: an NVN2 compute texture binding over the program's image slot n (its size query, apply_nvn2_compute_table): the image
+// bound there (an image handle names no sampler; image_as_texture binds the dummy sampler).
 TexResolved resolve_texture(const BindingDesc& d) {
     const DescriptorBinding& b = d.shader->refl.bindings[d.index];
     uint64_t handle = 0;
@@ -922,6 +929,9 @@ TexResolved resolve_texture(const BindingDesc& d) {
         if (idx >= 0 && idx < 64) handle = S.tex[d.nvn_stage][idx];
     } else if (b.nvn.source == NvnSource::HandleInUniform) {
         handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+    } else if (b.nvn.source == NvnSource::ImageBinding) {
+        const int idx = b.nvn.index;
+        if (idx >= 0 && idx < 16) handle = handle_texture_id(S.img[d.nvn_stage][idx]);   // texture id only (image_as_texture ignores the sampler)
     }
     const ProgLayout* pl = g_rc_pl;
     if (!pl || &d < pl->bindings.data() || &d >= pl->bindings.data() + pl->bindings.size()) return resolve_handle(handle);
@@ -1296,11 +1306,42 @@ void vol3d_prepare(const ProgLayout& pl) {
     }
 }
 
+// NVN2 compute: a texture binding over the program's image slot n (apply_nvn2_compute_table) is the shader's size query (TXQ) on the image it
+// writes (255 compute blocks: volumetric fog, light injection). Before, it was Unknown and the query saw the 1x1 dummy.
+// - real view: a sampled view of the image with the binding's type (the image always has SAMPLED usage), read in GENERAL: the same dispatch
+//   binds the image for storage (prepare_textures leaves it in GENERAL);
+// - stand-in: the translator types these handles 2D (StaticGpuAccessor answers 2D for every compute handle), and a 2D view of a 3D image is no
+//   sampled view without VK_EXT_image_2d_view_of_3d. Such a binding gets a black 2D (or 2D array) texture of the image's level size: the size
+//   query sees the real x/y (the depth needs the translator to type the handle 3D, which then takes the real view).
+bool image_as_texture_real(const DescriptorBinding& b, const TexResolved& r) {
+    return r.tex->b.target != NVN_TEXTURE_TARGET_3D || view_type_for(b) == VK_IMAGE_VIEW_TYPE_3D;
+}
+
+void image_as_texture(const BindingDesc& d, const DescriptorBinding& b, const TexResolved& r, VkDescriptorImageInfo& ii) {
+    if (!r.tex || !tex_gpu(r.tex)) return;
+    const ViewRequest q = make_request(b, r);
+    if (image_as_texture_real(b, r)) {
+        if (VkImageView v = tex_sampled_view(r.tex, q)) {
+            ii.imageView = v;
+            ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            return;
+        }
+    }
+    const VkExtent3D e = tex_extent(r.tex, q.base_level);
+    const uint32_t layers = r.tex->b.target == NVN_TEXTURE_TARGET_3D ? e.depth : q.layer_count ? q.layer_count : tex_layers(r.tex) - std::min(q.base_layer, tex_layers(r.tex));
+    VkImageView v = dummy_view_sized(q.type, e.width, e.height, layers);
+    if (v) ii.imageView = v;
+    if (first_time_key("image-size " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+        NXLOG_I(kTag, "compute %s binding %s: size query on image %u (%s, target %d, %ux%ux%u) through a %s stand-in of %ux%u (x%u)", d.shader->hash.c_str(),
+                b.name.c_str(), r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, e.width, e.height, e.depth, v ? "black" : "missing (dummy)",
+                e.width, e.height, layers);
+}
+
 // Makes the textures a draw samples current (uploaded, in their sampled layout) and the storage images it binds writable (GENERAL).
 // Ends the pass when it has to touch images. The depth attachment itself is left to the pass.
 void prepare_textures(const ProgLayout& pl) {
     vol3d_prepare(pl);
-    std::vector<Texture*> need, need_storage;
+    std::vector<Texture*> need, need_storage, need_general;
     for (const BindingDesc& d : pl.bindings) {
         if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
             TexResolved r = resolve_image(d);
@@ -1310,6 +1351,12 @@ void prepare_textures(const ProgLayout& pl) {
         }
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source == NvnSource::ImageBinding) {     // the size query over a compute image: read in GENERAL, as the image binding
+            TexResolved r = resolve_texture(d);
+            if (!r.tex || !tex_gpu(r.tex) || !image_as_texture_real(b, r)) continue;
+            if (r.tex->cpu_dirty.load() || tex_layout(r.tex) != VK_IMAGE_LAYOUT_GENERAL) need_general.push_back(r.tex);
+            continue;
+        }
         if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
         TexResolved r = resolve_texture(d);
         if (!r.tex) continue;
@@ -1321,9 +1368,10 @@ void prepare_textures(const ProgLayout& pl) {
             if (r.tex->cpu_dirty.load() && ft::on()) ft::mark(b.nvn.source == NvnSource::SamplerBinding ? "tx.dirty_bind" : "tx.dirty_uniform", r.tex->id);
         }
     }
-    if (need.empty() && need_storage.empty()) return;
+    if (need.empty() && need_storage.empty() && need_general.empty()) return;
     for (Texture* t : need) out_texture_read(t);           // an upload reads game memory: compute results held there go back first
     for (Texture* t : need_storage) out_texture_read(t);
+    for (Texture* t : need_general) out_texture_read(t);
     end_pass(true);     // layout changes and uploads follow: each carries the dependency for its own image
     counters().pass_breaks.fetch_add(1, std::memory_order_relaxed);
     for (Texture* t : need) {
@@ -1335,6 +1383,10 @@ void prepare_textures(const ProgLayout& pl) {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
         tex_mark_gpu_written(t);
+    }
+    for (Texture* t : need_general) {                      // after the storage images: the same image is left in GENERAL either way
+        tex_ensure_current(t, *F);
+        tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
     }
     gstamp("uploads/layouts");
 }
@@ -1789,6 +1841,8 @@ bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
             if (b.nvn.index >= 0 && b.nvn.index < 64) handle = S.tex[d.nvn_stage][b.nvn.index];
         } else if (b.nvn.source == NvnSource::HandleInUniform) {
             handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+        } else if (b.nvn.source == NvnSource::ImageBinding) {
+            if (b.nvn.index >= 0 && b.nvn.index < 16) handle = S.img[d.nvn_stage][b.nvn.index];
         } else {
             return false;
         }
@@ -1800,6 +1854,39 @@ bool set_memo_same(const SetMemo& a, const SetMemo& b) {
     return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
            a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
 }
+// c[0] of a stage that reads it, filled from the current bindings (nvn_driver_bank.h): a Switch 2 compute program's resource table
+// (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels); a graphics stage's storage
+// buffer table, point size and the draw's base instance. Copied into the upload ring once per distinct content per submission. A stage
+// the fill does not cover (Switch 1 compute) gets the shared bank (zeros, point size).
+VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
+    VkDeviceSize range = 0;
+    VkBuffer shared = driver_constants_buffer(&range);
+    VkDescriptorBufferInfo bi = {shared ? shared : dummy_buffer(), 0, shared ? range : 65536};
+    const ShaderControl& c = d.shader->control;
+    const bool compute = d.nvn_stage == kCompute;
+    if (compute && (!c.nvn2 || c.stage != 5)) return bi;
+    if (d.nvn_stage < 0 || d.nvn_stage > kCompute) return bi;
+    uint8_t bank[kDriverBankBytes];
+    DriverRange ubo[16], ssbo[16];
+    for (int n = 0; n < 16; ++n) {
+        ubo[n] = {S.ubo[d.nvn_stage][n].addr, S.ubo[d.nvn_stage][n].size};
+        ssbo[n] = {S.ssbo[d.nvn_stage][n].addr, S.ssbo[d.nvn_stage][n].size};
+    }
+    const uint32_t used = compute ? fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute])
+                                  : fill_driver_bank_graphics(bank, d.nvn_stage, ssbo, g_draw_base_instance);
+    uint64_t key = 1469598103934665603ull ^ used;
+    for (uint32_t i = 0; i < used; ++i) key = (key ^ bank[i]) * 1099511628211ull;
+    auto it = g_driver_banks.find(key);
+    if (it == g_driver_banks.end()) {
+        const VkDeviceSize align = std::max<VkDeviceSize>(device().properties().limits.minUniformBufferOffsetAlignment, 256);
+        UploadAlloc u = F->upload(kDriverBankBytes, align);
+        if (!u) return bi;
+        std::memcpy(u.ptr, bank, kDriverBankBytes);
+        it = g_driver_banks.emplace(key, u).first;
+    }
+    return {it->second.buffer, it->second.offset, kDriverBankBytes};
+}
+
 VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     static const bool reuse_on = set_reuse_on();
@@ -1854,12 +1941,9 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     bi = g_draw_support ? VkDescriptorBufferInfo{g_draw_support.buffer, g_draw_support.offset, sizeof(SupportBuffer)}
                                         : VkDescriptorBufferInfo{g_support.buffer, g_support.offset, sizeof(SupportBuffer)};
                     break;
-                case NvnSource::DriverConstants: {
-                    VkDeviceSize range = 0;
-                    VkBuffer buf = driver_constants_buffer(&range);
-                    if (buf) bi = {buf, 0, range};
+                case NvnSource::DriverConstants:
+                    bi = driver_bank_for(d);
                     break;
-                }
                 case NvnSource::ConstantData: {
                     VkDeviceSize range = 0;
                     VkBuffer buf = constant_data_buffer(d.shader, &range);
@@ -1957,6 +2041,10 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             RpScope rpt_(kRpTex, g_rp_fine);
             VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             TexResolved r = resolve_texture(d);
+            if (b.nvn.source == NvnSource::ImageBinding) {
+                image_as_texture(d, b, r, ii);
+                r.tex = nullptr;                                   // none of the texture paths below apply
+            }
             if (r.tex) {
                 const auto fb = g_fb_use.find(r.tex);
                 if (fb != g_fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
@@ -1991,7 +2079,7 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 if (v) {
                     ii.imageView = v;
                     ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
-                    if (r.has_sampler) ii.sampler = sampler_for(r.smp);
+                    if (r.has_sampler) ii.sampler = sampler_for(r.smp, r.tex);
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -2603,6 +2691,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
     ++g_draw_idx;
+    if (key_check_on()) key_check_draw(counters().presents.load(std::memory_order_relaxed));
     if (S.stage[kFragment] && skip_fs_draw(S.stage[kFragment]->hash)) return false;
     // Tessellation: Vulkan runs it only with both shaders and a patch list. NVN also allows an evaluation shader alone (fixed levels from
     // SetInner/OuterTessellationLevels): those draws get a generated pass-through control shader (passthrough_tcs_for).
@@ -2628,6 +2717,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     }
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
+    if (pl->c0_graphics && g_draw_base_instance != g_bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
     rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
@@ -2809,6 +2899,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
         RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        g_bank_base_instance = g_draw_base_instance;
     }
     if (pl->push_bytes && g_gen_tcs) {
         // the pass-through control shader's tessellation levels (NVN's fixed SetInner/OuterTessellationLevels), every draw: cheap, and
@@ -2985,6 +3076,7 @@ bool bind_u32_indices(const std::vector<uint32_t>& idx) {
 
 void do_draw_arrays(const P_DrawArrays& p) {
     count_primitives(p.mode, p.count, p.instance_count);
+    g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
@@ -3008,6 +3100,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
 
 void do_draw_elements(const P_DrawElements& p) {
     count_primitives(p.mode, p.count, p.instance_count);
+    g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (g_trace) {   // the indices and the first attributes of the first vertices
@@ -3173,6 +3266,9 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
 
 void do_draw_indirect(const P_DrawIndirect& p) {
     const bool indexed = p.type != 0xffffffffu;
+    // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
+    // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
+    g_draw_base_instance = 0;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), indexed, indexed ? static_cast<int>(p.type) : 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
@@ -3225,6 +3321,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     const uint32_t slot = it->second;
     end_pass();
     memory_barrier(F->cb);   // the section's writes (feedback buffer, counter) before the vertex fetch and the indirect read
+    g_draw_base_instance = 0;   // vkCmdDrawIndirectByteCountEXT draws from instance 0
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     uint32_t stride = g_key_attr_count ? S.stream[g_key_binding[0]].stride : 0;
@@ -3645,6 +3742,11 @@ void do_write_memory(uint64_t gpu_addr, const void* data, uint32_t size) {
 void apply_bind_program(const P_BindProgram& p) {
     for (int st = 0; st < 6; ++st)
         if (p.stages & (1u << st)) S.stage[st] = p.program ? p.program->stage[st] : nullptr;
+    if (key_check_on() && p.program) {   // [nvn] shader_key_check: a by-value copy of what SetShaders hashed, re-hashed at the first draw
+        KeyStage ks[6];
+        for (int st = 0; st < 6; ++st) ks[st] = {p.program->src_code[st], p.program->src_control[st], p.program->code_hash[st]};
+        key_check_bind(reinterpret_cast<uintptr_t>(p.program) ^ (static_cast<uintptr_t>(p.program->serial) << 48), ks);
+    }
     if (g_trace && (p.stages & (1u << kCompute))) {
         g_cs_missing = (p.program && !p.program->stage[kCompute]) ? std::string(p.program->missing) : std::string();
         if (!g_cs_missing.empty()) TRACE("bind program: compute block(s) %s not in the shader cache", g_cs_missing.c_str());
@@ -4248,6 +4350,7 @@ void replay_begin_submit(Frame& f) {
     // one support buffer per submission (Ryujinx SupportBuffer: render scales 1.0, no BGRA remap)
     g_support = f.upload(sizeof(SupportBuffer), 256);
     g_support_scaled.clear();
+    g_driver_banks.clear();
     g_draw_support = UploadAlloc();
     if (g_support) {
         SupportBuffer sb = support_buffer_defaults();

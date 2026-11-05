@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <tuple>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,6 +38,7 @@
 #include "nvn_dcmp.h"
 #include "nvn_enums.h"
 #include "nvn_format.h"
+#include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
 #include "extras/hdr_nvn.h"
 #include "nvn_texdata.h"
@@ -1059,14 +1061,18 @@ struct Shared {
     DcmpValues dcmp_vals;                           // depth-compare stand-ins by cleared value (dcmp_view)
     Dummy dcmp[kDcmpMaxValues][6];                  // ... per value and view type
     std::unordered_map<uint32_t, std::pair<uint32_t, float>> dcmp_tex;   // texture id -> (prep_gen when read, red of texel 0)
+    std::map<std::tuple<int, uint32_t, uint32_t, uint32_t>, Dummy> sized;   // (view type, width, height, layers): dummy_view_sized
 };
 Shared g_sh;
 
-bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 1.0f) {
+bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 1.0f, uint32_t width = 1, uint32_t height = 1, uint32_t layers2d = 1) {
     d.tried = true;
     const VkFormat fmt = depth ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     gfx::ImageDesc id;
     id.format = fmt;
+    id.width = width;
+    id.height = height;
+    if (type == VK_IMAGE_VIEW_TYPE_2D_ARRAY) id.array_layers = layers2d;
     id.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     id.create_view = false;
     id.name = depth ? "nvn dummy depth" : "nvn dummy";
@@ -2311,6 +2317,17 @@ VkImageView dcmp_view(Texture* t, VkImageViewType type) {
     return d.view;
 }
 
+VkImageView dummy_view_sized(VkImageViewType type, uint32_t width, uint32_t height, uint32_t layers) {
+    if (type != VK_IMAGE_VIEW_TYPE_2D && type != VK_IMAGE_VIEW_TYPE_2D_ARRAY) return VK_NULL_HANDLE;
+    const auto& lim = device().properties().limits;
+    if (!width || !height || width > lim.maxImageDimension2D || height > lim.maxImageDimension2D) return VK_NULL_HANDLE;
+    if (type == VK_IMAGE_VIEW_TYPE_2D) layers = 1;
+    if (!layers || layers > lim.maxImageArrayLayers) return VK_NULL_HANDLE;
+    Dummy& d = g_sh.sized[{static_cast<int>(type), width, height, layers}];
+    if (!d.tried) make_dummy(d, type, false, 1.0f, width, height, layers);
+    return d.view;
+}
+
 VkImageView dummy_storage_view(VkImageViewType type, VkFormat format) {
     if (format == VK_FORMAT_UNDEFINED) format = VK_FORMAT_R8G8B8A8_UNORM;
     if (type == VK_IMAGE_VIEW_TYPE_CUBE || type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY) type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -2397,6 +2414,18 @@ VkSampler sampler_for(const SamplerInfo& game_sampler) {
     return v;
 }
 
+VkSampler sampler_for(const SamplerInfo& s, VkFormat image_format) {
+    SamplerInfo l = s;
+    float aniso = l.max_anisotropy;
+    if (format_guard().limit_sampler(image_format, &l.min_filter, &l.mag_filter, &aniso)) l.max_anisotropy = aniso;
+    return sampler_for(l);
+}
+
+VkSampler sampler_for(const SamplerInfo& s, Texture* sampled) {
+    const TexGpu* g = sampled ? tex_gpu(sampled) : nullptr;
+    return g ? sampler_for(s, g->format) : sampler_for(s);
+}
+
 void tex_destroy(TexGpu* g) {
     if (!g) return;
     if (--g->refs > 0) return;   // another texture object over the same storage still uses the image
@@ -2446,6 +2475,10 @@ void tex_shutdown() {
     g_sh.samplers.clear();
     if (g_sh.dummy_sampler != VK_NULL_HANDLE) { vkDestroySampler(vkdev(), g_sh.dummy_sampler, nullptr); vk_gauge_samplers().sub(1); }
     for (auto& kv : g_sh.storage) {
+        if (kv.second.view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), kv.second.view, nullptr); vk_gauge_image_views().sub(1); }
+        device().destroy_image(kv.second.img);
+    }
+    for (auto& kv : g_sh.sized) {
         if (kv.second.view != VK_NULL_HANDLE) { vkDestroyImageView(vkdev(), kv.second.view, nullptr); vk_gauge_image_views().sub(1); }
         device().destroy_image(kv.second.img);
     }

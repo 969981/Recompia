@@ -96,7 +96,20 @@ void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadI
     out->buttons = bits;
     const double lmax = std::clamp(cfg.stick_max, 0.5, 1.0);
     out->left = stick(norm_axis(raw.axes[kAxisLeftX]), -norm_axis(raw.axes[kAxisLeftY]), dz, lmax);
-    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz, 1.0);
+    out->right = stick(norm_axis(raw.axes[kAxisRightX]), -norm_axis(raw.axes[kAxisRightY]), rdz, std::clamp(cfg.right_stick_max, 0.5, 1.0));
+}
+
+uint32_t pad_src_held(const platform::GamepadRaw& raw, const PadSettings& cfg) {
+    uint32_t held = 0;
+    for (int pos = 0; pos < 4; ++pos) {   // SOUTH EAST WEST NORTH share their numbers with PadSrc
+        if (raw.buttons & (1u << pos)) held |= pad_src_bit(static_cast<PadSrc>(pos));
+    }
+    for (const ButtonMap& m : kOtherButtons) {
+        if (raw.buttons & (1u << m.sdl)) held |= pad_src_bit(m.src);
+    }
+    if (raw.axes[kAxisLeftTrigger] / 32767.0 >= cfg.trigger_threshold) held |= pad_src_bit(PadSrc::LeftTrigger);
+    if (raw.axes[kAxisRightTrigger] / 32767.0 >= cfg.trigger_threshold) held |= pad_src_bit(PadSrc::RightTrigger);
+    return held;
 }
 
 hid::StickValue adjust_look_stick(hid::StickValue right, const PadSettings& cfg) {

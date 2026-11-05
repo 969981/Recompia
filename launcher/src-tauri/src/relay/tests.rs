@@ -5,7 +5,7 @@ use super::codec::{self, FrameError, MAX_FRAME};
 use super::proto::*;
 use super::server::{Config, RelayServer};
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
 
 fn create_req(max: u8) -> CreateReq {
@@ -16,6 +16,7 @@ fn create_req(max: u8) -> CreateReq {
         node_count_max: max,
         security_mode: 1,
         pass_hash: [7; 16],
+        room_key: NO_KEY,
         adv: b"adv-1".to_vec(),
     }
 }
@@ -35,15 +36,17 @@ fn room_info(nodes: u8, adv: usize) -> RoomInfo {
 
 fn client_msgs() -> Vec<ClientMsg> {
     vec![
-        ClientMsg::Hello { proto: 1, build: "stamp".into(), nickname: "ナンジャモ".into(), password: "".into() },
-        ClientMsg::Scan { local_comm_id: u64::MAX, scene_id: 0xffff },
+        ClientMsg::Hello { proto: PROTO, build: "stamp".into(), nickname: "ナンジャモ".into(), password: "".into() },
+        ClientMsg::Scan { local_comm_id: u64::MAX, scene_id: 0xffff, room_key: [0x11; 16] },
         ClientMsg::Create(create_req(8)),
-        ClientMsg::Join { room_id: 0xffff_fffe, comm_version: -1, pass_hash: [0xee; 16] },
+        ClientMsg::Join { room_id: 0xffff_fffe, comm_version: -1, pass_hash: [0xee; 16], room_key: [0x5a; 16] },
         ClientMsg::Leave,
         ClientMsg::Advertise(vec![1; MAX_ADV]),
         ClientMsg::Reject { vip: 0xa9fe_0104 },
         ClientMsg::Datagram { src_port: 49530, dst_ip: 0xa9fe_01ff, dst_port: 49530, data: vec![9; MAX_DATA] },
         ClientMsg::Ping(0x1234_5678),
+        ClientMsg::UdpMode(true),
+        ClientMsg::UdpMode(false),
     ]
 }
 
@@ -57,6 +60,7 @@ fn server_msgs() -> Vec<ServerMsg> {
         ServerMsg::Datagram { src_ip: 1, src_port: 2, dst_ip: 3, dst_port: 4, data: vec![5; MAX_DATA] },
         ServerMsg::Left(left::SHUTDOWN),
         ServerMsg::Pong(42),
+        ServerMsg::UdpOffer { token: 0x0123_4567_89ab_cdef, port: 39660 },
     ]
 }
 
@@ -92,7 +96,7 @@ fn codec_rejects_malformed() {
     assert_eq!(codec::split(&(MAX_FRAME as u32 + 1).to_le_bytes()), Err(FrameError::TooLong(MAX_FRAME as u32 + 1)));
     assert_eq!(codec::split(&u32::MAX.to_le_bytes()), Err(FrameError::TooLong(u32::MAX)));
     // unknown types, both directions
-    for ty in [0x00, 0x0a, 0x80, 0x89, 0xff] {
+    for ty in [0x00, 0x0b, 0x80, 0x8a, 0xff] {
         assert!(ClientMsg::decode(ty, &[0; 16]).is_err());
         assert!(ServerMsg::decode(ty, &[0; 16]).is_err());
     }
@@ -128,6 +132,38 @@ fn codec_rejects_malformed() {
     assert!(enc(ClientMsg::Hello { proto: 1, build: "".into(), nickname: "n".repeat(MAX_NICK + 1), password: "".into() }).is_err());
     // invalid UTF-8 in a str
     assert!(ClientMsg::decode(0x01, &[1, 0, 1, 0xff, 0, 0]).is_err());
+    // UDP_MODE is 0 or 1
+    assert!(ClientMsg::decode(0x0a, &[2]).is_err());
+}
+
+#[test]
+fn udp_codec() {
+    let data = vec![3u8; MAX_DATA];
+    for p in [
+        udp::Packet::Hello,
+        udp::Packet::Ack,
+        udp::Packet::Data { src_port: 1, dst_ip: 2, dst_port: 3, data: &data },
+        udp::Packet::SData { src_ip: 4, src_port: 5, dst_ip: 6, dst_port: 7, data: &data },
+        udp::Packet::Data { src_port: 1, dst_ip: 2, dst_port: 3, data: &[] },
+    ] {
+        let b = udp::encode(0xfeed_f00d_dead_beef, &p);
+        assert!(b.len() <= udp::MAX_PACKET);
+        assert_eq!(udp::decode(&b), Some((0xfeed_f00d_dead_beef, p.clone())));
+        let min = match p {
+            udp::Packet::Hello | udp::Packet::Ack => udp::HDR,
+            udp::Packet::Data { .. } => udp::DATA_HDR,
+            udp::Packet::SData { .. } => udp::SDATA_HDR,
+        };
+        for cut in 0..min {
+            assert!(udp::decode(&b[..cut]).is_none(), "{:?} cut {}", p, cut);
+        }
+    }
+    // trailing bytes after HELLO, unknown type, over-long DATA
+    assert!(udp::decode(&[udp::HELLO, 0, 0, 0, 0, 0, 0, 0, 0, 0]).is_none());
+    assert!(udp::decode(&[0x55, 0, 0, 0, 0, 0, 0, 0, 0]).is_none());
+    let mut over = udp::encode(1, &udp::Packet::Data { src_port: 0, dst_ip: 0, dst_port: 0, data: &data });
+    over.push(0);
+    assert!(udp::decode(&over).is_none());
 }
 
 #[test]
@@ -219,7 +255,7 @@ impl Tc {
         }
     }
     fn rooms(&mut self, local_comm_id: u64, scene_id: u16) -> Vec<RoomInfo> {
-        self.send(ClientMsg::Scan { local_comm_id, scene_id });
+        self.send(ClientMsg::Scan { local_comm_id, scene_id, room_key: NO_KEY });
         match self.recv() {
             ServerMsg::RoomList(r) => r,
             m => panic!("expected ROOM_LIST, got {:?}", m),
@@ -228,7 +264,16 @@ impl Tc {
 }
 
 fn hello_msg(build: &str, nick: &str, pw: &str) -> ClientMsg {
-    ClientMsg::Hello { proto: PROTO, build: build.into(), nickname: nick.into(), password: pw.into() }
+    ClientMsg::Hello { proto: 2, build: build.into(), nickname: nick.into(), password: pw.into() }
+}
+
+/// A v3 client: WELCOME and nothing else (a token comes only with a room).
+fn player_v3(addr: SocketAddr, nick: &str) -> Tc {
+    let mut c = Tc::connect(addr);
+    c.send(ClientMsg::Hello { proto: PROTO, build: "B1".into(), nickname: nick.into(), password: "pw".into() });
+    assert!(matches!(c.recv(), ServerMsg::Welcome { .. }));
+    c.quiet();
+    c
 }
 
 fn player(addr: SocketAddr, nick: &str) -> Tc {
@@ -254,8 +299,10 @@ fn hello_is_checked() {
     for (msg, code) in [
         (hello_msg("B2", "a", "pw"), err::BUILD),
         (hello_msg("B1", "a", "nope"), err::PASSWORD),
-        (ClientMsg::Hello { proto: 2, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
-        (ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff }, err::BAD_FRAME),
+        // protocol 1 (no room keys) and a newer one are refused
+        (ClientMsg::Hello { proto: 1, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
+        (ClientMsg::Hello { proto: PROTO + 1, build: "B1".into(), nickname: "a".into(), password: "pw".into() }, err::BAD_PROTO),
+        (ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: NO_KEY }, err::BAD_FRAME),
     ] {
         let mut c = Tc::connect(addr);
         c.send(msg);
@@ -292,18 +339,18 @@ fn four_players() {
     assert!(g1.rooms(0, 2).is_empty());
 
     // join errors
-    g1.send(ClientMsg::Join { room_id: 9, comm_version: 3, pass_hash: H });
+    g1.send(ClientMsg::Join { room_id: 9, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g1.expect_error(err::NO_ROOM);
-    g1.send(ClientMsg::Join { room_id: 1, comm_version: 4, pass_hash: H });
+    g1.send(ClientMsg::Join { room_id: 1, comm_version: 4, pass_hash: H, room_key: NO_KEY });
     g1.expect_error(err::VERSION);
-    g1.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: [8; 16] });
+    g1.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: [8; 16], room_key: NO_KEY });
     g1.expect_error(err::PASSWORD);
 
     // three joins: .2 .3 .4, ROOM_STATE to every member
     let mut members = vec![(0, ip(1, 1), "host".to_string())];
     for (i, g) in [&mut g1, &mut g2, &mut g3].into_iter().enumerate() {
         let n = i as u8 + 2;
-        g.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+        g.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
         assert_eq!(g.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, n), node_id: n - 1 });
         members.push((n - 1, ip(1, n), format!("g{}", i + 1)));
         assert_eq!(vips(&g.room_state()), members);
@@ -322,7 +369,7 @@ fn four_players() {
     // room full: a 5th player cannot join and no longer sees it in SCAN
     let mut g4 = player(addr, "g4");
     assert!(g4.rooms(0, 0xffff).is_empty());
-    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g4.expect_error(err::ROOM_FULL);
 
     let st = srv.status();
@@ -369,7 +416,7 @@ fn four_players() {
     for c in [&mut host, &mut g1, &mut g2] {
         assert_eq!(vips(&c.room_state()), members);
     }
-    g3.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g3.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     g3.expect_error(err::REJECTED);
 
     // guest leaves: LEFT 0, ROOM_STATE to the rest
@@ -380,7 +427,7 @@ fn four_players() {
         assert_eq!(vips(&c.room_state()), members);
     }
     // g4 takes the lowest free address again (.3)
-    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    g4.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     assert_eq!(g4.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 3), node_id: 2 });
     g4.room_state();
     host.room_state();
@@ -406,7 +453,7 @@ fn keepalive_timeout_drops_silent_clients() {
     host.recv();
     host.room_state();
     let mut guest = player(addr, "guest");
-    guest.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H });
+    guest.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
     guest.recv();
     guest.room_state();
     host.room_state();
@@ -466,4 +513,414 @@ fn rate_limit_and_server_full_and_stop() {
         assert!(c.closed(Duration::from_secs(5)));
     }
     assert!(TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_err());
+}
+
+// ---- room codes ----
+
+const K: [u8; 16] = [0x4b; 16];
+const W: [u8; 16] = [0x57; 16];
+
+fn keyed(max: u8, key: [u8; 16]) -> CreateReq {
+    CreateReq { room_key: key, ..create_req(max) }
+}
+
+impl Tc {
+    fn rooms_with(&mut self, key: [u8; 16]) -> Vec<u32> {
+        self.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: key });
+        match self.recv() {
+            ServerMsg::RoomList(r) => r.iter().map(|r| r.room_id).collect(),
+            m => panic!("expected ROOM_LIST, got {:?}", m),
+        }
+    }
+    fn join_with(&mut self, room_id: u32, key: [u8; 16]) {
+        self.send(ClientMsg::Join { room_id, comm_version: 3, pass_hash: H, room_key: key });
+    }
+}
+
+#[test]
+fn room_code_hides_and_guards_the_room() {
+    let srv = server(Duration::from_secs(15));
+    let addr = srv.local_addr();
+    // room 1 with code K, room 2 open (LAN play as before)
+    let mut host = player(addr, "host");
+    host.send(ClientMsg::Create(keyed(4, K)));
+    assert_eq!(host.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 1), node_id: 0 });
+    host.room_state();
+    let mut open = player(addr, "open");
+    open.send(ClientMsg::Create(create_req(4)));
+    assert!(matches!(open.recv(), ServerMsg::Joined { room_id: 2, .. }));
+    open.room_state();
+    let st = srv.status();
+    assert_eq!(st.rooms.iter().map(|r| (r.room_id, r.private)).collect::<Vec<_>>(), vec![(1, true), (2, false)]);
+
+    // hidden: no key or another key sees only the open room; the right key sees both
+    let mut stranger = player(addr, "stranger");
+    assert_eq!(stranger.rooms_with(NO_KEY), vec![2]);
+    let mut other = player(addr, "other");
+    assert_eq!(other.rooms_with(W), vec![2]);
+    let mut visitor = player(addr, "visitor");
+    assert_eq!(visitor.rooms_with(K), vec![1, 2]);
+
+    // wrong code: no key or a wrong key -> ERROR 11 before any other check (the room is not full, version is right ...)
+    stranger.join_with(1, NO_KEY);
+    stranger.expect_error(err::ROOM_CODE);
+    other.join_with(1, W);
+    other.expect_error(err::ROOM_CODE);
+    // a connection keeps its first key: switching keys counts as a wrong code
+    other.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: K });
+    other.expect_error(err::ROOM_CODE);
+    // the open room takes anyone, with or without a key
+    stranger.join_with(2, NO_KEY);
+    assert!(matches!(stranger.recv(), ServerMsg::Joined { room_id: 2, .. }));
+
+    // right code joins
+    visitor.join_with(1, K);
+    assert_eq!(visitor.recv(), ServerMsg::Joined { room_id: 1, vip: ip(1, 2), node_id: 1 });
+    assert_eq!(vips(&visitor.room_state()).len(), 2);
+    assert_eq!(vips(&host.room_state()).len(), 2);
+}
+
+#[test]
+fn room_code_rate_limit() {
+    let srv = server(Duration::from_secs(15));
+    let addr = srv.local_addr();
+    let mut host = player(addr, "host");
+    host.send(ClientMsg::Create(keyed(8, K)));
+    host.recv();
+    host.room_state();
+
+    // per connection: 4 wrong codes answered with ERROR 11, the 5th gets ERROR 9 and the connection is closed
+    let mut guesser = player(addr, "guess");
+    for i in 0..4u8 {
+        guesser.join_with(1, [i + 1; 16]);
+        guesser.expect_error(err::ROOM_CODE);
+    }
+    guesser.join_with(1, [9; 16]);
+    guesser.expect_error(err::RATE);
+    assert!(guesser.closed(Duration::from_secs(5)));
+
+    // per address: 30 wrong codes (5 so far) in 10 minutes, then every request with a key from it is refused, the right key too;
+    // requests without a key still work
+    let mut fails = 5;
+    let mut conns = 0;
+    while fails < 30 {
+        let mut g = player(addr, "guess");
+        conns += 1;
+        for i in 0..4u8 {
+            g.join_with(1, [0x80 + i; 16]);
+            fails += 1;
+            if fails >= 30 {
+                g.expect_error(err::RATE);
+                assert!(g.closed(Duration::from_secs(5)));
+                break;
+            }
+            g.expect_error(err::ROOM_CODE);
+        }
+    }
+    assert!(conns <= 7, "{}", conns);
+    let mut late = player(addr, "late");
+    late.send(ClientMsg::Scan { local_comm_id: 0, scene_id: 0xffff, room_key: K });
+    late.expect_error(err::RATE);
+    assert!(late.closed(Duration::from_secs(5)));
+    let mut lan = player(addr, "lan");
+    assert!(lan.rooms_with(NO_KEY).is_empty());
+    lan.join_with(1, K);
+    lan.expect_error(err::RATE);
+    // the host's room is untouched
+    host.quiet();
+}
+
+// ---- v3 UDP path ----
+
+/// A UDP test socket talking to the server's UDP port with one token.
+struct Uc {
+    s: UdpSocket,
+    token: u64,
+    to: SocketAddr,
+}
+
+impl Uc {
+    fn new(server: SocketAddr, (token, port): (u64, u16)) -> Uc {
+        let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+        Uc { s, token, to: SocketAddr::new(server.ip(), port) }
+    }
+    fn send(&self, p: &udp::Packet) {
+        self.s.send_to(&udp::encode(self.token, p), self.to).unwrap();
+    }
+    fn send_raw(&self, b: &[u8]) {
+        self.s.send_to(b, self.to).unwrap();
+    }
+    /// Next packet within `wait` (raw bytes).
+    fn try_recv(&self, wait: Duration) -> Option<Vec<u8>> {
+        self.s.set_read_timeout(Some(wait)).unwrap();
+        let mut b = vec![0u8; 8192];
+        loop {
+            match self.s.recv_from(&mut b) {
+                Ok((n, _)) => return Some(b[..n].to_vec()),
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => return None,
+                Err(_) => continue, // Windows: ICMP reset of an earlier send
+            }
+        }
+    }
+    /// HELLO -> ACK (as long as the HELLO: no amplification).
+    fn hello(&self) {
+        self.send(&udp::Packet::Hello);
+        let b = self.try_recv(Duration::from_secs(5)).expect("no UDP ACK");
+        assert_eq!(b.len(), udp::HDR);
+        assert_eq!(udp::decode(&b), Some((self.token, udp::Packet::Ack)));
+    }
+    /// The next packet must be a server DATA with this socket's token: (src_ip, src_port, dst_ip, dst_port, data).
+    fn data(&self) -> (u32, u16, u32, u16, Vec<u8>) {
+        let b = self.try_recv(Duration::from_secs(5)).expect("no UDP DATA");
+        match udp::decode(&b) {
+            Some((t, udp::Packet::SData { src_ip, src_port, dst_ip, dst_port, data })) if t == self.token => {
+                (src_ip, src_port, dst_ip, dst_port, data.to_vec())
+            }
+            p => panic!("expected server DATA, got {:?}", p),
+        }
+    }
+    fn nothing(&self) {
+        assert_eq!(self.try_recv(Duration::from_millis(300)), None);
+    }
+}
+
+fn udp_server(udp: bool, rate: u32) -> RelayServer {
+    let cfg = Config { build_stamp: Some("B1".into()), password: Some("pw".into()), udp, udp_rate: rate, ..Default::default() };
+    RelayServer::start("127.0.0.1:0", cfg).unwrap()
+}
+
+impl Tc {
+    /// After CREATE/JOIN: JOINED, then UDP_OFFER (v3 with UDP on) or not, then ROOM_STATE.
+    fn entered(&mut self) -> Option<(u64, u16)> {
+        assert!(matches!(self.recv(), ServerMsg::Joined { .. }));
+        match self.recv() {
+            ServerMsg::UdpOffer { token, port } => {
+                self.room_state();
+                Some((token, port))
+            }
+            ServerMsg::RoomState(_) => None,
+            m => panic!("expected UDP_OFFER or ROOM_STATE, got {:?}", m),
+        }
+    }
+}
+
+/// host creates room 1 (max 8, no code), each guest joins; every member has seen every ROOM_STATE afterwards.
+/// The UDP_OFFERs, host first.
+fn room_of(host: &mut Tc, guests: &mut [&mut Tc]) -> Vec<Option<(u64, u16)>> {
+    host.send(ClientMsg::Create(create_req(8)));
+    let mut offers = vec![host.entered()];
+    for i in 0..guests.len() {
+        guests[i].send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
+        offers.push(guests[i].entered());
+        host.room_state();
+        for g in guests[..i].iter_mut() {
+            g.room_state();
+        }
+    }
+    host.quiet();
+    for g in guests.iter_mut() {
+        g.quiet();
+    }
+    offers
+}
+
+fn udp_on(c: &mut Tc, u: &Uc) {
+    u.hello();
+    c.send(ClientMsg::UdpMode(true));
+    c.quiet();
+}
+
+#[test]
+fn udp_path_delivers() {
+    let srv = udp_server(true, 2000);
+    let addr = srv.local_addr();
+    assert!(srv.status().udp);
+    let (mut host, mut g1, mut g2) = (player_v3(addr, "host"), player_v3(addr, "g1"), player_v3(addr, "g2"));
+    let o = room_of(&mut host, &mut [&mut g1, &mut g2]);
+    let (oh, o1, o2) = (o[0].unwrap(), o[1].unwrap(), o[2].unwrap());
+    assert_eq!(oh.1, addr.port(), "UDP on the TCP port");
+    assert!(oh.0 != o1.0 && o1.0 != o2.0 && oh.0 != 0);
+    let (uh, u1, u2) = (Uc::new(addr, oh), Uc::new(addr, o1), Uc::new(addr, o2));
+    for (c, u) in [(&mut host, &uh), (&mut g1, &u1), (&mut g2, &u2)] {
+        udp_on(c, u);
+    }
+    assert!(srv.status().rooms[0].players.iter().all(|p| p.udp));
+
+    // unicast host -> g1 over UDP: src_ip rewritten, g1's own token, nothing over TCP, nothing to g2
+    uh.send(&udp::Packet::Data { src_port: 49530, dst_ip: ip(1, 2), dst_port: 49531, data: b"hi" });
+    assert_eq!(u1.data(), (ip(1, 1), 49530, ip(1, 2), 49531, b"hi".to_vec()));
+    // broadcast g2 -> host and g1, full size; no echo
+    let big = vec![0x5a; MAX_DATA];
+    u2.send(&udp::Packet::Data { src_port: 49530, dst_ip: ip(1, 255), dst_port: 49530, data: &big });
+    assert_eq!(uh.data(), (ip(1, 3), 49530, ip(1, 255), 49530, big.clone()));
+    assert_eq!(u1.data(), (ip(1, 3), 49530, ip(1, 255), 49530, big.clone()));
+    u2.nothing();
+    // TCP upstream still works and comes down over UDP
+    g1.send(ClientMsg::Datagram { src_port: 7, dst_ip: ip(1, 1), dst_port: 8, data: b"tcp up".to_vec() });
+    assert_eq!(uh.data(), (ip(1, 2), 7, ip(1, 1), 8, b"tcp up".to_vec()));
+    for c in [&mut host, &mut g1, &mut g2] {
+        c.quiet(); // no TCP DATAGRAM frame was queued for anyone
+    }
+
+    // NAT rebinding: a HELLO from a new port (same IP) moves g1's endpoint; the old one can no longer send
+    let u1b = Uc::new(addr, o1);
+    u1b.hello();
+    uh.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 2), dst_port: 2, data: b"moved" });
+    assert_eq!(u1b.data().4, b"moved".to_vec());
+    u1.nothing();
+    u1.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 1), dst_port: 2, data: b"stale" });
+    uh.nothing();
+
+    // UDP_MODE 0: back to TCP downstream
+    host.send(ClientMsg::UdpMode(false));
+    host.quiet();
+    u2.send(&udp::Packet::Data { src_port: 3, dst_ip: ip(1, 1), dst_port: 4, data: b"over tcp" });
+    assert_eq!(host.recv(), ServerMsg::Datagram { src_ip: ip(1, 3), src_port: 3, dst_ip: ip(1, 1), dst_port: 4, data: b"over tcp".to_vec() });
+    uh.nothing();
+
+    // leaving the room kills the token: g2's HELLO gets no ACK, its DATA goes nowhere
+    g2.send(ClientMsg::Leave);
+    assert_eq!(g2.recv(), ServerMsg::Left(left::YOU_LEFT));
+    host.room_state();
+    g1.room_state();
+    u2.send(&udp::Packet::Hello);
+    u2.nothing();
+    u2.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 255), dst_port: 1, data: b"gone" });
+    u1b.nothing();
+    // a rejoin brings a new token
+    g2.send(ClientMsg::Join { room_id: 1, comm_version: 3, pass_hash: H, room_key: NO_KEY });
+    let o2b = g2.entered().unwrap();
+    assert_ne!(o2b.0, o2.0);
+    g1.room_state();
+    Uc::new(addr, o2b).hello();
+    // the host closing the room kills the guests' tokens too
+    drop(host);
+    assert_eq!(g1.recv(), ServerMsg::Left(left::HOST_CLOSED));
+    u1b.send(&udp::Packet::Hello);
+    u1b.nothing();
+}
+
+#[test]
+fn udp_blocked_falls_back_to_tcp() {
+    // the guest gets a token but its UDP never arrives (blocked): everything to and from it stays on TCP
+    let srv = udp_server(true, 2000);
+    let addr = srv.local_addr();
+    let (mut host, mut guest) = (player_v3(addr, "host"), player_v3(addr, "guest"));
+    let mut old = player(addr, "v2"); // a v2 client: TCP only, never an offer
+    let o = room_of(&mut host, &mut [&mut guest, &mut old]);
+    assert!(o[1].is_some() && o[2].is_none());
+    let uh = Uc::new(addr, o[0].unwrap());
+    udp_on(&mut host, &uh);
+    // UDP_MODE 1 without a proven endpoint is ignored
+    guest.send(ClientMsg::UdpMode(true));
+    guest.quiet();
+    let st = srv.status();
+    assert_eq!(st.rooms[0].players.iter().map(|p| p.udp).collect::<Vec<_>>(), vec![true, false, false]);
+
+    uh.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 255), dst_port: 2, data: b"to all" });
+    for c in [&mut guest, &mut old] {
+        assert_eq!(c.recv(), ServerMsg::Datagram { src_ip: ip(1, 1), src_port: 1, dst_ip: ip(1, 255), dst_port: 2, data: b"to all".to_vec() });
+    }
+    guest.send(ClientMsg::Datagram { src_port: 5, dst_ip: ip(1, 1), dst_port: 6, data: b"from tcp".to_vec() });
+    assert_eq!(uh.data().4, b"from tcp".to_vec());
+    old.send(ClientMsg::Datagram { src_port: 5, dst_ip: ip(1, 1), dst_port: 6, data: b"from v2".to_vec() });
+    assert_eq!(uh.data().4, b"from v2".to_vec());
+
+    // UDP_MODE from a v2 client is a bad frame
+    old.send(ClientMsg::UdpMode(true));
+    old.expect_error(err::BAD_FRAME);
+    assert!(old.closed(Duration::from_secs(5)));
+
+    // a server with UDP off offers nothing; v3 clients work over TCP
+    let srv2 = udp_server(false, 2000);
+    assert!(!srv2.status().udp);
+    let (mut a, mut b) = (player_v3(srv2.local_addr(), "a"), player_v3(srv2.local_addr(), "b"));
+    assert_eq!(room_of(&mut a, &mut [&mut b]), vec![None, None]);
+    a.send(ClientMsg::Datagram { src_port: 1, dst_ip: ip(1, 2), dst_port: 1, data: b"x".to_vec() });
+    assert!(matches!(b.recv(), ServerMsg::Datagram { .. }));
+}
+
+#[test]
+fn udp_token_mismatch_dropped() {
+    let srv = udp_server(true, 2000);
+    let addr = srv.local_addr();
+    let (mut host, mut guest) = (player_v3(addr, "host"), player_v3(addr, "guest"));
+    let o = room_of(&mut host, &mut [&mut guest]);
+    let (oh, og) = (o[0].unwrap(), o[1].unwrap());
+    let ug = Uc::new(addr, og);
+    udp_on(&mut guest, &ug);
+
+    // wrong token: no ACK, no DATA routed
+    let bad = Uc::new(addr, (oh.0 ^ og.0 ^ 1, oh.1));
+    bad.send(&udp::Packet::Hello);
+    bad.nothing();
+    bad.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 2), dst_port: 1, data: b"forged" });
+    ug.nothing();
+    // the host's real token, but DATA before any HELLO from that socket: not its endpoint, dropped
+    let uh = Uc::new(addr, oh);
+    uh.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 2), dst_port: 1, data: b"early" });
+    ug.nothing();
+    // junk: short, unknown type, a server-only type, a token of zero
+    for raw in [vec![udp::HELLO, 1, 2], vec![0x55; 20], udp::encode(oh.0, &udp::Packet::Ack), udp::encode(0, &udp::Packet::Hello)] {
+        bad.send_raw(&raw);
+    }
+    bad.nothing();
+    // after all that the host's path still works
+    uh.hello();
+    uh.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 2), dst_port: 1, data: b"real" });
+    assert_eq!(ug.data().4, b"real".to_vec());
+    host.quiet();
+    guest.quiet();
+}
+
+#[test]
+fn udp_token_only_after_an_authorised_join() {
+    // a room with a code: a wrong code gets ERROR 11 and no token; only the right code's JOIN brings UDP_OFFER
+    let srv = udp_server(true, 2000);
+    let addr = srv.local_addr();
+    let mut host = player_v3(addr, "host");
+    host.send(ClientMsg::Create(keyed(4, K)));
+    let oh = host.entered().unwrap();
+    host.quiet();
+    let mut guess = player_v3(addr, "guess");
+    guess.join_with(1, W);
+    guess.expect_error(err::ROOM_CODE);
+    guess.join_with(1, NO_KEY);
+    guess.expect_error(err::ROOM_CODE);
+    guess.quiet(); // no UDP_OFFER queued
+    // the guesser cannot reach the room over UDP with a made-up token either
+    let ux = Uc::new(addr, (0x1111_2222_3333_4444, oh.1));
+    ux.send(&udp::Packet::Hello);
+    ux.nothing();
+    let mut friend = player_v3(addr, "friend");
+    friend.join_with(1, K);
+    let of = friend.entered().unwrap();
+    host.room_state();
+    let (uh, uf) = (Uc::new(addr, oh), Uc::new(addr, of));
+    udp_on(&mut host, &uh);
+    udp_on(&mut friend, &uf);
+    uf.send(&udp::Packet::Data { src_port: 1, dst_ip: ip(1, 1), dst_port: 1, data: b"in" });
+    assert_eq!(uh.data().4, b"in".to_vec());
+}
+
+#[test]
+fn udp_rate_cap() {
+    // 50 packets/s per token; 200 in a burst: at most the cap (two windows if the burst straddles a second) get through
+    let srv = udp_server(true, 50);
+    let addr = srv.local_addr();
+    let (mut host, mut guest) = (player_v3(addr, "host"), player_v3(addr, "guest"));
+    let o = room_of(&mut host, &mut [&mut guest]); // the guest stays on TCP: no UDP loss on the receiving side
+    let uh = Uc::new(addr, o[0].unwrap());
+    uh.hello(); // counts as 1
+    for i in 0..200u16 {
+        uh.send(&udp::Packet::Data { src_port: i, dst_ip: ip(1, 2), dst_port: 1, data: &[0; 64] });
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    let mut got = 0;
+    while let Some(m) = guest.try_recv(Duration::from_millis(300)) {
+        assert!(matches!(m, ServerMsg::Datagram { .. }));
+        got += 1;
+    }
+    assert!((40..=100).contains(&got), "{} of 200 got through a cap of 50/s", got);
+    host.quiet(); // the sender's TCP side is untouched
 }

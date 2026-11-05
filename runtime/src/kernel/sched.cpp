@@ -244,7 +244,32 @@ int sched_host_priority(int hos_prio) {
     return THREAD_PRIORITY_LOWEST;
 }
 
+// From pokopia-native (MIT), windows/src/nxrt/plat/plat_win32.c @7c3655d (plat_timer_resolution)
+// Windows 11 puts a process whose window is behind others or hidden on EcoQoS (efficiency cores, lower clocks) and stops
+// honouring its timeBeginPeriod; theirs measured 40 -> 60 presents/s with the window behind others. Opt the whole process out
+// of both. Per-thread states stay in force: nvn_gpl.cpp sets an explicit thread state (boost_thread: not throttled; compile_eco
+// workers: EcoQoS), and an explicit thread tag is an API-sourced QoS that wins over the process default. Microsoft's QoS page
+// does not spell out that precedence, so it is the documented model, not a quoted guarantee. Under Wine/Proton the call may
+// fail or do nothing; the result is ignored apart from one log line. Off with [sched] power_throttling = false.
+static void sched_disable_power_throttling() {
+    if (!config_get_bool("sched", "power_throttling", true)) { NXLOG_I("sched", "power throttling opt-out disabled by [sched] power_throttling"); return; }
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+    constexpr ULONG kIgnoreTimerResolution = 0x4;   // older SDKs lack the constant
+#else
+    constexpr ULONG kIgnoreTimerResolution = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+#endif
+    PROCESS_POWER_THROTTLING_STATE ps = {};
+    ps.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    ps.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | kIgnoreTimerResolution;
+    ps.StateMask = 0;                                // controlled and not throttled
+    if (SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &ps, sizeof ps))
+        NXLOG_I("sched", "process power throttling opted out (execution speed + timer resolution)");
+    else
+        NXLOG_I("sched", "process power throttling opt-out not applied (error %lu; expected under Wine/Proton or before Windows 11)", static_cast<unsigned long>(GetLastError()));
+}
+
 void sched_set_process_priority(bool interactive) {
+    sched_disable_power_throttling();
     std::string v = config_get_str("sched", "priority_class", "auto");
     for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     DWORD cls = 0;

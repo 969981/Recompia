@@ -4,13 +4,21 @@
 //
 //   Lobby          abstract: connect (HELLO), scan, create, join, leave, set_advertise, reject, plus one event sink (room state pushes and
 //                  "you are out of the room"). Each Lobby is also the Link of its node while it is in a room (link()).
-//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v1: the reference is
+//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v3: the reference is
 //                  launcher/src-tauri/src/relay/mod.rs). A reader thread turns frames into events, request answers and Link deliveries;
-//                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer.
+//                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer. A v2 relay (ERROR 1 to the
+//                  v3 HELLO) is dialled again with proto 2: everything as before, TCP only.
+//                  UDP datagram path (v3, RelayOptions::udp): in a room the relay hands out a token (UDP_OFFER); a third thread proves
+//                  it over UDP to the relay's port (HELLO every 100 ms for 3 s, then every 5 s as keepalive / NAT refresh) and on the
+//                  first ACK switches the game datagrams to UDP both ways (UDP_MODE 1). No ACK for 15 s: back to TCP (UDP_MODE 0),
+//                  still probing. Until then, and whenever UDP is blocked, datagrams go over the TCP connection as in v2.
 //   LoopbackRelay  an in-process server with the relay's semantics (unit tests): client() hands out LoopbackLobby objects.
 //
 // Room semantics (the server's): room R (1..254) is 169.254.R.0/24, the host is .1 (node 0), guests the lowest free .2...8 (node N-1),
 // node MAC 02:00:a9:fe:R:N. A datagram to .255 goes to every other member, never back to the sender; to a member's vIP, to that member.
+// Room codes: a lobby with a room key (RelayOptions::room_key, LoopbackRelay::client) creates its rooms with that key; such a room is
+// listed to and joinable by lobbies with the same key only (kLobbyRoomCode otherwise). A lobby without a key creates open rooms that
+// everyone sees (LAN play). Scans of a keyed lobby list the open rooms and the rooms with its key.
 //
 // Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient; for the loopback, the thread of
 // whichever client caused them). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
@@ -28,7 +36,8 @@
 namespace nxrt::vnet {
 
 // ---- protocol values -------------------------------------------------------------------------------------------------------------------
-constexpr uint16_t kRelayProto = 1;
+constexpr uint16_t kRelayProto = 3;      // 2: room keys in SCAN / CREATE / JOIN; 3: the UDP datagram path
+constexpr uint16_t kRelayMinProto = 2;   // the oldest relay the client still talks to (TCP only)
 constexpr uint16_t kRelayDefaultPort = 39660;
 constexpr size_t kMaxNick = 32, kMaxAdvertise = 384;
 constexpr uint8_t kMaxNodes = 8;
@@ -37,7 +46,7 @@ constexpr uint8_t kMaxNodes = 8;
 enum LobbyErr : int {
     kLobbyOk = 0,
     kLobbyBadProto = 1, kLobbyBuild = 2, kLobbyPassword = 3, kLobbyRoomFull = 4, kLobbyNoRoom = 5, kLobbyVersion = 6,
-    kLobbyNotHost = 7, kLobbyRejected = 8, kLobbyRate = 9, kLobbyBadFrame = 10,
+    kLobbyNotHost = 7, kLobbyRejected = 8, kLobbyRate = 9, kLobbyBadFrame = 10, kLobbyRoomCode = 11,
     kLobbyTimeout = 100,      // no answer in time
     kLobbyNoServer = 101,     // not connected / the connection failed or was lost
     kLobbyState = 102,        // CREATE/JOIN while in a room, LEAVE/ADVERTISE/REJECT while in none (checked locally)
@@ -107,6 +116,8 @@ public:
     virtual std::shared_ptr<Link> link() = 0;
     // Replaces the event sink. Waits for an event in progress to finish, so it must not be called from inside a sink.
     virtual void set_events(LobbyEvents ev) = 0;
+    // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
+    virtual bool udp_active() const { return false; }
 };
 
 // ---- RelayClient ----------------------------------------------------------------------------------------------------------------------
@@ -116,8 +127,11 @@ struct RelayOptions {
     std::string nickname = "Player";
     std::string password;
     std::string build_stamp;      // empty: build_stamp()
+    std::array<uint8_t, 16> room_key{};   // room_key(code); all zero: no room code (open rooms only)
     int timeout_ms = 5000;        // connect, HELLO and request answers
     int ping_ms = 5000;
+    bool udp = true;              // [net] udp: try the v3 UDP datagram path (false: TCP only)
+    uint16_t udp_test_port = 0;   // tests: send the UDP packets to this port instead of the offered one (a dead port = blocked UDP)
 };
 
 // Parses "host:port" (port optional, default 39660). False when empty or the port is bad.
@@ -130,7 +144,7 @@ class LoopbackRelay {
 public:
     LoopbackRelay();
     ~LoopbackRelay();
-    std::shared_ptr<Lobby> client(const std::string& nickname);
+    std::shared_ptr<Lobby> client(const std::string& nickname, const std::array<uint8_t, 16>& room_key = {});
     struct State;
 
 private:
@@ -143,5 +157,14 @@ const char* build_stamp();
 // The relay's passphrase hash: the first 16 bytes of SHA-256 of the passphrase bytes.
 std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n);
 std::array<uint8_t, 32> sha256(const void* p, size_t n);
+
+// Room codes (launcher/src-tauri/src/relay/mod.rs "Room codes"): 16 symbols of Crockford base32 (80 bits), shown XXXX-XXXX-XXXX-XXXX.
+constexpr size_t kRoomCodeLen = 16;
+// The 16 symbols of a typed code; false when it is not one. Case, '-' and spaces do not matter; O reads as 0, I and L as 1.
+bool room_code_normalize(const std::string& in, std::string* out);
+std::string room_code_format(const std::string& norm);   // XXXX-XXXX-XXXX-XXXX
+std::string room_code_new();                              // normalized, from the OS random source; empty if that failed
+// What goes on the wire instead of the code: the first 16 bytes of SHA-256("pokopia-relay room v1" + the normalized code).
+std::array<uint8_t, 16> room_key(const std::string& norm);
 
 }  // namespace nxrt::vnet

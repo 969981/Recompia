@@ -24,6 +24,11 @@
 // AccessPoint with GetDisconnectReason set (DestroyedByUser 3 when the host destroyed the room, Rejected 5, DestroyedBySystem 4 on server
 // shutdown, SignalLost 6 when the connection to the server is lost); the state change event is signalled on every state change and on
 // every node join/leave.
+// Host: the current link is a vnet::HoldLink in front of the lobby's, so datagrams from a node that just joined wait (up to kHoldMs) until
+// the game has read a GetNetworkInfo / GetNetworkInfoLatestUpdate listing it; KTGL drops a sender outside its member table (design from
+// pokopia-native (MIT) windows/src/coop/coop_mpnet.c, ACCEPT_WAIT_MS / cmp_host_accepts, @7c3655d).
+// [net] room_code: the lobby's room key (vnet::room_key); a room hosted with one is hidden from players without it. A Connect refused for a
+// wrong code answers ConnectNotFound.
 // No lobby ([net] server empty): the state machine runs, Scan finds nothing, Connect answers ConnectNotFound and CreateNetwork
 // DeviceNotAvailable (the answers of the offline stub this replaces).
 #include "ldn.h"
@@ -181,6 +186,11 @@ constexpr uint8_t kSessionTag[4] = {'p', 'k', 'p', 'R'};
 // Connect waits this long for the room state that lists the new node (the relay sends ROOM_STATE right behind JOINED); the lobby's own
 // request timeout is 5 s too (vnet::RelayOptions::timeout_ms).
 constexpr int kRoomStateWaitMs = 5000;
+// Host: datagrams from a node the game has not yet seen in a NetworkInfo are held (vnet::HoldLink) until the game reads a table listing
+// it, at most this long (pokopia-native windows/src/coop/coop_mpnet.c ACCEPT_WAIT_MS: the game polls GetNetworkInfo every frame), and at
+// most kHoldCap of them. KTGL drops a datagram from a sender outside its member table; the new station's first one is its join request.
+constexpr int kHoldMs = 300;
+constexpr size_t kHoldCap = 32;
 
 // ---- process lobby ------------------------------------------------------------------------------------------------------------------
 struct LobbySlot {
@@ -193,6 +203,47 @@ LobbySlot& slot() {
     return s;
 }
 
+// room-code.txt beside the log (the game folder for pkp.exe): the code in use, for the launcher to show (launcher room_code_host).
+std::string room_code_file() {
+    const std::string log = log_path();
+    const size_t cut = log.find_last_of("/\\");
+    return (cut == std::string::npos ? std::string() : log.substr(0, cut + 1)) + "room-code.txt";
+}
+
+// [net] room_code -> the lobby's room key (zero: none). While a code is in use it is logged and written to room_code_file(), else
+// that file is removed (a code from an earlier run must not be shown). False: the value is not a code (local wireless stays off).
+bool room_code_setup(std::array<uint8_t, 16>* key) {
+    std::string v = config_get_str("net", "room_code", "");
+    const std::string file = room_code_file();
+    std::string lower = v, norm;
+    for (char& c : lower) c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    if (v.empty()) {
+        std::remove(file.c_str());
+        return true;
+    }
+    if (lower == "new") {
+        norm = vnet::room_code_new();
+        if (norm.empty()) {
+            NXLOG_W("net", "ldn: [net] room_code = new: no random source: local wireless off");
+            std::remove(file.c_str());
+            return false;
+        }
+    } else if (!vnet::room_code_normalize(v, &norm)) {
+        NXLOG_W("net", "ldn: [net] room_code is not a room code (16 letters and digits, XXXX-XXXX-XXXX-XXXX): local wireless off");
+        std::remove(file.c_str());
+        return false;
+    }
+    *key = vnet::room_key(norm);
+    const std::string shown = vnet::room_code_format(norm);
+    if (FILE* f = std::fopen(file.c_str(), "wb")) {
+        std::fprintf(f, "%s\n", shown.c_str());
+        std::fclose(f);
+    }
+    NXLOG_I("net", "ldn: room code %s%s: a room hosted here is seen only by players with this code; scans show open rooms and rooms with it",
+            shown.c_str(), lower == "new" ? " (new)" : "");
+    return true;
+}
+
 std::shared_ptr<vnet::Lobby> process_lobby() {
     LobbySlot& s = slot();
     std::lock_guard<std::mutex> lk(s.mu);
@@ -202,6 +253,7 @@ std::shared_ptr<vnet::Lobby> process_lobby() {
     vnet::RelayOptions o;
     if (server.empty()) {
         NXLOG_I("net", "ldn: [net] server is empty: local wireless off (scans find nothing)");
+        std::remove(room_code_file().c_str());
         return nullptr;
     }
     if (!vnet::parse_server(server, &o.host, &o.port)) {
@@ -211,6 +263,12 @@ std::shared_ptr<vnet::Lobby> process_lobby() {
     o.nickname = profile().user_nickname;
     if (o.nickname.empty()) o.nickname = "Player";
     o.password = config_get_str("net", "password", "");
+    if (!room_code_setup(&o.room_key)) return nullptr;
+    std::string udp = config_get_str("net", "udp", "auto");
+    for (char& ch : udp) ch = static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+    o.udp = !(udp == "off" || udp == "0" || udp == "false" || udp == "no" || udp == "tcp");
+    if (o.udp && udp != "auto" && udp != "on" && udp != "1" && udp != "true" && udp != "yes")
+        NXLOG_W("net", "ldn: [net] udp = \"%s\" is not auto or off: auto", udp.c_str());
     s.lobby = vnet::make_relay_client(o);
     return s.lobby;
 }
@@ -369,6 +427,8 @@ private:
     void on_left(vnet::LeftReason why);
     void apply_room(const vnet::Room& r);       // caller holds mu
     void set_state(uint32_t s);                 // caller holds mu
+    void admit_read();                          // caller holds mu: the game read info_, let its nodes' held datagrams through
+    void drop_hold();                           // caller holds mu: the host's hold link is unhooked and gone
     void leave_network(uint32_t next, int16_t reason);   // caller holds op_mu (not mu)
     bool in_network() const { return state_ == kAccessPointCreated || state_ == kStationConnected; }
 
@@ -386,6 +446,7 @@ private:
     NetworkInfo info_{};
     std::array<uint32_t, 8> node_vip_{};  // the node table last seen (0 = empty slot), for the join/leave flags
     std::array<uint8_t, 8> latest_{};    // NodeLatestUpdate flags since the last GetNetworkInfoLatestUpdate
+    std::shared_ptr<vnet::HoldLink> hold_;   // host: the current link, in front of the lobby's (see kHoldMs)
 };
 
 void Ldn::cmd(ipc::Service& s, uint32_t id, const char* name, H h) {
@@ -435,6 +496,20 @@ void Ldn::add_commands(ipc::Service& s) {
     // 500..601 (action frames, home channel, tx power; Switchbrew, 18.0.0+) stay unregistered: the IPC layer logs them if a game asks.
 }
 
+void Ldn::admit_read() {
+    if (!hold_) return;
+    std::vector<uint32_t> v;
+    for (const uint32_t ip : node_vip_)
+        if (ip) v.push_back(ip);
+    hold_->admit(v);
+}
+
+void Ldn::drop_hold() {
+    if (!hold_) return;
+    hold_->detach();   // before the lobby's link can be the current link again (a Connect as station)
+    hold_.reset();
+}
+
 void Ldn::set_state(uint32_t s) {
     if (state_ != s) NXLOG_I("net", "ldn: state %u -> %u", state_, s);
     state_ = s;
@@ -464,6 +539,7 @@ void Ldn::on_left(vnet::LeftReason why) {
     }
     NXLOG_I("net", "ldn: left room %u (reason %d)", room_id_, reason);
     vnet::set_current_link(nullptr);
+    drop_hold();
     reason_ = reason;
     room_id_ = vip_ = 0;
     info_ = NetworkInfo{};
@@ -482,6 +558,12 @@ void Ldn::apply_room(const vnet::Room& r) {
         if (now[i]) latest_[i] |= kNodeConnect;
     }
     node_vip_ = now;
+    if (hold_) {
+        std::vector<uint32_t> v;
+        for (const uint32_t ip : now)
+            if (ip) v.push_back(ip);
+        hold_->members(v);
+    }
 }
 
 // ---- state and info ---------------------------------------------------------------------------------------------------------------------
@@ -496,6 +578,7 @@ uint32_t Ldn::get_network_info(ipc::Request& req, ipc::Response&) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!in_network()) return kInvalidState;
     buf_write(req.out_buf(0), &info_, sizeof info_);
+    admit_read();
     return 0;
 }
 
@@ -548,6 +631,7 @@ uint32_t Ldn::get_latest_update(ipc::Request& req, ipc::Response&) {
     for (size_t i = 0; i < 8; ++i) up[i].state_change = latest_[i];
     buf_write(req.out_buf(1), up, sizeof up);
     latest_ = {};
+    admit_read();
     return 0;
 }
 
@@ -602,6 +686,7 @@ void Ldn::leave_network(uint32_t next, int16_t reason) {
         std::lock_guard<std::mutex> lk(mu_);
         if (in_network()) {
             vnet::set_current_link(nullptr);
+            drop_hold();
             lobby = lobby_;
             room_id_ = vip_ = 0;
             info_ = NetworkInfo{};
@@ -674,8 +759,10 @@ uint32_t Ldn::create(const SecurityConfig& sec, const UserConfig& user, const Ne
         r.adv = rc.adv;
         r.nodes = {{0, j.vip, {0x02, 0x00, 0xA9, 0xFE, static_cast<uint8_t>(j.vip >> 8), static_cast<uint8_t>(j.vip)}, user_name_}};
     }
+    drop_hold();
+    hold_ = std::make_shared<vnet::HoldLink>(lobby->link(), kHoldMs, kHoldCap);
     apply_room(r);
-    vnet::set_current_link(lobby->link());
+    vnet::set_current_link(hold_);
     NXLOG_I("net", "ldn: created room %u as %s", room_id_, vnet::ip_str(vip_).c_str());
     set_state(kAccessPointCreated);
     return 0;
@@ -788,7 +875,8 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
     if (e) {
         NXLOG_I("net", "ldn: Connect to room %u failed: %s", room_id, vnet::lobby_err_str(e));
         switch (e) {
-            case vnet::kLobbyNoRoom: return kConnectNotFound;
+            case vnet::kLobbyNoRoom:
+            case vnet::kLobbyRoomCode: return kConnectNotFound;   // a room with another code: as if it were not there
             case vnet::kLobbyRoomFull: return kTooManyPlayers;
             case vnet::kLobbyVersion: return version < room_version ? kVersionTooLow : kVersionTooHigh;
             case vnet::kLobbyRejected: return kConnectRejected;

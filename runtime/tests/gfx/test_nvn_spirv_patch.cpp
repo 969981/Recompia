@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -541,3 +542,337 @@ NXTEST(predict_int_inputs_from_the_code) {
     CHECK(gpu::spirv_predict_int_inputs(std::vector<uint32_t>{1u, 2u}).empty());
 }
 
+
+namespace {
+
+// A vertex shader shaped like the translator's DOF bokeh / lens flare sprites: gl_Position = float(gl_InstanceIndex - gl_BaseInstance
+// + floatBitsToInt(vp_c0[100].y)). ids 1..31; with_base = false leaves out the BaseInstance decoration.
+std::vector<uint32_t> base_instance_module(bool with_base, uint32_t model = 0) {
+    auto op = [](uint32_t code, uint32_t len) { return (len << 16) | code; };
+    std::vector<uint32_t> w = {0x07230203u, 0x00010300u, 0u, 32u, 0u};
+    auto add = [&](std::initializer_list<uint32_t> v) { w.insert(w.end(), v); };
+    add({op(17, 2), 1});                        // OpCapability Shader
+    add({op(17, 2), 4427});                     // OpCapability DrawParameters
+    add({op(14, 3), 0, 1});                     // OpMemoryModel Logical GLSL450
+    uint32_t main_name;
+    std::memcpy(&main_name, "main", 4);
+    add({op(15, 8), model, 1, main_name, 0, 19, 20, 21});   // OpEntryPoint
+    if (model == 4) add({op(16, 3), 1, 7});     // fragment: OpExecutionMode OriginUpperLeft
+    uint32_t nm[2] = {};
+    std::memcpy(nm, "vp_c0", 5);
+    add({op(5, 4), 18, nm[0], nm[1]});          // OpName %18 "vp_c0"
+    add({op(71, 4), 12, 6, 16});                // ArrayStride 16
+    add({op(71, 3), 13, 2});                    // Block
+    add({op(72, 5), 13, 0, 35, 0});             // member 0 Offset 0
+    add({op(71, 4), 18, 34, 0});                // DescriptorSet 0
+    add({op(71, 4), 18, 33, 1});                // Binding 1
+    add({op(71, 4), 19, 11, 43});               // InstanceIndex (the fragment variant is only fed to the rewrite, never validated)
+    if (with_base) add({op(71, 4), 20, 11, 4425});      // BaseInstance
+    add({op(71, 4), 21, 11, 0});                // Position
+    add({op(19, 2), 2});                        // void
+    add({op(33, 3), 3, 2});                     // fn void()
+    add({op(22, 3), 4, 32});                    // float
+    add({op(23, 4), 5, 4, 4});                  // vec4
+    add({op(21, 4), 6, 32, 1});                 // int
+    add({op(21, 4), 7, 32, 0});                 // uint
+    add({op(43, 4), 6, 8, 0});
+    add({op(43, 4), 6, 9, 1});
+    add({op(43, 4), 6, 10, 100});
+    add({op(43, 4), 7, 11, 4096});
+    add({op(28, 4), 12, 5, 11});                // vec4[4096]
+    add({op(30, 3), 13, 12});                   // struct
+    add({op(32, 4), 14, 2, 13});                // Uniform struct*
+    add({op(32, 4), 15, 2, 4});                 // Uniform float*
+    add({op(32, 4), 16, 1, 6});                 // Input int*
+    add({op(32, 4), 17, 3, 5});                 // Output vec4*
+    add({op(59, 4), 14, 18, 2});                // vp_c0
+    add({op(59, 4), 16, 19, 1});                // gl_InstanceIndex
+    add({op(59, 4), 16, 20, 1});                // gl_BaseInstance
+    add({op(59, 4), 17, 21, 3});                // gl_Position
+    add({op(54, 5), 2, 1, 0, 3});               // OpFunction
+    add({op(248, 2), 22});
+    add({op(61, 4), 6, 23, 19});
+    add({op(61, 4), 6, 24, 20});
+    add({op(130, 5), 6, 25, 23, 24});           // OpISub
+    add({op(65, 7), 15, 26, 18, 8, 10, 9});     // &vp_c0[0][100].y
+    add({op(61, 4), 4, 27, 26});                // the load the rewrite replaces
+    add({op(124, 4), 6, 28, 27});               // OpBitcast int
+    add({op(128, 5), 6, 29, 25, 28});           // OpIAdd
+    add({op(111, 4), 4, 30, 29});               // OpConvertSToF
+    add({op(80, 7), 5, 31, 30, 30, 30, 30});    // OpCompositeConstruct
+    add({op(62, 3), 21, 31});                   // OpStore
+    add({op(253, 1)});                          // OpReturn
+    add({op(56, 1)});                           // OpFunctionEnd
+    return w;
+}
+
+// (pointer operand -> count) of the module's OpLoads
+std::map<uint32_t, int> loads_by_pointer(const std::vector<uint32_t>& w) {
+    std::map<uint32_t, int> m;
+    for (size_t i = 5; i < w.size();) {
+        const uint32_t len = w[i] >> 16;
+        if (!len) break;
+        if ((w[i] & 0xffff) == 61 && len >= 4) ++m[w[i + 3]];
+        i += len;
+    }
+    return m;
+}
+
+}  // namespace
+
+// c0 + 0x644 (the draw's base instance) becomes a load of BaseInstance; the module stays valid and the rewrite does not repeat.
+NXTEST(base_instance_from_c0_on_a_sprite_shaped_module) {
+    const std::vector<uint32_t> in = base_instance_module(true);
+    std::string log;
+    std::error_code ec;
+    const bool have_val = fs::exists(kSpirvVal, ec);
+    if (have_val) CHECK_MSG(run_spirv_val(in, "bi_in", log) == 0, "input module: " + log);
+    std::vector<uint32_t> out;
+    REQUIRE(gpu::spirv_base_instance_from_c0(in, out));
+    CHECK_EQ(out[3], in[3] + 1u);                     // one new id (the int load before the bitcast)
+    std::map<uint32_t, int> loads = loads_by_pointer(out);
+    CHECK_EQ(loads[26], 0);                           // no load through &vp_c0[0][100].y
+    CHECK_EQ(loads[20], 2);                           // gl_BaseInstance: the shader's own load and the new one
+    if (have_val) CHECK_MSG(run_spirv_val(out, "bi_out", log) == 0, "patched module: " + log);
+    ShaderReflection r;
+    std::string err;
+    CHECK_MSG(reflect(out, r, err), err);
+    std::vector<uint32_t> again;
+    CHECK(!gpu::spirv_base_instance_from_c0(out, again));
+}
+
+NXTEST(base_instance_from_c0_needs_a_vertex_shader_with_base_instance) {
+    std::vector<uint32_t> out = {1u, 2u, 3u};
+    const std::vector<uint32_t> keep = out;
+    CHECK(!gpu::spirv_base_instance_from_c0(base_instance_module(false), out));
+    CHECK(!gpu::spirv_base_instance_from_c0(base_instance_module(true, 4), out));   // not a vertex entry point
+    CHECK(!gpu::spirv_base_instance_from_c0(std::vector<uint32_t>{0x07230203u, 0x00010300u}, out));
+    CHECK(out == keep);
+}
+
+// The game's eight vertex shaders that read c0[100].y (DOF bokeh, lens flare): each is rewritten and stays valid.
+NXTEST(base_instance_from_c0_on_the_sprite_shaders) {
+    const char* hashes[] = {"03189609bf1aa0fc", "0e632dea19958890", "44de8e87f0c0fef2", "6f4b310db25cf70b",
+                            "e864664cbbbeda0b", "6e995336a69459f6", "ba1fbf17740f2af2", "c8159c09717d3898"};
+    std::error_code ec;
+    if (!fs::exists(fs::path(kSpvDir) / (std::string(hashes[0]) + ".spv"), ec)) { nxtest::skip("sprite shaders not in the shader cache"); return; }
+    const bool have_val = fs::exists(kSpirvVal, ec);
+    for (const char* h : hashes) {
+        std::vector<uint32_t> in, out;
+        if (!load_hash(h, in)) { CHECK_MSG(false, std::string("cannot read ") + h); continue; }
+        CHECK_MSG(gpu::spirv_base_instance_from_c0(in, out), std::string("not rewritten: ") + h);
+        std::string log;
+        if (have_val && !out.empty()) CHECK_MSG(run_spirv_val(out, std::string("bi_") + h, log) == 0, std::string(h) + ": " + log);
+    }
+}
+
+// [nvn] reduced_precision (spirv_reduced_precision). Hand-written modules, assembled by the SDK's spirv-as: the translator's reduced mode
+// (Ryujinx HostCapabilities.ReducedPrecision) drops NoContraction except on the ForcePreciseEnable adds of a fragment shader (x + constant
+// as the divisor of 1.0 / x) and puts Invariant on BuiltIn Position. The rewritten module must pass spirv-val.
+namespace {
+
+const char* kSpirvAs = "C:\\VulkanSDK\\1.4.363.0\\Bin\\spirv-as.exe";
+
+bool assemble(const char* text, const std::string& tag, std::vector<uint32_t>& w) {
+    const std::string src = tag + ".spvasm", spv = tag + ".spv";
+    {
+        std::ofstream f(src);
+        f << text;
+    }
+    const std::string cmd = std::string(kSpirvAs) + " --target-env vulkan1.3 " + src + " -o " + spv;
+    const int rc = std::system(cmd.c_str());
+    const bool ok = rc == 0 && load_words(spv, w);
+    std::error_code ec;
+    fs::remove(src, ec);
+    fs::remove(spv, ec);
+    return ok;
+}
+
+const char* absent_tools() {
+    std::error_code ec;
+    if (!fs::exists(kSpirvAs, ec) || !fs::exists(kSpirvVal, ec)) return "spirv-as / spirv-val not found at C:\\VulkanSDK\\1.4.363.0\\Bin";
+    return nullptr;
+}
+
+struct Op {
+    uint32_t op;
+    std::vector<uint32_t> w;   // the whole instruction
+};
+std::vector<Op> ops(const std::vector<uint32_t>& w) {
+    std::vector<Op> out;
+    for (size_t i = 5; i < w.size();) {
+        const uint32_t len = w[i] >> 16;
+        if (!len || i + len > w.size()) break;
+        out.push_back({w[i] & 0xffff, std::vector<uint32_t>(w.begin() + std::ptrdiff_t(i), w.begin() + std::ptrdiff_t(i + len))});
+        i += len;
+    }
+    return out;
+}
+size_t count_deco(const std::vector<uint32_t>& w, uint32_t deco) {
+    size_t n = 0;
+    for (const Op& o : ops(w))
+        if ((o.op == 71 && o.w.size() >= 3 && o.w[2] == deco) || (o.op == 72 && o.w.size() >= 4 && o.w[3] == deco)) ++n;
+    return n;
+}
+
+const char* kRpVertexBlock = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %pv %in0
+               OpDecorate %pv_t Block
+               OpMemberDecorate %pv_t 0 BuiltIn Position
+               OpMemberDecorate %pv_t 1 BuiltIn PointSize
+               OpDecorate %in0 Location 0
+               OpDecorate %mul NoContraction
+               OpDecorate %add NoContraction
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %v4 = OpTypeVector %float 4
+       %pv_t = OpTypeStruct %v4 %float
+      %ppv = OpTypePointer Output %pv_t
+         %pv = OpVariable %ppv Output
+      %pin = OpTypePointer Input %v4
+        %in0 = OpVariable %pin Input
+       %int = OpTypeInt 32 1
+      %int0 = OpConstant %int 0
+      %pov = OpTypePointer Output %v4
+       %two = OpConstant %float 2
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+          %x = OpLoad %v4 %in0
+        %mul = OpVectorTimesScalar %v4 %x %two
+        %add = OpFAdd %v4 %mul %x
+          %p = OpAccessChain %pov %pv %int0
+               OpStore %p %add
+               OpReturn
+               OpFunctionEnd
+)";
+const char* kRpVertexVar = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %pos
+               OpDecorate %pos BuiltIn Position
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %v4 = OpTypeVector %float 4
+      %pov = OpTypePointer Output %v4
+        %pos = OpVariable %pov Output
+       %zero = OpConstantNull %v4
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+               OpStore %pos %zero
+               OpReturn
+               OpFunctionEnd
+)";
+const char* kRpFragment = R"(               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main" %in0 %o0
+               OpExecutionMode %main OriginUpperLeft
+               OpDecorate %in0 Location 0
+               OpDecorate %o0 Location 0
+               OpDecorate %bias NoContraction
+               OpDecorate %bias2 NoContraction
+               OpDecorate %plain NoContraction
+               OpDecorate %mul NoContraction
+               OpDecorate %fd NoContraction
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %int = OpTypeInt 32 1
+      %pin = OpTypePointer Input %float
+        %in0 = OpVariable %pin Input
+      %pout = OpTypePointer Output %float
+         %o0 = OpVariable %pout Output
+      %pfn = OpTypePointer Function %int
+        %one = OpConstant %float 1
+        %eps = OpConstant %float 0.0001
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+        %loc = OpVariable %pfn Function
+          %x = OpLoad %float %in0
+       %bias = OpFAdd %float %x %eps
+          %r = OpFDiv %float %one %bias
+      %bias2 = OpFAdd %float %x %eps
+         %bc = OpBitcast %int %bias2
+               OpStore %loc %bc
+         %ld = OpLoad %int %loc
+        %ldf = OpBitcast %float %ld
+         %r2 = OpFDiv %float %one %ldf
+      %plain = OpFAdd %float %r %r2
+        %mul = OpFMul %float %plain %x
+         %fd = OpFDiv %float %one %mul
+               OpStore %o0 %fd
+               OpReturn
+               OpFunctionEnd
+)";
+
+}  // namespace
+
+NXTEST(reduced_precision_vertex_block) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpVertexBlock, "rp_vs", in));
+    CHECK_EQ(count_deco(in, 42), size_t(2));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    CHECK_EQ(count_deco(out, 42), size_t(0));   // NoContraction: none left outside a fragment shader
+    CHECK_EQ(count_deco(out, 18), size_t(1));   // Invariant on gl_PerVertex member 0 (gl_Position), not on PointSize
+    bool member0 = false;
+    for (const Op& o : ops(out))
+        if (o.op == 72 && o.w.size() == 4 && o.w[3] == 18) member0 = o.w[2] == 0;
+    CHECK(member0);
+    CHECK_EQ(out[3], in[3]);
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_vs", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+    std::vector<uint32_t> again;
+    CHECK(!gpu::spirv_reduced_precision(out, again));   // a second pass changes nothing
+}
+
+NXTEST(reduced_precision_vertex_position_variable) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpVertexVar, "rp_vs2", in));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    size_t inv = 0;
+    for (const Op& o : ops(out))
+        if (o.op == 71 && o.w.size() == 3 && o.w[2] == 18) ++inv;
+    CHECK_EQ(inv, size_t(1));
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_vs2", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+}
+
+NXTEST(reduced_precision_fragment_keeps_forced_precise_adds) {
+    if (const char* why = absent_tools()) {
+        nxtest::skip(why);
+        return;
+    }
+    std::vector<uint32_t> in, out;
+    REQUIRE(assemble(kRpFragment, "rp_fs", in));
+    CHECK_EQ(count_deco(in, 42), size_t(5));
+    REQUIRE(gpu::spirv_reduced_precision(in, out));
+    // left: the two adds of a constant that feed 1.0 / x (directly, and through a Function variable with bitcasts); gone: the add of two
+    // values, the multiply, and the division itself
+    const std::vector<Op> o = ops(out);
+    std::set<uint32_t> consts, kept;
+    for (const Op& x : o) {
+        if (x.op == 43) consts.insert(x.w[2]);
+        if (x.op == 71 && x.w.size() == 3 && x.w[2] == 42) kept.insert(x.w[1]);
+    }
+    CHECK_EQ(kept.size(), size_t(2));
+    for (const Op& x : o)
+        if (x.w.size() >= 3 && kept.count(x.w[2]) && x.op != 71) CHECK_MSG(x.op == 129 && consts.count(x.w[4]), "a kept NoContraction is not on an add of a constant");
+    CHECK_EQ(count_deco(out, 18), size_t(0));   // no Position in a fragment shader
+    std::string log;
+    const int rc = run_spirv_val(out, "spirv_patch_rp_fs", log);
+    CHECK_MSG(rc == 0, "spirv-val exit " + std::to_string(rc) + ": " + log);
+    std::vector<uint32_t> keep = {0x07230203u, 0x10000u, 0u, 9u, 0u}, out2 = keep;   // no entry point
+    CHECK(!gpu::spirv_reduced_precision(keep, out2));
+    CHECK(out2 == keep);
+}

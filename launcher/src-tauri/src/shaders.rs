@@ -60,11 +60,17 @@ pub struct Tools {
     pub harness: PathBuf,
 }
 
+/// Where setup writes its log lines (the launcher's setup.log); a closure so this file needs no crate-local import.
+pub type LogFn = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct Job {
     pub game_dir: PathBuf,
     pub romfs: PathBuf,
     pub main: PathBuf,
     pub jobs: usize,
+    /// "Gentle build": the tools run at idle priority (the default is below normal).
+    pub idle: bool,
+    pub log: Option<LogFn>,
     /// Test runs: translate at most this many blocks (0 = all); the setup is then never marked complete.
     pub limit: usize,
 }
@@ -90,19 +96,21 @@ pub fn is_complete(game_dir: &Path) -> bool {
     read_marker(game_dir).complete && game_dir.join(SPIRV_REL).join("results.tsv").is_file()
 }
 
-fn quiet(cmd: &mut Command) {
+fn quiet(cmd: &mut Command, idle: bool) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS (the tools' own child processes inherit it)
-        cmd.creation_flags(0x0800_0000 | 0x0000_4000);
+        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, or IDLE_PRIORITY_CLASS when idle (the tools' own child processes inherit it)
+        cmd.creation_flags(0x0800_0000 | if idle { 0x0000_0040 } else { 0x0000_4000 });
     }
+    #[cfg(not(windows))]
+    let _ = (cmd, idle);
 }
 
 fn python_has_lz4(py: &Path) -> bool {
     let mut c = Command::new(py);
     c.args(["-I", "-c", "import lz4.block"]).stdout(Stdio::null()).stderr(Stdio::null());
-    quiet(&mut c);
+    quiet(&mut c, false);
     c.status().map(|s| s.success()).unwrap_or(false)
 }
 
@@ -138,10 +146,22 @@ pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
     Ok(Tools { python: python.unwrap(), extract, harness })
 }
 
+/// A progress line of a tool ("scan: 12 of 99", "  500/1000  3.2 s"): counted by the progress bar, not worth a log line.
+fn is_progress_line(l: &str) -> bool {
+    l.starts_with("scan: ") || l.trim().split('/').next().map_or(false, |x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()) && l.contains('/'))
+}
+
 /// Runs a tool, handing each stdout line to `line`; kills it when `cancel` is set. Ok(true) = exit 0, Ok(false) = cancelled.
-fn run_tool(mut cmd: Command, cancel: &AtomicBool, mut line: impl FnMut(&str)) -> Result<bool, String> {
-    quiet(&mut cmd);
+/// `log` gets the command line, the tool's stderr and non-progress stdout, and on failure the end of its output.
+fn run_tool(mut cmd: Command, cancel: &AtomicBool, idle: bool, log: Option<&LogFn>, mut line: impl FnMut(&str)) -> Result<bool, String> {
+    quiet(&mut cmd, idle);
     let name = cmd.get_program().to_string_lossy().to_string();
+    let say = |t: &str| {
+        if let Some(f) = log {
+            f(t)
+        }
+    };
+    say(&format!("run: {} {}", name, cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect::<Vec<_>>().join(" ")));
     let mut child: Child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("could not start {}: {}", name, e))?;
     let (tx, rx) = mpsc::channel::<String>();
     let out = child.stdout.take().unwrap();
@@ -149,9 +169,13 @@ fn run_tool(mut cmd: Command, cancel: &AtomicBool, mut line: impl FnMut(&str)) -
     std::thread::spawn(move || BufReader::new(out).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(l))));
     let err = child.stderr.take().unwrap();
     let (etx, erx) = mpsc::channel::<String>();
+    let elog = log.cloned();
     std::thread::spawn(move || {
         let mut tail: Vec<String> = Vec::new();
         for l in BufReader::new(err).lines().map_while(Result::ok) {
+            if let Some(f) = &elog {
+                f(&format!("stderr: {}", l));
+            }
             tail.push(l);
             if tail.len() > 12 {
                 tail.remove(0);
@@ -160,26 +184,40 @@ fn run_tool(mut cmd: Command, cancel: &AtomicBool, mut line: impl FnMut(&str)) -
         let _ = etx.send(tail.join("\n"));
     });
     drop(tx);
+    let mut out_tail: Vec<String> = Vec::new();
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(l) => line(&l),
+            Ok(l) => {
+                if !is_progress_line(&l) {
+                    say(&format!("out: {}", l));
+                }
+                out_tail.push(l.clone());
+                if out_tail.len() > 12 {
+                    out_tail.remove(0);
+                }
+                line(&l)
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // stdout closed: the process is ending
                 let st = child.wait().map_err(|e| e.to_string())?;
                 if cancel.load(Ordering::SeqCst) {
+                    say(&format!("stopped: {} (paused by the player)", name));
                     return Ok(false);
                 }
                 if st.success() {
+                    say(&format!("done: {}", name));
                     return Ok(true);
                 }
                 let tail = erx.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+                say(&format!("FAILED: {} ({}). Last output:\n{}\nLast error output:\n{}", name, st, out_tail.join("\n"), tail));
                 return Err(format!("{} failed ({}). {}", name, st, tail.trim()));
             }
         }
         if cancel.load(Ordering::SeqCst) {
             let _ = child.kill();
             let _ = child.wait();
+            say(&format!("stopped: {} (paused by the player)", name));
             return Ok(false);
         }
     }
@@ -291,7 +329,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     let mut cmd = Command::new(tools_dir.join("spirv_harness").join("spirv_harness.exe"));
     cmd.arg("--batch").arg(&input).arg("--out").arg(&stage).args(["--jobs", &jobs, "--no-val"]);
     cmd.env("DOTNET_gcServer", "1");
-    if !run_tool(cmd, &AtomicBool::new(false), |_| {})? {
+    if !run_tool(cmd, &AtomicBool::new(false), false, None, |_| {})? {
         return Err("the shader translator stopped".into());
     }
     let n = commit_stage(&stage, &spirv)?;
@@ -315,7 +353,7 @@ pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result
     // environment variables win over pkp.ini
     cmd.env("NXRT_FS_SAVE_DIR", scratch.join("save")).env("NXRT_NVN_DUMP_MISSING", MISSING_REL).env("NXRT_AUDIO_SINK", "null");
     // it ends with exit code 124 when the time is up: any end is fine, a crash only means fewer blocks were collected
-    if let Ok(false) = run_tool(cmd, cancel, |_| {}) {
+    if let Ok(false) = run_tool(cmd, cancel, false, None, |_| {}) {
         return Ok(None);
     }
     let n = translate_missing(game_dir, tools_dir)?;
@@ -363,7 +401,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         let mut cmd = Command::new(&tools.python);
         cmd.arg("-I").arg(&tools.extract).arg("--romfs").arg(&job.romfs).arg("--main").arg(&job.main).arg("--out").arg(&corpus);
         cmd.args(["--jobs", &jobs, "--progress"]);
-        let ok = run_tool(cmd, cancel, |l| {
+        let ok = run_tool(cmd, cancel, job.idle, job.log.as_ref(), |l| {
             if let Some(rest) = l.strip_prefix("scan: ") {
                 let mut it = rest.split_whitespace().filter_map(|x| x.parse::<u64>().ok());
                 if let (Some(d), Some(t)) = (it.next(), it.next()) {
@@ -406,7 +444,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         // server GC: with the default workstation GC each collection stops every worker (about 4x slower)
         cmd.env("DOTNET_gcServer", "1");
         let base = finished;
-        let ok = run_tool(cmd, cancel, |l| {
+        let ok = run_tool(cmd, cancel, job.idle, job.log.as_ref(), |l| {
             // "  <n>/<count>  <s> s" every 500 blocks
             if let Some(n) = l.trim().split('/').next().and_then(|x| x.parse::<u64>().ok()) {
                 report(p("translate", base + n, total, format!("Translating shaders: {} of {}", base + n, total)));

@@ -239,7 +239,7 @@ constexpr FormatInfo kTable[] = {
      VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED},
     // RGB10A2 signed, integer and scaled forms (0x69..0x6C)
     {"RGB10A2SN", NVN_FORMAT_RGB10A2SN, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, true, false, false,
-     VK_FORMAT_A2B10G10R10_SNORM_PACK32, VK_FORMAT_UNDEFINED},
+     VK_FORMAT_A2B10G10R10_SNORM_PACK32, VK_FORMAT_R16G16B16A16_SNORM},   // A2B10G10R10_SNORM is optional; prepare_texture widens the texels
     {"RGB10A2I", NVN_FORMAT_RGB10A2I, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, false, true, false,
      VK_FORMAT_A2B10G10R10_SINT_PACK32, VK_FORMAT_UNDEFINED},
     {"RGB10A2_UI2F", NVN_FORMAT_RGB10A2_UI2F, 4, 1, 1, kAspectColor, 4, false, false, false, false, false, false, false, false,

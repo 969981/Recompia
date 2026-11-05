@@ -150,7 +150,7 @@ Settings builtin_settings() {
     return s;
 }
 
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Switch, Aim, Camera, Tweaks, Bindings };
+enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Switch, Aim, Camera, Tweaks, Bindings };
 
 // The factory-defaults revision this build writes ([meta] defaults_rev) and the factory bindings an older controls.ini does not have: the
 // game's (play_types.h GameDefaults).
@@ -174,6 +174,7 @@ const char* sec_label(Sec s) {
         case Sec::Picture: return "[picture]";
         case Sec::Prompts: return "[prompts]";
         case Sec::Fps: return "[fps]";
+        case Sec::Quit: return "[quit]";
         case Sec::Switch: return "[switch]";
         case Sec::Aim: return "[aim]";
         case Sec::Camera: return "[camera]";
@@ -332,6 +333,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "deadzone") return set_real(0.0, 0.5, &s->pad.stick_deadzone);
             if (k == "right_deadzone") return set_real(0.0, 0.5, &s->pad.right_deadzone);
             if (k == "stick_max") return set_real(0.5, 1.0, &s->pad.stick_max);
+            if (k == "right_stick_max") return set_real(0.5, 1.0, &s->pad.right_stick_max);
             if (k == "invert_y") return set_bool(&s->pad.invert_y);
             if (k == "look_sens") return set_real(0.25, 3.0, &s->pad.look_sens);
             if (k == "trigger_threshold") return set_real(0.05, 1.0, &s->pad.trigger_threshold);
@@ -376,6 +378,28 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             }
             if (k == "detail") return set_int(0, 2, &s->fps.detail);
             if (k == "in_screenshots") return set_bool(&s->fps.in_screenshots);
+            break;
+        case Sec::Quit:
+            if (k == "pad") {
+                if (!parse_pad_combo(v, &s->quit.pad)) {
+                    *msg = "pad must be none or pad buttons joined by '+' (back+start, left_shoulder+right_shoulder ...), got '" + v + "'";
+                    return false;
+                }
+                return true;
+            }
+            if (k == "key") {
+                InputId id;
+                if (lower(v) == "none" || v.empty()) {
+                    s->quit.key = {};
+                    return true;
+                }
+                if (!parse_input(v, &id) || id.kind != InKind::Key) {
+                    *msg = "key must be none or a keyboard key name (F4, End, Pause ...), got '" + v + "'";
+                    return false;
+                }
+                s->quit.key = id;
+                return true;
+            }
             break;
         case Sec::PadMap: {
             PadSrc src;
@@ -589,6 +613,7 @@ Sec fixed_sec(const std::string& key) {
     if (key == "picture") return Sec::Picture;
     if (key == "prompts") return Sec::Prompts;
     if (key == "fps") return Sec::Fps;
+    if (key == "quit") return Sec::Quit;
     if (key == "aim") return Sec::Aim;
     if (key == "camera") return Sec::Camera;
     if (key == "tweaks") return Sec::Tweaks;
@@ -677,7 +702,7 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
     Sec sec = Sec::None;
     Ctx ctx = Ctx::All;
     // Which of the two dead-zone keys the [pad] section has, for the rule after the loop (right_deadzone takes deadzone's value when only deadzone is there).
-    bool pad_has_deadzone = false, pad_has_right_deadzone = false;
+    bool pad_has_deadzone = false, pad_has_right_deadzone = false, pad_has_stick_max = false, pad_has_right_stick_max = false;
     for (size_t i = 0; i < lines.size(); ++i) {
         std::string line = trim(lines[i]);
         if (line.empty()) continue;
@@ -770,11 +795,15 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
         if (sec == Sec::Pad) {
             if (lower(key) == "deadzone") pad_has_deadzone = true;
             if (lower(key) == "right_deadzone") pad_has_right_deadzone = true;
+            if (lower(key) == "stick_max") pad_has_stick_max = true;
+            if (lower(key) == "right_stick_max") pad_has_right_stick_max = true;
         }
     }
 
     // A file written before right_deadzone existed has one dead zone (deadzone), so the right stick takes its value.
     if (pad_has_deadzone && !pad_has_right_deadzone) s->pad.right_deadzone = s->pad.stick_deadzone;
+    // Same for stick_max: it only ever covered the left stick, so a file that sets it and has no right_stick_max gives the right stick the same value.
+    if (pad_has_stick_max && !pad_has_right_stick_max) s->pad.right_stick_max = s->pad.stick_max;
 
     if (has_bindings) {
         // A file with bindings written by an older revision gets the newer factory bindings it lacks (see GameDefaults).
@@ -877,6 +906,7 @@ std::string format_settings(const Settings& s) {
     kv("look_sens", num(s.pad.look_sens));
     kv("trigger_threshold", num(s.pad.trigger_threshold));
     kv("stick_max", num(s.pad.stick_max));
+    kv("right_stick_max", num(s.pad.right_stick_max));
     kv("gyro", flag(s.pad.gyro));
     kv("gyro_scale", num(s.pad.gyro_scale));
     kv("rumble", flag(s.pad.rumble));
@@ -962,6 +992,10 @@ std::string format_settings(const Settings& s) {
     kv("corner", corner_name(s.fps.corner));
     kv("detail", std::to_string(s.fps.detail));
     kv("in_screenshots", flag(s.fps.in_screenshots));
+
+    o += "\n[quit]\n";
+    kv("pad", pad_combo_text(s.quit.pad));
+    kv("key", s.quit.key.kind == InKind::Key ? input_name(s.quit.key) : std::string("none"));
 
     o += "\n[switch]\n";
     for (int a = 1; a < kActCount; ++a) {   // every action except none
