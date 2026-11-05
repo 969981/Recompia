@@ -143,6 +143,19 @@ export async function render(el, ctx) {
         ${status.state === 'running' ? `<div class="banner warn">${icon('triangle-alert')}<div>The game is running. Most changes apply at the next start, and the game may overwrite controls.ini when it exits.</div></div>` : ''}
         ${!data.controls_exists ? `<div class="banner info">${icon('info')}<div>controls.ini does not exist yet in <code>${esc(data.game_dir)}</code>. The game creates it on its first start, so Display, Mouse and Button prompts become editable after that. Audio, Paths and Launcher options work now.</div></div>` : ''}
         ${SECTIONS.map((s) => `<div class="card"><h2>${icon(s.icon)}${esc(s.title)}</h2>${s.fields.map((f) => fieldHtml({ ...f, file: s.file })).join('')}</div>`).join('')}
+        <div class="card" id="save-card">
+          <h2>${icon('save')}Save data</h2>
+          <div class="stack">
+            <p class="dim">Bring your island from Eden or Ryujinx, or from any folder that holds the game's <code>G00</code> and <code>S00</code> folders. Your current save is moved to a <code>save.before-&lt;date&gt;</code> folder next to the save folder first and never deleted. The source is only read. Close the game before importing.</p>
+            <p class="faint">A copied save carries its original player ID, so it cannot join its original in Link Play (the game refuses two players with the same ID). Each player needs a save of their own.</p>
+            <div class="row">
+              <button class="btn" id="save-auto">${icon('folder-search')}Find Eden / Ryujinx save and import</button>
+              <button class="btn" id="save-pick">${icon('folder-open')}Pick a folder to import</button>
+              <button class="btn quiet" id="save-open">${icon('folder-open')}Open save folder</button>
+            </div>
+            <p class="dim" id="save-msg" style="white-space: pre-wrap"></p>
+          </div>
+        </div>
         <div class="savebar">
           <span class="dim">${n ? `${n} unsaved change${n > 1 ? 's' : ''}` : 'No changes'}</span>
           <div class="row">
@@ -190,6 +203,42 @@ export async function render(el, ctx) {
       draw();
     });
     el.querySelector('#save').addEventListener('click', save);
+    bindSaveImport();
+  }
+
+  function bindSaveImport() {
+    const msg = el.querySelector('#save-msg');
+    const btns = ['#save-auto', '#save-pick'].map((q) => el.querySelector(q));
+    const run = async (source, what) => {
+      if (!window.confirm(`Import ${what}?
+
+Your current save is moved aside to a backup folder first.`)) return;
+      btns.forEach((b) => (b.disabled = true));
+      msg.textContent = 'Importing...';
+      try {
+        const r = await api('import_save', { source });
+        msg.textContent = `Imported ${r.files} files from ${r.source}.
+` +
+          (r.backup ? `Your previous save is kept in ${r.backup}.` : 'There was no previous save.');
+        toast('Save imported.', 'ok');
+      } catch (e) {
+        msg.textContent = `Not imported: ${errText(e)}`;
+        toast(errText(e), 'error');
+      }
+      btns.forEach((b) => (b.disabled = false));
+    };
+    el.querySelector('#save-auto').addEventListener('click', async () => {
+      try {
+        const found = await api('save_sources');
+        if (!found.length) { msg.textContent = 'No Pokopia save found in Eden or Ryujinx. Use "Pick a folder to import" instead.'; return; }
+        await run(null, `the newest save found (${found[0].label}: ${found[0].path})`);
+      } catch (e) { msg.textContent = errText(e); }
+    });
+    el.querySelector('#save-pick').addEventListener('click', async () => {
+      const picked = await api('pick_folder', { title: 'Choose a folder with the save (G00 and S00)', start: null });
+      if (picked) await run(picked, `the save in ${picked}`);
+    });
+    el.querySelector('#save-open').addEventListener('click', () => api('open_save_dir').catch((e) => toast(errText(e), 'error')));
   }
 
   function updateBar() {
