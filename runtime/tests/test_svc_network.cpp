@@ -2,6 +2,8 @@
 // Offline network services (S3c): what a console without a connection, friends or BCAT data answers. The request bytes and the
 // expected values are written out from Switchbrew's command ids and result codes (result = module | (description << 9)), not read from
 // the service under test.
+#include "../src/net/vnet.h"
+#include "../src/net/vsock.h"
 #include "svc_test_util.h"
 
 NXTEST_GROUP(svc_network)
@@ -58,11 +60,97 @@ NXTEST(bsd_socket_enetdown) {
     CHECK_EQ(r.result, 0u);
     CHECK_EQ(r.get<int32_t>(0), -1);
     CHECK_EQ(r.get<uint32_t>(4), 100u);
-    // Close(i32 fd) -> (i32 ret, u32 errno): accepted, (0, 0)
+    // Close(i32 fd) -> (i32 ret, u32 errno): no such socket, -1 EBADF 9
     nxsvc::Reply c = bsd.call(26, nxsvc::Args().i32(3));
     CHECK_EQ(c.result, 0u);
+    CHECK_EQ(c.get<int32_t>(0), -1);
+    CHECK_EQ(c.get<uint32_t>(4), 9u);
+    // Listen (18), a TCP command, stays offline: -1, ENETDOWN
+    CHECK_EQ(bsd.call(18, nxsvc::Args().i32(0).i32(1)).get<uint32_t>(4), 100u);
+}
+
+// The local-wireless transport's exact sequence (Pokopia CNnLdnOnlineSessionP2p, static recon): Socket(AF_INET, SOCK_DGRAM |
+// SOCK_NONBLOCK), SetSockOpt(SOL_SOCKET, SO_BROADCAST), Bind 0.0.0.0:49530, SendTo a peer, RecvFrom with MSG_DONTWAIT. The node's link
+// is the current vnet link; the peer is a second link on the same in-process hub with its own socket table.
+NXTEST(bsd_udp_game_sequence) {
+    nxsvc::Env env;
+    vnet::LoopbackHub hub;
+    const uint32_t me = vnet::ip(169, 254, 1, 1), peer_ip = vnet::ip(169, 254, 1, 2);
+    vnet::set_current_link(hub.add(me));
+    vsock::Stack peer(hub.add(peer_ip));
+    const int pfd = peer.socket(2, 2, 0).ret;
+    REQUIRE(pfd >= 0);
+    REQUIRE(peer.bind(pfd, {0, 49530}).ret == 0);
+
+    nxsvc::Session bsd = nxsvc::connect("bsd:u");
+    REQUIRE(bsd.valid());
+    // Socket(i32 2, i32 0x20000002, i32 0) -> (i32 fd, u32 errno 0)
+    nxsvc::Reply s = bsd.call(2, nxsvc::Args().i32(2).i32(0x20000002).i32(0));
+    CHECK_EQ(s.result, 0u);
+    const int32_t fd = s.get<int32_t>(0);
+    CHECK(fd >= 0);
+    CHECK_EQ(s.get<uint32_t>(4), 0u);
+    // SetSockOpt(i32 fd, i32 SOL_SOCKET 0xffff, i32 SO_BROADCAST 0x20, buffer 0x21 = int 1) -> (0, 0)
+    const int32_t one = 1;
+    nxsvc::Reply so = bsd.call(21, nxsvc::Args().i32(fd).i32(0xFFFF).i32(0x20).buf_a(&one, 4));
+    CHECK_EQ(so.get<int32_t>(0), 0);
+    CHECK_EQ(so.get<uint32_t>(4), 0u);
+    // Bind(i32 fd, buffer 0x21 = sockaddr_in {len 16, AF_INET, be16 49530 (0xC17A), 0.0.0.0}) -> (0, 0)
+    const uint8_t any[16] = {16, 2, 0xC1, 0x7A, 0, 0, 0, 0};
+    nxsvc::Reply b = bsd.call(13, nxsvc::Args().i32(fd).buf_a(any, 16));
+    CHECK_EQ(b.get<int32_t>(0), 0);
+    CHECK_EQ(b.get<uint32_t>(4), 0u);
+    // SendTo(i32 fd, i32 flags 0, buffer 0x21 data, buffer 0x21 sockaddr 169.254.1.2:49530) -> (bytes sent, 0)
+    const char ping[] = "\x01\x02\x03\x04ping";
+    const uint8_t to[16] = {16, 2, 0xC1, 0x7A, 169, 254, 1, 2};
+    nxsvc::Reply st = bsd.call(11, nxsvc::Args().i32(fd).i32(0).buf_a(ping, 8).buf_a(to, 16));
+    CHECK_EQ(st.get<int32_t>(0), 8);
+    CHECK_EQ(st.get<uint32_t>(4), 0u);
+    char pbuf[16] = {};
+    vsock::Addr from;
+    CHECK_EQ(peer.recvfrom(pfd, pbuf, sizeof pbuf, vsock::kMsgDontwait, &from).ret, 8);
+    CHECK(std::memcmp(pbuf, ping, 8) == 0);
+    CHECK_EQ(from.ip, me);
+    CHECK_EQ(from.port, uint16_t{49530});
+
+    // RecvFrom(i32 fd, i32 MSG_DONTWAIT 0x80, buffer 0x22 data 0x1000, buffer 0x22 sockaddr) -> (i32 len, u32 errno, u32 addrlen)
+    std::vector<uint8_t> rbuf(0x1000);
+    uint8_t sa[16] = {};
+    nxsvc::Reply empty = bsd.call(9, nxsvc::Args().i32(fd).i32(0x80).buf_b(rbuf.data(), 0x1000).buf_b(sa, 16));
+    CHECK_EQ(empty.get<int32_t>(0), -1);
+    CHECK_EQ(empty.get<uint32_t>(4), 11u);   // EAGAIN
+    const vsock::Addr back{me, 49530};
+    CHECK_EQ(peer.sendto(pfd, "pong", 4, 0, &back).ret, 4);
+    nxsvc::Reply rf = bsd.call(9, nxsvc::Args().i32(fd).i32(0x80).buf_b(rbuf.data(), 0x1000).buf_b(sa, 16));
+    CHECK_EQ(rf.get<int32_t>(0), 4);
+    CHECK_EQ(rf.get<uint32_t>(4), 0u);
+    CHECK_EQ(rf.get<uint32_t>(8), 16u);
+    CHECK(std::memcmp(rbuf.data(), "pong", 4) == 0);
+    const uint8_t want[8] = {16, 2, 0xC1, 0x7A, 169, 254, 1, 2};
+    CHECK(std::memcmp(sa, want, 8) == 0);
+    // The peer's subnet broadcast reaches the game's socket.
+    int32_t on = 1;
+    peer.setsockopt(pfd, vsock::kSolSocket, vsock::kSoBroadcast, &on, 4);
+    const vsock::Addr all{vnet::ip(169, 254, 1, 255), 49530};
+    CHECK_EQ(peer.sendto(pfd, "all", 3, 0, &all).ret, 3);
+    CHECK_EQ(bsd.call(9, nxsvc::Args().i32(fd).i32(0x80).buf_b(rbuf.data(), 0x1000).buf_b(sa, 16)).get<int32_t>(0), 3);
+    // GetSockName(i32 fd, buffer 0x22) -> (0, 0, addrlen 16): 0.0.0.0:49530
+    uint8_t name[16] = {};
+    nxsvc::Reply gn = bsd.call(16, nxsvc::Args().i32(fd).buf_b(name, 16));
+    CHECK_EQ(gn.get<int32_t>(0), 0);
+    CHECK_EQ(gn.get<uint32_t>(8), 16u);
+    CHECK(std::memcmp(name, any, 8) == 0);
+    // Fcntl(fd, F_GETFL 3, 0): O_NONBLOCK 0x800 from SOCK_NONBLOCK
+    CHECK_EQ(bsd.call(20, nxsvc::Args().i32(fd).i32(3).i32(0)).get<int32_t>(0), 0x800);
+    // Close -> (0, 0); the link goes down -> SendTo on a new socket is ENETUNREACH 101
+    nxsvc::Reply c = bsd.call(26, nxsvc::Args().i32(fd));
     CHECK_EQ(c.get<int32_t>(0), 0);
     CHECK_EQ(c.get<uint32_t>(4), 0u);
+    vnet::set_current_link(nullptr);
+    const int32_t fd2 = bsd.call(2, nxsvc::Args().i32(2).i32(2).i32(0)).get<int32_t>(0);
+    nxsvc::Reply un = bsd.call(11, nxsvc::Args().i32(fd2).i32(0).buf_a(ping, 8).buf_a(to, 16));
+    CHECK_EQ(un.get<int32_t>(0), -1);
+    CHECK_EQ(un.get<uint32_t>(4), 101u);
 }
 
 NXTEST(ssl_context_connection_fails) {

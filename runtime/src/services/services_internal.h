@@ -34,6 +34,7 @@ void register_acc();         void acc_reset();         // acc.cpp         acc:u0
 void register_hid();         void hid_reset();         // hid.cpp         hid
 void register_pl();          void pl_reset();          // pl.cpp          pl:u (pl:s)
 void register_network();     void network_reset();     // network.cpp     nifm, bsd, ssl, nim, friend, prepo, pctl, bcat, ldn, nsd, ...
+std::shared_ptr<ipc::Service> make_ldn_user_creator();   void ldn_reset();   // ldn.cpp: ldn:u's objects (registered by network.cpp)
 void register_misc();        void misc_reset();        // misc.cpp        csrng, ldr:ro, mm:u, hwopus, aoc:u, caps, mii, irs, nfc, nfp, ...
 void register_audio();       void audio_reset();       // audio.cpp       audren:u (calls the two below)
 void register_audio_out();   void audio_out_reset();   // audio_out.cpp   audout:u, audin:u

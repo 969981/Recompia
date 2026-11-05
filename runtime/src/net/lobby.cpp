@@ -1,0 +1,877 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Lobby implementations (see lobby.h): the relay protocol v1 client and the in-process LoopbackRelay, plus SHA-256 for the passphrase hash.
+// Relay wire format (launcher/src-tauri/src/relay/mod.rs is the reference): frame = u32 len (bytes after it, 1..8192) + u8 type + payload,
+// little-endian; str = u8 len + UTF-8.
+// SHA-256 follows FIPS 180-4 (the round constants and the initial hash are the standard's).
+#include "lobby.h"
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
+#include <map>
+#include <mutex>
+#include <set>
+#include <thread>
+
+#include "nxrt/log.h"
+#include "tcp.h"
+
+#ifndef NXRT_BUILD_STAMP
+#define NXRT_BUILD_STAMP "nxrt-ldn-relay-1"
+#endif
+
+namespace nxrt::vnet {
+
+const char* build_stamp() { return NXRT_BUILD_STAMP; }
+
+const char* lobby_err_str(int e) {
+    switch (e) {
+        case kLobbyOk: return "ok";
+        case kLobbyBadProto: return "protocol version not supported by the server";
+        case kLobbyBuild: return "the server runs a different game build";
+        case kLobbyPassword: return "wrong password";
+        case kLobbyRoomFull: return "room or server full";
+        case kLobbyNoRoom: return "room not found";
+        case kLobbyVersion: return "game version differs from the room's";
+        case kLobbyNotHost: return "not the room host";
+        case kLobbyRejected: return "rejected by the host";
+        case kLobbyRate: return "rate limited by the server";
+        case kLobbyBadFrame: return "the server refused a frame";
+        case kLobbyTimeout: return "no answer from the server";
+        case kLobbyNoServer: return "not connected to the server";
+        case kLobbyState: return "not allowed in this state";
+        default: return "error";
+    }
+}
+
+bool parse_server(const std::string& s, std::string* host, uint16_t* port) {
+    std::string h = s;
+    while (!h.empty() && (h.back() == ' ' || h.back() == '\t')) h.pop_back();
+    while (!h.empty() && (h.front() == ' ' || h.front() == '\t')) h.erase(h.begin());
+    if (h.empty()) return false;
+    uint16_t p = kRelayDefaultPort;
+    const size_t colon = h.rfind(':');
+    if (colon != std::string::npos) {
+        const std::string ps = h.substr(colon + 1);
+        h.resize(colon);
+        if (ps.empty() || ps.size() > 5) return false;
+        unsigned v = 0;
+        for (char c : ps) {
+            if (c < '0' || c > '9') return false;
+            v = v * 10 + static_cast<unsigned>(c - '0');
+        }
+        if (v == 0 || v > 65535) return false;
+        p = static_cast<uint16_t>(v);
+    }
+    if (h.empty()) return false;
+    *host = h;
+    *port = p;
+    return true;
+}
+
+// ---- SHA-256 ----------------------------------------------------------------------------------------------------------------------------
+
+std::array<uint8_t, 32> sha256(const void* data, size_t n) {
+    static constexpr uint32_t K[64] = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be,
+        0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa,
+        0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85,
+        0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+        0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    auto rotr = [](uint32_t x, int r) { return (x >> r) | (x << (32 - r)); };
+    std::vector<uint8_t> m(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + n);
+    m.push_back(0x80);
+    while (m.size() % 64 != 56) m.push_back(0);
+    const uint64_t bits = static_cast<uint64_t>(n) * 8;
+    for (int i = 7; i >= 0; --i) m.push_back(static_cast<uint8_t>(bits >> (i * 8)));
+    for (size_t off = 0; off < m.size(); off += 64) {
+        uint32_t w[64];
+        for (int i = 0; i < 16; ++i)
+            w[i] = (uint32_t{m[off + i * 4]} << 24) | (uint32_t{m[off + i * 4 + 1]} << 16) | (uint32_t{m[off + i * 4 + 2]} << 8) | m[off + i * 4 + 3];
+        for (int i = 16; i < 64; ++i) {
+            const uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            const uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; ++i) {
+            const uint32_t t1 = hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i];
+            const uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+            hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+    std::array<uint8_t, 32> out{};
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 4; ++j) out[i * 4 + j] = static_cast<uint8_t>(h[i] >> (24 - j * 8));
+    return out;
+}
+
+std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n) {
+    const auto full = sha256(p, n);
+    std::array<uint8_t, 16> out{};
+    std::memcpy(out.data(), full.data(), 16);
+    return out;
+}
+
+namespace {
+
+std::array<uint8_t, 6> node_mac(uint32_t vip) {   // 02:00:a9:fe:R:N, the server's rule
+    return {0x02, 0x00, 0xA9, 0xFE, static_cast<uint8_t>(vip >> 8), static_cast<uint8_t>(vip)};
+}
+
+// =============================================================================================================================================
+// Relay protocol v1 codec
+// =============================================================================================================================================
+
+constexpr size_t kMaxFrame = 8192;
+
+enum : uint8_t {
+    kHello = 0x01, kScan = 0x02, kCreate = 0x03, kJoin = 0x04, kLeave = 0x05, kAdvertise = 0x06, kReject = 0x07, kDatagram = 0x08, kPing = 0x09,
+    kWelcome = 0x81, kError = 0x82, kRoomList = 0x83, kJoined = 0x84, kRoomState = 0x85, kSDatagram = 0x86, kLeft = 0x87, kPong = 0x88,
+};
+
+struct Out {
+    std::vector<uint8_t> b;
+    explicit Out(uint8_t type) : b(4, 0) { b.push_back(type); }
+    Out& u8(uint8_t v) { b.push_back(v); return *this; }
+    Out& u16(uint16_t v) { return u8(static_cast<uint8_t>(v)).u8(static_cast<uint8_t>(v >> 8)); }
+    Out& u32(uint32_t v) { return u16(static_cast<uint16_t>(v)).u16(static_cast<uint16_t>(v >> 16)); }
+    Out& u64(uint64_t v) { return u32(static_cast<uint32_t>(v)).u32(static_cast<uint32_t>(v >> 32)); }
+    Out& raw(const void* p, size_t n) { b.insert(b.end(), static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + n); return *this; }
+    Out& str(const std::string& s, size_t cap = 255) {
+        size_t n = s.size() < cap ? s.size() : cap;
+        while (n && n < s.size() && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;   // never cut inside a UTF-8 sequence
+        return u8(static_cast<uint8_t>(n)).raw(s.data(), n);
+    }
+    Out& blob(const std::vector<uint8_t>& v) { return u16(static_cast<uint16_t>(v.size())).raw(v.data(), v.size()); }
+    std::vector<uint8_t> finish() {
+        const uint32_t len = static_cast<uint32_t>(b.size() - 4);
+        std::memcpy(b.data(), &len, 4);
+        return std::move(b);
+    }
+};
+
+struct In {
+    const uint8_t* p;
+    size_t n, o = 0;
+    bool ok = true;
+    In(const uint8_t* p_, size_t n_) : p(p_), n(n_) {}
+    bool need(size_t k) { if (o + k > n) ok = false; return ok; }
+    uint8_t u8() { return need(1) ? p[o++] : 0; }
+    uint16_t u16() { const uint16_t lo = u8(); return static_cast<uint16_t>(lo | (u8() << 8)); }
+    uint32_t u32() { const uint32_t lo = u16(); return lo | (uint32_t{u16()} << 16); }
+    uint64_t u64() { const uint64_t lo = u32(); return lo | (uint64_t{u32()} << 32); }
+    std::string str() {
+        const size_t k = u8();
+        if (!need(k)) return {};
+        std::string s(reinterpret_cast<const char*>(p + o), k);
+        o += k;
+        return s;
+    }
+    std::vector<uint8_t> blob() {
+        const size_t k = u16();
+        if (!need(k)) return {};
+        std::vector<uint8_t> v(p + o, p + o + k);
+        o += k;
+        return v;
+    }
+};
+
+Room read_room(In& in) {
+    Room r;
+    r.room_id = in.u32();
+    r.local_comm_id = in.u64();
+    r.scene_id = in.u16();
+    r.comm_version = static_cast<int16_t>(in.u16());
+    r.node_count_max = in.u8();
+    r.security_mode = in.u8();
+    const uint8_t count = in.u8();
+    for (uint8_t i = 0; i < count && in.ok; ++i) {
+        RoomNode nd;
+        nd.node_id = in.u8();
+        nd.vip = in.u32();
+        if (in.need(6)) {
+            std::memcpy(nd.mac.data(), in.p + in.o, 6);
+            in.o += 6;
+        }
+        nd.nickname = in.str();
+        r.nodes.push_back(std::move(nd));
+    }
+    r.adv = in.blob();
+    return r;
+}
+
+// =============================================================================================================================================
+// RelayClient
+// =============================================================================================================================================
+
+class RelayClient final : public Lobby, public Link, public std::enable_shared_from_this<RelayClient> {
+public:
+    explicit RelayClient(RelayOptions opt) : opt_(std::move(opt)) {
+        if (opt_.build_stamp.empty()) opt_.build_stamp = build_stamp();
+    }
+    ~RelayClient() override { disconnect(); }
+
+    // ---- Lobby ----
+    int connect() override {
+        std::lock_guard<std::mutex> rq(req_mu_);
+        return connect_locked();
+    }
+    bool connected() const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        return connected_;
+    }
+    int scan(uint64_t lcid, uint16_t scene, std::vector<Room>* out) override {
+        std::lock_guard<std::mutex> rq(req_mu_);
+        if (const int e = connect_locked()) return e;
+        Out o(kScan);
+        o.u64(lcid).u16(scene);
+        const int e = request(o.finish(), kRoomList);
+        if (e == 0 && out) {
+            std::lock_guard<std::mutex> lk(mu_);
+            *out = std::move(got_rooms_);
+        }
+        return e;
+    }
+    int create(const RoomConfig& c, Joined* out) override {
+        std::lock_guard<std::mutex> rq(req_mu_);
+        if (const int e = connect_locked()) return e;
+        if (in_room()) return kLobbyState;
+        Out o(kCreate);
+        o.u64(c.local_comm_id).u16(c.scene_id).u16(static_cast<uint16_t>(c.comm_version)).u8(c.node_count_max).u8(c.security_mode);
+        o.raw(c.pass_hash.data(), 16);
+        std::vector<uint8_t> adv = c.adv;
+        if (adv.size() > kMaxAdvertise) adv.resize(kMaxAdvertise);
+        o.blob(adv);
+        return finish_join(request(o.finish(), kJoined), out);
+    }
+    int join(uint32_t room_id, int16_t ver, const std::array<uint8_t, 16>& hash, Joined* out) override {
+        std::lock_guard<std::mutex> rq(req_mu_);
+        if (const int e = connect_locked()) return e;
+        if (in_room()) return kLobbyState;
+        Out o(kJoin);
+        o.u32(room_id).u16(static_cast<uint16_t>(ver)).raw(hash.data(), 16);
+        return finish_join(request(o.finish(), kJoined), out);
+    }
+    void leave() override {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (!in_room_) return;
+            clear_room();
+        }
+        send_frame(Out(kLeave).finish());   // the LEFT 0 answer is ignored (the reader drops LEFT while in no room)
+    }
+    int set_advertise(const std::vector<uint8_t>& adv) override {
+        if (!in_room()) return kLobbyState;
+        Out o(kAdvertise);
+        std::vector<uint8_t> a = adv;
+        if (a.size() > kMaxAdvertise) a.resize(kMaxAdvertise);
+        o.blob(a);
+        return send_frame(o.finish()) ? kLobbyOk : kLobbyNoServer;
+    }
+    int reject(uint32_t vip) override {
+        if (!in_room()) return kLobbyState;
+        Out o(kReject);
+        o.u32(vip);
+        return send_frame(o.finish()) ? kLobbyOk : kLobbyNoServer;
+    }
+    Room room() const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        return room_;
+    }
+    bool in_room() const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        return in_room_;
+    }
+    std::shared_ptr<Link> link() override { return shared_from_this(); }
+    void set_events(LobbyEvents ev) override {
+        std::lock_guard<std::mutex> lk(ev_mu_);
+        ev_ = std::move(ev);
+    }
+
+    // ---- Link ----
+    uint32_t local_ip() const override { return vip_.load(std::memory_order_acquire); }   // lock-free: vsock asks without its lock
+    bool send(const Datagram& d) override {
+        const uint32_t me = local_ip();
+        if (!me) return false;
+        if (d.dst_ip == me) return true;   // the server drops self traffic; vsock already looped it back
+        Out o(kDatagram);
+        o.u16(d.src_port).u32(d.dst_ip).u16(d.dst_port);
+        const size_t n = d.data.size() < kMaxDatagram ? d.data.size() : kMaxDatagram;
+        o.u16(static_cast<uint16_t>(n)).raw(d.data.data(), n);
+        return send_frame(o.finish());
+    }
+
+private:
+    enum Want : uint8_t { kNone = 0, kWantWelcome = kWelcome, kWantList = kRoomList, kWantJoined = kJoined };
+
+    // Caller holds req_mu_.
+    int connect_locked() {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (connected_) return kLobbyOk;
+            // A failed attempt is not retried for 3 s: a game scanning in a loop must not stall on a dead server each time.
+            if (last_err_ && std::chrono::steady_clock::now() - last_try_ < std::chrono::seconds(3)) return last_err_;
+            last_try_ = std::chrono::steady_clock::now();
+        }
+        join_threads();
+        std::string why;
+        const tcp::Handle h = tcp::dial(opt_.host, opt_.port, opt_.timeout_ms, opt_.timeout_ms, &why);
+        const std::string where = opt_.host + ":" + std::to_string(opt_.port);
+        if (h == tcp::kBad) return fail_connect(kLobbyNoServer, where + ": " + why);
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            sock_ = h;
+            connected_ = true;   // provisional: the reader runs; WELCOME confirms
+            stop_ = false;
+        }
+        reader_ = std::thread([this] { read_loop(); });
+        Out o(kHello);
+        o.u16(kRelayProto).str(opt_.build_stamp).str(opt_.nickname, kMaxNick).str(opt_.password);
+        const int e = request(o.finish(), kWantWelcome);
+        if (e != kLobbyOk) {
+            disconnect();
+            return fail_connect(e, where + ": " + (err_msg_.empty() ? lobby_err_str(e) : err_msg_));
+        }
+        pinger_ = std::thread([this] { ping_loop(); });
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            last_err_ = 0;
+        }
+        NXLOG_I("net", "ldn: relay %s connected as %s (client %u, server %s)", where.c_str(), opt_.nickname.c_str(), client_id_,
+                server_version_.c_str());
+        return kLobbyOk;
+    }
+
+    int fail_connect(int e, const std::string& msg) {
+        bool log;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            log = e != last_err_ || msg != last_msg_;   // the same failure is logged once
+            last_err_ = e;
+            last_msg_ = msg;
+        }
+        if (log) NXLOG_I("net", "ldn: relay %s", msg.c_str());
+        return e;
+    }
+
+    // Sends one request frame and waits for its answer (or an ERROR). Caller holds req_mu_.
+    int request(std::vector<uint8_t> frame, uint8_t want) {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (!connected_) return kLobbyNoServer;
+            want_ = want;
+            got_ = false;
+            got_err_ = 0;
+            err_msg_.clear();
+        }
+        if (!send_frame(frame)) {
+            std::lock_guard<std::mutex> lk(mu_);
+            want_ = kNone;
+            return kLobbyNoServer;
+        }
+        std::unique_lock<std::mutex> lk(mu_);
+        cv_.wait_for(lk, std::chrono::milliseconds(opt_.timeout_ms), [&] { return got_ || !connected_; });
+        want_ = kNone;
+        if (got_) return got_err_;
+        return connected_ ? kLobbyTimeout : kLobbyNoServer;
+    }
+
+    int finish_join(int e, Joined* out) {
+        if (e == 0 && out) {
+            std::lock_guard<std::mutex> lk(mu_);
+            *out = got_joined_;
+        }
+        return e;
+    }
+
+    bool send_frame(const std::vector<uint8_t>& f) {
+        tcp::Handle h;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (!connected_) return false;
+            h = sock_;
+        }
+        std::lock_guard<std::mutex> sl(send_mu_);
+        if (tcp::send_all(h, f.data(), f.size())) return true;
+        tcp::shutdown(h);   // a failed or stalled write: the reader sees the close and reports the connection lost
+        return false;
+    }
+
+    void clear_room() {   // caller holds mu_
+        in_room_ = false;
+        vip_.store(0, std::memory_order_release);
+        room_ = Room{};
+    }
+
+    void read_loop() {
+        tcp::Handle h;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            h = sock_;
+        }
+        std::vector<uint8_t> buf;
+        for (;;) {
+            uint32_t len = 0;
+            if (!tcp::recv_all(h, &len, 4) || len == 0 || len > kMaxFrame) break;
+            buf.resize(len);
+            if (!tcp::recv_all(h, buf.data(), len)) break;
+            dispatch(buf[0], buf.data() + 1, len - 1);
+        }
+        lost();
+    }
+
+    void dispatch(uint8_t type, const uint8_t* p, size_t n) {
+        In in(p, n);
+        switch (type) {
+            case kWelcome: {
+                const uint32_t id = in.u32();
+                std::string ver = in.str();
+                answer(kWantWelcome, 0, [&] {
+                    client_id_ = id;
+                    server_version_ = std::move(ver);
+                });
+                break;
+            }
+            case kError: {
+                const uint16_t code = in.u16();
+                std::string msg = in.str();
+                std::lock_guard<std::mutex> lk(mu_);
+                if (want_ != kNone && !got_) {
+                    got_ = true;
+                    got_err_ = code ? code : kLobbyBadFrame;
+                    err_msg_ = msg;
+                    cv_.notify_all();
+                } else {
+                    NXLOG_W("net", "ldn: relay error %u: %s", code, msg.c_str());
+                }
+                break;
+            }
+            case kRoomList: {
+                const uint8_t count = in.u8();
+                std::vector<Room> rooms;
+                for (uint8_t i = 0; i < count && in.ok; ++i) rooms.push_back(read_room(in));
+                answer(kWantList, 0, [&] { got_rooms_ = std::move(rooms); });
+                break;
+            }
+            case kJoined: {
+                Joined j;
+                j.room_id = in.u32();
+                j.vip = in.u32();
+                j.node_id = in.u8();
+                bool stale = false;
+                {
+                    std::lock_guard<std::mutex> lk(mu_);
+                    if (want_ == kWantJoined && !got_) {
+                        in_room_ = true;
+                        room_ = Room{};
+                        room_.room_id = j.room_id;
+                        vip_.store(j.vip, std::memory_order_release);
+                        got_joined_ = j;
+                        got_ = true;
+                        got_err_ = 0;
+                        cv_.notify_all();
+                    } else {
+                        stale = true;   // the request timed out meanwhile: do not stay in a room nobody asked for any more
+                    }
+                }
+                if (stale) send_frame(Out(kLeave).finish());
+                break;
+            }
+            case kRoomState: {
+                Room r = read_room(in);
+                {
+                    std::lock_guard<std::mutex> lk(mu_);
+                    if (!in_room_ || r.room_id != room_.room_id) break;
+                    room_ = r;
+                }
+                std::lock_guard<std::mutex> el(ev_mu_);
+                if (ev_.room_state) ev_.room_state(r);
+                break;
+            }
+            case kSDatagram: {
+                Datagram d;
+                d.src_ip = in.u32();
+                d.src_port = in.u16();
+                d.dst_ip = in.u32();
+                d.dst_port = in.u16();
+                d.data = in.blob();
+                if (in.ok && local_ip() != 0) deliver(d);
+                break;
+            }
+            case kLeft: {
+                const uint16_t why = in.u16();
+                if (why == static_cast<uint16_t>(LeftReason::YouLeft)) break;   // the answer to our own LEAVE
+                {
+                    std::lock_guard<std::mutex> lk(mu_);
+                    if (!in_room_) break;
+                    clear_room();
+                }
+                std::lock_guard<std::mutex> el(ev_mu_);
+                if (ev_.left) ev_.left(static_cast<LeftReason>(why));
+                break;
+            }
+            case kPong: break;
+            default: NXLOG_D("net", "ldn: relay frame type 0x%02x ignored", type); break;
+        }
+    }
+
+    template <class F>
+    void answer(uint8_t want, int err, F&& fill) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (want_ != want || got_) return;
+        fill();
+        got_ = true;
+        got_err_ = err;
+        cv_.notify_all();
+    }
+
+    // The connection is gone (closed, failed, or disconnect()).
+    void lost() {
+        bool was_in_room, was_connected, asked;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            was_in_room = in_room_;
+            was_connected = connected_;
+            asked = stop_;
+            clear_room();
+            connected_ = false;
+            cv_.notify_all();
+        }
+        if (was_connected && !asked) {
+            NXLOG_W("net", "ldn: relay %s:%u connection lost", opt_.host.c_str(), opt_.port);
+            std::lock_guard<std::mutex> lk(mu_);
+            last_err_ = 0;   // reconnect at the next request, without the 3 s pause
+        }
+        if (was_in_room && !asked) {
+            std::lock_guard<std::mutex> el(ev_mu_);
+            if (ev_.left) ev_.left(LeftReason::ConnectionLost);
+        }
+    }
+
+    void ping_loop() {
+        uint32_t nonce = 0;
+        std::unique_lock<std::mutex> lk(mu_);
+        while (!stop_ && connected_) {
+            cv_.wait_for(lk, std::chrono::milliseconds(opt_.ping_ms), [&] { return stop_ || !connected_; });
+            if (stop_ || !connected_) break;
+            lk.unlock();
+            Out o(kPing);
+            o.u32(++nonce);
+            send_frame(o.finish());
+            lk.lock();
+        }
+    }
+
+    void disconnect() {
+        tcp::Handle h;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            stop_ = true;
+            h = sock_;
+            cv_.notify_all();
+        }
+        tcp::shutdown(h);
+        join_threads();
+        std::lock_guard<std::mutex> lk(mu_);
+        if (sock_ != tcp::kBad) tcp::close(sock_);
+        sock_ = tcp::kBad;
+        connected_ = false;
+        clear_room();
+    }
+
+    void join_threads() {
+        for (std::thread* t : {&reader_, &pinger_}) {
+            if (!t->joinable()) continue;
+            if (t->get_id() == std::this_thread::get_id()) t->detach();   // the last owner let go inside an event sink
+            else t->join();
+        }
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!connected_ && sock_ != tcp::kBad) {
+            tcp::close(sock_);
+            sock_ = tcp::kBad;
+        }
+    }
+
+    RelayOptions opt_;
+    std::mutex req_mu_;            // one request at a time
+    std::mutex send_mu_;           // one frame write at a time
+    std::mutex ev_mu_;             // held while a sink runs
+    LobbyEvents ev_;
+    mutable std::mutex mu_;        // everything below
+    std::condition_variable cv_;
+    tcp::Handle sock_ = tcp::kBad;
+    bool connected_ = false, stop_ = false;
+    std::thread reader_, pinger_;
+    uint8_t want_ = kNone;
+    bool got_ = false;
+    int got_err_ = 0;
+    std::string err_msg_;
+    std::vector<Room> got_rooms_;
+    Joined got_joined_;
+    uint32_t client_id_ = 0;
+    std::string server_version_;
+    bool in_room_ = false;
+    Room room_;
+    std::atomic<uint32_t> vip_{0};
+    int last_err_ = 0;
+    std::string last_msg_;
+    std::chrono::steady_clock::time_point last_try_{};
+};
+
+}  // namespace
+
+std::shared_ptr<Lobby> make_relay_client(const RelayOptions& opt) { return std::make_shared<RelayClient>(opt); }
+
+// =============================================================================================================================================
+// LoopbackRelay: the server's room semantics in process. One lock for the whole relay; events and deliveries run after it is released.
+// =============================================================================================================================================
+
+class LoopbackLobby;
+
+struct LoopbackRelay::State {
+    struct RoomS {
+        Room info;
+        std::array<uint8_t, 16> hash{};
+        std::map<uint8_t, LoopbackLobby*> members;   // node id -> client
+        std::set<const LoopbackLobby*> banned;
+    };
+    std::mutex mu;
+    std::map<uint32_t, RoomS> rooms;
+};
+
+class LoopbackLobby final : public Lobby, public Link, public std::enable_shared_from_this<LoopbackLobby> {
+public:
+    using State = LoopbackRelay::State;
+    using Work = std::vector<std::function<void()>>;   // what to run after the relay lock is released
+
+    LoopbackLobby(std::shared_ptr<State> st, std::string nick) : st_(std::move(st)), nick_(std::move(nick)) {}
+    ~LoopbackLobby() override { leave(); }
+
+    int connect() override { return kLobbyOk; }
+    bool connected() const override { return true; }
+
+    int scan(uint64_t lcid, uint16_t scene, std::vector<Room>* out) override {
+        std::lock_guard<std::mutex> lk(st_->mu);
+        out->clear();
+        for (const auto& [id, r] : st_->rooms) {
+            if (r.info.nodes.size() >= r.info.node_count_max) continue;
+            if (lcid && r.info.local_comm_id != lcid) continue;
+            if (scene != 0xFFFF && r.info.scene_id != scene) continue;
+            out->push_back(r.info);
+        }
+        return kLobbyOk;
+    }
+
+    int create(const RoomConfig& c, Joined* out) override {
+        Work w;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            if (room_id_) return kLobbyState;
+            uint32_t id = 1;
+            while (id <= 254 && st_->rooms.count(id)) ++id;
+            if (id > 254) return kLobbyRoomFull;
+            State::RoomS& r = st_->rooms[id];
+            r.info.room_id = id;
+            r.info.local_comm_id = c.local_comm_id;
+            r.info.scene_id = c.scene_id;
+            r.info.comm_version = c.comm_version;
+            r.info.node_count_max = c.node_count_max;
+            r.info.security_mode = c.security_mode;
+            r.info.adv = c.adv;
+            r.hash = c.pass_hash;
+            enter(r, 0, &w);
+            *out = {id, vip_, 0};
+        }
+        run(w);
+        return kLobbyOk;
+    }
+
+    int join(uint32_t room_id, int16_t ver, const std::array<uint8_t, 16>& hash, Joined* out) override {
+        Work w;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            if (room_id_) return kLobbyState;
+            auto it = st_->rooms.find(room_id);
+            if (it == st_->rooms.end()) return kLobbyNoRoom;
+            State::RoomS& r = it->second;
+            if (r.banned.count(this)) return kLobbyRejected;
+            if (r.info.nodes.size() >= r.info.node_count_max) return kLobbyRoomFull;
+            if (r.info.comm_version != ver) return kLobbyVersion;
+            if (r.hash != hash) return kLobbyPassword;
+            uint8_t node = 1;
+            while (r.members.count(node)) ++node;
+            enter(r, node, &w);
+            *out = {room_id, vip_, node};
+        }
+        run(w);
+        return kLobbyOk;
+    }
+
+    void leave() override {
+        Work w;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            exit_room(LeftReason::YouLeft, &w);
+        }
+        run(w);
+    }
+
+    int set_advertise(const std::vector<uint8_t>& adv) override {
+        Work w;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            State::RoomS* r = my_room();
+            if (!r) return kLobbyState;
+            if (node_ != 0) return kLobbyNotHost;
+            r->info.adv = adv;
+            push_state(*r, &w);
+        }
+        run(w);
+        return kLobbyOk;
+    }
+
+    int reject(uint32_t vip) override {
+        Work w;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            State::RoomS* r = my_room();
+            if (!r) return kLobbyState;
+            if (node_ != 0) return kLobbyNotHost;
+            for (auto& [node, m] : r->members) {
+                if (m->vip_ != vip || m == this) continue;
+                r->banned.insert(m);
+                m->exit_room(LeftReason::Rejected, &w);
+                break;
+            }
+        }
+        run(w);
+        return kLobbyOk;
+    }
+
+    Room room() const override {
+        std::lock_guard<std::mutex> lk(st_->mu);
+        return snapshot_;
+    }
+    bool in_room() const override {
+        std::lock_guard<std::mutex> lk(st_->mu);
+        return room_id_ != 0;
+    }
+    std::shared_ptr<Link> link() override { return shared_from_this(); }
+    void set_events(LobbyEvents ev) override {
+        std::lock_guard<std::mutex> lk(ev_mu_);
+        ev_ = std::move(ev);
+    }
+
+    uint32_t local_ip() const override { return vip_atomic_.load(std::memory_order_acquire); }
+    bool send(const Datagram& in) override {
+        std::vector<std::shared_ptr<LoopbackLobby>> to;
+        Datagram d = in;
+        {
+            std::lock_guard<std::mutex> lk(st_->mu);
+            State::RoomS* r = my_room();
+            if (!r) return false;
+            d.src_ip = vip_;
+            for (auto& [node, m] : r->members) {
+                if (m == this) continue;   // never echo the sender's own traffic
+                if (d.dst_ip == (vip_ | 0xFF) || d.dst_ip == m->vip_) to.push_back(m->shared_from_this());
+            }
+        }
+        for (const auto& m : to) m->deliver(d);
+        return true;
+    }
+
+private:
+    State::RoomS* my_room() {
+        auto it = st_->rooms.find(room_id_);
+        return it == st_->rooms.end() ? nullptr : &it->second;
+    }
+
+    // Caller holds the relay lock.
+    void enter(State::RoomS& r, uint8_t node, Work* w) {
+        room_id_ = r.info.room_id;
+        node_ = node;
+        vip_ = ip(169, 254, static_cast<uint8_t>(room_id_), static_cast<uint8_t>(node + 1));
+        vip_atomic_.store(vip_, std::memory_order_release);
+        r.members[node] = this;
+        r.info.nodes.clear();
+        for (auto& [n, m] : r.members) r.info.nodes.push_back({n, m->vip_, node_mac(m->vip_), m->nick_.substr(0, kMaxNick)});
+        push_state(r, w);
+    }
+
+    void push_state(State::RoomS& r, Work* w) {
+        for (auto& [n, m] : r.members) {
+            m->snapshot_ = r.info;
+            auto self = m->shared_from_this();
+            Room copy = r.info;
+            w->push_back([self, copy] {
+                std::lock_guard<std::mutex> el(self->ev_mu_);
+                if (self->ev_.room_state) self->ev_.room_state(copy);
+            });
+        }
+    }
+
+    // Takes this client out of its room; the host closes it (LEFT 1 to every guest). Caller holds the relay lock.
+    void exit_room(LeftReason why, Work* w) {
+        State::RoomS* r = my_room();
+        if (!r) return;
+        const uint32_t id = room_id_;
+        r->members.erase(node_);
+        reset();
+        if (why != LeftReason::YouLeft) notify_left(why, w);
+        if (node_was_host_) {
+            for (auto& [n, m] : r->members) {
+                m->reset();
+                m->notify_left(LeftReason::HostClosed, w);
+            }
+            st_->rooms.erase(id);
+            return;
+        }
+        r->info.nodes.clear();
+        for (auto& [n, m] : r->members) r->info.nodes.push_back({n, m->vip_, node_mac(m->vip_), m->nick_.substr(0, kMaxNick)});
+        push_state(*r, w);
+    }
+
+    void reset() {
+        node_was_host_ = room_id_ && node_ == 0;
+        room_id_ = 0;
+        node_ = 0;
+        vip_ = 0;
+        vip_atomic_.store(0, std::memory_order_release);
+        snapshot_ = Room{};
+    }
+
+    void notify_left(LeftReason why, Work* w) {
+        auto self = shared_from_this();
+        w->push_back([self, why] {
+            std::lock_guard<std::mutex> el(self->ev_mu_);
+            if (self->ev_.left) self->ev_.left(why);
+        });
+    }
+
+    static void run(Work& w) {
+        for (auto& f : w) f();
+    }
+
+    std::shared_ptr<State> st_;
+    std::string nick_;
+    uint32_t room_id_ = 0;
+    uint8_t node_ = 0;
+    bool node_was_host_ = false;
+    uint32_t vip_ = 0;
+    std::atomic<uint32_t> vip_atomic_{0};
+    Room snapshot_;
+    std::mutex ev_mu_;
+    LobbyEvents ev_;
+};
+
+LoopbackRelay::LoopbackRelay() : st_(std::make_shared<State>()) {}
+LoopbackRelay::~LoopbackRelay() = default;
+
+std::shared_ptr<Lobby> LoopbackRelay::client(const std::string& nickname) { return std::make_shared<LoopbackLobby>(st_, nickname); }
+
+}  // namespace nxrt::vnet

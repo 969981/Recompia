@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Offline network services (S3c): nifm, bsd, bsdcfg, ssl, nim:eca, friend, prepo, pctl, bcat, ldn, nsd, sfdnsres, ntc, ngct, ngc, notif.
-// The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives.
+// The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives. The one
+// exceptions are ldn (local wireless over the relay server: services/ldn.cpp registers ldn:u's objects, this file the name) and bsd's UDP
+// sockets, which run on the virtual local-wireless LAN (net/vsock.h) when ldn has a vnet link up.
 // Adapted from ScarletNX (GPL-3.0-or-later): src/nx/hle/services/network/nifm.swipc, bsd.swipc, ssl.swipc, dns.swipc, ldn.swipc and
 //   src/nx/hle/services/misc.swipc (pctl, friend, prepo, bcat, ngct, nsd). Command ids, names and layouts.
 // Adapted from Ryujinx (MIT): src/Ryujinx.HLE/HOS/Services/Nifm/*, Sockets/Bsd/IClient.cs, Ssl/ResultCode.cs, Nim/Ntc/*,
@@ -9,8 +11,9 @@
 // Switchbrew pages followed for the command tables: Network_Interface_services, Sockets_services, SSL_services, Friend_services,
 //   Parental_Control_services. The result codes are module | (description << 9) (services.h).
 //
-// Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ldn
-// state, the ssl context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value.
+// Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ssl
+// context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every socket, drops the
+// current vnet link and the ldn relay connection). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
 #include <cstring>
 #include <functional>
 #include <initializer_list>
@@ -23,6 +26,8 @@
 #include "nxrt/config.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "../net/vnet.h"
+#include "../net/vsock.h"
 #include "services_internal.h"
 
 namespace nxrt::services {
@@ -30,9 +35,6 @@ namespace {
 
 // ---- result codes ---------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t kNifmNoConnection = res(110, 300);         // nifm NoInternetConnection (Ryujinx Nifm/ResultCode.cs)
-constexpr uint32_t kLdnInvalidState = res(203, 32);           // ldn InvalidState (Ryujinx Ldn/ResultCode.cs)
-constexpr uint32_t kLdnDeviceNotAvailable = res(203, 16);     // ldn DeviceNotAvailable
-constexpr uint32_t kLdnConnectNotFound = res(203, 65);        // ldn ConnectNotFound
 constexpr uint32_t kTimeNetworkNotAvailable = res(116, 1000); // time NetworkTimeNotAvailable (Ryujinx Time/ResultCode.cs)
 constexpr uint32_t kTimeTaskCanceled = res(116, 1003);        // time NetworkTimeTaskCanceled
 constexpr uint32_t kSslInvalidSocket = res(123, 106);         // ssl InvalidSocket (Ryujinx Ssl/ResultCode.cs)
@@ -41,7 +43,6 @@ constexpr uint32_t kFsPathNotFound = res(2, 1002);            // fs PathNotFound
 constexpr uint32_t kBsdNetDown = 100;                         // ENETDOWN (Linux errno numbers, as Switchbrew's bsd page says)
 constexpr uint32_t kNetdbHostNotFound = 1;                    // HOST_NOT_FOUND
 constexpr int32_t kEaiNoName = -2;                            // EAI_NONAME
-constexpr uint32_t kLdnStateNone = 0, kLdnStateInitialized = 1;   // nn::ldn::State
 
 // ---- process state -----------------------------------------------------------------------------------------------------------------------
 struct NetState {
@@ -50,7 +51,6 @@ struct NetState {
     uint32_t next_client_id = 1;         // nifm ClientId, one per IGeneralService
     uint32_t next_cancel_handle = 1;     // sfdnsres cancel handle
     uint64_t next_pki_id = 1;            // ssl Import*/Register* ids
-    uint32_t ldn_state = kLdnStateNone;
     int ssl_contexts = 0;                // live ISslContext objects
 };
 NetState& st() {
@@ -333,9 +333,135 @@ std::shared_ptr<ipc::Service> make_nifm_static() {
 }
 
 // =============================================================================================================================================
-// bsd: bsd:u, bsd:s, bsd:a (IClient). Switchbrew "Sockets services". Every socket-level command returns -1 with errno ENETDOWN, or the
-// success pair where the command is a control call. bsdcfg has an empty command table (ScarletNX bsd.swipc).
+// bsd: bsd:u, bsd:s, bsd:a (IClient). Switchbrew "Sockets services". The UDP commands are a thin adapter over the vsock socket table
+// (net/vsock.h: UDP datagrams on the vnet link ldn brings up); SOCK_STREAM and the other domains still answer ENETDOWN, and every other
+// socket-level command returns -1 with errno ENETDOWN, or the success pair where the command is a control call. bsdcfg has an empty
+// command table (ScarletNX bsd.swipc).
+// Layouts from libnx nx/source/services/bsd.c (ISC) and Ryujinx Sockets/Bsd/IClient.cs (MIT): input (i32 fd, i32 flags/level/...) raw;
+// data and addresses in AutoSelect buffers (type 0x21 in = A or X, 0x22 out = B or C: in_buf()/out_buf() take either); output (i32 ret,
+// u32 errno), then u32 addrlen / optlen for RecvFrom, GetSockName, GetPeerName and GetSockOpt. The socket table is process-wide (every
+// bsd session sees the same descriptors).
+// sockaddr_in on the Switch is FreeBSD's: u8 sin_len (16), u8 sin_family (AF_INET 2), be16 port, be32 address, 8 zero bytes.
 // =============================================================================================================================================
+
+constexpr size_t kSockaddrSize = 16;
+
+// (i32 ret, u32 errno) and the optional trailing u32.
+uint32_t bsd_ret(ipc::Response& rsp, const vsock::Ret& r) {
+    rsp.push(r.ret);
+    rsp.push(r.err);
+    return 0;
+}
+
+// Reads a sockaddr_in from an input buffer. 0 or an errno (EINVAL: too short, EAFNOSUPPORT: not AF_INET).
+uint32_t read_sockaddr(const ipc::Buffer& b, vsock::Addr& a) {
+    uint8_t sa[kSockaddrSize] = {};
+    if (buf_read(b, sa, sizeof sa) < 8) return vsock::kEinval;
+    if (sa[1] != vsock::kAfInet) return vsock::kEafnosupport;
+    a.port = static_cast<uint16_t>((sa[2] << 8) | sa[3]);
+    a.ip = (uint32_t{sa[4]} << 24) | (uint32_t{sa[5]} << 16) | (uint32_t{sa[6]} << 8) | sa[7];
+    return 0;
+}
+
+// Writes a sockaddr_in to an output buffer; returns the bytes written (the addrlen answer).
+uint32_t write_sockaddr(const ipc::Buffer& b, const vsock::Addr& a) {
+    const uint8_t sa[kSockaddrSize] = {static_cast<uint8_t>(kSockaddrSize), static_cast<uint8_t>(vsock::kAfInet),
+                                       static_cast<uint8_t>(a.port >> 8), static_cast<uint8_t>(a.port),
+                                       static_cast<uint8_t>(a.ip >> 24), static_cast<uint8_t>(a.ip >> 16),
+                                       static_cast<uint8_t>(a.ip >> 8), static_cast<uint8_t>(a.ip)};
+    return static_cast<uint32_t>(buf_write(b, sa, sizeof sa));
+}
+
+// A command whose sockaddr input failed to parse answers -1 with that errno, unless the descriptor is bad (EBADF comes first).
+vsock::Ret addr_fail(int fd, uint32_t e) { return {-1, vsock::stack().is_socket(fd) ? e : vsock::kEbadf}; }
+
+uint32_t bsd_send(ipc::Response& rsp, int fd, int flags, const ipc::Buffer& data, const vsock::Addr* to) {
+    return bsd_ret(rsp, vsock::stack().sendto(fd, buf_ptr(data), static_cast<size_t>(data.size), flags, to));
+}
+
+uint32_t bsd_recv(ipc::Response& rsp, int fd, int flags, const ipc::Buffer& data, vsock::Addr* from) {
+    return bsd_ret(rsp, vsock::stack().recvfrom(fd, buf_mut(data), static_cast<size_t>(data.size), flags, from));
+}
+
+void add_bsd_udp(ipc::Service& s) {
+    auto socket = [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().socket(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8)));
+    };
+    cmd(s, "bsd", 2, "Socket", socket);
+    cmd(s, "bsd", 3, "SocketExempt", socket);
+    cmd(s, "bsd", 8, "Recv", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_recv(rsp, req.arg<int32_t>(0), req.arg<int32_t>(4), req.out_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 9, "RecvFrom", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        vsock::Addr from;
+        const vsock::Ret r = vsock::stack().recvfrom(req.arg<int32_t>(0), buf_mut(req.out_buf(0)), static_cast<size_t>(req.out_buf(0).size),
+                                                     req.arg<int32_t>(4), &from);
+        bsd_ret(rsp, r);
+        rsp.push(r.err ? uint32_t{0} : write_sockaddr(req.out_buf(1), from));
+        return 0;
+    });
+    cmd(s, "bsd", 10, "Send", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_send(rsp, req.arg<int32_t>(0), req.arg<int32_t>(4), req.in_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 11, "SendTo", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr to;
+        if (const uint32_t e = read_sockaddr(req.in_buf(1), to)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_send(rsp, fd, req.arg<int32_t>(4), req.in_buf(0), &to);
+    });
+    cmd(s, "bsd", 13, "Bind", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr a;
+        if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_ret(rsp, vsock::stack().bind(fd, a));
+    });
+    cmd(s, "bsd", 14, "Connect", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const int fd = req.arg<int32_t>(0);
+        vsock::Addr a;
+        if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
+        return bsd_ret(rsp, vsock::stack().connect(fd, a));
+    });
+    auto name = [](bool peer) {
+        return [peer](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            vsock::Addr a;
+            const int fd = req.arg<int32_t>(0);
+            const vsock::Ret r = peer ? vsock::stack().getpeername(fd, &a) : vsock::stack().getsockname(fd, &a);
+            bsd_ret(rsp, r);
+            rsp.push(r.err ? uint32_t{0} : write_sockaddr(req.out_buf(0), a));
+            return 0;
+        };
+    };
+    cmd(s, "bsd", 15, "GetPeerName", name(true));
+    cmd(s, "bsd", 16, "GetSockName", name(false));
+    cmd(s, "bsd", 17, "GetSockOpt", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const ipc::Buffer out = req.out_buf(0);
+        size_t n = static_cast<size_t>(out.size);
+        const vsock::Ret r = vsock::stack().getsockopt(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8), buf_mut(out), &n);
+        bsd_ret(rsp, r);
+        rsp.push(r.err ? uint32_t{0} : static_cast<uint32_t>(n));
+        return 0;
+    });
+    cmd(s, "bsd", 20, "Fcntl", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().fcntl(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8)));
+    });
+    cmd(s, "bsd", 21, "SetSockOpt", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        const ipc::Buffer in = req.in_buf(0);
+        return bsd_ret(rsp, vsock::stack().setsockopt(req.arg<int32_t>(0), req.arg<int32_t>(4), req.arg<int32_t>(8), buf_ptr(in),
+                                                      static_cast<size_t>(in.size)));
+    });
+    cmd(s, "bsd", 22, "Shutdown", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().shutdown(req.arg<int32_t>(0), req.arg<int32_t>(4)));
+    });
+    cmd(s, "bsd", 24, "Write", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_send(rsp, req.arg<int32_t>(0), 0, req.in_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 25, "Read", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_recv(rsp, req.arg<int32_t>(0), 0, req.out_buf(0), nullptr);
+    });
+    cmd(s, "bsd", 26, "Close", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        return bsd_ret(rsp, vsock::stack().close(req.arg<int32_t>(0)));
+    });
+}
 
 std::shared_ptr<ipc::Service> make_bsd() {
     return make_iface("nn::socket::sf::IClient", [](ipc::Service& s) {
@@ -344,33 +470,17 @@ std::shared_ptr<ipc::Service> make_bsd() {
             rsp.push(static_cast<uint32_t>(0));
             return 0;
         });
+        add_bsd_udp(s);
         rows(s, "bsd", {
             {1, "StartMonitoring", K::Ok},
-            {2, "Socket", K::Errno},
-            {3, "SocketExempt", K::Errno},
             {4, "Open", K::Errno},
             {5, "Select", K::Errno},
             {6, "Poll", K::Errno},
             {7, "Sysctl", K::Errno, 0, 1},
-            {8, "Recv", K::Errno},
-            {9, "RecvFrom", K::Errno, 0, 1},
-            {10, "Send", K::Errno},
-            {11, "SendTo", K::Errno},
             {12, "Accept", K::Errno, 0, 1},
-            {13, "Bind", K::Errno},
-            {14, "Connect", K::Errno},
-            {15, "GetPeerName", K::Errno, 0, 1},
-            {16, "GetSockName", K::Errno, 0, 1},
-            {17, "GetSockOpt", K::Errno, 0, 1},
             {18, "Listen", K::Errno},
             {19, "Ioctl", K::Errno},
-            {20, "Fcntl", K::Errno},
-            {21, "SetSockOpt", K::Errno},
-            {22, "Shutdown", K::Errno},
             {23, "ShutdownAllSockets", K::Errno},
-            {24, "Write", K::Errno},
-            {25, "Read", K::Errno},
-            {26, "Close", K::ErrnoOk},          // no socket is ever open, so there is nothing to fail on
             {27, "DuplicateSocket", K::Errno},
             {28, "GetResourceStatistics", K::Zeros, 0, 8},
             {29, "RecvMMsg", K::Errno},
@@ -948,88 +1058,6 @@ std::shared_ptr<ipc::Service> make_bcat_creator() {
 }
 
 // =============================================================================================================================================
-// ldn: ldn:u (IUserServiceCreator). Local wireless: the state machine starts at None, Initialize moves it to Initialized. The scans find
-// nothing; anything that needs a network fails with the ldn result a console without a radio gives.
-// =============================================================================================================================================
-
-std::shared_ptr<ipc::Service> make_ldn_local() {
-    auto ev = std::make_shared<ServiceEvent>();   // the state never changes on its own
-    return make_iface("nn::ldn::detail::IUserLocalCommunicationService", [ev](ipc::Service& s) {
-        cmd(s, "ldn", 0, "GetState", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            rsp.push(static_cast<uint32_t>(n.ldn_state));
-            return 0;
-        });
-        cmd(s, "ldn", 100, "AttachStateChangeEvent", [ev](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.out_copy.push_back(ev->new_handle());
-            return 0;
-        });
-        auto create = [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            return n.ldn_state == kLdnStateNone ? kLdnInvalidState : kLdnDeviceNotAvailable;
-        };
-        cmd(s, "ldn", 202, "CreateNetwork", create);
-        cmd(s, "ldn", 203, "CreateNetworkPrivate", create);
-        auto init = [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            n.ldn_state = kLdnStateInitialized;
-            return 0;
-        };
-        cmd(s, "ldn", 400, "Initialize", init);
-        cmd(s, "ldn", 402, "InitializeWithVersion", init);
-        cmd(s, "ldn", 401, "Finalize", [](ipc::Request&, ipc::Response&) -> uint32_t {
-            NetState& n = st();
-            std::lock_guard<std::mutex> lk(n.mu);
-            n.ldn_state = kLdnStateNone;
-            return 0;
-        });
-        rows(s, "ldn", {
-            {1, "GetNetworkInfo", K::Fail, kLdnInvalidState},
-            {2, "GetIpv4Address", K::Fail, kLdnInvalidState},
-            {3, "GetDisconnectReason", K::Zeros, 0, 2},
-            {4, "GetSecurityParameter", K::Zeros, 0, 0x20},
-            {5, "GetNetworkConfig", K::Zeros, 0, 0x20},
-            {101, "GetNetworkInfoLatestUpdate", K::Fail, kLdnInvalidState},
-            {102, "Scan", K::Zeros, 0, 2},          // count 0
-            {103, "ScanPrivate", K::Zeros, 0, 2},   // count 0
-            {104, "SetWirelessControllerRestriction", K::Ok},
-            {106, "SetProtocol", K::Ok},
-            {200, "OpenAccessPoint", K::Ok},
-            {201, "CloseAccessPoint", K::Ok},
-            {204, "DestroyNetwork", K::Fail, kLdnInvalidState},
-            {205, "Reject", K::Fail, kLdnInvalidState},
-            {206, "SetAdvertiseData", K::Ok},
-            {207, "SetStationAcceptPolicy", K::Ok},
-            {208, "AddAcceptFilterEntry", K::Ok},
-            {209, "ClearAcceptFilter", K::Ok},
-            {300, "OpenStation", K::Ok},
-            {301, "CloseStation", K::Ok},
-            {302, "Connect", K::Fail, kLdnConnectNotFound},
-            {303, "ConnectPrivate", K::Fail, kLdnConnectNotFound},
-            {304, "Disconnect", K::Ok},
-        });
-    });
-}
-
-std::shared_ptr<ipc::Service> make_ldn_user_creator() {
-    return make_iface("nn::ldn::detail::IUserServiceCreator", [](ipc::Service& s) {
-        cmd(s, "ldn", 0, "CreateUserLocalCommunicationService", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.push_object(make_ldn_local());
-            return 0;
-        });
-        cmd(s, "ldn", 1, "CreateClientProcessMonitor", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            rsp.push_object(make_iface("nn::ldn::detail::IClientProcessMonitor", [](ipc::Service& m) {
-                rows(m, "ldn", {{0, "RegisterClient", K::Ok}});
-            }));
-            return 0;
-        });
-    });
-}
-
-// =============================================================================================================================================
 // nsd: nsd:u, nsd:a (IManager). The environment is the retail one (lp1); Resolve returns the name as it was given.
 // =============================================================================================================================================
 
@@ -1305,8 +1333,10 @@ void network_reset() {
     s.next_client_id = 1;
     s.next_cancel_handle = 1;
     s.next_pki_id = 1;
-    s.ldn_state = kLdnStateNone;
     s.ssl_contexts = 0;
+    ldn_reset();   // drops the relay connection (services/ldn.cpp)
+    vnet::set_current_link(nullptr);
+    vsock::stack().reset();
 }
 
 }  // namespace nxrt::services

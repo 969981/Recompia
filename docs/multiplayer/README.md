@@ -1,0 +1,35 @@
+# Multiplayer (Link Play) — experimental
+
+Pokopia's **Link Play** (local wireless, two players on one island) running between two PCs through the relay server.
+First working session on 2026-11-03: a Windows PC hosting and a Legion Go S (Proton) visiting.
+
+![Two players on one island](linkplay-1.webp)
+![The same session from the other view](linkplay-2.webp)
+
+## How it works
+
+The game thinks it is on local wireless. The runtime's `ldn` service turns its networks into rooms on a relay server, and its
+`bsd` UDP sockets carry the game's packets through that server on a virtual 169.254.R.N/24 network. The game code above `nn::ldn`
+is untouched.
+
+    pkp.exe (host) --TCP--> relay server <--TCP-- pkp.exe (guest)
+
+## Trying it
+
+1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it). Other PCs on the LAN need
+   that port reachable (Windows Firewall: allow it on private networks).
+2. On every player's PC, `pkp.ini`:
+
+       [net]
+       server = <relay PC's IP>:39660
+
+3. In game: the PC in your first house -> Link Play (unlocked after Environment Level 2 in Withered Wasteland). One player picks
+   **Invite Others to Visit**, the other **Visit a Friend**.
+
+**Each player needs their own save.** The game gives every save a player UUID when the game is started, and the host refuses a
+visitor whose UUID it already has (error 9005, "Communication error"). Two copies of one save cannot play together.
+
+## Status
+
+Joining and walking around together work. Not yet tested: long sessions, more than two players, leaving and rejoining, playing
+over the internet. Expect bugs; report them with both players' `pkp.log`.
