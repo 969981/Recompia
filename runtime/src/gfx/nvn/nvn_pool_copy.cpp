@@ -91,14 +91,17 @@ std::atomic<uint64_t> g_chunks{0}, g_allocs{0}, g_copied{0}, g_landed{0}, g_reco
 uint64_t g_sub_serial = 0, g_sub_bytes = 0;     // render thread: bytes copied in by the submission being recorded
 std::atomic<int64_t> g_last_sub_kb{0};          // ... and by the last one (gauge)
 
-// GPU writes waiting for their serial, in serial order (recorded by the render thread as it records). g_land_mu is a leaf: nothing else is
-// taken under it (before_os_write could call the compute-out guard handler, which copy pools never arm: they get no mirror).
+// GPU writes waiting for their serial, in serial order (recorded by the render thread as it records). Lock order:
+// g_live_mu -> g_reg_mu -> g_landing_mu -> g_land_mu. g_land_mu guards only the queue, land_refs and g_land_min and is held for short sections
+// (the render thread takes it per recorded write and in pcopy_busy); it is a leaf. g_landing_mu serialises landers and is held across a whole
+// landing (pop, memcpy, before_os_write, page bits); before_os_write could call the compute-out guard handler, which copy pools never arm.
 struct LandRec {
     PoolGpu* pool;
     PoolChunk* chunk;
     uint64_t pool_off, size, serial;
 };
 std::mutex g_land_mu;
+std::mutex g_landing_mu;
 std::deque<LandRec> g_land;
 std::atomic<uint64_t> g_land_min{kNone};        // serial of g_land.front() (kNone: empty), the lock-free test of pcopy_land
 thread_local bool t_landing = false;            // a landing on this thread (a nested read_completed returns at once)
@@ -107,8 +110,12 @@ thread_local bool t_landing = false;            // a landing on this thread (a n
 struct LastResolve {
     PoolGpu* pool = nullptr;
     PoolChunk* chunk = nullptr;
+    uint64_t gen = 0;      // g_free_gen when set
 };
 thread_local LastResolve t_last;
+// bumped by pcopy_free: a t_last set before it may point into a chunk another thread destroyed, and is ignored
+std::atomic<uint64_t> g_free_gen{0};
+inline bool last_valid() { return t_last.chunk && t_last.gen == g_free_gen.load(std::memory_order_acquire); }
 
 // live shadows, for the cap's least-recently-used eviction
 std::mutex g_reg_mu;
@@ -312,6 +319,8 @@ PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made) {
 
 void pcopy_free(PoolChunk& c) {
     reg_remove(&c);
+    g_free_gen.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> landing(g_landing_mu);     // no landing copies into this chunk's shadow while it is destroyed
     {   // records of a chunk that goes (its pool is destroyed) do not land; an idle drop or an eviction happens only with none left
         std::lock_guard<std::mutex> lk(g_land_mu);
         g_land.erase(std::remove_if(g_land.begin(), g_land.end(), [&c](const LandRec& r) { return r.chunk == &c; }), g_land.end());
@@ -334,7 +343,7 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t end = size ? std::min<uint64_t>(off + size, cend) : cend;   // unknown size: to the end of the chunk
     const uint64_t p0 = (off - c->off) / kPage, p1 = (end - c->off + kPage - 1) / kPage;   // chunk pages [p0, p1)
     const bool rt = on_render_thread();
-    if (rt) t_last = LastResolve{g, c};
+    if (rt) t_last = LastResolve{g, c, g_free_gen.load(std::memory_order_acquire)};
     const uint64_t cur = rt ? recording_serial() : 0;     // 0 outside a recording: always copied
     if (cur && c->cov_serial == cur && p0 >= c->cov_lo && p1 <= c->cov_hi) return;   // all copied in this submission already
     const uint64_t done = completed_serial();
@@ -394,7 +403,7 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
 }
 
 void pool_copy_touch(uint64_t gpu_address, uint64_t size) {
-    if (!pool_copy_on() || !size || !t_last.chunk) return;
+    if (!pool_copy_on() || !size || !last_valid()) return;
     const uint64_t off = gpu_address - reinterpret_cast<uint64_t>(t_last.pool->base);
     if (!covers(t_last.chunk, off)) return;
     pcopy_touch(t_last.pool, t_last.chunk, off, size);
@@ -414,7 +423,7 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
         for (PoolChunk& x : pg->ext) if (x.buffer == hint && covers(&x, off)) { c = &x; break; }
         if (!c) for (PoolChunk& x : pg->spans) if (x.buffer == hint && covers(&x, off)) { c = &x; span = true; break; }
     }
-    if (!c && t_last.pool == pg && covers(t_last.chunk, off) && (!hint || t_last.chunk->buffer == hint)) {
+    if (!c && last_valid() && t_last.pool == pg && covers(t_last.chunk, off) && (!hint || t_last.chunk->buffer == hint)) {
         c = t_last.chunk;
         for (const PoolChunk& x : pg->spans) if (&x == c) { span = true; break; }
     }
@@ -448,7 +457,10 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
         if (first) land_min_update();
     }
     g_records.fetch_add(1, std::memory_order_relaxed);
-    if (first) g_th_cv.notify_one();
+    if (first) {
+        std::lock_guard<std::mutex> lk(g_th_mu);     // under the mutex the lander waits on: no wake-up lost between its test and its wait
+        g_th_cv.notify_one();
+    }
 }
 
 uint64_t pcopy_land(uint64_t reached) {
@@ -457,24 +469,39 @@ uint64_t pcopy_land(uint64_t reached) {
     const uint64_t t0 = ft::on() ? ft::now_ns() : 0;
     uint64_t bytes = 0, bad = 0;
     {
-        std::lock_guard<std::mutex> lk(g_land_mu);
-        while (!g_land.empty() && g_land.front().serial <= reached) {
-            const LandRec r = g_land.front();
-            g_land.pop_front();
-            PoolChunk* c = r.chunk;
+        std::lock_guard<std::mutex> landing(g_landing_mu);
+        // The records leave the queue now, but g_land_min and land_refs stay as they were until the copy is done: a second caller that tests
+        // g_land_min still waits on g_landing_mu, so no serial is published before its bytes landed, and pcopy_busy holds the chunks.
+        std::vector<LandRec> batch;
+        {
+            std::lock_guard<std::mutex> lk(g_land_mu);
+            while (!g_land.empty() && g_land.front().serial <= reached) {
+                batch.push_back(g_land.front());
+                g_land.pop_front();
+            }
+        }
+        // pass 1: every copy. Two records of a serial can share a page: its page_gpu must stay set until both have landed, or a touch between
+        // them sees 0 and copies guest -> shadow over the page while the second record still lands stale bytes.
+        for (const LandRec& r : batch) {
+            const PoolChunk* c = r.chunk;
             uint8_t* dst = r.pool->base + r.pool_off;
             const uint8_t* src = static_cast<const uint8_t*>(c->shadow.mapped) + (r.pool_off - c->off);
             mem::ww::before_os_write(dst, r.size);     // pages a write watch made read-only become writable (and count as written)
             bad += guarded_copy(dst, src, r.size, false);
             bytes += r.size;
-            if (c->land_refs) --c->land_refs;
-            // page_gpu back to 0 where no later write was recorded: after the copy, so a touch that sees 0 copies the landed bytes
+        }
+        // pass 2: page_gpu back to 0 where no later write was recorded: after every copy, so a touch that sees 0 copies the landed bytes
+        for (const LandRec& r : batch)
             for (uint64_t p = r.pool_off / kPage; p <= (r.pool_off + r.size - 1) / kPage; ++p) {
                 uint64_t e = r.serial;
                 r.pool->page_gpu[static_cast<size_t>(p)].compare_exchange_strong(e, 0, std::memory_order_release, std::memory_order_relaxed);
             }
+        {
+            std::lock_guard<std::mutex> lk(g_land_mu);
+            for (const LandRec& r : batch)
+                if (r.chunk->land_refs) --r.chunk->land_refs;
+            land_min_update();
         }
-        land_min_update();
     }
     t_landing = false;
     if (bad) g_unreadable.fetch_add(bad, std::memory_order_relaxed);
@@ -519,13 +546,10 @@ void pcopy_evict_for(uint64_t bytes) {
     for (PoolChunk* c : cand) {
         if (static_cast<uint64_t>(std::max<int64_t>(0, g_live.load())) + bytes <= cap) break;
         if (pcopy_busy(*c)) continue;
-        PoolGpu* g = c->owner;
-        freed += c->size;
+        const uint64_t sz = c->size;
+        if (!pool_drop_chunk_if_live(c->owner, c)) continue;     // under g_live_mu, like lazy_drop_idle
+        freed += sz;
         g_evicted.fetch_add(1, std::memory_order_relaxed);
-        bool found = false;
-        for (size_t i = 0; i < g->ext.size(); ++i)
-            if (&g->ext[i] == c) { pool_drop_ext(g, i); found = true; break; }
-        if (!found) pool_drop_span(g, *c);     // a span: its slot stays empty
     }
     if (freed)
         NXLOG_I(kTag, "pool_copy: over the cap of %llu MiB: dropped %llu MiB of the least recently used shadows", static_cast<unsigned long long>(cap >> 20),

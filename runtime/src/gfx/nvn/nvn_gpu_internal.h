@@ -469,6 +469,7 @@ void pcopy_evict_for(uint64_t bytes);                 // over [nvn] pool_copy_mb
 // nvn_gpu_pool.cpp: removes a lazy (or copy) cell import / shadow from its pool and destroys it (lazy_drop_idle, pcopy_evict_for).
 void pool_drop_ext(PoolGpu* g, size_t ext_index);
 void pool_drop_span(PoolGpu* g, PoolChunk& c);
+bool pool_drop_chunk_if_live(PoolGpu* g, PoolChunk* c);   // pcopy_evict_for: under g_live_mu, only if g is still live and owns c
 // nvn_gpu.cpp: waits up to timeout_ns for the timeline to reach serial (the landing thread). False: timed out, device lost or no back end.
 bool timeline_wait(uint64_t serial, uint64_t timeout_ns);
 uint64_t recording_serial();                          // the serial being recorded, 0 outside a recording (render thread)

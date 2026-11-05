@@ -652,6 +652,16 @@ void pool_drop_span(PoolGpu* g, PoolChunk& c) {
     destroy_chunk(c);
 }
 
+// Eviction of a copy pool's chunk (an ext entry or a span): with g_live_mu held and only if the pool is still live (lazy_drop_idle's order).
+bool pool_drop_chunk_if_live(PoolGpu* g, PoolChunk* c) {
+    std::lock_guard<std::mutex> lk(g_live_mu);
+    if (!g || !g_live.count(g) || !c->buffer || pcopy_busy(*c)) return false;
+    for (size_t i = 0; i < g->ext.size(); ++i)
+        if (&g->ext[i] == c) { pool_drop_ext(g, i); return true; }
+    pool_drop_span(g, *c);     // a span: its slot stays empty
+    return true;
+}
+
 // [nvn] pool_lazy: imports of lazy pools no bind resolved to for [nvn] pool_lazy_idle presents, whose last submission has completed, are
 // destroyed (their cells are imported again at the next bind). Their pages leave every later submission's BO list. Nothing outside one
 // submission keeps a pool buffer except texel buffer views, which destroy_chunk forgets. Checked every 64 presents, and a summary line every
