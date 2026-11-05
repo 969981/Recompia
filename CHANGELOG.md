@@ -11,6 +11,8 @@ of the game (version 2.0.1a): the download contains no game files.
   (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
 
 ### Fixes
+- Lamp light and other deferred lighting no longer appear as a displaced glow or a second copy at 16:10, 1440p and other render sizes
+  besides 1920x1080 (#44). The affected lighting targets now follow the render size. `[pkp] target_fix = off` restores the old behaviour.
 - Leaving an area (a house, a door) no longer gets stuck with the Poké Ball wipe half open and the controls locked (#144). It happened
   above 60 fps (a 144 or 240 Hz screen with the frame limit on auto, or unlimited): the game's own timers are built for steps of a
   60 fps frame or more, and some never fire with smaller steps. The game now runs at most 60 fps, whatever the frame limit (as on the console and in
