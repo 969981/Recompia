@@ -66,7 +66,9 @@ struct ValidationStats {
     std::string first_error;              // text of the first error since the last reset
 };
 
-enum class MemoryUse { GpuOnly, Upload, Readback };   // host-visible memory is mapped persistently
+// host-visible memory is mapped persistently. Shadow: [nvn] pool_copy's copies of pool cells: host-visible + coherent (host-cached
+// preferred), random host access both ways (the CPU copies guest bytes in and GPU results out), the GPU reads it in place.
+enum class MemoryUse { GpuOnly, Upload, Readback, Shadow };
 
 struct ImageDesc {
     VkImageType type = VK_IMAGE_TYPE_2D;

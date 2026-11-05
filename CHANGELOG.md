@@ -10,6 +10,8 @@ of the game (version 2.0.1a): the download contains no game files.
   view distance and texture sharpness they also pick a render scale and a frame limit (Steam Deck 40 fps, Legion Go S and
   Laptop 60 fps, Desktop your display's refresh rate). Hover a preset to see what it sets. Changing one of those settings
   afterwards switches to Custom, as before. The render scale part applies after a restart.
+- Steam Deck / Linux: the game's GPU memory is copied instead of shared with the graphics driver (`[nvn] pool_copy`),
+  which removes a cost every frame paid for the shared memory. Not yet measured on a Deck. `pool_copy = off` goes back.
 
 ### Fixes
 - Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image

@@ -42,7 +42,9 @@ namespace {
 bool test_input(const std::string& name) {
     static const char* const kKeep[] = {"NXRT_ROOT",           "NXRT_NVN_SHADER_CACHE", "NXRT_NVN_CORPUS",       "NXRT_NVN_BC7_CACHE",
                                         "NXRT_REFS_DIR",       "NXRT_GFX_UPDATE_REF",   "NXRT_NVN_UPDATE_REFS",  "NXRT_NVN_DUMP_COVERAGE",
-                                        "NXRT_SPIRV_VAL",      "NXRT_CSMP_DIR"};
+                                        "NXRT_SPIRV_VAL",      "NXRT_CSMP_DIR",
+                                        // [nvn] pool_copy forced on or off for a whole run: the A/B of every gfx_nvn_* group (copy mode)
+                                        "NXRT_NVN_POOL_COPY"};
     for (const char* k : kKeep)
         if (_stricmp(name.c_str(), k) == 0) return true;
     return _strnicmp(name.c_str(), "NXRT_TEST_", 10) == 0 || _strnicmp(name.c_str(), "NXRT_MOVIE_", 11) == 0;

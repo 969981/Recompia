@@ -65,6 +65,7 @@ NXTEST(lazy_imports_only_the_cells_binds_touch) {
     o.width = kW;
     o.height = kH;
     REQUIRE(app.init(o));
+    if (gpu::pool_copy_on()) { nxtest::skip("[nvn] pool_copy is on (NXRT_NVN_POOL_COPY): pools are shadows, the lazy import path is not used"); return; }
     const gpu::PoolLazyStats s0 = gpu::pool_lazy_stats();
     REQUIRE(s0.on);
     const uint64_t base = main_address(app);
@@ -105,6 +106,7 @@ NXTEST(lazy_idle_imports_are_dropped_and_come_back) {
     o.width = kW;
     o.height = kH;
     REQUIRE(app.init(o));
+    if (gpu::pool_copy_on()) { nxtest::skip("[nvn] pool_copy is on (NXRT_NVN_POOL_COPY): pools are shadows, the lazy import path is not used"); return; }
     REQUIRE(gpu::pool_lazy_stats().on);
     const uint64_t base = main_address(app);
     const gpu::BufRef a = resolve(base + 10 * kCell + 0x40, 48);

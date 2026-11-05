@@ -910,12 +910,28 @@ VkResult Device::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, Memo
     ai.usage = VMA_MEMORY_USAGE_AUTO;
     if (use == MemoryUse::Upload) ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     if (use == MemoryUse::Readback) ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    if (use == MemoryUse::Shadow) {     // [nvn] pool_copy: host memory the GPU reads in place (no userptr), cached when the device has it
+        ai.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        ai.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        ai.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    }
     VmaAllocationInfo info = {};
     Buffer b;
     VkResult r = vmaCreateBuffer(vma_, &bi, &ai, &b.buffer, &b.allocation, &info);
     if (r != VK_SUCCESS) return r;
     vk_gauge_buffers().add(1);
-    if (use == MemoryUse::Upload || use == MemoryUse::Readback) {      // S34: where host-visible buffers live (device-local host-visible = resizable BAR, else system memory)
+    if (use == MemoryUse::Shadow) {     // the memory the shadows got, once (which heap and whether cached decides their CPU and GPU cost)
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true)) {
+            VkMemoryPropertyFlags mp = 0;
+            vmaGetAllocationMemoryProperties(vma_, b.allocation, &mp);
+            NXLOG_I("vk", "shadow buffers (pool_copy): memory type %u, flags 0x%x (%s%s%s)", static_cast<unsigned>(info.memoryType), static_cast<unsigned>(mp),
+                    (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? "device-local " : "", (mp & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? "host-cached" : "write-combined",
+                    (mp & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? ", coherent" : "");
+        }
+    }
+    if (use == MemoryUse::Upload || use == MemoryUse::Readback || use == MemoryUse::Shadow) {      // S34: where host-visible buffers live (device-local host-visible = resizable BAR, else system memory)
         static std::atomic<int> logged{0};
         VkMemoryPropertyFlags mp = 0;
         vmaGetAllocationMemoryProperties(vma_, b.allocation, &mp);

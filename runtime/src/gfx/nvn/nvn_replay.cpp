@@ -1493,6 +1493,12 @@ bool compute_direct_on() {
 // Every result still only in the pool copy goes back to the pool (in queue order, before what is recorded next).
 void flush_compute_out(int why) {
     if (!out_any()) return;
+    // [nvn] pool_copy: out entries need a pool copy (mirror) or a held result, and copy pools have neither (lazy pools get no mirror,
+    // out_lazy is off), so nothing is held; were one there, its copy-back into the shadow would be unrecorded: say so once.
+    if (pool_copy_on()) {
+        static bool noted = false;
+        if (!noted) { noted = true; NXLOG_W("nvn.replay", "pool_copy: a compute result is held in a pool copy; its copy-back is not recorded as a GPU write"); }
+    }
     end_pass();
     if (out_flush(F->cb, 0, UINT64_MAX, why)) {
         ++g_sh_flushes;
@@ -1757,6 +1763,8 @@ void shadows_after_dispatch() {
         if (!any) { memory_barrier(F->cb); any = true; }
         VkBufferCopy c = {0, u.host.offset, u.size};
         vkCmdCopyBuffer(F->cb, u.buf, u.host.buffer, 1, &c);
+        // [nvn] pool_copy: u.host is a shadow; the binding recorded this range as a GPU write already (gpu_wrote), the copy-back is that write
+        if (pool_copy_on()) pcopy_note_write(u.addr, u.size, u.host.buffer);
         g_sh_bytes_out += u.size;
         if (u.mirror.buf) {
             VkBufferCopy mc = {0, u.mirror.offset, u.size};
@@ -3286,6 +3294,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     BufRef ib = held_or_pool(p.indirect_address, (p.stride ? static_cast<uint64_t>(p.stride) : cmd_size) * (n_cmds - 1) + cmd_size, kOutIndirect, false);
     if (indexed) {
         BufRef xb = resolve_buffer(p.index_address, 4);
+        if (pool_copy_on()) pool_copy_touch(p.index_address, indirect_index_span(p));   // [nvn] pool_copy: every index the draw may read
         bind_index_buffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
     if (p.multi && p.count_address) {
@@ -4101,6 +4110,7 @@ void run_list(const CmdList& list, int depth) {
                         if (b.ok && g_occ_last >= 0) {
                             vkCmdCopyQueryPoolResults(F->cb, g_occ_pool, static_cast<uint32_t>(g_occ_last), 1, b.buffer, b.offset, 16,
                                                       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+                            if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: the result lands in guest memory at completion
                             memory_barrier(F->cb);
                         }
                     }
@@ -4121,6 +4131,7 @@ void run_list(const CmdList& list, int depth) {
                             if (b.ok) {
                                 // the feedback query has two results (written, needed): the second would land on the timestamp word, which is written again after it
                                 vkCmdCopyQueryPoolResults(F->cb, cw.pool, static_cast<uint32_t>(cw.last), 1, b.buffer, b.offset, 16, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+                                if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: lands at completion
                                 memory_barrier(F->cb);
                                 if (&cw == &g_cw[1]) do_write_memory(p.address + 8, &rep.timestamp, 8);
                             }
