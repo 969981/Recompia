@@ -3,7 +3,7 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## 0.5.0
+## 0.5.0 (build I: Iguana)
 
 ### What's new
 - Multiplayer (Link Play) is part of every release now. A new Link Play page in the launcher: play alone, host on this PC or visit
@@ -46,7 +46,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Releases run the launcher tests first and ship SHA256SUMS.txt; pull requests are scanned for private text.
 - Uses code and ideas from pokopia-native (MIT), credited in CREDITS.md.
 
-## 0.4.1
+## 0.4.1 (build H: Hedgehog, hotfix)
 
 ### Fixes
 - Steam Deck, Legion Go S and other 16:10 screens: trees, rocks, stairs, players and Pokémon are drawn at the right height again. They
@@ -54,7 +54,7 @@ of the game (version 2.0.1a): the download contains no game files.
   `aspect = auto` the picture now stays 16:9 with thin bars on screens taller than 16:9 (#73). `aspect = 16:10` still gives the full
   taller view, with the old placement problem, until it is fixed properly.
 
-## 0.4.0 (build H)
+## 0.4.0 (build H: Hedgehog)
 
 ### What's new
 - Much faster on the Legion Go S: in the world at its native 1920x1200, with no upscaler, about 55 -> 75 fps (+36%), and the slowest
@@ -115,7 +115,7 @@ Base: fork 0.3.0 (`9edefb8`).
   rustls, 5 s timeout), semver compare against the launcher's own version; untagged builds (0.0.0, 0.1.1) skip it. The banner's link
   opens only `https://github.com/` URLs.
 
-## 0.3.0 (build G)
+## 0.3.0 (build G: Gecko)
 
 ### What's new
 - Name entry has an on-screen keyboard drawn in the game. It works with a controller, mouse or keyboard, including in Steam's Game Mode
@@ -146,7 +146,7 @@ Base: fork 0.2.0 (`98e50b8`).
   a boot preload, read front to back on later boots; stale entries by results.tsv line hash; `[nvn] shader_pack`. zstd 1.5.7 pinned.
   Go S: written in 20 s, preload 2.6 -> 1.7 s (tinfoil-chewer/pokopia-recomp-linux c7a15e4).
 
-## 0.2.0 (build F)
+## 0.2.0 (build F: Fennec fox)
 
 ### What's new
 

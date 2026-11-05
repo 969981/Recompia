@@ -179,5 +179,5 @@ jobs:
           $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
           if (-not $m.Success) { throw "CHANGELOG.md has no section '## $env:VERSION'" }
           $m.Groups[1].Value.Trim() | Set-Content build/notes.md
-          $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build (\w)\)").Groups[1].Value
-          gh release create $env:GITHUB_REF_NAME (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title "Pokopia Recomp $env:VERSION (build $env:BUILD)" --notes-file build/notes.md
+          $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
+          gh release create $env:GITHUB_REF_NAME (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title ("Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } else { "" })) --notes-file build/notes.md
