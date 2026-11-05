@@ -12,4 +12,7 @@ namespace nxrt {
 // touchscreen or on-screen keyboard send mouse or keyboard input.
 bool host_is_handheld();
 
+// Running under Wine (Proton, SteamOS): ntdll exports wine_get_version. Read once; any thread.
+bool host_is_wine();
+
 }  // namespace nxrt

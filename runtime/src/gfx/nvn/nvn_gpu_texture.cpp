@@ -94,6 +94,8 @@ struct TexGpu {
     // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
     uint64_t wgen[kGenLevels] = {};
     bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
+    bool read_back = false;                             // download_texture copied it into game memory (the CPU reads it): a dispatch that writes
+                                                        // it is never skipped ([nvn] async_compute). Render thread (set in download_texture's job)
     // [nvn] readback_async (download_texture). rb: the readback buffer, laid out like the linear image (tegra::Layout offsets), grown to
     // the largest request and never shrunk; freed with the image (tex_destroy). rb_gen[level]: the write generation the level had when the
     // storage last got it (read after the layout restore, which counts as a write); rb_have[level][layer]: the storage holds that layer
@@ -2935,6 +2937,7 @@ bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
     run_frame_sync([&](Frame& f) {
         if (device().create_buffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx::MemoryUse::Readback, &rb, "nvn texture readback") != VK_SUCCESS)
             return;
+        g->read_back = true;
         const VkImageLayout prev = g->layout;
         move_layout(f, *g, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         std::vector<VkBufferImageCopy> regions;
@@ -3145,6 +3148,15 @@ void buffer_views_forget(VkBuffer buffer) {
         if (it->second) vkDestroyBufferView(vkdev(), it->second, nullptr);
         it = g_bufviews.erase(it);
     }
+}
+
+// Render thread. The image's flag, also through another texture object over the same storage; creates nothing.
+bool tex_was_read_back(Texture* t) {
+    if (!t) return false;
+    const TexGpu* g = t->gpu;
+    if (!g)
+        if (Ref<Texture> alias = texture_registry_find_alias(t)) g = alias->gpu;
+    return g && g->read_back;
 }
 
 }  // namespace gpu

@@ -375,6 +375,15 @@ void trace_dump_targets();
 void present_on_render_thread(Window* w, int index, bool again = false);   // again: present_again (not counted as a game present)
 void present_again();
 
+// ---- never-block compiles (WP06) -------------------------------------------------------------------------------------------
+// The replay's frame detector (note_frame_for_pacing, nvn_replay.cpp): true while the game loads (light frames while it stalls, or boot's
+// light run), and before the first present. Runs whether or not [display] unpaced_loading acts on it. Render thread.
+bool replay_loading();
+// The NVNmemoryPoolFlags of the pool holding a GPU address, 0 when it is in no pool (nvn_gpu_pool.cpp). Any thread.
+uint32_t pool_flags_at(uint64_t gpu_address);
+// True once download_texture copied the texture's image into game memory (the CPU reads it): [nvn] async_compute never skips a dispatch
+// that writes it (nvn_gpu_texture.cpp). Render thread; creates nothing.
+bool tex_was_read_back(Texture* t);
 // ---- readback ([nvn] readback_async, nvn_gpu.cpp / nvn_gpu_texture.cpp) -----------------------------------------------------------
 // Any thread but the render thread. queue_record: queue_submit without the GPU wait (returns the serial once the render thread recorded
 // the job). wait_serial_grace: up to grace_ns for the render thread to flush the serial itself, then wait_serial(serial, UINT64_MAX).

@@ -13,9 +13,10 @@ of the game (version 2.0.1a): the download contains no game files.
   Not yet measured on a Deck.
 - Fewer hitches about once a second (a texture read back from the GPU no longer stops rendering). Not yet measured on a Deck.
   `[nvn] readback_async = false` brings the old way back.
-- Steam Deck, Legion Go S and other Linux / SteamOS players: fewer hitches the first time something is drawn. A shader that is not ready
-  yet is compiled in the background and the object appears a frame or two later, instead of the whole game pausing for it
-  (`[nvn] async_whole = auto`, on under Proton). Set it to `true` to try it on Windows. Not yet measured on a Deck.
+- Fewer hitches the first time something is drawn: shaders compile in the background and the object appears a frame or two later, on
+  every platform, compute shaders included (they are also remembered and built at the next start). The game no longer falls back to
+  compiling on the spot after one slow frame. `[nvn] gpl_gate = time`, `async_whole = false`, `async_compute = false` and
+  `compute_prewarm = false` bring back the old behaviour. Not yet measured on a Deck.
 
 - Frame limits now divide the screen's refresh rate for even pacing: on the 90 Hz Steam Deck OLED, 40 fps runs at 30; pick 80 Hz in
   Steam's Performance menu for 40. 45 fps can be chosen in F1. (`[display] fps_snap = auto|true|false`; auto snaps under Proton only.)

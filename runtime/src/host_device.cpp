@@ -65,4 +65,12 @@ bool host_is_handheld() {
     return handheld;
 }
 
+bool host_is_wine() {
+    static const bool wine = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt && GetProcAddress(nt, "wine_get_version");
+    }();
+    return wine;
+}
+
 }  // namespace nxrt
