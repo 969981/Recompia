@@ -51,6 +51,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
 #include "nxrt/overlay.h"
+#include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_pipeline.h"
 
@@ -274,7 +275,9 @@ VkPipeline build_vi(const GraphicsKey& key) {
     bool seen[16] = {};
     for (uint32_t i = 0; i < key.attr_count && i < 16; ++i) {
         const KeyAttr& a = key.attr[i];
-        va[nva++] = {a.location, a.binding, static_cast<VkFormat>(a.format), a.offset};
+        const VkFormat vf = format_guard().vertex_fetch_format(static_cast<VkFormat>(a.format));   // device without vertex fetch for it: sibling or left out
+        if (vf == VK_FORMAT_UNDEFINED) continue;
+        va[nva++] = {a.location, a.binding, vf, a.offset};
         if (!seen[a.binding]) {
             seen[a.binding] = true;
             vb[nvb++] = {a.binding, 0, key.binding_instance[a.binding] ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX};
@@ -301,7 +304,7 @@ VkPipeline build_fo(const GraphicsKey& key) {
     VkFormat cf[8];
     for (uint32_t i = 0; i < key.color_count && i < 8; ++i) {
         cba[i] = {};
-        cba[i].blendEnable = key.blend_enable[i] ? VK_TRUE : VK_FALSE;
+        cba[i].blendEnable = key.blend_enable[i] && format_guard().blend_allowed(static_cast<VkFormat>(key.color_format[i])) ? VK_TRUE : VK_FALSE;
         cba[i].srcColorBlendFactor = static_cast<VkBlendFactor>(key.blend_src_rgb[i]);
         cba[i].dstColorBlendFactor = static_cast<VkBlendFactor>(key.blend_dst_rgb[i]);
         cba[i].colorBlendOp = static_cast<VkBlendOp>(key.blend_op_rgb[i]);
