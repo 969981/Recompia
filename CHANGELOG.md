@@ -12,6 +12,7 @@ of the game (version 2.0.1a): the download contains no game files.
   afterwards switches to Custom, as before. The render scale part applies after a restart.
 
 ### Fixes
+- Steam Deck / Linux: pipelines are no longer rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`).
 - Taking a picture with the Pokédex no longer crashes the game with "The graphics device was lost" (#121). A copy from an image
   into the game's memory could write past the end of a GPU buffer; such a copy is now skipped (and logged). Pictures taken at a
   higher render scale are also scaled down to the size the game asked for, instead of the top-left part of the screen.
