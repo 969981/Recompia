@@ -926,6 +926,39 @@ std::string column_text(std::string_view line, int col) {
     return std::string(line.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start));
 }
 
+// Bytes of the file that grew past `known` bytes (read from offset `known`), cut after its last newline: a row the writer has not
+// finished is left for the next read. Empty if the file did not grow or cannot be read.
+std::string read_new_rows(const std::string& path, size_t known) {
+    std::error_code ec;
+    const uintmax_t size = std::filesystem::file_size(path, ec);
+    if (ec || size <= known) return {};
+    std::ifstream f(path, std::ios::binary);
+    if (!f || !f.seekg(static_cast<std::streamoff>(known))) return {};
+    std::string tail(static_cast<size_t>(size - known), '\0');
+    f.read(tail.data(), static_cast<std::streamsize>(tail.size()));
+    tail.resize(static_cast<size_t>(f.gcount()));
+    return tail.substr(0, tail.rfind('\n') + 1);   // npos + 1 == 0: no complete row yet
+}
+}  // namespace
+
+std::vector<RowRef> index_rows(std::string_view text, size_t base) {
+    std::vector<RowRef> rows;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t nl = text.find('\n', pos);
+        size_t next = nl == std::string_view::npos ? text.size() : nl + 1;
+        size_t end = nl == std::string_view::npos ? text.size() : nl;
+        if (end > pos && text[end - 1] == '\r') end--;
+        std::string_view line = text.substr(pos, end - pos);
+        std::string hash(line.substr(0, line.find('\t')));
+        if (!hash.empty()) rows.push_back({std::move(hash), base + pos, end - pos});
+        pos = next;
+    }
+    return rows;
+}
+
+namespace {
+
 // ---- the preload pack ---------------------------------------------------------------------------------------------
 // <dir>.preload.pack (shader_cache/spirv.preload.pack: beside the cache directory, not in it; under Wine a file name that is not there
 // costs a case-insensitive scan of its whole directory, 3 s for the 99k-file cache on a microSD card) holds the .spv files of the order
@@ -1241,7 +1274,56 @@ bool ShaderCache::open(const std::string& dir) {
     NXLOG_I("nvn", "shader cache %s: %zu records", dir.c_str(), lines_.size());
     pack_open();
     start_preload();
+    if (const int ms = static_cast<int>(nxrt::config_get_int("nvn", "shader_rescan_ms", 1000)); ms > 0)
+        rescan_thread_ = std::thread([this, ms] { rescan_worker(ms); });
     return true;
+}
+
+size_t ShaderCache::rescan() {
+    size_t known;
+    {
+        std::lock_guard lk(lock_);
+        if (!open_) return 0;
+        known = results_.size();   // results_ holds the file's bytes up to here: a row's offset in it is its offset in the file
+    }
+    std::string tail = read_new_rows(dir_ + "/results.tsv", known);
+    if (tail.empty()) return 0;
+    std::vector<RowRef> rows = index_rows(tail, known);
+    size_t forgotten = 0;
+    {
+        std::lock_guard lk(lock_);
+        if (results_.size() != known) return 0;   // another rescan appended meanwhile: the next one reads from its end
+        results_ += tail;
+        for (RowRef& r : rows) lines_.emplace(std::move(r.hash), std::make_pair(r.offset, r.length));
+        // Every miss that has a row now, not only the new rows' hashes: a find() that was loading when the row arrived may have
+        // recorded its miss after the row was indexed.
+        for (auto it = by_hash_.begin(); it != by_hash_.end();) {
+            if (!it->second && lines_.count(it->first)) {
+                it = by_hash_.erase(it);
+                missing_--;
+                forgotten++;
+            } else {
+                ++it;
+            }
+        }
+        for (auto it = stubs_.begin(); it != stubs_.end();)
+            it = (!it->second && lines_.count(it->first)) ? stubs_.erase(it) : std::next(it);
+    }
+    if (forgotten) {
+        generation_.fetch_add(1, std::memory_order_acq_rel);
+        NXLOG_I("nvn", "shader cache: %zu new record(s), %zu missing shader(s) now translated", rows.size(), forgotten);
+    }
+    return forgotten;
+}
+
+void ShaderCache::rescan_worker(int interval_ms) {
+    log_set_thread_name("nvn-shader-rescan");
+    std::unique_lock lk(rescan_mu_);
+    while (!rescan_cv_.wait_for(lk, std::chrono::milliseconds(interval_ms), [this] { return rescan_stop_; })) {
+        lk.unlock();
+        rescan();
+        lk.lock();
+    }
 }
 
 // Called from open() with lock_ held: reads the order file and starts the workers (they take lock_ only to read results_).
@@ -1377,6 +1459,12 @@ ShaderCache::~ShaderCache() {
         pre_stop_ = true;
     }
     pre_cv_.notify_all();
+    {
+        std::lock_guard lk(rescan_mu_);
+        rescan_stop_ = true;
+    }
+    rescan_cv_.notify_all();
+    if (rescan_thread_.joinable()) rescan_thread_.join();
     pack_stop_.store(true);
     for (std::thread& t : pre_threads_)
         if (t.joinable()) t.join();

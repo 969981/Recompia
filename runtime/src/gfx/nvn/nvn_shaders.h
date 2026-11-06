@@ -261,6 +261,14 @@ const char* source_name(NvnSource s);
 
 // ---- the runtime cache ----------------------------------------------------------------------------------------------
 
+// One results.tsv row: the hash in its first column and where the row lies in the text (offset from `base`, length without the
+// line end). index_rows: every non-empty row of `text`, a block of whole lines that starts at offset `base` of the file.
+struct RowRef {
+    std::string hash;
+    size_t offset, length;
+};
+std::vector<RowRef> index_rows(std::string_view text, size_t base);
+
 // A directory holding <hash>.spv files and results.tsv. Lookups are keyed by the hash of the code block.
 class ShaderCache {
 public:
@@ -292,7 +300,20 @@ public:
     bool is_open() const;
     const std::string& dir() const;
 
+    // Live shaders ([nvn] shader_rescan_ms): reads the rows appended to results.tsv since open() or the last rescan (a translator
+    // running beside the game writes the .spv first, then its row) and forgets every miss that now has a row, so the next find() of
+    // such a block loads it. Returns how many misses were forgotten. Any thread; the cache's own thread calls it while results.tsv grows.
+    size_t rescan();
+    // Bumped by every rescan() that forgot a miss: a program left unlinked looks for its blocks again when this changes.
+    uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
+
 private:
+    void rescan_worker(int interval_ms);                               // own thread, from open()
+    std::atomic<uint64_t> generation_{0};
+    std::thread rescan_thread_;
+    std::mutex rescan_mu_;
+    std::condition_variable rescan_cv_;
+    bool rescan_stop_ = false;                                         // rescan_mu_
     // No lock held while it runs: takes the preloaded words (waiting for a worker that is reading this very file) or reads the .spv
     // itself, builds the ShaderInfo, and only then inserts it under lock_ (if another thread inserted the hash first, that one wins).
     // `record`: the resources column of this block's results.tsv line, or null.

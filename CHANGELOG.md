@@ -5,6 +5,16 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### New
+
+#### Shaders translated while the game runs are used without a restart
+**Before:** a shader the game builds while it runs (the romfs cache cannot have it) stayed missing until the next start, even once it
+was translated: what used it was not drawn for the rest of the session.
+
+**Now:** the runtime checks `results.tsv` about once a second. When rows are added, the shaders they translate are loaded at the next
+bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
+`[nvn] shader_rescan_ms` sets how often (0 = off).
+
 ### Fixes
 
 - The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
