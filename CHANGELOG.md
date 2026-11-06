@@ -15,11 +15,35 @@ does not have. On Linux it fetches its build tools on the first Set up, compiles
 and the game through Steam's Proton (in the Steam Linux Runtime, as Steam starts games), umu-run or Wine. Set up, Play, Link
 Play and the save import work there; see `launcher/README.md`. Thanks to @jerbanpls.
 
+**Download for Linux:** `PokopiaRecomp-0.6.1-linux-x64.tar.gz` is the same package with `PokopiaLauncher.AppImage` in place of
+the Windows launcher. Install Proton Experimental in Steam, extract it anywhere and run the AppImage; see "Linux, SteamOS and the
+Steam Deck" in the README.
+
+#### Name entry with Steam's keyboard (Steam Deck, SteamOS)
+When the game asks for a name under Proton on a Steam Deck, on SteamOS or in Steam's gamepad UI, Steam's own on-screen keyboard
+comes up with the question, and its Enter answers. Press any button to get the in-game keys instead; Steam + X brings Steam's back.
+`[applet] steam_keyboard = off` turns it off. Thanks to @tinfoil-chewer.
+
 #### Start the game straight from a shortcut
 `PokopiaLauncher --play` starts the game the way the Play button does, without the launcher window, and waits for it: for a
 Steam shortcut, Sunshine/Moonlight streaming or a desktop icon.
 
 ### Bug fixes
+
+#### AMD GPUs (Steam Deck included): shaders computed wrong results
+**What was wrong:** the game's shaders were written for NVIDIA's 32-wide subgroups; AMD runs 64 wide by default, so shaders that
+shuffle, ballot or vote across a subgroup gave wrong results. Depth views in a 24-bit format were refused on AMD (it has no 24-bit
+depth), so fog and soft particles that read the depth buffer covered the ground in white on the Steam Deck.
+
+**Now:** game pipelines ask for 32-wide subgroups where the driver allows it (`[nvn] subgroup32`), and those depth views read the
+32-bit depth the image really has. NVIDIA is unchanged. Thanks to @tinfoil-chewer.
+
+#### Handhelds run in handheld mode
+On a Steam Deck or Legion Go S the game is now told it is in handheld mode, as on the console's own screen, and picks its own
+lighter graphics settings: a Legion Go S went from 50-57 to 62-69 fps. Under Proton on a handheld, the game's very short waits
+for the GPU now sleep instead of spinning a CPU core, which leaves more power to the GPU (Steam Deck LCD: 52 to 54 fps, 1% lows
+~27 to ~30). `[am] operation_mode = docked` and `[kernel] short_sleep = yield` bring the old behaviour back. Windows desktops are
+unchanged. Thanks to @tinfoil-chewer.
 
 #### Leaving an area above 60 fps: the Poké Ball wipe crawled or seemed stuck (#144)
 **What was wrong:** 0.6.0's fix was not enough. Above 60 fps the wipe that opens after leaving a house crawled: about 15 seconds at

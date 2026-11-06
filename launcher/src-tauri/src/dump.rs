@@ -81,7 +81,7 @@ pub(crate) fn supported() -> Option<(String, String)> {
 
 /// The romfs size of the supported version, from `dump_hashes.json` "romfs" {files, bytes}; None without it (no check).
 pub(crate) fn supported_romfs() -> Option<RomfsNeed> {
-    let p = std::env::current_exe().ok()?.parent()?.join("tools").join("build").join("dump_hashes.json");
+    let p = crate::exe_dir().join("tools").join("build").join("dump_hashes.json");
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(p).ok()?).ok()?;
     Some(RomfsNeed { files: v["romfs"]["files"].as_u64()?, bytes: v["romfs"]["bytes"].as_u64()? })
 }

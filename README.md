@@ -106,6 +106,15 @@ Press **F1** in the game to change graphics, controls and sound (volume, output 
 
 F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for placing items.
 
+### Linux, SteamOS and the Steam Deck
+
+1. In Steam, install **Proton Experimental** (Library, Tools; on a Steam Deck switch to Desktop Mode first).
+2. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere (for example your home folder).
+3. Run `PokopiaLauncher.AppImage` in that folder (double-click it, or `./PokopiaLauncher.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache through Proton. You can pause and continue later.
+4. Press **Play**. The game itself runs through Steam's Proton.
+
+To start the game from Steam (Game Mode on the Deck): in Desktop Mode, **Add a Non-Steam Game**, pick `PokopiaLauncher.AppImage`, and set its launch options to `--play`. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+
 ## Updating from an older version
 
 Your saves, settings and shaders stay.
