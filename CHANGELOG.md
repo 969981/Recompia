@@ -31,6 +31,15 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
 
+#### Shaders: GPU counters no longer count twice
+**What was wrong:** the shader translator ran an atomic instruction twice when the shader read its result once: every counter a
+compute shader keeps with an atomic add (64 of the game's shaders, 115 adds) added its amount twice, and the helper that hands the
+result to the other lanes of a warp ran twice. On every GPU.
+
+**Now:** each atomic runs once, as on the console (checked against the game's own instructions: 154 atomics in those shaders, 154
+in the new translation). Run **Set up again** once after updating: the launcher asks for it, and it translates only the shaders
+with atomics again (the others are kept).
+
 #### Wide screens: text no longer squeezed (#176)
 **What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
 ("Ver. 2.0.1" read as "Ver201"), and fitted text such as button labels was squashed.
