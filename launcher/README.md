@@ -77,6 +77,8 @@ does not start under Proton). Put it in the release folder next to `tools/` as `
   Steam: `umu-run`, then `wine`. Paths handed to them are `Z:\...`. Linux translates shaders in chunks of 5000 (every run also
   starts Proton); Pause kills the tool's process group, Proton's wine processes included; the hidden first run is stopped if it
   is still going 4 minutes after its 60 s.
+  Every Proton run gets GPU driver shader caches of the game's own that are never trimmed
+  (`~/.local/share/pokopia-recomp/shadercache/{nvidia,mesa}`), as Steam sets them up for the games it starts.
 - **The checks before Set up** read statvfs, `/proc` and `libvulkan.so.1`, and Set up refuses to start without Proton (it says
   so before the build, not after it).
 - **Desktop:** Link Play lists addresses from getifaddrs and `/proc/net/route` (Tailscale and ZeroTier as overlays; bridges,
