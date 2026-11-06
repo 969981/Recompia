@@ -1,11 +1,35 @@
 # Changelog
 
-This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
+Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
+(last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.7.0 (build K: Kangaroo)
+
+Extract it over your 0.6.x install, then run **Set up again** once: the game code and the shader translator changed. The launcher
+asks for it. Link Play builds from before this one cannot join this one, so update together.
+
+### Highlights
+- Link Play now speaks pokopia-native's protocol, so you can play with pokopia-native players on game 2.0.1.
+- Text on 21:9 and 32:9 screens no longer runs together.
+- House and area transitions take the same time at any frame rate, with no 60 fps hold.
+- Fewer GPU freezes on NVIDIA, GPU counters that count once, and particle effects that were missing.
+- Shader setup writes about 90 files instead of 361,000, which could take hours on a hard drive.
+- More graphics memory for 4K, and a smaller default picture size on GPUs with 4 GB or less.
+
+### Known issues
+- Link Play cross-play passes pokopia-native's protocol tests but has not been confirmed in a full two-player session yet, and
+  Story co-op has not been tried. Please report what you find.
+- The larger graphics pools for 4K have not been confirmed in game yet (#164).
 
 ### New
+
+#### Link Play: cross-play with pokopia-native
+**Before:** Link Play only worked between builds of this port (our own relay protocol on port 39660), so nobody could play with pokopia-native players.
+
+**Now:** the default `[net] protocol = native` speaks pokopia-native's co-op protocol (their module, vendored in `runtime/third_party/pokopia-coop`), so this port and pokopia-native builds of game 2.0.1 meet in one session. A host listens on 47600 (TCP and UDP) and is found on the LAN by itself (DNS-SD); `[net] mode = join:<IPv4>[:<port>]` joins one host by address; `[net] internet = true` with `room_code` plays over the internet, directly or through a relay on port 47610. The launcher's Link Play page was reworked for it, and `PokopiaLauncher --host` is now a port of pokopia-native's coop relay (pokopia-native's own relay works too). New `[pkp] link_story_coop` (off by default, needs `link_interact_everywhere`, which it turns on) lets visitors talk to the story characters; every player of a session needs the same setting. Between two builds of this port, a launcher relay also carries the game's packets over UDP (a small extension that stays off, and leaves the wire unchanged, when the host, the visitor or the relay does not have it).
+
+**Lost:** Link Play builds from before this one cannot join (set `protocol = linkplay` while everyone still has an old build), the relay hosted inside the game and the broadcast discovery on port 39660 are not used with the new protocol, and on Steam Deck / Proton the host may not be found by itself (use Visit by address). Details: `docs/multiplayer/README.md`; the README guide and the launcher's firewall hint name the new ports. Based on pokopia-native (MIT) `windows/src/coop` and `windows/tools/coop-relay` @4a72d23.
 
 #### Shaders translated while the game runs are used without a restart
 **Before:** a shader the game builds while it runs (the romfs cache cannot have it) stayed missing until the next start, even once it
@@ -13,30 +37,32 @@ was translated: what used it was not drawn for the rest of the session.
 
 **Now:** the runtime checks `results.tsv` about once a second. When rows are added, the shaders they translate are loaded at the next
 bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
-`[nvn] shader_rescan_ms` sets how often (0 = off).
+`[nvn] shader_rescan_ms` sets how often (0 = off). Thanks to @Jeffrharr.
 
 #### Controller shortcut for the F1 menu
 **Before:** the F1 menu opened only from the keyboard, so a handheld with a touch screen had no way to open it from the controller.
 
 **Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on pokopia-native (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
+
 #### Small GPUs: the default picture size stops at 2560x1440
 **Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
 
 **Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on pokopia-native (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
 
-#### Link Play: cross-play with pokopia-native
-**Before:** Link Play only worked between builds of this port (our own relay protocol on port 39660), so nobody could play with pokopia-native players.
-
-**Now:** the default `[net] protocol = native` speaks pokopia-native's co-op protocol (their module, vendored in `runtime/third_party/pokopia-coop`), so this port and pokopia-native builds of game 2.0.1 meet in one session. A host listens on 47600 (TCP and UDP) and is found on the LAN by itself (DNS-SD); `[net] mode = join:<IPv4>[:<port>]` joins one host by address; `[net] internet = true` with `room_code` plays over the internet, directly or through a relay on port 47610. The launcher's Link Play page was reworked for it, and `PokopiaLauncher --host` is now a port of pokopia-native's coop relay (pokopia-native's own relay works too). New `[pkp] link_story_coop` (off by default, needs `link_interact_everywhere`, which it turns on) lets visitors talk to the story characters; every player of a session needs the same setting. Between two builds of this port, a launcher relay also carries the game's packets over UDP (a small extension that stays off, and leaves the wire unchanged, when the host, the visitor or the relay does not have it).
-
-**Lost:** Link Play builds from before this one cannot join (set `protocol = linkplay` while everyone still has an old build), the relay hosted inside the game and the broadcast discovery on port 39660 are not used with the new protocol, and on Steam Deck / Proton the host may not be found by itself (use Visit by address). Details: `docs/multiplayer/README.md`. Based on pokopia-native (MIT) `windows/src/coop` and `windows/tools/coop-relay` @4a72d23.
-
 ### Fixes
 
-- The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
-  starts, and when it collected none, warm_up() wrote an empty `shader_cache/runtime/manifest.tsv`, so the warm-up never ran
-  again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
-  attempts (counted in a small file next to the manifest).
+#### 4K: more graphics memory for the first world load (#119, #164)
+**What was wrong:** at a 3840x2160 render size the game could stay on the Ditto jumping loading screen for good, or crash just after
+the first world frame. The game's graphics pools were sized from what start-up uses, not what the first world load needs.
+
+**Now:** both pools grow above 1080p (at 4K: 333 MiB more general memory and 595 MiB more for render targets). 1080p and below are
+unchanged. `pkp.log`, the freeze dump and the crash report show how full each pool gets, so a report can tell which one ran out.
+
+#### The shader warm-up no longer gives up after one empty run
+**What was wrong:** the hidden first run collects the blocks the game builds as it starts. When it collected none, an empty
+`shader_cache/runtime/manifest.tsv` was written, so the warm-up never ran again.
+
+**Now:** an empty run does not mark the warm-up as done; the next Play or Set up tries again, up to two more times. Thanks to @jerbanpls.
 
 #### Particle effects whose count the GPU works out are drawn
 **What was wrong:** some effects (for example the one in the intro cave after you choose your look) were not drawn. The game counts
@@ -45,6 +71,7 @@ not written yet, and skipped them.
 
 **Now:** a small compute shader turns those counts into an ordinary indexed draw on the GPU, at most 65536 quads and instances.
 `[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on pokopia-native 1.2.6.
+
 #### Shaders: GPU counters no longer count twice
 **What was wrong:** the shader translator ran an atomic instruction twice when the shader read its result once: every counter a
 compute shader keeps with an atomic add (64 of the game's shaders, 115 adds) added its amount twice, and the helper that hands the
@@ -68,15 +95,14 @@ runtime cannot follow whole are left as translated. `[nvn] ballot_fix = auto` (N
 **What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
 ("Ver. 2.0.1" read as "Ver201"), and fitted text such as button labels was squashed.
 
-**Now:** text has the same letter spacing as at 16:9. 16:9 and taller shapes are unchanged. This changes the game code, so run
-**Set up again** after updating.
+**Now:** text has the same letter spacing as at 16:9. 16:9 and taller shapes are unchanged.
 
 #### Area transitions: the iris no longer crawls or freezes above 120 fps (#144)
 **What was wrong:** above about 120 fps the house-shaped wipe that closes and opens when you enter or leave a house or area
 could crawl for a minute or look frozen, both on the way in and on the way out.
 
-**Now:** the transition takes the same time as at 60 fps at any frame rate, with no frame-rate cap. This changes the game code, so
-run **Set up again** after updating.
+**Now:** the transition takes the same time as at 60 fps at any frame rate. This replaces 0.6.1's 60 fps hold: cutscenes, dialogue
+and menus follow your frame limit again, and `[pkp] transition_hold` is gone.
 
 #### Shader setup: the scan writes a few large files instead of 361,000 small ones (#194)
 **What was wrong:** the shader scan wrote every shader block as its own file: about 361,000 files and 9 GB in
@@ -87,7 +113,14 @@ setup.log showed only the count, not which file the scan was on.
 **Now:** the scan writes the blocks into a few large pack files (about 90 files, 5 GB), and only the part of each one the
 translator reads. On Linux the whole scan takes 38 s instead of about 2.5 minutes. setup.log names each game file as it
 finishes and, after a minute without progress, the files still being scanned. The scan uses at most four workers, and the
-largest files go first. A shader corpus extracted by an older version is still translated as before.
+largest files go first. A shader corpus extracted by an older version is still translated as before. Thanks to @jerbanpls.
+
+### Since 0.6.0
+Already in 0.6.1 and 0.6.2, with details in their sections below:
+- 0.6.1: a native Linux launcher and download (#52), Steam's keyboard for name entry, `PokopiaLauncher --play`, correct shader results
+  on AMD GPUs and the Steam Deck, handheld mode on handhelds, the in-game clock after sleep, and the Proton "graphics device was
+  lost" fix (#169).
+- 0.6.2: DLC support, and a smaller Linux download that starts on more systems.
 
 ## 0.6.2 (build J: Jackrabbit)
 
