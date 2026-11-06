@@ -313,11 +313,12 @@ bool wine_host() {
     return w;
 }
 
-// [display] fps_snap = auto|true|false (NXRT_DISPLAY_FPS_SNAP), read on every apply_frame_cap. auto = on under Wine (Steam Deck, Go S, Linux:
+// [display] fps_snap = false|auto|true (NXRT_DISPLAY_FPS_SNAP), read on every apply_frame_cap. Opt-in: the default false keeps the cap the
+// player set. auto = on under Wine (Steam Deck, Go S, Linux:
 // fixed-refresh handheld panels), off on native Windows where a desktop screen may be VRR and a chosen 40 must stay 40. Returns the divisor
 // k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
 int frame_snap_k(const Settings& s, double cap, float hz, double* snapped, const char** reason) {
-    const std::string mode = config_get_str("display", "fps_snap", "auto");
+    const std::string mode = config_get_str("display", "fps_snap", "false");
     const bool forced_on = mode == "true" || mode == "on" || mode == "1";
     const bool forced_off = mode == "false" || mode == "off" || mode == "0";
     *snapped = cap;

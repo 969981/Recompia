@@ -18,8 +18,9 @@ of the game (version 2.0.1a): the download contains no game files.
   compiling on the spot after one slow frame. `[nvn] gpl_gate = time`, `async_whole = false`, `async_compute = false` and
   `compute_prewarm = false` bring back the old behaviour. Not yet measured on a Deck.
 
-- Frame limits now divide the screen's refresh rate for even pacing: on the 90 Hz Steam Deck OLED, 40 fps runs at 30; pick 80 Hz in
-  Steam's Performance menu for 40. 45 fps can be chosen in F1. (`[display] fps_snap = auto|true|false`; auto snaps under Proton only.)
+- Opt-in: frame limits can divide the screen's refresh rate for even pacing (`[display] fps_snap = auto`, Proton only, or `true`):
+  on the 90 Hz Steam Deck OLED, 40 fps then runs at 30; pick 80 Hz in Steam's Performance menu for 40. Off by default: a limit stays as
+  set. 45 fps can be chosen in F1.
 
 ### Fixes
 - Steam Deck / Linux: pipelines are no longer rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`).
