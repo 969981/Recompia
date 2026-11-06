@@ -1,0 +1,78 @@
+# Checks the launcher on every pull request and push to main that touches launcher/, game-build/release_b/ or this workflow:
+# the front end (npm ci + build), cargo check (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and a
+# Python syntax check of pkp_build.py. The release workflow builds the same code only on tags and manual runs; this catches
+# breakage in the pull request instead. No publish, no tests.
+name: Launcher checks
+
+on:
+  pull_request:
+    paths:
+      - 'launcher/**'
+      - 'game-build/release_b/**'
+      - '.github/workflows/launcher-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'launcher/**'
+      - 'game-build/release_b/**'
+      - '.github/workflows/launcher-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev file gcc-mingw-w64-x86-64
+
+      # cargo check --target x86_64-pc-windows-gnu only needs the std, not a linker, but zstd-sys and ring compile C for it.
+      - name: Windows target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: launcher/package-lock.json
+
+      - name: Cargo registry cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry-${{ hashFiles('launcher/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-registry-
+
+      - name: Cargo target cache
+        uses: actions/cache@v4
+        with:
+          path: launcher/src-tauri/target
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('launcher/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-target-${{ runner.os }}-
+
+      - name: Launcher (front end)
+        working-directory: launcher
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Check (Linux)
+        working-directory: launcher/src-tauri
+        run: cargo check --all-targets
+
+      - name: Clippy
+        working-directory: launcher/src-tauri
+        run: cargo clippy --all-targets
+
+      - name: Check (Windows)
+        working-directory: launcher/src-tauri
+        run: cargo check --target x86_64-pc-windows-gnu --all-targets
+
+      - name: Build script (Python)
+        run: python3 -m py_compile game-build/release_b/pkp_build.py
