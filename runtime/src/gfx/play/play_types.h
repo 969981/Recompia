@@ -174,6 +174,7 @@ struct DisplaySettings {
     std::string fps_snap = "auto";
     int width = 1280, height = 720;    // windowed client size, remembered
     bool keep_aspect = true;       // letterbox instead of stretching
+    bool vram_cap = true;          // [display] vram_cap: an unset render size is kept to 2560x1440 on a GPU with 4 GB of video memory or less
     // ---- S10 display options (play_display.h). The first four only apply at the next start: the game builds its render targets once.
     // Internal resolution in percent (25..400), 0 = auto; ignored with a fixed size. What 100 means is the game's: the window's client size
     // where the game module resizes the targets itself (auto = 100), the console's own size where the NVN back end scales the game's

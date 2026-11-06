@@ -1306,6 +1306,36 @@ std::string settings_path() {
     return g().path;
 }
 
+// The default render size on a small GPU. Based on pokopia-native (MIT) windows/src/nxrt/vk/vk_dev.c (vk_vram_bytes) and
+// windows/src/nxrt/front/menu.c (monitor_h) @e5d9ac6: with 4 GB of video memory or less the size the game starts at is kept to 2560x1440
+// (a 4 GB laptop card on a 4K screen runs out of memory at 3840x2160). Only an unset size: render_width / render_height or a
+// render_scale in the settings win, and [display] vram_cap = 0 turns it off. NXRT_VK_VRAM_MB pretends another amount (tests). The window
+// size is lowered here, keeping its shape, so every path of the game's render setup sees the capped size.
+static void cap_default_size(const DisplaySettings& d, gfx::Device* dev, int* ww, int* wh) {
+    if (!d.vram_cap) return;
+    if (d.render_width > 0 && d.render_height > 0) return;
+    if (d.render_scale > 0) return;
+    uint64_t vram = 0;
+    const char* e = std::getenv("NXRT_VK_VRAM_MB");
+    if (e && *e) {
+        vram = static_cast<uint64_t>(std::strtoull(e, nullptr, 10)) << 20;
+    } else if (dev && dev->physical()) {
+        VkPhysicalDeviceMemoryProperties mp{};
+        vkGetPhysicalDeviceMemoryProperties(dev->physical(), &mp);
+        for (uint32_t i = 0; i < mp.memoryHeapCount; ++i)
+            if (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max<uint64_t>(vram, mp.memoryHeaps[i].size);
+    }
+    if (vram == 0 || vram > (4608ull << 20)) return;   // unknown, or more than 4 GB (a 4 GB card reports about 4096 MB)
+    const int w0 = *ww, h0 = *wh;
+    if (h0 > 1440 || w0 > 2560) {
+        const double f = std::min(1440.0 / std::max(h0, 1), 2560.0 / std::max(w0, 1));
+        *ww = static_cast<int>(w0 * f) & ~1;
+        *wh = static_cast<int>(h0 * f) & ~1;
+    }
+    NXLOG_I(kTag, "vram_cap: %llu MB of video memory (4 GB or less): default render size kept to 2560x1440 (%dx%d -> %dx%d; [display] vram_cap = 0 turns it off)",
+            static_cast<unsigned long long>(vram >> 20), w0, h0, *ww, *wh);
+}
+
 bool start(const StartOptions& opt) {
     G& st = g();
     load();
@@ -1377,6 +1407,7 @@ bool start(const StartOptions& opt) {
         if (st.window) platform::pixel_size(&ww, &wh);
         if (ww <= 0 || wh <= 0) { ww = st.settings.display.width; wh = st.settings.display.height; }
         display_tuning(st.settings.display);
+        cap_default_size(st.settings.display, st.device, &ww, &wh);
         if (gp && gp->install_render) gp->install_render(st.base, st.settings.display, ww, wh);   // the game's display options, tone curve
     }
     // the frame boundary, then the game's input, camera, lock-on and menu hooks (hooks of one address run in registration order)
