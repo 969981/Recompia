@@ -45,6 +45,8 @@ if(EXISTS "${NXRT_RECOMP_INCLUDE}")
     target_include_directories(nxrt PUBLIC "${NXRT_RECOMP_INCLUDE}")
 endif()
 target_link_libraries(nxrt PUBLIC psapi)
+add_subdirectory(third_party/pokopia-coop)   # [net] protocol = native: pokopia-native's Link Play (MIT, C11)
+target_link_libraries(nxrt PRIVATE pokopia_coop)
 include(cmake/media_deps.cmake)   # libvpx for the Switch 2 video decoders (optional)
 
 if(NXRT_BUILD_GFX)

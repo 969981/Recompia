@@ -60,6 +60,8 @@ SOFTWARE.
 
 Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment.
 
+`third_party/pokopia-coop/` is pokopia-native's co-op module, `windows/src/coop/{coop.h,coop_int.h,*.c}` pinned at commit 4a72d232347f49818d8a2624573825a32b6876ea (4a72d23), under the same MIT licence (above). The files are unchanged except for a first line `// From pokopia-native (MIT) windows/src/coop/<file> @4a72d23`; its tests, `nxnative/` glue and `tools/coop-relay` are not included. The ldn and bsd services call it for `[net] protocol = native` (Link Play with pokopia-native builds).
+
 Its `ampere-lower/` folder is separate: it is GPL-3.0-or-later, not MIT. Per its `NOTICE.md` it is a cut-down build of the `ampere-spirv` tool from the Eden-NS2 emulator fork (https://github.com/0x2593/Eden-NS2, GPL-3.0-or-later): the Switch 2 (Ampere) shader capture and the Ampere-to-Maxwell lowering headers from `src/shader_recompiler/frontend/ampere/`, with `main.cpp` reduced to the lowering stage. The headers are unchanged except for four Pokopia fixes (FSEL operand modifiers, HFMA2 `.H0_NH1` lane swap). Its `LICENSE` is the GPL-3.0 text, the same as the `LICENSE` file at the repository root.
 
 ## smo-recomp, ScarletNX and ssbu-recomp (GPL-3.0)
