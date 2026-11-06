@@ -51,8 +51,8 @@
 
 ### Play together (Link Play)
 - **Visit a friend's island, or invite them to yours**, on the same Wi-Fi or over the internet.
-- Set it up in the launcher's **Link Play** page: press **Host** and share the address and code it shows, or press **Visit** and type them in. No files to edit.
-- A **room code** keeps strangers out.
+- **Cross-play with [pokopia-native](https://github.com/xFractals/pokopia-native) players** on game version 2.0.1.
+- Set it up in the launcher's **Link Play** page. No files to edit.
 - Step-by-step guide: [Playing together](#playing-together).
 
 ### Import your saves
@@ -128,24 +128,44 @@ Copy the `save` folder somewhere first if you want a backup. A save that a newer
 
 ## Playing together
 
-Link Play puts two players on one island. Every player needs this release, and **each player needs their own save**: a copy of someone else's save cannot join its original.
+Link Play puts several players on one island. Cross-play works with pokopia-native players on game version **2.0.1**. Players on game 1.0.5 cannot join.
 
-**To host**
-1. In the launcher, open **Link Play** and pick **Host on this PC**, then **Start hosting**.
-2. Give your friends one of the addresses it shows (the first one is for your own network) and the room code. Use **Copy** for both.
-3. Keep the launcher open while you play, and press **Play**.
+**What changed.** Link Play now speaks pokopia-native's co-op protocol. It does not work with earlier Link Play builds of this port, so everyone updates to this release. (The launcher keeps the old protocol under **Advanced**, for a session where everyone still has an old build.)
 
-**To visit**
-1. In the launcher, open **Link Play**, pick **Visit**, type the host's address and room code, and press **Save**.
-2. Press **Play**.
+**Each player needs their own save.** A copy of someone else's save cannot join its original.
 
-**Before you start (Windows):** the first time, Windows Firewall asks about the launcher: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**). On a Public network Windows keeps the other PCs out; the host page warns you.
+**Set it up.** In the launcher, open **Link Play** and pick one:
 
-**In the game**, open the PC in your first house, then **Link Play** (it unlocks after Environment Level 2 in the Withered Wasteland) and pick **Local connection**. (**Online connection** is Nintendo's own service and does not work here.) The host picks **Invite Others to Visit**, the visitor **Visit a Friend**.
+| Choice | Use it for |
+|---|---|
+| Alone | No Link Play. |
+| Automatic (LAN) | The default. Same Wi-Fi or network: the host is found by itself. |
+| Visit by address | Join one host by its address, for example `192.0.2.10`. The host's Link Play page shows it. |
+| Internet | Play through a relay with a room code. |
 
-**Over the internet:** the easy way is [Tailscale](https://tailscale.com) or [ZeroTier](https://www.zerotier.com) (both free for personal use) on every PC: no router settings, and the traffic between you is encrypted. The host page lists that address too. Without one, the host forwards port **39660, TCP and UDP**, to their PC on the router's port forwarding page, and gives out their internet address (search "what is my IP" on the host's network). TCP alone works, but UDP keeps a lossy link from stalling. Always use a room code then, and remove the forward when you are done: the relay checks the code but does not encrypt the game's traffic.
+Changes apply the next time the game starts.
 
-Link Play is still being tested: joining and walking around together work, long sessions and more than two players are not tested yet. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
+**In the game**, open the PC in your first house, then **Link Play** (it unlocks after Environment Level 2 in the Withered Wasteland) and pick **Local connection**. (**Online connection** is Nintendo's own service and does not work here.) The host picks **Invite Others to Visit**, the others **Visit a Friend**.
+
+**Same network.** Everyone picks **Automatic (LAN)**. If the host does not show up, the visitor picks **Visit by address** and types the host's LAN address. This is common on Steam Deck and other Proton or Linux devices.
+
+**Over the internet.** Everyone picks **Internet** and goes through a relay:
+- The host picks **I host**. The page shows a room code. Give the visitors the relay address and the code. **Copy** and **New code** are on the page.
+- A visitor picks **I visit** and types the relay address and the code.
+- To run a relay yourself, press **Run a relay here** on the host's Link Play page (it works while the launcher stays open), or run `PokopiaLauncher --host` on a server. Any pokopia-native co-op relay works too.
+- Without a relay, leave the relay address empty on the host and forward TCP and UDP **47600** on the router. Visitors use **Visit by address** with the host's public address.
+- The relay checks the room code but does not encrypt the game's traffic.
+
+**Ports and firewall.** The first time you host, Windows Firewall asks about `pkp.exe`: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**).
+
+| Port | Who | Protocol |
+|---|---|---|
+| 47600 | the host | TCP and UDP |
+| 47610 | the relay | TCP, and UDP for the faster path |
+
+**Interact everywhere and Story co-op (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. **Story co-op** lets them talk to the story characters, and turns Interact everywhere on. Every player needs the same two switches, or the host is not listed. Only the host's save keeps the story progress.
+
+Link Play is still being tested: joining and walking around together work. Long sessions, more than two players and play over the internet are not tested yet. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
 
 ## Common problems
 
@@ -161,8 +181,9 @@ Link Play is still being tested: joining and walking around together work, long 
   - Start in **Borderless** on a 4K screen and the game draws at 4K. That is heavy. Lower **Render scale**.
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
   - Set **Frame rate limit** to what your screen can show.
-- **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save. Each player needs their own save.
-- **Link Play: the visitor cannot find the host.** Check that the host pressed **Start hosting** and still has the launcher open, that both typed the same room code, and that both networks are Private in Windows. Over the internet, check the port forward (39660, TCP and UDP) or use Tailscale or ZeroTier. Every player needs the same release. Changes on the Link Play page apply the next time the game starts.
+- **Link Play: the visitor cannot find the host.** Pick **Visit by address** and type the host's address (the host's Link Play page shows it). Check that the host started the game and picked **Invite Others to Visit**, that Windows Firewall allows `pkp.exe` on Private networks, and that the network is Private. Over the internet, check the relay address and the room code. Changes on the Link Play page apply the next time the game starts.
+- **Link Play: the connection is refused.** The players do not match. Everyone needs game 2.0.1, the same release (or pokopia-native for cross-play), and the same mods and the same **Interact everywhere** and **Story co-op** switches.
+- **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save, so both have the same player ID. Each player needs their own save.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.
 
 If it is none of these, see [Reporting problems](#reporting-problems).
