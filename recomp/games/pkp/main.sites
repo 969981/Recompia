@@ -149,6 +149,10 @@ midhook 0x710112fb08
 midhook 0x71008cc124
 midhook 0x7101f12130
 midhook 0x7101fbab98
+#   wide text (#176): the text box settings copy 0x7101f77930 storing the character spacing (s0), divided by the widening on wide displays
+midhook 0x7101f779d0
+#   wide text (#176): the text writer style copy 0x7101f8775c after its stores (x19 = the writer; spacing at +0x38ec)
+midhook 0x7101f877b0
 #   quality: the camera commit (0x71022a9f60) after it copied the staged blocks over the live fields and released the lock, x19 = the
 #   camera (pkp_quality.cpp: the view distance multiplies the live Far clip +0x14; probe log of the quality fields)
 midhook 0x71022aced8

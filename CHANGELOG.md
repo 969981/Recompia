@@ -15,6 +15,15 @@ was translated: what used it was not drawn for the rest of the session.
 bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
 `[nvn] shader_rescan_ms` sets how often (0 = off).
 
+#### Controller shortcut for the F1 menu
+**Before:** the F1 menu opened only from the keyboard, so a handheld with a touch screen had no way to open it from the controller.
+
+**Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on pokopia-native (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
+#### Small GPUs: the default picture size stops at 2560x1440
+**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
+
+**Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on pokopia-native (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
+
 ### Fixes
 
 - The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
@@ -29,6 +38,21 @@ not written yet, and skipped them.
 
 **Now:** a small compute shader turns those counts into an ordinary indexed draw on the GPU, at most 65536 quads and instances.
 `[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on pokopia-native 1.2.6.
+#### Shaders: GPU counters no longer count twice
+**What was wrong:** the shader translator ran an atomic instruction twice when the shader read its result once: every counter a
+compute shader keeps with an atomic add (64 of the game's shaders, 115 adds) added its amount twice, and the helper that hands the
+result to the other lanes of a warp ran twice. On every GPU.
+
+**Now:** each atomic runs once, as on the console (checked against the game's own instructions: 154 atomics in those shaders, 154
+in the new translation). Run **Set up again** once after updating: the launcher asks for it, and it translates only the shaders
+with atomics again (the others are kept).
+
+#### Wide screens: text no longer squeezed (#176)
+**What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
+("Ver. 2.0.1" read as "Ver201"), and fitted text such as button labels was squashed.
+
+**Now:** text has the same letter spacing as at 16:9. 16:9 and taller shapes are unchanged. This changes the game code, so run
+**Set up again** after updating.
 
 #### Area transitions: the iris no longer crawls or freezes above 120 fps (#144)
 **What was wrong:** above about 120 fps the house-shaped wipe that closes and opens when you enter or leave a house or area

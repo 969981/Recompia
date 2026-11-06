@@ -150,7 +150,7 @@ Settings builtin_settings() {
     return s;
 }
 
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Switch, Aim, Camera, Tweaks, Bindings };
+enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Overlay, Switch, Aim, Camera, Tweaks, Bindings };
 
 // The factory-defaults revision this build writes ([meta] defaults_rev) and the factory bindings an older controls.ini does not have: the
 // game's (play_types.h GameDefaults).
@@ -175,6 +175,7 @@ const char* sec_label(Sec s) {
         case Sec::Prompts: return "[prompts]";
         case Sec::Fps: return "[fps]";
         case Sec::Quit: return "[quit]";
+        case Sec::Overlay: return "[overlay]";
         case Sec::Switch: return "[switch]";
         case Sec::Aim: return "[aim]";
         case Sec::Camera: return "[camera]";
@@ -401,6 +402,15 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
                 return true;
             }
             break;
+        case Sec::Overlay:
+            if (k == "pad") {
+                if (!parse_pad_combo(v, &s->overlay.pad)) {
+                    *msg = "pad must be none or pad buttons joined by '+' (left_shoulder+right_shoulder, back+start ...), got '" + v + "'";
+                    return false;
+                }
+                return true;
+            }
+            break;
         case Sec::PadMap: {
             PadSrc src;
             if (!parse_pad_src(k, &src)) break;   // unknown pad button name: a warning
@@ -451,6 +461,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "width") return set_int(320, 16384, &s->display.width);
             if (k == "height") return set_int(320, 16384, &s->display.height);
             if (k == "keep_aspect") return set_bool(&s->display.keep_aspect);
+            if (k == "vram_cap") return set_bool(&s->display.vram_cap);
             if (k == "render_scale") {
                 if (lower(v) == "auto") { s->display.render_scale = 0; return true; }
                 return set_int(25, 400, &s->display.render_scale);
@@ -625,6 +636,7 @@ Sec fixed_sec(const std::string& key) {
     if (key == "prompts") return Sec::Prompts;
     if (key == "fps") return Sec::Fps;
     if (key == "quit") return Sec::Quit;
+    if (key == "overlay") return Sec::Overlay;
     if (key == "aim") return Sec::Aim;
     if (key == "camera") return Sec::Camera;
     if (key == "tweaks") return Sec::Tweaks;
@@ -945,6 +957,7 @@ std::string format_settings(const Settings& s) {
     kv("width", std::to_string(s.display.width));
     kv("height", std::to_string(s.display.height));
     kv("keep_aspect", flag(s.display.keep_aspect));
+    kv("vram_cap", flag(s.display.vram_cap));
     kv("render_scale", s.display.render_scale <= 0 ? std::string("auto") : std::to_string(s.display.render_scale));
     kv("render_width", std::to_string(s.display.render_width));
     kv("render_height", std::to_string(s.display.render_height));
@@ -1008,6 +1021,9 @@ std::string format_settings(const Settings& s) {
     o += "\n[quit]\n";
     kv("pad", pad_combo_text(s.quit.pad));
     kv("key", s.quit.key.kind == InKind::Key ? input_name(s.quit.key) : std::string("none"));
+
+    o += "\n[overlay]\n";
+    kv("pad", pad_combo_text(s.overlay.pad));
 
     o += "\n[switch]\n";
     for (int a = 1; a < kActCount; ++a) {   // every action except none

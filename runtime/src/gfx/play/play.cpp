@@ -222,6 +222,7 @@ struct G {
     bool pointer_draw = false;         // [play] pointer_draw: the menu pointer is also drawn into the frame (screenshots show it); a test aid
     bool late_sample = true;           // pump the window's events again right before the mouse counts are taken (S11: the counts are as new as ProcessInput)
     double pitch_limit_deg = 0;
+    bool overlay_combo_held = false;   // poll_pads: the [overlay] pad combination was held at the last poll (the menu toggles on the rising edge)
     bool quit_combo_held = false;      // poll_pads: the [quit] pad combination was held on a pad at the last poll (the prompt opens on the rising edge)
 
     // frame state (main thread)
@@ -677,12 +678,23 @@ void poll_pads(uint64_t now) {
     const bool rumble_changed = lo != st.rumble_lo || hi != st.rumble_hi;
     const bool rumble_refresh = (lo || hi) && now - st.last_rumble_ns > 100 * kMs;
     const uint32_t quit_combo = st.settings.quit.pad;
-    bool quit_held = false;
+    bool quit_held = false, overlay_held = false;
+    // [overlay] pad: the same combination as the quit one would open two things at once, so it is ignored (warned about once per pair)
+    uint32_t overlay_combo = st.settings.overlay.pad;
+    if (overlay_combo && overlay_combo == quit_combo) {
+        static uint32_t warned = 0;
+        if (warned != overlay_combo) {
+            warned = overlay_combo;
+            NXLOG_W(kTag, "[overlay] pad is the same combination as [quit] pad (%s): ignored, pick another", pad_combo_text(overlay_combo).c_str());
+        }
+        overlay_combo = 0;
+    }
     for (size_t i = 0; i < n; ++i) {
         platform::GamepadRaw raw;
         if (!platform::gamepad_poll(infos[i].id, &raw)) continue;
         // the quit combination: every button of it held on this one pad (physical buttons, before [padmap])
         if (quit_combo && (pad_src_held(raw, st.settings.pad) & quit_combo) == quit_combo) quit_held = true;
+        if (overlay_combo && (pad_src_held(raw, st.settings.pad) & overlay_combo) == overlay_combo) overlay_held = true;
         hid::NpadInput tmp;
         map_pad(raw, st.settings.pad, &tmp);
         {   // a pressed button or a stick well off centre makes this the pad the prompts follow
@@ -719,6 +731,11 @@ void poll_pads(uint64_t now) {
     // poll earlier did reach the game.
     if (st.overlay && quit_held && !st.quit_combo_held) st.overlay->open_quit_prompt();
     st.quit_combo_held = quit_held;
+    // The overlay menu toggles on the rising edge of its combination. Its buttons are held back from the game until released, so closing the
+    // menu with them does not press them in the game.
+    if (st.overlay && overlay_held && !st.overlay_combo_held && !st.overlay->quit_prompt_open() && !st.overlay->keyboard_open()) st.overlay->toggle();
+    st.overlay_combo_held = overlay_held;
+    if (overlay_held) pf.buttons = 0;
     // The on-screen keyboard and the quit prompt read the merged pad before it is held back; what it returns stays away from the game (everything while it is
     // open, then the button that closed it until it is released).
     if (st.overlay) {
@@ -1289,6 +1306,36 @@ std::string settings_path() {
     return g().path;
 }
 
+// The default render size on a small GPU. Based on pokopia-native (MIT) windows/src/nxrt/vk/vk_dev.c (vk_vram_bytes) and
+// windows/src/nxrt/front/menu.c (monitor_h) @e5d9ac6: with 4 GB of video memory or less the size the game starts at is kept to 2560x1440
+// (a 4 GB laptop card on a 4K screen runs out of memory at 3840x2160). Only an unset size: render_width / render_height or a
+// render_scale in the settings win, and [display] vram_cap = 0 turns it off. NXRT_VK_VRAM_MB pretends another amount (tests). The window
+// size is lowered here, keeping its shape, so every path of the game's render setup sees the capped size.
+static void cap_default_size(const DisplaySettings& d, gfx::Device* dev, int* ww, int* wh) {
+    if (!d.vram_cap) return;
+    if (d.render_width > 0 && d.render_height > 0) return;
+    if (d.render_scale > 0) return;
+    uint64_t vram = 0;
+    const char* e = std::getenv("NXRT_VK_VRAM_MB");
+    if (e && *e) {
+        vram = static_cast<uint64_t>(std::strtoull(e, nullptr, 10)) << 20;
+    } else if (dev && dev->physical()) {
+        VkPhysicalDeviceMemoryProperties mp{};
+        vkGetPhysicalDeviceMemoryProperties(dev->physical(), &mp);
+        for (uint32_t i = 0; i < mp.memoryHeapCount; ++i)
+            if (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max<uint64_t>(vram, mp.memoryHeaps[i].size);
+    }
+    if (vram == 0 || vram > (4608ull << 20)) return;   // unknown, or more than 4 GB (a 4 GB card reports about 4096 MB)
+    const int w0 = *ww, h0 = *wh;
+    if (h0 > 1440 || w0 > 2560) {
+        const double f = std::min(1440.0 / std::max(h0, 1), 2560.0 / std::max(w0, 1));
+        *ww = static_cast<int>(w0 * f) & ~1;
+        *wh = static_cast<int>(h0 * f) & ~1;
+    }
+    NXLOG_I(kTag, "vram_cap: %llu MB of video memory (4 GB or less): default render size kept to 2560x1440 (%dx%d -> %dx%d; [display] vram_cap = 0 turns it off)",
+            static_cast<unsigned long long>(vram >> 20), w0, h0, *ww, *wh);
+}
+
 bool start(const StartOptions& opt) {
     G& st = g();
     load();
@@ -1360,6 +1407,7 @@ bool start(const StartOptions& opt) {
         if (st.window) platform::pixel_size(&ww, &wh);
         if (ww <= 0 || wh <= 0) { ww = st.settings.display.width; wh = st.settings.display.height; }
         display_tuning(st.settings.display);
+        cap_default_size(st.settings.display, st.device, &ww, &wh);
         if (gp && gp->install_render) gp->install_render(st.base, st.settings.display, ww, wh);   // the game's display options, tone curve
     }
     // the frame boundary, then the game's input, camera, lock-on and menu hooks (hooks of one address run in registration order)

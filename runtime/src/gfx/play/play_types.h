@@ -174,6 +174,7 @@ struct DisplaySettings {
     std::string fps_snap = "auto";
     int width = 1280, height = 720;    // windowed client size, remembered
     bool keep_aspect = true;       // letterbox instead of stretching
+    bool vram_cap = true;          // [display] vram_cap: an unset render size is kept to 2560x1440 on a GPU with 4 GB of video memory or less
     // ---- S10 display options (play_display.h). The first four only apply at the next start: the game builds its render targets once.
     // Internal resolution in percent (25..400), 0 = auto; ignored with a fixed size. What 100 means is the game's: the window's client size
     // where the game module resizes the targets itself (auto = 100), the console's own size where the NVN back end scales the game's
@@ -274,6 +275,13 @@ struct QuitSettings {
     InputId key = {};                                                        // [quit] key: a keyboard key, kind None = off
 };
 
+// ---- overlay shortcut ---------------------------------------------------------------------------------------------------------
+// A pad combination that opens or closes the F1 overlay menu, like the F1 key. Based on pokopia-native (MIT) windows/src/nxrt/front/menu.c @e5d9ac6
+// (Minus + Plus there; here it is off by default, since Minus + Plus is this project's quit combination). Same rules as QuitSettings::pad.
+struct OverlaySettings {
+    uint32_t pad = 0;   // [overlay] pad: bits of PadSrc, 0 = off; one equal to [quit] pad is ignored with a warning
+};
+
 struct Settings {
     MouseSettings mouse;
     AimSettings aim;
@@ -287,6 +295,7 @@ struct Settings {
     PromptSettings prompts;
     FpsSettings fps;
     QuitSettings quit;
+    OverlaySettings overlay;
     FastbootSettings fastboot;     // [tweaks] skip_intro skip_boot_logos fast_menus menu_speed (play_fastboot.h, S46)
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
@@ -388,6 +397,7 @@ const char* key_alt_sens();
 //              glow_color (off | R,G,B) suit_glow ball_glow gun_glow (auto | off | R,G,B)   (play_tweaks.h)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
 //   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
+//   [overlay]  pad (pad buttons held together; none = off, the default; not the [quit] pad)   (open and close the F1 menu)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
 //   [switch]   <action> = <output>      e.g.  fire = ZR    beam_1 = X+UP    (missing actions keep the default)
