@@ -80,6 +80,12 @@ constexpr int kVariantShift = 12;
 constexpr uint16_t kVariantMask = 0x7000;
 void set_session_variant(uint8_t variant, const char* what);
 uint8_t session_variant();
+// Story co-op (pokopia-native's "Story co-op (experimental)", COOP_STORY_MOD): a second opt-in mod after the session variant, only for
+// [net] protocol = native, where it is added to the mods fingerprint after the variant's name (coop_hmods order: Interact, then Story).
+void set_story_mod(bool on);
+bool story_mod();
+// Whether ldn:u speaks [net] protocol = native (the default).
+bool native_protocol();
 }  // namespace ldnapi
 
 }  // namespace nxrt::services

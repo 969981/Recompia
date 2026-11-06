@@ -1,64 +1,63 @@
 # Multiplayer (Link Play) — experimental
 
-Pokopia's **Link Play** (local wireless, two players on one island) running between two PCs through the relay server.
-First working session on 2026-11-03: a Windows PC hosting and a Legion Go S (Proton) visiting.
+Pokopia's **Link Play** (local wireless, several players on one island) between PCs, Steam Decks and other handhelds. This port speaks
+pokopia-native's co-op protocol, so you can also play with **pokopia-native** players.
 
 ![Two players on one island](linkplay-1.webp)
 ![The same session from the other view](linkplay-2.webp)
 
-## How it works
+## Before you start
 
-The game thinks it is on local wireless. The runtime's `ldn` service turns its networks into rooms on a relay server, and its
-`bsd` UDP sockets carry the game's packets through that server on a virtual 169.254.R.N/24 network. The game code above `nn::ldn`
-is untouched.
+- **Cross-play** works with pokopia-native players on game version **2.0.1**. Players on 1.0.5 cannot join (the game builds differ).
+- **Not compatible with earlier Link Play builds of this port** (the old relay on port 39660). Everyone needs a build with this protocol.
+- **Each player needs their own save.** The host refuses a visitor whose save it already has (error 9005, "Communication error"):
+  two copies of one save cannot play together.
+- Every player needs the same **Interact everywhere** and **Story co-op** settings, or the host is not listed.
 
-    pkp.exe (host) --TCP+UDP--> relay server <--TCP+UDP-- pkp.exe (guest)
+## Setting it up
 
-The TCP connection carries the lobby (rooms, joins, keepalive). The game's packets go over UDP to the same port once the relay
-has checked the player's UDP address; when UDP is blocked they stay on the TCP connection, as before. On a lossy link (Wi-Fi,
-mobile, long distance) UDP avoids one lost packet holding up every packet behind it. `[net] udp = off` keeps a player on TCP.
+Use the launcher's **Link Play** page. It writes the `[net]` and `[pkp]` keys in `pkp.ini` for you; changes apply the next time the game
+starts. Then in the game: the PC in your first house -> Link Play (unlocked after Environment Level 2 in Withered Wasteland) -> **Local
+connection**. One player picks **Invite Others to Visit**, the others **Visit a Friend**.
 
-## Trying it
+| Choice | What it does |
+|---|---|
+| Alone | No Link Play. |
+| Automatic (LAN) | The default. On the same Wi-Fi or network: the host is found by itself. |
+| Visit by address | Join one host by its address (shown on the host's Link Play page). Use this when the host is not found, for example on Steam Deck. |
+| Internet | Host or visit through a relay with a room code. The host's page shows the code; visitors type the relay address and the code. |
 
-**On one network (home Wi-Fi or LAN): nothing to set.** `[net] server = auto` is the default. In game (the PC in your first house
--> Link Play, unlocked after Environment Level 2 in Withered Wasteland) one player picks **Invite Others to Visit**: the game starts
-the relay itself (port 39660) and hosts on it. The others pick **Visit a Friend**: the game finds the host on the local network
-(a UDP broadcast on port 39660) and lists its island. If the launcher's relay already runs on the host PC, the game uses that one.
-Several hosts on one network: every host's island is listed, and picking one joins that host.
+Options: **Interact everywhere** (visitors can use moves and items and build in the story areas too, not only in Palette Town) and **Story
+co-op** (visitors can talk to the story characters; turns on Interact everywhere). Both are experimental.
 
-Firewall: the first time a PC hosts, Windows Firewall may ask about pkp.exe; allow it on **private** networks (it needs TCP and UDP
-39660 in, on the host; visitors need UDP replies from it). If nothing is found, check that both PCs are on a Private network and that
-pkp.exe is allowed (Windows Defender Firewall > Allow an app). Each player's `pkp.log` says what was found (`ldn: Link Play host ...`
-or `ldn: no Link Play host found on the local network`).
+**Steam Deck and other Proton/Linux devices:** finding hosts on the network may not work there. Pick **Visit by address** and type the
+host's LAN address.
 
-**Over the internet or between networks** (no broadcast reaches the host), set the relay by hand:
+## Ports and firewall
 
-The launcher has a **Link Play** page that does steps 1 and 2 below for you: pick Automatic (the default above), Alone, Host on this
-PC (starts the relay, shows the address and a room code) or Visit (type the host address and code). It writes `[net] server` and
-`room_code` in pkp.ini.
+| Port | Who | What |
+|---|---|---|
+| 47600 TCP + UDP | the host | Visitors connect here (LAN, or the internet without a relay). |
+| 47610 TCP (+ UDP) | the relay | Internet play through a relay. UDP is optional, see below. |
 
-1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it; `--no-udp`: TCP only).
-   Other PCs on the LAN need that port reachable (Windows Firewall: allow it on private networks). A relay behind a router
-   needs TCP **and** UDP 39660 forwarded (TCP alone works, without the UDP benefit).
-2. On every player's PC, `pkp.ini`:
+- The first time you host, Windows Firewall may ask about pkp.exe: allow it on **private** networks. If nobody finds you, check that your
+  network is set to Private (Settings, Network & internet, your connection, Network profile type) and that pkp.exe is allowed.
+- **Internet without a relay:** the host forwards TCP and UDP 47600 on its router; visitors pick Visit by address with the host's public
+  address and enter the host's room code.
+- **Internet through a relay:** nobody forwards anything except whoever runs the relay. Any pokopia-native coop relay works. The launcher can
+  run one too: **Run a relay here** on the Link Play page (while the launcher stays open), or `PokopiaLauncher --host` on a server
+  (`--listen <IPv4>[:<port>]`, `--no-udp`, and pokopia-native's limits options). Forward TCP 47610 to it, and UDP 47610 too for the faster path.
 
-       [net]
-       server = <relay PC's IP>:39660
+With the launcher's relay and this port's build on both ends of a link, the game's packets go over UDP through the relay instead of the TCP
+link, which avoids stalls on lossy connections. With pokopia-native's relay, or a pokopia-native player on the other end, they use the TCP
+link as pokopia-native does. Either way they are checked end to end with the room code: the relay only forwards them. Nothing is encrypted.
 
-   For a relay that other people use too (or one reachable from the internet), the host adds `room_code = new` under `[net]`:
-   the game makes a code (`XXXX-XXXX-XXXX-XXXX`), logs it and writes it to `room-code.txt` in the game folder. The visitors
-   put that code in their own `[net] room_code`. A room made with a code is listed only to players with the same code. Without
-   `room_code` everything works as before: rooms are open to everyone on the relay. The relay and every player need a build
-   with room codes (relay protocol 2); an older game is refused with a message saying to update it.
-   `server = off` (or empty) turns Link Play off.
+## Old protocol
 
-3. In game: the PC in your first house -> Link Play (unlocked after Environment Level 2 in Withered Wasteland). One player picks
-   **Invite Others to Visit**, the other **Visit a Friend**.
-
-**Each player needs their own save.** The game gives every save a player UUID when the game is started, and the host refuses a
-visitor whose UUID it already has (error 9005, "Communication error"). Two copies of one save cannot play together.
+The launcher's Link Play page keeps the old protocol under **Advanced** (`[net] protocol = linkplay`), for a session where everyone still
+has an earlier build of this port. It cannot meet pokopia-native players.
 
 ## Status
 
-Joining and walking around together work. Not yet tested: long sessions, more than two players, leaving and rejoining, playing
-over the internet. Expect bugs; report them with both players' `pkp.log`.
+Joining and walking around together work. Not yet tested: long sessions, more than two players, leaving and rejoining, play over the
+internet. Expect bugs; report them with every player's `pkp.log`.
