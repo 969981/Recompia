@@ -107,7 +107,8 @@ pub fn portable(dir: &Path, p: &str) -> String {
 
 /// `romfs_base`: the base game's romfs to layer under `romfs` ([fs] romfs_base; empty: none). It follows the launcher's choice while
 /// [fs] romfs is the launcher's own value; a romfs the user pointed elsewhere keeps the romfs_base the user set with it.
-pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str) -> Result<(), String> {
+/// `aoc_dir`: the dump's add-on content folder ([fs] aoc_dir; empty: the dump has none). Written once; a value the user set is kept.
+pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str, aoc_dir: &str) -> Result<(), String> {
     let path = dir.join(PKP_INI);
     let mut ini = load(&path).unwrap_or_else(Ini::empty);
     let mut changed = !path.exists();
@@ -144,6 +145,11 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str)
     // shaders the game builds while it runs, for play.rs to translate after it exits (kept if the user set it, even empty)
     if ini.get("nvn", "dump_missing").is_none() {
         ini.set("nvn", "dump_missing", crate::shaders::MISSING_REL);
+        changed = true;
+    }
+    // the add-on content (DLC) of the dump, for pkp's aoc:u and OpenDataStorageByDataId (kept if the user set it, even empty)
+    if !aoc_dir.is_empty() && ini.get("fs", "aoc_dir").is_none() {
+        ini.set("fs", "aoc_dir", &portable(dir, aoc_dir));
         changed = true;
     }
     let cur_save = ini.get("fs", "save_dir").unwrap_or_default();

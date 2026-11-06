@@ -49,6 +49,7 @@ struct FsState {
     std::shared_ptr<fs::RomfsImage> rom;
     bool rom_failed = false;
     std::string rom_error;                                 // why the RomFS image could not be built
+    std::map<uint64_t, std::shared_ptr<fs::RomfsImage>> aoc;   // add-on id -> its RomFS image (null: could not be built)
     std::map<std::string, std::weak_ptr<Volume>> saves;   // key -> open volume (one at a time per save)
     std::map<uint64_t, std::string> ids;                  // SaveDataId -> key, for the commands that name a save by id
 };
@@ -446,6 +447,27 @@ std::shared_ptr<fs::RomfsImage> rom_image() {
     return img;
 }
 
+// The RomFS image of an installed add-on ([fs] aoc_dir, add_on_contents()), built on first use. Null for an id that is not installed.
+std::shared_ptr<fs::RomfsImage> aoc_image(uint64_t id) {
+    const auto& list = add_on_contents();
+    const auto it = std::find_if(list.begin(), list.end(), [id](const AddOnContent& a) { return a.id == id; });
+    if (it == list.end()) return nullptr;
+    std::lock_guard<std::mutex> lk(st().mu);
+    if (const auto c = st().aoc.find(id); c != st().aoc.end()) return c->second;
+    auto img = std::make_shared<fs::RomfsImage>();
+    std::string err;
+    if (!img->build(it->romfs, &err)) {
+        NXLOG_E("aoc", "add-on 0x%016llX: RomFS folder '%s' cannot be served: %s", static_cast<unsigned long long>(id), it->romfs.c_str(), err.c_str());
+        img = nullptr;
+    } else {
+        const fs::RomfsImage::Stats s = img->stats();
+        NXLOG_I("aoc", "add-on 0x%016llX: RomFS image from %s: %u files, %llu bytes of data", static_cast<unsigned long long>(id),
+                it->romfs.c_str(), s.files, static_cast<unsigned long long>(s.data_bytes));
+    }
+    st().aoc[id] = img;
+    return img;
+}
+
 std::shared_ptr<Service> make_event_notifier() {
     auto ev = std::make_shared<ServiceEvent>(false);
     return make_iface("nn::fssrv::sf::IEventNotifier", [ev](Service& s) {
@@ -719,7 +741,16 @@ std::shared_ptr<Service> make_fsp() {
     };
     s->add_cmd(200, "OpenDataStorageByCurrentProcess", rom_storage);
     s->add_cmd(201, "OpenDataStorageByProgramId", [](Request&, Response&) -> uint32_t { return fs::rc::kTargetNotFound; });
-    s->add_cmd(202, "OpenDataStorageByDataId", [](Request&, Response&) -> uint32_t { return fs::rc::kTargetNotFound; });
+    // (u8 storage id, 7 bytes padding, u64 data id): nn::fs::MountAddOnContent opens an add-on's RomFS this way
+    s->add_cmd(202, "OpenDataStorageByDataId", [](Request& req, Response& rsp) -> uint32_t {
+        const uint64_t id = req.arg<uint64_t>(8);
+        auto img = aoc_image(id);
+        NXLOG_I("fs", "OpenDataStorageByDataId(storage %u, 0x%016llX): %s", req.arg<uint8_t>(0), static_cast<unsigned long long>(id),
+                img ? "served from [fs] aoc_dir" : "not installed");
+        if (!img) return fs::rc::kTargetNotFound;
+        rsp.push_object(make_storage_rom(img));
+        return 0;
+    });
     s->add_cmd(203, "OpenPatchDataStorageByCurrentProcess", [](Request&, Response&) -> uint32_t { return fs::rc::kTargetNotFound; });
     s->add_cmd(205, "OpenDataStorageWithProgramIndex", rom_storage);
     s->add_cmd(400, "OpenDeviceOperator", [](Request&, Response& rsp) -> uint32_t {

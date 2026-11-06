@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared pieces of the service library: registration, events, shared memory, the title profile and the host folders.
+#define _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <mutex>
 #include <set>
 
@@ -376,6 +378,38 @@ uint64_t language_code_u64(Language l) {
 
 std::string romfs_dir() { return config_get_str("fs", "romfs", "game/romfs"); }
 std::string romfs_base_dir() { return config_get_str("fs", "romfs_base", ""); }
+
+const std::vector<AddOnContent>& add_on_contents() {
+    static std::once_flag once;
+    static std::vector<AddOnContent> list;
+    std::call_once(once, [] {
+        const std::string dir = config_get_str("fs", "aoc_dir", "");
+        if (dir.empty()) return;
+        const uint64_t base = profile().program_id + 0x1000;   // the add-on base id, as aoc:u GetAddOnContentBaseId answers
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(std::filesystem::u8path(dir), ec)) {
+            const auto u8name = e.path().filename().u8string();
+            const std::string name(u8name.begin(), u8name.end());
+            const std::filesystem::path romfs = e.path() / "romfs";
+            if (name.size() != 16 || !std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isxdigit(c); }) ||
+                !std::filesystem::is_directory(romfs, ec))
+                continue;
+            const uint64_t id = std::strtoull(name.c_str(), nullptr, 16);
+            if ((id & ~0xFFFull) != base || id == base) {
+                NXLOG_W("aoc", "[fs] aoc_dir: %s is not an add-on of this title (base id 0x%016llX): ignored", name.c_str(),
+                        static_cast<unsigned long long>(base));
+                continue;
+            }
+            const auto u8romfs = romfs.u8string();
+            list.push_back({id, static_cast<int32_t>(id - base), std::string(u8romfs.begin(), u8romfs.end())});
+        }
+        if (ec) NXLOG_W("aoc", "[fs] aoc_dir '%s' cannot be read: %s", dir.c_str(), ec.message().c_str());
+        std::sort(list.begin(), list.end(), [](const AddOnContent& a, const AddOnContent& b) { return a.id < b.id; });
+        for (const AddOnContent& a : list)
+            NXLOG_I("aoc", "add-on content %d (0x%016llX) installed from %s", a.index, static_cast<unsigned long long>(a.id), a.romfs.c_str());
+    });
+    return list;
+}
 
 std::string save_dir() {
     std::string d = config_get_str("fs", "save_dir", "");

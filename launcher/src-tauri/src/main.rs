@@ -239,12 +239,12 @@ fn play(app: AppHandle) -> Result<(), String> {
         return Err("Choose your game files first (Setup).".into());
     }
     // a .nup package is played as it is: pkp reads exefs and romfs straight from it
-    let (exefs, romfs, romfs_base) = if cfg.dump_dir.trim().ends_with(".nup") && Path::new(cfg.dump_dir.trim()).is_file() {
-        (cfg.dump_dir.trim().to_string(), cfg.dump_dir.trim().to_string(), String::new())
+    let (exefs, romfs, romfs_base, aoc_dir) = if cfg.dump_dir.trim().ends_with(".nup") && Path::new(cfg.dump_dir.trim()).is_file() {
+        (cfg.dump_dir.trim().to_string(), cfg.dump_dir.trim().to_string(), String::new(), String::new())
     } else {
         let report = dump::scan(&cfg.dump_dir);
         let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
-        (chosen.exefs, chosen.romfs, chosen.romfs_base)
+        (chosen.exefs, chosen.romfs, chosen.romfs_base, report.aoc_dir)
     };
     let dir = game_dir_of(&cfg);
     let tools_dir = exe_dir().join("tools");
@@ -265,7 +265,7 @@ fn play(app: AppHandle) -> Result<(), String> {
             return Err("Your update holds only the files it changes, so the launcher now adds the missing ones from the base game. Run Set up again once (Game files, Set up) so their shaders are prepared too.".into());
         }
     }
-    settings::ensure_play_paths(&dir, &exefs, &romfs, &romfs_base)?;
+    settings::ensure_play_paths(&dir, &exefs, &romfs, &romfs_base, &aoc_dir)?;
     play::start(&app, &dir, cfg.minimize_on_play)
 }
 
@@ -330,7 +330,7 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<boo
         }
         *p = shaders::Progress { state: "running".into(), phase: "check".into(), message: "Checking the setup tools...".into(), ..Default::default() };
     }
-    settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs, &chosen.romfs_base)?;
+    settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs, &chosen.romfs_base, &report.aoc_dir)?;
     let st = state.inner().clone();
     st.cancel.store(false, Ordering::SeqCst);
     let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(3);

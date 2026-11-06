@@ -129,6 +129,15 @@ std::string save_dir();
 // served from here, as the console serves a patch over its base game. Set by the launcher for an update dumped without the base game's
 // files under it (fork #128).
 std::string romfs_base_dir();
+// [fs] aoc_dir (default empty: none): the title's add-on content (DLC), one subfolder per add-on named by its 16-digit hex id, each with
+// its RomFS in romfs/ (<aoc_dir>/0400A3A01EE4D001/romfs/...). Only add-ons of this title count: id & ~0xFFF == program id + 0x1000 (the
+// add-on base id), index = id - base id (1, 2, ...). aoc:u lists them, fsp-srv OpenDataStorageByDataId serves their RomFS. Scanned once.
+struct AddOnContent {
+    uint64_t id = 0;
+    int32_t index = 0;
+    std::string romfs;   // host folder of its RomFS
+};
+const std::vector<AddOnContent>& add_on_contents();   // sorted by id
 
 // The RomFS image the game reads ([fs] romfs over [fs] romfs_base), built on the first call (the game's first OpenDataStorage reuses it).
 struct RomfsSummary {

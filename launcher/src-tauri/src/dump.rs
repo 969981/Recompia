@@ -9,6 +9,7 @@
 //! the base game's files under it has the right exefs and only the files the update changes (fork #128: 22 of 36 files), and the game
 //! then crashes at start (code 4). When the dump also has base/romfs and the two together are complete, the base is layered under the
 //! update (`romfs_base`, served by pkp's `[fs] romfs_base`), as the .nup unpacker does.
+//! Add-on content (DLC) goes in `<dump>/aoc/<16-digit hex id>/romfs/`; that folder becomes pkp's `[fs] aoc_dir`.
 
 use serde::Serialize;
 use std::fs;
@@ -65,6 +66,26 @@ pub struct DumpReport {
     pub errors: Vec<String>,
     pub candidates: Vec<Candidate>,
     pub chosen: Option<Candidate>,
+    /// `<dump>/aoc` when it holds at least one add-on, else empty: served by pkp's `[fs] aoc_dir`.
+    pub aoc_dir: String,
+    /// The add-on ids found there (16 hex digits, upper case), sorted.
+    pub aoc: Vec<String>,
+}
+
+/// Add-ons in `<root>/aoc`: subfolders named by a 16-digit hex id that hold a `romfs/` folder. pkp checks that they are this title's.
+fn add_ons(root: &Path) -> (String, Vec<String>) {
+    let dir = root.join("aoc");
+    let mut ids: Vec<String> = fs::read_dir(&dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .filter(|n| n.len() == 16 && n.bytes().all(|b| b.is_ascii_hexdigit()) && dir.join(n).join("romfs").is_dir())
+                .map(|n| n.to_ascii_uppercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    if ids.is_empty() { (String::new(), ids) } else { (fwd(&dir), ids) }
 }
 
 pub fn fwd(p: &Path) -> String {
@@ -247,6 +268,8 @@ fn scan_need(path: &str, want: Option<(String, String)>, need: Option<RomfsNeed>
         errors: Vec::new(),
         candidates: Vec::new(),
         chosen: None,
+        aoc_dir: String::new(),
+        aoc: Vec::new(),
     };
     if path.trim().is_empty() {
         report.errors.push("No folder chosen yet.".to_string());
@@ -299,6 +322,7 @@ fn scan_need(path: &str, want: Option<(String, String)>, need: Option<RomfsNeed>
     }
 
     report.chosen = report.candidates.iter().find(|c| c.ok).cloned();
+    (report.aoc_dir, report.aoc) = add_ons(&root);
     if report.chosen.is_none() {
         let failed = |pat: &str| report.candidates.iter().any(|c| c.checks.iter().any(|k| k.label.contains(pat) && !k.ok));
         let mut msg = String::new();
