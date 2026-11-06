@@ -10,15 +10,17 @@
 // twelve 1D buffers of 0x40bf00 x 4 B, among others): with play mode's targets about 3800x2140 and up it was ~1 MB short, an allocation failed, the game backed
 // out of its init and its teardown unmounted "save" twice (svcBreak, fs 2002-6905; fork #49).
 // High-water marks at boot (render size: general / RT): 1920x1080 223.7 / 937.6 MiB, 2560x1440 262.9 / 1179.3, 3712x2088 330.6 / 1788.8:
-// the general pool grows ~17-24 B per pixel, the RT pool ~150. The plan adds 28 B per pixel above 1920x1080 to the general pool and
-// 160 B per pixel to the RT pool, so both keep the console's headroom above their start-up use at every size, the RT pool up to its
-// 4 GiB cap; the arena grows by the sum (a pool grown alone fails its storage allocation). At 1920x1080 and below nothing is hooked.
-// The RT pool's headroom is what the world needs on top of start-up (the 1080p console keeps 2.5 GiB of it). The first plan grew the RT
-// pool only past 937.6 MiB + 160 B per extra pixel + 1 GiB, which left it at 3500 MiB at 4K: start-up fit (~1870 MiB), but the first
-// world load (the Ditto jumping loading screen) loaded forever, then crashed (#119, #164). 2560x1440 had ~2.3 GiB of headroom and ran; a
-// 4K-monitor window's client area renders a little below 3840x2160 and ran too. The hand-patched 4K build that played in-game during #49
-// had the RT pool +592 MiB, about what the cap gives. Pools stay under 4 GiB (the suballocator may keep 32-bit offsets): a render size
-// whose start-up use plus 1 GiB of RT headroom would not fit is clamped to the largest that fits.
+// the general pool grows ~17-24 B per pixel, the RT pool ~150. Start-up is all those marks cover: the first world load (after the Ditto
+// jumping loading screen) needs more of both pools, by an amount nobody has measured. With the first plan (general +28 B per pixel, the RT
+// pool grown only past 937.6 MiB + 160 B per extra pixel + 1 GiB, so left at 3500 MiB at 4K) a 3840x2160 render size started up, then the
+// world load never finished (#164: a 1920x1080 window at 200%) or crashed on a null pointer right after its first world frame (#119: a 4K
+// window; the general pool already past 384 of its 499 MiB). 2560x1440 runs, and a window on a 4K monitor renders a little below
+// 3840x2160 (its client area is smaller), so it runs too. Neither log tells which pool ran out, so both now grow with margin:
+//   general  +56 B per pixel above 1920x1080 (twice the start-up rate: +332 MiB at 4K);
+//   RT       +160 B per pixel, so it keeps the console's headroom above start-up, up to the 4 GiB cap (+595 MiB at 4K).
+// The arena grows by the sum (a pool grown alone fails its storage allocation): +928 MiB at 4K, within the +937 MiB that the clamped 8K
+// size used before (larger sizes now need more: untested). At 1920x1080 and below nothing is hooked. Pools stay under 4 GiB (the suballocator may keep 32-bit offsets): a
+// render size whose start-up RT use plus 1 GiB would not fit is clamped to the largest that fits.
 #include "pkp_gfx_heap.h"
 
 #include <algorithm>
@@ -45,7 +47,7 @@ constexpr uint64_t kMiB = 1ull << 20;
 constexpr uint64_t kGeneralPool = 0x14c00000ull, kRtPool = 0xdac00000ull, kArena = 0x137c07008ull;
 constexpr uint64_t kPoolCap = 0xfff00000ull;
 constexpr int64_t kConsolePixels = 1920ll * 1080;
-constexpr uint64_t kGeneralPerPixel = 28;
+constexpr uint64_t kGeneralPerPixel = 56;
 constexpr uint64_t kRtPerPixel = 160, kRtAt1080 = 9376ull * kMiB / 10, kRtMargin = 1024 * kMiB;
 
 uint64_t round_up_mib(uint64_t v) { return (v + kMiB - 1) / kMiB * kMiB; }
