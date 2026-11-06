@@ -7,6 +7,14 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Bug fixes
 
+#### Leaving an area above 60 fps: the Poké Ball wipe crawled or seemed stuck (#144)
+**What was wrong:** 0.6.0's fix was not enough. Above 60 fps the wipe that opens after leaving a house crawled: about 15 seconds at
+180 fps, and at higher frame rates it looked stuck until the frame limit was set to 60. A part of the transition breaks on the shorter
+frames the game gets above 60 fps.
+
+**Now:** whenever you can't move the camera (an area transition and its load, but also cutscenes, dialogue and menus) the game is held
+at 60 fps, as on the console; back in free play your frame limit applies again. `[pkp] transition_hold = false` turns it off.
+
 #### "The graphics device was lost" a few seconds after launch under Proton (#169)
 **What was wrong:** on SteamOS / Proton (Steam Deck, Legion Go S) the game showed a black screen with the menu music playing, then
 closed with "The graphics device was lost", unless pkp.ini had `tex_write_watch = false`. Every Proton version failed the same way.
