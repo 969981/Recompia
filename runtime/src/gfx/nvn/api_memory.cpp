@@ -292,6 +292,7 @@ NVNboolean nvnBufferInitialize(NVNbuffer* buffer, const NVNbufferBuilder* builde
     d.magic = kBufferMagic;
     buffer_store(buffer, d);
     if (!was_live) g_buffers.add(1);
+    pool_note_placement(pool, off, info.size, "buffer");
     if (gpu::active()) gpu::prefetch_pool(pool);   // a pool that backs a buffer is going to be read by the GPU: import it in the background
     return 1;
 }

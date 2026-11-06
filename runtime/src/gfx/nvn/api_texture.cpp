@@ -230,6 +230,8 @@ NVNboolean nvnTextureInitialize(NVNtexture* texture, const NVNtextureBuilder* bu
         t->voffset = static_cast<uint64_t>(std::max<ptrdiff_t>(0, info.offset));
     }
     t->storage_size = L.storage_size;
+    if (!pool->is_virtual)
+        be::pool_note_placement(pool, static_cast<uint64_t>(info.offset), L.storage_size, "texture", info.width, info.height, info.format);
     t->block_linear = L.block_linear;
     t->block_height_gobs = L.block_linear ? L.layout.levels[0].gob_blocks_y : 0;
     t->is_display = (info.flags & NVN_TEXTURE_FLAGS_DISPLAY) != 0;

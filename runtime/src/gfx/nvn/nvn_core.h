@@ -115,6 +115,11 @@ struct MemoryPool : Obj {
     // the render thread), 4 taken over by the render thread while it was still queued (the importer skips it).
     std::atomic<int> prefetch{0};
     std::atomic<PoolGpu*> prefetched{nullptr};
+    // Fill (pool_note_placement): the highest end offset of any texture or buffer the game placed in the pool, how many it placed, and which
+    // fill thresholds were logged. The game's own suballocator is invisible here; the highest placed end is what shows a pool running full.
+    std::atomic<uint64_t> placed_end{0};
+    std::atomic<uint64_t> placed_count{0};
+    std::atomic<uint32_t> fill_logged{0};
 };
 
 // A GPU address resolved to its pool.
@@ -126,6 +131,12 @@ void pool_register(MemoryPool* p);
 void pool_unregister(MemoryPool* p);
 PoolHit pool_lookup(uint64_t gpu_address);          // pool is null when the address is in no pool
 uint64_t pool_registry_gen();                       // bumped by every pool_register / pool_unregister (pool_lookup's cache)
+// A texture or buffer was placed at [offset, offset + size) of a pool: raises its highest placed end and, for pools of 64 MiB and up, logs
+// once each time that end passes 50, 75, 90, 95 and 99% of the pool, naming what crossed it (`kind` "texture" or "buffer"; a texture's
+// width, height and NVN format, 0 otherwise: text is only made when a line is logged). Any thread.
+void pool_note_placement(MemoryPool* p, uint64_t offset, uint64_t size, const char* kind, int w = 0, int h = 0, int format = 0);
+// The fill of every live pool of 1 MiB and up, one line each (the freeze dump's and the crash report's "graphics pools" section). Never blocks.
+std::string pool_fill_report();
 inline uint8_t* host_ptr(uint64_t gpu_address) { return reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(gpu_address)); }
 
 // The data of an NVNbuffer (0x30 bytes in the game's memory).
