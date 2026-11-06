@@ -32,9 +32,6 @@
 > **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
 
 > [!NOTE]
-> **Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native).** This project follows pokopia-native: whenever it ships an update, the parts that apply here are brought over in a tested build (see [CONTRIBUTING.md](CONTRIBUTING.md#keeping-up-with-pokopia-native)). It started as a fork of [Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1.
-
-> [!NOTE]
 > **Built with AI, supervised by a human.** This project is developed primarily with AI, with me as the supervisor. I have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by me before it lands.
 
 ## Screenshots
