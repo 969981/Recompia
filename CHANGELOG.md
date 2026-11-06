@@ -12,6 +12,13 @@ of the game (version 2.0.1a): the download contains no game files.
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
 
+#### Area transitions: the iris no longer crawls or freezes above 120 fps (#144)
+**What was wrong:** above about 120 fps the house-shaped wipe that closes and opens when you enter or leave a house or area
+could crawl for a minute or look frozen, both on the way in and on the way out.
+
+**Now:** the transition takes the same time as at 60 fps at any frame rate, with no frame-rate cap. This changes the game code, so
+run **Set up again** after updating.
+
 #### Shader setup: the scan writes a few large files instead of 361,000 small ones (#194)
 **What was wrong:** the shader scan wrote every shader block as its own file: about 361,000 files and 9 GB in
 `shader_cache\corpus`, almost all of them from one 2.4 GB game file that is always the last one scanned. On a hard drive, and

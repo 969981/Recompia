@@ -22,9 +22,10 @@
 // Frame rate. The main loop's frame step (0xbfc404) turns the measured frame time into a frame multiplier in 60 Hz units that 90 functions
 // read (the float at 0x34c03f0): 1.0 within 1.5 ms of 1/60 s, else dt * 60 clamped to [1, 3]. Faster than 60 fps the multiplier stays 1
 // and the game runs fast. The mid hook at the join point (0xbfc4fc: s0 the multiplier, s8 the frame time) lets frames shorter than 1/60 s
-// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes. Known open bug (#144, branch fix/144-overlay-clock): above
-// 60 fps the area-transition overlay can freeze or crawl; the earlier fixes (the 0x4459bc branch patch, the 60 fps transition hold) are
-// removed here to recover the original reproduction before the overlay gets its own 60 Hz clock.
+// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes. The general value tween (0xe51624: the area-transition
+// iris and others) steps its counter by (u32)(multiplier + 0.5), which is 0 above 120 fps; mid hooks at its four step sites
+// (0xe51688, 0xe516f0, 0xe5173c, 0xe51788; they change the lifted code) replace the step with whole 60 Hz frames, carrying the
+// fraction in an accumulator per tween (hook_tween_step).
 // The 60 fps cap is the game's own: the main loop's frame step (0x89def8, profiler zone "Sync") waits, sleeping in 200 us task-graph waits,
 // until tick frequency / 60 ticks (60 = 60 / 0x13fc00(), a constant 1.0) have passed since the previous frame began. The mid hook right
 // after that division (0x89e27c, x22 = the period in ticks) sets the period to 0, so the runtime's frame limiter at the frame boundary
@@ -65,6 +66,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -93,6 +95,7 @@ constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // m
 constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
 constexpr uint64_t kCreateTarget = 0x1796810;                               // entry: KTGL 2D render-target create (w1 width, w2 height, w4 format)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
+constexpr uint64_t kTweenStep[4] = {0xe51688, 0xe516f0, 0xe5173c, 0xe51788};   // mid: general tween step (fadd s0, s0, s1): x19 tween, x10 counter, s0 multiplier, s1 0.5
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
 constexpr uint64_t kCamStick = 0x87d30;                                     // mid: x19 camera, s0 right stick x
@@ -133,6 +136,11 @@ struct State {
     std::atomic<uint64_t> vp_shapes[16]{};   // distinct scissor sizes the viewport stretch has touched (logged once each)
     std::atomic<uint32_t> vp_shape_n{0};
     std::atomic<float> last_mult{1.f};
+    // hook_tween_step: per tween object, the counter and step seen last time and the carried fraction of a 60 Hz frame
+    struct TweenAcc { uint64_t obj = 0; uint32_t last = 0, step = 0; float acc = 0.f; };
+    std::mutex tween_mu;
+    TweenAcc tween[64];
+    uint32_t tween_next = 0;
     // Joy-Con 2 mouse mode (frame boundary, main thread): the Mouse mode key flips `mm_want`; the activation count tells how often it fired
     uint64_t mm_seen = 0;
     bool mm_want = false;
@@ -671,6 +679,40 @@ int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
+// General value tween f_7100e51624 (the area-transition iris and others): the counter steps by (u32)(multiplier + 0.5) per frame, which is 0
+// for the fractional multiplier above 120 fps. Counts whole 60 Hz frames instead, carrying the fraction per tween (keyed by the tween object),
+// so the tween keeps its 60 fps timing. n <= 3: acc < 1 and the multiplier <= 3. The counter can count down, so a restart is detected by
+// the counter not being last +- step (the game started or replaced the tween), which drops the carried fraction.
+int hook_tween_step(::Ctx* c, uint64_t, void*) {
+    State& s = st();
+    if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
+    const uint64_t obj = c->x[19];
+    const uint32_t cnt = static_cast<uint32_t>(c->x[10]);
+    float n;
+    {
+        std::lock_guard<std::mutex> lk(s.tween_mu);
+        State::TweenAcc* e = nullptr;
+        for (State::TweenAcc& t : s.tween) {
+            if (t.obj == obj) { e = &t; break; }
+        }
+        if (!e) {
+            e = &s.tween[s.tween_next++ % 64];
+            *e = State::TweenAcc{};
+            e->obj = obj;
+        } else if (cnt != e->last + e->step && cnt != e->last - e->step) {
+            e->acc = 0.f;
+        }
+        e->acc += c->v[0].f32[0];
+        n = std::floor(e->acc);
+        e->acc -= n;
+        e->last = cnt;
+        e->step = static_cast<uint32_t>(n);
+    }
+    c->v[0].f32[0] = n;
+    c->v[1].f32[0] = 0.f;   // the game's fadd + fcvtzu give exactly n
+    return 0;
+}
+
 // the game's own 60 Hz frame wait: off unless [pkp] game_frame_limit (the runtime's limiter paces to [display] fps_limit)
 int hook_sync_period(::Ctx* c, uint64_t, void*) {
     State& s = st();
@@ -922,6 +964,7 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
     s.grace_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "camera_grace_ms", 250), 0, 5000)) * 1000000ull;
     s.hooks.push_back(hook_add_mid(base + kFrameMultiplier, &hook_frame_multiplier));
+    for (const uint64_t site : kTweenStep) s.hooks.push_back(hook_add_mid(base + site, &hook_tween_step));
     s.hooks.push_back(hook_add_mid(base + kSyncPeriod, &hook_sync_period));
     s.hooks.push_back(hook_add_mid(base + kFixedStepRate, &hook_fixed_step_rate));
     s.hooks.push_back(hook_add_mid(base + kCamField, &hook_cam_field));
