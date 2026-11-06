@@ -15,6 +15,11 @@ was translated: what used it was not drawn for the rest of the session.
 bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
 `[nvn] shader_rescan_ms` sets how often (0 = off).
 
+#### Controller shortcut for the F1 menu
+**Before:** the F1 menu opened only from the keyboard, so a handheld with a touch screen had no way to open it from the controller.
+
+**Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on pokopia-native (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
+
 ### Fixes
 
 - The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
