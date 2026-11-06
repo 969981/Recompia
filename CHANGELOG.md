@@ -5,6 +5,14 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### New
+
+#### DLC (add-on content)
+The game can now see the add-on content you own. Put each add-on, already decrypted, in the dump folder as
+`aoc/<add-on id>/romfs/` (for the Bubbly Basin key: `aoc/0400A3A01EE4D001/romfs/`). The launcher finds it, shows it on the
+Game files page and sets `[fs] aoc_dir` in `pkp.ini`, and the game lists the add-on and opens its data. Like the game itself,
+the add-ons must come from your own dump: the download contains none.
+
 ### Fixes
 
 #### The Linux download starts on more systems, and is smaller

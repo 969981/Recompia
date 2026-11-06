@@ -143,12 +143,13 @@ export async function render(el, ctx) {
             </div>
             ${nupBusy ? `<p class="dim" id="nup-msg">${nupMsg(nupProgress)}</p><progress max="100" value="${nupPct(nupProgress)}"></progress><button class="btn" id="cancel-nup">Cancel unpacking</button>` : ''}
             <p class="faint">Or pick a <code>.nup</code> package instead of a folder: it is unpacked once into <code>nup_dump/</code> next to the game and used from there (needs the free space of the full game).</p>
-            <p class="faint">Expected layout: <code>base/</code> and <code>updates/&lt;version&gt;/</code>, each with <code>exefs/</code> (main, sdk, subsdk0, rtld, main.npdm) and <code>romfs/</code>. The highest valid update is used, otherwise the base game.</p>
+            <p class="faint">Expected layout: <code>base/</code> and <code>updates/&lt;version&gt;/</code>, each with <code>exefs/</code> (main, sdk, subsdk0, rtld, main.npdm) and <code>romfs/</code>. The highest valid update is used, otherwise the base game. Add-on content (DLC), already decrypted: <code>aoc/&lt;add-on id&gt;/romfs/</code>.</p>
           </div>
         </div>
 
         ${report && report.errors.length ? `<div class="banner danger">${icon('circle-x')}<div>${report.errors.map(esc).join('<br>')}</div></div>` : ''}
         ${report && report.candidates.length ? `<div class="stack">${report.candidates.map((c) => candidateHtml(c, report.chosen)).join('')}</div>` : ''}
+        ${report && report.aoc && report.aoc.length ? `<p class="dim">${icon('circle-check')}Add-on content: ${report.aoc.length} found (${report.aoc.map(esc).join(', ')})</p>` : ''}
 
         <div class="row">
           <button class="btn ${ok && saved !== path ? 'primary' : ''}" id="use" ${ok && setup.progress.state !== 'running' ? '' : 'disabled'}>${icon('circle-check')}Use these game files</button>
