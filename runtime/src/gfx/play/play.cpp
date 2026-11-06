@@ -37,6 +37,7 @@
 #include "nxrt/kernel.h"
 #include "nxrt/svc.h"
 #include "nxrt/config.h"
+#include "nxrt/host_device.h"
 #include "nxrt/jc2_mouse.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/hooks.h"
@@ -305,25 +306,18 @@ void apply_unfocused_mute() {
     audio::set_muted(st.window && st.settings.audio.mute_unfocused && !platform::focused());
 }
 
-bool wine_host() {
-    static const bool w = [] {
-        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-        return nt && GetProcAddress(nt, "wine_get_version");
-    }();
-    return w;
-}
-
-// [display] fps_snap = auto|true|false (NXRT_DISPLAY_FPS_SNAP), read on every apply_frame_cap. auto = on under Wine (Steam Deck, Go S, Linux:
-// fixed-refresh handheld panels), off on native Windows where a desktop screen may be VRR and a chosen 40 must stay 40. Returns the divisor
-// k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
+// [display] fps_snap = auto|true|false (controls.ini / F1 "Cap FPS to 30 for Steam Deck"; NXRT_DISPLAY_FPS_SNAP overrides it), read on every apply_frame_cap. auto (default) = on for a detected Steam Deck
+// only (host_is_steam_deck: its 90 / 60 Hz panel has no VRR), off on every other machine (a desktop screen may be VRR, and a
+// player's chosen 40 must stay 40). Returns the divisor k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
 int frame_snap_k(const Settings& s, double cap, float hz, double* snapped, const char** reason) {
-    const std::string mode = config_get_str("display", "fps_snap", "auto");
+    std::string mode = config_get_str("display", "fps_snap", "");    // the env override, else the player's setting
+    if (mode.empty()) mode = s.display.fps_snap;
     const bool forced_on = mode == "true" || mode == "on" || mode == "1";
     const bool forced_off = mode == "false" || mode == "off" || mode == "0";
     *snapped = cap;
     if (!s.display.vsync) { *reason = "vsync off"; return 0; }
     if (forced_off) { *reason = "fps_snap off"; return 0; }
-    if (!forced_on && !wine_host()) { *reason = "fps_snap auto, native Windows"; return 0; }
+    if (!forced_on && !host_is_steam_deck()) { *reason = "fps_snap auto, not a Steam Deck"; return 0; }
     if (cap <= 0) { *reason = "uncapped"; return 0; }
     if (hz <= 0) { *reason = "refresh rate unknown"; return 0; }
     if (cap >= hz) { *reason = "cap not below the refresh rate"; return 0; }

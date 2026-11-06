@@ -169,6 +169,9 @@ struct DisplaySettings {
     // [display] fps_limit (older name fps_cap): 0 = unlimited (with vsync on: mailbox presents), -1 = auto (the display's refresh rate),
     // else the cap; with vsync on, a cap only applies when it is below the refresh rate
     int fps_cap = 60;
+    // [display] fps_snap: "auto" (on for a detected Steam Deck only), "true" (on anywhere), "false" (off). With vsync on, a limit below the
+    // refresh rate then runs at an even divisor of it (40 -> 30 on 90 Hz). F1 "Cap FPS to 30 for Steam Deck" writes true / false.
+    std::string fps_snap = "auto";
     int width = 1280, height = 720;    // windowed client size, remembered
     bool keep_aspect = true;       // letterbox instead of stretching
     // ---- S10 display options (play_display.h). The first four only apply at the next start: the game builds its render targets once.

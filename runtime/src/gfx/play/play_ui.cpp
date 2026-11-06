@@ -18,6 +18,7 @@
 #include "extras/temporal.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/gfx_tuning.h"
+#include "nxrt/host_device.h"
 #include "nxrt/input_source.h"
 #include "nxrt/lowlat.h"
 #include "nxrt/overlay.h"
@@ -927,6 +928,23 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
         ImGui::EndCombo();
     }
     tip("Refresh rate follows the display. With vsync on, a limit only counts when it is below the refresh rate.");
+    {   // [display] fps_snap: on by default on a detected Steam Deck only (auto); this box writes true / false
+        const bool deck = nxrt::host_is_steam_deck();
+        bool snap = d.fps_snap == "true" || (d.fps_snap == "auto" && deck);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.85f, 1.0f, 1.0f));
+        if (ImGui::Checkbox("Cap FPS to 30 for Steam Deck", &snap)) {
+            d.fps_snap = snap ? "true" : "false";
+            mark(p);
+        }
+        ImGui::PopStyleColor();
+        tip("The Steam Deck's screen refreshes at a fixed 90 Hz (OLED) or 60 Hz (LCD) and cannot follow the game. At 40 fps, frames stay on "
+            "screen for uneven times, which feels like stutter; at 30 every frame stays for the same time. Needs vsync on. With a higher limit "
+            "it takes the next even step instead (60 becomes 45 at 90 Hz). Off: your frame limit stays exactly as set.");
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 1.0f, 1.0f), "THIS ACTUALLY MAKES THE GAME SMOOTHER on a Steam Deck.");
+        ImGui::TextDisabled(deck ? "On by default on this Steam Deck. Untick it to keep your frame limit exactly as set."
+                                 : "Off by default here: this is not a Steam Deck. Tick it only on a screen without G-Sync / FreeSync.");
+        if (snap && !d.vsync) ImGui::TextColored(kOrange, "Turn vsync on for this to work.");
+    }
     if (live.snap_k >= 2 && d.fps_cap > 0) {
         ImGui::TextDisabled("%d (runs at %g on this %g Hz screen%s)", d.fps_cap, live.snap_cap, static_cast<double>(live.refresh_hz),
                             d.fps_cap == 40 ? "; set 80 Hz in Steam's Performance menu for 40" : "; pick a refresh rate that is a multiple of it");
