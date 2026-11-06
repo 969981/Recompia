@@ -230,6 +230,10 @@ Variant& variant() {
     static Variant v;
     return v;
 }
+std::atomic<bool>& story_flag() {
+    static std::atomic<bool> f{false};
+    return f;
+}
 uint8_t own_variant(std::string* what = nullptr) {
     Variant& v = variant();
     std::lock_guard<std::mutex> lk(v.mu);
@@ -1426,8 +1430,8 @@ void Ldn::shutdown() {
 // coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; Pokopia's "Interact everywhere" while armed, the same
 // name pokopia-native adds as COOP_INTERACT_MOD), 0 without one. The variant's bits 12..14 of the local communication version are a
 // Link Play (relay) thing and are not sent here: the game's version goes out as the game gave it.
-// TODO(story co-op): pokopia-native's "Story co-op (experimental)" (docs/story-coop.md: COOP_STORY_MOD after COOP_INTERACT_MOD in the
-// fingerprint, coop_story_sites) is a later mission.
+// Story co-op (pokopia-native's "Story co-op (experimental)", docs/story-coop.md; ldnapi::set_story_mod, armed by games/pkp/pkp_linkplay.cpp)
+// adds COOP_STORY_MOD after the Interact name, so both on give pokopia-native's fingerprint c75a2da0380038c1.
 // Not mapped (the module has no counterpart; pokopia-native cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
 // (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
 // built here from the node tables the game reads.
@@ -1470,8 +1474,15 @@ const char* coop_hook_build(void*) {
 uint64_t coop_hook_mods(void*, char* what, size_t n) {
     std::string name;
     if (!own_variant(&name) || name.empty()) return 0;
-    std::snprintf(what, n, "%s", name.c_str());
-    return coop_mods_add(0, name.c_str());
+    // pokopia-native's coop_hmods order: the cheats (none here), "Interact everywhere", then "Story co-op (experimental)"
+    uint64_t h = coop_mods_add(0, name.c_str());
+    if (story_flag().load()) {
+        h = coop_mods_add(h, COOP_STORY_MOD);
+        std::snprintf(what, n, "%s, %s", name.c_str(), COOP_STORY_MOD);
+    } else {
+        std::snprintf(what, n, "%s", name.c_str());
+    }
+    return h;
 }
 
 // The install's persistent coop uid (nn::account::Uid as 32 hex digits): coop-uid.txt in the save folder ([fs] save_dir), made from the
@@ -1856,6 +1867,7 @@ void ldn_reset() {
         s.relays.clear();
     }
     ldnapi::set_session_variant(0, "");
+    ldnapi::set_story_mod(false);
     {
         NativeSlot& n = native();
         coop_node* node = n.node.exchange(nullptr);
@@ -1878,6 +1890,9 @@ void set_session_variant(uint8_t v, const char* what) {
     s.what = what ? what : "";
 }
 uint8_t session_variant() { return own_variant(); }
+void set_story_mod(bool on) { story_flag().store(on); }
+bool story_mod() { return story_flag().load(); }
+bool native_protocol() { return services::native_protocol(); }
 }  // namespace ldnapi
 
 }  // namespace nxrt::services

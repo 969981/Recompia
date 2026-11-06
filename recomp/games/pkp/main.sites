@@ -200,6 +200,8 @@ midhook 0x7101f7fe48
 #   Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): the permission-mask builder 0x71000b0f60, story-area
 #   online block at `movk x13, #1, lsl #32` (x13 = the pattern's bits 0-31, x22 = the session's Spectator flag)
 midhook 0x71000b1030
+#   Story co-op (pkp_linkplay.cpp, [pkp] link_story_coop): the talk handler 0x71004c024c, at `orr w8, w25, w0` (w0 = IsHost's answer)
+midhook 0x71004c06d8
 # general value tween f_7100e51624: the frame counter steps by (u32)(multiplier + 0.5) once per frame (fadd s0, s0, s1 before the
 # fcvtzu), which is 0 above 120 fps with the frame-time fix; one site per counter (+0xc, +0x14). pkp_play.cpp hook_tween_step
 # replaces the step with whole 60 Hz frames.
