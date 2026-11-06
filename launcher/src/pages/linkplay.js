@@ -86,8 +86,8 @@ export async function render(el) {
       <div class="card">
         <h2>${icon('link')}Visit by address</h2>
         <p class="dim">Your game asks this host only. The host keeps Automatic (or Internet) and picks Invite Others to Visit; their Link Play page shows the address.</p>
-        <div class="field"><label class="name">Host address<span class="hint">Like 192.168.1.20 or 192.168.1.20:${HOST_PORT}. The port is optional.</span></label>
-          <div class="control"><input type="text" id="a-addr" spellcheck="false" placeholder="192.168.1.20" value="${esc(joinAddr)}"></div></div>
+        <div class="field"><label class="name">Host address<span class="hint">Like 192.0.2.10 or 192.0.2.10:${HOST_PORT}. The port is optional.</span></label>
+          <div class="control"><input type="text" id="a-addr" spellcheck="false" placeholder="192.0.2.10" value="${esc(joinAddr)}"></div></div>
         <div class="field"><label class="name">Room code<span class="hint">Only for a host that plays over the internet without a relay (their router forwards port ${HOST_PORT}). Leave empty on a LAN.</span></label>
           <div class="control"><input type="text" id="a-code" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" value="${esc(joinCode)}"></div></div>
         <div class="row" style="margin-top: var(--space-4)"><button class="btn primary" id="a-save">${icon('save')}Save</button>
@@ -180,7 +180,7 @@ export async function render(el) {
   async function saveAddress() {
     const addr = el.querySelector('#a-addr').value.trim();
     const raw = el.querySelector('#a-code').value.trim();
-    if (!validAddr(addr)) return toast('Type the host\'s IPv4 address, like 192.168.1.20 or 192.168.1.20:47600.', 'error');
+    if (!validAddr(addr)) return toast('Type the host\'s IPv4 address, like 192.0.2.10 or 192.0.2.10:47600.', 'error');
     try {
       const c = raw ? await api('room_code_check', { code: raw }) : '';
       await apply([net('mode', `join:${addr}`), net('internet', c ? 'true' : 'false'), net('room_code', c), net('relay', '')], () => {
