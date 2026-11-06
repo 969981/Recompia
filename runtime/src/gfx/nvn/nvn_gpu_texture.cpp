@@ -31,6 +31,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gfx_tuning.h"
+#include "nxrt/host_device.h"
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -1263,7 +1264,7 @@ namespace {
 // image uploaded once kept the old glyph set and every later new glyph drew as nothing. The storage pages of an uploaded coherent texture
 // are therefore armed in one write-watch region over the heap (nxrt/write_watch.h), before the storage is read for the upload. At the start
 // of every submission the pages the CPU wrote since are handed to textures_cpu_wrote, as a flush of them would be: the textures there are
-// uploaded again before their next use (and armed again). A texture the GPU renders to is not armed. [nvn] tex_write_watch = false: off.
+// uploaded again before their next use (and armed again). A texture the GPU renders to is not armed. [nvn] tex_write_watch = auto (off under Wine) | true | false.
 mem::ww::Region* g_tex_ww = nullptr;
 bool g_tex_ww_tried = false;
 std::vector<uint64_t> g_tex_ww_pages;
@@ -1271,7 +1272,13 @@ std::vector<uint64_t> g_tex_ww_pages;
 mem::ww::Region* tex_ww() {
     if (!g_tex_ww_tried) {
         g_tex_ww_tried = true;
-        if (nxrt::config_get_bool("nvn", "tex_write_watch", true) && mem::heap_exists())
+        // auto (default): off under Wine (Proton, SteamOS). There the heap is private memory imported as amdgpu userptr BOs, and
+        // making those pages read-only invalidates the BOs: the next submission loses the device (#169, Legion Go S and Steam Deck).
+        const std::string v = nxrt::config_get_str("nvn", "tex_write_watch", "auto");
+        const bool on = v == "auto" ? !nxrt::host_is_wine() : (v == "on" || v == "1" || v == "true");
+        NXLOG_I(kTag, "tex_write_watch %s (%s%s)", on ? "on" : "off", v.c_str(),
+                v == "auto" ? (nxrt::host_is_wine() ? ", Wine" : ", not Wine") : "");
+        if (on && mem::heap_exists())
             g_tex_ww = mem::ww::region_create(mem::kHeapBase, mem::heap_reserved());
     }
     return g_tex_ww;

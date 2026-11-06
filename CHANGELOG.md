@@ -7,6 +7,12 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Bug fixes
 
+#### "The graphics device was lost" a few seconds after launch under Proton (#169)
+**What was wrong:** on SteamOS / Proton (Steam Deck, Legion Go S) the game showed a black screen with the menu music playing, then
+closed with "The graphics device was lost", unless pkp.ini had `tex_write_watch = false`. Every Proton version failed the same way.
+
+**Now:** the game starts without the ini line. `[nvn] tex_write_watch` is `auto` (off under Proton, on under Windows).
+
 #### The in-game clock fell behind after the handheld slept (#172)
 **What was wrong:** put a Steam Deck or Legion Go S to sleep with the game open, wake it, and the in-game clock was behind by the
 whole nap until you restarted the game: under Proton the counter the game's clock runs on stops during sleep.
