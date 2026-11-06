@@ -27,6 +27,7 @@ using System.Threading.Tasks;
 
 namespace SpirvHarness
 {
+    // CodePath, CtrlPath, GlslcPath: Blobs (a file, or a slice of a corpus pack)
     sealed record Job(string Hash, string Group, string CodePath, string CtrlPath, int Stages, string GlslcPath = null);
 
     sealed class Result
@@ -191,7 +192,7 @@ namespace SpirvHarness
                 r.Error = $"NVN2 block without code (stage {nvnStage}, program end 0x{progEnd:x}, code 0x{code.Length:x} bytes)";
                 return r;
             }
-            Nvn2Reflection refl = glslcPath != null && File.Exists(glslcPath) ? Nvn2Reflection.Read(glslcPath) : null;
+            Nvn2Reflection refl = glslcPath != null && Blobs.Exists(glslcPath) ? Nvn2Reflection.Read(glslcPath) : null;
             if (refl != null) r.Reflection = refl.Describe(nvnStage);
 
             Stopwatch sw = Stopwatch.StartNew();
@@ -324,15 +325,17 @@ namespace SpirvHarness
         static List<Job> LoadJobs(string root)
         {
             Dictionary<string, Job> jobs = new();
-            // Ampere corpus layout (tools/shaders/ampere/extract_corpus.py): unique.tsv, code/<h>.bin, ctrl/<h>.bin, glslc/<h>.bin.
+            // Ampere corpus layout (tools/shaders/ampere/extract_corpus.py): unique.tsv, and the blocks either in pack/<NN>.code,
+            // .ctrl, .glslc (--layout packs: unique.tsv has code_ref, ctrl_ref, glslc_ref = "<NN>:<offset>:<length>") or in
+            // code/<h>.bin, ctrl/<h>.bin, glslc/<h>.bin (--layout files, and corpora extracted before the packs).
             string unique = Path.Combine(root, "unique.tsv");
-            if (File.Exists(unique) && Directory.Exists(Path.Combine(root, "code")))
+            if (File.Exists(unique) && (Directory.Exists(Path.Combine(root, "code")) || Directory.Exists(Path.Combine(root, "pack"))))
             {
                 foreach (var row in ReadTsv(unique))
                 {
                     string h = row["code_sha1_16"];
-                    jobs[h] = new Job(h, row["stage"], Path.Combine(root, "code", h + ".bin"), Path.Combine(root, "ctrl", row["first_ctrl"] + ".bin"),
-                                      int.Parse(row["occurrences"]), Path.Combine(root, "glslc", row["first_glslc"] + ".bin"));
+                    jobs[h] = new Job(h, row["stage"], CorpusBlob(root, row, "code_ref", "code", h), CorpusBlob(root, row, "ctrl_ref", "ctrl", row["first_ctrl"]),
+                                      int.Parse(row["occurrences"]), CorpusBlob(root, row, "glslc_ref", "glslc", row["first_glslc"]));
                 }
                 return jobs.Values.ToList();
             }
@@ -350,6 +353,17 @@ namespace SpirvHarness
                 }
             }
             return jobs.Values.ToList();
+        }
+
+        // A block of a unique.tsv row (Blobs): its pack slice when the row has the ref column, else <root>/<kind>/<name>.bin.
+        static string CorpusBlob(string root, Dictionary<string, string> row, string refColumn, string kind, string name)
+        {
+            if (row.TryGetValue(refColumn, out string r) && r != "")
+            {
+                string[] p = r.Split(':');
+                return $"{Path.Combine(root, "pack", p[0] + "." + kind)}|{p[1]}|{p[2]}";
+            }
+            return Path.Combine(root, kind, name + ".bin");
         }
 
         static IEnumerable<Dictionary<string, string>> ReadTsv(string path)
@@ -395,7 +409,7 @@ namespace SpirvHarness
                 // A translator bug could loop forever; run on a task so a stuck block is reported, not waited on.
                 Task<(Result, byte[])> t = Task.Run(() =>
                 {
-                    Result x = Translate(File.ReadAllBytes(job.CodePath), File.ReadAllBytes(job.CtrlPath), out byte[] s, false, job.GlslcPath);
+                    Result x = Translate(Blobs.Read(job.CodePath), Blobs.Read(job.CtrlPath), out byte[] s, false, job.GlslcPath);
                     return (x, s);
                 });
                 if (t.Wait(Timeout)) (r, spv) = t.Result;

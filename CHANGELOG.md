@@ -7,13 +7,16 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Fixes
 
-#### Shader setup: the log names the file the scan is waiting on (#194)
-**What was wrong:** on one PC the shader scan stopped at "28 of 29" for hours, and setup.log showed only that count, not which
-game file was still being scanned. The scan also ran one worker per CPU thread.
+#### Shader setup: the scan writes a few large files instead of 361,000 small ones (#194)
+**What was wrong:** the shader scan wrote every shader block as its own file: about 361,000 files and 9 GB in
+`shader_cache\corpus`, almost all of them from one 2.4 GB game file that is always the last one scanned. On a hard drive, and
+with the virus scanner checking each new file, that can take hours, and the cleanup at the end of setup deleted them all again.
+setup.log showed only the count, not which file the scan was on.
 
-**Now:** setup.log names each file as it finishes, and after a minute without progress the files still being scanned. The
-largest files are scanned first, so the scan doesn't end on a large file started late, and it uses at most four workers, which
-lowers the memory and disk load without making it slower.
+**Now:** the scan writes the blocks into a few large pack files (about 90 files, 5 GB), and only the part of each one the
+translator reads. On Linux the whole scan takes 38 s instead of about 2.5 minutes. setup.log names each game file as it
+finishes and, after a minute without progress, the files still being scanned. The scan uses at most four workers, and the
+largest files go first. A shader corpus extracted by an older version is still translated as before.
 
 ## 0.6.2 (build J: Jackrabbit)
 

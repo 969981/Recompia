@@ -35,7 +35,7 @@ pub const RUNTIME_REL: &str = "shader_cache/runtime";
 /// Blocks per translator run. Under Proton every run also starts Proton (a few seconds), so Linux runs fewer, larger chunks.
 const CHUNK: usize = if cfg!(windows) { 1000 } else { 5000 };
 /// Workers for the extractor. It maps each asset file into memory and decompresses it, so one worker per CPU thread can
-/// thrash a machine's memory and disk (issue #194: 15 workers, stuck on a laptop); a few already saturate the disk. The
+/// thrash a machine's memory and disk (issue #194: 15 workers on a hard drive); a few already saturate the disk. The
 /// translator (spirv_harness) keeps the full `job.jobs`.
 const EXTRACT_JOBS: usize = 4;
 

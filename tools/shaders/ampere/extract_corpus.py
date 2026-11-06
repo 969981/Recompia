@@ -12,11 +12,18 @@ A GLSLC output (NVN2 layout, see docs/AMPERE.md): u32 magic 0x19866891, +0x5c u3
 section header i at +0xa8 + 0x98*i = {u32 size, u32 offset from output, u32 type}; type 0 (GPU code) adds
 +0x30 control offset, +0x34 code offset (both from the section data), +0x38 code length, +0x3c control length.
 
-Output (--out), content-addressed by the first 16 hex of SHA-1 of the bytes: code/<h>.bin (code area: SPH v4, then
-SASS), ctrl/<h>.bin (control sections), glslc/<h>.bin (whole GLSLC outputs); manifest.tsv (one row per occurrence with
-all three hashes), unique.tsv (one row per distinct code block, with its first occurrence's ctrl/glslc), summary.txt.
+Output (--out). Blocks are named by the first 16 hex of SHA-1 of their bytes: the code area (SPH v4, then SASS), the control
+sections, and the GLSLC output. manifest.tsv (one row per occurrence with all three hashes), unique.tsv (one row per distinct
+code block, with its first occurrence's ctrl/glslc), summary.txt. The blocks themselves (--layout):
+  * packs (default, what spirv_harness reads): per scanned file (task NN, in the order below) pack/<NN>.code, .ctrl, .glslc,
+    each block appended once per file; unique.tsv adds code_ref, ctrl_ref, glslc_ref = "<NN>:<offset>:<length>". The glslc
+    pack holds only what spirv_harness reads of a GLSLC output: its header and section table and the reflection section
+    (reflection_part). A few large files instead of ~360,000 small ones: hours less on a hard drive.
+  * files: code/<h>.bin, ctrl/<h>.bin, glslc/<h>.bin (whole GLSLC outputs), for the tools that read single blocks
+    (ampere/oracle/sass_oracle.py, scripts/check_mufu_trig.py).
 Deterministic: files and entries are visited in sorted order; "first occurrence" is in that order.
 Usage: python -I extract_corpus.py --romfs <romfs> [--romfs-base <base romfs>] [--main <main.elf>] --out <dir> [--jobs 4]
+                                   [--layout packs|files]
   --romfs-base: the base game's romfs under an update's (the update's files win), for an update dumped without the base game's files
 """
 import argparse, collections, hashlib, mmap, os, struct, sys, threading, zlib
@@ -113,6 +120,63 @@ def glslc_outputs(d):
 
 
 OUT = None
+NO_REFS = ('', '', '')
+
+
+def reflection_part(gb):
+    """What spirv_harness reads of a GLSLC output (Nvn2Reflection.Read): the header and section table, then the first
+    in-bounds reflection section (type 3), its offset rewritten to follow the table (its fields are relative to that offset).
+    Without one, the header and table alone."""
+    nsec, = struct.unpack_from('<I', gb, 0x64)
+    head = 0xa8 + 0x98 * nsec
+    for i in range(nsec):
+        s = 0xa8 + 0x98 * i
+        size, off, typ = struct.unpack_from('<3I', gb, s)
+        if typ == 3 and off + size <= len(gb):
+            out = bytearray(gb[:head])
+            struct.pack_into('<I', out, s + 4, head)
+            return bytes(out) + gb[off:off + size]
+    return gb[:head]
+
+
+class Packs:
+    """One task's blocks, appended to pack/<NN>.code, .ctrl, .glslc. A code block is written once per task, with the ctrl and
+    GLSLC output of its first occurrence in the task; every occurrence gets those refs. unique.tsv takes the refs of a block's
+    first occurrence overall, which is always one that was written (the first in the first task that has the block)."""
+    def __init__(self, out, nn):
+        self.nn = nn
+        self.f = {k: open(os.path.join(out, 'pack', f'{nn}.{k}'), 'wb') for k in ('code', 'ctrl', 'glslc')}
+        self.refs = {}
+
+    def _append(self, kind, data):
+        f = self.f[kind]
+        o = f.tell()
+        f.write(data)
+        return f'{self.nn}:{o}:{len(data)}'
+
+    def add(self, h, ch, gh, code, ctrl, gb):
+        r = self.refs.get(h)
+        if r is None:
+            r = self.refs[h] = (self._append('code', code), self._append('ctrl', ctrl), self._append('glslc', reflection_part(gb)))
+        return r
+
+    def close(self):
+        for f in self.f.values():
+            f.close()
+
+
+class Files:
+    """--layout files: each block as its own content-addressed file."""
+    def add(self, h, ch, gh, code, ctrl, gb):
+        put('code', h, code); put('ctrl', ch, ctrl); put('glslc', gh, gb)
+        return NO_REFS
+
+    def close(self):
+        pass
+
+
+def sink(out, nn, layout):
+    return Packs(out, nn) if layout == 'packs' else Files()
 
 
 def put(sub, h, data):
@@ -132,32 +196,36 @@ def put(sub, h, data):
             os.remove(t)
 
 
-def slim(occs):
-    """Write the blobs; return the rows without bytes."""
+def slim(occs, out):
+    """Write the blobs; return the rows without bytes (with the blocks' pack refs)."""
     rows = []
     for name, eo, fk, tk, tag, go, si, st, ctrl, code, gb in occs:
         h = hashlib.sha1(code).hexdigest()[:16]
         ch = hashlib.sha1(ctrl).hexdigest()[:16]
         gh = hashlib.sha1(gb).hexdigest()[:16]
-        put('code', h, code); put('ctrl', ch, ctrl); put('glslc', gh, gb)
-        rows.append((name, eo, fk, tk, tag, go, si, st, len(ctrl), len(code), h, ch, gh))
+        refs = out.add(h, ch, gh, code, ctrl, gb)
+        rows.append((name, eo, fk, tk, tag, go, si, st, len(ctrl), len(code), h, ch, gh, refs))
     return rows
 
 
-def scan_file(path, out):
+def scan_file(path, out, nn, layout):
     global OUT
     OUT = out
     low_priority()
     rows = []
     name = os.path.basename(path)
-    with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
-        for o, a, b, usz, fk, tk, fl in entries(d):
-            tag = inflate(d, a, b, fl, 8)
-            if tag[:4] not in (b'_S2G', b'_DOK'):
-                continue
-            data = inflate(d, a, b, fl)
-            rows += slim([(name, o, fk, tk, tag.decode('latin1'), go, si, stage_of(ctrl), ctrl, code, gb)
-                          for go, gb, secs in glslc_outputs(data) for si, ctrl, code in secs])
+    s = sink(out, nn, layout)
+    try:
+        with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
+            for o, a, b, usz, fk, tk, fl in entries(d):
+                tag = inflate(d, a, b, fl, 8)
+                if tag[:4] not in (b'_S2G', b'_DOK'):
+                    continue
+                data = inflate(d, a, b, fl)
+                rows += slim([(name, o, fk, tk, tag.decode('latin1'), go, si, stage_of(ctrl), ctrl, code, gb)
+                              for go, gb, secs in glslc_outputs(data) for si, ctrl, code in secs], s)
+    finally:
+        s.close()
     return rows
 
 
@@ -178,15 +246,19 @@ def nso_image(d):
     return bytes(img)
 
 
-def scan_main(path, out):
+def scan_main(path, out, nn, layout):
     global OUT
     OUT = out
     low_priority()
     d = open(path, 'rb').read()
     if d[:4] == b'NSO0':
         d = nso_image(d)
-    return slim([(os.path.basename(path), 0, 0, 0, 'main', go, si, stage_of(ctrl), ctrl, code, gb)
-                 for go, gb, secs in glslc_outputs(d) for si, ctrl, code in secs])
+    s = sink(out, nn, layout)
+    try:
+        return slim([(os.path.basename(path), 0, 0, 0, 'main', go, si, stage_of(ctrl), ctrl, code, gb)
+                     for go, gb, secs in glslc_outputs(d) for si, ctrl, code in secs], s)
+    finally:
+        s.close()
 
 
 def main():
@@ -196,6 +268,7 @@ def main():
     ap.add_argument('--main')
     ap.add_argument('--out', required=True)
     ap.add_argument('--jobs', type=int, default=4)
+    ap.add_argument('--layout', choices=('packs', 'files'), default='packs', help='how the blocks are written (see above)')
     ap.add_argument('--progress', action='store_true', help='print "done: <file>", "scan: <done> <total>" and, while a file takes long, "running: <file> ..." lines')
     a = ap.parse_args()
     by_rel = {}   # path below motor_asset_re -> host path; the update's (--romfs) files win over the base game's
@@ -209,7 +282,7 @@ def main():
     # (name for the progress lines, host path, function): the results are read in this order (it decides the outputs), but the
     # largest files are submitted first, so the scan doesn't end on a 2.4 GB file started late
     tasks = [(k, by_rel[k], scan_file) for k in sorted(by_rel)] + ([('main', a.main, scan_main)] if a.main else [])
-    for sub in ('code', 'ctrl', 'glslc'):
+    for sub in ('pack',) if a.layout == 'packs' else ('code', 'ctrl', 'glslc'):
         os.makedirs(os.path.join(a.out, sub), exist_ok=True)
     seen = {}
     ctrl_variants = collections.defaultdict(set)
@@ -218,7 +291,7 @@ def main():
     with ProcessPoolExecutor(a.jobs) as ex:
         futs = [None] * len(tasks)
         for i in sorted(range(len(tasks)), key=lambda i: -os.path.getsize(tasks[i][1])):
-            futs[i] = ex.submit(tasks[i][2], tasks[i][1], a.out)
+            futs[i] = ex.submit(tasks[i][2], tasks[i][1], a.out, i, a.layout)
         # Progress comes from this process only: on Windows the workers' stdout doesn't reach the launcher's pipe.
         # Per finished file "done: <file>" (or "failed: <file>") and "scan: <done> <total>" (the launcher's setup reads it);
         # after a minute without one, "running: <file> ..." names the files being scanned (plus at most one queued next).
@@ -241,11 +314,11 @@ def main():
                     print('running: ' + ' '.join(n for f, (n, _, _) in zip(futs, tasks) if f.running()), flush=True)
         results = [f.result() for f in futs]
     for res in results:
-        for name, eo, fk, tk, tag, go, si, st, cn, kn, h, ch, gh in res:
+        for name, eo, fk, tk, tag, go, si, st, cn, kn, h, ch, gh, refs in res:
             occ[h] += 1
             ctrl_variants[h].add(ch)
             if h not in seen:
-                seen[h] = (st, kn, cn, name, eo, go, ch, gh)
+                seen[h] = (st, kn, cn, name, eo, go, ch, gh, refs)
             rows.append(f'{name}\t{eo:#x}\t{fk:08x}\t{tk:08x}\t{tag}\t{go:#x}\t{si}\t{st}\t{cn:#x}\t{kn:#x}\t{h}\t{ch}\t{gh}')
     with open(os.path.join(a.out, 'manifest.tsv'), 'w', newline='\n') as f:
         f.write('source\tentry_off\tfile_ktid\ttype_ktid\tcontainer\tglslc_off\tsection\tstage\tctrl_size\tcode_size'
@@ -253,11 +326,12 @@ def main():
         f.write('\n'.join(rows) + '\n')
     with open(os.path.join(a.out, 'unique.tsv'), 'w', newline='\n') as f:
         f.write('code_sha1_16\tstage\tcode_size\tctrl_size\toccurrences\tctrl_variants\tfirst_source\tentry_off\tglslc_off'
-                '\tfirst_ctrl\tfirst_glslc\n')
+                '\tfirst_ctrl\tfirst_glslc' + ('\tcode_ref\tctrl_ref\tglslc_ref' if a.layout == 'packs' else '') + '\n')
         for h in sorted(seen):
-            st, kn, cn, name, eo, go, ch, gh = seen[h]
-            f.write(f'{h}\t{st}\t{kn:#x}\t{cn:#x}\t{occ[h]}\t{len(ctrl_variants[h])}\t{name}\t{eo:#x}\t{go:#x}\t{ch}\t{gh}\n')
-    by_all = collections.Counter(r.split('\t')[7] for r in rows)
+            st, kn, cn, name, eo, go, ch, gh, refs = seen[h]
+            tail = ''.join('\t' + r for r in refs) if a.layout == 'packs' else ''
+            f.write(f'{h}\t{st}\t{kn:#x}\t{cn:#x}\t{occ[h]}\t{len(ctrl_variants[h])}\t{name}\t{eo:#x}\t{go:#x}\t{ch}\t{gh}{tail}\n')
+    by_all = collections.Counter(r.split('\t')[7] for r in rows)   # manifest rows: no refs
     by_uni = collections.Counter(v[0] for v in seen.values())
     s = [f'occurrences {len(rows)}  unique code blocks {len(seen)}']
     for st in sorted(set(by_all) | set(by_uni)):

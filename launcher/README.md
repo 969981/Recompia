@@ -10,7 +10,7 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
 2. **Set up**: writes the `pkp.ini` paths (`[fs] exefs`, `[fs] romfs`, `[fs] save_dir`, `[nvn] shader_cache =
    shader_cache/spirv`) and builds `shader_cache\spirv\` next to `pkp.exe`:
    - Extract: `tools\shaders\extract_corpus.py` finds every shader in the romfs and in `exefs\main` and writes the
-     distinct blocks to `shader_cache\corpus\` (about 10 GB, deleted when setup finishes).
+     distinct blocks to `shader_cache\corpus\` (a few pack files, about 5 GB, deleted when setup finishes).
    - Translate: `tools\spirv_harness\spirv_harness.exe --batch` in chunks of 1000 into `shader_cache\spirv\`
      (`<hash>.spv` + `results.tsv`, about 26 GB for the 99,012 blocks of 2.0.1).
    A progress bar shows each step. Pause stops the tools and Continue setup picks up where they stopped: a block listed
