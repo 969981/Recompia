@@ -40,6 +40,16 @@ result to the other lanes of a warp ran twice. On every GPU.
 in the new translation). Run **Set up again** once after updating: the launcher asks for it, and it translates only the shaders
 with atomics again (the others are kept).
 
+#### NVIDIA: fewer GPU freezes in compute shaders
+**What was wrong:** on NVIDIA GPUs (RTX 50 confirmed in pokopia-native, an RTX 3050 Laptop inferred) a compute shader that counts
+with one atomic add per warp (`ballot(true)`, the highest lane adds for all) after some of its lanes have returned can stop the GPU
+for good: the game freezes and Windows resets the driver ("device lost").
+
+**Now:** on NVIDIA those counters are made per lane: every lane adds its own share and takes a slot of its own, so the warp never
+waits on the lanes that returned. 30 of the game's shaders (65 counters, 132 ballots) are changed; shaders with a counter the
+runtime cannot follow whole are left as translated. `[nvn] ballot_fix = auto` (NVIDIA only, the default), `on` (any GPU),
+`off`. Approach from pokopia-native (MIT) `windows/docs/ballot-hang.md`, `windows/src/nxrt/vk/vk_shader.c` @4a72d23.
+
 #### Wide screens: text no longer squeezed (#176)
 **What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
 ("Ver. 2.0.1" read as "Ver201"), and fitted text such as button labels was squashed.
