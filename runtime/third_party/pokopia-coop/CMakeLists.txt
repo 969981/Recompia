@@ -1,5 +1,5 @@
 # pokopia-coop: pokopia-native's Link Play module (MIT, windows/src/coop @4a72d23, THIRD_PARTY_NOTICES.md), vendored unchanged but for one
-# header line per file. Portable C11; the ldn and bsd services (src/services/ldn.cpp, network.cpp) call it for [net] protocol = native.
+# header line per file and the relay UDP extension in coop_int.h / coop_mpnet.c (marked "pokopia-recomp extension"). Portable C11; the ldn and bsd services (src/services/ldn.cpp, network.cpp) call it for [net] protocol = native.
 # Its own tests (tests/coop_test.c) and the relay tool are not vendored.
 add_library(pokopia_coop STATIC coop_ldn.c coop_vnet.c coop_mpnet.c coop_plat.c coop_disc.c coop_auth.c coop_interact.c)
 target_include_directories(pokopia_coop PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

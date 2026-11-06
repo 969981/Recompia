@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @4a72d23, modified (marked "pokopia-recomp extension: relay UDP")
 // coop mpnet (MIT, our own code): the real transport, a star around the host (the LDN access point).
 // - Control: one TCP link per station and host, framed messages (u32 length, u8 type, body): HELLO / WELCOME (the coop protocol; the host's build and
 //   mods fingerprint), SCAN_REQ / SCAN_RESP (the host's NetworkInfo and identity), JOIN / ACCEPT / REFUSE (the host checks the network, passphrase,
@@ -19,6 +19,8 @@
 // are limited per minute, per address and for all links. Nothing is encrypted. Through a relay (cfg.relay_ip) the host keeps a control link open
 // at the relay while the game hosts and dials one more link per visitor the relay announces; a station dials the relay and asks for the room; the
 // relay pairs the two and copies bytes, and game datagrams then use the control link.
+// pokopia-recomp extension: relay UDP (coop_int.h RLY_X_*, the x_* functions): with a relay that supports it and our builds at both ends, game
+// datagrams go over UDP via the relay instead; anything else is unchanged.
 #include "coop_int.h"
 #include <stdio.h>
 
@@ -96,6 +98,7 @@ static void conn_raw(conn *c, const void *p, size_t len) {   // the relay's own 
 static void relay_hello(conn *c, int kind, const uint8_t room[16], uint32_t id, uint32_t cookie) {
     uint8_t h[RLY_HELLO_LEN] = {0};
     put32(h, RLY_MAGIC); h[4] = (uint8_t)kind; h[5] = 1; memcpy(h + 8, room, 16); put32(h + 24, id); put32(h + 28, cookie);
+    if (c->x_rflag) h[6] = RLY_X_UDP;   // pokopia-recomp extension: relay UDP (asked for)
     conn_raw(c, h, sizeof h);
 }
 static const char *relay_err(int code) {
@@ -229,6 +232,19 @@ static void send_udp(coop_node *n, csock s, conn *c, int type, uint64_t token, u
 }
 peer *cmp_up(coop_node *n) { return n->upi >= 0 && n->upi < PEERS && n->pr[n->upi].used ? &n->pr[n->upi] : NULL; }
 
+// pokopia-recomp extension: relay UDP. Asked for on every relay link of internet play (not with tcp_only). A link that got a token from the
+// relay offers it to the other end (M_X_RUDP, tagged) and binds its endpoint at the relay; once the other end offered it too and the relay
+// says both ends bound, its datagrams go as PCU3 (as send_udp makes them: token, sequence number, tag) behind the relay's header
+static int x_enabled(coop_node *n) { return n->cfg.relay_ip && n->cfg.auth && !n->cfg.tcp_only; }
+static void x_send(coop_node *n, conn *c, uint64_t token, size_t blen) {
+    uint8_t *b = n->scratch, *x = n->x_buf;
+    put32(b, MP_UMAGIC3); b[4] = U_DGRAM; b[5] = b[6] = b[7] = 0; put64(b + 8, token); put64(b + 16, ++c->useq_tx);
+    cauth_udp_tag(&c->kutx, b, MP_UDP_HDR3 + blen, b + MP_UDP_HDR3 + blen);
+    memset(x, 0, RLY_X_HDR); put32(x, RLY_X_UMAGIC); x[4] = RLY_XU_DATA; put64(x + 8, c->x_rtok);
+    memcpy(x + RLY_X_HDR, b, MP_UDP_HDR3 + blen + CAUTH_TAG);
+    cplat_sendto(n->x_rsock, x, RLY_X_HDR + MP_UDP_HDR3 + blen + CAUTH_TAG, n->cfg.relay_ip, n->cfg.relay_port);
+}
+
 // ---------- routing ----------
 void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port, const uint8_t *p, size_t len) {
     int bc = vip_is_bcast(n, dst_ip);
@@ -241,6 +257,7 @@ void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, 
             if (c->state != CONN_READY || c->node <= 0 || c->accept_pending || c->closing || c->node == from_node || !(bc || dst_ip == vip_of(n, c->node))) continue;
             if (!bl) bl = dg_build(n, src_ip, src_port, dst_ip, dst_port, p, len);
             if (!n->cfg.tcp_only && c->udp_port && n->husock != CSOCK_BAD) { send_udp(n, n->husock, c, U_DGRAM, c->token, c->udp_ip, c->udp_port, bl); n->st_udp_tx++; }
+            else if (c->x_on) { x_send(n, c, c->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
             else { cmp_send_frame(n, c, M_DGRAM, n->scratch + n->uhdr, bl); n->st_tcp_tx++; }
         }
     } else if (n->ls == COOP_LS_STATION_CONNECTED) {   // a station: everything not for itself goes to the hub
@@ -249,6 +266,7 @@ void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, 
         if (!up) return;
         size_t bl = dg_build(n, src_ip, src_port, dst_ip, dst_port, p, len);
         if (!n->cfg.tcp_only && n->udp_ok && n->susock != CSOCK_BAD) { send_udp(n, n->susock, &up->c, U_DGRAM, n->token, up->ip, up->udp_port, bl); n->st_udp_tx++; }
+        else if (up->c.x_on) { x_send(n, &up->c, n->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
         else { cmp_send_frame(n, &up->c, M_DGRAM, n->scratch + n->uhdr, bl); n->st_tcp_tx++; }
     }
 }
@@ -310,6 +328,7 @@ static void host_up(coop_node *n, conn *c) {
     char a[16]; ipstr(a, c->peer_ip);
     c->state = CONN_READY;
     host_welcome(n, c, 1);
+    if (c->x_rtok) cmp_send_frame(n, c, M_X_RUDP, NULL, 0);   // pokopia-recomp extension: relay UDP (after WELCOME: the station waits for that first)
     if (c->relay) coop_logf(n, "mp: station link %d up through the relay (visitor %u)%s", (int)(c - n->hc), c->rly_id, c->keyed ? ", room code proven" : "");
     else coop_logf(n, "mp: station link %d up from %s:%u%s", (int)(c - n->hc), a, c->peer_port, c->keyed ? ", room code proven" : "");
 }
@@ -391,6 +410,7 @@ static void host_frame(coop_node *n, conn *c, int type, const uint8_t *b, size_t
     case M_LEAVE: if (c->node > 0) cmp_host_drop(n, c); break;
     case M_DGRAM: host_dgram(n, c, b, len, 0); break;
     case M_PING: cmp_send_frame(n, c, M_PONG, NULL, 0); break;
+    case M_X_RUDP: if (c->x_rtok) c->x_peer = 1; break;   // pokopia-recomp extension: relay UDP
     default: break;   // PONG, and types of later protocols
     }
 }
@@ -552,6 +572,7 @@ static void station_frame(coop_node *n, peer *p, int type, const uint8_t *b, siz
         c->state = CONN_READY; p->fails = 0; p->dead_until = 0; p->said = 0;
         peer_compat(n, p);
         coop_logf(n, "mp: host link up: %s%s", peer_tag(p, t, sizeof t), c->keyed ? ", room code proven" : "");
+        if (c->x_rtok) cmp_send_frame(n, c, M_X_RUDP, NULL, 0);   // pokopia-recomp extension: relay UDP
         return;
     }
     if (!bucket_take(&c->frames, now, RATE_FRAMES, 2 * RATE_FRAMES, 1)) { rate_drop(n, c, "frames"); return; }
@@ -620,7 +641,58 @@ static void station_frame(coop_node *n, peer *p, int type, const uint8_t *b, siz
         break;
     case M_DGRAM: station_dgram(n, p, b, len, 0); break;
     case M_PING: cmp_send_frame(n, c, M_PONG, NULL, 0); break;
+    case M_X_RUDP: if (c->x_rtok) c->x_peer = 1; break;   // pokopia-recomp extension: relay UDP
     default: break;
+    }
+}
+
+// ---------- pokopia-recomp extension: relay UDP ----------
+static void x_token(coop_node *n, conn *c, const uint8_t *m) {   // the relay's message: this link's token
+    uint64_t t = get32(m + 8) | (uint64_t)get32(m + 12) << 32;
+    if (!t) return;
+    if (n->x_rsock == CSOCK_BAD) n->x_rsock = cplat_udp_open(0, 0, NULL);
+    if (n->x_rsock == CSOCK_BAD) { coop_logf(n, "mp: no UDP socket for relay UDP: datagrams stay on the link"); return; }
+    c->x_rtok = t; c->x_next = 0; c->x_fast = cplat_now_ms() + 5000;
+}
+static void x_bind(coop_node *n, conn *c) {
+    uint8_t m[RLY_X_HDR] = {0};
+    put32(m, RLY_X_UMAGIC); m[4] = RLY_XU_BIND; put64(m + 8, c->x_rtok);
+    cplat_sendto(n->x_rsock, m, sizeof m, n->cfg.relay_ip, n->cfg.relay_port);
+}
+// Binds every 100 ms for 5 s, then every second until both ends are bound and the other end offered it; then every 5 s (the NAT's mapping)
+static void x_tick(coop_node *n, conn *c, int64_t now) {
+    if (!c->x_rtok || c->state != CONN_READY || c->closing || n->x_rsock == CSOCK_BAD) return;
+    if (!c->x_on && c->x_bound && c->x_peer && c->keyed) {
+        c->x_on = 1;
+        if (c->relay && c->rly_id) coop_logf(n, "mp: visitor %u datagrams over UDP through the relay", c->rly_id);
+        else coop_logf(n, "mp: datagrams over UDP through the relay");
+    }
+    if (now < c->x_next) return;
+    x_bind(n, c);
+    c->x_next = now + (c->x_on ? 5000 : now < c->x_fast ? 100 : 1000);
+}
+// Packets from the relay: BOUND for a link's token, or DATA: a PCU3 datagram the other end tagged, checked as udp_read_auth does
+static void x_read(coop_node *n) {
+    uint8_t b[RLY_X_HDR + MP_UDP_HDR3 + MP_DG_HDR + COOP_DGRAM_MAX + CAUTH_TAG + 64];   // the I/O thread's own stack
+    for (int i = 0; i < UDP_READS; i++) {
+        uint32_t ip; uint16_t port;
+        int64_t k = cplat_recvfrom(n->x_rsock, b, sizeof b, &ip, &port);
+        if (k == -1 || k == -2) break;
+        if (k < 0 || ip != n->cfg.relay_ip || port != n->cfg.relay_port || k < RLY_X_HDR || k == (int64_t)sizeof b || get32(b) != RLY_X_UMAGIC) { n->udp_junk++; continue; }
+        uint64_t rt = get64(b + 8); conn *c = NULL; peer *p = NULL;
+        for (int j = 0; j < HOST_CONNS && rt && !c; j++) if (n->hc[j].state == CONN_READY && n->hc[j].x_rtok == rt) c = &n->hc[j];
+        for (int j = 0; j < PEERS && rt && !c; j++) if (n->pr[j].used && n->pr[j].c.state == CONN_READY && n->pr[j].c.x_rtok == rt) { p = &n->pr[j]; c = &p->c; }
+        if (!c || c->closing) { n->udp_junk++; continue; }
+        if (b[4] == RLY_XU_BOUND && k == RLY_X_HDR) { if (b[5] & 1) c->x_bound = 1; continue; }
+        uint8_t *d = b + RLY_X_HDR; size_t dn = (size_t)k - RLY_X_HDR;
+        if (b[4] != RLY_XU_DATA || !c->keyed || dn < MP_UDP_HDR3 + CAUTH_TAG || get32(d) != MP_UMAGIC3 || d[4] != U_DGRAM) { n->udp_junk++; continue; }
+        uint64_t token = get64(d + 8), seq = get64(d + 16);
+        if (p ? !n->token || token != n->token : c->node <= 0 || token != c->token) { n->udp_junk++; continue; }
+        uint8_t t[CAUTH_TAG]; cauth_udp_tag(&c->kurx, d, dn - CAUTH_TAG, t);
+        if (!cct_eq(t, d + dn - CAUTH_TAG, CAUTH_TAG)) { n->bad_tag++; n->udp_junk++; continue; }
+        if (!cauth_replay_ok(&c->useq_max, &c->uwin, seq)) { n->replays++; continue; }
+        if (p) station_dgram(n, p, d + MP_UDP_HDR3, dn - MP_UDP_HDR3 - CAUTH_TAG, 1);
+        else host_dgram(n, c, d + MP_UDP_HDR3, dn - MP_UDP_HDR3 - CAUTH_TAG, 1);
     }
 }
 
@@ -649,6 +721,14 @@ static void conn_read(coop_node *n, conn *c, peer *p) {
             else if (k > 0) { c->rxn += (size_t)k; c->last_rx = cplat_now_ms(); more = c->rxn == RX_MAX; }
         }
         size_t off = 0;
+        // pokopia-recomp extension: relay UDP: the relay's token for this link comes before the visitor's OK, or before the host's first frame
+        if (c->x_rflag && ((p && c->state == CONN_RELAY) || (!p && c->x_rpend)) && c->rxn >= 4) {
+            if (get32(c->rx) != RLY_MAGIC) c->x_rpend = 0;   // frames: no token (a relay without the extension, or a visitor that did not ask)
+            else if (c->rxn >= RLY_MSG_LEN && c->rx[4] == RLY_X_UDP) {
+                x_token(n, c, c->rx);
+                memmove(c->rx, c->rx + RLY_MSG_LEN, c->rxn - RLY_MSG_LEN); c->rxn -= RLY_MSG_LEN; c->x_rpend = 0;
+            } else if (!p && c->rxn >= RLY_MSG_LEN) c->x_rpend = 0;   // left to the frames (a bad frame length closes the link)
+        }
         if (c->state == CONN_RELAY && p && c->rxn >= RLY_MSG_LEN) {   // the relay's answer to a station's JOIN: paired with the host, or why not
             const uint8_t *m = c->rx;
             int64_t now = cplat_now_ms();
@@ -666,7 +746,7 @@ static void conn_read(coop_node *n, conn *c, peer *p) {
             }
         }
         size_t tl = c->keyed ? CAUTH_TAG : 0;
-        while (c->state != CONN_RELAY && c->rxn - off >= 5 && (c->closing == 0 || c->closing == 3)) {
+        while (c->state != CONN_RELAY && !c->x_rpend && c->rxn - off >= 5 && (c->closing == 0 || c->closing == 3)) {
             uint32_t fl = get32(c->rx + off);
             if (fl < 1 + tl || fl > MP_FRAME_MAX) { bad_input(n, c, p ? "host" : "a link from", "a bad frame length"); break; }
             if (c->rxn - off < 4 + (size_t)fl) break;
@@ -839,6 +919,7 @@ static void station_timers(coop_node *n, int64_t now) {
     }
 }
 static void link_timers(coop_node *n, conn *c, peer *p, int64_t now) {
+    x_tick(n, c, now);   // pokopia-recomp extension: relay UDP
     if (c->state == CONN_READY) {
         if (now - c->last_tx >= PING_MS) cmp_send_frame(n, c, M_PING, NULL, 0);
         if (now - c->last_rx >= LINK_TIMEOUT_MS) conn_close(n, c, p, "silent for 10 s");
@@ -962,8 +1043,8 @@ static void conn_io(coop_node *n, conn *c, peer *p, csock s, int got) {
     if (c->state == CONN_CONNECTING) {
         if (cplat_tcp_connected(c->s) != 1) { cplat_close(c->s); conn_init(c, CSOCK_BAD, CONN_FREE); if (p) peer_failed(n, p); return; }
         c->opened = c->last_rx = cplat_now_ms();
-        if (!p) { c->state = CONN_HELLO; relay_hello(c, RLY_ATTACH, n->room_id, c->rly_id, c->rly_cookie); return; }   // the host's link for one visitor
-        if (p->relay) { c->state = CONN_RELAY; relay_hello(c, RLY_JOIN, n->room_id, 0, 0); return; }               // HELLO once the relay pairs it
+        if (!p) { c->state = CONN_HELLO; c->x_rflag = c->x_rpend = x_enabled(n); relay_hello(c, RLY_ATTACH, n->room_id, c->rly_id, c->rly_cookie); return; }   // the host's link for one visitor
+        if (p->relay) { c->state = CONN_RELAY; c->x_rflag = x_enabled(n); relay_hello(c, RLY_JOIN, n->room_id, 0, 0); return; }               // HELLO once the relay pairs it
         c->state = CONN_HELLO;
         uint8_t h[MP_HELLO3_LEN]; put32(h, MP_MAGIC); put16(h + 4, (uint32_t)n->proto); h[6] = n->cfg.platform; memcpy(h + 7, n->cfg.uid, 16);
         if (n->cfg.auth) { memcpy(c->hello, h + 6, 17); cplat_random(c->ns, CAUTH_NONCE); memcpy(h + MP_HELLO_LEN, c->ns, CAUTH_NONCE); }
@@ -978,10 +1059,10 @@ static void close_due(coop_node *n, conn *c, peer *p, int64_t now) {
     if (c->closing == 1 && !c->close_by) c->close_by = now + CLOSE_FLUSH_MS;
     if (c->closing >= 2 || !c->txn || now >= c->close_by) conn_close(n, c, p, c->closing == 3 ? "closed" : c->closing == 2 ? "error" : "done");
 }
-enum { PK_LISTEN = 1, PK_HUDP, PK_SUDP, PK_DISC, PK_HC, PK_PEER, PK_RELAY };
+enum { PK_LISTEN = 1, PK_HUDP, PK_SUDP, PK_DISC, PK_HC, PK_PEER, PK_RELAY, PK_XRLY };   // PK_XRLY: pokopia-recomp extension
 static void io_main(void *arg) {
     coop_node *n = arg;
-    enum { NF = 5 + HOST_CONNS + PEERS };
+    enum { NF = 6 + HOST_CONNS + PEERS };   // 6: pokopia-recomp extension (x_rsock)
     cpollfd f[NF]; int kind[NF], idx[NF];
     cnode_lock(n);
     for (;;) {
@@ -994,6 +1075,7 @@ static void io_main(void *arg) {
             if (n->husock != CSOCK_BAD) ADD(PK_HUDP, 0, n->husock, CP_IN);
             if (n->susock != CSOCK_BAD) ADD(PK_SUDP, 0, n->susock, CP_IN);
             csock d = cdisc_fd(n); if (d != CSOCK_BAD) ADD(PK_DISC, 0, d, CP_IN);
+            if (n->x_rsock != CSOCK_BAD) ADD(PK_XRLY, 0, n->x_rsock, CP_IN);   // pokopia-recomp extension: relay UDP
         }
         for (int i = 0; i < HOST_CONNS; i++) {
             conn *c = &n->hc[i];
@@ -1021,6 +1103,7 @@ static void io_main(void *arg) {
             case PK_HC: conn_io(n, &n->hc[idx[i]], NULL, f[i].s, f[i].got); break;
             case PK_PEER: if (n->pr[idx[i]].used) conn_io(n, &n->pr[idx[i]].c, &n->pr[idx[i]], f[i].s, f[i].got); break;
             case PK_RELAY: rc_io(n, f[i].s, f[i].got); break;
+            case PK_XRLY: if (f[i].s == n->x_rsock) x_read(n); break;   // pokopia-recomp extension: relay UDP
             }
         }
         for (int i = 0; i < n->nzap; i++) cplat_close(n->zap[i]);   // sockets a game thread let go while the poll had them
@@ -1041,6 +1124,7 @@ int cmp_start(coop_node *n) {
     n->io_stop = 0; n->stop_until = 0; n->udp_ok = 0; n->token = 0; n->upi = -1; n->nzap = 0; n->browse = 0; n->scan_logged = -1; n->profile_said = 0;
     n->scan_busy = n->join_wait = n->join_done = 0; n->join_peer = -1;
     n->hosting = 0; n->lsock = n->husock = n->susock = CSOCK_BAD; n->bound_port = n->udp_port = 0;
+    n->x_rsock = CSOCK_BAD;   // pokopia-recomp extension: relay UDP
     memset(&n->accepts, 0, sizeof n->accepts);
     n->disc.adv_want = n->disc.browse_want = 0;
     for (int i = 0; i < HOST_CONNS; i++) conn_init(&n->hc[i], CSOCK_BAD, CONN_FREE);
@@ -1071,6 +1155,7 @@ void cmp_stop(coop_node *n) {
     for (int i = 0; i < n->nzap; i++) cplat_close(n->zap[i]);
     n->nzap = 0;
     cplat_close(n->lsock); cplat_close(n->husock); cplat_close(n->susock); n->lsock = n->husock = n->susock = CSOCK_BAD;
+    cplat_close(n->x_rsock); n->x_rsock = CSOCK_BAD;   // pokopia-recomp extension: relay UDP
     n->io_on = 0; n->hosting = 0; n->bound_port = n->udp_port = 0; n->udp_ok = 0; n->token = 0; n->upi = -1;
     cnode_unlock(n);
 }

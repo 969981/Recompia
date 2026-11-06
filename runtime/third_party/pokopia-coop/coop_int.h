@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_int.h @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_int.h @4a72d23, modified (marked "pokopia-recomp extension: relay UDP")
 // coop internals shared by coop_ldn.c, coop_vnet.c, coop_mpnet.c, coop_disc.c, coop_plat.c and coop_auth.c (MIT, our own code). Not for the HLE: it
 // includes the platform's socket headers.
 #pragma once
@@ -133,6 +133,10 @@ typedef struct conn {
     uint64_t useq_tx, useq_max, uwin;            // datagrams: the last sent, the highest received and the replay window below it
     // the relay: host side, a link the host dialled for one visitor (rly_id, rly_cookie from the relay); station side, its link through the relay
     int relay; uint32_t rly_id, rly_cookie;
+    // pokopia-recomp extension: relay UDP (coop_mpnet.c x_*): x_rflag the relay hello asked for it; x_rpend a host's attach link may still get
+    // the relay's token before the first frame; x_rtok the token (0: none, the relay or the other end does not do it); x_peer the other end
+    // offered it (M_X_RUDP); x_bound the relay said both ends bound; x_on datagrams go this way; binds at x_next, the first ones until x_fast
+    int x_rflag, x_rpend, x_peer, x_bound, x_on; uint64_t x_rtok; int64_t x_next, x_fast;
 } conn;
 void cauth_proof(const uint8_t k_auth[32], int host, const uint8_t ns[16], const uint8_t nh[16], const uint8_t *hello, size_t hn, uint8_t out[32]);
 void cauth_link_keys(conn *c, const uint8_t k_auth[32], const uint8_t ns[16], const uint8_t nh[16], int host);
@@ -252,6 +256,9 @@ struct coop_node {
     vsock sk[COOP_FD_MAX];
     uint16_t next_eph;
     uint64_t log_dgrams;
+    // pokopia-recomp extension: relay UDP: one UDP socket for every link with a relay token, and a buffer to put the relay's header in front
+    csock x_rsock;
+    uint8_t x_buf[16 + MP_UDP_HDR3 + MP_DG_HDR + COOP_DGRAM_MAX + CAUTH_TAG];
 };
 
 // coop_ldn.c
@@ -336,6 +343,19 @@ enum { M_AUTH_CHAL = 0x20, M_AUTH_PROOF, M_AUTH_OK, M_AUTH_FAIL };
 enum { RLY_HOST = 1, RLY_JOIN, RLY_ATTACH };
 enum { RLY_OK = 1, RLY_VISITOR, RLY_GONE, RLY_ERR, RLY_PONG, RLY_PING };
 enum { RLY_E_NOROOM = 1, RLY_E_TAKEN, RLY_E_FULL, RLY_E_LIMIT, RLY_E_TIMEOUT, RLY_E_BAD, RLY_E_EXPIRED };
+// pokopia-recomp extension: relay UDP (not in pokopia-native; launcher/src-tauri/src/relay/mod.rs "Relay UDP"). Through a relay pokopia-native
+// sends game datagrams over the TCP link; ours can send them over UDP via a relay that supports it, only when the host, the visitor and the
+// relay all do, so with any pokopia-native build or relay in the session nothing changes on the wire for it. 0xC5 is the one value used:
+// relay hello byte 6 (wants relay UDP; theirs sends 0 and their relay ignores it), relay message type (arg, cookie = the link's u64 token,
+// low and high; theirs never gets it: it is sent only to links that asked), and the tagged frame M_X_RUDP (empty body: "I have a relay
+// token for this link"; sent only on links that got a token, so only to our builds; their code ignores unknown frame types anyway).
+// UDP to the relay: u32 RLY_X_UMAGIC, u8 type, u8 flags, 2 reserved, u64 the relay token, then for DATA the PCU3 datagram as sent directly
+// (token, sequence number, tag: end to end, the relay only forwards it)
+#define RLY_X_UDP 0xC5
+#define M_X_RUDP 0xC5
+#define RLY_X_UMAGIC 0x31555250u   // "PRU1"
+#define RLY_X_HDR 16
+enum { RLY_XU_BIND = 1, RLY_XU_BOUND, RLY_XU_DATA };
 
 static inline void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static inline void put32(uint8_t *p, uint32_t v) { put16(p, v); put16(p + 2, v >> 16); }
