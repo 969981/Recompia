@@ -123,6 +123,7 @@ void nvnCommandBufferBindVertexStreamState(NVNcommandBuffer* c, int count, const
 
 void nvnCommandBufferBindProgram(NVNcommandBuffer* c, const NVNprogram* program, int stages) {
     Program* prog = host_of<Program>(program);
+    if (prog) program_retry_missing(prog);   // blocks translated while the game runs (live shaders)
     if (prog && prog->linked && !prog->gpl_bound.load(std::memory_order_relaxed)) {
         prog->gpl_bound.store(1, std::memory_order_relaxed);
         be::gpu::program_bound(prog->stage);

@@ -111,6 +111,10 @@ void nvnProgramSetDebugLabel(NVNprogram* program, const char* label) {
 NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderData* shaders) {
     Program* p = host_of<Program>(program);
     if (!p) return 0;
+    std::lock_guard<std::mutex> lk(p->retry_mu);
+    const uint64_t gen = shader_cache().generation();   // before the lookups: a rescan during them makes the next bind look again
+    p->pending.clear();
+    p->has_pending.store(false, std::memory_order_relaxed);
     for (int s = 0; s < 6; ++s) {
         p->stage[s] = nullptr;
         p->code_hash[s] = 0;
@@ -134,6 +138,7 @@ NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderD
                 const std::string key = missing_key(code, control);
                 const size_t used = std::strlen(p->missing);
                 std::snprintf(p->missing + used, sizeof p->missing - used, "%s%s", used ? "," : "", key.c_str());
+                p->pending.emplace_back(code, control);
             }
             all_found = false;
             if (!code || !control) addresses_ok = false;
@@ -152,6 +157,8 @@ NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderD
         p->src_control[stage] = control;
     }
     p->linked = all_found;
+    p->pending_gen.store(gen, std::memory_order_relaxed);
+    p->has_pending.store(!p->pending.empty(), std::memory_order_release);
     if (all_found && gpu::active()) gpu::prewarm_program_shaders(p->stage);
     // A block missing from the shader cache leaves the program unlinked (its draws are skipped). The call still reports success: the game treats a
     // failed SetShaders as "shader not built" and rebuilds it (programs, buffer allocations out of its pool allocator) on every bind, which costs
@@ -159,6 +166,39 @@ NVNboolean nvnProgramSetShaders(NVNprogram* program, int count, const NVNshaderD
     static const bool accept_unlinked = config_get_bool("nvn", "accept_unlinked", true);
     return (all_found || (accept_unlinked && addresses_ok)) ? 1 : 0;
 }
+
+}  // namespace
+
+void be::program_retry_missing(Program* p) {
+    if (!p->has_pending.load(std::memory_order_acquire)) return;
+    const uint64_t gen = shader_cache().generation();
+    if (gen == p->pending_gen.load(std::memory_order_relaxed)) return;
+    std::lock_guard<std::mutex> lk(p->retry_mu);
+    if (!p->has_pending.load(std::memory_order_relaxed) || gen == p->pending_gen.load(std::memory_order_relaxed)) return;
+    p->pending_gen.store(gen, std::memory_order_relaxed);
+    size_t kept = 0;
+    for (const auto& [code, control] : p->pending) {
+        const ShaderInfo* si = shader_cache().find(code, control);
+        const int stage = si ? nvn_stage_of(si->stage) : -1;
+        if (stage < 0 || p->stage[stage]) {   // still missing, a stage the back end does not run, or the slot is taken: stays pending
+            p->pending[kept++] = {code, control};
+            continue;
+        }
+        p->code_hash[stage] = parse_hash(si->hash);
+        p->src_code[stage] = code;
+        p->src_control[stage] = control;
+        p->stage[stage] = si;   // last: the replay thread reads stage[] alone, and a slot only ever goes from empty to this shader
+        NXLOG_I("nvn", "shader %s arrived: program %p has its %s stage now", si->hash.c_str(), static_cast<void*>(p), stage_name(si->stage));
+    }
+    p->pending.resize(kept);
+    if (kept) return;
+    p->missing[0] = 0;
+    p->linked = true;
+    p->has_pending.store(false, std::memory_order_release);
+    if (gpu::active()) gpu::prewarm_program_shaders(p->stage);
+}
+
+namespace {
 
 // The Ext entry: NVNshaderData plus one more word (see the header comment).
 struct ShaderDataExt {

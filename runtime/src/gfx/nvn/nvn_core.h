@@ -278,7 +278,17 @@ struct Program : Obj {
     uint32_t serial = 0;
     std::atomic<uint8_t> gpl_bound{0};      // 1 once a command buffer was recorded with these shaders (the shader parts are queued first); reset by SetShaders
     std::string label;
+    // Live shaders: the {code, control} of every block SetShaders found no translation for, looked up again by the next bind after the
+    // shader cache's generation changes (program_retry_missing). A stage found later only fills its empty slot in stage[].
+    std::mutex retry_mu;                    // pending and the stage fields while SetShaders or a retry writes them
+    std::vector<std::pair<const uint8_t*, const uint8_t*>> pending;
+    std::atomic<bool> has_pending{false};
+    std::atomic<uint64_t> pending_gen{0};   // shader_cache().generation() when pending was last looked up
 };
+
+// A bind of a program with pending blocks: looks them up again if the shader cache has new translations (nvn_shaders.h rescan).
+// Cheap when nothing changed (two atomic loads).
+void program_retry_missing(Program* p);
 
 // ---- synchronisation -----------------------------------------------------------------------------------------------------
 struct Sync : Obj {
