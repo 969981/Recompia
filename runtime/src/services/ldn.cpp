@@ -45,6 +45,9 @@
 // Moving = Ldn::adopt(): only while this node is in no room (no current link, no hold link, both point at the lobby in use), the old
 // lobby's sinks are cleared before the new one's are set; the old relay client stays as a scan client. host:port mode writes a zero tag:
 // every byte as before.
+//
+// That is the Link Play backend ([net] protocol = linkplay). The default, [net] protocol = native, is pokopia-native's co-op module
+// (NativeLdn below): wire-compatible with pokopia-native builds, not with the relay.
 #include "ldn.h"
 
 #include <algorithm>
@@ -55,8 +58,10 @@
 #include <cstdio>
 #include <cstring>
 #include <atomic>
+#include <filesystem>
 #include <map>
 #include <mutex>
+#include <random>
 #include <set>
 #include <string>
 #include <thread>
@@ -64,7 +69,11 @@
 
 #include "nxrt/config.h"
 #include "nxrt/log.h"
+#include "nxrt/memory.h"
+#include "nxrt/module.h"
+#include "nxrt/services.h"
 #include "nxrt/services_api.h"
+#include "coop.h"
 #include "../net/relay_server.h"
 #include "../net/vnet.h"
 #include "services_internal.h"
@@ -692,6 +701,7 @@ void note(uint32_t id, const char* name) {
 
 class Ldn : public std::enable_shared_from_this<Ldn> {
 public:
+    explicit Ldn(bool offline = false) : offline_(offline) {}
     void add_commands(ipc::Service& s);
     void shutdown();   // the service object was released: leave and drop the link
 
@@ -759,6 +769,7 @@ private:
                                                                     // listed it (the session variant)
     std::map<uint64_t, std::pair<std::string, uint16_t>> tag_relay_;   // auto: relay tag -> its address, from the Scans so far
     uint64_t tag_ = 0;                   // the relay tag of the room this node is in
+    bool offline_ = false;               // no lobby ever ([net] protocol = native with the co-op module off): the offline answers
 };
 
 void Ldn::cmd(ipc::Service& s, uint32_t id, const char* name, H h) {
@@ -1368,7 +1379,7 @@ uint32_t Ldn::initialize(ipc::Request&, ipc::Response&) {
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (state_ != kNone) return 0;   // already initialized: accepted
-        lobby_ = process_lobby(&auto_);   // auto: the relay picked last in this process, or none yet
+        if (!offline_) lobby_ = process_lobby(&auto_);   // auto: the relay picked last in this process, or none yet
         lobby = lobby_;
         reason_ = kReasonNone;
         set_state(kInitialized);
@@ -1399,17 +1410,397 @@ void Ldn::shutdown() {
     if (lobby) lobby->set_events({});
 }
 
+// =============================================================================================================================================
+// [net] protocol = native (the default): ldn:u on pokopia-native's co-op module (third_party/pokopia-coop, MIT @4a72d23), so this build
+// and pokopia-native builds of the same main meet in one Link Play session. The module owns the nn::ldn state machine, the 0x480
+// NetworkInfo, discovery (DNS-SD on the LAN), the transport (TCP control links in a star around the host, UDP for game datagrams) and the
+// game's UDP sockets on 169.254.S.0/24 (bsd: network.cpp routes descriptors 0x100.. to coop_vnet_*). Each IPC command is one coop_ldn_*
+// call (the structs are the SDK's, as the IPC carries them; results are nn::Result module 203). Wiring after pokopia-native's
+// windows/src/coop/nxnative/ldn_glue.c.
+// Config ([net], read once when the first ldn:u service object is made): mode = auto | join:<IPv4>[:<port>] | off (auto: host on the LAN
+// while the game hosts, find LAN hosts with DNS-SD while it scans), internet (0/1: internet play, every link proves the room code),
+// room_code (the host's code; a host without one gets a new one, logged and written to room-code.txt; a visitor needs the host's),
+// relay (<IPv4>[:<port>], a pokopia-native coop relay; mode auto only), uid (32 hex digits; default: the install's persistent uid,
+// coop_uid_load). mode = off or an invalid setting: local wireless off (the Link Play backend's answers with no lobby).
+// What peers compare before a join: main's build id (first 16 hex digits) and a mods fingerprint. The fingerprint is
+// coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; Pokopia's "Interact everywhere" while armed, the same
+// name pokopia-native adds as COOP_INTERACT_MOD), 0 without one. The variant's bits 12..14 of the local communication version are a
+// Link Play (relay) thing and are not sent here: the game's version goes out as the game gave it.
+// TODO(story co-op): pokopia-native's "Story co-op (experimental)" (docs/story-coop.md: COOP_STORY_MOD after COOP_INTERACT_MOD in the
+// fingerprint, coop_story_sites) is a later mission.
+// Not mapped (the module has no counterpart; pokopia-native cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
+// (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
+// built here from the node tables the game reads.
+// =============================================================================================================================================
+
+bool native_protocol() {
+    static const bool native = [] {
+        const std::string p = lower(config_get_str("net", "protocol", "native"));
+        if (p == "linkplay") return false;
+        if (p != "native") NXLOG_W("net", "ldn: [net] protocol = \"%s\" is not native or linkplay: native", p.c_str());
+        return true;
+    }();
+    return native;
+}
+
+struct NativeSlot {
+    std::mutex mu;
+    bool built = false;
+    std::atomic<coop_node*> node{nullptr};
+    ServiceEvent ev;   // AttachStateChangeEvent of every service object; signalled by the module's on_state
+    std::string build;
+};
+NativeSlot& native() {
+    static NativeSlot s;
+    return s;
+}
+
+void coop_hook_log(void*, const char* line) { NXLOG_I("net", "coop: %s", line); }
+void coop_hook_state(void*, int) { native().ev.signal(); }
+const char* coop_hook_build(void*) {
+    NativeSlot& s = native();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (s.build.empty()) {
+        const Module* m = module_by_name("main");
+        if (!m || m->build_id().empty()) m = module_at(mem::kMainBase);
+        if (m) s.build = m->build_id();
+    }
+    return s.build.empty() ? nullptr : s.build.c_str();   // set once and never changed: the pointer stays valid
+}
+uint64_t coop_hook_mods(void*, char* what, size_t n) {
+    std::string name;
+    if (!own_variant(&name) || name.empty()) return 0;
+    std::snprintf(what, n, "%s", name.c_str());
+    return coop_mods_add(0, name.c_str());
+}
+
+// The install's persistent coop uid (nn::account::Uid as 32 hex digits): coop-uid.txt in the save folder ([fs] save_dir), made from the
+// OS random source on first use. The save folder, not the game folder: an install copied to another device must not take its identity
+// along, and the save folder (per Windows user, per Wine prefix) outlives reinstalls and updates of the game folder. The fs service only
+// reads *.meta files there.
+std::string coop_uid_load() {
+    namespace stdfs = std::filesystem;
+    const std::string sd = save_dir();
+    const stdfs::path dir(std::u8string(sd.begin(), sd.end())), file = dir / "coop-uid.txt";
+    const std::u8string u8 = file.u8string();
+    const std::string shown(u8.begin(), u8.end());
+    auto valid = [](const std::string& s) {
+        if (s.size() != 32 || s == std::string(32, '0')) return false;
+        for (char c : s)
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
+        return true;
+    };
+    if (FILE* f = _wfopen(file.c_str(), L"rb")) {
+        char b[64] = {};
+        const size_t got = std::fread(b, 1, sizeof b - 1, f);
+        std::fclose(f);
+        std::string s(b, got);
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back();
+        if (valid(s)) return s;
+        NXLOG_W("net", "ldn: %s is not 32 hex digits: a new uid is made", shown.c_str());
+    }
+    std::random_device rd;   // rand_s on Windows: the OS random source
+    static const char kHex[] = "0123456789abcdef";
+    std::string s;
+    while (!valid(s)) {
+        s.clear();
+        for (int i = 0; i < 4; ++i) {
+            const uint32_t v = rd();
+            for (int k = 7; k >= 0; --k) s += kHex[(v >> (4 * k)) & 15];
+        }
+    }
+    std::error_code ec;
+    stdfs::create_directories(dir, ec);
+    if (FILE* f = _wfopen(file.c_str(), L"wb")) {
+        std::fprintf(f, "%s\n", s.c_str());
+        std::fclose(f);
+        NXLOG_I("net", "ldn: new co-op uid kept in %s", shown.c_str());
+    } else {
+        NXLOG_W("net", "ldn: cannot write %s: this run has a uid of its own", shown.c_str());
+    }
+    return s;
+}
+
+// The process's coop node from [net] (made once; null: local wireless off).
+coop_node* native_node() {
+    NativeSlot& s = native();
+    {
+        std::lock_guard<std::mutex> lk(s.mu);
+        if (s.built) return s.node.load();
+        s.built = true;
+    }
+    std::string mode = lower(config_get_str("net", "mode", "auto"));
+    while (!mode.empty() && (mode.back() == ' ' || mode.back() == '\t')) mode.pop_back();
+    while (!mode.empty() && (mode.front() == ' ' || mode.front() == '\t')) mode.erase(mode.begin());
+    const bool internet = config_get_bool("net", "internet", false);
+    std::string room = config_get_str("net", "room_code", "");
+    if (lower(room) == "new") room.clear();   // a host without a code gets a new one
+    const std::string relay = config_get_str("net", "relay", "");
+    std::string uid = config_get_str("net", "uid", "");
+    if (uid.empty() && !mode.empty() && mode != "off" && mode != "0") uid = coop_uid_load();
+    coop_cfg c;
+    char err[256] = "";
+    const int r = coop_cfg_parse_ex(&c, mode.c_str(), uid.c_str(), internet ? "1" : "0", room.c_str(), relay.c_str(), err, sizeof err);
+    const std::string code_file = room_code_file();
+    if (r <= 0) {
+        if (r < 0) NXLOG_W("net", "ldn: [net] (protocol native): %s: local wireless off", err);
+        else NXLOG_I("net", "ldn: [net] mode = off: local wireless off");
+        std::remove(code_file.c_str());
+        return nullptr;
+    }
+    c.hooks.user = nullptr;
+    c.hooks.log = &coop_hook_log;
+    c.hooks.sleep_ns = nullptr;   // a plain host sleep: ldn and bsd commands run on host threads
+    c.hooks.on_state = &coop_hook_state;
+    c.hooks.build = &coop_hook_build;
+    c.hooks.mods = &coop_hook_mods;
+    coop_node* n = coop_create(&c);
+    if (!n) {
+        NXLOG_W("net", "ldn: the co-op module did not start (no sockets): local wireless off");
+        std::remove(code_file.c_str());
+        return nullptr;
+    }
+    const char* role = c.role == COOP_ROLE_JOIN ? "join" : c.role == COOP_ROLE_HOST ? "host" : "auto";
+    NXLOG_I("net", "ldn: protocol native (pokopia-native's co-op), mode %s, port %u, %s", role, c.port,
+            c.scope == COOP_SCOPE_INTERNET ? "internet play (links prove the room code; not encrypted)"
+            : c.scope == COOP_SCOPE_LOOPBACK ? "loopback peers only" : "LAN peers only");
+    if (c.auth) {
+        char shown[COOP_ROOM_SHOWN];
+        coop_room_format(c.room, shown);
+        if (FILE* f = std::fopen(code_file.c_str(), "wb")) {
+            std::fprintf(f, "%s\n", shown);
+            std::fclose(f);
+        }
+        NXLOG_I("net", "ldn: internet play room code %s%s", shown, c.room_new ? " (new: visitors need it)" : "");
+    } else {
+        std::remove(code_file.c_str());
+    }
+    s.node.store(n);
+    return n;
+}
+
+class NativeLdn : public std::enable_shared_from_this<NativeLdn> {
+public:
+    explicit NativeLdn(coop_node* n) : n_(n) {}
+    void add_commands(ipc::Service& s);
+    void shutdown() {
+        coop_ldn_finalize(n_);
+        forget();
+    }
+
+private:
+    using H = uint32_t (NativeLdn::*)(ipc::Request&, ipc::Response&);
+    void cmd(ipc::Service& s, uint32_t id, const char* name, H h);
+    void forget() {
+        std::lock_guard<std::mutex> lk(mu_);
+        seen_ = {};
+        latest_ = {};
+    }
+    // The game read `ni`: node joins and leaves since the last table it read go into latest_ (GetNetworkInfoLatestUpdate).
+    void saw(const NetworkInfo& ni) {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (size_t i = 0; i < 8; ++i) {
+            const uint32_t now = ni.ldn.nodes[i].is_connected ? ni.ldn.nodes[i].ipv4 : 0;
+            if (now == seen_[i]) continue;
+            if (seen_[i]) latest_[i] |= kNodeDisconnect;
+            if (now) latest_[i] |= kNodeConnect;
+            seen_[i] = now;
+        }
+    }
+    // A command that may have left the network: the node table the game saw is gone.
+    uint32_t left(uint32_t r) {
+        const int st = coop_ldn_state(n_);
+        if (st != COOP_LS_AP_CREATED && st != COOP_LS_STATION_CONNECTED) forget();
+        return r;
+    }
+
+    uint32_t get_state(ipc::Request&, ipc::Response& rsp) {
+        rsp.push(static_cast<uint32_t>(coop_ldn_state(n_)));
+        return 0;
+    }
+    uint32_t get_network_info(ipc::Request& req, ipc::Response&) {
+        NetworkInfo ni{};
+        if (const uint32_t r = coop_ldn_network_info(n_, &ni)) return r;
+        buf_write(req.out_buf(0), &ni, sizeof ni);
+        saw(ni);
+        return 0;
+    }
+    uint32_t get_ipv4(ipc::Request&, ipc::Response& rsp) {
+        uint32_t ip = 0, mask = 0;
+        if (const uint32_t r = coop_ldn_ipv4(n_, &ip, &mask)) return r;
+        rsp.push(ip);
+        rsp.push(mask);
+        return 0;
+    }
+    uint32_t get_disconnect_reason(ipc::Request&, ipc::Response& rsp) {
+        rsp.push(static_cast<int16_t>(coop_ldn_disconnect_reason(n_)));
+        return 0;
+    }
+    uint32_t get_security_parameter(ipc::Request&, ipc::Response& rsp) {
+        SecurityParameter sp{};
+        if (const uint32_t r = coop_ldn_security_parameter(n_, &sp)) return r;
+        rsp.push(sp);
+        return 0;
+    }
+    uint32_t get_network_config(ipc::Request&, ipc::Response& rsp) {
+        NetworkConfig c{};
+        if (const uint32_t r = coop_ldn_network_config(n_, &c)) return r;
+        rsp.push(c);
+        return 0;
+    }
+    uint32_t attach_event(ipc::Request&, ipc::Response& rsp) {
+        rsp.out_copy.push_back(native().ev.new_handle());
+        return 0;
+    }
+    uint32_t get_latest_update(ipc::Request& req, ipc::Response&) {
+        NetworkInfo ni{};
+        if (const uint32_t r = coop_ldn_network_info(n_, &ni)) return r;
+        buf_write(req.out_buf(0), &ni, sizeof ni);
+        saw(ni);
+        NodeLatestUpdate up[8] = {};
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            for (size_t i = 0; i < 8; ++i) up[i].state_change = latest_[i];
+            latest_ = {};
+        }
+        buf_write(req.out_buf(1), up, sizeof up);
+        return 0;
+    }
+    uint32_t scan(ipc::Request& req, ipc::Response& rsp) {
+        const int channel = req.arg<int16_t>(0);
+        const ScanFilter f = arg_at<ScanFilter>(req, 8);   // after the s16 channel, 8-aligned
+        const ipc::Buffer out = req.out_buf(0);
+        const int cap = static_cast<int>(std::min<uint64_t>(out.size / sizeof(NetworkInfo), 64));
+        std::vector<NetworkInfo> found(static_cast<size_t>(cap > 0 ? cap : 1));
+        int count = 0;
+        if (const uint32_t r = coop_ldn_scan(n_, found.data(), &count, cap, &f, channel)) return r;
+        if (count > 0) buf_write(out, found.data(), sizeof(NetworkInfo) * static_cast<size_t>(count));
+        rsp.push(static_cast<uint32_t>(count));   // s16 total (the high half is zero)
+        return 0;
+    }
+    uint32_t accept(ipc::Request&, ipc::Response&) { return 0; }
+    uint32_t open_access_point(ipc::Request&, ipc::Response&) { return coop_ldn_open_ap(n_); }
+    uint32_t close_access_point(ipc::Request&, ipc::Response&) { return left(coop_ldn_close_ap(n_)); }
+    uint32_t create_network(ipc::Request& req, ipc::Response&) {
+        const SecurityConfig sec = arg_at<SecurityConfig>(req, 0);
+        const UserConfig user = arg_at<UserConfig>(req, kCreateUser);
+        const NetworkConfig cfg = arg_at<NetworkConfig>(req, kCreateNetCfg);
+        forget();
+        return coop_ldn_create_network(n_, &cfg, &sec, &user);
+    }
+    uint32_t create_network_private(ipc::Request&, ipc::Response&) {
+        NXLOG_W("net", "ldn: CreateNetworkPrivate has no co-op counterpart: DeviceNotAvailable");
+        return kDeviceNotAvailable;
+    }
+    uint32_t destroy_network(ipc::Request&, ipc::Response&) { return left(coop_ldn_destroy_network(n_)); }
+    uint32_t reject(ipc::Request& req, ipc::Response&) { return coop_ldn_reject(n_, req.arg<uint32_t>(0)); }
+    uint32_t set_advertise_data(ipc::Request& req, ipc::Response&) {
+        const ipc::Buffer b = req.in_buf(0);
+        if (b.size > vnet::kMaxAdvertise) return kInvalidArgument;
+        std::vector<uint8_t> adv(buf_ptr(b), buf_ptr(b) + (b.addr ? b.size : 0));
+        NXLOG_D("net", "ldn: SetAdvertiseData %zu bytes: %s", adv.size(), hex_head(adv).c_str());
+        return coop_ldn_set_advertise(n_, adv.data(), adv.size());
+    }
+    uint32_t set_accept_policy(ipc::Request& req, ipc::Response&) { return coop_ldn_set_accept_policy(n_, req.arg<uint8_t>(0)); }
+    uint32_t accept_filter(ipc::Request&, ipc::Response&) {
+        const int st = coop_ldn_state(n_);
+        return st == COOP_LS_AP || st == COOP_LS_AP_CREATED ? 0 : kInvalidState;
+    }
+    uint32_t open_station(ipc::Request&, ipc::Response&) { return coop_ldn_open_station(n_); }
+    uint32_t close_station(ipc::Request&, ipc::Response&) { return left(coop_ldn_close_station(n_)); }
+    uint32_t connect(ipc::Request& req, ipc::Response&) {
+        NetworkInfo ni{};
+        buf_read(req.in_buf(0), &ni, sizeof ni);
+        const SecurityConfig sec = arg_at<SecurityConfig>(req, 0);
+        const UserConfig user = arg_at<UserConfig>(req, kConnectUser);
+        forget();
+        return coop_ldn_connect(n_, &ni, &sec, &user, req.arg<int32_t>(kConnectVersion), req.arg<int32_t>(kConnectVersion + 4));
+    }
+    uint32_t connect_private(ipc::Request&, ipc::Response&) {
+        NXLOG_W("net", "ldn: ConnectPrivate has no co-op counterpart: ConnectNotFound");
+        return kConnectNotFound;
+    }
+    uint32_t disconnect(ipc::Request&, ipc::Response&) { return left(coop_ldn_disconnect(n_)); }
+    uint32_t initialize(ipc::Request&, ipc::Response&) { return coop_ldn_initialize(n_); }
+    uint32_t finalize(ipc::Request&, ipc::Response&) {
+        if (coop_ldn_state(n_) == COOP_LS_NONE) return kInvalidState;
+        shutdown();
+        return 0;
+    }
+
+    coop_node* n_;
+    std::mutex mu_;
+    std::array<uint32_t, 8> seen_{};    // node addresses of the last NetworkInfo the game read (0 = empty slot)
+    std::array<uint8_t, 8> latest_{};   // NodeLatestUpdate flags since the last GetNetworkInfoLatestUpdate
+};
+
+void NativeLdn::cmd(ipc::Service& s, uint32_t id, const char* name, H h) {
+    std::weak_ptr<NativeLdn> w = weak_from_this();
+    s.add_cmd(id, name, [w, id, name, h](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        note(id, name);
+        auto self = w.lock();
+        if (!self) return kInvalidState;
+        return ((*self).*h)(req, rsp);   // the module is thread-safe: no command lock (Scan and Connect wait inside it)
+    });
+}
+
+void NativeLdn::add_commands(ipc::Service& s) {
+    cmd(s, 0, "GetState", &NativeLdn::get_state);
+    cmd(s, 1, "GetNetworkInfo", &NativeLdn::get_network_info);
+    cmd(s, 2, "GetIpv4Address", &NativeLdn::get_ipv4);
+    cmd(s, 3, "GetDisconnectReason", &NativeLdn::get_disconnect_reason);
+    cmd(s, 4, "GetSecurityParameter", &NativeLdn::get_security_parameter);
+    cmd(s, 5, "GetNetworkConfig", &NativeLdn::get_network_config);
+    cmd(s, 100, "AttachStateChangeEvent", &NativeLdn::attach_event);
+    cmd(s, 101, "GetNetworkInfoLatestUpdate", &NativeLdn::get_latest_update);
+    cmd(s, 102, "Scan", &NativeLdn::scan);
+    cmd(s, 103, "ScanPrivate", &NativeLdn::scan);
+    cmd(s, 104, "SetWirelessControllerRestriction", &NativeLdn::accept);
+    cmd(s, 105, "SetWirelessAudioPolicy", &NativeLdn::accept);
+    cmd(s, 106, "SetProtocol", &NativeLdn::accept);
+    cmd(s, 200, "OpenAccessPoint", &NativeLdn::open_access_point);
+    cmd(s, 201, "CloseAccessPoint", &NativeLdn::close_access_point);
+    cmd(s, 202, "CreateNetwork", &NativeLdn::create_network);
+    cmd(s, 203, "CreateNetworkPrivate", &NativeLdn::create_network_private);
+    cmd(s, 204, "DestroyNetwork", &NativeLdn::destroy_network);
+    cmd(s, 205, "Reject", &NativeLdn::reject);
+    cmd(s, 206, "SetAdvertiseData", &NativeLdn::set_advertise_data);
+    cmd(s, 207, "SetStationAcceptPolicy", &NativeLdn::set_accept_policy);
+    cmd(s, 208, "AddAcceptFilterEntry", &NativeLdn::accept_filter);
+    cmd(s, 209, "ClearAcceptFilter", &NativeLdn::accept_filter);
+    cmd(s, 300, "OpenStation", &NativeLdn::open_station);
+    cmd(s, 301, "CloseStation", &NativeLdn::close_station);
+    cmd(s, 302, "Connect", &NativeLdn::connect);
+    cmd(s, 303, "ConnectPrivate", &NativeLdn::connect_private);
+    cmd(s, 304, "Disconnect", &NativeLdn::disconnect);
+    cmd(s, 400, "Initialize", &NativeLdn::initialize);
+    cmd(s, 401, "Finalize", &NativeLdn::finalize);
+    cmd(s, 402, "InitializeWithVersion", &NativeLdn::initialize);
+    cmd(s, 403, "SetOperationMode", &NativeLdn::accept);
+}
+
+// [net] protocol picks the backend per service object: native = NativeLdn on the process's coop node (or, with the module off, Ldn with
+// no lobby: the offline answers), linkplay = Ldn on the relay lobby.
 class LdnService final : public ipc::Service {
 public:
-    LdnService() : ipc::Service("nn::ldn::detail::IUserLocalCommunicationService"), ldn_(std::make_shared<Ldn>()) {
-        ldn_->add_commands(*this);
+    LdnService() : ipc::Service("nn::ldn::detail::IUserLocalCommunicationService") {
+        coop_node* n = native_protocol() ? native_node() : nullptr;
+        if (n) {
+            native_ = std::make_shared<NativeLdn>(n);
+            native_->add_commands(*this);
+        } else {
+            ldn_ = std::make_shared<Ldn>(native_protocol());
+            ldn_->add_commands(*this);
+        }
     }
     void on_close() override {
-        ldn_->shutdown();
+        if (native_) native_->shutdown();
+        if (ldn_) ldn_->shutdown();
     }
 
 private:
     std::shared_ptr<Ldn> ldn_;
+    std::shared_ptr<NativeLdn> native_;
 };
 
 }  // namespace
@@ -1430,6 +1821,8 @@ std::shared_ptr<ipc::Service> make_ldn_user_creator() {
         });
     });
 }
+
+coop_node* ldn_native_node() { return native().node.load(); }
 
 void ldn_set_lobby(std::shared_ptr<vnet::Lobby> lobby) {
     LobbySlot& s = slot();
@@ -1463,6 +1856,16 @@ void ldn_reset() {
         s.relays.clear();
     }
     ldnapi::set_session_variant(0, "");
+    {
+        NativeSlot& n = native();
+        coop_node* node = n.node.exchange(nullptr);
+        {
+            std::lock_guard<std::mutex> lk(n.mu);
+            n.built = false;
+            n.build.clear();
+        }
+        if (node) coop_destroy(node);   // finalizes: the host's links and the virtual sockets close
+    }
     // old goes away here (a relay client closes its connection)
 }
 
