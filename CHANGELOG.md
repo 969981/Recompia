@@ -19,8 +19,8 @@ of the game (version 2.0.1a): the download contains no game files.
   `compute_prewarm = false` bring back the old behaviour. Not yet measured on a Deck.
 
 - On a Steam Deck, frame limits divide the screen's refresh rate for even pacing: on the 90 Hz OLED, 40 fps runs at 30; pick 80 Hz in
-  Steam's Performance menu for 40. Other machines keep the limit as set (`[display] fps_snap = true` opts in, `false` turns it off on the
-  Deck). 45 fps can be chosen in F1.
+  Steam's Performance menu for 40. Other machines keep the limit as set. F1 > Display has a "Cap FPS to 30 for Steam Deck" box to turn it off on the
+  Deck or on elsewhere (`[display] fps_snap = auto|true|false`). 45 fps can be chosen in F1.
 
 ### Fixes
 - Steam Deck / Linux: pipelines are no longer rebuilt in the background while playing, which competed with rendering on 4-core handhelds (`[nvn] gpl_upgrade`).

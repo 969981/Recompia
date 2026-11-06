@@ -306,11 +306,12 @@ void apply_unfocused_mute() {
     audio::set_muted(st.window && st.settings.audio.mute_unfocused && !platform::focused());
 }
 
-// [display] fps_snap = auto|true|false (NXRT_DISPLAY_FPS_SNAP), read on every apply_frame_cap. auto (default) = on for a detected Steam Deck
+// [display] fps_snap = auto|true|false (controls.ini / F1 "Cap FPS to 30 for Steam Deck"; NXRT_DISPLAY_FPS_SNAP overrides it), read on every apply_frame_cap. auto (default) = on for a detected Steam Deck
 // only (host_is_steam_deck: its 90 / 60 Hz panel has no VRR), off on every other machine (a desktop screen may be VRR, and a
 // player's chosen 40 must stay 40). Returns the divisor k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
 int frame_snap_k(const Settings& s, double cap, float hz, double* snapped, const char** reason) {
-    const std::string mode = config_get_str("display", "fps_snap", "auto");
+    std::string mode = config_get_str("display", "fps_snap", "");    // the env override, else the player's setting
+    if (mode.empty()) mode = s.display.fps_snap;
     const bool forced_on = mode == "true" || mode == "on" || mode == "1";
     const bool forced_off = mode == "false" || mode == "off" || mode == "0";
     *snapped = cap;

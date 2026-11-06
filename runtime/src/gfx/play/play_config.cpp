@@ -437,6 +437,17 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
                 if (lower(v) == "auto") { s->display.fps_cap = -1; return true; }
                 return set_int(0, 1000, &s->display.fps_cap);
             }
+            if (k == "fps_snap") {
+                const std::string l = lower(v);
+                if (l == "auto") s->display.fps_snap = "auto";
+                else if (l == "true" || l == "on" || l == "1" || l == "yes") s->display.fps_snap = "true";
+                else if (l == "false" || l == "off" || l == "0" || l == "no") s->display.fps_snap = "false";
+                else {
+                    *msg = "fps_snap must be auto, true or false, got '" + v + "'";
+                    return false;
+                }
+                return true;
+            }
             if (k == "width") return set_int(320, 16384, &s->display.width);
             if (k == "height") return set_int(320, 16384, &s->display.height);
             if (k == "keep_aspect") return set_bool(&s->display.keep_aspect);
@@ -930,6 +941,7 @@ std::string format_settings(const Settings& s) {
     kv("window_mode", s.display.window_mode);
     kv("vsync", flag(s.display.vsync));
     kv("fps_limit", s.display.fps_cap < 0 ? std::string("auto") : std::to_string(s.display.fps_cap));
+    kv("fps_snap", s.display.fps_snap);
     kv("width", std::to_string(s.display.width));
     kv("height", std::to_string(s.display.height));
     kv("keep_aspect", flag(s.display.keep_aspect));
