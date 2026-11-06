@@ -3,6 +3,13 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### For developers
+- `.github/workflows/launcher-checks.yml`: on pull requests and pushes to main that touch `launcher/` or `game-build/release_b/`,
+  builds the launcher front end, runs `cargo check` (native and `x86_64-pc-windows-gnu`) and `cargo clippy`, and checks
+  `pkp_build.py` compiles, with the cargo registry and target cached.
+
 ## 0.6.1 (build J: Jackal)
 
 Hotfix for 0.6.0. Extract it over your 0.6.0 install: the game code is unchanged, so no **Set up again** is needed.
