@@ -321,6 +321,8 @@ Rules:
 | `boot` | `dump_killer` | `false` | `NXRT_BOOT_DUMP_KILLER` | `game-build/src/mpr_main.cpp` | Temporary debug hook (debug note 121). Logs two fixed memory slots on an access violation, and the thread stacks when one of them first fills. |
 | `boot` | `trace_plt` | `false` | `NXRT_BOOT_TRACE_PLT` | `game-build/src/mpr_main.cpp` | Diagnostic: logs every lazy symbol binding of the game's loader (debug note 018). |
 | `time` | `zone` | `host` | `NXRT_TIME_ZONE` | `src/services/time.cpp` | `utc` (any case) sets UTC. Any other value uses the host time zone. |
+| `time` | `tick` | `wall` | `NXRT_TIME_TICK` | `src/kernel/time.cpp` | What the console tick (CNTPCT_EL0, `nn::os::GetSystemTick`) counts. `wall`: the host wall clock since a base kept in `tick_base.txt` beside the ini (unix ns), so the tick never loses time against the host clock: sleep, launches and reboots included. The base is written on the first run as host time minus the QueryPerformanceCounter time at that moment, so the count continues the old counter with no jump; the same file on another machine gives the same tick for a shared save. The tick never runs backwards: a host clock step back under 2 s holds it, a larger one lowers the base by the step (logged) so the count goes on from where it was. `qpc`: QueryPerformanceCounter, which stops while the host sleeps (Proton: `CLOCK_MONOTONIC`) and starts over at boot. Pokopia advances its in-game clock by the tick between saves, so under `qpc` every sleep with the game open was lost for good: 41 min behind after a Legion Go S slept 41 min with the game running, still behind after a restart. Read once at start. |
+| `time` | `tick_shift` | `0` | `NXRT_TIME_TICK_SHIFT` | `src/kernel/time.cpp` | Seconds added to the tick when `tick_base.txt` is first written (only then; the key does nothing once the file exists). A one-time move of a game's tick-based clock, e.g. to give back the minutes a save lost to sleep under `qpc`: the sum of the host's sleeps while the game was open since the save it loads. |
 
 ### Audio notes
 
@@ -554,6 +556,8 @@ offline = true
 
 [time]
 zone = host
+; tick = wall  (the console tick follows the host clock; qpc: QueryPerformanceCounter, stops in sleep)
+; tick_shift = 0  (seconds added once, when tick_base.txt is first written)
 ```
 
 ## Test tooling keys (`[test]`, work area S5)

@@ -37,6 +37,11 @@ of the game (version 2.0.1a): the download contains no game files.
   started, minus an hour: a day ahead on a handheld left on, 52 minutes behind on one just rebooted. The game reads the clock from a
   part of the time data the runtime filled wrongly. Time points saved by earlier versions are treated as from another clock (as on
   the console after its clock is reset).
+- The in-game clock no longer falls behind by every sleep of the PC or handheld while the game is open (41 minutes behind after a
+  Legion Go S slept 41 minutes with the game running, and still behind after a restart). The game moves its clock by the console tick
+  between saves, and the tick came from a counter that stops during sleep. The tick now follows the host clock from a base kept in
+  `tick_base.txt` beside the ini, so sleep, restarts and reboots all count (`[time] tick = qpc` restores the old counter;
+  `[time] tick_shift` gives a save back the minutes it already lost, once).
 
 ## 0.5.0 (build I: Iguana)
 
