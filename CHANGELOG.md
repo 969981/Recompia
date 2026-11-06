@@ -3,6 +3,14 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+- The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
+  starts, and when it collected none, warm_up() wrote an empty `shader_cache/runtime/manifest.tsv`, so the warm-up never ran
+  again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
+  attempts (counted in a small file next to the manifest).
+
 ## 0.6.2 (build J: Jackrabbit)
 
 Extract it over your 0.6.1 install: the game code is unchanged, so no **Set up again** is needed.
