@@ -237,6 +237,8 @@ std::string build_report(const EXCEPTION_RECORD* rec, const CONTEXT* cx, DWORD t
 
     // The last 30 s of frame times: what the game was doing before it went wrong.
     out += frame_times_summary(30.0);
+    // The sections other parts register for the freeze dump (diag_add_report): the GPU's state, the graphics pools' fill.
+    out += diag_crash_extra_reports();
     return out;
 }
 

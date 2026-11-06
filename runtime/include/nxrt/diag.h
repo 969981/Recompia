@@ -64,6 +64,7 @@ void crash_uninstall();
 //   guest call stack (innermost first): f_<hex> ...        (lifted functions found on the host stack)
 //   threads: one line per registered thread (name, guest tid, lr)
 //   last files opened (oldest first): ...
+//   frame times of the last 30 s, then the sections registered with diag_add_report (GPU state, graphics pools)
 std::string crash_build_report(void* exception_pointers /* EXCEPTION_POINTERS* */);
 // The file the crash report goes to: the path given to crash_install, else "<exe name>_crash.txt" next to the exe ("" = no file). The memory guard
 // writes its report there too.
@@ -99,8 +100,12 @@ void diag_frame_tick_nolisten();       // the same without calling the frame lis
 void diag_set_frame_listener(void (*fn)());   // called by diag_frame_tick after counting (test tooling's frame source "tick"); null removes it
 uint64_t diag_frame_count();
 uint32_t watchdog_fire_count();
-// Extra sections of the freeze dump: each function returns text (it must never block: the process may be frozen). Registered once at start-up.
-void diag_add_report(std::string (*fn)());
+// Extra sections of the freeze dump and of the crash report: each function returns text (it must never block: the process may be frozen
+// or crashing; take locks with try_lock and say "(busy)"). Registered once at start-up. in_crash_report = false keeps a section out of the
+// crash report (one it already has, like the frame times).
+void diag_add_report(std::string (*fn)(), bool in_crash_report = true);
+// The registered sections that go into the crash report, in registration order (crash.cpp). Never blocks: "" while a section is being registered.
+std::string diag_crash_extra_reports();
 std::string diag_thread_dump();        // the dump text the watchdog produces, on demand (also used by the SIGUSR-style "dump_threads" file)
 
 }  // namespace nxrt
