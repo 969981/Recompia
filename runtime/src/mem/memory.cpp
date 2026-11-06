@@ -121,6 +121,11 @@ GaugeHook gauge_vm_blocks("mem.vm_blocks", [] {   // blocks of the Horizon-style
     return static_cast<int64_t>(g_vm.size());
 });
 
+// Calls that change the state of heap pages (each one on a range a Vulkan host-pointer import covers invalidates that userptr BO): counted
+// per call, any thread.
+nxrt::GaugeCounter g_ctr_commits("mem.commits"), g_ctr_decommits("mem.decommits"), g_ctr_protects("mem.protects");
+bool in_heap_range(uint64_t start, uint64_t end) { return start >= kHeapBase && end <= kHeapBase + g_heap_size; }
+
 // [memory] fast_query = false: ask the host (VirtualQuery) instead of the page table above; for before/after measurements.
 bool fast_query() {
     static const bool v = config_get_bool("memory", "fast_query", true);
@@ -309,6 +314,7 @@ bool commit(uint64_t addr, uint64_t size, Prot p) {
     uint64_t start = 0, end = 0;
     if (!page_span(addr, size, &start, &end)) return false;
     if (start == end) return true;
+    if (in_heap_range(start, end)) g_ctr_commits.add(1);
     const ww::OsWriteScope wws(reinterpret_cast<void*>(start), end - start);   // the write tracker keeps out of the range while it changes
     if (!VirtualAlloc(reinterpret_cast<void*>(start), static_cast<SIZE_T>(end - start), MEM_COMMIT, protect_of(p))) {
         DWORD e = GetLastError();
@@ -323,6 +329,7 @@ bool decommit(uint64_t addr, uint64_t size) {
     uint64_t start = 0, end = 0;
     if (!page_span(addr, size, &start, &end)) return false;
     if (start == end) return true;
+    if (in_heap_range(start, end)) g_ctr_decommits.add(1);
     const ww::OsWriteScope wws(reinterpret_cast<void*>(start), end - start);
     if (!VirtualFree(reinterpret_cast<void*>(start), static_cast<SIZE_T>(end - start), MEM_DECOMMIT)) {
         DWORD e = GetLastError();
@@ -338,6 +345,7 @@ bool protect(uint64_t addr, uint64_t size, Prot p) {
     if (!page_span(addr, size, &start, &end)) return false;
     if (start == end) return true;
     const DWORD np = protect_of(p);
+    if (in_heap_range(start, end)) g_ctr_protects.add(1);
     const ww::OsWriteScope wws(reinterpret_cast<void*>(start), end - start);   // pages the write tracker armed get this protection, not its own
     {   // heap: the page table says whether every page is committed, so one VirtualProtect does it (no VirtualQuery over the view)
         std::lock_guard hk(g_heap_mu);
@@ -523,6 +531,7 @@ bool heap_commit(uint64_t offset, uint64_t size) {
         return false;
     }
     if (size == 0) return true;
+    g_ctr_commits.add(1);
     if (offset > g_heap_size || size > g_heap_size - offset) {
         NXLOG_E(kTag, "heap_commit: [%llx, +%llx) is outside the %llu MiB section",
                 static_cast<unsigned long long>(offset), static_cast<unsigned long long>(size),
@@ -556,6 +565,7 @@ bool heap_decommit(uint64_t offset, uint64_t size) {
     std::lock_guard lk(g_heap_mu);
     if (!g_heap_size) return false;
     if (size == 0) return true;
+    g_ctr_decommits.add(1);
     if (offset > g_heap_size || size > g_heap_size - offset) {
         NXLOG_E(kTag, "heap_decommit: [%llx, +%llx) is outside the section", static_cast<unsigned long long>(offset),
                 static_cast<unsigned long long>(size));

@@ -76,11 +76,20 @@ void present_on_render_thread(Window* w, int index, bool again) {
     if (!rend || !pp) return;
     { NXFT("present.tex"); if (!tex_gpu(t)) return; }
     extras::pace_note_present();
+    // [nvn] one_submit: batch flushes the worker has not started yet ride in this present's submission instead of a kernel submission of
+    // their own; whatever is still taken when this function ends without submitting goes back to the worker
+    present_take_parked();
+    struct GiveBack { ~GiveBack() { present_give_back(); } } give_back;
     submit_drain();     // [nvn] submit_thread: the previous present has run (swapchain, frame slot fence, `dirty`) before the hook and begin_frame
     if (FrameLimiter* lim = limiter()) {
         // the pre-frame hook (present mode changes) always runs here; the wait runs here only when no frame boundary has paced this present (S18)
         { NXFT("present.hook"); lim->run_pre_frame_hook(); }
-        if (!(extras::pace_in_main() && extras::pace_boundary_consume())) { NXFT("limiter"); nxrt::HitchTimer ht(nxrt::kHpRenderLimiter); lim->begin_frame_nohook(); }
+        if (!(extras::pace_in_main() && extras::pace_boundary_consume())) {
+            present_give_back();    // [nvn] one_submit: not held back by the limiter's wait
+            NXFT("limiter");
+            nxrt::HitchTimer ht(nxrt::kHpRenderLimiter);
+            lim->begin_frame_nohook();
+        }
     }
     if (!again) {
         const int64_t n = static_cast<int64_t>(counters().presents.load());

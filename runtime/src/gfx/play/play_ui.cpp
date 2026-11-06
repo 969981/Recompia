@@ -41,7 +41,7 @@ constexpr const char* kWindowModeNames[kWindowModeCount] = {"Windowed", "Borderl
 constexpr const char* kWindowModeKeys[kWindowModeCount] = {"windowed", "borderless", "exclusive"};
 constexpr int kSizePresets[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr int kSizePresetCount = static_cast<int>(sizeof kSizePresets / sizeof kSizePresets[0]);
-constexpr int kFpsChoices[] = {-1, 0, 30, 40, 60, 72, 90, 120, 144, 165, 240, 360};   // -1 = the refresh rate
+constexpr int kFpsChoices[] = {-1, 0, 30, 40, 45, 60, 72, 90, 120, 144, 165, 240, 360};   // -1 = the refresh rate
 // The aspect ratio combo: Auto stores 0, the presets store their ratio, Custom shows a slider (index kAspectCustom, no value of its own).
 constexpr const char* kAspectNames[] = {"Auto", "16:9", "16:10", "21:9", "32:9", "Custom"};
 constexpr double kAspectValues[] = {0.0, 16.0 / 9.0, 1.6, 21.0 / 9.0, 32.0 / 9.0};
@@ -927,6 +927,10 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
         ImGui::EndCombo();
     }
     tip("Refresh rate follows the display. With vsync on, a limit only counts when it is below the refresh rate.");
+    if (live.snap_k >= 2 && d.fps_cap > 0) {
+        ImGui::TextDisabled("%d (runs at %g on this %g Hz screen%s)", d.fps_cap, live.snap_cap, static_cast<double>(live.refresh_hz),
+                            d.fps_cap == 40 ? "; set 80 Hz in Steam's Performance menu for 40" : "; pick a refresh rate that is a multiple of it");
+    }
     ImGui::BeginDisabled(live.refresh_hz <= 0.0f);
     if (ImGui::Button("Just under the refresh rate")) {
         d.fps_cap = static_cast<int>(std::floor(nxrt::suggest_vrr_cap(live.refresh_hz)));

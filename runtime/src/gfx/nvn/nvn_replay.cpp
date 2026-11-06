@@ -20,6 +20,7 @@
 #include <tuple>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "nxrt/config.h"
 #include "nxrt/frame_limiter.h"
@@ -1496,6 +1497,12 @@ bool compute_direct_on() {
 // Every result still only in the pool copy goes back to the pool (in queue order, before what is recorded next).
 void flush_compute_out(int why) {
     if (!out_any()) return;
+    // [nvn] pool_copy: out entries need a pool copy (mirror) or a held result, and copy pools have neither (lazy pools get no mirror,
+    // out_lazy is off), so nothing is held; were one there, its copy-back into the shadow would be unrecorded: say so once.
+    if (pool_copy_on()) {
+        static bool noted = false;
+        if (!noted) { noted = true; NXLOG_W("nvn.replay", "pool_copy: a compute result is held in a pool copy; its copy-back is not recorded as a GPU write"); }
+    }
     end_pass();
     if (out_flush(F->cb, 0, UINT64_MAX, why)) {
         ++g_sh_flushes;
@@ -1569,6 +1576,7 @@ const uint8_t* cpu_view(uint64_t addr, uint64_t size);   // below
 // arguments (and draw count) when the CPU can read them (not a held result, not written by a submission that has not completed).
 // Otherwise the GPU writes them too and nobody knows the count here: everything from index_address to the end of its pool.
 uint64_t indirect_index_span(const P_DrawIndirect& p) {
+    PoolReasonScope pr_(kReasonIndirect);
     const uint32_t isz0 = index_size_bytes(static_cast<int>(p.type));
     const uint64_t isz = isz0 ? isz0 : 4;
     const uint64_t stride = p.stride ? static_cast<uint64_t>(p.stride) : 20;
@@ -1761,6 +1769,8 @@ void shadows_after_dispatch() {
         if (!any) { memory_barrier(F->cb); any = true; }
         VkBufferCopy c = {0, u.host.offset, u.size};
         vkCmdCopyBuffer(F->cb, u.buf, u.host.buffer, 1, &c);
+        // [nvn] pool_copy: u.host is a shadow; the binding recorded this range as a GPU write already (gpu_wrote), the copy-back is that write
+        if (pool_copy_on()) pcopy_note_write(u.addr, u.size, u.host.buffer);
         g_sh_bytes_out += u.size;
         if (u.mirror.buf) {
             VkBufferCopy mc = {0, u.mirror.offset, u.size};
@@ -1941,6 +1951,8 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
         w.dstBinding = d.binding;
         w.descriptorCount = 1;
         w.descriptorType = d.type;
+        PoolReasonScope pr_(d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ? kReasonUniform : d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ? kReasonStorage :
+                            d.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER ? kReasonTexel : pool_reason());
         if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
             RpScope rpb_(kRpBuf, g_rp_fine);
             VkDescriptorBufferInfo bi = {dummy_buffer(), 0, 65536};
@@ -2720,6 +2732,7 @@ const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl] : g_g
 
 bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
     RpScope rp_all(kRpDraw);
+    PoolReasonScope pr_(kReasonVertex);
     ResolveScope rs_;
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
@@ -3143,6 +3156,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
 }
 
 void do_draw_elements(const P_DrawElements& p) {
+    PoolReasonScope pr_(kReasonIndex);
     count_primitives(p.mode, p.count, p.instance_count);
     g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
@@ -3312,6 +3326,7 @@ void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint32_t is
 }
 
 void do_draw_indirect(const P_DrawIndirect& p) {
+    PoolReasonScope pr_(kReasonIndirect);
     const bool indexed = p.type != 0xffffffffu;
     // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
     // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
@@ -3333,6 +3348,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     BufRef ib = held_or_pool(p.indirect_address, (p.stride ? static_cast<uint64_t>(p.stride) : cmd_size) * (n_cmds - 1) + cmd_size, kOutIndirect, false);
     if (indexed) {
         BufRef xb = resolve_buffer(p.index_address, 4);
+        if (pool_copy_on()) pool_copy_touch(p.index_address, indirect_index_span(p));   // [nvn] pool_copy: every index the draw may read
         bind_index_buffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
     checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), static_cast<uint32_t>(n_cmds), true);
@@ -3384,6 +3400,44 @@ void do_draw_xfb(const P_DrawXfb& p) {
 
 std::string g_cs_missing;   // trace: the untranslated block(s) of the bound compute program ("cs -" dispatches)
 
+// ---- [nvn] async_compute: which dispatches may be skipped while their pipeline builds -----------------------------------------------
+// Only one whose writes the CPU cannot see: every storage buffer it binds lies in one pool with NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS (not
+// virtual: its physical backing may be CPU-visible) and in no 64 KiB granule a buffer copy ever read into a CPU-visible pool, and no storage
+// image it binds is a texture download_texture read back. Image buffers (storage texel buffers) are not checked: such a dispatch is never
+// skipped. Render thread.
+std::unordered_set<uint64_t> g_cs_cpu_read;   // granules (address >> 16) copied into CPU-visible pools (run_list, CopyBufferToBuffer)
+
+void note_copy_for_cpu(uint64_t src, uint64_t dst, uint64_t size) {
+    static const bool on = async_compute_on();
+    if (!on || !size || (pool_flags_at(dst) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) return;
+    size = std::min<uint64_t>(size, 1ull << 34);              // a malformed size: bounded (the copy itself fails to resolve)
+    for (uint64_t g = src >> 16, e = (src + size - 1) >> 16; g <= e; ++g) g_cs_cpu_read.insert(g);
+}
+
+bool dispatch_cpu_blind(const ProgLayout& pl) {
+    for (const BindingDesc& d : pl.bindings) {
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) return false;
+        if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+            const TexResolved r = resolve_image(d);
+            if (r.tex && tex_was_read_back(r.tex)) return false;
+            continue;
+        }
+        if (d.type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || b.nvn.source != NvnSource::StorageBuffer) continue;   // read only, or ours
+        const int slot = b.nvn.index >= 0 ? b.nvn.index : storage_slot_for(d.nvn_stage, b.nvn.c0_offset);       // as bind_sets
+        if (slot < 0 || slot >= 16 || !S.ssbo[d.nvn_stage][slot].addr) continue;                                // the dummy is bound
+        const GState::Bind& bind = S.ssbo[d.nvn_stage][slot];
+        if (!bind.size) return false;                         // the range would be the rest of the pool: not checked
+        const uint64_t lo = bind.addr, hi = bind.addr + bind.size - 1;
+        const uint32_t f = pool_flags_at(lo);
+        if (!(f & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || (f & NVN_MEMORY_POOL_FLAGS_VIRTUAL)) return false;
+        if (pool_lookup(lo).pool != pool_lookup(hi).pool) return false;
+        for (uint64_t g = lo >> 16; g <= (hi >> 16); ++g)
+            if (g_cs_cpu_read.count(g)) return false;
+    }
+    return true;
+}
+
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
@@ -3423,6 +3477,18 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
                 TRACE("    cs b%u %s type %d -> %s @%p:%s", d.binding, b.name.c_str(), static_cast<int>(d.type), tex_desc(r.tex, c, sizeof c), r.tex ? static_cast<void*>(r.tex->mem) : nullptr, words.c_str());
             }
         }
+    }
+    // [nvn] async_compute in play (the loading gate): a dispatch whose pipeline is not built and whose writes the CPU cannot see is skipped
+    // while its pipeline goes first in line on the async threads (pop-in for a frame or two). Any other is built here as before and logged.
+    if (async_compute_on() && gpl_gate_open() && !compute_pipeline_done(cs, *pl) && dispatch_cpu_blind(*pl) && compute_queue_front(cs, *pl)) {
+        compute_note_skipped();
+        ft::mark("cs.skip");
+        static int logged = 0;
+        if (logged < 50) {
+            ++logged;
+            NXLOG_I(kTag, "compute: dispatch skipped while its pipeline builds in the background: %s", cs->hash.c_str());
+        }
+        return;
     }
     VkPipeline pipe = compute_pipeline(cs, *pl);
     if (!pipe) return;
@@ -3613,6 +3679,7 @@ void do_clear_texture(const P_ClearTexture& p) {
 }
 
 void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
+    PoolReasonScope pr_(kReasonImageCopy);
     Texture* t = p.tex;
     if (t && t->b.target == NVN_TEXTURE_TARGET_3D) {
         static int logged = 0;
@@ -3815,6 +3882,7 @@ void do_downsample(const P_Downsample& p) {
 }
 
 void do_write_memory(uint64_t gpu_addr, const void* data, uint32_t size) {
+    PoolReasonScope pr_(kReasonUpdate);
     // a GPU-ordered write of up to 64 KiB into pool memory (UpdateUniformBuffer, counters, events)
     end_pass();
     memory_barrier(F->cb);
@@ -4103,6 +4171,7 @@ void run_list(const CmdList& list, int depth) {
             case Op::ClearTexture: do_clear_texture(r.payload<P_ClearTexture>()); break;
             case Op::ClearBuffer: {
                 const auto& p = r.payload<P_ClearBuffer>();
+                PoolReasonScope pr_(kReasonCopy);
                 end_pass();
                 BufRef b = resolve_buffer(p.address, p.size);
                 if (b.ok) vkCmdFillBuffer(F->cb, b.buffer, b.offset, p.size & ~3ull, p.value);
@@ -4114,6 +4183,8 @@ void run_list(const CmdList& list, int depth) {
             }
             case Op::CopyBufferToBuffer: {
                 const auto& p = r.payload<P_CopyBufferToBuffer>();
+                note_copy_for_cpu(p.src, p.dst, p.size);   // [nvn] async_compute: what is copied into a CPU-visible pool, the CPU reads
+                PoolReasonScope pr_(kReasonCopy);
                 end_pass();
                 BufRef s = held_or_pool(p.src, p.size, kOutBufferRead, true), d = resolve_buffer(p.dst, p.size);
                 if (s.ok && d.ok) {
@@ -4157,6 +4228,7 @@ void run_list(const CmdList& list, int depth) {
                         if (b.ok && g_occ_last >= 0) {
                             vkCmdCopyQueryPoolResults(F->cb, g_occ_pool, static_cast<uint32_t>(g_occ_last), 1, b.buffer, b.offset, 16,
                                                       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+                            if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: the result lands in guest memory at completion
                             memory_barrier(F->cb);
                         }
                     }
@@ -4177,6 +4249,7 @@ void run_list(const CmdList& list, int depth) {
                             if (b.ok) {
                                 // the feedback query has two results (written, needed): the second would land on the timestamp word, which is written again after it
                                 vkCmdCopyQueryPoolResults(F->cb, cw.pool, static_cast<uint32_t>(cw.last), 1, b.buffer, b.offset, 16, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+                                if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: lands at completion
                                 memory_barrier(F->cb);
                                 if (&cw == &g_cw[1]) do_write_memory(p.address + 8, &rep.timestamp, 8);
                             }
@@ -4318,9 +4391,13 @@ void run_list(const CmdList& list, int depth) {
 // (Pokopia: 14 s at 60 fps before the title), so a run of light frames stays unpaced for up to [display] unpaced_loading_s (20, 0 = off)
 // seconds even without stalls. Once the game has drawn a real scene the stall rule alone applies, so a light screen in the world (a
 // menu, a fade) is never unpaced just for being light, and a frame with 16+ draws is always paced.
+// The detection always runs: its result (`want`) is also the loading gate of the compile paths (replay_loading, [nvn] gpl_gate = state).
+// Only the limiter action depends on [display] unpaced_loading.
+static bool g_loading = true;      // the detector's current `want`; loading until the first present (render thread)
+bool replay_loading() { return g_loading; }
+
 void note_frame_for_pacing() {
     static const bool on = nxrt::config_get_bool("display", "unpaced_loading", true);
-    if (!on) return;
     using clk = std::chrono::steady_clock;
     static uint64_t last_p = 0, last_d = 0;
     static int low = 0;
@@ -4340,9 +4417,15 @@ void note_frame_for_pacing() {
     static const double boot_s = std::max(0.0, nxrt::config_get_double("display", "unpaced_loading_s", 20.0));
     const bool boot_run = !full && now - low_since < std::chrono::duration<double>(boot_s);
     const bool want = low >= 3 && (now - last_stall < std::chrono::milliseconds(1500) || boot_run);
-    if (want != nxrt::frame_limiter_unpaced()) {
-        nxrt::frame_limiter_set_unpaced(want);
+    if (want != g_loading) {
+        g_loading = want;
         ft::mark(want ? "pace.loading" : "pace.playing", static_cast<uint32_t>(per));
+        if (!on)
+            NXLOG_I(kTag, "%s (present %llu, %llu draws; pacing unchanged: [display] unpaced_loading is false)", want ? "loading" : "playing",
+                    static_cast<unsigned long long>(p), static_cast<unsigned long long>(per));
+    }
+    if (on && want != nxrt::frame_limiter_unpaced()) {
+        nxrt::frame_limiter_set_unpaced(want);
         NXLOG_I(kTag, "pacing %s (present %llu, %llu draws)", want ? "off: loading" : "on", static_cast<unsigned long long>(p),
                 static_cast<unsigned long long>(per));
     }
@@ -4360,8 +4443,9 @@ void replay_begin_submit(Frame& f) {
     ft::split_count(ft::kCntSubmissions);
     g_rp_t0 = ft::on() ? ft::now_ns() : 0;
     RpScope rp_begin(kRpBegin);
-    gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_async defers draws only while frames are flowing
+    gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_gate = time: frames flowing = play
     note_frame_for_pacing();
+    gpl_latch_play(!replay_loading());   // [nvn] gpl_gate = state: play vs loading for the whole submission (a stall inside it cannot flip it)
     F = &f;
     { RpScope rp_(kRpTexPoll); ft::SplitScope sp_(ft::kSplSetup); tex_poll_cpu_writes(); }   // per call: see setup_coalesce_on (nvn_gpu_texture.cpp)
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)
