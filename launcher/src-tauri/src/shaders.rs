@@ -34,6 +34,10 @@ pub const MISSING_REL: &str = "shader_cache/missing";
 pub const RUNTIME_REL: &str = "shader_cache/runtime";
 /// Blocks per translator run. Under Proton every run also starts Proton (a few seconds), so Linux runs fewer, larger chunks.
 const CHUNK: usize = if cfg!(windows) { 1000 } else { 5000 };
+/// Workers for the extractor. It maps each asset file into memory and decompresses it, so one worker per CPU thread can
+/// thrash a machine's memory and disk (issue #194: 15 workers, stuck on a laptop); a few already saturate the disk. The
+/// translator (spirv_harness) keeps the full `job.jobs`.
+const EXTRACT_JOBS: usize = 4;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -420,6 +424,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     marker.complete = false;
     write_marker(&job.game_dir, &marker)?;
     let jobs = job.jobs.max(1).to_string();
+    let extract_jobs = job.jobs.clamp(1, EXTRACT_JOBS).to_string();
     let p = |phase: &str, done: u64, total: u64, message: String| Progress { state: "running".into(), phase: phase.into(), done, total, message };
 
     // 1. extract (skipped when this romfs was already extracted)
@@ -432,7 +437,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         if let Some(b) = &job.romfs_base {
             cmd.arg("--romfs-base").arg(b);
         }
-        cmd.args(["--jobs", &jobs, "--progress"]);
+        cmd.args(["--jobs", &extract_jobs, "--progress"]);
         let ok = run_tool(cmd, cancel, job.idle, job.log.as_ref(), None, |l| {
             if let Some(rest) = l.strip_prefix("scan: ") {
                 let mut it = rest.split_whitespace().filter_map(|x| x.parse::<u64>().ok());

@@ -144,10 +144,11 @@ def slim(occs):
     return rows
 
 
-def scan_file(path, out):
+def scan_file(path, out, rel):
     global OUT
     OUT = out
     low_priority()
+    print(f'start: {rel}', flush=True)
     rows = []
     name = os.path.basename(path)
     with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
@@ -182,6 +183,7 @@ def scan_main(path, out):
     global OUT
     OUT = out
     low_priority()
+    print('start: main', flush=True)
     d = open(path, 'rb').read()
     if d[:4] == b'NSO0':
         d = nso_image(d)
@@ -206,7 +208,7 @@ def main():
                 if f.endswith(('.fdata', '.file')):
                     p = os.path.join(r, f)
                     by_rel.setdefault(os.path.relpath(p, root).replace(os.sep, '/'), p)
-    paths = [by_rel[k] for k in sorted(by_rel)]
+    named = [(k, by_rel[k]) for k in sorted(by_rel)]   # (rel path below motor_asset_re, host path): names the per-file progress
     for sub in ('code', 'ctrl', 'glslc'):
         os.makedirs(os.path.join(a.out, sub), exist_ok=True)
     seen = {}
@@ -214,17 +216,18 @@ def main():
     occ = collections.Counter()
     rows = []
     with ProcessPoolExecutor(a.jobs) as ex:
-        futs = [ex.submit(scan_file, p, a.out) for p in paths]
+        futs = [(ex.submit(scan_file, p, a.out, k), k) for k, p in named]
         if a.main:
-            futs.append(ex.submit(scan_main, a.main, a.out))
-        if a.progress:   # "scan: <done> <total>" per finished file (the launcher's setup reads these)
+            futs.append((ex.submit(scan_main, a.main, a.out), 'main'))
+        if a.progress:   # "done: <file>" then "scan: <done> <total>" per finished file (the launcher's setup reads these)
             done = [0]
-            def tick(_):
+            def tick(name):
                 done[0] += 1
+                print(f'done: {name}', flush=True)
                 print(f'scan: {done[0]} {len(futs)}', flush=True)
-            for f in futs:
-                f.add_done_callback(tick)
-        results = [f.result() for f in futs]
+            for f, name in futs:
+                f.add_done_callback(lambda _fut, n=name: tick(n))
+        results = [f.result() for f, _ in futs]
     for res in results:
         for name, eo, fk, tk, tag, go, si, st, cn, kn, h, ch, gh in res:
             occ[h] += 1

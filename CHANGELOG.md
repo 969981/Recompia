@@ -3,6 +3,18 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+
+#### Shader setup can stall on one large game file (#194)
+**What was wrong:** on some PCs the shader scan stuck on one large asset file ("28 of 29" for hours), and the log only showed
+a count, not which file, so it was hard to tell a slow drive from a real hang. The scan also ran one worker per CPU thread,
+which could thrash a laptop's memory and disk.
+
+**Now:** the scan logs each game file as it starts and finishes, so a stuck file is named in setup.log, and it uses at most
+four workers, which keeps the disk and memory pressure down.
+
 ## 0.6.2 (build J: Jackrabbit)
 
 Extract it over your 0.6.1 install: the game code is unchanged, so no **Set up again** is needed.
