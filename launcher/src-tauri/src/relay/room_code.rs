@@ -47,7 +47,7 @@ pub fn new_code() -> std::io::Result<String> {
 }
 
 #[cfg(windows)]
-fn os_random(buf: &mut [u8]) -> std::io::Result<()> {
+pub(crate) fn os_random(buf: &mut [u8]) -> std::io::Result<()> {
     const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 2;
     #[link(name = "bcrypt")]
     extern "system" {
@@ -61,7 +61,7 @@ fn os_random(buf: &mut [u8]) -> std::io::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn os_random(buf: &mut [u8]) -> std::io::Result<()> {
+pub(crate) fn os_random(buf: &mut [u8]) -> std::io::Result<()> {
     use std::io::Read;
     std::fs::File::open("/dev/urandom")?.read_exact(buf)
 }
