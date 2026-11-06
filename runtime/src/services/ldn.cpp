@@ -572,7 +572,8 @@ void copy_name(char (&dst)[33], const std::string& s) {
     std::memcpy(dst, s.data(), n);
 }
 
-// SessionId = "pkpR" + u32 room id + 6 B relay tag (relay_tag(); zero in host:port mode) + 2 zero bytes.
+// SessionId = "pkpR" + u32 room id + 6 B relay tag + 2 zero bytes. The tag (relay_tag()) is set in every mode, so a host:port host and
+// an auto visitor on one relay agree; zero only when the relay sent no version.
 struct SessionRef {
     uint32_t room = 0;   // 0: not one of ours
     uint64_t tag = 0;
@@ -604,7 +605,7 @@ bool room_lists(const vnet::Room& r, uint32_t vip) {
 }
 
 // The NetworkInfo of a lobby room. own_vip/own_name: this node's entry uses the game's UserConfig name. tag: the room's relay (relay_tag(),
-// auto mode; 0 in host:port mode = the layout as before). Everything the game could use to tell networks apart carries it: session id,
+// every mode; 0 only for a relay without a version = the layout as before). Everything the game could use to tell networks apart carries it: session id,
 // BSSID and node MACs (tagged_mac), SSID (tag << 16 | room id), the security parameter (SHA-256 of the session id) and the
 // authentication id. The host and its visitors compute the same tag for their relay, so every node sees the same values.
 NetworkInfo make_info(const vnet::Room& r, uint8_t accept_policy, uint32_t own_vip, const std::string& own_name, uint64_t tag) {
@@ -757,7 +758,7 @@ private:
     std::map<std::pair<uint64_t, uint32_t>, int16_t> scan_wire_;   // (relay tag, room id) -> its version on the wire as the last Scan
                                                                     // listed it (the session variant)
     std::map<uint64_t, std::pair<std::string, uint16_t>> tag_relay_;   // auto: relay tag -> its address, from the Scans so far
-    uint64_t tag_ = 0;                   // the relay tag of the room this node is in (0 in host:port mode)
+    uint64_t tag_ = 0;                   // the relay tag of the room this node is in
 };
 
 void Ldn::cmd(ipc::Service& s, uint32_t id, const char* name, H h) {
@@ -985,7 +986,7 @@ uint32_t Ldn::get_latest_update(ipc::Request& req, ipc::Response&) {
 // ---- scan ----------------------------------------------------------------------------------------------------------------------------
 
 uint32_t Ldn::scan(ipc::Request& req, ipc::Response& rsp) {
-    bool all, is_auto;   // all: auto mode outside a room, the rooms of every relay on the LAN
+    bool all;   // all: auto mode outside a room, the rooms of every relay on the LAN
     std::shared_ptr<vnet::Lobby> lobby;
     uint32_t own_room;
     {
@@ -993,7 +994,6 @@ uint32_t Ldn::scan(ipc::Request& req, ipc::Response& rsp) {
         if (state_ == kNone) return kInvalidState;
         // With no lobby every initialized state answers an empty scan (the offline stub's answer); with one (or auto), Switchbrew's 2..5.
         if ((lobby_ || auto_) && (state_ < kAccessPoint || state_ > kStationConnected)) return kInvalidState;
-        is_auto = auto_;
         all = auto_ && !in_network();
         lobby = lobby_;
         own_room = room_id_;
@@ -1034,7 +1034,7 @@ uint32_t Ldn::scan(ipc::Request& req, ipc::Response& rsp) {
         std::vector<vnet::Room> rooms;
         const int e = lobby->scan(lcid, scene, &rooms);
         if (e) NXLOG_D("net", "ldn: scan failed: %s", vnet::lobby_err_str(e));
-        const uint64_t tag = is_auto ? relay_tag(*lobby) : 0;
+        const uint64_t tag = relay_tag(*lobby);
         {
             std::lock_guard<std::mutex> lk(mu_);
             for (const vnet::Room& r : rooms) scan_wire_[{tag, r.room_id}] = r.comm_version;
@@ -1121,7 +1121,7 @@ uint32_t Ldn::create(const SecurityConfig& sec, const UserConfig& user, const Ne
         NXLOG_I("net", "ldn: CreateNetwork failed: %s", vnet::lobby_err_str(e));
         return kDeviceNotAvailable;
     }
-    const uint64_t tag = host_auto ? relay_tag(*lobby) : 0;   // what visitors put in the session id for this relay
+    const uint64_t tag = relay_tag(*lobby);   // what visitors put in the session id for this relay (every mode: all nodes agree)
     std::lock_guard<std::mutex> lk(mu_);
     tag_ = tag;
     room_id_ = j.room_id;
@@ -1280,7 +1280,7 @@ uint32_t Ldn::join(const SessionRef& sref, int16_t room_version, const SecurityC
         user_name_.assign(user.user_name, strnlen(user.user_name, 32));
     }
     if (room_id == 0) return kConnectNotFound;
-    const uint64_t tag = is_auto ? relay_tag(*lobby) : 0;
+    const uint64_t tag = relay_tag(*lobby);
     if (is_auto && sref.tag && tag != sref.tag) {   // the relay at that address restarted (a new instance id): its rooms are gone
         NXLOG_I("net", "ldn: Connect to room %u: its relay is not the one the Scan listed any more", room_id);
         return kConnectNotFound;
@@ -1339,7 +1339,7 @@ uint32_t Ldn::join(const SessionRef& sref, int16_t room_version, const SecurityC
         lobby->leave();
         return kConnectFailure;
     }
-    tag_ = tag;
+    tag_ = relay_tag(*lobby);   // after JOIN the WELCOME is in: the same value the host computed
     room_id_ = j.room_id;
     vip_ = j.vip;
     reason_ = kReasonNone;
