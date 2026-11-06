@@ -210,17 +210,21 @@ void write_report(const std::string& path, const std::string& text) {
     std::fclose(f);
 }
 
+struct ExtraReport {
+    std::string (*fn)();
+    bool in_crash;
+};
 std::mutex g_report_mu;
-std::vector<std::string (*)()> g_reports;
+std::vector<ExtraReport> g_reports;
 
 std::string extra_reports() {
-    std::vector<std::string (*)()> fns;
+    std::vector<ExtraReport> fns;
     {
         std::lock_guard<std::mutex> lk(g_report_mu);
         fns = g_reports;
     }
     std::string out;
-    for (auto fn : fns) out += fn();
+    for (const auto& r : fns) out += r.fn();
     return out;
 }
 
@@ -395,9 +399,22 @@ uint32_t watchdog_fire_count() { return g_fires.load(std::memory_order_relaxed);
 
 std::string diag_thread_dump() { return dump_text(); }
 
-void diag_add_report(std::string (*fn)()) {
+void diag_add_report(std::string (*fn)(), bool in_crash_report) {
     std::lock_guard<std::mutex> lk(g_report_mu);
-    g_reports.push_back(fn);
+    g_reports.push_back({fn, in_crash_report});
+}
+
+std::string diag_crash_extra_reports() {
+    std::vector<ExtraReport> fns;
+    {
+        std::unique_lock<std::mutex> lk(g_report_mu, std::try_to_lock);   // the crashing thread may be the one registering
+        if (!lk.owns_lock()) return {};
+        fns = g_reports;
+    }
+    std::string out;
+    for (const auto& r : fns)
+        if (r.in_crash) out += r.fn();
+    return out;
 }
 
 }  // namespace nxrt

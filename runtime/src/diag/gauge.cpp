@@ -429,7 +429,7 @@ void hitch_start() {
     g_hitch_on.store(true);
     s.stop = false;
     s.th = std::thread(monitor_run, summary_s);
-    static const bool report_registered = (diag_add_report(frame_times_report), true);   // the freeze dump shows the last 30 s of frame times
+    static const bool report_registered = (diag_add_report(frame_times_report, false), true);   // the freeze dump shows the last 30 s of frame times (the crash report has its own)
     (void)report_registered;
     NXLOG_I("diag", "hitch log: frame summary every %.0f s, frames over %.0f ms logged (at most one line per second)", summary_s, hitch_ms);
 }

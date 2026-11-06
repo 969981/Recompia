@@ -7,6 +7,11 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Fixes
 
+- The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
+  starts, and when it collected none, warm_up() wrote an empty `shader_cache/runtime/manifest.tsv`, so the warm-up never ran
+  again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
+  attempts (counted in a small file next to the manifest).
+
 #### Shader setup: the scan writes a few large files instead of 361,000 small ones (#194)
 **What was wrong:** the shader scan wrote every shader block as its own file: about 361,000 files and 9 GB in
 `shader_cache\corpus`, almost all of them from one 2.4 GB game file that is always the last one scanned. On a hard drive, and
