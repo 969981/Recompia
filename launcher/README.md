@@ -28,6 +28,9 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
    next to it makes its folder the working directory, and every path comes from the ini (relative paths start there).
 
 `release\Play.bat` starts the game the same way without the launcher (after setup).
+`PokopiaLauncher --play [--game <folder>]` does what Play does without the window (it also prepares the run-time shaders
+before the start and translates the new ones after it) and waits for the game: for a Steam, Sunshine or desktop shortcut.
+The game folder is the launcher's own folder unless `--game` names another.
 
 ## Release model (b): pkp.exe built on the player's PC
 
