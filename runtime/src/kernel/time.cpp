@@ -2,119 +2,12 @@
 // System tick and high-resolution sleep. Pattern from smo-recomp runtime/os/os_threads.c sleep_ns and SuperMarioWonderRecomp kernel.cpp system_tick.
 #include <windows.h>
 
-#include <atomic>
-#include <fstream>
-#include <mutex>
-#include <string>
-
-#include "nxrt/config.h"
 #include "nxrt/kernel.h"
 #include "nxrt/game.h"
-#include "nxrt/log.h"
 #include "nxrt/tt.h"
 #include "kernel_internal.h"
 
 namespace nxrt::kernel {
-namespace {
-// [time] tick = wall (default) | qpc. wall: the console tick (CNTPCT_EL0, nn::os::GetSystemTick) counts the host wall clock since a base
-// kept in tick_base.txt beside the ini (unix ns). QueryPerformanceCounter stops while the host sleeps and starts over at boot, and a game
-// that moves its own clock by the tick between saves (Pokopia) lost every sleep: 41 min behind after a handheld slept with it open, and
-// still behind at every launch after. The wall tick never loses a tick against the host clock, through sleep, launches and reboots. The
-// base is written once, as host time minus the counter at that moment, so the count goes on from where the old counter was (no jump at
-// the switch); [time] tick_shift = <seconds> adds that much on that first write, a one-time move of the game's clock (to give back the
-// minutes lost before the switch). The same file on another machine gives the same tick for a shared save. The tick never runs
-// backwards: a host clock step back under 2 s holds it, a larger one lowers the base by the step (logged) so the count goes on.
-// qpc: the old counter.
-constexpr const char* kTickBaseFile = "tick_base.txt";
-constexpr int64_t kHoldNs = 2000000000;          // a step back of the host clock under this holds the tick instead of moving the base
-
-int64_t qpc_ns() {
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    return static_cast<int64_t>(c.QuadPart / f.QuadPart * 1000000000 + c.QuadPart % f.QuadPart * 1000000000 / f.QuadPart);
-}
-int64_t wall_unix_ns() {
-    FILETIME ft;
-    GetSystemTimePreciseAsFileTime(&ft);
-    const uint64_t t = (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;   // 100 ns units since 1601-01-01
-    return static_cast<int64_t>(t - 116444736000000000ull) * 100;
-}
-
-struct WallTick {
-    std::mutex m;
-    std::atomic<bool> ready{false};
-    bool on = false;
-    std::atomic<int64_t> base_ns{0};
-    std::atomic<int64_t> last_ns{0};
-};
-WallTick& wall_tick() {
-    static WallTick w;
-    return w;
-}
-
-void wall_tick_init(WallTick& w) {
-    std::lock_guard<std::mutex> lk(w.m);
-    if (w.ready.load()) return;
-    std::string mode = config_get_str("time", "tick", "wall");
-    for (char& ch : mode)
-        if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
-    w.on = mode != "qpc";
-    if (w.on) {
-        int64_t base = 0;
-        {
-            std::ifstream in(kTickBaseFile);
-            if (!(in >> base)) base = 0;
-        }
-        if (base == 0) {
-            const int64_t shift = config_get_int("time", "tick_shift", 0);
-            base = wall_unix_ns() - qpc_ns() - shift * 1000000000ll;
-            std::ofstream out(kTickBaseFile, std::ios::trunc);
-            out << base << '\n';
-            NXLOG_I("time", "console tick: base written to %s (continues the counter, shift %lld s)", kTickBaseFile, static_cast<long long>(shift));
-        }
-        w.base_ns.store(base);
-        NXLOG_I("time", "console tick: host wall clock since base %lld (unix ns): %lld s at start-up", static_cast<long long>(base),
-                static_cast<long long>((wall_unix_ns() - base) / 1000000000));
-    } else {
-        NXLOG_I("time", "console tick: QueryPerformanceCounter");
-    }
-    w.ready.store(true);
-}
-
-// The wall tick in ns, or false when [time] tick = qpc.
-bool wall_tick_ns(int64_t* out) {
-    WallTick& w = wall_tick();
-    if (!w.ready.load(std::memory_order_acquire)) wall_tick_init(w);
-    if (!w.on) return false;
-    for (;;) {
-        int64_t v = wall_unix_ns() - w.base_ns.load(std::memory_order_relaxed);
-        if (v < 0) v = 0;
-        int64_t last = w.last_ns.load(std::memory_order_relaxed);
-        if (v >= last) {
-            if (w.last_ns.compare_exchange_weak(last, v, std::memory_order_relaxed)) {
-                *out = v;
-                return true;
-            }
-            continue;
-        }
-        if (last - v < kHoldNs) {
-            *out = last;
-            return true;
-        }
-        std::lock_guard<std::mutex> lk(w.m);
-        v = wall_unix_ns() - w.base_ns.load();
-        last = w.last_ns.load();
-        if (v >= last || last - v < kHoldNs) continue;   // another thread moved the base already
-        const int64_t step = last - v;
-        w.base_ns.store(w.base_ns.load() - step);
-        std::ofstream out(kTickBaseFile, std::ios::trunc);
-        out << w.base_ns.load() << '\n';
-        NXLOG_W("time", "console tick: the host clock stepped back %lld ms; base lowered to %lld so the tick goes on from where it was",
-                static_cast<long long>(step / 1000000), static_cast<long long>(w.base_ns.load()));
-    }
-}
-}  // namespace
 
 uint64_t tick_hz() {
     static const uint64_t hz = game::info().platform == game::Platform::Switch2 ? kTickHzSwitch2 : kTickHzSwitch1;
@@ -123,10 +16,6 @@ uint64_t tick_hz() {
 
 uint64_t system_tick() {
     if (uint64_t vt; tt::virtual_tick(&vt)) return vt;      // deterministic mode: the virtual clock (test tooling)
-    if (int64_t ns; wall_tick_ns(&ns)) {                     // [time] tick = wall: the host wall clock in console ticks
-        const uint64_t n = static_cast<uint64_t>(ns), hz = tick_hz();
-        return (n / 1000000000ull) * hz + (n % 1000000000ull) * hz / 1000000000ull;
-    }
     static const uint64_t freq = [] {
         LARGE_INTEGER f;
         QueryPerformanceFrequency(&f);

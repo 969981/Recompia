@@ -14,6 +14,11 @@
 //     so the steady clock carries on across runs like the console's, which is RTC-backed and survives reboots: a SteadyClockTimePoint
 //     the game saved in an earlier run still measures real elapsed time. Seconds are the floor of the sum; the sequence is monotonic.
 //   * every change of an offset rewrites the shared memory, so the guest's fast GetCurrentTime path sees the same values.
+//   * host sleep ([time] resync, PR #172): the host counter behind kernel::system_tick stops while the host sleeps under Proton
+//     (CLOCK_MONOTONIC), so with the game open across a sleep every clock fell behind by the nap until the next launch. A watcher
+//     compares host UTC with the steady clock every 2 s; when the gap grew by more than 2 s the steady clock gets the difference
+//     (sleep_ns: the console's RTC-backed steady clock runs on through sleep) and the shared memory is written again. A host clock
+//     set back only rewrites the contexts: the steady clock never runs backwards.
 //
 // Time shared memory (0x1000 bytes, offsets as TimeSharedMemory.cs writes them). A block is a u32 index at `off`, `pad` bytes, then two
 // slots; the live slot is (index & 1). Writers bump the index after writing the free slot.
@@ -42,6 +47,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -126,6 +132,8 @@ struct State {
     uint64_t tick0_ns = 0;                                // raw tick at start-up, in ns (the ContinuousAdjustment clock_offset)
     int64_t base_ns = 0;                                  // steady time at start-up: the host RTC value then, in ns
     int64_t internal_ns = 0, test_ns = 0;                 // steady clock offsets (TimeSpanType, ns)
+    int64_t sleep_ns = 0;                                 // host sleep the counter missed, added to the steady clock ([time] resync)
+    int64_t gap_ns = 0;                                   // host UTC - steady time (ns) when the clocks were last in step
     int64_t local_delta = 0, network_delta = 0, ephemeral_delta = 0;   // seconds added to host UTC per clock
     bool auto_correction = false;
     bool device_utc = false;                              // [time] zone = UTC
@@ -174,12 +182,28 @@ int64_t host_unix_now() {
 #endif
 }
 
+// Host UTC in ns since 1970 (the watcher needs better than seconds).
+int64_t host_unix_now_ns() {
+#if defined(_WIN32)
+    const uint64_t t = tt::wall_filetime();
+    return static_cast<int64_t>(t - 116444736000000000ull) * 100;
+#else
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+#endif
+}
+
 // Steady time minus raw tick time (ns): what the guest adds to the raw tick to read the steady clock. Negative once the host counter
 // is past the steady time; the SDK adds it as a signed value.
-int64_t steady_minus_raw_ns(const State& s) { return s.base_ns + s.internal_ns + s.test_ns - static_cast<int64_t>(s.tick0_ns); }
+int64_t steady_minus_raw_ns(const State& s) {
+    return s.base_ns + s.internal_ns + s.test_ns + s.sleep_ns - static_cast<int64_t>(s.tick0_ns);
+}
 
 int64_t steady_total_ns(const State& s) { return static_cast<int64_t>(raw_ticks_ns()) + steady_minus_raw_ns(s); }
 int64_t steady_secs(const State& s) { return steady_total_ns(s) / 1000000000; }
+// The steady clock without the offsets the game or tests set (internal, test): what the host counter and the host sleep alone give.
+int64_t host_steady_ns(const State& s) {
+    return static_cast<int64_t>(raw_ticks_ns()) + s.base_ns + s.sleep_ns - static_cast<int64_t>(s.tick0_ns);
+}
 
 struct Now {
     int64_t host, steady;
@@ -306,6 +330,7 @@ void init_locked(State& s) {
     s.base_ns = (rtc > kMinSteadyBaseSeconds ? rtc : kMinSteadyBaseSeconds) * 1000000000ll;
     s.internal_ns = 0;
     s.test_ns = 0;
+    s.sleep_ns = 0;
     s.local_delta = 0;
     s.network_delta = 0;
     s.ephemeral_delta = 0;
@@ -321,9 +346,43 @@ void init_locked(State& s) {
         std::memset(b, 0, kShmSize);
         write_shm(s);
     }
+    s.gap_ns = host_unix_now_ns() - host_steady_ns(s);
     NXLOG_I("time", "steady clock: %lld s at start-up (host RTC base), host counter %llu s, the game adds %lld ns to it",
             static_cast<long long>(steady_secs(s)), static_cast<unsigned long long>(s.tick0_ns / 1000000000ull),
             static_cast<long long>(steady_minus_raw_ns(s)));
+}
+
+// [time] resync: one check, under mu(). Host UTC - steady time stays fixed while both run; it grows when the host slept (the counter
+// stopped) or its clock was set forward, and shrinks when the clock was set back.
+constexpr int64_t kResyncNs = 2000000000;   // drift that counts as a sleep or a clock change; under it is jitter
+void resync_locked(State& s) {
+    const int64_t gap = host_unix_now_ns() - host_steady_ns(s);
+    const int64_t d = gap - s.gap_ns;
+    if (d > -kResyncNs && d < kResyncNs) return;
+    if (d > 0) s.sleep_ns += d;   // slept (or the clock moved forward): the steady clock catches up, like the console's after sleep
+    write_shm(s);
+    s.gap_ns = host_unix_now_ns() - host_steady_ns(s);
+    NXLOG_I("time", "host clock %s %lld s against the steady clock (%s): clocks written again",
+            d > 0 ? "ahead by" : "behind by", static_cast<long long>((d > 0 ? d : -d) / 1000000000),
+            d > 0 ? "host sleep or clock moved forward; steady clock moved forward" : "host clock set back; steady clock kept");
+}
+
+void start_resync_watcher() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        if (!config_get_bool("time", "resync", true)) {
+            NXLOG_I("time", "resync off: the clocks do not follow a host sleep until the next launch");
+            return;
+        }
+        std::thread([] {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                std::lock_guard<std::mutex> lk(mu());
+                State& s = raw_state();
+                if (s.created) resync_locked(s);
+            }
+        }).detach();
+    });
 }
 
 // Lazily brings the state up (the shared memory needs the kernel region, so nothing is allocated before the first service use).
@@ -332,6 +391,7 @@ State& state_locked() {
     if (!s.created) {
         s.created = true;
         init_locked(s);
+        start_resync_watcher();
     }
     return s;
 }

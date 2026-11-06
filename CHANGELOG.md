@@ -3,6 +3,17 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Bug fixes
+
+#### The in-game clock fell behind after the handheld slept (#172)
+**What was wrong:** put a Steam Deck or Legion Go S to sleep with the game open, wake it, and the in-game clock was behind by the
+whole nap until you restarted the game: under Proton the counter the game's clock runs on stops during sleep.
+
+**Now:** a few seconds after waking, the in-game clock catches up with the device's clock. `[time] resync = false` turns it off.
+Thanks to @Exon0t for finding and measuring this on a Legion Go S.
+
 ## 0.6.0 (build J: Jaguar)
 
 ### Highlights
