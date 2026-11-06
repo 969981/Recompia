@@ -1,11 +1,18 @@
 # Builds the player zip (game-build/scripts/make-release.ps1). A tag v<x.y.z> publishes it as a GitHub release, its notes taken from
-# that version's section of CHANGELOG.md. Manual runs only build it (artifact). No test or pull request checks.
+# that version's section of CHANGELOG.md. Manual runs only build it (artifact), unless they name a release tag: run on main with
+# release_tag = v<x.y.z>, they publish it the same way and GitHub creates the tag on the commit that was built. No test or pull
+# request checks.
 name: Release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish as this release (v<x.y.z>; main only; GitHub creates the tag). Empty: build only.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -14,6 +21,8 @@ env:
   LLVM_VERSION: 23.1.4
   RYUBING_COMMIT: a82350bb774f70fcbd41c9987bf67a3775409963
   BASE_RELEASE: v0.1.1            # upstream package the third-party payload comes from (make-release.ps1)
+  # the release this run publishes: the pushed tag, or a manual run's release_tag; empty = build only
+  REL_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
 
 jobs:
   release:
@@ -27,7 +36,11 @@ jobs:
 
       - name: Version
         run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v', '' } else { '0.0.0' }
+          if ($env:REL_TAG -and $env:GITHUB_REF_TYPE -ne 'tag') {
+            if ($env:GITHUB_REF -ne 'refs/heads/main') { throw "release_tag publishes from main only (this run: $env:GITHUB_REF)" }
+            if ($env:REL_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "release_tag '$env:REL_TAG' is not v<x.y.z>" }
+          }
+          $v = if ($env:REL_TAG) { $env:REL_TAG -replace '^v', '' } else { '0.0.0' }
           "VERSION=$v" >> $env:GITHUB_ENV
 
       - name: LLVM ${{ env.LLVM_VERSION }}
@@ -75,7 +88,7 @@ jobs:
       - name: Launcher
         working-directory: launcher
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {   # the launcher window shows its own version
+          if ($env:REL_TAG) {   # the launcher window shows its own version
             $c = 'src-tauri/tauri.conf.json'; (Get-Content -Raw $c) -replace '"version": "[^"]*"', "`"version`": `"$env:VERSION`"" | Set-Content -NoNewline $c
             $t = 'src-tauri/Cargo.toml'; (Get-Content -Raw $t) -replace '(?m)^version = "[^"]*"', "version = `"$env:VERSION`"" | Set-Content -NoNewline $t
           }
@@ -119,7 +132,7 @@ jobs:
           compression-level: 0
 
       - name: Publish
-        if: github.ref_type == 'tag'
+        if: env.REL_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -128,11 +141,11 @@ jobs:
           if (-not $m.Success) { throw "CHANGELOG.md has no section '## $env:VERSION'" }
           $m.Groups[1].Value.Trim() | Set-Content build/notes.md
           $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
-          gh release create $env:GITHUB_REF_NAME (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title ("Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } else { "" })) --notes-file build/notes.md
+          gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title ("Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } else { "" })) --notes-file build/notes.md
 
   # The Linux package: the Windows zip above (the runtime, the build kit, the shader translator: they run through Proton) with the
   # Linux launcher as an AppImage in place of PokopiaLauncher.exe, which does not start under Proton (no WebView2). A tag adds it
-  # to the release; manual runs only build it (artifact).
+  # to the release; manual runs without release_tag only build it (artifact).
   linux:
     needs: release
     runs-on: ubuntu-24.04
@@ -142,7 +155,7 @@ jobs:
 
       - name: Version
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then v=${GITHUB_REF_NAME#v}; else v=0.0.0; fi
+          if [ -n "$REL_TAG" ]; then v=${REL_TAG#v}; else v=0.0.0; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Packages
@@ -162,7 +175,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1     # linuxdeploy is an AppImage itself; no FUSE on the runner
           NO_STRIP: true
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then   # the launcher window shows its own version
+          if [ -n "$REL_TAG" ]; then   # the launcher window shows its own version
             sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
             sed -i -E "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           fi
@@ -202,11 +215,11 @@ jobs:
           compression-level: 0
 
       - name: Publish
-        if: github.ref_type == 'tag'
+        if: env.REL_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D build/sums
+          gh release download "$REL_TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D build/sums
           sed -E 's/^([0-9a-f]+) \*?(.*)$/\1 *\2/' build/rel/linux.sha256 >> build/sums/SHA256SUMS.txt
           cat build/sums/SHA256SUMS.txt
-          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz build/sums/SHA256SUMS.txt --clobber
+          gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz build/sums/SHA256SUMS.txt --clobber
