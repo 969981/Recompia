@@ -3466,7 +3466,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
         checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), 1, true);
         vkCmdDrawIndexedIndirect(F->cb, qa.buffer, qa.offset, 1, 20);
         const uint64_t n = ++g_qa.draws;
-        if (n == 1 || n == 10 || n == 100 || n == 1000 || n == 10000 || n % 100000 == 0)
+        if ((n & (n - 1)) == 0)   // 1, 2, 4, 8, ...
             NXLOG_I("nvn.replay", "indirect quads drawn with GPU-made arguments: %llu so far", static_cast<unsigned long long>(n));
         counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
         g_pass_draws++;
