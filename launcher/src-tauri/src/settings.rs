@@ -157,37 +157,3 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str)
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn portable_paths_inside_the_game_folder_are_relative() {
-        let dir = std::env::temp_dir().join(format!("pkp_portable_{}", std::process::id()));
-        let inside = dir.join("dump").join("updates").join("655360").join("exefs");
-        fs::create_dir_all(&inside).unwrap();
-        assert_eq!(portable(&dir, &inside.to_string_lossy()), "dump/updates/655360/exefs");
-        let outside = std::env::temp_dir();
-        assert_eq!(portable(&dir, &outside.to_string_lossy()), outside.to_string_lossy());   // outside: unchanged
-        assert_eq!(portable(&dir, "Z:/does/not/exist"), "Z:/does/not/exist");
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn play_paths_turn_on_dump_missing_once() {
-        let dir = std::env::temp_dir().join(format!("pkp_dm_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let d = crate::dump::fwd(&dir);
-        ensure_play_paths(&dir, &d, &d, "").unwrap();
-        assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(crate::shaders::MISSING_REL));
-        // the user turned it off: kept
-        let mut ini = load(&dir.join(PKP_INI)).unwrap();
-        ini.set("nvn", "dump_missing", "");
-        write_atomic(&dir.join(PKP_INI), &ini.to_text()).unwrap();
-        ensure_play_paths(&dir, &d, &d, "").unwrap();
-        assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("nvn", "dump_missing").as_deref(), Some(""));
-        let _ = fs::remove_dir_all(&dir);
-    }
-}

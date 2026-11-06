@@ -182,7 +182,7 @@ bool parse_corner(const std::string& name, Corner* out) {
 
 // ---- actions -----------------------------------------------------------------------------------------------------------------
 
-// One row per Act, in enum order (checked by the static_assert below and by the unit tests). The generic names and outputs: the game's
+// One row per Act, in enum order (checked by the static_assert below). The generic names and outputs: the game's
 // action slots have no factory output here; the registered game gives its own table (GameVocabulary::acts).
 namespace {
 const ActInfo kActs[] = {
