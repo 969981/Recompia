@@ -386,11 +386,21 @@ pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result
         return Ok(None);
     }
     let n = translate_missing(game_dir, tools_dir)?;
-    // an empty list still records that the warm-up ran: a run that collects nothing is not repeated at every start
+    // A run that collected nothing is retried at the next Play/Set up, but only twice, so a game that never dumps a run-time
+    // block does not warm up on every start. The retries are counted in a small file next to the manifest.
     let list = game_dir.join(RUNTIME_REL).join("manifest.tsv");
-    if !list.is_file() {
+    if list.is_file() {
+        let _ = fs::remove_file(game_dir.join(RUNTIME_REL).join("warmup_empty"));
+    } else {
+        let counter = game_dir.join(RUNTIME_REL).join("warmup_empty");
+        let tried = fs::read_to_string(&counter).ok().and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0) + 1;
         let _ = fs::create_dir_all(game_dir.join(RUNTIME_REL));
-        fs::write(&list, "").map_err(|e| format!("cannot write {}: {}", list.display(), e))?;
+        if tried >= 3 {
+            fs::write(&list, "").map_err(|e| format!("cannot write {}: {}", list.display(), e))?;
+            let _ = fs::remove_file(&counter);
+        } else {
+            fs::write(&counter, tried.to_string()).map_err(|e| format!("cannot write {}: {}", counter.display(), e))?;
+        }
     }
     let _ = fs::remove_dir_all(&scratch);
     Ok(Some(n))
