@@ -68,7 +68,9 @@ If a file is missing, setup stops and names it. `pkp.exe` can live in another fo
 
 The launcher also builds as a native Linux program (`npm run tauri build -- --no-bundle` on Linux, or an AppImage with
 `--bundles appimage`). Tauri draws it with WebKitGTK there, so it needs no WebView2, which Proton lacks (the Windows launcher
-does not start under Proton). Put it in the release folder next to `tools/` as `PokopiaLauncher`. The game stays the Windows
+does not start under Proton). Releases ship it as `PokopiaRecomp-<version>-linux-x64.tar.gz`: the Windows package with
+`PokopiaLauncher.AppImage` in place of `PokopiaLauncher.exe` (built by the `linux` job of `.github/workflows/release.yml`). A
+build of your own goes in the release folder next to `tools/`. The game stays the Windows
 `pkp.exe`; what differs on Linux is in `src-tauri/src/host.rs`:
 
 - **Build tools:** the first Set up downloads Python 3.13 (python-build-standalone) with the lz4 and capstone wheels, and
