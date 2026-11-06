@@ -945,7 +945,47 @@ fn udp_loop(sh: Arc<Shared>, sock: Arc<UdpSocket>) {
     }
 }
 
+/// LAN discovery (mod.rs "LAN discovery"): request = magic + 8 B nonce + zeros, DISC_LEN bytes.
+const DISC_REQUEST: &[u8; 8] = b"PKPDISC1";
+const DISC_REPLY: &[u8; 8] = b"PKPHOST1";
+const DISC_LEN: usize = 64;
+/// The host name a launcher relay answers with (it has no player of its own).
+const DISC_NICK: &str = "Relay";
+
+/// Private, link-local or loopback IPv4: the only sources a discovery request is answered for (the relay may face the internet).
+fn lan_source(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => v.is_private() || v.is_link_local() || v.is_loopback(),
+        IpAddr::V6(_) => false,
+    }
+}
+
+/// Answers a well-formed discovery request from a LAN source: magic, the request's nonce, u16 TCP port, u8 open rooms (no room
+/// code, not full), u8 nickname length + nickname. Never longer than the request, so it cannot amplify.
+fn discovery_reply(sh: &Shared, sock: &UdpSocket, b: &[u8], from: SocketAddr) {
+    if b.len() != DISC_LEN || !lan_source(from.ip()) {
+        return;
+    }
+    let Ok(local) = sock.local_addr() else { return };
+    let open = {
+        let st = sh.lock();
+        st.rooms.values().filter(|r| r.room_key.is_none() && r.members.len() < r.node_count_max as usize).count().min(255) as u8
+    };
+    let nick = DISC_NICK.as_bytes();
+    let mut v = Vec::with_capacity(DISC_LEN);
+    v.extend_from_slice(DISC_REPLY);
+    v.extend_from_slice(&b[8..16]);
+    v.extend_from_slice(&local.port().to_le_bytes());
+    v.push(open);
+    v.push(nick.len() as u8);
+    v.extend_from_slice(nick);
+    let _ = sock.send_to(&v, from);
+}
+
 fn udp_packet(sh: &Shared, sock: &UdpSocket, b: &[u8], from: SocketAddr) {
+    if b.starts_with(DISC_REQUEST) {
+        return discovery_reply(sh, sock, b, from);
+    }
     let Some((token, pkt)) = udp::decode(b) else { return };
     let mut st = sh.lock();
     let Some(&id) = st.tokens.get(&token) else { return };

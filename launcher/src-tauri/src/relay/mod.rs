@@ -132,6 +132,19 @@
 //!   blocked works as in v2. UDP_MODE 1 with no endpoint yet is ignored; UDP_MODE from a v2 client: ERROR 10 + close.
 //! - Client side: HELLO every 100 ms until ACK (3 s), then every 5 s (keepalive and NAT binding refresh); no ACK for
 //!   15 s while on UDP: UDP_MODE 0 and back to TCP, still probing every 5 s.
+//!
+//! # LAN discovery
+//!
+//! The game with `[net] server = auto` finds relays on its network by broadcasting to the relay's UDP port (39660). A relay
+//! with its UDP socket open answers; the game's own relay (runtime/src/net/relay_server.h) answers the same way.
+//!
+//! | dir | layout |
+//! |-----|--------|
+//! | request | `"PKPDISC1"` + 8 B nonce + zeros, 64 B total |
+//! | reply | `"PKPHOST1"` + the request's nonce + u16 TCP port + u8 open rooms (no room code, not full) + u8 nickname len + nickname |
+//!
+//! Only a 64 B request with the magic, from a private, link-local or loopback IPv4 address, is answered, back to its source;
+//! the reply is never longer than the request. This relay answers with the nickname "Relay".
 
 mod codec;
 mod proto;
