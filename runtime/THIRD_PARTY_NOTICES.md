@@ -58,7 +58,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment.
+Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code.
 
 Its `ampere-lower/` folder is separate: it is GPL-3.0-or-later, not MIT. Per its `NOTICE.md` it is a cut-down build of the `ampere-spirv` tool from the Eden-NS2 emulator fork (https://github.com/0x2593/Eden-NS2, GPL-3.0-or-later): the Switch 2 (Ampere) shader capture and the Ampere-to-Maxwell lowering headers from `src/shader_recompiler/frontend/ampere/`, with `main.cpp` reduced to the lowering stage. The headers are unchanged except for four Pokopia fixes (FSEL operand modifiers, HFMA2 `.H0_NH1` lane swap). Its `LICENSE` is the GPL-3.0 text, the same as the `LICENSE` file at the repository root.
 

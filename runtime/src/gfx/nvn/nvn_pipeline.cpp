@@ -340,6 +340,30 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
     // indirect and multi-draw indirect draws alike (spirv_base_instance_from_c0; the replay's c[0] bank holds only a direct draw's).
     std::vector<uint32_t> base_inst;
     if (spirv_base_instance_from_c0(*code, base_inst)) code = &base_inst;
+    // [nvn] ballot_fix: NVN's warp-aggregated atomic counters made per lane (spirv_ballot_per_lane). After some lanes have returned,
+    // their ballot(true) can stop NVIDIA GPUs for good (device lost; pokopia-native #12, #21, #22 on RTX 50, D-1 on an RTX 3050 Laptop).
+    // auto (default): NVIDIA (vendor 0x10de) only, as pokopia-native; the rewrite assumes 32-lane subgroups. on: any GPU. off: never.
+    static const bool ballot_fix = [] {
+        const std::string v = config_get_str("nvn", "ballot_fix", "auto");
+        const uint32_t vendor = device().properties().vendorID;
+        const bool on = v == "on" || v == "true" || v == "1" || ((v == "auto" || v.empty()) && vendor == 0x10de);
+        NXLOG_I(kTag, "ballot_fix = %s (%s, vendor 0x%04x): warp-aggregated counters %s", v.c_str(), on ? "on" : "off", vendor,
+                on ? "made per lane" : "left as translated");
+        return on;
+    }();
+    std::vector<uint32_t> per_lane;
+    if (ballot_fix) {
+        BallotRewrite br;
+        if (spirv_ballot_per_lane(*code, per_lane, &br)) {
+            code = &per_lane;
+            static std::mutex mu;
+            static std::unordered_map<std::string, int> seen;
+            std::lock_guard<std::mutex> lk(mu);
+            if (seen.emplace(what ? what : "?", 1).second)
+                NXLOG_I(kTag, "ballot_fix: shader %s: %d ballot%s of %d counter%s made per lane", what ? what : "?", br.ballots,
+                        br.ballots == 1 ? "" : "s", br.groups, br.groups == 1 ? "" : "s");
+        }
+    }
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every
     // module goes through here, the ones spirv_add_outputs / spirv_gs_passthrough rewrote included. [nvn] init_outputs = false: off (A/B).
