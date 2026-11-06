@@ -917,7 +917,6 @@ uint64_t compute_code_id(const ShaderInfo* cs) {
         else if (ch >= 'A' && ch <= 'F') d = static_cast<uint64_t>(ch - 'A' + 10);
         else { v = 0; break; }
         v = (v << 4) | d;
-)
     }
     return v ? v : reinterpret_cast<uint64_t>(cs);
 }

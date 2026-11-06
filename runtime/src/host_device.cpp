@@ -215,5 +215,4 @@ void host_steam_keyboard_open(int x, int y, int w, int h) {
 
 void host_steam_keyboard_close() { queue_url("steam://close/keyboard"); }
 
-)
 }  // namespace nxrt

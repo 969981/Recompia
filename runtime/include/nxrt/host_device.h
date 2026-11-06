@@ -27,6 +27,5 @@ bool host_steam_keyboard_wanted();
 // order (under Proton through the prefix's steam.exe, Proton's helper that forwards steam:// to the native client).
 void host_steam_keyboard_open(int x, int y, int w, int h);
 void host_steam_keyboard_close();
-)
 
 }  // namespace nxrt
