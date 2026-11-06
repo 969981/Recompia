@@ -5,6 +5,14 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### New
+
+#### The launcher runs on Linux (#52)
+The launcher builds as a native Linux program (and as an AppImage), so it no longer needs Microsoft's WebView2, which Proton
+does not have. On Linux it fetches its build tools on the first Set up, compiles pkp.exe there, and runs the shader translator
+and the game through Steam's Proton (in the Steam Linux Runtime, as Steam starts games), umu-run or Wine. Set up, Play, Link
+Play and the save import work there; see `launcher/README.md`. Thanks to @jerbanpls.
+
 ### Bug fixes
 
 #### "The graphics device was lost" a few seconds after launch under Proton (#169)
