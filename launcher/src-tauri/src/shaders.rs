@@ -39,6 +39,10 @@ const CHUNK: usize = if cfg!(windows) { 1000 } else { 5000 };
 /// thrash a machine's memory and disk (issue #194: 15 workers on a hard drive); a few already saturate the disk. The
 /// translator (spirv_harness) keeps the full `job.jobs`.
 const EXTRACT_JOBS: usize = 4;
+/// Translator revision. Raised when a translator fix changes shaders that are already translated: a finished cache of a lower
+/// revision counts as unfinished, and Set up translates those shaders again (`stale_blocks`), the others are kept.
+/// 1: an atomic whose result is read once ran twice (every such counter added its amount twice; spirv-call-args.patch).
+pub const TRANSLATOR_REV: u32 = 1;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -48,6 +52,8 @@ pub struct Marker {
     pub extracted: bool,
     pub blocks: usize,
     pub complete: bool,
+    /// TRANSLATOR_REV of the finished cache (0: before revisions were recorded)
+    pub translator: u32,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -113,7 +119,41 @@ fn write_marker(game_dir: &Path, m: &Marker) -> Result<(), String> {
 
 /// True when a finished setup's cache is in place.
 pub fn is_complete(game_dir: &Path) -> bool {
-    read_marker(game_dir).complete && game_dir.join(SPIRV_REL).join("results.tsv").is_file()
+    let m = read_marker(game_dir);
+    m.complete && m.translator >= TRANSLATOR_REV && game_dir.join(SPIRV_REL).join("results.tsv").is_file()
+}
+
+/// True when the cache was finished by an older translator that a later fix changes: Set up has to run once more.
+pub fn needs_retranslation(game_dir: &Path) -> bool {
+    let m = read_marker(game_dir);
+    m.complete && m.translator < TRANSLATOR_REV
+}
+
+/// The blocks of `rows` (results.tsv rows) whose translation by revision `rev` the later revisions change. Before 1: every
+/// module with an atomic instruction (OpAtomicExchange..OpAtomicXor, opcodes 229-242).
+fn stale_blocks(spirv: &Path, rows: &[String], rev: u32) -> HashSet<String> {
+    let mut out = HashSet::new();
+    if rev >= TRANSLATOR_REV {
+        return out;
+    }
+    for r in rows {
+        let h = first_col(r);
+        let Ok(b) = fs::read(spirv.join(format!("{}.spv", h))) else { continue };
+        let w: Vec<u32> = b.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+        let mut i = 5;
+        while i < w.len() {
+            let (wc, op) = ((w[i] >> 16) as usize, w[i] & 0xffff);
+            if wc == 0 {
+                break;
+            }
+            if (229..=242).contains(&op) {
+                out.insert(h.to_string());
+                break;
+            }
+            i += wc;
+        }
+    }
+    out
 }
 
 fn quiet(cmd: &mut Command, idle: bool) {
@@ -470,7 +510,23 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     marker.blocks = urows.len();
     write_marker(&job.game_dir, &marker)?;
     let results = spirv.join("results.tsv");
-    let done: HashSet<String> = if results.is_file() { read_tsv(&results)?.1.iter().map(|r| first_col(r).to_string()).collect() } else { HashSet::new() };
+    let (_, rrows) = if results.is_file() { read_tsv(&results)? } else { (String::new(), Vec::new()) };
+    let mut done: HashSet<String> = rrows.iter().map(|r| first_col(r).to_string()).collect();
+    // a cache of an older translator: the blocks a later fix changes are translated again. Those of the corpus here; those the
+    // game built while it ran (not in the corpus) lose their .spv, so translate_missing (prepare, after setup) does them.
+    let stale = stale_blocks(&spirv, &rrows, marker.translator);
+    if !stale.is_empty() {
+        let corpus_rows: HashSet<&str> = urows.iter().map(|r| first_col(r)).collect();
+        for h in &stale {
+            done.remove(h);
+            if !corpus_rows.contains(h.as_str()) {
+                let _ = fs::remove_file(spirv.join(format!("{}.spv", h)));
+            }
+        }
+        if let Some(l) = &job.log {
+            l(&format!("translator revision {} -> {}: {} shaders translated again", marker.translator, TRANSLATOR_REV, stale.len()));
+        }
+    }
     let mut todo: Vec<&String> = urows.iter().filter(|r| !done.contains(first_col(r))).collect();
     let limited = job.limit > 0 && todo.len() > job.limit;
     if job.limit > 0 {
@@ -516,6 +572,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let _ = fs::remove_dir_all(&corpus);
     marker.extracted = false;
     marker.complete = true;
+    marker.translator = TRANSLATOR_REV;
     write_marker(&job.game_dir, &marker)?;
     Ok(true)
 }

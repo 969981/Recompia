@@ -255,6 +255,9 @@ fn play(app: AppHandle) -> Result<(), String> {
             gamebuild::Built::No => return Err("Build the game first (Game files, Set up).".into()),
         }
     }
+    if shaders::needs_retranslation(&dir) {
+        return Err("This version fixes how some shaders are translated. Run Set up again once (Game files, Set up): it translates only those shaders again.".into());
+    }
     if !shaders::is_complete(&dir) {
         return Err("Finish the shader setup first (Game files, Set up).".into());
     }

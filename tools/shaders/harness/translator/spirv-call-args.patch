@@ -6,9 +6,20 @@ also turns off the global-to-storage-buffer pass. The Ryujinx code in the contex
 Second change: an assignment whose result is never read was deleted together with its operation, so atomics with
 an unused result (RED, ATOMS.POPC.INC to RZ) vanished from optimised output (only DebugMode kept them); assignments
 from atomics and calls now stay.
+Third change: because those assignments stay, an atomic or a call whose result is read once must not also be moved
+into that use (Uses.Count == 1 propagation), or it runs twice: every ATOMG counter whose result is read added its
+count twice, and the SHFL.IDX helper call that hands the result out ran twice. They are no longer propagated.
 --- a/StructuredIr/AstOptimizer.cs
 +++ b/StructuredIr/AstOptimizer.cs
-@@ -29,7 +29,8 @@
+@@ -24,12 +24,15 @@
+                     {
+                         bool isWorthPropagating = propVar.Uses.Count == 1 || IsWorthPropagating(assignment.Source);
+ 
+-                        if (propVar.Defs.Count == 1 && isWorthPropagating)
++                        // an atomic or a call is not moved into its use: its assignment stays (below), so moving it would run it twice
++                        // (every counter's ATOMG added twice, every shuffle call made twice)
++                        if (propVar.Defs.Count == 1 && isWorthPropagating && !HasSideEffects(assignment.Source))
+                         {
                              PropagateExpression(propVar, assignment.Source);
                          }
  
@@ -18,19 +29,19 @@ from atomics and calls now stay.
                          {
                              visitor.Block.Remove(assignment);
  
-@@ -40,6 +41,11 @@
-             }
- 
+@@ -42,6 +45,11 @@
              RemoveEmptyBlocks(mainBlock);
-+        }
-+
+         }
+ 
 +        private static bool HasSideEffects(IAstNode source)
 +        {
 +            return source is AstOperation op && (op.Inst.IsAtomic() || op.Inst == Instruction.Call);
-         }
- 
++        }
++
          private static bool IsWorthPropagating(IAstNode source)
-@@ -69,6 +75,13 @@
+         {
+             if (source is not AstOperation srcOp)
+@@ -69,6 +77,13 @@
                  }
                  else if (useNode is AstOperation useOperation)
                  {
