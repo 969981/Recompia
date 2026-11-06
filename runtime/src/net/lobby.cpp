@@ -307,6 +307,10 @@ public:
         return send_frame(o.finish());
     }
     bool udp_active() const override { return udp_up_.load(std::memory_order_acquire); }
+    std::string server_version() const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        return server_version_;
+    }
 
 private:
     enum Want : uint8_t { kNone = 0, kWantWelcome = kWelcome, kWantList = kRoomList, kWantJoined = kJoined };

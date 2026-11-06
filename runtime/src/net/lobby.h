@@ -118,6 +118,9 @@ public:
     virtual void set_events(LobbyEvents ev) = 0;
     // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
     virtual bool udp_active() const { return false; }
+    // The server version string of the relay's WELCOME (empty before the first connect, and for the loopback relay). The embedded relay
+    // and the launcher's put a random instance id in it, so it names one relay whatever address it was reached by.
+    virtual std::string server_version() const { return {}; }
 };
 
 // ---- RelayClient ----------------------------------------------------------------------------------------------------------------------

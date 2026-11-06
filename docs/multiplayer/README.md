@@ -24,6 +24,7 @@ mobile, long distance) UDP avoids one lost packet holding up every packet behind
 -> Link Play, unlocked after Environment Level 2 in Withered Wasteland) one player picks **Invite Others to Visit**: the game starts
 the relay itself (port 39660) and hosts on it. The others pick **Visit a Friend**: the game finds the host on the local network
 (a UDP broadcast on port 39660) and lists its island. If the launcher's relay already runs on the host PC, the game uses that one.
+Several hosts on one network: every host's island is listed, and picking one joins that host.
 
 Firewall: the first time a PC hosts, Windows Firewall may ask about pkp.exe; allow it on **private** networks (it needs TCP and UDP
 39660 in, on the host; visitors need UDP replies from it). If nothing is found, check that both PCs are on a Private network and that

@@ -43,7 +43,8 @@ pub struct Config {
     pub password: Option<String>,
     /// A client silent this long is dropped (15 s in production; tests shorten it).
     pub keepalive_timeout: Duration,
-    /// Sent in WELCOME.
+    /// Sent in WELCOME. The default carries a random instance id: the game's auto mode tells relays apart by it (one relay
+    /// reached by two addresses is listed once, and host and visitors derive the same session id from it).
     pub server_version: String,
     /// One plain line per event (start, connect/disconnect, room create/close).
     pub log: Option<LogFn>,
@@ -59,7 +60,7 @@ impl Default for Config {
             build_stamp: None,
             password: None,
             keepalive_timeout: Duration::from_secs(15),
-            server_version: format!("pokopia-launcher {}", env!("CARGO_PKG_VERSION")),
+            server_version: format!("pokopia-launcher {} #{:016x}", env!("CARGO_PKG_VERSION"), new_token()),
             log: None,
             udp: true,
             udp_rate: UDP_PACKETS_PER_SEC,
