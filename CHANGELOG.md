@@ -5,6 +5,15 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Fixes
+
+#### The Linux download starts on more systems, and is smaller
+**What was wrong:** the Linux launcher needed glibc 2.39, so it did not start on Ubuntu 22.04, Debian 12, Mint 21 or Pop!_OS 22.04,
+and its AppImage needed FUSE 2, which Ubuntu 24.04 and others no longer install. The download also carried the Windows-only
+Python, Zig and start script (about 330 MB unpacked), and its README.txt described Windows.
+
+**Now:** the launcher needs glibc 2.35 and no FUSE 2, the Windows-only files are left out, and README.txt explains the Linux steps.
+
 ### For developers
 - `.github/workflows/launcher-checks.yml`: on pull requests and pushes to main that touch `launcher/` or `game-build/release_b/`,
   builds the launcher front end, runs `cargo check` (native and `x86_64-pc-windows-gnu`) and `cargo clippy`, and checks
