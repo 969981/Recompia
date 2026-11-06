@@ -321,6 +321,7 @@ Rules:
 | `boot` | `dump_killer` | `false` | `NXRT_BOOT_DUMP_KILLER` | `game-build/src/mpr_main.cpp` | Temporary debug hook (debug note 121). Logs two fixed memory slots on an access violation, and the thread stacks when one of them first fills. |
 | `boot` | `trace_plt` | `false` | `NXRT_BOOT_TRACE_PLT` | `game-build/src/mpr_main.cpp` | Diagnostic: logs every lazy symbol binding of the game's loader (debug note 018). |
 | `time` | `zone` | `host` | `NXRT_TIME_ZONE` | `src/services/time.cpp` | `utc` (any case) sets UTC. Any other value uses the host time zone. |
+| `time` | `resync` | `true` | `NXRT_TIME_RESYNC` | `src/services/time.cpp` | Every 2 s, compare the host clock with the game's steady clock. If the host is more than 2 s ahead (it slept with the game open: under Proton the host counter stops in sleep), the steady clock gets the difference and the time shared memory is written again, so the in-game clock is right after waking without a restart. If the host clock was set back, only the clocks are rewritten (the steady clock never runs backwards). Logs `host clock ahead by N s ...` each time. `false`: the clocks follow a sleep only at the next launch. Read once. |
 
 ### Audio notes
 
