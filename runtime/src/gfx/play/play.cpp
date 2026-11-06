@@ -365,8 +365,7 @@ void apply_frame_cap(const Settings& s) {
         log_frame_cap(cap, cap, 0.f, 0, "vsync off");
     }
     st.limiter.set_target_fps(cap);
-    // Reflex / Anti-Lag pace to the same cap (remembered for a renderer that is created later), the game's ceiling included (set_max_fps)
-    extras::lowlat_note_cap(st.limiter.effective_fps());
+    extras::lowlat_note_cap(cap);     // Reflex / Anti-Lag pace to the same cap (remembered for a renderer that is created later)
 }
 
 // ---- hooks ----------------------------------------------------------------------------------------------------------------------------
