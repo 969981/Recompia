@@ -15,6 +15,10 @@ was translated: what used it was not drawn for the rest of the session.
 bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
 `[nvn] shader_rescan_ms` sets how often (0 = off).
 
+#### Controller shortcut for the F1 menu
+**Before:** the F1 menu opened only from the keyboard, so a handheld with a touch screen had no way to open it from the controller.
+
+**Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on pokopia-native (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
 #### Small GPUs: the default picture size stops at 2560x1440
 **Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
 

@@ -222,6 +222,7 @@ struct G {
     bool pointer_draw = false;         // [play] pointer_draw: the menu pointer is also drawn into the frame (screenshots show it); a test aid
     bool late_sample = true;           // pump the window's events again right before the mouse counts are taken (S11: the counts are as new as ProcessInput)
     double pitch_limit_deg = 0;
+    bool overlay_combo_held = false;   // poll_pads: the [overlay] pad combination was held at the last poll (the menu toggles on the rising edge)
     bool quit_combo_held = false;      // poll_pads: the [quit] pad combination was held on a pad at the last poll (the prompt opens on the rising edge)
 
     // frame state (main thread)
@@ -677,12 +678,23 @@ void poll_pads(uint64_t now) {
     const bool rumble_changed = lo != st.rumble_lo || hi != st.rumble_hi;
     const bool rumble_refresh = (lo || hi) && now - st.last_rumble_ns > 100 * kMs;
     const uint32_t quit_combo = st.settings.quit.pad;
-    bool quit_held = false;
+    bool quit_held = false, overlay_held = false;
+    // [overlay] pad: the same combination as the quit one would open two things at once, so it is ignored (warned about once per pair)
+    uint32_t overlay_combo = st.settings.overlay.pad;
+    if (overlay_combo && overlay_combo == quit_combo) {
+        static uint32_t warned = 0;
+        if (warned != overlay_combo) {
+            warned = overlay_combo;
+            NXLOG_W(kTag, "[overlay] pad is the same combination as [quit] pad (%s): ignored, pick another", pad_combo_text(overlay_combo).c_str());
+        }
+        overlay_combo = 0;
+    }
     for (size_t i = 0; i < n; ++i) {
         platform::GamepadRaw raw;
         if (!platform::gamepad_poll(infos[i].id, &raw)) continue;
         // the quit combination: every button of it held on this one pad (physical buttons, before [padmap])
         if (quit_combo && (pad_src_held(raw, st.settings.pad) & quit_combo) == quit_combo) quit_held = true;
+        if (overlay_combo && (pad_src_held(raw, st.settings.pad) & overlay_combo) == overlay_combo) overlay_held = true;
         hid::NpadInput tmp;
         map_pad(raw, st.settings.pad, &tmp);
         {   // a pressed button or a stick well off centre makes this the pad the prompts follow
@@ -719,6 +731,11 @@ void poll_pads(uint64_t now) {
     // poll earlier did reach the game.
     if (st.overlay && quit_held && !st.quit_combo_held) st.overlay->open_quit_prompt();
     st.quit_combo_held = quit_held;
+    // The overlay menu toggles on the rising edge of its combination. Its buttons are held back from the game until released, so closing the
+    // menu with them does not press them in the game.
+    if (st.overlay && overlay_held && !st.overlay_combo_held && !st.overlay->quit_prompt_open() && !st.overlay->keyboard_open()) st.overlay->toggle();
+    st.overlay_combo_held = overlay_held;
+    if (overlay_held) pf.buttons = 0;
     // The on-screen keyboard and the quit prompt read the merged pad before it is held back; what it returns stays away from the game (everything while it is
     // open, then the button that closed it until it is released).
     if (st.overlay) {
