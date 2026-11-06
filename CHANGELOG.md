@@ -13,6 +13,10 @@ does not have. On Linux it fetches its build tools on the first Set up, compiles
 and the game through Steam's Proton (in the Steam Linux Runtime, as Steam starts games), umu-run or Wine. Set up, Play, Link
 Play and the save import work there; see `launcher/README.md`. Thanks to @jerbanpls.
 
+#### Start the game straight from a shortcut
+`PokopiaLauncher --play` starts the game the way the Play button does, without the launcher window, and waits for it: for a
+Steam shortcut, Sunshine/Moonlight streaming or a desktop icon.
+
 ### Bug fixes
 
 #### "The graphics device was lost" a few seconds after launch under Proton (#169)
