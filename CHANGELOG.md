@@ -3,7 +3,9 @@
 This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.6.1 (build J: Jackal)
+
+Hotfix for 0.6.0. Extract it over your 0.6.0 install: the game code is unchanged, so no **Set up again** is needed.
 
 ### New
 
