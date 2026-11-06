@@ -148,7 +148,8 @@ jobs:
   # to the release; manual runs without release_tag only build it (artifact).
   linux:
     needs: release
-    runs-on: ubuntu-24.04
+    # Ubuntu 22.04: the AppImage then needs glibc 2.35 (Ubuntu 22.04, Debian 12, Mint 21, SteamOS), not 24.04's 2.39
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -183,6 +184,21 @@ jobs:
           npm run tauri build -- --bundles appimage --config '{"bundle":{"active":true}}'
           ls -la src-tauri/target/release/bundle/appimage/
 
+      - name: AppImage runtime without FUSE 2
+        # linuxdeploy's runtime needs libfuse2, which Ubuntu 24.04 and others no longer install; the static type2 runtime
+        # (pinned) needs none. The AppImage is that runtime followed by the same squashfs.
+        env:
+          RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+        run: |
+          curl -fsSL --retry 3 -o runtime-x86_64 "$RUNTIME_URL"
+          echo "$RUNTIME_SHA256  runtime-x86_64" | sha256sum -c -
+          ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
+          off=$(APPIMAGE_EXTRACT_AND_RUN=1 "$ai" --appimage-offset)
+          { cat runtime-x86_64; tail -c +$((off + 1)) "$ai"; } > "$ai.new"
+          chmod 755 "$ai.new" && mv "$ai.new" "$ai"
+          "$ai" --appimage-offset
+
       - uses: actions/download-artifact@v4
         with:
           name: PokopiaRecomp-${{ env.VERSION }}-win64
@@ -194,7 +210,9 @@ jobs:
           unzip -q build/win/PokopiaRecomp-$VERSION-win64.zip -d build/stage
           pkg=build/stage/PokopiaRecomp-$VERSION
           test -d "$pkg/tools/build" || { echo "unexpected zip layout"; ls build/stage; exit 1; }
-          rm -f "$pkg/PokopiaLauncher.exe"
+          # Windows-only parts: the launcher, the start script, the embedded Python and Zig (Set up fetches the Linux ones)
+          rm -rf "$pkg/PokopiaLauncher.exe" "$pkg/Play.bat" "$pkg/tools/python" "$pkg/tools/build/zig"
+          sed "s/@VERSION@/$VERSION/g" game-build/release_b/README.linux.txt > "$pkg/README.txt"
           install -m 755 launcher/src-tauri/target/release/bundle/appimage/*.AppImage "$pkg/PokopiaLauncher.AppImage"
           tar -C build/stage -czf build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz PokopiaRecomp-$VERSION
           (cd build/rel && sha256sum -b PokopiaRecomp-$VERSION-linux-x64.tar.gz | tee linux.sha256)
