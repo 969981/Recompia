@@ -22,6 +22,13 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
 
+#### Wide screens: text no longer squeezed (#176)
+**What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
+("Ver. 2.0.1" read as "Ver201"), and fitted text such as button labels was squashed.
+
+**Now:** text has the same letter spacing as at 16:9. 16:9 and taller shapes are unchanged. This changes the game code, so run
+**Set up again** after updating.
+
 #### Area transitions: the iris no longer crawls or freezes above 120 fps (#144)
 **What was wrong:** above about 120 fps the house-shaped wipe that closes and opens when you enter or leave a house or area
 could crawl for a minute or look frozen, both on the way in and on the way out.
