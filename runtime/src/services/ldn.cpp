@@ -33,10 +33,21 @@
 // local communication version on the wire (CreateNetwork's room, Connect's JOIN), so the relay's own version check refuses a player whose
 // variant differs. The game sees its own version only (NetworkInfo nodes, GetNetworkConfig). A Connect refused for another variant answers
 // ConnectRejected and logs which side has what; the variant of a room comes from the last Scan that listed it.
-// No lobby ([net] server empty): the state machine runs, Scan finds nothing, Connect answers ConnectNotFound and CreateNetwork
+// No lobby ([net] server empty or off): the state machine runs, Scan finds nothing, Connect answers ConnectNotFound and CreateNetwork
 // DeviceNotAvailable (the answers of the offline stub this replaces).
+// [net] server = auto (the default): no fixed relay. CreateNetwork starts the relay inside this process (vnet::RelayServer on 0.0.0.0:39660,
+// once; it runs until the process exits; a port already taken = another relay on this PC, used as it is) and hosts on it through
+// 127.0.0.1. Scan outside a room runs LAN discovery (vnet::discover_relays, at most every 2 s, the last result in between), asks every
+// relay found for its rooms in parallel (one kept relay client per relay, at most 1.5 s for all of them) and lists the rooms of all of
+// them: several hosts on one network each show up. The session id carries the room's relay (session_of: a tag from the relay's WELCOME
+// instance id, the same for the host and its visitors), and the BSSID, SSID, node MACs, security parameter and authentication id are
+// derived from it too, so two relays' room 1 never look alike. Connect moves the node to the relay its session id names, then joins.
+// Moving = Ldn::adopt(): only while this node is in no room (no current link, no hold link, both point at the lobby in use), the old
+// lobby's sinks are cleared before the new one's are set; the old relay client stays as a scan client. host:port mode writes a zero tag:
+// every byte as before.
 #include "ldn.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -54,6 +65,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/services_api.h"
+#include "../net/relay_server.h"
 #include "../net/vnet.h"
 #include "services_internal.h"
 
@@ -233,9 +245,18 @@ int16_t game_version(int16_t wire) { return wire < 0 ? wire : static_cast<int16_
 uint8_t variant_of(int16_t wire) { return wire < 0 ? 0 : static_cast<uint8_t>((wire & ldnapi::kVariantMask) >> ldnapi::kVariantShift); }
 
 // ---- process lobby ------------------------------------------------------------------------------------------------------------------
+struct AutoRelay {                // auto mode: one client per relay address, kept across scans
+    std::shared_ptr<vnet::Lobby> client;
+    std::chrono::steady_clock::time_point seen{};   // the last discovery that listed it
+    std::shared_ptr<std::atomic<bool>> busy = std::make_shared<std::atomic<bool>>(false);   // a scan of it is in flight
+};
 struct LobbySlot {
     std::mutex mu;
     bool built = false;
+    bool auto_mode = false;      // [net] server = auto: lobby follows the relay in use (auto_relay)
+    vnet::RelayOptions base;     // auto: the options of every relay client (host and port per relay)
+    std::string target;          // auto: host:port of lobby
+    std::map<std::string, AutoRelay> relays;   // auto: host:port -> its client (lobby is one of them)
     std::shared_ptr<vnet::Lobby> lobby;
 };
 LobbySlot& slot() {
@@ -284,33 +305,258 @@ bool room_code_setup(std::array<uint8_t, 16>* key) {
     return true;
 }
 
-std::shared_ptr<vnet::Lobby> process_lobby() {
+std::string lower(std::string s) {
+    for (char& ch : s) ch = static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+    return s;
+}
+
+std::string nickname() {
+    std::string n = profile().user_nickname;
+    return n.empty() ? "Player" : n;
+}
+
+// Everything of a relay client but its host and port. False: [net] room_code is not a code (local wireless stays off).
+bool relay_options(vnet::RelayOptions* o) {
+    o->nickname = nickname();
+    o->password = config_get_str("net", "password", "");
+    if (!room_code_setup(&o->room_key)) return false;
+    const std::string udp = lower(config_get_str("net", "udp", "auto"));
+    o->udp = !(udp == "off" || udp == "0" || udp == "false" || udp == "no" || udp == "tcp");
+    if (o->udp && udp != "auto" && udp != "on" && udp != "1" && udp != "true" && udp != "yes")
+        NXLOG_W("net", "ldn: [net] udp = \"%s\" is not auto or off: auto", udp.c_str());
+    return true;
+}
+
+// [net] server: empty or off = local wireless off; auto (also when the key is absent) = auto mode, no lobby until a relay is picked;
+// host:port = a relay client to it. *auto_mode: auto mode.
+std::shared_ptr<vnet::Lobby> process_lobby(bool* auto_mode) {
     LobbySlot& s = slot();
     std::lock_guard<std::mutex> lk(s.mu);
-    if (s.built) return s.lobby;
-    s.built = true;
-    const std::string server = config_get_str("net", "server", "");
-    vnet::RelayOptions o;
-    if (server.empty()) {
-        NXLOG_I("net", "ldn: [net] server is empty: local wireless off (scans find nothing)");
-        std::remove(room_code_file().c_str());
-        return nullptr;
+    if (!s.built) {
+        s.built = true;
+        const std::string server = config_get_str("net", "server", "auto");
+        std::string v = lower(server);
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) v.pop_back();
+        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
+        vnet::RelayOptions o;
+        if (v.empty() || v == "off") {
+            NXLOG_I("net", "ldn: [net] server is %s: local wireless off (scans find nothing)", v.empty() ? "empty" : "off");
+            std::remove(room_code_file().c_str());
+        } else if (v == "auto") {
+            if (relay_options(&o)) {
+                s.auto_mode = true;
+                s.base = o;
+                NXLOG_I("net", "ldn: [net] server = auto: hosting starts a relay in this process (port %u), visiting looks for hosts on the "
+                        "local network", vnet::kRelayDefaultPort);
+            }
+        } else if (!vnet::parse_server(server, &o.host, &o.port)) {
+            NXLOG_W("net", "ldn: [net] server = \"%s\" is not host:port, auto or off: local wireless off", server.c_str());
+        } else if (relay_options(&o)) {
+            s.lobby = vnet::make_relay_client(o);
+        }
     }
-    if (!vnet::parse_server(server, &o.host, &o.port)) {
-        NXLOG_W("net", "ldn: [net] server = \"%s\" is not host:port: local wireless off", server.c_str());
-        return nullptr;
-    }
-    o.nickname = profile().user_nickname;
-    if (o.nickname.empty()) o.nickname = "Player";
-    o.password = config_get_str("net", "password", "");
-    if (!room_code_setup(&o.room_key)) return nullptr;
-    std::string udp = config_get_str("net", "udp", "auto");
-    for (char& ch : udp) ch = static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
-    o.udp = !(udp == "off" || udp == "0" || udp == "false" || udp == "no" || udp == "tcp");
-    if (o.udp && udp != "auto" && udp != "on" && udp != "1" && udp != "true" && udp != "yes")
-        NXLOG_W("net", "ldn: [net] udp = \"%s\" is not auto or off: auto", udp.c_str());
-    s.lobby = vnet::make_relay_client(o);
+    if (auto_mode) *auto_mode = s.auto_mode;
     return s.lobby;
+}
+
+// Auto mode: the relay client for host:port (made on first use, then kept; caller holds s.mu).
+std::shared_ptr<vnet::Lobby> relay_client_locked(LobbySlot& s, const std::string& host, uint16_t port) {
+    AutoRelay& r = s.relays[host + ":" + std::to_string(port)];
+    if (!r.client) {
+        vnet::RelayOptions o = s.base;
+        o.host = host;
+        o.port = port;
+        r.client = vnet::make_relay_client(o);
+        r.seen = std::chrono::steady_clock::now();
+    }
+    return r.client;
+}
+
+// Auto mode: makes the client of the relay at host:port the process lobby (the one rooms go through: hosting, a Connect) and returns it;
+// the previous one stays in slot().relays as a scan client. Outside auto mode: the process lobby as it is.
+std::shared_ptr<vnet::Lobby> auto_relay(const std::string& host, uint16_t port) {
+    LobbySlot& s = slot();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (!s.auto_mode) return s.lobby;
+    std::shared_ptr<vnet::Lobby> c = relay_client_locked(s, host, port);
+    if (s.lobby != c) {
+        s.lobby = c;
+        s.target = host + ":" + std::to_string(port);
+        NXLOG_I("net", "ldn: auto: rooms go through the relay at %s", s.target.c_str());
+    }
+    return c;
+}
+
+// A relay's identity in the session id (bytes 8..13): the first 6 bytes of SHA-256 of its WELCOME server version, which carries a random
+// instance id on the embedded and the launcher's relay. The host (at 127.0.0.1) and every visitor (at a LAN address) get the same value
+// for one relay, and two relays get different ones. 0: not known (never connected, the loopback relay of tests).
+uint64_t relay_tag(const vnet::Lobby& l) {
+    const std::string v = l.server_version();
+    if (v.empty()) return 0;
+    const auto h = vnet::sha256(v.data(), v.size());
+    uint64_t t = 0;
+    for (int i = 0; i < 6; ++i) t |= uint64_t{h[static_cast<size_t>(i)]} << (8 * i);
+    return t ? t : 1;
+}
+
+void firewall_hint() {
+    static std::atomic<bool> said{false};
+    if (!said.exchange(true))
+        NXLOG_I("net", "ldn: if Windows Firewall asks about this program, allow it on private networks (Link Play uses TCP and UDP port %u)",
+                vnet::kRelayDefaultPort);
+}
+
+// Auto mode, CreateNetwork: the relay in this process on 0.0.0.0:39660, started on the first call that can start it and never stopped
+// (it runs until the process exits). A port already taken (the launcher's relay on this PC, another game) is that relay's: it is used as it
+// is. Either way the host is a relay client to 127.0.0.1:39660.
+std::shared_ptr<vnet::Lobby> host_relay() {
+    static std::mutex mu;
+    static vnet::RelayServer* server = nullptr;   // deliberately never deleted
+    static std::string last;
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        if (!server) {
+            vnet::RelayServerOptions o;
+            o.port = vnet::kRelayDefaultPort;
+            o.password = config_get_str("net", "password", "");
+            o.nickname = nickname();
+            // the random instance id makes relay_tag() unique per relay
+            o.server_version = std::string("nxrt relay (") + vnet::build_stamp() + ") #" + vnet::room_code_new();
+            std::string why;
+            bool in_use = false;
+            if (auto srv = vnet::RelayServer::start(o, &why, &in_use)) {
+                server = srv.release();
+                last.clear();
+                for (const vnet::LocalAddr& a : vnet::local_ipv4())
+                    if (!vnet::is_link_local(a.ip))
+                        NXLOG_I("net", "ldn: hosting: visitors with [net] server set reach this PC at %s:%u (%s)", vnet::ip_str(a.ip).c_str(),
+                                server->port(), a.adapter.c_str());
+                firewall_hint();
+            } else if (why != last) {
+                last = why;
+                if (in_use) NXLOG_I("net", "ldn: hosting: %s on this PC (the launcher's relay or another game): hosting on that relay", why.c_str());
+                else NXLOG_W("net", "ldn: hosting: cannot start the relay: %s", why.c_str());
+            }
+        }
+    }
+    return auto_relay("127.0.0.1", vnet::kRelayDefaultPort);
+}
+
+// Auto mode, Scan: the last LAN discovery, a new one at most every kDiscoveryEveryMs (waiting kDiscoveryWaitMs for answers). The relays
+// found are logged when the result changes, not per discovery.
+constexpr int kDiscoveryWaitMs = 400, kDiscoveryEveryMs = 2000;
+struct Discovery {
+    std::mutex mu;
+    bool ran = false;
+    std::chrono::steady_clock::time_point at{};
+    std::vector<vnet::FoundRelay> found;
+    std::string logged;
+};
+Discovery& discovery() {
+    static Discovery d;
+    return d;
+}
+
+std::vector<vnet::FoundRelay> discover_cached() {
+    Discovery& d = discovery();
+    std::lock_guard<std::mutex> lk(d.mu);
+    const auto now = std::chrono::steady_clock::now();
+    if (!d.ran || now - d.at >= std::chrono::milliseconds(kDiscoveryEveryMs)) {
+        d.found = vnet::discover_relays(vnet::kRelayDefaultPort, kDiscoveryWaitMs);
+        d.at = std::chrono::steady_clock::now();
+        d.ran = true;
+        std::string seen = "-";
+        for (const vnet::FoundRelay& f : d.found) seen += vnet::ip_str(f.ip) + ":" + std::to_string(f.port) + "/" + std::to_string(f.open_rooms) + " ";
+        if (seen != d.logged) {
+            d.logged = seen;
+            if (d.found.empty()) {
+                NXLOG_I("net", "ldn: no Link Play host found on the local network (the host picks Invite Others to Visit first; a firewall on "
+                        "either PC can block UDP/TCP port %u)", vnet::kRelayDefaultPort);
+                firewall_hint();
+            }
+            for (const vnet::FoundRelay& f : d.found)
+                NXLOG_I("net", "ldn: Link Play host %s:%u (%s, %u open room%s)", vnet::ip_str(f.ip).c_str(), f.port, f.nickname.c_str(),
+                        f.open_rooms, f.open_rooms == 1 ? "" : "s");
+        }
+    }
+    return d.found;
+}
+
+// Auto mode, Scan: the rooms of every relay found, asked in parallel. A relay reporting no open room is skipped unless this player has a
+// room code (open rooms count keyless rooms only). Each relay's SCAN runs on a thread of its own; the scan waits for all of them at most
+// kScanAllMs, a relay that has not answered by then is left out of this scan (its thread finishes on its own and is not started again for
+// that relay while it runs). Clients of relays no discovery listed for kRelayForgetMs are dropped, never the process lobby (the one a room
+// goes through).
+constexpr int kScanAllMs = 1500, kRelayForgetMs = 10000;
+struct RelayRooms {
+    std::string host;
+    uint16_t port = 0;
+    bool loopback = false;
+    uint64_t tag = 0;
+    std::vector<vnet::Room> rooms;
+};
+
+std::vector<RelayRooms> scan_relays(const std::vector<vnet::FoundRelay>& found, uint64_t lcid, uint16_t scene) {
+    struct Job {
+        RelayRooms rr;
+        std::shared_ptr<vnet::Lobby> client;
+        std::shared_ptr<std::atomic<bool>> busy;
+    };
+    std::vector<Job> jobs;
+    {
+        LobbySlot& s = slot();
+        std::lock_guard<std::mutex> lk(s.mu);
+        if (!s.auto_mode) return {};
+        const bool keyed = s.base.room_key != std::array<uint8_t, 16>{};
+        const auto now = std::chrono::steady_clock::now();
+        for (const vnet::FoundRelay& f : found) {
+            const std::string host = vnet::ip_str(f.ip);
+            std::shared_ptr<vnet::Lobby> c = relay_client_locked(s, host, f.port);
+            AutoRelay& r = s.relays[host + ":" + std::to_string(f.port)];
+            r.seen = now;
+            if (!keyed && f.open_rooms == 0) continue;
+            Job j;
+            j.rr.host = host;
+            j.rr.port = f.port;
+            j.rr.loopback = (f.ip >> 24) == 127;
+            j.client = c;
+            j.busy = r.busy;
+            jobs.push_back(std::move(j));
+        }
+        for (auto it = s.relays.begin(); it != s.relays.end();) {
+            if (it->second.client != s.lobby && now - it->second.seen >= std::chrono::milliseconds(kRelayForgetMs)) it = s.relays.erase(it);
+            else ++it;
+        }
+    }
+    struct Shared {
+        std::mutex mu;
+        std::condition_variable cv;
+        size_t pending = 0;
+        std::vector<RelayRooms> got;
+    };
+    auto sh = std::make_shared<Shared>();
+    for (Job& j : jobs) {
+        if (j.busy->exchange(true)) continue;   // its scan from an earlier call is still waiting
+        {
+            std::lock_guard<std::mutex> lk(sh->mu);
+            ++sh->pending;
+        }
+        std::thread([sh, j, lcid, scene]() mutable {
+            const int e = j.client->scan(lcid, scene, &j.rr.rooms);
+            j.rr.tag = relay_tag(*j.client);
+            j.busy->store(false);
+            if (e) NXLOG_D("net", "ldn: scan of the relay at %s:%u failed: %s", j.rr.host.c_str(), j.rr.port, vnet::lobby_err_str(e));
+            std::lock_guard<std::mutex> lk(sh->mu);
+            if (!e) sh->got.push_back(std::move(j.rr));
+            --sh->pending;
+            sh->cv.notify_all();
+        }).detach();
+    }
+    std::unique_lock<std::mutex> lk(sh->mu);
+    sh->cv.wait_for(lk, std::chrono::milliseconds(kScanAllMs), [&] { return sh->pending == 0; });
+    std::vector<RelayRooms> out = std::move(sh->got);
+    sh->got.clear();   // a late answer lands here and is dropped with sh
+    return out;
 }
 
 // ---- helpers ------------------------------------------------------------------------------------------------------------------------
@@ -326,11 +572,26 @@ void copy_name(char (&dst)[33], const std::string& s) {
     std::memcpy(dst, s.data(), n);
 }
 
-uint32_t room_of_session(const uint8_t (&sid)[16]) {
-    if (std::memcmp(sid, kSessionTag, 4) != 0) return 0;
-    uint32_t id;
-    std::memcpy(&id, sid + 4, 4);
-    return id;
+// SessionId = "pkpR" + u32 room id + 6 B relay tag + 2 zero bytes. The tag (relay_tag()) is set in every mode, so a host:port host and
+// an auto visitor on one relay agree; zero only when the relay sent no version.
+struct SessionRef {
+    uint32_t room = 0;   // 0: not one of ours
+    uint64_t tag = 0;
+};
+SessionRef session_of(const uint8_t (&sid)[16]) {
+    SessionRef s;
+    if (std::memcmp(sid, kSessionTag, 4) != 0) return s;
+    std::memcpy(&s.room, sid + 4, 4);
+    for (int i = 0; i < 6; ++i) s.tag |= uint64_t{sid[8 + i]} << (8 * i);
+    return s;
+}
+
+// A node MAC (02:00:a9:fe:R:N from the relay) with a relay tag: bytes 1..3 become the tag's first three, so two relays' room R differ in
+// the BSSID and the node table too. Tag 0: unchanged.
+std::array<uint8_t, 6> tagged_mac(std::array<uint8_t, 6> m, uint64_t tag) {
+    if (tag)
+        for (int i = 0; i < 3; ++i) m[static_cast<size_t>(1 + i)] = static_cast<uint8_t>(tag >> (8 * i));
+    return m;
 }
 
 // Whether a room state lists the host (node 0) and the node with address vip.
@@ -343,18 +604,22 @@ bool room_lists(const vnet::Room& r, uint32_t vip) {
     return host && me;
 }
 
-// The NetworkInfo of a lobby room. own_vip/own_name: this node's entry uses the game's UserConfig name.
-NetworkInfo make_info(const vnet::Room& r, uint8_t accept_policy, uint32_t own_vip, const std::string& own_name) {
+// The NetworkInfo of a lobby room. own_vip/own_name: this node's entry uses the game's UserConfig name. tag: the room's relay (relay_tag(),
+// every mode; 0 only for a relay without a version = the layout as before). Everything the game could use to tell networks apart carries it: session id,
+// BSSID and node MACs (tagged_mac), SSID (tag << 16 | room id), the security parameter (SHA-256 of the session id) and the
+// authentication id. The host and its visitors compute the same tag for their relay, so every node sees the same values.
+NetworkInfo make_info(const vnet::Room& r, uint8_t accept_policy, uint32_t own_vip, const std::string& own_name, uint64_t tag) {
     NetworkInfo ni{};
     ni.id.intent.local_comm_id = r.local_comm_id;
     ni.id.intent.scene_id = r.scene_id;
     std::memcpy(ni.id.session_id, kSessionTag, 4);
     std::memcpy(ni.id.session_id + 4, &r.room_id, 4);
-    const auto mac = std::array<uint8_t, 6>{0x02, 0x00, 0xA9, 0xFE, static_cast<uint8_t>(r.room_id), 1};
+    for (int i = 0; i < 6; ++i) ni.id.session_id[8 + i] = static_cast<uint8_t>(tag >> (8 * i));
+    const uint64_t net = tag ? (tag << 16) | (r.room_id & 0xFFFF) : r.room_id;
+    const auto mac = tagged_mac({0x02, 0x00, 0xA9, 0xFE, static_cast<uint8_t>(r.room_id), 1}, tag);
     std::memcpy(ni.common.bssid, mac.data(), 6);
     char ssid[33];
-    std::snprintf(ssid, sizeof ssid, "%016llx%016llx", static_cast<unsigned long long>(r.local_comm_id),
-                  static_cast<unsigned long long>(r.room_id));
+    std::snprintf(ssid, sizeof ssid, "%016llx%016llx", static_cast<unsigned long long>(r.local_comm_id), static_cast<unsigned long long>(net));
     ni.common.ssid.length = 32;
     std::memcpy(ni.common.ssid.raw, ssid, 32);
     static constexpr int16_t kChannels[3] = {1, 6, 11};
@@ -370,7 +635,7 @@ NetworkInfo make_info(const vnet::Room& r, uint8_t accept_policy, uint32_t own_v
         if (n.node_id >= 8) continue;
         NodeInfo& d = ni.ldn.nodes[n.node_id];
         d.ipv4 = n.vip;
-        std::memcpy(d.mac, n.mac.data(), 6);
+        std::memcpy(d.mac, tagged_mac(n.mac, tag).data(), 6);
         d.node_id = static_cast<int8_t>(n.node_id);
         d.is_connected = 1;
         copy_name(d.user_name, n.vip == own_vip && !own_name.empty() ? own_name : n.nickname);
@@ -380,7 +645,7 @@ NetworkInfo make_info(const vnet::Room& r, uint8_t accept_policy, uint32_t own_v
     const size_t adv = r.adv.size() < sizeof ni.ldn.advertise_data ? r.adv.size() : sizeof ni.ldn.advertise_data;
     ni.ldn.advertise_data_size = static_cast<uint16_t>(adv);
     if (adv) std::memcpy(ni.ldn.advertise_data, r.adv.data(), adv);
-    ni.ldn.authentication_id = r.room_id;
+    ni.ldn.authentication_id = net;
     return ni;
 }
 
@@ -462,7 +727,7 @@ private:
     uint32_t finalize(ipc::Request&, ipc::Response&);
 
     uint32_t create(const SecurityConfig& sec, const UserConfig& user, const NetworkConfig& cfg);
-    uint32_t join(uint32_t room_id, int16_t room_version, const SecurityConfig& sec, const UserConfig& user, int32_t version);
+    uint32_t join(const SessionRef& sref, int16_t room_version, const SecurityConfig& sec, const UserConfig& user, int32_t version);
     void on_room_state(const vnet::Room& r);
     void on_left(vnet::LeftReason why);
     void apply_room(const vnet::Room& r);       // caller holds mu
@@ -470,6 +735,8 @@ private:
     void admit_read();                          // caller holds mu: the game read info_, let its nodes' held datagrams through
     void drop_hold();                           // caller holds mu: the host's hold link is unhooked and gone
     void leave_network(uint32_t next, int16_t reason);   // caller holds op_mu (not mu)
+    vnet::LobbyEvents make_events();
+    void adopt(std::shared_ptr<vnet::Lobby> next);       // caller holds op_mu (not mu): auto mode moves to another relay
     bool in_network() const { return state_ == kAccessPointCreated || state_ == kStationConnected; }
 
     std::mutex op_mu_;
@@ -479,7 +746,8 @@ private:
     uint32_t state_ = kNone;
     int16_t reason_ = kReasonNone;
     std::shared_ptr<vnet::Lobby> lobby_;
-    std::vector<uint8_t> adv_;           // host: SetAdvertiseData before or after CreateNetwork
+    bool auto_ = false;                  // [net] server = auto (set by Initialize): lobby_ follows host_relay() / Connect
+    std::vector<uint8_t> adv_;          // host: SetAdvertiseData before or after CreateNetwork
     uint8_t accept_policy_ = 0;
     std::string user_name_;              // the UserConfig name of the last create/connect
     uint32_t room_id_ = 0, vip_ = 0;
@@ -487,7 +755,10 @@ private:
     std::array<uint32_t, 8> node_vip_{};  // the node table last seen (0 = empty slot), for the join/leave flags
     std::array<uint8_t, 8> latest_{};    // NodeLatestUpdate flags since the last GetNetworkInfoLatestUpdate
     std::shared_ptr<vnet::HoldLink> hold_;   // host: the current link, in front of the lobby's (see kHoldMs)
-    std::map<uint32_t, int16_t> scan_wire_;  // room id -> its version on the wire as the last Scan listed it (the session variant)
+    std::map<std::pair<uint64_t, uint32_t>, int16_t> scan_wire_;   // (relay tag, room id) -> its version on the wire as the last Scan
+                                                                    // listed it (the session variant)
+    std::map<uint64_t, std::pair<std::string, uint16_t>> tag_relay_;   // auto: relay tag -> its address, from the Scans so far
+    uint64_t tag_ = 0;                   // the relay tag of the room this node is in
 };
 
 void Ldn::cmd(ipc::Service& s, uint32_t id, const char* name, H h) {
@@ -557,6 +828,42 @@ void Ldn::set_state(uint32_t s) {
     ev_.signal();
 }
 
+vnet::LobbyEvents Ldn::make_events() {
+    std::weak_ptr<Ldn> w = weak_from_this();
+    vnet::LobbyEvents ev;
+    ev.room_state = [w](const vnet::Room& r) {
+        if (auto s = w.lock()) s->on_room_state(r);
+    };
+    ev.left = [w](vnet::LeftReason why) {
+        if (auto s = w.lock()) s->on_left(why);
+    };
+    return ev;
+}
+
+// What refers to a lobby: lobby_ (and the process slot, auto_relay()), its event sinks (set_events), the vnet current link (its link() for
+// a station, hold_ in front of it for a host), hold_ itself, and the local copies the commands take under op_mu_. Outside a room the last
+// three are clear (leave_network / on_left unhook the current link and drop hold_ before the state leaves 3/5), and the commands are
+// serialised by op_mu_, which the caller holds, so no command has a copy in flight and none can enter a room meanwhile; sinks only ever
+// take the state out of a room. So the move is refused while in a room, and otherwise: swap lobby_ under mu_, then (mu_ released, as a
+// sink in progress may be waiting for it) clear the old lobby's sinks, which waits for a sink in progress and guarantees none runs after,
+// and set the new one's. The old relay client stays in slot().relays as a scan client (no sinks: a client in no room gets no events)
+// until no discovery lists it for 10 s. Scan results are kept per relay (scan_wire_, tag_relay_).
+void Ldn::adopt(std::shared_ptr<vnet::Lobby> next) {
+    std::shared_ptr<vnet::Lobby> old;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (lobby_ == next || in_network()) return;
+        drop_hold();   // none outside a room
+        old = std::move(lobby_);
+        lobby_ = next;
+    }
+    if (old) {
+        if (const auto cur = vnet::current_link(); cur && cur == old->link()) vnet::set_current_link(nullptr);   // none outside a room
+        old->set_events({});
+    }
+    if (next) next->set_events(make_events());
+}
+
 // ---- lobby events (lobby thread) ------------------------------------------------------------------------------------------------------
 
 void Ldn::on_room_state(const vnet::Room& r) {
@@ -589,7 +896,7 @@ void Ldn::on_left(vnet::LeftReason why) {
 }
 
 void Ldn::apply_room(const vnet::Room& r) {
-    info_ = make_info(r, accept_policy_, vip_, user_name_);
+    info_ = make_info(r, accept_policy_, vip_, user_name_, tag_);
     std::array<uint32_t, 8> now{};
     for (const vnet::RoomNode& n : r.nodes)
         if (n.node_id < 8) now[n.node_id] = n.vip;
@@ -679,38 +986,61 @@ uint32_t Ldn::get_latest_update(ipc::Request& req, ipc::Response&) {
 // ---- scan ----------------------------------------------------------------------------------------------------------------------------
 
 uint32_t Ldn::scan(ipc::Request& req, ipc::Response& rsp) {
+    bool all;   // all: auto mode outside a room, the rooms of every relay on the LAN
     std::shared_ptr<vnet::Lobby> lobby;
     uint32_t own_room;
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (state_ == kNone) return kInvalidState;
+        // With no lobby every initialized state answers an empty scan (the offline stub's answer); with one (or auto), Switchbrew's 2..5.
+        if ((lobby_ || auto_) && (state_ < kAccessPoint || state_ > kStationConnected)) return kInvalidState;
+        all = auto_ && !in_network();
         lobby = lobby_;
-        // With no lobby every initialized state answers an empty scan (the offline stub's answer); with one, Switchbrew's states 2..5.
-        if (lobby && (state_ < kAccessPoint || state_ > kStationConnected)) return kInvalidState;
         own_room = room_id_;
     }
     const ScanFilter f = arg_at<ScanFilter>(req, 8);   // after the s16 channel, 8-aligned
     const ipc::Buffer out = req.out_buf(0);
     const size_t cap = static_cast<size_t>(out.size / sizeof(NetworkInfo));
+    const uint64_t lcid = (f.flag & kFilterLocalCommunicationId) ? f.id.intent.local_comm_id : 0;
+    const uint16_t scene = (f.flag & kFilterSceneId) ? f.id.intent.scene_id : 0xFFFF;
     uint16_t count = 0;
-    if (lobby && cap) {
-        std::vector<vnet::Room> rooms;
-        const uint64_t lcid = (f.flag & kFilterLocalCommunicationId) ? f.id.intent.local_comm_id : 0;
-        const uint16_t scene = (f.flag & kFilterSceneId) ? f.id.intent.scene_id : 0xFFFF;
-        const int e = lobby->scan(lcid, scene, &rooms);
-        if (e) NXLOG_D("net", "ldn: scan failed: %s", vnet::lobby_err_str(e));
+    auto put = [&](const vnet::Room& r, uint64_t tag) {
+        if (count >= cap) return;
+        const NetworkInfo ni = make_info(r, 0, 0, {}, tag);
+        if (!filter_match(f, ni)) return;
+        std::memcpy(buf_mut(out) + count * sizeof(NetworkInfo), &ni, sizeof ni);
+        ++count;
+    };
+    if (all && cap) {
+        // Every relay found, merged. One relay reached by two addresses (a relay on this PC answers on 127.0.0.1 and on its LAN address,
+        // a PC on two networks on both) has one tag: it is listed once, by its loopback address if it has one.
+        std::vector<RelayRooms> got = scan_relays(discover_cached(), lcid, scene);
+        std::stable_sort(got.begin(), got.end(), [](const RelayRooms& a, const RelayRooms& b) { return a.loopback && !b.loopback; });
+        std::set<uint64_t> tags;
         {
             std::lock_guard<std::mutex> lk(mu_);
-            for (const vnet::Room& r : rooms) scan_wire_[r.room_id] = r.comm_version;
+            for (RelayRooms& rr : got) {
+                if (rr.tag && !tags.insert(rr.tag).second) {
+                    rr.rooms.clear();
+                    continue;
+                }
+                tag_relay_[rr.tag] = {rr.host, rr.port};
+                for (const vnet::Room& r : rr.rooms) scan_wire_[{rr.tag, r.room_id}] = r.comm_version;
+            }
         }
-        for (const vnet::Room& r : rooms) {
-            if (count >= cap) break;
-            if (r.room_id == own_room) continue;
-            const NetworkInfo ni = make_info(r, 0, 0, {});
-            if (!filter_match(f, ni)) continue;
-            std::memcpy(buf_mut(out) + count * sizeof(NetworkInfo), &ni, sizeof ni);
-            ++count;
+        for (const RelayRooms& rr : got)
+            for (const vnet::Room& r : rr.rooms) put(r, rr.tag);
+    } else if (lobby && cap) {
+        std::vector<vnet::Room> rooms;
+        const int e = lobby->scan(lcid, scene, &rooms);
+        if (e) NXLOG_D("net", "ldn: scan failed: %s", vnet::lobby_err_str(e));
+        const uint64_t tag = relay_tag(*lobby);
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            for (const vnet::Room& r : rooms) scan_wire_[{tag, r.room_id}] = r.comm_version;
         }
+        for (const vnet::Room& r : rooms)
+            if (r.room_id != own_room) put(r, tag);
     }
     rsp.push(static_cast<uint32_t>(count));   // s16 total (the high half is zero)
     return 0;
@@ -761,13 +1091,19 @@ uint32_t Ldn::create_network_private(ipc::Request& req, ipc::Response&) {
 }
 
 uint32_t Ldn::create(const SecurityConfig& sec, const UserConfig& user, const NetworkConfig& cfg) {
-    std::shared_ptr<vnet::Lobby> lobby;
-    vnet::RoomConfig rc;
+    bool host_auto;
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (state_ != kAccessPoint) return kInvalidState;
         if (cfg.node_count_max < 1 || cfg.node_count_max > vnet::kMaxNodes || sec.passphrase_size > sizeof sec.passphrase)
             return kInvalidArgument;
+        host_auto = auto_;
+    }
+    if (host_auto) adopt(host_relay());   // state 2 (no room) and op_mu_ held: nothing can enter one meanwhile
+    std::shared_ptr<vnet::Lobby> lobby;
+    vnet::RoomConfig rc;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
         if (!lobby_) return kDeviceNotAvailable;
         lobby = lobby_;
         rc.local_comm_id = cfg.intent.local_comm_id;
@@ -785,7 +1121,9 @@ uint32_t Ldn::create(const SecurityConfig& sec, const UserConfig& user, const Ne
         NXLOG_I("net", "ldn: CreateNetwork failed: %s", vnet::lobby_err_str(e));
         return kDeviceNotAvailable;
     }
+    const uint64_t tag = relay_tag(*lobby);   // what visitors put in the session id for this relay (every mode: all nodes agree)
     std::lock_guard<std::mutex> lk(mu_);
+    tag_ = tag;
     room_id_ = j.room_id;
     vip_ = j.vip;
     reason_ = kReasonNone;
@@ -896,22 +1234,45 @@ uint32_t Ldn::close_station(ipc::Request&, ipc::Response&) {
 uint32_t Ldn::connect(ipc::Request& req, ipc::Response&) {
     NetworkInfo ni{};
     buf_read(req.in_buf(0), &ni, sizeof ni);
-    return join(room_of_session(ni.id.session_id), ni.ldn.nodes[0].local_comm_version, arg_at<SecurityConfig>(req, 0),
+    return join(session_of(ni.id.session_id), ni.ldn.nodes[0].local_comm_version, arg_at<SecurityConfig>(req, 0),
                 arg_at<UserConfig>(req, kConnectUser), req.arg<int32_t>(kConnectVersion));
 }
 
 uint32_t Ldn::connect_private(ipc::Request& req, ipc::Response&) {
     const SecurityParameter sp = arg_at<SecurityParameter>(req, kConnPrivSecParam);
     const NetworkConfig cfg = arg_at<NetworkConfig>(req, kConnPrivNetCfg);
-    return join(room_of_session(sp.session_id), static_cast<int16_t>(cfg.local_comm_version), arg_at<SecurityConfig>(req, 0),
+    return join(session_of(sp.session_id), static_cast<int16_t>(cfg.local_comm_version), arg_at<SecurityConfig>(req, 0),
                 arg_at<UserConfig>(req, kConnPrivUser), req.arg<int32_t>(kConnPrivVersion));
 }
 
-uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig& sec, const UserConfig& user, int32_t version) {
-    std::shared_ptr<vnet::Lobby> lobby;
+uint32_t Ldn::join(const SessionRef& sref, int16_t room_version, const SecurityConfig& sec, const UserConfig& user, int32_t version) {
+    const uint32_t room_id = sref.room;
+    bool is_auto;
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (state_ == kNone) return kInvalidState;
+        is_auto = auto_;
+    }
+    // Auto mode: the session id names the room's relay; the node moves to that relay's client first (state 4, no room: adopt() is safe).
+    // A tag no Scan has listed (another PC's session id, a relay forgotten since): not found, rather than the same room id on another
+    // relay. Tag 0: the lobby in use.
+    if (is_auto && sref.tag && room_id) {
+        std::pair<std::string, uint16_t> where;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (state_ != kStation) return kInvalidState;
+            const auto it = tag_relay_.find(sref.tag);
+            if (it == tag_relay_.end()) {
+                NXLOG_I("net", "ldn: Connect to room %u: its relay is not one a Scan found", room_id);
+                return kConnectNotFound;
+            }
+            where = it->second;
+        }
+        adopt(auto_relay(where.first, where.second));
+    }
+    std::shared_ptr<vnet::Lobby> lobby;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
         if (!lobby_) return kConnectNotFound;   // no radio: nothing to connect to (the offline stub's answer, any state)
         if (state_ != kStation) return kInvalidState;
         if (sec.passphrase_size > sizeof sec.passphrase) return kInvalidArgument;
@@ -919,6 +1280,11 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
         user_name_.assign(user.user_name, strnlen(user.user_name, 32));
     }
     if (room_id == 0) return kConnectNotFound;
+    const uint64_t tag = relay_tag(*lobby);
+    if (is_auto && sref.tag && tag != sref.tag) {   // the relay at that address restarted (a new instance id): its rooms are gone
+        NXLOG_I("net", "ldn: Connect to room %u: its relay is not the one the Scan listed any more", room_id);
+        return kConnectNotFound;
+    }
     vnet::Joined j;
     const int16_t wire = wire_version(static_cast<int16_t>(version));
     const int e = lobby->join(room_id, wire, vnet::passphrase_hash(sec.passphrase, sec.passphrase_size), &j);
@@ -929,7 +1295,7 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
             bool known = false;
             {
                 std::lock_guard<std::mutex> lk(mu_);
-                const auto it = scan_wire_.find(room_id);
+                const auto it = scan_wire_.find({tag, room_id});
                 if (it != scan_wire_.end()) room_wire = it->second, known = true;
             }
             std::string what;
@@ -973,6 +1339,7 @@ uint32_t Ldn::join(uint32_t room_id, int16_t room_version, const SecurityConfig&
         lobby->leave();
         return kConnectFailure;
     }
+    tag_ = relay_tag(*lobby);   // after JOIN the WELCOME is in: the same value the host computed
     room_id_ = j.room_id;
     vip_ = j.vip;
     reason_ = kReasonNone;
@@ -1001,21 +1368,13 @@ uint32_t Ldn::initialize(ipc::Request&, ipc::Response&) {
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (state_ != kNone) return 0;   // already initialized: accepted
-        lobby_ = process_lobby();
+        lobby_ = process_lobby(&auto_);   // auto: the relay picked last in this process, or none yet
         lobby = lobby_;
         reason_ = kReasonNone;
         set_state(kInitialized);
     }
     if (!lobby) return 0;
-    std::weak_ptr<Ldn> w = weak_from_this();
-    vnet::LobbyEvents ev;
-    ev.room_state = [w](const vnet::Room& r) {
-        if (auto s = w.lock()) s->on_room_state(r);
-    };
-    ev.left = [w](vnet::LeftReason why) {
-        if (auto s = w.lock()) s->on_left(why);
-    };
-    lobby->set_events(std::move(ev));
+    lobby->set_events(make_events());
     // Connect now, off the game's thread (Initialize runs at start-up): the first Scan/Create then finds the connection up, or waits for it.
     if (!lobby->connected()) std::thread([lobby] { lobby->connect(); }).detach();
     return 0;
@@ -1076,6 +1435,8 @@ void ldn_set_lobby(std::shared_ptr<vnet::Lobby> lobby) {
     LobbySlot& s = slot();
     std::lock_guard<std::mutex> lk(s.mu);
     s.built = true;
+    s.auto_mode = false;
+    s.target.clear();
     s.lobby = std::move(lobby);
 }
 
@@ -1084,12 +1445,22 @@ void ldn_reset() {
         std::lock_guard<std::mutex> lk(g_seen_mu);
         g_seen.clear();
     }
+    {
+        Discovery& d = discovery();
+        std::lock_guard<std::mutex> lk(d.mu);
+        d.ran = false;
+        d.found.clear();
+        d.logged.clear();
+    }
     std::shared_ptr<vnet::Lobby> old;
     {
         LobbySlot& s = slot();
         std::lock_guard<std::mutex> lk(s.mu);
         old.swap(s.lobby);
         s.built = false;
+        s.auto_mode = false;
+        s.target.clear();
+        s.relays.clear();
     }
     ldnapi::set_session_variant(0, "");
     // old goes away here (a relay client closes its connection)

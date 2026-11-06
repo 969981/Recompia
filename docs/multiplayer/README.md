@@ -20,8 +20,22 @@ mobile, long distance) UDP avoids one lost packet holding up every packet behind
 
 ## Trying it
 
-The launcher has a **Link Play** page that does steps 1 and 2 below for you: pick Alone, Host on this PC (starts the relay, shows the
-address and a room code) or Visit (type the host address and code). It writes `[net] server` and `room_code` in pkp.ini.
+**On one network (home Wi-Fi or LAN): nothing to set.** `[net] server = auto` is the default. In game (the PC in your first house
+-> Link Play, unlocked after Environment Level 2 in Withered Wasteland) one player picks **Invite Others to Visit**: the game starts
+the relay itself (port 39660) and hosts on it. The others pick **Visit a Friend**: the game finds the host on the local network
+(a UDP broadcast on port 39660) and lists its island. If the launcher's relay already runs on the host PC, the game uses that one.
+Several hosts on one network: every host's island is listed, and picking one joins that host.
+
+Firewall: the first time a PC hosts, Windows Firewall may ask about pkp.exe; allow it on **private** networks (it needs TCP and UDP
+39660 in, on the host; visitors need UDP replies from it). If nothing is found, check that both PCs are on a Private network and that
+pkp.exe is allowed (Windows Defender Firewall > Allow an app). Each player's `pkp.log` says what was found (`ldn: Link Play host ...`
+or `ldn: no Link Play host found on the local network`).
+
+**Over the internet or between networks** (no broadcast reaches the host), set the relay by hand:
+
+The launcher has a **Link Play** page that does steps 1 and 2 below for you: pick Automatic (the default above), Alone, Host on this
+PC (starts the relay, shows the address and a room code) or Visit (type the host address and code). It writes `[net] server` and
+`room_code` in pkp.ini.
 
 1. Start a relay server on one PC: `PokopiaLauncher.exe --host` (port 39660; `--port N` to change it; `--no-udp`: TCP only).
    Other PCs on the LAN need that port reachable (Windows Firewall: allow it on private networks). A relay behind a router
@@ -36,6 +50,7 @@ address and a room code) or Visit (type the host address and code). It writes `[
    put that code in their own `[net] room_code`. A room made with a code is listed only to players with the same code. Without
    `room_code` everything works as before: rooms are open to everyone on the relay. The relay and every player need a build
    with room codes (relay protocol 2); an older game is refused with a message saying to update it.
+   `server = off` (or empty) turns Link Play off.
 
 3. In game: the PC in your first house -> Link Play (unlocked after Environment Level 2 in Withered Wasteland). One player picks
    **Invite Others to Visit**, the other **Visit a Friend**.

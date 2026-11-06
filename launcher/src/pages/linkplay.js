@@ -1,23 +1,26 @@
 import { api, esc, icon, refreshIcons, toast, errText } from '../util.js';
 
-// Link Play: play alone, host on this PC (the launcher runs the relay), or visit a host. The choice lives in pkp.ini
-// ([net] server / room_code), which the game reads; the host's own code and the visitor's last entries are also kept in
-// localStorage so switching between the ways does not lose them. Flow modelled on pokopia-native's Link Play window.
+// Link Play: automatic (the game hosts its own relay and finds hosts on the LAN), play alone, host on this PC (the launcher runs
+// the relay), or visit a host. The choice lives in pkp.ini ([net] server / room_code), which the game reads; the host's own code
+// and the visitor's last entries are also kept in localStorage so switching between the ways does not lose them. Flow modelled on pokopia-native's Link Play window.
 const DEFAULT_PORT = 39660;
 const LS = 'pkp.linkplay';
 
 const stored = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } };
 const keep = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...stored(), ...patch })); } catch { /* private window: fine */ } };
 
+const isAuto = (s) => s.trim().toLowerCase() === 'auto';
+const isOff = (s) => !s.trim() || s.trim().toLowerCase() === 'off';
 const isLoopback = (s) => /^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(s.trim());
 const edit = (key, value) => ({ file: 'pkp', section: 'net', key, value });
 
 export async function render(el) {
   const data = await api('read_settings');
-  let server = (data.pkp['net.server'] || '').trim();
+  // [net] server: absent or auto = automatic (the game's default), empty or off = alone, 127.0.0.1 = hosting here, else visiting
+  let server = (data.pkp['net.server'] ?? 'auto').trim();
   const iniCode = (data.pkp['net.room_code'] || '').trim();
   const mem = stored();
-  let mode = !server ? 'alone' : isLoopback(server) ? 'host' : 'visit';
+  let mode = isAuto(server) ? 'auto' : isOff(server) ? 'alone' : isLoopback(server) ? 'host' : 'visit';
   let relay = await api('relay_status');
   let lan = null;
   // the host's code: the one in pkp.ini while hosting, else the remembered one
@@ -93,6 +96,7 @@ export async function render(el) {
         <div class="card">
           <h2>${icon('users')}How do you want to play?</h2>
           <div class="stack">
+            ${opt('auto', 'Automatic (recommended)', 'The game hosts when you pick Invite Others to Visit and finds hosts on your network when you pick Visit a Friend.')}
             ${opt('alone', 'Alone', 'No Link Play. Local wireless in the game finds nobody.')}
             ${opt('host', 'Host on this PC', 'Others join you. The launcher runs the relay and gives you the address.')}
             ${opt('visit', 'Visit', "Join a host's relay with their address and room code.")}
@@ -106,15 +110,23 @@ export async function render(el) {
         </div>` : ''}
         ${picked !== 'alone' ? `<div class="banner info">${icon('info')}<div>
           In the game, open Link Play and pick <b>Local connection</b> (Online connection is Nintendo's service). Each player needs their own save: a copied save cannot join its original.${picked === 'host' ? ' Keep the launcher open while you host.' : ''} Changes apply the next time the game starts.</div></div>` : ''}
+        ${picked === 'auto' ? `<div class="banner info">${icon('shield')}<div>
+          On the same network only: everyone on the same Wi-Fi or LAN. If Windows Firewall asks about pkp.exe when you host, allow it on private networks. For play over the internet, use Host on this PC or Visit.</div></div>` : ''}
       </div>`;
     refreshIcons();
     bind();
   }
 
   async function setAlone() {
-    await write([edit('server', '')]);
-    server = '';
+    await write([edit('server', 'off')]);
+    server = 'off';
     mode = 'alone';
+  }
+
+  async function setAuto() {
+    await write([edit('server', 'auto'), edit('room_code', '')]);
+    server = 'auto';
+    mode = 'auto';
   }
 
   async function startHost() {
@@ -154,6 +166,10 @@ export async function render(el) {
           if (relay) { await api('relay_stop'); relay = null; }
           await setAlone();
           toast('Link Play is off.', 'ok');
+        } else if (picked === 'auto') {
+          if (relay) { await api('relay_stop'); relay = null; }
+          await setAuto();
+          toast('Automatic Link Play is on. It applies the next time the game starts.', 'ok');
         } else if (picked === 'host') {
           await loadLan();
           if (!hostCode) hostCode = await api('room_code_new');
