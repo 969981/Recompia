@@ -19,8 +19,8 @@ Deterministic: files and entries are visited in sorted order; "first occurrence"
 Usage: python -I extract_corpus.py --romfs <romfs> [--romfs-base <base romfs>] [--main <main.elf>] --out <dir> [--jobs 4]
   --romfs-base: the base game's romfs under an update's (the update's files win), for an update dumped without the base game's files
 """
-import argparse, collections, hashlib, mmap, os, struct, sys, zlib
-from concurrent.futures import ProcessPoolExecutor
+import argparse, collections, hashlib, mmap, os, struct, sys, threading, zlib
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 IDRK = b'IDRK0000'
 GLSLC_MAGIC = b'\x91\x68\x86\x19'
@@ -144,11 +144,10 @@ def slim(occs):
     return rows
 
 
-def scan_file(path, out, rel):
+def scan_file(path, out):
     global OUT
     OUT = out
     low_priority()
-    print(f'start: {rel}', flush=True)
     rows = []
     name = os.path.basename(path)
     with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
@@ -183,7 +182,6 @@ def scan_main(path, out):
     global OUT
     OUT = out
     low_priority()
-    print('start: main', flush=True)
     d = open(path, 'rb').read()
     if d[:4] == b'NSO0':
         d = nso_image(d)
@@ -198,7 +196,7 @@ def main():
     ap.add_argument('--main')
     ap.add_argument('--out', required=True)
     ap.add_argument('--jobs', type=int, default=4)
-    ap.add_argument('--progress', action='store_true', help='print "scan: <done> <total>" lines while scanning')
+    ap.add_argument('--progress', action='store_true', help='print "done: <file>", "scan: <done> <total>" and, while a file takes long, "running: <file> ..." lines')
     a = ap.parse_args()
     by_rel = {}   # path below motor_asset_re -> host path; the update's (--romfs) files win over the base game's
     for top in [a.romfs] + ([a.romfs_base] if a.romfs_base else []):
@@ -208,7 +206,9 @@ def main():
                 if f.endswith(('.fdata', '.file')):
                     p = os.path.join(r, f)
                     by_rel.setdefault(os.path.relpath(p, root).replace(os.sep, '/'), p)
-    named = [(k, by_rel[k]) for k in sorted(by_rel)]   # (rel path below motor_asset_re, host path): names the per-file progress
+    # (name for the progress lines, host path, function): the results are read in this order (it decides the outputs), but the
+    # largest files are submitted first, so the scan doesn't end on a 2.4 GB file started late
+    tasks = [(k, by_rel[k], scan_file) for k in sorted(by_rel)] + ([('main', a.main, scan_main)] if a.main else [])
     for sub in ('code', 'ctrl', 'glslc'):
         os.makedirs(os.path.join(a.out, sub), exist_ok=True)
     seen = {}
@@ -216,18 +216,30 @@ def main():
     occ = collections.Counter()
     rows = []
     with ProcessPoolExecutor(a.jobs) as ex:
-        futs = [(ex.submit(scan_file, p, a.out, k), k) for k, p in named]
-        if a.main:
-            futs.append((ex.submit(scan_main, a.main, a.out), 'main'))
-        if a.progress:   # "done: <file>" then "scan: <done> <total>" per finished file (the launcher's setup reads these)
-            done = [0]
-            def tick(name):
-                done[0] += 1
-                print(f'done: {name}', flush=True)
-                print(f'scan: {done[0]} {len(futs)}', flush=True)
-            for f, name in futs:
-                f.add_done_callback(lambda _fut, n=name: tick(n))
-        results = [f.result() for f, _ in futs]
+        futs = [None] * len(tasks)
+        for i in sorted(range(len(tasks)), key=lambda i: -os.path.getsize(tasks[i][1])):
+            futs[i] = ex.submit(tasks[i][2], tasks[i][1], a.out)
+        # Progress comes from this process only: on Windows the workers' stdout doesn't reach the launcher's pipe.
+        # Per finished file "done: <file>" (or "failed: <file>") and "scan: <done> <total>" (the launcher's setup reads it);
+        # after a minute without one, "running: <file> ..." names the files being scanned (plus at most one queued next).
+        # Callbacks run in the executor's thread, or here when the file had already finished: the lock keeps the count and
+        # the line pairs together.
+        if a.progress:
+            done, lock = [0], threading.Lock()
+            def tick(fut, name):
+                with lock:
+                    done[0] += 1
+                    print(f"{'failed' if fut.exception() else 'done'}: {name}", flush=True)
+                    print(f'scan: {done[0]} {len(futs)}', flush=True)
+            for f, (name, _, _) in zip(futs, tasks):
+                f.add_done_callback(lambda fut, n=name: tick(fut, n))
+        pending = set(futs)
+        while pending:
+            finished, pending = wait(pending, timeout=60, return_when=FIRST_COMPLETED)
+            if not finished and a.progress:
+                with lock:
+                    print('running: ' + ' '.join(n for f, (n, _, _) in zip(futs, tasks) if f.running()), flush=True)
+        results = [f.result() for f in futs]
     for res in results:
         for name, eo, fk, tk, tag, go, si, st, cn, kn, h, ch, gh in res:
             occ[h] += 1

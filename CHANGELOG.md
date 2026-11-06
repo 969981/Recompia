@@ -7,13 +7,13 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Fixes
 
-#### Shader setup can stall on one large game file (#194)
-**What was wrong:** on some PCs the shader scan stuck on one large asset file ("28 of 29" for hours), and the log only showed
-a count, not which file, so it was hard to tell a slow drive from a real hang. The scan also ran one worker per CPU thread,
-which could thrash a laptop's memory and disk.
+#### Shader setup: the log names the file the scan is waiting on (#194)
+**What was wrong:** on one PC the shader scan stopped at "28 of 29" for hours, and setup.log showed only that count, not which
+game file was still being scanned. The scan also ran one worker per CPU thread.
 
-**Now:** the scan logs each game file as it starts and finishes, so a stuck file is named in setup.log, and it uses at most
-four workers, which keeps the disk and memory pressure down.
+**Now:** setup.log names each file as it finishes, and after a minute without progress the files still being scanned. The
+largest files are scanned first, so the scan doesn't end on a large file started late, and it uses at most four workers, which
+lowers the memory and disk load without making it slower.
 
 ## 0.6.2 (build J: Jackrabbit)
 
