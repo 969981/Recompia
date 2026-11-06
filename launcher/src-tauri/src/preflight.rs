@@ -13,8 +13,8 @@ use serde::Serialize;
 use std::path::Path;
 
 pub const GB: u64 = 1 << 30;
-/// shader_cache/corpus while translating: about 10 GB (launcher README), deleted when setup finishes.
-pub const CORPUS_BYTES: u64 = 10 * GB;
+/// shader_cache/corpus while translating: about 5 GB in pack files (launcher README), deleted when setup finishes.
+pub const CORPUS_BYTES: u64 = 5 * GB;
 /// shader_cache/spirv when complete: about 26 GB for the 99,012 blocks of 2.0.1 (launcher README).
 pub const SPIRV_BYTES: u64 = 26 * GB;
 /// The default block count when setup.json has none yet (2.0.1).
@@ -173,7 +173,7 @@ pub fn evaluate(f: &Facts) -> Report {
             Level::Fail,
             "Not enough free disk space",
             format!(
-                "{} has {} free and setup needs about {} (the game build, then about 10 GB of shader sources that are deleted at the end and about 26 GB of translated shaders that stay). Free some space, or move the game folder to a bigger drive (Settings, game folder).",
+                "{} has {} free and setup needs about {} (the game build, then about 5 GB of shader sources that are deleted at the end and about 26 GB of translated shaders that stay). Free some space, or move the game folder to a bigger drive (Settings, game folder).",
                 f.drive,
                 gb(free),
                 gb(f.need_bytes)

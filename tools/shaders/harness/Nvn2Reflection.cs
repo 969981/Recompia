@@ -19,6 +19,29 @@ using System.Text;
 
 namespace SpirvHarness
 {
+    /// A block of a corpus: a file path, or "<pack file>|<offset>|<length>" for a corpus extract_corpus.py wrote with its
+    /// default --layout packs (a few large files instead of one file per block; '|' cannot occur in a Windows path).
+    static class Blobs
+    {
+        public static byte[] Read(string blob)
+        {
+            int a = blob.IndexOf('|');
+            if (a < 0) return File.ReadAllBytes(blob);
+            int b = blob.IndexOf('|', a + 1);
+            byte[] d = new byte[int.Parse(blob.AsSpan(b + 1))];
+            using FileStream f = new(blob[..a], FileMode.Open, FileAccess.Read, FileShare.Read, 0, FileOptions.RandomAccess);
+            f.Position = long.Parse(blob.AsSpan(a + 1, b - a - 1));
+            f.ReadExactly(d);
+            return d;
+        }
+
+        public static bool Exists(string blob)
+        {
+            int a = blob.IndexOf('|');
+            return File.Exists(a < 0 ? blob : blob[..a]);
+        }
+    }
+
     sealed class Nvn2Reflection
     {
         public sealed record Block(string Name, int Size, int StageMask, int[] Bindings);
@@ -36,7 +59,7 @@ namespace SpirvHarness
 
         public static Nvn2Reflection Read(string glslcPath)
         {
-            byte[] d = File.ReadAllBytes(glslcPath);
+            byte[] d = Blobs.Read(glslcPath);
             if (d.Length < 0xa8 || BitConverter.ToUInt32(d, 0) != 0x19866891) return null;
             int sections = BitConverter.ToInt32(d, 0x64);
             for (int i = 0; i < sections; i++)

@@ -6,10 +6,22 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Fixes
+
 - The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
   starts, and when it collected none, warm_up() wrote an empty `shader_cache/runtime/manifest.tsv`, so the warm-up never ran
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
+
+#### Shader setup: the scan writes a few large files instead of 361,000 small ones (#194)
+**What was wrong:** the shader scan wrote every shader block as its own file: about 361,000 files and 9 GB in
+`shader_cache\corpus`, almost all of them from one 2.4 GB game file that is always the last one scanned. On a hard drive, and
+with the virus scanner checking each new file, that can take hours, and the cleanup at the end of setup deleted them all again.
+setup.log showed only the count, not which file the scan was on.
+
+**Now:** the scan writes the blocks into a few large pack files (about 90 files, 5 GB), and only the part of each one the
+translator reads. On Linux the whole scan takes 38 s instead of about 2.5 minutes. setup.log names each game file as it
+finishes and, after a minute without progress, the files still being scanned. The scan uses at most four workers, and the
+largest files go first. A shader corpus extracted by an older version is still translated as before.
 
 ## 0.6.2 (build J: Jackrabbit)
 
