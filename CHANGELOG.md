@@ -31,6 +31,13 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
 
+#### Particle effects whose count the GPU works out are drawn
+**What was wrong:** some effects (for example the one in the intro cave after you choose your look) were not drawn. The game counts
+their quads on the GPU and draws them indirectly; the runtime converted quad draws on the CPU, could not read a count the GPU had
+not written yet, and skipped them.
+
+**Now:** a small compute shader turns those counts into an ordinary indexed draw on the GPU, at most 65536 quads and instances.
+`[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on pokopia-native 1.2.6.
 #### Shaders: GPU counters no longer count twice
 **What was wrong:** the shader translator ran an atomic instruction twice when the shader read its result once: every counter a
 compute shader keeps with an atomic add (64 of the game's shaders, 115 adds) added its amount twice, and the helper that hands the

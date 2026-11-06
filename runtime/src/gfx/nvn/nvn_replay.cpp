@@ -3262,6 +3262,128 @@ const uint8_t* cpu_view(uint64_t addr, uint64_t size) {
     return host_ptr(addr);
 }
 
+// ---- indirect quads on the GPU ([nvn] indirect_quads_gpu, default on) ----------------------------------------------------------
+// Based on pokopia-native (MIT) windows/src/nxrt/vk/vk_replay.c + shaders/quad_args.comp @27a6df0 (quad_args).
+// A single non-indexed indirect quad draw whose arguments a command earlier in the same submission writes (particle effects: a compute
+// pass counts the live quads) cannot be converted by the CPU (cpu_view: null) and was skipped (#120). A one-thread dispatch
+// (nvn_quad_args_shader.inc) turns the arguments into those of an indexed indirect draw over a shared quad index list (0,1,2, 0,2,3, ...
+// for 65536 quads, made once), outside the pass: begin_draw reopens it, loading what the targets hold. Counts are clamped to 65536 quads
+// and 65536 instances, so a count the GPU has not written yet cannot keep it busy past the OS timeout.
+namespace {
+#include "nvn_quad_args_shader.inc"
+constexpr uint32_t kQuadMax = 65536;
+struct QuadArgs {
+    bool tried = false, ok = false, index_filled = false;
+    VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkPipeline pipe = VK_NULL_HANDLE;
+    gfx::Buffer index;                 // kQuadMax quads as two triangles each, 32-bit indices
+    VkDeviceSize ssbo_align = 256;
+    uint64_t draws = 0;
+};
+QuadArgs g_qa;
+
+bool indirect_quads_gpu_on() {
+    static const bool on = nxrt::config_get_bool("nvn", "indirect_quads_gpu", true);
+    return on;
+}
+
+bool quad_args_init() {
+    QuadArgs& q = g_qa;
+    if (q.tried) return q.ok;
+    q.tried = true;
+    VkDevice d = vkdev();
+    q.ssbo_align = std::max<VkDeviceSize>(16, device().properties().limits.minStorageBufferOffsetAlignment);
+    const VkDescriptorSetLayoutBinding b[2] = {{0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                                               {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    VkDescriptorSetLayoutCreateInfo sli = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    sli.bindingCount = 2;
+    sli.pBindings = b;
+    VkPushConstantRange pcr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 4};
+    VkPipelineLayoutCreateInfo pli = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pli.setLayoutCount = 1;
+    pli.pSetLayouts = &q.set_layout;
+    pli.pushConstantRangeCount = 1;
+    pli.pPushConstantRanges = &pcr;
+    VkShaderModuleCreateInfo mi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    mi.codeSize = sizeof kQuadArgsComp;
+    mi.pCode = kQuadArgsComp;
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(d, &sli, nullptr, &q.set_layout) != VK_SUCCESS || vkCreatePipelineLayout(d, &pli, nullptr, &q.layout) != VK_SUCCESS ||
+        vkCreateShaderModule(d, &mi, nullptr, &m) != VK_SUCCESS) {
+        NXLOG_W("nvn.replay", "indirect quads: the argument shader could not be made: those draws take the CPU path");
+        return false;
+    }
+    VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, m, "main", nullptr};
+    ci.layout = q.layout;
+    const VkResult pr = vkCreateComputePipelines(d, VK_NULL_HANDLE, 1, &ci, nullptr, &q.pipe);
+    vkDestroyShaderModule(d, m, nullptr);
+    if (pr != VK_SUCCESS ||
+        device().create_buffer(static_cast<VkDeviceSize>(kQuadMax) * 6 * 4, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                               gfx::MemoryUse::GpuOnly, &q.index, "nvn quad indices") != VK_SUCCESS) {
+        q.pipe = pr == VK_SUCCESS ? q.pipe : VK_NULL_HANDLE;
+        NXLOG_W("nvn.replay", "indirect quads: the argument pipeline or the quad index buffer could not be made: those draws take the CPU path");
+        return false;
+    }
+    q.ok = true;
+    NXLOG_I("nvn.replay", "indirect quads whose arguments the GPU writes: made into an indexed indirect draw on the GPU ([nvn] indirect_quads_gpu)");
+    return true;
+}
+
+// Records the dispatch that makes the indexed draw's 20 bytes of arguments from the 16 at p.indirect_address (ending the pass); *out = where
+// they are. False: nothing recorded (the draw takes the CPU path).
+bool quad_args_gpu(const P_DrawIndirect& p, BufRef* out) {
+    if (!quad_args_init()) return false;
+    QuadArgs& q = g_qa;
+    const BufRef src = held_or_pool(p.indirect_address, 16, kOutIndirect, false);   // a held compute result: the copy (out_before_op)
+    if (!src.ok || src.offset % 4) return false;
+    const VkDeviceSize base = src.offset / q.ssbo_align * q.ssbo_align;
+    const UploadAlloc dst = F->upload(20, q.ssbo_align);
+    if (!dst) return false;
+    const VkDescriptorSet set = F->alloc_set(q.set_layout);
+    if (!set) return false;
+    const VkDescriptorBufferInfo bi[2] = {{src.buffer, base, src.offset - base + 16}, {dst.buffer, dst.offset, 20}};
+    VkWriteDescriptorSet w[2] = {};
+    for (int i = 0; i < 2; ++i) {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstSet = set;
+        w[i].dstBinding = static_cast<uint32_t>(i);
+        w[i].descriptorCount = 1;
+        w[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w[i].pBufferInfo = &bi[i];
+    }
+    vkUpdateDescriptorSets(vkdev(), 2, w, 0, nullptr);
+    end_pass();
+    if (!q.index_filled) {   // the shared quad index list, once (copied from this submission's staging)
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(kQuadMax) * 6 * 4;
+        const UploadAlloc st = F->staging(bytes);
+        if (!st) return false;
+        uint32_t* ix = reinterpret_cast<uint32_t*>(st.ptr);
+        for (uint32_t k = 0; k < kQuadMax; ++k) {
+            const uint32_t v = k * 4;
+            uint32_t* t = ix + static_cast<size_t>(k) * 6;
+            t[0] = v; t[1] = v + 1; t[2] = v + 2; t[3] = v; t[4] = v + 2; t[5] = v + 3;
+        }
+        const VkBufferCopy r = {st.offset, 0, bytes};
+        vkCmdCopyBuffer(F->cb, st.buffer, q.index.buffer, 1, &r);
+        q.index_filled = true;
+    }
+    memory_barrier(F->cb);   // the GPU's own write of the arguments earlier in this submission (and the index copy) before the dispatch
+    vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, q.pipe);
+    vkCmdBindDescriptorSets(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, q.layout, 0, 1, &set, 0, nullptr);
+    const uint32_t at = static_cast<uint32_t>((src.offset - base) / 4);
+    vkCmdPushConstants(F->cb, q.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 4, &at);
+    vkCmdDispatch(F->cb, 1, 1, 1);
+    memory_barrier(F->cb);   // the dispatch's write before the indirect read
+    g_bound_pipeline = VK_NULL_HANDLE;
+    out->buffer = dst.buffer;
+    out->offset = dst.offset;
+    out->ok = true;
+    return true;
+}
+}  // namespace
+
 // An indirect draw Vulkan cannot take as it is (quads, quad strips, polygons and line loops have no topology; 8-bit indices need
 // VK_EXT_index_type_uint8): each draw's arguments (and its indices) are read by the CPU and the draw is made as a direct indexed draw of
 // the converted 32-bit index list, like DrawArrays / DrawElements. That needs the arguments in memory the CPU can read: arguments a compute
@@ -3331,9 +3453,26 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
     // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
     g_draw_base_instance = 0;
+    const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
+    // indirect quads whose arguments the CPU cannot read (the GPU writes them): the indexed arguments made on the GPU, before the pass opens
+    BufRef qa{};
+    if (conv == PrimConversion::Quads && !indexed && !p.multi && indirect_quads_gpu_on() && S.render_enable && S.stage[kVertex] &&
+        !cpu_view(p.indirect_address, 16))
+        quad_args_gpu(p, &qa);
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), indexed, indexed ? static_cast<int>(p.type) : 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
-    const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
+    if (qa.ok) {
+        bind_index_buffer(F->cb, g_qa.index.buffer, 0, VK_INDEX_TYPE_UINT32);
+        checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), 1, true);
+        vkCmdDrawIndexedIndirect(F->cb, qa.buffer, qa.offset, 1, 20);
+        const uint64_t n = ++g_qa.draws;
+        if ((n & (n - 1)) == 0)   // 1, 2, 4, 8, ...
+            NXLOG_I("nvn.replay", "indirect quads drawn with GPU-made arguments: %llu so far", static_cast<unsigned long long>(n));
+        counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
+        g_pass_draws++;
+        trace_snap_after_draw();
+        return;
+    }
     const uint32_t isz = indexed ? index_size_bytes(static_cast<int>(p.type)) : 0;
     if (conv != PrimConversion::None || (indexed && isz == 1 && !device().features().index_type_uint8)) {
         draw_indirect_cpu(p, conv, isz, indexed);
@@ -4623,6 +4762,11 @@ void replay_shutdown() {
     g_prims_generated = g_prims_xfb = 0;
     g_mask.shutdown();
     g_mask_ready = false;
+    if (g_qa.pipe) vkDestroyPipeline(vkdev(), g_qa.pipe, nullptr);
+    if (g_qa.layout) vkDestroyPipelineLayout(vkdev(), g_qa.layout, nullptr);
+    if (g_qa.set_layout) vkDestroyDescriptorSetLayout(vkdev(), g_qa.set_layout, nullptr);
+    if (g_qa.index) device().destroy_buffer(g_qa.index);
+    g_qa = QuadArgs();
     pipeline_shutdown();
     S = GState();
     P = Pass();
