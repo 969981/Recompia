@@ -451,6 +451,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "width") return set_int(320, 16384, &s->display.width);
             if (k == "height") return set_int(320, 16384, &s->display.height);
             if (k == "keep_aspect") return set_bool(&s->display.keep_aspect);
+            if (k == "vram_cap") return set_bool(&s->display.vram_cap);
             if (k == "render_scale") {
                 if (lower(v) == "auto") { s->display.render_scale = 0; return true; }
                 return set_int(25, 400, &s->display.render_scale);
@@ -945,6 +946,7 @@ std::string format_settings(const Settings& s) {
     kv("width", std::to_string(s.display.width));
     kv("height", std::to_string(s.display.height));
     kv("keep_aspect", flag(s.display.keep_aspect));
+    kv("vram_cap", flag(s.display.vram_cap));
     kv("render_scale", s.display.render_scale <= 0 ? std::string("auto") : std::to_string(s.display.render_scale));
     kv("render_width", std::to_string(s.display.render_width));
     kv("render_height", std::to_string(s.display.render_height));

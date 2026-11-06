@@ -15,6 +15,11 @@ was translated: what used it was not drawn for the rest of the session.
 bind of the programs that lacked them. Something that translates `[nvn] dump_missing` while the game runs fills them in mid-session.
 `[nvn] shader_rescan_ms` sets how often (0 = off).
 
+#### Small GPUs: the default picture size stops at 2560x1440
+**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
+
+**Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on pokopia-native (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
+
 ### Fixes
 
 - The shader warm-up no longer gives up after one empty run: the hidden first run collects the blocks the game builds as it
