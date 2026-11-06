@@ -22,18 +22,10 @@
 // Frame rate. The main loop's frame step (0xbfc404) turns the measured frame time into a frame multiplier in 60 Hz units that 90 functions
 // read (the float at 0x34c03f0): 1.0 within 1.5 ms of 1/60 s, else dt * 60 clamped to [1, 3]. Faster than 60 fps the multiplier stays 1
 // and the game runs fast. The mid hook at the join point (0xbfc4fc: s0 the multiplier, s8 the frame time) lets frames shorter than 1/60 s
-// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes. The area-transition scene sequence at 0x445994
-// adds that multiplier to its timer and originally fired only on exact equality (b.ne at 0x4459bc), so a fractional step could cross the
-// target and leave its iris wipe closed forever (#144). main.sites changes that branch to b.lo: the event fires on equality or a crossing,
-// while the timer and every other multiplier consumer keep their measured high-frame-rate steps.
-// That was not enough (#144, 0.6.0): above 60 fps the iris wipe that opens after the load still crawled (about 13x slower at 180 fps, so
-// at 400+ fps it never seemed to end) and setting 60 fps let it finish. In-game A/B at 180 fps: with only the fixed-step rate fix the wipe
-// opened (3x fast, as everything); with only the fractional multiplier it crawled. So some multiplier consumer of the transition (not yet
-// found among the 38 direct readers) breaks on steps below 1. Transition hold ([pkp] transition_hold, default on): while the player cannot
-// turn the camera (the follow camera's turn branch, hook_cam_stick, closed for 200 ms: a transition, a cutscene, a dialogue, a menu) or the
-// NVN replay marks loading frames, and for [pkp] transition_hold_ms (default 1500) after, the frame limiter's ceiling holds the game at
-// 60 fps and the multiplier keeps the retail rule (what #145 did all the time). In free play frames are uncapped with the fractional
-// multiplier. Entry hooks on the scene-sequence commands (0x435418..0x44c55c) were tried first: none ran during a house exit.
+// count as dt * 60 (down to 1/8). At 60 fps and below nothing changes. The general value tween (0xe51624: the area-transition
+// iris and others) steps its counter by (u32)(multiplier + 0.5), which is 0 above 120 fps; mid hooks at its four step sites
+// (0xe51688, 0xe516f0, 0xe5173c, 0xe51788; they change the lifted code) replace the step with whole 60 Hz frames, carrying the
+// fraction in an accumulator per tween (hook_tween_step).
 // The 60 fps cap is the game's own: the main loop's frame step (0x89def8, profiler zone "Sync") waits, sleeping in 200 us task-graph waits,
 // until tick frequency / 60 ticks (60 = 60 / 0x13fc00(), a constant 1.0) have passed since the previous frame began. The mid hook right
 // after that division (0x89e27c, x22 = the period in ticks) sets the period to 0, so the runtime's frame limiter at the frame boundary
@@ -74,6 +66,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -83,11 +76,8 @@
 #include "nxrt/hooks.h"
 #include "nxrt/host_device.h"
 #include "nxrt/jc2_mouse.h"
-#include "nxrt/frame_limiter.h"
 #include "nxrt/log.h"
-#include "nxrt/lowlat.h"
 #include "nxrt/memory.h"
-#include "nxrt/play.h"
 #include "play_display.h"
 
 namespace nxrt::games::pkp {
@@ -104,8 +94,8 @@ constexpr uint64_t kReplayViewports = 0x17b6c98;                            // m
 constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // mid: the command context's SetViewport (x1 rect) / SetViewports (w1 n, x2 rects)
 constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
 constexpr uint64_t kCreateTarget = 0x1796810;                               // entry: KTGL 2D render-target create (w1 width, w2 height, w4 format)
-constexpr double kGameMaxFps = 60.0;                                      // the frame logic's design rate (transition hold)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
+constexpr uint64_t kTweenStep[4] = {0xe51688, 0xe516f0, 0xe5173c, 0xe51788};   // mid: general tween step (fadd s0, s0, s1): x19 tween, x10 counter, s0 multiplier, s1 0.5
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
 constexpr uint64_t kCamStick = 0x87d30;                                     // mid: x19 camera, s0 right stick x
@@ -132,12 +122,6 @@ struct State {
     std::atomic<int> w{kTableW}, h{kTableH};
     std::atomic<bool> dynres{false};
     std::atomic<bool> fps_fix{true};
-    std::atomic<bool> hold_on{true};          // [pkp] transition_hold
-    uint64_t hold_ns = 1500000000ull;         // [pkp] transition_hold_ms
-    std::atomic<uint64_t> seq_ns{0};          // the last frame out of free play (or loading)
-    bool holding = false;                     // main thread: the 60 fps ceiling is set
-    uint64_t hold_start_ns = 0, holds = 0;
-    std::atomic<uint64_t> turn_ns{0};         // the last frame the player could turn the camera (free play)
     std::atomic<bool> game_limit{false};
     std::atomic<uint64_t> sync_calls{0}, fixed_calls{0};
     std::atomic<bool> mouse_cam{true};
@@ -152,6 +136,11 @@ struct State {
     std::atomic<uint64_t> vp_shapes[16]{};   // distinct scissor sizes the viewport stretch has touched (logged once each)
     std::atomic<uint32_t> vp_shape_n{0};
     std::atomic<float> last_mult{1.f};
+    // hook_tween_step: per tween object, the counter and step seen last time and the carried fraction of a 60 Hz frame
+    struct TweenAcc { uint64_t obj = 0; uint32_t last = 0, step = 0; float acc = 0.f; };
+    std::mutex tween_mu;
+    TweenAcc tween[64];
+    uint32_t tween_next = 0;
     // Joy-Con 2 mouse mode (frame boundary, main thread): the Mouse mode key flips `mm_want`; the activation count tells how often it fired
     uint64_t mm_seen = 0;
     bool mm_want = false;
@@ -672,45 +661,11 @@ int hook_ui_camera(::Ctx* c, uint64_t, void*) {
 }
 
 // ---- frame rate ----
-uint64_t mono_ns();
-
-// once per frame: set or clear the 60 fps ceiling of the transition hold; true while it holds
-bool transition_hold(State& s) {
-    if (!s.hold_on.load(std::memory_order_relaxed)) return false;
-    const uint64_t now = mono_ns();
-    if (frame_limiter_unpaced()) s.seq_ns.store(now, std::memory_order_relaxed);
-    // out of free play (the follow camera's turn branch closed for 200 ms: a transition, a cutscene, a menu) counts as a transition too
-    const uint64_t turn = s.turn_ns.load(std::memory_order_relaxed);
-    if (turn == 0 || now - turn > 200000000ull) s.seq_ns.store(now, std::memory_order_relaxed);
-    const uint64_t last = s.seq_ns.load(std::memory_order_relaxed);
-    const bool want = last != 0 && now - last < s.hold_ns;
-    if (want != s.holding) {
-        s.holding = want;
-        if (FrameLimiter* lim = play::limiter()) {
-            lim->set_max_fps(want ? kGameMaxFps : 0.0);
-            extras::lowlat_note_cap(lim->effective_fps());
-        }
-        if (want) {
-            s.hold_start_ns = now;
-            ++s.holds;
-            if (s.holds <= 20) NXLOG_I(kTag, "transition hold %llu: game held at 60 fps", static_cast<unsigned long long>(s.holds));
-        } else if (s.holds <= 20) {
-            NXLOG_I(kTag, "transition hold %llu: released after %llu ms", static_cast<unsigned long long>(s.holds),
-                    static_cast<unsigned long long>((now - s.hold_start_ns) / 1000000ull));
-        }
-    }
-    return want;
-}
-
 int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
     State& s = st();
     kbm_frame(c);
     movie_test_frame(c);   // [test] movie (pkp_movie_test.cpp)
     if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
-    if (transition_hold(s)) {   // the retail rule while a transition plays
-        s.last_mult.store(c->v[0].f32[0], std::memory_order_relaxed);
-        return 0;
-    }
     const float dt = c->v[8].f32[0];
     // the game's own rule keeps 1.0 within 1.5 ms of 1/60 s; only shorter frames change
     if (dt > 0.f && dt < (1.f / 60.f - 0.0015152f)) {
@@ -721,6 +676,40 @@ int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
     } else {
         s.last_mult.store(c->v[0].f32[0], std::memory_order_relaxed);
     }
+    return 0;
+}
+
+// General value tween f_7100e51624 (the area-transition iris and others): the counter steps by (u32)(multiplier + 0.5) per frame, which is 0
+// for the fractional multiplier above 120 fps. Counts whole 60 Hz frames instead, carrying the fraction per tween (keyed by the tween object),
+// so the tween keeps its 60 fps timing. n <= 3: acc < 1 and the multiplier <= 3. The counter can count down, so a restart is detected by
+// the counter not being last +- step (the game started or replaced the tween), which drops the carried fraction.
+int hook_tween_step(::Ctx* c, uint64_t, void*) {
+    State& s = st();
+    if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
+    const uint64_t obj = c->x[19];
+    const uint32_t cnt = static_cast<uint32_t>(c->x[10]);
+    float n;
+    {
+        std::lock_guard<std::mutex> lk(s.tween_mu);
+        State::TweenAcc* e = nullptr;
+        for (State::TweenAcc& t : s.tween) {
+            if (t.obj == obj) { e = &t; break; }
+        }
+        if (!e) {
+            e = &s.tween[s.tween_next++ % 64];
+            *e = State::TweenAcc{};
+            e->obj = obj;
+        } else if (cnt != e->last + e->step && cnt != e->last - e->step) {
+            e->acc = 0.f;
+        }
+        e->acc += c->v[0].f32[0];
+        n = std::floor(e->acc);
+        e->acc -= n;
+        e->last = cnt;
+        e->step = static_cast<uint32_t>(n);
+    }
+    c->v[0].f32[0] = n;
+    c->v[1].f32[0] = 0.f;   // the game's fadd + fcvtzu give exactly n
     return 0;
 }
 
@@ -736,7 +725,7 @@ int hook_sync_period(::Ctx* c, uint64_t, void*) {
 int hook_fixed_step_rate(::Ctx* c, uint64_t, void*) {
     State& s = st();
     s.fixed_calls.fetch_add(1, std::memory_order_relaxed);
-    if (!s.fps_fix.load(std::memory_order_relaxed) || s.holding) return 0;
+    if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
     const uint64_t now = c->x[28], prev = c->x[25];
     const double freq = c->v[8].f64[0];
     if (now <= prev || freq <= 0) return 0;
@@ -812,7 +801,6 @@ int hook_cam_stick(::Ctx* c, uint64_t, void*) {
         dx = dy = 0;
     }
     s.last_turn_ns = mono_ns();
-    s.turn_ns.store(s.last_turn_ns, std::memory_order_relaxed);
     if (!s.mouse_cam.load(std::memory_order_relaxed) || (dx == 0 && dy == 0)) return 0;
     const uint64_t cam = c->x[19];
     if (!cam || !mem::is_mapped(cam, kCamIdle + 4)) return 0;
@@ -971,13 +959,12 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     s.base = base;
     s.host = host;
     s.fps_fix.store(config_get_bool("pkp", "frame_time_fix", true));
-    s.hold_on.store(config_get_bool("pkp", "transition_hold", true));
-    s.hold_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "transition_hold_ms", 1500), 0, 10000)) * 1000000ull;
     s.mouse_cam.store(config_get_bool("pkp", "mouse_camera", true));
     s.game_limit.store(config_get_bool("pkp", "game_frame_limit", false));
     s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
     s.grace_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "camera_grace_ms", 250), 0, 5000)) * 1000000ull;
     s.hooks.push_back(hook_add_mid(base + kFrameMultiplier, &hook_frame_multiplier));
+    for (const uint64_t site : kTweenStep) s.hooks.push_back(hook_add_mid(base + site, &hook_tween_step));
     s.hooks.push_back(hook_add_mid(base + kSyncPeriod, &hook_sync_period));
     s.hooks.push_back(hook_add_mid(base + kFixedStepRate, &hook_fixed_step_rate));
     s.hooks.push_back(hook_add_mid(base + kCamField, &hook_cam_field));
@@ -986,9 +973,8 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     kbm_install(base, &s.hooks);
     s.installed = true;
     play_settings_changed(set);
-    NXLOG_I(kTag, "frame-time fix %s (transition hold %s, %llu ms), game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
-            s.fps_fix.load() ? "on" : "off", s.hold_on.load() ? "on" : "off", static_cast<unsigned long long>(s.hold_ns / 1000000ull),
-            s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
+    NXLOG_I(kTag, "frame-time fix %s, game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
+            s.fps_fix.load() ? "on" : "off", s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
             s.mouse_cam.load() ? "on" : "off", s.cam_every_frame.load() ? "every frame" : "game's 120 Hz tick",
             static_cast<unsigned long long>(s.grace_ns / 1000000ull));
 }

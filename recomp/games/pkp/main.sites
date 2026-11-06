@@ -116,10 +116,6 @@ midhook 0x7100bfc4fc
 midhook 0x710089e27c
 #   frame rate: its fixed-step frame time (1 / s0, s0 = 60.0), before the division
 midhook 0x710089e398
-#   frame rate: the area-transition scene sequence adds the frame multiplier to its timer, then skips its event while
-#   timer != target. With fractional multipliers above 60 fps it can step past the target and leave the iris wipe closed
-#   forever (#144). Skip only while timer < target instead, so equality or a crossing fires the event; no frame-rate cap.
-patch 0x71004459bc 0x54000121 0x54000123
 #   mouse camera: the follow camera's update (0x7100087840), right after it loaded the right stick's X (s0), x19 = the camera
 midhook 0x7100087d30
 #   mouse camera: the same update past its scene-state check, before the turn gate (every frame the follow camera runs), x19 = the camera
@@ -200,3 +196,10 @@ midhook 0x7101f7fe48
 #   Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): the permission-mask builder 0x71000b0f60, story-area
 #   online block at `movk x13, #1, lsl #32` (x13 = the pattern's bits 0-31, x22 = the session's Spectator flag)
 midhook 0x71000b1030
+# general value tween f_7100e51624: the frame counter steps by (u32)(multiplier + 0.5) once per frame (fadd s0, s0, s1 before the
+# fcvtzu), which is 0 above 120 fps with the frame-time fix; one site per counter (+0xc, +0x14). pkp_play.cpp hook_tween_step
+# replaces the step with whole 60 Hz frames.
+midhook 0x7100e51688
+midhook 0x7100e516f0
+midhook 0x7100e5173c
+midhook 0x7100e51788
