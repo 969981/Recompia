@@ -14,7 +14,7 @@ pub const PUBLIC_WARNING: &str = "Windows treats this network as Public, so othe
 #[cfg(windows)]
 pub const FIREWALL_HINT: &str = "If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.";
 #[cfg(not(windows))]
-pub const FIREWALL_HINT: &str = "If visitors cannot connect, the firewall may block the port (39660 unless you changed it). With firewalld (Fedora, Bazzite): sudo firewall-cmd --add-port=39660/tcp --add-port=39660/udp";
+pub const FIREWALL_HINT: &str = "If visitors cannot connect, the firewall may block the ports (47600 for a host, 47610 for a relay). With firewalld (Fedora, Bazzite): sudo firewall-cmd --add-port=47600/tcp --add-port=47600/udp --add-port=47610/tcp --add-port=47610/udp";
 
 /// IfType values we care about (IANA).
 pub const IF_WIFI: u32 = 71;

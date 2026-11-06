@@ -3,16 +3,13 @@
 Pokopia's **Link Play** (local wireless, several players on one island) between PCs, Steam Decks and other handhelds. This port speaks
 pokopia-native's co-op protocol, so you can also play with **pokopia-native** players.
 
-![Two players on one island](linkplay-1.webp)
-![The same session from the other view](linkplay-2.webp)
-
 ## Before you start
 
 - **Cross-play** works with pokopia-native players on game version **2.0.1**. Players on 1.0.5 cannot join (the game builds differ).
 - **Not compatible with earlier Link Play builds of this port** (the old relay on port 39660). Everyone needs a build with this protocol.
 - **Each player needs their own save.** The host refuses a visitor whose save it already has (error 9005, "Communication error"):
   two copies of one save cannot play together.
-- Every player needs the same **Interact everywhere** and **Story co-op** settings, or the host is not listed.
+- Every player needs the same **Interact everywhere** and **Story co-op** settings, or the host is not listed. Only the host's save keeps story progress.
 
 ## Setting it up
 
@@ -56,6 +53,12 @@ link as pokopia-native does. Either way they are checked end to end with the roo
 
 The launcher's Link Play page keeps the old protocol under **Advanced** (`[net] protocol = linkplay`), for a session where everyone still
 has an earlier build of this port. It cannot meet pokopia-native players.
+
+## Common problems
+
+- **The host is not found:** pick **Visit by address** and type the host's address. Check the firewall prompt and the Private network profile.
+- **Refused:** version or mods mismatch. Same game (2.0.1), same release or pokopia-native, same two switches.
+- **Error 9005:** both players have the same save (same player id). Each player needs their own save.
 
 ## Status
 
