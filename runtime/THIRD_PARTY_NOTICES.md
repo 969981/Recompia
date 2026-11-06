@@ -60,6 +60,8 @@ SOFTWARE.
 
 Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment.
 
+The GPU-made indirect quad arguments (`src/gfx/nvn/nvn_replay.cpp` quad_args_gpu, `src/gfx/nvn/nvn_quad_args_shader.inc`) are based on pokopia-native @27a6df0 (1.2.6), `windows/src/nxrt/vk/vk_replay.c` quad_args and `windows/src/nxrt/vk/shaders/quad_args.comp`, under the same MIT licence; those files carry a `Based on pokopia-native (MIT) ... @27a6df0` header comment.
+
 Its `ampere-lower/` folder is separate: it is GPL-3.0-or-later, not MIT. Per its `NOTICE.md` it is a cut-down build of the `ampere-spirv` tool from the Eden-NS2 emulator fork (https://github.com/0x2593/Eden-NS2, GPL-3.0-or-later): the Switch 2 (Ampere) shader capture and the Ampere-to-Maxwell lowering headers from `src/shader_recompiler/frontend/ampere/`, with `main.cpp` reduced to the lowering stage. The headers are unchanged except for four Pokopia fixes (FSEL operand modifiers, HFMA2 `.H0_NH1` lane swap). Its `LICENSE` is the GPL-3.0 text, the same as the `LICENSE` file at the repository root.
 
 ## smo-recomp, ScarletNX and ssbu-recomp (GPL-3.0)

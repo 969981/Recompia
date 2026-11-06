@@ -22,6 +22,14 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
   again. Now an empty run does not mark the warm-up as done; the next Play or Set up tries once more, up to two further
   attempts (counted in a small file next to the manifest).
 
+#### Particle effects whose count the GPU works out are drawn
+**What was wrong:** some effects (for example the one in the intro cave after you choose your look) were not drawn. The game counts
+their quads on the GPU and draws them indirectly; the runtime converted quad draws on the CPU, could not read a count the GPU had
+not written yet, and skipped them.
+
+**Now:** a small compute shader turns those counts into an ordinary indexed draw on the GPU, at most 65536 quads and instances.
+`[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on pokopia-native 1.2.6.
+
 #### Area transitions: the iris no longer crawls or freezes above 120 fps (#144)
 **What was wrong:** above about 120 fps the house-shaped wipe that closes and opens when you enter or leave a house or area
 could crawl for a minute or look frozen, both on the way in and on the way out.
