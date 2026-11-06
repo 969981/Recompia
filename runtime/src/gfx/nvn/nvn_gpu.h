@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The boundary between the NVN entry points (host side, api_*.cpp) and the GPU back end (render thread, nvn_gpu*.cpp,
-// nvn_replay.cpp). The api files only use the functions below; they never include Vulkan. nvn_gpu_stub.cpp implements the same
-// functions without a GPU (a serial counter and nothing else) so the api files can be unit-tested on their own.
+// nvn_replay.cpp). The api files only use the functions below; they never include Vulkan.
 #pragma once
 #include <cstdint>
 #include <vector>

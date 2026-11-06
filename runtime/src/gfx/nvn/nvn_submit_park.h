@@ -15,7 +15,7 @@
 //   released entry.
 // - Hold: a job may wait up to `hold` (counted from the park time) for the present to take its entry, but only when a present is already
 //   queued on the render thread (present_coming). It ends early on release or when the present takes the entry.
-// No Vulkan in here (unit test: tests/gfx/test_nvn_submit_park.cpp).
+// No Vulkan in here.
 #pragma once
 
 #include <algorithm>
