@@ -20,7 +20,7 @@ code block, with its first occurrence's ctrl/glslc), summary.txt. The blocks the
     pack holds only what spirv_harness reads of a GLSLC output: its header and section table and the reflection section
     (reflection_part). A few large files instead of ~360,000 small ones: hours less on a hard drive.
   * files: code/<h>.bin, ctrl/<h>.bin, glslc/<h>.bin (whole GLSLC outputs), for the tools that read single blocks
-    (ampere/oracle/sass_oracle.py, scripts/check_mufu_trig.py).
+    (ampere/oracle/sass_oracle.py, scripts/check_mufu_trig.py, ampere/decoder/tool: sassdecode).
 Deterministic: files and entries are visited in sorted order; "first occurrence" is in that order.
 Usage: python -I extract_corpus.py --romfs <romfs> [--romfs-base <base romfs>] [--main <main.elf>] --out <dir> [--jobs 4]
                                    [--layout packs|files]

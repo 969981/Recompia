@@ -3,7 +3,8 @@
 //!
 //! Two existing tools do the work, both shipped in the launcher's `tools/` folder:
 //!   1. `tools/shaders/extract_corpus.py` (Python 3 with the `lz4` package) finds every GLSLC output in the romfs and in
-//!      exefs/main and writes the distinct shader blocks to `shader_cache/corpus` (code/, ctrl/, glslc/, unique.tsv);
+//!      exefs/main and writes the distinct shader blocks to `shader_cache/corpus` (pack/<NN>.code, .ctrl, .glslc and
+//!      unique.tsv with each block's pack refs: a few large files, issue #194);
 //!   2. `tools/spirv_harness/spirv_harness.exe` (self-contained .NET publish) translates them to `<hash>.spv` plus the
 //!      `results.tsv` rows the runtime reads.
 //!

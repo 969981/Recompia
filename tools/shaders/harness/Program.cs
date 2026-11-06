@@ -385,7 +385,7 @@ namespace SpirvHarness
             string reflect = Opt(args, "--reflect", null);
             if (reflect != null)
                 foreach (var row in ReadTsv(Path.Combine(reflect, "unique.tsv")))
-                    GlslcByHash[row["code_sha1_16"]] = Path.Combine(reflect, "glslc", row["first_glslc"] + ".bin");
+                    GlslcByHash[row["code_sha1_16"]] = CorpusBlob(reflect, row, "glslc_ref", "glslc", row["first_glslc"]);
             string root = args[1];
             string outDir = Opt(args, "--out", null) ?? throw new ArgumentException("--out is required");
             int jobsN = int.Parse(Opt(args, "--jobs", "2"));
