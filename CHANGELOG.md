@@ -6,7 +6,32 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Known issues
+- **Linux still runs the game and the shader setup through Proton.**
+- **The game clock is new and not confirmed in the game yet.** I know it moves the clock the game reads for the user, but I have not seen day and night follow it.
+- **The touch resize grip and dragging the title bar by finger** were tested with the window functions, not with a finger on a real screen, until the first handheld tests are in. Tell me what you find.
+- Link Play with pokopia-native players still has no confirmed full two player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
+
+### New
+
+#### Set the game's date and time from the launcher (#203)
+**Before:** the game's clock always followed the PC, so reaching time-gated things in the game meant changing the system clock.
+
+**Now:** Settings > Game has a **Game clock** row: pick a date and time, or press **Real time** to follow the PC again. It is saved in `pkp.ini` as `[time] clock_offset` (minutes, up to 10 years either way) and used from the next start of the game. The clock the game reads for the player moves; the steady and network clocks stay on the PC's time, as when you set the date and time by hand on a Switch.
+
+**Still not:** it only changes at the start of the game, not while it runs.
+
 ### Fixes
+
+#### The launcher was slow on Linux
+**Before:** on Linux the launcher took about 0.7 seconds from a click to the next page and scrolled at about 3 frames per second, because the big background picture was drawn again, and blurred again, on every frame.
+
+**Now:** the background is two ready-made pictures (the sharp one and a blurred one) made from the same artwork, so it looks the same. On my PC a page change takes about 55 ms and scrolling runs at about 60 frames per second. `launcher/scripts/render-art.sh` rebuilds the pictures from the SVG if the artwork changes.
+
+#### The launcher did not fit handheld screens and was hard to use by touch
+**Before:** on a 1920x1080 screen at 185 % scale (a ROG Ally on the KDE desktop) the window opened taller than the screen, so the bottom went under the taskbar. The window had no title bar, so the only way to resize it was the invisible edge of the window, which a finger cannot hit, and the window buttons were 32 pixels wide.
+
+**Now:** on a small screen (up to 1400 pixels wide or under 800 high, as the screen counts for the launcher) the launcher starts maximized, so the taskbar stays clear. If the screen query ever fails, the launcher just opens at its normal size. The smallest window height is 440 instead of 580, and every page works at 1038x540. Where the main pointer is a finger, buttons, rows, inputs and the window buttons are 44 to 48 pixels. There is a resize grip in the bottom right corner, and the title bar can be dragged with a finger. With a mouse nothing changes except the grip.
 
 #### The Xbox and PlayStation d-pad, trigger and shoulder icons faded out on the move wheel (#230)
 **Before:** with Xbox or PlayStation prompts, the icons for the d-pad, the triggers and shoulders, and the menu buttons are plain white art. The game's own button symbols have a dark rim, and so do our keyboard icons, but these did not, so on the pale Select Move wheel (and on white dialogue boxes) they nearly vanished. The d-pad was the worst: a white cross on a pale wheel.
