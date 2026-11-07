@@ -1597,7 +1597,7 @@ void draw_settings_page(UiHost& host) {
     ImGui::SameLine();
     if (ImGui::Button("Quit game")) host.request_quit_prompt();
     tip("Asks before closing the game. Unsaved settings changes are lost; the game's own save is not touched - save in the game first.");
-    ImGui::TextDisabled("Controller: D-pad or left stick move, A choose, B back, L and R switch tabs, + close.");
+    ImGui::TextDisabled("Controller: D-pad or left stick move, A choose, B back, + close.");
     ImGui::Separator();
 
     ImGui::PushItemWidth(std::max(px(200.0f), ImGui::GetContentRegionAvail().x * 0.42f));

@@ -910,8 +910,7 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
         struct Map { uint64_t bits; ImGuiKey key; };
         const Map keys[] = {{kKbDirBits[0], ImGuiKey_GamepadDpadUp}, {kKbDirBits[1], ImGuiKey_GamepadDpadDown}, {kKbDirBits[2], ImGuiKey_GamepadDpadLeft},
                             {kKbDirBits[3], ImGuiKey_GamepadDpadRight}, {hid::btn(hid::kBtnA), ImGuiKey_GamepadFaceDown},
-                            {hid::btn(hid::kBtnB), ImGuiKey_GamepadFaceRight}, {hid::btn(hid::kBtnL), ImGuiKey_GamepadL1},
-                            {hid::btn(hid::kBtnR), ImGuiKey_GamepadR1}};
+                            {hid::btn(hid::kBtnB), ImGuiKey_GamepadFaceRight}};
         std::lock_guard<std::mutex> lk(s.mu);
         ImGuiContext* prev = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(s.imgui);
