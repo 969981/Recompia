@@ -341,6 +341,20 @@ void init_locked(State& s) {
     s.local_delta = (offset_min < -kMaxOffsetMinutes ? -kMaxOffsetMinutes : offset_min > kMaxOffsetMinutes ? kMaxOffsetMinutes : offset_min) * 60;
     s.network_delta = 0;
     s.ephemeral_delta = 0;
+    // [time] clock_scope (test key, default "user"): "all" moves the network and ephemeral network clocks by the same offset, for
+    // game code that prefers the network clock. Anything else is "user" (the behaviour above).
+    {
+        const std::string scope = ascii_lower(config_get_str("time", "clock_scope", "user"));
+        if (scope != "user" && scope != "all")
+            NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
+        else if (scope == "all") {
+            NXLOG_I("time", "time: [time] clock_scope = all: the network clocks are moved by the same offset as the game clock");
+            if (s.local_delta) {
+                s.network_delta = s.local_delta;
+                s.ephemeral_delta = s.local_delta;
+            }
+        }
+    }
     s.auto_correction = false;
     s.device_utc = ascii_lower(config_get_str("time", "zone", "host")) == "utc";
     s.hosts_ready = false;
