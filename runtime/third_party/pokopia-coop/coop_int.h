@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_int.h @4a72d23, modified (marked "pokopia-recomp extension: relay UDP" and "LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop_int.h @035bd9c, modified (marked "pokopia-recomp extension: relay UDP" and "LAN sweep")
 // coop internals shared by coop_ldn.c, coop_vnet.c, coop_mpnet.c, coop_disc.c, coop_plat.c and coop_auth.c (MIT, our own code). Not for the HLE: it
 // includes the platform's socket headers.
 #pragma once

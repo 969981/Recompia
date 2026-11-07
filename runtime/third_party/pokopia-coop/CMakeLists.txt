@@ -1,4 +1,4 @@
-# pokopia-coop: pokopia-native's Link Play module (MIT, windows/src/coop @4a72d23, THIRD_PARTY_NOTICES.md), vendored unchanged but for one
+# pokopia-coop: pokopia-native's Link Play module (MIT, windows/src/coop @035bd9c, THIRD_PARTY_NOTICES.md), vendored unchanged but for one
 # header line per file, the relay UDP extension in coop_int.h / coop_mpnet.c and the LAN sweep / mDNS responder for Windows without DNS-SD (Wine,
 # Proton) in coop.h / coop_int.h / coop_ldn.c / coop_plat.c / coop_disc.c (all marked "pokopia-recomp extension"). Portable C11; the ldn and bsd services (src/services/ldn.cpp, network.cpp) call it for [net] protocol = native.
 # Its own tests (tests/coop_test.c) and the relay tool are not vendored.

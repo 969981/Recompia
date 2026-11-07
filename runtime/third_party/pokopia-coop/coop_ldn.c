@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep")
 // coop ldn (MIT, our own code): the nn::ldn state machine (None 0, Initialized 1, AccessPoint 2, AccessPointCreated 3, Station 4,
 // StationConnected 5), the 0x480 NetworkInfo the host builds, scan and connect over the transport, configuration and address classes. Layouts and
 // result codes follow switchbrew and research/06 §3.1, §4. The host is node 0 at 169.254.S.1; a station with node id k is 169.254.S.(k+1).
@@ -64,6 +64,12 @@ int coop_addr4_class(uint32_t ip) {
     if ((ip >> 24) == 10 || (ip >> 20) == 0xAC1 || (ip >> 16) == 0xC0A8) return COOP_ADDR_PRIVATE;   // 10/8, 172.16/12, 192.168/16 (RFC 1918)
     if ((ip >> 16) == 0xA9FE) return COOP_ADDR_LINKLOCAL;                                           // 169.254/16
     return COOP_ADDR_PUBLIC;   // everything else, 100.64/10 (carrier NAT) included
+}
+const char *coop_addr4_vpn(uint32_t ip) {
+    if ((ip >> 24) == 26) return " (Radmin VPN's range)";
+    if ((ip >> 24) == 25) return " (Hamachi's range)";
+    if ((ip >> 22) == 0x191) return " (carrier NAT, or Tailscale's range)";   // 100.64/10
+    return "";
 }
 int coop_addr6_class(const uint8_t a[16]) {
     static const uint8_t lo[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, zero[16] = {0};
@@ -137,8 +143,9 @@ int coop_cfg_parse_ex(coop_cfg *c, const char *coop, const char *uid, const char
         int cls = coop_addr4_class(c->addr);
         if (!coop_addr_allowed(inet ? COOP_SCOPE_INTERNET : COOP_SCOPE_LAN, cls)) {
             if (inet) snprintf(err, errn, "DM_COOP=%s: %u.%u.%u.%u is not an address a host can have", coop, c->addr >> 24, c->addr >> 16 & 0xFF, c->addr >> 8 & 0xFF, c->addr & 0xFF);
-            else snprintf(err, errn, "DM_COOP=%s: %u.%u.%u.%u is not a loopback, private (RFC 1918) or link-local address; internet play is a separate opt-in "
-                          "(DM_COOP_INTERNET=1 and the host's DM_COOP_ROOM code, docs/coop-step1d.md)", coop, c->addr >> 24, c->addr >> 16 & 0xFF, c->addr >> 8 & 0xFF, c->addr & 0xFF);
+            else snprintf(err, errn, "DM_COOP=%s: %u.%u.%u.%u%s is not a loopback, private or link-local address; through a VPN or the internet, every player "
+                          "turns on internet play (DM_COOP_INTERNET=1, the host's room code)", coop, c->addr >> 24, c->addr >> 16 & 0xFF, c->addr >> 8 & 0xFF, c->addr & 0xFF,
+                          coop_addr4_vpn(c->addr));
             return -1;
         }
         c->role = COOP_ROLE_JOIN; c->scope = cls == COOP_ADDR_LOOPBACK ? COOP_SCOPE_LOOPBACK : inet ? COOP_SCOPE_INTERNET : COOP_SCOPE_LAN; c->port = (uint16_t)port;
@@ -172,7 +179,7 @@ coop_node *coop_env_node(const coop_hooks *hooks) {
     cplat_lock(&once);
     if (!done) {
         done = 1;
-        coop_cfg c; char err[240] = "", jm[96], msg[300];
+        coop_cfg c; char err[320] = "", jm[96], msg[360];
         const char *mode = getenv("DM_COOP"), *inet = getenv("DM_COOP_INTERNET"), *room = getenv("DM_COOP_ROOM"), *relay = getenv("DM_COOP_RELAY");
         const char *join = getenv("DM_COOP_JOIN");   // the launcher's "Join address" under its Link Play switch: auto becomes join:<it>
         int joined = join && *join && mode && !strcmp(mode, "auto") && strlen(join) < 64;
