@@ -4,6 +4,17 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+
+#### The Xbox and PlayStation d-pad, trigger and shoulder icons faded out on the move wheel (#230)
+**Before:** with Xbox or PlayStation prompts, the icons for the d-pad, the triggers and shoulders, and the menu buttons are plain white art. The game's own button symbols have a dark rim, and so do our keyboard icons, but these did not, so on the pale Select Move wheel (and on white dialogue boxes) they nearly vanished. The d-pad was the worst: a white cross on a pale wheel.
+
+**Now:** those icons get the same dark rim and dark letters as the keyboard icons. The coloured face buttons (A, B, X, Y, cross, circle and so on) are left exactly as they were.
+
+**Still not:** I could only check the icons on their own, on a pale and a dark background, not inside the game. If any prompt still looks faint for you, send a screenshot of it.
+
 ## 0.7.6 (build K: Kinkajou)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
