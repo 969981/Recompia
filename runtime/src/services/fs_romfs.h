@@ -25,7 +25,10 @@ public:
     // `base_dir` (optional, a folder or a .nup): a lower layer. Every file and folder of it that `host_dir` lacks is served too, as a
     // console patch over its base game: the files of `host_dir` win. For an update dumped without the base game's files under it (an
     // update only holds the files it changes; fork #128).
-    bool build(const std::string& host_dir, std::string* err = nullptr, const std::string& base_dir = std::string());
+    // `mod_dir` (optional, a romfs-shaped folder): the top layer. Its files win over both `host_dir` and `base_dir`, shared folders merge,
+    // and files found only in the mod are served too.
+    bool build(const std::string& host_dir, std::string* err = nullptr, const std::string& base_dir = std::string(),
+               const std::string& mod_dir = std::string());
     bool built() const;
     uint64_t size() const;                                  // total image size in bytes
     // Copies [offset, offset + len) of the image into dst. False when the range is outside the image or a host file cannot be read
@@ -36,6 +39,7 @@ public:
         uint64_t data_bytes = 0;                            // sum of file sizes
         uint64_t data_offset = 0;                           // header.file_partition_ofs
         uint32_t base_files = 0;                            // files served from the base layer (build's base_dir)
+        uint32_t mod_files = 0;                             // files served from the mod layer (build's mod_dir)
     };
     Stats stats() const;
     // Image offset and size of a file by its path inside the image ("/a/b.bin", case sensitive), for tests and logs. False when absent.

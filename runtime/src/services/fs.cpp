@@ -432,8 +432,10 @@ std::shared_ptr<fs::RomfsImage> rom_image() {
     std::string err;
     const std::string dir = romfs_dir();
     const std::string base = romfs_base_dir();
-    if (!img->build(dir, &err, base)) {
-        NXLOG_E("fs", "RomFS folder '%s'%s%s cannot be served: %s (set [fs] romfs)", dir.c_str(), base.empty() ? "" : " over ", base.c_str(), err.c_str());
+    const std::string mod = romfs_mod_dir();
+    if (!img->build(dir, &err, base, mod)) {
+        NXLOG_E("fs", "RomFS folder '%s'%s%s%s%s cannot be served: %s (set [fs] romfs)", dir.c_str(), base.empty() ? "" : " over ", base.c_str(),
+                mod.empty() ? "" : " with mod ", mod.c_str(), err.c_str());
         st().rom_failed = true;
         st().rom_error = err;
         return nullptr;
@@ -443,6 +445,8 @@ std::shared_ptr<fs::RomfsImage> rom_image() {
             static_cast<unsigned long long>(s.data_bytes), static_cast<unsigned long long>(img->size()));
     if (!base.empty())
         NXLOG_I("fs", "RomFS: %u of the %u files come from the base game's RomFS %s ([fs] romfs_base)", s.base_files, s.files, base.c_str());
+    if (!mod.empty())
+        NXLOG_I("fs", "RomFS: %u of the %u files come from the mod folder %s ([fs] romfs_mod)", s.mod_files, s.files, mod.c_str());
     st().rom = img;
     return img;
 }
@@ -608,8 +612,8 @@ std::shared_ptr<Service> make_fsp() {
     auto s = std::make_shared<Service>("fsp-srv");
     s->add_cmd(1, "SetCurrentProcess", [](Request&, Response&) -> uint32_t { return 0; });
     s->add_cmd(2, "OpenDataFileSystemByCurrentProcess", [](Request&, Response& rsp) -> uint32_t {
-        // a .nup, and a RomFS layered over the base game's, are served as the RomFS image (OpenDataStorage) only
-        if (nup::is_nup(romfs_dir()) || !romfs_base_dir().empty()) return fs::rc::kTargetNotFound;
+        // a .nup, and a RomFS layered with the base game or a mod, are served as the RomFS image (OpenDataStorage) only
+        if (nup::is_nup(romfs_dir()) || !romfs_base_dir().empty() || !romfs_mod_dir().empty()) return fs::rc::kTargetNotFound;
         auto v = std::make_shared<Volume>(romfs_dir(), false, true, 0);
         if (!v->ok()) return fs::rc::kTargetNotFound;
         rsp.push_object(make_filesystem(v, "rom:"));
