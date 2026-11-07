@@ -130,6 +130,19 @@ fn write_marker(game_dir: &Path, m: &Marker) -> Result<(), String> {
     fs::rename(&tmp, &p).map_err(|e| format!("cannot replace {}: {}", p.display(), e))
 }
 
+/// How this cache is (or will be) stored, with `choice` the setup's Job::compact: a cache with an archive is compact, otherwise the
+/// storage setup.json recorded, otherwise (nothing decided yet) the choice when no shader is translated yet, else loose. Setup and
+/// the preflight's disk estimate both ask this.
+pub fn storage_of(game_dir: &Path, marker: &Marker, choice: bool) -> &'static str {
+    if crate::shader_archive::exists(game_dir) || marker.storage == "compact" {
+        "compact"
+    } else if marker.storage.is_empty() && choice && crate::shader_archive::loose_files(game_dir).is_empty() {
+        "compact"
+    } else {
+        "loose"
+    }
+}
+
 /// Records how the cache is stored ("compact" or "loose"), after Settings packed or unpacked it.
 pub fn set_storage(game_dir: &Path, storage: &str) -> Result<(), String> {
     let mut m = read_marker(game_dir);
@@ -509,11 +522,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         marker = Marker { romfs: romfs_s.clone(), ..Default::default() };
     }
     // the storage this cache keeps (Job::compact): decided once, when nothing is translated yet; a cache with an archive is compact
-    let archived = crate::shader_archive::exists(&job.game_dir);
-    if marker.storage.is_empty() || archived {
-        let fresh = crate::shader_archive::loose_files(&job.game_dir).is_empty();
-        marker.storage = if archived || (job.compact && fresh) { "compact" } else { "loose" }.into();
-    }
+    marker.storage = storage_of(&job.game_dir, &marker, job.compact).into();
     let compact = marker.storage == "compact";
     if let Some(l) = &job.log {
         l(&format!("shader storage: {}", if compact { "compact (shader archive)" } else { "loose .spv files" }));

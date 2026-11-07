@@ -657,11 +657,13 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<boo
 /// The checks shown before Set up starts (preflight.rs). Reads the disk and loads Vulkan, so it runs off the UI thread.
 #[tauri::command]
 async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
-    let dir = game_dir_of(&load_config(&app));
+    let cfg = load_config(&app);
+    let dir = game_dir_of(&cfg);
+    let compact = !cfg.loose_shaders;
     let tools_dir = exe_dir().join("tools");
     tauri::async_runtime::spawn_blocking(move || {
         let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir);
-        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending));
+        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending, compact));
         let report = preflight::evaluate(&facts);
         // into the setup log too: a failed setup report then shows what the PC looked like
         let log = setuplog::SetupLog::open(&dir);

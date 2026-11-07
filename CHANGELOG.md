@@ -15,7 +15,9 @@ of the game (version 2.0.1a): the download contains no game files.
 so it runs the same, and nothing is translated again to switch. When the launcher finds loose shader files after a finished setup, it
 asks once per start: **Free up about N GB?** (a few minutes, can be stopped and continued). **Settings > Game > Shader files** has the
 same button, and **Use loose files** to go back. A new setup packs as it translates (on by default, **Packed shader files** on the
-Set up page), so the loose files never pile up. The launcher writes the real sizes and times to `setup.log`.
+Set up page), so the loose files never pile up: a new setup now needs about 14 GB free instead of about 31 GB (36 GB was
+quoted before), and the free-space check and the Set up page follow the toggle. The launcher writes the real sizes and times to
+`setup.log`.
 Loose shader files are on their way out: a later release stops reading them.
 
 ## 0.7.7 (build K: Klipspringer)

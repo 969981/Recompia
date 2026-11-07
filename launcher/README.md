@@ -20,7 +20,7 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
    in `results.tsv` is never translated twice, and extraction is skipped if it already ran for the same romfs. The tools
    run at below-normal priority.
    State: `shader_cache\setup.json`.
-   Before it starts, Set up checks the free disk space on the game drive (it refuses to start without about 36 GB, less
+   Before it starts, Set up checks the free disk space on the game drive (it refuses to start without about 14 GB with packed shader files or 31 GB with loose ones, less
    when resumed), Vulkan 1.3 (vulkan-1.dll and a GPU), RAM, and warns about 13th/14th generation Intel desktop CPUs
    whose microcode is older than 0x12B (a BIOS update fixes their crashes under long loads). Warnings can be continued
    past. "Use fewer cores" runs setup with a quarter of the threads (2 to 8) at idle priority.

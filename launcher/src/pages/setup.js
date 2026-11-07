@@ -202,6 +202,10 @@ function saveSmall(on) {
   flow.small = on;
   savingConfig = savingConfig
     .then(async () => api('save_config', { config: { ...(await api('get_config')), loose_shaders: !on } }))
+    .then(() => {
+      flow.need = undefined;   // packed shaders need far less free space: ask preflight again
+      wantNeed();
+    })
     .catch((e) => toast(errText(e), 'error'));
 }
 

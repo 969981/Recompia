@@ -246,6 +246,7 @@ const LOOSE = { mode: 'loose', loose_files: 99_012, loose_bytes: 26.3 * 2 ** 30,
 const PACKED = { mode: 'compact', loose_files: 3, loose_bytes: 0.001 * 2 ** 30, archive_shaders: 99_012, archive_bytes: 5.2 * 2 ** 30, archive_raw_bytes: 26.3 * 2 ** 30, free_estimate: 0, complete: true, running: false };
 let storage = structuredClone(sc.storage === 'packed' ? PACKED : sc.storage === 'none' ? { ...LOOSE, mode: 'none', loose_files: 0, loose_bytes: 0, complete: false } : LOOSE);
 let repackStop = false;
+let looseShaders = false;   // config loose_shaders
 async function runRepack(kind) {
   repackStop = false;
   const total = kind === 'compact' ? storage.loose_files : storage.archive_shaders;
@@ -277,14 +278,14 @@ function handle(cmd, args) {
     case 'install_update': return runUpdate();
     case 'cancel_update': return updateStop?.();
     case 'play': return runPlay();
-    case 'preflight': return sleep(500).then(() => PREFLIGHT[sc.preflight || 'ok']);
+    case 'preflight': return sleep(500).then(() => ({ ...PREFLIGHT[sc.preflight || 'ok'], need_bytes: (looseShaders ? 31 : 14) * 2 ** 30 }));
     case 'start_setup': return runSetup();
     case 'cancel_setup': return pauseSetup();
     case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_release_url':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, gentle_build: false };
-    case 'save_config': return null;
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, gentle_build: false, loose_shaders: looseShaders };
+    case 'save_config': looseShaders = !!args.config.loose_shaders; return null;
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';
     case 'pick_nup': return 'D:/Downloads/pokopia-2.0.1a.nup';
