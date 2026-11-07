@@ -15,7 +15,10 @@
 // Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ssl
 // context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every socket, drops the
 // current vnet link and the ldn relay connection). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
+#include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -30,12 +33,14 @@
 #include "nxrt/log.h"
 #include "../net/vnet.h"
 #include "../net/vsock.h"
+#include "bcat_path.h"
 #include "coop.h"
 #include "ldn.h"
 #include "services_internal.h"
 
 namespace nxrt::services {
 namespace {
+namespace stdfs = std::filesystem;
 
 // ---- result codes ---------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t kNifmNoConnection = res(110, 300);         // nifm NoInternetConnection (Ryujinx Nifm/ResultCode.cs)
@@ -1187,8 +1192,103 @@ std::shared_ptr<ipc::Service> make_bcat_progress() {
     });
 }
 
+// ---- [bcat] cache_dir: a user-supplied delivery cache, read-only: <cache_dir>/<directory>/<file>. Empty (the default): the empty cache. ----
+struct BcatCache {
+    std::string dir;            // [bcat] cache_dir, empty = off (or the folder does not exist)
+    stdfs::path root;
+    stdfs::path canon;          // canonical root, for the containment check
+    int dirs = 0;
+    int files = 0;
+};
+
+stdfs::path bcat_u8(const std::string& s) {
+    return stdfs::u8path(s);
+}
+
+const BcatCache& bcat_cache() {
+    static const BcatCache c = [] {
+        BcatCache b;
+        b.dir = config_get_str("bcat", "cache_dir", "");
+        if (b.dir.empty()) return b;
+        std::error_code ec;
+        b.root = bcat_u8(b.dir);
+        if (!stdfs::is_directory(b.root, ec)) {
+            NXLOG_W("net", "bcat: [bcat] cache_dir = %s: not an existing folder, the delivery cache stays empty", b.dir.c_str());
+            b.dir.clear();
+            return b;
+        }
+        b.canon = stdfs::canonical(b.root, ec);
+        if (ec) {
+            b.dir.clear();
+            return b;
+        }
+        for (stdfs::directory_iterator it(b.root, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string nm = it->path().filename().string();
+            if (!bcat_name_ok(nm.c_str()) || !it->is_directory(ec)) continue;
+            ++b.dirs;
+            std::error_code ec2;
+            for (stdfs::directory_iterator f(it->path(), ec2), fend; !ec2 && f != fend; f.increment(ec2)) {
+                if (bcat_name_ok(f->path().filename().string().c_str()) && f->is_regular_file(ec)) ++b.files;
+            }
+        }
+        NXLOG_I("net", "bcat: [bcat] cache_dir = %s: %d directories, %d files", b.dir.c_str(), b.dirs, b.files);
+        return b;
+    }();
+    return c;
+}
+
+// A 0x20-byte name field of a request at `off`, checked with bcat_name_ok (false: too short, not terminated, or not an allowed name).
+bool bcat_name(const ipc::Request& req, size_t off, std::string& out) {
+    if (off + 0x20 > req.in_size) return false;
+    char buf[0x21] = {};
+    std::memcpy(buf, req.in + off, 0x20);
+    if (!bcat_name_ok(buf)) return false;
+    out = buf;
+    return true;
+}
+
+// <cache_dir>/<dir>[/<file>] when it exists, stays inside cache_dir (symlinks resolved) and is a directory / a regular file.
+bool bcat_resolve(const std::string& dir, const std::string* file, stdfs::path& out) {
+    const BcatCache& c = bcat_cache();
+    if (c.dir.empty() || !bcat_name_ok(dir.c_str()) || (file && !bcat_name_ok(file->c_str()))) return false;
+    stdfs::path p = c.root / dir;
+    if (file) p /= *file;
+    std::error_code ec;
+    if (file ? !stdfs::is_regular_file(p, ec) : !stdfs::is_directory(p, ec)) return false;
+    const stdfs::path cp = stdfs::canonical(p, ec);
+    if (ec) return false;
+    auto r = c.canon.begin();
+    auto q = cp.begin();
+    for (; r != c.canon.end(); ++r, ++q) {
+        if (q == cp.end() || *q != *r) return false;
+    }
+    out = p;
+    return true;
+}
+
+struct BcatEntry {
+    std::string name;
+    uint64_t size;
+};
+
+// Regular files with allowed names in a delivery cache directory, sorted by name.
+std::vector<BcatEntry> bcat_list(const stdfs::path& dir) {
+    std::vector<BcatEntry> v;
+    std::error_code ec;
+    for (stdfs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code e2;
+        const std::string nm = it->path().filename().string();
+        if (!bcat_name_ok(nm.c_str()) || !it->is_regular_file(e2)) continue;
+        const uint64_t sz = it->file_size(e2);
+        if (!e2) v.push_back({nm, sz});
+    }
+    std::sort(v.begin(), v.end(), [](const BcatEntry& a, const BcatEntry& b) { return a.name < b.name; });
+    return v;
+}
+
 std::shared_ptr<ipc::Service> make_bcat_notifier() {
-    auto ev = std::make_shared<ServiceEvent>();   // the storage is never updated
+    // the storage is never updated while the game runs; with a served cache the event is signalled once, so a game waiting for it goes on
+    auto ev = std::make_shared<ServiceEvent>(bcat_cache().files > 0);
     return make_iface("nn::bcat::detail::ipc::INotifierService", [ev](ipc::Service& s) {
         cmd(s, "bcat", 0, "GetEvent", [ev](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.out_copy.push_back(ev->new_handle());
@@ -1199,21 +1299,131 @@ std::shared_ptr<ipc::Service> make_bcat_notifier() {
 
 std::shared_ptr<ipc::Service> make_bcat_file() {
     return make_iface("nn::bcat::detail::ipc::IDeliveryCacheFileService", [](ipc::Service& s) {
-        rows(s, "bcat", {
-            {0, "Open", K::Fail, kFsPathNotFound},
-            {1, "Read", K::U64, 0},
-            {2, "GetSize", K::U64, 0},
-            {3, "GetDigest", K::Zeros, 0, 0x10},
+        if (bcat_cache().dir.empty()) {
+            rows(s, "bcat", {
+                {0, "Open", K::Fail, kFsPathNotFound},
+                {1, "Read", K::U64, 0},
+                {2, "GetSize", K::U64, 0},
+                {3, "GetDigest", K::Zeros, 0, 0x10},
+            });
+            return;
+        }
+        struct Open {
+            std::mutex mu;
+            bool open = false;
+            stdfs::path path;
+            uint64_t size = 0;
+        };
+        auto o = std::make_shared<Open>();
+        // Open(DirectoryName dir, FileName file)
+        cmd(s, "bcat", 0, "Open", [o](ipc::Request& req, ipc::Response&) -> uint32_t {
+            std::string d, f;
+            stdfs::path p;
+            if (!bcat_name(req, 0, d) || !bcat_name(req, 0x20, f) || !bcat_resolve(d, &f, p)) return kFsPathNotFound;
+            std::error_code ec;
+            const uint64_t sz = stdfs::file_size(p, ec);
+            if (ec) return kFsPathNotFound;
+            {
+                std::lock_guard<std::mutex> lk(o->mu);
+                o->open = true;
+                o->path = p;
+                o->size = sz;
+            }
+            NXLOG_I("net", "bcat: open %s/%s (%llu bytes)", d.c_str(), f.c_str(), static_cast<unsigned long long>(sz));
+            return 0;
+        });
+        // Read(s64 offset) -> out buffer, s64 bytes read
+        cmd(s, "bcat", 1, "Read", [o](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            const int64_t off = req.arg<int64_t>(0);
+            stdfs::path p;
+            uint64_t size;
+            {
+                std::lock_guard<std::mutex> lk(o->mu);
+                if (!o->open) return kFsPathNotFound;
+                p = o->path;
+                size = o->size;
+            }
+            const ipc::Buffer ob = req.out_buf(0);
+            uint64_t n = 0;
+            if (off >= 0 && static_cast<uint64_t>(off) < size && ob.addr) {
+                n = std::min<uint64_t>(ob.size, size - static_cast<uint64_t>(off));
+                std::ifstream in(p, std::ios::binary);
+                in.seekg(off);
+                in.read(reinterpret_cast<char*>(buf_mut(ob)), static_cast<std::streamsize>(n));
+                n = in ? n : static_cast<uint64_t>(in.gcount());
+            }
+            rsp.push(static_cast<int64_t>(n));
+            return 0;
+        });
+        cmd(s, "bcat", 2, "GetSize", [o](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            std::lock_guard<std::mutex> lk(o->mu);
+            if (!o->open) return kFsPathNotFound;
+            rsp.push(static_cast<int64_t>(o->size));
+            return 0;
+        });
+        // The repo has no MD5 helper: the digest is 16 zero bytes.
+        cmd(s, "bcat", 3, "GetDigest", [o](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            std::lock_guard<std::mutex> lk(o->mu);
+            if (!o->open) return kFsPathNotFound;
+            rsp.out.insert(rsp.out.end(), 0x10, uint8_t{0});
+            return 0;
         });
     });
 }
 
 std::shared_ptr<ipc::Service> make_bcat_directory() {
     return make_iface("nn::bcat::detail::ipc::IDeliveryCacheDirectoryService", [](ipc::Service& s) {
-        rows(s, "bcat", {
-            {0, "Open", K::Fail, kFsPathNotFound},
-            {1, "Read", K::S32, 0},
-            {2, "GetCount", K::S32, 0},
+        if (bcat_cache().dir.empty()) {
+            rows(s, "bcat", {
+                {0, "Open", K::Fail, kFsPathNotFound},
+                {1, "Read", K::S32, 0},
+                {2, "GetCount", K::S32, 0},
+            });
+            return;
+        }
+        struct Dir {
+            std::mutex mu;
+            bool open = false;
+            std::vector<BcatEntry> entries;
+            size_t next = 0;
+        };
+        auto d = std::make_shared<Dir>();
+        // Open(DirectoryName dir)
+        cmd(s, "bcat", 0, "Open", [d](ipc::Request& req, ipc::Response&) -> uint32_t {
+            std::string nm;
+            stdfs::path p;
+            if (!bcat_name(req, 0, nm) || !bcat_resolve(nm, nullptr, p)) return kFsPathNotFound;
+            auto list = bcat_list(p);
+            NXLOG_I("net", "bcat: open directory %s (%zu files)", nm.c_str(), list.size());
+            std::lock_guard<std::mutex> lk(d->mu);
+            d->open = true;
+            d->entries = std::move(list);
+            d->next = 0;
+            return 0;
+        });
+        // Read() -> out array of DeliveryCacheDirectoryEntry (0x38: name[0x20], u64 size, digest[0x10]), s32 count
+        cmd(s, "bcat", 1, "Read", [d](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            std::lock_guard<std::mutex> lk(d->mu);
+            if (!d->open) return kFsPathNotFound;
+            const ipc::Buffer ob = req.out_buf(0);
+            const size_t cap = ob.addr ? static_cast<size_t>(ob.size / 0x38) : 0;
+            int32_t n = 0;
+            while (d->next < d->entries.size() && static_cast<size_t>(n) < cap) {
+                const BcatEntry& e = d->entries[d->next++];
+                uint8_t rec[0x38] = {};
+                std::memcpy(rec, e.name.data(), e.name.size());
+                std::memcpy(rec + 0x20, &e.size, 8);   // the digest stays zero (no MD5 helper in the repo)
+                std::memcpy(buf_mut(ob) + static_cast<size_t>(n) * 0x38, rec, 0x38);
+                ++n;
+            }
+            rsp.push(n);
+            return 0;
+        });
+        cmd(s, "bcat", 2, "GetCount", [d](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            std::lock_guard<std::mutex> lk(d->mu);
+            if (!d->open) return kFsPathNotFound;
+            rsp.push(static_cast<int32_t>(d->entries.size()));
+            return 0;
         });
     });
 }
@@ -1228,8 +1438,34 @@ std::shared_ptr<ipc::Service> make_bcat_storage() {
             rsp.push_object(make_bcat_directory());
             return 0;
         });
-        rows(s, "bcat", {
-            {10, "EnumerateDeliveryCacheDirectory", K::S32, 0},
+        if (bcat_cache().dir.empty()) {
+            rows(s, "bcat", {
+                {10, "EnumerateDeliveryCacheDirectory", K::S32, 0},
+            });
+            return;
+        }
+        // EnumerateDeliveryCacheDirectory() -> out array of DirectoryName (0x20 each), s32 count
+        cmd(s, "bcat", 10, "EnumerateDeliveryCacheDirectory", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            const ipc::Buffer ob = req.out_buf(0);
+            const size_t cap = ob.addr ? static_cast<size_t>(ob.size / 0x20) : 0;
+            std::vector<std::string> names;
+            std::error_code ec;
+            for (stdfs::directory_iterator it(bcat_cache().root, ec), end; !ec && it != end; it.increment(ec)) {
+                std::error_code e2;
+                const std::string nm = it->path().filename().string();
+                if (bcat_name_ok(nm.c_str()) && it->is_directory(e2)) names.push_back(nm);
+            }
+            std::sort(names.begin(), names.end());
+            int32_t n = 0;
+            for (const std::string& nm : names) {
+                if (static_cast<size_t>(n) >= cap) break;
+                uint8_t rec[0x20] = {};
+                std::memcpy(rec, nm.data(), nm.size());
+                std::memcpy(buf_mut(ob) + static_cast<size_t>(n) * 0x20, rec, 0x20);
+                ++n;
+            }
+            rsp.push(n);
+            return 0;
         });
     });
 }
@@ -1256,6 +1492,7 @@ std::shared_ptr<ipc::Service> make_bcat_service() {
 }
 
 std::shared_ptr<ipc::Service> make_bcat_creator() {
+    bcat_cache();   // reads [bcat] cache_dir and logs the start-up line
     return make_iface("nn::bcat::detail::ipc::IServiceCreator", [](ipc::Service& s) {
         auto bcat = [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_bcat_service());
