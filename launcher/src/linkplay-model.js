@@ -128,7 +128,9 @@ export function applyEdits(pkp, edits) {
 // What the game does with these values: forms that mean the same compare equal, keys it ignores do not count.
 function meaning(n) {
   if (isOff(n)) return 'off';
-  const mode = joinOf(n) ? n.mode : 'auto';   // auto:<port>, or a value the runtime refuses: only a real choice replaces it
+  // auto and auto:<port> are one choice. Anything else (join:<ip>, a bare address, a typo) is its own, so choosing Host or Same network
+  // rewrites it: a join:<ip> left in the file makes the game visit-only, and a host there is unreachable (#239)
+  const mode = /^auto(:\d+)?$/.test(n.mode) ? 'auto' : n.mode;
   return n.internet ? JSON.stringify([mode, n.relay, codeKey(n.code)]) : mode;
 }
 

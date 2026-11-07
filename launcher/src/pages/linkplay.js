@@ -274,10 +274,8 @@ export async function render(el, ctx) {
       if (on) {
         relay = await api('relay_start', { port: RELAY_PORT });
         await loadLan();
-        if (!ui.relay.trim()) {
-          ui.relay = `127.0.0.1:${relayPort(relay)}`;
-          await commit();
-        }
+        if (!ui.relay.trim()) ui.relay = `127.0.0.1:${relayPort(relay)}`;
+        await commit();   // also when the field was filled: the file may still say join:<ip>, and the game could not host (#239)
       } else {
         const own = `127.0.0.1:${relayPort(relay)}`;   // left pointing at the relay just stopped, the game could not host
         await api('relay_stop');
