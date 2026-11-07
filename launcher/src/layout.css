@@ -100,7 +100,9 @@ body[data-shell="full"] #titlebar { left: 0; }
 /* page change: the page rises while its parts fade. The fade sits on each part, not the page: an ancestor with
    opacity below 1 cuts backdrop-filter off from the art, so the glass would pop in when the animation ended. */
 .entering { animation: page-rise var(--dur-slow) var(--ease) both; }
-#view:has(> .entering) { overflow-y: hidden; }   /* the 6px rise would flash a scrollbar on page entry */
+/* the 6px rise would flash a scrollbar on page entry. Only while it plays: with reduced motion there is no animation, so no
+   animationend clears .entering and the page could never scroll (#260). */
+@media (prefers-reduced-motion: no-preference) { #view:has(> .entering) { overflow-y: hidden; } }
 .entering :is(.page, :has(.glass, .on-art)) > :not(.glass, .on-art):not(:has(.glass, .on-art)),
 .entering :is(.glass, .on-art) { animation: page-fade var(--dur-slow) var(--ease) both; }
 @keyframes page-rise { from { transform: translateY(var(--rise)); } }
