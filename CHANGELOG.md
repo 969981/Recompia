@@ -4,6 +4,15 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+
+#### The bottom-right resize grip stuttered while dragging
+**Before:** dragging the resize grip in the bottom right corner stuttered.
+
+**Now:** the grip is gone; the window edges and corners resize as before, without the stutter.
+
 ## 0.7.7 (build K: Klipspringer)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
