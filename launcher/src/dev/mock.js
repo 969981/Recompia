@@ -93,6 +93,7 @@ const SCENARIOS = {
   'setup-paused': { readiness: { kind: 'resume', detail: 'Setup has not finished. Press Continue setup: it picks up where it stopped.' }, setup: sstatus({ complete: false, progress: progress('cancelled', { message: 'Setup paused. Set up again continues where it stopped.' }) }) },
   'no-exe': { readiness: { kind: 'no_exe', detail: `pkp.exe was not found in ${GAME_DIR}. Put the launcher next to pkp.exe.` }, exe_exists: false },
   offline: { releases: [] },
+  packed: { storage: 'packed' },
   'long-strings': {
     readiness: { kind: 'resume', detail: `Setup has not finished, and this is a very long sentence about ${'C:/Users/somebody/Games/With a really long folder name/'.repeat(3)}` },
     setup: sstatus({ complete: false, started: true }),
@@ -240,6 +241,23 @@ function runUpdate() {
   });
 }
 
+// shader storage: ?s=ready has loose files (the launcher offers to pack them), ?s=packed is packed already
+const LOOSE = { mode: 'loose', loose_files: 99_012, loose_bytes: 26.3 * 2 ** 30, archive_shaders: 0, archive_bytes: 0, archive_raw_bytes: 0, free_estimate: 19.4 * 2 ** 30, complete: true, running: false };
+const PACKED = { mode: 'compact', loose_files: 3, loose_bytes: 0.001 * 2 ** 30, archive_shaders: 99_012, archive_bytes: 5.2 * 2 ** 30, archive_raw_bytes: 26.3 * 2 ** 30, free_estimate: 0, complete: true, running: false };
+let storage = structuredClone(sc.storage === 'packed' ? PACKED : sc.storage === 'none' ? { ...LOOSE, mode: 'none', loose_files: 0, loose_bytes: 0, complete: false } : LOOSE);
+let repackStop = false;
+async function runRepack(kind) {
+  repackStop = false;
+  const total = kind === 'compact' ? storage.loose_files : storage.archive_shaders;
+  for (let i = 0; i <= 40; i++) {
+    if (repackStop) return { finished: false, shaders: 0, raw_bytes: 0, disk_bytes: 0, seconds: 1 };
+    await emit('shader-storage-progress', { kind, done: Math.floor((total * i) / 40), total });
+    await sleep(150);
+  }
+  storage = structuredClone(kind === 'compact' ? PACKED : LOOSE);
+  return { finished: true, shaders: total, raw_bytes: 26.3 * 2 ** 30, disk_bytes: 5.2 * 2 ** 30, seconds: 6 };
+}
+
 async function runTicks(event, make, count = 40) {
   for (let i = 1; i <= count; i++) {
     await sleep(150);
@@ -286,6 +304,10 @@ function handle(cmd, args) {
     case 'write_settings':
       for (const e of args.edits) settings[e.file][`${e.section}.${e.key}`] = e.value;
       return null;
+    case 'shader_storage': return structuredClone(storage);
+    case 'compact_shaders': return runRepack('compact');
+    case 'expand_shaders': return runRepack('expand').then((r) => r.finished);
+    case 'cancel_shader_storage': repackStop = true; return null;
     case 'dlss_status': return { available: true, present: false, dir: `${GAME_DIR}/upscalers/streamline` };
     case 'fetch_dlss': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading nvngx_dlss.dll' })).then(() => null);
     case 'save_sources': return [{ label: 'Eden', path: 'C:/Users/player/AppData/Roaming/eden/nand/user/save/0000000000000000/1/0100F4300BF2C000' }];

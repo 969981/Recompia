@@ -13,6 +13,9 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
      distinct blocks to `shader_cache\corpus\` (a few pack files, about 5 GB, deleted when setup finishes).
    - Translate: `tools\spirv_harness\spirv_harness.exe --batch` in chunks of 1000 into `shader_cache\spirv\`
      (`<hash>.spv` + `results.tsv`, about 26 GB for the 99,012 blocks of 2.0.1).
+   - Pack (on by default, "Packed shader files" on the Set up page): each translated chunk is moved into
+     `shader_cache\spirv.archive\NNNNNN.pack` (zstd segments the runtime reads, `src-tauri/src/shader_archive.rs`) as soon as it
+     is committed, so the loose files never pile up. A cache that already has loose files keeps them until the player packs it.
    A progress bar shows each step. Pause stops the tools and Continue setup picks up where they stopped: a block listed
    in `results.tsv` is never translated twice, and extraction is skipped if it already ran for the same romfs. The tools
    run at below-normal priority.
@@ -21,6 +24,9 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
    when resumed), Vulkan 1.3 (vulkan-1.dll and a GPU), RAM, and warns about 13th/14th generation Intel desktop CPUs
    whose microcode is older than 0x12B (a BIOS update fixes their crashes under long loads). Warnings can be continued
    past. "Use fewer cores" runs setup with a quarter of the threads (2 to 8) at idle priority.
+   **Shader files** (Settings > Game, and a question at launcher start while loose files are left): "Free up space" moves the loose
+   `.spv` files into the archive without translating anything (a segment is flushed and renamed before its loose files are deleted;
+   it can be stopped and continued). "Use loose files" writes them back out. Neither runs while the game, setup or an update runs.
    Everything setup does is appended to `setup.log` next to `pkp.exe` (UTC timestamps, the commands, the tools' error
    output; rotated to `setup.log.prev` at 2 MB). The Set up card has an "Open setup log" button; attach the file to
    bug reports about a failed setup.

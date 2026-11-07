@@ -38,6 +38,51 @@ const fwd = (s) => String(s).trim().replace(/\\/g, '/');
 /** The runtime's name_key(): case and `-` are forgiven in the words of the file. */
 const word = (v) => String(v).trim().toLowerCase().replace(/-/g, '_');
 
+// ---- shader files -------------------------------------------------------------------------------------------------------------------
+// env.storage: shader_storage (shader_archive.rs Storage, plus complete and running). env.repack: the running job, or null.
+
+const GB = 2 ** 30;
+const gb = (b) => `${(b / GB).toFixed(b >= 10 * GB ? 0 : 1)} GB`;
+const count = (n) => Number(n).toLocaleString('en');
+
+export function storageText(env) {
+  const st = env.storage;
+  const r = env.repack;
+  if (r) {
+    const what = r.kind === 'expand' ? 'Unpacking' : 'Packing';
+    return r.total ? `${what}: ${Math.floor((100 * r.done) / r.total)}%` : `${what}...`;
+  }
+  if (!st) return 'Checking';
+  switch (st.mode) {
+    case 'none': return 'Not set up yet';
+    case 'loose': return `Loose files, ${gb(st.loose_bytes)}`;
+    case 'compact': return `Packed, ${gb(st.archive_bytes + st.loose_bytes)}`;
+    default: return `Partly packed, ${gb(st.archive_bytes + st.loose_bytes)}`;
+  }
+}
+
+export function storageActions(env) {
+  if (env.repack) return [{ act: 'stop-repack', label: 'Stop', icon: 'square' }];
+  const st = env.storage;
+  const off = !st?.complete || env.gameBusy || env.taskBusy;
+  if (st?.mode === 'loose' || st?.mode === 'mixed') return [{ act: 'compact-shaders', label: 'Free up space', icon: 'hard-drive', primary: true, disabled: off }];
+  if (st?.mode === 'compact') return [{ act: 'expand-shaders', label: 'Use loose files', icon: 'rotate-ccw', disabled: off }];
+  return [];
+}
+
+export function storageNote(env) {
+  const st = env.storage;
+  if (!st || env.repack) return null;
+  if (st.mode === 'loose' || st.mode === 'mixed') {
+    return { text: `Packing frees about ${gb(st.free_estimate)}. Nothing is translated again and the game runs the same. A later update stops reading loose shader files.` };
+  }
+  if (st.mode === 'compact' && st.archive_raw_bytes > 0) {
+    const ratio = st.archive_raw_bytes / Math.max(1, st.archive_bytes);
+    return { text: `${count(st.archive_shaders)} shaders in ${gb(st.archive_bytes)}, ${ratio.toFixed(1)}x smaller than loose files (${gb(st.archive_raw_bytes)}).` };
+  }
+  return null;
+}
+
 // ---- quality presets --------------------------------------------------------------------------------------------------------------
 
 // Ids, labels and which ones set the frame values: kQualityPresets in runtime/src/gfx/play/play_types.cpp (labels without its bracket).
@@ -350,6 +395,13 @@ export const SECTIONS = [
             actions: (env) => [{ act: 'setup-again', label: 'Set up', icon: 'wrench', disabled: !env.canSetUp }],
           },
           { id: 'setup_log', label: 'Setup log', type: 'info', actions: [{ act: 'setup-log', label: 'Open', icon: 'file-text' }] },
+        ],
+      },
+      {
+        title: 'Shader files',
+        rows: [
+          { id: 'shader_storage', label: 'Storage', type: 'info', value: storageText, actions: storageActions },
+          { id: 'shader_storage_note', type: 'note', when: (v, env) => !!storageNote(env), note: storageNote },
         ],
       },
       {

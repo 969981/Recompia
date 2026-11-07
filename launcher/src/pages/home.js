@@ -53,6 +53,11 @@ const updateErrorCard = (s) => `<div class="home-card glass strong" role="alert"
     <div class="cluster"><button class="btn sm" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${icon('refresh-cw')}Try again</button></div>
   </div>`;
 
+const repackMessage = (r) => {
+  const what = r.kind === 'expand' ? 'Unpacking shader files' : 'Packing shader files';
+  return r.total ? `${what}: ${r.done.toLocaleString('en')} of ${r.total.toLocaleString('en')}` : `${what}...`;
+};
+
 const QUIET = new Set(['ready', 'no_files', 'setup', 'resume']);
 const LINK_PLAY_LABEL = { off: 'Off', lan: 'Same network', internet: 'Internet' };
 
@@ -89,18 +94,20 @@ export function render(el, ctx) {
   function drawTask(s) {
     const box = part('task');
     const kind = s.task?.kind;
-    box.hidden = kind !== 'update' && kind !== 'setup';
+    box.hidden = !['update', 'setup', 'repack'].includes(kind);
     if (box.hidden) return;
     const update = kind === 'update';
-    const msg = update ? s.task.label : s.setup.progress.message || s.task.label;
+    const msg = update ? s.task.label
+      : kind === 'repack' ? repackMessage(s.repack)
+      : s.setup.progress.message || s.task.label;
     const stop = part('task-stop');
     part('task-msg').textContent = msg;
     part('task-msg').title = msg;
     part('task-pct').textContent = s.task.pct === null ? '' : `${s.task.pct}%`;
     if (s.task.pct === null) part('task-bar').removeAttribute('value');
     else part('task-bar').value = s.task.pct;
-    stop.dataset.act = update ? 'cancel' : 'pause';
-    patch(stop, update ? `${icon('x')}Cancel` : `${icon('pause')}Pause`);
+    stop.dataset.act = update ? 'cancel' : kind === 'repack' ? 'stop-repack' : 'pause';
+    patch(stop, update ? `${icon('x')}Cancel` : kind === 'repack' ? `${icon('square')}Stop` : `${icon('pause')}Pause`);
     stop.hidden = update && !canCancelUpdate(s);
   }
 
@@ -143,6 +150,7 @@ export function render(el, ctx) {
       case 'update': return store.installUpdate();
       case 'cancel': return store.cancelUpdate();
       case 'pause': return store.pauseSetup();
+      case 'stop-repack': return store.cancelRepack();
       case 'dismiss':
         crashDismissed = true;
         return draw(store.state);
