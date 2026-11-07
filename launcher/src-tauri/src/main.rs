@@ -947,6 +947,22 @@ mod win_console {
     }
 }
 
+/// A handheld's logical screen is smaller than the default window: there the window starts maximized, which also keeps it clear of the
+/// taskbar. On a larger screen an over-tall window is only cut down to the screen's height.
+fn fit_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let Some(monitor) = window.current_monitor()? else { return Ok(()) };
+    let scale = monitor.scale_factor();
+    let screen = monitor.size().to_logical::<f64>(scale);
+    let mut size = window.inner_size()?.to_logical::<f64>(scale);
+    if screen.width <= 1400.0 || screen.height < 800.0 {
+        window.maximize()?;
+    } else if size.height > screen.height {
+        size.height = screen.height;
+        window.set_size(tauri::Size::Logical(size))?;
+    }
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--host") {
@@ -982,19 +998,9 @@ fn main() {
             }
         })
         .setup(|app| {
-            // A handheld's logical screen is smaller than the default window. Maximizing also keeps it clear of the taskbar.
             if let Some(window) = app.get_webview_window("main") {
-                if let Some(monitor) = window.current_monitor()? {
-                    let scale = monitor.scale_factor();
-                    let screen = monitor.size().to_logical::<f64>(scale);
-                    let mut size = window.inner_size()?.to_logical::<f64>(scale);
-                    if screen.width <= 1400.0 || screen.height < 800.0 {
-                        window.maximize()?;
-                    } else if size.height > screen.height {
-                        size.height = screen.height;
-                        window.set_size(tauri::Size::Logical(size))?;
-                    }
-                }
+                // a failed screen query only means the window keeps its default size: it must never stop the launcher from starting
+                let _ = fit_window(&window);
             }
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
             if let Some(launcher) = launcher_path() {
