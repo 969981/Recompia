@@ -56,7 +56,7 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg" alt="Title screen"><br><sub>Title screen</sub></td>
+    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Title screen</sub></td>
     <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Building your island</sub></td>
   </tr>
   <tr>
