@@ -4,7 +4,9 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.7.7 (build K: Klipspringer)
+
+Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
 
 Sorry for all the updates lately. I look after the Linux side, and now that Josh's one-click updater is in, I want to squash as many Linux bugs as I can and get the fixes out to you right away, instead of saving them up. Thanks a lot for your patience.
 
