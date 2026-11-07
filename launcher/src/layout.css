@@ -21,7 +21,7 @@ body {
 /* background: painted once; the blurred copy and the scrims are separate layers so no blur is ever animated */
 #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
 .art, .scrim { position: absolute; inset: 0; transition: opacity var(--dur-slow) var(--ease); }
-.art { background: var(--art-url) var(--art-position) / cover no-repeat; }
+.art { background: var(--art-url) var(--art-position) / cover no-repeat; filter: var(--art-filter, none); }
 .art-soft { inset: calc(var(--art-soft-bleed) * -1); background-image: var(--art-soft-url); }   /* pre-blurred; bleed keeps its soft edges off screen */
 .scrim-hero { background: var(--scrim-hero); opacity: 0; }
 .scrim-soft { background: var(--scrim-soft); mix-blend-mode: multiply; }

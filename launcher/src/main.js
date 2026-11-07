@@ -42,6 +42,20 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 
+// Launcher colours: 'sunrise' (amber to red, the default; reads well with red-green colour blindness) or 'dusk' (the old violet).
+// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
+const THEMES = ['sunrise', 'dusk'];
+const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk' };
+function readTheme() {
+  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'sunrise'; } catch { return 'sunrise'; }
+}
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  const b = document.getElementById('theme-btn');
+  if (b) b.querySelector('.nav-label').textContent = b.querySelector('.nav-tip').textContent = `Colours: ${THEME_NAME[t]}`;
+}
+applyTheme(readTheme());
+
 function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
@@ -49,11 +63,18 @@ function drawNav() {
     <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><img class="brand-name brand-logo" src="${logoUrl}" alt="Pokopia" /></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
+    <button class="nav-item" id="theme-btn" aria-label="Change colours">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
     <button class="task-pill" id="task-pill" hidden>
       ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
       <span class="task-track"><span class="task-fill"></span></span>
     </button>`;
+  applyTheme(readTheme());
   nav.addEventListener('click', (e) => {
+    if (e.target.closest('#theme-btn')) {
+      const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
+      try { localStorage.setItem('theme', next); } catch { /* the choice lasts until the launcher closes */ }
+      applyTheme(next);
+    }
     const page = e.target.closest('[data-page]')?.dataset.page;
     if (page && page !== current) go(page);
     const target = e.target.closest('#task-pill') && TASK_PAGE[store.state.task?.kind];
