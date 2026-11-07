@@ -2,8 +2,6 @@
   <img src="docs/assets/logo.png" alt="Recompia" width="420">
 </h1>
 
-<h3 align="center">Pokopia Recomp</h3>
-
 <p align="center">
   <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, with multiplayer support.</b>
 </p>
