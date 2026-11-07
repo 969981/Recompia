@@ -1041,6 +1041,10 @@ fn main() {
                 // a failed screen query only means the window keeps its default size: it must never stop the launcher from starting
                 let _ = fit_window(&window, load_config(app.handle()).window);
             }
+            // Link Play starts from its defaults on every launcher start: nothing left from an earlier session decides the next one (#239)
+            if let Err(e) = settings::reset_link_play(&game_dir_of(&load_config(app.handle()))) {
+                eprintln!("Link Play reset: {e}");
+            }
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
             if let Some(launcher) = launcher_path() {
                 let handle = app.handle().clone();
