@@ -6,8 +6,8 @@ import { api, errText, esc, field, group, icon, row, segmented, toast, toggle } 
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
-  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, pathParts, protocolEdits, readIni,
-  relayPort, shownCode, storyEdits, uiFrom,
+  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, pathParts,
+  protocolEdits, readIni, relayPort, shownCode, storyEdits, uiFrom,
 } from '../linkplay-model.js';
 
 const LS = 'pkp.linkplay';
@@ -30,6 +30,8 @@ export async function render(el, ctx) {
   // toggle is turned on, and a host there would open the room on a relay that is not there (#239)
   if (!relay && /^127\./.test(ui.relay.trim())) ui.relay = '';
   let lan = null;
+  let publicIp;            // this PC's public address: undefined not asked yet, null not found
+  let asking = false;
   let gameCode = null;     // room-code.txt: the game's own
   let dropped = null;      // the game's code the player replaced with New code
   let problems = {};       // field id -> what is wrong with it
@@ -51,6 +53,15 @@ export async function render(el, ctx) {
   async function loadLan() {
     lan = await api('lan_report').catch(() => null);
     drawLan();
+  }
+
+  // asked only for an internet host: one HTTPS request to a what-is-my-IP service (launcher/src-tauri/src/public_ip.rs)
+  async function loadPublicIp() {
+    if (publicIp || asking) return;
+    asking = true;
+    publicIp = await api('public_ip').catch(() => null) ?? null;
+    asking = false;
+    patch(part('lp-share'), shareHtml());
   }
 
   async function loadGameCode() {
@@ -98,12 +109,26 @@ export async function render(el, ctx) {
     return note + group('This PC', rows.length ? rows : [row('No address found', '')]);
   }
 
+  // what visitors type: the public address over the internet (#245), this PC's LAN addresses on the same network
   function shareHtml() {
-    if (!relay) return '';
-    return group('Share with visitors', [
-      ...addressRows(lan, relayPort(relay)).map(addressRow),
-      row('Links', `<span class="num" id="lp-links">${esc(relay.clients)}</span>`),
-    ]);
+    if (!isHost()) return '';
+    const share = internetShare(ui, { publicIp, relayOn: relay ? relayPort(relay) : 0 });
+    if (!share) {
+      return `<div class="banner warn">${icon('triangle-alert')}<div class="grow">The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.</div></div>`;
+    }
+    const internet = share.addr
+      ? addressRow({ addr: share.addr, label: 'Over the internet' })
+      : row('Over the internet', `<span class="faint">${publicIp === null ? 'Could not find this PC\'s public address. Search "what is my IP" in a browser.' : 'Looking it up\u2026'}</span>`);
+    // a VPN (Tailscale and the like) keeps its own name: it is not the same network
+    const local = share.own && relay && lan
+      ? [...lan.lan.map((a) => addressRow({ addr: `${a.ip}:${share.port}`, label: `Same network (${a.adapter})` })),
+        ...addressRows({ lan: [], overlay: lan.overlay }, share.port).map(addressRow)]
+      : [];
+    const links = relay ? [row('Links', `<span class="num" id="lp-links">${esc(relay.clients)}</span>`)] : [];
+    const how = `Visitors pick Visit and type this address and the room code, with Through a relay ${share.through ? 'on' : 'off'}.`;
+    const router = share.own ? ` Your router must forward port ${share.port} (TCP and UDP) to this PC.` : '';
+    return group('Share with visitors', [internet, ...local, ...links])
+      + `<div class="banner info">${icon('info')}<div class="grow">${how}${router} Never give out 127.0.0.1: on a visitor's PC it means their own PC.</div></div>`;
   }
 
   function bodyHtml() {
@@ -198,9 +223,9 @@ export async function render(el, ctx) {
   // --- commits
 
   function checkFormat() {
-    if (ui.view === 'lan') problems['lp-join'] = addrProblem(ui.lanJoin, { lan: true });
+    if (ui.view === 'lan') problems['lp-join'] = addrProblem(ui.lanJoin, { lan: true, remote: true });
     if (isHost()) problems['lp-relay'] = addrProblem(ui.relay, { port: RELAY_PORT });
-    if (isVisit()) problems['lp-addr'] = addrProblem(ui.visitAddr, { port: ui.through ? RELAY_PORT : HOST_PORT });
+    if (isVisit()) problems['lp-addr'] = addrProblem(ui.visitAddr, { port: ui.through ? RELAY_PORT : HOST_PORT, remote: true });
   }
 
   /** Applies the page as it stands, if it is complete. `left`: the field just left, so an empty one beside a filled one is called out. */
@@ -238,12 +263,14 @@ export async function render(el, ctx) {
     }
     drawChrome();
     drawCode();
+    patch(part('lp-share'), shareHtml());   // the relay field decides what visitors are given
   }
 
   function enter() {
     if (ui.view === 'lan' && !lan) loadLan();
     if (isHost()) {
       loadGameCode();
+      loadPublicIp();
       if (relay && !lan) loadLan();
     }
   }

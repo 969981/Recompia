@@ -321,6 +321,7 @@ function handle(cmd, args) {
       if (relay) relay = { ...relay, clients: Math.floor(Date.now() / 8000) % 4 };
       return relay;
     case 'lan_report': return lanReport;
+    case 'public_ip': return params.get('public') === 'none' ? null : '198.51.100.23';
     case 'room_code_new': return Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[Math.floor(Math.random() * 32)]).join('')).join('-');
     case 'room_code_check': {
       const c = args.code.replace(/[- ]/g, '').toUpperCase().replaceAll('O', '0').replace(/[IL]/g, '1');
