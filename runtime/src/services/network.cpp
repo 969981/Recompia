@@ -15,6 +15,7 @@
 // Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ssl
 // context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every socket, drops the
 // current vnet link and the ldn relay connection). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
+#include <atomic>
 #include <cstring>
 #include <functional>
 #include <initializer_list>
@@ -116,6 +117,45 @@ void log_call(const char* svc, const std::string& iface, uint32_t id, const char
         }
     }
     NXLOG_I("net", "ask: %s cmd %u %s (call %d)%s", svc, id, name, n, arg.c_str());
+}
+
+// "ask:" lines for what the game tries to reach: DNS names, connect targets, TLS host names. The first kMaxCallLogs of each kind; only
+// the names and the address are logged, never a buffer or payload.
+bool ask_budget(int kind) {
+    static std::atomic<int> counts[3];
+    return counts[kind].fetch_add(1) < kMaxCallLogs;
+}
+
+// Printable ASCII text of an input buffer (up to 255 bytes, up to the first 0); "?" when it holds anything else.
+std::string buf_text(const ipc::Buffer& b) {
+    uint8_t tmp[255] = {};
+    const uint64_t n = buf_read(b, tmp, b.size < sizeof tmp ? b.size : sizeof tmp);
+    std::string out;
+    for (uint64_t i = 0; i < n; ++i) {
+        if (tmp[i] == 0) break;
+        if (tmp[i] < 0x20 || tmp[i] > 0x7E) return "?";
+        out.push_back(static_cast<char>(tmp[i]));
+    }
+    return out;
+}
+
+void ask_dns(const ipc::Request& req) {
+    if (!ask_budget(0)) return;
+    // switchbrew sfdnsres: GetAddrInfoRequest[WithOptions] takes the host name in input buffer 0 and the service name in buffer 1
+    const std::string host = buf_text(req.in_buf(0));
+    const std::string serv = buf_text(req.in_buf(1));
+    NXLOG_I("net", "ask: dns host=\"%s\" service=\"%s\"", host.c_str(), serv.c_str());
+}
+
+void ask_connect(const vsock::Addr& a) {
+    if (!ask_budget(1)) return;
+    NXLOG_I("net", "ask: connect %u.%u.%u.%u:%u", (a.ip >> 24) & 255, (a.ip >> 16) & 255, (a.ip >> 8) & 255, a.ip & 255, static_cast<unsigned>(a.port));
+}
+
+void ask_ssl_host(const ipc::Request& req) {
+    if (!ask_budget(2)) return;
+    // switchbrew ISslConnection::SetHostName: the name in input buffer 0
+    NXLOG_I("net", "ask: ssl host=\"%s\"", buf_text(req.in_buf(0)).c_str());
 }
 
 uint32_t alloc_client_id() {
@@ -579,6 +619,7 @@ void add_bsd_udp(ipc::Service& s) {
         }
         vsock::Addr to;
         if (const uint32_t e = read_sockaddr(req.in_buf(1), to)) return bsd_ret(rsp, addr_fail(fd, e));
+        ask_connect(to);
         return bsd_send(rsp, fd, req.arg<int32_t>(4), req.in_buf(0), &to);
     });
     cmd(s, "bsd", 13, "Bind", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
@@ -594,8 +635,9 @@ void add_bsd_udp(ipc::Service& s) {
     });
     cmd(s, "bsd", 14, "Connect", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
         const int fd = req.arg<int32_t>(0);
-        if (coop_fd(fd)) return bsd_ret(rsp, {-1, kBsdNetDown});
         vsock::Addr a;
+        if (read_sockaddr(req.in_buf(0), a) == 0) ask_connect(a);
+        if (coop_fd(fd)) return bsd_ret(rsp, {-1, kBsdNetDown});
         if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
         return bsd_ret(rsp, vsock::stack().connect(fd, a));
     });
@@ -777,9 +819,12 @@ std::shared_ptr<ipc::Service> make_ssl_connection(const std::shared_ptr<int>& co
         "nn::ssl::sf::ISslConnection",
         [c] { --(*c); },
         [](ipc::Service& svc) {
+            cmd(svc, "ssl", 1, "SetHostName", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+                ask_ssl_host(req);
+                return 0;
+            });
             rows(svc, "ssl", {
                 {0, "SetSocketDescriptor", K::Fail, kSslInvalidSocket},
-                {1, "SetHostName", K::Ok},
                 {2, "SetVerifyOption", K::Ok},
                 {3, "SetIoMode", K::Ok},
                 {4, "GetSocketDescriptor", K::S32, 0xFFFFFFFFu},   // -1: none was set
@@ -1370,7 +1415,8 @@ std::shared_ptr<ipc::Service> make_resolver() {
             return 0;
         });
         // GetAddrInfoRequest: (bsd_errno, gai_error, size)
-        cmd(s, "sfdnsres", 6, "GetAddrInfoRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        cmd(s, "sfdnsres", 6, "GetAddrInfoRequest", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
             rsp.push(static_cast<uint32_t>(0));
             rsp.push(static_cast<int32_t>(kEaiNoName));
             rsp.push(static_cast<uint32_t>(0));
@@ -1397,7 +1443,8 @@ std::shared_ptr<ipc::Service> make_resolver() {
             return 0;
         });
         // GetAddrInfoRequestWithOptions: (size, gai_error, netdb_error, bsd_errno)
-        cmd(s, "sfdnsres", 12, "GetAddrInfoRequestWithOptions", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        cmd(s, "sfdnsres", 12, "GetAddrInfoRequestWithOptions", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
             rsp.push(static_cast<uint32_t>(0));
             rsp.push(static_cast<int32_t>(kEaiNoName));
             rsp.push(static_cast<uint32_t>(0));
