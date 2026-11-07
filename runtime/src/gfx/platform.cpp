@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/host_device.h"
 #include "nxrt/input.h"
 #include "nxrt/log.h"
 
@@ -24,6 +25,7 @@ constexpr Uint64 kFullscreenWaitMs = 2000;
 // All SDL state lives in this file. Everything runs on the thread that created the window.
 bool g_inited = false;
 bool g_quit = false;
+bool g_gamepads = false;
 SDL_Window* g_window = nullptr;
 
 struct OpenPad {
@@ -189,6 +191,46 @@ void gamepad_closed(SDL_JoystickID id, uint64_t ts) {
     }
 }
 
+#ifdef _WIN32
+// Bit n set = XInput user slot n has a pad. xinput1_4 is loaded through SDL, so this file needs no windows.h.
+uint32_t xinput_slots() {
+    using GetState = unsigned long (*)(unsigned long, void*);
+    static GetState get = [] {
+        SDL_SharedObject* lib = SDL_LoadObject("xinput1_4.dll");
+        return lib ? reinterpret_cast<GetState>(SDL_LoadFunction(lib, "XInputGetState")) : nullptr;
+    }();
+    uint32_t mask = 0;
+    for (unsigned long slot = 0; get && slot < 4; ++slot) {
+        unsigned char state[32] = {};   // XINPUT_STATE is 16 bytes
+        if (get(slot, state) == 0) mask |= 1u << slot;
+    }
+    return mask;
+}
+
+// Wine (Proton on SteamOS) does not deliver the device-change notifications SDL waits for before it rescans, so a pad switched off and on
+// again stayed unseen until a restart (#226). Under Wine the XInput slots are read once a second; when they change, the gamepad subsystem is
+// restarted, which rescans every backend (the pads present come back as SDL_EVENT_GAMEPAD_ADDED).
+// ponytail: XInput slots only (Xbox pads, the Steam Input virtual pad); a pad Wine shows only as HID still needs a restart.
+void wine_pad_rescan(uint64_t ts) {
+    static const bool wine = nxrt::host_is_wine();
+    if (!wine || !g_gamepads) return;
+    static Uint64 next_ms = 0;
+    static uint32_t last = ~0u;
+    const Uint64 now = SDL_GetTicks();
+    if (now < next_ms) return;
+    next_ms = now + 1000;
+    const uint32_t slots = xinput_slots();
+    const bool changed = last != ~0u && slots != last;
+    if (changed) {
+        NXLOG_I(kTag, "XInput slots 0x%x -> 0x%x under Wine: rescanning gamepads", last, slots);
+        while (!g_pads.empty()) gamepad_closed(g_pads.back().id, ts);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK);
+        if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) NXLOG_W(kTag, "gamepad rescan failed: %s", SDL_GetError());
+    }
+    last = slots;
+}
+#endif
+
 // Turns one SDL event into zero or one nxrt input events and updates the quit flag.
 void translate(const SDL_Event& ev) {
     const uint64_t ts = ev.common.timestamp;
@@ -341,6 +383,7 @@ bool init(const InitOptions& opt) {
     }
     g_inited = true;
     g_quit = false;
+    g_gamepads = opt.gamepads;
     const int v = SDL_GetVersion();
     NXLOG_I(kTag, "SDL %d.%d.%d initialised (gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
             SDL_VERSIONNUM_MICRO(v), opt.gamepads ? "on" : "off");
@@ -559,6 +602,9 @@ bool relative_mouse_is_raw() {
 
 int pump_events(bool wait, int timeout_ms) {
     if (!g_inited) return 0;
+#ifdef _WIN32
+    wine_pad_rescan(SDL_GetTicksNS());
+#endif
     SDL_Event ev;
     int handled = 0;
     bool have = false;
