@@ -810,9 +810,11 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
 
         bool known = false;
         std::string msg;
+        // A bad value of a fixed key keeps that key's default and the rest of the file (#218: one typo threw the whole file away,
+        // and the next save wrote the factory settings over it). The setters write only a value that passed.
         if (!apply_fixed(sec, lower(key), val, s, &known, &msg)) {
-            bail(i, msg);
-            return false;
+            warn(i, msg + " (" + sec_label(sec) + " " + key + " keeps its default)");
+            continue;
         }
         if (!known) warn(i, "unknown key '" + key + "' in " + sec_label(sec));
         if (sec == Sec::Pad) {
@@ -1046,7 +1048,7 @@ std::string format_settings(const Settings& s) {
     return o;
 }
 
-bool load_settings(const std::string& path, Settings* out, std::string* err) {
+bool load_settings(const std::string& path, Settings* out, std::string* err, std::vector<std::string>* warnings) {
     namespace fs = std::filesystem;
     if (err) err->clear();
     std::error_code ec;

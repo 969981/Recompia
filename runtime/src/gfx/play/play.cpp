@@ -1234,12 +1234,17 @@ bool load() {
     st.path = config_get_str("play", "controls", "controls.ini");
     std::string err;
     const bool existed = GetFileAttributesA(st.path.c_str()) != INVALID_FILE_ATTRIBUTES;
-    st.load_ok = load_settings(st.path, &st.settings, &err);
+    std::vector<std::string> warnings;
+    st.load_ok = load_settings(st.path, &st.settings, &err, &warnings);
+    for (const std::string& w : warnings) NXLOG_W(kTag, "%s: %s", st.path.c_str(), w.c_str());
     if (!existed) {
         std::string e2;
         if (save_settings(st.path, st.settings, &e2)) NXLOG_I(kTag, "wrote the factory settings to %s", st.path.c_str());
     } else if (!st.load_ok) {
         NXLOG_W(kTag, "%s: %s (the factory settings are in use)", st.path.c_str(), err.c_str());
+        // A later save (the F1 page, the exit) writes the factory settings over the file: keep what the player wrote first.
+        const std::string bad = st.path + ".bad";
+        if (CopyFileA(st.path.c_str(), bad.c_str(), FALSE)) NXLOG_W(kTag, "kept the unreadable %s as %s", st.path.c_str(), bad.c_str());
     } else {
         NXLOG_I(kTag, "settings loaded from %s (%zu bindings)", st.path.c_str(), st.settings.bindings.size());
     }

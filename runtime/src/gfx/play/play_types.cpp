@@ -137,6 +137,32 @@ bool parse_pad_src(const std::string& name, PadSrc* out) {
     return false;
 }
 
+namespace {
+// The Switch names of the buttons whose place does not depend on the pad's layout, with or without the btn_ prefix of the bindings
+// ("btn_l+btn_r" and "l+r" both mean left_shoulder+right_shoulder). The face buttons have none: A sits east on a Nintendo layout and
+// south on an Xbox one, so those take the position names.
+struct PadAlias {
+    const char* name;
+    PadSrc src;
+};
+constexpr PadAlias kPadAliases[] = {
+    {"l", PadSrc::LeftShoulder},  {"r", PadSrc::RightShoulder},   {"zl", PadSrc::LeftTrigger},   {"zr", PadSrc::RightTrigger},
+    {"plus", PadSrc::Start},      {"minus", PadSrc::Back},        {"lstick", PadSrc::LeftStick}, {"rstick", PadSrc::RightStick},
+};
+bool parse_combo_button(const std::string& name, PadSrc* out) {
+    if (parse_pad_src(name, out)) return true;
+    std::string key = name_key(name);
+    if (key.compare(0, 4, "btn_") == 0) key.erase(0, 4);
+    for (const PadAlias& a : kPadAliases) {
+        if (key == a.name) {
+            *out = a.src;
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
 bool parse_pad_combo(const std::string& text, uint32_t* out) {
     const std::string t = trim(text);
     uint32_t bits = 0;
@@ -145,7 +171,7 @@ bool parse_pad_combo(const std::string& text, uint32_t* out) {
         for (;;) {
             const size_t e = t.find('+', b);
             PadSrc src;
-            if (!parse_pad_src(trim(t.substr(b, e == std::string::npos ? std::string::npos : e - b)), &src)) return false;
+            if (!parse_combo_button(trim(t.substr(b, e == std::string::npos ? std::string::npos : e - b)), &src)) return false;
             bits |= pad_src_bit(src);
             if (e == std::string::npos) break;
             b = e + 1;

@@ -409,7 +409,9 @@ const char* key_alt_sens();
 // bindings are dropped first (the file is then the whole truth); a file without bindings sections keeps the default bindings.
 bool parse_settings(const std::string& text, Settings* out, std::string* err, std::vector<std::string>* warnings = nullptr);
 std::string format_settings(const Settings& s);        // canonical text, parse_settings(format_settings(s)) reproduces s
-bool load_settings(const std::string& path, Settings* out, std::string* err);   // false + defaults in *out when the file is missing (err empty) or invalid (err set)
+// false + defaults in *out when the file is missing (err empty) or invalid (err set). *warnings (optional) gets the skipped lines: unknown
+// sections and keys, bad values of fixed keys (those keep their default; only a broken line or binding makes the file invalid).
+bool load_settings(const std::string& path, Settings* out, std::string* err, std::vector<std::string>* warnings = nullptr);
 bool save_settings(const std::string& path, const Settings& s, std::string* err);   // writes atomically (temp file + rename)
 
 }  // namespace nxrt::play
