@@ -67,7 +67,7 @@
 
 ### Play together (Link Play)
 - **Visit a friend's island, or invite them to yours**, on the same Wi-Fi or over the internet.
-- **Cross-play with [pokopia-native](https://github.com/xFractals/pokopia-native) players** on game version 2.0.1.
+- **Cross-play with [pokopia-native](https://github.com/xFractals/pokopia-native) players**.
 - Set it up in the launcher's **Link Play** page. No files to edit.
 - Step-by-step guide: [Playing together](#playing-together).
 
