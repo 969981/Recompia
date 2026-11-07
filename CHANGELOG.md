@@ -6,6 +6,12 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+Sorry for all the updates lately. Now that Josh's one-click updater is in, I want to squash as many bugs as I can and get the fixes out to you right away, instead of saving them up. Thanks a lot for your patience.
+
+Please keep opening issues for any bug you run into, and always attach your logs: `pkp.log` from the game folder, and `setup.log` too if it is about Set up (the README says where they are, under "Where your saves, logs and settings are"). Without the logs I usually cannot tell what went wrong.
+
+~Jerban
+
 ### Known issues
 - **Linux still runs the game and the shader setup through Proton.**
 - **The game clock is new and not confirmed in the game yet.** I have not seen day and night follow it, and it has not been tested with Link Play, so use it in single player only for now.
