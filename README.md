@@ -36,6 +36,16 @@
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a>
 </p>
 
+<!-- i18n-bar:start -->
+<p align="center">
+  <b>English</b> ·
+  <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
+  <a href="docs/i18n/README.es.md">Español</a> ·
+  <a href="docs/i18n/README.ar.md">العربية</a> ·
+  <a href="docs/i18n/README.hi.md">हिन्दी</a>
+</p>
+<!-- i18n-bar:end -->
+
 > [!IMPORTANT]
 > **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
 
@@ -122,6 +132,30 @@ F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for pla
 If `PokopiaLauncher.AppImage` does not start on a system without FUSE, run `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
 To start the game from Steam (Game Mode on the Deck): in Desktop Mode, **Add a Non-Steam Game**, pick `PokopiaLauncher.AppImage`, and set its launch options to `--play`. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+
+## Mods and translations
+
+You can layer a folder of replacement files (a text or texture mod, a translation) over the game without touching the game dump: **Settings > Game > Mods**, or `romfs_mod` under `[fs]` in `pkp.ini`. Nothing is bundled with this project; get a mod from its author.
+
+The folder you choose must look like the game's own `romfs`: the same files and folders, starting at the top level. Its files replace the game's files with the same path, folders are merged, and files that only the mod has are served as well.
+
+```text
+MyMod/                       <- choose this folder in Settings > Game > Mods
+├── LD_C0_R.BIN              <- same path as in the game's romfs
+├── LI_C0_R.IDX
+└── motor_asset_re/
+    └── ...
+```
+
+If a download has an outer folder (for example `2.0.1/romfs/...`), choose the inner `romfs` folder, the one that contains `LD_C0_R.BIN`, not the outer one. If the folder level is wrong, `pkp.log` says that none of the mod's files replaces a game file. Mods that replace files containing shaders are not supported.
+
+### Mods e traduções (Português do Brasil)
+
+Você pode colocar uma pasta de arquivos de substituição (um mod de texto ou de texturas, uma tradução) por cima do jogo sem mexer no dump: **Settings > Game > Mods**, ou `romfs_mod` em `[fs]` no `pkp.ini`. Este projeto não inclui nenhum mod; peça ao autor do mod.
+
+A pasta escolhida precisa ter a mesma estrutura da pasta `romfs` do jogo: os mesmos arquivos e pastas, a partir do nível mais alto. Os arquivos dela substituem os arquivos do jogo com o mesmo caminho, as pastas são mescladas, e arquivos que só existem no mod também são usados.
+
+Se o download tiver uma pasta externa (por exemplo `2.0.1/romfs/...`), escolha a pasta `romfs` de dentro, a que contém `LD_C0_R.BIN`, e não a pasta externa. Se o nível da pasta estiver errado, o `pkp.log` avisa que nenhum arquivo do mod substitui um arquivo do jogo. Mods que substituem arquivos com shaders não são suportados.
 
 ## Updating from an older version
 

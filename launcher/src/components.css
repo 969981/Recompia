@@ -539,5 +539,4 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
   .toggle .track { inset: 10px 0; }
   .toggle input:checked + .track::after { transform: translateX(20px); }
   .slider input { height: 44px; }
-  #resize-grip { width: 44px; height: 44px; }
 }

@@ -412,6 +412,14 @@ export const SECTIONS = [
             id: 'game_dir', label: 'Install folder', type: 'path', at: config('game_dir'), pick: 'Choose the install folder', open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
+          {
+            id: 'romfs_mod', label: 'Mods', type: 'path', at: pkp('fs', 'romfs_mod'), pick: 'Choose the mods folder',
+            placeholder: () => '',
+          },
+          {
+            id: 'romfs_mod_note', type: 'note',
+            note: () => ({ text: "Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path." }),
+          },
           { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
         ],
       },

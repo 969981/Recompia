@@ -1548,6 +1548,12 @@ coop_node* native_node() {
     std::string room = config_get_str("net", "room_code", "");
     if (lower(room) == "new") room.clear();   // a host without a code gets a new one
     const std::string relay = config_get_str("net", "relay", "");
+    // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
+    // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
+    if (internet && !relay.empty() && mode.compare(0, 5, "join:") == 0) {
+        NXLOG_W("net", "ldn: [net] mode = %s cannot be combined with [net] relay = %s (a relay needs mode = auto): using auto", mode.c_str(), relay.c_str());
+        mode = "auto";
+    }
     std::string uid = config_get_str("net", "uid", "");
     if (uid.empty() && !mode.empty() && mode != "off" && mode != "0") uid = coop_uid_load();
     coop_cfg c;

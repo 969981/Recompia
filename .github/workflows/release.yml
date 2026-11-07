@@ -213,6 +213,12 @@ jobs:
           # Windows-only parts: the launcher, the start script, the embedded Python and Zig (Set up fetches the Linux ones)
           rm -rf "$pkg/PokopiaLauncher.exe" "$pkg/Play.bat" "$pkg/tools/python" "$pkg/tools/build/zig"
           sed "s/@VERSION@/$VERSION/g" game-build/release_b/README.linux.txt > "$pkg/README.txt"
+          # machine translations of that README (README.<lang>.txt), when the repository has them
+          for t in game-build/release_b/README.linux.*.txt; do
+            [ -f "$t" ] || continue
+            lang="${t#game-build/release_b/README.linux.}"; lang="${lang%.txt}"
+            sed "s/@VERSION@/$VERSION/g" "$t" > "$pkg/README.$lang.txt"
+          done
           install -m 755 launcher/src-tauri/target/release/bundle/appimage/*.AppImage "$pkg/PokopiaLauncher.AppImage"
           tar -C build/stage -czf build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz PokopiaRecomp-$VERSION
           (cd build/rel && sha256sum -b PokopiaRecomp-$VERSION-linux-x64.tar.gz | tee linux.sha256)
