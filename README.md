@@ -211,7 +211,9 @@ Never attach game files, the `build` or `shader_cache` folders, or saves to an i
 
 ## Reporting problems
 
-[Open an issue](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version.
+[Open an issue](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device).
+
+**Linux, SteamOS and Linux handhelds:** I (Jerban) look after the Linux side, so Linux bugs get fixed and sent out quickly through the one-click updater. Sorry for the frequent updates, and thanks for your patience. Please keep reporting Linux bugs, always with your logs: `pkp.log`, and `setup.log` for problems with Set up (see [Where your saves, logs and settings are](#where-your-saves-logs-and-settings-are)). Anything outside Linux is reviewed by Josh first.
 
 ## License
 
