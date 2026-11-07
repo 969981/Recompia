@@ -421,6 +421,7 @@ pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result
     let scratch = cache_dir(game_dir).join("warmup");
     let _ = fs::remove_dir_all(&scratch);
     fs::create_dir_all(scratch.join("save")).map_err(|e| format!("cannot create {}: {}", scratch.display(), e))?;
+    crate::play::sync_runtime_files(game_dir)?;
     let mut cmd = crate::host::windows_program(&game_dir.join("pkp.exe"))?;
     cmd.current_dir(game_dir).arg("--headless").args(["--max-seconds", &WARMUP_SECONDS.to_string()]).arg("--log").arg(crate::host::win_path(&scratch.join("warmup.log")));
     // environment variables win over pkp.ini

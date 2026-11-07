@@ -134,9 +134,38 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
     Ok(())
 }
 
+/// pkp.exe loads pkp_rt.dll and the ASTC decoders from its own folder. Set up builds pkp.exe into the game folder, which can
+/// be another folder than the release's: without these files Windows (Proton) ends it at once with STATUS_DLL_NOT_FOUND,
+/// shown as exit code 53 (#221). Copies what is missing or different from the launcher's folder; nothing when they are one.
+pub fn sync_runtime_files(game_dir: &Path) -> Result<(), String> {
+    let src = crate::exe_dir();
+    let canon = |d: &Path| std::fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
+    if canon(&src) == canon(game_dir) {
+        return Ok(());
+    }
+    let wanted = |n: &str| n == "pkp_rt.dll" || (n.starts_with("astcdec-") && n.ends_with(".dll"));
+    let Ok(rd) = std::fs::read_dir(&src) else { return Ok(()) };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !wanted(&name) {
+            continue;
+        }
+        let dst = game_dir.join(&name);
+        let same = match (std::fs::metadata(e.path()), std::fs::metadata(&dst)) {
+            (Ok(a), Ok(b)) => a.len() == b.len() && b.modified().ok() >= a.modified().ok(),
+            _ => false,
+        };
+        if !same {
+            std::fs::copy(e.path(), &dst).map_err(|err| format!("cannot copy {} into {}: {}", name, crate::dump::fwd(game_dir), err))?;
+        }
+    }
+    Ok(())
+}
+
 /// How Play starts pkp.exe: in its folder, through Proton on Linux (host.rs). Every path (exefs, romfs, shader cache) comes
 /// from pkp.ini next to it.
 fn game_command(exe: &Path, dir: &Path) -> Result<std::process::Command, String> {
+    sync_runtime_files(dir)?;
     let mut cmd = crate::host::windows_program(exe)?;
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
     #[cfg(windows)]
