@@ -4,6 +4,15 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### New
+
+#### Set the game's date and time from the launcher (#203)
+**Before:** the game's user and local clocks always followed the PC, so changing time-gated content meant changing the system clock.
+
+**Now:** Settings > Game clock accepts a date and time or resets to real time, and writes `[time] clock_offset` in `pkp.ini`. At the next game start, the user and local clocks run that many minutes ahead of or behind the PC; steady and network clocks are unchanged. The offset is clamped to ±10 years.
+
 ## 0.7.5 (build K: Koala)
 
 **This is the last update you ever install by hand.** Extract it over your 0.7.0 install one more time, and from the next
