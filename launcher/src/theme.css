@@ -54,9 +54,9 @@
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.13);
 
   /* art */
-  --art-url: url("./art/island.svg");
+  --art-url: url("./art/island-sharp.webp");
+  --art-soft-url: url("./art/island-soft.webp");
   --art-position: 62% 58%;
-  --art-soft-blur: blur(56px) saturate(120%);
   --art-soft-bleed: 180px;
   --scrim-soft: #7450a8;            /* multiplied over the art: dims it and keeps the colour */
   --hero-x: 300px;                 /* the title's middle: the scrim behind it stops short of the sun */
