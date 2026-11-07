@@ -125,6 +125,7 @@ async function go(page, opts = {}) {
 
   host.classList.add('entering');
   host.addEventListener('animationend', (e) => { if (e.target === host) host.classList.remove('entering'); });
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) host.classList.remove('entering');   // no animation, no animationend (#260)
   view.replaceChildren(host);
   view.scrollTop = 0;
   view.focus({ preventScroll: true });
