@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// [nvn] pool_copy = auto (default: on under Wine) | on | off: memory pools as copies (shadows) instead of imports, phase 1 (no write
+// [nvn] pool_copy = auto (default: Wine, or an integrated GPU with <=8 GiB of device-local memory) | on | off: memory pools as copies (shadows) instead of imports, phase 1 (no write
 // tracking). Under Proton every vkQueueSubmit costs more the more userptr memory is imported (amdgpu revalidates every userptr BO of the
 // submission's BO list): with whole pools imported (3.8 GiB) the game froze inside vkQueueSubmit, and the lazy pool's ~2 GiB of live imports
 // still cost ~17.8 ms per batch submission on the Deck. Here a pool keeps the lazy pool's cell structure (nvn_gpu_pool.cpp: cells, ext,
@@ -58,8 +58,39 @@ bool wine() {
     return w;
 }
 
-struct Cfg {
+// Native Windows keeps ordinary pool imports forever. On an integrated GPU with a small device-local heap those imports share RAM with
+// everything else and eventually make queue submissions fail with VK_ERROR_OUT_OF_DEVICE_MEMORY. Use the bounded shadow cache there too.
+struct AutoDecision {
+    gfx::Device* device = nullptr;
+    VkPhysicalDevice physical = VK_NULL_HANDLE;
     bool on = false;
+};
+std::mutex g_auto_mu;
+AutoDecision g_auto;
+
+bool auto_copy() {
+    if (wine()) return true;
+    if (!active()) return false;     // an early stats call must not latch auto off
+    gfx::Device& d = device();
+    std::lock_guard<std::mutex> lk(g_auto_mu);
+    if (g_auto.device == &d && g_auto.physical == d.physical()) return g_auto.on;
+    bool on = false;
+    if (d.properties().deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+        VkPhysicalDeviceMemoryProperties mp = {};
+        vkGetPhysicalDeviceMemoryProperties(d.physical(), &mp);
+        uint64_t local = 0;
+        for (uint32_t i = 0; i < mp.memoryHeapCount; ++i)
+            if (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) local = std::max<uint64_t>(local, mp.memoryHeaps[i].size);
+        on = local && local <= (8ull << 30);
+    }
+    g_auto = AutoDecision{&d, d.physical(), on};
+    return on;
+}
+
+struct Cfg {
+    bool automatic = true;
+    bool on = false;
+    std::string mode;
     uint64_t cell = 16ull << 20;
     uint32_t idle = 600;
     uint64_t cap = 1536ull << 20;
@@ -68,19 +99,27 @@ struct Cfg {
 const Cfg& cfg() {
     static const Cfg c = [] {
         Cfg r;
-        const std::string v = config_get_str("nvn", "pool_copy", "auto");
-        r.on = v == "auto" ? wine() : (v == "on" || v == "1" || v == "true");
+        r.mode = config_get_str("nvn", "pool_copy", "auto");
+        r.automatic = r.mode == "auto";
+        r.on = !r.automatic && (r.mode == "on" || r.mode == "1" || r.mode == "true");
         r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 16), 1, 1024)) << 20;
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
         r.cap = static_cast<uint64_t>(std::max<int64_t>(0, config_get_int("nvn", "pool_copy_mb", 1536))) << 20;
-        NXLOG_I(kTag, "pool_copy %s (%s%s)", r.on ? "on" : "off", v.c_str(), v == "auto" ? (wine() ? ", Wine" : ", not Wine") : "");
-        if (r.on)
-            NXLOG_I(kTag, "pool_copy: shadows in cells of %llu MiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
-                          "pool_lazy_idle, pool_lazy_cpu_untile and compute_out_lazy are ignored",
-                    static_cast<unsigned long long>(r.cell >> 20), r.idle, static_cast<unsigned long long>(r.cap >> 20));
         return r;
     }();
     return c;
+}
+
+void log_cfg(const Cfg& c, bool on) {
+    static std::once_flag once;
+    std::call_once(once, [&] {
+        const char* why = !c.automatic ? "" : (wine() ? ", Wine" : (on ? ", integrated GPU with at most 8 GiB of device-local memory" : ", not Wine or a small integrated GPU"));
+        NXLOG_I(kTag, "pool_copy %s (%s%s)", on ? "on" : "off", c.mode.c_str(), why);
+        if (on)
+            NXLOG_I(kTag, "pool_copy: shadows in cells of %llu MiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
+                          "pool_lazy_idle, pool_lazy_cpu_untile and compute_out_lazy are ignored",
+                    static_cast<unsigned long long>(c.cell >> 20), c.idle, static_cast<unsigned long long>(c.cap >> 20));
+    });
 }
 
 // statistics
@@ -230,7 +269,12 @@ bool covers(const PoolChunk* c, uint64_t off) { return c && c->is_shadow && c->b
 
 }  // namespace
 
-bool pool_copy_on() { return cfg().on; }
+bool pool_copy_on() {
+    const Cfg& c = cfg();
+    const bool on = c.automatic ? auto_copy() : c.on;
+    if (!c.automatic || wine() || active()) log_cfg(c, on);   // native Windows: wait for a device before deciding or logging auto
+    return on;
+}
 uint64_t pool_copy_cell() { return cfg().cell; }
 uint32_t pool_copy_idle() { return cfg().idle; }
 bool pool_copy_any() { return g_any.load(std::memory_order_relaxed); }

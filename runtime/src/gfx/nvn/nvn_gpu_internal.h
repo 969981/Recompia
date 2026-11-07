@@ -489,7 +489,7 @@ namespace gpu {
 // copies the page-rounded range it touches from guest memory into the shadow (once per submission per page, never over a page with a GPU
 // write in flight); GPU writes are recorded at record time and copied back into guest memory when their serial completes, before any
 // caller sees it complete (read_completed). Phase 1: no write tracking.
-bool pool_copy_on();                                  // read once (auto: on under Wine); logged
+bool pool_copy_on();                                  // read once (auto: Wine, or an integrated GPU with <=8 GiB of device-local memory); logged
 uint64_t pool_copy_cell();                            // [nvn] pool_copy_cell_mb in bytes
 uint32_t pool_copy_idle();                            // [nvn] pool_copy_idle presents
 bool pool_copy_any();                                 // any thread: a copy pool exists (cheap)
