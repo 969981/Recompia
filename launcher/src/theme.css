@@ -58,7 +58,7 @@
   --art-soft-url: url("./art/island-soft.webp");
   --art-position: 62% 58%;
   --art-soft-bleed: 180px;
-  --scrim-soft: #7450a8;            /* multiplied over the art: dims it and keeps the colour */
+  --scrim-soft: #8a8a8a;            /* multiplied over the blurred art: neutral grey, so it only dims and the page shows the same picture as Home */
   --hero-x: 300px;                 /* the title's middle: the scrim behind it stops short of the sun */
   --scrim-hero:
     linear-gradient(90deg, rgba(7, 10, 30, 0.56) 0%, rgba(7, 10, 30, 0.3) 30%, rgba(7, 10, 30, 0) 50%),
@@ -168,7 +168,6 @@
   --surface-sunken: rgba(24, 12, 4, 0.36);
   --glass-tint: rgba(36, 18, 6, 0.44);
   --glass-tint-strong: rgba(36, 18, 6, 0.62);
-  --scrim-soft: #b4642c;
   --scrim-hero:
     linear-gradient(90deg, rgba(26, 12, 4, 0.58) 0%, rgba(26, 12, 4, 0.3) 30%, rgba(26, 12, 4, 0) 50%),
     radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(26, 12, 4, 0.6) 0%, rgba(26, 12, 4, 0.48) 50%, rgba(26, 12, 4, 0) 100%),
