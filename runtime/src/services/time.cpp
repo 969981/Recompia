@@ -448,15 +448,12 @@ void push_uuid(ipc::Response& rsp) { rsp.out.insert(rsp.out.end(), kSourceId, kS
 // Registers a command and logs its first 50 calls at Info (service object, command id and name; no arguments).
 void tcmd(ipc::Service& s, uint32_t id, const char* name, ipc::Handler h) {
     const std::string iface = s.name();
-    s.add_cmd(id, name, [iface, id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
-        static std::mutex lmu;
-        static std::map<std::string, int> calls;
-        int n;
-        {
-            std::lock_guard<std::mutex> lk(lmu);
-            n = ++calls[iface + " " + std::to_string(id)];
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    s.add_cmd(id, name, [iface, id, name, calls, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        if (calls->load(std::memory_order_relaxed) <= 50) {
+            const int n = ++*calls;
+            if (n <= 50) NXLOG_I("time", "ask: %s cmd %u %s (call %d)", iface.c_str(), id, name, n);
         }
-        if (n <= 50) NXLOG_I("time", "ask: %s cmd %u %s (call %d)", iface.c_str(), id, name, n);
         return h(req, rsp);
     });
 }
