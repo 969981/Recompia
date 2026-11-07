@@ -4,6 +4,7 @@ import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import markUrl from './art/mark.svg';
+import logoUrl from './art/logo.png';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
@@ -45,7 +46,7 @@ function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><span class="brand-name">Pokopia</span></div>
+    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><img class="brand-name brand-logo" src="${logoUrl}" alt="Pokopia" /></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="task-pill" id="task-pill" hidden>
