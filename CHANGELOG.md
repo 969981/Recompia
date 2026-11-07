@@ -6,9 +6,9 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-Sorry for all the updates lately. Now that Josh's one-click updater is in, I want to squash as many bugs as I can and get the fixes out to you right away, instead of saving them up. Thanks a lot for your patience.
+Sorry for all the updates lately. I look after the Linux side, and now that Josh's one-click updater is in, I want to squash as many Linux bugs as I can and get the fixes out to you right away, instead of saving them up. Thanks a lot for your patience.
 
-Please keep opening issues for any bug you run into, and always attach your logs: `pkp.log` from the game folder, and `setup.log` too if it is about Set up (the README says where they are, under "Where your saves, logs and settings are"). Without the logs I usually cannot tell what went wrong.
+If you play on Linux, SteamOS or a Linux handheld, please keep opening issues for any bug you run into there, and always attach your logs: `pkp.log` from the game folder, and `setup.log` too if it is about Set up (the README says where they are, under "Where your saves, logs and settings are"). Without the logs I usually cannot tell what went wrong.
 
 ~Jerban
 
