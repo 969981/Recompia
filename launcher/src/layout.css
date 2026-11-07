@@ -79,6 +79,31 @@ body[data-shell="full"] #view { margin-block: 0; }
 body[data-shell="full"] #titlebar { left: 0; }
 #winbtns { display: flex; gap: var(--space-1); }
 
+#resize-grip {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+#resize-grip[hidden] { display: none; }
+#resize-grip::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--color-text-2) 4px 6px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
 #toast {
   position: fixed;
   right: var(--space-5);

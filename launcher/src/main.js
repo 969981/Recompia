@@ -138,13 +138,26 @@ function drawWindowButtons() {
   document.getElementById('win-min').addEventListener('click', () => quiet(win.minimize()));
   document.getElementById('win-max').addEventListener('click', () => quiet(win.toggleMaximize()));
   document.getElementById('win-close').addEventListener('click', () => quiet(win.close()));
+  document.getElementById('titlebar').addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || e.target.closest('button')) return;
+    e.preventDefault();
+    quiet(win.startDragging());
+  });
+  const grip = document.getElementById('resize-grip');
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    quiet(win.startResizeDragging('SouthEast'));
+  });
   const max = document.getElementById('win-max');
   const syncMax = () => quiet(win.isMaximized().then((on) => {
     max.innerHTML = icon(on ? 'copy' : 'square');
     max.title = on ? 'Restore' : 'Maximise';
     max.setAttribute('aria-label', max.title);
+    grip.hidden = on;
   }));
   quiet(win.onResized(syncMax));
+  syncMax();
 }
 
 function start() {

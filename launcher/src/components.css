@@ -520,3 +520,21 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
   .task-pill[data-indeterminate] { background: var(--surface-2); }
   .task-name, .task-pct, .task-track { display: none; }
 }
+
+/* Larger hit areas only where the primary pointer is a finger. */
+@media (pointer: coarse) {
+  .win-btn { width: 44px; height: 44px; }
+  .nav-item { height: 44px; }
+  .btn, .btn.sm { height: 44px; }
+  .btn.big { height: 48px; }
+  body .btn.icon-only { width: 44px; }
+  button.chip { height: 44px; }
+  .row-item { min-height: 48px; }
+  .input, .select select { height: 44px; }
+  .seg span { height: 38px; }
+  .toggle { width: 44px; height: 44px; }
+  .toggle .track { inset: 10px 0; }
+  .toggle input:checked + .track::after { transform: translateX(20px); }
+  .slider input { height: 44px; }
+  #resize-grip { width: 44px; height: 44px; }
+}

@@ -982,6 +982,20 @@ fn main() {
             }
         })
         .setup(|app| {
+            // A handheld's logical screen is smaller than the default window. Maximizing also keeps it clear of the taskbar.
+            if let Some(window) = app.get_webview_window("main") {
+                if let Some(monitor) = window.current_monitor()? {
+                    let scale = monitor.scale_factor();
+                    let screen = monitor.size().to_logical::<f64>(scale);
+                    let mut size = window.inner_size()?.to_logical::<f64>(scale);
+                    if screen.width <= 1400.0 || screen.height < 800.0 {
+                        window.maximize()?;
+                    } else if size.height > screen.height {
+                        size.height = screen.height;
+                        window.set_size(tauri::Size::Logical(size))?;
+                    }
+                }
+            }
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
             if let Some(launcher) = launcher_path() {
                 let handle = app.handle().clone();
