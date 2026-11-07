@@ -297,8 +297,8 @@ void mark_mod(Node& n) {
 }
 
 // Puts every entry of `base` that `top` lacks under `top` (the files of `top` win; a folder in both is merged). False with msg set when one
-// layer has a file where the other has a folder: such a pair cannot be layered.
-bool overlay(Node& top, Node&& base, std::string& msg) {
+// layer has a file where the other has a folder: such a pair cannot be layered. `replaced` (optional) counts the files of `top` that replace one of `base`.
+bool overlay(Node& top, Node&& base, std::string& msg, uint32_t* replaced = nullptr) {
     for (Node& b : base.kids) {
         auto it = std::find_if(top.kids.begin(), top.kids.end(), [&](const Node& k) { return k.name == b.name; });
         if (it == top.kids.end()) {
@@ -307,8 +307,10 @@ bool overlay(Node& top, Node&& base, std::string& msg) {
         } else if (it->is_dir != b.is_dir) {
             msg = "two RomFS layers disagree on " + b.path + " (a file in one, a folder in the other)";
             return false;
-        } else if (it->is_dir && !overlay(*it, std::move(b), msg)) {
-            return false;
+        } else if (it->is_dir) {
+            if (!overlay(*it, std::move(b), msg, replaced)) return false;
+        } else if (replaced) {
+            ++*replaced;   // a file of `top` stands where `base` has one
         }
     }
     std::sort(top.kids.begin(), top.kids.end(), [](const Node& a, const Node& b) { return a.name < b.name; });
@@ -319,6 +321,7 @@ bool overlay(Node& top, Node&& base, std::string& msg) {
 // order, 16-byte aligned.
 bool make_layout(const std::string& host_dir, const std::string& base_dir, const std::string& mod_dir, Layout& L, std::string* err) {
     Node root;
+    uint32_t mod_replaced = 0;
     if (!scan_root(host_dir, root, err)) return false;
     if (!mod_dir.empty()) {
         Node mod;
@@ -328,7 +331,7 @@ bool make_layout(const std::string& host_dir, const std::string& base_dir, const
             return false;
         }
         mark_mod(mod);
-        if (!overlay(mod, std::move(root), e)) {
+        if (!overlay(mod, std::move(root), e, &mod_replaced)) {
             if (err) *err = e;
             return false;
         }
@@ -480,6 +483,7 @@ bool make_layout(const std::string& host_dir, const std::string& base_dir, const
     L.stats.data_offset = kPartitionOfs;
     L.stats.base_files = base_files;
     L.stats.mod_files = mod_files;
+    L.stats.mod_replaced = mod_replaced;
     L.built = true;
     return true;
 }

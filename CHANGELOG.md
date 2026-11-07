@@ -13,6 +13,8 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Now:** I added a **Mods** folder picker under Settings > Game and `[fs] romfs_mod` in `pkp.ini`. The folder is laid out like a romfs: its files replace update and base game files with the same paths, shared folders merge, and files found only in the mod are served. Empty turns the mod off. No mod is bundled. Adding or swapping a mod does not change the shader cache key or ask for Finish update. Mods that replace files containing shaders are unsupported and require running Set up again manually.
 
+**Wrong folder level:** the folder you choose has to hold the same files and folders as the game's romfs, starting at its top level. If it does not (a download often has an outer folder like `2.0.1/romfs`, and you must choose the inner `romfs`), the log now says that none of the mod's files replaces a game file. The README explains the layout, in English and in Portuguese (Brazil).
+
 ### Fixes
 
 #### The bottom-right resize grip stuttered while dragging

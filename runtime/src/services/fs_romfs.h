@@ -40,6 +40,7 @@ public:
         uint64_t data_offset = 0;                           // header.file_partition_ofs
         uint32_t base_files = 0;                            // files served from the base layer (build's base_dir)
         uint32_t mod_files = 0;                             // files served from the mod layer (build's mod_dir)
+        uint32_t mod_replaced = 0;                          // of those, the files that replace a file of the update or base game
     };
     Stats stats() const;
     // Image offset and size of a file by its path inside the image ("/a/b.bin", case sensitive), for tests and logs. False when absent.

@@ -445,8 +445,14 @@ std::shared_ptr<fs::RomfsImage> rom_image() {
             static_cast<unsigned long long>(s.data_bytes), static_cast<unsigned long long>(img->size()));
     if (!base.empty())
         NXLOG_I("fs", "RomFS: %u of the %u files come from the base game's RomFS %s ([fs] romfs_base)", s.base_files, s.files, base.c_str());
-    if (!mod.empty())
-        NXLOG_I("fs", "RomFS: %u of the %u files come from the mod folder %s ([fs] romfs_mod)", s.mod_files, s.files, mod.c_str());
+    if (!mod.empty()) {
+        NXLOG_I("fs", "RomFS: %u of the %u files come from the mod folder %s ([fs] romfs_mod), %u of them replace a game file", s.mod_files, s.files,
+                mod.c_str(), s.mod_replaced);
+        if (s.mod_files > 0 && s.mod_replaced == 0)
+            NXLOG_W("fs", "none of the %u files in the mod folder replaces a game file. The mod folder must hold the same files and folders as the game's "
+                          "RomFS (for example LD_C0_R.BIN at its top level), not the folder around it. Check the folder level in Settings > Game > Mods.",
+                    s.mod_files);
+    }
     st().rom = img;
     return img;
 }

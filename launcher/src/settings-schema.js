@@ -366,7 +366,7 @@ export const SECTIONS = [
           },
           {
             id: 'romfs_mod_note', type: 'note',
-            note: () => ({ text: 'Choose a romfs-shaped folder of text or texture replacements; its files win over the update and base game.' }),
+            note: () => ({ text: "Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path." }),
           },
           { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
         ],
