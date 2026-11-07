@@ -86,6 +86,19 @@ export async function render(el, ctx) {
   const numberField = (id, value, min, max, label, disabled) =>
     field(id, value, '', { type: 'number', label, disabled }).replace('class="input', `min="${min}" max="${max}" step="1" class="input set-num`);
 
+  const clockInput = (minutes) => {
+    const picked = new Date(Date.now() + minutes * 60000);
+    return new Date(picked.getTime() - picked.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+
+  const clockReadout = (minutes) => {
+    if (!minutes) return 'Matches this PC';
+    const left = Math.abs(minutes);
+    const days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60), mins = left % 60;
+    const parts = [...(days ? [`${days} d`] : []), ...(hours ? [`${hours} h`] : []), ...(mins ? [`${mins} min`] : [])];
+    return `${parts.join(' ')} ${minutes > 0 ? 'ahead of' : 'behind'} this PC`;
+  };
+
   const CONTROL = {
     segmented: (f, value, e, off) => segmented(f.id, optionsFor(f, value, e), value, { disabled: off }),
     select: (f, value, e, off) => select(f.id, optionsFor(f, value, e), shownChoice(f, value), { disabled: off }),
@@ -109,6 +122,9 @@ export async function render(el, ctx) {
         <button class="btn" data-act="browse" data-arg="${f.id}">Browse</button>
         <button class="btn" data-act="open" data-arg="${f.open}">${icon('folder-open')}Open</button>`;
     },
+    clock: (f, value, e, off) => `${field(f.id, clockInput(value), '', { type: 'datetime-local', disabled: off }).replace('class="input', 'step="60" class="input')}
+      <button class="btn" data-act="clock-real" data-arg="${f.id}" ${off ? 'disabled' : ''}>${icon('rotate-ccw')}Real time</button>
+      <span class="set-value">${esc(clockReadout(value))}</span>`,
   };
 
   const actionsOf = (r, e) => (typeof r.actions === 'function' ? r.actions(e) : r.actions ?? []);
@@ -297,6 +313,11 @@ export async function render(el, ctx) {
   /** The value a control holds, for the types that need no help. */
   function commitControl(f, t, part, final) {
     if (part) return commitNumber(f, t, part, final);
+    if (f.type === 'clock') {
+      const picked = new Date(t.value);
+      if (!t.value || !Number.isFinite(picked.getTime())) return draw(true);
+      return commit(f, Math.round((picked.getTime() - Date.now()) / 60000));
+    }
     if (f.type === 'toggle') return commit(f, t.checked);
     if (f.type === 'slider') return commit(f, Number(t.value));
     return commit(f, t.value);
@@ -403,6 +424,7 @@ export async function render(el, ctx) {
       draw();
     },
     update: () => store.installUpdate(),
+    'clock-real': (id) => commit(FIELDS[id], 0),
     'open-url': (url) => api('open_release_url', { url }),
   };
 

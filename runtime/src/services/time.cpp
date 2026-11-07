@@ -323,7 +323,7 @@ void write_shm(State& s) {
     lifo_write(b, kOffAdjust, kPadAdjust, &adj, sizeof adj);
 }
 
-// Start-up state: every offset zero, the start tick taken now, the shared memory zeroed and written once.
+// Start-up state: offsets zero except the configured local offset, the start tick taken now, the shared memory zeroed and written once.
 void init_locked(State& s) {
     s.tick0_ns = raw_ticks_ns();
     const int64_t rtc = host_unix_now() - kRtcEpochUnix;
@@ -331,7 +331,13 @@ void init_locked(State& s) {
     s.internal_ns = 0;
     s.test_ns = 0;
     s.sleep_ns = 0;
-    s.local_delta = 0;
+    // [time] clock_offset (minutes, default 0; issue #203, set from the launcher's Settings, Game clock): the user and local clock
+    // run that far ahead of the host clock (behind when negative), as when the console's date and time are set by hand. The game
+    // sees that through its clock snapshots like a change the player made (CalculateStandardUserSystemClockDifferenceByUser); the
+    // steady and network clocks stay on host time, as on the console. Limited to +-10 years.
+    constexpr int64_t kMaxOffsetMinutes = 10ll * 366 * 24 * 60;
+    const int64_t offset_min = config_get_int("time", "clock_offset", 0);
+    s.local_delta = (offset_min < -kMaxOffsetMinutes ? -kMaxOffsetMinutes : offset_min > kMaxOffsetMinutes ? kMaxOffsetMinutes : offset_min) * 60;
     s.network_delta = 0;
     s.ephemeral_delta = 0;
     s.auto_correction = false;
@@ -350,6 +356,8 @@ void init_locked(State& s) {
     NXLOG_I("time", "steady clock: %lld s at start-up (host RTC base), host counter %llu s, the game adds %lld ns to it",
             static_cast<long long>(steady_secs(s)), static_cast<unsigned long long>(s.tick0_ns / 1000000000ull),
             static_cast<long long>(steady_minus_raw_ns(s)));
+    if (s.local_delta)
+        NXLOG_I("time", "game clock: %+lld min from the host clock ([time] clock_offset)", static_cast<long long>(s.local_delta / 60));
 }
 
 // [time] resync: one check, under mu(). Host UTC - steady time stays fixed while both run; it grows when the host slept (the counter
