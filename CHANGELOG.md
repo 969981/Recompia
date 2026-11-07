@@ -4,11 +4,30 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.7.6 (build K: Kinkajou)
+
+Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
+
+This one is a small fix for people who keep the game in a different folder than the launcher.
+
+### Highlights
+- **The game starts again when your game folder is not the launcher's folder.** It used to close the moment you pressed Play, with "Stopped abnormally, code 53".
+
+### Known issues
+- **Linux still runs the game and the shader setup through Proton.** A game that runs on Linux without it is something we are working on, but it is not in this release.
+- **The launcher can feel slow on Linux** (page changes lag, scrolling stutters). We found the reason, it is the big background picture that gets redrawn all the time, and a fix is ready for testing. It is not in this release.
+- **Updating from inside the launcher has had very little testing on Linux.** If Update does not work for you, extract the new release over your old one like before and tell us what happened.
+- Link Play with pokopia-native players works in our protocol tests, but nobody has confirmed a full two player session yet, and Story co-op has not been tried. Please tell us what you find.
+- The bigger graphics pools for 4K are still not confirmed in game (#164).
 
 ### Fixes
-- The game no longer stops at once with exit code 53 when the game folder is not the folder the launcher is in (#221). Play and the
-  first background run now copy `pkp_rt.dll` and the ASTC decoder DLLs into the game folder when they are missing there.
+
+#### The game closes right away with exit code 53 when the game folder is not the launcher's folder (#221)
+**Before:** if you picked a game folder other than the one the launcher sits in (common with a games folder of your own on Linux), Set up built `pkp.exe` there but `pkp_rt.dll` and the ASTC decoder DLLs stayed in the launcher's folder. `pkp.exe` looks for them next to itself, so it stopped before it could write a log. Proton showed that as "code 53 (0x00000035)", which tells you nothing. The same thing made the first background run quit after zero seconds.
+
+**Now:** Play and that first background run copy the DLLs into your game folder whenever they are missing or different, so there is nothing for you to do. If `pkp_rt.dll` is missing in both places, Home tells you what is missing and offers the game folder setting, instead of letting the game stop with a number.
+
+**Still not:** if the launcher's own folder has lost `pkp_rt.dll` and your game folder has no copy either, you need to extract the release again.
 
 ## 0.7.5 (build K: Koala)
 
