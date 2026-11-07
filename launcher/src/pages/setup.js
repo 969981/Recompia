@@ -278,7 +278,7 @@ function detailsHtml() {
       ${aoc.length ? `<p>Add-on content: ${aoc.length} found (<span class="selectable">${aoc.map(esc).join(', ')}</span>)</p>` : ''}
       <pre class="path setup-tree">${esc(LAYOUT)}</pre>
       <p>The files must already be decrypted. The highest valid update is used, otherwise the base game.</p>
-      <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game.</p>
+      <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game. Add-ons (DLC) in it are unpacked to nup_dump/aoc and found on their own.</p>
       <p>The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).</p>
     </div>
   </details>`;
