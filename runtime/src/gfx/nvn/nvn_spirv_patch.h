@@ -33,6 +33,10 @@
 //                       returned (device lost). Each such ballot becomes the lane's own bit: every lane leads itself and adds 1.
 //                       Approach from pokopia-native (MIT) windows/docs/ballot-hang.md, vk_shader.c @4a72d23; the matcher is ours.
 //
+//   spirv_limit_count   a compute shader's loop over the items of a texel table whose count is a constant buffer word, with nothing
+//                       else bounding it (pokopia-native D-1, D-11: a wrong count runs the loop for seconds and NVIDIA's GPU is lost).
+//                       Its comparisons get min(count, the items the table holds). Based on pokopia-native (MIT) vk_shader.c @035bd9c.
+//
 // The idea (pattern-matching on the module's declarations, new ids from the bound) follows SuperMarioWonderRecomp's
 // nvn_spirv_patch.cpp (MIT); the code is new.
 #pragma once
@@ -126,5 +130,13 @@ struct BallotRewrite {
 // range, as before; only which lane takes which within a warp changes). Assumes 32-lane subgroups. Other ballots (REDUX / MATCH masks,
 // first-lane broadcasts) are left alone. False (out untouched) when nothing is rewritten; stats filled either way when given.
 bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, BallotRewrite* stats = nullptr);
+
+// A loop over a texel table's items whose count is word `word` (a 32-bit word index) of the uniform block named count_var (the
+// translator's vec4 array, member 0), read as an integer: every integer comparison of such a read takes min(count, the items tex_var
+// holds), the texel buffer's size in texels over `stride` texels an item, rounded up; the unsigned minimum for a count read as unsigned
+// (a garbage 0xffffffff is no negative number). Other uses of the count are left alone. tex_var must be a sampled Dim Buffer image.
+// False (out untouched or cleared) when nothing matches; *limited receives the comparisons changed.
+bool spirv_limit_count(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, const char* count_var, uint32_t word, const char* tex_var,
+                       uint32_t stride, int* limited = nullptr);
 
 }  // namespace nxrt::nvn::be::gpu

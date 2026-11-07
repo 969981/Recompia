@@ -1318,4 +1318,121 @@ bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t
     return true;
 }
 
+// Based on pokopia-native (MIT) windows/src/nxrt/vk/vk_shader.c @035bd9c, vkspv_limit_count. Changed for this translator: its texel
+// tables are buffer images (Dim Buffer, sized in texels, OpImageQuerySize), where pokopia-native's are 2D images in rows of 16384 texels.
+bool spirv_limit_count(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, const char* count_var, uint32_t word, const char* tex_var,
+                       uint32_t stride, int* limited) {
+    enum : uint32_t {
+        oName = 5, oExtInstImport = 11, oExtInst = 12, oCapability = 17, CapImageQuery = 50, oTypeInt = 21, oTypeImage = 25, oTypeSampledImage = 27,
+        oTypePointer = 32, oConstant = 43, oFunction = 54, oVariable = 59, oLoad = 61, oAccessChain = 65, oInBoundsAccessChain = 66, oImage = 100,
+        oImageQuerySize = 104, oBitcast = 124, oIAdd = 128, oSDiv = 135, oCmpFirst = 170, oCmpLast = 181, DimBuffer = 5, GlslUMin = 38, GlslSMin = 39,
+    };
+    if (limited) *limited = 0;
+    if (in.size() < 5 || in[0] != 0x07230203u || !stride || !count_var || !tex_var) return false;
+    const uint32_t bound = in[3];
+    std::vector<uint32_t> def(bound, 0), kval(bound, 0);
+    std::vector<uint8_t> isk(bound, 0), i32(bound, 0), ac(bound, 0), ld(bound, 0), bc(bound, 0);   // bc: 1 a signed count, 2 an unsigned one
+    const uint32_t at[3] = {0, word / 4, word % 4};   // the count's access chain into the block: member 0 (its vec4 array), the vec4, the component
+    uint32_t cv = 0, tv = 0, glsl = 0, ti = 0, tu = 0, c_st = 0, c_sm1 = 0;
+    bool query = false;
+    size_t first_fn = 0;
+    auto name_is = [&](size_t i, uint32_t wc, const char* s) {
+        const size_t n = std::strlen(s);
+        return (wc - 2) * 4 > n && std::memcmp(&in[i + 2], s, n + 1) == 0;
+    };
+    for (size_t i = 5; i < in.size();) {
+        const uint32_t wc = in[i] >> 16, op = in[i] & 0xffff;
+        if (!wc || i + wc > in.size()) return false;
+        const uint32_t* w = &in[i];
+        if (op == oName && wc >= 3 && w[1] < bound) {
+            if (name_is(i, wc, count_var)) cv = w[1];
+            else if (name_is(i, wc, tex_var)) tv = w[1];
+        }
+        if (op == oExtInstImport && wc >= 3 && name_is(i, wc, "GLSL.std.450")) glsl = w[1];
+        if (op == oCapability && wc == 2 && w[1] == CapImageQuery) query = true;
+        if ((op == oTypePointer || op == oTypeSampledImage || op == oTypeImage) && wc >= 3 && w[1] < bound) def[w[1]] = static_cast<uint32_t>(i);
+        if (op == oVariable && wc >= 4 && w[2] < bound) def[w[2]] = static_cast<uint32_t>(i);
+        if (op == oTypeInt && wc == 4 && w[2] == 32 && w[1] < bound) {
+            i32[w[1]] = 1;
+            if (w[3] == 1 && !ti) ti = w[1];
+            if (w[3] == 0 && !tu) tu = w[1];
+        }
+        if (op == oConstant && wc == 4 && w[1] < bound && w[2] < bound && i32[w[1]]) {
+            isk[w[2]] = 1;
+            kval[w[2]] = w[3];
+            if (ti && w[1] == ti && w[3] == stride && !c_st) c_st = w[2];
+            if (ti && w[1] == ti && w[3] == stride - 1 && !c_sm1) c_sm1 = w[2];
+        }
+        if (op == oFunction && !first_fn) first_fn = i;
+        if ((op == oAccessChain || op == oInBoundsAccessChain) && wc == 7 && cv && w[3] == cv && w[2] < bound) {
+            bool m = true;
+            for (int k = 0; k < 3; k++) m = m && w[4 + k] < bound && isk[w[4 + k]] && kval[w[4 + k]] == at[k];
+            if (m) ac[w[2]] = 1;
+        }
+        if (op == oLoad && wc >= 4 && w[2] < bound && w[3] < bound && ac[w[3]]) ld[w[2]] = 1;
+        if (op == oBitcast && wc == 4 && w[1] && (w[1] == ti || w[1] == tu) && w[2] < bound && w[3] < bound && ld[w[3]]) bc[w[2]] = w[1] == ti ? 1 : 2;
+        i += wc;
+    }
+    // the table's sampled image and image types (a UniformConstant pointer to an OpTypeSampledImage of a Dim Buffer image)
+    uint32_t sit = 0, it = 0;
+    if (tv && def[tv]) {
+        const uint32_t pt = in[def[tv] + 1];
+        if (pt < bound && def[pt] && (in[def[pt]] & 0xffff) == oTypePointer) sit = in[def[pt] + 3];
+    }
+    if (sit && sit < bound && def[sit] && (in[def[sit]] & 0xffff) == oTypeSampledImage) it = in[def[sit] + 2];
+    if (!it || it >= bound || !def[it] || (in[def[it]] & 0xffff) != oTypeImage || in[def[it] + 3] != DimBuffer) return false;
+    if (!glsl || !ti || !first_fn || std::none_of(bc.begin(), bc.end(), [](uint8_t k) { return k != 0; })) return false;
+    uint32_t nbound = bound;
+    std::vector<uint32_t> nid(bound, 0);   // each count read's limited value
+    int n_limited = 0;
+    out.clear();
+    out.reserve(in.size() + 64);
+    out.insert(out.end(), in.begin(), in.begin() + 5);
+    if (!query) out.insert(out.end(), {2u << 16 | oCapability, CapImageQuery});   // the table's size is queried
+    for (size_t i = 5; i < in.size();) {
+        const uint32_t wc = in[i] >> 16, op = in[i] & 0xffff;
+        const uint32_t* w = &in[i];
+        if (i == first_fn) {   // the constants the limit needs and the module lacks
+            if (stride > 1 && !c_st) { c_st = nbound++; out.insert(out.end(), {4u << 16 | oConstant, ti, c_st, stride}); }
+            if (stride > 1 && !c_sm1) { c_sm1 = nbound++; out.insert(out.end(), {4u << 16 | oConstant, ti, c_sm1, stride - 1}); }
+        }
+        if (op >= oCmpFirst && op <= oCmpLast && wc == 5 && ((w[3] < bound && nid[w[3]]) || (w[4] < bound && nid[w[4]]))) {
+            uint32_t x[5];
+            std::memcpy(x, w, sizeof x);
+            for (int a = 3; a < 5; a++)
+                if (x[a] < bound && nid[x[a]]) x[a] = nid[x[a]];
+            out.insert(out.end(), x, x + 5);
+            n_limited++;
+            i += wc;
+            continue;
+        }
+        out.insert(out.end(), w, w + wc);
+        if (op == oBitcast && wc == 4 && w[2] < bound && bc[w[2]]) {   // the count read: min(count, (texels + stride - 1) / stride)
+            const uint32_t tex = nbound++, img = nbound++, sz = nbound++, lim = nbound++;
+            out.insert(out.end(), {4u << 16 | oLoad, sit, tex, tv, 4u << 16 | oImage, it, img, tex, 4u << 16 | oImageQuerySize, ti, sz, img});
+            uint32_t cap = sz;
+            if (stride > 1) {
+                const uint32_t tr = nbound++;
+                cap = nbound++;
+                out.insert(out.end(), {5u << 16 | oIAdd, ti, tr, sz, c_sm1, 5u << 16 | oSDiv, ti, cap, tr, c_st});
+            }
+            if (bc[w[2]] == 1) {
+                out.insert(out.end(), {7u << 16 | oExtInst, ti, lim, glsl, GlslSMin, w[2], cap});
+            } else {   // an unsigned count (compared as one): the cap as unsigned, the unsigned minimum (a garbage 0xffffffff is no negative number)
+                const uint32_t cu = nbound++;
+                out.insert(out.end(), {4u << 16 | oBitcast, tu, cu, cap, 7u << 16 | oExtInst, tu, lim, glsl, GlslUMin, w[2], cu});
+            }
+            nid[w[2]] = lim;
+        }
+        i += wc;
+    }
+    if (!n_limited) {
+        out.clear();
+        return false;
+    }
+    out[3] = nbound;
+    if (limited) *limited = n_limited;
+    return true;
+}
+
 }  // namespace nxrt::nvn::be::gpu

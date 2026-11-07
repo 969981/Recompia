@@ -18,6 +18,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
   - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
 - Until you run **Finish update**, the game keeps the old translations and the outline stays missing
+- NVIDIA: two more GPU freezes ("device lost") guarded against, from pokopia-native 1.3.1 and 1.3.3
+  - An item search and the clustered light lists loop as many times as a number the game writes each frame; a wrong number could run the loop for seconds
+  - Those loops now stop at the items their tables hold; `[nvn] loop_guard` (`auto`: NVIDIA only, `on`, `off`)
 
 | Before | After |
 |---|---|
@@ -33,6 +36,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Loose `.spv` files are replaced; packed `spirv.archive` gets a newer segment; the boot preload pack drops changed `results.tsv` entries
 - The outline is drawn by deferred lighting fs `0cd3176a1c7791d8` (G-buffer neighbour test + world-space checker), not the sky/cloud draws `8010f484`/`86aa3b21`
   - The 0.6.x #120 note credited it to the depth range default (#137); that change affects clouds and stays, but never fixed the outline
+- `runtime/src/gfx/nvn/nvn_spirv_patch.cpp` `spirv_limit_count` (based on pokopia-native `vk_shader.c` `vkspv_limit_count` @035bd9c): a count read from a constant buffer word becomes `min(count, texels / stride)` in its comparisons
+  - Applied by our hash in `nvn_pipeline.cpp`: `3a718dcc49952e74` (their `634565ab77c61463`, c3 word 0, 5 texels an item) and the four light-list variants `0f969649`, `95a73c01`, `99a5312b`, `b81c48ff` (their `560a0262fe47818a`'s kernel, c3 words 12 and 13, unsigned)
+  - Our texel tables are buffer images, so the size comes from `OpImageQuerySize`, not pokopia-native's 16384-texel rows
 
 ## 0.7.8 (build K: Kudu)
 

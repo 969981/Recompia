@@ -364,6 +364,57 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
                         br.ballots == 1 ? "" : "s", br.groups, br.groups == 1 ? "" : "s");
         }
     }
+    // [nvn] loop_guard: a compute shader's loop over a texel table's items whose count is a constant buffer word, with nothing else
+    // bounding it, keeps to the items the table holds (spirv_limit_count): a wrong count ran such a loop for seconds and NVIDIA's GPU was
+    // lost (pokopia-native D-1, D-11). By our shader hash: 3a718dcc49952e74 is pokopia-native's 634565ab77c61463 (its key, sha256 of the
+    // control block and code, computed from our run-time dump of the block), a nearest-item search over 5-texel items, count c3 word 0;
+    // the other four are the clustered light lists, the kernel of its 560a0262fe47818a (local size 64, texel tables 0x10 and 0x12, counts
+    // c3 words 12 and 13 read and compared as unsigned), in the four variants the game ships. auto (default): NVIDIA (vendor 0x10de) only,
+    // as pokopia-native 1.3.2 (AMD's Windows driver crashed making the guarded pipeline on its 1.3.1). on: any GPU. off: never.
+    static const bool loop_guard = [] {
+        const std::string v = config_get_str("nvn", "loop_guard", "auto");
+        const uint32_t vendor = device().properties().vendorID;
+        const bool on = v == "on" || v == "true" || v == "1" || ((v == "auto" || v.empty()) && vendor == 0x10de);
+        NXLOG_I(kTag, "loop_guard = %s (%s, vendor 0x%04x): table loops %s", v.c_str(), on ? "on" : "off", vendor,
+                on ? "kept to their tables" : "left as translated");
+        return on;
+    }();
+    std::vector<uint32_t> guarded;
+    if (loop_guard && what) {
+        struct Loop { uint32_t word; const char* table; uint32_t stride; };   // c3 word of the count; the texel table; texels an item
+        static const struct { const char* hash; const char* items; int nloops; Loop loop[2]; } kGuards[] = {
+            {"3a718dcc49952e74", "items", 1, {{0, "cp_t_cb0_10", 5}, {}}},
+            {"0f9696499923d6d3", "lights", 2, {{12, "cp_t_cb0_10", 1}, {13, "cp_t_cb0_12", 1}}},
+            {"95a73c014ee1eb95", "lights", 2, {{12, "cp_t_cb0_10", 1}, {13, "cp_t_cb0_12", 1}}},
+            {"99a5312bd3dbfc27", "lights", 2, {{12, "cp_t_cb0_10", 1}, {13, "cp_t_cb0_12", 1}}},
+            {"b81c48ff486acef4", "lights", 2, {{12, "cp_t_cb0_10", 1}, {13, "cp_t_cb0_12", 1}}},
+        };
+        for (const auto& e : kGuards) {
+            if (std::strcmp(what, e.hash) != 0) continue;
+            std::vector<uint32_t> cur = *code, next;
+            int loops = 0, cmps = 0;
+            for (int k = 0; k < e.nloops; k++) {
+                int n = 0;
+                if (!spirv_limit_count(cur, next, "cp_c3", e.loop[k].word, e.loop[k].table, e.loop[k].stride, &n)) continue;
+                cur.swap(next);
+                loops++;
+                cmps += n;
+            }
+            static std::mutex mu;
+            static std::unordered_map<std::string, int> seen;
+            std::lock_guard<std::mutex> lk(mu);
+            const bool first = seen.emplace(what, 1).second;
+            if (loops == e.nloops) {   // every loop of the shader or none
+                guarded.swap(cur);
+                code = &guarded;
+                if (first) NXLOG_I(kTag, "loop_guard: shader %s: %d loop%s kept to the %s %s (%d comparison%s)", what, loops, loops == 1 ? "" : "s",
+                                   e.items, loops == 1 ? "its table holds" : "their tables hold", cmps, cmps == 1 ? "" : "s");
+            } else if (first) {
+                NXLOG_W(kTag, "loop_guard: shader %s: %d of its %d loops matched (the module is not as expected): left as translated", what, loops, e.nloops);
+            }
+            break;
+        }
+    }
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every
     // module goes through here, the ones spirv_add_outputs / spirv_gs_passthrough rewrote included. [nvn] init_outputs = false: off (A/B).
