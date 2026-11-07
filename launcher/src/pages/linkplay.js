@@ -162,7 +162,7 @@ export async function render(el) {
         ${on ? `<div class="banner info">${icon('info')}<div>
           In the game, open Link Play and pick <b>Local connection</b> (Online connection is Nintendo's service). Cross-play works with pokopia-native players on game version 2.0.1 (not 1.0.5), not with earlier Link Play builds of this port. Each player needs their own save: a copied save cannot join its original. Changes apply the next time the game starts.</div></div>` : ''}
         ${on && protocol === 'native' && picked !== 'internet' ? `<div class="banner info">${icon('shield')}<div>
-          If Windows Firewall asks about pkp.exe when you host, allow it on private networks (TCP and UDP ${HOST_PORT}). On Steam Deck or other Proton/Linux devices, finding hosts on the network may not work: pick Visit by address and type the host's address.</div></div>` : ''}
+          If Windows Firewall asks about pkp.exe when you host, allow it on private networks (TCP and UDP ${HOST_PORT}). Cafe, hotel and guest Wi-Fi often keeps devices apart: there, use Internet with a relay.</div></div>` : ''}
         ${advancedHtml()}
       </div>`;
     refreshIcons();

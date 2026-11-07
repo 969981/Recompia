@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep")
 // coop ldn (MIT, our own code): the nn::ldn state machine (None 0, Initialized 1, AccessPoint 2, AccessPointCreated 3, Station 4,
 // StationConnected 5), the 0x480 NetworkInfo the host builds, scan and connect over the transport, configuration and address classes. Layouts and
 // result codes follow switchbrew and research/06 §3.1, §4. The host is node 0 at 169.254.S.1; a station with node id k is 169.254.S.(k+1).
@@ -448,6 +448,7 @@ uint32_t coop_ldn_scan(coop_node *n, void *out, int *count, int max, const void 
     if (!((S(AP) | S(AP_CREATED) | S(STATION) | S(STATION_CONNECTED)) >> n->ls & 1)) { cnode_unlock(n); return COOP_LDN_INVALID_STATE; }
     if (n->cfg.role == COOP_ROLE_HOST || max <= 0 || !out || n->ls == COOP_LS_AP || n->ls == COOP_LS_AP_CREATED) { cnode_unlock(n); return 0; }
     browse(n, 1);
+    n->disc.x_scan_at = cplat_now_ms();   // pokopia-recomp extension: LAN sweep (coop_disc.c: no DNS-SD, each Scan sweeps the LAN)
     cldn_ident(n);   // cheats turned on or off since the last scan change which hosts match
     while (n->scan_busy && n->io_on) cldn_wait(n, 1000000);
     if (!n->io_on) { cnode_unlock(n); return 0; }

@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop.h @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop.h @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep")
 // coop: Pokopia's Link Play "Local Connection" between our native builds (research/06 §5, docs/coop-step1.md, docs/coop-step1c.md). MIT, our own code.
 // One portable C11 module every port's HLE layer calls: `ldn` (the nn::ldn state machine and the 0x480 NetworkInfo), `vnet` (the game's UDP
 // sockets on a virtual 169.254.S.0/24), `mpnet` (the real transport: a star of TCP control links around the host plus UDP for game datagrams)
@@ -56,6 +56,9 @@ typedef struct coop_cfg {
     uint32_t relay_ip;   // the relay, host order (0: none): auto hosts through it while the game hosts and joins its room while the game scans
     uint16_t relay_port;
     coop_hooks hooks;
+    // pokopia-recomp extension: LAN sweep: 1 turns off the LAN sweep and mDNS responder that stand in for DNS-SD where dnsapi.dll has no
+    // DnsService* (Wine / Proton; coop_disc.c x_*). 0 (the default): on there, never used where DNS-SD works
+    int x_lan_sweep_off;
 } coop_cfg;
 
 // DM_COOP=auto[:<port>] | join:<IPv4>[:<port>] | host:<port> | off, DM_UID=<32 hex digits> (first 16 digits are Uid word 0). join takes loopback, RFC 1918

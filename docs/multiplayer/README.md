@@ -21,14 +21,21 @@ connection**. One player picks **Invite Others to Visit**, the others **Visit a 
 |---|---|
 | Alone | No Link Play. |
 | Automatic (LAN) | The default. On the same Wi-Fi or network: the host is found by itself. |
-| Visit by address | Join one host by its address (shown on the host's Link Play page). Use this when the host is not found, for example on Steam Deck. |
+| Visit by address | Join one host by its address (shown on the host's Link Play page). Use this when the host is not found. |
 | Internet | Host or visit through a relay with a room code. The host's page shows the code; visitors type the relay address and the code. |
 
 Options: **Interact everywhere** (visitors can use moves and items and build in the story areas too, not only in Palette Town) and **Story
 co-op** (visitors can talk to the story characters; turns on Interact everywhere). Both are experimental.
 
-**Steam Deck and other Proton/Linux devices:** finding hosts on the network may not work there. Pick **Visit by address** and type the
-host's LAN address.
+**Steam Deck and other Proton/Linux devices** find hosts and are found the same way. Proton has no DNS-SD, so there the game sweeps
+its own network for hosts on port 47600 each time it scans, and a hosting device answers DNS-SD (mDNS) queries itself, so Windows players
+see it too. Nothing to type, and nothing to change when you take the device to another network. `[net] lan_sweep = off` turns this off.
+
+What it cannot get past:
+- **Wi-Fi that keeps devices apart** (many cafes, hotels and guest networks: "client isolation"). Nobody on it can reach anybody. Use
+  **Internet** with a relay and a room code instead.
+- **A host on another port.** When 47600 is taken on the host (a second copy of the game), it listens on a port the system picks, and the
+  sweep does not find it. Visit it by address with the port from its log.
 
 ## Ports and firewall
 
@@ -57,6 +64,7 @@ has an earlier build of this port. It cannot meet pokopia-native players.
 ## Common problems
 
 - **The host is not found:** pick **Visit by address** and type the host's address. Check the firewall prompt and the Private network profile.
+  On cafe or hotel Wi-Fi that keeps devices apart, nothing on the LAN works: use **Internet** with a relay.
 - **Refused:** version or mods mismatch. Same game (2.0.1), same release or pokopia-native, same two switches.
 - **Error 9005:** both players have the same save (same player id). Each player needs their own save.
 

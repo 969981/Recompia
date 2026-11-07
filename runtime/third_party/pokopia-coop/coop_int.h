@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_int.h @4a72d23, modified (marked "pokopia-recomp extension: relay UDP")
+// From pokopia-native (MIT) windows/src/coop/coop_int.h @4a72d23, modified (marked "pokopia-recomp extension: relay UDP" and "LAN sweep")
 // coop internals shared by coop_ldn.c, coop_vnet.c, coop_mpnet.c, coop_disc.c, coop_plat.c and coop_auth.c (MIT, our own code). Not for the HLE: it
 // includes the platform's socket headers.
 #pragma once
@@ -184,6 +184,7 @@ typedef struct cdisc {
     cdisc_entry e[DISC_MAX];     // under dlk
     uint64_t bad;                // records refused (bad name, TXT, port or address class)
     void *impl;                  // the backend's own state
+    int64_t x_scan_at;           // pokopia-recomp extension: LAN sweep: the game's last Scan (node lock); a Scan starts a sweep (coop_disc.c x_*)
 } cdisc;
 
 #define HOST_CONNS 16

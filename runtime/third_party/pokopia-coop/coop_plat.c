@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_plat.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_plat.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep")
 // coop platform layer (MIT, our own code): sockets, threads, locks, time and randomness. Winsock + Win32 on Windows, BSD sockets + pthreads
 // elsewhere (macOS, iOS, Android, Linux). Every socket the transport opens is non-blocking.
 #ifdef _WIN32
@@ -198,7 +198,14 @@ int64_t cplat_recvfrom(csock s, void *p, size_t n, uint32_t *ip, uint16_t *port)
 #include <stdio.h>
 static const GUID k_clsid_nlm = {0xDCB00C01, 0x570F, 0x4A9B, {0x8D, 0x69, 0x19, 0x9F, 0xDB, 0xA5, 0x72, 0x3B}};   // CLSID_NetworkListManager
 static const GUID k_iid_nlm = {0xDCB00000, 0x570F, 0x4A9B, {0x8D, 0x69, 0x19, 0x9F, 0xDB, 0xA5, 0x72, 0x3B}};    // IID_INetworkListManager
+// pokopia-recomp extension: LAN sweep: Wine / Proton (ntdll exports wine_get_version, or Proton's environment): its network list answers no real
+// profile, so every network would read as Public and the hint below it would be wrong. No profiles there
+static int x_under_wine(void) {
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    return (nt && GetProcAddress(nt, "wine_get_version")) || getenv("STEAM_COMPAT_DATA_PATH") || getenv("WINEPREFIX");
+}
 static int public_adapters(char (*out)[40], int max) {   // read only: the adapters whose network has the Public profile, as "{GUID}" (GetAdaptersAddresses' name)
+    if (x_under_wine()) return 0;   // pokopia-recomp extension: LAN sweep
     HRESULT hi = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     INetworkListManager *m = NULL; IEnumNetworkConnections *e = NULL; int k = 0;
     if (SUCCEEDED(CoCreateInstance(&k_clsid_nlm, NULL, CLSCTX_ALL, &k_iid_nlm, (void **)&m))) {
