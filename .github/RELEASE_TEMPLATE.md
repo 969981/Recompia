@@ -1,48 +1,66 @@
-<!--
-Release text template. The release workflow publishes the CHANGELOG.md section `## <x.y.z>` as the release notes, and takes the
-release title from its heading: "Pokopia Recomp <x.y.z> (build <letter>: <animal>)". So, to release:
-  1. Rename `## Unreleased` to the heading below (build letter = animal; same letter for a minor series, next letter for a new one).
-  2. Fill it in this order; leave out empty parts.
-  3. Merge, then tag v<x.y.z> (or run release.yml on main with release_tag = v<x.y.z>).
-Write for players: plain words, what they see, what they must do. Implementation details go only under "Release notes for developers".
--->
+# Release notes template
 
+The release workflow publishes a version's `CHANGELOG.md` section (`## x.y.z (build L: Animal)`) as the GitHub release, and the
+launcher shows the same text as its patch notes. To release: rename `## Unreleased` to the version heading, write it in the shape
+below, merge, then tag `v<x.y.z>` (or run `release.yml` on main with `release_tag`).
+
+## Rules
+
+- **Lists, not paragraphs.** One change = one bullet, one line. Need more? One level of sub-bullets, no deeper (the launcher
+  renders one level).
+- **Lead with what the player sees,** then the issue number: `- Fixed the dashed outline around Rock Smash tiles missing (#242)`.
+- **Start each bullet with a verb:** Added, Fixed, Changed, Removed.
+- **Numbers as before ⇒ after:** `- Setup free space needed: 31 GB ⇒ 14 GB`.
+- **Group by area,** most played first. Leave out areas with no changes. Areas: Graphics, Performance, Gameplay, Controls,
+  Link Play, Launcher, Linux & Steam Deck, Mods.
+- **Highlights** = 2 to 4 bullets. The launcher's update card shows the first two, so put the biggest first.
+- **No HTML** (comments, `<details>`): the launcher shows it as text. Images show as their alt text in the launcher, so write
+  a useful alt text.
+- Developer detail (paths, functions, hashes) goes only under **For developers** at the end.
+
+## Copy this
+
+```markdown
 ## x.y.z (build L: Animal)
 
-Press **Update** in the launcher and it does the rest. <!-- Then ONE of: -->
-The game code is unchanged, so you do not need to **Set up again**.
-<!-- or: Run **Finish update** once when it asks: <why, and how long>. -->
-<!-- or: Run **Set up again** once: <why>. -->
+**Update:** press **Update** in the launcher. No **Set up again** needed.
 
-<!-- One short paragraph: the two or three things players will notice. Where to report problems (issue + pkp.log). -->
-
-~Jerban
+### Highlights
+- <Biggest change, in player words>
+- <Second biggest>
+- <Third, optional>
 
 ### Known issues
-- **<Short bold statement.>** <One sentence of detail or workaround.>
+- <What is still broken> — <workaround, if any>
 
-### New
+### Graphics
+- Fixed <what looked wrong> (#123)
+  - <optional detail: where, what else may look different>
+- Changed <setting>: <old> ⇒ <new>
 
-#### <What players can now do> (#issue)
-**Before:** <what it was like>
+### Performance
+- <Thing>: <before> ⇒ <after>
 
-**Now:** <what it does, where the setting is (`pkp.ini` key in backticks), what to press>
+### Link Play
+- Added <thing players can now do> (#123)
+- Fixed <symptom> (#123)
 
-**Still not:** <limits, or delete this line>
+### Launcher
+- Added <setting> in **Settings > Game > <row>** (`pkp.ini` `[section] key`)
 
-### Fixes
+### Linux & Steam Deck
+- Fixed <symptom> (#123)
 
-#### <The problem as a player saw it> (#issue)
-**Before:** <the symptom>
-
-**Now:** <what changed for the player>
-
-**Still not:** <what is still broken, or delete this line>
-
-<!-- Optional for visual fixes: -->
-| Before | Now |
+| Before | After |
 |---|---|
-| ![Before: ...](<image url>) | ![Now: ...](<image url>) |
+| ![Before: <what is wrong>](<url>) | ![After: <what is right>](<url>) |
 
-### Release notes for developers
-- `<path>` `<function>`: <what changed and why>.
+### For developers
+- `<path>` `<function>`: <what changed and why>
+```
+
+The **Update** line takes one of:
+
+- `press **Update** in the launcher. No **Set up again** needed.`
+- `press **Update**, then **Finish update** once when it asks (<why>, about <N> minutes).`
+- `press **Update**, then **Set up again** once (<why>).`
