@@ -8,7 +8,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Known issues
 - **Linux still runs the game and the shader setup through Proton.**
-- **The game clock is new and not confirmed in the game yet.** I know it moves the clock the game reads for the user, but I have not seen day and night follow it.
+- **The game clock is new and not confirmed in the game yet.** I have not seen day and night follow it, and it has not been tested with Link Play, so use it in single player only for now.
 - **The touch resize grip and dragging the title bar by finger** were tested with the window functions, not with a finger on a real screen, until the first handheld tests are in. Tell me what you find.
 - Link Play with pokopia-native players still has no confirmed full two player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
 
@@ -19,7 +19,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Now:** Settings > Game has a **Game clock** row: pick a date and time, or press **Real time** to follow the PC again. It is saved in `pkp.ini` as `[time] clock_offset` (minutes, up to 10 years either way) and used from the next start of the game. The clock the game reads for the player moves; the steady and network clocks stay on the PC's time, as when you set the date and time by hand on a Switch.
 
-**Still not:** it only changes at the start of the game, not while it runs.
+**Still not:** it only changes at the start of the game, not while it runs, and it has not been tested in Link Play, so use it in single player only for now (the launcher says so under the row).
 
 ### Fixes
 

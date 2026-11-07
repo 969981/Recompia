@@ -365,9 +365,15 @@ export const SECTIONS = [
       },
       {
         title: 'Game clock',
-        rows: [{
-          id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
-        }],
+        rows: [
+          {
+            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
+          },
+          {
+            id: 'game_clock_note', type: 'note',
+            note: () => ({ text: 'Use this in single player only for now. It has not been tested with Link Play.' }),
+          },
+        ],
       },
     ],
   },
