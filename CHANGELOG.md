@@ -29,11 +29,11 @@ If you play on Linux, SteamOS or a Linux handheld, please keep opening issues fo
 **Still not:** it only changes at the start of the game, not while it runs, and it has not been tested in Link Play, so use it in single player only for now (the launcher says so under the row).
 
 #### Reach the F1 menu with a controller
-**Before:** the in-game settings page opened only with the F1 key, so on a handheld like the ROG Ally you needed a keyboard.
+**Before:** the in-game settings page opened only with the F1 key and could only be used with a mouse or a touch screen, so on a handheld like the ROG Ally, or on a PC with a controller and no touch screen, you needed a keyboard.
 
-**Now:** the "Close the game?" prompt (View and Menu together, the Switch's minus and plus) has a third choice, **Settings**: press X or tap it, and the F1 page opens. Inside the page you use the touch screen or a mouse.
+**Now:** the "Close the game?" prompt (View and Menu together, the Switch's minus and plus) has a third choice, **Settings**: press X or tap it, and the F1 page opens. Inside the page the controller works: D-pad or left stick move, A chooses, B goes back, L and R switch tabs, and plus closes it. The game gets no button presses while the page is open. The touch screen and the mouse work as before.
 
-**Still not:** moving through the F1 page itself with a controller. That is planned for later.
+**Still not:** the highlight appears on your first D-pad press, not when the page opens.
 
 ### Fixes
 
