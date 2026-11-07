@@ -1,0 +1,60 @@
+/* Settings: section pills, then grouped rows from ui.js. Only what those do not cover. */
+
+.set-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
+.set-pills { margin-top: calc(var(--space-1) * -1); }
+.set-pills .seg { flex-wrap: wrap; max-width: 100%; border-radius: var(--radius-md); }
+.set-body { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+
+.set-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-ok);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+.set-saved .icon { width: 14px; height: 14px; }
+.set-saved.show { opacity: 1; transition-duration: var(--dur); }
+
+.set .row-control { flex-shrink: 1; }
+.set .row-label { flex: 1 0 auto; max-width: 38%; }
+.set .row-control .input { flex: 0 1 auto; }
+.set-num { width: 84px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
+.set-num::-webkit-inner-spin-button, .set-num::-webkit-outer-spin-button { appearance: none; -webkit-appearance: none; margin: 0; }
+.set-unit { flex: none; color: var(--color-text-2); font-size: var(--text-sm); }
+
+.set-pathrow .row-label { flex: none; }
+.set-pathrow .row-control { flex: 1 1 0; max-width: none; }
+.set-pathrow .input { flex: 1 1 0; width: auto; min-width: 0; }
+.set-pathrow .btn { flex: none; }
+
+.set-info .row-control { flex: 0 1 auto; }
+.set-info .row-control .btn { flex: none; }
+.set-value { min-width: 0; color: var(--color-text-2); font-size: var(--text-sm); }
+.set-value.path { font-size: var(--text-xs); }
+
+.set-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 28px;
+  padding-inline: var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+}
+
+.set-note { justify-content: flex-start; align-items: flex-start; gap: var(--space-2); min-height: 0; padding-block: var(--space-3); }
+.set-note p { min-width: 0; color: var(--color-text-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.set-note .path { display: block; margin-top: var(--space-1); color: var(--color-text); }
+.set-note .icon { flex: none; margin-top: 1px; }
+.set-note.ok .icon { color: var(--color-ok); }
+.set-note.danger .icon { color: var(--color-danger); }

@@ -14,11 +14,13 @@
       {
         "label": "main",
         "title": "Pokopia Launcher",
-        "width": 1040,
-        "height": 680,
-        "minWidth": 860,
-        "minHeight": 560,
-        "center": true
+        "width": 1120,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 580,
+        "center": true,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

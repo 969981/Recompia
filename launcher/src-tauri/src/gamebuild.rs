@@ -49,7 +49,7 @@ pub fn is_package_b(tools_dir: &Path) -> bool {
 }
 
 /// What Play says when pkp.exe is from an older release (Built::Stale). The time is the compile's, as in the README.
-pub const REBUILD_MESSAGE: &str = "This update changes the game code: set up again to rebuild pkp.exe (Game files, Set up; about 7 minutes). Your shaders and saves are kept.";
+pub const REBUILD_MESSAGE: &str = "This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.";
 
 /// How far the pkp.exe in a game folder is from this release.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

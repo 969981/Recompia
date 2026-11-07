@@ -50,7 +50,7 @@ pub fn fetch(game_dir: &Path, tools_dir: &Path, mut report: impl FnMut(Progress)
         return Err(if cfg!(windows) {
             "This package has no DLSS download tool. Extract the release zip again so tools/ is complete."
         } else {
-            "The download needs the Linux build tools that Set up fetches: run Set up first (Game files)."
+            "The download needs the Linux build tools that Set up fetches: run Set up first."
         }
         .into());
     }

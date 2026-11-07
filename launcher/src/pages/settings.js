@@ -1,275 +1,485 @@
-import { api, esc, icon, refreshIcons, toast, errText } from '../util.js';
+// Settings: draws settings-schema.js and saves every change by itself. The schema says what exists; this file only knows how to draw
+// each row type, when to write, and what the buttons do. write_settings and save_config go through one queue, in order.
+//
+// A redraw must never pull a control from under the player: draw() waits while a text field has focus or the pointer is down, and
+// otherwise replaces only the rows whose markup changed. Writes are shown at once and undone from the files if they fail.
+import './settings.css';
+import { api, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
+import { store } from '../store.js';
+import { canUpdate, gamePhase } from '../action.js';
+import {
+  DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
+  rowsOf, shownChoice, splitEdits, writeField, FIELDS,
+} from '../settings-schema.js';
 
-/*
- * Settings schema. Key names come from nx/runtime/docs/CONFIG.md.
- *   file: "controls" (controls.ini), "pkp" (pkp.ini) or "config" (the launcher's own options)
- * Types: select, toggle, size, autonum, range, sens, path.
- */
-const SECTIONS = [
-  {
-    title: 'Display', icon: 'monitor', file: 'controls',
-    fields: [
-      { id: 'window_mode', type: 'select', label: 'Window mode', sec: 'display', key: 'window_mode', def: 'windowed',
-        options: [['windowed', 'Windowed'], ['borderless', 'Borderless fullscreen'], ['exclusive', 'Exclusive fullscreen']],
-        hint: 'Set before starting; the picture size is fixed when the game starts.' },
-      { id: 'size', type: 'size', label: 'Window size', sec: 'display', keys: ['width', 'height'], def: ['1280', '720'] },
-      { id: 'render_scale', type: 'autonum', label: 'Render scale', sec: 'display', key: 'render_scale', def: 'auto',
-        min: 25, max: 400, numDefault: 100, unit: '%', autoLabel: 'Auto', hint: 'Auto follows the window height. 100 is 1920x1080.' },
-      { id: 'fps_limit', type: 'autonum', label: 'Frame rate limit', sec: 'display', key: 'fps_limit', def: 'auto',
-        min: 0, max: 1000, numDefault: 60, unit: 'fps', autoLabel: 'Auto', hint: 'Auto follows the display refresh rate. 0 is unlimited.' },
-      { id: 'vsync', type: 'toggle', label: 'VSync', sec: 'display', key: 'vsync', def: '1' },
-    ],
-  },
-  {
-    title: 'Audio', icon: 'volume-2', file: 'pkp',
-    fields: [{ id: 'volume', type: 'range', label: 'Master volume', sec: 'audio', key: 'volume', def: '1.0' }],
-  },
-  {
-    title: 'Mouse', icon: 'mouse', file: 'controls',
-    fields: [
-      { id: 'sens', type: 'sens', label: 'Sensitivity', sec: 'mouse', min: 0.1, max: 20, def: '2',
-        hint: 'Source-engine scale, 2 is the default. Sets horizontal and vertical aim together.' },
-      { id: 'invert_x', type: 'toggle', label: 'Invert horizontal', sec: 'mouse', key: 'invert_x', def: '0' },
-      { id: 'invert_y', type: 'toggle', label: 'Invert vertical', sec: 'mouse', key: 'invert_y', def: '0' },
-    ],
-  },
-  {
-    title: 'Button prompts', icon: 'gamepad-2', file: 'controls',
-    fields: [
-      { id: 'prompt_style', type: 'select', label: 'Prompt style', sec: 'prompts', key: 'style', def: 'auto',
-        options: [['auto', 'Automatic (follows the last device used)'], ['switch', 'Switch (the game\'s own)'], ['xbox', 'Xbox'], ['playstation', 'PlayStation'], ['keyboard', 'Keyboard and mouse']],
-        hint: 'Applies on the next frame, with no restart.' },
-    ],
-  },
-  {
-    title: 'Paths', icon: 'folder', file: 'pkp',
-    fields: [
-      { id: 'romfs', type: 'path', label: 'RomFS folder', sec: 'fs', key: 'romfs', def: '', hint: 'Set from your game files. Change it here only to override.' },
-      { id: 'save_dir', type: 'path', label: 'Save folder', sec: 'fs', key: 'save_dir', def: '', placeholder: 'save/ next to pkp.exe', hint: 'Empty: the launcher uses save/ next to pkp.exe.' },
-      { id: 'shader_cache', type: 'path', label: 'Shader cache', sec: 'nvn', key: 'shader_cache', def: '', placeholder: 'shader_cache/spirv next to pkp.exe', hint: 'Folder with the translated shaders (.spv and results.tsv).' },
-    ],
-  },
-  {
-    title: 'Launcher', icon: 'wrench', file: 'config',
-    fields: [
-      { id: 'game_dir', type: 'path', label: 'Game folder', sec: '', key: 'game_dir', def: '', placeholder: 'the launcher\'s own folder', hint: 'The folder with pkp.exe, pkp.ini and controls.ini.' },
-      { id: 'minimize_on_play', type: 'toggle', label: 'Minimise while the game runs', sec: '', key: 'minimize_on_play', def: '0' },
-    ],
-  },
-];
+const SLIDER_WAIT_MS = 250;
+const TEXT_WAIT_MS = 600;
+const SAVED_SHOW_MS = 1400;
 
-const SOURCE_RAD = (0.022 * Math.PI) / 180; // radians per mouse count at Source sensitivity 1
-const truthy = (v) => ['1', 'true', 'yes', 'on'].includes(String(v).trim().toLowerCase());
-const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
-const fwd = (s) => String(s).trim().replace(/\\/g, '/');
+let lastSection = 'display';   // coming back to Settings lands where the player was
+
+const fieldOf = (t) => {
+  const [id, part] = (t.type === 'radio' ? t.name : t.id).split('--');
+  return { f: FIELDS[id], part };
+};
 
 export async function render(el, ctx) {
-  const [data, cfg, status] = await Promise.all([api('read_settings'), api('get_config'), api('game_status')]);
-  const files = { pkp: data.pkp, controls: data.controls, config: { 'game_dir': cfg.game_dir, 'minimize_on_play': cfg.minimize_on_play ? '1' : '0' } };
-  const exists = { pkp: true, controls: data.controls_exists, config: true };
-  const keyOf = (f, k) => (f.file === 'config' ? k : `${f.sec}.${k}`);
-  const get = (f, k, def) => files[f.file][keyOf(f, k)] ?? def;
+  const [dump, cfg, dlssInfo, overviewInfo] = await Promise.all([
+    api('read_settings'),
+    api('get_config'),
+    api('dlss_status').catch(() => null),
+    api('get_overview').catch(() => null),
+  ]);
+  let src = makeSource(dump, cfg);
+  let dlss = dlssInfo;
+  let overview = overviewInfo;
+  let gameDir = dump.game_dir;
+  let sources = [];
+  let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
-  // ----- model: one UI value per field -----
-  const READ = {
-    select: (f) => get(f, f.key, f.def),
-    toggle: (f) => truthy(get(f, f.key, f.def)),
-    size: (f) => ({ w: get(f, f.keys[0], f.def[0]), h: get(f, f.keys[1], f.def[1]) }),
-    autonum: (f) => {
-      const v = String(get(f, f.key, f.def));
-      return v.toLowerCase() === 'auto' ? { auto: true, num: String(f.numDefault) } : { auto: false, num: v };
-    },
-    range: (f) => Math.round(clamp(parseFloat(get(f, f.key, f.def)) || 0, 0, 1) * 100),
-    sens: (f) => {
-      const rad = parseFloat(files.controls['mouse.yaw']);
-      return String(Number.isFinite(rad) ? Math.round((rad / SOURCE_RAD) * 100) / 100 : f.def);
-    },
-    path: (f) => get(f, f.key, f.def),
-  };
-  const WRITE = {
-    select: (f, x) => [[f.sec, f.key, x]],
-    toggle: (f, x) => [[f.sec, f.key, x ? '1' : '0']],
-    size: (f, x) => [
-      [f.sec, f.keys[0], String(clamp(parseInt(x.w, 10) || 1280, 320, 16384))],
-      [f.sec, f.keys[1], String(clamp(parseInt(x.h, 10) || 720, 320, 16384))],
-    ],
-    autonum: (f, x) => [[f.sec, f.key, x.auto ? 'auto' : String(clamp(Math.round(parseFloat(x.num)) || f.numDefault, f.min, f.max))]],
-    range: (f, x) => [[f.sec, f.key, (x / 100).toFixed(2)]],
-    sens: (f, x) => {
-      const rad = (clamp(parseFloat(x) || 2, f.min, f.max) * SOURCE_RAD).toPrecision(9);
-      return [[f.sec, 'yaw', rad], [f.sec, 'pitch', rad]];
-    },
-    path: (f, x) => [[f.sec, f.key, fwd(x)]],
-  };
+  const customOpen = new Set();   // choice rows showing their number field although the value is a preset
+  const pending = new Map();      // field id -> { timer, run }: debounced commits
+  const sig = new Map();          // row id -> the markup it was drawn from
+  let queue = Promise.resolve();
+  let unsaved = [];               // edits in the queue, not on disk yet
+  let pointerDown = false;
+  let redraw = false;
+  let importing = false;
+  let importResult = null;
+  let checking = false;
+  let checked = false;
+  let savedTimer = null;
+  let wasActive = false;
+  let hadDlss = !!store.state.dlss;
 
-  const all = SECTIONS.flatMap((s) => s.fields.map((f) => ({ ...f, file: s.file })));
-  const model = {};
-  const orig = {};
-  for (const f of all) {
-    model[f.id] = READ[f.type](f);
-    orig[f.id] = JSON.stringify(model[f.id]);
-  }
-  const dirtyFields = () => all.filter((f) => JSON.stringify(model[f.id]) !== orig[f.id]);
-
-  // ----- markup -----
-  const dis = (f) => (exists[f.file] ? '' : 'disabled');
-  const CONTROL = {
-    select: (f, x) => {
-      const opts = f.options.some(([v]) => v === x) ? f.options : [...f.options, [x, x]];
-      return `<select data-f="${f.id}" ${dis(f)}>${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === x ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-    },
-    toggle: (f, x) => `<label class="switch"><input type="checkbox" data-f="${f.id}" ${x ? 'checked' : ''} ${dis(f)}>${x ? 'On' : 'Off'}</label>`,
-    size: (f, x) => `<input type="number" data-f="${f.id}" data-part="w" min="320" max="16384" value="${esc(x.w)}" ${dis(f)}><span class="unit">x</span><input type="number" data-f="${f.id}" data-part="h" min="320" max="16384" value="${esc(x.h)}" ${dis(f)}>`,
-    autonum: (f, x) => `<label class="switch"><input type="checkbox" data-f="${f.id}" data-part="auto" ${x.auto ? 'checked' : ''} ${dis(f)}>${esc(f.autoLabel)}</label><input type="number" data-f="${f.id}" data-part="num" min="${f.min}" max="${f.max}" value="${esc(x.num)}" ${x.auto || !exists[f.file] ? 'disabled' : ''}><span class="unit">${esc(f.unit)}</span>`,
-    range: (f, x) => `<input type="range" data-f="${f.id}" min="0" max="100" step="1" value="${x}" ${dis(f)}><span class="unit" data-readout="${f.id}" style="min-width: 3.5ch; text-align: right">${x}%</span>`,
-    sens: (f, x) => `<input type="number" data-f="${f.id}" min="${f.min}" max="${f.max}" step="0.1" value="${esc(x)}" ${dis(f)}>`,
-    path: (f, x) => `<input type="text" data-f="${f.id}" spellcheck="false" placeholder="${esc(f.placeholder || '')}" value="${esc(x)}" ${dis(f)}><button class="btn" data-browse="${f.id}" ${dis(f)}>${icon('folder-open')}Browse</button>`,
-  };
-
-  const fieldHtml = (f) => `
-    <div class="field">
-      <label class="name">${esc(f.label)}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}</label>
-      <div class="control">${CONTROL[f.type](f, model[f.id])}</div>
-    </div>`;
-
-  function draw() {
-    const n = dirtyFields().length;
-    el.innerHTML = `
-      <div class="page">
-        <div class="hero">
-          <h1>Settings</h1>
-          <p class="dim">These edit pkp.ini and controls.ini next to pkp.exe. Other keys and comments in those files are left alone.</p>
-        </div>
-        ${status.state === 'running' ? `<div class="banner warn">${icon('triangle-alert')}<div>The game is running. Most changes apply at the next start, and the game may overwrite controls.ini when it exits.</div></div>` : ''}
-        ${!data.controls_exists ? `<div class="banner info">${icon('info')}<div>controls.ini does not exist yet in <code>${esc(data.game_dir)}</code>. The game creates it on its first start, so Display, Mouse and Button prompts become editable after that. Audio, Paths and Launcher options work now.</div></div>` : ''}
-        ${SECTIONS.map((s) => `<div class="card"><h2>${icon(s.icon)}${esc(s.title)}</h2>${s.fields.map((f) => fieldHtml({ ...f, file: s.file })).join('')}</div>`).join('')}
-        <div class="card" id="save-card">
-          <h2>${icon('save')}Save data</h2>
-          <div class="stack">
-            <p class="dim">Bring your island from Eden or Ryujinx, or from any folder that holds the game's <code>G00</code> and <code>S00</code> folders. Your current save is moved to a <code>save.before-&lt;date&gt;</code> folder next to the save folder first and never deleted. The source is only read. Close the game before importing.</p>
-            <p class="faint">A copied save carries its original player ID, so it cannot join its original in Link Play (the game refuses two players with the same ID). Each player needs a save of their own.</p>
-            <div class="row">
-              <button class="btn" id="save-auto">${icon('folder-search')}Find Eden / Ryujinx save and import</button>
-              <button class="btn" id="save-pick">${icon('folder-open')}Pick a folder to import</button>
-              <button class="btn quiet" id="save-open">${icon('folder-open')}Open save folder</button>
-            </div>
-            <p class="dim" id="save-msg" style="white-space: pre-wrap"></p>
-          </div>
-        </div>
-        <div class="savebar">
-          <span class="dim">${n ? `${n} unsaved change${n > 1 ? 's' : ''}` : 'No changes'}</span>
-          <div class="row">
-            <button class="btn quiet" id="revert" ${n ? '' : 'disabled'}>${icon('undo-2')}Revert</button>
-            <button class="btn primary" id="save" ${n ? '' : 'disabled'}>${icon('save')}Save</button>
-          </div>
-        </div>
-      </div>`;
-    refreshIcons();
-    bind();
-  }
-
-  function bind() {
-    const byId = Object.fromEntries(all.map((f) => [f.id, f]));
-    el.querySelectorAll('[data-f]').forEach((input) => {
-      const f = byId[input.dataset.f];
-      const part = input.dataset.part;
-      const onChange = () => {
-        const v = input.type === 'checkbox' ? input.checked : input.value;
-        if (part) model[f.id] = { ...model[f.id], [part]: v };
-        else model[f.id] = f.type === 'range' ? parseInt(v, 10) : v;
-        if (f.type === 'range') {
-          el.querySelector(`[data-readout="${f.id}"]`).textContent = `${model[f.id]}%`;
-          updateBar();
-        } else if (input.type === 'text' || input.type === 'number') {
-          updateBar();
-        } else {
-          draw(); // toggles and selects change dependent markup (labels, disabled inputs)
-        }
-      };
-      input.addEventListener(input.type === 'range' || input.type === 'text' || input.type === 'number' ? 'input' : 'change', onChange);
-    });
-    el.querySelectorAll('[data-browse]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const f = byId[b.dataset.browse];
-        const picked = await api('pick_folder', { title: `Choose: ${f.label}`, start: model[f.id] || null });
-        if (picked) {
-          model[f.id] = picked;
-          draw();
-        }
-      }),
-    );
-    el.querySelector('#revert').addEventListener('click', () => {
-      for (const f of all) model[f.id] = JSON.parse(orig[f.id]);
-      draw();
-    });
-    el.querySelector('#save').addEventListener('click', save);
-    bindSaveImport();
-  }
-
-  function bindSaveImport() {
-    const msg = el.querySelector('#save-msg');
-    const btns = ['#save-auto', '#save-pick'].map((q) => el.querySelector(q));
-    const run = async (source, what) => {
-      if (!window.confirm(`Import ${what}?
-
-Your current save is moved aside to a backup folder first.`)) return;
-      btns.forEach((b) => (b.disabled = true));
-      msg.textContent = 'Importing...';
-      try {
-        const r = await api('import_save', { source });
-        msg.textContent = `Imported ${r.files} files from ${r.source}.
-` +
-          (r.backup ? `Your previous save is kept in ${r.backup}.` : 'There was no previous save.');
-        toast('Save imported.', 'ok');
-      } catch (e) {
-        msg.textContent = `Not imported: ${errText(e)}`;
-        toast(errText(e), 'error');
-      }
-      btns.forEach((b) => (b.disabled = false));
+  function env() {
+    const s = store.state;
+    const phase = gamePhase(s.game);
+    const gameBusy = phase === 'starting' || phase === 'running' || phase === 'finishing';
+    const update = s.news.update;
+    return {
+      gameDir,
+      defaultGameDir: overview?.default_game_dir ?? '',
+      gameFiles: src.config.dump_dir || s.app?.dump?.path || '',
+      version: s.app?.version ?? '',
+      gameBusy,
+      canSetUp: !!s.app?.dump && !gameBusy && !s.task && !s.starting,
+      saveSources: sources,
+      importing,
+      importResult,
+      dlssOffered: !!(dlss?.available || dlss?.present),
+      dlssCanFetch: !!dlss?.available,
+      dlssPresent: !!dlss?.present,
+      dlssBusy: !!s.dlss,
+      canUpdate: canUpdate(s),
+      checking,
+      updateText: checking ? 'Checking'
+        : update ? `Version ${update.tag.replace(/^v/, '')} is available`
+        : !checked ? ''
+        : s.news.releases.length ? 'You have the latest version'
+        : 'Could not reach GitHub',
     };
-    el.querySelector('#save-auto').addEventListener('click', async () => {
-      try {
-        const found = await api('save_sources');
-        if (!found.length) { msg.textContent = 'No Pokopia save found in Eden or Ryujinx. Use "Pick a folder to import" instead.'; return; }
-        await run(null, `the newest save found (${found[0].label}: ${found[0].path})`);
-      } catch (e) { msg.textContent = errText(e); }
-    });
-    el.querySelector('#save-pick').addEventListener('click', async () => {
-      const picked = await api('pick_folder', { title: 'Choose a folder with the save (G00 and S00)', start: null });
-      if (picked) await run(picked, `the save in ${picked}`);
-    });
-    el.querySelector('#save-open').addEventListener('click', () => api('open_save_dir').catch((e) => toast(errText(e), 'error')));
   }
 
-  function updateBar() {
-    const n = dirtyFields().length;
-    const bar = el.querySelector('.savebar');
-    bar.querySelector('span').textContent = n ? `${n} unsaved change${n > 1 ? 's' : ''}` : 'No changes';
-    bar.querySelector('#save').disabled = !n;
-    bar.querySelector('#revert').disabled = !n;
+  // ---- drawing ------------------------------------------------------------------------------------------------------------------
+
+  const numberField = (id, value, min, max, label, disabled) =>
+    field(id, value, '', { type: 'number', label, disabled }).replace('class="input', `min="${min}" max="${max}" step="1" class="input set-num`);
+
+  const CONTROL = {
+    segmented: (f, value, e, off) => segmented(f.id, optionsFor(f, value, e), value, { disabled: off }),
+    select: (f, value, e, off) => select(f.id, optionsFor(f, value, e), shownChoice(f, value), { disabled: off }),
+    toggle: (f, value, e, off) => toggle(f.id, value, { disabled: off }),
+    slider: (f, value, e, off) => slider(f.id, f.min, f.max, value, { step: f.step, suffix: f.suffix ?? '', disabled: off }),
+    choice: (f, value, e, off) => {
+      const open = customOpen.has(f.id) || shownChoice(f, value) === 'custom';
+      const c = f.custom;
+      return `${select(f.id, optionsFor(f, value, e), open ? 'custom' : value, { disabled: off })}
+        ${open ? `${numberField(`${f.id}--custom`, customStart(f, value), c.min, c.max, c.label, off)}<span class="set-unit">${esc(c.suffix)}</span>` : ''}`;
+    },
+    size: (f, value, e, off) => {
+      const open = customOpen.has(f.id) || shownChoice(f, value) === 'custom';
+      const [w, h] = String(value).split('x');
+      return `${select(f.id, optionsFor(f, value, e), open ? 'custom' : value, { disabled: off })}
+        ${open ? `${numberField(`${f.id}--w`, w, f.min, f.max, 'Window width', off)}<span class="set-unit">x</span>${numberField(`${f.id}--h`, h, f.min, f.max, 'Window height', off)}` : ''}`;
+    },
+    path: (f, value, e, off) => {
+      const holder = f.placeholder(e);
+      return `${field(f.id, value, holder, { mono: true, disabled: off }).replace('class="input', `title="${esc(value || holder)}" class="input set-path`)}
+        <button class="btn" data-act="browse" data-arg="${f.id}">Browse</button>
+        <button class="btn" data-act="open" data-arg="${f.open}">${icon('folder-open')}Open</button>`;
+    },
+  };
+
+  const actionsOf = (r, e) => (typeof r.actions === 'function' ? r.actions(e) : r.actions ?? []);
+
+  const actionButton = (a) => `<button class="btn ${a.primary ? 'primary' : ''}" data-act="${a.act}" ${a.arg ? `data-arg="${esc(a.arg)}"` : ''} ${a.name ? `data-name="${esc(a.name)}"` : ''} ${a.disabled ? 'disabled' : ''}>${icon(a.icon)}${esc(a.label)}</button>`;
+
+  function infoControl(r, e) {
+    const value = typeof r.value === 'function' ? r.value(e) : r.value;
+    const text = value ? `<span class="set-value clip ${r.mono ? 'path' : ''} ${r.selectable ? 'selectable' : ''}" title="${esc(value)}">${esc(value)}</span>` : '';
+    return text + actionsOf(r, e).map(actionButton).join('');
   }
 
-  async function save() {
-    const edits = [];
-    const cfgNew = { ...cfg };
-    for (const f of dirtyFields()) {
-      for (const [sec, key, value] of WRITE[f.type](f, model[f.id])) {
-        if (f.file === 'config') {
-          cfgNew[key] = key === 'minimize_on_play' ? value === '1' : fwd(value);
-        } else {
-          edits.push({ file: f.file, section: sec, key, value });
-        }
-      }
+  const rowHtml = (r, cls, label, control) => row(label, control).replace('class="row-item"', `class="row-item ${cls}" data-row="${r.id}"`);
+
+  function noteHtml(r, e) {
+    const n = r.note(e);
+    return `<div class="row-item set-note ${n.kind ?? ''}" data-row="${r.id}">
+      ${n.kind ? icon(n.kind === 'danger' ? 'circle-x' : 'circle-check') : ''}
+      <p>${esc(n.text)}${n.path ? ` <span class="path selectable">${esc(n.path)}</span>` : ''}</p>
+    </div>`;
+  }
+
+  function rowOf(r, values, e) {
+    if (r.type === 'note') return noteHtml(r, e);
+    if (r.type === 'keycap') return rowHtml(r, '', r.label, `<kbd class="set-key">${esc(r.key)}</kbd>`);
+    if (r.type === 'info') return rowHtml(r, 'set-info', r.label, infoControl(r, e));
+    const off = !isEnabled(r, src, e);
+    return rowHtml(r, r.type === 'path' ? 'set-pathrow' : '', r.label, CONTROL[r.type](r, values[r.id], e, off));
+  }
+
+  function bannerHtml(sec, values, e) {
+    const waiting = sec.groups.some((g) => rowsOf(g, values, e).some((r) => r.at && !isAvailable(r, src)));
+    const noExe = sec.id === 'game' && store.state.app?.readiness?.kind === 'no_exe';
+    const text = waiting ? 'Available after the first start of the game'
+      : noExe ? store.state.app.readiness.detail
+      : e.gameBusy && sec.id !== 'about' ? 'Changes apply next time the game starts'
+      : '';
+    return text ? `<div class="banner ${noExe && !waiting ? 'warn' : 'info'}" data-banner="${esc(text)}">${icon(noExe && !waiting ? 'triangle-alert' : 'info')}<div>${esc(text)}</div></div>` : '';
+  }
+
+  function sectionHtml() {
+    const sec = SECTIONS.find((s) => s.id === section);
+    const values = readAll(src);
+    const e = env();
+    const groups = sec.groups.map((g) => {
+      const rows = rowsOf(g, values, e);
+      return rows.length ? group(g.title, rows.map((r) => rowOf(r, values, e))) : '';
+    });
+    return bannerHtml(sec, values, e) + groups.join('');
+  }
+
+  const body = () => el.querySelector('#set-body');
+  const rowsIn = (node) => [...node.querySelectorAll('[data-row]')];
+  const shape = (node) => [...rowsIn(node).map((r) => r.dataset.row), node.querySelector('[data-banner]')?.dataset.banner].join('|');
+  const rowSig = (node) => node.outerHTML.replace(/row-\d+/g, '');
+
+  function focusKey() {
+    const a = document.activeElement;
+    if (!a || !el.contains(a) || a.closest('.set-pills')) return null;
+    if (a.id) return `#${CSS.escape(a.id)}`;
+    if (a.name) return `input[name="${CSS.escape(a.name)}"][value="${CSS.escape(a.value)}"]`;
+    if (a.dataset.act) return `[data-act="${a.dataset.act}"]${a.dataset.arg ? `[data-arg="${CSS.escape(a.dataset.arg)}"]` : ''}`;
+    return null;
+  }
+
+  const typing = () => document.activeElement?.matches?.('input.input') && el.contains(document.activeElement);
+
+  /** Brings the section up to date. force: everything, now, even under the cursor (a failed write, a new section). */
+  function draw(force = false) {
+    if (!force && (pointerDown || typing())) {
+      redraw = true;
+      return;
     }
+    redraw = false;
+    const host = body();
+    const next = document.createElement('div');
+    next.innerHTML = sectionHtml();
+    const key = focusKey();
+    if (force || shape(host) !== shape(next)) {
+      host.replaceChildren(...next.childNodes);
+      sig.clear();
+      rowsIn(host).forEach((r) => sig.set(r.dataset.row, rowSig(r)));
+    } else {
+      const fresh = rowsIn(next);
+      rowsIn(host).forEach((old, i) => {
+        const was = sig.get(old.dataset.row);
+        const now = rowSig(fresh[i]);
+        if (was === now) return;
+        sig.set(old.dataset.row, now);
+        old.replaceWith(fresh[i]);
+      });
+    }
+    if (key && !el.contains(document.activeElement)) host.querySelector(key)?.focus();
+  }
+
+  function saved() {
+    const tick = el.querySelector('#set-saved');
+    tick.innerHTML = `${icon('check')}Saved`;
+    tick.classList.add('show');
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => tick.classList.remove('show'), SAVED_SHOW_MS);
+  }
+
+  // ---- saving -------------------------------------------------------------------------------------------------------------------
+
+  /** Whatever the files say now. Runs inside the queue, so it must not wait for it; from outside see reload. */
+  async function readBack(force = false) {
+    const [d, c, s, o] = await Promise.all([
+      api('read_settings'),
+      api('get_config'),
+      api('dlss_status').catch(() => dlss),
+      api('get_overview').catch(() => overview),
+    ]);
+    src = unsaved.reduce(applyEdits, makeSource(d, c));   // what is still on its way stays on screen
+    gameDir = d.game_dir;
+    dlss = s;
+    overview = o;
+    draw(force);
+  }
+
+  const reload = () => (queue = queue.then(() => readBack()));
+
+  async function persist(edits, reloads) {
+    const { ini, config } = splitEdits(edits);
+    if (ini.length) await api('write_settings', { edits: ini });
+    if (config) await api('save_config', { config: { ...(await api('get_config')), ...config } });
+    if (reloads) await store.refresh();
+    saved();
+  }
+
+  /** Gives field f this value: on screen at once, in the files through the queue, back as it was if that fails. */
+  function commit(f, value) {
+    const edits = writeField(f, value, src);
+    if (edits.length) {
+      src = applyEdits(src, edits);
+      unsaved.push(edits);
+      const done = () => { unsaved = unsaved.filter((x) => x !== edits); };
+      queue = queue.then(async () => {
+        try {
+          await persist(edits, f.reloads);
+          done();
+          if (f.reloads) await readBack();
+        } catch (e) {
+          done();
+          toast(errText(e), 'error');
+          await readBack(true).catch((err) => console.error(err));
+        }
+      });
+    }
+    draw();
+    return queue;
+  }
+
+  const later = (id, ms, run) => {
+    clearTimeout(pending.get(id)?.timer);
+    const entry = { run, timer: setTimeout(() => { pending.delete(id); run(); }, ms) };
+    pending.set(id, entry);
+  };
+  const dropLater = (id) => {
+    clearTimeout(pending.get(id)?.timer);
+    pending.delete(id);
+  };
+
+  /** Everything still waiting goes out; resolves when it is on disk. */
+  function flush() {
+    for (const [id, p] of [...pending]) {
+      dropLater(id);
+      p.run();
+    }
+    return queue;
+  }
+
+  function commitNumber(f, t, part, final) {
+    const bounds = f.custom ?? f;
+    const fit = (n) => fitNumber(n.value, bounds.min, bounds.max);
+    const parts = part === 'custom' ? [t] : [el.querySelector(`#${f.id}--w`), el.querySelector(`#${f.id}--h`)];
+    const fitted = parts.map(fit);
+    const exact = parts.every((n, i) => fitted[i] !== null && Number(n.value) === fitted[i]);
+    t.setAttribute('aria-invalid', String(!exact && !final));
+    if (!final && !exact) return;              // "6" on the way to "60" is not a value yet
+    if (fitted.includes(null)) return draw(true);   // left empty: back to the saved value
+    parts.forEach((n, i) => { n.value = fitted[i]; });
+    commit(f, fitted.join('x'));
+  }
+
+  /** The value a control holds, for the types that need no help. */
+  function commitControl(f, t, part, final) {
+    if (part) return commitNumber(f, t, part, final);
+    if (f.type === 'toggle') return commit(f, t.checked);
+    if (f.type === 'slider') return commit(f, Number(t.value));
+    return commit(f, t.value);
+  }
+
+  async function askDlss() {
+    return confirm(DLSS_DOWNLOAD);
+  }
+
+  /** store.fetchDlss() runs fetch_dlss; the sidebar pill shows it. */
+  async function downloadDlss() {
+    await store.fetchDlss();
+    dlss = await api('dlss_status');
+    saved();
+    draw();
+  }
+
+  async function pickDlss(f, value) {
+    const before = readField(f, src);
+    if (!(await askDlss())) return draw(true);
+    commit(f, value);
     try {
-      if (edits.length) await api('write_settings', { edits });
-      if (JSON.stringify(cfgNew) !== JSON.stringify(cfg)) await api('save_config', { config: cfgNew });
-      toast('Settings saved.', 'ok');
-      ctx.go('settings');
+      await downloadDlss();
     } catch (e) {
       toast(errText(e), 'error');
+      commit(f, before);   // the upscaler would only run as off without the file
     }
   }
 
-  draw();
+  function onSelect(f, value) {
+    if (f.type === 'choice' || f.type === 'size') {
+      if (value === 'custom') {
+        customOpen.add(f.id);
+        const cur = readField(f, src);
+        return commit(f, f.type === 'size' ? cur : customStart(f, cur));
+      }
+      customOpen.delete(f.id);
+    }
+    if (f.guard === 'dlss' && ['dlss', 'dlaa'].includes(value) && !dlss?.present) return pickDlss(f, value);
+    if (f.replaces) customOpen.clear();
+    return commit(f, value);
+  }
+
+  // ---- buttons ------------------------------------------------------------------------------------------------------------------
+
+  const OPEN = { save: () => api('open_save_dir'), game: () => api('open_game_dir') };
+
+  async function runImport(what, source, html) {
+    if (!(await confirm({ title: `Import ${what}?`, html, body: html ? '' : IMPORT_FACTS, ok: 'Import' }))) return;
+    importing = true;
+    importResult = null;
+    draw();
+    try {
+      await flush();
+      const r = await api('import_save', { source });
+      importResult = r.backup
+        ? { kind: 'ok', text: `Imported ${r.files} files. Your previous save is kept in`, path: r.backup }
+        : { kind: 'ok', text: `Imported ${r.files} files. There was no previous save.` };
+      toast('Save imported', 'ok');
+    } catch (e) {
+      importResult = { kind: 'danger', text: errText(e) };
+      toast(errText(e), 'error');
+    }
+    importing = false;
+    draw();
+  }
+
+  const ACTIONS = {
+    async browse(arg) {
+      const f = FIELDS[arg];
+      const start = readField(f, src) || f.placeholder(env()) || null;
+      const picked = await api('pick_folder', { title: f.pick, start });
+      if (picked) {
+        dropLater(f.id);
+        const input = el.querySelector(`#${f.id}`);
+        if (input) input.value = picked;
+        commit(f, picked);
+      }
+    },
+    async open(arg) {
+      await flush();
+      await OPEN[arg]();
+    },
+    async 'dlss-get'() {
+      if (await askDlss()) await downloadDlss();
+    },
+    import: (arg, name) => runImport(`from ${name}`, arg),
+    async 'import-folder'() {
+      const picked = await api('pick_folder', { title: 'Choose a folder with the save', start: null });
+      if (picked) await runImport('this save', picked, `<p class="path selectable">${esc(picked)}</p><p>${esc(IMPORT_FACTS)}</p>`);
+    },
+    'change-files': () => ctx.go('setup'),
+    async 'setup-again'() {
+      const yes = await confirm({ title: 'Set up again?', body: 'This builds the game and prepares its shaders again, which takes a while. Your saves are kept.', ok: 'Set up' });
+      if (yes && (await store.startSetup())) ctx.go('home');
+    },
+    'setup-log': () => api('open_setup_log'),
+    async 'check-updates'() {
+      checking = true;
+      draw();
+      await store.refreshNews(true);
+      checking = false;
+      checked = true;
+      draw();
+    },
+    update: () => store.installUpdate(),
+    'open-url': (url) => api('open_release_url', { url }),
+  };
+
+  // ---- the page -----------------------------------------------------------------------------------------------------------------
+
+  el.innerHTML = `<div class="page set">
+    <div class="set-head">
+      <h1>Settings</h1>
+      <span class="set-saved" id="set-saved" role="status"></span>
+    </div>
+    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label })), section, { label: 'Settings section' })}</div>
+    <div class="set-body" id="set-body"></div>
+  </div>`;
+
+  el.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.name === 'section') {
+      section = lastSection = t.value;
+      draw(true);
+      el.closest('#view')?.scrollTo(0, 0);
+      return;
+    }
+    const { f, part } = fieldOf(t);
+    if (!f) return;
+    dropLater(f.id);
+    if (t.tagName === 'SELECT') onSelect(f, t.value);
+    else commitControl(f, t, part, true);
+  });
+
+  el.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t.matches('input[type="range"], input.input')) return;
+    const { f, part } = fieldOf(t);
+    if (!f || f.commit === 'blur') return;
+    later(f.id, t.type === 'range' ? SLIDER_WAIT_MS : TEXT_WAIT_MS, () => commitControl(f, t, part, false));
+  });
+
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    try {
+      await ACTIONS[b.dataset.act](b.dataset.arg, b.dataset.name);
+    } catch (err) {
+      toast(errText(err), 'error');
+    }
+  });
+
+  // a pointer press on a row must end on that same row: replacing a button under it loses the click
+  const release = () => {
+    pointerDown = false;
+    setTimeout(() => redraw && draw());
+  };
+  el.addEventListener('pointerdown', () => { pointerDown = true; });
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  el.addEventListener('focusout', () => setTimeout(() => redraw && draw()));
+
+  ctx.on((s, why) => {
+    const active = env().gameBusy;
+    const dlssEnded = hadDlss && !s.dlss;
+    hadDlss = !!s.dlss;
+    if ((wasActive && !active) || dlssEnded) reload().catch((e) => console.error(e));   // the game writes its settings as it leaves
+    else if (why !== 'setup' || section === 'game') draw();
+    wasActive = active;
+  });
+  wasActive = env().gameBusy;
+
+  draw(true);
+  api('save_sources').then((list) => {
+    sources = list;
+    draw();
+  }).catch((e) => console.warn('save_sources', e));
+
+  return () => {
+    window.removeEventListener('pointerup', release);
+    window.removeEventListener('pointercancel', release);
+    clearTimeout(savedTimer);
+    flush();
+  };
 }

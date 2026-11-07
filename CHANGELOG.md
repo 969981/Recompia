@@ -6,7 +6,27 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+Extract this over your current install. This is the last update you do by hand: from now on the launcher updates itself in one click.
+
+### New
+
+#### A new launcher: one button, updates in one click, patch notes inside
+**Before:** five pages (Play, Game files, Link Play, Settings, About), a long settings form with a Save button and hint text, and an "Update available" banner that sent you to GitHub to download and extract the release yourself. Release notes were only on GitHub.
+
+**Now:** four pages: Home, Link Play, What's New, Settings, in a frameless glass window. Home has one button that always does the next step (Choose game files, Set up, Continue setup, Finish update, Play) and uses the same check as Play, so it never offers Play when Play would refuse. **Update** downloads the new release, checks it against the release's checksums, replaces the launcher's files, restarts, and starts setup by itself when the new version needs it; saves, `pkp.ini`, `controls.ini`, the shader cache and the built game are never touched, and a failed update puts every file back. What's New reads the release notes in the launcher, and Home shows the newest three. A crash shows a card on Home with its report and the game log. Setup and updates keep running when you change pages.
+
+Settings are tabs (Display, Graphics, Audio, Controls, Saves, Game, About) that save on change, with choices instead of numbers (frame rate "Match display, 60, 120, Unlimited", render resolution "Match window, 1080p..."; Custom keeps any other value). New in the launcher: quality preset (writes the whole preset like the F1 menu), view distance, upscaler and its quality, frame rate counter, mute when not focused, keep 16:9. DLSS moved to Graphics. Link Play is one switch (Off, Same network, Internet) with every field applied by itself; the `pkp.ini` keys are unchanged.
+
+Removed: the shader cache path (it never worked), the RomFS folder (it follows the game files), the Save/Revert bar, the old Link Play protocol choice (a notice offers to switch).
+
+**Still not:** this update itself is installed by hand (0.7.0's launcher cannot install updates); one-click updates start with the next one. The Linux AppImage update has not been tried yet.
+
 ### Fixes
+
+#### Launcher volume could be undone by pkp.ini
+**Before:** a `volume` line in `pkp.ini` beat `controls.ini`, so the volume shown was not always what played.
+
+**Now:** the launcher also writes `pkp.ini` when it already holds the line.
 
 #### F1 "Just under the refresh rate" no longer slows the game on 60 and 90 Hz screens
 **Before:** the button set the frame limit 3 fps under any refresh rate: 57 on a 60 Hz screen, 87 at 90 Hz. At 57 the game counts every frame as 1/60 s, so it ran about 5 % slow and felt sluggish; on a screen without G-Sync / FreeSync (Steam Deck) the lower rate also showed frames unevenly.

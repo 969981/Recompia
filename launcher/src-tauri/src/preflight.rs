@@ -307,6 +307,11 @@ pub fn probe(game_dir: &Path, r: &Remaining) -> Facts {
     }
 }
 
+/// Free bytes on the drive of `dir` (or its nearest existing parent).
+pub fn free_bytes(dir: &Path) -> Option<u64> {
+    sys::free_bytes(dir)
+}
+
 /// "C:" of `C:\games\pokopia`, else the path itself.
 pub fn drive_of(p: &Path) -> String {
     let s = p.to_string_lossy();

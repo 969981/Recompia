@@ -1,93 +1,164 @@
+import '@fontsource-variable/inter/opsz.css';
 import './theme.css';
 import './layout.css';
 import './components.css';
-import { listen } from '@tauri-apps/api/event';
-import { api, esc, icon, refreshIcons, errText, toast } from './util.js';
-import * as play from './pages/play.js';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import markUrl from './art/mark.svg';
+import { errText, esc, icon } from './ui.js';
+import { store } from './store.js';
+import { isFirstRun } from './action.js';
+import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
+import * as news from './pages/news.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
-import * as about from './pages/about.js';
 
+// nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy.
 const PAGES = {
-  play: { mod: play, label: 'Play', icon: 'play' },
-  linkplay: { mod: linkplay, label: 'Link Play', icon: 'users' },
-  settings: { mod: settings, label: 'Settings', icon: 'settings' },
-  setup: { mod: setup, label: 'Game files', icon: 'folder-open' },
-  about: { mod: about, label: 'About', icon: 'info' },
+  home: { mod: home, nav: 'Home', icon: 'house', art: 'sharp' },
+  linkplay: { mod: linkplay, nav: 'Link Play', icon: 'users' },
+  news: { mod: news, nav: "What's New", icon: 'newspaper' },
+  settings: { mod: settings, nav: 'Settings', icon: 'settings' },
+  setup: { mod: setup },
 };
+
+// Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly. Vite drops this from production.
+let startPage = null;
+if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
+  await import('./dev/mock.js');
+  PAGES.kit = { mod: await import('./dev/kit.js') };
+  startPage = new URLSearchParams(location.search).get('page');
+}
+
+// where the sidebar pill leads
+const TASK_PAGE = { setup: 'setup', nup: 'setup', update: 'home', dlss: 'settings' };
+
+const SWAP_WAIT_MS = 120;   // a page that loads fast swaps in whole; a slow one shows what it has by then
 
 const nav = document.getElementById('nav');
 const view = document.getElementById('view');
-const updateBar = document.getElementById('update');
 let current = null;
-let statusHandler = null;
-let setupHandler = null;
-
-const ctx = {
-  go,
-  onStatus(fn) { statusHandler = fn; },
-  onSetup(fn) { setupHandler = fn; },
-};
+let token = 0;           // the newest navigation; older ones drop what they rendered
+let leaving = [];        // run when the page goes
 
 function drawNav() {
-  nav.innerHTML =
-    `<div class="brand">${icon('gamepad-2', 'mark')}<span class="name">Pokopia Launcher</span></div>` +
-    Object.entries(PAGES)
-      .map(([id, p]) => `<button class="nav-item ${id === current ? 'active' : ''}" data-page="${id}">${icon(p.icon)}<span class="label">${p.label}</span></button>`)
-      .join('');
-  nav.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => go(b.dataset.page)));
-  refreshIcons();
-}
-
-async function go(page, opts = {}) {
-  current = page;
-  statusHandler = null;
-  setupHandler = null;
-  drawNav();
-  view.scrollTop = 0;
-  try {
-    await PAGES[page].mod.render(view, { ...ctx, ...opts });
-  } catch (e) {
-    view.innerHTML = `<div class="page"><div class="banner danger">${icon('circle-x')}<div>${errText(e)}</div></div></div>`;
-    toast(errText(e), 'error');
-  }
-  refreshIcons();
-}
-
-/** Asks the launcher (in the background) whether a newer release exists; shows a banner only when one does. Failures stay silent. */
-async function checkUpdate() {
-  let info = null;
-  try {
-    info = await api('check_update');
-  } catch {
-    return;
-  }
-  if (!info) return;
-  updateBar.innerHTML =
-    `<div class="banner info">${icon('circle-alert')}<div class="grow">Update available: ${esc(info.name)} (${esc(info.tag)})</div>` +
-    `<button class="btn" id="update-open">What's new</button><button class="btn quiet" id="update-dismiss">Dismiss</button></div>`;
-  updateBar.hidden = false;
-  refreshIcons();
-  document.getElementById('update-open').addEventListener('click', () => api('open_release_url', { url: info.url }).catch((e) => toast(errText(e), 'error')));
-  document.getElementById('update-dismiss').addEventListener('click', () => {   // this session only
-    updateBar.hidden = true;
-    updateBar.innerHTML = '';
+  const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
+    `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
+  nav.innerHTML = `
+    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><span class="brand-name">Pokopia</span></div>
+    ${items.join('')}
+    <div class="nav-spacer"></div>
+    <button class="task-pill" id="task-pill" hidden>
+      ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
+      <span class="task-track"><span class="task-fill"></span></span>
+    </button>`;
+  nav.addEventListener('click', (e) => {
+    const page = e.target.closest('[data-page]')?.dataset.page;
+    if (page && page !== current) go(page);
+    const target = e.target.closest('#task-pill') && TASK_PAGE[store.state.task?.kind];
+    if (target && target !== current) go(target);
   });
 }
 
-async function boot() {
-  await listen('game-status', (ev) => statusHandler && statusHandler(ev.payload));
-  await listen('setup-status', (ev) => setupHandler && setupHandler(ev.payload));
-  let cfg = { dump_dir: '' };
-  try {
-    cfg = await api('get_config');
-  } catch (e) {
-    toast(errText(e), 'error');
+function drawChrome() {
+  for (const b of nav.querySelectorAll('[data-page]')) {
+    if (b.dataset.page === current) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
   }
-  // first run: no game files chosen yet
-  go(cfg.dump_dir ? 'play' : 'setup', { firstRun: !cfg.dump_dir });
-  checkUpdate();
+  // the update has its own dot beside What's New, where its notes are
+  const item = nav.querySelector('[data-page="news"]');
+  const hasDot = !!item.querySelector('.nav-dot');
+  if (hasDot !== !!store.state.news.update) {
+    if (hasDot) item.querySelector('.nav-dot').remove();
+    else item.insertAdjacentHTML('beforeend', '<span class="nav-dot"></span>');
+  }
+
+  const pill = document.getElementById('task-pill');
+  const task = store.state.task;
+  pill.hidden = !task;
+  if (!task) return;
+  const pct = task.pct === null ? '' : `${task.pct}%`;
+  const say = pct ? `${task.label}, ${pct}` : task.label;
+  pill.querySelector('.task-name').textContent = task.label;
+  pill.querySelector('.task-pct').textContent = pct;
+  pill.title = say;
+  pill.setAttribute('aria-label', say);
+  pill.style.setProperty('--pct', pct || '0%');
+  pill.toggleAttribute('data-indeterminate', task.pct === null);
 }
 
-boot();
+/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup hides the sidebar. */
+async function go(page, opts = {}) {
+  if (!PAGES[page]) return;
+  const id = ++token;
+  leaving.forEach((fn) => fn());
+  leaving = [];
+  current = page;
+  document.body.dataset.shell = page === 'setup' && opts.firstRun ? 'full' : '';
+  document.body.dataset.art = PAGES[page].art || 'soft';
+  drawChrome();
+
+  const host = document.createElement('div');
+  host.className = 'page-host';
+  const ctx = {
+    ...opts,
+    go,
+    on(fn) {
+      if (id !== token) return () => {};
+      const off = store.subscribe(fn);
+      leaving.push(off);
+      return off;
+    },
+  };
+  const rendered = (async () => {
+    try {
+      const dispose = await PAGES[page].mod.render(host, ctx);
+      if (typeof dispose === 'function') (id === token ? leaving.push(dispose) : dispose());
+    } catch (e) {
+      console.error(e);
+      host.innerHTML = `<div class="page"><div class="banner danger">${icon('circle-x')}<div>${esc(errText(e))}</div></div></div>`;
+    }
+  })();
+  await Promise.race([rendered, new Promise((r) => setTimeout(r, SWAP_WAIT_MS))]);
+  if (id !== token) return;
+
+  host.classList.add('entering');
+  host.addEventListener('animationend', (e) => { if (e.target === host) host.classList.remove('entering'); });
+  view.replaceChildren(host);
+  view.scrollTop = 0;
+  view.focus({ preventScroll: true });
+}
+
+function drawWindowButtons() {
+  const host = document.getElementById('winbtns');
+  const win = getCurrentWindow();
+  const button = (id, name, label, cls = '') => `<button class="win-btn ${cls}" id="${id}" aria-label="${label}" title="${label}">${icon(name)}</button>`;
+  const quiet = (p) => p.catch((e) => console.warn(e));
+  host.innerHTML = button('win-min', 'minus', 'Minimise') + button('win-max', 'square', 'Maximise') + button('win-close', 'x', 'Close', 'close');
+  document.getElementById('win-min').addEventListener('click', () => quiet(win.minimize()));
+  document.getElementById('win-max').addEventListener('click', () => quiet(win.toggleMaximize()));
+  document.getElementById('win-close').addEventListener('click', () => quiet(win.close()));
+  const max = document.getElementById('win-max');
+  const syncMax = () => quiet(win.isMaximized().then((on) => {
+    max.innerHTML = icon(on ? 'copy' : 'square');
+    max.title = on ? 'Restore' : 'Maximise';
+    max.setAttribute('aria-label', max.title);
+  }));
+  quiet(win.onResized(syncMax));
+}
+
+function start() {
+  drawNav();
+  drawWindowButtons();
+  store.subscribe(drawChrome);
+  drawChrome();
+  store.start().catch((e) => console.error(e));
+  const once = store.subscribe((s, why) => {
+    if (why !== 'app') return;
+    once();
+    if (startPage) go(startPage);
+    else go(isFirstRun(s) ? 'setup' : 'home', { firstRun: isFirstRun(s) });
+  });
+}
+
+start();

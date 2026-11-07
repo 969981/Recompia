@@ -1,0 +1,205 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <!-- Original abstract dusk island. Back to front: sky, colour fields, sun, clouds, far range, island, sea, shore, grain.
+       The sun sits left of the island so light falls on its west flank and the title has open sky beside it. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="642" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#08303e"/>
+      <stop offset=".18" stop-color="#114a63"/>
+      <stop offset=".42" stop-color="#37479f"/>
+      <stop offset=".6" stop-color="#6f49ad"/>
+      <stop offset=".76" stop-color="#c55c95"/>
+      <stop offset=".9" stop-color="#fb9478"/>
+      <stop offset="1" stop-color="#ffcf9c"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="640" x2="0" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f29c86"/>
+      <stop offset=".09" stop-color="#b65e93"/>
+      <stop offset=".28" stop-color="#5a3f99"/>
+      <stop offset=".58" stop-color="#262f70"/>
+      <stop offset="1" stop-color="#0c1a3e"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="540" x2="0" y2="642" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a765ad"/>
+      <stop offset="1" stop-color="#f09a8f"/>
+    </linearGradient>
+    <!-- the main peak, lit from the left -->
+    <linearGradient id="peak" x1="880" y1="0" x2="1560" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef9a97"/>
+      <stop offset=".3" stop-color="#b869a8"/>
+      <stop offset=".62" stop-color="#6f50aa"/>
+      <stop offset="1" stop-color="#40398f"/>
+    </linearGradient>
+    <linearGradient id="foot" x1="0" y1="430" x2="0" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f6a48f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#f6a48f" stop-opacity=".62"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="980" y1="0" x2="1600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7d4d9e"/>
+      <stop offset=".5" stop-color="#46378f"/>
+      <stop offset="1" stop-color="#2c2e7d"/>
+    </linearGradient>
+    <linearGradient id="near" x1="880" y1="0" x2="1600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4b3a86"/>
+      <stop offset=".45" stop-color="#23306f"/>
+      <stop offset="1" stop-color="#143a63"/>
+    </linearGradient>
+    <linearGradient id="shore" x1="0" y1="770" x2="0" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#121f50"/>
+      <stop offset="1" stop-color="#070d24"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="840" cy="540" r="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe8ba" stop-opacity=".95"/>
+      <stop offset=".16" stop-color="#ffb486" stop-opacity=".62"/>
+      <stop offset=".5" stop-color="#ee6e92" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ee6e92" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="disc" cx=".5" cy=".4" r=".62">
+      <stop offset="0" stop-color="#fffdf0"/>
+      <stop offset="1" stop-color="#ffdfa9"/>
+    </radialGradient>
+    <filter id="b1" x="-10%" y="-200%" width="120%" height="500%"><feGaussianBlur stdDeviation="1"/></filter>
+    <filter id="b3" x="-10%" y="-60%" width="120%" height="220%"><feGaussianBlur stdDeviation="3"/></filter>
+    <filter id="b9" x="-20%" y="-150%" width="140%" height="400%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="b22" x="-30%" y="-100%" width="160%" height="300%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="b70" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="70"/></filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="7"/>
+      <feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  .6 .6 0 0 -.42"/>
+    </filter>
+    <clipPath id="above"><rect width="1600" height="642"/></clipPath>
+    <clipPath id="below"><rect y="640" width="1600" height="360"/></clipPath>
+    <path id="peak-shape" d="M806 642c44-14 92-34 136-66 34-24 64-36 100-66 34-30 58-74 96-128 28-40 52-76 84-84 22-6 34 14 56 22 26 10 44-6 68 14 40 34 66 92 112 138 46 44 98 66 180 92v78z"/>
+    <path id="mid-shape" d="M968 642c44-20 92-44 142-60 42-14 76-6 116-30 34-20 60-58 106-62 46-4 74 26 112 52 46 30 100 46 176 58v42z"/>
+    <clipPath id="peak-clip"><use href="#peak-shape"/></clipPath>
+    <clipPath id="mid-clip"><use href="#mid-shape"/></clipPath>
+  </defs>
+
+  <rect width="1600" height="642" fill="url(#sky)"/>
+
+  <!-- colour fields -->
+  <g filter="url(#b70)">
+    <ellipse cx="220" cy="110" rx="430" ry="190" fill="#127a7c" opacity=".7"/>
+    <ellipse cx="1300" cy="130" rx="470" ry="180" fill="#5440b8" opacity=".6"/>
+    <ellipse cx="640" cy="330" rx="430" ry="120" fill="#a54fb2" opacity=".4"/>
+    <ellipse cx="150" cy="530" rx="360" ry="100" fill="#ef7f8e" opacity=".5"/>
+    <ellipse cx="1480" cy="430" rx="260" ry="110" fill="#c75c9c" opacity=".35"/>
+  </g>
+
+  <!-- stars, only where the sky is dark enough -->
+  <g fill="#e7f6ff">
+    <circle cx="402" cy="62" r="1.3" opacity=".8"/><circle cx="522" cy="138" r="1" opacity=".55"/><circle cx="618" cy="48" r="1.6" opacity=".85"/>
+    <circle cx="742" cy="104" r="1" opacity=".6"/><circle cx="836" cy="36" r="1.2" opacity=".7"/><circle cx="944" cy="88" r="1" opacity=".5"/>
+    <circle cx="1048" cy="30" r="1.5" opacity=".8"/><circle cx="1166" cy="72" r="1" opacity=".55"/><circle cx="1262" cy="28" r="1.2" opacity=".7"/>
+    <circle cx="1378" cy="96" r="1.4" opacity=".65"/><circle cx="1492" cy="44" r="1.1" opacity=".7"/><circle cx="1544" cy="130" r="1" opacity=".5"/>
+    <circle cx="676" cy="176" r="1" opacity=".45"/><circle cx="1104" cy="150" r="1.1" opacity=".45"/><circle cx="1452" cy="188" r="1.2" opacity=".5"/>
+    <circle cx="312" cy="170" r="1" opacity=".5"/><circle cx="880" cy="170" r="1" opacity=".4"/><circle cx="1302" cy="176" r="1" opacity=".4"/>
+  </g>
+
+  <!-- sun -->
+  <rect width="1600" height="642" fill="url(#glow)"/>
+  <circle cx="840" cy="548" r="74" fill="#ffdcae" opacity=".6" filter="url(#b22)"/>
+  <circle cx="840" cy="548" r="46" fill="url(#disc)"/>
+
+  <!-- clouds: long soft bands, with a brighter underside close to the sun -->
+  <g filter="url(#b22)" fill="#ffb9a4">
+    <ellipse cx="560" cy="430" rx="300" ry="14" opacity=".55"/>
+    <ellipse cx="1000" cy="372" rx="260" ry="12" opacity=".5"/>
+    <ellipse cx="760" cy="300" rx="340" ry="16" opacity=".3"/>
+    <ellipse cx="1320" cy="250" rx="280" ry="12" opacity=".3"/>
+    <ellipse cx="300" cy="300" rx="220" ry="10" opacity=".3"/>
+  </g>
+  <g filter="url(#b9)" fill="#ffd9b8">
+    <ellipse cx="620" cy="436" rx="190" ry="4.5" opacity=".7"/>
+    <ellipse cx="470" cy="424" rx="96" ry="3" opacity=".42"/>
+    <ellipse cx="960" cy="378" rx="170" ry="4" opacity=".6"/>
+    <ellipse cx="820" cy="306" rx="170" ry="3" opacity=".28"/>
+    <ellipse cx="710" cy="492" rx="110" ry="3" opacity=".6"/>
+  </g>
+
+  <g clip-path="url(#above)">
+    <!-- far range across the horizon -->
+    <path fill="url(#far)" opacity=".85" d="M0 606c60-14 118-36 186-38 66-2 108 28 170 34 56 6 100-12 158-10 52 2 90 18 130 24 48 6 88-2 140 2 40 3 80 12 116 26H0z"/>
+    <path fill="#e4878f" d="M120 642c44-16 76-30 118-34 40-4 62 14 94 20 26 5 50 2 78 14zM478 642c26-8 46-16 72-16 24 0 42 8 66 16z"/>
+
+    <!-- the peak -->
+    <use href="#peak-shape" fill="url(#peak)"/>
+    <g clip-path="url(#peak-clip)">
+      <!-- valleys and ridges running down from the summit -->
+      <g fill="none" stroke-linecap="round">
+        <g stroke="#2f2c84" filter="url(#b9)" opacity=".3">
+          <path stroke-width="26" d="M1250 300c-10 60-54 110-70 170-10 40-40 90-70 150"/>
+          <path stroke-width="34" d="M1336 310c10 70 44 120 44 180 0 50-30 90-40 150"/>
+          <path stroke-width="22" d="M1190 330c-24 50-70 90-104 130-24 30-60 70-84 120"/>
+        </g>
+        <g stroke="#ffc4a2" filter="url(#b3)" opacity=".16">
+          <path stroke-width="5" d="M1214 300c-30 44-58 96-90 136-26 32-52 56-72 96"/>
+          <path stroke-width="4" d="M1290 312c-12 58-40 98-44 156-2 40-22 80-40 120"/>
+        </g>
+      </g>
+      <rect x="800" y="430" width="840" height="212" fill="url(#foot)"/>
+    </g>
+    <path fill="none" stroke="#ffd9b6" stroke-width="2.5" stroke-linecap="round" opacity=".5" filter="url(#b1)" d="M1042 510c34-30 58-74 96-128 28-40 52-76 84-84"/>
+
+    <!-- mist between the peak and the hills in front of it -->
+    <ellipse cx="1180" cy="566" rx="330" ry="16" fill="#ffbfa8" opacity=".5" filter="url(#b22)"/>
+
+    <!-- the middle hills -->
+    <use href="#mid-shape" fill="url(#mid)"/>
+    <g clip-path="url(#mid-clip)">
+      <path fill="none" stroke="#25267a" stroke-width="26" stroke-linecap="round" filter="url(#b9)" opacity=".5" d="M1340 496c-20 40-30 80-70 146M1450 530c-10 40-30 70-40 112"/>
+      <rect x="960" y="500" width="680" height="142" fill="url(#foot)" opacity=".5"/>
+    </g>
+    <path fill="none" stroke="#ffc09c" stroke-width="2" stroke-linecap="round" opacity=".6" filter="url(#b1)" d="M1110 582c42-14 76-6 116-30 34-20 60-58 106-62"/>
+
+    <!-- lit windows on the hillside -->
+    <g fill="#ffe2a8">
+      <circle cx="1294" cy="556" r="2.4"/><circle cx="1310" cy="549" r="2"/><circle cx="1346" cy="540" r="2.4"/><circle cx="1392" cy="566" r="2"/><circle cx="1238" cy="582" r="2"/>
+    </g>
+    <g fill="#ffc86e" opacity=".7" filter="url(#b3)">
+      <circle cx="1294" cy="556" r="7"/><circle cx="1346" cy="540" r="7"/><circle cx="1392" cy="566" r="6"/><circle cx="1238" cy="582" r="6"/>
+    </g>
+
+    <!-- nearest land: round crowns along the shore, lit on the sun side -->
+    <g fill="#c77a94" opacity=".85">
+      <circle cx="948" cy="612" r="9"/><circle cx="966" cy="602" r="14"/><circle cx="992" cy="597" r="17"/><circle cx="1019" cy="601" r="14"/>
+      <circle cx="1108" cy="590" r="15"/><circle cx="1134" cy="580" r="20"/><circle cx="1163" cy="583" r="17"/>
+      <circle cx="1258" cy="596" r="14"/><circle cx="1284" cy="586" r="19"/>
+    </g>
+    <g fill="url(#near)">
+      <circle cx="951" cy="614" r="9"/><circle cx="969" cy="604" r="14"/><circle cx="995" cy="599" r="17"/><circle cx="1022" cy="603" r="14"/><circle cx="1043" cy="610" r="10"/>
+      <circle cx="1111" cy="592" r="15"/><circle cx="1137" cy="582" r="20"/><circle cx="1166" cy="585" r="17"/><circle cx="1190" cy="593" r="13"/>
+      <circle cx="1261" cy="598" r="14"/><circle cx="1287" cy="588" r="19"/><circle cx="1313" cy="594" r="14"/><circle cx="1340" cy="600" r="16"/><circle cx="1366" cy="594" r="20"/>
+      <circle cx="1398" cy="598" r="17"/><circle cx="1428" cy="590" r="22"/><circle cx="1464" cy="596" r="18"/><circle cx="1498" cy="586" r="24"/><circle cx="1536" cy="590" r="20"/><circle cx="1574" cy="580" r="26"/>
+      <path d="M914 642c20-14 44-26 80-32 40-6 78 4 116-2 44-8 82-24 134-18 54 6 86 16 134 10 54-6 110-22 222-32v74z"/>
+    </g>
+  </g>
+
+  <!-- sea -->
+  <rect y="640" width="1600" height="360" fill="url(#sea)"/>
+  <g clip-path="url(#below)">
+    <!-- the island's dark reflection -->
+    <path fill="#27296f" opacity=".66" filter="url(#b9)" d="M900 640h700v120c-60 10-108-8-160-4-60 4-96-20-160-14-64 6-110-16-170-40-60-24-130-30-210-62z"/>
+    <!-- the sun on the water -->
+    <ellipse cx="840" cy="760" rx="84" ry="140" fill="#ffc798" opacity=".4" filter="url(#b22)"/>
+    <g fill="#ffe7c2" filter="url(#b1)">
+      <ellipse cx="840" cy="648" rx="58" ry="1.6"/><ellipse cx="826" cy="656" rx="38" ry="1.3" opacity=".9"/><ellipse cx="856" cy="664" rx="46" ry="1.4" opacity=".9"/>
+      <ellipse cx="832" cy="673" rx="62" ry="1.6" opacity=".85"/><ellipse cx="862" cy="682" rx="34" ry="1.4" opacity=".8"/><ellipse cx="818" cy="691" rx="44" ry="1.6" opacity=".8"/>
+      <ellipse cx="848" cy="702" rx="72" ry="1.8" opacity=".7"/><ellipse cx="812" cy="714" rx="36" ry="1.6" opacity=".62"/><ellipse cx="868" cy="724" rx="52" ry="1.8" opacity=".6"/>
+      <ellipse cx="826" cy="738" rx="80" ry="2" opacity=".5"/><ellipse cx="876" cy="752" rx="44" ry="1.9" opacity=".42"/><ellipse cx="804" cy="766" rx="58" ry="2" opacity=".38"/>
+      <ellipse cx="850" cy="784" rx="94" ry="2.2" opacity=".3"/><ellipse cx="800" cy="804" rx="52" ry="2.2" opacity=".22"/><ellipse cx="872" cy="822" rx="84" ry="2.4" opacity=".16"/>
+    </g>
+    <!-- calm lines on the rest of the sea -->
+    <g fill="#ffb9a0" opacity=".16">
+      <ellipse cx="310" cy="668" rx="170" ry="1.2"/><ellipse cx="620" cy="692" rx="130" ry="1.2"/><ellipse cx="1400" cy="772" rx="130" ry="1.4"/>
+      <ellipse cx="460" cy="726" rx="220" ry="1.4"/><ellipse cx="1180" cy="798" rx="170" ry="1.5"/><ellipse cx="180" cy="760" rx="150" ry="1.4"/>
+    </g>
+    <!-- horizon haze -->
+    <rect x="-40" y="628" width="1680" height="30" fill="#ffc7a0" opacity=".34" filter="url(#b9)"/>
+  </g>
+
+  <!-- dark shore in front: the page's cards sit over this -->
+  <path fill="url(#shore)" d="M0 816c120-22 250-18 390 6 150 26 270 28 430 8 180-22 300-30 470-8 120 16 220 18 310 2v176H0z"/>
+  <path fill="#070d24" d="M0 884c170-22 330-8 500 10 190 20 370 12 560-4 200-16 380-12 540 8v102H0z"/>
+
+  <rect width="1600" height="1000" filter="url(#grain)" opacity=".16"/>
+</svg>
