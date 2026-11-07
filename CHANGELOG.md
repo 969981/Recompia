@@ -28,7 +28,19 @@ If you play on Linux, SteamOS or a Linux handheld, please keep opening issues fo
 
 **Still not:** it only changes at the start of the game, not while it runs, and it has not been tested in Link Play, so use it in single player only for now (the launcher says so under the row).
 
+#### Reach the F1 menu with a controller
+**Before:** the in-game settings page opened only with the F1 key, so on a handheld like the ROG Ally you needed a keyboard.
+
+**Now:** the "Close the game?" prompt (View and Menu together, the Switch's minus and plus) has a third choice, **Settings**: press X or tap it, and the F1 page opens. Inside the page you use the touch screen or a mouse.
+
+**Still not:** moving through the F1 page itself with a controller. That is planned for later.
+
 ### Fixes
+
+#### The ROG Ally was not treated as a handheld
+**Before:** the game only knew the Steam Deck and the Legion Go S as handhelds. On a ROG Ally it ran in the Switch's docked mode, sized its picture like a desktop PC and showed keyboard prompts by default.
+
+**Now:** the ROG Ally and Ally X count as handhelds, like the Deck: handheld mode, a picture sized for the screen, the lighter sleep under Proton and controller prompts. The game log says `handheld: yes` with the board name. `[host] handheld = off` in `pkp.ini` turns it off again if you prefer the old behaviour.
 
 #### The launcher was slow on Linux
 **Before:** on Linux the launcher took about 0.7 seconds from a click to the next page and scrolled at about 3 frames per second, because the big background picture was drawn again, and blurred again, on every frame.
