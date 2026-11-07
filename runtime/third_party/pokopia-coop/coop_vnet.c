@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_vnet.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_vnet.c @035bd9c
 // coop vnet (MIT, our own code): the game's UDP sockets on the virtual 169.254.S.0/24 (research/06 §5.3). Descriptors 0x100 and up, per node.
 // No host port is used: Bind only records the port, so instances on one machine all bind 49530. A datagram to a station's address, the host's,
 // 169.254.S.255 or 255.255.255.255 enters the star (coop_mpnet.c); broadcasts reach every other node and never the sender. Receivers see the

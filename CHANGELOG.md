@@ -23,6 +23,11 @@ of the game (version 2.0.1a): the download contains no game files.
 |---|---|
 | ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
 
+### Link Play
+- Still cross-plays with pokopia-native 1.3.3: its co-op wire format, discovery, room codes and relay are unchanged since 1.3.0
+- Joining a VPN address (Radmin VPN 26.x, Hamachi 25.x, Tailscale / carrier NAT 100.64.x) on LAN now names the VPN in the refusal and says to turn on internet play for every player
+- Co-op module updated to pokopia-native 1.3.3 (`035bd9c`); its Interact everywhere and Story co-op sites for game 1.0.5 come along but do nothing here (this project needs 2.0.1). Based on pokopia-native (MIT) `windows/src/coop` @035bd9c
+
 ### For developers
 - `tools/shaders/ampere/frontend/AmpereEmit.cs` `EmitLop3Ampere`: read LOP3/ULOP3 operands after the predicate destination
   - The decoder (like nvdisasm) puts Pd before Rd (`LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT`); the emitter read Rd first, so a, b, c and the LUT were one operand late and Pd stayed false

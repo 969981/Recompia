@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @4a72d23, modified (marked "pokopia-recomp extension: relay UDP")
+// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @035bd9c, modified (marked "pokopia-recomp extension: relay UDP")
 // coop mpnet (MIT, our own code): the real transport, a star around the host (the LDN access point).
 // - Control: one TCP link per station and host, framed messages (u32 length, u8 type, body): HELLO / WELCOME (the coop protocol; the host's build and
 //   mods fingerprint), SCAN_REQ / SCAN_RESP (the host's NetworkInfo and identity), JOIN / ACCEPT / REFUSE (the host checks the network, passphrase,
@@ -153,8 +153,10 @@ int cmp_src_ok(coop_node *n, uint32_t ip) {
     n->refused_src++;
     if (n->refused_src <= 4 || now - n->log_src_at >= LOG_GAP_MS) {
         char a[16]; ipstr(a, ip);
-        coop_logf(n, "mp: refused %s: not a %s address (%llu refused so far)", a, n->cfg.scope == COOP_SCOPE_LOOPBACK ? "loopback" :
-                  n->cfg.scope == COOP_SCOPE_INTERNET ? "valid unicast" : "loopback, private or link-local", (unsigned long long)n->refused_src);
+        const char *vpn = n->cfg.scope == COOP_SCOPE_LAN ? coop_addr4_vpn(ip) : "";
+        coop_logf(n, "mp: refused %s%s: not a %s address (%llu refused so far)%s", a, vpn, n->cfg.scope == COOP_SCOPE_LOOPBACK ? "loopback" :
+                  n->cfg.scope == COOP_SCOPE_INTERNET ? "valid unicast" : "loopback, private or link-local", (unsigned long long)n->refused_src,
+                  *vpn ? "; through a VPN, every player turns on internet play" : "");
         n->log_src_at = now;
     }
     return 0;

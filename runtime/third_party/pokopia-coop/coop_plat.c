@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_plat.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop_plat.c @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep")
 // coop platform layer (MIT, our own code): sockets, threads, locks, time and randomness. Winsock + Win32 on Windows, BSD sockets + pthreads
 // elsewhere (macOS, iOS, Android, Linux). Every socket the transport opens is non-blocking.
 #ifdef _WIN32
