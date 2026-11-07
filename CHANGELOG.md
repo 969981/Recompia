@@ -4,9 +4,25 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.7.5 (build K: Koala)
 
-Extract this over your current install. This is the last update you do by hand: from now on the launcher updates itself in one click.
+**This is the last update you ever install by hand.** Extract it over your 0.7.0 install one more time, and from the next
+release on, updating is one click: press **Update** in the launcher and it does the rest. The game code is unchanged, so no
+**Set up again** is needed.
+
+![The new launcher](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/launcher-rework/1-home.png)
+
+### Highlights
+- **One-click updates.** No more downloading zips, no more extracting over your install. The launcher fetches the new release,
+  checks it against the release's checksums, swaps its files, restarts, and starts setup by itself if the new version needs it.
+  Your saves, settings, shader cache and built game are never touched, and if anything goes wrong every file is put back.
+- **A brand new launcher.** One big button on Home that always does the next right thing (Choose game files, Set up, Play),
+  patch notes right inside the launcher, a crash card with the report and log, and settings that save as you change them.
+- **More settings without opening an ini file:** quality preset, view distance, upscaler and its quality, frame rate counter,
+  mute when not focused, keep 16:9.
+- **Steam Deck and Proton find Link Play hosts on the LAN** (and are found by them), with nothing to type.
+- **F1 "Just under the refresh rate" no longer slows the game** on 60 and 90 Hz screens.
+- **A typo in `controls.ini` no longer wipes all your controls**, and pad combos take the Switch button names (`l+r`).
 
 ### New
 
@@ -39,6 +55,11 @@ Removed: the shader cache path (it never worked), the RomFS folder (it follows t
 **Now:** where DNS-SD is missing, each scan sweeps this device's own private network (up to 254 addresses per network, 512 in all, TCP port 47600, about 300 ms) and asks every host that answers for its game over the co-op link, as for a host DNS-SD found. A hosting device answers DNS-SD queries itself (a small mDNS responder on UDP 5353 with the records pokopia-native registers), so Windows players see it. Nothing to type, and nothing to change on another network. The Public-network note is not shown under Wine. Windows with DNS-SD is unchanged. `[net] lan_sweep = off` turns it off; `NXRT_COOP_NO_DNSSD=1` tries it on Windows (a diagnostic).
 
 **Still not:** Wi-Fi that keeps devices apart (cafes, hotels, guest networks; use internet play with a relay), and a host that fell back to another port than 47600.
+
+#### One bad line in controls.ini no longer resets every setting (#218)
+**Before:** pad combos (`[quit] pad`, `[overlay] pad`) only took position names like `left_shoulder+right_shoulder`, so `btn_l+btn_r` was an error. Any bad value in a fixed key made the whole `controls.ini` invalid: factory settings loaded, and the next save wrote them over your file. It looked like the setting reset to `none` on every start.
+
+**Now:** combos also take the Switch names of the buttons that sit in the same place on every pad, with or without `btn_`: `l r zl zr plus minus lstick rstick` (the file is written back with the position names). A bad value only resets that one key and is logged in `pkp.log`, together with unknown keys. If a file still cannot be loaded, it is copied to `controls.ini.bad` before anything can save over it.
 
 ## 0.7.0 (build K: Kangaroo)
 
