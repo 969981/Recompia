@@ -264,8 +264,21 @@ void plate(Image& im) {
     im.rgba = std::move(out);
 }
 
-// The icon `name`: a pack entry ("xbox/a", "ps/cross"; names with a slash, straight RGBA from the prompt pack, never plated) or a
-// Kenney file `name`.png from assets/kbm_icons, on its plate (plated) or as drawn by Kenney.
+// A pack icon without colour of its own: the d-pad, the triggers and shoulders and the d-pad's direction icons are white or grey, which
+// vanishes on the pale move wheel and the dialogue boxes (#230). The face buttons (A, B, cross, circle...) are saturated and read as they are.
+bool colourless(const Image& im) {
+    size_t opaque = 0, coloured = 0;
+    for (size_t i = 0; i + 3 < im.rgba.size(); i += 4) {
+        if (im.rgba[i + 3] <= 128) continue;
+        ++opaque;
+        const uint8_t hi = std::max({im.rgba[i], im.rgba[i + 1], im.rgba[i + 2]}), lo = std::min({im.rgba[i], im.rgba[i + 1], im.rgba[i + 2]});
+        if (hi - lo > 60) ++coloured;
+    }
+    return opaque > 0 && coloured * 4 < opaque;
+}
+
+// The icon `name`: a pack entry ("xbox/a", "ps/cross"; names with a slash, straight RGBA from the prompt pack; the colourless ones are put
+// on the plate like the keyboard icons) or a Kenney file `name`.png from assets/kbm_icons, on its plate (plated) or as drawn by Kenney.
 const Image* image_locked(State& s, const std::string& name, bool plated = true) {
     const bool from_pack = name.find('/') != std::string::npos;
     Image& im = s.images[from_pack ? "pack:" + name : (plated ? name : "raw:" + name)];
@@ -278,6 +291,7 @@ const Image* image_locked(State& s, const std::string& name, bool plated = true)
                 im.w = pack->width();
                 im.h = pack->height();
                 im.rgba.assign(px, px + static_cast<size_t>(im.w) * im.h * 4);
+                if (colourless(im)) plate(im);
                 NXLOG_I(kTag, "prompt icon %s: %ux%u from the pack", name.c_str(), im.w, im.h);
             } else im.rgba.clear();
         } else if (!gfx::load_png_rgba(s.dir + name + ".png", &im.rgba, &im.w, &im.h) || im.w < 8 || im.h < 8) im.rgba.clear();
