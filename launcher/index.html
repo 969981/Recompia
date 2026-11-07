@@ -1,24 +1,29 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pokopia Launcher</title>
   </head>
-  <body>
-    <!-- Background slot: see the notes at the top of src/theme.css. -->
+  <body data-art="soft">
+    <!-- The art never changes: the sharp copy shows on Home, the blurred one everywhere else. -->
     <div id="bg" aria-hidden="true">
-      <video id="bg-video" muted loop autoplay playsinline hidden></video>
+      <div class="art art-sharp"></div>
+      <div class="art art-soft"></div>
+      <div class="scrim scrim-hero"></div>
+      <div class="scrim scrim-soft"></div>
     </div>
 
     <div id="app">
-      <nav id="nav" aria-label="Main"></nav>
-      <div id="main">
-        <div id="update" hidden></div>
-        <main id="view"></main>
-      </div>
+      <nav id="nav" class="glass" aria-label="Main"></nav>
+      <main id="view" tabindex="-1"></main>
     </div>
-    <div id="toast" aria-live="polite"></div>
+
+    <div id="titlebar" data-tauri-drag-region>
+      <div id="winbtns" role="group" aria-label="Window"></div>
+    </div>
+
+    <div id="toast"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

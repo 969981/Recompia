@@ -1,77 +1,147 @@
 /*
- * Theme tokens. Every colour, font, radius, spacing step, shadow and motion value the launcher uses
- * is defined here and nowhere else. layout.css and components.css only reference var(--...).
- * To re-theme, edit this file (or add a [data-theme="name"] block and set it on <html>).
- *
- * Background slot (behind everything):
- *   image: set --bg-image: url("/themes/my-art.jpg");  (put the file in public/themes/)
- *   video: in index.html, set the src of #bg-video and remove its "hidden" attribute.
- *   --bg-overlay keeps text readable over art; lower its alpha for a brighter picture.
+ * Design tokens. Every colour, type size, space, radius, shadow and motion value lives here;
+ * layout.css, components.css and pages/<page>.css only reference var(--...).
  */
 
 :root {
   color-scheme: dark;
 
-  /* surfaces */
-  --color-bg: #12161d;
-  --color-surface: #1a202b;
-  --color-surface-raised: #222a38;
-  --color-surface-sunken: #0f1319;
-  --color-border: #2c3646;
-  --color-border-strong: #3d4a60;
+  /* base */
+  --color-bg: #0b0f22;
+  --color-menu: #1b1d38;           /* native select popup */
+  --color-solid: #1a1c36;          /* glass fallback, solid */
+  --color-solid-raised: #24274a;
 
   /* text */
-  --color-text: #e6ebf3;
-  --color-text-dim: #98a3b6;
-  --color-text-faint: #6b768a;
+  --color-text: #f6f7fc;
+  --color-text-2: rgba(238, 240, 251, 0.76);
+  --color-text-3: rgba(238, 240, 251, 0.56);
+  --color-selection: rgba(126, 232, 193, 0.28);
 
-  /* brand and state */
-  --color-accent: #5ad1a6;
-  --color-accent-strong: #3fb98d;
-  --color-on-accent: #0b1a14;
-  --color-ok: #5ad1a6;
-  --color-warn: #f0b95a;
-  --color-danger: #f0707a;
-  --color-focus: #8ab4ff;
+  /* accent and state */
+  --color-accent: #7ee8c1;
+  --color-accent-hover: #98f1d1;
+  --color-accent-press: #69d9b0;
+  --color-on-accent: #06231a;
+  --color-ok: #7ee8c1;
+  --color-warn: #ffc47e;
+  --color-danger: #ff9095;
+  --color-danger-solid: #d8434c;
+  --color-danger-hover: #e6555e;
+  --color-on-danger: #ffffff;
+  --color-info: #b3c9ff;
+  --color-focus: #e4fff4;
+  --tint-accent: rgba(126, 232, 193, 0.14);
+  --tint-warn: rgba(255, 196, 126, 0.14);
+  --tint-danger: rgba(255, 144, 149, 0.14);
+  --tint-info: rgba(179, 201, 255, 0.14);
 
-  /* background slot */
-  --bg-image: none;
-  --bg-size: cover;
-  --bg-position: center;
-  --bg-overlay: rgba(18, 22, 29, 0.82);
+  /* surfaces inside glass (no blur: a nested backdrop-filter only sees its parent) */
+  --surface-1: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --surface-sunken: rgba(6, 8, 24, 0.34);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --control-off: rgba(255, 255, 255, 0.16);
+  --knob: #ffffff;
+
+  /* glass */
+  --glass-blur: blur(28px) saturate(170%);
+  --glass-surface: rgba(255, 255, 255, 0.06);
+  --glass-tint: rgba(13, 13, 38, 0.42);    /* keeps 4.5:1 text over the bright part of the art */
+  --glass-tint-strong: rgba(13, 13, 38, 0.6);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.13);
+
+  /* art */
+  --art-url: url("./art/island.svg");
+  --art-position: 62% 58%;
+  --art-soft-blur: blur(56px) saturate(120%);
+  --art-soft-bleed: 180px;
+  --scrim-soft: #7450a8;            /* multiplied over the art: dims it and keeps the colour */
+  --hero-x: 300px;                 /* the title's middle: the scrim behind it stops short of the sun */
+  --scrim-hero:
+    linear-gradient(90deg, rgba(7, 10, 30, 0.56) 0%, rgba(7, 10, 30, 0.3) 30%, rgba(7, 10, 30, 0) 50%),
+    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(7, 10, 30, 0.6) 0%, rgba(7, 10, 30, 0.48) 50%, rgba(7, 10, 30, 0) 100%),
+    linear-gradient(0deg, rgba(7, 10, 30, 0.72) 0%, rgba(7, 10, 30, 0.16) 30%, rgba(7, 10, 30, 0) 44%);
+  --backdrop: rgba(6, 7, 22, 0.5);
 
   /* type */
-  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.8125rem;
-  --font-size-md: 0.9375rem;
-  --font-size-lg: 1.125rem;
-  --font-size-xl: 1.5rem;
-  --font-size-hero: 2.25rem;
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-bold: 650;
-  --line-height: 1.5;
+  --font-ui: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+  --text-3xl: 40px;
+  --text-hero: 56px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.2;
+  --leading: 1.5;
+  --tracking-hero: -0.035em;
+  --tracking-title: -0.022em;
+  --tracking-ui: -0.006em;
 
-  /* shape and space */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-pill: 999px;
+  /* space */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --icon-size: 18px;
-  --icon-stroke: 2;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 56px;
 
-  /* depth and motion */
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.18);
-  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.45);
-  --transition: 140ms ease;
+  /* radius */
+  --radius-xs: 10px;
+  --radius-sm: 14px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+
+  /* sizes */
+  --sidebar-w: 224px;
+  --rail-w: 68px;
+  --gutter: 12px;
+  --titlebar-h: 44px;
+  --control-h: 36px;
+  --control-sm: 30px;
+  --control-lg: 52px;
+  --icon: 18px;
+  --icon-sm: 15px;
+  --icon-stroke: 1.75;
+
+  /* depth */
+  --shadow-sm: 0 1px 2px rgba(4, 5, 20, 0.4);
+  --shadow-md: 0 8px 24px -8px rgba(4, 5, 20, 0.6);
+  --shadow-lg: 0 24px 60px -16px rgba(4, 5, 20, 0.72), 0 4px 12px -4px rgba(4, 5, 20, 0.4);
+  --shadow-accent: 0 10px 28px -10px rgba(126, 232, 193, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  --shadow-text: 0 2px 40px rgba(7, 10, 30, 0.55), 0 1px 3px rgba(7, 10, 30, 0.3);
+
+  /* motion */
+  --dur: 160ms;
+  --dur-slow: 280ms;
+  --ease: ease;
+  --rise: 6px;
+  --press: 0.98;
+}
+
+@media (max-width: 999.98px) {
+  :root { --hero-x: 190px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0ms;
+    --dur-slow: 0ms;
+    --rise: 0px;
+    --press: 1;
+  }
 }

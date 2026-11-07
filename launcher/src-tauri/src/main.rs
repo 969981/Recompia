@@ -27,6 +27,9 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+/// This run was started by a self-update (--updated). launcher_state tells the page once.
+static UPDATED: AtomicBool = AtomicBool::new(false);
+
 /// The launcher's own options, stored in the user's app config folder.
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -91,19 +94,110 @@ fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
     settings::write_atomic(&config_path(&app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
 }
 
-/// Background update check (see update.rs). None: no update, a dev build, or any error.
-#[tauri::command]
-async fn check_update(app: AppHandle) -> Option<update::UpdateInfo> {
+/// The version updates compare with. None: a dev build, which takes none.
+fn update_version(app: &AppHandle) -> Option<String> {
     #[allow(unused_mut)]
     let mut version = app.package_info().version.to_string();
     #[cfg(debug_assertions)]
     if let Ok(v) = std::env::var("PKP_LAUNCHER_UPDATE_CHECK_AS") {
         version = v; // debug builds only: pretend to be this version (dev builds otherwise skip the check)
     }
-    if update::is_dev_version(&version) {
-        return None;
+    (!update::is_dev_version(&version)).then_some(version)
+}
+
+/// The releases (update.rs load_releases) from this session's copy, the network or the cache file.
+fn releases_of(app: &AppHandle, refresh: bool) -> Vec<update::GhRelease> {
+    let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
+    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh)
+}
+
+/// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.
+#[tauri::command]
+async fn get_releases(app: AppHandle, refresh: Option<bool>) -> update::Releases {
+    tauri::async_runtime::spawn_blocking(move || update::view_here(&releases_of(&app, refresh.unwrap_or(false)), update_version(&app).as_deref())).await.unwrap_or_default()
+}
+
+/// Play, Set up and the DLSS download write or run what an update is replacing.
+fn refuse_during_update(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Arc<update::UpdateState>>().busy() {
+        return Err("An update is being installed. Wait for it to finish.".into());
     }
-    tauri::async_runtime::spawn_blocking(move || update::check(&version)).await.ok().flatten()
+    Ok(())
+}
+
+/// The launcher file itself: the AppImage, not the program inside its mount.
+fn launcher_path() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok())
+}
+
+fn stop_relay(app: &AppHandle) {
+    // take it out first: stopping joins threads, the lock is not held meanwhile
+    let srv = app.state::<RelayState>().0.lock().unwrap().take();
+    if let Some(mut srv) = srv {
+        srv.stop();
+    }
+}
+
+fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
+    let _claim = st.claim().ok_or("An update is already running.")?;
+    // asked again right before files move: the download takes minutes
+    let idle = || -> Result<(), String> {
+        if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
+            return Err("Setup is running. Pause it first, then update.".into());
+        }
+        if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+            return Err("The game is running. Close it first, then update.".into());
+        }
+        Ok(())
+    };
+    idle()?;
+    let version = update_version(app).ok_or("This build does not update itself.")?;
+    let target = update::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?;
+    let paths = update::Paths {
+        install: exe_dir(),
+        launcher: launcher_path().ok_or("Could not find the launcher's own file.")?,
+        game_dir: game_dir_of(&load_config(app)),
+    };
+    let mut report = |phase: &str, done: u64, total: u64| {
+        let _ = app.emit("update-progress", UpdateProgress { phase: phase.to_string(), done, total });
+    };
+    let session = update::install(&target, &paths, st, &mut report, &idle)?;
+    report("restart", 0, 1);
+    stop_relay(app);
+    if let Err(e) = update::relaunch(&paths.launcher, &paths.install) {
+        return Err(match session.rollback() {
+            Ok(()) => format!("The new launcher did not start ({}). The update was undone.", e),
+            Err(left) => format!("The new launcher did not start ({}). {}", e, left),
+        });
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    session.finish();
+    app.exit(0);
+    Ok(())
+}
+
+#[derive(Serialize, Clone)]
+struct UpdateProgress {
+    /// "download", "verify", "extract", "apply" or "restart"
+    phase: String,
+    done: u64,
+    total: u64,
+}
+
+/// One-click update (update.rs). Emits "update-progress"; on success the launcher restarts and the page hears nothing more.
+/// The Err of a cancel is update::CANCELLED.
+#[tauri::command]
+async fn install_update(app: AppHandle, state: State<'_, Arc<update::UpdateState>>) -> Result<(), String> {
+    let st = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st)).await.map_err(|e| e.to_string())?
+}
+
+/// Stops a running update while it is still downloading or unpacking; the install stays as it was.
+#[tauri::command]
+fn cancel_update(state: State<Arc<update::UpdateState>>) {
+    state.cancel();
 }
 
 /// Opens a release page in the default browser.
@@ -115,16 +209,19 @@ fn open_release_url(url: String) -> Result<(), String> {
     play::open_url(&url)
 }
 
-#[tauri::command]
-fn get_overview(app: AppHandle) -> Overview {
-    let cfg = load_config(&app);
-    let dir = game_dir_of(&cfg);
+fn overview_of(cfg: &Config) -> Overview {
+    let dir = game_dir_of(cfg);
     Overview {
         game_dir: dump::fwd(&dir),
         default_game_dir: dump::fwd(&exe_dir()),
         exe_exists: dir.join("pkp.exe").is_file(),
         builds_exe: gamebuild::is_package_b(&exe_dir().join("tools")),
     }
+}
+
+#[tauri::command]
+fn get_overview(app: AppHandle) -> Overview {
+    overview_of(&load_config(&app))
 }
 
 #[tauri::command]
@@ -232,43 +329,165 @@ fn write_settings(app: AppHandle, edits: Vec<settings::Edit>) -> Result<(), Stri
     settings::apply(&game_dir_of(&load_config(&app)), &edits)
 }
 
-#[tauri::command]
-fn play(app: AppHandle) -> Result<(), String> {
-    let cfg = load_config(&app);
-    if cfg.dump_dir.trim().is_empty() {
-        return Err("Choose your game files first (Setup).".into());
+/// Whether Play can run, and if not, what the main button does about it. `kind`: no_files, bad_files, no_exe, setup, resume, rebuild,
+/// retranslate, rebase, ready. `detail`: the sentence for the player (empty when ready).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+struct Readiness {
+    kind: &'static str,
+    detail: String,
+}
+
+impl Readiness {
+    fn of(kind: &'static str, detail: impl Into<String>) -> Readiness {
+        Readiness { kind, detail: detail.into() }
+    }
+}
+
+/// The game folder's state, once usable game files are chosen.
+struct ReadyFacts {
+    game_dir: String,
+    exe_exists: bool,
+    /// the release builds pkp.exe itself
+    builds_exe: bool,
+    /// Current when the release does not build it
+    built: gamebuild::Built,
+    needs_retranslation: bool,
+    shaders_complete: bool,
+    /// an earlier setup started
+    started: bool,
+    /// the base romfs now layered under the update is not the one the shaders were made from (#128)
+    base_changed: bool,
+}
+
+fn readiness_of(f: &ReadyFacts) -> Readiness {
+    if !f.builds_exe && !f.exe_exists {
+        return Readiness::of("no_exe", format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe.", f.game_dir));
+    }
+    let unfinished = || {
+        if f.started {
+            Readiness::of("resume", "Setup has not finished. Press Continue setup: it picks up where it stopped.")
+        } else {
+            Readiness::of("setup", "Press Set up to build the game and prepare its shaders.")
+        }
+    };
+    match f.built {
+        gamebuild::Built::Current => {}
+        gamebuild::Built::Stale => return Readiness::of("rebuild", gamebuild::REBUILD_MESSAGE),
+        gamebuild::Built::No => return unfinished(),
+    }
+    if f.needs_retranslation {
+        return Readiness::of("retranslate", "This version fixes how some shaders are translated. Press Finish update: it translates only those shaders again.");
+    }
+    if !f.shaders_complete {
+        return unfinished();
+    }
+    if f.base_changed {
+        return Readiness::of("rebase", "Your update holds only the files it changes, so the launcher now adds the missing ones from the base game. Press Finish update so their shaders are prepared too.");
+    }
+    Readiness::of("ready", "")
+}
+
+/// What Play writes into pkp.ini.
+struct GamePaths {
+    exefs: String,
+    romfs: String,
+    romfs_base: String,
+    aoc_dir: String,
+}
+
+#[derive(Serialize, Clone)]
+struct DumpChoice {
+    path: String,
+    /// "base", "update", "folder" or "nup"
+    kind: String,
+    /// the update's version folder; empty for the rest
+    version: String,
+}
+
+struct Probe {
+    readiness: Readiness,
+    paths: Option<GamePaths>,
+    dump: Option<DumpChoice>,
+}
+
+/// A setup has started in this game folder (Set up continues it).
+fn setup_started(dir: &Path) -> bool {
+    !shaders::read_marker(dir).romfs.is_empty() || dir.join("build").join("state.json").is_file()
+}
+
+/// The one answer to "can Play run": the Play command and the page's main button both come here, so they cannot disagree.
+fn readiness(cfg: &Config) -> Probe {
+    let refuse = |r: Readiness| Probe { readiness: r, paths: None, dump: None };
+    let picked = cfg.dump_dir.trim();
+    if picked.is_empty() {
+        return refuse(Readiness::of("no_files", "Choose your game files first."));
     }
     // a .nup package is played as it is: pkp reads exefs and romfs straight from it
-    let (exefs, romfs, romfs_base, aoc_dir) = if cfg.dump_dir.trim().ends_with(".nup") && Path::new(cfg.dump_dir.trim()).is_file() {
-        (cfg.dump_dir.trim().to_string(), cfg.dump_dir.trim().to_string(), String::new(), String::new())
+    let (paths, dump) = if picked.ends_with(".nup") && Path::new(picked).is_file() {
+        let dump = DumpChoice { path: dump::fwd(Path::new(picked)), kind: "nup".into(), version: String::new() };
+        (GamePaths { exefs: picked.to_string(), romfs: picked.to_string(), romfs_base: String::new(), aoc_dir: String::new() }, dump)
     } else {
         let report = dump::scan(&cfg.dump_dir);
-        let chosen = report.chosen.ok_or_else(|| format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" ")))?;
-        (chosen.exefs, chosen.romfs, chosen.romfs_base, report.aoc_dir)
+        let Some(chosen) = report.chosen else {
+            return refuse(Readiness::of("bad_files", format!("The game files at {} are not usable: {}", cfg.dump_dir, report.errors.join(" "))));
+        };
+        let dump = DumpChoice { path: chosen.path, kind: chosen.kind, version: chosen.version };
+        (GamePaths { exefs: chosen.exefs, romfs: chosen.romfs, romfs_base: chosen.romfs_base, aoc_dir: report.aoc_dir }, dump)
+    };
+    let dir = game_dir_of(cfg);
+    let tools_dir = exe_dir().join("tools");
+    let builds_exe = gamebuild::is_package_b(&tools_dir);
+    // the base game's files now fill in an update that lacks them (#128): its shaders were never extracted, so Set up runs once more
+    let base_changed = !paths.romfs_base.is_empty() && {
+        let job = shaders::Job { game_dir: dir.clone(), romfs: PathBuf::from(&paths.romfs), romfs_base: Some(PathBuf::from(&paths.romfs_base)), main: PathBuf::new(), jobs: 1, idle: false, log: None, limit: 0 };
+        shaders::read_marker(&dir).romfs != job.romfs_key()
+    };
+    let readiness = readiness_of(&ReadyFacts {
+        game_dir: dump::fwd(&dir),
+        exe_exists: dir.join("pkp.exe").is_file(),
+        builds_exe,
+        built: if builds_exe { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current },
+        needs_retranslation: shaders::needs_retranslation(&dir),
+        shaders_complete: shaders::is_complete(&dir),
+        started: setup_started(&dir),
+        base_changed,
+    });
+    Probe { readiness, paths: Some(paths), dump: Some(dump) }
+}
+
+#[derive(Serialize)]
+struct LauncherState {
+    readiness: Readiness,
+    #[serde(flatten)]
+    overview: Overview,
+    dump: Option<DumpChoice>,
+    version: String,
+    /// this is the first look after a self-update restart
+    updated: bool,
+}
+
+/// What the page's main button is built from. The same checks as Play, off the UI thread: they read the disk and can start Python.
+#[tauri::command]
+async fn launcher_state(app: AppHandle) -> Result<LauncherState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = load_config(&app);
+        let probe = readiness(&cfg);
+        LauncherState { readiness: probe.readiness, overview: overview_of(&cfg), dump: probe.dump, version: app.package_info().version.to_string(), updated: UPDATED.swap(false, Ordering::SeqCst) }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn play(app: AppHandle) -> Result<(), String> {
+    refuse_during_update(&app)?;
+    let cfg = load_config(&app);
+    let probe = readiness(&cfg);
+    let (Some(paths), "ready") = (probe.paths, probe.readiness.kind) else {
+        return Err(probe.readiness.detail);
     };
     let dir = game_dir_of(&cfg);
-    let tools_dir = exe_dir().join("tools");
-    if gamebuild::is_package_b(&tools_dir) {
-        match gamebuild::built_state(&dir, &tools_dir) {
-            gamebuild::Built::Current => {}
-            gamebuild::Built::Stale => return Err(gamebuild::REBUILD_MESSAGE.into()),
-            gamebuild::Built::No => return Err("Build the game first (Game files, Set up).".into()),
-        }
-    }
-    if shaders::needs_retranslation(&dir) {
-        return Err("This version fixes how some shaders are translated. Run Set up again once (Game files, Set up): it translates only those shaders again.".into());
-    }
-    if !shaders::is_complete(&dir) {
-        return Err("Finish the shader setup first (Game files, Set up).".into());
-    }
-    // the base game's files now fill in an update that lacks them (#128): its shaders were never extracted, so Set up runs once more
-    if !romfs_base.is_empty() {
-        let key = shaders::Job { game_dir: dir.clone(), romfs: PathBuf::from(&romfs), romfs_base: Some(PathBuf::from(&romfs_base)), main: PathBuf::new(), jobs: 1, idle: false, log: None, limit: 0 }.romfs_key();
-        if shaders::read_marker(&dir).romfs != key {
-            return Err("Your update holds only the files it changes, so the launcher now adds the missing ones from the base game. Run Set up again once (Game files, Set up) so their shaders are prepared too.".into());
-        }
-    }
-    settings::ensure_play_paths(&dir, &exefs, &romfs, &romfs_base, &aoc_dir)?;
+    settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)?;
     play::start(&app, &dir, cfg.minimize_on_play)
 }
 
@@ -301,7 +520,7 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     }
     let tools_dir = exe_dir().join("tools");
     let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
-    let started = !shaders::read_marker(&dir).romfs.is_empty() || dir.join("build").join("state.json").is_file();
+    let started = setup_started(&dir);
     SetupStatus {
         progress,
         complete: state == gamebuild::Built::Current && shaders::is_complete(&dir),
@@ -314,6 +533,7 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
 /// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
 fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<bool>) -> Result<(), String> {
+    refuse_during_update(&app)?;
     let cfg = load_config(&app);
     let gentle = gentle.unwrap_or(cfg.gentle_build);
     let report = dump::scan(&cfg.dump_dir);
@@ -455,6 +675,7 @@ fn dlss_status(app: AppHandle) -> dlss::Status {
 /// Downloads NVIDIA's nvngx_dlss.dll (see dlss.rs) on a worker thread, with "dlss-progress" events.
 #[tauri::command]
 async fn fetch_dlss(app: AppHandle) -> Result<(), String> {
+    refuse_during_update(&app)?;
     let dir = game_dir_of(&load_config(&app));
     let tools_dir = exe_dir().join("tools");
     tauri::async_runtime::spawn_blocking(move || {
@@ -559,12 +780,8 @@ fn relay_start(state: State<RelayState>, port: Option<u16>) -> Result<relay::Sta
 }
 
 #[tauri::command]
-fn relay_stop(state: State<RelayState>) {
-    // take it out first: stopping joins threads, the lock is not held meanwhile
-    let srv = state.0.lock().unwrap().take();
-    if let Some(mut srv) = srv {
-        srv.stop();
-    }
+fn relay_stop(app: AppHandle) {
+    stop_relay(&app);
 }
 
 #[tauri::command]
@@ -737,6 +954,7 @@ fn main() {
         let game = args.iter().position(|a| a == "--game").and_then(|i| args.get(i + 1)).map(PathBuf::from).unwrap_or_else(exe_dir);
         std::process::exit(play::run_cli(&game, &exe_dir().join("tools")));
     }
+    UPDATED.store(args.iter().any(|a| a == "--updated"), Ordering::SeqCst);
     // WebKitGTK's DMA-BUF renderer leaves the window blank or kills it ("Error 71 (Protocol error)") on NVIDIA's driver
     #[cfg(target_os = "linux")]
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && Path::new("/sys/module/nvidia").exists() {
@@ -747,7 +965,28 @@ fn main() {
         .manage(play::PlayState::default())
         .manage(Arc::new(SetupState::default()))
         .manage(RelayState::default())
+        .manage(Arc::new(update::UpdateState::default()))
+        .manage(update::ReleaseStore::default())
+        // a swap cut off by closing the window would have to wait for the next start to be undone
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<Arc<update::UpdateState>>().applying() {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(|app| {
+            // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
+            if let Some(launcher) = launcher_path() {
+                let handle = app.handle().clone();
+                let st = app.state::<Arc<update::UpdateState>>().inner().clone();
+                st.set_cleaning(true);
+                std::thread::spawn(move || {
+                    let (root, game) = (exe_dir(), game_dir_of(&load_config(&handle)));
+                    update::clean_start(&root, &update::old_files(&launcher, &game));
+                    st.set_cleaning(false);
+                });
+            }
             // Test runs drive the page without input: PKP_LAUNCHER_EVAL_FILE=<path>. A JS file written there is run in the page once and
             // deleted; it reports back through document.title (the window title). WebView2's DevTools port does not open for Tauri apps here.
             if let Ok(path) = std::env::var("PKP_LAUNCHER_EVAL_FILE") {
@@ -766,7 +1005,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             test_report,
             get_config,
-            check_update,
+            launcher_state,
+            get_releases,
+            install_update,
+            cancel_update,
             open_release_url,
             save_config,
             get_overview,

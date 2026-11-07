@@ -1,0 +1,26 @@
+/* Link Play: settings-style groups under one mode switch. */
+
+.lp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); }
+
+.lp-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+.lp-path:empty { display: none; }
+.lp-path > .icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-text-3); }
+.lp-path-lead { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text-2); font-size: var(--text-xs); font-weight: 600; margin-right: var(--space-1); }
+.lp-path-lead > .icon { width: var(--icon-sm); height: var(--icon-sm); }
+
+.lp-part { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.lp-part:empty { display: none; }
+.lp-part .banner { align-items: center; }
+.lp-part .banner .grow > div { color: var(--color-text-2); }
+
+.linkplay .row-label { overflow-wrap: anywhere; }
+.linkplay .row-control code { overflow-wrap: anywhere; }
+
+.lp-field { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); min-width: 0; }
+.lp-msg { color: var(--color-danger); font-size: var(--text-xs); text-align: right; }
+
+/* the last address is offered by a datalist: no arrow on the field */
+.linkplay input::-webkit-calendar-picker-indicator { display: none !important; }
+
+.btn.lp-copy { width: var(--control-sm); padding: 0; }
+.chip.lp-exp { height: 20px; padding-inline: var(--space-2); font-size: var(--text-2xs); }
