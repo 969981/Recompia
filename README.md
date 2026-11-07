@@ -147,7 +147,7 @@ Changes apply the next time the game starts.
 
 **In the game**, open the PC in your first house, then **Link Play** (it unlocks after Environment Level 2 in the Withered Wasteland) and pick **Local connection**. (**Online connection** is Nintendo's own service and does not work here.) The host picks **Invite Others to Visit**, the others **Visit a Friend**.
 
-**Same network.** Everyone picks **Automatic (LAN)**. If the host does not show up, the visitor picks **Visit by address** and types the host's LAN address. This is common on Steam Deck and other Proton or Linux devices.
+**Same network.** Everyone picks **Automatic (LAN)**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. If the host does not show up, the visitor picks **Visit by address** and types the host's LAN address. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
 
 **Over the internet.** Everyone picks **Internet** and goes through a relay:
 - The host picks **I host**. The page shows a room code. Give the visitors the relay address and the code. **Copy** and **New code** are on the page.
@@ -181,7 +181,7 @@ Link Play is still being tested: joining and walking around together work. Long 
   - Start in **Borderless** on a 4K screen and the game draws at 4K. That is heavy. Lower **Render scale**.
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
   - Set **Frame rate limit** to what your screen can show.
-- **Link Play: the visitor cannot find the host.** Pick **Visit by address** and type the host's address (the host's Link Play page shows it). Check that the host started the game and picked **Invite Others to Visit**, that Windows Firewall allows `pkp.exe` on Private networks, and that the network is Private. Over the internet, check the relay address and the room code. Changes on the Link Play page apply the next time the game starts.
+- **Link Play: the visitor cannot find the host.** Pick **Visit by address** and type the host's address (the host's Link Play page shows it). Check that the host started the game and picked **Invite Others to Visit**, that Windows Firewall allows `pkp.exe` on Private networks, and that the network is Private. Cafe, hotel and guest Wi-Fi that keeps devices apart blocks LAN play for everyone: use **Internet** with a relay and a room code. Over the internet, check the relay address and the room code. Changes on the Link Play page apply the next time the game starts.
 - **Link Play: the connection is refused.** The players do not match. Everyone needs game 2.0.1, the same release (or pokopia-native for cross-play), and the same mods and the same **Interact everywhere** and **Story co-op** switches.
 - **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save, so both have the same player ID. Each player needs their own save.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.

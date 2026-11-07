@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_disc.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_disc.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep" / "mDNS responder")
 // coop disc (MIT, our own code): DNS-SD on the LAN (research/06 §5.5, docs/coop-step1c.md). A hosting node registers "Pokopia-<8 hex>" as
 // _pokopia-ldn._udp with its control port and a TXT record: p = the coop protocol, b = main's build ID (16 hex digits, "-" unknown), m = the mods
 // fingerprint, a = the host's best LAN IPv4, x = its other LAN IPv4s, comma-separated (a PC on two networks, such as Wi-Fi and a phone's USB link).
@@ -9,6 +9,8 @@
 // time; its browse delivers PTR, SRV and TXT records but resolves no A record for a registration on the same machine, hence a=), nothing elsewhere.
 // Everything from the network is untrusted: names, TXT values, ports and addresses are checked before an entry is kept, an entry only names a host
 // to try, and the control link checks its WELCOME and every NetworkInfo again (coop_mpnet.c, coop_ldn.c).
+// pokopia-recomp extension: LAN sweep / mDNS responder: on Windows without DnsService* (Wine, Proton) a LAN sweep and a small mDNS responder stand in
+// for the Windows backend (x_*, after w_reg_cb); with DnsService* nothing changes.
 #include "coop_int.h"
 #include <stdio.h>
 
@@ -314,6 +316,32 @@ void cdisc_stop(coop_node *n) { if (n->disc.impl) a_reset(n); clear_entries(n); 
 #elif defined(_WIN32)
 // ---------- Windows: DnsServiceRegister / DnsServiceBrowse (Windows 10 1809+), loaded at run time ----------
 #include <windns.h>
+#include <iphlpapi.h>   // pokopia-recomp extension: LAN sweep (adapters and their subnets)
+// pokopia-recomp extension: LAN sweep / mDNS responder (not in pokopia-native; the functions follow w_reg_cb). Their state, in wimpl
+#define XSW_WAIT_MS 300           // a sweep's connects get this long, all at once
+#define XSW_GAP_MS 4000           // a Scan starts a new sweep at most this often (the game scans about once a second) ...
+#define XSW_SCAN_RECENT_MS 3000   // ... and only while it scans: a joined visitor's game stops scanning, its sweeps stop
+#define XSW_IF_MAX 254            // addresses per interface (a /24; a larger subnet: the /24 around this machine's address)
+#define XSW_MAX 512               // addresses per sweep
+#define XSW_BATCH 256             // connects in flight
+#define XSW_LOG_MS 30000          // an unchanged result is logged again after this
+#define XMD_GROUP 0xE00000FBu     // 224.0.0.251
+#define XMD_PORT 5353
+typedef struct xsweep {
+    cthread t; int on; volatile LONG done, stop;
+    uint16_t port; int64_t t0;
+    int naddr, nhit, nalive;
+    uint32_t addr[XSW_MAX + 1], hit[XSW_MAX + 1], alive[PEERS];
+    char what[160];               // the subnets swept, for the log
+} xsweep;
+typedef struct xmdns {
+    csock s; int on, dead, said;  // dead: port 5353 could not be had (until hosting stops)
+    uint16_t port; char inst[32], shown[80];
+    uint32_t ips[DISC_ADDRS]; int nip;
+    uint32_t ifs[8]; int nif;     // interfaces the group was joined on: multicast answers go out on each
+    int64_t ann_at, retry_at; int ann_left;
+    bucket mrate, urate;
+} xmdns;
 typedef DWORD (WINAPI *f_reg)(PDNS_SERVICE_REGISTER_REQUEST, PDNS_SERVICE_CANCEL);
 typedef DNS_STATUS (WINAPI *f_browse)(PDNS_SERVICE_BROWSE_REQUEST, PDNS_SERVICE_CANCEL);
 typedef DNS_STATUS (WINAPI *f_bcancel)(PDNS_SERVICE_CANCEL);
@@ -331,6 +359,9 @@ typedef struct wimpl {
     wctx *bctx; DNS_SERVICE_CANCEL bcancel_h; int64_t browse_at;
     wctx *rctx; DNS_SERVICE_REGISTER_REQUEST rreq; PDNS_SERVICE_INSTANCE inst; int reg_state;   // 0 none, 1 registering, 2 registered, 3 deregistering
     uint16_t reg_port; char inst_name[32], addrs[80]; int64_t retry_at; int warned, noaddr_said;
+    // pokopia-recomp extension: LAN sweep / mDNS responder (without DnsService*; I/O thread): x_diag NXRT_COOP_NO_DNSSD (2: loopback), the sweep and when the
+    // last one started, the last result logged, the responder
+    int x_diag; xsweep xs; int64_t xs_at, xs_logat; uint64_t xs_logsum; xmdns xm;
 } wimpl;
 static wimpl *WI(coop_node *n) { return n->disc.impl; }
 static wctx *wctx_new(coop_node *n, int kind) { wctx *c = calloc(1, sizeof *c); if (c) { c->n = n; c->kind = kind; InterlockedIncrement(&g_wpending); } return c; }
@@ -398,10 +429,349 @@ static VOID WINAPI w_reg_cb(DWORD st, PVOID ctx, PDNS_SERVICE_INSTANCE inst) {
     else coop_logf(n, "disc: advertising failed (status %lu)", (unsigned long)st);
     if (done) wctx_done(c);
 }
+
+// ---------- pokopia-recomp extension: LAN sweep / mDNS responder (not in pokopia-native) ----------
+// Where dnsapi.dll has no DnsService* (Wine and Proton, Windows before 10 1809; NXRT_COOP_NO_DNSSD=1 acts as if, a diagnostic that also sweeps
+// 127.0.0.1; NXRT_COOP_NO_DNSSD=loopback sweeps 127.0.0.1 only) and
+// cfg.x_lan_sweep_off is 0 ([net] lan_sweep = auto), two stand-ins for the backend above. Windows with DnsService* never runs them.
+// LAN sweep (scanning): the first Scan, then a Scan at most every XSW_GAP_MS, starts a sweep on a thread of its own: each address of this machine's
+// private (RFC 1918) IPv4 subnets (the subnet, or the /24 around this machine's address when larger: at most 254 per interface and 512 in all; its
+// own addresses, loopback, link-local, public, point-to-point and virtual or VPN adapters left out) gets a non-blocking TCP connect to cfg.port, all
+// at once, XSW_WAIT_MS for the lot. Each address that accepts becomes an entry ("sweep-<IPv4>", its TXT taken as this node's coop protocol), so the
+// station's peers dial it, check its WELCOME and ask SCAN_REQ exactly as for a host DNS-SD found; the first Scan waits BROWSE_GRACE_MS for the
+// first sweep (coop_ldn.c). Hosts already linked are not dialled again; an entry the next sweep finds neither linked nor answering is dropped.
+// Nothing outside the private ranges is dialled; a host whose port was taken (it listens on one the system picked) is not found.
+// mDNS responder (hosting): UDP 5353 (SO_REUSEADDR; the group 224.0.0.251 joined on each LAN interface) answers queries for _pokopia-ldn._udp.local
+// PTR (and its instance's SRV / TXT, its host's A) with PTR + SRV + TXT + A, the records DnsServiceRegister publishes above: instance
+// "Pokopia-<8 hex>", host pokopia-<8 hex>.local, the control port, TXT p, b, m, a, x (cdisc_txt_make), an A record per LAN address. It announces
+// twice when hosting starts and says goodbye (TTL 0) when it stops, so visitors with DNS-SD (pokopia-native and this build on Windows) find a host
+// under Wine. Queries from port 5353 are answered on the group (to the asker when it asks for a unicast answer), others as legacy unicast queries
+// (ID and questions echoed, TTL 10). Responses and malformed packets are ignored, answers rate-limited; a port 5353 that cannot be had is logged once.
+static const char k_xsvc[] = "_pokopia-ldn._udp.local";
+static int x_virtual_name(const char *s) {   // lower case: a virtual, VPN or container adapter by its name or description
+    static const char *has[] = {"virtual", "vpn", "vethernet", "hyper-v", "vmware", "virtualbox", "wireguard", "tailscale", "zerotier", "hamachi", "docker", "virbr", "veth"};
+    static const char *starts[] = {"tun", "tap", "wg", "zt", "br-"};
+    for (size_t i = 0; i < sizeof has / sizeof has[0]; i++) if (strstr(s, has[i])) return 1;
+    for (size_t i = 0; i < sizeof starts / sizeof starts[0]; i++) if (!strncmp(s, starts[i], strlen(starts[i]))) return 1;
+    return 0;
+}
+static void x_lower(char *s) { for (; *s; s++) if (*s >= 'A' && *s <= 'Z') *s = (char)(*s - 'A' + 'a'); }
+static int x_virtual(const IP_ADAPTER_ADDRESSES *a) {
+    if (a->IfType == IF_TYPE_TUNNEL || a->IfType == IF_TYPE_PPP || a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) return 1;
+    char s[128];
+    snprintf(s, sizeof s, "%s", a->AdapterName ? a->AdapterName : ""); x_lower(s); if (x_virtual_name(s)) return 1;
+    w8(s, sizeof s, a->FriendlyName); x_lower(s); if (x_virtual_name(s)) return 1;
+    w8(s, sizeof s, a->Description); x_lower(s); return x_virtual_name(s);
+}
+// The addresses to sweep (out has room for max + 1), this machine's own and the skipped ones left out; what: the subnets as text
+static int x_sweep_list(uint32_t *out, int max, const uint32_t *skip, int nskip, char *what, size_t wn, int diag) {
+    ULONG len = 16384, r = ERROR_BUFFER_OVERFLOW; IP_ADAPTER_ADDRESSES *aa = NULL;
+    int k = 0; size_t wl = 0; what[0] = 0;
+    for (int tries = 0; tries < 3 && r == ERROR_BUFFER_OVERFLOW; tries++) {
+        free(aa);
+        if (!(aa = malloc(len))) return 0;
+        r = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, NULL, aa, &len);
+    }
+    uint32_t own[32], nets[16], masks[16]; int nown = 0, nnet = 0;
+    for (IP_ADAPTER_ADDRESSES *a = r == NO_ERROR ? aa : NULL; a; a = a->Next)
+        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u && nown < 32; u = u->Next)
+            if (u->Address.lpSockaddr && u->Address.lpSockaddr->sa_family == AF_INET) own[nown++] = ntohl(((struct sockaddr_in *)u->Address.lpSockaddr)->sin_addr.s_addr);
+    for (IP_ADAPTER_ADDRESSES *a = r == NO_ERROR && diag != 2 ? aa : NULL; a && k < max; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp || x_virtual(a)) continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u && k < max; u = u->Next) {
+            if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
+            uint32_t ip = ntohl(((struct sockaddr_in *)u->Address.lpSockaddr)->sin_addr.s_addr); unsigned pl = u->OnLinkPrefixLength;
+            if (!pl) pl = 24;   // no prefix reported: the /24 around it
+            if (coop_addr4_class(ip) != COOP_ADDR_PRIVATE || pl > 30) continue;   // RFC 1918 only; /31 and /32 are point-to-point links
+            uint32_t mask = pl < 24 ? 0xFFFFFF00u : 0xFFFFFFFFu << (32 - pl), net = ip & mask, bc = net | ~mask;
+            int dup = 0;
+            for (int i = 0; i < nnet; i++) dup |= nets[i] == net && masks[i] == mask;
+            if (dup || nnet == 16) continue;
+            nets[nnet] = net; masks[nnet++] = mask;
+            int added = 0;
+            for (uint32_t h = net + 1; h < bc && added < XSW_IF_MAX && k < max; h++, added++) {
+                int no = 0;
+                for (int i = 0; i < nown; i++) no |= own[i] == h;
+                for (int i = 0; i < nskip; i++) no |= skip[i] == h;
+                if (!no) out[k++] = h;
+            }
+            if (wl + 24 < wn) wl += (size_t)snprintf(what + wl, wn - wl, "%s%u.%u.%u.%u/%u", wl ? ", " : "", net >> 24, net >> 16 & 0xFF, net >> 8 & 0xFF, net & 0xFF, pl < 24 ? 24 : pl);
+        }
+    }
+    free(aa);
+    int lo_linked = 0;
+    for (int i = 0; i < nskip; i++) lo_linked |= skip[i] == 0x7F000001u;
+    if (diag && !lo_linked) {   // the diagnostic: a host on this machine (out has one spare)
+        out[k++] = 0x7F000001u;
+        if (wl + 40 < wn) snprintf(what + wl, wn - wl, "%s127.0.0.1 (NXRT_COOP_NO_DNSSD)", wl ? ", " : "");
+    }
+    return k;
+}
+static void xsw_main(void *arg) {   // the sweep thread: connects only; the I/O thread reads the result once done is set
+    xsweep *s = arg;
+    for (int b = 0; b < s->naddr && !s->stop; b += XSW_BATCH) {
+        WSAPOLLFD pf[XSW_BATCH]; uint32_t ip[XSW_BATCH]; int k = 0;
+        for (int i = b; i < s->naddr && i < b + XSW_BATCH; i++) {
+            csock c = cplat_tcp_connect(s->addr[i], s->port);
+            if (c == CSOCK_BAD) continue;
+            pf[k].fd = c; pf[k].events = POLLWRNORM; pf[k].revents = 0; ip[k++] = s->addr[i];
+        }
+        int64_t until = cplat_now_ms() + XSW_WAIT_MS;
+        while (k > 0 && !s->stop) {
+            int64_t ms = until - cplat_now_ms();
+            if (ms <= 0) break;
+            int r = WSAPoll(pf, (ULONG)k, (INT)ms);
+            if (r < 0) break;
+            for (int i = 0; i < k; i++) {
+                if (!pf[i].revents) continue;
+                if ((pf[i].revents & POLLWRNORM) && cplat_tcp_connected(pf[i].fd) == 1 && s->nhit < XSW_MAX) s->hit[s->nhit++] = ip[i];   // accepted
+                cplat_close(pf[i].fd);   // a host sees a link closed before its HELLO: dropped without a line
+                k--; pf[i] = pf[k]; ip[i] = ip[k]; i--;
+            }
+        }
+        for (int i = 0; i < k; i++) cplat_close(pf[i].fd);   // no answer in time
+    }
+    InterlockedExchange(&s->done, 1);
+}
+static int x_is_sweep(const cdisc_entry *e) { return e->used && !strncmp(e->name, "sweep-", 6); }
+static void xsw_start(coop_node *n, wimpl *w, int64_t now) {
+    xsweep *s = &w->xs;
+    s->t = NULL; s->done = 0; s->stop = 0; s->nhit = 0; s->nalive = 0; s->t0 = now;
+    s->port = n->cfg.port ? n->cfg.port : COOP_PORT_DEFAULT;
+    for (int j = 0; j < PEERS; j++) {   // linked already (or dialling): not dialled again, kept
+        peer *p = &n->pr[j];
+        if (p->used && p->src == PEER_DISC && p->c.state != CONN_FREE && s->nalive < PEERS) s->alive[s->nalive++] = p->ip;
+    }
+    s->naddr = x_sweep_list(s->addr, XSW_MAX, s->alive, s->nalive, s->what, sizeof s->what, w->x_diag);
+    s->on = 1; w->xs_at = now;
+    if (!s->naddr || cplat_thread_start(&s->t, xsw_main, s)) { s->t = NULL; s->done = 1; }
+}
+static void xsw_join(wimpl *w) {
+    xsweep *s = &w->xs;
+    if (!s->on) return;
+    InterlockedExchange(&s->stop, 1);
+    if (s->t) cplat_thread_join(s->t);
+    s->t = NULL; s->on = 0;
+}
+static void xsw_finish(coop_node *n, wimpl *w, int64_t now) {
+    xsweep *s = &w->xs;
+    if (s->t) cplat_thread_join(s->t);   // done: it has returned or is returning
+    s->t = NULL; s->on = 0;
+    cdisc_entry t; memset(&t, 0, sizeof t);
+    t.proto = n->proto; t.has_txt = 1;   // no TXT: the link's WELCOME and SCAN_RESP tell the protocol, build and mods
+    char name[64], a[16], hits[96] = ""; size_t hl = 0;
+    for (int i = 0; i < s->nhit; i++) {
+        ipstr(a, s->hit[i]); snprintf(name, sizeof name, "sweep-%s", a);
+        found(n, name, 0, s->hit[i], s->port, &t, 0);
+        if (hl + 18 < sizeof hits) hl += (size_t)snprintf(hits + hl, sizeof hits - hl, "%s%s", hl ? ", " : "", a);
+    }
+    cplat_lock(&n->dlk);   // an entry neither linked nor answering is gone
+    for (int i = 0; i < DISC_MAX; i++) {
+        cdisc_entry *e = &n->disc.e[i]; int keep = 0;
+        if (!x_is_sweep(e)) continue;
+        for (int j = 0; j < s->nhit; j++) keep |= e->ip == s->hit[j];
+        for (int j = 0; j < s->nalive; j++) keep |= e->ip == s->alive[j];
+        if (!keep) memset(e, 0, sizeof *e);
+    }
+    cplat_unlock(&n->dlk);
+    uint64_t sum = 1469598103934665603ull;   // the result: an unchanged one is not logged every few seconds
+    for (const char *p = s->what; *p; p++) sum = (sum ^ (uint8_t)*p) * 1099511628211ull;
+    for (int i = 0; i < s->nhit; i++) sum = (sum ^ s->hit[i]) * 1099511628211ull;
+    sum ^= (uint64_t)s->nalive << 56;
+    if (sum != w->xs_logsum || now - w->xs_logat >= XSW_LOG_MS) {
+        w->xs_logsum = sum; w->xs_logat = now;
+        coop_logf(n, "disc: LAN sweep of %s (%d addresses, port %u, %lld ms): %d host(s) answered%s%s%s, %d linked already", s->what[0] ? s->what : "no private subnet",
+                  s->naddr, s->port, (long long)(now - s->t0), s->nhit, s->nhit ? " (" : "", hits, s->nhit ? ")" : "", s->nalive);
+    }
+}
+// mDNS packets
+typedef struct xpk { uint8_t b[1200]; size_t n; int over; } xpk;
+static void xp_put(xpk *p, const void *d, size_t k) { if (p->over || p->n + k > sizeof p->b) { p->over = 1; return; } memcpy(p->b + p->n, d, k); p->n += k; }
+static void xp_16(xpk *p, unsigned v) { uint8_t b[2] = {(uint8_t)(v >> 8), (uint8_t)v}; xp_put(p, b, 2); }
+static void xp_32(xpk *p, uint32_t v) { xp_16(p, v >> 16); xp_16(p, v & 0xFFFF); }
+static void xp_name(xpk *p, const char *s) {   // dotted, labels of 1-63 bytes
+    while (*s) {
+        const char *e = strchr(s, '.'); size_t l = e ? (size_t)(e - s) : strlen(s);
+        if (!l || l > 63) { p->over = 1; return; }
+        uint8_t lb = (uint8_t)l; xp_put(p, &lb, 1); xp_put(p, s, l);
+        s += l + (e ? 1 : 0);
+    }
+    uint8_t z = 0; xp_put(p, &z, 1);
+}
+static void xp_rdlen(xpk *p, size_t at) { if (!p->over) { size_t l = p->n - at - 2; p->b[at] = (uint8_t)(l >> 8); p->b[at + 1] = (uint8_t)l; } }
+enum { XR_PTR = 1, XR_SRV = 2, XR_TXT = 4, XR_A = 8 };
+static void x_names(const xmdns *m, char *inst, size_t in, char *host, size_t hn) {
+    snprintf(inst, in, "%s.%s", m->inst, k_xsvc);
+    snprintf(host, hn, "pokopia-%s.local", m->inst + 8);   // a name of its own, as above: the computer's name is not published
+}
+static int xp_records(xpk *p, coop_node *n, const xmdns *m, int which, uint32_t ttl_long, uint32_t ttl_short, int flush) {
+    char inst[96], host[48]; size_t at; int c = 0; unsigned cls = flush ? 0x8001 : 1;   // the cache-flush bit on the unique records
+    x_names(m, inst, sizeof inst, host, sizeof host);
+    if (which & XR_PTR) { xp_name(p, k_xsvc); xp_16(p, 12); xp_16(p, 1); xp_32(p, ttl_long); at = p->n; xp_16(p, 0); xp_name(p, inst); xp_rdlen(p, at); c++; }
+    if (which & XR_SRV) {
+        xp_name(p, inst); xp_16(p, 33); xp_16(p, cls); xp_32(p, ttl_short); at = p->n; xp_16(p, 0);
+        xp_16(p, 0); xp_16(p, 0); xp_16(p, m->port); xp_name(p, host); xp_rdlen(p, at); c++;
+    }
+    if (which & XR_TXT) {
+        uint8_t t[200]; size_t tl = cdisc_txt_make(t, sizeof t, n->proto, n->build, n->mods, m->ips, m->nip);
+        xp_name(p, inst); xp_16(p, 16); xp_16(p, cls); xp_32(p, ttl_long); xp_16(p, (unsigned)tl); xp_put(p, t, tl); c++;
+    }
+    if (which & XR_A)
+        for (int i = 0; i < m->nip; i++) { xp_name(p, host); xp_16(p, 1); xp_16(p, cls); xp_32(p, ttl_short); xp_16(p, 4); xp_32(p, m->ips[i]); c++; }
+    return c;
+}
+// A response: mode 0 multicast, 1 goodbye (TTL 0), 2 legacy unicast (ID and questions echoed, TTL 10, no cache-flush bit). 0 when it does not fit
+static size_t xp_response(xpk *p, coop_node *n, const xmdns *m, uint16_t id, const uint8_t *qs, size_t qn, int nq, int ans, int add, int mode) {
+    p->n = 0; p->over = 0;
+    xp_16(p, id); xp_16(p, 0x8400); xp_16(p, (unsigned)nq); xp_16(p, 0); xp_16(p, 0); xp_16(p, 0);
+    if (qn) xp_put(p, qs, qn);
+    uint32_t lt = mode == 1 ? 0 : mode == 2 ? 10 : 4500, st = mode == 1 ? 0 : mode == 2 ? 10 : 120;
+    int an = xp_records(p, n, m, ans, lt, st, mode != 2), ar = xp_records(p, n, m, add & ~ans, lt, st, mode != 2);
+    if (p->over) return 0;
+    p->b[6] = (uint8_t)(an >> 8); p->b[7] = (uint8_t)an; p->b[10] = (uint8_t)(ar >> 8); p->b[11] = (uint8_t)ar;
+    return p->n;
+}
+static void xmd_multicast(xmdns *m, const xpk *p) {
+    for (int i = 0; i < m->nif; i++) {
+        struct in_addr ia; ia.s_addr = htonl(m->ifs[i]);
+        setsockopt(m->s, IPPROTO_IP, IP_MULTICAST_IF, (const char *)&ia, sizeof ia);
+        cplat_sendto(m->s, p->b, p->n, XMD_GROUP, XMD_PORT);
+    }
+    if (!m->nif) cplat_sendto(m->s, p->b, p->n, XMD_GROUP, XMD_PORT);
+}
+static int x_qname(const uint8_t *b, size_t n, size_t at, char *out, size_t cap, size_t *next) {   // a name, lower case and dotted; pointers followed
+    size_t o = 0; int jumps = 0, jumped = 0;
+    for (;;) {
+        if (at >= n) return -1;
+        uint8_t l = b[at];
+        if (!l) { if (!jumped) *next = at + 1; break; }
+        if ((l & 0xC0) == 0xC0) {
+            if (at + 1 >= n || ++jumps > 16) return -1;
+            if (!jumped) *next = at + 2;
+            jumped = 1; at = (size_t)(l & 0x3F) << 8 | b[at + 1]; continue;
+        }
+        if ((l & 0xC0) || at + 1 + l > n || o + l + 2 > cap) return -1;
+        if (o) out[o++] = '.';
+        for (size_t i = 0; i < l; i++) { char c = (char)b[at + 1 + i]; out[o++] = c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c; }
+        at += 1 + l;
+    }
+    out[o] = 0;
+    return 0;
+}
+static void xmd_query(coop_node *n, xmdns *m, const uint8_t *b, size_t len, uint32_t ip, uint16_t port, int64_t now) {
+    if (len < 12) return;
+    unsigned id = (unsigned)b[0] << 8 | b[1], fl = (unsigned)b[2] << 8 | b[3], qd = (unsigned)b[4] << 8 | b[5];
+    if ((fl & 0x8000) || (fl >> 11 & 0xF) || !qd || qd > 16) return;   // a response, another opcode, no or too many questions
+    char inst[96], host[48], nm[256]; size_t at = 12, next = 0; int ans = 0, qu = 0;
+    x_names(m, inst, sizeof inst, host, sizeof host); x_lower(inst); x_lower(host);
+    for (unsigned q = 0; q < qd; q++) {
+        if (x_qname(b, len, at, nm, sizeof nm, &next) || next + 4 > len) return;
+        at = next;
+        unsigned qt = (unsigned)b[at] << 8 | b[at + 1], qc = (unsigned)b[at + 2] << 8 | b[at + 3]; at += 4;
+        if ((qc & 0x7FFF) != 1 && (qc & 0x7FFF) != 255) continue;
+        qu |= (qc & 0x8000) != 0;
+        if (!strcmp(nm, k_xsvc) && (qt == 12 || qt == 255)) ans |= XR_PTR;
+        else if (!strcmp(nm, inst)) ans |= (qt == 33 || qt == 255 ? XR_SRV : 0) | (qt == 16 || qt == 255 ? XR_TXT : 0);
+        else if (!strcmp(nm, host) && (qt == 1 || qt == 255)) ans |= XR_A;
+    }
+    if (!ans) return;
+    int legacy = port != XMD_PORT, uni = legacy || qu;
+    if (!bucket_take(uni ? &m->urate : &m->mrate, now, uni ? 10 : 2, uni ? 10 : 4, 1)) return;
+    int add = ans & XR_PTR ? XR_SRV | XR_TXT | XR_A : ans & XR_SRV ? XR_TXT | XR_A : 0;
+    xpk p;
+    if (!xp_response(&p, n, m, legacy ? (uint16_t)id : 0, legacy ? b + 12 : NULL, legacy ? at - 12 : 0, legacy ? (int)qd : 0, ans, add, legacy ? 2 : 0)) return;
+    if (uni) cplat_sendto(m->s, p.b, p.n, ip, port); else xmd_multicast(m, &p);
+}
+static void xmd_read(coop_node *n, wimpl *w) {
+    xmdns *m = &w->xm; int64_t now = now_ms();
+    for (int i = 0; i < 64 && m->on; i++) {
+        uint8_t b[1500]; uint32_t ip; uint16_t port;
+        int64_t k = cplat_recvfrom(m->s, b, sizeof b, &ip, &port);
+        if (k == -3) continue;   // too big: dropped
+        if (k < 0) break;
+        xmd_query(n, m, b, (size_t)k, ip, port, now);
+    }
+}
+static void xmd_stop(coop_node *n, wimpl *w) {
+    xmdns *m = &w->xm;
+    if (!m->on) return;
+    xpk p;
+    if (xp_response(&p, n, m, 0, NULL, 0, 0, XR_PTR | XR_SRV | XR_TXT | XR_A, 0, 1)) xmd_multicast(m, &p);   // goodbye
+    cplat_close(m->s); m->s = CSOCK_BAD; m->on = 0; n->disc.adv_on = 0;
+    coop_logf(n, "disc: stopped answering mDNS for \"%s\"", m->inst);
+}
+static void xmd_start(coop_node *n, wimpl *w, int64_t now) {
+    xmdns *m = &w->xm;
+    m->retry_at = now + DISC_RETRY_MS;
+    m->nip = host_addrs(m->ips, m->shown, sizeof m->shown);
+    if (!m->nip) { if (!w->noaddr_said++) coop_logf(n, "disc: no LAN address to answer mDNS with (this PC has no private or link-local address): visitors join by address"); return; }
+    csock s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == CSOCK_BAD) return;
+    BOOL on = TRUE; DWORD ttl = 255, loop = 1; struct sockaddr_in a; memset(&a, 0, sizeof a);
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);   // shared with any other responder on this machine
+    a.sin_family = AF_INET; a.sin_port = htons(XMD_PORT); a.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(s, (struct sockaddr *)&a, sizeof a)) {
+        int e = WSAGetLastError(); cplat_close(s); m->dead = 1;
+        if (!m->said++) coop_logf(n, "disc: mDNS port 5353 cannot be had (error %d): visitors with DNS-SD do not see this host (they join by address); "
+                                     "visitors of this build still find it with their LAN sweep", e);
+        return;
+    }
+    u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
+    setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, (const char *)&ttl, sizeof ttl);
+    setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, (const char *)&loop, sizeof loop);
+    caddr mine[16]; int nm = cplat_local_addrs(mine, 16, 0);
+    m->nif = 0;
+    for (int i = 0; i < nm && m->nif < 8; i++) {
+        int cls = coop_addr4_class(mine[i].ip);
+        if (cls != COOP_ADDR_PRIVATE && cls != COOP_ADDR_LINKLOCAL) continue;
+        struct ip_mreq mr; mr.imr_multiaddr.s_addr = htonl(XMD_GROUP); mr.imr_interface.s_addr = htonl(mine[i].ip);
+        if (!setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char *)&mr, sizeof mr)) m->ifs[m->nif++] = mine[i].ip;
+    }
+    if (!m->nif) {
+        struct ip_mreq mr; mr.imr_multiaddr.s_addr = htonl(XMD_GROUP); mr.imr_interface.s_addr = htonl(INADDR_ANY);
+        setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char *)&mr, sizeof mr);
+    }
+    make_instance(m->inst, sizeof m->inst);
+    m->s = s; m->on = 1; m->port = n->disc.adv_port; m->ann_left = 2; m->ann_at = now;
+    memset(&m->mrate, 0, sizeof m->mrate); memset(&m->urate, 0, sizeof m->urate);
+    n->disc.adv_on = 1;
+    coop_logf(n, "disc: answering mDNS for \"%s\" (%s) on port %u, addresses %s (no DNS-SD here)", m->inst, COOP_SERVICE, m->port, m->shown);
+}
+static void x_tick(coop_node *n, wimpl *w, int64_t now) {
+    cdisc *d = &n->disc; xmdns *m = &w->xm; xsweep *s = &w->xs;
+    if ((d->adv_want || d->browse_want) && !w->warned) {
+        w->warned = 1;
+        coop_logf(n, "disc: no DNS-SD here (%s): a LAN sweep finds hosts while the game scans, an mDNS responder answers for this host while it hosts "
+                     "([net] lan_sweep = off: join by address)", w->x_diag ? "NXRT_COOP_NO_DNSSD" : "dnsapi.dll has no DnsService*: Wine / Proton, or Windows before 10 1809");
+    }
+    if (m->on && (!d->adv_want || m->port != d->adv_port)) xmd_stop(n, w);
+    if (!d->adv_want) m->dead = 0;
+    else if (!m->on && !m->dead && now >= m->retry_at) xmd_start(n, w, now);
+    if (m->on && m->ann_left && now >= m->ann_at) {   // unsolicited announcements
+        xpk p;
+        if (xp_response(&p, n, m, 0, NULL, 0, 0, XR_PTR | XR_SRV | XR_TXT | XR_A, 0, 0)) xmd_multicast(m, &p);
+        m->ann_left--; m->ann_at = now + 1000;
+    }
+    if (s->on && s->done) xsw_finish(n, w, now);
+    if (!d->browse_want) {
+        if (s->on) xsw_join(w);
+        w->xs_at = 0; d->browse_on = 0;
+        int any = 0; cplat_lock(&n->dlk); for (int i = 0; i < DISC_MAX; i++) any |= d->e[i].used; cplat_unlock(&n->dlk);
+        if (any) clear_entries(n);
+    } else {
+        if (!d->browse_on) coop_logf(n, "disc: sweeping the LAN for hosts on port %u while the game scans", n->cfg.port ? n->cfg.port : COOP_PORT_DEFAULT);
+        d->browse_on = 1;
+        if (!s->on && (!w->xs_at || (now - d->x_scan_at < XSW_SCAN_RECENT_MS && now - w->xs_at >= XSW_GAP_MS))) xsw_start(n, w, now);
+    }
+}
+static void x_stop(coop_node *n, wimpl *w) { xsw_join(w); xmd_stop(n, w); w->xs_at = 0; n->disc.browse_on = 0; }
+
 void cdisc_init(coop_node *n) {
     wimpl *w = calloc(1, sizeof *w);
     n->disc.impl = w;
     if (!w) return;
+    const char *nd = getenv("NXRT_COOP_NO_DNSSD");   // pokopia-recomp extension: LAN sweep: a diagnostic, Windows as if it had no DnsService* (Wine)
+    if (nd && *nd && strcmp(nd, "0")) { w->x_diag = strcmp(nd, "loopback") ? 1 : 2; return; }   // loopback: the sweep dials 127.0.0.1 only
     w->dll = LoadLibraryW(L"dnsapi.dll");
     if (!w->dll) return;
 #define LOADF(f, name) (*(FARPROC *)&w->f = GetProcAddress(w->dll, name))
@@ -436,15 +806,17 @@ void cdisc_fini(coop_node *n) {
         w_stop_browse(n, 0); w_deregister(n);
         for (int i = 0; i < 200 && g_wpending; i++) Sleep(10);   // the last callbacks name this node
     }
+    else x_stop(n, w);   // pokopia-recomp extension: LAN sweep (stopped already when the I/O thread ran)
     if (w->dll && !g_wpending) FreeLibrary(w->dll);
     free(w); n->disc.impl = NULL;
 }
-csock cdisc_fd(coop_node *n) { (void)n; return CSOCK_BAD; }
-void cdisc_process(coop_node *n) { (void)n; }
+csock cdisc_fd(coop_node *n) { wimpl *w = WI(n); return w && !w->loaded && w->xm.on ? w->xm.s : CSOCK_BAD; }   // pokopia-recomp extension: mDNS responder
+void cdisc_process(coop_node *n) { wimpl *w = WI(n); if (w && !w->loaded && w->xm.on) xmd_read(n, w); }        // pokopia-recomp extension: mDNS responder
 void cdisc_tick(coop_node *n) {
     wimpl *w = WI(n); cdisc *d = &n->disc; int64_t now = now_ms();
     if (!w) return;
     if (!w->loaded) {
+        if (!n->cfg.x_lan_sweep_off) { x_tick(n, w, now); return; }   // pokopia-recomp extension: LAN sweep / mDNS responder
         if ((d->adv_want || d->browse_want) && !w->warned) { w->warned = 1; coop_logf(n, "disc: DNS-SD needs Windows 10 1809 or later (dnsapi.dll has no DnsService*): join by address (DM_COOP=join:<IPv4>)"); }
         return;
     }
@@ -515,6 +887,7 @@ void cdisc_tick(coop_node *n) {
 void cdisc_stop(coop_node *n) {
     wimpl *w = WI(n);
     if (w && w->loaded) { w_stop_browse(n, 0); w_deregister(n); }
+    else if (w) x_stop(n, w);   // pokopia-recomp extension: LAN sweep / mDNS responder
     clear_entries(n);
 }
 

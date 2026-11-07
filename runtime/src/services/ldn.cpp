@@ -1422,7 +1422,8 @@ void Ldn::shutdown() {
 // call (the structs are the SDK's, as the IPC carries them; results are nn::Result module 203). Wiring after pokopia-native's
 // windows/src/coop/nxnative/ldn_glue.c.
 // Config ([net], read once when the first ldn:u service object is made): mode = auto | join:<IPv4>[:<port>] | off (auto: host on the LAN
-// while the game hosts, find LAN hosts with DNS-SD while it scans), internet (0/1: internet play, every link proves the room code),
+// while the game hosts, find LAN hosts with DNS-SD while it scans; without DNS-SD, Wine / Proton, a LAN sweep and mDNS answers: lan_sweep =
+// auto | off), internet (0/1: internet play, every link proves the room code),
 // room_code (the host's code; a host without one gets a new one, logged and written to room-code.txt; a visitor needs the host's),
 // relay (<IPv4>[:<port>], a pokopia-native coop relay; mode auto only), uid (32 hex digits; default: the install's persistent uid,
 // coop_uid_load). mode = off or an invalid setting: local wireless off (the Link Play backend's answers with no lobby).
@@ -1559,6 +1560,11 @@ coop_node* native_node() {
         std::remove(code_file.c_str());
         return nullptr;
     }
+    // [net] lan_sweep = auto | off: auto (the default) finds and answers LAN players without DNS-SD (Wine / Proton: the module's LAN sweep and
+    // mDNS responder, coop_disc.c x_*); off: there, visitors join by address. Windows with DNS-SD never uses them
+    const std::string sweep = lower(config_get_str("net", "lan_sweep", "auto"));
+    if (sweep != "auto" && sweep != "off") NXLOG_W("net", "ldn: [net] lan_sweep = \"%s\" is not auto or off: auto", sweep.c_str());
+    c.x_lan_sweep_off = sweep == "off";
     c.hooks.user = nullptr;
     c.hooks.log = &coop_hook_log;
     c.hooks.sleep_ns = nullptr;   // a plain host sleep: ldn and bsd commands run on host threads

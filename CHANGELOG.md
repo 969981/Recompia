@@ -4,6 +4,17 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+
+#### Link Play: Steam Deck and Proton find hosts and are found on the LAN
+**Before:** Proton has no DNS-SD (`dnsapi.dll` without `DnsService*`), so a host under Proton was invisible and a visitor under Proton found nothing (`DNS-SD needs Windows 10 1809 or later ... join by address`); every visit needed the host's address. Proton also showed a wrong "this PC's network is set to Public" note.
+
+**Now:** where DNS-SD is missing, each scan sweeps this device's own private network (up to 254 addresses per network, 512 in all, TCP port 47600, about 300 ms) and asks every host that answers for its game over the co-op link, as for a host DNS-SD found. A hosting device answers DNS-SD queries itself (a small mDNS responder on UDP 5353 with the records pokopia-native registers), so Windows players see it. Nothing to type, and nothing to change on another network. The Public-network note is not shown under Wine. Windows with DNS-SD is unchanged. `[net] lan_sweep = off` turns it off; `NXRT_COOP_NO_DNSSD=1` tries it on Windows (a diagnostic).
+
+**Still not:** Wi-Fi that keeps devices apart (cafes, hotels, guest networks; use internet play with a relay), and a host that fell back to another port than 47600.
+
 ## 0.7.0 (build K: Kangaroo)
 
 Extract it over your 0.6.x install, then run **Set up again** once: the game code and the shader translator changed. The launcher
