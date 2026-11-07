@@ -14,7 +14,7 @@ If you play on Linux, SteamOS or a Linux handheld, please keep opening issues fo
 
 ### Known issues
 - **Linux still runs the game and the shader setup through Proton.**
-- **The game clock is new and not confirmed in the game yet.** I have not seen day and night follow it, and it has not been tested with Link Play, so use it in single player only for now.
+- **The game clock has not been tested with Link Play**, so use it in single player only for now. In single player the sky and the in-game time follow it.
 - **The touch resize grip and dragging the title bar by finger** were tested with the window functions, not with a finger on a real screen, until the first handheld tests are in. Tell me what you find.
 - **Dragging the resize grip in the bottom right corner can stutter** while the window changes size. I am looking into it.
 - Link Play with pokopia-native players still has no confirmed full two player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
