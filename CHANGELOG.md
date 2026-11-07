@@ -4,6 +4,22 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### New
+
+#### Shader files take about a fifth of the space (prototype, not measured on a full cache yet)
+**Before:** the translated shaders were ~99,000 separate files, about 26 GB, for a 12 GB game. Setup needed about 36 GB free.
+
+**Now:** they can be packed into a few compressed files in `shader_cache/spirv.archive`. The game reads them as quickly as loose files,
+so it runs the same, and nothing is translated again to switch. When the launcher finds loose shader files after a finished setup, it
+asks once per start: **Free up about N GB?** (a few minutes, can be stopped and continued). **Settings > Game > Shader files** has the
+same button, and **Use loose files** to go back. A new setup packs as it translates (on by default, **Packed shader files** on the
+Set up page), so the loose files never pile up: a new setup now needs about 14 GB free instead of about 31 GB (36 GB was
+quoted before), and the free-space check and the Set up page follow the toggle. The launcher writes the real sizes and times to
+`setup.log`.
+Loose shader files are on their way out: a later release stops reading them.
+
 ## 0.7.7 (build K: Klipspringer)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.

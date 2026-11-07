@@ -17,6 +17,12 @@ pub const GB: u64 = 1 << 30;
 pub const CORPUS_BYTES: u64 = 5 * GB;
 /// shader_cache/spirv when complete: about 26 GB for the 99,012 blocks of 2.0.1 (launcher README).
 pub const SPIRV_BYTES: u64 = 26 * GB;
+/// The same shaders packed (shader_archive.rs): SPIRV_BYTES / RATIO_GUESS, the 3.8x the preload pack measured at a lower zstd level
+/// than the archive uses, so a ceiling. Replace with the measured size once the first full caches are packed (setup.log says).
+pub const PACKED_BYTES: u64 = 7 * GB;
+/// A packed setup still writes each translated chunk as loose files before it packs them: the largest chunk (shaders.rs CHUNK, 5000
+/// blocks on Linux, about 1.3 GB) and its packed copy are on disk together for a moment.
+pub const CHUNK_BYTES: u64 = 2 * GB;
 /// The default block count when setup.json has none yet (2.0.1).
 pub const DEFAULT_BLOCKS: u64 = 99_012;
 /// The game build's generated sources and objects, deleted when it links (pkp_build.py). Not measured: "a few GB" in the
@@ -88,6 +94,8 @@ pub struct Facts {
     pub microcode: Option<u32>,
     /// Linux: what runs the Windows programs (host.rs runner: Ok(its name), Err(what to install)). None on Windows.
     pub runner: Option<Result<String, String>>,
+    /// the translated shaders will be packed (Remaining::compact): what the disk message says stays
+    pub compact: bool,
 }
 
 /// What of setup is still to do, as far as the disk goes.
@@ -99,6 +107,8 @@ pub struct Remaining {
     pub corpus_present: bool,
     pub shaders_done: u64,
     pub shaders_total: u64,
+    /// the translated shaders go into the shader archive (shaders.rs storage_of)
+    pub compact: bool,
 }
 
 /// Bytes setup still needs free. The game build's temporary files are gone before the shaders start, so the larger counts.
@@ -110,14 +120,16 @@ pub fn disk_needed(r: &Remaining) -> u64 {
     } else {
         let total = if r.shaders_total == 0 { DEFAULT_BLOCKS } else { r.shaders_total };
         let left = total.saturating_sub(r.shaders_done);
-        let spirv = (SPIRV_BYTES as u128 * left as u128 / total as u128) as u64;
+        let kept = if r.compact { PACKED_BYTES } else { SPIRV_BYTES };
+        let spirv = (kept as u128 * left as u128 / total as u128) as u64 + if r.compact && left > 0 { CHUNK_BYTES } else { 0 };
         spirv + if r.corpus_present { 0 } else { CORPUS_BYTES }
     };
     build.max(shaders)
 }
 
-/// Reads the shader state of a game folder (the marker and the finished rows) into `Remaining`.
-pub fn remaining_of(game_dir: &Path, build_pending: bool) -> Remaining {
+/// Reads the shader state of a game folder (the marker and the finished rows) into `Remaining`. `compact`: the setup's choice for a
+/// cache with nothing translated yet (config loose_shaders off).
+pub fn remaining_of(game_dir: &Path, build_pending: bool, compact: bool) -> Remaining {
     let m = shaders::read_marker(game_dir);
     let results = game_dir.join(shaders::SPIRV_REL).join("results.tsv");
     // header + one row per translated block
@@ -128,6 +140,7 @@ pub fn remaining_of(game_dir: &Path, build_pending: bool) -> Remaining {
         corpus_present: m.extracted && game_dir.join("shader_cache").join("corpus").join("unique_all.tsv").is_file(),
         shaders_done: done,
         shaders_total: m.blocks as u64,
+        compact: shaders::storage_of(game_dir, &m, compact) == "compact",
     }
 }
 
@@ -173,10 +186,11 @@ pub fn evaluate(f: &Facts) -> Report {
             Level::Fail,
             "Not enough free disk space",
             format!(
-                "{} has {} free and setup needs about {} (the game build, then about 5 GB of shader sources that are deleted at the end and about 26 GB of translated shaders that stay). Free some space, or move the game folder to a bigger drive (Settings, game folder).",
+                "{} has {} free and setup needs about {} (the game build, then about 5 GB of shader sources that are deleted at the end and about {} of translated shaders that stay). Free some space, or move the game folder to a bigger drive (Settings, game folder).",
                 f.drive,
                 gb(free),
-                gb(f.need_bytes)
+                gb(f.need_bytes),
+                if f.compact { "7 GB (packed)" } else { "26 GB" }
             ),
         ),
         Some(free) => push("disk", Level::Ok, "Free disk space", format!("{} free on {}; setup needs about {}.", gb(free), f.drive, gb(f.need_bytes))),
@@ -293,6 +307,7 @@ pub fn probe(game_dir: &Path, r: &Remaining) -> Facts {
     Facts {
         free_bytes: sys::free_bytes(game_dir),
         need_bytes: need,
+        compact: r.compact,
         drive: drive_of(game_dir),
         game_dir: game_dir.to_string_lossy().into_owned(),
         write: writecheck::check(game_dir),

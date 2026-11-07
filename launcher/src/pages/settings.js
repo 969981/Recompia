@@ -5,7 +5,7 @@
 // otherwise replaces only the rows whose markup changed. Writes are shown at once and undone from the files if they fail.
 import './settings.css';
 import { api, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
-import { store } from '../store.js';
+import { askCompact, store } from '../store.js';
 import { canUpdate, gamePhase } from '../action.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
@@ -64,6 +64,9 @@ export async function render(el, ctx) {
       version: s.app?.version ?? '',
       gameBusy,
       canSetUp: !!s.app?.dump && !gameBusy && !s.task && !s.starting,
+      storage: s.storage,
+      repack: s.repack,
+      taskBusy: !!s.task || s.starting,
       saveSources: sources,
       importing,
       importResult,
@@ -415,6 +418,17 @@ export async function render(el, ctx) {
       if (yes && (await store.startSetup())) ctx.go('home');
     },
     'setup-log': () => api('open_setup_log'),
+    'compact-shaders': () => askCompact(),
+    async 'expand-shaders'() {
+      const st = store.state.storage;
+      const yes = await confirm({
+        title: 'Use loose shader files?',
+        body: `This writes the ${(st?.archive_shaders ?? 0).toLocaleString('en')} packed shaders back out as separate files, about ${Math.ceil((st?.archive_raw_bytes ?? 0) / 2 ** 30)} GB. The game runs the same either way, and a later update stops reading loose files.`,
+        ok: 'Use loose files',
+      });
+      if (yes) await store.expandShaders();
+    },
+    'stop-repack': () => store.cancelRepack(),
     async 'check-updates'() {
       checking = true;
       draw();
@@ -493,6 +507,7 @@ export async function render(el, ctx) {
   wasActive = env().gameBusy;
 
   draw(true);
+  store.refreshStorage();
   api('save_sources').then((list) => {
     sources = list;
     draw();

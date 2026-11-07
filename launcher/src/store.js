@@ -2,13 +2,15 @@
 // and subscribes with ctx.on(fn). Long work is started here, not on a page, so it survives navigation.
 import { listen } from '@tauri-apps/api/event';
 import { api, confirm, errText, esc, icon, toast } from './ui.js';
-import { canUpdate, needsFinish, taskOf } from './action.js';
+import { canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
+let compactOffered = false;   // the "free up space" question is asked once per launcher start
+const GB = 2 ** 30;
 const UPDATE_CANCELLED = 'Update cancelled.';   // update.rs CANCELLED: not a failure
 
-/** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop'. */
+/** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop' | 'storage'. */
 function set(patch, why) {
   Object.assign(store.state, patch);
   store.state.task = taskOf(store.state);
@@ -69,6 +71,8 @@ export const store = {
     updateError: null,
     nup: null,            // last nup-progress while a .nup unpacks
     dlss: null,           // last dlss-progress while DLSS downloads
+    storage: null,        // shader_storage: how the translated shaders are kept (loose files or the shader archive), null until asked
+    repack: null,         // { kind: 'compact'|'expand', done, total } while the shader files are being repacked
     starting: false,      // a start click is on its way to Rust
     dragging: false,      // files are being dragged over the window
     dropped: null,        // the paths of the drop that fired why 'drop'
@@ -90,6 +94,7 @@ export const store = {
       on('update-progress', (p) => set({ update: p }, 'update')),
       on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
       on('nup-progress', (p) => store.state.nup && set({ nup: p }, 'task')),
+      on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),
       on('tauri://drag-leave', () => set({ dragging: false, dropped: null }, 'drop')),
       on('tauri://drag-drop', (p) => set({ dragging: false, dropped: p.paths ?? [] }, 'drop')),
@@ -97,7 +102,53 @@ export const store = {
     await store.refresh();
     store.refreshNews(false).then(() => store.refreshNews(true));
     afterUpdate();
+    store.refreshStorage().then(offerCompact);
   },
+
+  /** Reloads shader_storage (it lists the cache folder: a second or two on a hard drive, so it is not part of refresh()). */
+  async refreshStorage() {
+    try {
+      set({ storage: await api('shader_storage') }, 'storage');
+    } catch (e) {
+      console.warn('shader_storage', e);
+    }
+  },
+
+  /** Moves the loose shader files into the shader archive through the sidebar task. Nothing is translated again. */
+  async compactShaders() {
+    if (store.state.repack) return;
+    const before = store.state.storage;
+    set({ repack: { kind: 'compact', done: 0, total: before?.loose_files ?? 0 } }, 'task');
+    try {
+      const r = await api('compact_shaders');
+      await store.refreshStorage();
+      const freed = Math.max(0, (before?.loose_bytes ?? 0) + (before?.archive_bytes ?? 0) - (store.state.storage?.loose_bytes ?? 0) - (store.state.storage?.archive_bytes ?? 0));
+      if (r.finished) toast(`Shader files packed: ${gb(freed)} freed`, 'ok');
+      else toast(`Stopped. ${gb(freed)} freed so far, the rest is packed next time.`);
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      set({ repack: null }, 'task');
+      store.refreshStorage();
+    }
+  },
+
+  /** The undo: writes the shader archive back out as loose files. */
+  async expandShaders() {
+    if (store.state.repack) return;
+    set({ repack: { kind: 'expand', done: 0, total: store.state.storage?.archive_shaders ?? 0 } }, 'task');
+    try {
+      if (await api('expand_shaders')) toast('Shader files unpacked', 'ok');
+      else toast('Stopped. Unpacking continues where it stopped.');
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      set({ repack: null }, 'task');
+      store.refreshStorage();
+    }
+  },
+
+  cancelRepack: () => api('cancel_shader_storage').catch((e) => toast(errText(e), 'error')),
 
   /** Reloads launcher_state, setup_status and game_status. A failed part keeps its last value. */
   async refresh() {
@@ -216,6 +267,43 @@ export const store = {
     }
   },
 };
+
+const gb = (bytes) => `${(bytes / GB).toFixed(bytes >= 10 * GB ? 0 : 1)} GB`;
+
+/** Loose shader files take ~26 GB that the shader archive keeps in a fraction of that: a finished setup that still has them is asked
+ *  once per launcher start. Not now only lasts until the next start: loose storage is on its way out. */
+export function compactOffer(s) {
+  const st = s.storage;
+  if (!st?.complete || st.running || s.repack || s.task || s.starting) return null;
+  if (!['loose', 'mixed'].includes(st.mode) || st.free_estimate < GB) return null;
+  if (s.app?.readiness?.kind !== 'ready' || s.setup?.progress?.state === 'running') return null;
+  if (['starting', 'running', 'finishing'].includes(gamePhase(s.game))) return null;
+  return { free: st.free_estimate, loose: st.loose_bytes, files: st.loose_files };
+}
+
+/** The question itself; Settings > Game offers the same button without it. */
+export async function askCompact() {
+  const o = compactOffer(store.state) ?? { free: store.state.storage?.free_estimate ?? 0, loose: store.state.storage?.loose_bytes ?? 0, files: store.state.storage?.loose_files ?? 0 };
+  const li = (cls, ic, title, text) => `<li class="${cls}">${icon(ic)}<div><strong>${esc(title)}</strong><span>${esc(text)}</span></div></li>`;
+  const go = await confirm({
+    title: `Free up about ${gb(o.free)}?`,
+    html: `<p>Your translated shaders take ${gb(o.loose)} as ${o.files.toLocaleString('en')} separate files. Packed into a few compressed files, they take a fraction of that.</p>
+      <ul class="modal-list">
+        ${li('ok', 'circle-check', 'Nothing is translated again', 'The shaders are packed as they are. It takes a few minutes, and you can stop at any time.')}
+        ${li('ok', 'circle-check', 'The game runs the same', 'It reads packed shaders as quickly as loose ones.')}
+        ${li('warn', 'triangle-alert', 'Loose shader files are going away', 'A later update stops reading them, so this will be needed anyway.')}
+      </ul>`,
+    ok: 'Free up space',
+    cancel: 'Not now',
+  });
+  if (go) await store.compactShaders();
+}
+
+async function offerCompact() {
+  if (compactOffered || !compactOffer(store.state)) return;
+  compactOffered = true;
+  await askCompact();
+}
 
 /** After a self-update restart: say so, and finish the update without being asked. */
 function afterUpdate() {

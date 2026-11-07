@@ -355,6 +355,24 @@ private:
     std::atomic<uint64_t> pre_from_pack_{0}, pre_from_files_{0};       // .spv reads served by the pack / by separate files
     uint64_t pre_start_ms_ = 0;
 
+    // The shader archive (<dir>.archive/NNNNNN.pack, nvn_shaders.cpp "the shader archive"): every translated shader in a few compressed
+    // segment files, written by the launcher instead of (or from) the loose .spv files. A loose <hash>.spv always wins over the archive.
+    struct ArchiveEntry {
+        uint32_t seg;
+        uint32_t csize, usize;
+        uint64_t offset;
+    };
+    void archive_open();                                               // open(), lock_ held, after lines_ is filled
+    bool archive_has(const std::string& hash);                         // in the archive and no loose .spv overrides it; any thread
+    bool archive_frame(const std::string& hash, std::string& comp, uint32_t& usize);   // the compressed frame as stored; any thread
+    bool archive_read(const std::string& hash, std::string& out);      // decompressed; any thread
+    void archive_note_rows(const std::vector<RowRef>& rows);           // rescan(): a new loose .spv for an archived hash wins from now on
+    std::vector<void*> archive_files_;                                 // HANDLEs of the segments; set in open(), then read-only
+    std::unordered_map<std::string, ArchiveEntry> archive_;            // set in open(), then read-only
+    std::mutex loose_mu_;
+    std::unordered_set<std::string> loose_;                            // archived hashes that also have a loose .spv (loose_mu_)
+    std::atomic<uint64_t> from_archive_{0};
+
     std::mutex pre_mu_;
     std::condition_variable pre_cv_;                                        // a worker finished a read / an entry was taken / stop
     std::unordered_set<std::string> pre_inflight_;                          // hashes a worker is reading right now (pre_mu_)

@@ -1,5 +1,5 @@
 // Pure state logic: the hero's one button and the background task. No Tauri import, so `node --test` runs it.
-// Only these keys of the store state are read: app, setup, game, news, update, nup, dlss, starting, loadError.
+// Only these keys of the store state are read: app, setup, game, news, update, nup, dlss, repack, starting, loadError.
 
 const FINISH_UPDATE = new Set(['rebuild', 'retranslate', 'rebase']);
 
@@ -46,6 +46,7 @@ export function taskOf(s) {
   if (setupRunning(s)) return { kind: 'setup', label: 'Setting up', pct: pctOf(s.setup.progress) };
   if (s.nup) return { kind: 'nup', label: 'Unpacking game files', pct: pctOf(s.nup) };
   if (s.dlss) return { kind: 'dlss', label: 'Downloading DLSS', pct: pctOf(s.dlss) };
+  if (s.repack) return { kind: 'repack', label: s.repack.kind === 'expand' ? 'Unpacking shaders' : 'Packing shaders', pct: pctOf(s.repack) };
   return null;
 }
 
@@ -75,6 +76,7 @@ export function primaryAction(s) {
   }
   if (s.update) return off('Updating', 'loader-circle');
   if (s.nup) return off('Unpacking', 'loader-circle');
+  if (s.repack) return off(s.repack.kind === 'expand' ? 'Unpacking shaders' : 'Packing shaders', 'loader-circle');
 
   const kind = s.app.readiness?.kind;
   const stopped = ['cancelled', 'error'].includes(s.setup?.progress?.state);
