@@ -1755,6 +1755,41 @@ bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
 }
 }  // namespace
 
+namespace {
+// The CPU wrote an HDR-promoted texture (RGBA16F image, 8-bit sRGB storage): the storage is prepared in its NVN format and goes in
+// through tex_copy_buffer_converted, which blits it into the float16 image (sRGB decoded to linear, as the game's views read it).
+// False when that is not possible: the caller clears the image as before.
+bool upload_promoted(Texture* t, TexGpu& g, Frame& f) {
+    if (!g.fmt || t->levels != 1 || g.layers != 1 || !(g.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) return false;
+    TexCaps caps;
+    caps.image_format = g.fmt->vk;
+    PreparedTexture prep;
+    if (!prepare_texture(*t, caps, prep) || prep.format != g.fmt->vk || prep.level.empty()) return false;
+    UploadAlloc st = f.staging(prep.data.size());
+    if (!st) return false;
+    std::memcpy(st.ptr, prep.data.data(), prep.data.size());
+    const PreparedLevel& pl = prep.level[0];
+    VkBufferImageCopy r = {};
+    r.bufferOffset = st.offset + pl.offset;
+    r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    r.imageExtent = {pl.width, pl.height, pl.depth};
+    move_layout(f, g, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const char* why = nullptr;
+    const bool ok = tex_copy_buffer_converted(t, f, st.buffer, r, true, &why);
+    move_layout(f, g, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (!ok) {
+        static int logged = 0;
+        if (logged++ < 10) NXLOG_W(kTag, "texture %u: the CPU wrote an HDR float16 target, not uploaded (%s): it is cleared", t->id, why ? why : "?");
+        return false;
+    }
+    t->cpu_dirty.exchange(false);
+    g.uploaded = true;
+    g.gpu_written = false;
+    counters().texture_uploads.fetch_add(1);
+    return true;
+}
+}  // namespace
+
 void tex_ensure_current(Texture* t, Frame& f) {
     NXFT_MIN("tex.ensure", 30000);
     TexGpu* g = tex_or_null(t);
@@ -1808,6 +1843,8 @@ void tex_ensure_current(Texture* t, Frame& f) {
         if (logged++ < 20) NXLOG_W(kTag, "texture %u: the CPU wrote a scaled render target: the write is not uploaded", t->id);
     }
     // A float16 render target of the HDR scene, or a scaled one: the NVN bytes in memory do not fit the image. It starts cleared.
+    // A CPU write into an HDR float16 one goes in through a converting blit (the album decodes its photos into one, #229).
+    if (g->promoted && dirty && upload_promoted(t, *g, f)) return;
     if (g->promoted || g->scale != 1.0f) {
         t->cpu_dirty.exchange(false);
         if (!g->uploaded) fill_zero(f, *g);

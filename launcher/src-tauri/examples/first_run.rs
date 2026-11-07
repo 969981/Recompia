@@ -9,6 +9,9 @@ mod gamebuild;
 #[allow(dead_code)]
 #[path = "../src/host.rs"]
 mod host;
+#[allow(dead_code)]
+#[path = "../src/shader_archive.rs"]
+mod shader_archive;
 #[path = "../src/shaders.rs"]
 mod shaders;
 
@@ -68,6 +71,7 @@ fn main() {
         romfs_base: None,
         main: PathBuf::from(&a[1]).join("main"),
         limit: a.get(4).and_then(|x| x.parse().ok()).unwrap_or(0),
+        compact: std::env::var_os("PKP_LOOSE_SHADERS").is_none(),
         jobs,
         idle: false,
         log: None,

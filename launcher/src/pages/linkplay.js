@@ -26,6 +26,9 @@ export async function render(el, ctx) {
   const mem = stored();
   const ui = uiFrom(pkp, mem);
   let relay = await api('relay_status').catch(() => null);
+  // this PC's relay, remembered from last time, is only offered while it runs: the launcher just started, so it does not until the
+  // toggle is turned on, and a host there would open the room on a relay that is not there (#239)
+  if (!relay && /^127\./.test(ui.relay.trim())) ui.relay = '';
   let lan = null;
   let gameCode = null;     // room-code.txt: the game's own
   let dropped = null;      // the game's code the player replaced with New code
@@ -274,10 +277,8 @@ export async function render(el, ctx) {
       if (on) {
         relay = await api('relay_start', { port: RELAY_PORT });
         await loadLan();
-        if (!ui.relay.trim()) {
-          ui.relay = `127.0.0.1:${relayPort(relay)}`;
-          await commit();
-        }
+        if (!ui.relay.trim()) ui.relay = `127.0.0.1:${relayPort(relay)}`;
+        await commit();   // also when the field was filled: the file may still say join:<ip>, and the game could not host (#239)
       } else {
         const own = `127.0.0.1:${relayPort(relay)}`;   // left pointing at the relay just stopped, the game could not host
         await api('relay_stop');

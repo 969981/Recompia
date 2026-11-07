@@ -14,6 +14,7 @@ mod relay;
 mod saveimport;
 mod settings;
 mod setuplog;
+mod shader_archive;
 mod shaders;
 mod update;
 mod writecheck;
@@ -41,6 +42,9 @@ struct Config {
     minimize_on_play: bool,
     /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
     gentle_build: bool,
+    /// A new setup keeps its translated shaders as ~99,000 loose files (the old storage) instead of the shader archive. Only read when
+    /// a setup starts with no translated shader yet (shaders.rs Job::compact). Loose storage is on its way out.
+    loose_shaders: bool,
     /// Where the window was last time, on a desktop screen (logical pixels); none: the default size, centred
     window: Option<WindowPlace>,
 }
@@ -454,7 +458,7 @@ fn readiness(cfg: &Config) -> Probe {
     let builds_exe = gamebuild::is_package_b(&tools_dir);
     // the base game's files now fill in an update that lacks them (#128): its shaders were never extracted, so Set up runs once more
     let base_changed = !paths.romfs_base.is_empty() && {
-        let job = shaders::Job { game_dir: dir.clone(), romfs: PathBuf::from(&paths.romfs), romfs_base: Some(PathBuf::from(&paths.romfs_base)), main: PathBuf::new(), jobs: 1, idle: false, log: None, limit: 0 };
+        let job = shaders::Job { game_dir: dir.clone(), romfs: PathBuf::from(&paths.romfs), romfs_base: Some(PathBuf::from(&paths.romfs_base)), main: PathBuf::new(), jobs: 1, idle: false, log: None, limit: 0, compact: false };
         shaders::read_marker(&dir).romfs != job.romfs_key()
     };
     let readiness = readiness_of(&ReadyFacts {
@@ -497,6 +501,7 @@ async fn launcher_state(app: AppHandle) -> Result<LauncherState, String> {
 #[tauri::command]
 fn play(app: AppHandle) -> Result<(), String> {
     refuse_during_update(&app)?;
+    refuse_during_storage(&app)?;
     let cfg = load_config(&app);
     let probe = readiness(&cfg);
     let (Some(paths), "ready") = (probe.paths, probe.readiness.kind) else {
@@ -550,6 +555,7 @@ fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
 #[tauri::command]
 fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<bool>) -> Result<(), String> {
     refuse_during_update(&app)?;
+    refuse_during_storage(&app)?;
     let cfg = load_config(&app);
     let gentle = gentle.unwrap_or(cfg.gentle_build);
     let report = dump::scan(&cfg.dump_dir);
@@ -589,7 +595,7 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<boo
     log(&format!("game files: {}", dump::fwd(Path::new(&chosen.exefs))));
     let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: build_jobs, idle: gentle, log: Some(log.clone()) };
     let romfs_base = (!chosen.romfs_base.is_empty()).then(|| PathBuf::from(&chosen.romfs_base));
-    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), romfs_base, main: PathBuf::from(&chosen.exefs).join("main"), jobs, idle: gentle, log: Some(log.clone()), limit: 0 };
+    let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), romfs_base, main: PathBuf::from(&chosen.exefs).join("main"), jobs, idle: gentle, log: Some(log.clone()), limit: 0, compact: !cfg.loose_shaders };
     std::thread::spawn(move || {
         let mut last = (String::new(), 0u64, String::new());
         let mut emit = |p: shaders::Progress| {
@@ -651,11 +657,13 @@ fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<boo
 /// The checks shown before Set up starts (preflight.rs). Reads the disk and loads Vulkan, so it runs off the UI thread.
 #[tauri::command]
 async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
-    let dir = game_dir_of(&load_config(&app));
+    let cfg = load_config(&app);
+    let dir = game_dir_of(&cfg);
+    let compact = !cfg.loose_shaders;
     let tools_dir = exe_dir().join("tools");
     tauri::async_runtime::spawn_blocking(move || {
         let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir);
-        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending));
+        let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending, compact));
         let report = preflight::evaluate(&facts);
         // into the setup log too: a failed setup report then shows what the PC looked like
         let log = setuplog::SetupLog::open(&dir);
@@ -680,6 +688,153 @@ fn open_setup_log(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn cancel_setup(state: State<Arc<SetupState>>) {
+    state.cancel.store(true, Ordering::SeqCst);
+}
+
+/// "Make shader files smaller" and its undo (shader_archive.rs): one at a time, never while the game, setup or an update runs.
+#[derive(Default)]
+struct StorageState {
+    running: AtomicBool,
+    cancel: AtomicBool,
+}
+
+fn refuse_during_storage(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Arc<StorageState>>().running.load(Ordering::SeqCst) {
+        return Err("The shader files are being repacked. Wait for it to finish, or stop it in Settings.".into());
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Clone)]
+struct StorageProgress {
+    /// "compact" or "expand"
+    kind: String,
+    done: u64,
+    total: u64,
+}
+
+#[derive(Serialize)]
+struct StorageStatus {
+    #[serde(flatten)]
+    storage: shader_archive::Storage,
+    /// setup finished, so a move now is the whole cache (the launcher offers it); during or before setup it is not offered
+    complete: bool,
+    running: bool,
+}
+
+/// How the translated shaders are stored. Lists the cache folder, so it runs off the UI thread.
+#[tauri::command]
+async fn shader_storage(app: AppHandle, state: State<'_, Arc<StorageState>>) -> Result<StorageStatus, String> {
+    let dir = game_dir_of(&load_config(&app));
+    let running = state.running.load(Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || StorageStatus { storage: shader_archive::storage(&dir), complete: shaders::is_complete(&dir), running })
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Starts a storage job after the checks every one of them needs. The guard clears `running` however the job ends.
+fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), String> {
+    refuse_during_update(app)?;
+    if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
+        return Err("Setup is running. Wait for it to finish, or pause it first.".into());
+    }
+    if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first: it reads the shader files while it runs.".into());
+    }
+    let st = app.state::<Arc<StorageState>>().inner().clone();
+    if st.running.swap(true, Ordering::SeqCst) {
+        return Err("The shader files are already being repacked.".into());
+    }
+    st.cancel.store(false, Ordering::SeqCst);
+    Ok((game_dir_of(&load_config(app)), st))
+}
+
+struct StorageRun(Arc<StorageState>);
+impl Drop for StorageRun {
+    fn drop(&mut self) {
+        self.0.running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[derive(Serialize)]
+struct CompactResult {
+    #[serde(flatten)]
+    moved: shader_archive::Moved,
+    finished: bool,
+}
+
+/// Moves every loose shader file into the shader archive. Nothing is translated: the files are compressed as they are. Emits
+/// "shader-storage-progress"; resolves when done or stopped (cancel_shader_storage). What was moved stays moved.
+#[tauri::command]
+async fn compact_shaders(app: AppHandle) -> Result<CompactResult, String> {
+    let (dir, st) = begin_storage(&app)?;
+    let run = StorageRun(st.clone());
+    let slog = setuplog::SetupLog::open(&dir);
+    let (moved, finished) = tauri::async_runtime::spawn_blocking(move || {
+        let _run = run;
+        writecheck::check(&dir).map_err(|e| e.message())?;
+        let before = shader_archive::storage(&dir);
+        slog.line(&format!("=== Make shader files smaller: {} loose files ({:.1} GB)", before.loose_files, before.loose_bytes as f64 / preflight::GB as f64));
+        let r = shader_archive::compact(&dir, None, &st.cancel, |done, total| {
+            let _ = app.emit("shader-storage-progress", StorageProgress { kind: "compact".into(), done, total });
+        });
+        // a later Set up again keeps the cache packed (shaders.rs Marker::storage)
+        if r.is_ok() {
+            shaders::set_storage(&dir, "compact")?;
+        }
+        match &r {
+            Ok((m, fin)) => slog.line(&format!(
+                "=== {}: {} shaders, {:.2} GB of SPIR-V in {:.2} GB ({:.2}x), {:.0} s",
+                if *fin { "Done" } else { "Stopped" },
+                m.shaders,
+                m.raw_bytes as f64 / preflight::GB as f64,
+                m.disk_bytes as f64 / preflight::GB as f64,
+                if m.disk_bytes > 0 { m.raw_bytes as f64 / m.disk_bytes as f64 } else { 0.0 },
+                m.seconds
+            )),
+            Err(e) => slog.line(&format!("=== Make shader files smaller failed: {}", e)),
+        }
+        r
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(CompactResult { moved, finished })
+}
+
+/// The undo: writes the archive back out as loose files. Needs the free space of the loose files (about 26 GB).
+#[tauri::command]
+async fn expand_shaders(app: AppHandle) -> Result<bool, String> {
+    let (dir, st) = begin_storage(&app)?;
+    let run = StorageRun(st.clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        let _run = run;
+        let s = shader_archive::storage(&dir);
+        // segments are deleted as they are written out: the peak is the loose size less what the archive already took
+        let need = s.archive_raw_bytes.saturating_sub(s.archive_bytes) + preflight::GB;
+        if let Some(free) = preflight::free_bytes(&dir) {
+            if free < need {
+                return Err(format!(
+                    "Loose shader files need about {:.0} GB more free space on {} ({:.0} GB free).",
+                    need as f64 / preflight::GB as f64,
+                    preflight::drive_of(&dir),
+                    free as f64 / preflight::GB as f64
+                ));
+            }
+        }
+        let finished = shader_archive::expand(&dir, &st.cancel, |done, total| {
+            let _ = app.emit("shader-storage-progress", StorageProgress { kind: "expand".into(), done, total });
+        })?;
+        if finished {
+            shaders::set_storage(&dir, "loose")?;
+        }
+        Ok(finished)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_shader_storage(state: State<Arc<StorageState>>) {
     state.cancel.store(true, Ordering::SeqCst);
 }
 
@@ -1016,6 +1171,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(play::PlayState::default())
         .manage(Arc::new(SetupState::default()))
+        .manage(Arc::new(StorageState::default()))
         .manage(RelayState::default())
         .manage(Arc::new(update::UpdateState::default()))
         .manage(update::ReleaseStore::default())
@@ -1040,6 +1196,10 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 // a failed screen query only means the window keeps its default size: it must never stop the launcher from starting
                 let _ = fit_window(&window, load_config(app.handle()).window);
+            }
+            // Link Play starts from its defaults on every launcher start: nothing left from an earlier session decides the next one (#239)
+            if let Err(e) = settings::reset_link_play(&game_dir_of(&load_config(app.handle()))) {
+                eprintln!("Link Play reset: {e}");
             }
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
             if let Some(launcher) = launcher_path() {
@@ -1091,6 +1251,10 @@ fn main() {
             preflight,
             open_setup_log,
             cancel_setup,
+            shader_storage,
+            compact_shaders,
+            expand_shaders,
+            cancel_shader_storage,
             dlss_status,
             fetch_dlss,
             game_status,

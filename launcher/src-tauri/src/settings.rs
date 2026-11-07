@@ -90,6 +90,38 @@ pub fn apply(dir: &Path, edits: &[Edit]) -> Result<(), String> {
     Ok(())
 }
 
+/// Called once when the launcher window starts (not by `--play` or `--host`): puts Link Play's per-session [net] keys back to their
+/// defaults, so nothing left from an earlier session or an older version (a `join:<ip>`, a relay that is no longer running, an old room
+/// code, `protocol = linkplay`) decides how the next one runs (#239). The Link Play page remembers the player's own addresses and codes in
+/// its storage and offers them again. Off stays off; `lan_sweep` and `uid` are preferences and are kept. A missing pkp.ini is left
+/// missing, and the file is only written when a value changes. True: something was reset.
+pub fn reset_link_play(dir: &Path) -> Result<bool, String> {
+    let path = dir.join(PKP_INI);
+    let Some(mut ini) = load(&path) else { return Ok(false) };
+    let cur = |ini: &Ini, key: &str| ini.get("net", key).map(|v| v.trim().to_ascii_lowercase());
+    let off = matches!(cur(&ini, "mode").as_deref(), Some("off") | Some("0") | Some(""));
+    let mut changed = false;
+    let mut put = |ini: &mut Ini, key: &str, value: &str, keep: &dyn Fn(&str) -> bool| {
+        if let Some(v) = cur(ini, key) {
+            if !keep(&v) {
+                ini.set("net", key, value);
+                changed = true;
+            }
+        }
+    };
+    put(&mut ini, "protocol", "native", &|v| v == "native");
+    if !off {
+        put(&mut ini, "mode", "auto", &|v| v == "auto");
+    }
+    put(&mut ini, "internet", "false", &|v| matches!(v, "" | "false" | "0" | "no" | "off"));
+    put(&mut ini, "relay", "", &|v| v.is_empty());
+    put(&mut ini, "room_code", "", &|v| v.is_empty());
+    if changed {
+        write_atomic(&path, &ini.to_text())?;
+    }
+    Ok(changed)
+}
+
 /// Used by Play and setup: the ini keys the launcher owns. pkp.exe reads every path from pkp.ini (a pkp.ini next to it makes
 /// the game folder its working directory), so it needs no command-line paths.
 /// A path for pkp.ini: relative to the game folder (forward slashes) when it lies inside it, so the folder can be moved or copied to
@@ -162,4 +194,72 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str,
         write_atomic(&path, &ini.to_text())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+
+    fn run(text: &str) -> (bool, String) {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("pkp-reset-{}-{}", std::process::id(), n));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        if !text.is_empty() {
+            fs::write(dir.join(PKP_INI), text).unwrap();
+        }
+        let changed = reset_link_play(&dir).unwrap();
+        let out = fs::read_to_string(dir.join(PKP_INI)).unwrap_or_default();
+        let _ = fs::remove_dir_all(&dir);
+        (changed, out)
+    }
+
+    fn net(text: &str, key: &str) -> Option<String> {
+        Ini::parse(text).get("net", key)
+    }
+
+    #[test]
+    fn leftovers_go_back_to_defaults() {
+        let (changed, out) = run("[net]\nprotocol = linkplay\nmode = join:192.168.0.20\ninternet = true\nrelay = 127.0.0.1:47610\n\
+                                  room_code = ABCD-ABCD-ABCD-ABCD\nlan_sweep = off\nuid = 0123456789abcdef0123456789abcdef\n[pkp]\nlink_story_coop = true\n");
+        assert!(changed);
+        assert_eq!(net(&out, "protocol").as_deref(), Some("native"));
+        assert_eq!(net(&out, "mode").as_deref(), Some("auto"));
+        assert_eq!(net(&out, "internet").as_deref(), Some("false"));
+        assert_eq!(net(&out, "relay").as_deref(), Some(""));
+        assert_eq!(net(&out, "room_code").as_deref(), Some(""));
+        assert_eq!(net(&out, "lan_sweep").as_deref(), Some("off"));
+        assert_eq!(net(&out, "uid").as_deref(), Some("0123456789abcdef0123456789abcdef"));
+        assert_eq!(Ini::parse(&out).get("pkp", "link_story_coop").as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn a_bare_address_in_mode_is_reset() {
+        let (_, out) = run("[net]\nmode = 192.168.0.20\n");
+        assert_eq!(net(&out, "mode").as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn off_stays_off() {
+        let (changed, out) = run("[net]\nmode = off\ninternet = true\n");
+        assert!(changed);
+        assert_eq!(net(&out, "mode").as_deref(), Some("off"));
+        assert_eq!(net(&out, "internet").as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn defaults_and_missing_keys_are_not_written() {
+        let text = "[video]\nwidth = 1920\n[net]\nmode = auto\ninternet = false\n";
+        let (changed, out) = run(text);
+        assert!(!changed);
+        assert_eq!(out, text);
+    }
+
+    #[test]
+    fn a_missing_file_stays_missing() {
+        let (changed, out) = run("");
+        assert!(!changed);
+        assert!(out.is_empty());
+    }
 }

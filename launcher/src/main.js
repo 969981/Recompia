@@ -32,7 +32,7 @@ if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
 }
 
 // where the sidebar pill leads
-const TASK_PAGE = { setup: 'setup', nup: 'setup', update: 'home', dlss: 'settings' };
+const TASK_PAGE = { setup: 'setup', nup: 'setup', update: 'home', dlss: 'settings', repack: 'home' };
 
 const SWAP_WAIT_MS = 120;   // a page that loads fast swaps in whole; a slow one shows what it has by then
 

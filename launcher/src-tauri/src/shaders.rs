@@ -13,7 +13,10 @@
 //! moved into `spirv/` and its rows appended to `spirv/results.tsv`. A block with a row there is never translated again.
 //! `shader_cache/setup.json` records what is done. The tools run at below-normal priority.
 //! On Linux the extractor runs with the Linux Python and the translator (a Windows program) through Proton (host.rs).
-//! Its only crate-local import is host.rs, which has none, so `examples/shader_setup.rs` can build the two files alone.
+//! Compact storage (shader_archive.rs): when the cache has a shader archive, or a new setup asks for one (`Job::compact`), every chunk is
+//! moved into the archive as soon as it is committed, so the loose files never pile up. A cache of loose files stays loose until the
+//! player makes it smaller (main.rs compact_shaders).
+//! Its only crate-local imports are host.rs and shader_archive.rs, which have none, so `examples/shader_setup.rs` can build them alone.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -33,6 +36,9 @@ pub const MISSING_REL: &str = "shader_cache/missing";
 /// Every run-time block seen so far, kept with its code (manifest.tsv, code_<hash>.bin, ctrl_<hash>.bin), so each Play
 /// can check that all of them are translated without running the game.
 pub const RUNTIME_REL: &str = "shader_cache/runtime";
+/// Run-time blocks a translator fix changes whose old translation is in the shader archive (it cannot be deleted one by one there):
+/// one hash per line. translate_missing translates them again, as if they had no translation, and empties the list.
+const RETRANSLATE_REL: &str = "shader_cache/runtime/retranslate.txt";
 /// Blocks per translator run. Under Proton every run also starts Proton (a few seconds), so Linux runs fewer, larger chunks.
 const CHUNK: usize = if cfg!(windows) { 1000 } else { 5000 };
 /// Workers for the extractor. It maps each asset file into memory and decompresses it, so one worker per CPU thread can
@@ -54,6 +60,10 @@ pub struct Marker {
     pub complete: bool,
     /// TRANSLATOR_REV of the finished cache (0: before revisions were recorded)
     pub translator: u32,
+    /// "compact" (shader archive) or "loose": decided once, when this cache's first setup starts (Job::compact), so a setup that stops
+    /// before its first chunk is packed keeps the choice. Empty: a cache from before the archive (it is loose). Packing and unpacking
+    /// in Settings change it (set_storage).
+    pub storage: String,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -88,6 +98,9 @@ pub struct Job {
     pub log: Option<LogFn>,
     /// Test runs: translate at most this many blocks (0 = all); the setup is then never marked complete.
     pub limit: usize,
+    /// A new cache goes into the shader archive (shader_archive.rs). Only decides for a cache with no translated shader yet: an existing
+    /// cache keeps the storage it has (one with an archive stays compact, one of loose files stays loose).
+    pub compact: bool,
 }
 
 impl Job {
@@ -117,6 +130,26 @@ fn write_marker(game_dir: &Path, m: &Marker) -> Result<(), String> {
     fs::rename(&tmp, &p).map_err(|e| format!("cannot replace {}: {}", p.display(), e))
 }
 
+/// How this cache is (or will be) stored, with `choice` the setup's Job::compact: a cache with an archive is compact, otherwise the
+/// storage setup.json recorded, otherwise (nothing decided yet) the choice when no shader is translated yet, else loose. Setup and
+/// the preflight's disk estimate both ask this.
+pub fn storage_of(game_dir: &Path, marker: &Marker, choice: bool) -> &'static str {
+    if crate::shader_archive::exists(game_dir) || marker.storage == "compact" {
+        "compact"
+    } else if marker.storage.is_empty() && choice && crate::shader_archive::loose_files(game_dir).is_empty() {
+        "compact"
+    } else {
+        "loose"
+    }
+}
+
+/// Records how the cache is stored ("compact" or "loose"), after Settings packed or unpacked it.
+pub fn set_storage(game_dir: &Path, storage: &str) -> Result<(), String> {
+    let mut m = read_marker(game_dir);
+    m.storage = storage.to_string();
+    write_marker(game_dir, &m)
+}
+
 /// True when a finished setup's cache is in place.
 pub fn is_complete(game_dir: &Path) -> bool {
     let m = read_marker(game_dir);
@@ -131,14 +164,14 @@ pub fn needs_retranslation(game_dir: &Path) -> bool {
 
 /// The blocks of `rows` (results.tsv rows) whose translation by revision `rev` the later revisions change. Before 1: every
 /// module with an atomic instruction (OpAtomicExchange..OpAtomicXor, opcodes 229-242).
-fn stale_blocks(spirv: &Path, rows: &[String], rev: u32) -> HashSet<String> {
+fn stale_blocks(spirv: &Path, archive: &crate::shader_archive::Archive, rows: &[String], rev: u32) -> HashSet<String> {
     let mut out = HashSet::new();
     if rev >= TRANSLATOR_REV {
         return out;
     }
     for r in rows {
         let h = first_col(r);
-        let Ok(b) = fs::read(spirv.join(format!("{}.spv", h))) else { continue };
+        let Some(b) = crate::shader_archive::read_translation(spirv, archive, h) else { continue };
         let w: Vec<u32> = b.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         let mut i = 5;
         while i < w.len() {
@@ -374,9 +407,15 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
 
     let spirv = game_dir.join(SPIRV_REL);
     let Ok((header, rows)) = read_tsv(&list) else { return Ok(0) };
+    let archive = crate::shader_archive::Archive::open(game_dir);
+    let again: HashSet<String> = fs::read_to_string(game_dir.join(RETRANSLATE_REL)).map(|t| t.lines().map(|l| l.trim().to_string()).collect()).unwrap_or_default();
     // ponytail: a block the translator fails on has no .spv and is tried again at every start (a second or two)
-    let todo: Vec<&String> = rows.iter().filter(|r| !spirv.join(format!("{}.spv", col(r, 10))).is_file()).collect();
+    let todo: Vec<&String> = rows
+        .iter()
+        .filter(|r| again.contains(col(r, 10)) || !crate::shader_archive::has_translation(&spirv, &archive, col(r, 10)))
+        .collect();
     if todo.is_empty() {
+        let _ = fs::remove_file(game_dir.join(RETRANSLATE_REL));
         return Ok(0);
     }
     // the harness reads the code and control files relative to its manifest: absolute paths (as the translator sees them)
@@ -408,6 +447,12 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     let n = commit_stage(&stage, &spirv)?;
     let _ = fs::remove_dir_all(&stage);
     let _ = fs::remove_dir_all(&input);
+    let _ = fs::remove_file(game_dir.join(RETRANSLATE_REL));
+    // a compact cache stays compact: the new translations join the archive (a small segment)
+    if crate::shader_archive::exists(game_dir) {
+        let hashes: Vec<String> = todo.iter().map(|r| col(r, 10).to_string()).collect();
+        crate::shader_archive::compact(game_dir, Some(&hashes), &AtomicBool::new(false), |_, _| {})?;
+    }
     Ok(n)
 }
 
@@ -470,10 +515,17 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let stage = cache.join("stage");
     let spirv = job.game_dir.join(SPIRV_REL);
     fs::create_dir_all(&spirv).map_err(|e| format!("cannot create {}: {}", spirv.display(), e))?;
+    crate::shader_archive::clean(&job.game_dir);
     let romfs_s = job.romfs_key();
     let mut marker = read_marker(&job.game_dir);
     if marker.romfs != romfs_s {
         marker = Marker { romfs: romfs_s.clone(), ..Default::default() };
+    }
+    // the storage this cache keeps (Job::compact): decided once, when nothing is translated yet; a cache with an archive is compact
+    marker.storage = storage_of(&job.game_dir, &marker, job.compact).into();
+    let compact = marker.storage == "compact";
+    if let Some(l) = &job.log {
+        l(&format!("shader storage: {}", if compact { "compact (shader archive)" } else { "loose .spv files" }));
     }
     marker.complete = false;
     write_marker(&job.game_dir, &marker)?;
@@ -517,14 +569,26 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let mut done: HashSet<String> = rrows.iter().map(|r| first_col(r).to_string()).collect();
     // a cache of an older translator: the blocks a later fix changes are translated again. Those of the corpus here; those the
     // game built while it ran (not in the corpus) lose their .spv, so translate_missing (prepare, after setup) does them.
-    let stale = stale_blocks(&spirv, &rrows, marker.translator);
+    let archive = crate::shader_archive::Archive::open(&job.game_dir);
+    let stale = stale_blocks(&spirv, &archive, &rrows, marker.translator);
     if !stale.is_empty() {
         let corpus_rows: HashSet<&str> = urows.iter().map(|r| first_col(r)).collect();
+        let mut again = String::new();
         for h in &stale {
             done.remove(h);
             if !corpus_rows.contains(h.as_str()) {
                 let _ = fs::remove_file(spirv.join(format!("{}.spv", h)));
+                if archive.contains(h) {
+                    again.push_str(h);
+                    again.push('\n');
+                }
             }
+        }
+        if !again.is_empty() {
+            let p = job.game_dir.join(RETRANSLATE_REL);
+            let _ = fs::create_dir_all(job.game_dir.join(RUNTIME_REL));
+            let mut f = fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| format!("cannot write {}: {}", p.display(), e))?;
+            f.write_all(again.as_bytes()).map_err(|e| format!("cannot write {}: {}", p.display(), e))?;
         }
         if let Some(l) = &job.log {
             l(&format!("translator revision {} -> {}: {} shaders translated again", marker.translator, TRANSLATOR_REV, stale.len()));
@@ -561,6 +625,11 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
             return Ok(false);
         }
         commit_stage(&stage, &spirv)?;
+        if compact {
+            // into the archive at once: the loose files of a chunk never pile up (peak disk use stays near the compressed size)
+            let hashes: Vec<String> = chunk.iter().map(|r| first_col(r).to_string()).collect();
+            crate::shader_archive::compact(&job.game_dir, Some(&hashes), &AtomicBool::new(false), |_, _| {})?;
+        }
         finished += chunk.len() as u64;
         report(p("translate", finished, total, format!("Translating shaders: {} of {}", finished, total)));
     }

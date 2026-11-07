@@ -1092,8 +1092,152 @@ bool ShaderCache::read_spv(const std::string& hash, std::string& out) {
         pre_from_pack_.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
+    if (archive_has(hash) && archive_read(hash, out)) {
+        from_archive_.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
     pre_from_files_.fetch_add(1, std::memory_order_relaxed);
     return read_file(dir_ + "/" + hash + ".spv", out);
+}
+
+// ---- the shader archive -------------------------------------------------------------------------------------------
+// <dir>.archive/ (shader_cache/spirv.archive: beside the cache directory, like the preload pack) holds segment files NNNNNN.pack, each in
+// the preload pack's layout (PackHeader, one zstd frame per shader, PackDiskEntry index; line_hash unused, 0). The launcher writes them:
+// a new setup translates straight into segments, and "Make shader files smaller" moves an existing cache of loose <hash>.spv files into
+// them (about 26 GB of SPIR-V compresses to a fraction of that; nothing is translated again). A higher segment number wins when a hash is in
+// two segments, and a loose <hash>.spv in the cache directory wins over the archive: a shader translated again (a translator fix, or one
+// translated while the game runs) is written there and used at once, until the launcher folds it into a new segment. The runtime only reads
+// segments, opened once at start ([nvn] shader_archive = 0: ignored).
+namespace {
+
+std::string archive_dir_of(std::string dir) {
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
+    return dir + ".archive";
+}
+
+bool archive_enabled() {
+    static const bool on = nxrt::config_get_bool("nvn", "shader_archive", true);
+    return on;
+}
+
+// The names in `dir` that match `pattern` (FindFirstFileEx: one listing, not a probe per name).
+std::vector<std::string> list_names(const std::string& dir, const wchar_t* pattern) {
+    std::vector<std::string> out;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileExW((widen(dir) + L"\\" + pattern).c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
+                                FIND_FIRST_EX_LARGE_FETCH);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        const int n = WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, nullptr, 0, nullptr, nullptr);
+        if (n <= 1) continue;
+        std::string s(static_cast<size_t>(n - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, s.data(), n, nullptr, nullptr);
+        out.push_back(std::move(s));
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return out;
+}
+
+}  // namespace
+
+// open(), lock_ held: results_ and lines_ are in place.
+void ShaderCache::archive_open() {
+    if (!archive_enabled()) return;
+    const std::string adir = archive_dir_of(dir_);
+    std::vector<std::string> names = list_names(adir, L"*.pack");
+    // NNNNNN.pack only (a .pack.tmp the launcher is still writing does not match *.pack's name test below), in segment order
+    names.erase(std::remove_if(names.begin(), names.end(), [](const std::string& n) {
+                    return n.size() != 11 || n.compare(6, 5, ".pack") || !std::all_of(n.begin(), n.begin() + 6, [](char c) { return c >= '0' && c <= '9'; });
+                }), names.end());
+    std::sort(names.begin(), names.end());
+    if (names.empty()) return;
+    uint64_t raw = 0, comp = 0;
+    size_t bad = 0;
+    for (const std::string& name : names) {
+        HANDLE f = CreateFileW(widen(adir + "/" + name).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f == INVALID_HANDLE_VALUE) {
+            bad++;
+            continue;
+        }
+        PackHeader h = {};
+        LARGE_INTEGER size = {};
+        const bool head_ok = GetFileSizeEx(f, &size) && read_at(f, 0, &h, sizeof h) && !std::memcmp(h.magic, kPackMagic, sizeof h.magic) &&
+                             h.version == kPackVersion && h.count <= 1000000 && h.index_offset >= sizeof h &&
+                             h.index_offset + uint64_t{h.count} * sizeof(PackDiskEntry) == static_cast<uint64_t>(size.QuadPart);
+        std::vector<PackDiskEntry> idx(head_ok ? h.count : 0);
+        if (!head_ok || (h.count && !read_at(f, h.index_offset, idx.data(), static_cast<uint32_t>(idx.size() * sizeof(PackDiskEntry))))) {
+            NXLOG_W("nvn", "shader archive: %s is not a segment this runtime reads: skipped", name.c_str());
+            CloseHandle(f);
+            bad++;
+            continue;
+        }
+        const uint32_t seg = static_cast<uint32_t>(archive_files_.size());
+        archive_files_.push_back(f);
+        for (const PackDiskEntry& e : idx) {
+            if (e.offset < sizeof h || e.csize == 0 || e.offset + e.csize > h.index_offset || e.usize == 0 || e.usize % 4 || e.usize > (64u << 20))
+                continue;
+            archive_.insert_or_assign(std::string(e.hash, sizeof e.hash), ArchiveEntry{seg, e.csize, e.usize, e.offset});   // later segment wins
+        }
+        comp += h.index_offset;
+    }
+    for (const auto& [hash, e] : archive_) raw += e.usize;
+    // The loose files that override an archived shader. One listing of the directory; after a full move it holds only the shaders
+    // translated since.
+    size_t loose_total = 0;
+    if (!archive_.empty()) {
+        for (std::string& n : list_names(dir_, L"*.spv")) {
+            if (n.size() != 20) continue;
+            loose_total++;
+            n.resize(16);
+            if (archive_.count(n)) loose_.insert(std::move(n));
+        }
+    }
+    NXLOG_I("nvn", "shader archive: %zu shaders in %zu segment(s) (%llu MiB of SPIR-V in %llu MiB)%s; %zu loose .spv file(s), %zu of them "
+                   "newer than their archived copy", archive_.size(), archive_files_.size(), static_cast<unsigned long long>(raw >> 20),
+            static_cast<unsigned long long>(comp >> 20), bad ? (", " + std::to_string(bad) + " unreadable segment(s) skipped").c_str() : "",
+            loose_total, loose_.size());
+}
+
+bool ShaderCache::archive_has(const std::string& hash) {
+    if (archive_.empty() || !archive_.count(hash)) return false;
+    std::lock_guard lk(loose_mu_);
+    return !loose_.count(hash);
+}
+
+bool ShaderCache::archive_frame(const std::string& hash, std::string& comp, uint32_t& usize) {
+    auto it = archive_.find(hash);
+    if (it == archive_.end()) return false;
+    const ArchiveEntry& e = it->second;
+    comp.resize(e.csize);
+    if (!read_at(archive_files_[e.seg], e.offset, comp.data(), e.csize)) return false;
+    usize = e.usize;
+    return true;
+}
+
+bool ShaderCache::archive_read(const std::string& hash, std::string& out) {
+    thread_local std::string comp;
+    uint32_t usize = 0;
+    if (!archive_frame(hash, comp, usize)) return false;
+    out.resize(usize);
+    const size_t n = ZSTD_decompress(out.data(), out.size(), comp.data(), comp.size());
+    if (ZSTD_isError(n) || n != usize) {
+        NXLOG_W("nvn", "shader archive: %s does not decompress: its loose .spv is tried", hash.c_str());
+        out.clear();
+        return false;
+    }
+    return true;
+}
+
+void ShaderCache::archive_note_rows(const std::vector<RowRef>& rows) {
+    if (archive_.empty()) return;
+    for (const RowRef& r : rows) {
+        if (!archive_.count(r.hash)) continue;
+        if (GetFileAttributesW(widen(dir_ + "/" + r.hash + ".spv").c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        std::lock_guard lk(loose_mu_);
+        loose_.insert(r.hash);
+    }
 }
 
 // Reads the frames front to back on its own handle, ahead of the workers: one sequential read of the card, whose data the workers' reads
@@ -1120,9 +1264,9 @@ void ShaderCache::pack_prefetch() {
 
 // The last preload worker, as it ends.
 void ShaderCache::preload_done() {
-    NXLOG_I("nvn", "shader preload: done after %.1f s (%llu .spv reads from preload.pack, %llu from separate files so far)",
+    NXLOG_I("nvn", "shader preload: done after %.1f s (%llu .spv reads from preload.pack, %llu from the shader archive, %llu from separate files so far)",
             (now_ms() - pre_start_ms_) / 1000.0, static_cast<unsigned long long>(pre_from_pack_.load()),
-            static_cast<unsigned long long>(pre_from_files_.load()));
+            static_cast<unsigned long long>(from_archive_.load()), static_cast<unsigned long long>(pre_from_files_.load()));
 }
 
 // Started with the preload when the pack lacks shaders of the order file; writes once the preload is done (or after 90 s: workers wait
@@ -1183,6 +1327,9 @@ void ShaderCache::pack_build(size_t missing) {
                 continue;
             }
             e.usize = it->second.usize;
+            reused++;
+        } else if (uint32_t usize = 0; archive_has(hash) && archive_frame(hash, comp, usize)) {   // the archive's frame as it is
+            e.usize = usize;
             reused++;
         } else {
             if (!read_file(dir_ + "/" + hash + ".spv", raw) || raw.empty() || raw.size() % 4 || raw.size() > (64u << 20)) {
@@ -1273,6 +1420,7 @@ bool ShaderCache::open(const std::string& dir) {
     open_ = true;
     NXLOG_I("nvn", "shader cache %s: %zu records", dir.c_str(), lines_.size());
     pack_open();
+    archive_open();
     start_preload();
     if (const int ms = static_cast<int>(nxrt::config_get_int("nvn", "shader_rescan_ms", 1000)); ms > 0)
         rescan_thread_ = std::thread([this, ms] { rescan_worker(ms); });
@@ -1289,6 +1437,7 @@ size_t ShaderCache::rescan() {
     std::string tail = read_new_rows(dir_ + "/results.tsv", known);
     if (tail.empty()) return 0;
     std::vector<RowRef> rows = index_rows(tail, known);
+    archive_note_rows(rows);   // before the hashes move into lines_
     size_t forgotten = 0;
     {
         std::lock_guard lk(lock_);
@@ -1471,6 +1620,7 @@ ShaderCache::~ShaderCache() {
     if (pack_prefetch_thread_.joinable()) pack_prefetch_thread_.join();
     if (pack_build_thread_.joinable()) pack_build_thread_.join();
     if (pack_file_) CloseHandle(static_cast<HANDLE>(pack_file_));
+    for (void* f : archive_files_) CloseHandle(static_cast<HANDLE>(f));
     if (!order_pending_.empty() && !order_path_.empty()) {
         std::ofstream f(order_path_, std::ios::binary | std::ios::app);
         if (f) f << order_pending_;

@@ -80,6 +80,7 @@ const flow = {
   loaded: false,     // the saved folder has been looked at
   saved: '',         // config dump_dir
   gentle: false,
+  small: true,       // a new setup keeps its shaders packed (config loose_shaders: false)
   touched: false,    // the toggle was used: it beats preflight's suggestion
   changing: false,   // "Change": the choose panel over files that are fine
   again: false,      // "Set up again": the set up panel over a finished setup
@@ -174,6 +175,7 @@ async function loadSaved() {
     const cfg = await api('get_config');
     flow.saved = cfg.dump_dir || '';
     flow.gentle = !!cfg.gentle_build;
+    flow.small = !cfg.loose_shaders;
     paint?.();
     // a .nup is no folder: readiness read it, app.dump has what there is to say
     if (flow.saved && !/\.nup$/i.test(flow.saved) && !flow.checking && !store.state.nup) {
@@ -193,6 +195,17 @@ function saveGentle(on) {
   flow.touched = true;
   savingConfig = savingConfig
     .then(async () => api('save_config', { config: { ...(await api('get_config')), gentle_build: on } }))
+    .catch((e) => toast(errText(e), 'error'));
+}
+
+function saveSmall(on) {
+  flow.small = on;
+  savingConfig = savingConfig
+    .then(async () => api('save_config', { config: { ...(await api('get_config')), loose_shaders: !on } }))
+    .then(() => {
+      flow.need = undefined;   // packed shaders need far less free space: ask preflight again
+      wantNeed();
+    })
     .catch((e) => toast(errText(e), 'error'));
 }
 
@@ -278,7 +291,7 @@ function detailsHtml() {
       ${aoc.length ? `<p>Add-on content: ${aoc.length} found (<span class="selectable">${aoc.map(esc).join(', ')}</span>)</p>` : ''}
       <pre class="path setup-tree">${esc(LAYOUT)}</pre>
       <p>The files must already be decrypted. The highest valid update is used, otherwise the base game.</p>
-      <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game.</p>
+      <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game. Add-ons (DLC) in it are unpacked to nup_dump/aoc and found on their own.</p>
       <p>The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).</p>
     </div>
   </details>`;
@@ -302,6 +315,8 @@ function filesHtml(s) {
 
 const primaryHtml = () => `<button class="btn primary big setup-go" id="primary" data-act="primary" data-focus><span class="setup-go-icon"></span><span class="setup-go-label"></span></button>`;
 const GENTLE_ROW = row('Slower, keeps the PC usable', toggle('gentle', false));   // row() numbers its ids: built once, or every draw differs
+// Only before the first setup: an existing cache keeps the storage it has (shaders.rs Job::compact).
+const SMALL_ROW = row('Packed shader files (about 20 GB smaller)', toggle('small', true));
 const logButton = () => `<button class="btn quiet" data-act="log">${icon('file-text')}Open setup log</button>`;
 
 const stepsHtml = () => `<ol class="setup-steps">${STEPS.map((name, i) => `<li>
@@ -364,7 +379,7 @@ const VIEWS = {
     return `<h1>${flow.again ? 'Set up again' : finish ? 'Finish the update' : kind === 'resume' ? 'Continue setup' : 'Set up the game'}</h1>
       ${filesHtml(s)}
       ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(s.app.readiness.detail)}</p>` : ''}
-      <div class="setup-options">${GENTLE_ROW}</div>
+      <div class="setup-options">${kind === 'setup' ? SMALL_ROW : ''}${GENTLE_ROW}</div>
       ${primaryHtml()}
       <p class="faint num setup-fact" id="fact"></p>
       ${flow.again ? '<button class="btn quiet sm setup-link" data-act="not-again">Cancel</button>' : ''}
@@ -436,6 +451,8 @@ export function render(el, ctx) {
     }
     const gentle = part('gentle');
     if (gentle) gentle.checked = flow.gentle;
+    const small = part('small');
+    if (small) small.checked = flow.small;
     const fact = part('fact');
     if (fact) fact.textContent = factOf(s, view);
 
@@ -495,6 +512,7 @@ export function render(el, ctx) {
     take(part('path').value);
   });
   panel.addEventListener('change', (e) => {
+    if (e.target.id === 'small') return saveSmall(e.target.checked);
     if (e.target.id !== 'gentle') return;
     saveGentle(e.target.checked);
     draw();

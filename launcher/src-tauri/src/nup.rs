@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Reads a `.nup` package (https://github.com/a55uka/nup, format 1) and unpacks it into the folder layout the rest
 //! of the launcher expects: `<out>/base/{exefs,romfs}` and `<out>/updates/<version>/{exefs,romfs}`.
-//! Add-on (DLC) packages are skipped. Only the exefs and romfs subtrees of each package are written.
+//! Only the exefs and romfs subtrees of each program are written. Add-on (DLC) packages with a RomFS go to
+//! `<out>/aoc/<16-digit hex id>/romfs/`, the layout dump.rs finds for pkp's `[fs] aoc_dir` (#236).
 //!
 //! Order of work, so a wrong or damaged package fails in seconds and not after 7 GB: header and table of contents
 //! (size, SHA-256 of the TOC, every record's bounds); then every program's ExeFS (small) and the main build ID check; then
@@ -21,6 +22,7 @@ use std::path::{Path, PathBuf};
 const NO_DIR: u32 = 0xFFFF_FFFF;
 const KIND_BASE: u8 = 0;
 const KIND_UPDATE: u8 = 1;
+const KIND_ADDON: u8 = 2;
 const MARKER: &str = ".nup_done";
 const WORKING: &str = ".unpacking";
 /// Free space kept beyond the unpacked size.
@@ -29,6 +31,7 @@ pub const CANCELLED: &str = "Unpacking was cancelled.";
 const DAMAGED: &str = "The .nup file is damaged or incomplete.";
 
 struct Package {
+    title_id: u64,
     root_dir: u32,
     exefs_dir: u32,
     romfs_dir: u32,
@@ -147,6 +150,7 @@ fn parse(f: &mut File) -> Result<Nup, String> {
     for i in 0..pkg_count {
         let pos = pkg_at + 0x40 * i;
         let p = Package {
+            title_id: u64_at(&toc, pos)?,
             root_dir: u32_at(&toc, pos + 0x08)?,
             exefs_dir: u32_at(&toc, pos + 0x0C)?,
             romfs_dir: u32_at(&toc, pos + 0x10)?,
@@ -377,6 +381,11 @@ fn extract_with(
     let nup = parse(&mut file)?;
     let stamp = format!("{}:{}", uuid_hex(&nup.uuid), nup.file_size);
     if fs::read_to_string(out.join(MARKER)).map(|s| s.trim() == stamp).unwrap_or(false) {
+        // an unpack from a launcher that skipped add-ons gets them now, without unpacking the game again
+        if !fs::read_to_string(out.join("aoc").join(MARKER)).map(|s| s.trim() == stamp).unwrap_or(false) {
+            let mut ex = Extractor { nup: &nup, src: BufReader::with_capacity(1 << 20, file), done: 0, total: 0, progress, cancel };
+            add_ons(&mut ex, out, &stamp)?;
+        }
         return Ok(out.to_path_buf());
     }
     // programs, newest update first, the base last; add-ons and system packages are not used by the game build
@@ -436,7 +445,8 @@ fn extract_with(
     if files.is_empty() {
         return Err("The game program in this .nup has no RomFS (game data).".into());
     }
-    let need: u64 = files.values().map(|&fi| nup.files[fi].size).sum();
+    let aoc_bytes: u64 = add_on_files(&nup)?.iter().map(|(_, fi)| nup.files[*fi].size).sum();
+    let need: u64 = files.values().map(|&fi| nup.files[fi].size).sum::<u64>() + aoc_bytes;
     if let Some(avail) = free(out) {
         if avail < need.saturating_add(SPARE) {
             let gb = |b: u64| (b as f64 / (1u64 << 30) as f64).ceil() as u64;
@@ -455,8 +465,59 @@ fn extract_with(
     for (rel, fi) in &files {
         ex.file(*fi, &romfs.join(rel))?;
     }
+    add_ons(&mut ex, out, &stamp)?;
     (ex.progress)(need, need, "");
     fs::write(out.join(MARKER), stamp).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(out.join(WORKING));
     Ok(out.to_path_buf())
+}
+
+/// The RomFS files of every add-on package as (path below `<out>`, file index): `aoc/<ID>/romfs/<rel>`.
+/// pkp decides which ids belong to this title.
+fn add_on_files(nup: &Nup) -> Result<Vec<(PathBuf, usize)>, String> {
+    let mut out = Vec::new();
+    for p in nup.packages.iter().filter(|p| p.kind == KIND_ADDON && p.romfs_dir != NO_DIR) {
+        let root = Path::new("aoc").join(format!("{:016X}", p.title_id)).join("romfs");
+        out.extend(nup.tree(p.romfs_dir)?.into_iter().map(|(rel, fi)| (root.join(rel), fi)));
+    }
+    Ok(out)
+}
+
+/// Writes the add-ons into `<out>/aoc` and marks them done with `stamp`. The folder is made even with none, so a
+/// .nup player can see where an add-on dumped on its own goes.
+fn add_ons(ex: &mut Extractor, out: &Path, stamp: &str) -> Result<(), String> {
+    let aoc = out.join("aoc");
+    fs::create_dir_all(&aoc).map_err(|e| format!("Cannot create {}: {}", aoc.display(), e))?;
+    let files = add_on_files(ex.nup)?;
+    if ex.total == 0 {
+        ex.total = files.iter().map(|(_, fi)| ex.nup.files[*fi].size).sum();
+    }
+    for (rel, fi) in files {
+        ex.file(fi, &out.join(rel))?;
+    }
+    fs::write(aoc.join(MARKER), stamp).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_on_romfs_goes_to_aoc_id_romfs() {
+        let dir = |name: &str, first_child, child_count| Dir { name: name.into(), first_child, child_count };
+        let file = FileNode { name: "a.bin".into(), size: 1, extent_offset: 0, extent_size: 0, sha: [0; 32], codec: 0 };
+        let pkg = |kind, romfs_dir| Package { title_id: 0x0400A3A01EE4D001, root_dir: 0, exefs_dir: NO_DIR, romfs_dir, version: 0, kind, standalone: false };
+        let nup = Nup {
+            uuid: [0; 16],
+            file_size: 0,
+            // the base's romfs is not an add-on; the add-on's is
+            packages: vec![pkg(KIND_BASE, 0), pkg(KIND_ADDON, 0), pkg(KIND_ADDON, NO_DIR)],
+            dirs: vec![dir("romfs", 0, 1), dir("sub", 1, 1)],
+            files: vec![file],
+            children: vec![1, 2], // ids past the folders are files
+        };
+        let got = add_on_files(&nup).unwrap();
+        assert_eq!(got.len(), 1, "{:?}", got);
+        assert_eq!(got[0].0, Path::new("aoc").join("0400A3A01EE4D001").join("romfs").join("sub/a.bin"));
+    }
 }

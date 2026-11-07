@@ -219,7 +219,7 @@ Link Play is still being tested: joining and walking around together work. Long 
 - **The launcher says the dump was copied in text mode.** You copied it with FTP in text mode, which damages `main`, `sdk` and `subsdk0`. Copy the `exefs` and `romfs` folders again with the transfer type set to **Binary** (FileZilla: Transfer, Transfer type, Binary).
 - **Your dump is one file** (`.nsp`, `.xci`). The launcher takes the game as folders, or as a `.nup`. Extract the `.nsp` or `.xci` to folders with your dumping tool.
 - **Setup stops with an error about a file that cannot be opened or removed.** Put the folder somewhere plain, like `C:\Pokopia`, not in a folder that OneDrive syncs. Your antivirus may be scanning the files it is building: wait for it, or allow the folder. **Open setup log** shows where it stopped.
-- **Set up warns before it starts.** It checks free disk space (about 36 GB while it runs), Vulkan, memory and the processor first. On an Intel 13th or 14th generation desktop CPU, update the BIOS before you set up: without Intel's fix these CPUs can crash under long full load. If the PC gets hot or hard to use while it builds, tick **Use fewer cores**.
+- **Set up warns before it starts.** It checks free disk space (about 14 GB with packed shader files, the default, or about 31 GB with loose ones), Vulkan, memory and the processor first. On an Intel 13th or 14th generation desktop CPU, update the BIOS before you set up: without Intel's fix these CPUs can crash under long full load. If the PC gets hot or hard to use while it builds, tick **Use fewer cores**.
 - **Low frame rate, or a blurry picture.** The picture size is fixed when the game starts. It is the size of the window or screen at that moment (**Settings**, **Display**).
   - Start in **Borderless** on a 4K screen and the game draws at 4K. That is heavy. Lower **Render scale**.
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
@@ -242,7 +242,7 @@ All of these are in the game folder: the folder with `PokopiaLauncher.exe` and `
 | Log | `pkp.log`, written on every start from the launcher. A crash also writes `pkp_crash.txt`, `pkp_freeze.txt` or `pkp_fatal.txt`. |
 | Translated shaders | `shader_cache` (about 26 GB) |
 | Build files | `build` (the setup's work folder) |
-| Unpacked `.nup` | `nup_dump`, if you picked a `.nup` |
+| Unpacked `.nup` | `nup_dump`, if you picked a `.nup` (its add-ons, if any, in `nup_dump/aoc`) |
 | Launcher settings | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (your dump folder and game folder) |
 
 Never attach game files, the `build` or `shader_cache` folders, or saves to an issue. `pkp.log` is enough.

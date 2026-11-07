@@ -37,9 +37,36 @@ This update adds a **Mods** folder for community translations and texture mods, 
 
 **Still not:** no native speaker has reviewed these translations yet. Corrections are welcome as pull requests.
 
+#### Shader files take about a fifth of the space (prototype, not measured on a full cache yet)
+**Before:** the translated shaders were ~99,000 separate files, about 26 GB, for a 12 GB game. Setup needed about 36 GB free.
+
+**Now:** they can be packed into a few compressed files in `shader_cache/spirv.archive`. The game reads them as quickly as loose files,
+so it runs the same, and nothing is translated again to switch. When the launcher finds loose shader files after a finished setup, it
+asks once per start: **Free up about N GB?** (a few minutes, can be stopped and continued). **Settings > Game > Shader files** has the
+same button, and **Use loose files** to go back. A new setup packs as it translates (on by default, **Packed shader files** on the
+Set up page), so the loose files never pile up: a new setup now needs about 14 GB free instead of about 31 GB (36 GB was
+quoted before), and the free-space check and the Set up page follow the toggle. The launcher writes the real sizes and times to
+`setup.log`.
+Loose shader files are on their way out: a later release stops reading them.
+
 ### Fixes
 
-Internet play through a relay is no longer switched off by an old `join:` address left in `pkp.ini` (#239).
+#### Link Play kept old settings between sessions (#239)
+**Before:** a `mode = join:<address>` left in `pkp.ini` from an earlier visit made the game visit-only, so a room you hosted could not be reached, and with a relay set the game switched Link Play off.
+
+**Now:** the launcher puts the Link Play settings back to their defaults when it starts (Off stays Off). The Link Play page still remembers your addresses and room codes, so your last setup is one click away. The page no longer fills in this PC's own relay address while that relay is not running. The log warns when a join address is set, and internet play through a relay uses `auto` even if an old join address is left in the file. Starting the game from Steam with `--play` keeps your last saved settings.
+
+#### Photos were blank in the in-game album with HDR on (#229)
+**Before:** with HDR on, photos did not show in the in-game album or main menu, while "Save to console album" still wrote a correct picture.
+
+**Now:** the game's pictures that the CPU writes into HDR render targets are converted and uploaded instead of dropped.
+
+**Still not:** this has not been confirmed in the game yet. If photos are still blank with HDR on, please open an issue and attach `pkp.log`.
+
+#### DLC inside a .nup is unpacked (#236)
+**Before:** the .nup unpacker skipped add-on packages, so DLC never reached the add-on folder and had to be built by hand.
+
+**Now:** add-ons with a RomFS are unpacked into `nup_dump/aoc/<id>/romfs/`, which the launcher already finds. An earlier finished unpack gets its add-ons the next time you pick the file.
 
 #### The bottom-right resize grip stuttered while dragging
 **Before:** dragging the resize grip in the bottom right corner of the launcher stuttered.
