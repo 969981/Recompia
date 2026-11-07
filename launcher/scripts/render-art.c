@@ -42,18 +42,18 @@ static uint8_t *render(const char *source, int width, int height) {
   return rgba;
 }
 
-/* Box-downsample the sharp render by exactly 4x, keeping the two images aligned. */
-static uint8_t *downsample_4x(const uint8_t *sharp, int width, int height) {
+/* Box-downsample the sharp render, keeping the two images aligned. */
+static uint8_t *downsample(const uint8_t *sharp, int width, int height, int factor) {
   uint8_t *small = malloc((size_t)width * height * 4);
   if (!small) die("out of memory");
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       for (int c = 0; c < 3; c++) {
         unsigned sum = 0;
-        for (int dy = 0; dy < 4; dy++)
-          for (int dx = 0; dx < 4; dx++)
-            sum += sharp[((size_t)(y * 4 + dy) * width * 4 + x * 4 + dx) * 4 + c];
-        small[((size_t)y * width + x) * 4 + c] = (uint8_t)((sum + 8) / 16);
+        for (int dy = 0; dy < factor; dy++)
+          for (int dx = 0; dx < factor; dx++)
+            sum += sharp[((size_t)(y * factor + dy) * width * factor + x * factor + dx) * 4 + c];
+        small[((size_t)y * width + x) * 4 + c] = (uint8_t)((sum + factor * factor / 2) / (factor * factor));
       }
       small[((size_t)y * width + x) * 4 + 3] = 255;
     }
@@ -135,9 +135,10 @@ int main(int argc, char **argv) {
   if (argc != 4) die("usage: render-art SOURCE.svg SHARP.webp SOFT.webp");
   uint8_t *sharp = render(argv[1], 3840, 2400);
   /* Regenerate the small image from the sharp render, then blur at its own scale. */
-  uint8_t *small = downsample_4x(sharp, 960, 600);
+  uint8_t *small = downsample(sharp, 160, 100, 24);
   encode(argv[2], sharp, 3840, 2400, 90);
-  encode(argv[3], soften(small, 960, 600, 48), 960, 600, 85);
+  /* At 160px wide, an 8px Gaussian radius is 56px at the displayed window scale. */
+  encode(argv[3], soften(small, 160, 100, 8), 160, 100, 85);
   free(small);
   return 0;
 }
