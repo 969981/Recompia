@@ -4,6 +4,12 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Fixes
+- The game no longer stops at once with exit code 53 when the game folder is not the folder the launcher is in (#221). Play and the
+  first background run now copy `pkp_rt.dll` and the ASTC decoder DLLs into the game folder when they are missing there.
+
 ## 0.7.5 (build K: Koala)
 
 **This is the last update you ever install by hand.** Extract it over your 0.7.0 install one more time, and from the next

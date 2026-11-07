@@ -216,7 +216,7 @@ function viewOf(s) {
   const kind = s.app.readiness?.kind;
   if (kind === 'no_files') return 'choose';
   if (kind === 'bad_files') return flow.loaded ? 'bad' : 'checking';
-  if (kind === 'no_exe') return 'noexe';
+  if (kind === 'no_exe' || kind === 'no_runtime') return 'noexe';
   if (p?.state === 'error') return 'error';
   if (kind === 'ready') return flow.again ? 'setup' : 'done';
   return p?.state === 'cancelled' ? 'paused' : 'setup';

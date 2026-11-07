@@ -137,6 +137,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 /// How Play starts pkp.exe: in its folder, through Proton on Linux (host.rs). Every path (exefs, romfs, shader cache) comes
 /// from pkp.ini next to it.
 fn game_command(exe: &Path, dir: &Path) -> Result<std::process::Command, String> {
+    crate::host::sync_runtime_files(&crate::exe_dir(), dir)?;
     let mut cmd = crate::host::windows_program(exe)?;
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
     #[cfg(windows)]

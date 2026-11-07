@@ -141,7 +141,7 @@ export async function render(el, ctx) {
 
   function bannerHtml(sec, values, e) {
     const waiting = sec.groups.some((g) => rowsOf(g, values, e).some((r) => r.at && !isAvailable(r, src)));
-    const noExe = sec.id === 'game' && store.state.app?.readiness?.kind === 'no_exe';
+    const noExe = sec.id === 'game' && ['no_exe', 'no_runtime'].includes(store.state.app?.readiness?.kind);
     const text = waiting ? 'Available after the first start of the game'
       : noExe ? store.state.app.readiness.detail
       : e.gameBusy && sec.id !== 'about' ? 'Changes apply next time the game starts'
