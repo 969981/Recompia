@@ -39,6 +39,8 @@ This update adds a **Mods** folder for community translations and texture mods, 
 
 ### Fixes
 
+Internet play through a relay is no longer switched off by an old `join:` address left in `pkp.ini` (#239).
+
 #### The bottom-right resize grip stuttered while dragging
 **Before:** dragging the resize grip in the bottom right corner of the launcher stuttered.
 
