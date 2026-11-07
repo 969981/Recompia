@@ -1,4 +1,4 @@
-<!-- source-sha256: 5e42dab229621e40c2dc83e1d63a6463455e1d47e14b0e748e1284a95586f32b -->
+<!-- source-sha256: fa12be7da72e548ebcde1c37419f4c86ab5cf63b9f02e50237d56a5fa7b17ca1 -->
 > 这是 [英文 README](../../README.md) 的机器翻译，可能包含错误；英文 README 是权威版本。
 
 <h1 align="center">
@@ -212,7 +212,7 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 - **启动器提示转储以文本模式复制。** 你使用 FTP 的文本模式进行了复制，这会损坏 `main`、`sdk` 和 `subsdk0`。请将传输类型设为 **Binary**，重新复制 `exefs` 和 `romfs` 文件夹（FileZilla：Transfer、Transfer type、Binary）。
 - **你的转储只有一个文件**（`.nsp`、`.xci`）。启动器接受文件夹形式或 `.nup` 形式的游戏。请用你的转储工具将 `.nsp` 或 `.xci` 解压为文件夹。
 - **设置因文件无法打开或删除而报错停止。** 请将文件夹放在简单路径下，例如 `C:\Pokopia`，不要放在 OneDrive 同步的文件夹中。杀毒软件可能正在扫描构建中的文件：等待扫描完成，或允许该文件夹。**Open setup log** 会显示停止的位置。
-- **Set up 在开始前发出警告。** 它会先检查可用磁盘空间（运行时约需 36 GB）、Vulkan、内存和处理器。如果你使用 Intel 第 13 或第 14 代台式机 CPU，请在设置前更新 BIOS：没有 Intel 的修复，这些 CPU 在长时间满载时可能崩溃。如果构建期间电脑过热或难以使用，请勾选 **Use fewer cores**。
+- **Set up 在开始前发出警告。** 它会先检查可用磁盘空间（使用打包的着色器文件，即默认设置，约需 14 GB；使用松散文件约需 31 GB）、Vulkan、内存和处理器。如果你使用 Intel 第 13 或第 14 代台式机 CPU，请在设置前更新 BIOS：没有 Intel 的修复，这些 CPU 在长时间满载时可能崩溃。如果构建期间电脑过热或难以使用，请勾选 **Use fewer cores**。
 - **帧率低或画面模糊。** 画面尺寸在游戏启动时确定，即当时窗口或屏幕的尺寸（**Settings**、**Display**）。
   - 在 4K 屏幕上以 **Borderless** 启动，游戏就会以 4K 绘制。这会给硬件带来很大负担，请降低 **Render scale**。
   - 以 **Windowed**（默认 1280x720）启动后按 Alt+Enter，画面仍保持 720p，只会放大显示。请在按 **Play** 前设置 **Window mode**。
@@ -235,7 +235,7 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 | 日志 | `pkp.log`，每次从启动器启动时写入。崩溃时还会写入 `pkp_crash.txt`、`pkp_freeze.txt` 或 `pkp_fatal.txt`。 |
 | 已翻译的着色器 | `shader_cache`（约 26 GB） |
 | 构建文件 | `build`（设置过程的工作文件夹） |
-| 解压的 `.nup` | `nup_dump`，如果你选择了 `.nup` |
+| 解压的 `.nup` | `nup_dump`，如果你选择了 `.nup`（其附加内容（如有）在 `nup_dump/aoc` 中） |
 | 启动器设置 | `%APPDATA%\org.pkp-recomp.launcher\launcher.json`（你的转储文件夹和游戏文件夹） |
 
 绝不要在问题反馈中附加游戏文件、`build` 或 `shader_cache` 文件夹，或存档。只提供 `pkp.log` 即可。

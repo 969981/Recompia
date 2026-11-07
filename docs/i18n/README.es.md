@@ -1,4 +1,4 @@
-<!-- source-sha256: 5e42dab229621e40c2dc83e1d63a6463455e1d47e14b0e748e1284a95586f32b -->
+<!-- source-sha256: fa12be7da72e548ebcde1c37419f4c86ab5cf63b9f02e50237d56a5fa7b17ca1 -->
 > Esta es una traducción automática del [README en inglés](../../README.md); puede contener errores. El README en inglés es la versión definitiva.
 
 <h1 align="center">
@@ -212,7 +212,7 @@ Link Play todavía está en pruebas: unirse y caminar juntos funcionan. Las sesi
 - **El launcher indica que el volcado se copió en modo texto.** Lo copiaste por FTP en modo texto, lo que daña `main`, `sdk` y `subsdk0`. Copia otra vez las carpetas `exefs` y `romfs` con el tipo de transferencia **Binary** (FileZilla: Transfer, Transfer type, Binary).
 - **Tu volcado es un solo archivo** (`.nsp`, `.xci`). El launcher acepta el juego en carpetas o como `.nup`. Extrae el `.nsp` o `.xci` en carpetas con tu herramienta de volcado.
 - **La configuración se detiene con un error porque no se puede abrir o eliminar un archivo.** Coloca la carpeta en una ubicación sencilla, como `C:\Pokopia`, no en una carpeta sincronizada por OneDrive. Es posible que el antivirus esté analizando los archivos que se están compilando: espera a que termine o permite la carpeta. **Open setup log** muestra dónde se detuvo.
-- **Set up muestra una advertencia antes de empezar.** Primero comprueba el espacio libre en disco (unos 36 GB durante el proceso), Vulkan, la memoria y el procesador. En una CPU de escritorio Intel de 13.ª o 14.ª generación, actualiza la BIOS antes de la configuración: sin la corrección de Intel, estas CPU pueden fallar durante cargas completas prolongadas. Si el PC se calienta o resulta difícil de usar durante la compilación, marca **Use fewer cores**.
+- **Set up muestra una advertencia antes de empezar.** Primero comprueba el espacio libre en disco (unos 14 GB con los archivos de sombreadores empaquetados, que es lo predeterminado, o unos 31 GB con archivos sueltos), Vulkan, la memoria y el procesador. En una CPU de escritorio Intel de 13.ª o 14.ª generación, actualiza la BIOS antes de la configuración: sin la corrección de Intel, estas CPU pueden fallar durante cargas completas prolongadas. Si el PC se calienta o resulta difícil de usar durante la compilación, marca **Use fewer cores**.
 - **Frecuencia de fotogramas baja o imagen borrosa.** El tamaño de la imagen se fija al iniciar el juego. Es el tamaño de la ventana o la pantalla en ese momento (**Settings**, **Display**).
   - Si empiezas en **Borderless** en una pantalla 4K, el juego dibuja a 4K. Eso exige mucho. Reduce **Render scale**.
   - Si empiezas en **Windowed** (1280x720 de forma predeterminada) y pulsas Alt+Enter, la imagen sigue siendo 720p y se amplía. Define **Window mode** antes de pulsar **Play**.
@@ -235,7 +235,7 @@ Todo esto está en la carpeta del juego: la carpeta con `PokopiaLauncher.exe` y 
 | Registro | `pkp.log`, que se escribe en cada inicio desde el launcher. Un fallo también escribe `pkp_crash.txt`, `pkp_freeze.txt` o `pkp_fatal.txt`. |
 | Sombreadores traducidos | `shader_cache` (unos 26 GB) |
 | Archivos de compilación | `build` (la carpeta de trabajo de la configuración) |
-| `.nup` desempaquetado | `nup_dump`, si elegiste un `.nup` |
+| `.nup` desempaquetado | `nup_dump`, si elegiste un `.nup` (sus complementos, si los hay, en `nup_dump/aoc`) |
 | Ajustes del launcher | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (las carpetas de tu volcado y del juego) |
 
 No adjuntes nunca archivos del juego, las carpetas `build` o `shader_cache`, ni partidas guardadas a un problema. `pkp.log` es suficiente.
