@@ -2,28 +2,61 @@ name: Bug report
 description: Something is wrong in the game or the launcher.
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per issue, please. For an idea or a missing feature, use **Feature request** instead.
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: What you did and what happened, and where in the game.
+      description: What you did, what happened, and where in the game. Screenshots or a video help a lot.
     validations:
       required: true
-  - type: input
-    id: commit
+  - type: textarea
+    id: expected
     attributes:
-      label: Commit you built
-      placeholder: e.g. a1b2c3d
+      label: What you expected
+      description: What it should do instead (for graphics bugs, how it looks on Switch 2 if you know).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown in the launcher window, e.g. 0.7.8. Built from source? Give the commit instead.
+      placeholder: e.g. 0.7.8
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows PC
+        - Windows handheld (ROG Ally, Legion Go, ...)
+        - Steam Deck / SteamOS
+        - Other Linux (Proton)
     validations:
       required: true
   - type: input
     id: system
     attributes:
-      label: GPU, driver and Windows version
+      label: GPU and driver version
+      placeholder: e.g. RTX 4070, driver 591.44
     validations:
       required: true
   - type: textarea
     id: log
     attributes:
       label: pkp.log
-      description: Drag in pkp.log from the session where it happened.
+      description: Drag in `pkp.log` from the game folder, from the session where it happened. For Set up or Update problems, `setup.log` too.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the open and closed issues and this is not already reported.
+          required: true
+        - label: My game dump is version 2.0.1a.
+          required: true
