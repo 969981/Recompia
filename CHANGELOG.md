@@ -49,6 +49,13 @@ quoted before), and the free-space check and the Set up page follow the toggle. 
 `setup.log`.
 Loose shader files are on their way out: a later release stops reading them.
 
+#### A Nearest upscaler, and the other upscalers are switched off for now (#232)
+**Before:** the upscaler list offered FSR 1, FSR 3, DLSS, DLAA, NIS and XeSS. Several of them looked glitchy or no different from Off, and there was no way to keep a sharp pixel look.
+
+**Now:** there is a new **Nearest** upscaler (sharp pixels, no smoothing), next to Off and FSR 1, in the launcher and on the F1 page. FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked: if your settings use one of them, the game runs with Off instead. Their code stays in place.
+
+**Still not:** this has only been compiled so far, not tried in game. Tell me if Nearest or the switched-off modes behave oddly.
+
 ### Fixes
 
 #### Link Play kept old settings between sessions (#239)
@@ -62,6 +69,13 @@ Loose shader files are on their way out: a later release stops reading them.
 **Now:** when you host over the internet, the first row under "Share with visitors" is **Over the internet**: this PC's public address with a copy button, with the right port for your relay or for direct hosting. A visitor who types a `127.x` address is told it is their own PC. To find the public address the launcher makes one small request to a what-is-my-IP service (`api.ipify.org`, with `ipv4.icanhazip.com` as a backup), only while the page shows an internet host.
 
 **Still not:** on a connection where the provider shares one public address between many customers, the address found is the provider's, and port forwarding cannot work there. The page cannot detect that.
+
+#### A controller switched off and on again was not found on Linux (#226)
+**Before:** on SteamOS and other Proton setups, a controller that was turned off and on again was not seen until the game was restarted.
+
+**Now:** under Wine and Proton the game checks the four controller slots once a second and rescans the controllers when they change. The log line `rescanning gamepads` shows when it happens.
+
+**Still not:** it has not been tried on a Steam Deck yet. A controller that Proton shows only as a generic device (no controller slot) still needs a restart.
 
 #### Photos were blank in the in-game album with HDR on (#229)
 **Before:** with HDR on, photos did not show in the in-game album or main menu, while "Save to console album" still wrote a correct picture.
