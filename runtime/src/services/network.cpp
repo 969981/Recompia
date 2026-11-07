@@ -33,6 +33,8 @@
 #include "nxrt/log.h"
 #include "../net/vnet.h"
 #include "../net/vsock.h"
+#include "bcat_entries.h"
+#include "bcat_md5.h"
 #include "bcat_path.h"
 #include "coop.h"
 #include "ldn.h"
@@ -1194,6 +1196,8 @@ std::shared_ptr<ipc::Service> make_bcat_progress() {
 }
 
 // ---- [bcat] cache_dir: a user-supplied delivery cache, read-only: <cache_dir>/<directory>/<file>. Empty (the default): the empty cache. ----
+constexpr int kBcatMaxEntries = 100;   // the game reads up to 100 entries of a directory
+
 struct BcatCache {
     std::string dir;            // [bcat] cache_dir, empty = off (or the folder does not exist)
     stdfs::path root;
@@ -1223,13 +1227,17 @@ const BcatCache& bcat_cache() {
             b.dir.clear();
             return b;
         }
-        for (stdfs::directory_iterator it(b.root, ec), end; !ec && it != end; it.increment(ec)) {
+        for (stdfs::directory_iterator it(b.canon, ec), end; !ec && it != end; it.increment(ec)) {
             const std::string nm = it->path().filename().string();
-            if (!bcat_name_ok(nm.c_str()) || !it->is_directory(ec)) continue;
+            std::error_code type_ec;
+            if (!bcat_name_ok(nm.c_str()) || !stdfs::is_directory(it->symlink_status(type_ec)) || type_ec) continue;
             ++b.dirs;
             std::error_code ec2;
             for (stdfs::directory_iterator f(it->path(), ec2), fend; !ec2 && f != fend; f.increment(ec2)) {
-                if (bcat_name_ok(f->path().filename().string().c_str()) && f->is_regular_file(ec)) ++b.files;
+                const std::string file_name = f->path().filename().string();
+                std::error_code file_ec;
+                const bool regular = stdfs::is_regular_file(f->symlink_status(file_ec));
+                if (!file_ec && regular && bcat_name_ok(file_name.c_str())) ++b.files;
             }
         }
         NXLOG_I("net", "bcat: [bcat] cache_dir = %s: %d directories, %d files", b.dir.c_str(), b.dirs, b.files);
@@ -1248,14 +1256,18 @@ bool bcat_name(const ipc::Request& req, size_t off, std::string& out) {
     return true;
 }
 
-// <cache_dir>/<dir>[/<file>] when it exists, stays inside cache_dir (symlinks resolved) and is a directory / a regular file.
+// <cache_dir>/<dir>[/<file>] when both names are plain, non-symlink objects inside cache_dir.
 bool bcat_resolve(const std::string& dir, const std::string* file, stdfs::path& out) {
     const BcatCache& c = bcat_cache();
     if (c.dir.empty() || !bcat_name_ok(dir.c_str()) || (file && !bcat_name_ok(file->c_str()))) return false;
-    stdfs::path p = c.root / dir;
-    if (file) p /= *file;
+    const stdfs::path directory = c.canon / dir;
     std::error_code ec;
-    if (file ? !stdfs::is_regular_file(p, ec) : !stdfs::is_directory(p, ec)) return false;
+    if (!stdfs::is_directory(stdfs::symlink_status(directory, ec)) || ec) return false;
+    stdfs::path p = directory;
+    if (file) {
+        p /= *file;
+        if (!stdfs::is_regular_file(stdfs::symlink_status(p, ec)) || ec) return false;
+    }
     const stdfs::path cp = stdfs::canonical(p, ec);
     if (ec) return false;
     auto r = c.canon.begin();
@@ -1263,28 +1275,8 @@ bool bcat_resolve(const std::string& dir, const std::string* file, stdfs::path& 
     for (; r != c.canon.end(); ++r, ++q) {
         if (q == cp.end() || *q != *r) return false;
     }
-    out = p;
+    out = cp;
     return true;
-}
-
-struct BcatEntry {
-    std::string name;
-    uint64_t size;
-};
-
-// Regular files with allowed names in a delivery cache directory, sorted by name.
-std::vector<BcatEntry> bcat_list(const stdfs::path& dir) {
-    std::vector<BcatEntry> v;
-    std::error_code ec;
-    for (stdfs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        std::error_code e2;
-        const std::string nm = it->path().filename().string();
-        if (!bcat_name_ok(nm.c_str()) || !it->is_regular_file(e2)) continue;
-        const uint64_t sz = it->file_size(e2);
-        if (!e2) v.push_back({nm, sz});
-    }
-    std::sort(v.begin(), v.end(), [](const BcatEntry& a, const BcatEntry& b) { return a.name < b.name; });
-    return v;
 }
 
 std::shared_ptr<ipc::Service> make_bcat_notifier() {
@@ -1362,11 +1354,17 @@ std::shared_ptr<ipc::Service> make_bcat_file() {
             rsp.push(static_cast<int64_t>(o->size));
             return 0;
         });
-        // The repo has no MD5 helper: the digest is 16 zero bytes.
+        // MD5 of the file, streamed (bcat_md5.h); unreadable file: PathNotFound.
         cmd(s, "bcat", 3, "GetDigest", [o](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            std::lock_guard<std::mutex> lk(o->mu);
-            if (!o->open) return kFsPathNotFound;
-            rsp.out.insert(rsp.out.end(), 0x10, uint8_t{0});
+            stdfs::path p;
+            {
+                std::lock_guard<std::mutex> lk(o->mu);
+                if (!o->open) return kFsPathNotFound;
+                p = o->path;
+            }
+            uint8_t dg[0x10];
+            if (!bcat_file_md5(p, dg)) return kFsPathNotFound;
+            rsp.out.insert(rsp.out.end(), dg, dg + 0x10);
             return 0;
         });
     });
@@ -1385,7 +1383,7 @@ std::shared_ptr<ipc::Service> make_bcat_directory() {
         struct Dir {
             std::mutex mu;
             bool open = false;
-            std::vector<BcatEntry> entries;
+            std::vector<BcatEntry> entries;   // at most kBcatMaxEntries
             size_t next = 0;
         };
         auto d = std::make_shared<Dir>();
@@ -1394,11 +1392,14 @@ std::shared_ptr<ipc::Service> make_bcat_directory() {
             std::string nm;
             stdfs::path p;
             if (!bcat_name(req, 0, nm) || !bcat_resolve(nm, nullptr, p)) return kFsPathNotFound;
-            auto list = bcat_list(p);
-            NXLOG_I("net", "bcat: open directory %s (%zu files)", nm.c_str(), list.size());
+            // listing and MD5 of up to 100 files are done here, on the open; Read then only copies
+            BcatEntry tmp[kBcatMaxEntries];
+            const int cnt = bcat_list_dir(bcat_cache().canon, nm.c_str(), tmp, kBcatMaxEntries);
+            if (cnt < 0) return kFsPathNotFound;
+            NXLOG_I("net", "bcat: open directory %s (%d files)", nm.c_str(), cnt);
             std::lock_guard<std::mutex> lk(d->mu);
             d->open = true;
-            d->entries = std::move(list);
+            d->entries.assign(tmp, tmp + cnt);
             d->next = 0;
             return 0;
         });
@@ -1411,10 +1412,7 @@ std::shared_ptr<ipc::Service> make_bcat_directory() {
             int32_t n = 0;
             while (d->next < d->entries.size() && static_cast<size_t>(n) < cap) {
                 const BcatEntry& e = d->entries[d->next++];
-                uint8_t rec[0x38] = {};
-                std::memcpy(rec, e.name.data(), e.name.size());
-                std::memcpy(rec + 0x20, &e.size, 8);   // the digest stays zero (no MD5 helper in the repo)
-                std::memcpy(buf_mut(ob) + static_cast<size_t>(n) * 0x38, rec, 0x38);
+                std::memcpy(buf_mut(ob) + static_cast<size_t>(n) * 0x38, &e, 0x38);
                 ++n;
             }
             rsp.push(n);
@@ -1451,10 +1449,10 @@ std::shared_ptr<ipc::Service> make_bcat_storage() {
             const size_t cap = ob.addr ? static_cast<size_t>(ob.size / 0x20) : 0;
             std::vector<std::string> names;
             std::error_code ec;
-            for (stdfs::directory_iterator it(bcat_cache().root, ec), end; !ec && it != end; it.increment(ec)) {
+            for (stdfs::directory_iterator it(bcat_cache().canon, ec), end; !ec && it != end; it.increment(ec)) {
                 std::error_code e2;
                 const std::string nm = it->path().filename().string();
-                if (bcat_name_ok(nm.c_str()) && it->is_directory(e2)) names.push_back(nm);
+                if (bcat_name_ok(nm.c_str()) && stdfs::is_directory(it->symlink_status(e2)) && !e2) names.push_back(nm);
             }
             std::sort(names.begin(), names.end());
             int32_t n = 0;
