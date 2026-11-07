@@ -352,6 +352,14 @@ export const SECTIONS = [
             id: 'game_dir', label: 'Install folder', type: 'path', at: config('game_dir'), pick: 'Choose the install folder', open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
+          {
+            id: 'romfs_mod', label: 'Mods', type: 'path', at: pkp('fs', 'romfs_mod'), pick: 'Choose the mods folder',
+            placeholder: () => '',
+          },
+          {
+            id: 'romfs_mod_note', type: 'note',
+            note: () => ({ text: 'Choose a romfs-shaped folder of text or texture replacements; its files win over the update and base game.' }),
+          },
           { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
         ],
       },

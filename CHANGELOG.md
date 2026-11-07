@@ -4,6 +4,15 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### New
+
+#### A folder for text and texture mods
+**Before:** using a translation or texture mod meant replacing files in the game dump, and restoring the original files meant keeping another copy.
+
+**Now:** I added a **Mods** folder picker under Settings > Game and `[fs] romfs_mod` in `pkp.ini`. The folder is laid out like a romfs: its files replace update and base game files with the same paths, shared folders merge, and files found only in the mod are served. Empty turns the mod off. No mod is bundled. Adding or swapping a mod does not change the shader cache key or ask for Finish update. Mods that replace files containing shaders are unsupported and require running Set up again manually.
+
 ## 0.7.6 (build K: Kinkajou)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
