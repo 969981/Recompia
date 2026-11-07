@@ -39,11 +39,18 @@ export function localAddr(s) {
   return x === 127 || x === 10 || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168) || (x === 169 && y === 254);
 }
 
-/** What is wrong with a typed address, '' when nothing. `lan`: it is a Join directly address. */
-export function addrProblem(s, { port = HOST_PORT, lan = false } = {}) {
+/** 127.x: this PC itself. */
+export const loopbackAddr = (s) => parseAddr(s)?.ip[0] === 127;
+
+/**
+ * What is wrong with a typed address, '' when nothing. `lan`: it is a Join directly address. `remote`: it is another PC's (a visitor
+ * typing the host's or the relay's), so 127.x, which means the visitor's own PC, is refused (#245).
+ */
+export function addrProblem(s, { port = HOST_PORT, lan = false, remote = false } = {}) {
   const v = String(s ?? '').trim();
   if (!v) return '';
   if (!validAddr(v)) return `Type an address like 192.0.2.10 or 192.0.2.10:${port}`;
+  if (remote && loopbackAddr(v)) return 'That is your own PC. Type the address the host shares with you.';
   return lan && !localAddr(v) ? 'Not on your network. Use Internet for this address.' : '';
 }
 
@@ -146,7 +153,7 @@ export function editsFor(ui, pkp) {
   if (ui.view === 'off') edits = offEdits();
   else if (ui.view === 'lan') {
     const addr = ui.lanJoin.trim();
-    if (addrProblem(addr, { lan: true })) return null;
+    if (addrProblem(addr, { lan: true, remote: true })) return null;
     edits = lanEdits(addr);
   } else if (ui.role === 'host') {
     const relay = ui.relay.trim();
@@ -155,7 +162,7 @@ export function editsFor(ui, pkp) {
   } else {
     const addr = ui.visitAddr.trim();
     const code = ui.visitCode.trim();
-    if (!validAddr(addr) || !code) return null;
+    if (!validAddr(addr) || addrProblem(addr, { remote: true }) || !code) return null;
     edits = visitEdits(addr, code, ui.through);
   }
   return changes(pkp, edits) ? edits : [];
@@ -174,6 +181,19 @@ export function addressRows(report, port) {
     ...report.lan.map((a) => ({ addr: `${a.ip}:${port}`, label: a.adapter })),
     ...report.overlay.map((a) => ({ addr: `${a.ip}:${port}`, label: a.label.replace(/^internet via /, '') })),
   ];
+}
+
+/**
+ * What an internet host gives its visitors: { addr, through, port } or null. `publicIp`: this PC's public address (null: not known),
+ * `relayOn`: the port of this PC's relay while it runs. A relay elsewhere is shared as it is; this PC's relay and a host without a relay
+ * are reached at the public address, on the relay's port or the host port.
+ */
+export function internetShare(ui, { publicIp, relayOn }) {
+  const relay = ui.relay.trim();
+  if (relay && !loopbackAddr(relay)) return { addr: relay, through: true, port: relayPort({ addr: relay }), own: false };
+  if (relay && !relayOn) return null;   // pointed at this PC's relay while it is off: nothing to share
+  const port = relay ? relayOn : HOST_PORT;
+  return { addr: publicIp ? `${publicIp}:${port}` : '', through: !!relay, port, own: true };
 }
 
 /** Where to go in the game. */

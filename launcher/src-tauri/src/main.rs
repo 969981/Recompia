@@ -10,6 +10,7 @@ mod lan;
 mod nup;
 mod play;
 mod preflight;
+mod public_ip;
 mod relay;
 mod saveimport;
 mod settings;
@@ -966,6 +967,12 @@ fn lan_report() -> lan::LanReport {
     lan::report()
 }
 
+/// This PC's public IPv4 address for an internet host's visitors, or None when it cannot be found (offline, a service down).
+#[tauri::command]
+async fn public_ip() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(public_ip::lookup).await.ok().flatten()
+}
+
 /// A new room code for a host, XXXX-XXXX-XXXX-XXXX (80 bits from the OS random source). The launcher writes it to pkp.ini
 /// `[net] room_code` so the game hosts with it and the page can show it before the game starts.
 #[tauri::command]
@@ -1267,6 +1274,7 @@ fn main() {
             relay_stop,
             relay_status,
             lan_report,
+            public_ip,
             room_code_new,
             room_code_check,
             room_code_host,
