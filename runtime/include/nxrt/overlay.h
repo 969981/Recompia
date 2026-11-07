@@ -57,6 +57,9 @@ public:
     void open_quit_prompt();
     bool quit_prompt_open() const;
     bool take_quit_confirmed();              // true once after Quit was chosen
+    // The prompt's Settings choice (pad X, or its button): the prompt closes and the owner opens the F1 page on its main thread, so a
+    // handheld reaches the menu with the quit combination and no keyboard. True once after it was chosen.
+    bool take_settings_wanted();
     void set_keyboard_abxy(bool by_label);   // how the face buttons are named in the keyboard's help line (play settings label_abxy)
     // The merged pad of this poll (Switch buttons after the player's mapping, left stick -32767..32767, up = +), before it is held back
     // from the game. Returns the buttons the game must not see: all while the keyboard or the quit prompt is open, then those still held from

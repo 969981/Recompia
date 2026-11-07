@@ -275,10 +275,14 @@ struct Overlay::Impl {
 
     // The quit prompt (Overlay::open_quit_prompt). Flags only: opened from any thread, answered by key events (main thread), the pad
     // (set_keyboard_pad, main thread) or the mouse (draw, presenting thread). A confirmed prompt stays open until the process ends.
-    std::atomic<bool> quit_open{false}, quit_confirmed{false};
+    std::atomic<bool> quit_open{false}, quit_confirmed{false}, settings_wanted{false};
     void quit_answer(bool ok) {
         if (ok) quit_confirmed = true;
         else quit_open = false;
+    }
+    void quit_to_settings() {   // the prompt's Settings choice: close it, the owner opens the F1 page (take_settings_wanted)
+        settings_wanted = true;
+        quit_open = false;
     }
     bool quit_key_event(const input::Event& e);   // a physical key while the prompt is open; always consumed
     void draw_quit_prompt();              // mu held, inside an ImGui frame
@@ -860,12 +864,16 @@ void Overlay::Impl::draw_quit_prompt() {
             quit_answer(false);
             cancelled = true;
         }
+        if (ImGui::Button("Settings", ImVec2(bs.x * 2.f + gap, bs.y))) {
+            quit_to_settings();
+            cancelled = true;
+        }
         ImGui::EndDisabled();
         ImGui::Spacing();
         // the face buttons are Switch buttons after the player's mapping, named as in the on-screen keyboard's help line
         const bool lab = kb_by_label.load(std::memory_order_relaxed);
         ImGui::PushTextWrapPos(0.f);
-        ImGui::TextDisabled("Pad: %s quit, %s cancel", lab ? "A" : "A (right)", lab ? "B" : "B (bottom)");
+        ImGui::TextDisabled("Pad: %s quit, %s cancel, %s settings", lab ? "A" : "A (right)", lab ? "B" : "B (bottom)", lab ? "X" : "X (top)");
         ImGui::TextDisabled("Keyboard: Enter quit, Esc cancel");
         ImGui::PopTextWrapPos();
     }
@@ -878,6 +886,7 @@ void Overlay::open_quit_prompt() {
 }
 bool Overlay::quit_prompt_open() const { return impl_->quit_open; }
 bool Overlay::take_quit_confirmed() { return impl_->quit_confirmed.exchange(false); }
+bool Overlay::take_settings_wanted() { return impl_->settings_wanted.exchange(false); }
 
 bool Overlay::keyboard_open() const { return impl_->kb_poll(); }
 bool Overlay::blocks_game() const { return impl_->visible || impl_->quit_open || impl_->kb_poll(); }
@@ -897,6 +906,7 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
         const uint64_t fresh = b & ~s.pad_prev;
         if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnA))) s.quit_answer(true);
         else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnB))) s.quit_answer(false);
+        else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnX))) s.quit_to_settings();
         s.pad_mask = b;
     } else if (open) {
         s.pad_new.fetch_or(b & ~s.pad_prev);
