@@ -1,0 +1,39 @@
+# Download totals per platform for the README badges: adds up every release's Windows and Linux files and publishes two small
+# JSON files that shields.io reads (an orphan `badges` branch with one commit, replaced on every run).
+name: Download badges
+
+on:
+  release:
+    types: [published, deleted]
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  badges:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add up the downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].assets[] | [.name, .download_count] | @tsv' > assets.tsv
+          mkdir out
+          for p in win64 linux-x64; do
+            n=$(awk -F'\t' -v p="$p" '$1 ~ p { s += $2 } END { print s + 0 }' assets.tsv)
+            msg=$(awk -v n="$n" 'BEGIN { if (n >= 1000) printf "%.1fk", n / 1000; else print n }')
+            printf '{"schemaVersion":1,"label":"downloads","message":"%s","color":"3fb950"}\n' "$msg" > "out/$p.json"
+            echo "$p: $n ($msg)"
+          done
+      - name: Publish to the badges branch
+        run: |
+          cd out
+          git init -q -b badges
+          git config user.name "github-actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -q -m "Download totals"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:badges
