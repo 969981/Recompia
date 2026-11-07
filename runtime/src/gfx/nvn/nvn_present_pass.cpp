@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "nxrt/extras.h"
 #include "nxrt/log.h"
 #include "vk_gauges.h"
 
@@ -199,7 +200,7 @@ void PresentPass::record(VkCommandBuffer cb, VkImageView dst_view, VkExtent2D ds
         py = (dh - ph) * 0.5;
     }
     // one texel per destination pixel: an exact copy, so nearest; anything else is filtered
-    const bool nearest = std::fabs(pw - cw) < 1e-9 && std::fabs(ph - ch) < 1e-9;
+    const bool nearest = (std::fabs(pw - cw) < 1e-9 && std::fabs(ph - ch) < 1e-9) || extras::upscale_mode() == extras::UpscaleMode::Nearest;
 
     PushConstants pc = {};
     pc.pic[0] = static_cast<float>(px / dw);

@@ -618,10 +618,9 @@ void fps_group(UiHost& host, Page& p) {
 constexpr const char* kHdrModeNames[] = {"Off", "Auto", "On", "Native"};
 constexpr const char* kHdrFormatNames[] = {"Auto", "HDR10", "scRGB"};
 constexpr const char* kLatencyModeNames[] = {"Off", "Auto", "On", "Boost"};
-constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA"};   // indexed by extras::UpscaleMode
-// The order the list shows them in: the spatial upscalers, then the temporal ones.
-constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nis,
-                                                 extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Xess};
+constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA", "Nearest (sharp pixels)"};   // indexed by extras::UpscaleMode
+// The order the list shows them in. ponytail: NIS, FSR 3, DLSS, DLAA and XeSS are off until reworked (extras::upscale_mode_enabled, #232).
+constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
 constexpr const char* kUpscaleQualityNames[] = {"Native (AA only)", "Quality", "Balanced", "Performance", "Ultra performance", "Custom (scene resolution)"};
 
 // Off and the spatial upscalers (FSR 1, NIS) always work. The temporal ones (src/gfx/extras/temporal.h) get depth, camera motion vectors made by
@@ -631,11 +630,8 @@ bool upscale_available(extras::UpscaleMode m) {
     switch (m) {
         case extras::UpscaleMode::Off:
         case extras::UpscaleMode::Fsr1:
-        case extras::UpscaleMode::Nis: return true;
-        case extras::UpscaleMode::Fsr3: return extras::temporal_ffx_available();
-        case extras::UpscaleMode::Dlss:
-        case extras::UpscaleMode::Dlaa: return extras::temporal_dlss_available();
-        default: return false;
+        case extras::UpscaleMode::Nearest: return true;
+        default: return false;   // switched off for now (#232)
     }
 }
 const char* temporal_why(extras::UpscaleMode m) {
@@ -645,7 +641,7 @@ const char* temporal_why(extras::UpscaleMode m) {
     if (m == extras::UpscaleMode::Dlss || m == extras::UpscaleMode::Dlaa)
         return "Needs an NVIDIA RTX GPU and the Streamline DLLs (sl.interposer.dll, sl.common.dll, sl.dlss.dll, nvngx_dlss.dll) in upscalers\\streamline "
                "next to the executable, or their folder in [upscale] dlss_dll. The launcher's Game files page downloads nvngx_dlss.dll from NVIDIA.";
-    return "XeSS is not wired up yet.";
+    return "Switched off for now: it will come back once it is reworked.";
 }
 
 // A nits field where 0 means "auto" (shown as "auto"). Other values are clamped into lo..hi when the field is left, so the slider can be
@@ -717,9 +713,8 @@ void upscale_group(Page& p) {
     std::string preview = kUpscaleNames[mode];
     if (!upscale_available(u.mode)) preview += " (not available)";
     const bool open = ImGui::BeginCombo("Upscaler##upscale_mode", preview.c_str());
-    tip("FSR 1 (AMD) and NIS (NVIDIA Image Scaling) enlarge the game's picture from a lower render or scene resolution and sharpen it; both run on any GPU. "
-        "NIS covers up to 2x per side, FSR 1 takes over beyond that. FSR 3 and DLSS / DLAA are temporal: they anti-alias the HDR scene using depth, "
-        "camera motion and the game's jitter (switched on with them); DLSS and DLAA need an RTX GPU and apply from the next start.");
+    tip("How the game's picture is enlarged from a lower render or scene resolution. Off: smooth (bilinear). FSR 1 (AMD): filtered and sharpened, any GPU. "
+        "Nearest: every pixel kept as a hard block, no blur. FSR 3, DLSS and NIS are switched off until they are reworked.");
     if (open) {
         for (extras::UpscaleMode m : kUpscaleOrder) {
             const int i = static_cast<int>(m);
@@ -768,7 +763,7 @@ void upscale_group(Page& p) {
         } else if (fx >= 1.0f && fy >= 1.0f) {
             ImGui::TextDisabled("Scene: %d%% per side, stretched by the game (dynamic resolution or split screen on, or not in the game yet)", pct);
         } else {
-            const char* who = m == extras::UpscaleMode::Fsr1 ? "upscaled with FSR 1" : m == extras::UpscaleMode::Nis ? "upscaled with NIS"
+            const char* who = m == extras::UpscaleMode::Fsr1 ? "upscaled with FSR 1" : m == extras::UpscaleMode::Nearest ? "enlarged with nearest neighbour" : m == extras::UpscaleMode::Nis ? "upscaled with NIS"
                             : m == extras::UpscaleMode::Fsr3 ? "upscaled with FSR 3" : m == extras::UpscaleMode::Dlss ? "upscaled with DLSS"
                             : "stretched by the game (pick an upscaler to make it sharper)";
             ImGui::TextDisabled("Scene: %d%% per side, %s", pct, who);
