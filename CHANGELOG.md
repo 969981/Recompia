@@ -19,6 +19,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
   - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
 - Until you run **Finish update**, the game keeps the old translations and the outline stays missing
+- Windows on Intel graphics: fixed the game crashing about 3 s after start (access violation in `igvk64.dll`, Intel UHD Graphics; #270)
+  - Before: the game read its pipeline cache back from Intel's driver to save it, and the driver crashed while copying it out
+  - Now: on Intel's Windows driver the pipeline cache is loaded but not saved (`[nvn] pipeline_cache_save`, `auto`); the driver's own disk cache still keeps compiled pipelines between starts
+  - Still not: on Intel, Prepare shaders keeps nothing in `pipeline_cache.bin`, so pipelines the driver's cache doesn't have are built again at their first use
 
 | Before | After |
 |---|---|
