@@ -26,6 +26,9 @@ export async function render(el, ctx) {
   const mem = stored();
   const ui = uiFrom(pkp, mem);
   let relay = await api('relay_status').catch(() => null);
+  // this PC's relay, remembered from last time, is only offered while it runs: the launcher just started, so it does not until the
+  // toggle is turned on, and a host there would open the room on a relay that is not there (#239)
+  if (!relay && /^127\./.test(ui.relay.trim())) ui.relay = '';
   let lan = null;
   let gameCode = null;     // room-code.txt: the game's own
   let dropped = null;      // the game's code the player replaced with New code
