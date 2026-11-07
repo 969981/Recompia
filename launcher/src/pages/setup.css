@@ -18,7 +18,7 @@
   letter-spacing: var(--tracking-title);
   text-shadow: var(--shadow-text);
 }
-.setup-brand img { width: 26px; height: 26px; border-radius: 8px; box-shadow: var(--shadow-sm); }
+.setup-brand img { height: 48px; width: auto; }
 
 .setup-panel {
   display: flex;

@@ -1,5 +1,6 @@
 // Home: one button that does the next right thing, what went wrong if anything did, and the newest releases.
 import './home.css';
+import logoUrl from '../art/logo.png';
 import { api, errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction } from '../action.js';
@@ -58,7 +59,7 @@ const LINK_PLAY_LABEL = { off: 'Off', lan: 'Same network', internet: 'Internet' 
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home">
     <div class="home-hero">
-      <h1 class="display">Pokopia</h1>
+      <h1 class="display"><img class="home-logo" src="${logoUrl}" alt="Pokopia" /></h1>
       <div class="home-actions">
         <button class="btn primary big" id="primary"></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}Update</button>
