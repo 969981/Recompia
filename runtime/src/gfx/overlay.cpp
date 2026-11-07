@@ -430,7 +430,8 @@ std::unique_ptr<Overlay> Overlay::create(const Context& ctx, std::string* error)
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;     // no imgui.ini next to the exe
     io.LogFilename = nullptr;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;   // without it ImGui ignores the gamepad keys that set_keyboard_pad sends while the page is open
     ImGui::StyleColorsDark();
     io.Fonts->AddFontDefaultVector();          // the scalable default font: stays sharp at every UI scale (update_scale)
     ImGui::GetStyle().FontSizeBase = 16.0f;
@@ -901,12 +902,32 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
     if (ly >= kHalf) b |= hid::btn(hid::kBtnStickLUp);       // hid y: up = +
     if (ly <= -kHalf) b |= hid::btn(hid::kBtnStickLDown);
     const bool quit = s.quit_open;
-    const bool open = quit || s.kb_poll();
+    const bool page = !quit && s.visible && !s.kb_poll();   // the F1 page: the pad moves its focus, and stays away from the game
+    const bool open = quit || page || s.kb_poll();
+    bool close_page = false;
+    if (page) {
+        // Switch A / B are after the player's mapping, as in the quit prompt. + closes the page.
+        struct Map { uint64_t bits; ImGuiKey key; };
+        const Map keys[] = {{kKbDirBits[0], ImGuiKey_GamepadDpadUp}, {kKbDirBits[1], ImGuiKey_GamepadDpadDown}, {kKbDirBits[2], ImGuiKey_GamepadDpadLeft},
+                            {kKbDirBits[3], ImGuiKey_GamepadDpadRight}, {hid::btn(hid::kBtnA), ImGuiKey_GamepadFaceDown},
+                            {hid::btn(hid::kBtnB), ImGuiKey_GamepadFaceRight}, {hid::btn(hid::kBtnL), ImGuiKey_GamepadL1},
+                            {hid::btn(hid::kBtnR), ImGuiKey_GamepadR1}};
+        std::lock_guard<std::mutex> lk(s.mu);
+        ImGuiContext* prev = ImGui::GetCurrentContext();
+        ImGui::SetCurrentContext(s.imgui);
+        ImGuiIO& io = ImGui::GetIO();
+        for (const Map& m : keys)
+            if (((b ^ s.pad_prev) & m.bits) != 0) io.AddKeyEvent(m.key, (b & m.bits) != 0);
+        ImGui::SetCurrentContext(prev);
+        close_page = (b & ~s.pad_prev & hid::btn(hid::kBtnPlus)) != 0;
+    }
     if (quit) {                      // the prompt takes the pad before the keyboard does: fresh presses of A and B answer it
         const uint64_t fresh = b & ~s.pad_prev;
         if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnA))) s.quit_answer(true);
         else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnB))) s.quit_answer(false);
         else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnX))) s.quit_to_settings();
+        s.pad_mask = b;
+    } else if (page) {
         s.pad_mask = b;
     } else if (open) {
         s.pad_new.fetch_or(b & ~s.pad_prev);
@@ -916,6 +937,7 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
     }
     s.pad_held.store(b);
     s.pad_prev = b;
+    if (close_page) set_visible(false);   // after the lock is released: set_visible takes it too
     return open ? ~0ull : s.pad_mask;
 }
 
