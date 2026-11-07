@@ -5,7 +5,7 @@
 > هذه ترجمة آلية لملف README الإنجليزي (../../README.md). قد تحتوي على أخطاء، والنسخة الإنجليزية هي المرجع.
 
 <h1 align="center">
-  <img src="docs/assets/logo.png" alt="Recompia" width="420">
+  <img src="../assets/logo.png" alt="Recompia" width="420">
 </h1>
 
 <h3 align="center">Pokopia Recomp</h3>
@@ -33,17 +33,17 @@
 
 <p align="center">
   <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">الإصدارات</a></b> ·
-  <a href="CHANGELOG.md">سجل التغييرات</a> ·
-  <a href="CONTRIBUTING.md">المساهمة</a> ·
-  <a href="CREDITS.md">شكر وتقدير</a> ·
+  <a href="../../CHANGELOG.md">سجل التغييرات</a> ·
+  <a href="../../CONTRIBUTING.md">المساهمة</a> ·
+  <a href="../../CREDITS.md">شكر وتقدير</a> ·
   <a href="https://github.com/xFractals/pokopia-native">الأصل: pokopia-native</a> ·
-  <a href="SECURITY.md">الأمان</a> ·
-  <a href="LEGAL.md">الشؤون القانونية</a> ·
+  <a href="../../SECURITY.md">الأمان</a> ·
+  <a href="../../LEGAL.md">الشؤون القانونية</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">المشكلات</a>
 </p>
 
 > [!IMPORTANT]
-> **لا تتضمن أي ملفات من اللعبة.** تحتاج إلى نسخة مستخرجة من اللعبة من عندك، الإصدار **2.0.1a**. لا يوفر هذا المشروع أي ملفات لعبة أو مفاتيح أو أدوات استخراج. لا صلة له بشركة Nintendo أو The Pokémon Company أو Koei Tecmo؛ Pokémon علامة تجارية لشركة Nintendo وCreatures Inc. وGAME FREAK inc. (انظر [LEGAL.md](LEGAL.md)).
+> **لا تتضمن أي ملفات من اللعبة.** تحتاج إلى نسخة مستخرجة من اللعبة من عندك، الإصدار **2.0.1a**. لا يوفر هذا المشروع أي ملفات لعبة أو مفاتيح أو أدوات استخراج. لا صلة له بشركة Nintendo أو The Pokémon Company أو Koei Tecmo؛ Pokémon علامة تجارية لشركة Nintendo وCreatures Inc. وGAME FREAK inc. (انظر [LEGAL.md](../../LEGAL.md)).
 
 > [!NOTE]
 > **مبني بالذكاء الاصطناعي، بإشراف إنسان.** يُطوَّر هذا المشروع أساساً بالذكاء الاصطناعي، وأنا المشرف. لديّ بضع سنوات من الخبرة في التطوير، لذا ليس كله عملاً رديئاً. أُراجع كل تعديل (commit) وأتحقق منه وأختبره بنفسي قبل دمجه.
@@ -52,12 +52,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>شاشة العنوان</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>بناء جزيرتك</sub></td>
+    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>شاشة العنوان</sub></td>
+    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>بناء جزيرتك</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>وضع العناصر بوضع الفأرة Joy-Con 2</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play مع صديق (قيد العمل)</sub></td>
+    <td width="50%"><img src="../assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>وضع العناصر بوضع الفأرة Joy-Con 2</sub></td>
+    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play مع صديق (قيد العمل)</sub></td>
   </tr>
 </table>
 
@@ -127,7 +127,7 @@ F1 يفتح الإعدادات في اللعبة. زر الفأرة الأوسط
 
 إذا لم يبدأ `PokopiaLauncher.AppImage` على نظام بدون FUSE، شغّل `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
-لتشغيل اللعبة من Steam (وضع الألعاب على Deck): في وضع سطح المكتب، اختر **Add a Non-Steam Game**، واختر `PokopiaLauncher.AppImage`، واضبط خيارات التشغيل على `--play`. مزيد من التفاصيل، وما تم اختباره، في [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+لتشغيل اللعبة من Steam (وضع الألعاب على Deck): في وضع سطح المكتب، اختر **Add a Non-Steam Game**، واختر `PokopiaLauncher.AppImage`، واضبط خيارات التشغيل على `--play`. مزيد من التفاصيل، وما تم اختباره، في [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## المودات والترجمات
 
@@ -204,7 +204,7 @@ Link Play يضع عدة لاعبين على جزيرة واحدة. يعمل ال
 
 **Interact everywhere وStory co-op (تجريبي، معطّل افتراضياً).** في مناطق القصة تضع اللعبة الزوار في وضع المشاهد. **Interact everywhere** يتيح لهم استخدام الحركات والعناصر، والالتقاط، والوضع، والبناء هناك. **Story co-op** يتيح لهم التحدث إلى شخصيات القصة، ويشغّل Interact everywhere. كل لاعب يحتاج المفتاحين نفسيهما، وإلا لا يُدرج المضيف. ملف حفظ المضيف وحده يحتفظ بتقدم القصة.
 
-لا يزال Link Play قيد الاختبار: الانضمام والتجول معاً يعملان. الجلسات الطويلة، وأكثر من لاعبين، واللعب عبر الإنترنت لم تُختبر بعد. انظر [docs/multiplayer](docs/multiplayer/README.md) لمعرفة كيف يعمل ومفاتيح `pkp.ini`.
+لا يزال Link Play قيد الاختبار: الانضمام والتجول معاً يعملان. الجلسات الطويلة، وأكثر من لاعبين، واللعب عبر الإنترنت لم تُختبر بعد. انظر [docs/multiplayer](../multiplayer/README.md) لمعرفة كيف يعمل ومفاتيح `pkp.ini`.
 
 ## المشكلات الشائعة
 
@@ -251,6 +251,6 @@ Link Play يضع عدة لاعبين على جزيرة واحدة. يعمل ال
 
 ## الترخيص
 
-GPL-3.0. يحتفظ كود الطرف الثالث بترخيصه، انظر [CREDITS.md](CREDITS.md).
+GPL-3.0. يحتفظ كود الطرف الثالث بترخيصه، انظر [CREDITS.md](../../CREDITS.md).
 
 </div>

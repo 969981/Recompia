@@ -36,6 +36,15 @@
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a>
 </p>
 
+<!-- i18n-bar:start -->
+<p align="center">
+  <b>English</b> ·
+  <a href="docs/i18n/README.es.md">Español</a> ·
+  <a href="docs/i18n/README.ar.md">العربية</a> ·
+  <a href="docs/i18n/README.hi.md">हिन्दी</a>
+</p>
+<!-- i18n-bar:end -->
+
 > [!IMPORTANT]
 > **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
 

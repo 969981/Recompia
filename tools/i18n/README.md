@@ -17,7 +17,7 @@ which is the authoritative text. Corrections from native speakers are welcome as
    version numbers, URLs, and the badge and image HTML. Do not add or drop headings, code blocks or links. Do not use em dashes.
 2. Start the file with the note (in the target language) that it is a machine translation of the English file, which is authoritative.
    For Arabic, wrap the text in `<div dir="rtl">` blocks (leave a blank line inside them so the Markdown still renders).
-3. Run `python3 tools/i18n/check_readmes.py --stamp` to write the `source-sha256` line (the hash of the English file this translation
+3. Run `python3 tools/i18n/check_readmes.py --fix-links` (links to files in the repository, such as `docs/assets/logo.png` or `CHANGELOG.md`, are written relative to the repository root in the English README and must become `../../docs/assets/logo.png` from `docs/i18n/`), then `python3 tools/i18n/check_readmes.py --stamp` to write the `source-sha256` line (the hash of the English file this translation
    was made from), then `python3 tools/i18n/check_readmes.py` to check the structure.
 
 The check is also a pull request check (`.github/workflows/readme-translations.yml`). A structure mismatch fails it. A translation made

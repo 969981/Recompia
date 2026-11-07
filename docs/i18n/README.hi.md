@@ -3,7 +3,7 @@
 > यह अंग्रेज़ी README (../../README.md) का मशीनी अनुवाद है। इसमें गलतियाँ हो सकती हैं, और अंग्रेज़ी README ही आधिकारिक है।
 
 <h1 align="center">
-  <img src="docs/assets/logo.png" alt="Recompia" width="420">
+  <img src="../assets/logo.png" alt="Recompia" width="420">
 </h1>
 
 <h3 align="center">Pokopia Recomp</h3>
@@ -31,17 +31,17 @@
 
 <p align="center">
   <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">रिलीज़</a></b> ·
-  <a href="CHANGELOG.md">चेंजलॉग</a> ·
-  <a href="CONTRIBUTING.md">योगदान</a> ·
-  <a href="CREDITS.md">श्रेय</a> ·
+  <a href="../../CHANGELOG.md">चेंजलॉग</a> ·
+  <a href="../../CONTRIBUTING.md">योगदान</a> ·
+  <a href="../../CREDITS.md">श्रेय</a> ·
   <a href="https://github.com/xFractals/pokopia-native">मूल: pokopia-native</a> ·
-  <a href="SECURITY.md">सुरक्षा</a> ·
-  <a href="LEGAL.md">कानूनी</a> ·
+  <a href="../../SECURITY.md">सुरक्षा</a> ·
+  <a href="../../LEGAL.md">कानूनी</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">समस्याएँ</a>
 </p>
 
 > [!IMPORTANT]
-> **इसमें गेम की कोई फ़ाइल शामिल नहीं है।** आपको गेम की अपनी एक्सट्रैक्ट की गई कॉपी चाहिए, वर्ज़न **2.0.1a**। यह प्रोजेक्ट कोई गेम फ़ाइल, key या डंपिंग टूल नहीं देता। Nintendo, The Pokémon Company या Koei Tecmo से इसका कोई संबंध नहीं है; Pokémon, Nintendo, Creatures Inc. और GAME FREAK inc. का ट्रेडमार्क है (देखें [LEGAL.md](LEGAL.md))।
+> **इसमें गेम की कोई फ़ाइल शामिल नहीं है।** आपको गेम की अपनी एक्सट्रैक्ट की गई कॉपी चाहिए, वर्ज़न **2.0.1a**। यह प्रोजेक्ट कोई गेम फ़ाइल, key या डंपिंग टूल नहीं देता। Nintendo, The Pokémon Company या Koei Tecmo से इसका कोई संबंध नहीं है; Pokémon, Nintendo, Creatures Inc. और GAME FREAK inc. का ट्रेडमार्क है (देखें [LEGAL.md](../../LEGAL.md))।
 
 > [!NOTE]
 > **AI की मदद से बनाया गया, इंसान की निगरानी में।** यह प्रोजेक्ट मुख्य रूप से AI के साथ बनाया गया है, और मैं इसका सुपरवाइज़र हूँ। मेरे पास कुछ सालों का डेवलपमेंट अनुभव है, इसलिए यह सब बेकार नहीं है। हर commit को मैं खुद जाँचता, सत्यापित करता और टेस्ट करता हूँ, तभी वह शामिल होता है।
@@ -50,12 +50,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>शीर्षक स्क्रीन</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>अपना द्वीप बनाना</sub></td>
+    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>शीर्षक स्क्रीन</sub></td>
+    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>अपना द्वीप बनाना</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>Joy-Con 2 माउस मोड से आइटम रखना</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>किसी दोस्त के साथ Link Play (कार्य प्रगति पर)</sub></td>
+    <td width="50%"><img src="../assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>Joy-Con 2 माउस मोड से आइटम रखना</sub></td>
+    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>किसी दोस्त के साथ Link Play (कार्य प्रगति पर)</sub></td>
   </tr>
 </table>
 
@@ -125,7 +125,7 @@ F1 गेम में सेटिंग्स खोलता है। मा
 
 अगर FUSE के बिना सिस्टम पर `PokopiaLauncher.AppImage` शुरू नहीं होता, तो `./PokopiaLauncher.AppImage --appimage-extract-and-run` चलाएँ।
 
-Steam से गेम शुरू करने के लिए (Deck पर Game Mode): Desktop Mode में **Add a Non-Steam Game**, `PokopiaLauncher.AppImage` चुनें, और उसके लॉन्च विकल्प `--play` सेट करें। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
+Steam से गेम शुरू करने के लिए (Deck पर Game Mode): Desktop Mode में **Add a Non-Steam Game**, `PokopiaLauncher.AppImage` चुनें, और उसके लॉन्च विकल्प `--play` सेट करें। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
 
 ## मॉड और अनुवाद
 
@@ -202,7 +202,7 @@ Link Play कई खिलाड़ियों को एक द्वीप �
 
 **Interact everywhere और Story co-op (प्रयोगात्मक, डिफ़ॉल्ट रूप से बंद)।** कहानी के इलाकों में गेम आगंतुकों को Spectator Mode में रखता है। **Interact everywhere** उन्हें वहाँ चालें और आइटम इस्तेमाल करने, उठाने, रखने और बनाने देता है। **Story co-op** उन्हें कहानी के पात्रों से बात करने देता है, और Interact everywhere चालू कर देता है। हर खिलाड़ी के पास वही दो स्विच होने चाहिए, वरना होस्ट सूची में नहीं आता। सिर्फ़ होस्ट का सेव कहानी की प्रगति रखता है।
 
-Link Play अभी परीक्षण में है: जुड़ना और साथ घूमना काम करता है। लंबे सत्र, दो से ज़्यादा खिलाड़ी और इंटरनेट पर खेलना अभी टेस्ट नहीं हुए। यह कैसे काम करता है और `pkp.ini` की keys, [docs/multiplayer](docs/multiplayer/README.md) में देखें।
+Link Play अभी परीक्षण में है: जुड़ना और साथ घूमना काम करता है। लंबे सत्र, दो से ज़्यादा खिलाड़ी और इंटरनेट पर खेलना अभी टेस्ट नहीं हुए। यह कैसे काम करता है और `pkp.ini` की keys, [docs/multiplayer](../multiplayer/README.md) में देखें।
 
 ## आम समस्याएँ
 
@@ -249,4 +249,4 @@ Link Play अभी परीक्षण में है: जुड़ना �
 
 ## लाइसेंस
 
-GPL-3.0. तीसरे पक्ष का कोड अपना लाइसेंस रखता है, देखें [CREDITS.md](CREDITS.md).
+GPL-3.0. तीसरे पक्ष का कोड अपना लाइसेंस रखता है, देखें [CREDITS.md](../../CREDITS.md).

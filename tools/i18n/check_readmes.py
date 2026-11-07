@@ -14,6 +14,8 @@ within its first 5 lines. This script:
               fences, URLs, inline code, file names and options: a mismatch is an ERROR); no em dash.
   --stamp     writes or refreshes the hash line from the current English file (run it after a translation is checked in or the
               English file changes and the translation was updated).
+  --fix-links     in the .md translations, rewrite links that are relative to the repository root (docs/assets/logo.png, CHANGELOG.md)
+                  so they work from docs/i18n/ (../../docs/assets/logo.png). A relative link that does not resolve is an ERROR in the check.
   --require-all   a missing translation is an error (default: a warning).
   --lang a,b      only these languages.
 Standard library only. Exit status 1 if there is any error.
@@ -89,6 +91,39 @@ def facts(text, kind):
     return f
 
 
+LINK_RES = [re.compile(r'((?:src|href)=")([^"#][^"]*)(")'), re.compile(r'(\]\()([^)#\s][^)\s]*)(\))')]
+SCHEME = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
+
+
+def relative_links(text):
+    for rx in LINK_RES:
+        for m in rx.finditer(text):
+            if not SCHEME.match(m.group(2)):
+                yield m.group(2)
+
+
+def fix_links(dst_rel):
+    path = os.path.join(ROOT, dst_rel)
+    here = os.path.dirname(path)
+    text = read(dst_rel)
+
+    def sub(m):
+        target = m.group(2)
+        bare = target.split("#")[0]
+        if SCHEME.match(target) or os.path.exists(os.path.join(here, bare)) or not os.path.exists(os.path.join(ROOT, bare)):
+            return m.group(0)
+        new = os.path.relpath(os.path.join(ROOT, bare), here).replace(os.sep, "/") + target[len(bare):]
+        return m.group(1) + new + m.group(3)
+
+    out = text
+    for rx in LINK_RES:
+        out = rx.sub(sub, out)
+    if out != text:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out)
+        print(f"fixed links in {dst_rel}")
+
+
 def diff_sets(a, b):
     return sorted(a - b), sorted(b - a)
 
@@ -106,6 +141,11 @@ def check_pair(src_rel, dst_rel, kind, lang, require_all):
         warn(dst_rel, f"stale: {src_rel} changed since this translation was made (update it, then run --stamp)")
     if "\u2014" in dst:
         err(dst_rel, "contains an em dash")
+    if kind == "md":
+        here = os.path.dirname(os.path.join(ROOT, dst_rel))
+        broken = sorted({l for l in relative_links(dst) if not os.path.exists(os.path.join(here, l.split("#")[0]))})
+        if broken:
+            err(dst_rel, f"relative links that do not resolve from {os.path.dirname(dst_rel)}/ (run --fix-links): {broken[:4]}")
     fs, fd = facts(src, kind), facts(dst, kind)
     for key in fs:
         if isinstance(fs[key], set):
@@ -134,6 +174,7 @@ def stamp_pair(src_rel, dst_rel, kind):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stamp", action="store_true")
+    ap.add_argument("--fix-links", action="store_true")
     ap.add_argument("--require-all", action="store_true")
     ap.add_argument("--lang", default=",".join(LANGS))
     a = ap.parse_args()
@@ -144,11 +185,14 @@ def main():
     for src_rel, tmpl, kind in PAIRS:
         for lang in langs:
             dst_rel = tmpl.format(lang=lang)
-            if a.stamp:
+            if a.fix_links:
+                if kind == "md" and os.path.exists(os.path.join(ROOT, dst_rel)):
+                    fix_links(dst_rel)
+            elif a.stamp:
                 stamp_pair(src_rel, dst_rel, kind)
             else:
                 check_pair(src_rel, dst_rel, kind, lang, a.require_all)
-    if not a.stamp:
+    if not a.stamp and not a.fix_links:
         print("translations: ok" if not errors else f"translations: {errors} error(s)")
     return 1 if errors else 0
 
