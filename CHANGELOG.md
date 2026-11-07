@@ -13,6 +13,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed a shader translation mistake in about a third of the game's shaders
 
 ### Graphics
+- Windows on a small integrated GPU (including the ROG Ally): graphics-pool memory now uses the bounded cache already used under Wine, instead of keeping every imported chunk until Vulkan runs out of device memory and the picture freezes (#234)
 - Fixed the dashed white outline missing around move target tiles and the block placement indicator; only the faint tint showed (#242, #120)
 - Fixed one common shader instruction being translated wrongly in 32,630 of about 99,000 shaders
   - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked

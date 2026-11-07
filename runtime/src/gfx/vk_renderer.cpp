@@ -845,7 +845,8 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             if (ft0) ft::event(z_vsub, ft0, ft::now_ns(), static_cast<uint32_t>(cbs.size()));
             s.dev->note_result(r, "vkQueueSubmit2 (present)");
             if (r != VK_SUCCESS) {
-                if (!s.dev->device_lost()) NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
+                if (!s.dev->device_lost())
+                    NXLOG_E(kTag, r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? "vkQueueSubmit2 failed: VK_ERROR_OUT_OF_DEVICE_MEMORY (%d)" : "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
             } else if (probe_value) {
                 s.probe_published.store(probe_value);
             }
