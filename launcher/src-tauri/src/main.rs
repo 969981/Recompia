@@ -347,6 +347,8 @@ impl Readiness {
 struct ReadyFacts {
     game_dir: String,
     exe_exists: bool,
+    /// pkp.exe is there but pkp_rt.dll is neither beside it nor in the launcher's folder to copy from: it would stop at once (exit 53)
+    runtime_missing: bool,
     /// the release builds pkp.exe itself
     builds_exe: bool,
     /// Current when the release does not build it
@@ -362,6 +364,9 @@ struct ReadyFacts {
 fn readiness_of(f: &ReadyFacts) -> Readiness {
     if !f.builds_exe && !f.exe_exists {
         return Readiness::of("no_exe", format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe.", f.game_dir));
+    }
+    if f.exe_exists && f.runtime_missing {
+        return Readiness::of("no_runtime", format!("pkp_rt.dll was not found next to pkp.exe in {} nor next to the launcher. Extract the release again so the launcher's folder has it, or set the game folder in Settings.", f.game_dir));
     }
     let unfinished = || {
         if f.started {
@@ -445,6 +450,7 @@ fn readiness(cfg: &Config) -> Probe {
     let readiness = readiness_of(&ReadyFacts {
         game_dir: dump::fwd(&dir),
         exe_exists: dir.join("pkp.exe").is_file(),
+        runtime_missing: !dir.join("pkp_rt.dll").is_file() && !exe_dir().join("pkp_rt.dll").is_file(),
         builds_exe,
         built: if builds_exe { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current },
         needs_retranslation: shaders::needs_retranslation(&dir),
