@@ -983,13 +983,14 @@ fn fit_window(window: &tauri::WebviewWindow, saved: Option<WindowPlace>) -> taur
 
 /// The window's size and place as it closes, for the next start (fit_window). A maximized window keeps what was saved before.
 fn place_of(window: &tauri::Window) -> Option<WindowPlace> {
-    if window.is_maximized().unwrap_or(true) {
+    if window.is_maximized().unwrap_or(true) || window.is_minimized().unwrap_or(true) {
         return None;
     }
     let scale = window.scale_factor().ok()?;
     let size = window.inner_size().ok()?.to_logical::<f64>(scale);
     let pos = window.outer_position().ok()?.to_logical::<f64>(scale);
-    Some(WindowPlace { x: pos.x, y: pos.y, width: size.width, height: size.height })
+    // a closing window can report a degenerate size: never let it replace a good saved place
+    (size.width >= 900.0 && size.height >= 440.0).then_some(WindowPlace { x: pos.x, y: pos.y, width: size.width, height: size.height })
 }
 
 fn main() {
