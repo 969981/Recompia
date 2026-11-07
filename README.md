@@ -123,10 +123,11 @@ To start the game from Steam (Game Mode on the Deck): in Desktop Mode, **Add a N
 
 Your saves, settings and shaders stay.
 
-1. Download the new zip from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest). Close the game and the launcher.
-2. Extract it over your install, into the same folder. The zip holds no saves, settings, shader cache or game files, so extracting does not replace them.
-3. Run `PokopiaLauncher.exe`. If the update changes the game code, the launcher says so: open **Game files** and press **Set up** again. It rebuilds `pkp.exe` (about 7 minutes). The old `pkp.exe` stays until the new one is ready.
-4. Press **Play**.
+**From 0.7.5 on:** press **Update** on Home (or in Settings > About). The launcher downloads the new release, checks it, swaps its own files and restarts.
+
+**From 0.7.0 or older:** download the new zip (Windows) or `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
+
+**If Home shows Finish update after an update:** that release changed the game code, so the launcher builds the game program (`pkp.exe`) again from your game files. It also happens when you skipped such a release earlier and update later. This is a short wait, about 7 minutes on most PCs and a bit longer on a handheld, because your shaders and saves are kept. It is not the long first setup: shaders are only translated again when the release notes say so, and then only the ones that changed. The old `pkp.exe` stays until the new one is ready.
 
 Copy the `save` folder somewhere first if you want a backup. A save that a newer version wrote may not load in an older one.
 
@@ -210,7 +211,9 @@ Never attach game files, the `build` or `shader_cache` folders, or saves to an i
 
 ## Reporting problems
 
-[Open an issue](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version.
+[Open an issue](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device).
+
+**Linux, SteamOS and Linux handhelds:** I (Jerban) look after the Linux side, so Linux bugs get fixed and sent out quickly through the one-click updater. Sorry for the frequent updates, and thanks for your patience. Please keep reporting Linux bugs, always with your logs: `pkp.log`, and `setup.log` for problems with Set up (see [Where your saves, logs and settings are](#where-your-saves-logs-and-settings-are)). Anything outside Linux is reviewed by Josh first.
 
 ## License
 

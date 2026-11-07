@@ -54,7 +54,10 @@ bool detect(std::string* why) {
     if (n > 0 && n < sizeof env && lower_trimmed(std::string(env, n)) == "1") return *why = "Steam's SteamDeck=1", true;
     const std::string product = smbios("SystemProductName", "product_name"), family = smbios("SystemFamily", "product_family");
     // Steam Deck LCD / OLED. The Go S's product names are SKU codes (83N6, ...), its family names the model: "Legion Go S 8APU1".
-    if (product == "jupiter" || product == "galileo" || family.rfind("legion go s", 0) == 0) return *why = "board " + product + " / " + family, true;
+    // ROG Ally and Ally X: product "ROG Ally RC71L_RC71L" / "ROG Ally X RC72LA_RC72LA", family "ROG Ally" (read on an Ally under CachyOS).
+    if (product == "jupiter" || product == "galileo" || family.rfind("legion go s", 0) == 0 || product.rfind("rog ally", 0) == 0 ||
+        family.rfind("rog ally", 0) == 0)
+        return *why = "board " + product + " / " + family, true;
     *why = "not a known handheld (board '" + product + "' / '" + family + "')";
     return false;
 }

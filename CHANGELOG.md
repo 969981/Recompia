@@ -4,6 +4,63 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## 0.7.7 (build K: Klipspringer)
+
+Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
+
+Sorry for all the updates lately. I look after the Linux side, and now that Josh's one-click updater is in, I want to squash as many Linux bugs as I can and get the fixes out to you right away, instead of saving them up. Thanks a lot for your patience.
+
+If you play on Linux, SteamOS or a Linux handheld, please keep opening issues for any bug you run into there, and always attach your logs: `pkp.log` from the game folder, and `setup.log` too if it is about Set up (the README says where they are, under "Where your saves, logs and settings are"). Without the logs I usually cannot tell what went wrong.
+
+~Jerban
+
+### Known issues
+- **Linux still runs the game and the shader setup through Proton.**
+- **The game clock has not been tested with Link Play**, so use it in single player only for now. In single player the sky and the in-game time follow it.
+- **The touch resize grip and dragging the title bar by finger** were tested with the window functions, not with a finger on a real screen, until the first handheld tests are in. Tell me what you find.
+- **Dragging the resize grip in the bottom right corner can stutter** while the window changes size. I am looking into it.
+- Link Play with pokopia-native players still has no confirmed full two player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
+
+### New
+
+#### Set the game's date and time from the launcher (#203)
+**Before:** the game's clock always followed the PC, so reaching time-gated things in the game meant changing the system clock.
+
+**Now:** Settings > Game has a **Game clock** row: pick a date and time, or press **Real time** to follow the PC again. It is saved in `pkp.ini` as `[time] clock_offset` (minutes, up to 10 years either way) and used from the next start of the game. The clock the game reads for the player moves; the steady and network clocks stay on the PC's time, as when you set the date and time by hand on a Switch.
+
+**Still not:** it only changes at the start of the game, not while it runs, and it has not been tested in Link Play, so use it in single player only for now (the launcher says so under the row).
+
+#### Reach the F1 menu with a controller
+**Before:** the in-game settings page opened only with the F1 key and could only be used with a mouse or a touch screen, so on a handheld like the ROG Ally, or on a PC with a controller and no touch screen, you needed a keyboard.
+
+**Now:** the "Close the game?" prompt (View and Menu together, the Switch's minus and plus) has a third choice, **Settings**: press X or tap it, and the F1 page opens. Inside the page the controller works: D-pad or left stick move, A chooses, B goes back, and plus closes it. The game gets no button presses while the page is open. The touch screen and the mouse work as before.
+
+**Still not:** the highlight appears on your first D-pad press, not when the page opens.
+
+### Fixes
+
+#### The ROG Ally was not treated as a handheld
+**Before:** the game only knew the Steam Deck and the Legion Go S as handhelds. On a ROG Ally it ran in the Switch's docked mode, sized its picture like a desktop PC and showed keyboard prompts by default.
+
+**Now:** the ROG Ally and Ally X count as handhelds, like the Deck: handheld mode, a picture sized for the screen, the lighter sleep under Proton and controller prompts. The game log says `handheld: yes` with the board name. `[host] handheld = off` in `pkp.ini` turns it off again if you prefer the old behaviour.
+
+#### The launcher was slow on Linux
+**Before:** on Linux the launcher took about 0.7 seconds from a click to the next page and scrolled at about 3 frames per second, because the big background picture was drawn again, and blurred again, on every frame.
+
+**Now:** the background is two ready-made pictures (the sharp one and a blurred one) made from the same artwork, so it looks the same. On my PC a page change takes about 55 ms and scrolling runs at about 60 frames per second. `launcher/scripts/render-art.sh` rebuilds the pictures from the SVG if the artwork changes.
+
+#### The launcher did not fit handheld screens and was hard to use by touch
+**Before:** on a 1920x1080 screen at 185 % scale (a ROG Ally on the KDE desktop) the window opened taller than the screen, so the bottom went under the taskbar. The window had no title bar, so the only way to resize it was the invisible edge of the window, which a finger cannot hit, and the window buttons were 32 pixels wide.
+
+**Now:** on a small screen (up to 1400 pixels wide or under 800 high, as the screen counts for the launcher) the launcher starts maximized, so the taskbar stays clear. If the screen query ever fails, the launcher just opens at its normal size. On other screens it now opens a bit smaller, at 1040x600 instead of 1120x720, and it remembers the size (and, outside Wayland, the place) you leave it at. The smallest window height is 440 instead of 580, and every page works at 1038x540. Where the main pointer is a finger, buttons, rows, inputs and the window buttons are 44 to 48 pixels. There is a resize grip in the bottom right corner, and the title bar can be dragged with a finger. With a mouse nothing changes except the grip.
+
+#### The Xbox and PlayStation d-pad, trigger and shoulder icons faded out on the move wheel (#230)
+**Before:** with Xbox or PlayStation prompts, the icons for the d-pad, the triggers and shoulders, and the menu buttons are plain white art. The game's own button symbols have a dark rim, and so do our keyboard icons, but these did not, so on the pale Select Move wheel (and on white dialogue boxes) they nearly vanished. The d-pad was the worst: a white cross on a pale wheel.
+
+**Now:** those icons get the same dark rim and dark letters as the keyboard icons. The coloured face buttons (A, B, X, Y, cross, circle and so on) are left exactly as they were.
+
+**Still not:** I could only check the icons on their own, on a pale and a dark background, not inside the game. If any prompt still looks faint for you, send a screenshot of it.
+
 ## 0.7.6 (build K: Kinkajou)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.

@@ -22,7 +22,7 @@ body {
 #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
 .art, .scrim { position: absolute; inset: 0; transition: opacity var(--dur-slow) var(--ease); }
 .art { background: var(--art-url) var(--art-position) / cover no-repeat; }
-.art-soft { inset: calc(var(--art-soft-bleed) * -1); filter: var(--art-soft-blur); }   /* a blur fades at its edges: keep them off screen */
+.art-soft { inset: calc(var(--art-soft-bleed) * -1); background-image: var(--art-soft-url); }   /* pre-blurred; bleed keeps its soft edges off screen */
 .scrim-hero { background: var(--scrim-hero); opacity: 0; }
 .scrim-soft { background: var(--scrim-soft); mix-blend-mode: multiply; }
 body[data-art="sharp"] .art-soft,
@@ -78,6 +78,31 @@ body[data-shell="full"] #view { margin-block: 0; }
 }
 body[data-shell="full"] #titlebar { left: 0; }
 #winbtns { display: flex; gap: var(--space-1); }
+
+#resize-grip {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+#resize-grip[hidden] { display: none; }
+#resize-grip::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--color-text-2) 4px 6px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
 
 #toast {
   position: fixed;

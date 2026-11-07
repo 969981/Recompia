@@ -7,7 +7,7 @@
 // An edit is { file, section, key, value }. file 'pkp' and 'controls' go to write_settings, 'config' to save_config.
 //
 // Field: { id, label, type, at, def, options, min, max, step, suffix, ... }
-//   type     segmented | select | choice | size | toggle | slider | path
+//   type     segmented | select | choice | size | toggle | slider | path | clock
 //   at       where it lives: controls(), pkp() or config(); an array when it has two keys
 //   read     (src) => the control's value, when the plain mapping of `type` does not fit
 //   write    (value, src) => edits, likewise
@@ -115,6 +115,12 @@ function writeSensitivity(value) {
 
 // ---- the plain mapping of each type -------------------------------------------------------------------------------------------------
 
+const CLOCK_LIMIT_MIN = 10 * 366 * 24 * 60;
+const clockMinutes = (value) => {
+  const n = Math.round(Number(String(value).trim()));
+  return Number.isFinite(n) ? clamp(n, -CLOCK_LIMIT_MIN, CLOCK_LIMIT_MIN) : 0;
+};
+
 const wordOf = (f, src) => {
   const v = word(has(src, f.at) ? rawOf(src, f.at) : f.def);
   return f.aliases?.[v] ?? v;
@@ -132,6 +138,7 @@ const READ = {
     return +near.toFixed(2);
   },
   path: (f, src) => String(rawOf(src, f.at) ?? ''),
+  clock: (f, src) => clockMinutes(has(src, f.at) ? rawOf(src, f.at) : f.def),
 };
 
 const WRITE = {
@@ -142,6 +149,7 @@ const WRITE = {
   toggle: (f, v) => [edit(f.at, f.at.file === 'config' ? !!v : v ? '1' : '0')],
   slider: (f, v) => [edit(f.at, String(v))],
   path: (f, v) => [edit(f.at, fwd(v))],
+  clock: (f, v) => [edit(f.at, String(clockMinutes(v)))],
 };
 
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
@@ -353,6 +361,18 @@ export const SECTIONS = [
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
           { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
+        ],
+      },
+      {
+        title: 'Game clock',
+        rows: [
+          {
+            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
+          },
+          {
+            id: 'game_clock_note', type: 'note',
+            note: () => ({ text: 'Use this in single player only for now. It has not been tested with Link Play.' }),
+          },
         ],
       },
     ],
