@@ -208,7 +208,7 @@ All of these are in the game folder: the folder with `PokopiaLauncher.exe` and `
 | Log | `pkp.log`, written on every start from the launcher. A crash also writes `pkp_crash.txt`, `pkp_freeze.txt` or `pkp_fatal.txt`. |
 | Translated shaders | `shader_cache` (about 26 GB) |
 | Build files | `build` (the setup's work folder) |
-| Unpacked `.nup` | `nup_dump`, if you picked a `.nup` |
+| Unpacked `.nup` | `nup_dump`, if you picked a `.nup` (its add-ons, if any, in `nup_dump/aoc`) |
 | Launcher settings | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (your dump folder and game folder) |
 
 Never attach game files, the `build` or `shader_cache` folders, or saves to an issue. `pkp.log` is enough.
