@@ -508,13 +508,16 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         static void EmitLop3Ampere(EmitterContext ctx, SassInst i)
         {
-            // LOP3.LUT Rd, [Pd,] a, b, c, lut, Pin
+            // LOP3.LUT [Pd,] Rd, a, b, c, lut, Pin: the decoder, like nvdisasm, puts a predicate destination before Rd
+            // ("LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT"). Reading it as Rd first shifted every source by one and left Pd
+            // constant false, which hid the dashed outline of the move/placement highlight (#242).
             if (!Has(i, "LUT")) throw Unsup();
             IReadOnlyList<Op> o = i.Operands;
-            int s = IsPredKind(o[1]) ? 2 : 1;
+            int d = IsPredKind(o[0]) ? 1 : 0;
+            int s = d + 1;
             IrOperand r = Lop3Expression.GetFromTruthTable(ctx, Src(ctx, o[s]), Src(ctx, o[s + 1]), Src(ctx, o[s + 2]), (int)o[s + 3].ImmBits & 0xff);
-            Dst(ctx, o[0], r);
-            if (s == 2) Dst(ctx, o[1], ctx.ICompareNotEqual(r, Const(0)));
+            Dst(ctx, o[d], r);
+            if (d == 1) Dst(ctx, o[0], ctx.ICompareNotEqual(r, Const(0)));
         }
 
         // ---- integer arithmetic -----------------------------------------------------------------------------------
