@@ -6,47 +6,33 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-Press **Update** in the launcher, then run **Finish update** once when it asks: a shader translation fix changes a third of
-the translated shaders, and only those are translated again (32,630 of about 99,000), not the whole cache.
+**Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).
 
-### Fixes
+### Highlights
+- Fixed the dashed outline missing around the tiles a move like Rock Smash or Water Gun will hit (#242)
+- Fixed a shader translation mistake in about a third of the game's shaders
 
-#### Shader fix: about a third of the game's shaders were translated with a mistake (#242)
-**What was wrong:** the game's graphics programs (shaders) are written for the Switch 2's GPU, and **Set up** translates each one
-so your PC's GPU can run it. One very common instruction, a bit operation that also gives a true/false answer, was translated
-wrongly: its inputs were read one position off, and the true/false answer was always false. It appears in 32,630 of the game's
-roughly 99,000 shaders. The visible result we know of: the dashed white outline around the tiles a move like Rock Smash or Water
-Gun will hit, and around the block placement indicator, was missing, so only the faint tint showed (#120 reported the same thing
-earlier).
+### Graphics
+- Fixed the dashed white outline missing around move target tiles and the block placement indicator; only the faint tint showed (#242, #120)
+- Fixed one common shader instruction being translated wrongly in 32,630 of about 99,000 shaders
+  - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
+  - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
+- Until you run **Finish update**, the game keeps the old translations and the outline stays missing
 
-| Before | Now |
+| Before | After |
 |---|---|
-| ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![Now: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
+| ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
 
-**Now:** the instruction is translated correctly and the dashed outline is back.
-
-**What else may change:** the instruction is mostly used for masks, patterns, dithering and on/off switches inside effects, so other
-small details with the same cause may now look right too. We have not checked all of them. If something looks worse after this
-update, please open an issue with a screenshot and `pkp.log`.
-
-**What you need to do:** run **Finish update** once. Until then the game keeps the old translations and the outline stays missing.
-It translates only the changed shaders, so it takes part of the time and space of a full **Set up**.
-
-### Release notes for developers
-- `tools/shaders/ampere/frontend/AmpereEmit.cs` `EmitLop3Ampere`: the decoder (like nvdisasm) puts LOP3's predicate destination
-  before Rd (`LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT`); the emitter read Rd first, so a, b, c and the LUT were each taken one
-  operand late and Pd was never written (it stayed false). ULOP3 shares the path. The corpus has 112,542 such instructions in
-  32,630 blocks. IADD3, LEA, IMAD and MATCH already handled their predicate outputs, and R2UR, FLO and LDG never carry one in
-  this game's corpus.
-- `launcher/src-tauri/src/shaders.rs`: `TRANSLATOR_REV` 2. `stale_blocks` translates again the blocks of `rev2_blocks.txt`:
-  the 32,630 hashes whose SPIR-V differs between the translator before and after the fix over the full 2.0.1 corpus.
-  Every block the game built while it ran (not in the corpus, a few hundred; the outline's lighting shader is one) is translated
-  again too, by `translate_missing`. Both loose and packed (`spirv.archive`) caches go through the existing path: the loose `.spv`
-  is replaced, or the new translation joins the archive as a newer segment, and the boot preload pack drops the entry because its
-  `results.tsv` line changed. The 32,630 is exactly the number of corpus blocks with a LOP3/ULOP3 predicate destination.
-- The highlight is drawn by the deferred lighting fs `0cd3176a1c7791d8` (G-buffer neighbour test plus a world-space checker for the
-  dashes), not by the sky/cloud draws `8010f484`/`86aa3b21`. The 0.6.x #120 note credited the outline to the depth range default
-  (#137): that change affects clouds and stays, but it never fixed the outline.
+### For developers
+- `tools/shaders/ampere/frontend/AmpereEmit.cs` `EmitLop3Ampere`: read LOP3/ULOP3 operands after the predicate destination
+  - The decoder (like nvdisasm) puts Pd before Rd (`LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT`); the emitter read Rd first, so a, b, c and the LUT were one operand late and Pd stayed false
+  - 112,542 such instructions in 32,630 corpus blocks; IADD3, LEA, IMAD and MATCH already handled predicate outputs; R2UR, FLO and LDG never carry one here
+- `launcher/src-tauri/src/shaders.rs`: `TRANSLATOR_REV` 1 ⇒ 2
+  - `stale_blocks` retranslates the 32,630 hashes in `rev2_blocks.txt` (SPIR-V differs before/after the fix over the full 2.0.1 corpus)
+  - Blocks the game built at runtime (a few hundred, including the outline's lighting shader) are retranslated by `translate_missing`
+  - Loose `.spv` files are replaced; packed `spirv.archive` gets a newer segment; the boot preload pack drops changed `results.tsv` entries
+- The outline is drawn by deferred lighting fs `0cd3176a1c7791d8` (G-buffer neighbour test + world-space checker), not the sky/cloud draws `8010f484`/`86aa3b21`
+  - The 0.6.x #120 note credited it to the depth range default (#137); that change affects clouds and stays, but never fixed the outline
 
 ## 0.7.8 (build K: Kudu)
 
