@@ -1,0 +1,23 @@
+name: Feature request
+description: An idea, or something the game or launcher should do but does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+      description: What it should do, and what it would let you do that you cannot now.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Anything else
+      description: How you work around it today, examples from other projects, screenshots.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the open and closed issues and this is not already requested.
+          required: true
