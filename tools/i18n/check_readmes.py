@@ -47,7 +47,8 @@ BAR_RE = re.compile(r"<!--\s*i18n-bar:start\s*-->.*?<!--\s*i18n-bar:end\s*-->\n?
 
 def norm(text):
     text = BAR_RE.sub("", text)
-    return "\n".join(l.rstrip() for l in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip() + "\n"
+    text = "\n".join(l.rstrip() for l in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"))
+    return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"   # taking the bar out must not change the text (runs of blank lines count as one)
 
 
 def sha(text):
