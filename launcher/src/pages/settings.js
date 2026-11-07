@@ -120,7 +120,7 @@ export async function render(el, ctx) {
       const holder = f.placeholder(e);
       return `${field(f.id, value, holder, { mono: true, disabled: off }).replace('class="input', `title="${esc(value || holder)}" class="input set-path`)}
         <button class="btn" data-act="browse" data-arg="${f.id}">Browse</button>
-        <button class="btn" data-act="open" data-arg="${f.open}">${icon('folder-open')}Open</button>`;
+        ${f.open ? `<button class="btn" data-act="open" data-arg="${f.open}">${icon('folder-open')}Open</button>` : ''}`;
     },
     clock: (f, value, e, off) => `${field(f.id, clockInput(value), '', { type: 'datetime-local', disabled: off }).replace('class="input', 'step="60" class="input')}
       <button class="btn" data-act="clock-real" data-arg="${f.id}" ${off ? 'disabled' : ''}>${icon('rotate-ccw')}Real time</button>

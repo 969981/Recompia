@@ -378,6 +378,7 @@ uint64_t language_code_u64(Language l) {
 
 std::string romfs_dir() { return config_get_str("fs", "romfs", "game/romfs"); }
 std::string romfs_base_dir() { return config_get_str("fs", "romfs_base", ""); }
+std::string romfs_mod_dir() { return config_get_str("fs", "romfs_mod", ""); }
 
 const std::vector<AddOnContent>& add_on_contents() {
     static std::once_flag once;
