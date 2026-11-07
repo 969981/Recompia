@@ -4,14 +4,14 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
   Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Pause, Play, RefreshCw, RotateCcw, Save, Search,
+  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Play, RefreshCw, RotateCcw, Save, Search,
   Server, Settings, Shield, ShieldCheck, Sparkles, Square, TriangleAlert, Upload, Users, Volume2, Wifi, WifiOff, Wrench, X,
 } from 'lucide';
 
 const ICONS = {
   ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
   Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Pause, Play, RefreshCw, RotateCcw, Save, Search,
+  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Play, RefreshCw, RotateCcw, Save, Search,
   Server, Settings, Shield, ShieldCheck, Sparkles, Square, TriangleAlert, Upload, Users, Volume2, Wifi, WifiOff, Wrench, X,
 };
 
