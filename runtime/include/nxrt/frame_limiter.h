@@ -67,9 +67,11 @@ private:
     Impl* impl_;
 };
 
-// For a VRR (G-Sync / FreeSync) display with vsync on: a cap a little under the refresh rate keeps the frame rate inside the
-// VRR window so that the display never falls back to the plain vsync queue. refresh - max(3, refresh^2 / 3600) (Blur
-// Busters formula, at least 3 under), never below 1. 60 -> 57, 120 -> 116, 144 -> 138.24, 240 -> 224.
+// For a VRR (G-Sync / FreeSync) display: a cap a little under the refresh rate keeps the frame rate inside the VRR window so that
+// the display never falls back to plain vsync or tearing. refresh - max(3, refresh^2 / 3600) (Blur Busters formula, at least 3
+// under): 120 -> 116, 144 -> 138.24, 240 -> 224. Below 100 Hz it is the refresh rate itself (60 -> 60, 90 -> 90): there 3 fps is
+// a felt loss, a screen without VRR (Steam Deck) shows the lower rate unevenly, and a game that counts a frame within 1.5 ms of
+// 1/60 s as exactly 1/60 s (Pokopia) runs 5 % slow at 57.
 double suggest_vrr_cap(double refresh_hz);
 
 // Frame cap snapped to a divisor of the refresh rate (F5): with vsync on, a cap that is not a divisor shows frames for uneven numbers of

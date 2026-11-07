@@ -950,11 +950,16 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
                             d.fps_cap == 40 ? "; set 80 Hz in Steam's Performance menu for 40" : "; pick a refresh rate that is a multiple of it");
     }
     ImGui::BeginDisabled(live.refresh_hz <= 0.0f);
-    if (ImGui::Button("Just under the refresh rate")) {
-        d.fps_cap = static_cast<int>(std::floor(nxrt::suggest_vrr_cap(live.refresh_hz)));
+    if (ImGui::Button("Just under the refresh rate (G-Sync / FreeSync)")) {
+        // Below 100 Hz suggest_vrr_cap is the refresh rate itself: round it (59.94 -> 60, 89.98 -> 90) so the cap is not a frame short.
+        const double cap = nxrt::suggest_vrr_cap(live.refresh_hz);
+        d.fps_cap = static_cast<int>(live.refresh_hz < 100.0f ? std::lround(cap) : std::floor(cap));
         quality_preset_edited(d, QualityField::FrameLimit);
         mark(p);
     }
+    tip("For G-Sync / FreeSync screens: sets the limit a few fps under the refresh rate (116 at 120 Hz, 138 at 144 Hz) so the screen "
+        "keeps following the game instead of tearing or stuttering at the top. Below 100 Hz it sets the refresh rate itself (60, 90): "
+        "a lower limit there only makes the game less smooth. On a screen without G-Sync / FreeSync, use vsync instead.");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (live.refresh_hz > 0.0f) ImGui::TextDisabled("display %.2f Hz", live.refresh_hz);

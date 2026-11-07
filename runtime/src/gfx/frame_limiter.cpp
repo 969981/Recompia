@@ -283,6 +283,7 @@ uint64_t FrameLimiter::now_ns() {
 }
 
 double suggest_vrr_cap(double refresh_hz) {
+    if (refresh_hz < 100.0) return refresh_hz;     // see the header: under 100 Hz the lower cap costs more than VRR gives
     const double under = std::max(3.0, refresh_hz * refresh_hz / 3600.0);
     const double cap = refresh_hz - under;
     return cap < 1.0 ? 1.0 : cap;

@@ -8,6 +8,11 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Fixes
 
+#### F1 "Just under the refresh rate" no longer slows the game on 60 and 90 Hz screens
+**Before:** the button set the frame limit 3 fps under any refresh rate: 57 on a 60 Hz screen, 87 at 90 Hz. At 57 the game counts every frame as 1/60 s, so it ran about 5 % slow and felt sluggish; on a screen without G-Sync / FreeSync (Steam Deck) the lower rate also showed frames unevenly.
+
+**Now:** below 100 Hz the button sets the refresh rate itself (60, 90). From 100 Hz up it still keeps a few fps under (116 at 120 Hz, 138 at 144 Hz), which is what G-Sync / FreeSync need. The button says it is for G-Sync / FreeSync screens, with a tip. Nothing changes unless you press it.
+
 #### Link Play: Steam Deck and Proton find hosts and are found on the LAN
 **Before:** Proton has no DNS-SD (`dnsapi.dll` without `DnsService*`), so a host under Proton was invisible and a visitor under Proton found nothing (`DNS-SD needs Windows 10 1809 or later ... join by address`); every visit needed the host's address. Proton also showed a wrong "this PC's network is set to Public" note.
 
