@@ -1803,7 +1803,7 @@ void shadows_after_dispatch() {
     }
 }
 
-Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw
+Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw; without g_su_view: sampled nearest
 VkImageView g_su_view = VK_NULL_HANDLE;
 Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
 uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
@@ -2103,6 +2103,8 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                    } else if (r.tex == g_su_tex) {                  // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
+                        ii.sampler = dummy_sampler();
                     }
                 } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {
                     NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
@@ -2641,6 +2643,10 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
         VkExtent2D in_view{se.width, se.height}, out_tex{};
         if (!scene_part(in_view, VkExtent2D{te.width, te.height}, &in_view, &out_tex) && se.width >= te.width && se.height >= te.height) return;   // nothing to enlarge
         if (in_view.width >= te.width && in_view.height >= te.height) return;
+        if (extras::upscale_mode() == extras::UpscaleMode::Nearest) {   // no pass: the draw samples the small scene with a nearest sampler (#232)
+            g_su_tex = r.tex;
+            return;
+        }
         extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), in_view, VkExtent2D{te.width, te.height});
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass

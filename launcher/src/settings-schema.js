@@ -280,13 +280,11 @@ export const SECTIONS = [
         title: 'Upscaling',
         rows: [
           {
-            // the runtime keeps xess but runs it as off; spatial is its other word for fsr1
+            // spatial is the runtime's other word for fsr1. ponytail: fsr3 / nis / dlss / dlaa / xess are switched off in the runtime until
+            // they are reworked (#232) and run as off; add their options back here (and the dlss guard) when they return.
             id: 'upscale_mode', label: 'Upscaler', type: 'select', at: controls('upscale', 'mode'), def: 'off',
-            aliases: { spatial: 'fsr1', xess: 'off' }, guard: 'dlss', lock: (env) => env.dlssBusy,
-            options: [
-              { value: 'off', label: 'Off' }, { value: 'fsr1', label: 'FSR 1' }, { value: 'fsr3', label: 'FSR 3' }, { value: 'nis', label: 'NIS' },
-              { value: 'dlss', label: 'DLSS', offer: (env) => env.dlssOffered }, { value: 'dlaa', label: 'DLAA', offer: (env) => env.dlssOffered },
-            ],
+            aliases: { spatial: 'fsr1', xess: 'off', fsr3: 'off', nis: 'off', dlss: 'off', dlaa: 'off' }, lock: (env) => env.dlssBusy,
+            options: [{ value: 'off', label: 'Off' }, { value: 'fsr1', label: 'FSR 1' }, { value: 'nearest', label: 'Nearest (sharp pixels)' }],
           },
           {
             id: 'upscale_quality', label: 'Upscaling quality', type: 'select', at: controls('upscale', 'quality'), def: 'quality',

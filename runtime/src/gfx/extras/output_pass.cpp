@@ -215,7 +215,7 @@ void OutputPass::encode(VkCommandBuffer cb, VkImageView dst_view, VkFormat dst_f
         px = (dw - pw) * 0.5;
         py = (dh - ph) * 0.5;
     }
-    const bool nearest = std::fabs(pw - cw) < 1e-9 && std::fabs(ph - ch) < 1e-9;
+    const bool nearest = (std::fabs(pw - cw) < 1e-9 && std::fabs(ph - ch) < 1e-9) || upscale_mode() == UpscaleMode::Nearest;
 
     EncodePush pc = {};
     pc.pic[0] = static_cast<float>(px / dw);

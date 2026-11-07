@@ -33,7 +33,13 @@ struct HdrSettings {
 };
 
 // Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU). Fsr3, Dlss, Dlaa: temporal (Dlaa = DLSS at the input size).
-enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa };
+// Nearest: no filter, the low-res picture is enlarged with nearest-neighbour sampling (#232).
+enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, Nearest };
+// ponytail: FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked (#232): a file that names one runs as Off.
+// Re-enable one by returning it here (and listing it in the F1 page and the launcher again).
+inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
+    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nearest ? m : UpscaleMode::Off;
+}
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
 // upscalers run at the input size (native anti-aliasing).
