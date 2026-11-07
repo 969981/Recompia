@@ -56,6 +56,13 @@ Loose shader files are on their way out: a later release stops reading them.
 
 **Now:** the launcher puts the Link Play settings back to their defaults when it starts (Off stays Off). The Link Play page still remembers your addresses and room codes, so your last setup is one click away. The page no longer fills in this PC's own relay address while that relay is not running. The log warns when a join address is set, and internet play through a relay uses `auto` even if an old join address is left in the file. Starting the game from Steam with `--play` keeps your last saved settings.
 
+#### Link Play now shows the address to share, and refuses your own PC's address (#245)
+**Before:** the Link Play page only listed this PC's local network and VPN addresses, so a host over the internet shared the `127.0.0.1` from the relay field. On a friend's PC that address means the friend's own PC, so the friend could not find the room.
+
+**Now:** when you host over the internet, the first row under "Share with visitors" is **Over the internet**: this PC's public address with a copy button, with the right port for your relay or for direct hosting. A visitor who types a `127.x` address is told it is their own PC. To find the public address the launcher makes one small request to a what-is-my-IP service (`api.ipify.org`, with `ipv4.icanhazip.com` as a backup), only while the page shows an internet host.
+
+**Still not:** on a connection where the provider shares one public address between many customers, the address found is the provider's, and port forwarding cannot work there. The page cannot detect that.
+
 #### Photos were blank in the in-game album with HDR on (#229)
 **Before:** with HDR on, photos did not show in the in-game album or main menu, while "Save to console album" still wrote a correct picture.
 
