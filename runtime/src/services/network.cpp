@@ -258,7 +258,7 @@ std::shared_ptr<ipc::Service> make_request() {
     auto ev = std::make_shared<TwoEvents>();
     return make_iface("nn::nifm::detail::IRequest", [ev, online](ipc::Service& s) {
         rows(s, "nifm", {
-            {0, "GetRequestState", K::U32, online ? 3 : 1},      // 1 = Free: nothing was accepted; 3 = Accepted (online_test)
+            {0, "GetRequestState", K::U32, static_cast<uint64_t>(online ? 3 : 1)},      // 1 = Free: nothing was accepted; 3 = Accepted (online_test)
             {1, "GetResult", online ? K::Ok : K::Fail, kNifmNoConnection},
             {3, "Cancel", K::Ok},
             {4, "Submit", K::Ok},
@@ -336,8 +336,8 @@ std::shared_ptr<ipc::Service> make_general() {
             {18, "GetInternetConnectionStatus", online ? K::Bytes : K::Fail, online ? 0x040301ull : kNifmNoConnection, 3},   // online_test: Wifi, strength 3, Connected
             {19, "SetEthernetCommunicationEnabled", K::Ok},
             {20, "IsEthernetCommunicationEnabled", K::U8, 0},   // no adapter
-            {21, "IsAnyInternetRequestAccepted", K::U8, online ? 1 : 0},
-            {22, "IsAnyForegroundRequestAccepted", K::U8, online ? 1 : 0},
+            {21, "IsAnyInternetRequestAccepted", K::U8, static_cast<uint64_t>(online ? 1 : 0)},
+            {22, "IsAnyForegroundRequestAccepted", K::U8, static_cast<uint64_t>(online ? 1 : 0)},
             {23, "PutToSleep", K::Ok},
             {24, "WakeUp", K::Ok},
             {25, "GetSsidListVersion", K::U32, 0},
