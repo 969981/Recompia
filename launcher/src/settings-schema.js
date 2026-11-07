@@ -306,16 +306,6 @@ export const SECTIONS = [
     ],
   },
   {
-    id: 'game-clock',
-    label: 'Game clock',
-    groups: [{
-      title: 'Game clock',
-      rows: [{
-        id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
-      }],
-    }],
-  },
-  {
     id: 'saves',
     label: 'Saves',
     groups: [
@@ -372,6 +362,12 @@ export const SECTIONS = [
           },
           { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
         ],
+      },
+      {
+        title: 'Game clock',
+        rows: [{
+          id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
+        }],
       },
     ],
   },
