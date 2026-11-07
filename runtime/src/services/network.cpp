@@ -95,14 +95,14 @@ std::string raw_name(const ipc::Request& req, size_t off) {
 
 // Logs one call of a command at Info, the first kMaxCallLogs calls of each (service, command id, name). BCAT directory and file opens and
 // the sync requests with a directory name also log the name(s) they were given; no buffers, nothing else from the arguments.
-void log_call(const char* svc, uint32_t id, const char* name, const ipc::Request& req) {
+void log_call(const char* svc, const std::string& iface, uint32_t id, const char* name, const ipc::Request& req) {
     // only the services events could depend on: bsd, ssl and the others stay off this path (bsd runs per packet in Link Play)
     if (std::strcmp(svc, "nifm") != 0 && std::strcmp(svc, "bcat") != 0 && std::strcmp(svc, "ntc") != 0) return;
     NetState& s = st();
     int n;
     {
         std::lock_guard<std::mutex> lk(s.mu);
-        n = ++s.calls[std::string(svc) + " " + std::to_string(id) + " " + name];
+        n = ++s.calls[std::string(svc) + " " + iface + " " + std::to_string(id) + " " + name];
     }
     if (n > kMaxCallLogs) return;
     std::string arg;
@@ -189,9 +189,9 @@ uint32_t run(const Row& r, ipc::Request& req, ipc::Response& rsp) {
 
 // One command with its own handler; logs the first use.
 void cmd(ipc::Service& s, const char* svc, uint32_t id, const char* name, ipc::Handler h) {
-    s.add_cmd(id, name, [svc, id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+    s.add_cmd(id, name, [svc, iface = s.name(), id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
         note(svc, id, name);
-        log_call(svc, id, name, req);
+        log_call(svc, iface, id, name, req);
         return h(req, rsp);
     });
 }
@@ -233,7 +233,8 @@ struct TwoEvents {
 
 // =============================================================================================================================================
 // nifm: nifm:u, nifm:a, nifm:s (IStaticService). Switchbrew "Network Interface services", ScarletNX nifm.swipc, Ryujinx Nifm/.
-// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection).
+// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection); with [net] online_test = on
+// they report online instead.
 // =============================================================================================================================================
 
 std::shared_ptr<ipc::Service> make_scan_request() {
@@ -1414,7 +1415,7 @@ std::shared_ptr<ipc::Service> make_resolver() {
 
 // =============================================================================================================================================
 // ntc: ntc (IStaticService) and IEnsureNetworkClockAvailabilityService. The network clock task fails at once with "network not available"
-// (time 1000); Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
+// (time 1000), or succeeds at once with [net] online_test = on; Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
 // =============================================================================================================================================
 
 struct NtcTask {
@@ -1521,7 +1522,7 @@ void register_network() {
     const bool offline = config_get_bool("net", "offline", true);
     NXLOG_I("net", "network services: [net] offline=%s (no connection, no friends, no BCAT data in either mode)", offline ? "true" : "false");
 
-    if (online_test()) NXLOG_I("net", "net: [net] online_test = on: nifm and ntc report online, delivery cache empty, no sockets");
+    if (online_test()) NXLOG_I("net", "[net] online_test = on: nifm and ntc report online, delivery cache empty, no sockets");
 
     for (const char* n : {"nifm:u", "nifm:a", "nifm:s"}) add(n, [] { return make_nifm_static(); });
     for (const char* n : {"bsd:u", "bsd:a", "bsd:s"}) add(n, [] { return make_bsd(); });
