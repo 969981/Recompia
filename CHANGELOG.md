@@ -19,6 +19,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
 
 ### Game
+- Added lines to `pkp.log` for a long wait on the graphics card
+  - Before: when the game suddenly dropped to a few frames a second, the log showed that it was waiting but not for what
+  - Now: a `slow sync wait` line (at most 20 a session) is written when the game waits 100 ms or more, with the wait number, how long the game was willing to wait and where the graphics queue stood
 - Added lines to `pkp.log` that say why the mouse pointer in menus is up or not
   - Before: when the mouse did nothing in a menu, the log could not say whether the window had lost focus, an overlay was open, the game was not in a menu, or the mouse setting was off
   - Now: `play: menu pointer gate` lines (at most 24 a session) show the state each time it changes, including whether `[mouse] menu_cursor` is on
