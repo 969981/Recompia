@@ -19,6 +19,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
   - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
 - Until you run **Finish update**, the game keeps the old translations and the outline stays missing
+- Fixed shaders translated again by **Finish update** still loading their old translation from the boot preload pack (`shader_cache/spirv.preload.pack`), so about 6,000 of the most used shaders, the outline's among them, kept the old look
 - Windows on Intel graphics: fixed the game crashing about 3 s after start (access violation in `igvk64.dll`, Intel UHD Graphics; #270)
   - Before: the game read its pipeline cache back from Intel's driver to save it, and the driver crashed while copying it out
   - Now: on Intel's Windows driver the pipeline cache is loaded but not saved (`[nvn] pipeline_cache_save`, `auto`); the driver's own disk cache still keeps compiled pipelines between starts
@@ -41,6 +42,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - `stale_blocks` retranslates the 32,630 hashes in `rev2_blocks.txt` (SPIR-V differs before/after the fix over the full 2.0.1 corpus)
   - Blocks the game built at runtime (a few hundred, including the outline's lighting shader) are retranslated by `translate_missing`
   - Loose `.spv` files are replaced; packed `spirv.archive` gets a newer segment; the boot preload pack drops changed `results.tsv` entries
+- `runtime/src/gfx/nvn/nvn_shaders.cpp`: a shader translated again has a second `results.tsv` row; the runtime indexed the first (`emplace`), so the preload pack's line-hash check passed and the old SPIR-V and resource record were used. The last row now wins (at open and in the rescan), and a pack entry whose shader gets a new row while the game runs is neither read nor copied into the next pack
 - The outline is drawn by deferred lighting fs `0cd3176a1c7791d8` (G-buffer neighbour test + world-space checker), not the sky/cloud draws `8010f484`/`86aa3b21`
   - The 0.6.x #120 note credited it to the depth range default (#137); that change affects clouds and stays, but never fixed the outline
 
