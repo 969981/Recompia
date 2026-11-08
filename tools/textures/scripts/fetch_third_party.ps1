@@ -12,7 +12,16 @@ if (-not (Test-Path "$tp\bc7enc_rdo")) {
 }
 if (-not (Test-Path "$tp\ispc\ispc-v1.32.0-windows\bin\ispc.exe")) {
     $zip = Join-Path $env:TEMP 'ispc-v1.32.0-windows.zip'
-    curl.exe -fL --retry 5 --retry-delay 20 --retry-all-errors -o $zip https://github.com/ispc/ispc/releases/download/v1.32.0/ispc-v1.32.0-windows.zip
+    # The release API path first (gh with the job's token): github.com's direct download answered 504 for hours on 2026-11-08 while this path worked.
+    $got = $false
+    if ((Get-Command gh -ErrorAction SilentlyContinue) -and $env:GH_TOKEN) {
+        Remove-Item $zip -ErrorAction SilentlyContinue
+        gh release download v1.32.0 -R ispc/ispc -p 'ispc-v1.32.0-windows.zip' -D $env:TEMP --clobber
+        $got = ($LASTEXITCODE -eq 0) -and (Test-Path $zip)
+    }
+    if (-not $got) {
+        curl.exe -fL --retry 5 --retry-delay 20 --retry-all-errors -o $zip https://github.com/ispc/ispc/releases/download/v1.32.0/ispc-v1.32.0-windows.zip
+    }
     $h = (Get-FileHash $zip -Algorithm SHA256).Hash
     if ($h -ne '148D5CD96ABE7501C730D5FBD00F1F0C893B96BFEADA38D1811C9B6251E86A5C') { throw "ispc zip hash mismatch: $h" }
     Expand-Archive $zip "$tp\ispc"

@@ -76,6 +76,8 @@ jobs:
         run: C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
 
       - name: Texture tools (astc2bc7, astcdec DLLs)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           ./tools/textures/scripts/fetch_third_party.ps1
           ./tools/textures/scripts/build.ps1
