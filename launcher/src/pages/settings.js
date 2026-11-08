@@ -77,6 +77,7 @@ export async function render(el, ctx) {
       dlssPresent: !!dlss?.present,
       dlssBusy: !!s.dlss,
       canUpdate: canUpdate(s),
+      updating: !!s.update,
       checking,
       updateText: checking ? 'Checking'
         : update ? `Version ${update.tag.replace(/^v/, '')} is available`
@@ -256,6 +257,7 @@ export async function render(el, ctx) {
     const { ini, config } = splitEdits(edits);
     if (ini.length) await api('write_settings', { edits: ini });
     if (config) await api('save_config', { config: { ...(await api('get_config')), ...config } });
+    if (config && 'channel' in config) await store.refreshNews(true);   // another channel, another list of releases
     if (reloads) await store.refresh();
     saved();
   }

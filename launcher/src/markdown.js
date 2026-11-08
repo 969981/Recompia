@@ -175,13 +175,32 @@ export function parseReleaseName(name, tag = '') {
   };
 }
 
-const numbers = (v) => String(v ?? '').replace(/[-+].*$/, '').split('.').map((n) => parseInt(n, 10) || 0);
+const numbers = (v) => String(v ?? '').replace(/^v/, '').replace(/[-+].*$/, '').split('.').map((n) => parseInt(n, 10) || 0);
+/** The prerelease identifiers of "0.8.1-beta.2+build" -> ['beta', '2']; none for a release. */
+const pre = (v) => {
+  const m = /^[^-+]*-([^+]*)/.exec(String(v ?? '').replace(/^v/, ''));
+  return m ? m[1].split('.') : [];
+};
+const identifier = (x, y) => {
+  const [nx, ny] = [/^\d+$/.test(x), /^\d+$/.test(y)];
+  if (nx && ny) return Math.sign(parseInt(x, 10) - parseInt(y, 10));
+  if (nx !== ny) return nx ? -1 : 1;   // a number ranks below a word, as in semver
+  return x < y ? -1 : x > y ? 1 : 0;
+};
 
-/** a is a later version than b. A -dev or +build suffix is ignored. */
+/** a is a later version than b, as the launcher's update check ranks them: 0.8.1-beta.1 is after 0.8.0 and before 0.8.1, and beta.10 is after beta.2. A +build suffix is ignored. */
 export function isNewer(a, b) {
   const [x, y] = [numbers(a), numbers(b)];
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
     if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  const [px, py] = [pre(a), pre(b)];
+  if (!px.length || !py.length) return !px.length && py.length > 0;   // a release is after its own prerelease
+  for (let i = 0; i < Math.max(px.length, py.length); i++) {
+    if (px[i] === undefined) return false;      // fewer identifiers rank lower
+    if (py[i] === undefined) return true;
+    const c = identifier(px[i], py[i]);
+    if (c) return c > 0;
   }
   return false;
 }

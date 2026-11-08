@@ -28,7 +28,7 @@ function releaseCard(r) {
   const lines = highlights(r.body, CARD_LINES);
   return `<button class="release glass hover" data-tag="${esc(r.tag)}">
     <span class="release-head">
-      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}</span>
+      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ' <span class="note-mark">Testing</span>' : ''}</span>
       ${date ? `<time>${esc(date)}</time>` : ''}
     </span>
     ${lines.map((l) => `<span class="release-line">${esc(l)}</span>`).join('')}
