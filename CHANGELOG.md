@@ -61,6 +61,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
 - **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
 - **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
 - **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
@@ -74,6 +75,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
+- Save backups have been tried on simulated save folders and in the launcher's test mode, not yet through a long real play session. Restore replaces your save folder with the chosen copy (your current save is copied first)
 - Camera aim is new and has only been tried by a few people; it is off by default, so nothing changes for you unless you turn it on
 - Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
 - Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
