@@ -7,7 +7,8 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Gameplay
-- Added an option, off by default: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts (`[pkp] camera_aim = 1` in `pkp.ini`). Needs **Set up again** once
+- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
+- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
 
 ## 0.8.0 (build L: Lykoi)
 
