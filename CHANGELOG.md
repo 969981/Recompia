@@ -12,6 +12,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Our first native gameplay change: running jumps can keep your running speed instead of flying at the old fixed speed, jump height unchanged (opt-in, see Gameplay)
 - Added profiles: several people can play on one install, each with their own save (#282)
 - Fixed a long frame about once a second on some handhelds and PCs (#276)
+- Added a Testing update channel for players who want to try new builds early (opt in under Settings > About)
 
 ### Known issues
 - The timed event toggles are experimental: in-game event activation has not been confirmed. Use them in single player only for now
@@ -35,6 +36,11 @@ of the game (version 2.0.1a): the download contains no game files.
   - Still not: no hitch was tied to this check. `pkp.log` notes it when a check takes more than 2 ms
 
 ### Launcher
+- Added an update channel: **Settings > About > Update channel** switches between **Stable** (the default, what you get today) and **Testing** (newer builds, published as prereleases, for players who want to try changes early and report problems)
+  - Before: every player got only the stable releases
+  - Now: pick Testing to be offered test builds such as `0.8.1-beta.1`; **What's New** marks them as Testing. Your saves, profiles and settings are kept either way
+  - Going back: the launcher only moves forward, so Stable offers an update again once it has a newer version than the one you have. See `docs/testing-builds.md`
+  - Stable players see no change
 - Added profiles: several people can play on one install, each with their own save (#282)
   - Before: a second save meant copying the whole game folder
   - Now: **Settings > Saves > Profiles** adds, renames and removes profiles, and **Home** gets a **Profile** picker once there are two. The game must be closed to switch
