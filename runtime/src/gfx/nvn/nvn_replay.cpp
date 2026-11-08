@@ -2533,34 +2533,85 @@ void temporal_gbuffer_note() {
 
 // Stencil survey (research for #53, off by default): [nvn] stencil_survey = 1 logs, about every 600 presents, one line per distinct combination of
 // shaders and stencil state used by the draws that render into a depth target with a stencil plane, with the number of draws since the last dump.
-// It answers whether the game's G-buffer tags some draws (characters, say) with a stencil value of their own.
+// Level 2 looks at every draw whatever its depth target and adds: `coarse` lines (colour target count, depth target kind D / DS / none, depth and
+// stencil state, one per combination, no shader hashes), `writer` lines (draws that can write the stencil: test on, a non-zero write mask and an
+// operation other than KEEP, with shader hashes, reference, masks and the sizes of the bound vertex uniform buffers, a skinning palette is a big one)
+// and, once, a `frame` line sequence: the run-length list of coarse states in draw order for one whole frame, which shows the render passes.
+// It answers: which draws write the stencil and with what, and does the opaque geometry's depth target have a stencil plane at all.
 void stencil_survey_note() {
-    static const bool on = nxrt::config_get_bool("nvn", "stencil_survey", false);
-    if (!on || !S.depth_tex || !(tex_aspect(S.depth_tex.get()) & VK_IMAGE_ASPECT_STENCIL_BIT)) return;
-    static std::map<std::string, uint64_t> counts;
-    static uint64_t last_dump = 0;
+    static const int level = static_cast<int>(nxrt::config_get_int("nvn", "stencil_survey", 0));
+    if (level <= 0) return;
+    const bool has_depth = !!S.depth_tex;
+    const bool has_stencil = has_depth && (tex_aspect(S.depth_tex.get()) & VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
+    if (level == 1 && !has_stencil) return;
+    static std::map<std::string, uint64_t> counts, coarse, writers;
+    static std::vector<std::pair<std::string, uint64_t>> seq;
+    static uint64_t last_dump = 0, seq_present = 0, seq_frames_logged = 0;
     const ShaderInfo* vs = S.stage[kVertex];
     const ShaderInfo* fs = S.stage[kFragment];
-    char key[320];
-    std::snprintf(key, sizeof key, "colour %u vs %.8s fs %.8s test %d func %d/%d ref %u/%u cmask %02x/%02x wmask %02x/%02x ops(sfail,zfail,zpass) %d,%d,%d/%d,%d,%d depth_test %d depth_write %d",
-                  static_cast<unsigned>(S.ncolor), vs ? vs->hash.c_str() : "-", fs ? fs->hash.c_str() : "-", S.ds.stencil_test ? 1 : 0, S.ds.stencil_func[0], S.ds.stencil_func[1],
-                  static_cast<unsigned>(S.stencil_ref[0]), static_cast<unsigned>(S.stencil_ref[1]), static_cast<unsigned>(S.stencil_vmask[0]), static_cast<unsigned>(S.stencil_vmask[1]),
-                  static_cast<unsigned>(S.stencil_wmask[0]), static_cast<unsigned>(S.stencil_wmask[1]), S.ds.stencil_fail[0], S.ds.depth_fail[0], S.ds.depth_pass[0], S.ds.stencil_fail[1],
-                  S.ds.depth_fail[1], S.ds.depth_pass[1], S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0);
-    ++counts[key];
     const uint64_t p = counters().presents.load(std::memory_order_relaxed);
+    char key[320];
+    if (has_stencil) {
+        std::snprintf(key, sizeof key, "colour %u vs %.8s fs %.8s test %d func %d/%d ref %u/%u cmask %02x/%02x wmask %02x/%02x ops(sfail,zfail,zpass) %d,%d,%d/%d,%d,%d depth_test %d depth_write %d",
+                      static_cast<unsigned>(S.ncolor), vs ? vs->hash.c_str() : "-", fs ? fs->hash.c_str() : "-", S.ds.stencil_test ? 1 : 0, S.ds.stencil_func[0], S.ds.stencil_func[1],
+                      static_cast<unsigned>(S.stencil_ref[0]), static_cast<unsigned>(S.stencil_ref[1]), static_cast<unsigned>(S.stencil_vmask[0]), static_cast<unsigned>(S.stencil_vmask[1]),
+                      static_cast<unsigned>(S.stencil_wmask[0]), static_cast<unsigned>(S.stencil_wmask[1]), S.ds.stencil_fail[0], S.ds.depth_fail[0], S.ds.depth_pass[0], S.ds.stencil_fail[1],
+                      S.ds.depth_fail[1], S.ds.depth_pass[1], S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0);
+        ++counts[key];
+    }
+    if (level >= 2) {
+        const bool keep0 = S.ds.stencil_fail[0] == 1 && S.ds.depth_fail[0] == 1 && S.ds.depth_pass[0] == 1;   // NVN_STENCIL_OP_KEEP == 1
+        const bool keep1 = S.ds.stencil_fail[1] == 1 && S.ds.depth_fail[1] == 1 && S.ds.depth_pass[1] == 1;
+        const bool can_write = has_stencil && S.ds.stencil_test && (S.stencil_wmask[0] || S.stencil_wmask[1]) && (!keep0 || !keep1);
+        char ck[200];
+        std::snprintf(ck, sizeof ck, "colour %u depth %s depth_test %d depth_write %d stencil_test %d wmask_nonzero %d can_write_stencil %d", static_cast<unsigned>(S.ncolor),
+                      has_stencil ? "DS" : has_depth ? "D" : "none", S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0, S.ds.stencil_test ? 1 : 0, (S.stencil_wmask[0] || S.stencil_wmask[1]) ? 1 : 0,
+                      can_write ? 1 : 0);
+        ++coarse[ck];
+        if (p != seq_present) {   // a new frame: the finished one is logged once, at the third dump onwards, then its list starts again
+            if (seq_frames_logged == 0 && last_dump >= 1200 && !seq.empty()) {
+                seq_frames_logged = 1;
+                NXLOG_I(kTag, "stencil_survey: frame %llu: %zu runs of identical coarse state, in draw order", static_cast<unsigned long long>(seq_present), seq.size());
+                size_t n = 0;
+                for (const auto& r : seq) {
+                    if (++n > 200) break;
+                    NXLOG_I(kTag, "stencil_survey: frame run %zu: %llu draws: %s", n, static_cast<unsigned long long>(r.second), r.first.c_str());
+                }
+            }
+            seq.clear();
+            seq_present = p;
+        }
+        if (!seq.empty() && seq.back().first == ck) ++seq.back().second;
+        else seq.emplace_back(ck, 1);
+        if (can_write) {
+            char wk[420];
+            std::snprintf(wk, sizeof wk, "colour %u depth %s vs %.8s fs %.8s func %d/%d ref %u/%u cmask %02x/%02x wmask %02x/%02x ops(sfail,zfail,zpass) %d,%d,%d/%d,%d,%d depth_test %d depth_write %d ubo %llu,%llu,%llu,%llu,%llu,%llu",
+                          static_cast<unsigned>(S.ncolor), has_stencil ? "DS" : "D", vs ? vs->hash.c_str() : "-", fs ? fs->hash.c_str() : "-", S.ds.stencil_func[0], S.ds.stencil_func[1],
+                          static_cast<unsigned>(S.stencil_ref[0]), static_cast<unsigned>(S.stencil_ref[1]), static_cast<unsigned>(S.stencil_vmask[0]), static_cast<unsigned>(S.stencil_vmask[1]),
+                          static_cast<unsigned>(S.stencil_wmask[0]), static_cast<unsigned>(S.stencil_wmask[1]), S.ds.stencil_fail[0], S.ds.depth_fail[0], S.ds.depth_pass[0], S.ds.stencil_fail[1],
+                          S.ds.depth_fail[1], S.ds.depth_pass[1], S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0, static_cast<unsigned long long>(S.ubo[kVertex][0].size),
+                          static_cast<unsigned long long>(S.ubo[kVertex][1].size), static_cast<unsigned long long>(S.ubo[kVertex][2].size), static_cast<unsigned long long>(S.ubo[kVertex][3].size),
+                          static_cast<unsigned long long>(S.ubo[kVertex][4].size), static_cast<unsigned long long>(S.ubo[kVertex][5].size));
+            ++writers[wk];
+        }
+    }
     if (p - last_dump < 600) return;
     last_dump = p;
-    std::vector<std::pair<uint64_t, const std::string*>> rows;
-    for (const auto& kv : counts) rows.emplace_back(kv.second, &kv.first);
-    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-    NXLOG_I(kTag, "stencil_survey: present %llu, %zu distinct draw states with a stencil plane", static_cast<unsigned long long>(p), rows.size());
-    size_t n = 0;
-    for (const auto& r : rows) {
-        if (++n > 60) break;
-        NXLOG_I(kTag, "stencil_survey: %llu draws: %s", static_cast<unsigned long long>(r.first), r.second->c_str());
-    }
-    counts.clear();
+    auto dump = [](const char* kind, std::map<std::string, uint64_t>& m, size_t max_rows) {
+        std::vector<std::pair<uint64_t, const std::string*>> rows;
+        for (const auto& kv : m) rows.emplace_back(kv.second, &kv.first);
+        std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        size_t n = 0;
+        for (const auto& r : rows) {
+            if (++n > max_rows) break;
+            NXLOG_I(kTag, "stencil_survey: %s %llu draws: %s", kind, static_cast<unsigned long long>(r.first), r.second->c_str());
+        }
+        m.clear();
+    };
+    NXLOG_I(kTag, "stencil_survey: present %llu, %zu distinct draw states with a stencil plane, %zu coarse, %zu stencil-writing", static_cast<unsigned long long>(p), counts.size(), coarse.size(), writers.size());
+    dump("state", counts, 60);
+    dump("coarse", coarse, 80);
+    dump("writer", writers, 80);
 }
 
 // The game's scene covers only part of its targets (extras::scene_fraction, Pokopia's [upscale] scene_scale, #116): the part of a scene
