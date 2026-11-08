@@ -11,6 +11,7 @@
 //   at       where it lives: controls(), pkp() or config(); an array when it has two keys
 //   read     (src) => the control's value, when the plain mapping of `type` does not fit
 //   write    (value, src) => edits, likewise
+//   writeSame (src) => true to call write even when the value is unchanged (another key may still need resetting)
 //   when     (values, env) => shown or not
 //   enabled  (src) => false disables the row; the default disables what lives in a controls.ini that does not exist yet
 //   lock     (env) => true disables the row for now
@@ -165,6 +166,29 @@ const clockMinutes = (value) => {
   const n = Math.round(Number(String(value).trim()));
   return Number.isFinite(n) ? clamp(n, -CLOCK_LIMIT_MIN, CLOCK_LIMIT_MIN) : 0;
 };
+
+const AT_CLOCK_OFFSET = pkp('time', 'clock_offset');
+const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
+const AT_EVENT_PRESET = pkp('time', 'event_preset');
+const TIMED_EVENTS = [
+  { id: 'copycat', label: 'Copycat Challenge (April 2, 2026)' },
+  { id: 'hoppip', label: 'More Spores for Hoppip (March 12, 2026)' },
+  { id: 'bulbasaur', label: "Bulbasaur's Jump Rope Contest (April 21, 2026)" },
+  { id: 'sableye', label: "Sableye's Gem Hunt (May 1, 2026)" },
+];
+const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
+const scopeNeedsReset = (src) => clockScope(src) === 'all';
+const activeEvent = (src) => {
+  const id = has(src, AT_EVENT_PRESET) ? word(rawOf(src, AT_EVENT_PRESET)) : 'off';
+  return TIMED_EVENTS.some((e) => e.id === id) ? id : 'off';
+};
+
+function clockEdits(value, src) {
+  const edits = [edit(AT_CLOCK_OFFSET, String(clockMinutes(value)))];
+  // Do not add the default key to an older file; only clear a scope left by the earlier preset implementation.
+  if (scopeNeedsReset(src)) edits.push(edit(AT_CLOCK_SCOPE, 'user'));
+  return edits;
+}
 
 const wordOf = (f, src) => {
   const v = word(has(src, f.at) ? rawOf(src, f.at) : f.def);
@@ -447,12 +471,18 @@ export const SECTIONS = [
       {
         title: 'Game clock',
         rows: [
+          ...TIMED_EVENTS.map((event) => ({
+            id: `event_${event.id}`, label: event.label, type: 'toggle', at: AT_EVENT_PRESET, def: false,
+            read: (src) => activeEvent(src) === event.id,
+            write: (on) => [edit(AT_EVENT_PRESET, on ? event.id : 'off')], replaces: true,
+          })),
           {
-            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
+            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: AT_CLOCK_OFFSET, def: '0', commit: 'blur',
+            write: (value, src) => clockEdits(value, src), writeSame: scopeNeedsReset, enabled: (src) => activeEvent(src) === 'off',
           },
           {
             id: 'game_clock_note', type: 'note',
-            note: () => ({ text: 'Use this in single player only for now. It has not been tested with Link Play.' }),
+            note: () => ({ text: 'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.' }),
           },
         ],
       },
@@ -507,7 +537,7 @@ export const readAll = (src) => Object.fromEntries(Object.values(FIELDS).map((f)
  * text or a file that does not exist. Reading and writing back is therefore no edit at all, so a value the page cannot show survives.
  */
 export function writeField(f, value, src) {
-  if (String(readField(f, src)) === String(value)) return [];
+  if (String(readField(f, src)) === String(value) && !f.writeSame?.(src)) return [];
   const edits = f.write ? f.write(value, src) : WRITE[f.type](f, value);
   if (f.quality) edits.push(...markCustom(f.quality, src));
   return edits.filter((e) => !(e.file === 'controls' && src.controls_exists === false) && String(rawOf(src, e)) !== String(e.value));
