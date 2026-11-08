@@ -428,12 +428,14 @@ export async function render(el, ctx) {
     },
     async 'profile-new'() {
       const name = await askText({ title: 'New profile', body: 'It starts with an empty save. Your other saves are not touched.', label: 'Profile name', ok: 'Add' });
-      if (name) await changeProfiles('profile_add', { name }, `Profile ${name} added`);
+      if (name === '') toast('Type a name for the profile', 'error');
+      else if (name) await changeProfiles('profile_add', { name }, `Profile ${name} added`);
     },
     'profile-use': (arg, name) => changeProfiles('profile_select', { id: arg }, `Playing as ${name}`),
     async 'profile-rename'(arg, name) {
       const next = await askText({ title: 'Rename profile', label: 'Profile name', value: name, ok: 'Rename' });
-      if (next && next !== name) await changeProfiles('profile_rename', { id: arg, name: next }, 'Profile renamed');
+      if (next === '') toast('Type a name for the profile', 'error');
+      else if (next && next !== name) await changeProfiles('profile_rename', { id: arg, name: next }, 'Profile renamed');
     },
     async 'profile-remove'(arg, name) {
       const yes = await confirm({

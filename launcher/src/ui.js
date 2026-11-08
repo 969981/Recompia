@@ -4,15 +4,15 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
   Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Play, RefreshCw, RotateCcw, Save, Search,
-  Server, Settings, Shield, ShieldCheck, Sparkles, Square, TriangleAlert, Upload, Users, Volume2, Wifi, WifiOff, Wrench, X,
+  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
+  Server, Settings, Shield, ShieldCheck, Sparkles, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Volume2, Wifi, WifiOff, Wrench, X,
 } from 'lucide';
 
 const ICONS = {
   ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
   Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Play, RefreshCw, RotateCcw, Save, Search,
-  Server, Settings, Shield, ShieldCheck, Sparkles, Square, TriangleAlert, Upload, Users, Volume2, Wifi, WifiOff, Wrench, X,
+  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
+  Server, Settings, Shield, ShieldCheck, Sparkles, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Volume2, Wifi, WifiOff, Wrench, X,
 };
 
 /** Calls a Rust command. */
@@ -87,7 +87,7 @@ export function confirm(opts = {}) {
 }
 
 /**
- * A modal asking for one line of text. Resolves the trimmed text, or null for Esc, Cancel or a click outside.
+ * A modal asking for one line of text. Resolves the trimmed text ('' when sent empty), or null for Esc, Cancel or a click outside.
  * opts: { title, body, label, value, ok = 'OK', max }
  */
 export function askText(opts = {}) {
@@ -105,15 +105,20 @@ export function askText(opts = {}) {
         </div>
         <div class="modal-actions">
           <button class="btn quiet" type="button" data-answer="">Cancel</button>
-          <button class="btn primary" type="submit" data-answer="ok">${esc(ok)}</button>
+          <button class="btn primary" type="submit" value="ok" data-answer="ok">${esc(ok)}</button>
         </div>
       </form>`;
     document.body.appendChild(dlg);
     const input = dlg.querySelector('#ask-text');
+    // the form answers by itself (button, Enter): close with an explicit 'ok' rather than relying on the button's value
+    dlg.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      dlg.close('ok');
+    });
     dlg.addEventListener('close', () => {
       const answer = dlg.returnValue === 'ok' ? input.value.trim() : null;
       dlg.remove();
-      resolve(answer || null);
+      resolve(answer);
     });
     dlg.addEventListener('click', (e) => {
       if (e.target.closest('[type="button"][data-answer]')) dlg.close('');
