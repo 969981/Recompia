@@ -2840,7 +2840,7 @@ void texture_registered(Texture* t) { texprep::on_registered(t); }
 namespace {
 struct RbConfig {
     bool async = true;          // [nvn] readback_async
-    int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: one frame at the limiter's target, 33 ms when unknown)
+    int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: 0, flush at once; -2: one frame at the limiter's target, 33 ms when unknown)
     bool check = false;         // [nvn] readback_check
     bool log = false;           // [nvn] readback_log
 };
@@ -2852,7 +2852,7 @@ const RbConfig& rb_config() {
         r.check = nxrt::config_get_bool("nvn", "readback_check", false);
         r.log = nxrt::config_get_bool("nvn", "readback_log", false);
         NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s", r.async ? "on" : "off",
-                r.grace_ms < 0 ? "auto" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off");
+                r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off");
         return r;
     }();
     return c;
@@ -2860,9 +2860,14 @@ const RbConfig& rb_config() {
 
 std::atomic<uint64_t> g_rb_copies{0}, g_rb_skipped{0}, g_rb_calls{0};
 
+// How long the reading thread waits for the render thread to hand the copy to the GPU before it flushes it itself. Auto is 0 (#276): the
+// render thread almost never gets to it within a frame, so a frame's wait only held the reading thread (often the game's main thread) for
+// about 17 ms and then the flush was forced anyway; measured on a PC at 60 fps, long frames per 10 s 5.9 -> 0.0, the slowest read 154 -> 6 ms.
+// -2 is the old auto: one frame at the limiter's target.
 uint64_t rb_grace_ns() {
     const int64_t ms = rb_config().grace_ms;
     if (ms >= 0) return static_cast<uint64_t>(ms) * 1000000ull;
+    if (ms == -1) return 0;
     const FrameLimiter* lim = limiter();
     const double fps = lim ? lim->target_fps() : 0.0;
     return fps > 0.0 ? static_cast<uint64_t>(1e9 / fps) : 33000000ull;
