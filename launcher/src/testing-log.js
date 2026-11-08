@@ -19,7 +19,7 @@ export function testingBuilds(releases) {
 
 /**
  * The note that sums up every Testing build since the last stable release, newest first: for each, the date, what changed in that
- * build, and its regressions and known problems. A build whose notes have neither gets its first lines instead.
+ * build, and its regressions and known problems. A build whose notes have none of them gets its first lines instead.
  */
 export function overviewNote(builds) {
   if (!builds.length) return '';
@@ -27,7 +27,8 @@ export function overviewNote(builds) {
     const date = formatDate(r.date);
     const regressions = section(r.body, 'Regressions') || section(r.body, 'Known problems');
     const changes = section(r.body, 'Changes in this build');
-    const body = [regressions, changes].filter(Boolean).join('\n\n') || String(r.body ?? '').trim().split('\n').slice(0, 8).join('\n');
+    const asked = section(r.body, 'What to test');
+    const body = [regressions, asked, changes].filter(Boolean).join('\n\n') || String(r.body ?? '').trim().split('\n').slice(0, 8).join('\n');
     return `### ${versionOf(r)}${date ? ` (${date})` : ''}\n\n${body}`;
   });
   return `${parts.join('\n\n---\n\n')}\n`;

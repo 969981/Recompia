@@ -119,3 +119,13 @@
   font-size: var(--text-sm);
 }
 .md .md-banner .icon { flex: none; margin-top: 2px; color: var(--color-warn); }
+.md .md-test {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-left-width: 4px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.md .md-test > :first-child { margin-top: 0; }
+.md .md-test > :last-child { margin-bottom: 0; }
