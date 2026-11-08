@@ -103,7 +103,10 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
                 let _ = w.minimize();
             }
         }
+        // the player's save backups: a timer while the game runs (when switched on), one more copy once it has ended
+        let backups = crate::savebackup::Watch::start(&dir);
         let result = child.wait();
+        backups.finish();
         let (code, wait_err) = match result {
             Ok(s) => (s.code(), None),
             Err(e) => (None, Some(e.to_string())),
@@ -179,7 +182,9 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
         Ok(clock) => clock,
         Err(e) => return fail(e),
     };
+    let backups = crate::savebackup::Watch::start(game_dir);   // the same save backups as Play in the window
     let status = game_command(&exe, game_dir, clock).and_then(|mut c| c.status().map_err(|e| format!("Could not start pkp.exe: {}", e)));
+    backups.finish();
     let code = match status {
         Ok(st) => st.code().unwrap_or(1),
         Err(e) => return fail(e),

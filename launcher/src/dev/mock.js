@@ -111,6 +111,10 @@ let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Pokopia' : '';
 let relay = null;
 let mockChannel = 'stable';
+const mockBackups = [
+  { version: 1, name: '20261108-143000-auto', created: '2026-11-08T19:30:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: 'a' },
+  { version: 1, name: '20261108-142000-auto', created: '2026-11-08T19:20:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825000, hash: 'b' },
+];
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
 
 const settings = {
@@ -313,6 +317,11 @@ function handle(cmd, args) {
     case 'cancel_shader_storage': repackStop = true; return null;
     case 'dlss_status': return { available: true, present: false, dir: `${GAME_DIR}/upscalers/streamline` };
     case 'fetch_dlss': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading nvngx_dlss.dll' })).then(() => null);
+    case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
+    case 'backup_list': return structuredClone(mockBackups);
+    case 'backup_now': mockBackups.unshift({ version: 1, name: `20261108-15${String(mockBackups.length).padStart(2, '0')}00-manual`, created: '2026-11-08T20:00:00Z', kind: 'manual', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: String(mockBackups.length) }); return { result: 'made', entry: mockBackups[0] };
+    case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
+    case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'profiles_list': return structuredClone(mockProfiles);
     case 'profile_add': mockProfiles.profiles.push({ id: `p${mockProfiles.profiles.length}`, name: args.name, uid: '', nickname: args.name, net_uid: '' }); return structuredClone(mockProfiles);
     case 'profile_rename': mockProfiles.profiles.find((p) => p.id === args.id).name = args.name; return structuredClone(mockProfiles);

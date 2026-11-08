@@ -6,6 +6,7 @@
 import './settings.css';
 import { api, askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { askCompact, store } from '../store.js';
+import { backupDetail, backupNow, backupText, runRestore } from './backups.js';
 import { canUpdate, gamePhase } from '../action.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
@@ -36,6 +37,7 @@ export async function render(el, ctx) {
   let gameDir = dump.game_dir;
   let sources = [];
   let profiles = { active: 'default', profiles: [] };
+  let backups = null;   // savebackup.rs Status: the settings, how many copies and the newest
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
@@ -70,6 +72,9 @@ export async function render(el, ctx) {
       taskBusy: !!s.task || s.starting,
       saveSources: sources,
       profiles,
+      backups,
+      backupLine: backupText(backups),
+      backupDetail: backupDetail(backups),
       importing,
       importResult,
       dlssOffered: !!(dlss?.available || dlss?.present),
@@ -392,6 +397,15 @@ export async function render(el, ctx) {
     draw();
   }
 
+  async function refreshBackups() {
+    try {
+      backups = await api('backup_status');
+    } catch (e) {
+      console.warn('backup_status', e);
+    }
+    draw();
+  }
+
   async function changeProfiles(cmd, args, done) {
     try {
       await flush();
@@ -475,6 +489,17 @@ export async function render(el, ctx) {
     update: () => store.installUpdate(),
     'clock-real': (id) => commit(FIELDS[id], 0),
     'open-url': (url) => api('open_release_url', { url }),
+    async 'backup-now'() {
+      await flush();
+      await backupNow();
+      await refreshBackups();
+    },
+    async 'backup-restore'() {
+      await flush();
+      await runRestore();
+      await refreshBackups();
+    },
+    'backup-open': () => api('open_backup_dir'),
   };
 
   // ---- the page -----------------------------------------------------------------------------------------------------------------
@@ -547,6 +572,7 @@ export async function render(el, ctx) {
     profiles = list;
     draw();
   }).catch((e) => console.warn('profiles_list', e));
+  refreshBackups();
   api('save_sources').then((list) => {
     sources = list;
     draw();

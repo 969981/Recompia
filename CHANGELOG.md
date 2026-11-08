@@ -4,6 +4,13 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Launcher
+- Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
+  - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
+  - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
 ## 0.8.0 (build L: Lykoi)
 
 **Update:** press **Update**, then **Set up again** once when it asks (this release adds two hooks for the new jump option, so the game is rebuilt; your saves and shaders are kept). The new launcher and runtime come with it.
