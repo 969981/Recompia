@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* libwebp's runtime is present in the build image even when its headers are not. */
 size_t WebPEncodeRGBA(const uint8_t *rgba, int width, int height, int stride,
@@ -131,14 +132,65 @@ static void encode(const char *path, uint8_t *rgba, int width, int height, float
   free(rgba);
 }
 
+/* The Sunrise theme's amber tint, baked in. This is the CSS filter it used to put on the art layer, as the Filter Effects spec
+ * defines it, so the picture is the same but the browser has nothing to recompute when it repaints:
+ *   sepia(.85) saturate(2.4) hue-rotate(-12deg) brightness(1.04), each step clamped to 0..1 like a browser does. */
+static void tint_sunrise(uint8_t *rgba, int width, int height) {
+  const double a = 0.85, s = 2.4, br = 1.04, k = 1 - a, th = -12.0 * 3.14159265358979323846 / 180.0, c = cos(th), n = sin(th);
+  const double M[4][3][3] = {
+    {{0.393 + 0.607 * k, 0.769 - 0.769 * k, 0.189 - 0.189 * k},
+     {0.349 - 0.349 * k, 0.686 + 0.314 * k, 0.168 - 0.168 * k},
+     {0.272 - 0.272 * k, 0.534 - 0.534 * k, 0.131 + 0.869 * k}},
+    {{0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s},
+     {0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s},
+     {0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s}},
+    {{0.213 + c * 0.787 - n * 0.213, 0.715 - c * 0.715 - n * 0.715, 0.072 - c * 0.072 + n * 0.928},
+     {0.213 - c * 0.213 + n * 0.143, 0.715 + c * 0.285 + n * 0.140, 0.072 - c * 0.072 - n * 0.283},
+     {0.213 - c * 0.213 - n * 0.787, 0.715 - c * 0.715 + n * 0.715, 0.072 + c * 0.928 + n * 0.072}},
+    {{br, 0, 0}, {0, br, 0}, {0, 0, br}}};
+  for (size_t i = 0, count = (size_t)width * height; i < count; i++) {
+    double v[3] = {rgba[i * 4] / 255.0, rgba[i * 4 + 1] / 255.0, rgba[i * 4 + 2] / 255.0};
+    for (int step = 0; step < 4; step++) {
+      double o[3];
+      for (int r = 0; r < 3; r++) {
+        o[r] = M[step][r][0] * v[0] + M[step][r][1] * v[1] + M[step][r][2] * v[2];
+        o[r] = o[r] < 0 ? 0 : o[r] > 1 ? 1 : o[r];
+      }
+      v[0] = o[0]; v[1] = o[1]; v[2] = o[2];
+    }
+    for (int r = 0; r < 3; r++) rgba[i * 4 + r] = (uint8_t)lround(v[r] * 255.0);
+  }
+}
+
+static uint8_t *copy(const uint8_t *rgba, int width, int height) {
+  size_t size = (size_t)width * height * 4;
+  uint8_t *out = malloc(size);
+  if (!out) die("out of memory");
+  memcpy(out, rgba, size);
+  return out;
+}
+
+/* The sharp image is drawn at 2560x1600: a 1040x600 window at 2x scale is 2080x1200, and a maximised 1440p window still
+ * scales down. Anything larger only costs decode time and memory (3840x2400 was a 37 MB bitmap). */
+#define SHARP_W 2560
+#define SHARP_H 1600
+#define SHARP_QUALITY 84
+
 int main(int argc, char **argv) {
-  if (argc != 4) die("usage: render-art SOURCE.svg SHARP.webp SOFT.webp");
-  uint8_t *sharp = render(argv[1], 3840, 2400);
+  if (argc != 6) die("usage: render-art SOURCE.svg SHARP.webp SOFT.webp SHARP-SUNRISE.webp SOFT-SUNRISE.webp");
+  uint8_t *sharp = render(argv[1], SHARP_W, SHARP_H);
   /* Regenerate the small image from the sharp render, then blur at its own scale. */
-  uint8_t *small = downsample(sharp, 160, 100, 24);
-  encode(argv[2], sharp, 3840, 2400, 90);
+  uint8_t *small = downsample(sharp, 160, 100, SHARP_W / 160);
   /* At 160px wide, an 8px Gaussian radius is 56px at the displayed window scale. */
-  encode(argv[3], soften(small, 160, 100, 8), 160, 100, 85);
+  uint8_t *soft = soften(small, 160, 100, 8);
+  uint8_t *sharp_sunrise = copy(sharp, SHARP_W, SHARP_H);
+  uint8_t *soft_sunrise = copy(soft, 160, 100);
+  tint_sunrise(sharp_sunrise, SHARP_W, SHARP_H);
+  tint_sunrise(soft_sunrise, 160, 100);
+  encode(argv[2], sharp, SHARP_W, SHARP_H, SHARP_QUALITY);
+  encode(argv[3], soft, 160, 100, 85);
+  encode(argv[4], sharp_sunrise, SHARP_W, SHARP_H, SHARP_QUALITY);
+  encode(argv[5], soft_sunrise, 160, 100, 85);
   free(small);
   return 0;
 }

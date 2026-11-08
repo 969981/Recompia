@@ -147,6 +147,8 @@
 }
 
 :root[data-theme="sunrise"] {
+  --art-url: url("./art/island-sharp-sunrise.webp");        /* the amber tint is baked into the pictures: a CSS filter on a full-window layer is repainted on every page change */
+  --art-soft-url: url("./art/island-soft-sunrise.webp");
   --color-bg: #1c1006;
   --color-menu: #2e1c0e;
   --color-solid: #2a190c;
@@ -175,5 +177,4 @@
   --backdrop: rgba(22, 10, 3, 0.52);
   --shadow-accent: 0 10px 28px -10px rgba(255, 194, 61, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
   --shadow-text: 0 2px 40px rgba(26, 12, 4, 0.55), 0 1px 3px rgba(26, 12, 4, 0.3);
-  --art-filter: sepia(0.85) saturate(2.4) hue-rotate(-12deg) brightness(1.04);   /* the island is painted violet: one amber-to-red tint over all of it */
 }
