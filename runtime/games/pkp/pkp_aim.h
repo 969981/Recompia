@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Camera aim (pkp_aim.cpp): ability and tool targets are aimed where the camera looks, not where the character faces. [pkp] camera_aim,
-// on by default.
+// off by default.
 #pragma once
 #include <cstdint>
 
