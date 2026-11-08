@@ -515,6 +515,10 @@ export const SECTIONS = [
             ],
           },
           {
+            id: 'builds', label: 'Versions', type: 'info', value: (env) => `You have ${env.version}`,
+            actions: (env) => [{ act: 'builds-open', label: 'Choose a version', icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
+          {
             id: 'updates', label: 'Updates', type: 'info', value: (env) => env.updateText,
             actions: (env) => [
               ...(env.canUpdate ? [{ act: 'update', label: 'Update', icon: 'download', primary: true }] : []),

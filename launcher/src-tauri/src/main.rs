@@ -15,6 +15,7 @@ mod preflight;
 mod public_ip;
 mod relay;
 mod repair;
+mod rollback;
 mod saveimport;
 mod settings;
 mod setuplog;
@@ -158,7 +159,20 @@ fn stop_relay(app: &AppHandle) {
     }
 }
 
-fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
+/// A build the player picked (update.rs target_for_tag) instead of the newest newer one. `accepted`: the player confirmed the warning for
+/// an older build (the dialogs ask; this side refuses without it).
+struct Wanted {
+    tag: String,
+    channel: update::Channel,
+    accepted: bool,
+}
+
+fn releases_for(app: &AppHandle, refresh: bool, channel: update::Channel) -> Vec<update::GhRelease> {
+    let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
+    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, channel)
+}
+
+fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
     // asked again right before files move: the download takes minutes
     let idle = || -> Result<(), String> {
@@ -172,7 +186,14 @@ fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
     };
     idle()?;
     let version = update_version(app).ok_or("This build does not update itself.")?;
-    let target = update::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?;
+    // the newest newer build, or the one the player picked
+    let (target, older) = match &wanted {
+        None => (update::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?, false),
+        Some(w) => {
+            let t = update::target_for_tag_here(&releases_for(app, false, w.channel), &w.tag).ok_or("That build cannot be installed on this system.")?;
+            (t, update::check_pick(&version, &w.tag, w.accepted)?)
+        }
+    };
     let paths = update::Paths {
         install: exe_dir(),
         launcher: launcher_path().ok_or("Could not find the launcher's own file.")?,
@@ -181,7 +202,17 @@ fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
     let mut report = |phase: &str, done: u64, total: u64| {
         let _ = app.emit("update-progress", UpdateProgress { phase: phase.to_string(), done, total });
     };
-    let session = update::install(&target, &paths, st, &mut report, &idle)?;
+    // an older build: the player's data is copied first (rollback.rs), after the download and right before the files move; if the copy
+    // cannot be made nothing is replaced
+    let config_dir = config_path(app).ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();
+    let ready = || -> Result<(), String> {
+        idle()?;
+        if older {
+            rollback::backup(&paths.game_dir, &config_dir, &target.tag)?;
+        }
+        Ok(())
+    };
+    let session = update::install(&target, &paths, st, &mut report, &ready)?;
     report("restart", 0, 1);
     stop_relay(app);
     if let Err(e) = update::relaunch(&paths.launcher, &paths.install) {
@@ -211,7 +242,23 @@ struct UpdateProgress {
 #[tauri::command]
 async fn install_update(app: AppHandle, state: State<'_, Arc<update::UpdateState>>) -> Result<(), String> {
     let st = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, None)).await.map_err(|e| e.to_string())?
+}
+
+/// The builds a channel offers, newest first, with their notes and what going to each one means (update.rs builds). Works for Testing
+/// before the channel is saved, so the join question can list them. Empty for a build that takes no updates.
+#[tauri::command]
+async fn list_builds(app: AppHandle, channel: String, refresh: Option<bool>) -> Vec<update::Build> {
+    let Some(version) = update_version(&app) else { return Vec::new() };
+    tauri::async_runtime::spawn_blocking(move || update::builds_here(&releases_for(&app, refresh.unwrap_or(false), update::Channel::parse(&channel)), &version)).await.unwrap_or_default()
+}
+
+/// Installs the build the player picked (an older one only with `accepted`); the same steps and restart as the update.
+#[tauri::command]
+async fn install_version(app: AppHandle, state: State<'_, Arc<update::UpdateState>>, tag: String, channel: String, accepted: bool) -> Result<(), String> {
+    let st = state.inner().clone();
+    let wanted = Wanted { tag, channel: update::Channel::parse(&channel), accepted };
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, Some(wanted))).await.map_err(|e| e.to_string())?
 }
 
 /// Stops a running update while it is still downloading or unpacking; the install stays as it was.
@@ -1345,6 +1392,8 @@ fn main() {
             launcher_state,
             get_releases,
             install_update,
+            list_builds,
+            install_version,
             cancel_update,
             open_release_url,
             save_config,
