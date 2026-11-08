@@ -70,6 +70,8 @@ pub struct Release {
     /// the release notes, markdown
     pub body: String,
     pub url: String,
+    /// a Testing build (a GitHub prerelease): shown only on the Testing channel
+    pub prerelease: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -213,10 +215,40 @@ fn github(url: &str) -> bool {
     url.starts_with("https://github.com/") && !url.chars().any(char::is_whitespace)
 }
 
-/// The API's answer without drafts, prereleases and anything that does not link to github.com.
+/// Which releases the player follows. Stable (the default) is what the launcher has always offered: published releases, no prereleases.
+/// Testing also offers prereleases (`v0.8.1-beta.1`, built from the `testing` branch), newest first like any other release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Channel {
+    Stable,
+    Testing,
+}
+
+impl Channel {
+    /// launcher.json's `channel`; anything but "testing" (empty, a typo, a value from a newer launcher) is Stable.
+    pub fn parse(s: &str) -> Channel {
+        if s.trim().eq_ignore_ascii_case("testing") { Channel::Testing } else { Channel::Stable }
+    }
+    /// How many releases to ask GitHub for: Testing builds share the list, so it needs more room to keep the stable ones in view.
+    pub fn list_size(self) -> u32 {
+        match self {
+            Channel::Stable => 20,
+            Channel::Testing => 50,
+        }
+    }
+}
+
+/// The API's answer without drafts and anything that does not link to github.com. Prereleases are kept here: `for_channel` decides.
 pub fn parse_releases(body: &[u8]) -> Result<Vec<GhRelease>, String> {
     let all: Vec<GhRelease> = serde_json::from_slice(body).map_err(|e| e.to_string())?;
-    Ok(all.into_iter().filter(|r| !r.draft && !r.prerelease && !r.tag_name.is_empty() && github(&r.html_url)).collect())
+    Ok(all.into_iter().filter(|r| !r.draft && !r.tag_name.is_empty() && github(&r.html_url)).collect())
+}
+
+/// The releases a channel sees. Stable drops prereleases, so for a Stable player nothing differs from before channels existed.
+pub fn for_channel(list: Vec<GhRelease>, channel: Channel) -> Vec<GhRelease> {
+    match channel {
+        Channel::Stable => list.into_iter().filter(|r| !r.prerelease).collect(),
+        Channel::Testing => list,
+    }
 }
 
 /// This platform's package of a release.
@@ -248,6 +280,7 @@ pub fn view(list: &[GhRelease], current: Option<&str>, suffix: &str) -> Releases
             date: r.published_at.clone().unwrap_or_default(),
             body: r.body.clone().unwrap_or_default(),
             url: r.html_url.clone(),
+            prerelease: r.prerelease,
         })
         .collect();
     let update = current.and_then(|c| pick_update(list, c, suffix)).map(|(r, a, _)| UpdateInfo { tag: r.tag_name.clone(), name: r.title(), url: r.html_url.clone(), size: a.size });
@@ -275,13 +308,13 @@ pub struct ReleaseStore(Mutex<Option<Vec<GhRelease>>>);
 
 /// The releases: this session's copy unless `refresh`, else one GET, then the file `cache` on failure, else nothing. The lock is
 /// held over the GET, so the pages' calls at start make one request between them.
-pub fn load_releases(store: &ReleaseStore, cache: &Path, version: &str, refresh: bool) -> Vec<GhRelease> {
+pub fn load_releases(store: &ReleaseStore, cache: &Path, version: &str, refresh: bool, channel: Channel) -> Vec<GhRelease> {
     let mut mem = store.0.lock().unwrap();
     if let (Some(list), false) = (mem.as_ref(), refresh) {
-        return list.clone();
+        return for_channel(list.clone(), channel);
     }
     let agent = ureq::AgentBuilder::new().timeout(API_TIMEOUT).user_agent(&user_agent(version)).build();
-    let url = format!("https://api.github.com/repos/{}/releases?per_page=20", REPO);
+    let url = format!("https://api.github.com/repos/{}/releases?per_page={}", REPO, channel.list_size());
     let fetched = get(&agent, &url, LIST_LIMIT).and_then(|body| parse_releases(&body).map(|list| (body, list)));
     let list = match fetched {
         Ok((body, list)) => {
@@ -296,7 +329,7 @@ pub fn load_releases(store: &ReleaseStore, cache: &Path, version: &str, refresh:
         }
     };
     *mem = Some(list.clone());
-    list
+    for_channel(list, channel)
 }
 
 /// What `install` fetches.
@@ -862,4 +895,79 @@ pub fn relaunch(path: &Path, dir: &Path) -> io::Result<()> {
     }
     cmd.arg("--updated").current_dir(dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     cmd.spawn().map(drop)
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+
+    fn rel(tag: &str, prerelease: bool) -> String {
+        let asset = format!("PokopiaRecomp-{}-linux-x64.tar.gz", tag.trim_start_matches('v'));
+        format!(
+            r#"{{"tag_name":"{tag}","name":"{tag}","html_url":"https://github.com/featureJosh/Recompia/releases/tag/{tag}","draft":false,"prerelease":{prerelease},"assets":[{{"name":"{asset}","size":1,"browser_download_url":"https://github.com/featureJosh/Recompia/releases/download/{tag}/{asset}"}},{{"name":"SHA256SUMS.txt","size":1,"browser_download_url":"https://github.com/featureJosh/Recompia/releases/download/{tag}/SHA256SUMS.txt"}}]}}"#
+        )
+    }
+
+    fn list_of(items: &[(&str, bool)]) -> Vec<GhRelease> {
+        let body = format!("[{}]", items.iter().map(|(t, p)| rel(t, *p)).collect::<Vec<_>>().join(","));
+        parse_releases(body.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn channel_names() {
+        assert_eq!(Channel::parse("testing"), Channel::Testing);
+        assert_eq!(Channel::parse(" Testing "), Channel::Testing);
+        for s in ["", "stable", "beta", "TESTINGS", "alpha"] {
+            assert_eq!(Channel::parse(s), Channel::Stable, "{s:?}");
+        }
+        assert_eq!(Channel::Stable.list_size(), 20);
+        assert!(Channel::Testing.list_size() > 20);
+    }
+
+    #[test]
+    fn prereleases_rank_between_the_stable_releases() {
+        assert!(is_newer("v0.8.1-beta.1", "0.8.0"));
+        assert!(!is_newer("v0.8.1-beta.1", "0.8.1"), "a release is newer than its own prerelease");
+        assert!(is_newer("v0.8.1", "0.8.1-beta.9"));
+        assert!(is_newer("v0.8.1-beta.10", "0.8.1-beta.2"));
+        assert!(!is_newer("v0.8.0", "0.8.1-beta.1"), "no downgrade from Testing back to an older stable");
+    }
+
+    #[test]
+    fn stable_sees_exactly_what_it_saw_before_channels() {
+        let all = list_of(&[("v0.8.1-beta.1", true), ("v0.8.0", false), ("v0.7.9", false), ("v0.7.9-rc.1", true)]);
+        let tags: Vec<String> = for_channel(all, Channel::Stable).into_iter().map(|r| r.tag_name).collect();
+        assert_eq!(tags, ["v0.8.0", "v0.7.9"]);
+    }
+
+    #[test]
+    fn testing_sees_everything_that_is_not_a_draft() {
+        let mut body = format!("[{}]", [rel("v0.8.1-beta.1", true), rel("v0.8.0", false)].join(","));
+        body = body.replacen(r#""draft":false,"prerelease":true"#, r#""draft":true,"prerelease":true"#, 1);
+        let all = parse_releases(body.as_bytes()).unwrap();
+        assert_eq!(all.len(), 1, "a draft never shows");
+        let all = list_of(&[("v0.8.1-beta.2", true), ("v0.8.1-beta.1", true), ("v0.8.0", false)]);
+        assert_eq!(for_channel(all, Channel::Testing).len(), 3);
+    }
+
+    #[test]
+    fn updates_follow_the_channel() {
+        let all = list_of(&[("v0.8.1-beta.2", true), ("v0.8.1-beta.1", true), ("v0.8.0", false)]);
+        let stable = for_channel(all.clone(), Channel::Stable);
+        assert!(pick_update(&stable, "0.8.0", "-linux-x64.tar.gz").is_none(), "Stable never offers a prerelease");
+        let testing = for_channel(all, Channel::Testing);
+        let (r, _, _) = pick_update(&testing, "0.8.0", "-linux-x64.tar.gz").unwrap();
+        assert_eq!(r.tag_name, "v0.8.1-beta.2");
+        assert!(pick_update(&testing, "0.8.1-beta.2", "-linux-x64.tar.gz").is_none());
+        let v = view(&testing, Some("0.8.0"), "-linux-x64.tar.gz");
+        assert!(v.releases.iter().any(|r| r.prerelease) && v.releases.iter().any(|r| !r.prerelease));
+    }
+
+    #[test]
+    fn a_testing_player_moves_on_to_the_final_release() {
+        let all = list_of(&[("v0.8.1", false), ("v0.8.1-beta.2", true)]);
+        let testing = for_channel(all, Channel::Testing);
+        let (r, _, _) = pick_update(&testing, "0.8.1-beta.2", "-linux-x64.tar.gz").unwrap();
+        assert_eq!(r.tag_name, "v0.8.1");
+    }
 }

@@ -50,6 +50,8 @@ struct Config {
     loose_shaders: bool,
     /// Where the window was last time, on a desktop screen (logical pixels); none: the default size, centred
     window: Option<WindowPlace>,
+    /// Which releases the launcher offers: "stable" (the default) or "testing" (prereleases built from the testing branch). update.rs Channel.
+    channel: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -125,7 +127,7 @@ fn update_version(app: &AppHandle) -> Option<String> {
 /// The releases (update.rs load_releases) from this session's copy, the network or the cache file.
 fn releases_of(app: &AppHandle, refresh: bool) -> Vec<update::GhRelease> {
     let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
-    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh)
+    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, update::Channel::parse(&load_config(app).channel))
 }
 
 /// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.
