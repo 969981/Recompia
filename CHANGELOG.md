@@ -4,6 +4,15 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Launcher
+- Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
+  - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
+  - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change went from 81 ms to 34 ms
+
 ## 0.8.0 (build L: Lykoi)
 
 **Update:** press **Update**, then **Set up again** once when it asks (this release adds two hooks for the new jump option, so the game is rebuilt; your saves and shaders are kept). The new launcher and runtime come with it.
