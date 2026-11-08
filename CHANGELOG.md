@@ -9,8 +9,8 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update** in the launcher, then **Set up again** once when it asks (this build adds hooks for the camera aim option, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
 
 ### Gameplay
-- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
-- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
+- Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Fixes
 - Fixed the story getting stuck above 60 fps in DJ Rotom's mood 100 scene in Rocky Ridges: the dialogue disappeared after "YOOOOOO!" and the game never continued (#297)
@@ -57,7 +57,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
-- **Camera aim and jump momentum (now on by default):** use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off (`camera_aim = 0`, `jump_momentum = 0` in `pkp.ini`) fixes it
+- **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
 - **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
 - **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
 - **Going back one build** (only with a copy of your save folder): choose the build just before yours and read the question. Report: what the dialog said and whether the launcher restarted on the older build. Cancel is fine if you would rather not
@@ -70,7 +70,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
-- Camera aim and jump momentum are on by default now, so everyone gets a new feel for abilities and jumps. Both can be switched off in `pkp.ini`
+- Camera aim is new and has only been tried by a few people; it is off by default, so nothing changes for you unless you turn it on
 - Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
 - Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
 - Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
