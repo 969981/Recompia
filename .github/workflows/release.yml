@@ -82,6 +82,21 @@ jobs:
           ./tools/textures/scripts/fetch_third_party.ps1
           ./tools/textures/scripts/build.ps1
 
+      # github.com's direct release-asset downloads answered 504 for hours on 2026-11-08 while the release API kept working. CMake's FetchContent
+      # reuses a file in NXRT_DEPS_DIR (%LOCALAPPDATA%\nxrt\deps) when its SHA-256 matches, so the two release assets are put there first through the API.
+      # A failure here is not fatal: CMake then downloads them itself, as before.
+      - name: Pre-fetch release assets (API route)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $d = Join-Path $env:LOCALAPPDATA 'nxrt\deps'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          gh release download release-3.4.18 -R libsdl-org/SDL -p SDL3-3.4.18.tar.gz -D $d --clobber
+          if ($LASTEXITCODE) { Write-Warning 'SDL3 pre-fetch failed; CMake will download it' }
+          gh release download v1.5.7 -R facebook/zstd -p zstd-1.5.7.tar.gz -D $d --clobber
+          if ($LASTEXITCODE) { Write-Warning 'zstd pre-fetch failed; CMake will download it' }
+          exit 0
+
       - name: pkp_rt.dll
         run: |
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
