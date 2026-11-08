@@ -17,6 +17,7 @@ mod relay;
 mod repair;
 mod rollback;
 mod saveimport;
+mod savebackup;
 mod settings;
 mod setuplog;
 mod shader_archive;
@@ -1011,6 +1012,43 @@ fn repair_last(app: AppHandle) -> Result<Option<repair::BackupInfo>, String> {
     Ok(repair::last_backup(&game))
 }
 
+/// Save backups (savebackup.rs): the status, the list and a copy on request work at any time; a restore needs the game closed. They run
+/// on a worker thread because a copy can wait a moment for the runtime to finish writing the save.
+#[tauri::command]
+async fn backup_status(app: AppHandle) -> Result<savebackup::Status, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::status(&dir)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn backup_list(app: AppHandle) -> Result<Vec<savebackup::Entry>, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::list(&dir)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn backup_now(app: AppHandle) -> Result<savebackup::Outcome, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::snapshot(&dir, savebackup::KIND_MANUAL)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn backup_restore(app: AppHandle, name: String) -> Result<savebackup::Restored, String> {
+    if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then restore a backup.".into());
+    }
+    refuse_during_update(&app)?;
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::restore(&dir, &name)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn open_backup_dir(app: AppHandle) -> Result<(), String> {
+    let dir = game_dir_of(&load_config(&app)).join(savebackup::DIR);
+    fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {}", dir.display(), e))?;
+    play::open_with_shell(&dir)
+}
+
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
 fn profiles_list(app: AppHandle) -> profiles::Store {
@@ -1431,6 +1469,11 @@ fn main() {
             repair_apply,
             repair_undo,
             repair_last,
+            backup_status,
+            backup_list,
+            backup_now,
+            backup_restore,
+            open_backup_dir,
             open_game_file,
             open_game_dir,
             relay_start,

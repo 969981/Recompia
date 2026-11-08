@@ -34,6 +34,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
+- Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
+  - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
+  - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
 - Added **Settings > About > Choose a version**, and a list of Testing builds when you join the Testing channel
   - Before: Update only ever installed the newest build, and there was no way to read about a build before installing it or to go back
   - Now: the list shows the builds of your channel (Testing builds and the normal releases on Testing, only releases on Stable), newest first, each with its notes. A newer one installs like an update. Going back to an older one asks first; a long way back (an older release line) shows a stronger warning with a box to tick before it can go on. The launcher first copies your save folder, `pkp.ini`, `controls.ini`, `profiles.json` and `launcher.json` to `rollback-backups` next to the game (the last three are kept), and stops without changing anything if that copy cannot be made. Joining Testing opens the list of Testing builds right away
