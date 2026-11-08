@@ -6,7 +6,22 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. No **Set up again** needed.
+**Update:** press **Update**, then **Set up again** once when it asks (this release adds two hooks for the new jump option, so the game is rebuilt; your saves and shaders are kept). The new launcher and runtime come with it.
+
+### Highlights
+- Our first native gameplay change: running jumps can keep your running speed instead of flying at the old fixed speed, jump height unchanged (opt-in, see Gameplay)
+- Added profiles: several people can play on one install, each with their own save (#282)
+- Fixed a long frame about once a second on some handhelds and PCs (#276)
+
+### Known issues
+- The timed event toggles are experimental: in-game event activation has not been confirmed. Use them in single player only for now
+
+### Gameplay
+- Added a native gameplay change, the first one this project makes to the game itself rather than through a mod: running jumps keep your current speed instead of flying at the game's old fixed jump speed
+  - Jump height is unchanged. Standing and walking jumps behave as before, and so do other players and Link Play visitors
+  - It is off by default. Turn it on with `[pkp] jump_momentum = 1` in `pkp.ini`; `jump_momentum_strength` (0.0 to 1.0) makes the boost smaller. The boost is never more than double the old speed
+  - Before: a running jump flew exactly as far as a walking one
+  - Needs **Set up again** once because the game is rebuilt with two new hooks
 
 ### Performance
 - Fixed a long frame about once a second on some handhelds and PCs: walking and turning juddered even when the frame rate looked fine (#276)

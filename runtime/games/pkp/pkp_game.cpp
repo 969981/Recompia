@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "pkp_game.h"
+#include "pkp_jump.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
 #include "pkp_play.h"
@@ -29,6 +30,7 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     menu_install(base);
     quality_install(base, s);
     taa_install(base);
+    jump_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
                      config_get_bool("pkp", "link_story_coop", false));
 }
