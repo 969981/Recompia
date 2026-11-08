@@ -557,6 +557,7 @@ nickname = nxrt
 [account]
 nickname = Samus
 ; uid =  (empty: the built-in local user id)
+; The launcher's profiles (Settings > Saves) write nickname, uid and [net] uid here when you switch profiles
 ; network_account_id =  (empty: a hash of this PC's MachineGuid and uid)
 
 [fs]

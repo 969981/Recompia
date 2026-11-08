@@ -9,6 +9,7 @@ mod ini;
 mod lan;
 mod nup;
 mod play;
+mod profiles;
 mod preflight;
 mod public_ip;
 mod relay;
@@ -510,6 +511,7 @@ fn play(app: AppHandle) -> Result<(), String> {
     };
     let dir = game_dir_of(&cfg);
     settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)?;
+    profiles::apply_active(&dir)?;
     play::start(&app, &dir, cfg.minimize_on_play)
 }
 
@@ -867,7 +869,8 @@ fn save_paths(app: &AppHandle) -> (PathBuf, String) {
     // NXRT_FS_SAVE_DIR overrides the ini in the runtime, so it does here
     let env = std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default();
     let sd = saveimport::save_dir_of(&dir, &if env.trim().is_empty() { get("fs.save_dir") } else { env });
-    let key = saveimport::target_key(&sd, &get("account.uid"));
+    // with profiles, a profile other than the first plays its own account folder, not the newest one
+    let key = profiles::strict_save_key(&dir).unwrap_or_else(|| saveimport::target_key(&sd, &get("account.uid")));
     (sd, key)
 }
 
@@ -894,6 +897,43 @@ fn import_save(app: AppHandle, state: State<play::PlayState>, source: Option<Str
     };
     let (sd, key) = save_paths(&app);
     saveimport::import(&sd, &key, &src)
+}
+
+/// The profiles (names and ids) and which one plays.
+#[tauri::command]
+fn profiles_list(app: AppHandle) -> profiles::Store {
+    profiles::load(&game_dir_of(&load_config(&app)))
+}
+
+fn profiles_guard(app: &AppHandle, state: &State<play::PlayState>) -> Result<PathBuf, String> {
+    if state.0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then change profiles.".into());
+    }
+    refuse_during_update(app)?;
+    Ok(game_dir_of(&load_config(app)))
+}
+
+#[tauri::command]
+fn profile_add(app: AppHandle, state: State<play::PlayState>, name: String) -> Result<profiles::Store, String> {
+    profiles::add(&profiles_guard(&app, &state)?, &name)
+}
+
+#[tauri::command]
+fn profile_rename(app: AppHandle, state: State<play::PlayState>, id: String, name: String) -> Result<profiles::Store, String> {
+    let dir = profiles_guard(&app, &state)?;
+    let s = profiles::rename(&dir, &id, &name)?;
+    profiles::apply_active(&dir)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn profile_remove(app: AppHandle, state: State<play::PlayState>, id: String) -> Result<profiles::Store, String> {
+    profiles::remove(&profiles_guard(&app, &state)?, &id)
+}
+
+#[tauri::command]
+fn profile_select(app: AppHandle, state: State<play::PlayState>, id: String) -> Result<profiles::Store, String> {
+    profiles::select(&profiles_guard(&app, &state)?, &id)
 }
 
 #[tauri::command]
@@ -1268,6 +1308,11 @@ fn main() {
             save_sources,
             import_save,
             open_save_dir,
+            profiles_list,
+            profile_add,
+            profile_rename,
+            profile_remove,
+            profile_select,
             open_game_file,
             open_game_dir,
             relay_start,

@@ -353,6 +353,29 @@ export const SECTIONS = [
     label: 'Saves',
     groups: [
       {
+        title: 'Profiles',
+        rows: [
+          { id: 'profiles_note', type: 'note', note: () => ({ text: 'Each profile has its own save, so two people can share one install. They share the game files and the shaders. Switch profiles with the game closed.' }) },
+          {
+            expand: (env) => (env.profiles?.profiles ?? []).map((p) => {
+              const on = p.id === env.profiles.active;
+              return {
+                id: `profile_${p.id}`, label: p.name, type: 'info', value: on ? 'Playing' : '',
+                actions: [
+                  ...(on ? [] : [{ act: 'profile-use', arg: p.id, name: p.name, label: 'Use', icon: 'user-check', disabled: env.gameBusy }]),
+                  { act: 'profile-rename', arg: p.id, name: p.name, label: 'Rename', icon: 'pencil', disabled: env.gameBusy },
+                  ...(p.id === 'default' ? [] : [{ act: 'profile-remove', arg: p.id, name: p.name, label: 'Remove', icon: 'trash-2', disabled: env.gameBusy || on }]),
+                ],
+              };
+            }),
+          },
+          {
+            id: 'profile_new', label: 'New profile', type: 'info',
+            actions: (env) => [{ act: 'profile-new', label: 'Add', icon: 'plus', disabled: env.gameBusy }],
+          },
+        ],
+      },
+      {
         title: '',
         rows: [{
           id: 'save_dir', label: 'Save folder', type: 'path', at: pkp('fs', 'save_dir'), pick: 'Choose the save folder', open: 'save',
