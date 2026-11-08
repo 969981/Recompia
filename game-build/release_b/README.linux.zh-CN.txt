@@ -1,4 +1,4 @@
-# source-sha256: 6a3d9ec9ff6a2536a6913cd937d027b68911a686cdee0218ed77073e8f6f775b
+# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
 这是英文文本的机器翻译，可能包含错误；英文文本是权威版本。
 
 Pokopia PC @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
@@ -12,5 +12,7 @@ Pokopia PC @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
 从 Steam 启动（Deck 上的游戏模式）：将 PokopiaLauncher.AppImage 添加为非 Steam 游戏，并将启动选项设为 --play。
 
 更新：将新版本解压到现有安装中覆盖。如果更新更改了游戏代码，启动器会提示你：再次按 Set up，它会重新构建 pkp.exe。你的着色器和存档会保留。
+
+社区与帮助：https://discord.gg/qE656Fed5N
 
 许可证：LICENSE.txt 和 licenses/。

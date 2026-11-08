@@ -8,4 +8,6 @@ Updating: extract the new release over your install. If the update changes the g
 
 Upscaling: FSR 3 works out of the box (F1, Graphics). DLSS / DLAA need an NVIDIA RTX GPU and a file NVIDIA licenses separately: the launcher's Game files page has a button that downloads it from NVIDIA.
 
+Community and help: https://discord.gg/qE656Fed5N
+
 Licences: LICENSE.txt and licenses/.
