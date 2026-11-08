@@ -110,6 +110,11 @@ entryhook 0x710070bc44
 # camera aim (runtime games/pkp/pkp_aim.cpp, [pkp] camera_aim): the shared command target query 0x71002e19a0 right after it read the
 #   character's heading (virtual +0x18, s0 = heading, x28 = character): the local player's heading is replaced by the follow camera's yaw
 midhook 0x71002e1a14
+#   the swing tools (command-less actions 881..885: Rock Smash, Cut and their upgrades) place the attack's hit shape by the character's
+#   transform heading (virtual +0x38, +0x64): the preview shape 0x7100721e40 right after its load (s9 = heading, x22 = character) and the
+#   live hit shape 0x71006d9b40 right after its load (s8 = heading, x19 = character); both replaced by the follow camera's yaw
+midhook 0x71007220dc
+midhook 0x71006d9d70
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)

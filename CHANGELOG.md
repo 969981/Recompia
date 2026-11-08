@@ -7,7 +7,7 @@ of the game (version 2.0.1a): the download contains no game files.
 ## Unreleased
 
 ### Gameplay
-- Added an option, off by default: abilities and tools aim where the camera looks instead of where your character faces (`[pkp] camera_aim = 1` in `pkp.ini`; Rock Smash keeps following the character). Needs **Set up again** once
+- Added an option, off by default: abilities and tools aim where the camera looks instead of where your character faces (`[pkp] camera_aim = 1` in `pkp.ini`). Needs **Set up again** once
 
 ## 0.8.0 (build L: Lykoi)
 
