@@ -413,13 +413,18 @@ int hook_replay_viewports(::Ctx* c, uint64_t, void*) {
 //             lighting at UV through c3[416]; +0x98, the depth written by e562487e at UV). Every reader and writer seen samples them at
 //             screen UV, so they are right at either size: they stay as authored unless [pkp] target_fix = all scales them by W/1920,
 //             H/1080 (sharper, untested in the world: a pass that set its viewport outside the three viewport hooks would cover a corner).
+//   canvas    the dialogue text target (0x1fb35f8: 1400x1024 RGBA8, its size read from a global the game fills at start-up): the text boxes are
+//             laid out on the UI canvas, which is the render size on a 16:9 render size above 1920x1080, and their glyphs grow with it; the
+//             target stayed 1400x1024, so the text did not fit, the box's cleared area came out as 764x85 or 1x1, the old line stayed under
+//             the new one and the composite drew the target twice (#267). It is made as large as the canvas needs (1.5x at 2880x1620).
 //   fixed     left as authored: the photo pipeline (0x10fd8e0: 2 x 1920x1080 captures read back by the CPU with a 7680-byte pitch, see
 //             0x10fe828 / 0x10fffd4; 25 x 480x270, 2 x 320x180, 40 x 640x360 album images), the capture scratch 0x10fe140 (it scales the
 //             frame into a 1920x1080 target and draws into it with a viewport of 1920.0 x 1080.0 written straight into the command
 //             stream, which no viewport hook sees), the 240x135 thumbnails (0xb3b60, 0x110d220 +0x178), the 80x45 terrain occlusion
 //             and 30x16 targets (sampled at UV, small by design), and the square shadow / cube / LUT targets (not screen-shaped).
 // A 1920x1080 request from any other caller is logged once per caller and kept. [pkp] target_fix = off leaves every target as authored.
-enum class TargetClass : uint8_t { Screen, Fraction, Fixed };
+constexpr uint64_t kTextTargetCfg = 0x3d0a6b0;   // pointer to the game's dialogue text target settings (+0x37c on, +0x380 width, +0x384 height)
+enum class TargetClass : uint8_t { Screen, Fraction, Fixed, Canvas };
 struct TargetSite {
     uint32_t ret;          // return address of the call, offset in main
     uint16_t w, h;         // the literal size it passes
@@ -439,6 +444,7 @@ constexpr TargetSite kTargetSites[] = {
     {0x10fd930, 1920, 1080, TargetClass::Fixed, "photo capture"},
     {0x10fd988, 1920, 1080, TargetClass::Fixed, "photo capture"},
     {0x10fe210, 1920, 1080, TargetClass::Fixed, "capture scratch"},
+    {0x1fb35f8, 1400, 1024, TargetClass::Canvas, "dialogue text target"},
 };
 constexpr size_t kTargetSiteCount = sizeof(kTargetSites) / sizeof(kTargetSites[0]);
 static_assert(kTargetSiteCount <= 32, "one log bit per site");
@@ -486,6 +492,17 @@ int hook_create_target(::Ctx* c, uint64_t, void*) {
     if (mode != TargetFix::Off && t.cls == TargetClass::Screen) {
         nw = static_cast<uint32_t>(W);
         nh = static_cast<uint32_t>(H);
+    } else if (mode != TargetFix::Off && t.cls == TargetClass::Canvas && W > kTableW && H > kTableH &&
+               std::fabs(static_cast<double>(W) / H - static_cast<double>(kTableW) / kTableH) < 0.01) {
+        nw = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(w) * H / kTableH)));
+        nh = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(h) * H / kTableH)));
+        // the game keeps this size in a global (flag +0x37c, width +0x380, height +0x384) and reads it again for the target's UVs,
+        // viewport and the box's dirty rectangle: the new size goes in there too, or the content shrinks inside the larger target
+        const uint64_t cfg = rd<uint64_t>(s.base + kTextTargetCfg);
+        if (cfg && mem::is_mapped(cfg + 0x380, 8) && rd<uint32_t>(cfg + 0x380) == w && rd<uint32_t>(cfg + 0x384) == h) {
+            wr<uint32_t>(cfg + 0x380, nw);
+            wr<uint32_t>(cfg + 0x384, nh);
+        }
     } else if (mode == TargetFix::All && t.cls == TargetClass::Fraction) {
         nw = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(w) * W / kTableW)));
         nh = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(h) * H / kTableH)));
