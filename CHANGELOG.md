@@ -6,10 +6,21 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Gameplay
+- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
+- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+
+### Fixes
+- Fixed the story getting stuck above 60 fps in DJ Rotom's mood 100 scene in Rocky Ridges: the dialogue disappeared after "YOOOOOO!" and the game never continued (#297)
+  - Before: scripted events could wait forever when the game ran faster than 60 fps. Setting the frame limit to 60 got past it
+  - Now: events, dialogue, transitions and menus always run at 60 fps as on the console, and free play keeps your frame limit. `[pkp] event_hold = false` turns this off
+  - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
+
 ### Launcher
 - Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
   - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
   - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
 
 ## 0.8.0 (build L: Lykoi)
 
