@@ -18,17 +18,16 @@
 // The row (cell y) is chosen by the shared helper 0x71006f77b0 (called by the query, the swing shapes 0x7100721e40 / 0x71006d9b40 and
 // the placement collectors): it reads the active camera's pitch (follow camera + 0xb0, negated, wrapped to +-pi/2) and sorts it into
 // rows by five tuning angles (tuning1 + 0x414..0x424, degrees: up extreme, +2, +1, 0 lower bound, down extreme), giving the row offset
-// -1 / 0 / +1 / +2 from the character's feet row, or the cell under the character for the down extreme. Those angles are set for the
-// camera's own pitch, so the row the camera ray crosses in the target column lies about one row below the chosen one. The mid hook at
-// 0x71006f7918, right after the wrap (s5 = pitch; s4, s2, s1, s3, s0 = the five angles), computes the row the camera ray (eye + 0x60 ->
-// look-at + 0x50) hits: from where the ray enters the forward cell (the cell next to the character in the camera yaw's cardinal
-// direction) it is marched 20 units at a time for 6 cells, the first solid block it crosses gives the row, else the row where it
-// entered; s5 becomes the middle of the angle band that selects that row offset. A ray that reaches the feet height before the
-// forward cell selects the cell under the character (the down extreme).
+// -1 / 0 / +1 / +2 from the character's feet row, or the cell under the character for the down extreme. The mid hook at 0x71006f7918,
+// right after the wrap (s5 = pitch; s4, s2, s1, s3, s0 = the five angles), walks the cell grid along the camera ray (eye + 0x60 ->
+// look-at + 0x50); the first solid cell within two cells of the character gives the row, and s5 becomes the middle of the angle band
+// that selects it. With no solid cell near, or a row out of the bands' range, the game's own band stays.
 // The game keeps its column, shapes, reach and validity.
 #include "pkp_aim.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "nxrt/config.h"
@@ -54,6 +53,9 @@ constexpr uint64_t kFollow = 0x10;               // camera manager + 0x10: the e
 constexpr uint64_t kActiveTable = 0xc58;         // + signed byte(manager + 0xcc8) * 8: the active camera pointer of slot 0
 constexpr uint64_t kActiveIndex = 0xcc8;
 constexpr uint64_t kLook = 0x50, kEye = 0x60;    // follow camera: look-at and eye (vec4)
+constexpr uint64_t kSwingPreviewReturn = 0x7223cc, kSwingLiveReturn = 0x6da458;  // the row helper's return into the swing shapes
+constexpr uint64_t kStepRows = 0x5a84, kStepFlag = 0x5a8c;  // character: step count ahead (int) and its flag; the swing shapes raise by it
+constexpr int kReach = 2;                          // cells from the character's column within which a hit is accepted
 
 template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
 
@@ -113,7 +115,8 @@ bool solid_cell(int x, int y, int z) {
     return id != 0 && (rd<uint16_t>(g.base + kCollisionMeta + 2ull * id) & 1);
 }
 
-// The row helper sorted the camera pitch (s5) into a row band; replace it by the middle of the band whose row the camera ray hits.
+// The row helper sorted the camera pitch (s5) into a row band; replace it by the middle of the band whose row holds the cell the
+// camera ray hits.
 int hook_pitch(::Ctx* c, uint64_t, void*) {
     const uint64_t ch = c->x[22];
     const uint64_t cam = follow_camera(ch);
@@ -121,63 +124,59 @@ int hook_pitch(::Ctx* c, uint64_t, void*) {
     const float ex = rd<float>(cam + kEye), ey = rd<float>(cam + kEye + 4), ez = rd<float>(cam + kEye + 8);
     const float dx = rd<float>(cam + kLook) - ex, dy = rd<float>(cam + kLook + 4) - ey, dz = rd<float>(cam + kLook + 8) - ez;
     const float px = rd<float>(ch + kPosition), py = rd<float>(ch + kPosition + 4), pz = rd<float>(ch + kPosition + 8);
-    if (!(dx * dx + dz * dz > 1e-6f) || !std::isfinite(py)) return 0;
+    if (!(dx * dx + dz * dz > 1e-6f) || !std::isfinite(py) || !std::isfinite(ey)) return 0;
     const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
-    const int row = static_cast<int>(std::floor(py / 100.f));
-    // the forward cell: the cardinal direction of the camera yaw, as the query's own cardinal choice (+Z, +X, -Z, -X)
-    const float yaw = std::atan2(dx, dz);
-    int fx = cx, fz = cz;
-    if (yaw >= 0.7853982f && yaw < 2.3561945f) fx++;
-    else if (yaw <= -0.7853982f && yaw > -2.3561945f) fx--;
-    else if (std::fabs(yaw) >= 2.3561945f) fz--;
-    else fz++;
-    // the ray's entry into and exit from that column (x/z slabs)
-    const float x0 = static_cast<float>(fx - 1024) * 100.f, z0 = static_cast<float>(fz - 1024) * 100.f;
-    float tin = -1e30f, tout = 1e30f;
-    if (std::fabs(dx) > 1e-6f) {
-        const float a = (x0 - ex) / dx, b = (x0 + 100.f - ex) / dx;
-        tin = std::fmax(tin, std::fmin(a, b)); tout = std::fmin(tout, std::fmax(a, b));
-    } else if (ex < x0 || ex >= x0 + 100.f) tout = -1.f;
-    if (std::fabs(dz) > 1e-6f) {
-        const float a = (z0 - ez) / dz, b = (z0 + 100.f - ez) / dz;
-        tin = std::fmax(tin, std::fmin(a, b)); tout = std::fmin(tout, std::fmax(a, b));
-    } else if (ez < z0 || ez >= z0 + 100.f) tout = -1.f;
+    const int row = static_cast<int>(std::floor((py + 0.2f) / 100.f));
+    // the row the game applies the band offset to: the feet row; the swing shapes add the step count when the step flag is set
+    const uint64_t ret = rd<uint64_t>(c->x[29] + 8) - g.base;
+    const bool swing = ret == kSwingPreviewReturn || ret == kSwingLiveReturn;
+    const int steps = swing && rd<uint8_t>(ch + kStepFlag) ? rd<int32_t>(ch + kStepRows) : 0;
+    const int base = row + (steps >= -8 && steps <= 8 ? steps : 0);
+    // walk the cell grid along the ray from the eye; cells farther than the reach from the character's column are skipped until the
+    // ray is near the character and end the walk after; the first solid cell near the character is the hit
+    int x = static_cast<int>(std::floor((ex + 102400.f) / 100.f)), y = static_cast<int>(std::floor(ey / 100.f)),
+        z = static_cast<int>(std::floor((ez + 102400.f) / 100.f));
+    const int sx = dx > 0.f ? 1 : -1, sy = dy > 0.f ? 1 : -1, sz = dz > 0.f ? 1 : -1;
+    const float inf = 1e30f;
+    const float tdx = std::fabs(dx) > 1e-6f ? 100.f / std::fabs(dx) : inf, tdy = std::fabs(dy) > 1e-6f ? 100.f / std::fabs(dy) : inf,
+                tdz = std::fabs(dz) > 1e-6f ? 100.f / std::fabs(dz) : inf;
+    float tx = tdx < inf ? ((dx > 0.f ? static_cast<float>(x + 1) * 100.f - 102400.f - ex : ex - (static_cast<float>(x) * 100.f - 102400.f)) / std::fabs(dx)) : inf;
+    float ty = tdy < inf ? ((dy > 0.f ? static_cast<float>(y + 1) * 100.f - ey : ey - static_cast<float>(y) * 100.f) / std::fabs(dy)) : inf;
+    float tz = tdz < inf ? ((dz > 0.f ? static_cast<float>(z + 1) * 100.f - 102400.f - ez : ez - (static_cast<float>(z) * 100.f - 102400.f)) / std::fabs(dz)) : inf;
+    bool near = false, hit = false, under = false;
+    int d = 0, hx = 0, hy = 0, hz = 0;
+    for (int n = 0; n < 128; n++) {
+        if (tx <= ty && tx <= tz) { x += sx; tx += tdx; }
+        else if (ty <= tz) { y += sy; ty += tdy; }
+        else { z += sz; tz += tdz; }
+        const int h = std::max(std::abs(x - cx), std::abs(z - cz));
+        if (h > kReach) { if (near) break; continue; }
+        near = true;
+        if (!solid_cell(x, y, z)) continue;
+        hit = true; hx = x; hy = y; hz = z;
+        // the floor under the character, or beside or behind it when looking almost straight down
+        under = y == row - 1 && (h == 0 || static_cast<float>(x - cx) * dx + static_cast<float>(z - cz) * dz <= 0.f);
+        d = y - base;
+        break;
+    }
+    // A swing's shape spans the band's row and the one above, and the game keeps only the upper one when it holds a block (0x7100409160):
+    // ask for the row below the hit. The band of the lowest row keeps the floor in front when the row above it is empty.
+    const int band = swing ? std::max(d - 1, -1) : d;
     const float t0 = c->v[0].f[0], t1 = c->v[3].f[0], t2 = c->v[1].f[0], t3 = c->v[2].f[0], t4 = c->v[4].f[0];
     float pitch;
-    int d = 0;
-    const char* how;
-    if (tout <= tin || tout <= 0.f) {
-        // the ray misses the forward column: the row it crosses at the forward cell's distance
-        const float h = std::sqrt(dx * dx + dz * dz), dist = std::sqrt((px - ex) * (px - ex) + (pz - ez) * (pz - ez)) + 50.f;
-        d = static_cast<int>(std::floor((ey + dy * dist / h) / 100.f)) - row;
-        how = "plane";
-    } else if (dy < 0.f && (static_cast<float>(row) * 100.f - ey) / dy < tin) {
-        // the ray reaches the feet height before the forward cell: the cell under the character
-        d = -2;
-        how = "under";
-    } else {
-        // march the ray from where it enters the forward cell: the first solid cell it crosses within 6 cells gives the row, else the
-        // row where it enters
-        const float len = std::sqrt(dx * dx + dy * dy + dz * dz), step = 20.f / len;
-        float t = std::fmax(tin, 0.f);
-        d = static_cast<int>(std::floor((ey + dy * t) / 100.f)) - row;
-        how = "entry";
-        for (int n = 0; n < 30; n++, t += step) {
-            const int x = static_cast<int>(std::floor((ex + dx * t + 102400.f) / 100.f)), y = static_cast<int>(std::floor((ey + dy * t) / 100.f)),
-                      z = static_cast<int>(std::floor((ez + dz * t + 102400.f) / 100.f));
-            if (solid_cell(x, y, z)) { d = y - row; how = "solid"; break; }
-        }
-    }
-    if (d <= -2) pitch = t0 - 0.01f;                 // the down extreme (when w21 allows it) or the row below
-    else if (d == -1) pitch = (t0 + t1) * 0.5f;
-    else if (d == 0) pitch = (t1 + t2) * 0.5f;
-    else if (d == 1) pitch = (t2 + t3) * 0.5f;
-    else pitch = t4 > t3 ? (t3 + t4) * 0.5f : t3;
+    if (!hit) return 0;                              // nothing near: the game's own band
+    else if (under) pitch = t0 - 0.01f;             // the down extreme: the cell under the character
+    else if (hit && (x == cx && z == cz)) return 0;  // the character's own column above the floor: leave it alone
+    else if (band == -1) pitch = (t0 + t1) * 0.5f;
+    else if (band == 0) pitch = (t1 + t2) * 0.5f;
+    else if (band == 1) pitch = (t2 + t3) * 0.5f;
+    else if (band == 2) pitch = t4 > t3 ? (t3 + t4) * 0.5f : t3;
+    else return 0;                                   // outside the band range: the game's own band
     if (!std::isfinite(pitch)) return 0;
     if (g.logged_pitch < 8) {
         g.logged_pitch++;
-        NXLOG_I(kTag, "camera aim: row pitch %.3f -> %.3f (%s, row %+d, bands %.2f %.2f %.2f %.2f %.2f, extremes %u)",
-                static_cast<double>(c->v[5].f[0]), static_cast<double>(pitch), how, d, static_cast<double>(t0), static_cast<double>(t1),
+        NXLOG_I(kTag, "camera aim: row pitch %.3f -> %.3f (row %+d of base %d, hit %d,%d,%d, bands %.2f %.2f %.2f %.2f %.2f, extremes %u)",
+                static_cast<double>(c->v[5].f[0]), static_cast<double>(pitch), d, base, hx, hy, hz, static_cast<double>(t0), static_cast<double>(t1),
                 static_cast<double>(t2), static_cast<double>(t3), static_cast<double>(t4), static_cast<unsigned>(c->x[21] & 0xffffffffu));
     }
     c->v[5].f[0] = pitch;
