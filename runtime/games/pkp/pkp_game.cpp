@@ -5,6 +5,7 @@
 #include "pkp_menu.h"
 #include "pkp_play.h"
 #include "pkp_quality.h"
+#include "pkp_save_uuid.h"
 #include "pkp_taa.h"
 
 #include <cstring>
@@ -23,6 +24,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 
 // play mode's install / remove / status, plus the menu mouse (pkp_menu.cpp) and Link Play's Interact everywhere (pkp_linkplay.cpp)
 void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
+    save_uuid_repair();   // before the game is loaded, so before it reads its save (pkp_save_uuid.h)
     play_install(base, host, s);
     menu_install(base);
     quality_install(base, s);

@@ -14,6 +14,7 @@
 #include "nxrt/services.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
+#include "nxrt/tt.h"
 
 namespace nxrt {
 namespace {
@@ -29,13 +30,27 @@ constexpr uint64_t kAslrRegionSize = 0x7FF8000000ull;           // chosen value 
 constexpr uint64_t kTotalMemorySwitch2 = 0x2A0000000ull;        // Switch 2 application: 10.5 GiB (nxrt choice; Pokopia alone pools ~8 GiB)
 constexpr uint64_t kTotalMemoryAvailable = 0xCD500000ull;       // chosen value: ~3.2 GiB, like an application ([memory] app_memory_mb overrides)
 constexpr uint64_t kUsedMemoryOverhead = 0x4000000ull;          // chosen value: 64 MiB added to the heap size for "used"
-constexpr uint64_t kEntropyDefaultSeed = 0x1234567890ABCDEFull; // chosen value
+constexpr uint64_t kEntropyFallbackSeed = 0x1234567890ABCDEFull; // chosen value, only when the OS random source gives 0
 constexpr uint64_t kGoldenRatio64 = 0x9E3779B97F4A7C15ull;      // used to separate the four RandomEntropy subtypes
 constexpr uint64_t kDefaultProcessId = 0x51;                    // chosen value (config [process] pid)
 constexpr uint32_t kInfoThreadTickCountOld = 0xF0000002u;       // ThreadTickCount id on firmware 1.0.0-12.1.0 (Switchbrew)
 constexpr uint32_t kInfoThreadTickCount = 25;                   // ThreadTickCount id on firmware 12.1.0+ (Switchbrew table)
 constexpr uint64_t kProcessStateStarted = 2;                    // Switchbrew ProcessState 2 = Started (not debugged)
 constexpr uint64_t kSubAllCores = 0xFFFFFFFFFFFFFFFFull;        // ThreadTickCount sub-argument: the total over all cores (Switchbrew)
+
+// RandomEntropy seeds nn::os's random generator (GenerateRandomBytes, nn::util::GenerateUuid), so it must differ per process as on
+// the console: one fixed value gave every Pokopia save made here the same player UUID, and Link Play's host refuses a visitor with
+// the host's UUID (error 9005). [process] entropy_seed fixes it for tests; else the OS random source (tt::rng_fill: the seeded
+// stream in deterministic mode), drawn once per process.
+uint64_t entropy_seed() {
+    static const uint64_t seed = [] {
+        if (config_has("process", "entropy_seed")) return static_cast<uint64_t>(config_get_int("process", "entropy_seed", 0));
+        uint64_t s = 0;
+        tt::rng_fill(&s, sizeof s);
+        return s ? s : kEntropyFallbackSeed;
+    }();
+    return seed;
+}
 
 }  // namespace
 uint64_t svc_total_memory() {
@@ -87,8 +102,7 @@ uint32_t get_info(uint32_t type, uint32_t handle, uint64_t sub, uint64_t& out) {
         case 10: out = 0; return kernel::kOk;                                 // IdleTickCount (nxrt: no idle accounting)
         case 11: {                                                            // RandomEntropy, subtype 0..3
             if (sub > 7) return kInvalidCombination;
-            uint64_t seed = static_cast<uint64_t>(config_get_int("process", "entropy_seed", static_cast<int64_t>(kEntropyDefaultSeed)));
-            out = seed ^ (sub * kGoldenRatio64);
+            out = entropy_seed() ^ (sub * kGoldenRatio64);
             return kernel::kOk;
         }
         case 12: out = kAslrRegionAddress; return kernel::kOk;                // AslrRegionAddress

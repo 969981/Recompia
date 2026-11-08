@@ -47,6 +47,7 @@ endif()
 target_link_libraries(nxrt PUBLIC psapi)
 add_subdirectory(third_party/pokopia-coop)   # [net] protocol = native: pokopia-native's Link Play (MIT, C11)
 target_link_libraries(nxrt PRIVATE pokopia_coop)
+add_subdirectory(third_party/miniz)   # zlib streams (MIT): the Pokopia save repair, games/pkp/pkp_save_uuid.cpp
 include(cmake/media_deps.cmake)   # libvpx for the Switch 2 video decoders (optional)
 
 if(NXRT_BUILD_GFX)
