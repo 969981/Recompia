@@ -30,6 +30,11 @@ of the game (version 2.0.1a): the download contains no game files.
 | ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
 
 ### Link Play
+- Fixed every visit failing with "A communication error occurred" (error 9005), even with the room found and the same mods on both sides
+  - Cause: every save made with this project got the same player id (UUID `b9ae85ed-...`), and the host turns away a visitor with its own id. The runtime's random seed (GetInfo RandomEntropy) was one fixed value on every PC, so the id the game rolls at new game came out the same for everyone
+  - Now: the seed comes from the OS random source, so new saves get their own id
+  - Saves you already have are repaired at the next start, before the game reads them: the shared id is replaced with a new random one in all its places. Progress is kept; a copy of the save from before goes to `uuid-backup\` in your save folder
+  - `[pkp] uuid_repair = 0` turns the repair off
 - Still cross-plays with pokopia-native 1.3.3: its co-op wire format, discovery, room codes and relay are unchanged since 1.3.0
 - Joining a VPN address (Radmin VPN 26.x, Hamachi 25.x, Tailscale / carrier NAT 100.64.x) on LAN now names the VPN in the refusal and says to turn on internet play for every player
 - Co-op module updated to pokopia-native 1.3.3 (`035bd9c`); its Interact everywhere and Story co-op sites for game 1.0.5 come along but do nothing here (this project needs 2.0.1). Based on pokopia-native (MIT) `windows/src/coop` @035bd9c
@@ -40,6 +45,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the check reads on up to 8 threads, shows "Checking the shaders an earlier version translated: N of M" and writes its progress to `setup.log`; Pause stops it
 
 ### For developers
+- `src/kernel/svc_info.cpp`: GetInfo RandomEntropy is drawn once per process from the OS random source (`tt::rng_fill`, so the test tools' deterministic mode stays seeded); `[process] entropy_seed` still fixes it. It seeds nn::os's generator and with it nn::util::GenerateUuid (main 0x5af08c, the new-game reset 0x5aef60)
+- `games/pkp/pkp_save_uuid.cpp`: at play install (before the game modules load) a save whose CMNDAT/SYDAT holds `b9ae85ed-20e7-4f6b-89a1-9f30fcf9f0f9` gets a random v4 UUID in G00/B00 CMNDAT (zlib from 0x130) and S00 SYDAT, as `pkp_uuid.py --set` did; the account folder is copied to `uuid-backup/<time>/` first, files are replaced by rename and put back on a failed write; a save with an interrupted commit is skipped. Host check: 0x5463c0
+- `third_party/miniz`: miniz 3.0.2 (MIT) for the zlib streams
 - `tools/shaders/ampere/frontend/AmpereEmit.cs` `EmitLop3Ampere`: read LOP3/ULOP3 operands after the predicate destination
   - The decoder (like nvdisasm) puts Pd before Rd (`LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT`); the emitter read Rd first, so a, b, c and the LUT were one operand late and Pd stayed false
   - 112,542 such instructions in 32,630 corpus blocks; IADD3, LEA, IMAD and MATCH already handled predicate outputs; R2UR, FLO and LDG never carry one here

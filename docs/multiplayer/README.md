@@ -8,7 +8,8 @@ pokopia-native's co-op protocol, so you can also play with **pokopia-native** pl
 - **Cross-play** works with pokopia-native players on game version **2.0.1**. Players on 1.0.5 cannot join (the game builds differ).
 - **Not compatible with earlier Link Play builds of this port** (the old relay on port 39660). Everyone needs a build with this protocol.
 - **Each player needs their own save.** The host refuses a visitor whose save it already has (error 9005, "Communication error"):
-  two copies of one save cannot play together.
+  two copies of one save cannot play together. Earlier builds gave every new save the same player id, so every visit failed with
+  9005; the game now repairs such a save by itself at start (a copy is kept in `uuid-backup\` in the save folder).
 - Every player needs the same **Interact everywhere** and **Story co-op** settings, or the host is not listed. Only the host's save keeps story progress.
 
 ## Setting it up
@@ -66,7 +67,8 @@ has an earlier build of this port. It cannot meet pokopia-native players.
 - **The host is not found:** pick **Visit by address** and type the host's address. Check the firewall prompt and the Private network profile.
   On cafe or hotel Wi-Fi that keeps devices apart, nothing on the LAN works: use **Internet** with a relay.
 - **Refused:** version or mods mismatch. Same game (2.0.1), same release or pokopia-native, same two switches.
-- **Error 9005:** both players have the same save (same player id). Each player needs their own save.
+- **Error 9005:** both players have the same player id: two copies of one save, or a player still on an earlier build (every save made
+  before had the same id). Update both; a copied save still needs a new game.
 
 ## Status
 
