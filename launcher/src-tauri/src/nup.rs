@@ -435,11 +435,25 @@ fn extract_with(
     }
     if p.kind == KIND_UPDATE && !p.standalone {
         let base = nup.packages.iter().find(|q| q.kind == KIND_BASE && q.romfs_dir != NO_DIR);
-        let Some(base) = base else {
-            return Err("This update only holds the files it changes and needs the base game, which is not in this .nup. Use a .nup that contains the base game too.".into());
-        };
-        for (rel, fi) in nup.tree(base.romfs_dir)? {
-            files.entry(rel).or_insert(fi);
+        match base {
+            Some(base) => {
+                for (rel, fi) in nup.tree(base.romfs_dir)? {
+                    files.entry(rel).or_insert(fi);
+                }
+            }
+            // A packer that kept an empty `base/` folder still writes a base record, just with nothing in it (empty
+            // ExeFS, no RomFS), and such a container's update has to keep standalone_update clear (SPEC 3.1.2). That
+            // record is not a base game: an update whose own RomFS holds the whole game needs nothing under it, so ask
+            // for the base only when the update's own RomFS is short of what the supported version has.
+            None => {
+                let whole = crate::dump::supported_romfs().map_or(false, |need| {
+                    let (n, b) = files.values().fold((0u64, 0u64), |(n, b), &fi| (n + 1, b + nup.files[fi].size));
+                    n >= need.files && b >= need.bytes
+                });
+                if !whole {
+                    return Err("This update only holds the files it changes and needs the base game, which is not in this .nup. Use a .nup that contains the base game too.".into());
+                }
+            }
         }
     }
     if files.is_empty() {

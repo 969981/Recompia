@@ -286,7 +286,7 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
             &out,
             &mut |done, total, file| {
                 // the UI only needs ~100 updates over the whole unpack
-                if total == 0 || done == total || done - last >= total / 100 {
+                if total == 0 || done == total || done.saturating_sub(last) >= (total / 100).max(1) {
                     last = done;
                     let _ = emitter.emit("nup-progress", NupProgress { done, total, file: file.to_string() });
                 }
