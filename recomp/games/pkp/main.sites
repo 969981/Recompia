@@ -115,6 +115,10 @@ midhook 0x71002e1a14
 #   live hit shape 0x71006d9b40 right after its load (s8 = heading, x19 = character); both replaced by the follow camera's yaw
 midhook 0x71007220dc
 midhook 0x71006d9d70
+#   the row helper 0x71006f77b0 (the query, the swing shapes and the placement collectors ask it for the row offset) right after it
+#   wrapped the camera pitch (s5 = pitch, x22 = character, w21 = extremes allowed, s4/s2/s1/s3/s0 = the row angle bands): the pitch is
+#   replaced by one in the band of the row the camera ray hits in the forward cell
+midhook 0x71006f7918
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
