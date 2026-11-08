@@ -13,13 +13,15 @@
 
 <p align="center">
   <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/featureJosh/pokopia-recomp?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/downloads/featureJosh/pokopia-recomp/latest/total?label=latest%20downloads&color=3fb950&labelColor=1b2740" alt="Latest release downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/github/downloads/featureJosh/pokopia-recomp/total?label=all%20downloads&color=3fb950&labelColor=1b2740" alt="All downloads">
+  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740" alt="Windows downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740" alt="Linux downloads"></a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
   <a href="https://github.com/featureJosh/pokopia-recomp/commits/main"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/commits/testing"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
   <a href="https://github.com/featureJosh/pokopia-recomp/issues"><img src="https://img.shields.io/github/issues/featureJosh/pokopia-recomp?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
@@ -37,7 +39,7 @@
   <a href="../../SECURITY.md">安全</a> ·
   <a href="../../LEGAL.md">法律信息</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">问题反馈</a> ·
-  <a href="https://discord.gg/qE656Fed5N">Discord</a>
+  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -243,7 +245,7 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 
 ## 社区
 
-问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.gg/qE656Fed5N)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
+问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.gg/gN5g4MtWHr)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
 
 ## 报告问题
 

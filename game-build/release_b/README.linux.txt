@@ -10,6 +10,6 @@ From Steam (Game Mode on the Deck): add PokopiaLauncher.AppImage as a non-Steam 
 
 Updating: extract the new release over your install. If the update changes the game code, the launcher says so: press Set up again and it rebuilds pkp.exe. Your shaders and saves are kept.
 
-Community and help: https://discord.gg/qE656Fed5N
+Community and help: https://discord.gg/gN5g4MtWHr
 
 Licences: LICENSE.txt and licenses/.

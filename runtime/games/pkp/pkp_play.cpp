@@ -26,6 +26,11 @@
 // iris and others) steps its counter by (u32)(multiplier + 0.5), which is 0 above 120 fps; mid hooks at its four step sites
 // (0xe51688, 0xe516f0, 0xe5173c, 0xe51788; they change the lifted code) replace the step with whole 60 Hz frames, carrying the
 // fraction in an accumulator per tween (hook_tween_step).
+// Event hold (#297): the game's scripted events were built for a step of exactly 1.0. Above 60 fps DJ Rotom's mood 100 event never got past
+// "YOOOOOO!" and at a 60 fps limit it finishes; the consumer that breaks on fractional steps has not been found among the multiplier's readers.
+// So while the player cannot turn the camera (the follow camera's turn branch, hook_cam_stick, closed for 200 ms: an event, a dialogue, a
+// transition, a menu) or the NVN replay marks loading frames, and for [pkp] event_hold_ms (default 1500) after, the frame limiter's ceiling
+// holds the game at 60 fps and the multiplier keeps the retail rule. In free play the frame limit and the fractional multiplier apply.
 // The 60 fps cap is the game's own: the main loop's frame step (0x89def8, profiler zone "Sync") waits, sleeping in 200 us task-graph waits,
 // until tick frequency / 60 ticks (60 = 60 / 0x13fc00(), a constant 1.0) have passed since the previous frame began. The mid hook right
 // after that division (0x89e27c, x22 = the period in ticks) sets the period to 0, so the runtime's frame limiter at the frame boundary
@@ -76,8 +81,11 @@
 #include "nxrt/hooks.h"
 #include "nxrt/host_device.h"
 #include "nxrt/jc2_mouse.h"
+#include "nxrt/frame_limiter.h"
 #include "nxrt/log.h"
+#include "nxrt/lowlat.h"
 #include "nxrt/memory.h"
+#include "nxrt/play.h"
 #include "play_display.h"
 
 namespace nxrt::games::pkp {
@@ -94,6 +102,7 @@ constexpr uint64_t kReplayViewports = 0x17b6c98;                            // m
 constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // mid: the command context's SetViewport (x1 rect) / SetViewports (w1 n, x2 rects)
 constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
 constexpr uint64_t kCreateTarget = 0x1796810;                               // entry: KTGL 2D render-target create (w1 width, w2 height, w4 format)
+constexpr double kGameMaxFps = 60.0;                                        // the frame logic's design rate (event hold)
 constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
 constexpr uint64_t kTweenStep[4] = {0xe51688, 0xe516f0, 0xe5173c, 0xe51788};   // mid: general tween step (fadd s0, s0, s1): x19 tween, x10 counter, s0 multiplier, s1 0.5
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
@@ -122,6 +131,12 @@ struct State {
     std::atomic<int> w{kTableW}, h{kTableH};
     std::atomic<bool> dynres{false};
     std::atomic<bool> fps_fix{true};
+    std::atomic<bool> hold_on{true};          // [pkp] event_hold
+    uint64_t hold_ns = 1500000000ull;         // [pkp] event_hold_ms
+    std::atomic<uint64_t> seq_ns{0};          // the last frame out of free play (or loading)
+    bool holding = false;                     // main thread: the 60 fps ceiling is set
+    uint64_t hold_start_ns = 0, holds = 0;
+    std::atomic<uint64_t> turn_ns{0};         // the last frame the player could turn the camera (free play)
     std::atomic<bool> game_limit{false};
     std::atomic<uint64_t> sync_calls{0}, fixed_calls{0};
     std::atomic<bool> mouse_cam{true};
@@ -694,11 +709,45 @@ int hook_text_writer_style(::Ctx* c, uint64_t, void*) {
 }
 
 // ---- frame rate ----
+uint64_t mono_ns();
+
+// once per frame: set or clear the 60 fps ceiling of the event hold; true while it holds
+// ponytail: holds menus too (same closed camera branch), an event-only signal needs the script player's state
+bool event_hold(State& s) {
+    if (!s.hold_on.load(std::memory_order_relaxed)) return false;
+    const uint64_t now = mono_ns();
+    if (frame_limiter_unpaced()) s.seq_ns.store(now, std::memory_order_relaxed);
+    const uint64_t turn = s.turn_ns.load(std::memory_order_relaxed);
+    if (turn == 0 || now - turn > 200000000ull) s.seq_ns.store(now, std::memory_order_relaxed);
+    const uint64_t last = s.seq_ns.load(std::memory_order_relaxed);
+    const bool want = last != 0 && now - last < s.hold_ns;
+    if (want != s.holding) {
+        s.holding = want;
+        if (FrameLimiter* lim = play::limiter()) {
+            lim->set_max_fps(want ? kGameMaxFps : 0.0);
+            extras::lowlat_note_cap(lim->effective_fps());
+        }
+        if (want) {
+            s.hold_start_ns = now;
+            ++s.holds;
+            if (s.holds <= 20) NXLOG_I(kTag, "event hold %llu: game held at 60 fps", static_cast<unsigned long long>(s.holds));
+        } else if (s.holds <= 20) {
+            NXLOG_I(kTag, "event hold %llu: released after %llu ms", static_cast<unsigned long long>(s.holds),
+                    static_cast<unsigned long long>((now - s.hold_start_ns) / 1000000ull));
+        }
+    }
+    return want;
+}
+
 int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
     State& s = st();
     kbm_frame(c);
     movie_test_frame(c);   // [test] movie (pkp_movie_test.cpp)
     if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
+    if (event_hold(s)) {   // the retail rule while an event plays
+        s.last_mult.store(c->v[0].f32[0], std::memory_order_relaxed);
+        return 0;
+    }
     const float dt = c->v[8].f32[0];
     // #275: only while the game really runs above 60 fps. At 60 fps or less (a 60 Hz display with vsync, a cap of 60 or lower) every frame
     // stays on screen a whole refresh or more, and a frame that ran short (the one after a late frame, or one let through early by the
@@ -765,7 +814,7 @@ int hook_sync_period(::Ctx* c, uint64_t, void*) {
 int hook_fixed_step_rate(::Ctx* c, uint64_t, void*) {
     State& s = st();
     s.fixed_calls.fetch_add(1, std::memory_order_relaxed);
-    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed)) return 0;   // #275: see hook_frame_multiplier
+    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed) || s.holding) return 0;   // #275: see hook_frame_multiplier
     const uint64_t now = c->x[28], prev = c->x[25];
     const double freq = c->v[8].f64[0];
     if (now <= prev || freq <= 0) return 0;
@@ -841,6 +890,7 @@ int hook_cam_stick(::Ctx* c, uint64_t, void*) {
         dx = dy = 0;
     }
     s.last_turn_ns = mono_ns();
+    s.turn_ns.store(s.last_turn_ns, std::memory_order_relaxed);
     if (!s.mouse_cam.load(std::memory_order_relaxed) || (dx == 0 && dy == 0)) return 0;
     const uint64_t cam = c->x[19];
     if (!cam || !mem::is_mapped(cam, kCamIdle + 4)) return 0;
@@ -1003,6 +1053,8 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     s.base = base;
     s.host = host;
     s.fps_fix.store(config_get_bool("pkp", "frame_time_fix", true));
+    s.hold_on.store(config_get_bool("pkp", "event_hold", true));
+    s.hold_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "event_hold_ms", 1500), 0, 10000)) * 1000000ull;
     s.mouse_cam.store(config_get_bool("pkp", "mouse_camera", true));
     s.game_limit.store(config_get_bool("pkp", "game_frame_limit", false));
     s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
@@ -1017,8 +1069,9 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     kbm_install(base, &s.hooks);
     s.installed = true;
     play_settings_changed(set);
-    NXLOG_I(kTag, "frame-time fix %s, game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
-            s.fps_fix.load() ? "on" : "off", s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
+    NXLOG_I(kTag, "frame-time fix %s (event hold %s, %llu ms), game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
+            s.fps_fix.load() ? "on" : "off", s.hold_on.load() ? "on" : "off", static_cast<unsigned long long>(s.hold_ns / 1000000ull),
+            s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
             s.mouse_cam.load() ? "on" : "off", s.cam_every_frame.load() ? "every frame" : "game's 120 Hz tick",
             static_cast<unsigned long long>(s.grace_ns / 1000000ull));
 }

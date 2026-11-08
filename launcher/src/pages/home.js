@@ -60,7 +60,7 @@ const repackMessage = (r) => {
 
 const QUIET = new Set(['ready', 'no_files', 'setup', 'resume']);
 const LINK_PLAY_LABEL = { off: 'Off', lan: 'Same network', internet: 'Internet' };
-const DISCORD_URL = 'https://discord.gg/qE656Fed5N';
+const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
 
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home">
