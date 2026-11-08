@@ -16,7 +16,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Profiles share the game files and the shaders, so a second profile costs almost no disk space
   - Removing a profile keeps its save in the save folder, nothing is deleted
   - Still not: screenshots, settings and controls are shared by all profiles
-- Added **Timed event** presets for the Copycat Challenge, More Spores for Hoppip, Bulbasaur's Jump Rope Contest and Sableye's Gem Hunt. A preset sets the Game clock to its event date and moves both the user and network clocks; Real time or a manual date restores the normal user-only clock offset. Use this in single player only for now. In-game event activation has not been tested.
+- Added one **Timed event** toggle each for the Copycat Challenge, More Spores for Hoppip, Bulbasaur's Jump Rope Contest and Sableye's Gem Hunt. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
 
 ## 0.7.9 (build K: Kiwi)
 

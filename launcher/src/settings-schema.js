@@ -169,41 +169,25 @@ const clockMinutes = (value) => {
 
 const AT_CLOCK_OFFSET = pkp('time', 'clock_offset');
 const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
+const AT_EVENT_PRESET = pkp('time', 'event_preset');
 const TIMED_EVENTS = [
-  { id: 'copycat', label: 'Copycat Challenge (April 2, 2026)', date: [2026, 3, 2, 9] },
-  { id: 'hoppip', label: 'More Spores for Hoppip (March 12, 2026)', date: [2026, 2, 12, 9] },
-  { id: 'bulbasaur', label: "Bulbasaur's Jump Rope Contest (April 21, 2026)", date: [2026, 3, 21, 9] },
-  { id: 'sableye', label: "Sableye's Gem Hunt (May 1, 2026)", date: [2026, 4, 1, 9] },
+  { id: 'copycat', label: 'Copycat Challenge (April 2, 2026)' },
+  { id: 'hoppip', label: 'More Spores for Hoppip (March 12, 2026)' },
+  { id: 'bulbasaur', label: "Bulbasaur's Jump Rope Contest (April 21, 2026)" },
+  { id: 'sableye', label: "Sableye's Gem Hunt (May 1, 2026)" },
 ];
-const eventTime = (event) => new Date(...event.date, 0, 0, 0).getTime();
 const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
 const scopeNeedsReset = (src) => clockScope(src) === 'all';
+const activeEvent = (src) => {
+  const id = has(src, AT_EVENT_PRESET) ? word(rawOf(src, AT_EVENT_PRESET)) : 'off';
+  return TIMED_EVENTS.some((e) => e.id === id) ? id : 'off';
+};
 
-function clockEdits(value, src, scope) {
+function clockEdits(value, src) {
   const edits = [edit(AT_CLOCK_OFFSET, String(clockMinutes(value)))];
-  // Do not add the default key to an older file. It is needed to select all, or to put an all-clock preset back to normal.
-  if (scope === 'all' || scopeNeedsReset(src)) edits.push(edit(AT_CLOCK_SCOPE, scope));
+  // Do not add the default key to an older file; only clear a scope left by the earlier preset implementation.
+  if (scopeNeedsReset(src)) edits.push(edit(AT_CLOCK_SCOPE, 'user'));
   return edits;
-}
-
-function readTimedEvent(src) {
-  const offset = clockMinutes(has(src, AT_CLOCK_OFFSET) ? rawOf(src, AT_CLOCK_OFFSET) : 0);
-  if (!offset && clockScope(src) === 'user') return 'real';
-  if (clockScope(src) !== 'all') return 'custom';
-  // The offset stays fixed while PC time advances. Recognise the whole local event day, not just the minute it was picked.
-  const played = new Date(Date.now() + offset * 60000);
-  const event = TIMED_EVENTS.find((e) => {
-    const target = new Date(eventTime(e));
-    return played.getFullYear() === target.getFullYear() && played.getMonth() === target.getMonth() && played.getDate() === target.getDate();
-  });
-  return event?.id ?? 'custom';
-}
-
-function writeTimedEvent(value, src) {
-  if (value === 'real') return clockEdits(0, src, 'user');
-  const event = TIMED_EVENTS.find((e) => e.id === value);
-  if (!event) throw new Error(`Unknown timed event: ${value}`);
-  return clockEdits(Math.round((eventTime(event) - Date.now()) / 60000), src, 'all');
 }
 
 const wordOf = (f, src) => {
@@ -487,18 +471,18 @@ export const SECTIONS = [
       {
         title: 'Game clock',
         rows: [
-          {
-            id: 'event_preset', label: 'Timed event', type: 'select', at: AT_CLOCK_OFFSET, def: 'real',
-            options: [{ value: 'real', label: 'Real time' }, ...TIMED_EVENTS.map((e) => ({ value: e.id, label: e.label }))],
-            read: readTimedEvent, write: writeTimedEvent, replaces: true,
-          },
+          ...TIMED_EVENTS.map((event) => ({
+            id: `event_${event.id}`, label: event.label, type: 'toggle', at: AT_EVENT_PRESET, def: false,
+            read: (src) => activeEvent(src) === event.id,
+            write: (on) => [edit(AT_EVENT_PRESET, on ? event.id : 'off')], replaces: true,
+          })),
           {
             id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: AT_CLOCK_OFFSET, def: '0', commit: 'blur',
-            write: (value, src) => clockEdits(value, src, 'user'), writeSame: scopeNeedsReset,
+            write: (value, src) => clockEdits(value, src), writeSame: scopeNeedsReset, enabled: (src) => activeEvent(src) === 'off',
           },
           {
             id: 'game_clock_note', type: 'note',
-            note: () => ({ text: 'Use this in single player only for now. It has not been tested with Link Play.' }),
+            note: () => ({ text: 'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.' }),
           },
         ],
       },

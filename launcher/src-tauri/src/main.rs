@@ -3,6 +3,7 @@
 
 mod dlss;
 mod dump;
+mod events;
 mod gamebuild;
 mod host;
 mod ini;
