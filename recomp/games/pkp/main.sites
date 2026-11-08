@@ -119,6 +119,8 @@ midhook 0x71006d9d70
 #   wrapped the camera pitch (s5 = pitch, x22 = character, w21 = extremes allowed, s4/s2/s1/s3/s0 = the row angle bands): the pitch is
 #   replaced by one in the band of the row the camera ray hits in the forward cell
 midhook 0x71006f7918
+#   StartAction 0x710027da60 right before it records the started action (w28 = action id, x19 = action component): the character turns to the aim
+midhook 0x710027e5d8
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
