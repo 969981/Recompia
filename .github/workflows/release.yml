@@ -2,6 +2,9 @@
 # that version's section of CHANGELOG.md. Manual runs only build it (artifact), unless they name a release tag: run on main with
 # release_tag = v<x.y.z>, they publish it the same way and GitHub creates the tag on the commit that was built. No test or pull
 # request checks.
+# Testing channel: a tag v<x.y.z>-alpha.N, -beta.N or -rc.N (run on the `testing` branch) publishes a GitHub PRERELEASE. The launcher's
+# Stable channel never offers it; players who chose Testing do. Its notes come from its own CHANGELOG section if there is one, else from
+# the Unreleased section, else a short generic text.
 name: Release
 
 on:
@@ -10,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Publish as this release (v<x.y.z>; main only; GitHub creates the tag). Empty: build only.'
+        description: 'Publish as this release (v<x.y.z> from main; v<x.y.z>-beta.N, -alpha.N or -rc.N, a Testing prerelease, from the testing branch; GitHub creates the tag). Empty: build only.'
         required: false
         default: ''
 
@@ -37,11 +40,16 @@ jobs:
       - name: Version
         run: |
           if ($env:REL_TAG -and $env:GITHUB_REF_TYPE -ne 'tag') {
-            if ($env:GITHUB_REF -ne 'refs/heads/main') { throw "release_tag publishes from main only (this run: $env:GITHUB_REF)" }
-            if ($env:REL_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "release_tag '$env:REL_TAG' is not v<x.y.z>" }
+            if ($env:REL_TAG -match '^v\d+\.\d+\.\d+-(alpha|beta|rc)\.\d+$') {
+              if ($env:GITHUB_REF -ne 'refs/heads/testing') { throw "a Testing release_tag publishes from the testing branch only (this run: $env:GITHUB_REF)" }
+            } else {
+              if ($env:GITHUB_REF -ne 'refs/heads/main') { throw "release_tag publishes from main only (this run: $env:GITHUB_REF)" }
+              if ($env:REL_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "release_tag '$env:REL_TAG' is not v<x.y.z> or v<x.y.z>-beta.N" }
+            }
           }
           $v = if ($env:REL_TAG) { $env:REL_TAG -replace '^v', '' } else { '0.0.0' }
           "VERSION=$v" >> $env:GITHUB_ENV
+          "PRERELEASE=$(if ($v -match '-') { 'true' } else { 'false' })" >> $env:GITHUB_ENV
 
       - name: LLVM ${{ env.LLVM_VERSION }}
         run: |
@@ -138,10 +146,19 @@ jobs:
         run: |
           $log = Get-Content -Raw CHANGELOG.md
           $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-          if (-not $m.Success) { throw "CHANGELOG.md has no section '## $env:VERSION'" }
-          $m.Groups[1].Value.Trim() | Set-Content build/notes.md
+          if (-not $m.Success -and $env:PRERELEASE -eq 'true') {   # a Testing build may have no section of its own: the Unreleased one, else a short text
+            $m = [regex]::Match($log, "(?ms)^## Unreleased[^\r\n]*\r?\n(.*?)(?=^## |\z)")
+          }
+          if ($m.Success) { $m.Groups[1].Value.Trim() | Set-Content build/notes.md }
+          elseif ($env:PRERELEASE -eq 'true') { "A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing." | Set-Content build/notes.md }
+          else { throw "CHANGELOG.md has no section '## $env:VERSION'" }
           $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
-          gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title ("Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } else { "" })) --notes-file build/notes.md
+          $title = "Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } elseif ($env:PRERELEASE -eq 'true') { " (Testing)" } else { "" })
+          if ($env:PRERELEASE -eq 'true') {
+            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md --prerelease
+          } else {
+            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md
+          }
 
   # The Linux package: the Windows zip above (the runtime, the build kit, the shader translator: they run through Proton) with the
   # Linux launcher as an AppImage in place of PokopiaLauncher.exe, which does not start under Proton (no WebView2). A tag adds it
