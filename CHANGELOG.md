@@ -26,7 +26,7 @@ of the game (version 2.0.1a): the download contains no game files.
 ### Performance
 - Fixed a long frame about once a second on some handhelds and PCs: walking and turning juddered even when the frame rate looked fine (#276)
   - Before: the game reads a few tiny textures back from the graphics card about once a second. The read first waited a whole frame (about 17 ms at 60 fps) for the render thread to take it, which it almost never did, then forced the work through anyway. That held up the game's main thread
-  - Now: the read starts the work at once. On a PC at 60 fps, long frames per 10 s: 5.9 ⇒ 0.0, the slowest texture read: 154 ms ⇒ 6 ms
+  - Now: the read starts the work at once. On a PC at 60 fps, long frames per 10 s: 4.2 ⇒ 0.0 (3 runs each), the slowest texture read: 79 ms ⇒ 6 ms
   - Setting: `[nvn] readback_grace_ms` is now 0 by default (`-2` brings back the old wait of one frame). `[nvn] readback_log = true` logs how long each read takes, for bug reports
   - Still not: confirmed on a Steam Deck or a Legion Go S only after this release. If you still see the hitch, please send a `pkp.log` with `readback_log = true`
 - Changed the keyboard-icon check for the title screen so it no longer walks every texture once a second for the whole session (#280)
