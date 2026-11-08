@@ -240,7 +240,7 @@ mod link_tests {
     #[test]
     fn only_github_and_the_discord_invite_open() {
         assert!(openable_link("https://github.com/featureJosh/Recompia/releases/tag/v0.8.0"));
-        assert!(openable_link("https://discord.gg/qE656Fed5N"));
+        assert!(openable_link("https://discord.gg/gN5g4MtWHr"));
         for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/ab cd", "https://discord.gg/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
             assert!(!openable_link(bad), "{bad:?}");
         }

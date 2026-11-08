@@ -224,7 +224,7 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
-const DISCORD_URL = 'https://discord.gg/qE656Fed5N';
+const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
 const open = (url, label = 'Open') => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
