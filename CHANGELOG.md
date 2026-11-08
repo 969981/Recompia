@@ -38,6 +38,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Still not: no hitch was tied to this check. `pkp.log` notes it when a check takes more than 2 ms
 
 ### Launcher
+- Added a **Community** row to Settings > About and a Discord chip on the Home page
 - Added an update channel: **Settings > About > Update channel** switches between **Stable** (the default, what you get today) and **Testing** (newer builds, published as prereleases, for players who want to try changes early and report problems)
   - Before: every player got only the stable releases
   - Now: pick Testing to be offered test builds such as `0.8.1-beta.1`; **What's New** marks them as Testing. Your saves, profiles and settings are kept either way
