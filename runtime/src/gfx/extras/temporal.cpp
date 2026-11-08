@@ -428,8 +428,10 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     if (s.have_prev) {
         const double dot = cur.fwd[0] * s.prev.fwd[0] + cur.fwd[1] * s.prev.fwd[1] + cur.fwd[2] * s.prev.fwd[2];
         const double dx = cur.pos[0] - s.prev.pos[0], dy = cur.pos[1] - s.prev.pos[1], dz = cur.pos[2] - s.prev.pos[2];
-        // A teleport can keep the same facing. Allow ordinary fast movement: the cut threshold is 250 world units per second, at least 1 unit.
-        const double jump = std::max(1.0, ms * 0.25);
+        // A teleport can keep the same facing. Ordinary movement must not cut: the player's own step in the game's world space is about 350
+        // units a second walking and 450 to 550 running (pkp_jump.cpp), so the camera that follows it moves at least that fast. The cut is a
+        // jump beyond 3000 units a second (and at least 20 units); measure the real camera speed before tightening it.
+        const double jump = std::max(20.0, ms * 3.0);
         if (dot < 0.9 || dx * dx + dy * dy + dz * dz > jump * jump) reset = true;
     }
     const Camera& prev = reset ? cur : s.prev;

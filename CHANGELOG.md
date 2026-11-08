@@ -9,6 +9,10 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update** in the launcher. If you come from 0.7.9 or older, run **Set up again** once when the launcher asks (0.8.0 changed the game build); from 0.8.0 on no Set up again is needed.
 
 ### Game
+- Added lines to `pkp.log` that say why the mouse pointer in menus is up or not
+  - Before: when the mouse did nothing in a menu, the log could not say whether the window had lost focus, an overlay was open, the game was not in a menu, or the mouse setting was off
+  - Now: `play: menu pointer gate` lines (at most 24 a session) show the state each time it changes, including whether `[mouse] menu_cursor` is on
+- Fixed three small mistakes in the upscaler code that is switched off in this release (depth direction, number of jitter steps, when the picture history is reset). Nothing changes while the upscalers stay off
 - Fixed `pkp.log` not saying which version you run
   - Before: the first lines of `pkp.log` read `pkp $env:VERSION` in every release, so a log could not be matched to a build
   - Now: the line shows the real version of the runtime (for example `0.8.1-beta.6`)
@@ -37,6 +41,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Mouse in menus:** open the pause menu and one more menu, move the mouse, click, scroll. A left click confirms the highlighted entry; the wheel and arrow keys move the highlight; the pointer does not pick. Report: what each did, and the lines in `pkp.log` that start with `play: menu pointer gate` and `menu:`
 - **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
 - **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
 - **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
