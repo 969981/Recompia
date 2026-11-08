@@ -2,8 +2,6 @@
   <img src="docs/assets/logo.png" alt="Recompia" width="420">
 </h1>
 
-<h3 align="center">Pokopia Recomp</h3>
-
 <p align="center">
   <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, with multiplayer support.</b>
 </p>
@@ -56,12 +54,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>Title screen</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>Building your island</sub></td>
+    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Title screen</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Building your island</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>Placing items with Joy-Con 2 mouse mode</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend (work in progress)</sub></td>
+    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
   </tr>
 </table>
 
@@ -69,7 +67,7 @@
 
 ### Play together (Link Play)
 - **Visit a friend's island, or invite them to yours**, on the same Wi-Fi or over the internet.
-- **Cross-play with [pokopia-native](https://github.com/xFractals/pokopia-native) players** on game version 2.0.1.
+- **Cross-play with [pokopia-native](https://github.com/xFractals/pokopia-native) players**.
 - Set it up in the launcher's **Link Play** page. No files to edit.
 - Step-by-step guide: [Playing together](#playing-together).
 
@@ -208,7 +206,7 @@ Changes apply the next time the game starts.
 
 **Interact everywhere and Story co-op (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. **Story co-op** lets them talk to the story characters, and turns Interact everywhere on. Every player needs the same two switches, or the host is not listed. Only the host's save keeps the story progress.
 
-Link Play is still being tested: joining and walking around together work. Long sessions, more than two players and play over the internet are not tested yet. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
+Link Play: joining and walking around together work. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
 
 ## Common problems
 

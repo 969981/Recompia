@@ -60,7 +60,8 @@ Settings settings_from_config() {
     s.hdr.highlight_boost = std::clamp(config_get_double("hdr", "highlight_boost", 1.0), 0.0, 2.0);
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
-    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : UpscaleMode::Off;
+    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : UpscaleMode::Off;
+    s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
     const std::string uq = lower(config_get_str("upscale", "quality", "quality"));
     s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
                       : uq == "performance" ? UpscaleQuality::Performance : uq == "ultra_performance" || uq == "ultraperformance" ? UpscaleQuality::UltraPerformance
@@ -102,7 +103,9 @@ Settings settings() {
     return g_settings;
 }
 
-void set_settings(const Settings& s) {
+void set_settings(const Settings& in) {
+    Settings s = in;
+    s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
     std::lock_guard<std::mutex> lk(g_mu);
     g_settings = s;
     g_settings_set = true;

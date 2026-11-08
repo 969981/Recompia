@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_auth.c @4a72d23
+// From pokopia-native (MIT) windows/src/coop/coop_auth.c @035bd9c
 // coop auth (MIT, our own code): internet play's room code and message authentication (docs/coop-step1d.md). SHA-256 as FIPS 180-4 §6.2 specifies
 // it, HMAC-SHA256 as RFC 2104 / FIPS 198-1, HKDF as RFC 5869; the unit tests check all three against the published vectors (FIPS 180-4's examples,
 // RFC 4231, RFC 5869). Integrity and authentication only: nothing here encrypts (the user's decision: a vetted library such as Monocypher would).

@@ -21,7 +21,7 @@ body {
 /* background: painted once; the blurred copy and the scrims are separate layers so no blur is ever animated */
 #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
 .art, .scrim { position: absolute; inset: 0; transition: opacity var(--dur-slow) var(--ease); }
-.art { background: var(--art-url) var(--art-position) / cover no-repeat; }
+.art { background: var(--art-url) var(--art-position) / cover no-repeat; filter: var(--art-filter, none); }
 .art-soft { inset: calc(var(--art-soft-bleed) * -1); background-image: var(--art-soft-url); }   /* pre-blurred; bleed keeps its soft edges off screen */
 .scrim-hero { background: var(--scrim-hero); opacity: 0; }
 .scrim-soft { background: var(--scrim-soft); mix-blend-mode: multiply; }
@@ -100,7 +100,9 @@ body[data-shell="full"] #titlebar { left: 0; }
 /* page change: the page rises while its parts fade. The fade sits on each part, not the page: an ancestor with
    opacity below 1 cuts backdrop-filter off from the art, so the glass would pop in when the animation ended. */
 .entering { animation: page-rise var(--dur-slow) var(--ease) both; }
-#view:has(> .entering) { overflow-y: hidden; }   /* the 6px rise would flash a scrollbar on page entry */
+/* the 6px rise would flash a scrollbar on page entry. Only while it plays: with reduced motion there is no animation, so no
+   animationend clears .entering and the page could never scroll (#260). */
+@media (prefers-reduced-motion: no-preference) { #view:has(> .entering) { overflow-y: hidden; } }
 .entering :is(.page, :has(.glass, .on-art)) > :not(.glass, .on-art):not(:has(.glass, .on-art)),
 .entering :is(.glass, .on-art) { animation: page-fade var(--dur-slow) var(--ease) both; }
 @keyframes page-rise { from { transform: translateY(var(--rise)); } }

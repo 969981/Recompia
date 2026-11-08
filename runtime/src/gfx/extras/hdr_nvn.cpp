@@ -60,7 +60,7 @@ bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash)
 
 bool scene_upscale_wanted() {
     const UpscaleMode m = upscale_mode();
-    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nis;
+    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nis || m == UpscaleMode::Nearest;
 }
 
 SpatialUpscaler* scene_upscaler(void* gfx_device, VkExtent2D in, VkExtent2D out) {

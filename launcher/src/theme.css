@@ -58,7 +58,7 @@
   --art-soft-url: url("./art/island-soft.webp");
   --art-position: 62% 58%;
   --art-soft-bleed: 180px;
-  --scrim-soft: #7450a8;            /* multiplied over the art: dims it and keeps the colour */
+  --scrim-soft: #8a8a8a;            /* multiplied over the blurred art: neutral grey, so it only dims and the page shows the same picture as Home */
   --hero-x: 300px;                 /* the title's middle: the scrim behind it stops short of the sun */
   --scrim-hero:
     linear-gradient(90deg, rgba(7, 10, 30, 0.56) 0%, rgba(7, 10, 30, 0.3) 30%, rgba(7, 10, 30, 0) 50%),
@@ -144,4 +144,36 @@
     --rise: 0px;
     --press: 1;
   }
+}
+
+:root[data-theme="sunrise"] {
+  --color-bg: #1c1006;
+  --color-menu: #2e1c0e;
+  --color-solid: #2a190c;
+  --color-solid-raised: #3a2414;
+  --color-selection: rgba(255, 194, 61, 0.3);
+  --color-accent: #ffc23d;
+  --color-accent-hover: #ffd166;
+  --color-accent-press: #f0ae1f;
+  --color-on-accent: #2a1700;
+  --color-ok: #9fd8ff;              /* blue, not green: stays apart from warn and danger for red-green colour blindness */
+  --color-warn: #ffb35c;
+  --color-danger: #ff7a6b;
+  --color-info: #9fd8ff;
+  --color-focus: #fff1c9;
+  --tint-accent: rgba(255, 194, 61, 0.16);
+  --tint-warn: rgba(255, 179, 92, 0.16);
+  --tint-danger: rgba(255, 122, 107, 0.16);
+  --tint-info: rgba(159, 216, 255, 0.14);
+  --surface-sunken: rgba(24, 12, 4, 0.36);
+  --glass-tint: rgba(36, 18, 6, 0.44);
+  --glass-tint-strong: rgba(36, 18, 6, 0.62);
+  --scrim-hero:
+    linear-gradient(90deg, rgba(26, 12, 4, 0.58) 0%, rgba(26, 12, 4, 0.3) 30%, rgba(26, 12, 4, 0) 50%),
+    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(26, 12, 4, 0.6) 0%, rgba(26, 12, 4, 0.48) 50%, rgba(26, 12, 4, 0) 100%),
+    linear-gradient(0deg, rgba(26, 12, 4, 0.74) 0%, rgba(26, 12, 4, 0.16) 30%, rgba(26, 12, 4, 0) 44%);
+  --backdrop: rgba(22, 10, 3, 0.52);
+  --shadow-accent: 0 10px 28px -10px rgba(255, 194, 61, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  --shadow-text: 0 2px 40px rgba(26, 12, 4, 0.55), 0 1px 3px rgba(26, 12, 4, 0.3);
+  --art-filter: sepia(0.85) saturate(2.4) hue-rotate(-12deg) brightness(1.04);   /* the island is painted violet: one amber-to-red tint over all of it */
 }

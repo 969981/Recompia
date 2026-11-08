@@ -248,8 +248,25 @@ void ensure_cache() {
     g_cache_ready.store(true, std::memory_order_release);
 }
 
+// [nvn] pipeline_cache_save: whether the pipeline cache is ever read back from the driver and written to pipeline_cache. auto (default):
+// not with Intel's Windows driver, whose vkGetPipelineCacheData faults while copying the data out (igvk64.dll, UHD Graphics on a 12th-gen
+// i3, driver 0x001957f1: an access violation on the first save, 3 s into every start; #270); the cache file is still loaded at start,
+// and the driver keeps its own disk cache. Under Wine the driver is Mesa's, so auto keeps the save there. on: always. off: never.
+bool cache_save_on() {
+    static const bool on = [] {
+        const std::string v = config_get_str("nvn", "pipeline_cache_save", "auto");
+        const uint32_t vendor = device().properties().vendorID;
+        const bool intel_win = vendor == 0x8086 && !host_is_wine();
+        const bool r = v == "on" || v == "true" || v == "1" || ((v == "auto" || v.empty()) && !intel_win);
+        NXLOG_I(kTag, "pipeline_cache_save = %s (%s, vendor 0x%04x%s)", v.c_str(), r ? "on" : "off", vendor,
+                intel_win && !r ? ": Intel's Windows driver faults reading the cache back, #270" : "");
+        return r;
+    }();
+    return on;
+}
+
 void save_cache() {
-    if (!g_cache || g_cache_path.empty()) return;
+    if (!g_cache || g_cache_path.empty() || !cache_save_on()) return;
     NXFT("pipe.cache.save");
     g_cache_dirty.store(false);
     g_new_since_save.store(0);
@@ -278,7 +295,7 @@ void save_cache() {
 // A cache of hundreds of MB (the shader preparation's) is rewritten only after thousands of new pipelines: the new ones are few next to it and
 // the write takes seconds. The ordinary small cache is written whenever something new appeared, as before.
 bool pipeline_cache_dirty() {
-    if (!g_cache_dirty.load(std::memory_order_relaxed)) return false;
+    if (!g_cache_dirty.load(std::memory_order_relaxed) || !cache_save_on()) return false;
     return !g_cache_big || g_new_since_save.load(std::memory_order_relaxed) >= 3000;
 }
 void pipeline_cache_save() { save_cache(); }

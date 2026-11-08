@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_disc.c @4a72d23, modified (marked "pokopia-recomp extension: LAN sweep" / "mDNS responder")
+// From pokopia-native (MIT) windows/src/coop/coop_disc.c @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep" / "mDNS responder")
 // coop disc (MIT, our own code): DNS-SD on the LAN (research/06 §5.5, docs/coop-step1c.md). A hosting node registers "Pokopia-<8 hex>" as
 // _pokopia-ldn._udp with its control port and a TXT record: p = the coop protocol, b = main's build ID (16 hex digits, "-" unknown), m = the mods
 // fingerprint, a = the host's best LAN IPv4, x = its other LAN IPv4s, comma-separated (a PC on two networks, such as Wi-Fi and a phone's USB link).

@@ -1415,7 +1415,7 @@ void Ldn::shutdown() {
 }
 
 // =============================================================================================================================================
-// [net] protocol = native (the default): ldn:u on pokopia-native's co-op module (third_party/pokopia-coop, MIT @4a72d23), so this build
+// [net] protocol = native (the default): ldn:u on pokopia-native's co-op module (third_party/pokopia-coop, MIT @035bd9c), so this build
 // and pokopia-native builds of the same main meet in one Link Play session. The module owns the nn::ldn state machine, the 0x480
 // NetworkInfo, discovery (DNS-SD on the LAN), the transport (TCP control links in a star around the host, UDP for game datagrams) and the
 // game's UDP sockets on 169.254.S.0/24 (bsd: network.cpp routes descriptors 0x100.. to coop_vnet_*). Each IPC command is one coop_ldn_*

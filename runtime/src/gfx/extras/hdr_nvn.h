@@ -24,7 +24,7 @@ bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash)
 // Scene upscaler (S14): the game renders the 3D scene below the output size ([upscale] scene_scale, the game's dynamic-resolution path) and its tone-map
 // pass reads that small HDR target and writes the full-size window texture. With FSR 1 or NIS on, the replay runs that upscaler on the HDR target first and the
 // tone-map draw reads the result instead of the small target (the game's bilinear filter is bypassed).
-bool scene_upscale_wanted();                          // the upscale mode is FSR 1 or NIS
+bool scene_upscale_wanted();                          // the upscale mode is FSR 1, NIS or Nearest
 class SpatialUpscaler;
 // The upscaler of the current mode for in -> out (created on first use; gfx_device is the gfx::Device of the NVN back end). NIS covers 1x to 2x per side;
 // beyond that, or when NIS failed to start, FSR 1 is used.

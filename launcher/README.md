@@ -104,7 +104,6 @@ build of your own goes in the release folder next to `tools/`. The game stays th
 Tested on Bazzite 45 (Ryzen 9 9900X, 16 GB, RTX 4070 Ti, Proton Experimental in the Steam Linux Runtime 4), end to end with a
 2.0.1 dump: Set up built pkp.exe in 12 minutes, translated the 99,012 shaders in 17 minutes (also paused and continued in the
 middle), the hidden first run collected 212 shaders, and Play ran the game; from the native binary and from the AppImage.
-Not tried yet: AMD and Intel GPUs, the Steam Deck, umu-run and Wine instead of Steam's Proton.
 
 ## Development
 

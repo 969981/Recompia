@@ -1,6 +1,7 @@
 # Contributing
 
 - Open pull requests against `main` and say what they change.
+- Release notes are the version's section of [CHANGELOG.md](CHANGELOG.md); write it from [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md).
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.
 
 ## Keeping up with pokopia-native

@@ -412,7 +412,7 @@ void submit_cbs(const std::vector<VkCommandBufferSubmitInfo>& cbi, uint64_t seri
     if (r != VK_SUCCESS) {
         g->dev->note_result(r, "vkQueueSubmit2 (NVN)");
         if (!g->dev->device_lost()) {
-            NXLOG_E(kTag, "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
+            NXLOG_E(kTag, r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? "vkQueueSubmit2 failed: VK_ERROR_OUT_OF_DEVICE_MEMORY (%d)" : "vkQueueSubmit2 failed (%d)", static_cast<int>(r));
             // A recoverable submit failure still needs to release timeline waiters.
             VkSemaphoreSignalInfo ssi = {VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO};
             ssi.semaphore = g->timeline;

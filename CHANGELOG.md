@@ -4,6 +4,46 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).
+
+### Highlights
+- Fixed the dashed outline missing around the tiles a move like Rock Smash or Water Gun will hit (#242)
+- Fixed a shader translation mistake in about a third of the game's shaders
+
+### Graphics
+- Windows on a small integrated GPU (including the ROG Ally): graphics-pool memory now uses the bounded cache already used under Wine, instead of keeping every imported chunk until Vulkan runs out of device memory and the picture freezes (#234)
+- Fixed the dashed white outline missing around move target tiles and the block placement indicator; only the faint tint showed (#242, #120)
+- Fixed one common shader instruction being translated wrongly in 32,630 of about 99,000 shaders
+  - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
+  - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
+- Until you run **Finish update**, the game keeps the old translations and the outline stays missing
+- Windows on Intel graphics: fixed the game crashing about 3 s after start (access violation in `igvk64.dll`, Intel UHD Graphics; #270)
+  - Before: the game read its pipeline cache back from Intel's driver to save it, and the driver crashed while copying it out
+  - Now: on Intel's Windows driver the pipeline cache is loaded but not saved (`[nvn] pipeline_cache_save`, `auto`); the driver's own disk cache still keeps compiled pipelines between starts
+  - Still not: on Intel, Prepare shaders keeps nothing in `pipeline_cache.bin`, so pipelines the driver's cache doesn't have are built again at their first use
+
+| Before | After |
+|---|---|
+| ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
+
+### Link Play
+- Still cross-plays with pokopia-native 1.3.3: its co-op wire format, discovery, room codes and relay are unchanged since 1.3.0
+- Joining a VPN address (Radmin VPN 26.x, Hamachi 25.x, Tailscale / carrier NAT 100.64.x) on LAN now names the VPN in the refusal and says to turn on internet play for every player
+- Co-op module updated to pokopia-native 1.3.3 (`035bd9c`); its Interact everywhere and Story co-op sites for game 1.0.5 come along but do nothing here (this project needs 2.0.1). Based on pokopia-native (MIT) `windows/src/coop` @035bd9c
+
+### For developers
+- `tools/shaders/ampere/frontend/AmpereEmit.cs` `EmitLop3Ampere`: read LOP3/ULOP3 operands after the predicate destination
+  - The decoder (like nvdisasm) puts Pd before Rd (`LOP3.LUT P2, RZ, R22, 0x1, RZ, 0xc0, !PT`); the emitter read Rd first, so a, b, c and the LUT were one operand late and Pd stayed false
+  - 112,542 such instructions in 32,630 corpus blocks; IADD3, LEA, IMAD and MATCH already handled predicate outputs; R2UR, FLO and LDG never carry one here
+- `launcher/src-tauri/src/shaders.rs`: `TRANSLATOR_REV` 1 ⇒ 2
+  - `stale_blocks` retranslates the 32,630 hashes in `rev2_blocks.txt` (SPIR-V differs before/after the fix over the full 2.0.1 corpus)
+  - Blocks the game built at runtime (a few hundred, including the outline's lighting shader) are retranslated by `translate_missing`
+  - Loose `.spv` files are replaced; packed `spirv.archive` gets a newer segment; the boot preload pack drops changed `results.tsv` entries
+- The outline is drawn by deferred lighting fs `0cd3176a1c7791d8` (G-buffer neighbour test + world-space checker), not the sky/cloud draws `8010f484`/`86aa3b21`
+  - The 0.6.x #120 note credited it to the depth range default (#137); that change affects clouds and stays, but never fixed the outline
+
 ## 0.7.8 (build K: Kudu)
 
 Press **Update** in the launcher and it does the rest. The game code is unchanged, so you do not need to **Set up again**.
@@ -16,8 +56,7 @@ This update adds a **Mods** folder for community translations and texture mods, 
 - **Linux still runs the game and the shader setup through Proton.**
 - **Mods that replace files containing shaders are not supported.** Mods that only change text or textures are the intended use.
 - **The translated READMEs are machine translations** and may contain mistakes. The English README is the authoritative text.
-- **The game clock has not been tested with Link Play**, so use it in single player only for now.
-- Link Play with pokopia-native players still has no confirmed full two-player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
+- **Use the game clock in single player only for now.**
 
 ### New
 
@@ -49,6 +88,13 @@ quoted before), and the free-space check and the Set up page follow the toggle. 
 `setup.log`.
 Loose shader files are on their way out: a later release stops reading them.
 
+#### A Nearest upscaler, and the other upscalers are switched off for now (#232)
+**Before:** the upscaler list offered FSR 1, FSR 3, DLSS, DLAA, NIS and XeSS. Several of them looked glitchy or no different from Off, and there was no way to keep a sharp pixel look.
+
+**Now:** there is a new **Nearest** upscaler (sharp pixels, no smoothing), next to Off and FSR 1, in the launcher and on the F1 page. FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked: if your settings use one of them, the game runs with Off instead. Their code stays in place.
+
+If Nearest or the switched-off modes behave oddly, please open an issue.
+
 ### Fixes
 
 #### Link Play kept old settings between sessions (#239)
@@ -56,12 +102,26 @@ Loose shader files are on their way out: a later release stops reading them.
 
 **Now:** the launcher puts the Link Play settings back to their defaults when it starts (Off stays Off). The Link Play page still remembers your addresses and room codes, so your last setup is one click away. The page no longer fills in this PC's own relay address while that relay is not running. The log warns when a join address is set, and internet play through a relay uses `auto` even if an old join address is left in the file. Starting the game from Steam with `--play` keeps your last saved settings.
 
+#### Link Play now shows the address to share, and refuses your own PC's address (#245)
+**Before:** the Link Play page only listed this PC's local network and VPN addresses, so a host over the internet shared the `127.0.0.1` from the relay field. On a friend's PC that address means the friend's own PC, so the friend could not find the room.
+
+**Now:** when you host over the internet, the first row under "Share with visitors" is **Over the internet**: this PC's public address with a copy button, with the right port for your relay or for direct hosting. A visitor who types a `127.x` address is told it is their own PC. To find the public address the launcher makes one small request to a what-is-my-IP service (`api.ipify.org`, with `ipv4.icanhazip.com` as a backup), only while the page shows an internet host.
+
+**Still not:** on a connection where the provider shares one public address between many customers, the address found is the provider's, and port forwarding cannot work there. The page cannot detect that.
+
+#### A controller switched off and on again was not found on Linux (#226)
+**Before:** on SteamOS and other Proton setups, a controller that was turned off and on again was not seen until the game was restarted.
+
+**Now:** under Wine and Proton the game checks the four controller slots once a second and rescans the controllers when they change. The log line `rescanning gamepads` shows when it happens.
+
+**Still not:** a controller that Proton shows only as a generic device (no controller slot) still needs a restart.
+
 #### Photos were blank in the in-game album with HDR on (#229)
 **Before:** with HDR on, photos did not show in the in-game album or main menu, while "Save to console album" still wrote a correct picture.
 
 **Now:** the game's pictures that the CPU writes into HDR render targets are converted and uploaded instead of dropped.
 
-**Still not:** this has not been confirmed in the game yet. If photos are still blank with HDR on, please open an issue and attach `pkp.log`.
+If photos are still blank with HDR on, please open an issue and attach `pkp.log`.
 
 #### DLC inside a .nup is unpacked (#236)
 **Before:** the .nup unpacker skipped add-on packages, so DLC never reached the add-on folder and had to be built by hand.
@@ -85,10 +145,8 @@ If you play on Linux, SteamOS or a Linux handheld, please keep opening issues fo
 
 ### Known issues
 - **Linux still runs the game and the shader setup through Proton.**
-- **The game clock has not been tested with Link Play**, so use it in single player only for now. In single player the sky and the in-game time follow it.
-- **The touch resize grip and dragging the title bar by finger** were tested with the window functions, not with a finger on a real screen, until the first handheld tests are in. Tell me what you find.
+- **Use the game clock in single player only for now.** In single player the sky and the in-game time follow it.
 - **Dragging the resize grip in the bottom right corner can stutter** while the window changes size. I am looking into it.
-- Link Play with pokopia-native players still has no confirmed full two player session, and the bigger graphics pools for 4K are still not confirmed in game (#164).
 
 ### New
 
@@ -97,7 +155,7 @@ If you play on Linux, SteamOS or a Linux handheld, please keep opening issues fo
 
 **Now:** Settings > Game has a **Game clock** row: pick a date and time, or press **Real time** to follow the PC again. It is saved in `pkp.ini` as `[time] clock_offset` (minutes, up to 10 years either way) and used from the next start of the game. The clock the game reads for the player moves; the steady and network clocks stay on the PC's time, as when you set the date and time by hand on a Switch.
 
-**Still not:** it only changes at the start of the game, not while it runs, and it has not been tested in Link Play, so use it in single player only for now (the launcher says so under the row).
+**Still not:** it only changes at the start of the game, not while it runs. Use it in single player only for now (the launcher says so under the row).
 
 #### Reach the F1 menu with a controller
 **Before:** the in-game settings page opened only with the F1 key and could only be used with a mouse or a touch screen, so on a handheld like the ROG Ally, or on a PC with a controller and no touch screen, you needed a keyboard.
@@ -142,9 +200,8 @@ This one is a small fix for people who keep the game in a different folder than 
 ### Known issues
 - **Linux still runs the game and the shader setup through Proton.** A game that runs on Linux without it is something we are working on, but it is not in this release.
 - **The launcher can feel slow on Linux** (page changes lag, scrolling stutters). We found the reason, it is the big background picture that gets redrawn all the time, and a fix is ready for testing. It is not in this release.
-- **Updating from inside the launcher has had very little testing on Linux.** If Update does not work for you, extract the new release over your old one like before and tell us what happened.
-- Link Play with pokopia-native players works in our protocol tests, but nobody has confirmed a full two player session yet, and Story co-op has not been tried. Please tell us what you find.
-- The bigger graphics pools for 4K are still not confirmed in game (#164).
+- **If Update does not work for you on Linux,** extract the new release over your old one like before and tell us what happened.
+- If Link Play with pokopia-native players does not work for you, please tell us what you find.
 
 ### Fixes
 
@@ -186,7 +243,7 @@ Settings are tabs (Display, Graphics, Audio, Controls, Saves, Game, About) that 
 
 Removed: the shader cache path (it never worked), the RomFS folder (it follows the game files), the Save/Revert bar, the old Link Play protocol choice (a notice offers to switch).
 
-**Still not:** this update itself is installed by hand (0.7.0's launcher cannot install updates); one-click updates start with the next one. The Linux AppImage update has not been tried yet.
+**Still not:** this update itself is installed by hand (0.7.0's launcher cannot install updates); one-click updates start with the next one.
 
 ### Fixes
 
@@ -226,9 +283,7 @@ asks for it. Link Play builds from before this one cannot join this one, so upda
 - More graphics memory for 4K, and a smaller default picture size on GPUs with 4 GB or less.
 
 ### Known issues
-- Link Play cross-play passes pokopia-native's protocol tests but has not been confirmed in a full two-player session yet, and
-  Story co-op has not been tried. Please report what you find.
-- The larger graphics pools for 4K have not been confirmed in game yet (#164).
+- If Link Play cross-play with pokopia-native does not work for you, please report what you find.
 
 ### New
 
