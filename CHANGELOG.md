@@ -13,6 +13,10 @@ of the game (version 2.0.1a): the download contains no game files.
 - Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Fixes
+- Fixed dialogue text showing up doubled and garbled when the picture is rendered above 1920x1080 (#267)
+  - Before: with a render size such as 2880x1620 or 3392x1908 (for example a 2560x1440 window at 133%), the text of a dialogue box was drawn on top of the previous line, so words repeated and letters ran together. It showed most clearly behind the name prompt, where the game is paused
+  - Now: the dialogue text is drawn once and clean at every 16:9 render size. The game keeps the size of its dialogue text buffer in a fixed 1400x1024; it is now made as large as the picture needs (1.5x at 2880x1620)
+  - Tested at 2528x1422, 2880x1620, 3840x2160 and 3392x1908 (and unchanged at 2560x1080 ultrawide). Setting `[pkp] target_fix = off` keeps the old size; `[pkp] render_override = false` also avoids it
 - Fixed the story getting stuck above 60 fps in DJ Rotom's mood 100 scene in Rocky Ridges: the dialogue disappeared after "YOOOOOO!" and the game never continued (#297)
   - Before: scripted events could wait forever when the game ran faster than 60 fps. Setting the frame limit to 60 got past it
   - Now: events, dialogue, transitions and menus always run at 60 fps as on the console, and free play keeps your frame limit. `[pkp] event_hold = false` turns this off
