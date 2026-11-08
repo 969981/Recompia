@@ -1,17 +1,23 @@
 # Changelog
 
 Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
-(last reviewed: pokopia-native 1.3.0, `4a72d23`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
+(last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.7.9 (build K: Kiwi)
 
 **Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).
 
 ### Highlights
 - Fixed the dashed outline missing around the tiles a move like Rock Smash or Water Gun will hit (#242)
+- Fixed every Link Play visit failing with error 9005: saves made with this project all shared one player id
 - Fixed a shader translation mistake in about a third of the game's shaders
 - Fixed walking and camera turns juddering at a steady 60 fps (#275)
+
+### Known issues
+- Linux still runs the game and the shader setup through Proton
+- Mods that replace files containing shaders are not supported; text and texture mods are the intended use
+- Use the game clock in single player only for now
 
 ### Graphics
 - Fixed walking and camera turns juddering about once a second at 60 fps or less, and constantly with the frame limit off and vsync on (#275)
@@ -20,7 +26,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Windows on a small integrated GPU (including the ROG Ally): graphics-pool memory now uses the bounded cache already used under Wine, instead of keeping every imported chunk until Vulkan runs out of device memory and the picture freezes (#234)
 - Fixed the dashed white outline missing around move target tiles and the block placement indicator; only the faint tint showed (#242, #120)
 - Fixed one common shader instruction being translated wrongly in 32,630 of about 99,000 shaders
-  - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too; not all checked
+  - Other small details with the same cause (masks, patterns, dithering, effect switches) may look right now too
   - Something looks worse after this update? Open an issue with a screenshot and `pkp.log`
 - Until you run **Finish update**, the game keeps the old translations and the outline stays missing
 - Fixed shaders translated again by **Finish update** still loading their old translation from the boot preload pack (`shader_cache/spirv.preload.pack`), so about 6,000 of the most used shaders, the outline's among them, kept the old look
@@ -47,6 +53,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed Set up looking frozen on "Checking the setup tools..." or "Scanning game files: 29 of 29" for players whose shader cache was made before 0.7.0 (#269)
   - Before: Set up read every translated shader (about 99,000 files) one at a time to find the ones to translate again, with nothing on screen or in `setup.log`; on a slow disk that never finished in time
   - Now: the check reads on up to 8 threads, shows "Checking the shaders an earlier version translated: N of M" and writes its progress to `setup.log`; Pause stops it
+- Fixed pages not scrolling in a small window with animations turned off (Windows: Animation effects off), so rows below **Mods** in **Settings > Game** were out of reach (#260)
+- Added warm colour themes: the launcher opens in **Live sky**, which tints the island art by the time of day and the season; the **Colours** button at the bottom of the sidebar switches between Live sky, **Sunrise** (amber to red) and the old violet **Dusk**, kept per PC
+  - Status colours: OK is blue instead of green, so OK, warning and error stay apart with red-green colour blindness
 
 ### For developers
 - `src/kernel/svc_info.cpp`: GetInfo RandomEntropy is drawn once per process from the OS random source (`tt::rng_fill`, so the test tools' deterministic mode stays seeded); `[process] entropy_seed` still fixes it. It seeds nn::os's generator and with it nn::util::GenerateUuid (main 0x5af08c, the new-game reset 0x5aef60)
