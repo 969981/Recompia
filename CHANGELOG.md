@@ -4,11 +4,47 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.8.0 (build L: Lykoi)
 
-**Update:** press **Update** in the launcher. No **Set up again** needed.
+**Update:** press **Update**, then **Set up again** once when it asks (this release adds two hooks for the new jump option, so the game is rebuilt; your saves and shaders are kept). The new launcher and runtime come with it.
+
+### Highlights
+- Our first native gameplay change: running jumps can keep your running speed instead of flying at the old fixed speed, jump height unchanged (opt-in, see Gameplay)
+- Added a **Community** row to Settings > About with a button that opens the Recompia Discord invite
+- Added profiles: several people can play on one install, each with their own save (#282)
+- Fixed a long frame about once a second on some handhelds and PCs (#276)
+- Added a Testing update channel for players who want to try new builds early (opt in under Settings > About)
+- Added a Recompia Discord server for help, testing and chat: **Settings > About > Community > Join Discord**
+
+### Known issues
+- The timed event toggles are experimental: in-game event activation has not been confirmed. Use them in single player only for now
+
+### Gameplay
+- Added a native gameplay change, the first one this project makes to the game itself rather than through a mod: running jumps keep your current speed instead of flying at the game's old fixed jump speed
+  - Jump height is unchanged. Standing and walking jumps behave as before, and so do other players and Link Play visitors
+  - It is off by default. Turn it on with `[pkp] jump_momentum = 1` in `pkp.ini`; `jump_momentum_strength` (0.0 to 1.0) makes the boost smaller. The boost is never more than double the old speed
+  - Before: a running jump flew exactly as far as a walking one
+  - Needs **Set up again** once because the game is rebuilt with two new hooks
+
+### Performance
+- Fixed a long frame about once a second on some handhelds and PCs: walking and turning juddered even when the frame rate looked fine (#276)
+  - Before: the game reads a few tiny textures back from the graphics card about once a second. The read first waited a whole frame (about 17 ms at 60 fps) for the render thread to take it, which it almost never did, then forced the work through anyway. That held up the game's main thread
+  - Now: the read starts the work at once. On a PC at 60 fps, long frames per 10 s: 4.2 ⇒ 0.0 (3 runs each), the slowest texture read: 79 ms ⇒ 6 ms
+  - Setting: `[nvn] readback_grace_ms` is now 0 by default (`-2` brings back the old wait of one frame). `[nvn] readback_log = true` logs how long each read takes, for bug reports
+  - Still not: confirmed on a Steam Deck or a Legion Go S only after this release. If you still see the hitch, please send a `pkp.log` with `readback_log = true`
+- Changed the keyboard-icon check for the title screen so it no longer walks every texture once a second for the whole session (#280)
+  - Before: with a keyboard or controller prompt style other than Switch, the game thread checked every loaded texture for the title art once a second, holding the texture list while it did
+  - Now: the check slows down to every 10 s while nothing changes and speeds up again when textures load, so the title screen still gets its icon within a second
+  - Still not: no hitch was tied to this check. `pkp.log` notes it when a check takes more than 2 ms
 
 ### Launcher
+- Fixed picking a `.nup` made from a dump that holds only the `updates` folder: the launcher refused it, and the unpack progress could crash (#283, thanks julhin123)
+- Added a **Community** row to Settings > About and a Discord chip on the Home page
+- Added an update channel: **Settings > About > Update channel** switches between **Stable** (the default, what you get today) and **Testing** (newer builds, published as prereleases, for players who want to try changes early and report problems)
+  - Before: every player got only the stable releases
+  - Now: pick Testing to be offered test builds such as `0.8.1-beta.1`; **What's New** marks them as Testing. Your saves, profiles and settings are kept either way
+  - Going back: the launcher only moves forward, so Stable offers an update again once it has a newer version than the one you have. See `docs/testing-builds.md`
+  - Stable players see no change
 - Added profiles: several people can play on one install, each with their own save (#282)
   - Before: a second save meant copying the whole game folder
   - Now: **Settings > Saves > Profiles** adds, renames and removes profiles, and **Home** gets a **Profile** picker once there are two. The game must be closed to switch
@@ -16,6 +52,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Profiles share the game files and the shaders, so a second profile costs almost no disk space
   - Removing a profile keeps its save in the save folder, nothing is deleted
   - Still not: screenshots, settings and controls are shared by all profiles
+- Added one **Timed event** toggle each for the Copycat Challenge, More Spores for Hoppip, Bulbasaur's Jump Rope Contest and Sableye's Gem Hunt. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
 
 ## 0.7.9 (build K: Kiwi)
 

@@ -12,7 +12,7 @@ function item(r, s) {
   const { version, build } = parseReleaseName(r.name, r.tag);
   const date = formatDate(r.date);
   const mark = s.news.update?.tag === r.tag ? '<span class="note-mark new">Update</span>'
-    : version === s.app?.version ? '<span class="note-mark">Installed</span>' : '';
+    : version === s.app?.version ? '<span class="note-mark">Installed</span>' : r.prerelease ? '<span class="note-mark">Testing</span>' : '';
   return `<button class="note-item" data-tag="${esc(r.tag)}">
     <span class="note-item-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}</span>
     <span class="note-item-sub">${date ? `<time>${esc(date)}</time>` : ''}${mark}</span>

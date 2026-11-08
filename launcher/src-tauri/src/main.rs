@@ -3,6 +3,7 @@
 
 mod dlss;
 mod dump;
+mod events;
 mod gamebuild;
 mod host;
 mod ini;
@@ -49,6 +50,8 @@ struct Config {
     loose_shaders: bool,
     /// Where the window was last time, on a desktop screen (logical pixels); none: the default size, centred
     window: Option<WindowPlace>,
+    /// Which releases the launcher offers: "stable" (the default) or "testing" (prereleases built from the testing branch). update.rs Channel.
+    channel: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -124,7 +127,7 @@ fn update_version(app: &AppHandle) -> Option<String> {
 /// The releases (update.rs load_releases) from this session's copy, the network or the cache file.
 fn releases_of(app: &AppHandle, refresh: bool) -> Vec<update::GhRelease> {
     let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
-    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh)
+    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, update::Channel::parse(&load_config(app).channel))
 }
 
 /// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.
@@ -219,10 +222,29 @@ fn cancel_update(state: State<Arc<update::UpdateState>>) {
 /// Opens a release page in the default browser.
 #[tauri::command]
 fn open_release_url(url: String) -> Result<(), String> {
-    if !url.starts_with("https://github.com/") || url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&') {
+    if !openable_link(&url) {
         return Err("That link cannot be opened from here.".into());
     }
     play::open_url(&url)
+}
+
+/// The links the launcher opens in the browser: GitHub (releases, issues) and the project's Discord invite. No spaces, quotes or `&`.
+fn openable_link(url: &str) -> bool {
+    (url.starts_with("https://github.com/") || url.starts_with("https://discord.gg/")) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&')
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::openable_link;
+
+    #[test]
+    fn only_github_and_the_discord_invite_open() {
+        assert!(openable_link("https://github.com/featureJosh/Recompia/releases/tag/v0.8.0"));
+        assert!(openable_link("https://discord.gg/qE656Fed5N"));
+        for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/ab cd", "https://discord.gg/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
+            assert!(!openable_link(bad), "{bad:?}");
+        }
+    }
 }
 
 fn overview_of(cfg: &Config) -> Overview {

@@ -44,6 +44,7 @@
 #include <chrono>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -340,6 +341,20 @@ void init_locked(State& s) {
     s.local_delta = (offset_min < -kMaxOffsetMinutes ? -kMaxOffsetMinutes : offset_min > kMaxOffsetMinutes ? kMaxOffsetMinutes : offset_min) * 60;
     s.network_delta = 0;
     s.ephemeral_delta = 0;
+    // [time] clock_scope (test key, default "user"): "all" moves the network and ephemeral network clocks by the same offset, for
+    // game code that prefers the network clock. Anything else is "user" (the behaviour above).
+    {
+        const std::string scope = ascii_lower(config_get_str("time", "clock_scope", "user"));
+        if (scope != "user" && scope != "all")
+            NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
+        else if (scope == "all") {
+            NXLOG_I("time", "time: [time] clock_scope = all: the network clocks are moved by the same offset as the game clock");
+            if (s.local_delta) {
+                s.network_delta = s.local_delta;
+                s.ephemeral_delta = s.local_delta;
+            }
+        }
+    }
     s.auto_correction = false;
     s.device_utc = ascii_lower(config_get_str("time", "zone", "host")) == "utc";
     s.hosts_ready = false;
@@ -444,17 +459,30 @@ uint32_t make_snapshot(State& st, const SysCtx& user, const SysCtx& network, uin
 
 void push_uuid(ipc::Response& rsp) { rsp.out.insert(rsp.out.end(), kSourceId, kSourceId + 16); }
 
+// Registers a command and logs its first 50 calls at Info (service object, command id and name; no arguments).
+void tcmd(ipc::Service& s, uint32_t id, const char* name, ipc::Handler h) {
+    const std::string iface = s.name();
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    s.add_cmd(id, name, [iface, id, name, calls, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        if (calls->load(std::memory_order_relaxed) <= 50) {
+            const int n = ++*calls;
+            if (n <= 50) NXLOG_I("time", "ask: %s cmd %u %s (call %d)", iface.c_str(), id, name, n);
+        }
+        return h(req, rsp);
+    });
+}
+
 // ---- service objects ----------------------------------------------------------------------------------------------------------
 std::shared_ptr<ipc::Service> make_clock(Clock kind, uint32_t perm) {
     return make_iface("ISystemClock", [kind, perm](ipc::Service& s) {
-        s.add_cmd(0, "GetCurrentTime", [kind](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 0, "GetCurrentTime", [kind](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             const Now n = now_of(st);
             rsp.push<int64_t>(n.host + delta_of(st, kind));
             return 0;
         });
-        s.add_cmd(1, "SetCurrentTime", [kind, perm](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 1, "SetCurrentTime", [kind, perm](ipc::Request& req, ipc::Response&) -> uint32_t {
             if (!(perm & write_bit_of(kind))) return err_perm();
             const int64_t posix = req.arg<int64_t>(0);
             std::lock_guard<std::mutex> lk(mu());
@@ -464,14 +492,14 @@ std::shared_ptr<ipc::Service> make_clock(Clock kind, uint32_t perm) {
             write_shm(st);
             return 0;
         });
-        s.add_cmd(2, "GetSystemClockContext", [kind](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 2, "GetSystemClockContext", [kind](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             const SysCtx c = sys_ctx(now_of(st), delta_of(st, kind));
             rsp.push(c);
             return 0;
         });
-        s.add_cmd(4, "GetOperationEventReadableHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 4, "GetOperationEventReadableHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             rsp.out_copy.push_back(st.clock_event.new_handle());
@@ -482,19 +510,19 @@ std::shared_ptr<ipc::Service> make_clock(Clock kind, uint32_t perm) {
 
 std::shared_ptr<ipc::Service> make_steady(uint32_t perm) {
     return make_iface("ISteadyClock", [perm](ipc::Service& s) {
-        s.add_cmd(0, "GetCurrentTimePoint", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 0, "GetCurrentTimePoint", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             rsp.push<int64_t>(steady_secs(st));
             push_uuid(rsp);
             return 0;
         });
-        s.add_cmd(2, "GetTestOffset", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 2, "GetTestOffset", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             rsp.push<int64_t>(state_locked().test_ns);
             return 0;
         });
-        s.add_cmd(3, "SetTestOffset", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 3, "SetTestOffset", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
             if (!(perm & kWriteSteady)) return err_perm();
             const int64_t v = req.arg<int64_t>(0);
             std::lock_guard<std::mutex> lk(mu());
@@ -503,21 +531,21 @@ std::shared_ptr<ipc::Service> make_steady(uint32_t perm) {
             write_shm(st);
             return 0;
         });
-        s.add_cmd(100, "GetRtcValue", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 100, "GetRtcValue", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             // Seconds since 2000-01-01 of the host clock (the console keeps the RTC the same way; no RTC hardware here).
             const int64_t host = host_unix_now();
             rsp.push<uint64_t>(static_cast<uint64_t>(host - kRtcEpochUnix));
             return 0;
         });
-        s.add_cmd(101, "IsRtcResetDetected", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 101, "IsRtcResetDetected", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push<uint8_t>(0);
             return 0;
         });
-        s.add_cmd(102, "GetSetupResultValue", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 102, "GetSetupResultValue", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push<uint32_t>(0);
             return 0;
         });
-        s.add_cmd(200, "GetInternalOffset", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 200, "GetInternalOffset", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             rsp.push<int64_t>(state_locked().internal_ns);
             return 0;
@@ -527,7 +555,7 @@ std::shared_ptr<ipc::Service> make_steady(uint32_t perm) {
 
 std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
     return make_iface("ITimeZoneService", [perm](ipc::Service& s) {
-        s.add_cmd(0, "GetDeviceLocationName", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 0, "GetDeviceLocationName", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             char name[0x24] = {};
@@ -536,7 +564,7 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             rsp.out.insert(rsp.out.end(), name, name + sizeof name);
             return 0;
         });
-        s.add_cmd(1, "SetDeviceLocationName", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 1, "SetDeviceLocationName", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
             if (!(perm & kWriteTimeZone)) return err_perm();
             const auto raw = req.arg<std::array<char, 0x24>>(0);
             const std::string name = str_of(raw.data(), raw.size());
@@ -553,12 +581,12 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             st.location_updated = steady_secs(st);
             return 0;
         });
-        s.add_cmd(2, "GetTotalLocationNameCount", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 2, "GetTotalLocationNameCount", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             rsp.push<int32_t>(static_cast<int32_t>(location_names(state_locked()).size()));
             return 0;
         });
-        s.add_cmd(3, "LoadLocationNameList", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 3, "LoadLocationNameList", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
             const uint32_t index = req.arg<uint32_t>(0);
             const ipc::Buffer out = req.out_buf(0);
             std::lock_guard<std::mutex> lk(mu());
@@ -575,7 +603,7 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             rsp.push<uint32_t>(count);
             return 0;
         });
-        s.add_cmd(4, "LoadTimeZoneRule", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 4, "LoadTimeZoneRule", [](ipc::Request& req, ipc::Response&) -> uint32_t {
             const auto raw = req.arg<std::array<char, 0x24>>(0);
             const ipc::Buffer out = req.out_buf(0);
             if (out.size != tz::kRuleSize) return err_out_of_range();
@@ -586,12 +614,12 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             buf_write(out, rule->data(), tz::kRuleSize);
             return 0;
         });
-        s.add_cmd(5, "GetTimeZoneRuleVersion", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 5, "GetTimeZoneRuleVersion", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             // No tz database is shipped, so there is no rule version to report: 16 zero bytes.
             rsp.out.insert(rsp.out.end(), 0x10, uint8_t{0});
             return 0;
         });
-        s.add_cmd(6, "GetDeviceLocationNameAndUpdatedTime", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 6, "GetDeviceLocationNameAndUpdatedTime", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             char name[0x24] = {};
@@ -603,12 +631,12 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             push_uuid(rsp);
             return 0;
         });
-        s.add_cmd(20, "GetDeviceLocationNameOperationEventReadableHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 20, "GetDeviceLocationNameOperationEventReadableHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             rsp.out_copy.push_back(state_locked().tz_event.new_handle());
             return 0;
         });
-        s.add_cmd(100, "ToCalendarTime", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 100, "ToCalendarTime", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
             const int64_t posix = req.arg<int64_t>(0);
             const ipc::Buffer rule = req.in_buf(0);
             if (!rule.addr || rule.size < tz::kRuleSize) return err_tz_conversion();
@@ -619,7 +647,7 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             rsp.push(info);
             return 0;
         });
-        s.add_cmd(101, "ToCalendarTimeWithMyRule", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 101, "ToCalendarTimeWithMyRule", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
             const int64_t posix = req.arg<int64_t>(0);
             std::lock_guard<std::mutex> lk(mu());
             tz::CalendarTime cal{};
@@ -631,7 +659,7 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             rsp.push(info);
             return 0;
         });
-        s.add_cmd(201, "ToPosixTime", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 201, "ToPosixTime", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
             const auto cal = req.arg<tz::CalendarTime>(0);
             const ipc::Buffer rule = req.in_buf(0);
             if (!rule.addr || rule.size < tz::kRuleSize) return err_tz_conversion();
@@ -642,7 +670,7 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
             rsp.push<uint32_t>(static_cast<uint32_t>(n));
             return 0;
         });
-        s.add_cmd(202, "ToPosixTimeWithMyRule", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 202, "ToPosixTimeWithMyRule", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
             const auto cal = req.arg<tz::CalendarTime>(0);
             std::lock_guard<std::mutex> lk(mu());
             int64_t times[2] = {0, 0};
@@ -660,37 +688,37 @@ std::shared_ptr<ipc::Service> make_tz(uint32_t perm) {
 
 std::shared_ptr<ipc::Service> make_static(const char* name, uint32_t perm) {
     return make_iface(name, [perm](ipc::Service& s) {
-        s.add_cmd(0, "GetStandardUserSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 0, "GetStandardUserSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_clock(Clock::User, perm));
             return 0;
         });
-        s.add_cmd(1, "GetStandardNetworkSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 1, "GetStandardNetworkSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_clock(Clock::Network, perm));
             return 0;
         });
-        s.add_cmd(2, "GetStandardSteadyClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 2, "GetStandardSteadyClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_steady(perm));
             return 0;
         });
-        s.add_cmd(3, "GetTimeZoneService", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 3, "GetTimeZoneService", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_tz(perm));
             return 0;
         });
-        s.add_cmd(4, "GetStandardLocalSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 4, "GetStandardLocalSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_clock(Clock::Local, perm));
             return 0;
         });
-        s.add_cmd(5, "GetEphemeralNetworkSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 5, "GetEphemeralNetworkSystemClock", [perm](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             rsp.push_object(make_clock(Clock::Ephemeral, perm));
             return 0;
         });
-        s.add_cmd(20, "GetSharedMemoryNativeHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 20, "GetSharedMemoryNativeHandle", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
             rsp.out_copy.push_back(st.shm->new_handle());
             return 0;
         });
-        s.add_cmd(50, "SetStandardSteadyClockInternalOffset", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 50, "SetStandardSteadyClockInternalOffset", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
             if (!(perm & kWriteSteady)) return err_perm();
             const int64_t v = req.arg<int64_t>(0);
             std::lock_guard<std::mutex> lk(mu());
@@ -700,7 +728,7 @@ std::shared_ptr<ipc::Service> make_static(const char* name, uint32_t perm) {
             return 0;
         });
         // GetClockSnapshot(u8 type) -> buffer<ClockSnapshot, 0x1a>: from the user and network clock contexts now.
-        s.add_cmd(400, "GetClockSnapshot", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 400, "GetClockSnapshot", [](ipc::Request& req, ipc::Response&) -> uint32_t {
             const uint8_t type = req.arg<uint8_t>(0);
             std::lock_guard<std::mutex> lk(mu());
             State& st = state_locked();
@@ -713,7 +741,7 @@ std::shared_ptr<ipc::Service> make_static(const char* name, uint32_t perm) {
         });
         // GetClockSnapshotFromSystemClockContext(u8 type, SystemClockContext user, SystemClockContext network) -> buffer 0x1a.
         // The u8 comes first and the contexts are 8-byte aligned after it (Ryubing reads type, skips 7 bytes, then the contexts).
-        s.add_cmd(401, "GetClockSnapshotFromSystemClockContext", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 401, "GetClockSnapshotFromSystemClockContext", [](ipc::Request& req, ipc::Response&) -> uint32_t {
             const uint8_t type = req.arg<uint8_t>(0);
             const SysCtx user = req.arg<SysCtx>(8), network = req.arg<SysCtx>(8 + sizeof(SysCtx));
             std::lock_guard<std::mutex> lk(mu());
@@ -723,12 +751,12 @@ std::shared_ptr<ipc::Service> make_static(const char* name, uint32_t perm) {
             buf_write(req.out_buf(0), &cs, sizeof cs);
             return 0;
         });
-        s.add_cmd(100, "IsStandardUserSystemClockAutomaticCorrectionEnabled", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        tcmd(s, 100, "IsStandardUserSystemClockAutomaticCorrectionEnabled", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
             std::lock_guard<std::mutex> lk(mu());
             rsp.push<uint8_t>(state_locked().auto_correction ? 1 : 0);
             return 0;
         });
-        s.add_cmd(101, "SetStandardUserSystemClockAutomaticCorrectionEnabled", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
+        tcmd(s, 101, "SetStandardUserSystemClockAutomaticCorrectionEnabled", [perm](ipc::Request& req, ipc::Response&) -> uint32_t {
             if (!(perm & kWriteUser)) return err_perm();
             const bool on = req.arg<uint8_t>(0) != 0;
             std::lock_guard<std::mutex> lk(mu());

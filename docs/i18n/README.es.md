@@ -1,4 +1,4 @@
-<!-- source-sha256: fa12be7da72e548ebcde1c37419f4c86ab5cf63b9f02e50237d56a5fa7b17ca1 -->
+<!-- source-sha256: 2e5110b223e98324bbe0e31d4410aeb322c7207e165c2250c31e545f27062c43 -->
 > Esta es una traducción automática del [README en inglés](../../README.md); puede contener errores. El README en inglés es la versión definitiva.
 
 <h1 align="center">
@@ -36,7 +36,8 @@
   <a href="https://github.com/xFractals/pokopia-native">Proyecto original: pokopia-native</a> ·
   <a href="../../SECURITY.md">Seguridad</a> ·
   <a href="../../LEGAL.md">Información legal</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">Problemas</a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/issues">Problemas</a> ·
+  <a href="https://discord.gg/qE656Fed5N">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -49,12 +50,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>Pantalla de título</sub></td>
-    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>Construye tu isla</sub></td>
+    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Pantalla de título</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Construye tu isla</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>Coloca objetos con el modo ratón de Joy-Con 2</sub></td>
-    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play con un amigo (en desarrollo)</sub></td>
+    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>Juega con nuevas relaciones de aspecto</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play con un amigo</sub></td>
   </tr>
 </table>
 
@@ -239,6 +240,10 @@ Todo esto está en la carpeta del juego: la carpeta con `PokopiaLauncher.exe` y 
 | Ajustes del launcher | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (las carpetas de tu volcado y del juego) |
 
 No adjuntes nunca archivos del juego, las carpetas `build` o `shader_cache`, ni partidas guardadas a un problema. `pkp.log` es suficiente.
+
+## Comunidad
+
+Preguntas, ayuda con errores, pruebas y chat: únete al [Discord de Recompia](https://discord.gg/qE656Fed5N). El launcher también tiene un botón **Join Discord** en **Settings > About > Community**. Los errores que necesitan una corrección se siguen informando en [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
 
 ## Informar de problemas
 

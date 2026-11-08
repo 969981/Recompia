@@ -1,4 +1,4 @@
-# source-sha256: 6a3d9ec9ff6a2536a6913cd937d027b68911a686cdee0218ed77073e8f6f775b
+# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
 यह अंग्रेज़ी README का मशीनी अनुवाद है, इसमें गलतियाँ हो सकती हैं, और अंग्रेज़ी README ही आधिकारिक है।
 
 Pokopia PC @VERSION@ Linux, SteamOS और Steam Deck के लिए
@@ -12,5 +12,7 @@ Pokopia PC @VERSION@ Linux, SteamOS और Steam Deck के लिए
 Steam से (Deck पर Game Mode): PokopiaLauncher.AppImage को non-Steam गेम के रूप में जोड़ें और लॉन्च विकल्प --play सेट करें।
 
 अपडेट: नई रिलीज़ को अपने इंस्टॉल पर एक्सट्रैक्ट करें। अगर अपडेट गेम का कोड बदलता है, तो लॉन्चर बताता है: फिर Set up दबाएँ और यह pkp.exe दोबारा बनाता है। आपके शेडर और सेव बचे रहते हैं।
+
+समुदाय और सहायता: https://discord.gg/qE656Fed5N
 
 लाइसेंस: LICENSE.txt और licenses/.

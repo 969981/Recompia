@@ -81,7 +81,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             Err(e) => format!(" Shaders were not prepared: {}.", e),
             _ => String::new(),
         };
-        let mut cmd = match game_command(&exe, &dir) {
+        // Calculate after shader preparation, immediately before the process starts, so a long preparation cannot age the offset.
+        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock)) {
             Ok(c) => c,
             Err(e) => {
                 set_status(&app2, Status { state: "exited".into(), crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
@@ -136,10 +137,13 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 
 /// How Play starts pkp.exe: in its folder, through Proton on Linux (host.rs). Every path (exefs, romfs, shader cache) comes
 /// from pkp.ini next to it.
-fn game_command(exe: &Path, dir: &Path) -> Result<std::process::Command, String> {
+fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>) -> Result<std::process::Command, String> {
     crate::host::sync_runtime_files(&crate::exe_dir(), dir)?;
     let mut cmd = crate::host::windows_program(exe)?;
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
+    if let Some(clock) = clock {
+        clock.apply_to(&mut cmd);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -171,7 +175,11 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
     if let Err(e) = crate::profiles::apply_active(game_dir) {
         eprintln!("Profile not applied: {}.", e);
     }
-    let status = game_command(&exe, game_dir).and_then(|mut c| c.status().map_err(|e| format!("Could not start pkp.exe: {}", e)));
+    let clock = match crate::events::override_for(game_dir) {
+        Ok(clock) => clock,
+        Err(e) => return fail(e),
+    };
+    let status = game_command(&exe, game_dir, clock).and_then(|mut c| c.status().map_err(|e| format!("Could not start pkp.exe: {}", e)));
     let code = match status {
         Ok(st) => st.code().unwrap_or(1),
         Err(e) => return fail(e),

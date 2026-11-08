@@ -1,4 +1,4 @@
-<!-- source-sha256: fa12be7da72e548ebcde1c37419f4c86ab5cf63b9f02e50237d56a5fa7b17ca1 -->
+<!-- source-sha256: 2e5110b223e98324bbe0e31d4410aeb322c7207e165c2250c31e545f27062c43 -->
 > 这是 [英文 README](../../README.md) 的机器翻译，可能包含错误；英文 README 是权威版本。
 
 <h1 align="center">
@@ -36,7 +36,8 @@
   <a href="https://github.com/xFractals/pokopia-native">上游项目：pokopia-native</a> ·
   <a href="../../SECURITY.md">安全</a> ·
   <a href="../../LEGAL.md">法律信息</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">问题反馈</a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/issues">问题反馈</a> ·
+  <a href="https://discord.gg/qE656Fed5N">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -49,12 +50,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>标题画面</sub></td>
-    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>建设你的岛屿</sub></td>
+    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>标题画面</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>建设你的岛屿</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>使用 Joy-Con 2 鼠标模式放置物品</sub></td>
-    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>与朋友进行 Link Play（仍在开发中）</sub></td>
+    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>支持新的画面比例</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>与朋友一起 Link Play</sub></td>
   </tr>
 </table>
 
@@ -239,6 +240,10 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 | 启动器设置 | `%APPDATA%\org.pkp-recomp.launcher\launcher.json`（你的转储文件夹和游戏文件夹） |
 
 绝不要在问题反馈中附加游戏文件、`build` 或 `shader_cache` 文件夹，或存档。只提供 `pkp.log` 即可。
+
+## 社区
+
+问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.gg/qE656Fed5N)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
 
 ## 报告问题
 

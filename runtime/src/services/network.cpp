@@ -15,9 +15,11 @@
 // Each command that is answered logs once at Info with tag "net" (the first use per command). Process-wide state (client ids, the ssl
 // context count, the pki ids) lives in st(); network_reset() puts it back to the start-up value (and closes every socket, drops the
 // current vnet link and the ldn relay connection). Per-datagram traffic is logged at Debug with tag "net" (vsock.cpp).
+#include <atomic>
 #include <cstring>
 #include <functional>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -51,6 +53,7 @@ constexpr int32_t kEaiNoName = -2;                            // EAI_NONAME
 struct NetState {
     std::mutex mu;
     std::set<std::string> seen;          // "<service> <cmd>" already logged
+    std::map<std::string, int> calls;    // "<service> <cmd> <name>" -> calls logged so far (at most kMaxCallLogs)
     uint32_t next_client_id = 1;         // nifm ClientId, one per IGeneralService
     uint32_t next_cancel_handle = 1;     // sfdnsres cancel handle
     uint64_t next_pki_id = 1;            // ssl Import*/Register* ids
@@ -69,6 +72,90 @@ void note(const char* svc, uint32_t id, const char* name) {
         if (!s.seen.insert(std::string(svc) + " " + std::to_string(id)).second) return;
     }
     NXLOG_I("net", "%s cmd %u %s: answered offline (first use)", svc, id, name);
+}
+
+// [net] online_test, read once: nifm and ntc report online (nothing reaches the network: bsd and BCAT answer as before).
+bool online_test() {
+    static const bool on = config_get_bool("net", "online_test", false);
+    return on;
+}
+
+constexpr int kMaxCallLogs = 50;
+
+// Printable text of a 0x20-byte name field in a request's raw arguments ("?" when it is not plain text).
+std::string raw_name(const ipc::Request& req, size_t off) {
+    std::string out;
+    for (size_t i = 0; i < 0x20 && off + i < req.in_size; ++i) {
+        const uint8_t c = req.in[off + i];
+        if (c == 0) break;
+        if (c < 0x20 || c > 0x7E) return "?";
+        out.push_back(static_cast<char>(c));
+    }
+    return out;
+}
+
+// Logs one call of a command at Info, the first kMaxCallLogs calls of each (service, command id, name). BCAT directory and file opens and
+// the sync requests with a directory name also log the name(s) they were given; no buffers, nothing else from the arguments.
+void log_call(const char* svc, const std::string& iface, uint32_t id, const char* name, const ipc::Request& req) {
+    // only the services events could depend on: bsd, ssl and the others stay off this path (bsd runs per packet in Link Play)
+    if (std::strcmp(svc, "nifm") != 0 && std::strcmp(svc, "bcat") != 0 && std::strcmp(svc, "ntc") != 0) return;
+    NetState& s = st();
+    int n;
+    {
+        std::lock_guard<std::mutex> lk(s.mu);
+        n = ++s.calls[std::string(svc) + " " + iface + " " + std::to_string(id) + " " + name];
+    }
+    if (n > kMaxCallLogs) return;
+    std::string arg;
+    if (std::strcmp(svc, "bcat") == 0) {
+        const std::string nm = name;
+        if (nm == "Open") {
+            arg = " path=\"" + raw_name(req, 0) + "\"";
+            if (req.in_size >= 0x40) arg += " file=\"" + raw_name(req, 0x20) + "\"";
+        } else if (nm.find("DirectoryName") != std::string::npos) {
+            arg = " dir=\"" + raw_name(req, req.in_size >= 0x28 ? 8 : 0) + "\"";
+        }
+    }
+    NXLOG_I("net", "ask: %s cmd %u %s (call %d)%s", svc, id, name, n, arg.c_str());
+}
+
+// "ask:" lines for what the game tries to reach: DNS names, connect targets, TLS host names. The first kMaxCallLogs of each kind; only
+// the names and the address are logged, never a buffer or payload.
+bool ask_budget(int kind) {
+    static std::atomic<int> counts[3];
+    return counts[kind].fetch_add(1) < kMaxCallLogs;
+}
+
+// Printable ASCII text of an input buffer (up to 255 bytes, up to the first 0); "?" when it holds anything else.
+std::string buf_text(const ipc::Buffer& b) {
+    uint8_t tmp[255] = {};
+    const uint64_t n = buf_read(b, tmp, b.size < sizeof tmp ? b.size : sizeof tmp);
+    std::string out;
+    for (uint64_t i = 0; i < n; ++i) {
+        if (tmp[i] == 0) break;
+        if (tmp[i] < 0x20 || tmp[i] > 0x7E) return "?";
+        out.push_back(static_cast<char>(tmp[i]));
+    }
+    return out;
+}
+
+void ask_dns(const ipc::Request& req) {
+    if (!ask_budget(0)) return;
+    // switchbrew sfdnsres: GetAddrInfoRequest[WithOptions] takes the host name in input buffer 0 and the service name in buffer 1
+    const std::string host = buf_text(req.in_buf(0));
+    const std::string serv = buf_text(req.in_buf(1));
+    NXLOG_I("net", "ask: dns host=\"%s\" service=\"%s\"", host.c_str(), serv.c_str());
+}
+
+void ask_connect(const vsock::Addr& a) {
+    if (!ask_budget(1)) return;
+    NXLOG_I("net", "ask: connect %u.%u.%u.%u:%u", (a.ip >> 24) & 255, (a.ip >> 16) & 255, (a.ip >> 8) & 255, a.ip & 255, static_cast<unsigned>(a.port));
+}
+
+void ask_ssl_host(const ipc::Request& req) {
+    if (!ask_budget(2)) return;
+    // switchbrew ISslConnection::SetHostName: the name in input buffer 0
+    NXLOG_I("net", "ask: ssl host=\"%s\"", buf_text(req.in_buf(0)).c_str());
 }
 
 uint32_t alloc_client_id() {
@@ -100,6 +187,7 @@ enum class K : uint8_t {
     BufZero,  // result 0, n zero bytes written into the output buffer
     Errno,    // BSD: (i32 ret = -1, u32 errno = ENETDOWN, then n u32 zeros)
     ErrnoOk,  // BSD: (i32 ret = 0, u32 errno = 0)
+    Bytes,    // result 0, the n low bytes of v, lowest first
 };
 struct Row {
     uint32_t id;
@@ -132,14 +220,18 @@ uint32_t run(const Row& r, ipc::Request& req, ipc::Response& rsp) {
             rsp.push(static_cast<int32_t>(0));
             rsp.push(static_cast<uint32_t>(0));
             return 0;
+        case K::Bytes:
+            for (uint32_t i = 0; i < r.n && i < 8; ++i) rsp.push(static_cast<uint8_t>(r.v >> (8 * i)));
+            return 0;
     }
     return 0;
 }
 
 // One command with its own handler; logs the first use.
 void cmd(ipc::Service& s, const char* svc, uint32_t id, const char* name, ipc::Handler h) {
-    s.add_cmd(id, name, [svc, id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+    s.add_cmd(id, name, [svc, iface = s.name(), id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
         note(svc, id, name);
+        log_call(svc, iface, id, name, req);
         return h(req, rsp);
     });
 }
@@ -181,7 +273,8 @@ struct TwoEvents {
 
 // =============================================================================================================================================
 // nifm: nifm:u, nifm:a, nifm:s (IStaticService). Switchbrew "Network Interface services", ScarletNX nifm.swipc, Ryujinx Nifm/.
-// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection).
+// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection); with [net] online_test = on
+// they report online instead.
 // =============================================================================================================================================
 
 std::shared_ptr<ipc::Service> make_scan_request() {
@@ -202,11 +295,12 @@ std::shared_ptr<ipc::Service> make_scan_request() {
 }
 
 std::shared_ptr<ipc::Service> make_request() {
+    const bool online = online_test();
     auto ev = std::make_shared<TwoEvents>();
-    return make_iface("nn::nifm::detail::IRequest", [ev](ipc::Service& s) {
+    return make_iface("nn::nifm::detail::IRequest", [ev, online](ipc::Service& s) {
         rows(s, "nifm", {
-            {0, "GetRequestState", K::U32, 1},                   // 1 = Free: nothing was accepted (Switchbrew RequestState)
-            {1, "GetResult", K::Fail, kNifmNoConnection},
+            {0, "GetRequestState", K::U32, static_cast<uint64_t>(online ? 3 : 1)},      // 1 = Free: nothing was accepted; 3 = Accepted (online_test)
+            {1, "GetResult", online ? K::Ok : K::Fail, kNifmNoConnection},
             {3, "Cancel", K::Ok},
             {4, "Submit", K::Ok},
             {5, "SetRequirement", K::Ok},
@@ -246,9 +340,10 @@ std::shared_ptr<ipc::Service> make_request() {
 }
 
 std::shared_ptr<ipc::Service> make_general() {
+    const bool online = online_test();
     const uint32_t client_id = alloc_client_id();
     auto ev = std::make_shared<ServiceEvent>();
-    return make_iface("nn::nifm::detail::IGeneralService", [client_id, ev](ipc::Service& s) {
+    return make_iface("nn::nifm::detail::IGeneralService", [client_id, ev, online](ipc::Service& s) {
         cmd(s, "nifm", 1, "GetClientId", [client_id](ipc::Request& req, ipc::Response&) -> uint32_t {
             buf_write(req.out_buf(0), &client_id, sizeof client_id);
             return 0;
@@ -273,17 +368,17 @@ std::shared_ptr<ipc::Service> make_general() {
             {9, "SetNetworkProfile", K::Zeros, 0, 16},          // returns a Uuid (16 zero bytes); the profile is not kept
             {10, "RemoveNetworkProfile", K::Ok},
             {11, "GetScanDataOld", K::S32, 0},
-            {12, "GetCurrentIpAddress", K::Fail, kNifmNoConnection},
+            {12, "GetCurrentIpAddress", online ? K::Bytes : K::Fail, online ? 0x0200000Aull : kNifmNoConnection, 4},   // online_test: 10.0.0.2
             {13, "GetCurrentAccessPointOld", K::Fail, kNifmNoConnection},
             {14, "CreateTemporaryNetworkProfile", K::Fail, kNifmNoConnection},
             {15, "GetCurrentIpConfigInfo", K::Fail, kNifmNoConnection},
             {16, "SetWirelessCommunicationEnabled", K::Ok},
             {17, "IsWirelessCommunicationEnabled", K::U8, 1},   // radio on, no access point
-            {18, "GetInternetConnectionStatus", K::Fail, kNifmNoConnection},
+            {18, "GetInternetConnectionStatus", online ? K::Bytes : K::Fail, online ? 0x040301ull : kNifmNoConnection, 3},   // online_test: Wifi, strength 3, Connected
             {19, "SetEthernetCommunicationEnabled", K::Ok},
             {20, "IsEthernetCommunicationEnabled", K::U8, 0},   // no adapter
-            {21, "IsAnyInternetRequestAccepted", K::U8, 0},
-            {22, "IsAnyForegroundRequestAccepted", K::U8, 0},
+            {21, "IsAnyInternetRequestAccepted", K::U8, static_cast<uint64_t>(online ? 1 : 0)},
+            {22, "IsAnyForegroundRequestAccepted", K::U8, static_cast<uint64_t>(online ? 1 : 0)},
             {23, "PutToSleep", K::Ok},
             {24, "WakeUp", K::Ok},
             {25, "GetSsidListVersion", K::U32, 0},
@@ -293,7 +388,7 @@ std::shared_ptr<ipc::Service> make_general() {
             {29, "SetWirelessCommunicationEnabledForTest", K::Ok},
             {30, "SetEthernetCommunicationEnabledForTest", K::Ok},
             {32, "GetTelemetryInfo", K::Ok},
-            {33, "ConfirmSystemAvailability", K::Fail, kNifmNoConnection},
+            {33, "ConfirmSystemAvailability", online ? K::Ok : K::Fail, kNifmNoConnection},
             {34, "SetBackgroundRequestEnabled", K::Ok},
             {35, "GetScanData", K::S32, 0},
             {36, "GetCurrentAccessPoint", K::Fail, kNifmNoConnection},
@@ -524,6 +619,7 @@ void add_bsd_udp(ipc::Service& s) {
         }
         vsock::Addr to;
         if (const uint32_t e = read_sockaddr(req.in_buf(1), to)) return bsd_ret(rsp, addr_fail(fd, e));
+        ask_connect(to);
         return bsd_send(rsp, fd, req.arg<int32_t>(4), req.in_buf(0), &to);
     });
     cmd(s, "bsd", 13, "Bind", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
@@ -539,8 +635,9 @@ void add_bsd_udp(ipc::Service& s) {
     });
     cmd(s, "bsd", 14, "Connect", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
         const int fd = req.arg<int32_t>(0);
-        if (coop_fd(fd)) return bsd_ret(rsp, {-1, kBsdNetDown});
         vsock::Addr a;
+        if (read_sockaddr(req.in_buf(0), a) == 0) ask_connect(a);
+        if (coop_fd(fd)) return bsd_ret(rsp, {-1, kBsdNetDown});
         if (const uint32_t e = read_sockaddr(req.in_buf(0), a)) return bsd_ret(rsp, addr_fail(fd, e));
         return bsd_ret(rsp, vsock::stack().connect(fd, a));
     });
@@ -722,9 +819,12 @@ std::shared_ptr<ipc::Service> make_ssl_connection(const std::shared_ptr<int>& co
         "nn::ssl::sf::ISslConnection",
         [c] { --(*c); },
         [](ipc::Service& svc) {
+            cmd(svc, "ssl", 1, "SetHostName", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+                ask_ssl_host(req);
+                return 0;
+            });
             rows(svc, "ssl", {
                 {0, "SetSocketDescriptor", K::Fail, kSslInvalidSocket},
-                {1, "SetHostName", K::Ok},
                 {2, "SetVerifyOption", K::Ok},
                 {3, "SetIoMode", K::Ok},
                 {4, "GetSocketDescriptor", K::S32, 0xFFFFFFFFu},   // -1: none was set
@@ -1315,7 +1415,8 @@ std::shared_ptr<ipc::Service> make_resolver() {
             return 0;
         });
         // GetAddrInfoRequest: (bsd_errno, gai_error, size)
-        cmd(s, "sfdnsres", 6, "GetAddrInfoRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        cmd(s, "sfdnsres", 6, "GetAddrInfoRequest", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
             rsp.push(static_cast<uint32_t>(0));
             rsp.push(static_cast<int32_t>(kEaiNoName));
             rsp.push(static_cast<uint32_t>(0));
@@ -1342,7 +1443,8 @@ std::shared_ptr<ipc::Service> make_resolver() {
             return 0;
         });
         // GetAddrInfoRequestWithOptions: (size, gai_error, netdb_error, bsd_errno)
-        cmd(s, "sfdnsres", 12, "GetAddrInfoRequestWithOptions", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        cmd(s, "sfdnsres", 12, "GetAddrInfoRequestWithOptions", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
             rsp.push(static_cast<uint32_t>(0));
             rsp.push(static_cast<int32_t>(kEaiNoName));
             rsp.push(static_cast<uint32_t>(0));
@@ -1360,7 +1462,7 @@ std::shared_ptr<ipc::Service> make_resolver() {
 
 // =============================================================================================================================================
 // ntc: ntc (IStaticService) and IEnsureNetworkClockAvailabilityService. The network clock task fails at once with "network not available"
-// (time 1000); Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
+// (time 1000), or succeeds at once with [net] online_test = on; Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
 // =============================================================================================================================================
 
 struct NtcTask {
@@ -1372,7 +1474,7 @@ std::shared_ptr<ipc::Service> make_ntc_task() {
     auto t = std::make_shared<NtcTask>();
     return make_iface("nn::ntc::detail::IEnsureNetworkClockAvailabilityService", [t](ipc::Service& s) {
         cmd(s, "ntc", 0, "StartTask", [t](ipc::Request&, ipc::Response&) -> uint32_t {
-            t->result = kTimeNetworkNotAvailable;
+            t->result = online_test() ? 0 : kTimeNetworkNotAvailable;
             t->finish.signal();
             return t->result;
         });
@@ -1467,6 +1569,8 @@ void register_network() {
     const bool offline = config_get_bool("net", "offline", true);
     NXLOG_I("net", "network services: [net] offline=%s (no connection, no friends, no BCAT data in either mode)", offline ? "true" : "false");
 
+    if (online_test()) NXLOG_I("net", "[net] online_test = on: nifm and ntc report online, delivery cache empty, no sockets");
+
     for (const char* n : {"nifm:u", "nifm:a", "nifm:s"}) add(n, [] { return make_nifm_static(); });
     for (const char* n : {"bsd:u", "bsd:a", "bsd:s"}) add(n, [] { return make_bsd(); });
     add("bsdcfg", [] { return make_iface("nn::bsdsocket::cfg::ServerInterface", [](ipc::Service&) {}); });
@@ -1490,6 +1594,7 @@ void network_reset() {
     NetState& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     s.seen.clear();
+    s.calls.clear();
     s.next_client_id = 1;
     s.next_cancel_handle = 1;
     s.next_pki_id = 1;

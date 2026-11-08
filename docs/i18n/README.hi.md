@@ -1,4 +1,4 @@
-<!-- source-sha256: fa12be7da72e548ebcde1c37419f4c86ab5cf63b9f02e50237d56a5fa7b17ca1 -->
+<!-- source-sha256: 2e5110b223e98324bbe0e31d4410aeb322c7207e165c2250c31e545f27062c43 -->
 
 > यह अंग्रेज़ी README (../../README.md) का मशीनी अनुवाद है। इसमें गलतियाँ हो सकती हैं, और अंग्रेज़ी README ही आधिकारिक है।
 
@@ -37,7 +37,8 @@
   <a href="https://github.com/xFractals/pokopia-native">मूल: pokopia-native</a> ·
   <a href="../../SECURITY.md">सुरक्षा</a> ·
   <a href="../../LEGAL.md">कानूनी</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">समस्याएँ</a>
+  <a href="https://github.com/featureJosh/pokopia-recomp/issues">समस्याएँ</a> ·
+  <a href="https://discord.gg/qE656Fed5N">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -50,12 +51,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen (screenshot placeholder)"><br><sub>शीर्षक स्क्रीन</sub></td>
-    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay (screenshot placeholder)"><br><sub>अपना द्वीप बनाना</sub></td>
+    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>शीर्षक स्क्रीन</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>अपना द्वीप बनाना</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="../assets/screenshots/item-placement.svg" alt="Item placement (screenshot placeholder)"><br><sub>Joy-Con 2 माउस मोड से आइटम रखना</sub></td>
-    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>किसी दोस्त के साथ Link Play (कार्य प्रगति पर)</sub></td>
+    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>नए आस्पेक्ट रेशियो पर खेलें</sub></td>
+    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>दोस्त के साथ Link Play</sub></td>
   </tr>
 </table>
 
@@ -240,6 +241,10 @@ Link Play अभी परीक्षण में है: जुड़ना �
 | लॉन्चर सेटिंग्स | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (आपका डंप फ़ोल्डर और गेम फ़ोल्डर) |
 
 किसी issue में गेम फ़ाइलें, `build` या `shader_cache` फ़ोल्डर, या सेव कभी न लगाएँ। `pkp.log` काफ़ी है।
+
+## समुदाय
+
+सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.gg/qE656Fed5N) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) पर रिपोर्ट करें।
 
 ## समस्याएँ रिपोर्ट करना
 

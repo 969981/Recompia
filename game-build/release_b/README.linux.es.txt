@@ -1,4 +1,4 @@
-# source-sha256: 6a3d9ec9ff6a2536a6913cd937d027b68911a686cdee0218ed77073e8f6f775b
+# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
 Esta es una traducción automática del texto en inglés; puede contener errores. El texto en inglés es la versión definitiva.
 
 Pokopia PC @VERSION@ para Linux, SteamOS y Steam Deck
@@ -12,5 +12,7 @@ Si el archivo PokopiaLauncher.AppImage no se inicia en un sistema que no tiene F
 Para iniciarlo desde Steam (modo Juego en Deck): añade PokopiaLauncher.AppImage como un juego que no sea de Steam y escribe --play en las opciones de lanzamiento.
 
 Para actualizar, extrae los archivos de la nueva versión sobre los de tu instalación. Si la actualización cambia el código del juego, el launcher te avisa: pulsa Set up otra vez para que vuelva a compilar pkp.exe. Tus sombreadores y partidas guardadas se conservan.
+
+Comunidad y ayuda: https://discord.gg/qE656Fed5N
 
 Licencias: consulta LICENSE.txt y la carpeta licenses/.

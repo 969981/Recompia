@@ -43,6 +43,10 @@ struct Bc7Match {
 // Returns how many were written. Reads the storage of every texture of that size and format not checked before: call it now and then.
 int texture_patch_bc7_matching(const Bc7Match& m, const uint8_t* rgba, std::vector<uint32_t>* checked);
 
+// How many textures are registered now (cheap): a caller that scans with texture_patch_bc7_matching can tell that nothing was added or
+// removed since its last scan.
+size_t texture_registry_count();
+
 // The BC7 blocks of a whole level (layer 0, row-major, 16 bytes each) and its size in texels (multiples of 4). Debug dumps.
 bool texture_read_bc7_level(const void* guest, uint32_t level, std::vector<uint8_t>* blocks, uint32_t* width, uint32_t* height);
 

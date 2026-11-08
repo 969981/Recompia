@@ -1,4 +1,4 @@
-# source-sha256: 6a3d9ec9ff6a2536a6913cd937d027b68911a686cdee0218ed77073e8f6f775b
+# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
 هذه ترجمة آلية لملف README الإنجليزي، وقد تحتوي على أخطاء. النسخة الإنجليزية هي المرجع.
 
 Pokopia PC @VERSION@ لنظام Linux وSteamOS وSteam Deck
@@ -12,5 +12,7 @@ Pokopia PC @VERSION@ لنظام Linux وSteamOS وSteam Deck
 من Steam (وضع الألعاب على Deck): أضف PokopiaLauncher.AppImage كلعبة غير تابعة لـ Steam مع خيارات التشغيل --play.
 
 التحديث: استخرج الإصدار الجديد فوق تثبيتك. إذا غيّر التحديث شيفرة اللعبة، يخبرك المشغّل: اضغط Set up مرة أخرى وسيعيد بناء pkp.exe. تبقى شيدراتك وملفات حفظك.
+
+المجتمع والمساعدة: https://discord.gg/qE656Fed5N
 
 التراخيص: LICENSE.txt و licenses/.

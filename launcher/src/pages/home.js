@@ -28,7 +28,7 @@ function releaseCard(r) {
   const lines = highlights(r.body, CARD_LINES);
   return `<button class="release glass hover" data-tag="${esc(r.tag)}">
     <span class="release-head">
-      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}</span>
+      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ' <span class="note-mark">Testing</span>' : ''}</span>
       ${date ? `<time>${esc(date)}</time>` : ''}
     </span>
     ${lines.map((l) => `<span class="release-line">${esc(l)}</span>`).join('')}
@@ -60,6 +60,7 @@ const repackMessage = (r) => {
 
 const QUIET = new Set(['ready', 'no_files', 'setup', 'resume']);
 const LINK_PLAY_LABEL = { off: 'Off', lan: 'Same network', internet: 'Internet' };
+const DISCORD_URL = 'https://discord.gg/qE656Fed5N';
 
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home">
@@ -144,6 +145,7 @@ export function render(el, ctx) {
     if (!t || t.disabled) return;
     if (t.id === 'primary') store.perform(primaryAction(store.state).run, ctx.go);
     if (t.id === 'link-chip') ctx.go('linkplay');
+    if (t.id === 'discord-chip') api('open_release_url', { url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api('open_game_file', { name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
@@ -160,7 +162,9 @@ export function render(el, ctx) {
   // a settings file that cannot be read just leaves the chip out
   let linkChip = '';
   let profileChip = '';
-  const drawChips = () => { part('link').innerHTML = profileChip + linkChip; };
+  const discordChip = `<button class="chip on-art" id="discord-chip">${icon('globe')}Discord</button>`;
+  const drawChips = () => { part('link').innerHTML = profileChip + linkChip + discordChip; };
+  drawChips();
   api('read_settings').then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}Link Play: ${LINK_PLAY_LABEL[viewOf(readIni(data.pkp))]}</button>`;
     drawChips();
