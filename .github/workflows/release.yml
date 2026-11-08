@@ -54,7 +54,7 @@ jobs:
       - name: LLVM ${{ env.LLVM_VERSION }}
         run: |
           $msi = "$env:RUNNER_TEMP\llvm.msi"
-          Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.msi" -OutFile $msi
+          Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.msi" -OutFile $msi -MaximumRetryCount 5 -RetryIntervalSec 30   # GitHub answers this large download with a 504 now and then
           Start-Process msiexec -Wait -ArgumentList '/i', $msi, '/qn'
           & 'C:\Program Files\LLVM\bin\clang-cl.exe' --version
           'C:\Program Files\LLVM\bin' >> $env:GITHUB_PATH
