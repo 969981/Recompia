@@ -342,6 +342,7 @@ private:
     };
     void pack_open();                                                  // open(), lock_ held
     bool pack_read(const std::string& hash, std::string& out);         // any thread, no lock
+    bool pack_stale(const std::string& hash);                          // translated again since open(); takes loose_mu_
     bool read_spv(const std::string& hash, std::string& out);          // the pack, else <dir>/<hash>.spv
     void pack_prefetch();                                              // own thread
     void preload_done();                                               // the last preload worker as it ends
@@ -371,6 +372,7 @@ private:
     std::unordered_map<std::string, ArchiveEntry> archive_;            // set in open(), then read-only
     std::mutex loose_mu_;
     std::unordered_set<std::string> loose_;                            // archived hashes that also have a loose .spv (loose_mu_)
+    std::unordered_set<std::string> pack_stale_;                       // pack_ hashes translated again since open() (loose_mu_)
     std::atomic<uint64_t> from_archive_{0};
 
     std::mutex pre_mu_;

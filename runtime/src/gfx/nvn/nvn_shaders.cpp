@@ -1070,10 +1070,15 @@ void ShaderCache::pack_open() {
             stale ? (", " + std::to_string(stale) + " translated again since and read from their .spv files").c_str() : "");
 }
 
+bool ShaderCache::pack_stale(const std::string& hash) {
+    std::lock_guard lk(loose_mu_);
+    return pack_stale_.count(hash) != 0;
+}
+
 bool ShaderCache::pack_read(const std::string& hash, std::string& out) {
     if (!pack_file_) return false;
     auto it = pack_.find(hash);
-    if (it == pack_.end()) return false;
+    if (it == pack_.end() || pack_stale(hash)) return false;
     const PackEntry& e = it->second;
     thread_local std::string comp;
     comp.resize(e.csize);
@@ -1320,7 +1325,7 @@ void ShaderCache::pack_build(size_t missing) {
             }
             e.line_hash = fnv1a64(std::string_view(results_.data() + ln->second.first, ln->second.second));
         }
-        if (auto it = pack_.find(hash); it != pack_.end()) {          // still current in the old pack: its frame as it is
+        if (auto it = pack_.find(hash); it != pack_.end() && !pack_stale(hash)) {   // still current in the old pack: its frame as it is
             comp.resize(it->second.csize);
             if (!read_at(pack_file_, it->second.offset, comp.data(), it->second.csize)) {
                 skipped++;
@@ -1411,7 +1416,8 @@ bool ShaderCache::open(const std::string& dir) {
             }
         } else if (!line.empty()) {
             std::string hash(line.substr(0, line.find('\t')));
-            if (!hash.empty()) lines_.emplace(std::move(hash), std::make_pair(pos, end - pos));
+            // a shader translated again gets a second row (the launcher appends it): the last row is its current translation
+            if (!hash.empty()) lines_.insert_or_assign(std::move(hash), std::make_pair(pos, end - pos));
         }
         pos = next;
     }
@@ -1443,7 +1449,13 @@ size_t ShaderCache::rescan() {
         std::lock_guard lk(lock_);
         if (results_.size() != known) return 0;   // another rescan appended meanwhile: the next one reads from its end
         results_ += tail;
-        for (RowRef& r : rows) lines_.emplace(std::move(r.hash), std::make_pair(r.offset, r.length));
+        for (RowRef& r : rows) {
+            if (pack_.count(r.hash)) {   // translated again while the game runs: the pack's frame is the old translation
+                std::lock_guard lk2(loose_mu_);
+                pack_stale_.insert(r.hash);
+            }
+            lines_.insert_or_assign(std::move(r.hash), std::make_pair(r.offset, r.length));
+        }
         // Every miss that has a row now, not only the new rows' hashes: a find() that was loading when the row arrived may have
         // recorded its miss after the row was indexed.
         for (auto it = by_hash_.begin(); it != by_hash_.end();) {
