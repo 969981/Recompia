@@ -24,7 +24,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -53,6 +53,8 @@ pub const TRANSLATOR_REV: u32 = 2;
 /// The blocks whose translation revision 2 changes: every block of the 2.0.1 corpus whose SPIR-V differs between the
 /// translator before and after the #242 fix (tools/shaders/ampere/frontend/AmpereEmit.cs EmitLop3Ampere), one hash a line.
 const REV2_BLOCKS: &str = include_str!("rev2_blocks.txt");
+/// Threads for the stale-shader check (`stale_blocks`): it only reads small files, so the disk sets the pace, not the CPU.
+const STALE_SCAN_THREADS: usize = 8;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -170,36 +172,85 @@ pub fn needs_retranslation(game_dir: &Path) -> bool {
 /// module with an atomic instruction (OpAtomicExchange..OpAtomicXor, opcodes 229-242). Before 2: the blocks of REV2_BLOCKS,
 /// and every block the game built while it ran (not in `corpus`, so not in the list; a few hundred, among them the lighting
 /// shader that draws the #242 outline).
-fn stale_blocks(spirv: &Path, archive: &crate::shader_archive::Archive, rows: &[String], corpus: &HashSet<&str>, rev: u32) -> HashSet<String> {
+/// The rev < 1 check reads every translated shader (~99,000 files): on a hard drive with an antivirus scanning each file that
+/// took longer than players waited, with no progress shown (#269). So it runs on several threads, reports `progress(done, total)`
+/// and stops on `cancel` (None).
+fn stale_blocks(
+    spirv: &Path,
+    archive: &crate::shader_archive::Archive,
+    rows: &[String],
+    corpus: &HashSet<&str>,
+    rev: u32,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(u64, u64),
+) -> Option<HashSet<String>> {
     let mut out = HashSet::new();
     if rev >= TRANSLATOR_REV {
-        return out;
+        return Some(out);
     }
     if rev < 2 {
         let list: HashSet<&str> = REV2_BLOCKS.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
         out.extend(rows.iter().map(|r| first_col(r)).filter(|h| list.contains(h) || !corpus.contains(h)).map(str::to_string));
     }
-    for r in rows.iter().filter(|_| rev < 1) {
-        let h = first_col(r);
-        if out.contains(h) {
-            continue;
-        }
-        let Some(b) = crate::shader_archive::read_translation(spirv, archive, h) else { continue };
-        let w: Vec<u32> = b.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
-        let mut i = 5;
-        while i < w.len() {
-            let (wc, op) = ((w[i] >> 16) as usize, w[i] & 0xffff);
-            if wc == 0 {
-                break;
-            }
-            if (229..=242).contains(&op) {
-                out.insert(h.to_string());
-                break;
-            }
-            i += wc;
-        }
+    if rev >= 1 {
+        return Some(out);
     }
-    out
+    let todo: Vec<&str> = rows.iter().map(|r| first_col(r)).filter(|h| !out.contains(*h)).collect();
+    let total = todo.len() as u64;
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, STALE_SCAN_THREADS);
+    let per = todo.len().div_ceil(threads).max(1);
+    let (checked, running) = (AtomicU64::new(0), AtomicUsize::new(0));
+    let found: Vec<String> = std::thread::scope(|s| {
+        let parts: Vec<_> = todo
+            .chunks(per)
+            .map(|part| {
+                running.fetch_add(1, Ordering::SeqCst);
+                let (checked, running) = (&checked, &running);
+                s.spawn(move || {
+                    let mut hits = Vec::new();
+                    for h in part {
+                        if cancel.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        if crate::shader_archive::read_translation(spirv, archive, h).is_some_and(|b| has_atomic(&b)) {
+                            hits.push(h.to_string());
+                        }
+                        checked.fetch_add(1, Ordering::Relaxed);
+                    }
+                    running.fetch_sub(1, Ordering::SeqCst);
+                    hits
+                })
+            })
+            .collect();
+        while running.load(Ordering::SeqCst) > 0 {
+            progress(checked.load(Ordering::Relaxed), total);
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        parts.into_iter().flat_map(|p| p.join().unwrap_or_default()).collect()
+    });
+    if cancel.load(Ordering::SeqCst) {
+        return None;
+    }
+    progress(total, total);
+    out.extend(found);
+    Some(out)
+}
+
+/// True when the SPIR-V module has an atomic instruction (OpAtomicExchange..OpAtomicXor, opcodes 229-242).
+fn has_atomic(b: &[u8]) -> bool {
+    let w: Vec<u32> = b.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let mut i = 5;
+    while i < w.len() {
+        let (wc, op) = ((w[i] >> 16) as usize, w[i] & 0xffff);
+        if wc == 0 {
+            return false;
+        }
+        if (229..=242).contains(&op) {
+            return true;
+        }
+        i += wc;
+    }
+    false
 }
 
 fn quiet(cmd: &mut Command, idle: bool) {
@@ -584,7 +635,18 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     // game built while it ran (not in the corpus) lose their .spv, so translate_missing (prepare, after setup) does them.
     let archive = crate::shader_archive::Archive::open(&job.game_dir);
     let corpus_rows: HashSet<&str> = urows.iter().map(|r| first_col(r)).collect();
-    let stale = stale_blocks(&spirv, &archive, &rrows, &corpus_rows, marker.translator);
+    if marker.translator < TRANSLATOR_REV && !rrows.is_empty() {
+        report(p("recheck", 0, 0, "Checking the shaders an earlier version translated...".into()));
+        if let Some(l) = &job.log {
+            l(&format!("checking {} translated shaders for translator revision {} -> {}", rrows.len(), marker.translator, TRANSLATOR_REV));
+        }
+    }
+    // setup.log gets a line per 5% from the reports (main.rs), so a slow disk shows up there too
+    let Some(stale) = stale_blocks(&spirv, &archive, &rrows, &corpus_rows, marker.translator, cancel, |d, t| {
+        report(p("recheck", d, t, format!("Checking the shaders an earlier version translated: {} of {}", d, t)))
+    }) else {
+        return Ok(false);
+    };
     if !stale.is_empty() {
         let mut again = String::new();
         for h in &stale {

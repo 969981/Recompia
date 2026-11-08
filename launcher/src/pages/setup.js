@@ -15,10 +15,10 @@ const SETUP_BUSY = 'Setup is running. Pause it first.';
 const STEPS = ['Build game', 'Translate shaders', 'First run'];
 
 // phase -> [step, the step's percent at the phase's start, at its end]. The two phases that take the time get the room.
-// Phases: main.rs check, tools, warmup; pkp_build.py verify, lift, compile, link, finish; shaders.rs extract, translate.
+// Phases: main.rs check, tools, warmup; pkp_build.py verify, lift, compile, link, finish; shaders.rs extract, recheck, translate.
 const PHASES = {
   check: [0, 0, 0], tools: [0, 0, 5], verify: [0, 5, 10], lift: [0, 10, 25], compile: [0, 25, 95], link: [0, 95, 100], finish: [0, 100, 100],
-  extract: [1, 0, 5], translate: [1, 5, 100],
+  extract: [1, 0, 5], recheck: [1, 5, 10], translate: [1, 5, 100],
   warmup: [2, 0, 0],
 };
 
