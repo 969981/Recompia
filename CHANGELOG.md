@@ -21,6 +21,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
+- Added **Settings > About > Choose a version**, and a list of Testing builds when you join the Testing channel
+  - Before: Update only ever installed the newest build, and there was no way to read about a build before installing it or to go back
+  - Now: the list shows the builds of your channel (Testing builds and the normal releases on Testing, only releases on Stable), newest first, each with its notes. A newer one installs like an update. Going back to an older one asks first; a long way back (an older release line) shows a stronger warning with a box to tick before it can go on. The launcher first copies your save folder, `pkp.ini`, `controls.ini`, `profiles.json` and `launcher.json` to `rollback-backups` next to the game (the last three are kept), and stops without changing anything if that copy cannot be made. Joining Testing opens the list of Testing builds right away
 - Added a question when you switch the launcher to the Testing channel, and help for testers
   - Before: switching to Testing just switched, and nothing said what to do when something went wrong
   - Now: the launcher asks you to confirm, and says Testing builds can have bugs and that testers are expected to share what they find and their pkp.log. While on Testing, Settings > About has **Report a problem** and **Show pkp.log** buttons. Each Testing build's notes now list what to test and how to report, and the bug form asks which channel you were on
@@ -41,6 +44,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
+- **Going back one build** (only with a copy of your save folder): choose the build just before yours and read the question. Report: what the dialog said and whether the launcher restarted on the older build. Cancel is fine if you would rather not
+- **A long way back:** choose a much older release and read the warning. The button must stay off until you tick the box. Please cancel unless you have a spare install; report whether the warning was clear
 - **Mouse in menus:** open the pause menu and one more menu, move the mouse, click, scroll. A left click confirms the highlighted entry; the wheel and arrow keys move the highlight; the pointer does not pick. Report: what each did, and the lines in `pkp.log` that start with `play: menu pointer gate` and `menu:`
 - **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
 - **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
@@ -49,6 +55,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
+- Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
 - Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
 - The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
 - After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default. Use **Undo last repair** if the game runs worse

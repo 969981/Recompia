@@ -55,6 +55,11 @@ export function canUpdate(s) {
   return !!s.news?.update && !taskOf(s) && !gameActive(s) && !s.starting;
 }
 
+/** A build the player picked can be installed (no newer update needs to exist: it may be an older one). Nothing else is running. */
+export function canInstall(s) {
+  return !s.update && !taskOf(s) && !gameActive(s) && !s.starting;
+}
+
 /** Rust stops an update until files start to move; after that it must finish. */
 export const canCancelUpdate = (s) => ['download', 'verify', 'extract'].includes(s.update?.phase);
 

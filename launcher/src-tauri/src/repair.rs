@@ -26,7 +26,7 @@ const LAUNCHER_KEEP: [&str; 3] = ["dump_dir", "game_dir", "channel"];
 /// Files whose old copies updates set aside (`pkp_rt.dll.0.7.6`); the file with the plain name is the current one and is never listed.
 const VERSIONED: [&str; 4] = ["pkp_rt.dll", "PokopiaLauncher.AppImage", "pkp.exe", "PokopiaLauncher.exe"];
 /// Never a target of any action (a unit test checks that no plan names one).
-pub const PROTECTED: [&str; 9] = ["save", "profiles.json", "shader_cache", "build", "nup_dump", ".update", "tools", "pkp.exe", "pkp_rt.dll"];
+pub const PROTECTED: [&str; 11] = ["save", "save-backups", "rollback-backups", "profiles.json", "shader_cache", "build", "nup_dump", ".update", "tools", "pkp.exe", "pkp_rt.dll"];
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Root {

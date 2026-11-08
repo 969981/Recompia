@@ -9,6 +9,7 @@ import { askCompact, store } from '../store.js';
 import { canUpdate, gamePhase } from '../action.js';
 import { runRepair, runUndo } from './repair.js';
 import { askTesting } from './testing-notice.js';
+import { confirmBuild, loadBuilds, pickBuild } from './builds.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
   rowsOf, shownChoice, splitEdits, writeField, FIELDS,
@@ -370,7 +371,11 @@ export async function render(el, ctx) {
     if (f.guard === 'dlss' && ['dlss', 'dlaa'].includes(value) && !dlss?.present) return pickDlss(f, value);
     // joining Testing is a question first: what it means, and that a tester is expected to share findings and logs. Cancel keeps Stable.
     if (f.guard === 'testing' && value === 'testing' && readField(f, src) !== 'testing') {
-      return askTesting().then((yes) => (yes ? commit(f, value) : draw(true)));
+      return askTesting().then(async (yes) => {
+        if (!yes) return draw(true);
+        await commit(f, value);
+        await chooseBuild('testing', true);   // the Testing builds, right away: install one now or stay and update later
+      });
     }
     if (f.replaces) customOpen.clear();
     return commit(f, value);
@@ -398,6 +403,18 @@ export async function render(el, ctx) {
     }
     importing = false;
     draw();
+  }
+
+  /** The builds of a channel with their notes; installs the one the player picks, after the question an older build needs. */
+  async function chooseBuild(channel, join) {
+    const builds = await loadBuilds(channel, true);
+    const picked = await pickBuild(join
+      ? { title: 'Testing builds', intro: 'You are on the Testing channel now. Pick a build to install, or choose Not now and press Update when you want the newest one.', builds }
+      : { title: 'Choose a version', intro: channel === 'testing' ? 'Testing builds and the normal releases. Newer builds install like an update; an older one asks first.' : 'The releases you can install. A newer one installs like an update; an older one asks first.', builds, close: 'Close' });
+    if (!picked) return;
+    const ok = await confirmBuild(picked);
+    if (!ok) return;
+    await store.installVersion(picked.tag, channel, ok.accepted);
   }
 
   async function changeProfiles(cmd, args, done) {
@@ -505,6 +522,10 @@ export async function render(el, ctx) {
     update: () => store.installUpdate(),
     'clock-real': (id) => commit(FIELDS[id], 0),
     'open-url': (url) => api('open_release_url', { url }),
+    async 'builds-open'() {
+      await flush();
+      await chooseBuild(src.config.channel === 'testing' ? 'testing' : 'stable', false);
+    },
     'open-log': () => api('open_game_file', { name: 'pkp.log' }),
   };
 

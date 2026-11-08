@@ -2,7 +2,7 @@
 // and subscribes with ctx.on(fn). Long work is started here, not on a page, so it survives navigation.
 import { listen } from '@tauri-apps/api/event';
 import { api, confirm, errText, esc, icon, toast } from './ui.js';
-import { canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
+import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
@@ -219,6 +219,19 @@ export const store = {
     set({ update: { phase: 'download', done: 0, total: 0 }, updateError: null }, 'update');
     try {
       await api('install_update');
+    } catch (e) {
+      const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
+      set({ update: null, updateError }, 'update');
+      if (updateError) toast(updateError, 'error');
+    }
+  },
+
+  /** Installs the build the player picked (an older one only after the warning was accepted). Like installUpdate: on success Rust restarts. */
+  async installVersion(tag, channel, accepted) {
+    if (!canInstall(store.state)) return;
+    set({ update: { phase: 'download', done: 0, total: 0 }, updateError: null }, 'update');
+    try {
+      await api('install_version', { tag, channel, accepted });
     } catch (e) {
       const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
       set({ update: null, updateError }, 'update');
