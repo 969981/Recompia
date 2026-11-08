@@ -58,3 +58,9 @@
 .set-note .icon { flex: none; margin-top: 1px; }
 .set-note.ok .icon { color: var(--color-ok); }
 .set-note.danger .icon { color: var(--color-danger); }
+
+/* Repair and reset dialog */
+.repair-list { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.repair-choice { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
+.repair-choice input { margin-top: 3px; flex: none; }
+.repair-note { display: block; color: var(--color-text-2); font-size: var(--text-sm); font-weight: normal; }

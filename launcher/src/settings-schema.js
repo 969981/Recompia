@@ -521,6 +521,21 @@ export const SECTIONS = [
         ],
       },
       {
+        title: 'Troubleshooting',
+        rows: [
+          {
+            id: 'repair', label: 'Repair and reset', type: 'info',
+            value: 'Settings, caches and old copies. You see what changes first.',
+            actions: (env) => [{ act: 'repair-open', label: 'Repair and reset', icon: 'wrench', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
+          {
+            id: 'repair_undo', label: 'Undo last repair', type: 'info', when: (v, env) => !!env.repairBackup,
+            value: (env) => (env.repairBackup ? `Puts back ${env.repairBackup.files.join(', ')}` : ''),
+            actions: (env) => [{ act: 'repair-undo', label: 'Undo', icon: 'rotate-ccw', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
+        ],
+      },
+      {
         title: '',
         rows: [{
           id: 'legal', type: 'note',

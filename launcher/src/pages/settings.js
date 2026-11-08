@@ -7,6 +7,7 @@ import './settings.css';
 import { api, askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { askCompact, store } from '../store.js';
 import { canUpdate, gamePhase } from '../action.js';
+import { runRepair, runUndo } from './repair.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
   rowsOf, shownChoice, splitEdits, writeField, FIELDS,
@@ -36,6 +37,7 @@ export async function render(el, ctx) {
   let gameDir = dump.game_dir;
   let sources = [];
   let profiles = { active: 'default', profiles: [] };
+  let repairBackup = null;   // the last repair's backup (name, files), when Undo has something to put back
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
@@ -70,6 +72,7 @@ export async function render(el, ctx) {
       taskBusy: !!s.task || s.starting,
       saveSources: sources,
       profiles,
+      repairBackup,
       importing,
       importResult,
       dlssOffered: !!(dlss?.available || dlss?.present),
@@ -464,6 +467,28 @@ export async function render(el, ctx) {
       if (yes) await store.expandShaders();
     },
     'stop-repack': () => store.cancelRepack(),
+    async 'repair-open'() {
+      await flush();
+      const r = await runRepair();
+      if (!r) return;
+      if (r.launcher) {
+        try { localStorage.removeItem('theme'); localStorage.removeItem('pkp.linkplay'); } catch { /* nothing to clear */ }
+        location.reload();
+        return;
+      }
+      repairBackup = await api('repair_last').catch(() => null);
+      await reload().catch((e) => console.error(e));
+      draw();
+    },
+    async 'repair-undo'() {
+      await flush();
+      if (await runUndo(repairBackup)) {
+        repairBackup = await api('repair_last').catch(() => null);
+        await reload().catch((e) => console.error(e));
+        toast('Reload the launcher (close and open it) to use the restored launcher settings', 'ok');
+      }
+      draw();
+    },
     async 'check-updates'() {
       checking = true;
       draw();
@@ -547,6 +572,10 @@ export async function render(el, ctx) {
     profiles = list;
     draw();
   }).catch((e) => console.warn('profiles_list', e));
+  api('repair_last').then((info) => {
+    repairBackup = info;
+    draw();
+  }).catch((e) => console.warn('repair_last', e));
   api('save_sources').then((list) => {
     sources = list;
     draw();

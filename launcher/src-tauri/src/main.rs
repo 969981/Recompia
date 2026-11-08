@@ -14,6 +14,7 @@ mod profiles;
 mod preflight;
 mod public_ip;
 mod relay;
+mod repair;
 mod saveimport;
 mod settings;
 mod setuplog;
@@ -921,6 +922,48 @@ fn import_save(app: AppHandle, state: State<play::PlayState>, source: Option<Str
     saveimport::import(&sd, &key, &src)
 }
 
+/// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
+/// updates to be idle. Returns the game folder and the launcher's own settings folder, the only two places a repair may touch.
+fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let cfg = config_path(app)?.parent().map(Path::to_path_buf).ok_or("The launcher settings folder is not known.")?;
+    Ok((game_dir_of(&load_config(app)), cfg))
+}
+
+fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<SetupState>) -> Result<(PathBuf, PathBuf), String> {
+    if play.0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then repair.".into());
+    }
+    refuse_during_update(app)?;
+    if setup.progress.lock().unwrap().state == "running" {
+        return Err("Setup is running. Wait for it to finish, then repair.".into());
+    }
+    repair_paths(app)
+}
+
+#[tauri::command]
+fn repair_plan(app: AppHandle, actions: Vec<String>) -> Result<repair::Plan, String> {
+    let (game, cfg) = repair_paths(&app)?;
+    repair::plan(&game, &cfg, &actions)
+}
+
+#[tauri::command]
+fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>, actions: Vec<String>) -> Result<repair::Report, String> {
+    let (game, cfg) = repair_guard(&app, &play, &setup)?;
+    repair::apply(&game, &cfg, &actions)
+}
+
+#[tauri::command]
+fn repair_undo(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>) -> Result<repair::Report, String> {
+    let (game, cfg) = repair_guard(&app, &play, &setup)?;
+    repair::undo(&game, &cfg)
+}
+
+#[tauri::command]
+fn repair_last(app: AppHandle) -> Result<Option<repair::BackupInfo>, String> {
+    let (game, _) = repair_paths(&app)?;
+    Ok(repair::last_backup(&game))
+}
+
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
 fn profiles_list(app: AppHandle) -> profiles::Store {
@@ -1335,6 +1378,10 @@ fn main() {
             profile_rename,
             profile_remove,
             profile_select,
+            repair_plan,
+            repair_apply,
+            repair_undo,
+            repair_last,
             open_game_file,
             open_game_dir,
             relay_start,
