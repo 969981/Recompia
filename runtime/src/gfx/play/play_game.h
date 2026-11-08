@@ -103,5 +103,6 @@ const GamePlay* game_play();         // the registered game's table, or nullptr
 // For settings shown in the game's own menus. Thread safe; the same path as the F1 page (applied at the next frame, written to the file).
 Settings current_settings();
 void apply_settings(const Settings& s);
+uint64_t game_menu_edits();          // how many times apply_settings ran: the F1 page reloads its working copy when this moves
 
 }  // namespace nxrt::play
