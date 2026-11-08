@@ -12,7 +12,7 @@ if (-not (Test-Path "$tp\bc7enc_rdo")) {
 }
 if (-not (Test-Path "$tp\ispc\ispc-v1.32.0-windows\bin\ispc.exe")) {
     $zip = Join-Path $env:TEMP 'ispc-v1.32.0-windows.zip'
-    curl.exe -L -o $zip https://github.com/ispc/ispc/releases/download/v1.32.0/ispc-v1.32.0-windows.zip
+    curl.exe -fL --retry 5 --retry-delay 20 --retry-all-errors -o $zip https://github.com/ispc/ispc/releases/download/v1.32.0/ispc-v1.32.0-windows.zip
     $h = (Get-FileHash $zip -Algorithm SHA256).Hash
     if ($h -ne '148D5CD96ABE7501C730D5FBD00F1F0C893B96BFEADA38D1811C9B6251E86A5C') { throw "ispc zip hash mismatch: $h" }
     Expand-Archive $zip "$tp\ispc"
