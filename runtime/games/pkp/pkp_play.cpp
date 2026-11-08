@@ -136,6 +136,10 @@ struct State {
     std::atomic<uint64_t> vp_shapes[16]{};   // distinct scissor sizes the viewport stretch has touched (logged once each)
     std::atomic<uint32_t> vp_shape_n{0};
     std::atomic<float> last_mult{1.f};
+    // #275: the game thread's average frame time (EMA of the frame multiplier hook's s8) and whether that is above 60 fps; only then do
+    // frames shorter than 1/60 s get a fractional step (hook_frame_multiplier, hook_fixed_step_rate)
+    float avg_dt = 1.f / 60.f;
+    std::atomic<bool> above60{false};
     // hook_tween_step: per tween object, the counter and step seen last time and the carried fraction of a 60 Hz frame
     struct TweenAcc { uint64_t obj = 0; uint32_t last = 0, step = 0; float acc = 0.f; };
     std::mutex tween_mu;
@@ -696,8 +700,15 @@ int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
     movie_test_frame(c);   // [test] movie (pkp_movie_test.cpp)
     if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
     const float dt = c->v[8].f32[0];
+    // #275: only while the game really runs above 60 fps. At 60 fps or less (a 60 Hz display with vsync, a cap of 60 or lower) every frame
+    // stays on screen a whole refresh or more, and a frame that ran short (the one after a late frame, or one let through early by the
+    // present's back pressure) moved the world by less than the time it is shown: walking and camera turns lurched about once a second at
+    // a steady 60 fps, and constantly with the limit off and vsync on. The retail rule is right there. Hysteresis: on above 64, off below 62.
+    if (dt > 0.f) s.avg_dt += (std::min(dt, 0.1f) - s.avg_dt) * 0.0625f;   // about 16 frames
+    const bool above = s.avg_dt < (s.above60.load(std::memory_order_relaxed) ? 1.f / 62.f : 1.f / 64.f);
+    s.above60.store(above, std::memory_order_relaxed);
     // the game's own rule keeps 1.0 within 1.5 ms of 1/60 s; only shorter frames change
-    if (dt > 0.f && dt < (1.f / 60.f - 0.0015152f)) {
+    if (above && dt > 0.f && dt < (1.f / 60.f - 0.0015152f)) {
         const float m = std::max(dt * 60.f, 0.125f);
         c->v[0].f32[0] = m;
         s.last_mult.store(m, std::memory_order_relaxed);
@@ -750,11 +761,11 @@ int hook_sync_period(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-// fixed-step frame time 1 / 60: frames shorter than 1/60 s get their measured rate
+// fixed-step frame time 1 / 60: frames shorter than 1/60 s get their measured rate, while the game runs above 60 fps
 int hook_fixed_step_rate(::Ctx* c, uint64_t, void*) {
     State& s = st();
     s.fixed_calls.fetch_add(1, std::memory_order_relaxed);
-    if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
+    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed)) return 0;   // #275: see hook_frame_multiplier
     const uint64_t now = c->x[28], prev = c->x[25];
     const double freq = c->v[8].f64[0];
     if (now <= prev || freq <= 0) return 0;

@@ -11,8 +11,12 @@ of the game (version 2.0.1a): the download contains no game files.
 ### Highlights
 - Fixed the dashed outline missing around the tiles a move like Rock Smash or Water Gun will hit (#242)
 - Fixed a shader translation mistake in about a third of the game's shaders
+- Fixed walking and camera turns juddering at a steady 60 fps (#275)
 
 ### Graphics
+- Fixed walking and camera turns juddering about once a second at 60 fps or less, and constantly with the frame limit off and vsync on (#275)
+  - Cause: the fix that keeps the game from running fast above 60 fps also shortened the step of any frame that ran short at 60 fps, such as the frame right after a late one. That frame still stays on screen for a full refresh, so movement lurched
+  - Now: shorter steps apply only while the game runs above 60 fps (average over about 16 frames); at 60 fps or less the game's own rule is kept
 - Windows on a small integrated GPU (including the ROG Ally): graphics-pool memory now uses the bounded cache already used under Wine, instead of keeping every imported chunk until Vulkan runs out of device memory and the picture freezes (#234)
 - Fixed the dashed white outline missing around move target tiles and the block placement indicator; only the faint tint showed (#242, #120)
 - Fixed one common shader instruction being translated wrongly in 32,630 of about 99,000 shaders
