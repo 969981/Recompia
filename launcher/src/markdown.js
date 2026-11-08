@@ -136,10 +136,35 @@ function blockHtml(b) {
  * Markdown to HTML, safe to assign to innerHTML. `title`: the version the page already shows as the note's title; a first
  * heading that repeats it is left out.
  */
-export function render(md, { title = '' } = {}) {
+export function render(md, { title = '', warn = false } = {}) {
   const blocks = parse(md);
   if (title && blocks[0]?.type === 'heading' && blocks[0].text.includes(title)) blocks.shift();
-  return blocks.map(blockHtml).join('\n');
+  if (!warn) return blocks.map(blockHtml).join('\n');
+  // Testing notes: a "Regressions and known problems" section is drawn as a highlighted block at the top of the note
+  const [top, flagged, rest] = [[], [], []];
+  let into = top;
+  for (const b of blocks) {
+    if (b.type === 'heading') into = WARN_HEADING.test(b.text.trim()) ? flagged : rest;
+    into.push(b);
+  }
+  const box = flagged.length ? `<section class="md-warn">${flagged.map(blockHtml).join('\n')}</section>` : '';
+  return [box, ...[...top, ...rest].map(blockHtml)].filter(Boolean).join('\n');
+}
+
+/** The headings the launcher flags in a Testing note. */
+export const WARN_HEADING = /^(regressions|known problems)\b/i;
+
+/**
+ * The raw markdown of one section: its heading line and everything up to the next heading (any `##`, `###` or `####`), or ''.
+ * `name` is matched against the heading text, case-insensitively, at the start.
+ */
+export function section(md, name) {
+  const lines = String(md ?? '').split(/\r?\n/);
+  const at = lines.findIndex((l) => /^#{2,4}\s/.test(l) && new RegExp(`^${name}`, 'i').test(l.replace(/^#+\s+/, '').trim()));
+  if (at < 0) return '';
+  let end = lines.findIndex((l, i) => i > at && /^#{2,4}\s/.test(l));
+  if (end < 0) end = lines.length;
+  return lines.slice(at, end).join('\n').trim();
 }
 
 /** Text with the markup taken off, for a one-line preview. Not escaped: it goes through esc() like any other text. */

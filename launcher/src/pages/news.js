@@ -5,10 +5,17 @@ import { api, errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canUpdate } from '../action.js';
 import { formatDate, isNewer, parseReleaseName, render as renderNote } from '../markdown.js';
+import { groups } from '../testing-log.js';
 
 const isGithub = (url) => /^https:\/\/github\.com\//.test(url ?? '');
 
 function item(r, s) {
+  if (r.virtual) {
+    return `<button class="note-item" data-tag="${esc(r.tag)}">
+    <span class="note-item-title clip"><strong>${esc(r.name)}</strong></span>
+    <span class="note-item-sub">${r.count} Testing build${r.count === 1 ? '' : 's'}<span class="note-mark">Testing</span></span>
+  </button>`;
+  }
   const { version, build } = parseReleaseName(r.name, r.tag);
   const date = formatDate(r.date);
   const mark = s.news.update?.tag === r.tag ? '<span class="note-mark new">Update</span>'
@@ -20,6 +27,12 @@ function item(r, s) {
 }
 
 function noteHead(r, s) {
+  if (r.virtual) {
+    return `<div class="grow">
+      <h1>${esc(r.name)}</h1>
+      <time>Every Testing build since the last stable release, newest first</time>
+    </div>`;
+  }
   const { version, build } = parseReleaseName(r.name, r.tag);
   const date = formatDate(r.date, 'long');
   const newer = s.news.update && isNewer(version, s.app?.version);
@@ -34,6 +47,18 @@ function noteHead(r, s) {
     </div>
     ${open}${action}`;
 }
+
+const BANNER = 'A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log.';
+
+/** A note's body. Testing notes (and the overview) get their regressions as a highlighted block at the top, and a banner. */
+function noteBody(r) {
+  const { version } = parseReleaseName(r.name, r.tag);
+  if (r.virtual) return renderNote(r.body, { warn: true });
+  if (!r.prerelease) return renderNote(r.body, { title: version });
+  return `<p class="md-banner">${icon('triangle-alert')}<span>${esc(BANNER)}</span></p>\n${renderNote(r.body, { title: version, warn: true })}`;
+}
+
+const groupHtml = (g, s) => `${g.label ? `<div class="note-group">${esc(g.label)}</div>` : ''}${g.items.map((x) => item(x, s)).join('')}`;
 
 export function render(el, ctx) {
   el.innerHTML = `<div class="page news-page">
@@ -80,13 +105,14 @@ export function render(el, ctx) {
     part('empty').hidden = !!list.length || checking;
     if (!list.length) return;
 
-    const r = list.find((x) => x.tag === tag) ?? list[0];
+    const grouped = groups(list);
+    const r = grouped.flatMap((g) => g.items).find((x) => x.tag === tag) ?? list[0];
     const changed = r.tag !== shown;
     if (shown && changed) places.set(shown, part('note').scrollTop);
     shown = r.tag;
-    patch(part('list'), list.map((x) => item(x, s)).join(''));
+    patch(part('list'), grouped.map((g) => groupHtml(g, s)).join(''));
     patch(part('head'), noteHead(r, s));
-    patch(part('body'), renderNote(r.body, { title: parseReleaseName(r.name, r.tag).version }));
+    patch(part('body'), noteBody(r));
     markSelected(changed);
     if (changed) part('note').scrollTop = places.get(r.tag) ?? 0;
   }

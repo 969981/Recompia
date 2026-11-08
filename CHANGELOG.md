@@ -12,9 +12,16 @@ of the game (version 2.0.1a): the download contains no game files.
 - Added **Settings > About > Repair and reset** for when a setting or a leftover file causes trouble
   - Before: the only fix was to edit pkp.ini by hand or delete files
   - Now: choose what to fix (game settings, controls, launcher settings, caches, old copies of the runtime and launcher). You see the list of files before anything changes, and a copy of the changed settings files is kept, so **Undo last repair** puts them back. Your saves, profiles, shaders and game files are never touched
+- Added a Testing changelog to **What's New** for players on the Testing channel
+  - Before: Testing builds were listed among the releases, each with the whole pending change list
+  - Now: a **Testing** group with **All Testing changes** (every Testing build since the last stable release, newest first), what changed in each build, and its regressions and known problems as a highlighted block at the top. Stable players see no change
 - Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
   - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
+
+### Regressions and known problems
+- Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
+- The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
 
 ## 0.8.0 (build L: Lykoi)
 

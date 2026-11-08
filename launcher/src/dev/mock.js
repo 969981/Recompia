@@ -12,6 +12,20 @@ const DUMP = { path: 'D:/Dumps/Pokopia/updates/2.0.1a', kind: 'update', version:
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const RELEASE_BODIES = {
+  'v0.8.1-beta.2': `### Regressions and known problems
+- The new Repair and reset dialog has only been tried on the dev mock and in unit tests so far
+- The launcher lag fix was measured on NVIDIA with Linux only
+
+### Changes in this build
+- #291 Launcher: Repair and reset (settings, caches, old copies) with a preview and Undo
+
+### Launcher
+- Added **Settings > About > Repair and reset**`,
+  'v0.8.1-beta.1': `### Changes in this build
+- #289 Launcher: fix the lag on Linux with NVIDIA (Testing build)
+
+### Launcher
+- Fixed the launcher feeling slow on Linux with an NVIDIA card`,
   'v0.7.0': `Extract it over your 0.6.x install, then run **Set up again** once: the game code and the shader translator changed. The launcher asks for it. Link Play builds from before this one cannot join this one, so update together.
 
 ### Highlights
@@ -277,7 +291,7 @@ function handle(cmd, args) {
       return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
     case 'setup_status': return structuredClone(setup);
     case 'game_status': return game;
-    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (build K: Test)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };
+    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.2', 'Pokopia Recomp 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };
     case 'install_update': return runUpdate();
     case 'cancel_update': return updateStop?.();
     case 'play': return runPlay();

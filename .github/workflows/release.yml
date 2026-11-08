@@ -200,6 +200,26 @@ jobs:
           if ($m.Success) { $m.Groups[1].Value.Trim() | Set-Content build/notes.md }
           elseif ($env:PRERELEASE -eq 'true') { "A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing." | Set-Content build/notes.md }
           else { throw "CHANGELOG.md has no section '## $env:VERSION'" }
+          if ($env:PRERELEASE -eq 'true') {   # a Testing build lists what was merged into testing since the previous release; a failure here never blocks the release
+            try {
+              $prev = gh release list --limit 1 --json tagName --jq '.[0].tagName'
+              if ($prev) {
+                git fetch --quiet --unshallow origin 2>$null
+                git fetch --quiet origin "+refs/tags/${prev}:refs/tags/${prev}"
+                $changes = @()
+                foreach ($h in (git log --merges --format='%H' "$prev..HEAD")) {
+                  $subject = git show -s --format='%s' $h
+                  $title = git show -s --format='%b' $h | Where-Object { $_.Trim() } | Select-Object -First 1
+                  $n = [regex]::Match($subject, '#(\d+)').Groups[1].Value
+                  if ($n -and $title) { $changes += "- #$n $($title.Trim())" }
+                }
+                if ($changes.Count) {
+                  $body = Get-Content -Raw build/notes.md
+                  ("### Changes in this build`n" + ($changes -join "`n") + "`n`n" + $body) | Set-Content build/notes.md
+                }
+              }
+            } catch { Write-Host "Changes in this build: skipped ($_)" }
+          }
           $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
           $title = "Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } elseif ($env:PRERELEASE -eq 'true') { " (Testing)" } else { "" })
           if ($env:PRERELEASE -eq 'true') {
