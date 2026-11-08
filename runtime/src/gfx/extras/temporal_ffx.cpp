@@ -108,8 +108,9 @@ public:
 
     bool evaluate(VkCommandBuffer cb, const TemporalFrame& f) override {
         if (failed_) return false;
-        if (!ctx_ || f.render.width > max_render_.width || f.render.height > max_render_.height || f.out.width != max_out_.width || f.out.height != max_out_.height) {
-            if (!make(f.render, f.out)) {
+        if (!ctx_ || f.render.width > max_render_.width || f.render.height > max_render_.height || f.out.width != max_out_.width || f.out.height != max_out_.height ||
+            f.depth_inverted != depth_inverted_) {
+            if (!make(f.render, f.out, f.depth_inverted)) {
                 failed_ = true;
                 return false;
             }
@@ -144,7 +145,7 @@ public:
     }
 
 private:
-    bool make(VkExtent2D render, VkExtent2D out) {
+    bool make(VkExtent2D render, VkExtent2D out, bool depth_inverted) {
         if (ctx_) {
             dev_->wait_idle();
             destroy_(&ctx_, nullptr);
@@ -158,7 +159,8 @@ private:
         ffxCreateContextDescUpscale cd = {};
         cd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
         cd.header.pNext = &be.header;
-        cd.flags = FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE | FFX_UPSCALE_ENABLE_DEPTH_INVERTED | FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
+        cd.flags = FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE | FFX_UPSCALE_ENABLE_AUTO_EXPOSURE |
+                   (depth_inverted ? FFX_UPSCALE_ENABLE_DEPTH_INVERTED : 0);
         cd.maxRenderSize = {render.width, render.height};
         cd.maxUpscaleSize = {out.width, out.height};
         cd.fpMessage = &on_message;
@@ -180,10 +182,12 @@ private:
         }
         max_render_ = render;
         max_out_ = out;
+        depth_inverted_ = depth_inverted;
         ffxQueryGetProviderVersion pv = {};
         pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
         if (query_(&ctx_, &pv.header) == FFX_API_RETURN_OK && pv.versionName) version_ = std::string("FSR ") + pv.versionName;
-        NXLOG_I(kTag, "context made: %s, %ux%u -> %ux%u, HDR, inverted depth, auto exposure", name(), render.width, render.height, out.width, out.height);
+        NXLOG_I(kTag, "context made: %s, %ux%u -> %ux%u, HDR, %s depth, auto exposure", name(), render.width, render.height, out.width, out.height,
+                depth_inverted ? "inverted" : "forward");
         return true;
     }
 
@@ -195,6 +199,7 @@ private:
     PfnFfxDispatch dispatch_ = nullptr;
     ffxContext ctx_ = nullptr;
     VkExtent2D max_render_ = {}, max_out_ = {};
+    bool depth_inverted_ = false;
     std::string version_;
     bool failed_ = false;
 };

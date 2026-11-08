@@ -136,7 +136,7 @@ struct State {
     double phase_seen[32][2] = {};
     std::chrono::steady_clock::time_point last_eval{};
     UpscaleMode last_mode = UpscaleMode::Off;
-    VkExtent2D last_render = {}, last_out = {};
+    VkExtent2D max_render = {}, last_out = {};
     // GPU objects
     gfx::Device* dev = nullptr;
     bool init_tried = false, init_ok = false;
@@ -156,6 +156,7 @@ State& st() {
 }
 
 std::atomic<float> g_game_jit_x{0.0f}, g_game_jit_y{0.0f};
+std::atomic<uint32_t> g_jitter_phase_count{8};
 
 struct Push {
     float reproj[16];
@@ -291,6 +292,8 @@ void temporal_note_game_jitter(float x_ndc, float y_ndc) {
 
 bool temporal_wanted() { return upscale_temporal(); }
 
+uint32_t temporal_jitter_phase_count() { return g_jitter_phase_count.load(std::memory_order_relaxed); }
+
 namespace {
 double radical_inverse(uint32_t i, uint32_t base) {
     double f = 1.0, r = 0.0;
@@ -303,14 +306,16 @@ double radical_inverse(uint32_t i, uint32_t base) {
 }
 }  // namespace
 
-// The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases, +-0.5 px.
+// The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases at native
+// size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px.
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
     if (mode == 0 || !words || n_words < 68 || width < 16 || height < 16) return false;
     Camera c;
     if (!parse_camera(words, n_words, c)) return false;
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
-    const uint32_t idx = static_cast<uint32_t>(frame % 8) + 1;
+    const uint32_t phases = temporal_jitter_phase_count();
+    const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
     const double jx = (2.0 * radical_inverse(idx, 2) - 1.0) / width, jy = (2.0 * radical_inverse(idx, 3) - 1.0) / height;
     float f[16];
     std::memcpy(f, words, sizeof f);
@@ -321,8 +326,8 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
     std::memcpy(words, f, sizeof f);
     static std::atomic<bool> logged{false};
     if (!logged.exchange(true))
-        NXLOG_I(kTag, "jitter injected into the scene camera (Halton 2/3, 8 phases, %ux%u): first %+.4f %+.4f px", width, height, jx * width * 0.5,
-                -jy * height * 0.5);
+        NXLOG_I(kTag, "jitter injected into the scene camera (Halton 2/3, %u phases, %ux%u): first %+.4f %+.4f px", phases, width, height,
+                jx * width * 0.5, -jy * height * 0.5);
     return true;
 }
 
@@ -368,6 +373,9 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     const Camera cur = s.cam;
     s.have_cam = false;   // the next frame needs its own
     if (!gfx_device || !color || !depth || !render.width || !render.height || !out.width || !out.height) return VK_NULL_HANDLE;
+    // Jitter is injected before this evaluation, so this ratio applies from the next frame. Both backends use the same phase count.
+    const double ratio = std::clamp(static_cast<double>(out.width) / render.width, 1.0, 3.0);
+    g_jitter_phase_count.store(std::min(64u, static_cast<uint32_t>(std::ceil(8.0 * ratio * ratio))), std::memory_order_relaxed);
     gfx::Device& dev = *static_cast<gfx::Device*>(gfx_device);
     if (!init_gpu(s, dev)) {
         if (!s.logged_backend_fail) {
@@ -410,15 +418,19 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         }
     }
 
-    // history: reset on the first frame, size or mode change and camera cuts
-    bool reset = !s.have_prev || mode != s.last_mode || render.width != s.last_render.width || render.height != s.last_render.height ||
+    // history: reset on the first frame, an output/mode change, a render size beyond the backend's capacity, or a camera cut. Dynamic-resolution
+    // changes within the largest render size already given to the backend keep their history.
+    bool reset = !s.have_prev || mode != s.last_mode || render.width > s.max_render.width || render.height > s.max_render.height ||
                  out.width != s.last_out.width || out.height != s.last_out.height;
     const auto now = std::chrono::steady_clock::now();
     double ms = s.evaluations ? std::chrono::duration<double, std::milli>(now - s.last_eval).count() : 16.7;
     if (ms > 250.0) reset = true;   // the scene was not drawn for a while (menus, loading)
     if (s.have_prev) {
         const double dot = cur.fwd[0] * s.prev.fwd[0] + cur.fwd[1] * s.prev.fwd[1] + cur.fwd[2] * s.prev.fwd[2];
-        if (dot < 0.9) reset = true;
+        const double dx = cur.pos[0] - s.prev.pos[0], dy = cur.pos[1] - s.prev.pos[1], dz = cur.pos[2] - s.prev.pos[2];
+        // A teleport can keep the same facing. Allow ordinary fast movement: the cut threshold is 250 world units per second, at least 1 unit.
+        const double jump = std::max(1.0, ms * 0.25);
+        if (dot < 0.9 || dx * dx + dy * dy + dz * dz > jump * jump) reset = true;
     }
     const Camera& prev = reset ? cur : s.prev;
     M4 inv_cur_j, inv_cur_u, inv_prev_u, inv_proj;
@@ -493,6 +505,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     const double a32 = std::fabs(cur.p32);
     auto ndc_at = [&](double t) { return (cur.p22 * cur.zsgn * t + cur.p23) / (a32 * t); };
     const bool inverted = ndc_at(1.0) > ndc_at(1000.0);
+    f.depth_inverted = inverted;
     const double z_near_ndc = inverted ? 1.0 : (depth_neg_one ? -1.0 : 0.0), z_far_ndc = inverted ? (depth_neg_one ? -1.0 : 0.0) : 1.0;
     auto dist_at = [&](double z) {
         const double den = z * a32 - cur.p22 * cur.zsgn;
@@ -534,7 +547,8 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     s.last_jit_px[1] = jpy;
     s.last_eval = now;
     s.last_mode = mode;
-    s.last_render = render;
+    s.max_render.width = std::max(s.max_render.width, render.width);
+    s.max_render.height = std::max(s.max_render.height, render.height);
     s.last_out = out;
     s.prev = cur;
     s.have_prev = true;
