@@ -11,7 +11,7 @@ of the game (version 2.0.1a): the download contains no game files.
 ### Launcher
 - Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
   - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
-  - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change went from 81 ms to 34 ms
+  - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ## 0.8.0 (build L: Lykoi)
 
