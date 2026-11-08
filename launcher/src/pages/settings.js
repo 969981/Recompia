@@ -8,6 +8,7 @@ import { api, askText, confirm, errText, esc, field, group, icon, row, segmented
 import { askCompact, store } from '../store.js';
 import { canUpdate, gamePhase } from '../action.js';
 import { runRepair, runUndo } from './repair.js';
+import { askTesting } from './testing-notice.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
   rowsOf, shownChoice, splitEdits, writeField, FIELDS,
@@ -367,6 +368,10 @@ export async function render(el, ctx) {
       customOpen.delete(f.id);
     }
     if (f.guard === 'dlss' && ['dlss', 'dlaa'].includes(value) && !dlss?.present) return pickDlss(f, value);
+    // joining Testing is a question first: what it means, and that a tester is expected to share findings and logs. Cancel keeps Stable.
+    if (f.guard === 'testing' && value === 'testing' && readField(f, src) !== 'testing') {
+      return askTesting().then((yes) => (yes ? commit(f, value) : draw(true)));
+    }
     if (f.replaces) customOpen.clear();
     return commit(f, value);
   }
@@ -500,6 +505,7 @@ export async function render(el, ctx) {
     update: () => store.installUpdate(),
     'clock-real': (id) => commit(FIELDS[id], 0),
     'open-url': (url) => api('open_release_url', { url }),
+    'open-log': () => api('open_game_file', { name: 'pkp.log' }),
   };
 
   // ---- the page -----------------------------------------------------------------------------------------------------------------

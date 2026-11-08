@@ -9,6 +9,9 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update** in the launcher. If you come from 0.7.9 or older, run **Set up again** once when the launcher asks (0.8.0 changed the game build); from 0.8.0 on no Set up again is needed.
 
 ### Launcher
+- Added a question when you switch the launcher to the Testing channel, and help for testers
+  - Before: switching to Testing just switched, and nothing said what to do when something went wrong
+  - Now: the launcher asks you to confirm, and says Testing builds can have bugs and that testers are expected to share what they find and their pkp.log. While on Testing, Settings > About has **Report a problem** and **Show pkp.log** buttons. Each Testing build's notes now list what to test and how to report, and the bug form asks which channel you were on
 - Fixed a start from a shortcut (Steam, Sunshine) ignoring a profile problem
   - Before: if the launcher could not write the chosen profile into pkp.ini, a start with `--play` carried on anyway and the game could open another player's save
   - Now: that start stops with a message, like Play in the launcher window
@@ -25,9 +28,17 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
+### What to test
+- **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
+- **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
+- **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
+- **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
+
 ### Regressions and known problems
 - Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
 - The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
+- After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default. Use **Undo last repair** if the game runs worse
+- After **Clear caches** the first start builds the pipeline cache again and can stutter once
 
 ## 0.8.0 (build L: Lykoi)
 

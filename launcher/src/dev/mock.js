@@ -16,6 +16,10 @@ const RELEASE_BODIES = {
 - The new Repair and reset dialog has only been tried on the dev mock and in unit tests so far
 - The launcher lag fix was measured on NVIDIA with Linux only
 
+### What to test
+- **Repair and reset:** try each choice, then Undo. Report: which choice, what the list showed, any error words
+- **Launcher speed:** change pages for a minute. Report: smooth or laggy, your graphics card
+
 ### Changes in this build
 - #291 Launcher: Repair and reset (settings, caches, old copies) with a preview and Undo
 

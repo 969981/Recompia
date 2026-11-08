@@ -141,18 +141,20 @@ export function render(md, { title = '', warn = false } = {}) {
   if (title && blocks[0]?.type === 'heading' && blocks[0].text.includes(title)) blocks.shift();
   if (!warn) return blocks.map(blockHtml).join('\n');
   // Testing notes: a "Regressions and known problems" section is drawn as a highlighted block at the top of the note
-  const [top, flagged, rest] = [[], [], []];
+  const [top, flagged, asked, rest] = [[], [], [], []];
   let into = top;
   for (const b of blocks) {
-    if (b.type === 'heading') into = WARN_HEADING.test(b.text.trim()) ? flagged : rest;
+    if (b.type === 'heading') into = WARN_HEADING.test(b.text.trim()) ? flagged : TEST_HEADING.test(b.text.trim()) ? asked : rest;
     into.push(b);
   }
-  const box = flagged.length ? `<section class="md-warn">${flagged.map(blockHtml).join('\n')}</section>` : '';
-  return [box, ...[...top, ...rest].map(blockHtml)].filter(Boolean).join('\n');
+  const box = (cls, list) => (list.length ? `<section class="${cls}">${list.map(blockHtml).join('\n')}</section>` : '');
+  return [box('md-warn', flagged), box('md-test', asked), ...[...top, ...rest].map(blockHtml)].filter(Boolean).join('\n');
 }
 
 /** The headings the launcher flags in a Testing note. */
 export const WARN_HEADING = /^(regressions|known problems)\b/i;
+/** The section that tells a tester what to try in this build. */
+export const TEST_HEADING = /^what to test\b/i;
 
 /**
  * The raw markdown of one section: its heading line and everything up to the next heading (any `##`, `###` or `####`), or ''.

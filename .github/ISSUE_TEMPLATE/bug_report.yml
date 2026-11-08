@@ -37,6 +37,16 @@ body:
         - Other Linux (Proton)
     validations:
       required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Update channel
+      description: Settings > About in the launcher. Testing builds come from the testing branch; please say which one you were on.
+      options:
+        - Stable
+        - Testing
+    validations:
+      required: true
   - type: input
     id: system
     attributes:

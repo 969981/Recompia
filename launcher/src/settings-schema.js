@@ -498,13 +498,21 @@ export const SECTIONS = [
         rows: [
           { id: 'version', label: 'Version', type: 'info', value: (env) => env.version, selectable: true },
           {
-            id: 'channel', label: 'Update channel', type: 'select', at: config('channel'), def: 'stable',
+            id: 'channel', label: 'Update channel', type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
             lock: (env) => env.updating || env.gameBusy,
             options: [{ value: 'stable', label: 'Stable' }, { value: 'testing', label: 'Testing' }],
           },
           {
             id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: 'Testing builds come first and may have bugs. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page. If something breaks, please report it on GitHub with pkp.log and say you were on Testing.' }),
+            note: () => ({ text: 'Testing builds come first and may have bugs. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.' }),
+          },
+          {
+            id: 'testing_help', label: 'Testing help', type: 'info', when: (v) => v.channel === 'testing',
+            value: 'What to test is listed with each Testing build in What\'s New.',
+            actions: () => [
+              { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: 'Report a problem', icon: 'external-link' },
+              { act: 'open-log', label: 'Show pkp.log', icon: 'file-text' },
+            ],
           },
           {
             id: 'updates', label: 'Updates', type: 'info', value: (env) => env.updateText,
