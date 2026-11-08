@@ -11,6 +11,7 @@
 //   at       where it lives: controls(), pkp() or config(); an array when it has two keys
 //   read     (src) => the control's value, when the plain mapping of `type` does not fit
 //   write    (value, src) => edits, likewise
+//   writeSame (src) => true to call write even when the value is unchanged (another key may still need resetting)
 //   when     (values, env) => shown or not
 //   enabled  (src) => false disables the row; the default disables what lives in a controls.ini that does not exist yet
 //   lock     (env) => true disables the row for now
@@ -165,6 +166,45 @@ const clockMinutes = (value) => {
   const n = Math.round(Number(String(value).trim()));
   return Number.isFinite(n) ? clamp(n, -CLOCK_LIMIT_MIN, CLOCK_LIMIT_MIN) : 0;
 };
+
+const AT_CLOCK_OFFSET = pkp('time', 'clock_offset');
+const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
+const TIMED_EVENTS = [
+  { id: 'copycat', label: 'Copycat Challenge (April 2, 2026)', date: [2026, 3, 2, 9] },
+  { id: 'hoppip', label: 'More Spores for Hoppip (March 12, 2026)', date: [2026, 2, 12, 9] },
+  { id: 'bulbasaur', label: "Bulbasaur's Jump Rope Contest (April 21, 2026)", date: [2026, 3, 21, 9] },
+  { id: 'sableye', label: "Sableye's Gem Hunt (May 1, 2026)", date: [2026, 4, 1, 9] },
+];
+const eventTime = (event) => new Date(...event.date, 0, 0, 0).getTime();
+const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
+const scopeNeedsReset = (src) => clockScope(src) === 'all';
+
+function clockEdits(value, src, scope) {
+  const edits = [edit(AT_CLOCK_OFFSET, String(clockMinutes(value)))];
+  // Do not add the default key to an older file. It is needed to select all, or to put an all-clock preset back to normal.
+  if (scope === 'all' || scopeNeedsReset(src)) edits.push(edit(AT_CLOCK_SCOPE, scope));
+  return edits;
+}
+
+function readTimedEvent(src) {
+  const offset = clockMinutes(has(src, AT_CLOCK_OFFSET) ? rawOf(src, AT_CLOCK_OFFSET) : 0);
+  if (!offset && clockScope(src) === 'user') return 'real';
+  if (clockScope(src) !== 'all') return 'custom';
+  // The offset stays fixed while PC time advances. Recognise the whole local event day, not just the minute it was picked.
+  const played = new Date(Date.now() + offset * 60000);
+  const event = TIMED_EVENTS.find((e) => {
+    const target = new Date(eventTime(e));
+    return played.getFullYear() === target.getFullYear() && played.getMonth() === target.getMonth() && played.getDate() === target.getDate();
+  });
+  return event?.id ?? 'custom';
+}
+
+function writeTimedEvent(value, src) {
+  if (value === 'real') return clockEdits(0, src, 'user');
+  const event = TIMED_EVENTS.find((e) => e.id === value);
+  if (!event) throw new Error(`Unknown timed event: ${value}`);
+  return clockEdits(Math.round((eventTime(event) - Date.now()) / 60000), src, 'all');
+}
 
 const wordOf = (f, src) => {
   const v = word(has(src, f.at) ? rawOf(src, f.at) : f.def);
@@ -448,7 +488,13 @@ export const SECTIONS = [
         title: 'Game clock',
         rows: [
           {
-            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: pkp('time', 'clock_offset'), def: '0', commit: 'blur',
+            id: 'event_preset', label: 'Timed event', type: 'select', at: AT_CLOCK_OFFSET, def: 'real',
+            options: [{ value: 'real', label: 'Real time' }, ...TIMED_EVENTS.map((e) => ({ value: e.id, label: e.label }))],
+            read: readTimedEvent, write: writeTimedEvent, replaces: true,
+          },
+          {
+            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: AT_CLOCK_OFFSET, def: '0', commit: 'blur',
+            write: (value, src) => clockEdits(value, src, 'user'), writeSame: scopeNeedsReset,
           },
           {
             id: 'game_clock_note', type: 'note',
@@ -507,7 +553,7 @@ export const readAll = (src) => Object.fromEntries(Object.values(FIELDS).map((f)
  * text or a file that does not exist. Reading and writing back is therefore no edit at all, so a value the page cannot show survives.
  */
 export function writeField(f, value, src) {
-  if (String(readField(f, src)) === String(value)) return [];
+  if (String(readField(f, src)) === String(value) && !f.writeSame?.(src)) return [];
   const edits = f.write ? f.write(value, src) : WRITE[f.type](f, value);
   if (f.quality) edits.push(...markCustom(f.quality, src));
   return edits.filter((e) => !(e.file === 'controls' && src.controls_exists === false) && String(rawOf(src, e)) !== String(e.value));
