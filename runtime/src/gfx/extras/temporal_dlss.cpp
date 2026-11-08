@@ -150,7 +150,7 @@ public:
         c.cameraFar = f.far_z;
         c.cameraFOV = f.fov_y;
         c.cameraAspectRatio = f.aspect;
-        c.depthInverted = sl::Boolean::eTrue;
+        c.depthInverted = f.depth_inverted ? sl::Boolean::eTrue : sl::Boolean::eFalse;
         c.cameraMotionIncluded = sl::Boolean::eTrue;
         c.motionVectors3D = sl::Boolean::eFalse;
         c.reset = f.reset ? sl::Boolean::eTrue : sl::Boolean::eFalse;

@@ -31,7 +31,8 @@ struct TemporalFrame {
     VkExtent2D render = {}, out = {};
     float jitter_px[2] = {};         // the projection's sub-pixel offset in pixels (FSR convention: +x right, +y down in the picture)
     float mv_scale[2] = {};          // motion vectors are in UV units: times the render size gives pixels
-    bool reset = false;              // no usable history (first frame, camera cut, size change)
+    bool reset = false;              // no usable history (first frame, camera cut, output size or backend capacity change)
+    bool depth_inverted = false;     // reversed-Z when true, forward depth otherwise
     float frame_ms = 16.7f;
     float near_z = 0.1f, far_z = 1000.0f, fov_y = 1.0f, aspect = 1.0f;
     float sharpness = 0.0f;          // 0..1, FSR's RCAS
@@ -55,8 +56,10 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words);
 bool temporal_camera_ready();   // a camera was kept since the last evaluation
 // The scene camera's jitter. Pokopia's own TAA jitter (0x7102574a18, written into a view object's projection at +0xc0) never reaches the
 // G-buffer camera block (its view-projection stays unjittered with the enable forced, run b7), so the runtime jitters every vertex uniform
-// slot 0 block that holds a valid camera: adds a Halton(2, 3) offset of the frame (8 phases, +-0.5 px of width x height) to the view-projection in
-// `words` (a copy the draw then binds). False: not a camera block, already jittered, or [upscale] jitter = 0.
+// slot 0 block that holds a valid camera: adds a Halton(2, 3) offset of the frame (8 phases at native size, more when upscaling, +-0.5 px of
+// width x height) to the view-projection in `words` (a copy the draw then binds). False: not a camera block, already jittered, or
+// [upscale] jitter = 0.
+uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
 // The tone-map draw: colour (view in SHADER_READ_ONLY_OPTIMAL) and depth (depth-aspect view, layout depth_layout) of the scene, the part of
 // them that is upscaled being `render` from texel 0, 0; depth_neg_one: NVN depth mode NEAR_IS_MINUS_W (NDC z = 2 d - 1). Returns the result
