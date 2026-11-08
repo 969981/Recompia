@@ -8,6 +8,12 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
 
+### Performance
+- Changed the keyboard-icon check for the title screen so it no longer walks every texture once a second for the whole session (#280)
+  - Before: with a keyboard or controller prompt style other than Switch, the game thread checked every loaded texture for the title art once a second, holding the texture list while it did
+  - Now: the check slows down to every 10 s while nothing changes and speeds up again when textures load, so the title screen still gets its icon within a second
+  - Still not: no hitch was tied to this check. `pkp.log` notes it when a check takes more than 2 ms
+
 ### Launcher
 - Added profiles: several people can play on one install, each with their own save (#282)
   - Before: a second save meant copying the whole game folder
