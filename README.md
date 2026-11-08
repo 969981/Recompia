@@ -3,35 +3,40 @@
 </h1>
 
 <p align="center">
-  <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, with multiplayer support.</b>
+  <b>Pokémon Pokopia (Switch 2) recompiled for Windows, with Linux and Steam Deck support through Proton, Link Play multiplayer and cross-play.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/featureJosh/pokopia-recomp?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/downloads/featureJosh/pokopia-recomp/latest/total?label=latest%20downloads&color=3fb950&labelColor=1b2740" alt="Latest release downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/github/downloads/featureJosh/pokopia-recomp/total?label=all%20downloads&color=3fb950&labelColor=1b2740" alt="All downloads">
-  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740" alt="Windows downloads">
-  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740" alt="Linux downloads"></a>
+  <a href="https://github.com/Dittobyte/pokopia/releases/latest"><img src="https://img.shields.io/github/v/release/Dittobyte/pokopia?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
+  <a href="https://github.com/Dittobyte/pokopia/releases/latest"><img src="https://img.shields.io/github/downloads/Dittobyte/pokopia/latest/total?label=latest%20downloads&color=3fb950&labelColor=1b2740&cacheSeconds=300" alt="Latest release downloads"></a>
+  <a href="https://github.com/Dittobyte/pokopia/releases"><img src="https://img.shields.io/github/downloads/Dittobyte/pokopia/total?label=all%20downloads&color=3fb950&labelColor=1b2740&cacheSeconds=300" alt="All downloads">
+  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740&cacheSeconds=300" alt="Windows downloads">
+  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740&cacheSeconds=300" alt="Linux downloads"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/main"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues"><img src="https://img.shields.io/github/issues/featureJosh/pokopia-recomp?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
+  <a href="https://github.com/Dittobyte/pokopia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/pokopia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
+  <a href="https://github.com/Dittobyte/pokopia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/pokopia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+  <sub>Download counts include release-page and in-launcher updater downloads. They count asset downloads, not individual players or installations.<br>
+  Per-platform totals regenerate daily and after release changes. Badge caches can delay every count.</sub>
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">Releases</a></b> ·
+  <a href="https://github.com/Dittobyte/pokopia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
+  <a href="https://github.com/Dittobyte/pokopia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+</p>
+
+<p align="center">
+  <b><a href="https://github.com/Dittobyte/pokopia/releases">Releases</a></b> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="CREDITS.md">Credits</a> ·
   <a href="https://github.com/xFractals/pokopia-native">Parent: pokopia-native</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="LEGAL.md">Legal</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a>
+  <a href="https://github.com/Dittobyte/pokopia/issues">Issues</a>
 </p>
 
 <!-- i18n-bar:start -->
@@ -114,7 +119,7 @@ Press **F1** in the game to change graphics, controls and sound (volume, output 
 
 ## Quick start
 
-1. Download the zip from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere.
+1. Download the zip from the [latest release](https://github.com/Dittobyte/pokopia/releases/latest) and extract it anywhere.
 2. Run `PokopiaLauncher.exe`. If SmartScreen warns, choose **More info → Run anyway**. Pick your dump folder and press **Set up**: it compiles the game on your PC (about 7 minutes), then builds the shader cache (1 to 2 hours, you can pause and continue later).
 3. Press **Play**.
 
@@ -123,7 +128,7 @@ F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode for pla
 ### Linux, SteamOS and the Steam Deck
 
 1. In Steam, install **Proton Experimental** (Library, Tools; on a Steam Deck switch to Desktop Mode first).
-2. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere (for example your home folder).
+2. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/Dittobyte/pokopia/releases/latest) and extract it anywhere (for example your home folder).
 3. Run `PokopiaLauncher.AppImage` in that folder (double-click it, or `./PokopiaLauncher.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache through Proton. You can pause and continue later.
 4. Press **Play**. The game itself runs through Steam's Proton.
 
@@ -161,7 +166,7 @@ Your saves, settings and shaders stay.
 
 **From 0.7.5 on:** press **Update** on Home (or in Settings > About). The launcher downloads the new release, checks it, swaps its own files and restarts.
 
-**From 0.7.0 or older:** download the new zip (Windows) or `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
+**From 0.7.0 or older:** download the new zip (Windows) or `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) from the [latest release](https://github.com/Dittobyte/pokopia/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
 
 **If Home shows Finish update after an update:** that release changed the game code, so the launcher builds the game program (`pkp.exe`) again from your game files. It also happens when you skipped such a release earlier and update later. This is a short wait, about 7 minutes on most PCs and a bit longer on a handheld, because your shaders and saves are kept. It is not the long first setup: shaders are only translated again when the release notes say so, and then only the ones that changed. The old `pkp.exe` stays until the new one is ready.
 
@@ -247,7 +252,7 @@ Never attach game files, the `build` or `shader_cache` folders, or saves to an i
 
 ## Reporting problems
 
-[Open an issue](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device).
+[Open an issue](https://github.com/Dittobyte/pokopia/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device).
 
 **Linux, SteamOS and Linux handhelds:** I (Jerban) look after the Linux side, so Linux bugs get fixed and sent out quickly through the one-click updater. Sorry for the frequent updates, and thanks for your patience. Please keep reporting Linux bugs, always with your logs: `pkp.log`, and `setup.log` for problems with Set up (see [Where your saves, logs and settings are](#where-your-saves-logs-and-settings-are)). Anything outside Linux is reviewed by Josh first.
 

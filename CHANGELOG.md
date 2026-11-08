@@ -17,6 +17,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Removing a profile keeps its save in the save folder, nothing is deleted
   - Still not: screenshots, settings and controls are shared by all profiles
 
+### Documentation
+- Fixed the README release and download badges to use **Dittobyte/pokopia**. The counts now explain that in-launcher update downloads are included, and a tested generator totals the Windows and Linux packages across every release
+
 ## 0.7.9 (build K: Kiwi)
 
 **Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).

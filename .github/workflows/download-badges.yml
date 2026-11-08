@@ -20,14 +20,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].assets[] | [.name, .download_count] | @tsv' > assets.tsv
-          mkdir out
-          for p in win64 linux-x64; do
-            n=$(awk -F'\t' -v p="$p" '$1 ~ p { s += $2 } END { print s + 0 }' assets.tsv)
-            msg=$(awk -v n="$n" 'BEGIN { if (n >= 1000) printf "%.1fk", n / 1000; else print n }')
-            printf '{"schemaVersion":1,"label":"downloads","message":"%s","color":"3fb950"}\n' "$msg" > "out/$p.json"
-            echo "$p: $n ($msg)"
-          done
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate > releases.json
+          node --test .github/scripts/download-badges.test.mjs
+          node .github/scripts/download-badges.mjs releases.json out
+          test -s out/win64.json
+          test -s out/linux-x64.json
       - name: Publish to the badges branch
         run: |
           cd out
