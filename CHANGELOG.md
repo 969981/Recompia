@@ -4,6 +4,11 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Gameplay
+- New option, off by default: running jumps keep the running speed (`[pkp] jump_momentum = 1` in `pkp.ini`; `jump_momentum_strength` 0.0 to 1.0 for less). Today a running jump flies exactly as far as a walking one. Needs **Set up again** once
+
 ## 0.7.9 (build K: Kiwi)
 
 **Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).
