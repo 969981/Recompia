@@ -10,9 +10,11 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Highlights
 - Our first native gameplay change: running jumps can keep your running speed instead of flying at the old fixed speed, jump height unchanged (opt-in, see Gameplay)
+- Added a **Community** row to Settings > About with a button that opens the Recompia Discord invite
 - Added profiles: several people can play on one install, each with their own save (#282)
 - Fixed a long frame about once a second on some handhelds and PCs (#276)
 - Added a Testing update channel for players who want to try new builds early (opt in under Settings > About)
+- Added a Recompia Discord server for help, testing and chat: **Settings > About > Community > Join Discord**
 
 ### Known issues
 - The timed event toggles are experimental: in-game event activation has not been confirmed. Use them in single player only for now

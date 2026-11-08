@@ -224,6 +224,7 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
+const DISCORD_URL = 'https://discord.gg/qE656Fed5N';
 const open = (url, label = 'Open') => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
@@ -515,6 +516,7 @@ export const SECTIONS = [
           { id: 'licence', label: 'Licence', type: 'info', value: 'GPL-3.0-or-later' },
           { id: 'built_with', label: 'Built with', type: 'info', value: 'Tauri 2, Lucide (ISC), Inter (OFL)' },
           { id: 'repo', label: 'Source code', type: 'info', actions: [open(REPO_URL, 'GitHub')] },
+          { id: 'community', label: 'Community', type: 'info', value: 'Recompia Discord: help, testing and chat', actions: [open(DISCORD_URL, 'Join Discord')] },
           { id: 'bug', label: 'Report a bug', type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],
       },

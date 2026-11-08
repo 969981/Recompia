@@ -222,10 +222,29 @@ fn cancel_update(state: State<Arc<update::UpdateState>>) {
 /// Opens a release page in the default browser.
 #[tauri::command]
 fn open_release_url(url: String) -> Result<(), String> {
-    if !url.starts_with("https://github.com/") || url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&') {
+    if !openable_link(&url) {
         return Err("That link cannot be opened from here.".into());
     }
     play::open_url(&url)
+}
+
+/// The links the launcher opens in the browser: GitHub (releases, issues) and the project's Discord invite. No spaces, quotes or `&`.
+fn openable_link(url: &str) -> bool {
+    (url.starts_with("https://github.com/") || url.starts_with("https://discord.gg/")) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&')
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::openable_link;
+
+    #[test]
+    fn only_github_and_the_discord_invite_open() {
+        assert!(openable_link("https://github.com/featureJosh/Recompia/releases/tag/v0.8.0"));
+        assert!(openable_link("https://discord.gg/qE656Fed5N"));
+        for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/ab cd", "https://discord.gg/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
+            assert!(!openable_link(bad), "{bad:?}");
+        }
+    }
 }
 
 fn overview_of(cfg: &Config) -> Overview {
