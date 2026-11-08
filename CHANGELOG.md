@@ -6,7 +6,17 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. If you come from 0.7.9 or older, run **Set up again** once when the launcher asks (0.8.0 changed the game build); from 0.8.0 on no Set up again is needed.
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (this build adds hooks for the camera aim option, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
+
+### Gameplay
+- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
+- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+
+### Fixes
+- Fixed the story getting stuck above 60 fps in DJ Rotom's mood 100 scene in Rocky Ridges: the dialogue disappeared after "YOOOOOO!" and the game never continued (#297)
+  - Before: scripted events could wait forever when the game ran faster than 60 fps. Setting the frame limit to 60 got past it
+  - Now: events, dialogue, transitions and menus always run at 60 fps as on the console, and free play keeps your frame limit. `[pkp] event_hold = false` turns this off
+  - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
 
 ### Game
 - Added lines to `pkp.log` that say why the mouse pointer in menus is up or not
@@ -44,6 +54,8 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Camera aim and jump momentum (now on by default):** use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off (`camera_aim = 0`, `jump_momentum = 0` in `pkp.ini`) fixes it
+- **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
 - **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
 - **Going back one build** (only with a copy of your save folder): choose the build just before yours and read the question. Report: what the dialog said and whether the launcher restarted on the older build. Cancel is fine if you would rather not
 - **A long way back:** choose a much older release and read the warning. The button must stay off until you tick the box. Please cancel unless you have a spare install; report whether the warning was clear
@@ -55,6 +67,8 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
+- Camera aim and jump momentum are on by default now, so everyone gets a new feel for abilities and jumps. Both can be switched off in `pkp.ini`
+- Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
 - Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
 - Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
 - The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
