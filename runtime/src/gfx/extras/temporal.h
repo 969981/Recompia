@@ -52,7 +52,9 @@ public:
 bool temporal_wanted();   // a temporal mode is selected
 // A G-buffer draw: `words` is the vertex stage's uniform slot 0 (bytes / 4 words). Keeps the first block that holds a valid camera this frame.
 void temporal_note_gbuffer(const uint32_t* words, size_t n_words);
-bool temporal_camera_ready();   // a camera was kept since the last evaluation
+bool temporal_camera_ready();
+// Research probe (#53): true when `words` (n_words >= 68) hold a valid scene camera block as temporal_note_gbuffer expects it. Changes nothing.
+bool temporal_probe_block(const uint32_t* words, size_t n_words);   // a camera was kept since the last evaluation
 // The scene camera's jitter. Pokopia's own TAA jitter (0x7102574a18, written into a view object's projection at +0xc0) never reaches the
 // G-buffer camera block (its view-projection stays unjittered with the enable forced, run b7), so the runtime jitters every vertex uniform
 // slot 0 block that holds a valid camera: adds a Halton(2, 3) offset of the frame (8 phases, +-0.5 px of width x height) to the view-projection in

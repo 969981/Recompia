@@ -124,6 +124,25 @@ int hook_jitter(::Ctx* c, uint64_t, void*) {
         NXLOG_I(kTag, "taa: jitter step reached, parameter block %llx: game values enable %d type %d pattern %d%s", static_cast<unsigned long long>(blk),
                 s.game_enable.load(), s.game_type.load(), s.game_pattern.load(), s.force ? " (enable overridden to 1 before the game reads it)" : "");
     }
+    {   // research probe (#53): [pkp] taa_probe = 1 logs the view object's matrices (+0x80 .. +0x13f) at the jitter step: its projection (+0xc0) and view-projection (+0x100)
+        static const bool probe = config_get_bool("pkp", "taa_probe", false);
+        static std::atomic<uint32_t> logs{0};
+        static std::vector<uint64_t> views;
+        const uint64_t v = c->x[25];
+        if (probe && v && mem::is_mapped(v, 0x140)) {
+            if (std::find(views.begin(), views.end(), v) == views.end() && views.size() < 16) views.push_back(v);
+            const uint64_t k = s.jitter_calls.load(std::memory_order_relaxed);
+            if ((k <= 6 || k % 900 == 0) && logs.fetch_add(1) < 24) {
+                NXLOG_I(kTag, "taa_probe: call %llu, view object %llx (%zu distinct view objects so far)", static_cast<unsigned long long>(k), static_cast<unsigned long long>(v), views.size());
+                for (uint64_t off : {0x80ull, 0xc0ull, 0x100ull}) {
+                    char line[400];
+                    int n = std::snprintf(line, sizeof line, "+%llx:", static_cast<unsigned long long>(off));
+                    for (int i = 0; i < 16; ++i) n += std::snprintf(line + n, sizeof line - n, " %.4g", static_cast<double>(rd<float>(v + off + 4 * i)));
+                    NXLOG_I(kTag, "taa_probe: %s", line);
+                }
+            }
+        }
+    }
     if (forced()) force_on(blk);
     if (rd<int32_t>(blk + kEnable) >= 1) {
         const uint64_t n = s.jitter_on.fetch_add(1, std::memory_order_relaxed) + 1;

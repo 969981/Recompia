@@ -346,6 +346,11 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
     }
 }
 
+bool temporal_probe_block(const uint32_t* words, size_t n_words) {
+    Camera c;
+    return words && parse_camera(words, n_words, c);
+}
+
 bool temporal_camera_ready() {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);

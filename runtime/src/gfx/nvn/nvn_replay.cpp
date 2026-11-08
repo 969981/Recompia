@@ -2562,7 +2562,7 @@ void stencil_survey_note() {
     if (level >= 2) {
         const bool keep0 = S.ds.stencil_fail[0] == 1 && S.ds.depth_fail[0] == 1 && S.ds.depth_pass[0] == 1;   // NVN_STENCIL_OP_KEEP == 1
         const bool keep1 = S.ds.stencil_fail[1] == 1 && S.ds.depth_fail[1] == 1 && S.ds.depth_pass[1] == 1;
-        const bool can_write = has_stencil && S.ds.stencil_test && (S.stencil_wmask[0] || S.stencil_wmask[1]) && (!keep0 || !keep1);
+        const bool can_write = has_stencil && S.ds.stencil_test && ((S.stencil_wmask[0] && !keep0) || (S.stencil_wmask[1] && !keep1));   // per face: its own mask and its own operations
         char ck[200];
         std::snprintf(ck, sizeof ck, "colour %u depth %s depth_test %d depth_write %d stencil_test %d wmask_nonzero %d can_write_stencil %d", static_cast<unsigned>(S.ncolor),
                       has_stencil ? "DS" : has_depth ? "D" : "none", S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0, S.ds.stencil_test ? 1 : 0, (S.stencil_wmask[0] || S.stencil_wmask[1]) ? 1 : 0,
@@ -2593,6 +2593,39 @@ void stencil_survey_note() {
                           static_cast<unsigned long long>(S.ubo[kVertex][1].size), static_cast<unsigned long long>(S.ubo[kVertex][2].size), static_cast<unsigned long long>(S.ubo[kVertex][3].size),
                           static_cast<unsigned long long>(S.ubo[kVertex][4].size), static_cast<unsigned long long>(S.ubo[kVertex][5].size));
             ++writers[wk];
+        }
+    }
+    if (level >= 3) {   // level 3: does any vertex uniform block of any draw parse as a scene camera (temporal_probe_block), in which slot and pass?
+        static std::map<std::string, uint64_t> cam;
+        static std::set<std::string> dumped;
+        for (int slot = 0; slot < 6; ++slot) {
+            const GState::Bind& b = S.ubo[kVertex][slot];
+            if (!b.addr || b.size < 272) continue;
+            uint32_t w[68];
+            std::memcpy(w, host_ptr(b.addr), sizeof w);
+            const bool ok = extras::temporal_probe_block(w, 68);
+            char c3[160];
+            std::snprintf(c3, sizeof c3, "slot %d size %s camera_ok %d colour %u depth %s", slot, b.size >= 65536 ? "64k+" : b.size >= 1024 ? "1k+" : "272+", ok ? 1 : 0, static_cast<unsigned>(S.ncolor),
+                          has_stencil ? "DS" : has_depth ? "D" : "none");
+            ++cam[c3];
+            if (slot == 0 && !ok && vs && dumped.size() < 40 && dumped.insert(vs->hash).second) {
+                float f[68];
+                std::memcpy(f, w, sizeof f);
+                char line[900];
+                int n = std::snprintf(line, sizeof line, "vs %.8s size %llu f0..15", vs->hash.c_str(), static_cast<unsigned long long>(b.size));
+                for (int i = 0; i < 16 && n < 800; ++i) n += std::snprintf(line + n, sizeof line - n, " %.4g", static_cast<double>(f[i]));
+                n += std::snprintf(line + n, sizeof line - n, " | f52..67");
+                for (int i = 52; i < 68 && n < 880; ++i) n += std::snprintf(line + n, sizeof line - n, " %.4g", static_cast<double>(f[i]));
+                NXLOG_I(kTag, "stencil_survey: block %s", line);
+            }
+        }
+        if (p - last_dump >= 600) {
+            std::vector<std::pair<uint64_t, std::string>> rows;
+            for (const auto& kv : cam) rows.emplace_back(kv.second, kv.first);
+            std::sort(rows.begin(), rows.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+            size_t n = 0;
+            for (const auto& r : rows) { if (++n > 40) break; NXLOG_I(kTag, "stencil_survey: cam %llu draws: %s", static_cast<unsigned long long>(r.first), r.second.c_str()); }
+            cam.clear();
         }
     }
     if (p - last_dump < 600) return;
