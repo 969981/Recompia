@@ -408,6 +408,32 @@ export const SECTIONS = [
         }],
       },
       {
+        title: 'Backups',
+        rows: [
+          {
+            id: 'backup_note', type: 'note',
+            note: () => ({ text: 'Copies your save every few minutes while you play, so you can go back if a bug stops your progress. It is off until you pick a time. A copy is also made when the game closes. Restoring needs the game closed, and your current save is copied first.' }),
+          },
+          {
+            id: 'backup_minutes', label: 'Back up automatically', type: 'select', at: pkp('backup', 'interval_minutes'), def: '0',
+            options: [{ value: '0', label: 'Off' }, { value: '5', label: 'Every 5 minutes' }, { value: '10', label: 'Every 10 minutes' }, { value: '15', label: 'Every 15 minutes' }],
+          },
+          {
+            id: 'backup_keep', label: 'Backups to keep', type: 'select', at: pkp('backup', 'keep'), def: '10', when: (v) => v.backup_minutes !== '0',
+            options: [{ value: '5', label: '5' }, { value: '10', label: '10' }, { value: '20', label: '20' }, { value: '30', label: '30' }],
+          },
+          {
+            id: 'backup_state', label: 'Backups', type: 'info', value: (env) => env.backupLine,
+            actions: (env) => [
+              { act: 'backup-now', label: 'Back up now', icon: 'save' },
+              { act: 'backup-restore', label: 'Restore', icon: 'rotate-ccw', disabled: env.gameBusy || !env.backups?.count },
+              { act: 'backup-open', label: 'Open folder', icon: 'folder-open' },
+            ],
+          },
+          { id: 'backup_detail', type: 'note', when: (v, env) => !!env.backupDetail, note: (env) => ({ text: env.backupDetail }) },
+        ],
+      },
+      {
         title: 'Import a save',
         rows: [
           {

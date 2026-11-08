@@ -59,7 +59,8 @@ const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.exe";
 const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.AppImage";
 
 /// Top-level names that belong to the player. make-release.ps1 refuses to ship most of them; `apply` skips them all the same.
-const KEEP: [&str; 9] = ["save", "pkp.ini", "profiles.json", "controls.ini", "shader_cache", "build", "nup_dump", "rollback-backups", UPDATE_DIR];
+/// Never replaced or removed by an update: the player's save, the copies of it (`save-backups`, savebackup.rs; `rollback-backups`, rollback.rs) and settings.
+const KEEP: [&str; 10] = ["save", "save-backups", "pkp.ini", "profiles.json", "controls.ini", "shader_cache", "build", "nup_dump", "rollback-backups", UPDATE_DIR];
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Release {
@@ -1157,5 +1158,15 @@ mod channel_tests {
         let all = list_of(&[("v0.8.1", false), ("v0.8.0", false), ("v0.7.9", false)]);
         assert_eq!(pick_update(&all, "0.8.0", "-linux-x64.tar.gz").unwrap().0.tag_name, "v0.8.1");
         assert!(pick_update(&all, "0.8.1", "-linux-x64.tar.gz").is_none(), "nothing newer: an older build is never an update");
+    }
+}
+
+#[cfg(test)]
+mod keep_tests {
+    use super::*;
+
+    #[test]
+    fn an_update_never_touches_the_players_save_backups() {
+        assert!(KEEP.contains(&"save-backups") && KEEP.contains(&"save"), "the save and its backups stay through an update");
     }
 }

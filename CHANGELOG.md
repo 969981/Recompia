@@ -34,6 +34,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
+- Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
+  - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
+  - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
 - Added **Settings > About > Choose a version**, and a list of Testing builds when you join the Testing channel
   - Before: Update only ever installed the newest build, and there was no way to read about a build before installing it or to go back
   - Now: the list shows the builds of your channel (Testing builds and the normal releases on Testing, only releases on Stable), newest first, each with its notes. A newer one installs like an update. Going back to an older one asks first; a long way back (an older release line) shows a stronger warning with a box to tick before it can go on. The launcher first copies your save folder, `pkp.ini`, `controls.ini`, `profiles.json` and `launcher.json` to `rollback-backups` next to the game (the last three are kept), and stops without changing anything if that copy cannot be made. Joining Testing opens the list of Testing builds right away
@@ -57,6 +61,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
 - **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
 - **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
 - **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
@@ -70,6 +75,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
+- Save backups have been tried on simulated save folders and in the launcher's test mode, not yet through a long real play session. Restore replaces your save folder with the chosen copy (your current save is copied first)
 - Camera aim is new and has only been tried by a few people; it is off by default, so nothing changes for you unless you turn it on
 - Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
 - Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
