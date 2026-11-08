@@ -4,6 +4,12 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Gameplay
+- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
+- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+
 ## 0.8.0 (build L: Lykoi)
 
 **Update:** press **Update**, then **Set up again** once when it asks (this release adds two hooks for the new jump option, so the game is rebuilt; your saves and shaders are kept). The new launcher and runtime come with it.
