@@ -86,6 +86,45 @@ export function confirm(opts = {}) {
   });
 }
 
+/**
+ * A modal asking for one line of text. Resolves the trimmed text, or null for Esc, Cancel or a click outside.
+ * opts: { title, body, label, value, ok = 'OK', max }
+ */
+export function askText(opts = {}) {
+  const { title = '', body = '', label = '', value = '', ok = 'OK', max = 24 } = opts;
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'modal glass strong';
+    dlg.setAttribute('aria-labelledby', 'modal-title');
+    dlg.innerHTML = `
+      <form method="dialog">
+        <div class="modal-body">
+          <h2 id="modal-title">${esc(title)}</h2>
+          ${body ? `<p>${esc(body)}</p>` : ''}
+          <input class="input" id="ask-text" type="text" maxlength="${max}" value="${esc(value)}" aria-label="${esc(label || title)}" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn quiet" type="button" data-answer="">Cancel</button>
+          <button class="btn primary" type="submit" data-answer="ok">${esc(ok)}</button>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const input = dlg.querySelector('#ask-text');
+    dlg.addEventListener('close', () => {
+      const answer = dlg.returnValue === 'ok' ? input.value.trim() : null;
+      dlg.remove();
+      resolve(answer || null);
+    });
+    dlg.addEventListener('click', (e) => {
+      if (e.target.closest('[type="button"][data-answer]')) dlg.close('');
+      else if (e.target === dlg) dlg.close('');
+    });
+    dlg.showModal();
+    input.focus();
+    input.select();
+  });
+}
+
 /** Options come as ['a', ...], [['value', 'Label'], ...] or [{ value, label, disabled }, ...]. */
 const optionOf = (o) => (Array.isArray(o) ? { value: o[0], label: o[1] ?? o[0] } : typeof o === 'object' ? o : { value: o, label: o });
 const named = (label) => (label ? `aria-label="${esc(label)}"` : 'aria-labelledby="@"');

@@ -168,6 +168,9 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
         Err(e) => eprintln!("Shaders were not prepared: {}.", e),
         _ => {}
     }
+    if let Err(e) = crate::profiles::apply_active(game_dir) {
+        eprintln!("Profile not applied: {}.", e);
+    }
     let status = game_command(&exe, game_dir).and_then(|mut c| c.status().map_err(|e| format!("Could not start pkp.exe: {}", e)));
     let code = match status {
         Ok(st) => st.code().unwrap_or(1),

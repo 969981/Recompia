@@ -158,9 +158,30 @@ export function render(el, ctx) {
   });
 
   // a settings file that cannot be read just leaves the chip out
+  let linkChip = '';
+  let profileChip = '';
+  const drawChips = () => { part('link').innerHTML = profileChip + linkChip; };
   api('read_settings').then((data) => {
-    part('link').innerHTML = `<button class="chip on-art" id="link-chip">${icon('users')}Link Play: ${LINK_PLAY_LABEL[viewOf(readIni(data.pkp))]}</button>`;
+    linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}Link Play: ${LINK_PLAY_LABEL[viewOf(readIni(data.pkp))]}</button>`;
+    drawChips();
   }).catch((e) => console.warn('read_settings', e));
+  // with more than one profile the player picks who plays here; the choice is the Settings > Saves list
+  const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="Profile" ${busy ? 'disabled' : ''}>${
+    list.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === list.active ? 'selected' : ''}>Profile: ${esc(p.name)}</option>`).join('')}</select>`;
+  const loadProfiles = () => api('profiles_list').then((list) => {
+    profileChip = list.profiles.length > 1 ? profileSelect(list, ['starting', 'running', 'finishing'].includes(gamePhase(store.state.game))) : '';
+    drawChips();
+  }).catch((e) => console.warn('profiles_list', e));
+  loadProfiles();
+  el.addEventListener('change', async (e) => {
+    if (e.target.id !== 'profile-pick') return;
+    try {
+      await api('profile_select', { id: e.target.value });
+    } catch (err) {
+      toast(errText(err), 'error');
+    }
+    loadProfiles();
+  });
 
   ctx.on(draw);
   draw(store.state);

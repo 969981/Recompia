@@ -59,7 +59,7 @@ const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.exe";
 const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.AppImage";
 
 /// Top-level names that belong to the player. make-release.ps1 refuses to ship most of them; `apply` skips them all the same.
-const KEEP: [&str; 7] = ["save", "pkp.ini", "controls.ini", "shader_cache", "build", "nup_dump", UPDATE_DIR];
+const KEEP: [&str; 8] = ["save", "pkp.ini", "profiles.json", "controls.ini", "shader_cache", "build", "nup_dump", UPDATE_DIR];
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Release {

@@ -4,7 +4,7 @@
 // A redraw must never pull a control from under the player: draw() waits while a text field has focus or the pointer is down, and
 // otherwise replaces only the rows whose markup changed. Writes are shown at once and undone from the files if they fail.
 import './settings.css';
-import { api, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
+import { api, askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { askCompact, store } from '../store.js';
 import { canUpdate, gamePhase } from '../action.js';
 import {
@@ -35,6 +35,7 @@ export async function render(el, ctx) {
   let overview = overviewInfo;
   let gameDir = dump.game_dir;
   let sources = [];
+  let profiles = { active: 'default', profiles: [] };
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
@@ -68,6 +69,7 @@ export async function render(el, ctx) {
       repack: s.repack,
       taskBusy: !!s.task || s.starting,
       saveSources: sources,
+      profiles,
       importing,
       importResult,
       dlssOffered: !!(dlss?.available || dlss?.present),
@@ -388,6 +390,18 @@ export async function render(el, ctx) {
     draw();
   }
 
+  async function changeProfiles(cmd, args, done) {
+    try {
+      await flush();
+      profiles = await api(cmd, args);
+      await reload();
+      toast(done, 'ok');
+    } catch (e) {
+      toast(errText(e), 'error');
+    }
+    draw();
+  }
+
   const ACTIONS = {
     async browse(arg) {
       const f = FIELDS[arg];
@@ -411,6 +425,23 @@ export async function render(el, ctx) {
     async 'import-folder'() {
       const picked = await api('pick_folder', { title: 'Choose a folder with the save', start: null });
       if (picked) await runImport('this save', picked, `<p class="path selectable">${esc(picked)}</p><p>${esc(IMPORT_FACTS)}</p>`);
+    },
+    async 'profile-new'() {
+      const name = await askText({ title: 'New profile', body: 'It starts with an empty save. Your other saves are not touched.', label: 'Profile name', ok: 'Add' });
+      if (name) await changeProfiles('profile_add', { name }, `Profile ${name} added`);
+    },
+    'profile-use': (arg, name) => changeProfiles('profile_select', { id: arg }, `Playing as ${name}`),
+    async 'profile-rename'(arg, name) {
+      const next = await askText({ title: 'Rename profile', label: 'Profile name', value: name, ok: 'Rename' });
+      if (next && next !== name) await changeProfiles('profile_rename', { id: arg, name: next }, 'Profile renamed');
+    },
+    async 'profile-remove'(arg, name) {
+      const yes = await confirm({
+        title: `Remove ${name}?`,
+        body: 'This only removes the profile from the list. Its save stays in the save folder, so nothing is lost.',
+        ok: 'Remove', danger: true,
+      });
+      if (yes) await changeProfiles('profile_remove', { id: arg }, 'Profile removed');
     },
     'change-files': () => ctx.go('setup'),
     async 'setup-again'() {
@@ -508,6 +539,10 @@ export async function render(el, ctx) {
 
   draw(true);
   store.refreshStorage();
+  api('profiles_list').then((list) => {
+    profiles = list;
+    draw();
+  }).catch((e) => console.warn('profiles_list', e));
   api('save_sources').then((list) => {
     sources = list;
     draw();

@@ -4,6 +4,19 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Launcher
+- Added profiles: several people can play on one install, each with their own save (#282)
+  - Before: a second save meant copying the whole game folder
+  - Now: **Settings > Saves > Profiles** adds, renames and removes profiles, and **Home** gets a **Profile** picker once there are two. The game must be closed to switch
+  - Your existing save is the first profile and stays as it is. A new profile starts with an empty save and its own Link Play player id
+  - Profiles share the game files and the shaders, so a second profile costs almost no disk space
+  - Removing a profile keeps its save in the save folder, nothing is deleted
+  - Still not: screenshots, settings and controls are shared by all profiles
+
 ## 0.7.9 (build K: Kiwi)
 
 **Update:** press **Update**, then **Finish update** once when it asks (a shader translation fix: only the 32,630 changed shaders of about 99,000 are translated again, not the whole cache).
