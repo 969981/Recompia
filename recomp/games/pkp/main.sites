@@ -214,3 +214,10 @@ midhook 0x7100e51688
 midhook 0x7100e516f0
 midhook 0x7100e5173c
 midhook 0x7100e51788
+#   In-game Options test row (pkp_options.cpp, [pkp] options_test_row): the screen's open, option get/set, a choice row's value names,
+#   after a row's value widget (x19 = the row), and the set-text-by-id call used for the description
+entryhook 0x7101006628
+entryhook 0x7100e81b3c
+entryhook 0x710100fce0
+inline 0x710100b294
+entryhook 0x7100eba100
