@@ -37,6 +37,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -123,6 +124,10 @@ struct State {
     std::vector<uint8_t> title_px;                   // ... drawn (kTitleArt), for title_px_icon
     std::string title_px_icon;
     std::vector<uint32_t> title_checked;             // textures looked at for the title art
+    uint32_t scan_every = 60, scan_last = 0, scan_empty = 0;   // the title-art scan backs off (60 .. 600 game frames) while nothing changes (#280)
+    size_t scan_registry = ~size_t{0};               // registry size at the last scan
+    play::PromptStyle scan_style = play::PromptStyle::Switch;
+    uint32_t scan_slow_logged = 0;
     std::atomic<uint64_t> tags{0}, texts{0}, patches{0};
 };
 
@@ -689,6 +694,19 @@ void frame(::Ctx* c) {
         // glyph already found gets its icon now. Skipped while none was found (nothing to patch, no per-frame work)
         if (ready || std::any_of(s.glyph.begin(), s.glyph.end(), [](const Glyph& g) { return g.tex != 0; })) sync_glyphs_locked(s);
         if (eff != play::PromptStyle::Switch && s.frames % 60 == 0) {
+            // #280: the scan below walks every registered texture under the registry lock. It is meant for the title screen, but ran once a
+            // second for the whole session. It now backs off while nothing changes: the interval doubles (60 .. 600 frames) after two scans in
+            // a row that found nothing new, and goes back to 60 as soon as the registry changed (a title screen loads textures) or the prompt
+            // style did.
+            const size_t reg = gfx::texture_registry_count();
+            if (reg != s.scan_registry || eff != s.scan_style) {
+                s.scan_registry = reg;
+                s.scan_style = eff;
+                s.scan_every = 60;
+                s.scan_empty = 0;
+                s.scan_last = 0;
+            }
+            if (s.scan_last != 0 && s.frames - s.scan_last < s.scan_every) return;
             if (s.title_px_icon != s.title_icon) {
                 s.title_px = title_pixels_locked(s, s.title_icon);
                 s.title_px_icon = s.title_icon;
@@ -698,7 +716,25 @@ void frame(::Ctx* c) {
     }
     if (title.empty()) return;
     // a new title art texture (each time the title screen loads) is drawn over once; textures looked at before are skipped
-    if (const int n = gfx::texture_patch_bc7_matching(kTitleArt, title.data(), &st().title_checked))
+    const size_t checked_before = st().title_checked.size();
+    const auto t0 = std::chrono::steady_clock::now();
+    const int n = gfx::texture_patch_bc7_matching(kTitleArt, title.data(), &st().title_checked);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    {
+        std::lock_guard<std::mutex> lk(s.mu);
+        s.scan_last = s.frames;
+        if (n > 0 || st().title_checked.size() != checked_before) {
+            s.scan_empty = 0;
+            s.scan_every = 60;
+        } else if (++s.scan_empty >= 2) {
+            s.scan_every = std::min<uint32_t>(s.scan_every * 2, 600);
+        }
+        if (ms > 2.0 && s.scan_slow_logged < 20) {
+            ++s.scan_slow_logged;
+            NXLOG_I(kTag, "kbm: title art scan took %.2f ms over %zu textures (next in %u game frames)", ms, s.scan_registry, s.scan_every);
+        }
+    }
+    if (n)
         NXLOG_I(kTag, "kbm: title screen art: PRESS (A) BUTTON now shows %s (%d texture%s)", s.title_px_icon.c_str(), n, n == 1 ? "" : "s");
 }
 

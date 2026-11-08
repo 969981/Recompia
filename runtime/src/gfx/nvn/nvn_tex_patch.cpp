@@ -135,6 +135,8 @@ bool texture_patch_bc7(const void* guest, uint32_t x, uint32_t y, uint32_t w, ui
     return patch(bc7_texture(guest), x, y, w, h, rgba, saved);
 }
 
+size_t texture_registry_count() { return nvn::be::texture_registry_size(); }
+
 int texture_patch_bc7_matching(const Bc7Match& m, const uint8_t* rgba, std::vector<uint32_t>* checked) {
     struct Want { uint32_t w, h; const std::vector<uint32_t>* skip; } want{m.width, m.height, checked};
     auto pred = [](const Texture& t, void* u) {

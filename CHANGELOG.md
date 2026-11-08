@@ -14,6 +14,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the read starts the work at once. On a PC at 60 fps, long frames per 10 s: 5.9 ⇒ 0.0, the slowest texture read: 154 ms ⇒ 6 ms
   - Setting: `[nvn] readback_grace_ms` is now 0 by default (`-2` brings back the old wait of one frame). `[nvn] readback_log = true` logs how long each read takes, for bug reports
   - Still not: confirmed on a Steam Deck or a Legion Go S only after this release. If you still see the hitch, please send a `pkp.log` with `readback_log = true`
+- Changed the keyboard-icon check for the title screen so it no longer walks every texture once a second for the whole session (#280)
+  - Before: with a keyboard or controller prompt style other than Switch, the game thread checked every loaded texture for the title art once a second, holding the texture list while it did
+  - Now: the check slows down to every 10 s while nothing changes and speeds up again when textures load, so the title screen still gets its icon within a second
+  - Still not: no hitch was tied to this check. `pkp.log` notes it when a check takes more than 2 ms
 
 ### Launcher
 - Added profiles: several people can play on one install, each with their own save (#282)
