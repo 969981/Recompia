@@ -1460,4 +1460,7 @@ Stats stats() {
     return s;
 }
 
+Settings current_settings() { return g_host.settings(); }
+void apply_settings(const Settings& s) { g_host.apply(s); }
+
 }  // namespace nxrt::play
