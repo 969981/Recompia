@@ -2531,6 +2531,38 @@ void temporal_gbuffer_note() {
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
 
+// Stencil survey (research for #53, off by default): [nvn] stencil_survey = 1 logs, about every 600 presents, one line per distinct combination of
+// shaders and stencil state used by the draws that render into a depth target with a stencil plane, with the number of draws since the last dump.
+// It answers whether the game's G-buffer tags some draws (characters, say) with a stencil value of their own.
+void stencil_survey_note() {
+    static const bool on = nxrt::config_get_bool("nvn", "stencil_survey", false);
+    if (!on || !S.depth_tex || !(tex_aspect(S.depth_tex.get()) & VK_IMAGE_ASPECT_STENCIL_BIT)) return;
+    static std::map<std::string, uint64_t> counts;
+    static uint64_t last_dump = 0;
+    const ShaderInfo* vs = S.stage[kVertex];
+    const ShaderInfo* fs = S.stage[kFragment];
+    char key[320];
+    std::snprintf(key, sizeof key, "colour %u vs %.8s fs %.8s test %d func %d/%d ref %u/%u cmask %02x/%02x wmask %02x/%02x ops(sfail,zfail,zpass) %d,%d,%d/%d,%d,%d depth_test %d depth_write %d",
+                  static_cast<unsigned>(S.ncolor), vs ? vs->hash.c_str() : "-", fs ? fs->hash.c_str() : "-", S.ds.stencil_test ? 1 : 0, S.ds.stencil_func[0], S.ds.stencil_func[1],
+                  static_cast<unsigned>(S.stencil_ref[0]), static_cast<unsigned>(S.stencil_ref[1]), static_cast<unsigned>(S.stencil_vmask[0]), static_cast<unsigned>(S.stencil_vmask[1]),
+                  static_cast<unsigned>(S.stencil_wmask[0]), static_cast<unsigned>(S.stencil_wmask[1]), S.ds.stencil_fail[0], S.ds.depth_fail[0], S.ds.depth_pass[0], S.ds.stencil_fail[1],
+                  S.ds.depth_fail[1], S.ds.depth_pass[1], S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0);
+    ++counts[key];
+    const uint64_t p = counters().presents.load(std::memory_order_relaxed);
+    if (p - last_dump < 600) return;
+    last_dump = p;
+    std::vector<std::pair<uint64_t, const std::string*>> rows;
+    for (const auto& kv : counts) rows.emplace_back(kv.second, &kv.first);
+    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    NXLOG_I(kTag, "stencil_survey: present %llu, %zu distinct draw states with a stencil plane", static_cast<unsigned long long>(p), rows.size());
+    size_t n = 0;
+    for (const auto& r : rows) {
+        if (++n > 60) break;
+        NXLOG_I(kTag, "stencil_survey: %llu draws: %s", static_cast<unsigned long long>(r.first), r.second->c_str());
+    }
+    counts.clear();
+}
+
 // The game's scene covers only part of its targets (extras::scene_fraction, Pokopia's [upscale] scene_scale, #116): the part of a scene
 // image of size `scene` that holds it, and the size of the image the tone-map draw then needs, out / fraction, so that its own lookup at
 // uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
@@ -2773,6 +2805,7 @@ bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* top
     if (pl->c0_graphics && g_draw_base_instance != g_bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
     rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
+    stencil_survey_note();
     if (g_dirty & (kDesc | kPipe)) {
         RpScope rp_(kRpPrep);
         g_prog_writes = false;
