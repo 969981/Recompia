@@ -131,7 +131,7 @@ jobs:
           $depArgs = @()
           if ($env:CMAKE_DEP_ARGS) { $depArgs = @($env:CMAKE_DEP_ARGS -split ' ' | Where-Object { $_ }) }
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
-                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON -DPKP_VERSION=$env:VERSION @depArgs
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$env:VERSION" @depArgs
           if ($LASTEXITCODE) { exit 1 }
           cmake --build build/rtdll --target pkp_rt
 

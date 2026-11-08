@@ -8,6 +8,14 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Update:** press **Update** in the launcher. If you come from 0.7.9 or older, run **Set up again** once when the launcher asks (0.8.0 changed the game build); from 0.8.0 on no Set up again is needed.
 
+### Game
+- Fixed `pkp.log` not saying which version you run
+  - Before: the first lines of `pkp.log` read `pkp $env:VERSION` in every release, so a log could not be matched to a build
+  - Now: the line shows the real version of the runtime (for example `0.8.1-beta.6`)
+- Fixed a wrong line in `pkp.log` about the menu mouse
+  - Before: it said the mouse pointer moves the game's cursor in menus. It does not: the wheel and the keys move the selection, and a left click confirms the selected entry
+  - Now: the line says what the mouse does
+
 ### Launcher
 - Added a question when you switch the launcher to the Testing channel, and help for testers
   - Before: switching to Testing just switched, and nothing said what to do when something went wrong
@@ -29,6 +37,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
 - **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
 - **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
 - **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
