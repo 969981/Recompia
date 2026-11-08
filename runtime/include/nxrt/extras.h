@@ -38,7 +38,8 @@ enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, N
 // ponytail: FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked (#232): a file that names one runs as Off.
 // Re-enable one by returning it here (and listing it in the F1 page and the launcher again).
 inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
-    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nearest ? m : UpscaleMode::Off;
+    // SCRATCH (research for #53, experiment E6, never to be merged): every mode runs, so the temporal pass logs whether it finds a camera.
+    return m;
 }
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
