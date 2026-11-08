@@ -5,6 +5,7 @@
 // Uploads: prepare_texture (nvn_texdata.cpp) gives the bytes, they go through a staging buffer into one buffer-to-image copy per
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
+#include <chrono>
 #include <mutex>
 #include <algorithm>
 #include <array>
@@ -2839,8 +2840,9 @@ void texture_registered(Texture* t) { texprep::on_registered(t); }
 namespace {
 struct RbConfig {
     bool async = true;          // [nvn] readback_async
-    int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: one frame at the limiter's target, 33 ms when unknown)
+    int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: 0, flush at once; -2: one frame at the limiter's target, 33 ms when unknown)
     bool check = false;         // [nvn] readback_check
+    bool log = false;           // [nvn] readback_log
 };
 const RbConfig& rb_config() {
     static const RbConfig c = [] {
@@ -2848,8 +2850,9 @@ const RbConfig& rb_config() {
         r.async = nxrt::config_get_bool("nvn", "readback_async", true);
         r.grace_ms = nxrt::config_get_int("nvn", "readback_grace_ms", -1);
         r.check = nxrt::config_get_bool("nvn", "readback_check", false);
-        NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s", r.async ? "on" : "off",
-                r.grace_ms < 0 ? "auto" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off");
+        r.log = nxrt::config_get_bool("nvn", "readback_log", false);
+        NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s", r.async ? "on" : "off",
+                r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off");
         return r;
     }();
     return c;
@@ -2857,9 +2860,14 @@ const RbConfig& rb_config() {
 
 std::atomic<uint64_t> g_rb_copies{0}, g_rb_skipped{0}, g_rb_calls{0};
 
+// How long the reading thread waits for the render thread to hand the copy to the GPU before it flushes it itself. Auto is 0 (#276): the
+// render thread almost never gets to it within a frame, so a frame's wait only held the reading thread (often the game's main thread) for
+// about 17 ms and then the flush was forced anyway; measured on a PC at 60 fps, long frames per 10 s 5.9 -> 0.0, the slowest read 154 -> 6 ms.
+// -2 is the old auto: one frame at the limiter's target.
 uint64_t rb_grace_ns() {
     const int64_t ms = rb_config().grace_ms;
     if (ms >= 0) return static_cast<uint64_t>(ms) * 1000000ull;
+    if (ms == -1) return 0;
     const FrameLimiter* lim = limiter();
     const double fps = lim ? lim->target_fps() : 0.0;
     return fps > 0.0 ? static_cast<uint64_t>(1e9 / fps) : 33000000ull;
@@ -2909,14 +2917,55 @@ void rb_note(Texture* t, const TexGpu& g, const TexLayout& L, uint32_t l0, uint3
             what);
 }
 
+// [nvn] readback_log: one line per read (the first 200, then at most one a second) with the milliseconds of each stage, and a summary
+// every 10 s. Stages: queue (the render thread has recorded the copy), record (the render thread's own time in it), grace (the wait for the
+// render thread to hand the serial to the GPU), wait (wait_serial: the forced flush and the GPU), invalidate, tile. forced = the grace ran
+// out and wait_serial had to flush an extra submission.
+struct RbTimes {
+    uint64_t queue = 0, record = 0, grace = 0, wait = 0, invalidate = 0, tile = 0, total = 0;
+    bool forced = false, async = true, skipped = false;
+};
+void rb_report(const Texture* t, const TexGpu& g, const RbTimes& r) {
+    using clock = std::chrono::steady_clock;
+    static std::mutex mu;
+    static uint64_t lines = 0, n = 0, sum = 0, max = 0, over16 = 0, forced = 0;
+    static clock::time_point last_line, window = clock::now();
+    const double ms = 1e-6;
+    std::lock_guard<std::mutex> lk(mu);
+    ++n; sum += r.total; max = std::max(max, r.total); if (r.total > 16000000ull) ++over16; if (r.forced) ++forced;
+    const auto now = clock::now();
+    if (lines < 200 || now - last_line >= std::chrono::seconds(1)) {
+        ++lines;
+        last_line = now;
+        const char* thr = nxrt::log_thread_name();
+        NXLOG_I(kTag, "readback_log: texture %u (%s %ux%u), thread %s, %s%s: queue %.2f record %.2f grace %.2f wait %.2f invalidate %.2f tile %.2f total %.2f ms%s",
+                t->id, g.fmt ? g.fmt->name : "?", g.base.width, g.base.height, (thr && *thr) ? thr : "?", r.async ? "async" : "sync",
+                r.skipped ? " skipped" : "", r.queue * ms, r.record * ms, r.grace * ms, r.wait * ms, r.invalidate * ms, r.tile * ms, r.total * ms,
+                r.forced ? " forced-flush" : "");
+    }
+    if (now - window >= std::chrono::seconds(10)) {
+        NXLOG_I(kTag, "readback_log: %llu reads in 10 s: mean %.2f ms, max %.2f ms, %llu over 16 ms, %llu with a forced flush",
+                static_cast<unsigned long long>(n), n ? (sum / static_cast<double>(n)) * ms : 0.0, max * ms, static_cast<unsigned long long>(over16),
+                static_cast<unsigned long long>(forced));
+        n = sum = max = over16 = forced = 0;
+        window = now;
+    }
+}
+
 // The render thread's half of an async readback (rb.record), in queue order: after every submission queued before it, so the write
 // generations it compares are those the image has once those ran. Nothing is waited for here.
 struct RbJob {
+    uint64_t record_ns = 0;     // [nvn] readback_log: time the render thread spent recording it
     bool skipped = false;       // every level and layer asked for is in the storage already: nothing recorded
     bool copied = false;        // the copy is recorded into rb; false with skipped false: nothing to read (no buffer, image changed)
 };
 void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, RbJob& job) {
     NXFT("rb.record");
+    const auto rec0 = rb_config().log ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+    struct RecTimer {
+        RbJob& j; std::chrono::steady_clock::time_point t0; bool on;
+        ~RecTimer() { if (on) j.record_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()); }
+    } rec_timer{job, rec0, rb_config().log};
     if (t->gpu != g || g->failed || g->layout == VK_IMAGE_LAYOUT_UNDEFINED || g->scale != 1.0f || l0 + nl > g->levels || y0 + ny > g->layers)
         return;   // the image went or changed after the caller looked
     if (g->rb_gen.size() != g->levels) {
@@ -3047,9 +3096,14 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     const uint32_t y0 = layer_first, ny = std::min(layer_count, L.layers - layer_first);
     g_rb_calls.fetch_add(1);
     const RbConfig& cfg = rb_config();
+    using rb_clock = std::chrono::steady_clock;
+    const auto rb_ns = [](rb_clock::time_point a, rb_clock::time_point b) { return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count()); };
+    RbTimes times;
+    const auto t_start = cfg.log ? rb_clock::now() : rb_clock::time_point();
 
     if (!cfg.async || on_render_thread()) {
         if (!download_all_levels_sync(t, g, L)) return false;
+        if (cfg.log) { times.async = false; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
         g_rb_copies.fetch_add(1);
         rb_note(t, *g, L, l0, nl, y0, ny, "copied every level (GPU drained)");
         if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);
@@ -3063,7 +3117,10 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
         NXFT("rb.queue");   // until the render thread has recorded it (the queue ahead of it is replayed first)
         serial = queue_record([&](Frame& f) { rb_record(f, t, g, L, l0, nl, y0, ny, job); });
     }
+    const auto t_queued = cfg.log ? rb_clock::now() : rb_clock::time_point();
+    if (cfg.log) { times.queue = rb_ns(t_start, t_queued); times.record = job.record_ns; }
     if (job.skipped) {
+        if (cfg.log) { times.skipped = true; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
         g_rb_skipped.fetch_add(1);
         rb_note(t, *g, L, l0, nl, y0, ny, "skipped (not written since the last readback)");
         if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);
@@ -3073,10 +3130,15 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     g_rb_copies.fetch_add(1);
     {
         NXFT("rb.wait");
-        wait_serial_grace(serial, rb_grace_ns());
+        WaitTimes wt;
+        wait_serial_grace(serial, rb_grace_ns(), cfg.log ? &wt : nullptr);
+        if (cfg.log) { times.grace = wt.grace_ns; times.wait = wt.wait_ns; times.forced = wt.forced_flush; }
     }
     if (device().device_lost()) return false;   // the copy never ran: the storage stays as it is
+    const auto t_inv0 = cfg.log ? rb_clock::now() : rb_clock::time_point();
     device().invalidate_buffer(g->rb);
+    const auto t_inv1 = cfg.log ? rb_clock::now() : rb_clock::time_point();
+    if (cfg.log) times.invalidate = rb_ns(t_inv0, t_inv1);
     {
         NXFT("rb.tile");
         const uint8_t* src = static_cast<const uint8_t*>(g->rb.mapped);
@@ -3087,6 +3149,7 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
                                   t->mem + y * L.layout.tiled_layer_stride + lv.tiled_offset);
         }
     }
+    if (cfg.log) { const auto t_end = rb_clock::now(); times.tile = rb_ns(t_inv1, t_end); times.total = rb_ns(t_start, t_end); rb_report(t, *g, times); }
     rb_note(t, *g, L, l0, nl, y0, ny, "copied");
     if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);
     return true;

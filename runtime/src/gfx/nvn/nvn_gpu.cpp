@@ -1084,14 +1084,22 @@ uint64_t queue_record(std::function<void(Frame&)> record) {
 // Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the
 // next present), polling every 0.5 ms, then waits for it on the GPU (wait_serial: a serial still in the batch is flushed at once, an
 // extra kernel submission). grace_ns 0: wait_serial at once. Not on the render thread (it is the one that flushes).
-bool wait_serial_grace(uint64_t serial, uint64_t grace_ns) {
+bool wait_serial_grace(uint64_t serial, uint64_t grace_ns, WaitTimes* times) {
     if (!g || !serial) return true;
+    const auto t0 = std::chrono::steady_clock::now();
     if (grace_ns > 0 && serial > g->flushed_pub.load()) {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(grace_ns);
+        const auto end = t0 + std::chrono::nanoseconds(grace_ns);
         while (serial > g->flushed_pub.load() && g->completed.load() < serial && !g->dev->device_lost() && std::chrono::steady_clock::now() < end)
             std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
-    return wait_serial(serial, UINT64_MAX);
+    if (!times) return wait_serial(serial, UINT64_MAX);
+    const auto t1 = std::chrono::steady_clock::now();
+    times->forced_flush = serial > g->flushed_pub.load() && g->completed.load() < serial;   // the render thread did not get to it: wait_serial flushes
+    const bool ok = wait_serial(serial, UINT64_MAX);
+    const auto t2 = std::chrono::steady_clock::now();
+    times->grace_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+    times->wait_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count());
+    return ok;
 }
 
 // ---- gpu.h ---------------------------------------------------------------------------------------------------------------
