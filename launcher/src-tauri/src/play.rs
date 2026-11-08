@@ -172,8 +172,9 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
         Err(e) => eprintln!("Shaders were not prepared: {}.", e),
         _ => {}
     }
+    // the same rule as Play in the window: without the active profile in pkp.ini the game could start on another player's account and save
     if let Err(e) = crate::profiles::apply_active(game_dir) {
-        eprintln!("Profile not applied: {}.", e);
+        return fail(format!("The profile could not be applied, so the game was not started: {}", e));
     }
     let clock = match crate::events::override_for(game_dir) {
         Ok(clock) => clock,

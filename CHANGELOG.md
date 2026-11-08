@@ -6,9 +6,15 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. No **Set up again** needed.
+**Update:** press **Update** in the launcher. If you come from 0.7.9 or older, run **Set up again** once when the launcher asks (0.8.0 changed the game build); from 0.8.0 on no Set up again is needed.
 
 ### Launcher
+- Fixed a start from a shortcut (Steam, Sunshine) ignoring a profile problem
+  - Before: if the launcher could not write the chosen profile into pkp.ini, a start with `--play` carried on anyway and the game could open another player's save
+  - Now: that start stops with a message, like Play in the launcher window
+- Fixed a damaged profiles.json being replaced without a trace
+  - Before: a cut-off or unreadable profiles.json turned into one default profile, and adding a profile then overwrote the file, losing which save belonged to which profile
+  - Now: the damaged file is first copied to `profiles.json.damaged-<date and time>` next to it, and if that copy cannot be made nothing is changed. Your save folders were never touched
 - Added **Settings > About > Repair and reset** for when a setting or a leftover file causes trouble
   - Before: the only fix was to edit pkp.ini by hand or delete files
   - Now: choose what to fix (game settings, controls, launcher settings, caches, old copies of the runtime and launcher). You see the list of files before anything changes, and a copy of the changed settings files is kept, so **Undo last repair** puts them back. Your saves, profiles, shaders and game files are never touched
