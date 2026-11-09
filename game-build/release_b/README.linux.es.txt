@@ -1,4 +1,4 @@
-# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
+# source-sha256: 41f44dbb265da119223fc604e1af6953fcc0c51ad237bdcb6945357147ca4bbc
 Esta es una traducción automática del texto en inglés; puede contener errores. El texto en inglés es la versión definitiva.
 
 Pokopia PC @VERSION@ para Linux, SteamOS y Steam Deck
