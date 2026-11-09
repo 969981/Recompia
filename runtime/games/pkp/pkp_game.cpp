@@ -36,7 +36,7 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     taa_install(base);
     jump_install(base);
     aim_install(base);
-    options_install(base);
+    options_install(base, host);
     title_install(base, host);
     sort_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
@@ -46,6 +46,7 @@ void frame_all(bool in_game, double step_seconds, play::GameFrame* out) {
     linkplay_frame();   // the first frame checks main (loaded by now) for Interact everywhere
     play_frame(in_game, step_seconds, out);
     title_frame();      // (+) on the title: the quit prompt
+    options_frame();    // the Mouse Mode Key row's key capture
 }
 void settings_changed_all(const play::Settings& s) {
     play_settings_changed(s);

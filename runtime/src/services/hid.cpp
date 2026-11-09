@@ -109,6 +109,7 @@ std::atomic<int> g_jc2_mode{-1};          // -1: not read from the config yet
 std::atomic<bool> g_jc2_request{false};
 std::atomic<bool> g_jc2_listed{false};    // the game set up Nmouse and the device is in its handle table
 std::atomic<bool> g_jc2_active{false};    // last sampled "on its surface"
+std::atomic<uint64_t> g_jc2_space{0};     // jc2_mouse_set_pointer_space: w << 32 | h, 0 = the pointer range
 
 uint64_t now_ns() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -492,8 +493,10 @@ void sample_nmouse(HidState& s) {
         if (active) f.wheel_x = f.wheel_y = 0;
     }
     if (active) {
-        const int32_t x = std::min(s.nm_w - 1, static_cast<int32_t>(u * static_cast<float>(s.nm_w)));
-        const int32_t y = std::min(s.nm_h - 1, static_cast<int32_t>(v * static_cast<float>(s.nm_h)));
+        const uint64_t space = g_jc2_space.load(std::memory_order_relaxed);
+        const int32_t pw = space ? static_cast<int32_t>(space >> 32) : s.nm_w, ph = space ? static_cast<int32_t>(space & 0xffffffffu) : s.nm_h;
+        const int32_t x = std::min(pw - 1, static_cast<int32_t>(u * static_cast<float>(pw)));
+        const int32_t y = std::min(ph - 1, static_cast<int32_t>(v * static_cast<float>(ph)));
         ns.x = x;
         ns.y = y;
         s.nm_x = x;
@@ -1255,6 +1258,11 @@ bool jc2_mouse_wants_pointer() {
     if (m == Jc2MouseMode::Off) return false;
     if (m == Jc2MouseMode::On) return services::g_jc2_listed.load();
     return services::g_jc2_listed.load() && services::g_jc2_request.load();
+}
+
+void jc2_mouse_set_pointer_space(int w, int h) {
+    services::g_jc2_space.store(w > 0 && h > 0 && w <= 16384 && h <= 16384 ? (static_cast<uint64_t>(w) << 32) | static_cast<uint32_t>(h) : 0,
+                                std::memory_order_relaxed);
 }
 
 bool jc2_mouse_active() {

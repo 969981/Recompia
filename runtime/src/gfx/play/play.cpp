@@ -1075,6 +1075,22 @@ public:
     void request_quit_prompt() override {
         if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
     }
+    void begin_capture() override {
+        G& st = g();
+        std::lock_guard<std::mutex> lk(st.cap_mu);
+        st.cap_have = false;
+        st.capture_state.store(1);
+    }
+    bool capturing() const override { return g().capture_state.load() == 1; }
+    bool capture_result(InputId* out) override {
+        G& st = g();
+        std::lock_guard<std::mutex> lk(st.cap_mu);
+        if (!st.cap_have) return false;
+        st.cap_have = false;
+        if (out) *out = st.cap_id;
+        return true;
+    }
+    void cancel_capture() override { g().capture_state.store(0); }
 };
 GameHostImpl g_game_host;
 
