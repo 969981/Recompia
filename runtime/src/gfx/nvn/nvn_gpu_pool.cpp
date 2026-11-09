@@ -1110,6 +1110,28 @@ VkBuffer mirror_src(Mirror& m, uint64_t page, uint64_t* base) {
     return c->buffer;
 }
 
+// The mirror window of `size` bytes at pool offset `poff`: its pages, all in one chunk of the pool's mirror (made here if missing), the
+// chunk's buffer, the offset in it and the bytes to its end. 0 when there is one, else why not (1 too many pages, 2 no mirror or past its
+// end, 3 across chunks, 4 no chunk buffer). resolve_read and mirror_span share it.
+struct MirrorWindow { Mirror* m = nullptr; uint64_t first = 0, last = 0; VkBuffer chunk = VK_NULL_HANDLE; uint64_t offset = 0, avail = 0; };
+static int mirror_window(PoolGpu* pg, MemoryPool* mp, uint64_t poff, uint64_t size, MirrorWindow* w) {
+    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
+    if (last - first + 1 > kMaxBindPages) return 1;
+    Mirror* m = mirror_for(pg, mp);
+    if (!m || last >= m->npages) return 2;
+    const uint64_t chunk_pages = kChunkBytes / kPageBytes;
+    if (first / chunk_pages != last / chunk_pages) return 3;
+    const VkBuffer cb = mirror_chunk(*m, first);
+    if (!cb) return 4;
+    w->m = m;
+    w->first = first;
+    w->last = last;
+    w->chunk = cb;
+    w->offset = poff - (first / chunk_pages) * kChunkBytes;
+    w->avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - w->offset;
+    return 0;
+}
+
 BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     MemoryPool* mp = nullptr;
     PoolGpu* pg = nullptr;
@@ -1117,18 +1139,14 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!g_mirror_on) return out;
     if (!out.ok || !pg || !size) { g_use_skip[use % 3]++; g_skip_why[0]++; return out; }
-    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
-    if (last - first + 1 > kMaxBindPages) { g_use_skip[use % 3]++; g_skip_why[1]++; return out; }
-    Mirror* m = mirror_for(pg, mp);
-    if (!m || last >= m->npages) { g_use_skip[use % 3]++; g_skip_why[2]++; return out; }
-    const uint64_t chunk_pages = kChunkBytes / kPageBytes;
-    if (first / chunk_pages != last / chunk_pages) { g_use_skip[use % 3]++; g_skip_why[3]++; return out; }
-    const VkBuffer cb = mirror_chunk(*m, first);
-    if (!cb) { g_use_skip[use % 3]++; g_skip_why[4]++; return out; }
+    MirrorWindow w;
+    if (const int why = mirror_window(pg, mp, poff, size, &w)) { g_use_skip[use % 3]++; g_skip_why[why]++; return out; }
+    Mirror* m = w.m;
+    const uint64_t first = w.first, last = w.last;
     if (range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last))) {
-        out.buffer = cb;
-        out.offset = poff - (first / chunk_pages) * kChunkBytes;
-        out.avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - out.offset;
+        out.buffer = w.chunk;
+        out.offset = w.offset;
+        out.avail = w.avail;
         for (uint64_t p = first; p <= last; ++p) bit_put(m->used, p, true);
         g_st_dev_binds.fetch_add(1, std::memory_order_relaxed);
         g_use_dev[use % 3]++;
@@ -1151,18 +1169,12 @@ MirrorSpan mirror_span(uint64_t gpu_address, uint64_t size) {
     uint64_t poff = 0;
     const BufRef out = resolve_in_pool(gpu_address, size, &mp, &pg, &poff);
     if (!out.ok || !pg) return s;
-    const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
-    if (last - first + 1 > kMaxBindPages) return s;
-    Mirror* m = mirror_for(pg, mp);
-    if (!m || last >= m->npages) return s;
-    const uint64_t chunk_pages = kChunkBytes / kPageBytes;
-    if (first / chunk_pages != last / chunk_pages) return s;
-    const VkBuffer cb = mirror_chunk(*m, first);
-    if (!cb) return s;
-    s.buf = cb;
-    s.offset = poff - (first / chunk_pages) * kChunkBytes;
-    s.valid = range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last));
-    s.avail = std::min<uint64_t>(kChunkBytes, m->pool_bytes - (first / chunk_pages) * kChunkBytes) - s.offset;
+    MirrorWindow w;
+    if (mirror_window(pg, mp, poff, size, &w)) return s;
+    s.buf = w.chunk;
+    s.offset = w.offset;
+    s.valid = range_valid(*w.m, w.first, w.last - w.first + 1) || (out_lazy() && new_servable(*w.m, w.first, w.last));
+    s.avail = w.avail;
     return s;
 }
 
