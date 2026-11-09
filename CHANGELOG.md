@@ -4,9 +4,14 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.8.2 (build L: Lemur)
 
-**Update:** press **Update** in the launcher. No **Set up again** is needed if you are on 0.8.1 or 0.8.1-beta.10 or newer.
+**Update:** press **Update** in the launcher. You do not need **Set up again**: the game code is the same as in 0.8.1.
+
+### Highlights
+- Added **Add to Steam** (Settings > Game > Steam): put Recompia into your Steam library, with its artwork, so it shows in Game Mode and Big Picture on a Steam Deck or any PC
+- Added the **Koi** look: a bright hand-drawn picture behind the launcher, by Koi (press **Colours** in the sidebar to try it). Koi drew it while the bug fixes and the new features kept Jerban busy, so thank you, Koi, and sorry for the wait
+- Nothing in the game changes. Sunrise is still the launcher's default look
 
 ### Launcher
 - Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
@@ -16,14 +21,6 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
   - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
   - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
-
-### Game
-- In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
-
-### What to test
-- **Add to Steam:** on Linux or the Steam Deck, close Steam, open Settings > Game > Steam, press **Add to Steam** for the game (and the launcher if you like), start Steam, and look in your library (Non-Steam). Report: whether the shortcut and its artwork show, whether it starts the game (or the launcher), anything that went wrong, and whether your other Non-Steam shortcuts are still there. Windows is untested; please say if you try it
-- **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
-- **In-game Options:** with the game closed, add `options_menu = 1` below `[pkp]` in `pkp.ini` (next to `pkp.exe`), start the game, and open **Settings**: nine tabs, switched with L and R. Change a value on two tabs, choose **Save**, reopen Settings and check F1 shows the same values. To report a problem, use launcher **Settings > About > Report a problem** and attach `pkp.log` (**Show pkp.log**)
 
 ## 0.8.1 (build L: Lynx)
 
