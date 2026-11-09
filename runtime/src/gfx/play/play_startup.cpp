@@ -29,15 +29,12 @@ namespace detail {
 
 [[noreturn]] void quit_now(const char* why) { exit_process(0, "pass", why); }
 
-// mpr.ini and the environment override the settings file for the display extras. A key that is set there ([hdr] mode in mpr.ini, or NXRT_HDR_MODE)
-// replaces the file's value with the one extras::settings_from_config() reads; other keys keep the file's value (the F1 page edits the file).
+// The game's ini and the environment override the settings file for the display extras. A key that is set there ([hdr] mode in the ini, or
+// NXRT_HDR_MODE) replaces the file's value with the one extras::settings_from_config() reads; other keys keep the file's value (the F1 page
+// edits the file).
 extras::Settings merge_env(const extras::Settings& from_file) {
     const extras::Settings env = extras::settings_from_config();
     extras::Settings r = from_file;
-    auto set = [](const char* name) {
-        const char* v = std::getenv(name);
-        return v != nullptr && v[0] != '\0';
-    };
     if (config_has("hdr", "mode")) r.hdr.mode = env.hdr.mode;
     if (config_has("hdr", "format")) r.hdr.format = env.hdr.format;
     if (config_has("hdr", "peak_nits")) r.hdr.peak_nits = env.hdr.peak_nits;
@@ -51,7 +48,7 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("upscale", "dlss_dll")) r.upscale.dlss_dll = env.upscale.dlss_dll;
     if (config_has("latency", "mode")) r.latency.mode = env.latency.mode;
     if (config_has("latency", "log_timings")) r.latency.log_timings = env.latency.log_timings;
-    // [picture]: a preset or any of the four keys in mpr.ini / the environment replaces the file's picture controls as a whole
+    // [picture]: a preset or any of the four keys in the game's ini / the environment replaces the file's picture controls as a whole
     if (config_has("picture", "preset") || config_has("picture", "contrast") || config_has("picture", "saturation") || config_has("picture", "black") ||
         config_has("picture", "gamma"))
         r.picture = env.picture;
