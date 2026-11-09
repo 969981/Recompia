@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "text_util.h"
+
 #include "lobby.h"
 
 namespace nxrt::vnet::wire {
@@ -49,7 +51,7 @@ struct Out {
     Out& raw(const void* p, size_t n) { b.insert(b.end(), static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + n); return *this; }
     Out& str(const std::string& s, size_t cap = 255) {
         size_t n = s.size() < cap ? s.size() : cap;
-        while (n && n < s.size() && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;   // never cut inside a UTF-8 sequence
+        n = textutil::utf8_cut(s, n);   // never cut inside a UTF-8 sequence
         return u8(static_cast<uint8_t>(n)).raw(s.data(), n);
     }
     Out& blob(const std::vector<uint8_t>& v) { return u16(static_cast<uint16_t>(v.size())).raw(v.data(), v.size()); }

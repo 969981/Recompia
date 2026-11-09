@@ -95,7 +95,7 @@ std::string nickname() {
 void copy_name(char (&dst)[33], const std::string& s) {
     std::memset(dst, 0, sizeof dst);
     size_t n = s.size() < 32 ? s.size() : 32;
-    while (n && n < s.size() && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
+    n = textutil::utf8_cut(s, n);
     std::memcpy(dst, s.data(), n);
 }
 
