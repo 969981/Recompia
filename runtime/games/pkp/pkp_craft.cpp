@@ -39,6 +39,7 @@
 #include "pkp_guest.h"
 #include "pkp_layout.h"
 #include "pkp_menu.h"
+#include "pkp_tables.h"
 
 #include <algorithm>
 #include <atomic>
@@ -72,8 +73,6 @@ constexpr uint64_t kAsk = 0x1131700;             // (mode, char* buf, size, opti
 constexpr uint64_t kAlloc = 0x1121ee8;           // (allocator, 3, size, align, tag*)
 constexpr uint64_t kAllocator = 0x3483d58;
 using layout::kOnline;
-using layout::kTables;
-using layout::kTableCount;
 using layout::kItemTable;
 using layout::kGuideTable;
 using layout::kSetTable;
@@ -137,19 +136,12 @@ uint32_t language() {
     return l < 9 ? l : 1;
 }
 
-// A data-table record as the game looks it up ([mgr + 0x10 + off] ->vf+0x38(0) ->vf+0x30(id) -> row; record [row + 8]); 0 if none.
-uint64_t table_rec(::Ctx* c, uint64_t off, uint32_t min_tables, uint32_t id) {
-    const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (!mgr || !ok(mgr + kTableCount, 4)) return 0;
-    if (rd<uint32_t>(mgr + kTableCount) < min_tables) off = 0;
-    const uint64_t row = guest::table_lookup<5>(c, rd<uint64_t>(mgr + 0x10 + off), id);
+// A data-table record (record [row + 8]; the table at +0 while the manager does not hold `off`, pkp_tables.h); 0 if none.
+uint64_t table_rec(::Ctx* c, uint64_t off, uint32_t id) {
+    const uint64_t row = tables::row_or_first(c, g.base, off, id);
     return row && ok(row + 8, 8) ? rd<uint64_t>(row + 8) : 0;
 }
-uint64_t table_row(::Ctx* c, uint64_t off, uint32_t id) {
-    const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (!mgr || !ok(mgr + kTableCount, 4)) return 0;
-    return guest::table_lookup<5>(c, rd<uint64_t>(mgr + 0x10 + off), id);
-}
+uint64_t table_row(::Ctx* c, uint64_t off, uint32_t id) { return tables::row(c, g.base, off, id); }
 
 // Case folding for the match: ASCII, Latin-1 and fullwidth Latin capitals to small; markup tags (<...>) dropped. Works on whole UTF-8 sequences,
 // so a match never starts or ends inside a character.
@@ -196,9 +188,9 @@ const std::string& recipe_name(::Ctx* c, uint16_t rid) {
     auto it = g.names.find(rid);
     if (it != g.names.end()) return it->second;
     std::string name;
-    const uint64_t rec = table_rec(c, kRecipeTable, 0x67, rid);
+    const uint64_t rec = table_rec(c, kRecipeTable, rid);
     const uint16_t item = rec && ok(rec + 0x12, 2) ? rd<uint16_t>(rec + 0x12) : 0;
-    const uint64_t irec = item ? table_rec(c, kItemTable, 200, item) : 0;
+    const uint64_t irec = item ? table_rec(c, kItemTable, item) : 0;
     const uint16_t nid = irec && ok(irec + 0x22, 2) ? rd<uint16_t>(irec + 0x22) : 0;
     if (nid && nid <= 3000) {
         const uint64_t p = call(c, g.base + kNameOf, nid, 0);

@@ -15,9 +15,8 @@ constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the 
 constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource manager: holds the loaded sprite sheets and the layout pools)
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
 
-// ---- the data-table manager: table i at +0x10 + its offset (guest::table_lookup in pkp_guest.h looks a row up) ----
-// u32: the tables it holds. Item table at +0 while < 200 (pkp_sort.cpp), recipe table at +0 while < 0x67 (pkp_craft.cpp); pkp_title.cpp
-// reads it as a version and needs > 0x20a.
+// ---- the data-table manager: table i at +0x10 + its offset (pkp_tables.h looks a row up) ----
+// u32: how many tables it holds (8-byte slots from +0x10; a table at off is there while this is above off / 8, pkp_tables.h).
 constexpr uint64_t kTableCount = 0x2b70;
 constexpr uint64_t kItemTable = 0x638;
 constexpr uint64_t kSetTable = 0x1048;           // key guide sets: up to six key guide ids (u16) per row

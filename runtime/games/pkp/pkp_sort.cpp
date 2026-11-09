@@ -46,6 +46,7 @@
 #include "pkp_guest.h"
 #include "pkp_layout.h"
 #include "pkp_menu.h"
+#include "pkp_tables.h"
 
 #include <algorithm>
 #include <array>
@@ -77,9 +78,7 @@ constexpr uint64_t kMaxStack = 0x2a7f0c;         // () -> the max stack (u16)
 constexpr uint64_t kTempFlag = 0x36bbfd8;        // u8 per player: the screen works on a temp copy (an item is held)
 using layout::kSaveRoot;
 constexpr uint64_t kCommon = 0x13d4920, kBagOffline = 0x830, kUseSlot = 0xc070;
-using layout::kTables;                           // data-table manager; item table at +0x10 + 0x638 (+0 while it holds < 200 tables)
-using layout::kTableCount;
-using layout::kItemTable;
+using layout::kItemTable;                        // the item table (the table at +0 while the manager holds < 200 tables, pkp_tables.h)
 using layout::kGuideTable;
 constexpr uint64_t kItemKind = 0x3a;
 constexpr uint64_t kPlayerHelper = 0x30, kActions = 0x78, kType = 0x148, kId = 0x154, kState = 0x160, kScreenKind = 0x168, kCursorKind = 0x169;
@@ -130,25 +129,16 @@ struct State {
 State g;
 
 
-// A row of one of the data-table manager's tables, as the game looks it up (table->vtable[0x38](0)->vtable[0x30](id)); 0 if none.
-uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) {
-    const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (!mgr || !mem::is_mapped(mgr + kTableCount, 4)) return 0;
-    return guest::table_lookup<2>(c, rd<uint64_t>(mgr + table_off + 0x10), id);
-}
+uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) { return tables::row(c, g.base, table_off, id); }
 
 // The item table's kind byte (record +0x3a), 0xff when the table cannot be read. Looked up once per id.
 uint8_t item_kind(::Ctx* c, uint32_t id) {
     id &= kIdMask;
     if (g.kind_of[id]) return static_cast<uint8_t>(g.kind_of[id] - 1);
     uint8_t kind = 0xff;
-    const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (mgr) {
-        const uint64_t off = rd<uint32_t>(mgr + kTableCount) < 200 ? 0 : kItemTable;
-        const uint64_t entry = table_row(c, off, id);
-        const uint64_t rec = entry ? rd<uint64_t>(entry + 8) : 0;
-        if (rec && mem::is_mapped(rec + kItemKind, 1)) kind = rd<uint8_t>(rec + kItemKind);
-    }
+    const uint64_t entry = tables::row_or_first(c, g.base, kItemTable, id);
+    const uint64_t rec = entry ? rd<uint64_t>(entry + 8) : 0;
+    if (rec && mem::is_mapped(rec + kItemKind, 1)) kind = rd<uint8_t>(rec + kItemKind);
     if (kind != 0xff) g.kind_of[id] = static_cast<uint8_t>(kind + 1);
     return kind;
 }

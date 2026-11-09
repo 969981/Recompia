@@ -20,6 +20,7 @@
 #include "pkp_title.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_tables.h"
 
 #include <cstring>
 
@@ -39,11 +40,9 @@ using layout::kFillSet;
 using layout::kPartFilled;
 using layout::kTextString;
 using layout::kLayoutOf;
-using layout::kTables;
 using layout::kLanguage;
 using layout::kSetTable;
 using layout::kGuideTable;
-using layout::kTableCount;
 constexpr uint64_t kWidgetSet = 0xf0;
 using layout::kWidgetState;
 using layout::kStringText;
@@ -68,12 +67,7 @@ using guest::rd;
 using guest::wr;
 using guest::ok;
 
-// A row of one of the manager's data tables, as the game looks it up (table->vtable[0x38](0)->vtable[0x30](id)); 0 if none.
-uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) {
-    const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (!mgr || !ok(mgr + kTableCount, 4) || rd<uint32_t>(mgr + kTableCount) <= 0x20a) return 0;
-    return guest::table_lookup<4>(c, rd<uint64_t>(mgr + table_off + 0x10), id);
-}
+uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) { return tables::row(c, g.base, table_off, id); }
 
 int hook_fill_set(::Ctx* c, uint64_t, void*) {
     const uint64_t widget = c->x[0];
