@@ -1,5 +1,6 @@
-# Checks the launcher on every pull request and push to main that touches launcher/, game-build/release_b/, recomp/ or this workflow:
-# the front end (npm ci + build), cargo check (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and a
+# Checks the launcher on every pull request and push to main that touches launcher/, the runtime's generated settings schemas (the
+# Settings page reads them), game-build/release_b/, recomp/ or this workflow: the front end (npm ci + build, the Settings page against
+# the schemas), cargo check (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and a
 # Python syntax check of pkp_build.py. The release workflow builds the same code only on tags and manual runs; this catches
 # breakage in the pull request instead. A second job byte-compiles the recompiler (recomp/nxrecomp). No publish, no tests.
 name: Launcher checks
@@ -8,6 +9,7 @@ on:
   pull_request:
     paths:
       - 'launcher/**'
+      - 'runtime/docs/*_schema.json'
       - 'game-build/release_b/**'
       - 'recomp/**'
       - '.github/workflows/launcher-checks.yml'
@@ -15,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'launcher/**'
+      - 'runtime/docs/*_schema.json'
       - 'game-build/release_b/**'
       - 'recomp/**'
       - '.github/workflows/launcher-checks.yml'
@@ -65,6 +68,7 @@ jobs:
           npm run build
           npm run check-api
           node scripts/test-gamepad-nav.mjs
+          node scripts/test-settings-schema.mjs
 
       - name: Check (Linux)
         working-directory: launcher/src-tauri
