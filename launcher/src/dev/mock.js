@@ -128,6 +128,7 @@ let setup = structuredClone(sc.setup);
 let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Pokopia' : '';
 let relay = null;
+let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
 let mockRepair = null;
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
@@ -366,6 +367,9 @@ function handle(cmd, args) {
       console.info('[mock] install_version', args.tag, 'accepted', args.accepted);
       return runUpdate();
     }
+    case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'testing' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'testing' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
+    case 'steam_add': mockSteam[`${args.target}_added`] = 1; return `Added "${args.target === 'game' ? 'Recompia' : 'Recompia Launcher'}" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);
     case 'backup_now': mockBackups.unshift({ version: 1, name: `20261108-15${String(mockBackups.length).padStart(2, '0')}00-manual`, created: '2026-11-08T20:00:00Z', kind: 'manual', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: String(mockBackups.length) }); return { result: 'made', entry: mockBackups[0] };

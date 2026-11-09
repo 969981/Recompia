@@ -9,6 +9,9 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update** in the launcher. No **Set up again** is needed if you are on 0.8.1 or 0.8.1-beta.10 or newer.
 
 ### Launcher
+- Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
+  - Before: you had to add a Non-Steam Game by hand in Desktop Mode, set the launch option `--play` yourself, and find or make the pictures
+  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork, drawn by Koi (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list as you had it is kept the first time (`shortcuts.vdf.recompia-backup`, never overwritten).
 - Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
   - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
   - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
@@ -18,6 +21,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
 
 ### What to test
+- **Add to Steam:** on Linux or the Steam Deck, close Steam, open Settings > Game > Steam, press **Add to Steam** for the game (and the launcher if you like), start Steam, and look in your library (Non-Steam). Report: whether the shortcut and its artwork show, whether it starts the game (or the launcher), anything that went wrong, and whether your other Non-Steam shortcuts are still there. Windows is untested; please say if you try it
 - **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
 - **In-game Options:** with the game closed, add `options_menu = 1` below `[pkp]` in `pkp.ini` (next to `pkp.exe`), start the game, and open **Settings**: nine tabs, switched with L and R. Change a value on two tabs, choose **Save**, reopen Settings and check F1 shows the same values. To report a problem, use launcher **Settings > About > Report a problem** and attach `pkp.log` (**Show pkp.log**)
 

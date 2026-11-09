@@ -479,6 +479,32 @@ export const SECTIONS = [
         ],
       },
       {
+        title: 'Steam',
+        rows: [
+          {
+            id: 'steam_note', type: 'note',
+            note: (env) => ({ text: env.steam && !env.steam.found
+              ? 'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.'
+              : 'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.' }),
+          },
+          {
+            id: 'steam_game', label: 'Game in Steam', type: 'info', when: (v, env) => !!env.steam?.found,
+            value: (env) => (env.steam?.game_added ? `In Steam as ${env.steam.game_name}` : `Not in Steam. Starts the game at once.`),
+            actions: (env) => [env.steam?.game_added
+              ? { act: 'steam-remove-game', label: 'Remove', icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
+              : { act: 'steam-add-game', label: 'Add to Steam', icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+          },
+          {
+            id: 'steam_launcher', label: 'Launcher in Steam', type: 'info', when: (v, env) => !!env.steam?.found,
+            value: (env) => (env.steam?.launcher_added ? `In Steam as ${env.steam.launcher_name}` : `Not in Steam. Opens this window.`),
+            actions: (env) => [env.steam?.launcher_added
+              ? { act: 'steam-remove-launcher', label: 'Remove', icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
+              : { act: 'steam-add-launcher', label: 'Add to Steam', icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+          },
+          { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: 'Steam is running. Close it (Steam, Exit) to add or remove a shortcut.' }) },
+        ],
+      },
+      {
         title: 'Shader files',
         rows: [
           { id: 'shader_storage', label: 'Storage', type: 'info', value: storageText, actions: storageActions },
