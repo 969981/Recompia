@@ -35,12 +35,6 @@ uint64_t g_next_base = 0;
 TlsInfo g_tls;
 
 // ---- gauges (include/nxrt/gauge.h); each callback takes g_lock, the lock of the data it counts ----
-// Removes its gauge when this file's statics are torn down (declared after them, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_modules("loader.modules", [] {
     std::lock_guard<std::recursive_mutex> lk(g_lock);
     return static_cast<int64_t>(g_modules.size());

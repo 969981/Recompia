@@ -43,12 +43,6 @@ std::mutex g_type_lock;                               // resolved imported typei
 std::unordered_map<const uint64_t*, uint64_t> g_type_cache;
 
 // ---- gauges (include/nxrt/gauge.h) ----
-// Removes its gauge when this file's statics are torn down (declared after them, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_nx_modules("core.nx_modules", [] { return static_cast<int64_t>(g_count.load(std::memory_order_acquire)); });
 GaugeHook gauge_import_calls("core.import_calls", [] { return static_cast<int64_t>(g_import_calls.load(std::memory_order_relaxed)); });
 GaugeHook gauge_type_cache("core.type_cache", [] {   // resolved typeinfo slots (only grows)

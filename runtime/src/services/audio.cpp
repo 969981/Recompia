@@ -21,7 +21,6 @@
 #include "audren/audren_types.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
-#include "gauge_hook.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "services_internal.h"

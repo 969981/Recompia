@@ -13,7 +13,6 @@
 #include "nxrt/audio_sink.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
-#include "gauge_hook.h"
 #include "nxrt/log.h"
 
 namespace nxrt::audio {
@@ -49,7 +48,6 @@ SinkStats current_stats() {
 
 // ---- gauges (include/nxrt/gauge.h): the sink's own counters, same numbers as stats_report() ----
 // Each GaugeHook removes its gauge when this file's statics are torn down (declared after g_sink, so it goes first).
-using services::GaugeHook;
 GaugeHook gauge_frames_written("audio.sink_frames_written", [] { return static_cast<int64_t>(current_stats().frames_written); });
 GaugeHook gauge_frames_accepted("audio.sink_frames_accepted", [] { return static_cast<int64_t>(current_stats().frames_accepted); });
 GaugeHook gauge_frames_dropped("audio.sink_frames_dropped", [] { return static_cast<int64_t>(current_stats().frames_dropped); });   // overruns: device queue full

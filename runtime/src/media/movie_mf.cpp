@@ -1064,12 +1064,6 @@ int64_t decoder_queue() {
     }
     return n;
 }
-// Removes its gauge when this file's statics are torn down (declared after the registries, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_queued_video("media.queued_video", [] { return queued_samples(0); });
 GaugeHook gauge_queued_audio("media.queued_audio", [] { return queued_samples(1); });
 GaugeHook gauge_decoder_queue("media.decoder_queue", [] { return decoder_queue(); });

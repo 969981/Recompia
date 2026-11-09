@@ -104,12 +104,6 @@ bool in_map_region(uint64_t addr, uint64_t size) {
 std::map<uint64_t, uint64_t> g_reserve_base;   // window address -> base of its host reservation (differs when addr is not 64 KiB aligned)
 
 // ---- gauges (include/nxrt/gauge.h): every callback takes g_mu, the lock of the state it reads ----
-// Removes its gauge when the file's statics are torn down (declared after the containers above, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { gauge_register(n, std::move(f)); }
-    ~GaugeHook() { gauge_unregister(name); }
-};
 GaugeHook gauge_heap_bytes("mem.heap_bytes", [] {   // SetHeapSize value (guest heap in use)
     std::lock_guard lk(g_mu);
     return static_cast<int64_t>(heap_now());

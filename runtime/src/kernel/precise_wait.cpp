@@ -70,11 +70,6 @@ HANDLE thread_timer() {
     return tl_timer.h;
 }
 
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_late("kernel.timer_late_us", [] { return g_late.load(std::memory_order_relaxed) / 1000; });
 }  // namespace
 

@@ -90,12 +90,6 @@ std::map<uint64_t, Alias> g_aliases;      // view address -> record
 std::map<uint64_t, uint64_t> g_alias_used;
 
 // ---- gauges (include/nxrt/gauge.h); each callback takes the lock of the state it reads ----
-// Removes its gauge when this file's statics are torn down (declared after them, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_heap_reserved("mem.heap_reserved", [] { return static_cast<int64_t>(heap_reserved()); });   // section size
 GaugeHook gauge_heap_committed("mem.heap_committed", [] { return static_cast<int64_t>(heap_committed()); });   // committed through heap_commit
 GaugeHook gauge_aliases("mem.aliases", [] {   // heap alias views live (g_heap_mu)

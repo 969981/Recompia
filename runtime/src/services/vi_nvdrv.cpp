@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "nxrt/gauge.h"
-#include "gauge_hook.h"
 #include "nxrt/log.h"
 #include "nxrt/services_api.h"
 #include "services_internal.h"

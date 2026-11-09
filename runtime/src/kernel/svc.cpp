@@ -97,12 +97,6 @@ void wait_site_record(::Ctx* c, uint32_t number, uint64_t req, uint64_t t0, uint
 }
 
 // ---- gauges (include/nxrt/gauge.h) ----
-// Removes its gauge when the file's statics are torn down (declared after the tables above, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { gauge_register(n, std::move(f)); }
-    ~GaugeHook() { gauge_unregister(name); }
-};
 GaugeHook gauge_svc_calls("kernel.svc_calls", [] {   // SVCs answered since start (all numbers)
     uint64_t n = 0;
     for (auto& c : g_calls) n += c.load(std::memory_order_relaxed);

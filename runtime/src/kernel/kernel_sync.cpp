@@ -413,12 +413,6 @@ void notify_waitable_changed() {
 
 // ---- gauges (include/nxrt/gauge.h): wait-queue lengths ----
 namespace {
-// Removes its gauge when the file's statics are torn down (declared after the wait queues, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 
 // Length of one wait queue under the kernel lock. The sampler never waits for the kernel lock: -1 while a thread holds it.
 int64_t queue_len(const std::vector<KThread*>& v) {
