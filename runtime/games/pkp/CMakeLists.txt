@@ -7,24 +7,60 @@ set(_pkp "${CMAKE_CURRENT_SOURCE_DIR}")
 set(_rt "${PROJECT_SOURCE_DIR}")
 set(NXRT_GAME_PKP_INCLUDES "${_rt}/include" "${_rt}/games" "${_pkp}" "${_rt}/src/gfx" "${_rt}/src/gfx/play")
 if(NXRT_TESTTOOLS)
-    list(APPEND NXRT_GAME_PKP_INCLUDES "${_rt}/src/testtools")   # pkp_tt_probe.cpp
+    list(APPEND NXRT_GAME_PKP_INCLUDES "${_rt}/src/testtools")   # test/pkp_tt_probe.cpp
 endif()
 
-add_library(nxrt_game_pkp_data STATIC "${_pkp}/pkp_data.cpp" "${_pkp}/pkp_settings_table.cpp")
+add_library(nxrt_game_pkp_data STATIC
+    "${_pkp}/core/pkp_data.cpp"
+    "${_pkp}/core/pkp_settings_table.cpp")
 target_include_directories(nxrt_game_pkp_data PUBLIC ${NXRT_GAME_PKP_INCLUDES})
 target_compile_features(nxrt_game_pkp_data PUBLIC cxx_std_20)
 
-add_library(nxrt_game_pkp_core STATIC "${_pkp}/pkp_core.cpp")
+add_library(nxrt_game_pkp_core STATIC "${_pkp}/core/pkp_core.cpp")
 if(NXRT_TESTTOOLS)
-    target_sources(nxrt_game_pkp_core PRIVATE "${_pkp}/pkp_tt_probe.cpp")   # the test tooling's probes (registered in pkp_core.cpp)
+    target_sources(nxrt_game_pkp_core PRIVATE "${_pkp}/test/pkp_tt_probe.cpp")   # the test tooling's probes (registered in pkp_core.cpp)
 endif()
 target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 
 if(TARGET nxrt_gfx)
-    add_library(nxrt_game_pkp STATIC "${_pkp}/pkp_game.cpp" "${_pkp}/pkp_play.cpp" "${_pkp}/pkp_render_size.cpp" "${_pkp}/pkp_render_targets.cpp" "${_pkp}/pkp_aspect.cpp" "${_pkp}/pkp_wide_text.cpp" "${_pkp}/pkp_frame_rate.cpp" "${_pkp}/pkp_mouse_camera.cpp" "${_pkp}/pkp_mouse_mode.cpp" "${_pkp}/pkp_aim.cpp" "${_pkp}/pkp_gfx_heap.cpp" "${_pkp}/pkp_jump.cpp" "${_pkp}/pkp_kbm.cpp" "${_pkp}/pkp_key_guide.cpp" "${_pkp}/pkp_linkplay.cpp" "${_pkp}/pkp_menu.cpp" "${_pkp}/pkp_menu_scan.cpp" "${_pkp}/pkp_menu_draw.cpp" "${_pkp}/pkp_menu_pick.cpp" "${_pkp}/pkp_menu_in_game.cpp" "${_pkp}/pkp_options.cpp" "${_pkp}/pkp_quality.cpp" "${_pkp}/pkp_save_uuid.cpp" "${_pkp}/pkp_settings.cpp" "${_pkp}/pkp_taa.cpp" "${_pkp}/pkp_title.cpp" "${_pkp}/pkp_sort.cpp" "${_pkp}/pkp_craft.cpp")
+    add_library(nxrt_game_pkp STATIC
+        # core
+        "${_pkp}/core/pkp_game.cpp"
+        "${_pkp}/core/pkp_linkplay.cpp"
+        "${_pkp}/core/pkp_save_uuid.cpp"
+        "${_pkp}/core/pkp_settings.cpp"
+        # render
+        "${_pkp}/render/pkp_render_size.cpp"
+        "${_pkp}/render/pkp_render_targets.cpp"
+        "${_pkp}/render/pkp_aspect.cpp"
+        "${_pkp}/render/pkp_wide_text.cpp"
+        "${_pkp}/render/pkp_frame_rate.cpp"
+        "${_pkp}/render/pkp_gfx_heap.cpp"
+        "${_pkp}/render/pkp_quality.cpp"
+        "${_pkp}/render/pkp_taa.cpp"
+        # input
+        "${_pkp}/input/pkp_play.cpp"
+        "${_pkp}/input/pkp_mouse_camera.cpp"
+        "${_pkp}/input/pkp_mouse_mode.cpp"
+        "${_pkp}/input/pkp_aim.cpp"
+        "${_pkp}/input/pkp_jump.cpp"
+        "${_pkp}/input/pkp_kbm.cpp"
+        # ui
+        "${_pkp}/ui/pkp_menu.cpp"
+        "${_pkp}/ui/pkp_menu_scan.cpp"
+        "${_pkp}/ui/pkp_menu_draw.cpp"
+        "${_pkp}/ui/pkp_menu_pick.cpp"
+        "${_pkp}/ui/pkp_menu_in_game.cpp"
+        "${_pkp}/ui/pkp_options.cpp"
+        "${_pkp}/ui/pkp_key_guide.cpp"
+        "${_pkp}/ui/pkp_title.cpp"
+        "${_pkp}/ui/pkp_sort.cpp"
+        "${_pkp}/ui/pkp_craft.cpp")
     if(NXRT_TESTTOOLS)
-        target_sources(nxrt_game_pkp PRIVATE "${_pkp}/pkp_movie_test.cpp" "${_pkp}/pkp_taa_probe.cpp")   # test-only features (pkp_game.cpp, NXRT_TESTTOOLS)
+        target_sources(nxrt_game_pkp PRIVATE
+            "${_pkp}/test/pkp_movie_test.cpp"
+            "${_pkp}/test/pkp_taa_probe.cpp")   # test-only features (pkp_game.cpp, NXRT_TESTTOOLS)
     endif()
     target_link_libraries(nxrt_game_pkp PUBLIC nxrt_game_pkp_core nxrt_gfx PRIVATE nxrt_miniz)
-    target_sources(nxrt_game_pkp PRIVATE "${_pkp}/pkp_render_info.cpp")   # game::Info::render (nxrt/game_render.h)
+    target_sources(nxrt_game_pkp PRIVATE "${_pkp}/render/pkp_render_info.cpp")   # game::Info::render (nxrt/game_render.h)
 endif()

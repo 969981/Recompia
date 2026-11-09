@@ -51,7 +51,7 @@
 #include "nxrt/runtime.h"
 #include "nxrt/services.h"
 
-#include "pkp/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
+#include "pkp/core/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
 
 #include "nx_modules.gen.h"     // NX_MODULES: the game's module list, generated from recomp/games/pkp/config.py
 
