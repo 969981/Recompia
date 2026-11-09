@@ -273,6 +273,7 @@ fn steps(game: &Path, cfg: &Path, actions: &[String], groups: Option<&[String]>)
     Ok(out)
 }
 
+#[cfg(test)]
 pub fn plan(game: &Path, cfg: &Path, actions: &[String]) -> Result<Plan, String> {
     plan_with(game, cfg, actions, None)
 }
@@ -344,6 +345,7 @@ fn describe(step: &Step) -> String {
     }
 }
 
+#[cfg(test)]
 pub fn apply(game: &Path, cfg: &Path, actions: &[String]) -> Result<Report, String> {
     apply_with(game, cfg, actions, None)
 }
