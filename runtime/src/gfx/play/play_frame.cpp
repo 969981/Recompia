@@ -43,8 +43,10 @@ thread_local bool t_in_update = false;
 int update_hook(::Ctx*, uint64_t, void*) {
     G& st = g();
     if (st.device && st.device->device_lost()) {
-        const char* message = "The graphics device was lost, so Pokopia must close. Restart the game and attach pkp.log if the problem repeats.";
-        if (st.window) MessageBoxA(static_cast<HWND>(platform::native_hwnd()), message, "Pokopia - graphics device lost", MB_OK | MB_ICONERROR);
+        const game::Info& gi = game::info();
+        const std::string name = *gi.short_title ? gi.short_title : gi.title;     // "Pokopia"
+        const std::string message = "The graphics device was lost, so " + name + " must close. Restart the game and attach " + gi.id + ".log if the problem repeats.";
+        if (st.window) MessageBoxA(static_cast<HWND>(platform::native_hwnd()), message.c_str(), (name + " - graphics device lost").c_str(), MB_OK | MB_ICONERROR);
         exit_process_impl(2, "fail", message, false);
     }
     ft::mark("main.update");
