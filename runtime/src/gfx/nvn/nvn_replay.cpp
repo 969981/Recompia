@@ -47,18 +47,16 @@ static void rp_flush() {
     g_rp_inner = 0;
 }
 uint32_t g_dirty = kAllDirty;
-GpuWrite g_gw[kGpuWriteRing];
-size_t g_gw_next = 0, g_gw_count = 0;
-uint64_t g_gw_lost_serial = 0;      // the newest serial among ranges dropped from the ring
+GpuWrites g_gw;
 static void note_gw(uint64_t addr, uint64_t size) {
     if (!size || !F) return;
-    GpuWrite& last = g_gw[(g_gw_next + kGpuWriteRing - 1) % kGpuWriteRing];
-    if (g_gw_count && last.lo == addr && last.hi == addr + size) { last.serial = F->serial; return; }
-    GpuWrite& w = g_gw[g_gw_next];
-    if (g_gw_count == kGpuWriteRing) g_gw_lost_serial = std::max(g_gw_lost_serial, w.serial);
-    else ++g_gw_count;
+    GpuWrite& last = g_gw.ring[(g_gw.next + kGpuWriteRing - 1) % kGpuWriteRing];
+    if (g_gw.count && last.lo == addr && last.hi == addr + size) { last.serial = F->serial; return; }
+    GpuWrite& w = g_gw.ring[g_gw.next];
+    if (g_gw.count == kGpuWriteRing) g_gw.lost_serial = std::max(g_gw.lost_serial, w.serial);
+    else ++g_gw.count;
     w = {addr, addr + size, F->serial};
-    g_gw_next = (g_gw_next + 1) % kGpuWriteRing;
+    g_gw.next = (g_gw.next + 1) % kGpuWriteRing;
 }
 
 void gpu_wrote(uint64_t addr, uint64_t size, int use) {
@@ -674,8 +672,7 @@ void replay_shutdown() {
         w = CounterWindow();
     }
     g_dbg_depth = 0;
-    g_gw_next = g_gw_count = 0;
-    g_gw_lost_serial = 0;
+    g_gw.reset();
     if (g_occ_pool) vkDestroyQueryPool(vkdev(), g_occ_pool, nullptr);
     g_occ_pool = VK_NULL_HANDLE;
     g_occ_tried = false;

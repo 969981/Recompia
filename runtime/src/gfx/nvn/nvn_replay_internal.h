@@ -272,15 +272,19 @@ inline void shadow_invalidate() {
 // makes every range unreadable until that submission is done.
 struct GpuWrite { uint64_t lo, hi, serial; };
 constexpr size_t kGpuWriteRing = 1024;
-extern GpuWrite g_gw[kGpuWriteRing];
-extern size_t g_gw_next, g_gw_count;
-extern uint64_t g_gw_lost_serial;
+struct GpuWrites {   // owner: nvn_replay.cpp (gpu_wrote); kept across submissions, emptied by replay_shutdown
+    GpuWrite ring[kGpuWriteRing] = {};
+    size_t next = 0, count = 0;
+    uint64_t lost_serial = 0;   // the newest serial among ranges dropped from the ring
+    void reset() { next = count = 0; lost_serial = 0; }
+};
+extern GpuWrites g_gw;
 // True when no submission still in flight (the one being recorded included) may write [addr, addr + size).
 inline bool gw_settled(uint64_t addr, uint64_t size) {
     const uint64_t done = poll_completed();
-    if (g_gw_lost_serial > done) return false;
-    for (size_t i = 0; i < g_gw_count; ++i)
-        if (g_gw[i].serial > done && addr < g_gw[i].hi && g_gw[i].lo < addr + size) return false;
+    if (g_gw.lost_serial > done) return false;
+    for (size_t i = 0; i < g_gw.count; ++i)
+        if (g_gw.ring[i].serial > done && addr < g_gw.ring[i].hi && g_gw.ring[i].lo < addr + size) return false;
     return true;
 }
 void gpu_wrote(uint64_t addr, uint64_t size, int use);
