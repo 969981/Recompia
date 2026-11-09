@@ -308,16 +308,21 @@ bool occ_ready();
 extern uint8_t g_key_dummy_binding;
 extern bool g_want_depth_ro;
 extern bool g_vb_bound_in_cb;
-extern bool g_xfb_active;
-extern bool g_xfb_began;
-extern bool g_xfb_have_counter;
-extern gfx::Buffer g_xfb_counter;
-// One byte counter per feedback control buffer (NVN's Begin/End/Draw take its address): slot * 16 bytes into g_xfb_counter. vkCmdEndTransformFeedbackEXT
-// writes the bytes of the section there; DrawTransformFeedback reads them (vkCmdDrawIndirectByteCountEXT). written: the slot holds a count.
+// Transform feedback (stream-out). One byte counter per feedback control buffer (NVN's Begin/End/Draw take its address): slot * 16 bytes
+// into `counter`. vkCmdEndTransformFeedbackEXT writes the bytes of the section there; DrawTransformFeedback reads them
+// (vkCmdDrawIndirectByteCountEXT). slot_written: the slot holds a count. Kept across submissions; shutdown() releases the counter buffer.
 constexpr uint32_t kXfbSlots = 256, kXfbSlotBytes = 16;
-extern std::unordered_map<uint64_t, uint32_t> g_xfb_slot_of;
-extern uint32_t g_xfb_slot_next, g_xfb_cur;
-extern bool g_xfb_slot_written[kXfbSlots];
+struct XfbState {   // owner: nvn_replay_draw.cpp; sections begun and ended by run_list (Begin/EndXfb) and xfb_end_in_pass
+    bool active = false;         // a section is open (BeginXfb .. EndXfb)
+    bool began = false;          // vkCmdBeginTransformFeedbackEXT is in effect in the open pass
+    bool have_counter = false;   // a counter buffer holds the bytes written so far: the next begin continues after them
+    gfx::Buffer counter;
+    std::unordered_map<uint64_t, uint32_t> slot_of;
+    uint32_t slot_next = 0, cur = 0;
+    bool slot_written[kXfbSlots] = {};
+    void shutdown();
+};
+extern XfbState g_xfb;
 // Windowed GPU counters for the primitive counters (13 = primitives generated, 14 = feedback primitives written): a ResetCounter whose window
 // (up to the matching ReportCounter, in the same list) holds an indirect or feedback draw starts a query the GPU counts those draws with;
 // the CPU counts the other draws exactly (count_primitives) but cannot know the primitives of a draw whose arguments the GPU holds.

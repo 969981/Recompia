@@ -20,13 +20,13 @@ uint64_t g_pass_verts = 0;      // vertices (indices for indexed draws) times in
 // ---- passes ----------------------------------------------------------------------------------------------------------------
 // Ends transform feedback in the open pass, remembering the bytes written in the counter buffer (a pass break must not restart the buffer).
 void xfb_end_in_pass() {
-    if (!g_xfb_began) return;
-    VkBuffer cbuf = g_xfb_counter.buffer;
-    const VkDeviceSize off = static_cast<VkDeviceSize>(g_xfb_cur) * kXfbSlotBytes;
+    if (!g_xfb.began) return;
+    VkBuffer cbuf = g_xfb.counter.buffer;
+    const VkDeviceSize off = static_cast<VkDeviceSize>(g_xfb.cur) * kXfbSlotBytes;
     vkCmdEndTransformFeedbackEXT(F->cb, 0, 1, &cbuf, &off);
-    g_xfb_began = false;
-    g_xfb_have_counter = true;
-    g_xfb_slot_written[g_xfb_cur] = true;
+    g_xfb.began = false;
+    g_xfb.have_counter = true;
+    g_xfb.slot_written[g_xfb.cur] = true;
 }
 
 // Two texture objects over one image (as shares_image further down, which this code cannot see yet).
@@ -213,7 +213,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             any = true;
         }
     }
-    if (!any && g_xfb_active && device().features().transform_feedback) {   // a stream-out pass without attachments
+    if (!any && g_xfb.active && device().features().transform_feedback) {   // a stream-out pass without attachments
         extent = {1, 1};
         any = true;
     }

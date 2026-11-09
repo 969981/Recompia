@@ -479,22 +479,22 @@ static void run_list(const CmdList& list, int depth) {
                 }
                 if (r.op() == Op::BeginXfb) {
                     xfb_end_in_pass();    // a section still open in the pass ends where the new one starts
-                    auto sit = g_xfb_slot_of.find(p.address);
-                    if (sit == g_xfb_slot_of.end()) {
-                        if (g_xfb_slot_next >= kXfbSlots) {   // all counters in use: start over (a DrawTransformFeedback of an older control buffer then draws nothing)
-                            g_xfb_slot_of.clear();
-                            g_xfb_slot_next = 0;
+                    auto sit = g_xfb.slot_of.find(p.address);
+                    if (sit == g_xfb.slot_of.end()) {
+                        if (g_xfb.slot_next >= kXfbSlots) {   // all counters in use: start over (a DrawTransformFeedback of an older control buffer then draws nothing)
+                            g_xfb.slot_of.clear();
+                            g_xfb.slot_next = 0;
                         }
-                        sit = g_xfb_slot_of.emplace(p.address, g_xfb_slot_next++).first;
+                        sit = g_xfb.slot_of.emplace(p.address, g_xfb.slot_next++).first;
                     }
-                    g_xfb_cur = sit->second;
-                    g_xfb_slot_written[g_xfb_cur] = false;
-                    g_xfb_active = true;
-                    g_xfb_have_counter = false;
+                    g_xfb.cur = sit->second;
+                    g_xfb.slot_written[g_xfb.cur] = false;
+                    g_xfb.active = true;
+                    g_xfb.have_counter = false;
                 } else if (r.op() == Op::EndXfb) {
                     xfb_end_in_pass();
-                    g_xfb_active = false;
-                    g_xfb_have_counter = false;
+                    g_xfb.active = false;
+                    g_xfb.have_counter = false;
                 }
                 break;
             }
@@ -657,12 +657,7 @@ void replay_end_submit(Frame& f) {
 }
 
 void replay_shutdown() {
-    if (g_xfb_counter) device().destroy_buffer(g_xfb_counter);
-    g_xfb_counter = gfx::Buffer();
-    g_xfb_began = g_xfb_active = g_xfb_have_counter = false;
-    g_xfb_slot_of.clear();
-    g_xfb_slot_next = g_xfb_cur = 0;
-    std::memset(g_xfb_slot_written, 0, sizeof g_xfb_slot_written);
+    g_xfb.shutdown();
     for (CounterWindow& w : g_cw) {
         if (w.pool) vkDestroyQueryPool(vkdev(), w.pool, nullptr);
         w = CounterWindow();

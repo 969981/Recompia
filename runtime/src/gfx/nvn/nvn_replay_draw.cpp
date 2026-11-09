@@ -28,14 +28,12 @@ uint8_t g_key_dummy_binding = 0;      // 1 + the binding that feeds the defaults
 bool g_want_depth_ro = false;         // some texture this draw samples is the current depth attachment
 bool g_vb_bound_in_cb = false;        // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
 
-bool g_xfb_active = false;
+XfbState g_xfb;
 static bool g_pipe_xfb = false;             // the bound pipeline is a stream-out variant
-bool g_xfb_began = false;            // vkCmdBeginTransformFeedbackEXT is in effect in the open pass
-bool g_xfb_have_counter = false;     // a counter buffer holds the bytes written so far: the next begin continues after them
-gfx::Buffer g_xfb_counter;
-std::unordered_map<uint64_t, uint32_t> g_xfb_slot_of;
-uint32_t g_xfb_slot_next = 0, g_xfb_cur = 0;
-bool g_xfb_slot_written[kXfbSlots] = {};
+void XfbState::shutdown() {
+    if (counter) device().destroy_buffer(counter);
+    *this = XfbState();
+}
 
 // ---- helpers ----------------------------------------------------------------------------------------------------------------
 static VkFormat scaled_for(VkFormat f) {
@@ -152,7 +150,7 @@ static bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
             }
             // a float input fed by an integer attribute gets the raw bits: the integer format stays and the pipeline patches the shader
             // (spirv_int_attributes); stream-out draws use the shader's stream-out variant, which is not patched: scaled floats there
-            if (in.type == ScalarType::Float && is_int_format(f) && g_xfb_active) f = scaled_for(f);
+            if (in.type == ScalarType::Float && is_int_format(f) && g_xfb.active) f = scaled_for(f);
             else if ((in.type == ScalarType::Uint || in.type == ScalarType::Sint) && !vk_format_is_integer(f))   // 32-bit integers too
                 log_once(kOnceAttrTypeMismatch, "a vertex attribute with a float format feeds an integer shader input (needs a SPIR-V variant)");
             if (key.attr_count >= 16) break;
@@ -216,7 +214,7 @@ static bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
                                     uses_src1(static_cast<VkBlendFactor>(key.blend_src_a[i])) || uses_src1(static_cast<VkBlendFactor>(key.blend_dst_a[i]))))
             key.dual_src = 1;
     }
-    key.xfb = g_xfb_active && device().features().transform_feedback && S.stage[kVertex] && xfb_stride(S.stage[kVertex]) ? 1 : 0;
+    key.xfb = g_xfb.active && device().features().transform_feedback && S.stage[kVertex] && xfb_stride(S.stage[kVertex]) ? 1 : 0;
     key.depth_format = P.depth_fmt;
     key.stencil_format = P.has_stencil ? P.depth_fmt : VK_FORMAT_UNDEFINED;
     key.samples = P.samples;
@@ -430,7 +428,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     bool pass_ok;
     { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
-    if (g_prog_writes || g_xfb_active) g_pass_unsafe = true;
+    if (g_prog_writes || g_xfb.active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
     if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {
         RpScope rp_(kRpPipe);
@@ -447,9 +445,9 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     }
     if (!g_pipe) return false;
     // a draw inside a stream-out section that has no stream-out variant and nothing to render to has no effect
-    if (g_xfb_active && !g_pipe_xfb && !P.ncolor && !S.depth_tex) return false;
+    if (g_xfb.active && !g_pipe_xfb && !P.ncolor && !S.depth_tex) return false;
     if (g_trace) trace_draw(mode, indexed, *pl);
-    if (g_xfb_active) {
+    if (g_xfb.active) {
         static std::unordered_map<std::string, bool> seen;
         if (seen.emplace(S.stage[kVertex]->hash, true).second)
             NXLOG_I("nvn.xfb", "draw under transform feedback: vs %s mode %d attrs %u xfb0 %llx/%llu", S.stage[kVertex]->hash.c_str(), mode, S.attr_count,
@@ -461,22 +459,22 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         g_gauge_pipeline_binds.add(1);
         g_bound_pipeline = g_pipe;
     }
-    if (g_xfb_active && g_pipe_xfb && !g_xfb_began && device().features().transform_feedback && S.xfb[0].addr) {
+    if (g_xfb.active && g_pipe_xfb && !g_xfb.began && device().features().transform_feedback && S.xfb[0].addr) {
         BufRef xb = resolve_buffer(S.xfb[0].addr, S.xfb[0].size);
         if (xb.ok) {
             gpu_wrote(S.xfb[0].addr, S.xfb[0].size ? S.xfb[0].size : xb.avail, kWriteXfb);
-            if (!g_xfb_counter) {
+            if (!g_xfb.counter) {
                 if (device().create_buffer(kXfbSlots * kXfbSlotBytes, VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx::MemoryUse::Upload,
-                                           &g_xfb_counter, "nvn xfb counter") != VK_SUCCESS)
-                    g_xfb_counter = gfx::Buffer();
+                                           &g_xfb.counter, "nvn xfb counter") != VK_SUCCESS)
+                    g_xfb.counter = gfx::Buffer();
             }
             const VkDeviceSize size = std::min<VkDeviceSize>(S.xfb[0].size ? S.xfb[0].size : xb.avail, xb.avail) & ~static_cast<VkDeviceSize>(3);
             vkCmdBindTransformFeedbackBuffersEXT(F->cb, 0, 1, &xb.buffer, &xb.offset, &size);
-            VkBuffer cbuf = g_xfb_counter.buffer;
-            const VkDeviceSize coff = static_cast<VkDeviceSize>(g_xfb_cur) * kXfbSlotBytes;
-            if (g_xfb_have_counter && cbuf) vkCmdBeginTransformFeedbackEXT(F->cb, 0, 1, &cbuf, &coff);
+            VkBuffer cbuf = g_xfb.counter.buffer;
+            const VkDeviceSize coff = static_cast<VkDeviceSize>(g_xfb.cur) * kXfbSlotBytes;
+            if (g_xfb.have_counter && cbuf) vkCmdBeginTransformFeedbackEXT(F->cb, 0, 1, &cbuf, &coff);
             else vkCmdBeginTransformFeedbackEXT(F->cb, 0, 0, nullptr, nullptr);
-            g_xfb_began = true;
+            g_xfb.began = true;
         } else {
             note_unsupported("transform feedback into an address outside every pool");
         }
@@ -577,7 +575,7 @@ static void count_primitives(uint32_t mode, uint32_t count, uint32_t instances) 
     const uint64_t per = mode == NVN_DRAW_PRIMITIVE_PATCHES ? count / std::max<uint32_t>(1, S.patch_size) : primitives_for(static_cast<int>(mode), count);   // patches: input patches
     const uint64_t prims = per * std::max<uint32_t>(1, instances);
     g_prims_generated += prims;
-    if (g_xfb_active) g_prims_xfb += prims;
+    if (g_xfb.active) g_prims_xfb += prims;
 }
 
 // Quads, quad strips, polygons and line loops, which Vulkan has no topology for, as the triangle (or line strip) index list of the same vertices.
@@ -941,8 +939,8 @@ void do_draw_xfb(const P_DrawXfb& p) {
     if (!noted) { noted = true; NXLOG_I("nvn.xfb", "replay: transform feedback draw (first): mode %u control %llx", p.mode, static_cast<unsigned long long>(p.control)); }
     if (!S.render_enable) return;
     if (!device().features().transform_feedback) { note_unsupported("DrawTransformFeedback (the device has no VK_EXT_transform_feedback)"); counters().draws_skipped.fetch_add(1); return; }
-    const auto it = g_xfb_slot_of.find(p.control);
-    if (!g_xfb_counter || it == g_xfb_slot_of.end() || !g_xfb_slot_written[it->second]) {
+    const auto it = g_xfb.slot_of.find(p.control);
+    if (!g_xfb.counter || it == g_xfb.slot_of.end() || !g_xfb.slot_written[it->second]) {
         TRACE("DrawTransformFeedback control %llx: the section wrote nothing", static_cast<unsigned long long>(p.control));   // zero bytes: zero vertices
         counters().draws_skipped.fetch_add(1);
         return;
@@ -958,7 +956,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     for (uint32_t b = 0; !stride && b < 16; ++b) stride = S.stream[b].stride;
     if (!stride) { note_unsupported("DrawTransformFeedback with no vertex stream stride"); counters().draws_skipped.fetch_add(1); return; }
     checkpoint_draw(static_cast<uint32_t>(p.control), static_cast<uint32_t>(p.control >> 32), 1, true);   // the count is the section's byte counter
-    vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb_counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
+    vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb.counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     if (g_trace) trace_snap_after_draw();
