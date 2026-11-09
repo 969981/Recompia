@@ -34,7 +34,7 @@ std::string name_key(const std::string& s) {
 // ---- contexts and triggers ---------------------------------------------------------------------------------------------------
 
 // The generic names; the registered game names the contexts itself (GameVocabulary::ctx_names).
-const char* const kCtxNames[] = {"all", "play", "alt", "map", "menu", "inspect"};
+const char* const kCtxNames[] = {"all", "play", "map", "menu"};
 static_assert(sizeof(kCtxNames) / sizeof(kCtxNames[0]) == kCtxCount, "one name per Ctx");
 const char* const* ctx_names() {
     const GameVocabulary* v = game_vocabulary();
@@ -217,30 +217,10 @@ const ActInfo kActs[] = {
     {Act::LookDown, "look_down", "RS_DOWN"},
     {Act::LookLeft, "look_left", "RS_LEFT"},
     {Act::LookRight, "look_right", "RS_RIGHT"},
-    {Act::Primary, "primary", ""},
-    {Act::Target, "target", ""},
-    {Act::Secondary, "secondary", ""},
-    {Act::Jump, "jump", ""},
-    {Act::AltForm, "alt_form", ""},
-    {Act::LookHold, "look_hold", ""},
-    {Act::Map, "map", ""},
-    {Act::Pause, "pause", ""},
-    {Act::Confirm, "confirm", "A"},
-    {Act::Back, "back", "B"},
     {Act::DpadUp, "dpad_up", "UP"},
     {Act::DpadDown, "dpad_down", "DOWN"},
     {Act::DpadLeft, "dpad_left", "LEFT"},
     {Act::DpadRight, "dpad_right", "RIGHT"},
-    {Act::SetA1, "set_a_1", ""},
-    {Act::SetA2, "set_a_2", ""},
-    {Act::SetA3, "set_a_3", ""},
-    {Act::SetA4, "set_a_4", ""},
-    {Act::SetB1, "set_b_1", ""},
-    {Act::SetB2, "set_b_2", ""},
-    {Act::SetB3, "set_b_3", ""},
-    {Act::SetB4, "set_b_4", ""},
-    {Act::SetANext, "set_a_next", ""},
-    {Act::SetAPrev, "set_a_prev", ""},
     {Act::BtnA, "btn_a", "A"},
     {Act::BtnB, "btn_b", "B"},
     {Act::BtnX, "btn_x", "X"},

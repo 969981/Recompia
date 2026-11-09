@@ -183,7 +183,7 @@ void poll_pads(uint64_t now) {
         map_rumble(l, h, st.settings.pad, &lo, &hi);
     }
     const Ctx cx = st.engine ? st.engine->context() : Ctx::Menu;
-    const bool look_ctx = cx == Ctx::Play || cx == Ctx::Alt || cx == Ctx::Inspect;      // the right stick is a look only in play
+    const bool look_ctx = cx == Ctx::Play;      // the right stick is a look only in play
     const bool rumble_changed = lo != st.rumble_lo || hi != st.rumble_hi;
     const bool rumble_refresh = (lo || hi) && now - st.last_rumble_ns > 100 * kMs;
     const uint32_t quit_combo = st.settings.quit.pad;

@@ -33,6 +33,10 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
 const char* sec_label(Sec s);
 bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* s, bool* known, std::string* msg);
 Sec fixed_sec(const std::string& key);
+// Actions and contexts of older files that no longer exist (compared like parse_act / parse_ctx do: case, '-' and '_'). A [switch] row, a
+// binding or a [bindings.<ctx>] section that uses one is skipped without a warning.
+bool retired_act(const std::string& name);
+bool retired_ctx(const std::string& name);
 
 // play_config_migrate.cpp
 int defaults_rev();

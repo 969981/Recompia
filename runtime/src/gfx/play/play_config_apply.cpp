@@ -52,6 +52,27 @@ static bool retired_key(Sec sec, const std::string& k) {
     return false;
 }
 
+static std::string key_form(const std::string& name) {
+    std::string r = lower(name);
+    for (char& ch : r)
+        if (ch == '-') ch = '_';
+    return r;
+}
+
+bool retired_act(const std::string& name) {
+    static const char* const kNames[] = {"primary", "target", "secondary", "jump", "alt_form", "look_hold", "map", "pause", "confirm", "back",
+                                         "set_a_1", "set_a_2", "set_a_3", "set_a_4", "set_b_1", "set_b_2", "set_b_3", "set_b_4", "set_a_next", "set_a_prev"};
+    const std::string k = key_form(name);
+    for (const char* n : kNames)
+        if (k == n) return true;
+    return false;
+}
+
+bool retired_ctx(const std::string& name) {
+    const std::string k = key_form(name);
+    return k == "alt" || k == "inspect";
+}
+
 // Applies one `key = value` of a fixed section. On a bad value returns false with *msg set (no line prefix).
 // *known is false for a key the section does not have.
 bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* s, bool* known, std::string* msg) {
@@ -436,6 +457,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
         }
         case Sec::Switch: {
             Act a = Act::None;
+            if (retired_act(k)) return true;
             if (!parse_act(k, &a) || a == Act::None) break;   // unknown action name: a warning
             Output o;
             std::string perr;

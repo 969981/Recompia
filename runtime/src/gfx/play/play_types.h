@@ -22,12 +22,12 @@
 namespace nxrt::play {
 
 // ---- contexts ----------------------------------------------------------------------------------------------------------------
-// Play: the game in play. Alt: in play in the alternate body (a second control scheme). Inspect: in play with an inspect mode on.
-enum class Ctx : uint8_t { All = 0, Play, Alt, Map, Menu, Inspect, kCount };
+// Play: the game in play.
+enum class Ctx : uint8_t { All = 0, Play, Map, Menu, kCount };
 constexpr int kCtxCount = static_cast<int>(Ctx::kCount);
-const char* ctx_name(Ctx c);                           // the game's names (mpr: "all" "gameplay" "morph" "map" "menu" "scan"); generic: "all" "play" "alt" "map" "menu" "inspect"
+const char* ctx_name(Ctx c);                           // the game's names (mpr: "all" "gameplay" "map" "menu"); generic: "all" "play" "map" "menu"
 bool parse_ctx(const std::string& s, Ctx* out);        // case-insensitive
-inline bool ctx_in_play(Ctx c) { return c == Ctx::Play || c == Ctx::Alt || c == Ctx::Inspect; }
+inline bool ctx_in_play(Ctx c) { return c == Ctx::Play; }
 
 // ---- triggers ----------------------------------------------------------------------------------------------------------------
 enum class Trig : uint8_t { Press = 0, Tap, Hold, Toggle, DoubleTap };
@@ -41,13 +41,9 @@ enum class Act : uint8_t {
     MoveForward, MoveBack, MoveLeft, MoveRight,
     // right stick (keyboard look; the mouse does not use these)
     LookUp, LookDown, LookLeft, LookRight,
-    // game actions (mpr: fire, lock on, missile, jump, morph ball, free look, map, pause, confirm, back)
-    Primary, Target, Secondary, Jump, AltForm, LookHold, Map, Pause, Confirm, Back,
+    // d-pad
     DpadUp, DpadDown, DpadLeft, DpadRight,
-    SetA1, SetA2, SetA3, SetA4,            // select one of four in the cycled set (mpr: the beams power, wave, ice, plasma)
-    SetB1, SetB2, SetB3, SetB4,            // select one of four in a second set (mpr: the visors combat, scan, thermal, x-ray)
-    SetANext, SetAPrev,                    // cycle set A (the mouse wheel)
-    // raw Switch buttons, for anything the table above does not cover
+    // raw Switch buttons
     BtnA, BtnB, BtnX, BtnY, BtnL, BtnR, BtnZL, BtnZR, BtnPlus, BtnMinus, BtnLStick, BtnRStick,
     // a game-side switch with no Switch output (pkp: the Joy-Con 2 mouse mode, toggled by each activation)
     MouseMode,
@@ -65,7 +61,7 @@ bool parse_act(const std::string& name, Act* out);     // case-insensitive, '-' 
 
 // ---- Switch outputs ----------------------------------------------------------------------------------------------------------
 // What an action does on the Switch pad: buttons pressed together plus stick deflection (each axis -1..1, summed over all active
-// actions and clamped). SetANext / SetAPrev have no fixed output: the engine turns them into one of SetA1..4 (see engine).
+// actions and clamped).
 struct Output {
     uint64_t buttons = 0;       // nn::hid::NpadButton bits (nxrt/input_source.h: btn(kBtnA) ...)
     float lx = 0, ly = 0;       // left stick, y up = +
@@ -113,7 +109,7 @@ struct MouseSettings {
     bool invert_y = false;                         // false: mouse up looks up
     bool invert_x = false;
     bool menu_cursor = true;                       // in menus the mouse is a pointer: cursor, hover, click, right click, wheel
-    bool wheel_cycles = true;                       // the wheel cycles set A (mpr: the beams; the SetANext / SetAPrev bindings stay either way)
+    bool wheel_cycles = true;                       // [mouse] wheel_cycles: kept in the file; no action reads it since the cycle actions went
 };
 // ---- pad button remapping ------------------------------------------------------------------------------------------------------------
 // The physical buttons of an SDL gamepad, named by position (the face buttons by where they sit, so the names do not depend on the printed
@@ -158,7 +154,7 @@ struct TimingSettings {
     int tap_ms = 200;              // a press shorter than this is a tap
     int hold_ms = 250;             // a hold starts after this
     int double_ms = 300;           // the second press of a double tap must come within this of the first release
-    int pulse_ms = 80;             // how long a tap / set A or B select (mpr: beam, visor) / wheel notch stays pressed on the Switch side
+    int pulse_ms = 80;             // how long a tap / wheel notch stays pressed on the Switch side
 };
 struct DisplaySettings {
     std::string window_mode = "windowed";   // "windowed" "borderless" "exclusive"

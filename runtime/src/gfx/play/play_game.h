@@ -51,10 +51,7 @@ public:
 // The game's answer at one frame boundary.
 struct GameFrame {
     float look_scale = 1.f;          // the gyro's pitch rate is multiplied by this before the game reads it
-    bool hints_valid = false;        // the cycle fields are meaningful
-    int cycle_index = -1;            // the selected set-A member in the bindings' numbering (SetA1..SetA4 = 0..3), -1 = unknown (mpr: the beam)
-    unsigned cycle_mask = 0;         // bit i = SetA<i+1> selectable (mpr: the beams owned)
-    Ctx play_ctx = Ctx::Play;    // the context while the game is in play (Play, Alt, Inspect)
+    Ctx play_ctx = Ctx::Play;        // the context while the game is in play
 };
 
 struct GameStatus {

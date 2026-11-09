@@ -406,7 +406,7 @@ void bindings_tab(UiHost& host, Page& p) {
         Binding b;
         b.in = InputId{};
         b.ctx = p.ctx;
-        b.act = Act::Primary;
+        b.act = Act::None;
         b.trig = Trig::Press;
         b.ms = 0;
         p.edit.bindings.push_back(b);
@@ -437,12 +437,8 @@ void bindings_tab(UiHost& host, Page& p) {
 // ---- Switch layout ------------------------------------------------------------------------------------------------------------------
 
 void switch_tab(Page& p) {
-    // The cycling actions by the game's names (mpr: beam_next and beam_prev ... beam_1 to beam_4).
-    const std::string help = std::string("What each action presses on the Switch pad: buttons A B X Y L R ZL ZR PLUS MINUS UP DOWN LEFT RIGHT LSTICK RSTICK "
-                                         "and stick directions LS_UP LS_DOWN LS_LEFT LS_RIGHT RS_UP RS_DOWN RS_LEFT RS_RIGHT, joined by +. ") +
-                             act_info(Act::SetANext).name + " and " + act_info(Act::SetAPrev).name + " have no fixed output (they pick " +
-                             act_info(Act::SetA1).name + " to " + act_info(Act::SetA4).name + ").";
-    ImGui::TextWrapped("%s", help.c_str());
+    ImGui::TextWrapped("What each action presses on the Switch pad: buttons A B X Y L R ZL ZR PLUS MINUS UP DOWN LEFT RIGHT LSTICK RSTICK "
+                       "and stick directions LS_UP LS_DOWN LS_LEFT LS_RIGHT RS_UP RS_DOWN RS_LEFT RS_RIGHT, joined by +.");
     if (ImGui::BeginTable("switch_out", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, px(150.0f));
         ImGui::TableSetupColumn("Output");

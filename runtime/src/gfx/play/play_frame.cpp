@@ -144,14 +144,14 @@ int update_hook(::Ctx*, uint64_t, void*) {
     if (gp && gp->frame_begin) gp->frame_begin();
     if (st.engine) st.engine->frame_tick();
 
-    // what the game is doing: the context, the cycle hint, the pointer
+    // what the game is doing: the context, the pointer
     const uint64_t pi = st.last_pi_ns.load();
     // "In game" = the game called ProcessInput during one of the last few frame boundaries. Counted in frames, not host time: a slow frame (the game
     // can take 100 ms or more per frame under load) must not read as a menu.
     // Also within 100 ms of host time: a catch-up burst of frame boundaries with no input call (1-2 frames about once a second at ~50 fps)
     // dropped the context to the menu and released the mouse for a moment.
     const bool in_game = pi != 0 && (st.frames.load() - st.last_pi_frame.load() <= 4 || pi + 100000000ull >= now);
-    // The game's part (play_game.h GamePlay::frame): the gyro's pitch-rate scale for this step, the cycle hint, the context while in game. This
+    // The game's part (play_game.h GamePlay::frame): the gyro's pitch-rate scale for this step, the context while in game. This
     // step's length is known here, before the game reads the sample (the timestep hook on the same frame update runs first: hooks of one address run
     // in registration order).
     // One of the game's menus over play (bag, shop, choice box: GamePlay::menu_in_game): the frame is a menu frame for the context, the
@@ -164,14 +164,8 @@ int update_hook(::Ctx*, uint64_t, void*) {
         gp->frame(playing, step, &gf);
     }
     if (st.source_owner) st.source_owner->set_look_scale(gf.look_scale);
-    if (gf.hints_valid) st.engine->set_cycle_hint(gf.cycle_index, gf.cycle_mask, now);
-    const uint64_t map_acts = st.engine->activations(Act::Map);
-    if (in_game && map_acts != st.map_acts_seen) st.map_hint = true;
-    st.map_acts_seen = map_acts;
-    if (in_game && !st.was_in_game) st.map_hint = false;
-    st.was_in_game = in_game;
     Ctx ctx;
-    if (!in_game) ctx = st.map_hint ? Ctx::Map : Ctx::Menu;
+    if (!in_game) ctx = Ctx::Menu;
     else if (game_menu) ctx = Ctx::Menu;
     else ctx = gf.play_ctx;
     st.engine->set_context(ctx, now);

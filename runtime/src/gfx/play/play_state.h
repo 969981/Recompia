@@ -108,10 +108,7 @@ struct G {
     uint64_t update_seq = 0, aim_seq = 0;
     std::atomic<uint64_t> last_pi_ns{0};
     std::atomic<uint64_t> last_pi_frame{0};       // value of `frames` at the last ProcessInput (the game is playing while it keeps being called)
-    uint64_t map_acts_seen = 0;
-    bool map_hint = false;
     bool overlay_was_visible = false;
-    bool was_in_game = false;
     float mouse_x = 0, mouse_y = 0;
     bool mouse1 = false;
     uint32_t jc2_buttons = 0;            // host mouse buttons as nn::hid::MouseButton bits, for the Joy-Con 2 mouse (hid jc2_mouse.h)

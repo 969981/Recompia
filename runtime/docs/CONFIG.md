@@ -374,31 +374,38 @@ If the output device is lost while the game runs (headphones unplugged, Bluetoot
 
 While a sink is active, a line `sink <name>: queue avg A ms (min..max ms), underruns +N (total), dropped +D, written F frames/s (rate R)` is logged every `stats_interval` seconds. The queue is the audio waiting in the device, which is the output latency; `written` should match the rate (lower: the game is starved or the stream is stretched). When a sink closes, it writes one line to the log with its counters: frames written, accepted, dropped, underruns (times the device ran out of audio after playback had started) and the largest number of buffers queued at once.
 
-## Keyboard beam and visor keys (`controls.ini`)
+## Keyboard and mouse bindings (`controls.ini`)
 
-These live in the play-mode file `controls.ini` (key `[play] controls`), not in `nxrt.ini`. The F1 settings page writes the same file.
+These live in the play-mode file `controls.ini` (key `[play] controls`), not in `nxrt.ini`. The F1 settings page and the launcher write the same file.
+
+The factory bindings (Pokopia's pad roles in brackets):
 
 | Input | Action | What the game does |
 |---|---|---|
-| `1` | `beam_1` | Power beam |
-| `2` | `beam_2` | Wave beam |
-| `3` | `beam_3` | Ice beam |
-| `4` | `beam_4` | Plasma beam |
-| `5` | `visor_1` | Combat visor |
-| `6` | `visor_2` | Scan visor |
-| `7` | `visor_3` | Thermal visor |
-| `8` | `visor_4` | X-ray visor |
-| Mouse wheel up / down | `beam_prev` / `beam_next` | Cycle the beams you own, in the order power, wave, ice, plasma. Off when `[mouse] wheel_beams = 0`. |
+| `W` `S` `A` `D` | `move_forward` `move_back` `move_left` `move_right` | Left stick |
+| Arrow keys | `look_up` `look_down` `look_left` `look_right` | Right stick (the mouse turns the camera as well) |
+| `E`, `Return`, `Keypad Enter` | `btn_a` | A (interact, confirm) |
+| `Left Shift`, `Backspace` | `btn_b` | B (run, back) |
+| `Tab` | `btn_x` | X (bag) |
+| `F` | `btn_y` | Y (pick up) |
+| `Space` | `btn_r` | R (jump) |
+| Mouse 1 | `btn_zr` | ZR (use the move) |
+| Mouse 3 | `btn_zl` | ZL (strafe) |
+| `Q` | `btn_l` | L (set the move) |
+| `Left Ctrl`, `V` | `btn_lstick` `btn_rstick` | Stick clicks |
+| `Escape` | `btn_plus` | Plus (main menu) |
+| `C` | `btn_minus` | Minus (camera) |
+| `1` `2` `3` `4` | `dpad_up` `dpad_down` `dpad_left` `dpad_right` | D-pad |
+| Mouse 2 (in play) | `mouse_mode` | Toggles the Joy-Con 2 mouse mode |
+| Mouse 3, wheel (menus) | `btn_b`, `dpad_up` / `dpad_down` | Back; the wheel moves the selection |
 
-How it works: the game only knows the Switch pad, so an action is turned into pad buttons by the `[switch]` table. By default `beam_1` to `beam_4` hold X and press the d-pad (up, right, down, left), and `visor_1` to `visor_4` press the d-pad alone (up, right, down, left). The wheel skips beams the player does not have yet. In the menu and map contexts they are switched off (`1` to `8 = none` in `[bindings.menu]` and `[bindings.map]`) and the wheel moves the cursor or the map instead.
+How it works: the game only knows the Switch pad, so an action is turned into pad buttons by the `[switch]` table (`btn_a = A`, `dpad_up = UP`, `move_forward = LS_UP`, ...). The actions are `move_*`, `look_*`, `dpad_*`, `btn_*`, `mouse_mode` and `none`. A `controls.ini` of an older build that names an action or a context that no longer exists (`[bindings.alt]`, `[bindings.inspect]`, `primary`, `jump`, `set_a_1` ...) still loads; those bindings are dropped without a warning and the next save leaves them out.
 
-To change a key, add a line `Key = action` to `[bindings.all]` (every context) or to one context (`[bindings.gameplay]`, `[bindings.morph]`, `[bindings.scan]`, `[bindings.menu]`, `[bindings.map]`). `Key = none` switches an input off in that context. Key names are SDL scancode names (`Left Ctrl`, `Page Up`, `Mouse1`, `WheelUp`).
+To change a key, add a line `Key = action` to `[bindings.all]` (every context) or to one context (`[bindings.play]`, `[bindings.menu]`, `[bindings.map]`). `Key = none` switches an input off in that context. Key names are SDL scancode names (`Left Ctrl`, `Page Up`, `Mouse1`, `WheelUp`).
 
-`[meta] defaults_rev` records the revision of the factory bindings that the file was written with. The game writes it. A file without the section counts as `0`. When a release adds a new factory binding, the game adds it to an existing `controls.ini` at the next start, but only where that key is still unbound in that context. A key you bound yourself is left alone. A file written before `[meta]` existed has no record of what you removed, so a key you had unbound there gets its new default once. After that, a key you remove stays removed. The first time this happens, the old file is kept next to it as `controls.ini.bak` (an existing `.bak` is never overwritten), and the upgraded file is written at once. The log has one line saying what was added. A file with no `[bindings.*]` section gets the whole factory set and is not rewritten. A revision can also change a factory value (revision 3: `[aim] lock_mode` to `free`). A file that still has the old factory value takes the new one at the same upgrade; any other value stays.
+`[meta] defaults_rev` records the revision of the factory bindings that the file was written with. The game writes it. A file without the section counts as `0`. When a release adds a new factory binding, the game adds it to an existing `controls.ini` at the next start, but only where that key is still unbound in that context. A key you bound yourself is left alone. A file written before `[meta]` existed has no record of what you removed, so a key you had unbound there gets its new default once. After that, a key you remove stays removed. The first time this happens, the old file is kept next to it as `controls.ini.bak` (an existing `.bak` is never overwritten), and the upgraded file is written at once. The log has one line saying what was added. A file with no `[bindings.*]` section gets the whole factory set and is not rewritten. A revision can also change a factory value (revision 3: `[display] fps_limit` to `auto`). A file that still has the old factory value takes the new one at the same upgrade; any other value stays.
 
 `[mouse] menu_cursor`, default `1`: in menus the mouse works like a pointer: a visible cursor, left click activates (in Pokopia: the selected entry, the pointer does not move the selection), right click goes back, the wheel scrolls. While it is on, the left click drives no binding in the menu and map contexts. The old key `menu_touch` is ignored; a file that still has it loads without a warning and nothing changes.
-
-Checked in a real game run with `tools/test/keys_check.py` (warp to `tallon_canyon_cavern`, grant the other beams and visors, press each key and read the game's own beam and visor numbers): `1` to `4` give power, wave, ice and plasma, the wheel steps wave, ice, wave, and `5` to `8` give combat, scan, thermal and x-ray.
 
 ### Game language (`controls.ini`, `[tweaks]`)
 

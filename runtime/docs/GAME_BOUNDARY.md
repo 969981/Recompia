@@ -139,16 +139,11 @@ The recompiler (`nxrecomp/`) has no game knowledge. `0x7100000000` there is the 
 
 These are still Metroid-shaped in the base. None of them blocks a second game from building; they limit what it can reuse.
 
-- Play-mode vocabulary (done in part). The base's action and context slots are generic: `Ctx` is All, Play, Alt (the alternate body),
-  Map, Menu, Inspect; the game actions are Primary, Target, Secondary, Jump, AltForm, LookHold, Map, Pause, Confirm, Back, the selects
-  SetA1..4 / SetB1..4 and the cycle SetANext / SetAPrev; `GameFrame` carries `cycle_index` / `cycle_mask`; the engine cycles set A; the
-  settings fields are `alt_yaw_rad`, `alt_pitch_rad`, `wheel_cycles`, `alt_orbit`. The game names them through
-  `play::GameVocabulary` (in `GameDefaults`; Metroid: `games/mpr/mpr_vocabulary.cpp`): the settings-file name and factory output of every
-  action, the context names, the launcher's Keyboard rows and the keys and labels of the alternate-body and cycle settings. Metroid's
-  `controls.ini` is unchanged (same names, same keys; the play_config and launcher tests read and write it). Without a game the slots keep
-  generic names and the game actions have no factory output. What is still fixed in the base: the number and kinds of slots (four-member
-  sets A and B, one alternate body, one inspect context), the `[aim]` (lock-on) and `[camera]` sections, and one launcher sentence on the
-  Keyboard page that lists Metroid's contexts.
+- Play-mode vocabulary. The base's action slots are the movement, look, d-pad and raw button actions plus `mouse_mode`, and the contexts are
+  All, Play, Map and Menu. A game that needs more names its own through `play::GameVocabulary` (in `GameDefaults`): the settings-file name
+  and factory output of every action, and the context names. The Metroid-shaped slots (Primary ... Back, the select sets A and B with their
+  cycle actions, the alternate-body and inspect contexts, the `[aim]` / `[camera]` / `[tweaks]` glow keys) were removed from the base; a second
+  game that needs such slots adds them with its module.
 - Moved code keeps namespace `nxrt::play`. Done to keep the move mechanical; rename to `nxrt::games::mpr` later.
 - Test tooling vocabulary. `tt::GameState` fields (morph, beam, visor, missiles), the hash over them (`tt_core.cpp`) and the item
   names in `tt_script.cpp`.

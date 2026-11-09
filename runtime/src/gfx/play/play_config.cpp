@@ -83,6 +83,7 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             const std::string name = trim(line.substr(1, line.size() - 2));
             const std::string key = lower(name);
             if (key.compare(0, 9, "bindings.") == 0 && parse_ctx(name.substr(9), &ctx)) sec = Sec::Bindings;
+            else if (key.compare(0, 9, "bindings.") == 0 && retired_ctx(name.substr(9))) sec = Sec::Retired;
             else if ((sec = fixed_sec(key)) == Sec::Unknown) warn(i, "unknown section '[" + name + "]'");
             continue;
         }
@@ -119,6 +120,7 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             Binding b;
             b.in = id;
             b.ctx = ctx;
+            if (retired_act(tok[0])) continue;   // an action that no longer exists: the binding is dropped
             if (!parse_act(tok[0], &b.act)) {
                 bail(i, "unknown action '" + tok[0] + "'");
                 return false;

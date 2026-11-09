@@ -138,7 +138,7 @@ bool input_for_button(const Settings& s, Ctx ctx, Btn b, InputId* out) {
             if (o.buttons == bit && o.lx == 0 && o.ly == 0 && o.rx == 0 && o.ry == 0) cands.push_back(static_cast<Act>(a));
         }
     // the current context first, then the others (a menu button is still worth showing while playing)
-    const Ctx order[] = {ctx, Ctx::Menu, Ctx::Play, Ctx::Alt, Ctx::Map, Ctx::Inspect, Ctx::All};
+    const Ctx order[] = {ctx, Ctx::Menu, Ctx::Play, Ctx::Map, Ctx::All};
     for (Ctx c : order)
         for (Act a : cands)
             for (const Binding& bd : s.bindings)
