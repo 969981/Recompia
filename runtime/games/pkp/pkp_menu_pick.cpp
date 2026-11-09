@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 
 namespace nxrt::games::pkp::menu_detail {
 
@@ -17,7 +18,7 @@ namespace nxrt::games::pkp::menu_detail {
 bool advance_mark(const Pane& p) {
     // a message box's "next" arrow is a cursor pane with no choice behind it (p5d: 'CL_0000_parts_cursor_triangle' over '0000_btn_common_1')
     std::string n = p.name;
-    for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    n = nxrt::text::lower(std::move(n));
     return has(n, "triangle");
 }
 

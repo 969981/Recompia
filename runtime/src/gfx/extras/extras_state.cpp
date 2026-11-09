@@ -10,15 +10,13 @@
 
 #include "nxrt/config.h"
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 #include "extras/hdr_math.h"
 
 namespace nxrt::extras {
 namespace {
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 std::mutex g_mu;
 Settings g_settings;

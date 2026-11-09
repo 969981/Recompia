@@ -2,6 +2,7 @@
 #include "nxrt/log.h"
 
 #include "nxrt/config.h"
+#include "nxrt/text.h"
 
 #include <windows.h>
 
@@ -156,19 +157,9 @@ void log_set_thread_name(const char* name) { std::snprintf(t_name, sizeof t_name
 
 const char* log_thread_name() { return t_name; }
 
-static std::string trimmed_lower(const char* s) {
-    std::string v = s;
-    size_t b = v.find_first_not_of(" \t\r\n");
-    size_t e = v.find_last_not_of(" \t\r\n");
-    v = (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
-    for (char& c : v)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return v;
-}
-
 LogLevel log_parse_level(const char* s, LogLevel fallback) {
     if (!s) return fallback;
-    std::string v = trimmed_lower(s);
+    const std::string v = text::lower_trim(s);
     if (v == "error") return LogLevel::Error;
     if (v == "warn") return LogLevel::Warn;
     if (v == "info") return LogLevel::Info;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Play mode: loading the settings, start and stop, the process exit and the public API (play.h).
 #include "play_state.h"
+#include "nxrt/text.h"
 
 namespace nxrt::play {
 using namespace detail;
@@ -227,7 +228,7 @@ bool start(const StartOptions& opt) {
                 apply_fps_counter(st.settings.fps);
                 {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
                     std::string tb = config_get_str("overlay", "touch_button", "auto");
-                    for (char& c : tb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    tb = nxrt::text::lower(std::move(tb));
                     const bool on = tb == "on" || tb == "true" || tb == "1" || tb == "yes" || (tb == "auto" && st.window && platform::touchscreen_present());
                     st.overlay->set_touch_button(on);
                     NXLOG_I(kTag, "touch: touch screen %s, menu button %s ([overlay] touch_button = %s)", st.window && platform::touchscreen_present() ? "found" : "not found",

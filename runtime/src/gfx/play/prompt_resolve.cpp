@@ -8,16 +8,14 @@
 
 #include "nxrt/game.h"
 #include "nxrt/input_source.h"
+#include "nxrt/text.h"
 #include "play/pad_map.h"
 
 namespace nxrt::play {
 
 namespace {
 
-std::string lower_ascii(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 // The Switch button bit an icon stands for; the d-pad icon stands for "up" (any direction will do for the glyph of the whole cross).
 uint64_t button_bit(Btn b) {
@@ -123,7 +121,7 @@ const char* icon_pak_file(Icon i) { const PromptIcon* p = icon_of(i); return p ?
 const char* icon_front_uuid(Icon i) { const PromptIcon* p = icon_of(i); return p ? p->front_uuid : nullptr; }
 
 std::string kbm_pack_name(const InputId& id) {
-    const std::string n = lower_ascii(input_name(id));
+    const std::string n = lower(input_name(id));
     return n.empty() ? std::string() : "kbm/" + n;
 }
 

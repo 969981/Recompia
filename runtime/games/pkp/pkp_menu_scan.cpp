@@ -15,6 +15,7 @@
 
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/text.h"
 
 namespace nxrt::games::pkp::menu_detail {
 
@@ -61,7 +62,7 @@ void classify(Pane& p, const char* tag) {
     std::string n = p.name;
     n += '|';
     n += tag;
-    for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    n = nxrt::text::lower(std::move(n));
     p.cursor = has(n, "cursor") && !has(n, "mouse");
     p.slider = has(n, "slider") || has(n, "slide_bar");
     static const char* const kItem[] = {"btn", "button", "item", "cell", "choice", "list", "tab", "slot", "chip", "select", "menu"};

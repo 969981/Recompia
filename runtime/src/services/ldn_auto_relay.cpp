@@ -29,7 +29,7 @@
 #include "nxrt/services_api.h"
 #include "coop.h"
 #include "../net/relay_server.h"
-#include "../net/text_util.h"
+#include "nxrt/text.h"
 #include "../net/vnet.h"
 #include "services_internal.h"
 
@@ -45,7 +45,7 @@ bool relay_options(vnet::RelayOptions* o) {
     o->nickname = nickname();
     o->password = config_get_str("net", "password", "");
     if (!room_code_setup(&o->room_key)) return false;
-    const std::string udp = textutil::ascii_lower(config_get_str("net", "udp", "auto"));
+    const std::string udp = text::lower(config_get_str("net", "udp", "auto"));
     o->udp = !(udp == "off" || udp == "0" || udp == "false" || udp == "no" || udp == "tcp");
     if (o->udp && udp != "auto" && udp != "on" && udp != "1" && udp != "true" && udp != "yes")
         NXLOG_W("net", "ldn: [net] udp = \"%s\" is not auto or off: auto", udp.c_str());
@@ -60,8 +60,8 @@ std::shared_ptr<vnet::Lobby> process_lobby(bool* auto_mode) {
     if (!s.built) {
         s.built = true;
         const std::string server = config_get_str("net", "server", "auto");
-        std::string v = textutil::ascii_lower(server);
-        textutil::trim_blanks(v);
+        std::string v = text::lower(server);
+        text::trim_blanks(v);
         vnet::RelayOptions o;
         if (v.empty() || v == "off") {
             NXLOG_I("net", "ldn: [net] server is %s: local wireless off (scans find nothing)", v.empty() ? "empty" : "off");

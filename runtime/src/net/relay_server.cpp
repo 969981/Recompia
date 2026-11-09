@@ -868,7 +868,7 @@ struct RelayServer::Impl {
         size_t k = nick.size();
         if (k > kMaxNick) k = kMaxNick;
         if (k > n - kDiscReplyHdr) k = n - kDiscReplyHdr;
-        k = textutil::utf8_cut(nick, k);   // not inside a UTF-8 sequence
+        k = text::utf8_cut(nick, k);   // not inside a UTF-8 sequence
         rep.push_back(static_cast<uint8_t>(k));
         rep.insert(rep.end(), nick.begin(), nick.begin() + static_cast<std::ptrdiff_t>(k));
         ::sendto(usock, reinterpret_cast<const char*>(rep.data()), static_cast<int>(rep.size()), 0, reinterpret_cast<const sockaddr*>(&from), sizeof from);

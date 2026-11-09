@@ -55,6 +55,7 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/tex_patch.h"
+#include "nxrt/text.h"
 #include "prompts.h"
 
 namespace nxrt::games::pkp {
@@ -158,7 +159,7 @@ std::string icon_of(const play::InputId& in) {
     if (in.kind == play::InKind::Wheel) return in.code > 0 ? "mouse_scroll_up" : "mouse_scroll_down";
     if (in.kind != play::InKind::Key) return "";
     std::string n = play::input_name(in);
-    for (char& ch : n) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    n = nxrt::text::lower(std::move(n));
     if (n.size() == 1 && std::isalnum(static_cast<unsigned char>(n[0]))) return "keyboard_" + n;
     if (n.size() >= 2 && n.size() <= 3 && n[0] == 'f' && std::isdigit(static_cast<unsigned char>(n[1]))) return "keyboard_" + n;   // f1..f12
     static const std::pair<const char*, const char*> kNames[] = {

@@ -4,12 +4,14 @@
 #include <string>
 #include <vector>
 
+#include "nxrt/text.h"
+
 namespace nxrt::play::cfg {
 
 inline const std::string::size_type kNpos = std::string::npos;
 
-std::string trim(const std::string& s);
-std::string lower(std::string s);
+using text::lower;
+using text::trim;
 std::string num(double v);                 // "%.9g" for doubles, as the file format asks
 std::string num_exact(double v);           // as num(), but a value that would not read back to the same double gets all 17 digits
 bool to_int(const std::string& v, long long* out);

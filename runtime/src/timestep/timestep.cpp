@@ -23,6 +23,7 @@
 #include "nxrt/log.h"
 #include "nxrt/movie.h"
 #include "nxrt/tt.h"
+#include "nxrt/text.h"
 
 namespace nxrt::timestep {
 
@@ -42,7 +43,7 @@ const char* mode_name(Mode m) {
 Config load_config() {
     Config c;
     std::string m = config_get_str("time", "mode", "real");
-    for (char& ch : m) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    m = nxrt::text::lower(std::move(m));
     if (m == "off" || m == "0" || m == "retail") c.mode = Mode::Off;
     else if (m == "fixed" || m == "lock") c.mode = Mode::Fixed;
     else c.mode = Mode::Real;

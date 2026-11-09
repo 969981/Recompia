@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The [tweaks] keys of S46 (play_fastboot.h).
 #include "play_fastboot.h"
+#include "nxrt/text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -11,10 +12,7 @@ namespace nxrt::play {
 
 namespace {
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 bool to_bool(const std::string& v, bool* out) {
     const std::string l = lower(v);

@@ -12,18 +12,6 @@
 
 namespace nxrt::play::cfg {
 
-std::string trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 // "%.9g" for doubles, as the file format asks.
 std::string num(double v) {
     char buf[64];

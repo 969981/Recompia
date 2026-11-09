@@ -16,7 +16,7 @@
 
 #include "nxrt/log.h"
 #include "relay_wire.h"
-#include "text_util.h"
+#include "nxrt/text.h"
 #include "tcp.h"
 #include "udp.h"
 
@@ -63,7 +63,7 @@ const char* lobby_err_str(int e) {
 
 bool parse_server(const std::string& s, std::string* host, uint16_t* port) {
     std::string h = s;
-    textutil::trim_blanks(h);
+    text::trim_blanks(h);
     if (h.empty()) return false;
     uint16_t p = kRelayDefaultPort;
     const size_t colon = h.rfind(':');

@@ -12,6 +12,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/text.h"
 
 namespace nxrt::services::hidsvc {
 
@@ -197,7 +198,7 @@ Jc2MouseMode jc2_mouse_mode() {
     int m = services::hidsvc::g_jc2_mode.load();
     if (m < 0) {
         std::string v = config_get_str("input", "jc2_mouse", "auto");
-        for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        v = nxrt::text::lower(std::move(v));
         m = v == "off" ? 0 : (v == "on" ? 2 : 1);
         if (v != "off" && v != "on" && v != "auto") NXLOG_W("hid", "[input] jc2_mouse = %s: not auto, on or off; using auto", v.c_str());
         services::hidsvc::g_jc2_mode.store(m);

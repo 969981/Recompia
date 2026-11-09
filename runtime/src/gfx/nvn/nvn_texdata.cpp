@@ -17,6 +17,7 @@
 #include <nxrt/config.h>
 #include <nxrt/diag.h>
 #include <nxrt/log.h>
+#include <nxrt/text.h>
 
 #include "astc2bc7.h"
 #include "nvn_format.h"
@@ -346,7 +347,7 @@ bool make_linear(const TexLayout& L, const std::vector<LevelGeom>& geo, const Fo
 
 AstcQuality astc_quality() {
     std::string v = config_get_str("gfx", "astc_quality", "high");
-    std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    v = nxrt::text::lower(std::move(v));
     if (v == "fast") return AstcQuality::Fast;
     if (v == "high" || v.empty()) return AstcQuality::High;
     if (v == "uncompressed" || v == "rgba8") return AstcQuality::Uncompressed;

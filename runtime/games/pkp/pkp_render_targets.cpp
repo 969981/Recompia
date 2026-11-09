@@ -11,6 +11,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/text.h"
 
 namespace nxrt::games::pkp::play_detail {
 
@@ -77,7 +78,7 @@ std::atomic<uint64_t> g_target_unlisted[128]{}; // every possible caller (121 to
 
 TargetFix target_fix_from_config() {
     std::string v = config_get_str("pkp", "target_fix", "screen");
-    for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    v = nxrt::text::lower(std::move(v));
     if (v == "off" || v == "0" || v == "false" || v == "no") return TargetFix::Off;
     if (v == "all") return TargetFix::All;
     return TargetFix::Screen;                                        // screen, on, 1, true, and anything unknown

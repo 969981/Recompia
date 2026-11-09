@@ -29,7 +29,7 @@
 #include "coop.h"
 #include "../net/relay_server.h"
 #include "nxrt/game.h"
-#include "../net/text_util.h"
+#include "nxrt/text.h"
 #include "../net/vnet.h"
 #include "services_internal.h"
 
@@ -61,7 +61,7 @@ namespace nxrt::services::ldn_impl {
 
 bool native_protocol() {
     static const bool native = [] {
-        const std::string p = textutil::ascii_lower(config_get_str("net", "protocol", "native"));
+        const std::string p = text::lower(config_get_str("net", "protocol", "native"));
         if (p == "linkplay") return false;
         if (p != "native") NXLOG_W("net", "ldn: [net] protocol = \"%s\" is not native or linkplay: native", p.c_str());
         return true;
@@ -160,11 +160,11 @@ coop_node* native_node() {
         if (s.built) return s.node.load();
         s.built = true;
     }
-    std::string mode = textutil::ascii_lower(config_get_str("net", "mode", "auto"));
-    textutil::trim_blanks(mode);
+    std::string mode = text::lower(config_get_str("net", "mode", "auto"));
+    text::trim_blanks(mode);
     const bool internet = config_get_bool("net", "internet", false);
     std::string room = config_get_str("net", "room_code", "");
-    if (textutil::ascii_lower(room) == "new") room.clear();   // a host without a code gets a new one
+    if (text::lower(room) == "new") room.clear();   // a host without a code gets a new one
     const std::string relay = config_get_str("net", "relay", "");
     // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
     // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
@@ -186,7 +186,7 @@ coop_node* native_node() {
     }
     // [net] lan_sweep = auto | off: auto (the default) finds and answers LAN players without DNS-SD (Wine / Proton: the module's LAN sweep and
     // mDNS responder, coop_disc.c x_*); off: there, visitors join by address. Windows with DNS-SD never uses them
-    const std::string sweep = textutil::ascii_lower(config_get_str("net", "lan_sweep", "auto"));
+    const std::string sweep = text::lower(config_get_str("net", "lan_sweep", "auto"));
     if (sweep != "auto" && sweep != "off") NXLOG_W("net", "ldn: [net] lan_sweep = \"%s\" is not auto or off: auto", sweep.c_str());
     c.x_lan_sweep_off = sweep == "off";
     c.hooks.user = nullptr;

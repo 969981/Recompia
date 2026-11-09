@@ -9,21 +9,13 @@
 #include <string>
 
 #include "nxrt/input_source.h"
+#include "nxrt/text.h"
 
 namespace nxrt::play {
 namespace {
 
-std::string trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
+using text::trim;
 
 std::string upper(std::string s) {
     for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));

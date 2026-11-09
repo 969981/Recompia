@@ -12,7 +12,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/services_api.h"
-#include "../net/text_util.h"
+#include "nxrt/text.h"
 #include "ldn_internal.h"
 
 namespace nxrt::services::ldn_impl {
@@ -60,7 +60,7 @@ std::string room_code_file() {
 bool room_code_setup(std::array<uint8_t, 16>* key) {
     std::string v = config_get_str("net", "room_code", "");
     const std::string file = room_code_file();
-    std::string lower = textutil::ascii_lower(v), norm;
+    std::string lower = text::lower(v), norm;
     if (v.empty()) {
         std::remove(file.c_str());
         return true;
@@ -95,13 +95,13 @@ std::string nickname() {
 void copy_name(char (&dst)[33], const std::string& s) {
     std::memset(dst, 0, sizeof dst);
     size_t n = s.size() < 32 ? s.size() : 32;
-    n = textutil::utf8_cut(s, n);
+    n = text::utf8_cut(s, n);
     std::memcpy(dst, s.data(), n);
 }
 
 // The first 128 bytes of the advertise data as hex for the Debug SetAdvertiseData line ("|" every 16 bytes, "..." when cut). Pokopia puts
 // the host's KTGL member id in it (work/mp/join-reject-analysis.md section 3). Only built when Debug is on (NXLOG_D).
-std::string hex_head(const std::vector<uint8_t>& b) { return textutil::hex_head(b, 128); }
+std::string hex_head(const std::vector<uint8_t>& b) { return text::hex_head(b, 128); }
 
 // Logs the first use of a command (one line per command id for the life of the process; network_reset() clears it).
 std::mutex g_seen_mu;
