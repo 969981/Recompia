@@ -2,6 +2,17 @@
 // Camera aim: the highlighted cell or area of an ability or tool is aimed where the camera looks, not where the character faces.
 // [pkp] camera_aim (off by default).
 //
+// Joy-Con 2 mouse mode is the default mode: during ordinary play (follow camera active, no menu, the Mouse mode key's free pointer off)
+// camera aim keeps the virtual Joy-Con 2 mouse "on its surface" with its pointer pinned at the centre of the screen size the game
+// unprojects the pointer with, for every input: it needs no PC mouse, and the camera keeps the PC mouse and the right stick. The game
+// allows its mouse mode only with two detached Joy-Cons and its mouse option on (0x71002fa6ac); for the local player's per-player mode
+// update the check sees both (mid hooks 0x71002fa6f8, 0x71002fa8a0), so mouse mode (character + 0xaa81) is on whatever the option.
+// Turning on, the game would switch the player to Rock Smash and show its pointer; with the pinned pointer it does neither (0x71002fa8ec).
+// Every other caller of the check keeps the game's answer (a Pro Controller: no), so the target query, the swing shapes, the break and
+// placement collectors and the tool switch take the heading paths below, and the targeting hooks aim in both modes: mouse mode's own
+// pointer ray (pointer at the screen centre = the camera's look-at, near the character's own cell) never competes with them.
+//
+// Targeting (both modes):
 // The game's command target query 0x71002e19a0 (x1 = the character; every ability, tool and item preview and action asks it which
 // cells are in front) reads the character's heading through the character's virtual +0x18 (the call returns at 0x71002e1a14 with s0 =
 // the heading, radians, atan2(x, z) like player + 0x2404) and picks the forward cells from it. The mid hook at 0x71002e1a14, for the
@@ -30,14 +41,19 @@
 #include "pkp_aim.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 
 #include "nxrt/config.h"
 #include "nxrt/hooks.h"
+#include "nxrt/jc2_mouse.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/tt.h"
+#include "pkp_play.h"
 
 namespace nxrt::games::pkp {
 namespace {
@@ -70,10 +86,19 @@ constexpr int kReach = 2;                          // cells from the character's
 
 template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
 
+constexpr uint64_t kMouseStyle = 0x2fa6f8;       // mid: mouse mode's "allowed" check right after it asked the pad style (w0, 1 = two Joy-Cons; x19 = character)
+constexpr uint64_t kMouseOption = 0x2fa8a0;      // mid: the same check's last step, w0 = the save's mouse option bit (x19 = character)
+constexpr uint64_t kMouseStart = 0x2fa8ec;       // mid: mouse mode turning on, w8 = the save's mouse option byte (bit 0: Rock Smash + pointer UI; x19 = character)
+constexpr uint64_t kModeCalls[] = {0x316254, 0x316268, 0x316584, 0x3165a4};  // return addresses of the allowed check in the per-player mode update
+constexpr uint64_t kScreen = 0x35aebf0;          // qword: + 0xf0 -> + 0x18 -> + 0x4340 / + 0x4344 = the screen size the pointer is unprojected with
+
 struct State {
     uint64_t base = 0;
     uint64_t logged = 0;
     uint64_t logged_pitch = 0;
+    std::atomic<bool> pin{false};  // the Joy-Con 2 mouse pointer is pinned for camera aim
+    unsigned gate = ~0u;       // the last logged pin gate
+    unsigned gate_logs = 0;
 };
 State g;
 
@@ -219,7 +244,65 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
+// True while the pointer is pinned for camera aim and ch is the local player's character.
+bool pinned_for(uint64_t ch) {
+    if (!g.pin.load(std::memory_order_relaxed)) return false;
+    const uint64_t mgr = rd<uint64_t>(g.base + kPlayerManager);
+    return mgr && ch && ch == rd<uint64_t>(mgr + kManagerPlayer);
+}
+
+// Mouse mode is only allowed with two Joy-Cons (pad style 1; the PC pad is a Pro Controller) and with the game's mouse option on. While
+// the pointer is pinned, the check sees both for the local player, but only when the per-player mode update asks (the caller's return
+// address, saved at x29 + 8): mouse mode is on. Every other caller (the target query, the swing shapes, the break and placement
+// collectors, the pointer ray, the tool switch, prompts) keeps the game's answer, so the targeting above always aims and mouse mode's
+// own pointer ray never competes with it. Its other gates (menus, Link Play, busy states, the unlock) stay the game's.
+bool mode_call(::Ctx* c) {
+    if (!pinned_for(c->x[19])) return false;
+    const uint64_t ret = rd<uint64_t>(c->x[29] + 8) - g.base;
+    return std::find(std::begin(kModeCalls), std::end(kModeCalls), ret) != std::end(kModeCalls);
+}
+int hook_mouse_style(::Ctx* c, uint64_t, void*) {
+    if (mode_call(c)) c->x[0] = 1;
+    return 0;
+}
+int hook_mouse_option(::Ctx* c, uint64_t, void*) {
+    if (mode_call(c)) c->x[0] = 1;
+    return 0;
+}
+// When mouse mode turns on with the mouse option set, the game switches the player to Rock Smash and shows its pointer: with camera
+// aim's pinned pointer it does neither (the player keeps the tool, the screen keeps the game's own dot).
+int hook_mouse_start(::Ctx* c, uint64_t, void*) {
+    if (pinned_for(c->x[19])) c->x[8] &= ~1ull;
+    return 0;
+}
+
 }  // namespace
+
+void aim_frame(bool in_game) {
+    if (!g.base) return;
+    const uint64_t mgr = rd<uint64_t>(g.base + kPlayerManager);
+    const uint64_t ch = mgr ? rd<uint64_t>(mgr + kManagerPlayer) : 0;
+    const bool follow = ch && follow_camera(ch), wants = hid::jc2_mouse_wants_pointer(), active = hid::jc2_mouse_active();
+    // scripted headless runs: play mode's "in play" stays off without a window, the follow camera's updates stand in for it
+    const bool play = in_game || (tt::enabled() && play_follow_live());
+    const bool pin = play && follow && !wants && !active;
+    // the game unprojects the pointer with its screen size: pin the pointer at that screen's centre (the camera's look direction)
+    int px = -1, py = -1;
+    const uint64_t scr0 = rd<uint64_t>(g.base + kScreen), scr1 = scr0 ? rd<uint64_t>(scr0 + 0xf0) : 0, scr = scr1 ? rd<uint64_t>(scr1 + 0x18) : 0;
+    if (scr && mem::is_mapped(scr + 0x4340, 8)) {
+        const int w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
+        if (w > 0 && w <= 16384 && h > 0 && h <= 16384) px = w / 2, py = h / 2;
+    }
+    const unsigned gate = (play ? 1u : 0u) | (ch ? 2u : 0u) | (follow ? 4u : 0u) | (wants ? 8u : 0u) | (active ? 16u : 0u);
+    if (gate != g.gate && g.gate_logs < 64) {
+        g.gate_logs++;
+        NXLOG_I(kTag, "camera aim: mouse pointer %s (in play %d, player %d, follow camera %d, free pointer asked %d, free pointer on %d)",
+                pin ? "pinned" : "not pinned", play ? 1 : 0, ch ? 1 : 0, follow ? 1 : 0, wants ? 1 : 0, active ? 1 : 0);
+    }
+    g.gate = gate;
+    g.pin.store(pin, std::memory_order_relaxed);
+    hid::jc2_mouse_pin(pin, px, py);
+}
 
 void aim_install(uint64_t base) {
     if (!config_get_bool("pkp", "camera_aim", false)) return;
@@ -229,7 +312,11 @@ void aim_install(uint64_t base) {
     hook_add_mid(base + kSwingLive, &hook_swing_live);
     hook_add_mid(base + kPitchRead, &hook_pitch);
     hook_add_mid(base + kActionStart, &hook_action_start);
-    NXLOG_I(kTag, "camera aim: on (hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx)", static_cast<unsigned long long>(kHeadingRead),
+    hook_add_mid(base + kMouseStyle, &hook_mouse_style);
+    hook_add_mid(base + kMouseOption, &hook_mouse_option);
+    hook_add_mid(base + kMouseStart, &hook_mouse_start);
+    NXLOG_I(kTag, "camera aim: on (mouse mode main+0x%llx, +0x%llx, +0x%llx; targeting main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx)",
+            static_cast<unsigned long long>(kMouseStyle), static_cast<unsigned long long>(kMouseOption), static_cast<unsigned long long>(kMouseStart), static_cast<unsigned long long>(kHeadingRead),
             static_cast<unsigned long long>(kSwingPreview), static_cast<unsigned long long>(kSwingLive),
             static_cast<unsigned long long>(kPitchRead), static_cast<unsigned long long>(kActionStart));
 }
