@@ -25,134 +25,11 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "services_internal.h"
+#include "hid_internal.h"
 
 namespace nxrt::services {
 
-namespace {
-
-using namespace hidshm;
-using nxrt::hid::InputSnapshot;
-using nxrt::hid::NpadInput;
-using nxrt::hid::NpadStyle;
-using nxrt::hid::StickValue;
-
-constexpr uint32_t kNpadIdOther = 0x10;       // NpadIdType (Switchbrew): players 0..7, other 0x10, handheld 0x20
-constexpr uint32_t kNpadIdHandheld = 0x20;
-constexpr uint32_t kDefaultStyles = kTagFullKey | kTagHandheld | kTagJoyDual | kTagJoyLeft | kTagJoyRight;
-constexpr uint32_t kDefaultIdMask = 0x1FF;    // shared-memory entries 0..8: players 1..8 and handheld (Ryujinx MaxControllers 9)
-constexpr int32_t kStickButtonThreshold = 32767 / 2;    // Ryujinx Hid.cs: short.MaxValue / 2
-constexpr uint64_t kSampleNs = 5000000;       // 5 ms between samples (200 Hz), in ns (ScarletNX hid_motion.h dt_ns)
-constexpr uint32_t kResultInvalidNpadId = res(202, 123);       // Ryujinx ResultCode.InvalidNpadIdType
-constexpr uint32_t kResultInvalidDeviceIndex = res(202, 124);  // Ryujinx ResultCode.InvalidDeviceIndex
-constexpr uint32_t kResultNoHandle = kernel::kOutOfHandles;    // the handle table is full
-
-struct VibValue {
-    float amp_low = 0, freq_low = 0, amp_high = 0, freq_high = 0;   // Switchbrew VibrationValue field order
-};
-
-// ---- Joy-Con 2 mouse (Nmouse / Jcms) ------------------------------------------------------------------------------------------------
-// Layout from the SDK 20.5 client (sdk nn::hid::detail::NmouseTransferMemoryAccessor, GetJcmsStates); docs/hid_mouse_sw2.md has the
-// addresses. Both blocks are the game's own buffers, lent as transfer memory (InitializeNmouse 3139, InitializeJcms 3110); the server
-// owns their contents and the game reads them directly.
-constexpr uint32_t kNmSlots = 17;              // handle table entries, info entries and rings
-constexpr uint64_t kNmHandles = 0x0;           // 17 x {u64 handle, u8 valid, pad} (16 bytes)
-constexpr uint64_t kNmRings = 0x220;           // 17 rings of 0x818 (0x20 header + 17 x (u64 seq, 0x70 state))
-constexpr uint64_t kNmRingSize = 0x818;
-constexpr uint64_t kNmInfo = 0x8C40;           // 17 x 0x1C: u32 NmouseType set, u8 valid, u32 NpadIdType, u8 valid, u8 pointer enabled
-constexpr uint64_t kNmInfoSize = 0x1C;
-constexpr uint64_t kNmShowCursor = 0x8E68;     // u8 IsEnabledShowingCursor
-constexpr uint64_t kNmMinSize = 0x8E70;
-constexpr uint64_t kJcmsRingSize = 0x2C8;      // per JcmsHandle index (npad * 2 + type): 0x20 header + 17 x (u64 seq, 0x20 state)
-constexpr uint64_t kJcmsMinSize = 16 * kJcmsRingSize;
-// NmouseType bits (from the client: GetNmouseHandles asks for exactly 2 then exactly 4, the game asks 4 for its "right" side and 2 for
-// "left", GetMergedNmouseHandle takes the first entry with bit 0).
-constexpr uint32_t kNmTypeMerged = 1u << 0, kNmTypeJoyLeftJcms = 1u << 1, kNmTypeJoyRightJcms = 1u << 2;
-constexpr uint64_t kNmHandleMerged = 0x4E4D0001, kNmHandleRight = 0x4E4D0002;   // opaque, only compared
-constexpr uint32_t kNmAttrConnected = 1u << 1;  // the game counts frames with this bit to switch to mouse controls
-
-// The server-side Nmouse state (0x70). The public NmouseState (0x30) is bytes 0..0x24, then 0x30 (at 0x24), 0x28, 0x2C
-// (sdk NmouseTransferMemoryAccessor::GetNmouseStates 0x7500658980). The SDK's DevNmouseState conversion (sdk 0x7500657dc0) reads
-// public +0x18/+0x1C as the pointer range and maps it to 720p/1080p/1440p/4K, so there is no movement delta in this state.
-struct NmouseInternal {
-    uint64_t unknown0;      // copied out, never read by the game or the SDK
-    uint64_t sampling;      // +0x08
-    int32_t x, y;           // +0x10 pointer in the pointer range (1920x1080 for this game); the game's cursor reads these
-    int32_t range_w, range_h;   // +0x18 the pointer range (InitializeNmouse / SetNmousePointerRanges)
-    int32_t wheel_x;        // +0x20 public +0x20; the game sums public +0x20 and +0x24 per sample (clamped to +-600)
-    int32_t dev24;          // +0x24 not in the public state
-    uint32_t buttons;       // +0x28 MouseButton bits (inferred: no reader in the game or the SDK interprets them)
-    uint32_t attributes;    // +0x2C bit 1: the mouse is on its surface (the SDK's dev state turns it into a bool)
-    int32_t wheel_y;        // +0x30 public +0x24 (GetWheelDeltaDev returns +0x20 and +0x30)
-    uint8_t dev[0x3C];
-};
-static_assert(sizeof(NmouseInternal) == 0x70, "NmouseInternal");
-static_assert(sizeof(Ring<NmouseInternal>) == kNmRingSize, "nmouse lifo");
-struct JcmsState {
-    uint64_t unknown0;
-    uint64_t sampling;      // +0x08
-    uint64_t unknown10;     // read by the placement code (non-zero turns the player toward the cursor); left 0
-    uint64_t unknown18;
-};
-static_assert(sizeof(Ring<JcmsState>) == kJcmsRingSize, "jcms lifo");
-
-struct Jc2Feed {
-    std::mutex mu;
-    nxrt::hid::HostMouse m;
-    uint64_t last_ns = 0;
-    float wheel_x = 0, wheel_y = 0;     // notches not yet sampled
-};
-Jc2Feed& feed() {
-    static Jc2Feed* f = new Jc2Feed();
-    return *f;
-}
-std::atomic<int> g_jc2_mode{-1};          // -1: not read from the config yet
-std::atomic<bool> g_jc2_request{false};
-std::atomic<bool> g_jc2_listed{false};    // the game set up Nmouse and the device is in its handle table
-std::atomic<bool> g_jc2_active{false};    // last sampled "on its surface"
-std::atomic<uint64_t> g_jc2_space{0};     // jc2_mouse_set_pointer_space: w << 32 | h, 0 = the pointer range
-
-uint64_t now_ns() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-}
-
-// The feed is live when play mode sent one in the last 250 ms with the window focused and the mouse free.
-bool jc2_feed_live() {
-    Jc2Feed& f = feed();
-    std::lock_guard<std::mutex> lk(f.mu);
-    return f.last_ns && now_ns() - f.last_ns < 250000000ull && f.m.focused && !f.m.captured;
-}
-
-struct HidState {
-    std::mutex mu;
-    std::optional<ServiceSharedMemory> shm;
-    ServiceEvent style_event[kNpadCount];
-    uint32_t supported_styles = kDefaultStyles;
-    uint32_t supported_index_mask = kDefaultIdMask;
-    bool npad_active = false;
-    bool debug_pad_active = false, touch_active = false, mouse_active = false, keyboard_active = false;
-    bool sixaxis_fusion = false;
-    bool vibration_permitted = true;
-    bool unintended_home_protection = false;
-    uint64_t joy_hold = 0;                  // NpadJoyHoldType: 0 Vertical, 1 Horizontal
-    int64_t handheld_activation = 0;
-    int64_t npad_communication = 0;
-    uint32_t last_tag[kNpadCount] = {};     // style tag each entry had at the last sample
-    bool connected[kNpadCount] = {};
-    std::map<uint32_t, VibValue> vibration; // last value sent per VibrationDeviceHandle
-    // Joy-Con 2 mouse
-    uint64_t nm_addr = 0, nm_size = 0;      // Nmouse transfer memory (guest address = host pointer), 0 when not set up
-    int32_t nm_w = 1920, nm_h = 1080;       // pointer range from InitializeNmouse
-    uint64_t jcms_addr = 0, jcms_size = 0;  // Jcms transfer memory
-    uint32_t nm_merged_types = 0;
-    uint64_t nm_btn_left = 0, nm_btn_right = 0;   // NmouseButtonConfigJoy{Left,Right}Jcms (8 bytes each), stored only
-    int32_t nm_x = -1, nm_y = -1;           // last sampled pointer (-1: none yet)
-    uint32_t nm_logged = 0, jcms_starts = 0, active_logs = 0;
-    bool vib214_logged = false;
-    std::atomic<int> resources{0};          // live IAppletResource objects
-    std::atomic<bool> background{true};     // the thread samples only when this is set
-    std::atomic<bool> stop{false};
-    std::thread sampler;
-};
+namespace hidsvc {
 
 // Never destroyed: the sampler thread is joined by hid_reset(), so no static destructor has to deal with it.
 HidState& st() {
@@ -160,45 +37,11 @@ HidState& st() {
     return *s;
 }
 
-// ---- ring lifos -----------------------------------------------------------------------------------------------------------------------
-template <class T>
-Ring<T>* ring_at(uint8_t* base, uint64_t off) {
-    return reinterpret_cast<Ring<T>*>(base + off);
-}
+}  // namespace hidsvc
 
-void set_sampling(NpadCommonState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(SixAxisState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(TouchScreenState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(MouseState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(KeyboardState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(DebugPadState& v, uint64_t n) { v.sampling = n; }
-void set_sampling(NmouseInternal& v, uint64_t n) { v.sampling = n; }
-void set_sampling(JcmsState& v, uint64_t n) { v.sampling = n; }
+using namespace hidsvc;
 
-// Appends one entry: the state's sampling number = the previous one + 1 (the first entry is 1), the header index moves to it, and
-// count grows up to kRingMaxCount (Ryujinx RingLifo.Write). The entry's own number (AtomicStorage) is a sequence lock: odd while the
-// state is being written, then twice the state's number. The SDK 20 reader (nn::hid::detail::GetNpadStates, sdk+0x5087a0) retries
-// while it is odd and while it changed across the copy, and checks that neighbouring states' numbers differ by 1; older readers only
-// compare it before and after the copy (libnx _hidGetStates), so the doubled value suits both.
-template <class T>
-void ring_push(Ring<T>* r, T value) {
-    const uint64_t n = r->entries[r->index].sampling / 2 + 1;
-    set_sampling(value, n);
-    const uint64_t next = (r->index + 1) % kRingEntries;
-    std::atomic_ref<uint64_t> seq(r->entries[next].sampling);
-    seq.store(2 * n - 1, std::memory_order_relaxed);
-    std::atomic_thread_fence(std::memory_order_release);
-    r->entries[next].state = value;
-    seq.store(2 * n, std::memory_order_release);
-    std::atomic_ref<uint64_t>(r->index).store(next, std::memory_order_release);
-    if (r->count < kRingMaxCount) r->count++;
-}
-
-template <class T>
-void ring_init(uint8_t* base, uint64_t off) {
-    Ring<T>* r = ring_at<T>(base, off);
-    r->buffer_count = kRingEntries;   // RingLifo.Create(): the rest is zero
-}
+namespace {
 
 // ---- shared memory --------------------------------------------------------------------------------------------------------------------
 constexpr uint64_t kCommonLifos[] = {kFullKeyLifo, kHandheldLifo, kJoyDualLifo, kJoyLeftLifo, kJoyRightLifo, kPalmaLifo, kSystemExtLifo};
@@ -239,9 +82,6 @@ uint8_t* host_of(HidState& s) {
     if (!shm_ready(s)) return nullptr;
     return reinterpret_cast<uint8_t*>(s.shm->host());
 }
-
-void w32(uint8_t* p, uint64_t off, uint32_t v) { std::memcpy(p + off, &v, 4); }
-void w64(uint8_t* p, uint64_t off, uint64_t v) { std::memcpy(p + off, &v, 8); }
 
 // ---- mapping of ids and styles ---------------------------------------------------------------------------------------------------------
 // Shared-memory entry index of a NpadIdType (-1 when invalid).
@@ -431,141 +271,6 @@ void sample_keyboard(uint8_t* host, const nxrt::hid::KeyboardInput& k) {
     ks.modifiers = k.modifiers;
     for (int i = 0; i < 4; ++i) ks.keys[i] = k.keys[i];
     ring_push(ring_at<KeyboardState>(host, kKeyboard), ks);
-}
-
-// ---- Joy-Con 2 mouse ----------------------------------------------------------------------------------------------------------------
-// Lists the virtual devices in the Nmouse block: a merged mouse (slot 0) and a Joy-Con 2 (R) mouse of player 1 (slot 1). Info first, the
-// handle's valid byte last, so a reader never sees a valid handle without its info. Caller holds st().mu.
-void nm_list_devices(HidState& s) {
-    uint8_t* b = reinterpret_cast<uint8_t*>(s.nm_addr);
-    struct Dev { uint64_t handle; uint32_t types; bool has_npad; uint32_t npad; };
-    const Dev devs[2] = {{kNmHandleMerged, kNmTypeMerged, false, 0}, {kNmHandleRight, kNmTypeJoyRightJcms, true, 0}};
-    for (uint32_t i = 0; i < 2; ++i) {
-        uint8_t* info = b + kNmInfo + i * kNmInfoSize;
-        w32(info, 0x0, devs[i].types);
-        info[0x4] = 1;
-        w32(info, 0x8, devs[i].npad);
-        info[0xC] = devs[i].has_npad ? 1 : 0;
-        info[0x10] = 1;   // pointer enabled
-        w64(b, kNmHandles + i * 16, devs[i].handle);
-        std::atomic_thread_fence(std::memory_order_release);
-        b[kNmHandles + i * 16 + 8] = 1;
-    }
-    g_jc2_listed.store(true);
-    NXLOG_I("hid", "Joy-Con 2 mouse: listed a merged mouse and a Joy-Con 2 (R) mouse for player 1 (mode %s, pointer range %dx%d)",
-            nxrt::hid::jc2_mouse_mode_name(nxrt::hid::jc2_mouse_mode()), s.nm_w, s.nm_h);
-}
-
-// The server's view of the Nmouse block after InitializeNmouse: zeroed, every ring's buffer count set, devices listed unless the mode is
-// off. Caller holds st().mu.
-void nm_setup(HidState& s) {
-    uint8_t* b = reinterpret_cast<uint8_t*>(s.nm_addr);
-    std::memset(b, 0, kNmMinSize);
-    for (uint32_t i = 0; i < kNmSlots; ++i) ring_init<NmouseInternal>(b, kNmRings + i * kNmRingSize);
-    s.nm_x = s.nm_y = -1;
-    if (nxrt::hid::jc2_mouse_mode() != nxrt::hid::Jc2MouseMode::Off) nm_list_devices(s);
-}
-
-void jcms_setup(HidState& s) {
-    uint8_t* b = reinterpret_cast<uint8_t*>(s.jcms_addr);
-    std::memset(b, 0, kJcmsMinSize);
-    for (uint32_t i = 0; i < 16; ++i) ring_init<JcmsState>(b, i * kJcmsRingSize);
-}
-
-// One Nmouse sample from the play layer's feed: the pointer in the pointer range, the range itself, the buttons, the wheel (120 per notch, inferred from the game clamping its sum at +-600), and "on its surface" while jc2_mouse_active().
-// Caller holds st().mu.
-void sample_nmouse(HidState& s) {
-    if (!s.nm_addr || !g_jc2_listed.load()) return;
-    const bool active = nxrt::hid::jc2_mouse_active();
-    NmouseInternal ns{};
-    const int32_t prev_x = s.nm_x, prev_y = s.nm_y;
-    float wx = 0, wy = 0;
-    float u = 0, v = 0;
-    uint32_t buttons = 0;
-    {
-        Jc2Feed& f = feed();
-        std::lock_guard<std::mutex> lk(f.mu);
-        u = std::clamp(f.m.u, 0.f, 1.f);
-        v = std::clamp(f.m.v, 0.f, 1.f);
-        buttons = f.m.buttons;
-        wx = f.wheel_x;
-        wy = f.wheel_y;
-        if (active) f.wheel_x = f.wheel_y = 0;
-    }
-    if (active) {
-        const uint64_t space = g_jc2_space.load(std::memory_order_relaxed);
-        const int32_t pw = space ? static_cast<int32_t>(space >> 32) : s.nm_w, ph = space ? static_cast<int32_t>(space & 0xffffffffu) : s.nm_h;
-        const int32_t x = std::min(pw - 1, static_cast<int32_t>(u * static_cast<float>(pw)));
-        const int32_t y = std::min(ph - 1, static_cast<int32_t>(v * static_cast<float>(ph)));
-        ns.x = x;
-        ns.y = y;
-        s.nm_x = x;
-        s.nm_y = y;
-        ns.wheel_x = static_cast<int32_t>(std::lround(wx * 120.f));
-        ns.wheel_y = static_cast<int32_t>(std::lround(wy * 120.f));
-        ns.buttons = buttons;
-        ns.attributes = kNmAttrConnected;
-    } else {
-        ns.x = std::max(0, s.nm_x);
-        ns.y = std::max(0, s.nm_y);
-    }
-    ns.range_w = s.nm_w;
-    ns.range_h = s.nm_h;
-    if (active != g_jc2_active.exchange(active) && s.active_logs < 200) {
-        s.active_logs++;
-        NXLOG_I("hid", "Joy-Con 2 mouse %s (mode %s)", active ? "ON: the game sees the PC mouse" : "off", nxrt::hid::jc2_mouse_mode_name(nxrt::hid::jc2_mouse_mode()));
-    }
-    uint8_t* b = reinterpret_cast<uint8_t*>(s.nm_addr);
-    for (uint32_t i = 0; i < 2; ++i) ring_push(ring_at<NmouseInternal>(b, kNmRings + i * kNmRingSize), ns);
-    const bool moved = active && (ns.x != prev_x || ns.y != prev_y);
-    if (active && s.nm_logged < 3 && (moved || ns.buttons || ns.wheel_x || ns.wheel_y)) {
-        s.nm_logged++;
-        NXLOG_I("hid", "Joy-Con 2 mouse sample %u: pos %d,%d range %dx%d buttons %x wheel %d,%d attr %x (block %llx)", s.nm_logged, ns.x, ns.y,
-                ns.range_w, ns.range_h, ns.buttons, ns.wheel_x, ns.wheel_y, ns.attributes, static_cast<unsigned long long>(s.nm_addr));
-    }
-    if (s.jcms_addr) {
-        // Player 1's Jcms states (index npad * 2 + type: 0 left, 1 right) keep counting so GetJcmsState has a current entry.
-        for (uint32_t i = 0; i < 2; ++i) ring_push(ring_at<JcmsState>(reinterpret_cast<uint8_t*>(s.jcms_addr), i * kJcmsRingSize), JcmsState{});
-    }
-}
-
-// The guest buffer behind a transfer memory handle, or 0 when it is unusable for `need` bytes.
-uint64_t tm_addr(const ipc::Request& req, uint64_t size, uint64_t need, const char* what) {
-    if (req.in_copy.empty()) {
-        NXLOG_W("hid", "%s: no transfer memory handle", what);
-        return 0;
-    }
-    auto tm = kernel::handle_as<kernel::KTransferMemory>(req.in_copy[0]);
-    if (!tm || !tm->addr) {
-        NXLOG_W("hid", "%s: handle %x is not a transfer memory", what, req.in_copy[0]);
-        return 0;
-    }
-    const uint64_t n = std::min(size, tm->size);
-    if (n < need || !mem::is_mapped(tm->addr, need)) {
-        NXLOG_W("hid", "%s: transfer memory %llx size %llx (request %llx) is smaller than %llx or unmapped", what,
-                static_cast<unsigned long long>(tm->addr), static_cast<unsigned long long>(tm->size), static_cast<unsigned long long>(size),
-                static_cast<unsigned long long>(need));
-        return 0;
-    }
-    return tm->addr;
-}
-
-// InitializeNmouse (3139) and its NmouseStateRange form (3130) share one layout: u8 pointer type @0, s32 width @4, s32 height @8,
-// aruid @0x10, size @0x18 and the transfer memory handle (3139 adds a u32, always 1, at @0xC).
-uint32_t nm_initialize(ipc::Request& req, const char* what) {
-    const uint32_t type = req.arg<uint8_t>(0);
-    const int32_t w = req.arg<int32_t>(4), h = req.arg<int32_t>(8);
-    const uint64_t size = req.arg<uint64_t>(0x18);
-    std::lock_guard<std::mutex> lk(st().mu);
-    HidState& s = st();
-    s.nm_w = w > 0 ? w : 1920;
-    s.nm_h = h > 0 ? h : 1080;
-    s.nm_addr = tm_addr(req, size, kNmMinSize, what);
-    s.nm_size = s.nm_addr ? size : 0;
-    NXLOG_I("hid", "%s(pointer type %u, range %dx%d, size %llx) -> block %llx", what, type, w, h, static_cast<unsigned long long>(size),
-            static_cast<unsigned long long>(s.nm_addr));
-    if (s.nm_addr) nm_setup(s);
-    return 0;
 }
 
 // The input for one sample: the source's, or the default pads (player 1 idle FullKey, handheld in handheld mode).
@@ -1155,6 +860,7 @@ void hid_stop_sampler(HidState& s) {
 
 }  // namespace
 
+
 void register_hid() {
     add("hid", [] { return make_iface("nn::hid::IHidServer", setup_hid); });
 }
@@ -1216,57 +922,3 @@ void hid_set_background_sampling(bool enabled) {
 }
 
 }  // namespace nxrt::services
-
-// ---- Joy-Con 2 mouse: the play layer's side (include/nxrt/jc2_mouse.h) -------------------------------------------------------------------
-namespace nxrt::hid {
-
-Jc2MouseMode jc2_mouse_mode() {
-    int m = services::g_jc2_mode.load();
-    if (m < 0) {
-        std::string v = config_get_str("input", "jc2_mouse", "auto");
-        for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        m = v == "off" ? 0 : (v == "on" ? 2 : 1);
-        if (v != "off" && v != "on" && v != "auto") NXLOG_W("hid", "[input] jc2_mouse = %s: not auto, on or off; using auto", v.c_str());
-        services::g_jc2_mode.store(m);
-    }
-    return static_cast<Jc2MouseMode>(m);
-}
-
-void jc2_mouse_set_mode(Jc2MouseMode m) {
-    services::g_jc2_mode.store(static_cast<int>(m));
-}
-
-const char* jc2_mouse_mode_name(Jc2MouseMode m) {
-    return m == Jc2MouseMode::Off ? "off" : (m == Jc2MouseMode::On ? "on" : "auto");
-}
-
-void jc2_mouse_feed(const HostMouse& m) {
-    services::Jc2Feed& f = services::feed();
-    std::lock_guard<std::mutex> lk(f.mu);
-    f.m = m;
-    f.wheel_x += m.wheel_x;
-    f.wheel_y += m.wheel_y;
-    f.last_ns = services::now_ns();
-}
-
-void jc2_mouse_request(bool want) {
-    services::g_jc2_request.store(want);
-}
-
-bool jc2_mouse_wants_pointer() {
-    const Jc2MouseMode m = jc2_mouse_mode();
-    if (m == Jc2MouseMode::Off) return false;
-    if (m == Jc2MouseMode::On) return services::g_jc2_listed.load();
-    return services::g_jc2_listed.load() && services::g_jc2_request.load();
-}
-
-void jc2_mouse_set_pointer_space(int w, int h) {
-    services::g_jc2_space.store(w > 0 && h > 0 && w <= 16384 && h <= 16384 ? (static_cast<uint64_t>(w) << 32) | static_cast<uint32_t>(h) : 0,
-                                std::memory_order_relaxed);
-}
-
-bool jc2_mouse_active() {
-    return jc2_mouse_mode() != Jc2MouseMode::Off && services::g_jc2_listed.load() && services::jc2_feed_live();
-}
-
-}  // namespace nxrt::hid
