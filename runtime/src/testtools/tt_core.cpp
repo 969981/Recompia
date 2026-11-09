@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -255,26 +256,34 @@ double now_ms(State& s) {
     return static_cast<double>(c.QuadPart - s.t_start.QuadPart) * 1000.0 / static_cast<double>(s.qpf.QuadPart);
 }
 
+// Appends one printf-formatted fragment to the trace line in b; the compiler checks the format against the arguments.
+__attribute__((format(printf, 3, 4)))
+void trace_add(char (&b)[1024], int& n, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    n += std::vsnprintf(b + n, sizeof b - n, fmt, ap);
+    va_end(ap);
+}
+
 void write_trace_line(State& s, uint64_t k, uint64_t h, const GameState& g, bool valid, double ms, double mem) {
     if (!s.trace) return;
     char b[1024];
     int n = std::snprintf(b, sizeof b, "{\"f\":%llu,\"h\":\"%016llx\"", static_cast<unsigned long long>(k), static_cast<unsigned long long>(h));
-    auto add = [&](const char* fmt, auto... a) { n += std::snprintf(b + n, sizeof b - n, fmt, a...); };
     if (valid) {
-        if (g.have_world) add(",\"world\":\"%s\",\"area\":\"%s\"", tt_guid_hex(g.world).c_str(), tt_guid_hex(g.area).c_str());
-        if (g.have_player) add(",\"pos\":[%.9g,%.9g,%.9g],\"vel\":[%.9g,%.9g,%.9g],\"yaw\":%.9g,\"state\":%u", g.pos[0], g.pos[1], g.pos[2], g.vel[0], g.vel[1], g.vel[2], g.yaw, g.move_state);
-        if (g.have_player && g.have_phys) add(",\"phys\":1,\"spd\":%.9g", g.speed);
-        if (g.have_aim) add(",\"pitch\":%.9g,\"cam\":%d,\"morph\":%d,\"orbit\":%d", g.pitch, g.cam_state, g.morph_state, g.orbit_state);
-        if (g.have_cam) add(",\"camyaw\":%.9g,\"campitch\":%.9g", g.cam_yaw, g.cam_pitch);
-        if (g.have_ps) add(",\"beam\":%d,\"visor\":%d,\"msl\":%d", g.beam, g.visor, g.missiles);
-        if (g.have_hp) add(",\"hp\":%.9g", g.hp);
-        if (g.have_igt) add(",\"igt\":%.9g", g.igt);
-        if (g.have_tod) add(",\"tod\":%.6g", g.tod);
-        if (g.have_prog) add(",\"prog\":%d", g.prog);
+        if (g.have_world) trace_add(b, n, ",\"world\":\"%s\",\"area\":\"%s\"", tt_guid_hex(g.world).c_str(), tt_guid_hex(g.area).c_str());
+        if (g.have_player) trace_add(b, n, ",\"pos\":[%.9g,%.9g,%.9g],\"vel\":[%.9g,%.9g,%.9g],\"yaw\":%.9g,\"state\":%u", g.pos[0], g.pos[1], g.pos[2], g.vel[0], g.vel[1], g.vel[2], g.yaw, g.move_state);
+        if (g.have_player && g.have_phys) trace_add(b, n, ",\"phys\":1,\"spd\":%.9g", g.speed);
+        if (g.have_aim) trace_add(b, n, ",\"pitch\":%.9g,\"cam\":%d,\"morph\":%d,\"orbit\":%d", g.pitch, g.cam_state, g.morph_state, g.orbit_state);
+        if (g.have_cam) trace_add(b, n, ",\"camyaw\":%.9g,\"campitch\":%.9g", g.cam_yaw, g.cam_pitch);
+        if (g.have_ps) trace_add(b, n, ",\"beam\":%d,\"visor\":%d,\"msl\":%d", g.beam, g.visor, g.missiles);
+        if (g.have_hp) trace_add(b, n, ",\"hp\":%.9g", g.hp);
+        if (g.have_igt) trace_add(b, n, ",\"igt\":%.9g", g.igt);
+        if (g.have_tod) trace_add(b, n, ",\"tod\":%.6g", g.tod);
+        if (g.have_prog) trace_add(b, n, ",\"prog\":%d", g.prog);
     }
-    add(",\"t\":%llu,\"ms\":%.3f", static_cast<unsigned long long>(s.vticks.load()), ms);
-    if (mem > 0) add(",\"mem\":%.1f", mem);
-    add("}\n");
+    trace_add(b, n, ",\"t\":%llu,\"ms\":%.3f", static_cast<unsigned long long>(s.vticks.load()), ms);
+    if (mem > 0) trace_add(b, n, ",\"mem\":%.1f", mem);
+    trace_add(b, n, "}\n");
     std::fwrite(b, 1, static_cast<size_t>(n), s.trace);
     if (k % 64 == 0) std::fflush(s.trace);
 }
