@@ -3,6 +3,7 @@
 //! `profiles.json` and the launcher's `launcher.json`, in `<game folder>/rollback-backups/<date-time>-before-<tag>/`. The last three are
 //! kept. If the copy cannot be made the install is stopped before anything is replaced. `rollback-backups` is in the update's keep list.
 
+use crate::fsutil::copy_tree;
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use std::fs;
@@ -13,20 +14,6 @@ pub const DIR: &str = "rollback-backups";
 const KEEP_LAST: usize = 3;
 /// Single files next to pkp.exe that are the player's.
 const FILES: [&str; 3] = [PKP_INI, "controls.ini", "profiles.json"];
-
-fn copy_tree(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for e in fs::read_dir(src)? {
-        let e = e?;
-        let (from, to) = (e.path(), dst.join(e.file_name()));
-        if e.metadata()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
-            fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
 
 /// A folder name part: letters, digits, `.` and `-` only.
 fn clean(tag: &str) -> String {

@@ -10,6 +10,7 @@ mod dlss_cmds;
 mod dump;
 mod dump_cmds;
 mod events;
+mod fsutil;
 mod gamebuild;
 mod guard;
 mod host;

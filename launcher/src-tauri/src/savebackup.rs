@@ -9,6 +9,7 @@
 //! `<key>.journal.<pid>`) was present before or after it and the folder listing (path, size, time) did not change meanwhile; otherwise it
 //! is thrown away and tried again a moment later. A backup that cannot be made is skipped quietly (the next tick tries again).
 
+use crate::fsutil::copy_tree;
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use serde::{Deserialize, Serialize};
@@ -148,20 +149,6 @@ fn listing(root: &Path) -> io::Result<Listing> {
     let mut out = Vec::new();
     walk(root, root, &mut out)?;
     Ok(out)
-}
-
-fn copy_tree(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for e in fs::read_dir(src)? {
-        let e = e?;
-        let (from, to) = (e.path(), dst.join(e.file_name()));
-        if e.metadata()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
-            fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
 }
 
 /// SHA-256 over every file (sorted by path) as path, length and bytes; the meta text is part of it. Also the totals.
