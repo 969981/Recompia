@@ -132,15 +132,17 @@ void pick(float px, float py, bool inside) {
         // layout of its own over another drawn layout's list: the bag's triangle (615988817/11) sits on slot 0 of the inventory 4084873301/154.
         const bool own = items[cp.lay] >= 2;
         if (!own && !draw_hooks_live()) { ++rejected_lone; continue; }
+        // the cursor's name rules, once per cursor (they read only cp.name; the entry loop below changes no pane)
+        const bool arrow = advance_mark(cp);
+        const bool down = arrow && has(std::string(cp.name), "180");
         for (size_t i = 0; i < s.panes.size(); ++i) {
             const Pane& p = s.panes[i];
             if (!p.item || p.area() > big || p.lay < 0) continue;
             if (own ? p.lay != cp.lay : items[p.lay] < 2) continue;
             // a triangle is a message box's advance arrow unless it marks an entry of a real list (3+ entries)
-            if (advance_mark(cp) && items[p.lay] < 3) continue;
+            if (arrow && items[p.lay] < 3) continue;
             // a triangle pointing down ('..._180_..', the bag) sits above its entry: its tip, a quarter of its height below the bottom, is
-            // where it points; ties between overlapping slots go to the nearer centre
-            const bool down = advance_mark(cp) && has(std::string(cp.name), "180");
+            // where it points (`down`); ties between overlapping slots go to the nearer centre
             const float qx = cp.cx(), qy = down ? cp.y1 + (cp.y1 - cp.y0) * 0.25f : cp.cy();
             const float d = p.dist(qx, qy) + 0.001f * std::hypot(p.cx() - qx, p.cy() - qy);
             // on a tie (the cursor over a row container and its slot) the smaller entry wins
@@ -150,7 +152,7 @@ void pick(float px, float py, bool inside) {
                 s.focused = static_cast<int>(i);
             }
         }
-        if (advance_mark(cp) && (s.cursor != static_cast<int>(c))) ++rejected_arrow;
+        if (arrow && (s.cursor != static_cast<int>(c))) ++rejected_arrow;
     }
     if (best > 160.f) s.cursor = s.focused = -1;
     pick_extend(items, big);
