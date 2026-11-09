@@ -15,7 +15,6 @@
 // Configuration (nxrt.ini section [play], environment NXRT_PLAY_<KEY>):
 //   controls = controls.ini     the settings file (play_types.h documents the format); written with the factory settings when missing
 //   capture_mouse = 1           capture the pointer (relative mode) while the game is being played
-//   pitch_limit_deg = 0         > 0: pitch limit of the mouse aim in degrees instead of the game's tweak value
 //   quit_on_close = 1           closing the window ends the process (exit code 0)
 //   game_base = 0x7100000000    base of the game's main module
 //   log_status = 0              1: one status line per second in the log (context, aim state, input counts)

@@ -68,7 +68,6 @@ public:
         st.aim_frames++;
         st.counts += static_cast<uint64_t>(std::fabs(dx) + std::fabs(dy));
     }
-    double pitch_limit_deg() const override { return g().pitch_limit_deg; }
     bool log_status() const override { return g().log_status; }
     void request_quit_prompt() override { quit_prompt_request(); }
     void begin_capture() override { capture_begin(); }

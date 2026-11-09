@@ -101,7 +101,6 @@ struct G {
     bool capture_mouse = true, quit_on_close = true, log_status = false;
     bool pointer_draw = false;         // [play] pointer_draw: the menu pointer is also drawn into the frame (screenshots show it); a test aid
     bool late_sample = true;           // pump the window's events again right before the mouse counts are taken (S11: the counts are as new as ProcessInput)
-    double pitch_limit_deg = 0;
     bool overlay_combo_held = false;   // poll_pads: the [overlay] pad combination was held at the last poll (the menu toggles on the rising edge)
     bool quit_combo_held = false;      // poll_pads: the [quit] pad combination was held on a pad at the last poll (the prompt opens on the rising edge)
 

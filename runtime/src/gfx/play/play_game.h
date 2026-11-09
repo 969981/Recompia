@@ -37,7 +37,6 @@ public:
     // counts gathered since the last frame boundary on the first call after it (pumping the window's events once more first), zero after that.
     virtual void input_tick(double* dx, double* dy) = 0;
     virtual void aim_applied(double dx, double dy) = 0;           // Stats: the aim used these counts
-    virtual double pitch_limit_deg() const = 0;                   // [play] pitch_limit_deg
     virtual bool log_status() const = 0;                          // [play] log_status
     virtual void request_quit_prompt() = 0;                       // opens the "Close the game?" prompt (overlay.h open_quit_prompt)
     // Rebinding from a game's own menu, the same capture as the settings page (play_ui.h UiHost): after begin_capture() the next key press,

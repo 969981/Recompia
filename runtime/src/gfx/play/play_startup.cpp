@@ -115,7 +115,6 @@ bool load() {
     st.quit_on_close = config_get_bool("play", "quit_on_close", true);
     st.log_status = config_get_bool("play", "log_status", false);
     st.pointer_draw = config_get_bool("play", "pointer_draw", false);
-    st.pitch_limit_deg = config_get_double("play", "pitch_limit_deg", 0.0);
     st.base = static_cast<uint64_t>(config_get_int("play", "game_base", static_cast<int64_t>(game::info().main_base)));
     apply_frame_cap(st.settings);
     return st.load_ok;
