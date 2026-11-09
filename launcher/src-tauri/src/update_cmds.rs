@@ -12,7 +12,7 @@ use crate::guard;
 use crate::paths::{exe_dir, game_dir_of, launcher_path};
 use crate::relay_cmds::stop_relay;
 use crate::setup_job::SetupState;
-use crate::{play, rollback, update};
+use crate::{play, rollback, shaders, update};
 
 /// The version updates compare with. None: a dev build, which takes none.
 pub fn update_version(app: &AppHandle) -> Option<String> {
@@ -53,7 +53,7 @@ pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Want
     let _claim = st.claim().ok_or("An update is already running.")?;
     // asked again right before files move: the download takes minutes
     let idle = || -> Result<(), String> {
-        if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
+        if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == shaders::RunState::Running {
             return Err("Setup is running. Pause it first, then update.".into());
         }
         if guard::game_running(&app.state::<play::PlayState>()) {

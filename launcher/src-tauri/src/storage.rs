@@ -58,7 +58,7 @@ pub async fn shader_storage(app: AppHandle, state: State<'_, Arc<StorageState>>)
 /// Starts a storage job after the checks every one of them needs. The guard clears `running` however the job ends.
 pub fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), String> {
     refuse_during_update(app)?;
-    if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
+    if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == shaders::RunState::Running {
         return Err("Setup is running. Wait for it to finish, or pause it first.".into());
     }
     if guard::game_running(&app.state::<play::PlayState>()) {

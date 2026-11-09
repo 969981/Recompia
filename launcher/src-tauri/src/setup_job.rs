@@ -13,6 +13,7 @@ use crate::guard::refuse_during_update;
 use crate::paths::{exe_dir, game_dir_of};
 use crate::readiness::setup_started;
 use crate::storage::refuse_during_storage;
+use crate::shaders::RunState;
 use crate::{dump, gamebuild, host, play, preflight, settings, setuplog, shaders, writecheck};
 
 /// Shader setup: the running job's progress and its cancel flag.
@@ -38,10 +39,7 @@ pub struct SetupStatus {
 #[tauri::command]
 pub fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
     let dir = game_dir_of(&load_config(&app));
-    let mut progress = state.progress.lock().unwrap().clone();
-    if progress.state.is_empty() {
-        progress.state = "idle".into();
-    }
+    let progress = state.progress.lock().unwrap().clone();
     let tools_dir = exe_dir().join("tools");
     let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
     let started = setup_started(&dir);
@@ -73,10 +71,10 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
     writecheck::check(&dir).map_err(|e| e.message())?;
     {
         let mut p = state.progress.lock().unwrap();
-        if p.state == "running" {
+        if p.state == RunState::Running {
             return Err("Setup is already running.".into());
         }
-        *p = shaders::Progress { state: "running".into(), phase: "check".into(), message: "Checking the setup tools...".into(), ..Default::default() };
+        *p = shaders::Progress { state: RunState::Running, phase: "check".into(), message: "Checking the setup tools...".into(), ..Default::default() };
     }
     settings::ensure_play_paths(&dir, &chosen.exefs, &chosen.romfs, &chosen.romfs_base, &report.aoc_dir)?;
     let st = state.inner().clone();
@@ -102,7 +100,7 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
     std::thread::spawn(move || {
         let mut last = (String::new(), 0u64, String::new());
         let mut emit = |p: shaders::Progress| {
-            if setuplog::progress_worth_logging(&mut last, &p.phase, p.done, p.total, &p.message) && p.state == "running" {
+            if setuplog::progress_worth_logging(&mut last, &p.phase, p.done, p.total, &p.message) && p.state == RunState::Running {
                 log(&format!("[{}] {}", p.phase, p.message));
             }
             *st.progress.lock().unwrap() = p.clone();
@@ -111,7 +109,7 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
         let result = (|| {
             // Linux: the native Python and Zig that the build and the shader extractor run with, fetched once
             let tools_ready = host::prepare_tools(&tools_dir, &st.cancel, &mut |done, total, message| {
-                emit(shaders::Progress { state: "running".into(), phase: "tools".into(), done, total, message })
+                emit(shaders::Progress { state: RunState::Running, phase: "tools".into(), done, total, message })
             })?;
             if !tools_ready {
                 return Ok(false);
@@ -123,7 +121,7 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
             if package_b && !gamebuild::is_built(&build_job.game_dir, &tools_dir) {
                 let tools = gamebuild::find_tools(&tools_dir)?;
                 let built = gamebuild::run(&build_job, &tools, &st.cancel, |t| {
-                    emit(shaders::Progress { state: "running".into(), phase: t.phase, done: t.done, total: t.total, message: t.message })
+                    emit(shaders::Progress { state: RunState::Running, phase: t.phase, done: t.done, total: t.total, message: t.message })
                 })?;
                 if !built {
                     return Ok(false);
@@ -139,7 +137,7 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
             // the shaders the game builds while it runs: one hidden run collects those of the opening; later ones are
             // collected by every normal run, and every Play checks them all (play.rs)
             emit(shaders::Progress {
-                state: "running".into(),
+                state: RunState::Running,
                 phase: "warmup".into(),
                 message: format!("Running the game once in the background to collect the shaders it builds while it runs (about {} s)...", shaders::WARMUP_SECONDS),
                 ..Default::default()
@@ -147,9 +145,9 @@ pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option
             Ok(shaders::prepare(&job.game_dir, &tools_dir, &st.cancel)?.is_some())
         })();
         let end = match result {
-            Ok(true) => shaders::Progress { state: "done".into(), phase: "finish".into(), message: "Setup finished.".into(), ..Default::default() },
-            Ok(false) => shaders::Progress { state: "cancelled".into(), message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },
-            Err(e) => shaders::Progress { state: "error".into(), message: e, ..Default::default() },
+            Ok(true) => shaders::Progress { state: RunState::Done, phase: "finish".into(), message: "Setup finished.".into(), ..Default::default() },
+            Ok(false) => shaders::Progress { state: RunState::Cancelled, message: "Setup paused. Set up again continues where it stopped.".into(), ..Default::default() },
+            Err(e) => shaders::Progress { state: RunState::Error, message: e, ..Default::default() },
         };
         slog.line(&format!("=== Set up ended: {}{}", end.state, if end.message.is_empty() { String::new() } else { format!(": {}", end.message) }));
         emit(end);

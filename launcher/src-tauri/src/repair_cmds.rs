@@ -8,6 +8,7 @@ use crate::config::{config_path, load_config};
 use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
 use crate::setup_job::SetupState;
+use crate::shaders::RunState;
 use crate::{play, repair};
 
 /// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
@@ -22,7 +23,7 @@ pub fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &Stat
         return Err("The game is running. Close it first, then repair.".into());
     }
     refuse_during_update(app)?;
-    if setup.progress.lock().unwrap().state == "running" {
+    if setup.progress.lock().unwrap().state == RunState::Running {
         return Err("Setup is running. Wait for it to finish, then repair.".into());
     }
     repair_paths(app)

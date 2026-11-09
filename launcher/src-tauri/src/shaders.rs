@@ -72,10 +72,35 @@ pub struct Marker {
     pub storage: String,
 }
 
+/// Where a setup job stands. The page gets the lowercase word: "idle", "running", "done", "error", "cancelled".
+#[derive(Serialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+#[allow(dead_code)] // the launcher builds every variant; the shader_setup example includes this file and builds only Running
+pub enum RunState {
+    #[default]
+    Idle,
+    Running,
+    Done,
+    Error,
+    Cancelled,
+}
+
+impl std::fmt::Display for RunState {
+    /// The same word the page gets (the setup log prints it).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            RunState::Idle => "idle",
+            RunState::Running => "running",
+            RunState::Done => "done",
+            RunState::Error => "error",
+            RunState::Cancelled => "cancelled",
+        })
+    }
+}
+
 #[derive(Serialize, Clone, Default)]
 pub struct Progress {
-    /// "idle", "running", "done", "error", "cancelled"
-    pub state: String,
+    pub state: RunState,
     /// "check", "extract", "translate", "finish"
     pub phase: String,
     pub done: u64,
@@ -595,7 +620,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     write_marker(&job.game_dir, &marker)?;
     let jobs = job.jobs.max(1).to_string();
     let extract_jobs = job.jobs.clamp(1, EXTRACT_JOBS).to_string();
-    let p = |phase: &str, done: u64, total: u64, message: String| Progress { state: "running".into(), phase: phase.into(), done, total, message };
+    let p = |phase: &str, done: u64, total: u64, message: String| Progress { state: RunState::Running, phase: phase.into(), done, total, message };
 
     // 1. extract (skipped when this romfs was already extracted)
     let all = corpus.join("unique_all.tsv");

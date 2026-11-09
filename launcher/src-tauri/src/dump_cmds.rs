@@ -11,7 +11,7 @@ use tauri::{AppHandle, State};
 use crate::config::{load_config, save_config};
 use crate::paths::game_dir_of;
 use crate::setup_job::SetupState;
-use crate::{dump, nup, settings, writecheck};
+use crate::{dump, nup, settings, shaders, writecheck};
 
 #[derive(Serialize, Clone)]
 pub struct NupProgress {
@@ -24,7 +24,7 @@ pub struct NupProgress {
 /// returns that folder. Emits "nup-progress". A finished unpack of the same package is reused.
 #[tauri::command]
 pub async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: String) -> Result<String, String> {
-    if state.progress.lock().unwrap().state == "running" {
+    if state.progress.lock().unwrap().state == shaders::RunState::Running {
         return Err("Setup is running. Pause it first.".into());
     }
     let game_dir = game_dir_of(&load_config(&app));
