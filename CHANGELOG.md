@@ -4,6 +4,14 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Graphics
+- Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
+  - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
+  - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
+  - Still not: bloom and other soft glow effects stay smooth on purpose
+
 ## 0.9.0 (build M: Monkey)
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for Quit Game, Sort, the mouse mode key and the longer camera aim reach; your saves and shaders are kept).
