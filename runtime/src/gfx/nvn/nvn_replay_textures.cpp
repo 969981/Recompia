@@ -340,7 +340,7 @@ static void vol3d_prepare(const ProgLayout& pl) {
             e.copied = serial;
             counters().copies.fetch_add(1, std::memory_order_relaxed);
             gstamp("3D copy of a 2D texture");
-            if (first_time_key("vol3d " + std::to_string(r.tex->id)))
+            if (first_time_key(kFirstVol3d, r.tex->id))
                 NXLOG_I(kTag, "texture %u (%s %dx%d, target %d) is sampled as 3D by %s binding %s: it gets a 3D copy one slice deep", r.tex->id,
                         r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.target, d.shader->hash.c_str(), b.name.c_str());
         }
@@ -374,7 +374,7 @@ void image_as_texture(const BindingDesc& d, const DescriptorBinding& b, const Te
     const uint32_t layers = r.tex->b.target == NVN_TEXTURE_TARGET_3D ? e.depth : q.layer_count ? q.layer_count : tex_layers(r.tex) - std::min(q.base_layer, tex_layers(r.tex));
     VkImageView v = dummy_view_sized(q.type, e.width, e.height, layers);
     if (v) ii.imageView = v;
-    if (first_time_key("image-size " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+    if (first_time_key(kFirstImageSize, r.tex->id, d.shader->hash, b.name))
         NXLOG_I(kTag, "compute %s binding %s: size query on image %u (%s, target %d, %ux%ux%u) through a %s stand-in of %ux%u (x%u)", d.shader->hash.c_str(),
                 b.name.c_str(), r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, e.width, e.height, e.depth, v ? "black" : "missing (dummy)",
                 e.width, e.height, layers);

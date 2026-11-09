@@ -16,6 +16,7 @@
 #include <tuple>
 #include <memory>
 #include <unordered_map>
+#include <string_view>
 #include <unordered_set>
 
 #include "nxrt/config.h"
@@ -388,7 +389,10 @@ enum LogOnce : uint32_t {
     kOnceAttrTypeMismatch, kOnceAlphaTest, kOnceDrawNoVs, kOnceDrawNoTarget, kOnceDownsampleScale, kOnceCount
 };
 void log_once(LogOnce key, const char* msg);
-bool first_time_key(const std::string& key);
+// Warnings written once per (kind, texture id, shader hash, binding name). True the first time a key is seen, up to 4096 keys. The key is
+// hashed in place: a call for a key already seen allocates nothing (these run per descriptor set build).
+enum FirstKey : uint32_t { kFirstDummyView, kFirstStorageView, kFirstTexelNonBuf, kFirstTexelBuffer, kFirstVol3d, kFirstImageSize, kFirstXfbOp, kFirstXfbDraw };
+bool first_time_key(FirstKey kind, uint64_t id, std::string_view shader = {}, std::string_view binding = {});
 
 inline VkImageViewType view_type_for(const DescriptorBinding& b) {
     const ImageShape& s = b.image;

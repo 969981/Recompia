@@ -449,8 +449,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (g_xfb.active && !g_pipe_xfb && !P.ncolor && !S.depth_tex) return false;
     if (g_trace) trace_draw(mode, indexed, *pl);
     if (g_xfb.active) {
-        static std::unordered_map<std::string, bool> seen;
-        if (seen.emplace(S.stage[kVertex]->hash, true).second)
+        if (first_time_key(kFirstXfbDraw, 0, S.stage[kVertex]->hash))
             NXLOG_I("nvn.xfb", "draw under transform feedback: vs %s mode %d attrs %u xfb0 %llx/%llu", S.stage[kVertex]->hash.c_str(), mode, S.attr_count,
                     static_cast<unsigned long long>(S.xfb[0].addr), static_cast<unsigned long long>(S.xfb[0].size));
     }

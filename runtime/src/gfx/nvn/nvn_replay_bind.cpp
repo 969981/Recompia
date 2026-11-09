@@ -319,7 +319,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     } else if (g_su.nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
                         ii.sampler = dummy_sampler();
                     }
-                } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {
+                } else if (first_time_key(kFirstDummyView, r.tex->id, d.shader->hash, b.name)) {
                     NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
                             r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
                             static_cast<int>(view_type_for(b)), d.shader->hash.c_str(), b.name.c_str(), b.nvn.index, d.set, d.binding);
@@ -355,7 +355,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 ii.imageView = tex_sampled_view(r.tex, q);
             }
             if (!ii.imageView) {
-                if (r.tex && first_time_key("storage-view " + std::to_string(r.tex->id)))   // once per texture, not per draw
+                if (r.tex && first_time_key(kFirstStorageView, r.tex->id))   // once per texture, not per draw
                     NXLOG_W(kTag, "storage image: texture %u (%s %dx%dx%d) has no storage view (gpu %d, storage usage %d)", r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?",
                             r.tex->b.width, r.tex->b.height, r.tex->b.depth, tex_gpu(r.tex) ? 1 : 0, tex_has_storage(r.tex) ? 1 : 0);
                 log_once(kOnceStorageImageDummy, "a storage image binding has no usable texture: a dummy storage image is bound");
@@ -377,7 +377,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             VkBufferView v = r.tex ? tex_buffer_view(r.tex, r.has_view ? &r.view : nullptr, component, shader_fmt, storage, &addr, &bytes, &vfmt) : VK_NULL_HANDLE;
             // a 2D/3D texture the game left in a samplerBuffer slot (e.g. KTGL's 8x8 default texture 3 in the foliage wind shader's
             // interaction buffers): read as a run of texels over its storage, as the console does, instead of the dummy
-            if (v && r.tex->b.target != NVN_TEXTURE_TARGET_BUFFER && first_time_key("texel-nonbuf " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+            if (v && r.tex->b.target != NVN_TEXTURE_TARGET_BUFFER && first_time_key(kFirstTexelNonBuf, r.tex->id, d.shader->hash, b.name))
                 NXLOG_I(kTag, "texture %u (%s %dx%dx%d, target %d) is read as a texel buffer by %s binding %s: it gets a buffer view over its storage (%llu bytes)",
                         r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.depth, r.tex->b.target,
                         d.shader->hash.c_str(), b.name.c_str(), static_cast<unsigned long long>(bytes));
@@ -395,7 +395,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             }
             if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);      // an image buffer may be written by the shader
             if (!v) {
-                if (r.tex && first_time_key("texel-buffer " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id)))
+                if (r.tex && first_time_key(kFirstTexelBuffer, r.tex->id, d.shader->hash, b.name))
                     NXLOG_W(kTag, "texel buffer: texture %u (%s, target %d, %dx%dx%d, storage %llu bytes at %p) has no buffer view: shader %s binding %s (NVN slot %d, set %u binding %u)",
                             r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
                             static_cast<unsigned long long>(r.tex->storage_size), static_cast<void*>(r.tex->mem), d.shader->hash.c_str(), b.name.c_str(),

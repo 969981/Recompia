@@ -68,9 +68,13 @@ void log_once(LogOnce key, const char* msg) {   // render thread only
     }
 }
 
-bool first_time_key(const std::string& key) {   // render thread only
-    static std::unordered_map<std::string, bool> seen;
-    return seen.size() < 4096 && seen.emplace(key, true).second;
+bool first_time_key(FirstKey kind, uint64_t id, std::string_view shader, std::string_view binding) {   // render thread only
+    uint64_t h = fnv_step(fnv_step(kFnvBasis, kind), id);
+    for (unsigned char c : shader) h = fnv_step(h, c);
+    h = fnv_step(h, 0x100);   // between the two names (not a byte value)
+    for (unsigned char c : binding) h = fnv_step(h, c);
+    static std::unordered_set<uint64_t> seen;
+    return seen.size() < 4096 && seen.insert(h).second;
 }
 
 // ---- the interpreter ----------------------------------------------------------------------------------------------------------
@@ -460,9 +464,7 @@ static void run_list(const CmdList& list, int depth) {
             case Op::ResolveDepth: note_unsupported("ResolveDepthBuffer"); break;
             case Op::BeginXfb: case Op::EndXfb: case Op::PauseXfb: case Op::ResumeXfb: {
                 const auto& p = r.payload<P_Counter>();
-                static std::unordered_map<std::string, bool> seen;
-                const std::string key = std::string(op_name(r.op())) + (S.stage[kVertex] ? S.stage[kVertex]->hash : "-");
-                if (seen.emplace(key, true).second)
+                if (first_time_key(kFirstXfbOp, static_cast<uint64_t>(r.op()), S.stage[kVertex] ? std::string_view(S.stage[kVertex]->hash) : std::string_view("-")))
                     NXLOG_I("nvn.xfb", "%s control %llx vs %s xfb buffer0 %llx/%llu", op_name(r.op()), static_cast<unsigned long long>(p.address),
                             S.stage[kVertex] ? S.stage[kVertex]->hash.c_str() : "-", static_cast<unsigned long long>(S.xfb[0].addr),
                             static_cast<unsigned long long>(S.xfb[0].size));
