@@ -42,6 +42,8 @@ export async function render(el, ctx) {
   let profiles = { active: 'default', profiles: [] };
   let repairBackup = null;   // the last repair's backup (name, files), when Undo has something to put back
   let backups = null;   // savebackup.rs Status: the settings, how many copies and the newest
+  let steamBusy = false;
+  let steam = null;     // steam.rs Status: Steam found and running, and whether the game and the launcher shortcuts are in it
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
@@ -79,6 +81,8 @@ export async function render(el, ctx) {
       repairBackup,
       backups,
       backupLine: backupText(backups),
+      steam,
+      steamBusy,
       backupDetail: backupDetail(backups),
       importing,
       importResult,
@@ -422,6 +426,29 @@ export async function render(el, ctx) {
     await store.installVersion(picked.tag, channel, ok.accepted);
   }
 
+  async function refreshSteam() {
+    try {
+      steam = await api('steam_status');
+    } catch (e) {
+      console.warn('steam_status', e);
+    }
+    draw();
+  }
+
+  /** Adds or removes one Steam shortcut ('game' starts the game at once, 'launcher' opens this window) and says what happened. */
+  async function steamDo(cmd, target) {
+    if (steamBusy) return;
+    steamBusy = true;
+    draw();
+    try {
+      toast(await api(cmd, { target }), 'ok');
+    } catch (e) {
+      toast(errText(e), 'error');
+    }
+    steamBusy = false;
+    await refreshSteam();
+  }
+
   async function refreshBackups() {
     try {
       backups = await api('backup_status');
@@ -541,6 +568,10 @@ export async function render(el, ctx) {
       await chooseBuild(src.config.channel === 'testing' ? 'testing' : 'stable', false);
     },
     'open-log': () => api('open_game_file', { name: 'pkp.log' }),
+    'steam-add-game': () => steamDo('steam_add', 'game'),
+    'steam-add-launcher': () => steamDo('steam_add', 'launcher'),
+    'steam-remove-game': () => steamDo('steam_remove', 'game'),
+    'steam-remove-launcher': () => steamDo('steam_remove', 'launcher'),
     async 'backup-now'() {
       await flush();
       await backupNow();
@@ -629,6 +660,7 @@ export async function render(el, ctx) {
     draw();
   }).catch((e) => console.warn('repair_last', e));
   refreshBackups();
+  refreshSteam();
   api('save_sources').then((list) => {
     sources = list;
     draw();
