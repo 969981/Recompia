@@ -57,6 +57,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Added **Settings > About > Repair and reset** for when a setting or a leftover file causes trouble
   - Before: the only fix was to edit pkp.ini by hand or delete files
   - Now: choose what to fix (game settings, controls, launcher settings, caches, old copies of the runtime and launcher). You see the list of files before anything changes, and a copy of the changed settings files is kept, so **Undo last repair** puts them back. Your saves, profiles, shaders and game files are never touched
+- Added a choice of what **Reset game settings** resets, in **Settings > About > Repair and reset**
+  - Before: ticking Reset game settings put every game setting in `pkp.ini` back to the default, with no way to keep part of it
+  - Now: ticking it opens a list with one tick per group: Graphics and performance, Network and Link Play, Gameplay options, Game clock and events, Save backup schedule, and Everything else. All are ticked, so doing nothing resets everything as before. Untick a group to keep it. The list of files you review shows which groups reset, and **Undo last repair** puts the whole file back. Your game folders, profile and Link Play identity are kept either way
 - Added a Testing changelog to **What's New** for players on the Testing channel
   - Before: Testing builds were listed among the releases, each with the whole pending change list
   - Now: a **Testing** group with **All Testing changes** (every Testing build since the last stable release, newest first), what changed in each build, and its regressions and known problems as a highlighted block at the top. Stable players see no change
@@ -74,6 +77,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Mouse in menus:** open the pause menu and one more menu, move the mouse, click, scroll. A left click confirms the highlighted entry; the wheel and arrow keys move the highlight; the pointer does not pick. Report: what each did, and the lines in `pkp.log` that start with `play: menu pointer gate` and `menu:`
 - **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
 - **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
+- **Reset game settings, part of it** (Settings > About > Repair and reset): tick **Reset game settings** and look at the list that opens. Untick a group or two, press Review, and check that the list names only the groups you left ticked. Apply it, start the game, and check that the settings you unticked are still as you set them (for example your game clock offset) and the ones you left ticked are back to the default. Then **Undo last repair**. Report: which groups you ticked, what the review said, anything that changed that you unticked, and the exact words of any error
 - **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
 - **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
@@ -85,7 +89,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
 - Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
 - The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
-- After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default. Use **Undo last repair** if the game runs worse
+- After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default unless you untick its group (that one is under Graphics and performance) in the list that opens. Use **Undo last repair** if the game runs worse
 - After **Clear caches** the first start builds the pipeline cache again and can stutter once
 
 ## 0.8.0 (build L: Lykoi)

@@ -1,6 +1,7 @@
 // Repair and reset: the dialogs for repair.rs. Step 1 picks what to fix, step 2 shows exactly which files change (nothing is touched
 // before that), step 3 does it. The Rust side keeps a copy of the changed settings files, so Undo is one button in Settings > About.
 import { api, confirm, errText, esc, icon, toast } from '../ui.js';
+import { GAME_GROUPS, canReview, groupLabels, groupsPayload } from '../repair-model.js';
 
 const CHOICES = [
   { id: 'game_settings', label: 'Reset game settings', note: 'Graphics, performance, network and timing choices (pkp.ini) go back to the defaults. Your game files, profile and shader folders are kept.' },
@@ -10,9 +11,23 @@ const CHOICES = [
   { id: 'leftovers', label: 'Remove old copies', note: 'Old versions of the game runtime and the launcher that updates set aside. The current ones stay.' },
 ];
 
+/** The panel under "Reset game settings": one tick per group, all ticked, shown only while that box is ticked. */
+const groupsHtml = () => `
+  <div class="repair-groups" id="repair-groups" hidden>
+    <p class="repair-note">Choose which settings go back to the defaults. Everything is ticked; untick what you want to keep.</p>
+    <ul class="repair-list">
+      ${GAME_GROUPS.map((g) => `
+        <li><label class="repair-choice">
+          <input type="checkbox" name="group" value="${g.id}" checked />
+          <span><strong>${esc(g.label)}</strong><span class="repair-note">${esc(g.note)}</span></span>
+        </label></li>`).join('')}
+    </ul>
+    <p class="repair-warn" role="alert" hidden>Tick at least one group, or untick Reset game settings.</p>
+  </div>`;
+
 const size = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
 
-/** Step 1. Resolves the chosen action ids, or null for Cancel, Esc or a click outside. */
+/** Step 1. Resolves { actions, groups } (groups: the game settings groups, null for all of them), or null for Cancel, Esc or a click outside. */
 function choose() {
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
@@ -26,9 +41,9 @@ function choose() {
           <ul class="repair-list">
             ${CHOICES.map((c) => `
               <li><label class="repair-choice">
-                <input type="checkbox" name="repair" value="${c.id}" />
+                <input type="checkbox" name="repair" value="${c.id}" ${c.id === 'game_settings' ? 'aria-controls="repair-groups" aria-expanded="false"' : ''} />
                 <span><strong>${esc(c.label)}</strong><span class="repair-note">${esc(c.note)}</span></span>
-              </label></li>`).join('')}
+              </label>${c.id === 'game_settings' ? groupsHtml() : ''}</li>`).join('')}
           </ul>
         </div>
         <div class="modal-actions">
@@ -37,12 +52,31 @@ function choose() {
         </div>
       </form>`;
     document.body.appendChild(dlg);
+    const checked = (name) => [...dlg.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value);
+    const panel = dlg.querySelector('#repair-groups'), warn = panel.querySelector('.repair-warn');
+    const game = dlg.querySelector('input[name="repair"][value="game_settings"]');
+    const sync = () => {
+      panel.hidden = !game.checked;
+      game.setAttribute('aria-expanded', String(game.checked));
+      warn.hidden = true;
+    };
+    game.addEventListener('change', sync);
+    panel.addEventListener('change', () => { warn.hidden = true; });
     dlg.querySelector('form').addEventListener('submit', (e) => {
       e.preventDefault();
+      const actions = checked('repair');
+      if (actions.length && !canReview(actions, checked('group'))) {
+        warn.hidden = false;   // game settings are picked but no group: stay open
+        return;
+      }
       dlg.close('ok');
     });
     dlg.addEventListener('close', () => {
-      const picked = dlg.returnValue === 'ok' ? [...dlg.querySelectorAll('input[name="repair"]:checked')].map((i) => i.value) : null;
+      let picked = null;
+      if (dlg.returnValue === 'ok') {
+        const actions = checked('repair');
+        picked = { actions, groups: actions.includes('game_settings') ? groupsPayload(checked('group')) : null };
+      }
       dlg.remove();
       resolve(picked);
     });
@@ -60,7 +94,7 @@ const reviewHtml = (plan) => {
     <p>These files will change:</p>
     <ul class="modal-list">
       ${plan.changes.map((c) => `<li>${icon(c.what === 'remove' ? 'trash-2' : 'rotate-ccw')}<span><span class="selectable">${esc(c.file)}</span>
-        <span class="repair-note">${c.what === 'remove' ? 'removed' : 'back to defaults'}, ${size(c.bytes)}${c.backup ? ', a copy is kept' : ''}</span></span></li>`).join('')}
+        <span class="repair-note">${c.what === 'remove' ? 'removed' : c.groups?.length ? `${esc(groupLabels(c.groups))} back to defaults, the other settings stay` : 'back to defaults'}, ${size(c.bytes)}${c.backup ? ', a copy is kept' : ''}</span></span></li>`).join('')}
     </ul>
     <p>${keeps ? 'A copy of the settings files is kept, so Undo last repair in Settings > About puts them back. ' : ''}Caches and old copies are not copied: the game builds the caches again, and old copies are not needed.</p>`;
 };
@@ -70,15 +104,16 @@ const reviewHtml = (plan) => {
  * `launcher` is true when the launcher's own settings were reset (the page then reloads them).
  */
 export async function runRepair() {
-  const actions = await choose();
-  if (actions === null) return null;
+  const choice = await choose();
+  if (choice === null) return null;
+  const { actions, groups } = choice;
   if (!actions.length) {
     toast('Pick at least one thing to fix', 'error');
     return null;
   }
   let plan;
   try {
-    plan = await api('repair_plan', { actions });
+    plan = await api('repair_plan', { actions, groups });
   } catch (e) {
     toast(errText(e), 'error');
     return null;
@@ -90,7 +125,7 @@ export async function runRepair() {
   const yes = await confirm({ title: 'Check before changing', html: reviewHtml(plan), ok: 'Repair now', danger: true });
   if (!yes) return null;
   try {
-    const report = await api('repair_apply', { actions });
+    const report = await api('repair_apply', { actions, groups });
     toast(report.done.length > 1 ? `Repaired: ${report.done.length} changes` : report.done[0] || 'Repaired', 'ok');
     return { changed: report.done.length > 0, launcher: actions.includes('launcher_prefs') };
   } catch (e) {
