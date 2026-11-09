@@ -2,6 +2,7 @@
 // Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "pkp_game.h"
 #include "pkp_aim.h"
+#include "pkp_craft.h"
 #include "pkp_jump.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
@@ -39,6 +40,7 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     options_install(base, host);
     title_install(base, host);
     sort_install(base);
+    craft_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
                      config_get_bool("pkp", "link_story_coop", false));
 }

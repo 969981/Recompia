@@ -4,6 +4,18 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
+
+### Game
+- Added a **Search** button to the crafting menu (#324)
+  - Before: finding a recipe meant scrolling through the tabs
+  - Now: press **Y** (keyboard **F**) or click **Search** in the button bar. The same keyboard as name entry opens (works with a controller: d-pad or stick to pick keys, A to type, + for OK), type part of an item name and the list shows only the recipes whose item name contains it, in your game language. Upper and lower case don't matter
+  - The search stays on when you change tabs or use the game's Sort, and the button shows the word (for example "Search: log"). Cancel on the keyboard shows every recipe again; closing the crafting screen (or crafting something) clears the search
+  - Want it gone? `[pkp] craft_search = 0` in `pkp.ini`
+  - Still not: no search during Link Play, and only the item name is searched (not materials or descriptions)
+
 ## 0.9.0 (build M: Monkey)
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for Quit Game, Sort, the mouse mode key and the longer camera aim reach; your saves and shaders are kept).
