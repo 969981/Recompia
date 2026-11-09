@@ -6,9 +6,11 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (this build adds hooks for the camera aim option, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
+
 ### Gameplay
-- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
-- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
+- Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Performance
 - Fixed the remaining long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
@@ -26,6 +28,81 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: scripted events could wait forever when the game ran faster than 60 fps. Setting the frame limit to 60 got past it
   - Now: events, dialogue, transitions and menus always run at 60 fps as on the console, and free play keeps your frame limit. `[pkp] event_hold = false` turns this off
   - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
+
+### Game
+- Added the PC settings to the game's own Settings screen (off by default; set `[pkp] options_menu = 1` in `pkp.ini` to try it)
+  - Before: the display, performance, graphics, picture, mouse, controller and sound settings were only on the F1 page and in the launcher
+  - Now: Settings has nine tabs (Game, Camera and Sound, plus Display, Performance, Graphics, Picture, Mouse and Controller). L and R move through them, long lists and decimals are sliders, and one Save covers every tab. The values are the same ones F1 changes (`controls.ini`)
+  - Still not: the FPS hotkey, quit key, keyboard bindings and pad remap stay on F1, and paths, setup and profiles stay in the launcher. English only; the six new tabs use the Game tab's icon for now
+- Added lines to `pkp.log` for a long wait on the graphics card
+  - Before: when the game suddenly dropped to a few frames a second, the log showed that it was waiting but not for what
+  - Now: a `slow sync wait` line (at most 20 a session) is written when the game waits 100 ms or more, with the wait number, how long the game was willing to wait and where the graphics queue stood
+- Added lines to `pkp.log` that say why the mouse pointer in menus is up or not
+  - Before: when the mouse did nothing in a menu, the log could not say whether the window had lost focus, an overlay was open, the game was not in a menu, or the mouse setting was off
+  - Now: `play: menu pointer gate` lines (at most 24 a session) show the state each time it changes, including whether `[mouse] menu_cursor` is on
+- Fixed three small mistakes in the upscaler code that is switched off in this release (depth direction, number of jitter steps, when the picture history is reset). Nothing changes while the upscalers stay off
+- Fixed `pkp.log` not saying which version you run
+  - Before: the first lines of `pkp.log` read `pkp $env:VERSION` in every release, so a log could not be matched to a build
+  - Now: the line shows the real version of the runtime (for example `0.8.1-beta.6`)
+- Fixed a wrong line in `pkp.log` about the menu mouse
+  - Before: it said the mouse pointer moves the game's cursor in menus. It does not: the wheel and the keys move the selection, and a left click confirms the selected entry
+  - Now: the line says what the mouse does
+
+### Launcher
+- Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
+  - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
+  - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
+- Added **Settings > About > Choose a version**, and a list of Testing builds when you join the Testing channel
+  - Before: Update only ever installed the newest build, and there was no way to read about a build before installing it or to go back
+  - Now: the list shows the builds of your channel (Testing builds and the normal releases on Testing, only releases on Stable), newest first, each with its notes. A newer one installs like an update. Going back to an older one asks first; a long way back (an older release line) shows a stronger warning with a box to tick before it can go on. The launcher first copies your save folder, `pkp.ini`, `controls.ini`, `profiles.json` and `launcher.json` to `rollback-backups` next to the game (the last three are kept), and stops without changing anything if that copy cannot be made. Joining Testing opens the list of Testing builds right away
+- Added a question when you switch the launcher to the Testing channel, and help for testers
+  - Before: switching to Testing just switched, and nothing said what to do when something went wrong
+  - Now: the launcher asks you to confirm, and says Testing builds can have bugs and that testers are expected to share what they find and their pkp.log. While on Testing, Settings > About has **Report a problem** and **Show pkp.log** buttons. Each Testing build's notes now list what to test and how to report, and the bug form asks which channel you were on
+- Fixed a start from a shortcut (Steam, Sunshine) ignoring a profile problem
+  - Before: if the launcher could not write the chosen profile into pkp.ini, a start with `--play` carried on anyway and the game could open another player's save
+  - Now: that start stops with a message, like Play in the launcher window
+- Fixed a damaged profiles.json being replaced without a trace
+  - Before: a cut-off or unreadable profiles.json turned into one default profile, and adding a profile then overwrote the file, losing which save belonged to which profile
+  - Now: the damaged file is first copied to `profiles.json.damaged-<date and time>` next to it, and if that copy cannot be made nothing is changed. Your save folders were never touched
+- Added **Settings > About > Repair and reset** for when a setting or a leftover file causes trouble
+  - Before: the only fix was to edit pkp.ini by hand or delete files
+  - Now: choose what to fix (game settings, controls, launcher settings, caches, old copies of the runtime and launcher). You see the list of files before anything changes, and a copy of the changed settings files is kept, so **Undo last repair** puts them back. Your saves, profiles, shaders and game files are never touched
+- Added a choice of what **Reset game settings** resets, in **Settings > About > Repair and reset**
+  - Before: ticking Reset game settings put every game setting in `pkp.ini` back to the default, with no way to keep part of it
+  - Now: ticking it opens a list with one tick per group: Graphics and performance, Network and Link Play, Gameplay options, Game clock and events, Save backup schedule, and Everything else. All are ticked, so doing nothing resets everything as before. Untick a group to keep it. The list of files you review shows which groups reset, and **Undo last repair** puts the whole file back. Your game folders, profile and Link Play identity are kept either way
+- Added a Testing changelog to **What's New** for players on the Testing channel
+  - Before: Testing builds were listed among the releases, each with the whole pending change list
+  - Now: a **Testing** group with **All Testing changes** (every Testing build since the last stable release, newest first), what changed in each build, and its regressions and known problems as a highlighted block at the top. Stable players see no change
+- Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
+  - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
+  - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
+
+### What to test
+- **In-game Options (off by default):** set `[pkp] options_menu = 1` in `pkp.ini` and start the game (press **Set up again** first). Open Settings and go through all nine tabs with L and R. Change a few values, press Save, and check that F1 shows the same values. Report: anything missing, cut off or not saving, and whether the game still opens Settings normally with the option off
+- **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
+- **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
+- **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
+- **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
+- **Going back one build** (only with a copy of your save folder): choose the build just before yours and read the question. Report: what the dialog said and whether the launcher restarted on the older build. Cancel is fine if you would rather not
+- **A long way back:** choose a much older release and read the warning. The button must stay off until you tick the box. Please cancel unless you have a spare install; report whether the warning was clear
+- **Mouse in menus:** open the pause menu and one more menu, move the mouse, click, scroll. A left click confirms the highlighted entry; the wheel and arrow keys move the highlight; the pointer does not pick. Report: what each did, and the lines in `pkp.log` that start with `play: menu pointer gate` and `menu:`
+- **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
+- **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
+- **Reset game settings, part of it** (Settings > About > Repair and reset): tick **Reset game settings** and look at the list that opens. Untick a group or two, press Review, and check that the list names only the groups you left ticked. Apply it, start the game, and check that the settings you unticked are still as you set them (for example your game clock offset) and the ones you left ticked are back to the default. Then **Undo last repair**. Report: which groups you ticked, what the review said, anything that changed that you unticked, and the exact words of any error
+- **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
+- **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
+- **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
+
+### Regressions and known problems
+- Save backups have been tried on simulated save folders and in the launcher's test mode, not yet through a long real play session. Restore replaces your save folder with the chosen copy (your current save is copied first)
+- Camera aim is new and has only been tried by a few people; it is off by default, so nothing changes for you unless you turn it on
+- Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
+- Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
+- Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
+- The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
+- After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default unless you untick its group (that one is under Graphics and performance) in the list that opens. Use **Undo last repair** if the game runs worse
+- After **Clear caches** the first start builds the pipeline cache again and can stutter once
 
 ## 0.8.0 (build L: Lykoi)
 

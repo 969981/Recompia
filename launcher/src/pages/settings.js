@@ -6,7 +6,11 @@
 import './settings.css';
 import { api, askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { askCompact, store } from '../store.js';
+import { backupDetail, backupNow, backupText, runRestore } from './backups.js';
 import { canUpdate, gamePhase } from '../action.js';
+import { runRepair, runUndo } from './repair.js';
+import { askTesting } from './testing-notice.js';
+import { confirmBuild, loadBuilds, pickBuild } from './builds.js';
 import {
   DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
   rowsOf, shownChoice, splitEdits, writeField, FIELDS,
@@ -36,6 +40,8 @@ export async function render(el, ctx) {
   let gameDir = dump.game_dir;
   let sources = [];
   let profiles = { active: 'default', profiles: [] };
+  let repairBackup = null;   // the last repair's backup (name, files), when Undo has something to put back
+  let backups = null;   // savebackup.rs Status: the settings, how many copies and the newest
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
@@ -70,6 +76,10 @@ export async function render(el, ctx) {
       taskBusy: !!s.task || s.starting,
       saveSources: sources,
       profiles,
+      repairBackup,
+      backups,
+      backupLine: backupText(backups),
+      backupDetail: backupDetail(backups),
       importing,
       importResult,
       dlssOffered: !!(dlss?.available || dlss?.present),
@@ -364,6 +374,14 @@ export async function render(el, ctx) {
       customOpen.delete(f.id);
     }
     if (f.guard === 'dlss' && ['dlss', 'dlaa'].includes(value) && !dlss?.present) return pickDlss(f, value);
+    // joining Testing is a question first: what it means, and that a tester is expected to share findings and logs. Cancel keeps Stable.
+    if (f.guard === 'testing' && value === 'testing' && readField(f, src) !== 'testing') {
+      return askTesting().then(async (yes) => {
+        if (!yes) return draw(true);
+        await commit(f, value);
+        await chooseBuild('testing', true);   // the Testing builds, right away: install one now or stay and update later
+      });
+    }
     if (f.replaces) customOpen.clear();
     return commit(f, value);
   }
@@ -389,6 +407,27 @@ export async function render(el, ctx) {
       toast(errText(e), 'error');
     }
     importing = false;
+    draw();
+  }
+
+  /** The builds of a channel with their notes; installs the one the player picks, after the question an older build needs. */
+  async function chooseBuild(channel, join) {
+    const builds = await loadBuilds(channel, true);
+    const picked = await pickBuild(join
+      ? { title: 'Testing builds', intro: 'You are on the Testing channel now. Pick a build to install, or choose Not now and press Update when you want the newest one.', builds }
+      : { title: 'Choose a version', intro: channel === 'testing' ? 'Testing builds and the normal releases. Newer builds install like an update; an older one asks first.' : 'The releases you can install. A newer one installs like an update; an older one asks first.', builds, close: 'Close' });
+    if (!picked) return;
+    const ok = await confirmBuild(picked);
+    if (!ok) return;
+    await store.installVersion(picked.tag, channel, ok.accepted);
+  }
+
+  async function refreshBackups() {
+    try {
+      backups = await api('backup_status');
+    } catch (e) {
+      console.warn('backup_status', e);
+    }
     draw();
   }
 
@@ -464,6 +503,28 @@ export async function render(el, ctx) {
       if (yes) await store.expandShaders();
     },
     'stop-repack': () => store.cancelRepack(),
+    async 'repair-open'() {
+      await flush();
+      const r = await runRepair();
+      if (!r) return;
+      if (r.launcher) {
+        try { localStorage.removeItem('theme'); localStorage.removeItem('pkp.linkplay'); } catch { /* nothing to clear */ }
+        location.reload();
+        return;
+      }
+      repairBackup = await api('repair_last').catch(() => null);
+      await reload().catch((e) => console.error(e));
+      draw();
+    },
+    async 'repair-undo'() {
+      await flush();
+      if (await runUndo(repairBackup)) {
+        repairBackup = await api('repair_last').catch(() => null);
+        await reload().catch((e) => console.error(e));
+        toast('Reload the launcher (close and open it) to use the restored launcher settings', 'ok');
+      }
+      draw();
+    },
     async 'check-updates'() {
       checking = true;
       draw();
@@ -475,6 +536,22 @@ export async function render(el, ctx) {
     update: () => store.installUpdate(),
     'clock-real': (id) => commit(FIELDS[id], 0),
     'open-url': (url) => api('open_release_url', { url }),
+    async 'builds-open'() {
+      await flush();
+      await chooseBuild(src.config.channel === 'testing' ? 'testing' : 'stable', false);
+    },
+    'open-log': () => api('open_game_file', { name: 'pkp.log' }),
+    async 'backup-now'() {
+      await flush();
+      await backupNow();
+      await refreshBackups();
+    },
+    async 'backup-restore'() {
+      await flush();
+      await runRestore();
+      await refreshBackups();
+    },
+    'backup-open': () => api('open_backup_dir'),
   };
 
   // ---- the page -----------------------------------------------------------------------------------------------------------------
@@ -547,6 +624,11 @@ export async function render(el, ctx) {
     profiles = list;
     draw();
   }).catch((e) => console.warn('profiles_list', e));
+  api('repair_last').then((info) => {
+    repairBackup = info;
+    draw();
+  }).catch((e) => console.warn('repair_last', e));
+  refreshBackups();
   api('save_sources').then((list) => {
     sources = list;
     draw();

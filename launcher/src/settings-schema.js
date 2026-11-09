@@ -408,6 +408,32 @@ export const SECTIONS = [
         }],
       },
       {
+        title: 'Backups',
+        rows: [
+          {
+            id: 'backup_note', type: 'note',
+            note: () => ({ text: 'Copies your save every few minutes while you play, so you can go back if a bug stops your progress. It is off until you pick a time. A copy is also made when the game closes. Restoring needs the game closed, and your current save is copied first.' }),
+          },
+          {
+            id: 'backup_minutes', label: 'Back up automatically', type: 'select', at: pkp('backup', 'interval_minutes'), def: '0',
+            options: [{ value: '0', label: 'Off' }, { value: '5', label: 'Every 5 minutes' }, { value: '10', label: 'Every 10 minutes' }, { value: '15', label: 'Every 15 minutes' }],
+          },
+          {
+            id: 'backup_keep', label: 'Backups to keep', type: 'select', at: pkp('backup', 'keep'), def: '10', when: (v) => v.backup_minutes !== '0',
+            options: [{ value: '5', label: '5' }, { value: '10', label: '10' }, { value: '20', label: '20' }, { value: '30', label: '30' }],
+          },
+          {
+            id: 'backup_state', label: 'Backups', type: 'info', value: (env) => env.backupLine,
+            actions: (env) => [
+              { act: 'backup-now', label: 'Back up now', icon: 'save' },
+              { act: 'backup-restore', label: 'Restore', icon: 'rotate-ccw', disabled: env.gameBusy || !env.backups?.count },
+              { act: 'backup-open', label: 'Open folder', icon: 'folder-open' },
+            ],
+          },
+          { id: 'backup_detail', type: 'note', when: (v, env) => !!env.backupDetail, note: (env) => ({ text: env.backupDetail }) },
+        ],
+      },
+      {
         title: 'Import a save',
         rows: [
           {
@@ -441,6 +467,15 @@ export const SECTIONS = [
             actions: (env) => [{ act: 'setup-again', label: 'Set up', icon: 'wrench', disabled: !env.canSetUp }],
           },
           { id: 'setup_log', label: 'Setup log', type: 'info', actions: [{ act: 'setup-log', label: 'Open', icon: 'file-text' }] },
+        ],
+      },
+      {
+        title: 'Gameplay',
+        rows: [
+          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, off by default. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
+          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.' }) },
+          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
         ],
       },
       {
@@ -498,13 +533,25 @@ export const SECTIONS = [
         rows: [
           { id: 'version', label: 'Version', type: 'info', value: (env) => env.version, selectable: true },
           {
-            id: 'channel', label: 'Update channel', type: 'select', at: config('channel'), def: 'stable',
+            id: 'channel', label: 'Update channel', type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
             lock: (env) => env.updating || env.gameBusy,
             options: [{ value: 'stable', label: 'Stable' }, { value: 'testing', label: 'Testing' }],
           },
           {
             id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: 'Testing builds come first and may have bugs. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page. If something breaks, please report it on GitHub with pkp.log and say you were on Testing.' }),
+            note: () => ({ text: 'Testing builds come first and may have bugs. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.' }),
+          },
+          {
+            id: 'testing_help', label: 'Testing help', type: 'info', when: (v) => v.channel === 'testing',
+            value: 'What to test is listed with each Testing build in What\'s New.',
+            actions: () => [
+              { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: 'Report a problem', icon: 'external-link' },
+              { act: 'open-log', label: 'Show pkp.log', icon: 'file-text' },
+            ],
+          },
+          {
+            id: 'builds', label: 'Versions', type: 'info', value: (env) => `You have ${env.version}`,
+            actions: (env) => [{ act: 'builds-open', label: 'Choose a version', icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
             id: 'updates', label: 'Updates', type: 'info', value: (env) => env.updateText,
@@ -518,6 +565,21 @@ export const SECTIONS = [
           { id: 'repo', label: 'Source code', type: 'info', actions: [open(REPO_URL, 'GitHub')] },
           { id: 'community', label: 'Community', type: 'info', value: 'Recompia Discord: help, testing and chat', actions: [open(DISCORD_URL, 'Join Discord')] },
           { id: 'bug', label: 'Report a bug', type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
+        ],
+      },
+      {
+        title: 'Troubleshooting',
+        rows: [
+          {
+            id: 'repair', label: 'Repair and reset', type: 'info',
+            value: 'Settings, caches and old copies. You see what changes first.',
+            actions: (env) => [{ act: 'repair-open', label: 'Repair and reset', icon: 'wrench', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
+          {
+            id: 'repair_undo', label: 'Undo last repair', type: 'info', when: (v, env) => !!env.repairBackup,
+            value: (env) => (env.repairBackup ? `Puts back ${env.repairBackup.files.join(', ')}` : ''),
+            actions: (env) => [{ act: 'repair-undo', label: 'Undo', icon: 'rotate-ccw', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
         ],
       },
       {

@@ -58,3 +58,31 @@
 .set-note .icon { flex: none; margin-top: 1px; }
 .set-note.ok .icon { color: var(--color-ok); }
 .set-note.danger .icon { color: var(--color-danger); }
+
+/* Repair and reset dialog */
+.repair-list { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.repair-choice { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
+.repair-choice input { margin-top: 3px; flex: none; }
+.repair-note { display: block; color: var(--color-text-2); font-size: var(--text-sm); font-weight: normal; }
+.repair-groups { margin: var(--space-3) 0 0 28px; padding-left: var(--space-3); border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: var(--space-3); }
+.repair-groups[hidden], .repair-warn[hidden] { display: none; }
+.repair-warn { margin: 0; color: var(--color-danger); font-size: var(--text-sm); }
+
+/* Choose a build */
+.builds-dialog { width: min(640px, calc(100vw - 2 * var(--space-4))); }
+.build-list { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; list-style: none; max-height: 52vh; overflow-y: auto; }
+.build-row { padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-xs); }
+.build-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.build-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.build-name { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.build-title time { color: var(--color-text-2); font-size: var(--text-sm); }
+.build-head .btn { flex: none; }
+.build-notes summary { cursor: pointer; margin-top: var(--space-2); color: var(--color-text-2); font-size: var(--text-sm); }
+.build-notes .md { margin-top: var(--space-2); max-height: 32vh; overflow-y: auto; font-size: var(--text-sm); }
+.build-tick { display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm); }
+.build-tick input { margin-top: 3px; flex: none; }
+/* Save backups: the restore list */
+.backup-list { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; list-style: none; max-height: 40vh; overflow-y: auto; }
+.backup-choice { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
+.backup-choice input { margin-top: 3px; flex: none; }
+.backup-note { display: block; color: var(--color-text-2); font-size: var(--text-sm); font-weight: normal; }

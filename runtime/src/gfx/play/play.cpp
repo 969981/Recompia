@@ -944,12 +944,20 @@ int update_hook(::Ctx*, uint64_t, void*) {
         ptr.set_enabled(st.settings.mouse.menu_cursor);
         // (a scripted run has no focus: the test tooling drives the pointer with synthetic events)
         const bool menu_up = st.window && !playing && ctx == Ctx::Menu && (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;
-        if (tt::enabled()) {   // test runs: why the menu pointer is or is not up, on each change
-            static int last = -1;
-            const int sig = (st.window ? 1 : 0) | (playing ? 2 : 0) | (static_cast<int>(ctx) << 2) | (overlay_visible ? 256 : 0);
-            if (sig != last && (last = sig, true))
-                NXLOG_I("play", "menu pointer gate: window %d playing %d ctx %d (menu %d) minimized %d overlay %d -> %d", st.window ? 1 : 0, playing ? 1 : 0,
-                        static_cast<int>(ctx), static_cast<int>(Ctx::Menu), platform::minimized() ? 1 : 0, overlay_visible ? 1 : 0, menu_up ? 1 : 0);
+        {   // why the menu pointer is or is not up, on each change: always in test runs, otherwise at most 24 lines a session, so a report
+            // that the mouse does nothing in menus says which part of the gate was closed
+            static int last = -1, lines = 0;
+            const int sig = (st.window ? 1 : 0) | (playing ? 2 : 0) | (static_cast<int>(ctx) << 2) | (overlay_visible ? 256 : 0) |
+                            (platform::focused() ? 512 : 0) | (platform::minimized() ? 1024 : 0);
+            if (sig != last && (tt::enabled() || lines < 24)) {
+                last = sig;
+                ++lines;
+                NXLOG_I("play", "menu pointer gate: window %d playing %d ctx %d (menu %d) minimized %d overlay %d -> %d (focused %d, [mouse] menu_cursor %d)",
+                        st.window ? 1 : 0, playing ? 1 : 0, static_cast<int>(ctx), static_cast<int>(Ctx::Menu), platform::minimized() ? 1 : 0,
+                        overlay_visible ? 1 : 0, menu_up ? 1 : 0, platform::focused() ? 1 : 0, st.settings.mouse.menu_cursor ? 1 : 0);
+            } else if (sig != last) {
+                last = sig;
+            }
         }
         mm::Geometry geo;
         platform::pixel_size(&geo.win_w, &geo.win_h);
@@ -1459,5 +1467,10 @@ Stats stats() {
     s.pump_thread_mismatch = st.thread_mismatch.load();
     return s;
 }
+
+Settings current_settings() { return g_host.settings(); }
+static std::atomic<uint64_t> g_game_menu_edits{0};
+void apply_settings(const Settings& s) { g_host.apply(s); g_game_menu_edits.fetch_add(1, std::memory_order_relaxed); }
+uint64_t game_menu_edits() { return g_game_menu_edits.load(std::memory_order_relaxed); }
 
 }  // namespace nxrt::play

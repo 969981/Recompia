@@ -86,8 +86,31 @@ pub fn load(dir: &Path) -> Store {
     Store { active: DEFAULT_ID.into(), profiles: vec![default_profile(&load_ini(dir))] }
 }
 
+/// A profiles.json that `load` would not use (it does not read, does not parse, or lists no profile). Reading it falls back to the
+/// default profile; writing over it would lose the names and ids that tie each profile to its save.
+fn is_damaged(path: &Path) -> bool {
+    path.is_file() && !fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<Store>(&t).ok()).map_or(false, |s| !s.profiles.is_empty())
+}
+
+/// Copies a damaged profiles.json aside (`profiles.json.damaged-<date-time>`, never an existing name) before it is replaced.
+fn keep_damaged(dir: &Path) -> Result<(), String> {
+    let path = dir.join(FILE);
+    if !is_damaged(&path) {
+        return Ok(());
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let target = (0..1000)
+        .map(|i| dir.join(if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) }))
+        .find(|p| !p.exists())
+        .ok_or("Too many damaged copies of profiles.json.")?;
+    fs::copy(&path, &target).map_err(|e| format!("profiles.json is damaged and could not be copied aside ({}), so nothing was changed.", e))?;
+    eprintln!("profiles.json was damaged: a copy is kept as {}.", target.display());
+    Ok(())
+}
+
 fn save(dir: &Path, s: &Store) -> Result<(), String> {
     let text = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
+    keep_damaged(dir)?;
     write_atomic(&dir.join(FILE), &text)
 }
 
@@ -342,5 +365,66 @@ mod tests {
         let d = tmp("broken", "");
         fs::write(d.join(FILE), "{ not json").unwrap();
         assert_eq!(load(&d).profiles.len(), 1);
+    }
+
+    fn damaged_copies(d: &Path) -> Vec<std::path::PathBuf> {
+        let mut v: Vec<_> = fs::read_dir(d).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("profiles.json.damaged-")).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn a_damaged_profile_file_is_copied_aside_before_it_is_replaced() {
+        for (tag, bytes) in [("cut", "{\"active\":\"default\",\"profiles\":[{\"id\":\"def"), ("empty", "{\"active\":\"default\",\"profiles\":[]}"), ("junk", "not json at all")] {
+            let d = tmp(tag, "[account]\nuid = aaaa\nnickname = Koi\n");
+            fs::write(d.join(FILE), bytes).unwrap();
+            add(&d, "Sam").unwrap();
+            let copies = damaged_copies(&d);
+            assert_eq!(copies.len(), 1, "{}", tag);
+            assert_eq!(fs::read_to_string(&copies[0]).unwrap(), bytes, "{}: the copy is the original, byte for byte", tag);
+            let now = load(&d);
+            assert!(now.profiles.iter().any(|p| p.name == "Sam"), "{}: the new store is written", tag);
+            assert!(!is_damaged(&d.join(FILE)), "{}: the new file reads", tag);
+        }
+    }
+
+    #[test]
+    fn a_good_profile_file_leaves_no_copy_and_a_second_damage_gets_its_own_name() {
+        let d = tmp("good", "[account]\nuid = aaaa\nnickname = Koi\n");
+        add(&d, "Sam").unwrap();
+        add(&d, "Alex").unwrap();
+        assert!(damaged_copies(&d).is_empty(), "a valid file is never copied");
+        fs::write(d.join(FILE), "broken one").unwrap();
+        add(&d, "Kim").unwrap();
+        fs::write(d.join(FILE), "broken two").unwrap();
+        add(&d, "Lee").unwrap();
+        let copies = damaged_copies(&d);
+        assert_eq!(copies.len(), 2, "two damages, two copies");
+        let texts: Vec<String> = copies.iter().map(|p| fs::read_to_string(p).unwrap()).collect();
+        assert!(texts.contains(&"broken one".to_string()) && texts.contains(&"broken two".to_string()));
+    }
+
+    #[test]
+    fn reading_never_writes_a_copy() {
+        let d = tmp("read", "[account]\nuid = aaaa\n");
+        fs::write(d.join(FILE), "broken").unwrap();
+        let _ = load(&d);
+        assert!(damaged_copies(&d).is_empty());
+        assert_eq!(fs::read_to_string(d.join(FILE)).unwrap(), "broken");
+    }
+
+    #[test]
+    fn a_save_is_refused_when_the_damaged_file_cannot_be_copied() {
+        let d = tmp("refuse", "[account]\nuid = aaaa\n");
+        fs::write(d.join(FILE), "broken").unwrap();
+        // every candidate name is taken, so no copy can be made
+        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+        for i in 0..1000 {
+            let name = if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) };
+            fs::write(d.join(name), "x").unwrap();
+        }
+        let err = add(&d, "Sam").unwrap_err();
+        assert!(err.contains("damaged"), "{}", err);
+        assert_eq!(fs::read_to_string(d.join(FILE)).unwrap(), "broken", "the damaged file is untouched");
     }
 }

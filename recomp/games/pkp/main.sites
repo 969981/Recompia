@@ -228,3 +228,21 @@ midhook 0x7100e51688
 midhook 0x7100e516f0
 midhook 0x7100e5173c
 midhook 0x7100e51788
+#   In-game Options (pkp_options.cpp, [pkp] options_menu): the screen's open, commit, value store and tab change; option get/set; a choice row's
+#   value names; after a row's value widget (x19 = the row) and a slider's number; the description text; and in the tab bar: the list size, the
+#   list fill, the layout for the tab count, the icons and the title
+entryhook 0x7101006628
+entryhook 0x71010092a0
+entryhook 0x710100b920
+entryhook 0x710100de9c
+entryhook 0x710100e084
+entryhook 0x7100e81b3c
+entryhook 0x710100fce0
+inline 0x710100b294
+inline 0x710100f1b4
+entryhook 0x7100eba100
+inline 0x7101012a60
+inline 0x71010132a4
+inline 0x71010132d0
+inline 0x710101334c
+entryhook 0x7100eb1b40

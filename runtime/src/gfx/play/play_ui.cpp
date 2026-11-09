@@ -1565,6 +1565,11 @@ void controls_page(UiHost& host, const LiveStatus& live, Page& p) {
 void draw_settings_page(UiHost& host) {
     static Page page;
     Page& p = page;
+    static uint64_t seen_game_edits = 0;
+    if (const uint64_t n = game_menu_edits(); n != seen_game_edits && !p.dirty) {   // changed in the game's own menu: F1's Apply must not put the old values back
+        seen_game_edits = n;
+        p.loaded = false;
+    }
     if (!p.loaded) {
         p.edit = host.settings();
         p.edit.fps = host.settings().fps;

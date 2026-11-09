@@ -12,6 +12,24 @@ const DUMP = { path: 'D:/Dumps/Pokopia/updates/2.0.1a', kind: 'update', version:
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const RELEASE_BODIES = {
+  'v0.8.1-beta.2': `### Regressions and known problems
+- The new Repair and reset dialog has only been tried on the dev mock and in unit tests so far
+- The launcher lag fix was measured on NVIDIA with Linux only
+
+### What to test
+- **Repair and reset:** try each choice, then Undo. Report: which choice, what the list showed, any error words
+- **Launcher speed:** change pages for a minute. Report: smooth or laggy, your graphics card
+
+### Changes in this build
+- #291 Launcher: Repair and reset (settings, caches, old copies) with a preview and Undo
+
+### Launcher
+- Added **Settings > About > Repair and reset**`,
+  'v0.8.1-beta.1': `### Changes in this build
+- #289 Launcher: fix the lag on Linux with NVIDIA (Testing build)
+
+### Launcher
+- Fixed the launcher feeling slow on Linux with an NVIDIA card`,
   'v0.7.0': `Extract it over your 0.6.x install, then run **Set up again** once: the game code and the shader translator changed. The launcher asks for it. Link Play builds from before this one cannot join this one, so update together.
 
 ### Highlights
@@ -111,6 +129,23 @@ let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Pokopia' : '';
 let relay = null;
 let mockChannel = 'stable';
+let mockRepair = null;
+// the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
+const BACK = ['The game files may have to be built again for the older version, so Set up again can be asked (about 15 to 20 minutes).', 'Files that only the newer version has stay in the folder; they are not removed.'];
+const MOCK_BUILDS = [
+  { tag: 'v0.8.1-beta.7', name: 'Pokopia Recomp 0.8.1-beta.7 (Testing)', date: '2026-11-09T12:00:00Z', prerelease: true, installable: true, relation: 'newer', risk: 'none', reasons: [], url: 'https://github.com/featureJosh/Recompia/releases/tag/v0.8.1-beta.7',
+    notes: '### Regressions and known problems\n- Going back to an older build has only been tried in tests so far\n\n### What to test\n- Open Choose a version and read a note. Report: what the list showed' },
+  { tag: 'v0.8.1-beta.6', name: 'Pokopia Recomp 0.8.1-beta.6 (Testing)', date: '2026-11-08T17:00:00Z', prerelease: true, installable: true, relation: 'installed', risk: 'none', reasons: [], url: '', notes: '### Changes in this build\n- #298 The version in pkp.log' },
+  { tag: 'v0.8.1-beta.5', name: 'Pokopia Recomp 0.8.1-beta.5 (Testing)', date: '2026-11-08T15:11:00Z', prerelease: true, installable: true, relation: 'older', risk: 'low', reasons: BACK, url: '', notes: '### What to test\n- Repair and reset' },
+  { tag: 'v0.8.0', name: 'Pokopia Recomp 0.8.0 (build L: Lykoi)', date: '2026-11-08T11:32:00Z', prerelease: false, installable: true, relation: 'older', risk: 'low', reasons: BACK, url: '', notes: '### Highlights\n- Profiles\n- Update channels' },
+  { tag: 'v0.7.9', name: 'Pokopia Recomp 0.7.9 (build K: Kiwi)', date: '2026-11-08T02:12:00Z', prerelease: false, installable: true, relation: 'older', risk: 'high',
+    reasons: ['Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.', ...BACK], url: '', notes: '### Highlights\n- Frame pacing fixes' },
+  { tag: 'v0.7.0', name: 'Pokopia Recomp 0.7.0 (build K: Kangaroo)', date: '2026-10-30T18:12:00Z', prerelease: false, installable: false, relation: 'older', risk: 'high', reasons: BACK, url: '', notes: 'Old notes' },
+];
+const mockBackups = [
+  { version: 1, name: '20261108-143000-auto', created: '2026-11-08T19:30:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: 'a' },
+  { version: 1, name: '20261108-142000-auto', created: '2026-11-08T19:20:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825000, hash: 'b' },
+];
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
 
 const settings = {
@@ -276,7 +311,7 @@ function handle(cmd, args) {
       return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
     case 'setup_status': return structuredClone(setup);
     case 'game_status': return game;
-    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (build K: Test)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };
+    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.2', 'Pokopia Recomp 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };
     case 'install_update': return runUpdate();
     case 'cancel_update': return updateStop?.();
     case 'play': return runPlay();
@@ -313,6 +348,29 @@ function handle(cmd, args) {
     case 'cancel_shader_storage': repackStop = true; return null;
     case 'dlss_status': return { available: true, present: false, dir: `${GAME_DIR}/upscalers/streamline` };
     case 'fetch_dlss': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading nvngx_dlss.dll' })).then(() => null);
+    case 'repair_plan': return { changes: [
+      ...(args.actions.includes('game_settings') ? [{ action: 'game_settings', file: 'pkp.ini', what: 'reset', bytes: 812, backup: true, groups: args.groups ?? [] }] : []),
+      ...(args.actions.includes('controls') ? [{ action: 'controls', file: 'controls.ini', what: 'remove', bytes: 2210, backup: true }] : []),
+      ...(args.actions.includes('launcher_prefs') ? [{ action: 'launcher_prefs', file: 'launcher.json', what: 'reset', bytes: 296, backup: true }] : []),
+      ...(args.actions.includes('caches') ? [{ action: 'caches', file: 'pipeline_cache.bin', what: 'remove', bytes: 31457280, backup: false }] : []),
+      ...(args.actions.includes('leftovers') ? [{ action: 'leftovers', file: 'pkp_rt.dll.0.7.6', what: 'remove', bytes: 18874368, backup: false }] : []),
+    ] };
+    case 'repair_apply': mockRepair = { name: '20261108-120000', files: ['pkp.ini'] }; return { done: ['Game settings (pkp.ini) are back to their defaults'], backup: '20261108-120000' };
+    case 'repair_undo': mockRepair = null; return { done: ['pkp.ini restored'], backup: null };
+    case 'repair_last': return mockRepair;
+    case 'list_builds': return structuredClone(MOCK_BUILDS.filter((b) => args.channel === 'testing' || !b.prerelease));
+    case 'install_version': {
+      const b = MOCK_BUILDS.find((x) => x.tag === args.tag);
+      if (!b) throw 'That build cannot be installed on this system.';
+      if (b.risk !== 'none' && !args.accepted) throw 'Going back to an older build needs your confirmation first. Nothing was changed.';
+      console.info('[mock] install_version', args.tag, 'accepted', args.accepted);
+      return runUpdate();
+    }
+    case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
+    case 'backup_list': return structuredClone(mockBackups);
+    case 'backup_now': mockBackups.unshift({ version: 1, name: `20261108-15${String(mockBackups.length).padStart(2, '0')}00-manual`, created: '2026-11-08T20:00:00Z', kind: 'manual', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: String(mockBackups.length) }); return { result: 'made', entry: mockBackups[0] };
+    case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
+    case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'profiles_list': return structuredClone(mockProfiles);
     case 'profile_add': mockProfiles.profiles.push({ id: `p${mockProfiles.profiles.length}`, name: args.name, uid: '', nickname: args.name, net_uid: '' }); return structuredClone(mockProfiles);
     case 'profile_rename': mockProfiles.profiles.find((p) => p.id === args.id).name = args.name; return structuredClone(mockProfiles);
