@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# nxrt: game-independent runtime skeleton (OS/HLE layer) for the Metroid Prime Remastered static recompilation.
+# nxrt: game-independent runtime (OS/HLE layer, graphics shell) for static recompilations of Switch games.
 # Build: scripts\build.ps1   (clang-cl + Ninja, Release)
 cmake_minimum_required(VERSION 3.25)
 # Static MSVC runtime (/MT): players need no Visual C++ Redistributable. Set before project() so every target below, third-party code
@@ -36,11 +36,21 @@ option(NXRT_BUILD_GFX "Build the graphics shell (SDL3 + Vulkan + NVN front end, 
 # Game modules (games/<id>/, docs/GAME_BOUNDARY.md): the title-specific code a game exe links.
 option(NXRT_BUILD_GAMES "Build the game modules in games/" ON)
 set(NXRT_GAMES "pkp" CACHE STRING "ids of the game modules to build (games/<id>/), a list")
+# Test tooling (src/testtools, include/nxrt/tt.h: deterministic mode, scripted runs, traces, input record and replay). Off: the runtime
+# builds without it and src/core/tt_off.cpp answers its entry points (everything off). Release packages turn it off (game-build: PKP_RELEASE).
+# Code outside the runtime library tests the compile definition NXRT_TESTTOOLS (0 or 1).
+option(NXRT_TESTTOOLS "Build the test tooling (src/testtools)" ON)
 
 file(GLOB_RECURSE NXRT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/gfx/")   # the graphics shell is its own library (cmake/gfx.cmake)
+if(NXRT_TESTTOOLS)
+    list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/core/tt_off[.]cpp$")
+else()
+    list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/testtools/")
+endif()
 add_library(nxrt STATIC ${NXRT_SOURCES})
 target_include_directories(nxrt PUBLIC include)
+target_compile_definitions(nxrt PUBLIC NXRT_TESTTOOLS=$<BOOL:${NXRT_TESTTOOLS}>)
 if(EXISTS "${NXRT_RECOMP_INCLUDE}")
     target_include_directories(nxrt PUBLIC "${NXRT_RECOMP_INCLUDE}")
 endif()

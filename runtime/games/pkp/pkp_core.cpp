@@ -53,7 +53,9 @@ const game::Info& core_info() {
     static const game::Info info = [] {
         game::Info g = data_info();
         g.title_defaults = &title_defaults;
+#if NXRT_TESTTOOLS
         g.probes = &tt::pkp::pkp_game_probes();
+#endif
         g.poll_sleeps = kPollSleeps;
         g.poll_sleep_count = sizeof kPollSleeps / sizeof kPollSleeps[0];
         return g;

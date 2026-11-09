@@ -5,13 +5,19 @@
 #   nxrt_game_pkp        + play-mode hooks (links nxrt_gfx; only with NXRT_BUILD_GFX). pkp.exe links this one.
 set(_pkp "${CMAKE_CURRENT_SOURCE_DIR}")
 set(_rt "${PROJECT_SOURCE_DIR}")
-set(NXRT_GAME_PKP_INCLUDES "${_rt}/include" "${_rt}/games" "${_pkp}" "${_rt}/src/gfx" "${_rt}/src/gfx/play" "${_rt}/src/testtools")
+set(NXRT_GAME_PKP_INCLUDES "${_rt}/include" "${_rt}/games" "${_pkp}" "${_rt}/src/gfx" "${_rt}/src/gfx/play")
+if(NXRT_TESTTOOLS)
+    list(APPEND NXRT_GAME_PKP_INCLUDES "${_rt}/src/testtools")   # pkp_tt_probe.cpp
+endif()
 
 add_library(nxrt_game_pkp_data STATIC "${_pkp}/pkp_data.cpp")
 target_include_directories(nxrt_game_pkp_data PUBLIC ${NXRT_GAME_PKP_INCLUDES})
 target_compile_features(nxrt_game_pkp_data PUBLIC cxx_std_20)
 
-add_library(nxrt_game_pkp_core STATIC "${_pkp}/pkp_core.cpp" "${_pkp}/pkp_tt_probe.cpp")
+add_library(nxrt_game_pkp_core STATIC "${_pkp}/pkp_core.cpp")
+if(NXRT_TESTTOOLS)
+    target_sources(nxrt_game_pkp_core PRIVATE "${_pkp}/pkp_tt_probe.cpp")   # the test tooling's probes (registered in pkp_core.cpp)
+endif()
 target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 
 if(TARGET nxrt_gfx)

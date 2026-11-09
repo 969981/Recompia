@@ -43,6 +43,9 @@ endif()
 set(PKP_RUNTIME_DIR "${PKP_ROOT}/runtime" CACHE PATH "runtime source tree compiled into pkp.exe")
 set(NXRT_GAMES "pkp" CACHE STRING "" FORCE)            # runtime/games/pkp only
 set(NXRT_RECOMP_INCLUDE "${PKP_ROOT}/recomp/include" CACHE PATH "")
+if(PKP_RELEASE)
+    set(NXRT_TESTTOOLS OFF)                             # release packages carry no test tooling (runtime option, default on)
+endif()
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
 foreach(m main sdk subsdk0 rtld)

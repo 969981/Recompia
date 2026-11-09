@@ -655,7 +655,8 @@ zone = host
 
 ## Test tooling keys (`[test]`, work area S5)
 
-All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT_TEST_<KEY>`.
+All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT_TEST_<KEY>`. Developer builds only: release packages
+(`PKP_RELEASE=ON`) are built without the test tooling (CMake option `NXRT_TESTTOOLS=OFF`) and ignore these keys.
 
 | Key | Default | Meaning |
 |---|---|---|
