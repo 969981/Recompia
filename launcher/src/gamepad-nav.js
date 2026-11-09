@@ -2,7 +2,7 @@
 // controls, A presses the focused one, B goes back (closes a question, or returns Home), LB and RB switch pages, the right stick scrolls.
 // A slider moves with left and right, a drop-down with up and down. It works beside touch and the mouse: the focus ring only shows while a
 // pad is being used. The logic that needs no page is in gamepad-nav-model.js.
-import { BTN, readPad, newlyDown, repeatStep, pickNext, cycle } from './gamepad-nav-model.js';
+import { BTN, readPad, newlyDown, repeatStep, pickNext, cycle, keyDir, arrowRoute } from './gamepad-nav-model.js';
 
 const FOCUSABLE = 'button, a[href], input, select, textarea, [tabindex]';
 let started = false;
@@ -92,17 +92,46 @@ function switchPage(step) {
   if (to >= 0 && to !== at) items[to].click();
 }
 
+// What has the focus, for arrowRoute: a field with a caret, a drop-down, a slider, a radio, any other control, or nothing.
+function focusKind() {
+  const el = document.activeElement;
+  if (!el || el === document.body || el.id === 'view') return 'none';
+  if (el.isContentEditable || el.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="password"], input[type="email"], input[type="url"]')) return 'text';
+  if (el.matches('select')) return 'select';
+  if (el.matches('input[type="range"]')) return 'range';
+  if (el.matches('input[type="radio"]')) return 'radio';
+  return 'other';
+}
+
 export function startGamepadNav() {
-  if (started || !navigator.getGamepads) return;
+  if (started) return;
   started = true;
   let prev = null;
   const rep = { dir: null, since: 0, last: 0 };
-  let active = false;   // a pad has been used since the mouse or a finger last was
+  let active = false;   // a pad or the arrow keys have been used since the mouse or a finger last was
 
   const padOn = () => { if (!active) { active = true; document.body.classList.add('pad-nav'); } };
   const padOff = () => { if (active) { active = false; document.body.classList.remove('pad-nav'); } };
   addEventListener('pointerdown', padOff, true);
   addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) padOff(); }, true);
+
+  // The arrow keys move the focus the same way (and Escape goes back), for a handheld whose d-pad arrives as keys. Enter and Space already press.
+  addEventListener('keydown', (e) => {
+    if (e.defaultPrevented) return;
+    const dir = keyDir(e);
+    if (dir) {
+      const view = document.getElementById('view');
+      const canScroll = !!view && view.scrollHeight > view.clientHeight + 1;
+      if (arrowRoute(focusKind(), dir, canScroll) !== 'nav') return;
+      e.preventDefault();
+      padOn();
+      move(dir);
+    } else if (e.key === 'Escape' && !document.querySelector('dialog[open]') && focusKind() !== 'text') {
+      back();   // a question closes on Escape by itself; elsewhere it is B
+    }
+  });
+
+  if (!navigator.getGamepads) return;
 
   const tick = (now) => {
     requestAnimationFrame(tick);
