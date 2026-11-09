@@ -42,6 +42,7 @@
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nvn_format_guard.h"
+#include "nvn_fnv.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_spirv_patch.h"
 #include "extras/hdr_nvn.h"
@@ -421,8 +422,8 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
         NXLOG_E(kTag, "vkCreateShaderModule failed (%d) for %s", static_cast<int>(r), what);
         return m;
     }
-    uint64_t id = 1469598103934665603ull ^ (static_cast<uint64_t>(code->size()) * 0x9e3779b97f4a7c15ull);
-    for (uint32_t w : *code) id = (id ^ w) * 1099511628211ull;
+    uint64_t id = kFnvBasisShort ^ (static_cast<uint64_t>(code->size()) * 0x9e3779b97f4a7c15ull);
+    for (uint32_t w : *code) id = fnv_step(id, w);
     {
         std::lock_guard<std::mutex> lk(g_module_id_mu);
         g_module_ids[m] = id;
@@ -1024,8 +1025,8 @@ bool compute_build_bg(const ShaderInfo* cs, const ProgLayout& layout, bool prewa
 }  // namespace
 
 uint64_t compute_layout_key(const ProgLayout& layout) {
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&h](uint64_t v) { for (int i = 0; i < 8; ++i) h = (h ^ ((v >> (8 * i)) & 0xff)) * 1099511628211ull; };
+    uint64_t h = kFnvBasisShort;
+    auto mix = [&h](uint64_t v) { for (int i = 0; i < 8; ++i) h = fnv_step(h, (v >> (8 * i)) & 0xff); };
     for (const BindingDesc& d : layout.bindings) {
         mix(d.set);
         mix(d.binding);

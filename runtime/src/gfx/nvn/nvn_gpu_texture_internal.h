@@ -36,6 +36,7 @@
 #include "vk_gauges.h"
 #include "nvn_dcmp.h"
 #include "nvn_enums.h"
+#include "nvn_fnv.h"
 #include "nvn_format.h"
 #include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"

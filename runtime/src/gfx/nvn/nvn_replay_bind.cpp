@@ -95,8 +95,8 @@ static VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
     }
     const uint32_t used = compute ? fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute])
                                   : fill_driver_bank_graphics(bank, d.nvn_stage, ssbo, g_draw_base_instance);
-    uint64_t key = 1469598103934665603ull ^ used;
-    for (uint32_t i = 0; i < used; ++i) key = (key ^ bank[i]) * 1099511628211ull;
+    uint64_t key = kFnvBasisShort ^ used;
+    for (uint32_t i = 0; i < used; ++i) key = fnv_step(key, bank[i]);
     auto it = g_driver_banks.find(key);
     if (it == g_driver_banks.end()) {
         const VkDeviceSize align = std::max<VkDeviceSize>(device().properties().limits.minUniformBufferOffsetAlignment, 256);
@@ -144,8 +144,8 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
     binfo.reserve(nb);
     iinfo.reserve(nb);
     tinfo.reserve(nb);
-    uint64_t key = 1469598103934665603ull + set;
-    auto mix = [&](uint64_t v) { key = (key ^ v) * 1099511628211ull; };
+    uint64_t key = kFnvBasisShort + set;
+    auto mix = [&](uint64_t v) { key = fnv_step(key, v); };
     mix(reinterpret_cast<uint64_t>(pl.layout));
     for (const BindingDesc& d : pl.bindings) {
         if (d.set != set) continue;
@@ -475,8 +475,8 @@ void support_for_draw(const ProgLayout& pl, bool compute) {
         any = true;
     }
     if (!any) return;
-    uint64_t key = 1469598103934665603ull + static_cast<uint64_t>(frag_count);
-    for (float v : sc) { uint32_t u; std::memcpy(&u, &v, 4); key = (key ^ u) * 1099511628211ull; }
+    uint64_t key = kFnvBasisShort + static_cast<uint64_t>(frag_count);
+    for (float v : sc) { uint32_t u; std::memcpy(&u, &v, 4); key = fnv_step(key, u); }
     auto it = g_support_scaled.find(key);
     if (it != g_support_scaled.end()) { g_draw_support = it->second; return; }
     UploadAlloc u = F->upload(sizeof(SupportBuffer), 256);

@@ -131,10 +131,9 @@ static bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_v
 
 // ---- samplers -------------------------------------------------------------------------------------------------------------
 static uint64_t sampler_hash(const SamplerInfo& s) {
-    uint64_t h = 1469598103934665603ull;
+    uint64_t h = kFnvBasisShort;
     auto mix = [&h](uint64_t v) {
-        h ^= v;
-        h *= 1099511628211ull;
+        h = fnv_step(h, v);
         h ^= h >> 29;
     };
     auto bits = [](float f) {

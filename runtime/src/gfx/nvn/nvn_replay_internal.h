@@ -27,6 +27,7 @@
 #include "nvn_decoded.h"
 #include "nvn_driver_bank.h"
 #include "nvn_enums.h"
+#include "nvn_fnv.h"
 #include "nvn_format.h"
 #include "nvn_mask_clear.h"
 #include "nvn_gpu_internal.h"
