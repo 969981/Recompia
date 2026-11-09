@@ -61,6 +61,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+          node scripts/test-gamepad-nav.mjs
 
       - name: Check (Linux)
         working-directory: launcher/src-tauri

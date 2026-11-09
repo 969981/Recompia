@@ -22,6 +22,11 @@ h3 { font-size: var(--text-md); font-weight: var(--weight-semi); line-height: va
 
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Controller navigation (gamepad-nav.js) moves the focus with a pad: a thicker ring, only while a pad is the last thing used. */
+body.pad-nav :focus { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+body.pad-nav .toggle input:focus + .track, body.pad-nav .seg input:focus + span { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+body.pad-nav .toggle input:focus, body.pad-nav .seg input:focus, body.pad-nav .slider input:focus { outline: none; }
+body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(--color-focus); outline-offset: 3px; }
 
 .icon {
   width: var(--icon);

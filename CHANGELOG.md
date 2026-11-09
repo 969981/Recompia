@@ -34,6 +34,11 @@ of the game (version 2.0.1a): the download contains no game files.
   - Taps work the game's own menus, as before; but a tap in play no longer fires the mouse click action (use the tool), and touching the screen no longer switches the button prompts to the keyboard's keys
   - On by default when a touch screen is found (`touch: touch screen found, menu button on` in `pkp.log`); `[overlay] touch_button = off` turns it off, `on` forces it
   - The launcher on a touch screen: no double-tap zoom or tap delay
+- **The launcher works with a controller** (Steam Deck, ROG Ally and other handhelds, or any pad), beside touch and the mouse
+  - D-pad or left stick moves between controls, **A** presses, **B** goes back (closes a question, or returns Home), **LB / RB** switch pages, the right stick scrolls
+  - On a slider, left and right change it; on a drop-down, up and down change it
+  - A thicker focus ring shows only while a pad is the last thing you used; touching or clicking hides it
+  - Needs the browser engine of your system to report the pad (Windows and most Linux setups do; if yours does not, nothing changes)
 - Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
 
 ### What to test
