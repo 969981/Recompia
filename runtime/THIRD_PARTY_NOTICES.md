@@ -286,7 +286,7 @@ THE SOFTWARE.
 
 ## Ryujinx and ryubing (MIT)
 
-The service files below adapt code, tables or layouts from Ryujinx and its fork ryubing, both under the MIT licence (their headers name the source files): `src/services/acc.cpp`, `am.cpp`, `audio_out.cpp`, `hid.cpp`, `logfault.cpp`, `misc.cpp`, `network.cpp`, `pl.cpp`, `power.cpp`, `settings.cpp`, `time.cpp`, `timezone.cpp` and `vi_nv.cpp`. Licence text, from `refs/ryubing/LICENSE.txt`:
+The service files below adapt code, tables or layouts from Ryujinx and its fork ryubing, both under the MIT licence (their headers name the source files): `src/services/acc.cpp`, `am.cpp`, `audio_out.cpp`, `hid.cpp`, `hid_jc2_mouse.cpp`, `ldn_types.h`, `ldn_linkplay.h`, `ldn_linkplay.cpp`, `logfault.cpp`, `misc*.cpp` (`misc_internal.h`), `network*.cpp` (`network_internal.h`), `pl.cpp`, `power.cpp`, `settings.cpp`, `time.cpp`, `timezone.cpp`, `vi_nv.cpp`, `vi_display.cpp` and `vi_nvdrv.cpp`. The audio renderer in `src/services/audren/**` (135 files) is a file-by-file port of Ryujinx.Audio from ryubing (`src/Ryujinx.Audio/Renderer/**`, `Constants.cs`, `Integration`); each of its headers names the C# file it ports, and its files are covered by the same notice. Licence text, from `refs/ryubing/LICENSE.txt`:
 
 ```text
 MIT License
