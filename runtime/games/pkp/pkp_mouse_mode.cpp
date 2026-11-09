@@ -131,7 +131,8 @@ void play_frame(bool in_game, double, play::GameFrame*) {
         s.mm_diag_ns = mono_ns();
         s.mm_diag_logs++;
         int w = 0, h = 0;
-        const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a ? rd<uint64_t>(a + 0xf0) : 0, scr = b ? rd<uint64_t>(b + 0x18) : 0;
+        const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a && mem::is_mapped(a + 0xf0, 8) ? rd<uint64_t>(a + 0xf0) : 0,
+                       scr = b && mem::is_mapped(b + 0x18, 8) ? rd<uint64_t>(b + 0x18) : 0;   // the checks of mm_pointer_space
         if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
         NXLOG_I(kTag, "mouse mode: screen %dx%d, pointer cell %d,%d,%d (valid %u), swing pos %.0f,%.0f (valid %u), player %.0f,%.0f heading %.2f",
                 w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMouseHitValid),
