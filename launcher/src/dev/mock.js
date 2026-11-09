@@ -327,6 +327,8 @@ function handle(cmd, args) {
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';
     case 'pick_nup': return 'D:/Downloads/pokopia-2.0.1a.nup';
+    case 'pick_nsp': return 'D:/Downloads/Pokopia DLC [0400A3A01EE4D001].nsp';
+    case 'import_dlc': return ['0400A3A01EE4D001'];
     case 'validate_dump': return dumpReport(args.path);
     case 'save_dump':
       dumpDir = args.path;

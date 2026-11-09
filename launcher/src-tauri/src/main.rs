@@ -8,6 +8,7 @@ mod gamebuild;
 mod host;
 mod ini;
 mod lan;
+mod nsp;
 mod nup;
 mod play;
 mod profiles;
@@ -330,6 +331,13 @@ async fn pick_nup(app: AppHandle, start: Option<String>) -> Option<String> {
     dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
 }
 
+/// Asks for the DLC .nsp ("Add DLC"); None when the dialog is closed.
+#[tauri::command]
+async fn pick_nsp(app: AppHandle) -> Option<String> {
+    let dlg = app.dialog().file().set_title("Choose your Pokopia DLC .nsp").add_filter("NSP package", &["nsp"]);
+    dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
+}
+
 #[derive(Serialize, Clone)]
 struct NupProgress {
     done: u64,
@@ -370,6 +378,21 @@ async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: Str
     .await
     .map_err(|e| e.to_string())??;
     Ok(dump::fwd(&res))
+}
+
+/// Unpacks the add-on (DLC) in a decrypted .nsp into the folder `[fs] aoc_dir` names (`<game folder>/aoc` when pkp.ini names none,
+/// which is then written there) and returns the add-on ids. The game lists them at its next start.
+#[tauri::command]
+async fn import_dlc(app: AppHandle, state: State<'_, Arc<SetupState>>, path: String) -> Result<Vec<String>, String> {
+    if state.progress.lock().unwrap().state == "running" {
+        return Err("Setup is running. Pause it first.".into());
+    }
+    let game_dir = game_dir_of(&load_config(&app));
+    writecheck::check(&game_dir).map_err(|e| e.message())?;
+    let src = PathBuf::from(path.trim());
+    tauri::async_runtime::spawn_blocking(move || nsp::extract(&src, &settings::aoc_target(&game_dir)?))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Stops a running .nup unpack (the call to `import_nup` then returns an error).
@@ -1462,6 +1485,8 @@ fn main() {
             pick_folder,
             validate_dump,
             pick_nup,
+            pick_nsp,
+            import_dlc,
             import_nup,
             cancel_nup,
             save_dump,
