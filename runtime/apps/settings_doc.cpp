@@ -4,7 +4,8 @@
 // controls.ini: the play-mode settings table (src/gfx/play/play_config_table.h). The game ini: the keys of the game's own section, the
 // rows game::Info::settings_doc gives (none when it is null). The game is only registered (its pure-data library), never booted.
 // --markdown replaces the text between each pair of marker lines of the file (its line endings kept); --schema and --game-schema write the
-// launcher's JSON of each file. runtime/scripts/gen_settings_doc.ps1 builds and runs it.
+// launcher's JSON of each file. --check compares instead of writing and fails when a file would change. runtime/scripts/gen_settings_doc.ps1
+// builds and runs it.
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -35,6 +36,9 @@ constexpr Block kGameBlock = {
     "<!-- game ini keys: generated from the game module's settings table (game::Info::settings_doc) by scripts/gen_settings_doc.ps1, do not edit -->",
     "<!-- end of the generated game ini keys -->"};
 
+bool g_check = false;   // --check: report the files that would change, write nothing
+int g_stale = 0;
+
 bool read_file(const std::string& path, std::string* out) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
@@ -42,7 +46,24 @@ bool read_file(const std::string& path, std::string* out) {
     return true;
 }
 
+// The text without carriage returns: a checkout may have either line ending (git normalises them), only the content counts.
+std::string without_cr(const std::string& s) {
+    std::string r;
+    for (char c : s)
+        if (c != '\r') r += c;
+    return r;
+}
+
+// Writes the file, or with --check only compares it. False on a write error.
 bool put_file(const std::string& path, const std::string& text) {
+    if (g_check) {
+        std::string old;
+        if (!read_file(path, &old) || without_cr(old) != without_cr(text)) {
+            std::fprintf(stderr, "out of date: %s\n", path.c_str());
+            ++g_stale;
+        }
+        return true;
+    }
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << text;
     return static_cast<bool>(out);
@@ -81,8 +102,10 @@ int main(int argc, char** argv) {
     const std::string game_ini = *game.game_ini ? game.game_ini : "nxrt.ini";
 
     std::vector<std::string> args(argv + 1, argv + argc);
+    for (const std::string& a : args) g_check = g_check || a == "--check";
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& opt = args[i];
+        if (opt == "--check") continue;
         if (i + 1 >= args.size()) {
             std::fprintf(stderr, "%s needs a file\n", opt.c_str());
             return 1;
@@ -106,7 +129,7 @@ int main(int argc, char** argv) {
                 return 1;
             ok = put_file(path, text);
         } else {
-            std::fprintf(stderr, "usage: %s [--markdown CONFIG.md] [--schema controls_schema.json] [--game-schema <file>]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--check] [--markdown CONFIG.md] [--schema controls_schema.json] [--game-schema <file>]\n", argv[0]);
             return 1;
         }
         if (!ok) {
@@ -114,5 +137,5 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    return 0;
+    return g_stale ? 2 : 0;
 }
