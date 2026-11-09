@@ -1,4 +1,4 @@
-<!-- source-sha256: 2e5110b223e98324bbe0e31d4410aeb322c7207e165c2250c31e545f27062c43 -->
+<!-- source-sha256: f5d59a236e7f5005dbff615c3f27adff27573487a6699942417240900a76fa3d -->
 > Esta es una traducción automática del [README en inglés](../../README.md); puede contener errores. El README en inglés es la versión definitiva.
 
 <h1 align="center">
@@ -85,7 +85,7 @@
 
 ### Controles
 - **Cualquier mando:** Xbox, PlayStation, Switch Pro y otros, con vibración y controles de movimiento. Los botones siguen la disposición de Switch de forma predeterminada.
-- **Teclado y ratón.** El ratón también funciona en los menús: haz clic para elegir y desplázate para moverte.
+- **Teclado y ratón.** El ratón también funciona en los menús: haz clic para confirmar el elemento resaltado; desplázate o usa las teclas de flecha para mover el resaltado.
 - **Cambia cualquier botón** en la página **Controls** de F1.
 - **Modo ratón de Joy-Con 2** para colocar objetos: pulsa el botón central del ratón.
 - **Los iconos de los botones en pantalla corresponden al dispositivo que estás usando:** teclado, Xbox, PlayStation o Switch.

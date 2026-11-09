@@ -6,7 +6,30 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (this build adds hooks for the camera aim option, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
+**Update:** press **Update** in the launcher. No **Set up again** is needed if you are on 0.8.1 or 0.8.1-beta.10 or newer.
+
+### Launcher
+- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
+  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
+  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
+  - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
+
+### Game
+- In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
+
+### What to test
+- **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
+- **In-game Options:** with the game closed, add `options_menu = 1` below `[pkp]` in `pkp.ini` (next to `pkp.exe`), start the game, and open **Settings**: nine tabs, switched with L and R. Change a value on two tabs, choose **Save**, reopen Settings and check F1 shows the same values. To report a problem, use launcher **Settings > About > Report a problem** and attach `pkp.log` (**Show pkp.log**)
+
+## 0.8.1 (build L: Lynx)
+
+**Update:** press **Update**, then **Set up again** once when it asks (this release adds hooks for the camera aim option and for the new in-game Options, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
+
+### Highlights
+- The PC settings are now in the game's own Settings screen: nine tabs, switched **on** by default (see Game)
+- Added **Repair and reset** and **Choose a version** to Settings > About, and optional save backups with restore
+- Added a camera aim option and a switch for running jumps that keep your speed; both are **off** by default, turn them on in **Settings > Game > Gameplay**
+- Fixed doubled dialogue text above 1920x1080 (#267) and the story getting stuck above 60 fps (#297)
 
 ### Gameplay
 - Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
@@ -29,7 +52,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
 
 ### Game
-- Added the PC settings to the game's own Settings screen (off by default; set `[pkp] options_menu = 1` in `pkp.ini` to try it)
+- Added the PC settings to the game's own Settings screen (on by default; `[pkp] options_menu = 0` in `pkp.ini` brings back the original three tabs)
   - Before: the display, performance, graphics, picture, mouse, controller and sound settings were only on the F1 page and in the launcher
   - Now: Settings has nine tabs (Game, Camera and Sound, plus Display, Performance, Graphics, Picture, Mouse and Controller). L and R move through them, long lists and decimals are sliders, and one Save covers every tab. The values are the same ones F1 changes (`controls.ini`)
   - Still not: the FPS hotkey, quit key, keyboard bindings and pad remap stay on F1, and paths, setup and profiles stay in the launcher. English only; the six new tabs use the Game tab's icon for now
@@ -48,13 +71,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
-- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
-  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
-  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
-  - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
-- Testing builds have their own icon and a **Testing** tag in the launcher
-  - Before: a Testing launcher looked exactly like the Stable one, in the taskbar, on the desktop and in the window
-  - Now: the Testing build uses a different icon (a hammer on the R), and the sidebar shows it with a **Testing** tag whenever the update channel is Testing. Stable builds keep the current icon.
+- Changed the icon of the launcher program and its AppImage to an R on a green leaf shape
+  - Before: the program icon was a plain game controller on a dark square
+  - Now: the program icon (the file, the taskbar and the desktop) is the new R. Nothing inside the launcher window changes. Testing builds use their own icon (a hammer on the R)
 - Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
   - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
   - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
@@ -83,35 +102,6 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
   - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
-
-### What to test
-- **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
-- **The Testing icon:** open the launcher from the taskbar or desktop and look at the icon (a hammer on the R) and the sidebar (a **Testing** tag next to the logo). Report: anything that looks blurry, cut off, or that still shows the old icon
-- **In-game Options (off by default):** with the game closed, use **Set up again** in the launcher and let it finish. Open `pkp.ini` next to `pkp.exe` in a text editor. Find `[pkp]` and add `options_menu = 1` on its own line below it; if that line is already there, change its value to `1`. Save the file and start the game. Open the game's **Settings**: you should see nine tabs (Game, Camera, Sound, Display, Performance, Graphics, Picture, Mouse and Controller). Use **L** and **R** to visit them all. Change a value on two different tabs, choose **Save**, close and reopen Settings, then press **F1** and check that it shows the same values. If a row's description says **Applies after a restart**, close and start the game again before checking it. Finally, change the line back to `options_menu = 0` and restart: Settings should open normally with its original three tabs. To report a problem, open launcher **Settings > About > Report a problem**. Say which tab and row, the value you picked, what you expected and what happened; attach `pkp.log` (the **Show pkp.log** button there opens it). Report anything missing, cut off, not saved or not applied
-- **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
-- **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
-- **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)
-- **Choose a version:** on Testing, open Settings > About > Choose a version. Read the notes of a build. Install the newest one if there is one. Report: what the list showed, anything missing or wrong, and how the install went
-- **Going back one build** (only with a copy of your save folder): choose the build just before yours and read the question. Report: what the dialog said and whether the launcher restarted on the older build. Cancel is fine if you would rather not
-- **A long way back:** choose a much older release and read the warning. The button must stay off until you tick the box. Please cancel unless you have a spare install; report whether the warning was clear
-- **Mouse in menus:** open the pause menu and one more menu, move the mouse, click, scroll. A left click confirms the highlighted entry; the wheel and arrow keys move the highlight; the pointer does not pick. Report: what each did, and the lines in `pkp.log` that start with `play: menu pointer gate` and `menu:`
-- **Your version in the log:** start the game, quit, and open `pkp.log` (next to `pkp.exe`). The line starting `boot: pkp` should show your version, for example `0.8.1-beta.6`, not `$env:VERSION`. Report: what that line says
-- **Repair and reset** (Settings > About > Troubleshooting): try each choice, one at a time. Before you start, copy your save folder. After each one, check that your save, your profiles and the game still start. Then try **Undo last repair**. Report: which choice, what the list showed, anything that did not come back, and the exact words of any error
-- **Reset game settings, part of it** (Settings > About > Repair and reset): tick **Reset game settings** and look at the list that opens. Untick a group or two, press Review, and check that the list names only the groups you left ticked. Apply it, start the game, and check that the settings you unticked are still as you set them (for example your game clock offset) and the ones you left ticked are back to the default. Then **Undo last repair**. Report: which groups you ticked, what the review said, anything that changed that you unticked, and the exact words of any error
-- **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
-- **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
-- **The once-a-second hitch with a frame limit (#276):** the fix for it is switched off in this build (it froze the game in our tests), so the hitch is expected to still be there on handhelds. Do not turn `[nvn] readback_defer` on. Report only if the game freezes or hitches in a way that 0.8.0 did not
-- **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
-
-### Regressions and known problems
-- Save backups have been tried on simulated save folders and in the launcher's test mode, not yet through a long real play session. Restore replaces your save folder with the chosen copy (your current save is copied first)
-- Camera aim is new and has only been tried by a few people; it is off by default, so nothing changes for you unless you turn it on
-- Scripted events, dialogue and menus are held at 60 fps (a workaround for the story getting stuck above 60 fps); the exact timer that breaks is still not known
-- Going back to an older build has been tested with unit tests and in the launcher's test mode, not yet on a real install. The older launcher you land on may not have the newest pages
-- Repair and reset has so far been tried only in the launcher's test mode and in unit tests, not yet on a real install. Make a copy of your save first, and report anything odd
-- The launcher speed-up was measured on one NVIDIA PC under Linux. Other graphics cards, Steam Deck, Windows and X11 are not measured yet
-- After **Reset game settings**, a setting you had set by hand (for example `pool_mirror = off` for Proton tuning) goes back to the game's default unless you untick its group (that one is under Graphics and performance) in the list that opens. Use **Undo last repair** if the game runs worse
-- After **Clear caches** the first start builds the pipeline cache again and can stutter once
 
 ## 0.8.0 (build L: Lykoi)
 
