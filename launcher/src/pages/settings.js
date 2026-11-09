@@ -86,7 +86,6 @@ export async function render(el, ctx) {
       backupDetail: backupDetail(backups),
       importing,
       importResult,
-      dlssOffered: !!(dlss?.available || dlss?.present),
       dlssCanFetch: !!dlss?.available,
       dlssPresent: !!dlss?.present,
       dlssBusy: !!s.dlss,
