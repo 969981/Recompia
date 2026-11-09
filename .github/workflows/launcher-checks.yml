@@ -1,7 +1,7 @@
-# Checks the launcher on every pull request and push to main that touches launcher/, game-build/release_b/ or this workflow:
+# Checks the launcher on every pull request and push to main that touches launcher/, game-build/release_b/, recomp/ or this workflow:
 # the front end (npm ci + build), cargo check (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and a
 # Python syntax check of pkp_build.py. The release workflow builds the same code only on tags and manual runs; this catches
-# breakage in the pull request instead. No publish, no tests.
+# breakage in the pull request instead. A second job byte-compiles the recompiler (recomp/nxrecomp). No publish, no tests.
 name: Launcher checks
 
 on:
@@ -9,12 +9,14 @@ on:
     paths:
       - 'launcher/**'
       - 'game-build/release_b/**'
+      - 'recomp/**'
       - '.github/workflows/launcher-checks.yml'
   push:
     branches: [main]
     paths:
       - 'launcher/**'
       - 'game-build/release_b/**'
+      - 'recomp/**'
       - '.github/workflows/launcher-checks.yml'
 
 permissions:
@@ -77,3 +79,16 @@ jobs:
 
       - name: Build script (Python)
         run: python3 -m py_compile game-build/release_b/pkp_build.py
+
+  recomp:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Recompiler (Python syntax)
+        run: python -m compileall -q recomp/nxrecomp recomp/games
