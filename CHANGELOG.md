@@ -6,16 +6,42 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, and the longer camera aim reach, the title's Quit Game prompt and the inventory Sort button add new ones, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
+- Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
+  - Before: both were off until you turned them on in **Settings > Game > Gameplay** or in `pkp.ini`
+  - Now: both are on unless you turn them off: the switches in **Settings > Game > Gameplay**, or `[pkp] camera_aim = 0` / `jump_momentum = 0` in `pkp.ini`. If you already switched one off, it stays off
+  - Still not: the Link Play options (Interact everywhere, Story co-op) stay off by default, because every player in a session needs the same setting
 - Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
   - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
   - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
-  - Camera aim is still off by default
+- Camera aim reaches 2 blocks farther
+  - Before: with camera aim on, abilities, tools and placement only reached the cell next to your character, even when the camera looked at a block a few cells away
+  - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
+  - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
+
+- Fixed the **Joy-Con 2 mouse mode** key doing nothing in the game (#367)
+  - Before: the middle mouse button freed the mouse pointer, but the game never switched to its mouse mode: on a Switch 2 that mode only exists with two detached Joy-Cons, and the PC controller counts as a Pro Controller. Changing the key or its trigger did not help
+  - Now: the key turns on the game's own mouse mode, as when a Joy-Con 2 is laid on its side: the game shows its pointer, switches to Rock Smash and you point and click (left button) to break and place blocks where the pointer is. Press the key again to go back to the camera. The pointer lines up with the picture at any render size, and camera aim steps aside while the mouse mode is on
+  - The key can now be changed in the game's own **Settings > Mouse > Mouse Mode Key**: move the row, then press any keyboard key, mouse button or wheel notch (Esc cancels). The F1 **Controls** page (`mouse_mode`) still works too
+  - Needs **Set up again** once (new game hooks)
 
 ### Game
-- In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
+- Added a **Quit Game** prompt to the title screen, next to Settings (#319)
+  - Before: the title had only "(-) Settings"; the game could be closed with the window's close button, the quit key or the pad's quit combination, but nothing on the title said so
+  - Now: a second prompt in the game's own style, left of Settings, reads Quit Game in the game's language with the (+) button's icon (Esc on the keyboard). Pressing (+) or Esc on the title, or clicking the prompt, opens the "Close the game?" box: Quit closes the game, Cancel goes back to the title. On by default; `[pkp] title_quit = 0` in `pkp.ini` takes it away
+  - Still not: on a title that already shows a (+) Credits prompt there is no Quit Game (that title is left as it is); the Close the game? box is the PC port's own, not drawn in the game's style
+- Added a **Sort** button to the bag and containers (#323): a **(Y) Sort** button in the screen's own button bar (keyboard **F**), which the mouse can click too
+  - Before: items stayed where they were put; tidying meant moving them one by one with X
+  - Now: Sort tidies the panel under the cursor: part-full stacks of the same item are put together (up to the game's stack size of 99), then the items are ordered by kind, then by item, with empty slots at the end, and the screen shows the new order at once. Nothing is lost. The button sits where the bar showed "Hold to Sort" (holding X still rearranges). In a container screen Y is the game's own Add Stack / Remove All, so there the button sorts with **R** (keyboard Space), shown on the button. On by default; `[pkp] inventory_sort = 0` in `pkp.ini` takes the button away. `[pkp] inventory_autosort = 1` also sorts the bag each time it opens (off by default, because it reorders your bag without a press)
+  - Still not: no separate button per panel (one button sorts the panel under the cursor), no other sort orders, and no sorting during Link Play
+
+### Performance
+- Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
+  - Before: the deferred path still waited for completion when landing a previous read, and unfinished work needed separate buffer ownership
+  - Now: the selected-texture experiment polls completion, retains pending work and uses private readback buffers; disabled by default
+  - Still not: a confirmed general fix; accepting older texture data needs guest correctness review and longer testing
 
 ### Controllers
 - The new Steam Controller (and other Valve pads) is now recognised as its own kind of controller

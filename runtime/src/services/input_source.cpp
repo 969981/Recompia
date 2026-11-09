@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The input source the hid service reads (include/nxrt/input_source.h), and the vibration sink the hid service forwards to.
+#include <atomic>
 #include <mutex>
 
 #include "nxrt/input_source.h"
@@ -15,7 +16,11 @@ std::shared_ptr<InputSource> g_src;
 std::mutex g_vib_mu;
 VibrationSink g_vib_fn = nullptr;
 void* g_vib_user = nullptr;
+std::atomic<uint64_t> g_sampled{0};
 }  // namespace
+
+uint64_t sampled_buttons() { return g_sampled.load(std::memory_order_relaxed); }
+void set_sampled_buttons(uint64_t buttons) { g_sampled.store(buttons, std::memory_order_relaxed); }
 
 void set_input_source(std::shared_ptr<InputSource> src) {
     std::lock_guard<std::mutex> lk(g_mu);
