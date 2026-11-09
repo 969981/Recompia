@@ -104,10 +104,7 @@ static void apply_bind_program(const P_BindProgram& p) {
         for (int st = 0; st < 6; ++st) ks[st] = {p.program->src_code[st], p.program->src_control[st], p.program->code_hash[st]};
         key_check_bind(reinterpret_cast<uintptr_t>(p.program) ^ (static_cast<uintptr_t>(p.program->serial) << 48), ks);
     }
-    if (g_trace && (p.stages & (1u << kCompute))) {
-        g_cs_missing = (p.program && !p.program->stage[kCompute]) ? std::string(p.program->missing) : std::string();
-        if (!g_cs_missing.empty()) TRACE("bind program: compute block(s) %s not in the shader cache", g_cs_missing.c_str());
-    }
+    if (g_trace) trace_bind_program(p);
 }
 
 // [nvn] epoch_exact: SetRenderTargets that sets exactly the render target state already set (count, every colour and the depth texture,
@@ -618,40 +615,7 @@ void replay_begin_submit(Frame& f) {
     F = &f;
     { RpScope rp_(kRpTexPoll); ft::SplitScope sp_(ft::kSplSetup); tex_poll_cpu_writes(); }   // per call: see setup_coalesce_on (nvn_gpu_texture.cpp)
     if (extras::LowLatency* ll = extras::lowlat()) ll->submit_begin();     // RENDERSUBMIT_START of the frame (S14)
-    if (g_trace_frame == -2) {
-        // [nvn] trace_frame = "6050" or "6050,9300": every listed presented frame is traced (the first one is the main one)
-        const std::string list = nxrt::config_get_str("nvn", "trace_frame", "");
-        g_trace_frame = -1;
-        size_t i = 0;
-        while (i < list.size()) {
-            size_t j = list.find(',', i);
-            if (j == std::string::npos) j = list.size();
-            const long long v = std::atoll(list.substr(i, j - i).c_str());
-            if (g_trace_frame < 0) g_trace_frame = v; else g_trace_extra.push_back(v);
-            i = j + 1;
-        }
-    }
-    if (!g_trigger_read) {
-        g_trigger_read = true;
-        g_trigger_fs = nxrt::config_get_str("nvn", "trace_after_fs", "");
-    }
-    if (!g_trigger_fs.empty() && g_trigger_seen && !g_trigger_done && static_cast<int64_t>(counters().presents.load()) > g_trigger_present) {
-        g_trigger_done = true;
-        g_trace_frame = static_cast<int64_t>(counters().presents.load());
-    }
-    {   // [nvn] trace_sec = N (NXRT_NVN_TRACE_SEC): trace the first frame presented N seconds after the first draw (frame numbers differ between runs)
-        static const double trace_sec = static_cast<double>(nxrt::config_get_int("nvn", "trace_sec", 0));
-        static const auto t0 = std::chrono::steady_clock::now();
-        static bool trace_sec_done = false;
-        if (trace_sec > 0 && !trace_sec_done && std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >= trace_sec) {
-            trace_sec_done = true;
-            g_trace_frame = static_cast<int64_t>(counters().presents.load());
-        }
-    }
-    if (g_trace_req.exchange(false)) g_trace_frame = static_cast<int64_t>(counters().presents.load()) + 1;   // armed from a script (@shot nvntrace_*)
-    g_trace = g_trace_frame >= 0 && static_cast<int64_t>(counters().presents.load()) == g_trace_frame;
-    for (int64_t e : g_trace_extra) g_trace |= static_cast<int64_t>(counters().presents.load()) == e;
-    if (g_trace) { g_trace_n = 0; NXLOG_I("nvn.trace", "---- frame %lld ----", static_cast<long long>(counters().presents.load())); }
+    trace_begin_submit();
     {   // S38: device-local pool copies and tracked barriers. [nvn] gpuperf_ab = N: both are off in even windows of N presents and on in odd
         // ones (the paired-window measurement of S29); without it they follow their own settings.
         static const int64_t ab = config_get_int("nvn", "gpuperf_ab", 0);
@@ -673,7 +637,6 @@ void replay_begin_submit(Frame& f) {
     }
     S.window_origin = window_origin_mode();
     S.depth_mode = depth_mode();
-    g_draw_idx = 0;
     P = Pass();
     g_set_cache.clear();
     g_bound_pipeline = VK_NULL_HANDLE;

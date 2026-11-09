@@ -327,23 +327,23 @@ extern uint64_t g_prims_generated, g_prims_xfb;
 constexpr uint64_t kReportUnknown = ~0ull;
 extern std::unordered_map<uint64_t, uint64_t> g_reports;
 extern nxrt::GaugeCounter g_gauge_pipeline_binds;
-extern bool g_trace;
-struct TraceSnap { int index; int draw; std::string name; std::string desc; };
-extern std::vector<TraceSnap> g_trace_snaps;
-extern std::vector<Texture*> g_trace_sampled;
-extern std::vector<Ref<Texture>> g_trace_targets;
-extern int64_t g_trace_frame;
-extern std::vector<int64_t> g_trace_extra;
-extern std::string g_trigger_fs;
-extern int g_draw_idx;
-bool skip_fs_draw(const std::string& hash);
-extern bool g_trigger_read, g_trigger_seen, g_trigger_done;
-extern int64_t g_trigger_present;
-extern int g_trace_n;
-extern std::atomic<bool> g_trace_req;
+// ---- frame trace and debug aids (nvn_replay_trace.cpp) ---------------------------------------------------------------------------
+// Their state is private to the trace module. The draw and dispatch paths test one flag per site (both false in play) and call in.
+extern bool g_trace;         // this submission is traced ([nvn] trace_frame, trace_after_fs, trace_sec, a script request)
+extern bool g_trace_hooks;   // a per-draw debug aid is armed for this submission: [nvn] skip_fs_file, or a trace_after_fs trigger still waiting
 #define TRACE(...) do { if (g_trace) NXLOG_I("nvn.trace", __VA_ARGS__); } while (0)
+void trace_begin_submit();                           // sets g_trace and g_trace_hooks for the submission
+bool trace_skip_draw();                              // g_trace_hooks: counts the draw; true: [nvn] skip_fs_file drops it
+void trace_note_fs();                                // g_trace_hooks: the trace_after_fs trigger sees the draw's fragment shader
+// The rest want g_trace.
+void trace_dump_raw(const ProgLayout& pl);           // [nvn] trace_dump_tex: level 0 of the sampled textures as the GPU holds it (ends the pass)
+void trace_draw(int mode, bool indexed, const ProgLayout& pl);
+void trace_indexed(const P_DrawElements& p);
+void trace_bind_program(const P_BindProgram& p);
+void trace_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect, const ShaderInfo* cs);
+void trace_dispatch_bindings(const ProgLayout& pl);
+void trace_snap_after_draw();                        // [nvn] trace_snap
 const char* tex_desc(const Texture* t, char* buf, size_t n);
-int storage_nonzero_pct(const Texture* t);
 // The warnings log_once writes once per run: one flag each.
 enum LogOnce : uint32_t {
     kOnceCallDepth, kOnceMissingHandle, kOnceShadowColour, kOnceColorFeedback, kOnceStorageImageDummy, kOnceOutTexel, kOnceTexelBufferDummy,
@@ -595,10 +595,8 @@ bool su_nearest(const Texture* t);
 bool tsr_jitter(uint32_t* words, size_t n_words);
 void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
-bool trigger_time_ok();
 void temporal_gbuffer_note();
 void scene_upscale_for_draw(const ProgLayout& pl);
-void trace_snap_after_draw();
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {
@@ -613,7 +611,6 @@ struct QuadArgs {
 extern QuadArgs g_qa;
 void do_draw_indirect(const P_DrawIndirect& p);
 void do_draw_xfb(const P_DrawXfb& p);
-extern std::string g_cs_missing;
 void note_copy_for_cpu(uint64_t src, uint64_t dst, uint64_t size);
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect);
 void note_report(uint64_t address, uint64_t counter);

@@ -345,8 +345,6 @@ static void shadows_after_dispatch() {
     }
 }
 
-std::string g_cs_missing;   // trace: the untranslated block(s) of the bound compute program ("cs -" dispatches)
-
 // ---- [nvn] async_compute: which dispatches may be skipped while their pipeline builds -----------------------------------------------
 // Only one whose writes the CPU cannot see: every storage buffer it binds lies in one pool with NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS (not
 // virtual: its physical backing may be CPU-visible) and in no 64 KiB granule a buffer copy ever read into a CPU-visible pool, and no storage
@@ -388,8 +386,7 @@ static bool dispatch_cpu_blind(const ProgLayout& pl) {
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
-    TRACE("dispatch %u %u %u indirect %llx cs %s%s%s", x, y, z, static_cast<unsigned long long>(indirect), cs ? cs->hash.c_str() : "-",
-          !cs && !g_cs_missing.empty() ? " missing " : "", !cs ? g_cs_missing.c_str() : "");
+    if (g_trace) trace_dispatch(x, y, z, indirect, cs);
     if (!cs) return;
     const ShaderInfo* stages[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, cs};
     const ProgLayout* pl = prog_layout(stages);
@@ -398,33 +395,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     rs_.arm(pl);
     prepare_textures(*pl);
     end_pass();
-    if (g_trace) {   // the compute bindings: buffers (source, slot, address), texel buffers and textures, and the first words of each uniform block
-        for (const BindingDesc& d : pl->bindings) {
-            const DescriptorBinding& b = d.shader->refl.bindings[d.index];
-            if (d.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
-                const int slot = b.nvn.source == NvnSource::StorageBuffer ? (b.nvn.index >= 0 ? b.nvn.index : storage_slot_for(d.nvn_stage, b.nvn.c0_offset)) : b.nvn.index;
-                const bool ssbo = b.nvn.source == NvnSource::StorageBuffer;
-                const GState::Bind* bd = (slot >= 0 && slot < 16) ? (ssbo ? &S.ssbo[d.nvn_stage][slot] : &S.ubo[d.nvn_stage][slot]) : nullptr;
-                std::string words;
-                if (bd && bd->addr && resolve_buffer(bd->addr, 4).ok) {
-                    const uint32_t* w = reinterpret_cast<const uint32_t*>(host_ptr(bd->addr));
-                    for (uint32_t i = 0; i < 128 && i * 4 < bd->size; ++i) { char t[16]; std::snprintf(t, sizeof t, " %08x", w[i]); words += t; }
-                }
-                TRACE("    cs b%u %s src %d slot %d c0 %d addr %llx/%llu:%s", d.binding, b.name.c_str(), static_cast<int>(b.nvn.source), slot, b.nvn.c0_offset,
-                      bd ? static_cast<unsigned long long>(bd->addr) : 0ull, bd ? static_cast<unsigned long long>(bd->size) : 0ull, words.c_str());
-            } else {
-                const bool img = d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-                const TexResolved r = img ? resolve_image(d) : resolve_texture(d);
-                char c[96];
-                std::string words;
-                if (r.tex && r.tex->mem) {
-                    const uint32_t* w = reinterpret_cast<const uint32_t*>(r.tex->mem);
-                    for (uint32_t i = 0; i < 64; ++i) { char t[16]; std::snprintf(t, sizeof t, " %08x", w[i]); words += t; }
-                }
-                TRACE("    cs b%u %s type %d -> %s @%p:%s", d.binding, b.name.c_str(), static_cast<int>(d.type), tex_desc(r.tex, c, sizeof c), r.tex ? static_cast<void*>(r.tex->mem) : nullptr, words.c_str());
-            }
-        }
-    }
+    if (g_trace) trace_dispatch_bindings(*pl);
     // [nvn] async_compute in play (the loading gate): a dispatch whose pipeline is not built and whose writes the CPU cannot see is skipped
     // while its pipeline goes first in line on the async threads (pop-in for a frame or two). Any other is built here as before and logged.
     if (async_compute_on() && gpl_gate_open() && !compute_pipeline_done(cs, *pl) && dispatch_cpu_blind(*pl) && compute_queue_front(cs, *pl)) {

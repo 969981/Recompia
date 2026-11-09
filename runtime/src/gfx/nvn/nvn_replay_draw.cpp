@@ -28,8 +28,6 @@ uint8_t g_key_dummy_binding = 0;      // 1 + the binding that feeds the defaults
 bool g_want_depth_ro = false;         // some texture this draw samples is the current depth attachment
 bool g_vb_bound_in_cb = false;        // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
 
-// [nvn] trace_frame = N (NXRT_NVN_TRACE_FRAME): every draw, clear, copy and dispatch of the frame that is presented as number N is logged
-// at Info ("trace ..." lines): programs, render targets, sampled textures, blend and depth state. For finding out what a frame does.
 bool g_xfb_active = false;
 static bool g_pipe_xfb = false;             // the bound pipeline is a stream-out variant
 bool g_xfb_began = false;            // vkCmdBeginTransformFeedbackEXT is in effect in the open pass
@@ -390,9 +388,8 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once(kOnceDrawNoVs, "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
-    ++g_draw_idx;
     if (key_check_on()) key_check_draw(counters().presents.load(std::memory_order_relaxed));
-    if (S.stage[kFragment] && skip_fs_draw(S.stage[kFragment]->hash)) return false;
+    if (g_trace_hooks && trace_skip_draw()) return false;
     // Tessellation: Vulkan runs it only with both shaders and a patch list. NVN also allows an evaluation shader alone (fixed levels from
     // SetInner/OuterTessellationLevels): those draws get a generated pass-through control shader (passthrough_tcs_for).
     if (S.stage[kTessCtl] || S.stage[kTessEval] || mode == NVN_DRAW_PRIMITIVE_PATCHES) {
@@ -413,10 +410,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         const ShaderInfo* stages[6] = {vs, S.stage[kFragment], S.stage[kGeometry], tcs_now(), S.stage[kTessEval], nullptr};
         g_pl = prog_layout(stages);
     }
-    if (!g_trigger_fs.empty() && !g_trigger_done && trigger_time_ok() && S.stage[kFragment] && S.stage[kFragment]->hash.compare(0, g_trigger_fs.size(), g_trigger_fs) == 0) {
-        g_trigger_seen = true;
-        g_trigger_present = static_cast<int64_t>(counters().presents.load());
-    }
+    if (g_trace_hooks) trace_note_fs();
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
     if (pl->c0_graphics && g_draw_base_instance != g_bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
@@ -429,20 +423,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         attach_targets(false);
         g_want_depth_ro = samples_depth_target(*pl);
         prepare_textures(*pl);
-        if (g_trace) {   // [nvn] trace_dump_tex: also the block-compressed level 0 as the GPU holds it, to compare with the prepared data
-            static const std::string dump_dir = nxrt::config_get_str("nvn", "trace_dump_tex", "");
-            static std::unordered_map<uint32_t, bool> raw_done;
-            if (!dump_dir.empty()) {
-                for (const BindingDesc& d : pl->bindings) {
-                    if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
-                    const TexResolved r = resolve_texture(d);
-                    if (!r.tex || !raw_done.emplace(r.tex->id, true).second) continue;
-                    end_pass();
-                    const int ri = snapshot_record_raw(r.tex, *F);
-                    if (ri >= 0) g_trace_snaps.push_back({ri, g_trace_n, dump_dir + "/gpu_t" + std::to_string(r.tex->id) + ".bin", "raw"});
-                }
-            }
-        }
+        if (g_trace) trace_dump_raw(*pl);
         scene_upscale_for_draw(*pl);
     }
     if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
@@ -467,103 +448,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (!g_pipe) return false;
     // a draw inside a stream-out section that has no stream-out variant and nothing to render to has no effect
     if (g_xfb_active && !g_pipe_xfb && !P.ncolor && !S.depth_tex) return false;
-    if (g_trace) {
-        char a[96], b[96], c[96];
-        std::string line;
-        auto remember = [](Texture* t) {
-            if (!t) return;
-            for (const Ref<Texture>& r : g_trace_targets) if (r.get() == t) return;
-            g_trace_targets.push_back(Ref<Texture>::share(t));
-        };
-        for (uint32_t i = 0; i < P.ncolor; ++i) remember(S.color_tex[i].get());
-        remember(S.depth_tex.get());
-        for (uint32_t i = 0; i < P.ncolor; ++i) { line += tex_desc(S.color_tex[i].get(), a, sizeof a); line += " | "; }
-        TRACE("draw #%d vs %s fs %s gs %s mode %d idx %d | rt %s ds %s%s | blend %u mask %x depth t%d w%d f%d cull %d | ubo0 %llx/%llu",
-              ++g_trace_n, S.stage[kVertex] ? S.stage[kVertex]->hash.c_str() : "-", S.stage[kFragment] ? S.stage[kFragment]->hash.c_str() : "-",
-              S.stage[kGeometry] ? S.stage[kGeometry]->hash.c_str() : "-", mode, indexed ? 1 : 0, line.c_str(), tex_desc(S.depth_tex.get(), b, sizeof b),
-              P.depth_ro ? " (ro)" : "", S.color.blend_enable_mask, S.chmask.mask[0], S.ds.depth_test ? 1 : 0, S.ds.depth_write ? 1 : 0, S.ds.depth_func,
-              S.poly.cull_face, static_cast<unsigned long long>(S.ubo[kVertex][0].addr), static_cast<unsigned long long>(S.ubo[kVertex][0].size));
-        TRACE("    poly mode %d offset %x factor %g units %g clamp %g | depth mode %d origin %d clamp %d", S.poly.polygon_mode, S.poly.offset_enables, S.bias_factor, S.bias_units,
-              S.bias_clamp, S.depth_mode, S.window_origin, S.depth_clamp ? 1 : 0);
-        if (S.color.blend_enable_mask)
-            TRACE("    blend rt0 rgb %d,%d,%d a %d,%d,%d (nvn enums src,dst,eq)", S.blend[0].src_rgb, S.blend[0].dst_rgb, S.blend[0].eq_rgb, S.blend[0].src_a, S.blend[0].dst_a, S.blend[0].eq_a);
-        // [nvn] trace_ubo_bytes = N (NXRT_NVN_TRACE_UBO_BYTES, default 768, at most 65536): how many leading bytes of each uniform block the trace prints
-        static const uint64_t ubo_bytes = static_cast<uint64_t>(std::clamp<int64_t>(nxrt::config_get_int("nvn", "trace_ubo_bytes", 768), 16, 65536));
-        for (int stg = kVertex; stg <= kFragment; ++stg)
-        for (uint32_t slot = 0; slot < 16; ++slot) {    // the first words of every uniform block bound to the vertex and the fragment stage
-            const GState::Bind& ub = S.ubo[stg][slot];
-            if (!ub.addr) continue;
-            BufRef ur = resolve_buffer(ub.addr, std::min<uint64_t>(ub.size, ubo_bytes));
-            std::string words;
-            if (ur.ok) {
-                const uint32_t* w = reinterpret_cast<const uint32_t*>(ub.addr);
-                for (uint32_t i = 0; i * 4 < ubo_bytes && i * 4 < ub.size; ++i) { char t[16]; std::snprintf(t, sizeof t, " %08x", w[i]); words += t; }
-            }
-            TRACE("    %s ubo%u %llx/%llu%s:%s", stg == kVertex ? "vs" : "fs", slot, static_cast<unsigned long long>(ub.addr), static_cast<unsigned long long>(ub.size), ur.ok ? "" : " (outside every pool)", words.c_str());
-        }
-        TRACE("    viewport %u: %g %g %g %g depth %g..%g scissor %u: %d %d %d %d", S.nvp, S.vp[0][0], S.vp[0][1], S.vp[0][2], S.vp[0][3], S.dr[0][0], S.dr[0][1], S.nsc,
-              S.sc[0][0], S.sc[0][1], S.sc[0][2], S.sc[0][3]);
-        for (uint32_t i = 0; i < P.ncolor; ++i)
-            if (Texture* ct = S.color_tex[i].get()) {
-                const FormatInfo* vf = (S.color_has_view[i] && S.color_view[i].has_format) ? format_info(S.color_view[i].format) : nullptr;
-                TRACE("    rt%u t%u mem %p storage %llu cpu-dirty %d view level %u layer %u layers %u format %s", i, ct->id, static_cast<void*>(ct->mem),
-                      static_cast<unsigned long long>(ct->storage_size), ct->cpu_dirty.load() ? 1 : 0, S.color_level[i], S.color_layer[i], S.color_layers[i],
-                      vf && vf->name ? vf->name : "-");
-            }
-        g_trace_sampled.clear();
-        for (const BindingDesc& d : pl->bindings) {   // texel buffers (light lists and other BUFFER-target textures): the view the draw gets
-            if (d.type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER && d.type != VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) continue;
-            const bool storage = d.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-            const TexResolved r = storage ? resolve_image(d) : resolve_texture(d);
-            if (!r.tex) { TRACE("    texel set%u b%u -> (no texture)", d.set, d.binding); continue; }
-            uint64_t addr = 0, bytes = 0;
-            const VkBufferView v = tex_buffer_view(r.tex, r.has_view ? &r.view : nullptr, 0, VK_FORMAT_UNDEFINED, storage, &addr, &bytes);
-            std::string words;
-            if (r.tex->mem) {
-                const uint32_t* w = reinterpret_cast<const uint32_t*>(r.tex->mem);
-                const size_t nw = std::min<size_t>(32, static_cast<size_t>(r.tex->b.width) * (r.tex->fmt ? r.tex->fmt->bytes : 4) / 4);
-                char wb[12];
-                for (size_t i = 0; i < nw; ++i) { std::snprintf(wb, sizeof wb, " %08x", w[i]); words += wb; }
-                const size_t all = static_cast<size_t>(r.tex->b.width) * (r.tex->fmt ? r.tex->fmt->bytes : 4) / 4;
-                size_t nz = 0;
-                for (size_t i = 0; i < all; ++i) nz += w[i] != 0;
-                std::snprintf(wb, sizeof wb, " |nz %zu", nz);
-                words = std::string(wb) + "/" + std::to_string(all) + words;
-            }
-            TRACE("    texel set%u b%u -> t%u %s width %d @%p view %s addr %llx bytes %llu view-format %s:%s", d.set, d.binding, r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width,
-                  static_cast<void*>(r.tex->mem), v ? "ok" : "NONE (dummy)", static_cast<unsigned long long>(addr), static_cast<unsigned long long>(bytes),
-                  (r.has_view && r.view.has_format) ? "set" : "-", words.c_str());
-        }
-        for (const BindingDesc& d : pl->bindings) {
-            if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER && d.type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) continue;
-            const TexResolved r = d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ? resolve_image(d) : resolve_texture(d);
-            if (r.tex) g_trace_sampled.push_back(r.tex);
-            if (r.tex) {
-                static const std::string dump_dir = nxrt::config_get_str("nvn", "trace_dump_tex", "");
-                if (!dump_dir.empty()) trace_dump_prepared(r.tex, dump_dir);
-            }
-            char smp[200] = "", vw[160] = "";
-            if (r.has_sampler)
-                std::snprintf(smp, sizeof smp, " | sampler min %d mag %d wrap %d,%d,%d lod %g..%g bias %g aniso %g cmp %d func %d", r.smp.min_filter, r.smp.mag_filter, r.smp.wrap_s, r.smp.wrap_t,
-                              r.smp.wrap_r, r.smp.lod_min, r.smp.lod_max, r.smp.lod_bias, r.smp.max_anisotropy, r.smp.compare_mode, r.smp.compare_func);
-            if (r.has_view) {
-                // the view's own format by name (a view naming the sRGB partner of its texture's format, or the reverse, changes the decode)
-                const FormatInfo* vf = r.view.has_format ? format_info(r.view.format) : nullptr;
-                char vfn[48] = "";
-                if (r.view.has_format) std::snprintf(vfn, sizeof vfn, " format %s", vf && vf->name ? vf->name : "?");
-                std::snprintf(vw, sizeof vw, " | view levels %d+%d layers %d+%d%s", r.view.has_levels ? r.view.min_level : -1, r.view.has_levels ? r.view.num_levels : -1,
-                              r.view.has_layers ? r.view.min_layer : -1, r.view.has_layers ? r.view.num_layers : -1, vfn);
-            }
-            if (r.tex) {
-                const int* sw = (r.has_view && r.view.has_swizzle) ? r.view.swizzle : r.tex->b.swizzle;
-                const size_t n = std::strlen(vw);
-                std::snprintf(vw + n, sizeof vw - n, " swz %d%d%d%d", sw[0], sw[1], sw[2], sw[3]);
-            }
-            TRACE("    %s set%u b%u %s -> %s @%p%s mem %d%%%s%s%s", d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ? "image" : "tex", d.set, d.binding,
-                  d.shader->refl.bindings[d.index].name.c_str(), tex_desc(r.tex, c, sizeof c), r.tex ? static_cast<void*>(r.tex->mem) : nullptr, r.has_sampler ? "" : " (no sampler)", storage_nonzero_pct(r.tex),
-                  r.tex && r.tex->cpu_dirty.load() ? " cpu-dirty" : "", smp, vw);
-        }
-    }
+    if (g_trace) trace_draw(mode, indexed, *pl);
     if (g_xfb_active) {
         static std::unordered_map<std::string, bool> seen;
         if (seen.emplace(S.stage[kVertex]->hash, true).second)
@@ -759,7 +644,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
-    trace_snap_after_draw();
+    if (g_trace) trace_snap_after_draw();
 }
 
 void do_draw_elements(const P_DrawElements& p) {
@@ -768,61 +653,7 @@ void do_draw_elements(const P_DrawElements& p) {
     g_draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
-    if (g_trace) {   // the indices and the first attributes of the first vertices
-        const uint32_t isz0 = index_size_bytes(static_cast<int>(p.type));
-        const uint8_t* ix = host_ptr(p.index_address);
-        TRACE("    indexed: count %u type %d instances %u base_vertex %d base_instance %u index address %llx", p.count, static_cast<int>(p.type), p.instance_count, static_cast<int>(p.base_vertex),
-              p.base_instance, static_cast<unsigned long long>(p.index_address));
-        for (uint32_t i = 0; ix && i < std::min<uint32_t>(p.count, 12); ++i) {
-            uint32_t v = 0;
-            if (isz0 == 1) v = ix[i]; else if (isz0 == 2) { uint16_t t; std::memcpy(&t, ix + i * 2, 2); v = t; } else std::memcpy(&v, ix + i * 4, 4);
-            std::string a;
-            for (uint32_t k = 0; k < S.attr_count && k < 3; ++k) {
-                const VertexAttribInfo& at = S.attr[k];
-                const auto& st = S.stream[at.stream];
-                const GState::Bind& vb = S.vtx[at.stream];
-                if (!vb.addr) continue;
-                const float* f = reinterpret_cast<const float*>(vb.addr + static_cast<uint64_t>(static_cast<int64_t>(v) + p.base_vertex) * st.stride + at.relative_offset);
-                char t[96]; std::snprintf(t, sizeof t, " a%u(fmt %d)=(%g %g %g)", k, at.format, f[0], f[1], f[2]);
-                a += t;
-            }
-            TRACE("      index %u:%s", v, a.c_str());
-        }
-    }
-    if (g_trace) {   // bounds of the first attributes over all indices of the draw (half and float formats decoded), to see what part of a texture a mesh maps
-        const uint32_t isz1 = index_size_bytes(static_cast<int>(p.type));
-        const uint8_t* ix = host_ptr(p.index_address);
-        if (ix && p.count) {
-            std::string a;
-            for (uint32_t k = 0; k < S.attr_count && k < 3; ++k) {
-                const VertexAttribInfo& at = S.attr[k];
-                const auto& st = S.stream[at.stream];
-                const GState::Bind& vb = S.vtx[at.stream];
-                if (!vb.addr) continue;
-                float lo[4] = {1e30f, 1e30f, 1e30f, 1e30f}, hi[4] = {-1e30f, -1e30f, -1e30f, -1e30f};
-                int nc = at.format == 41 ? 4 : at.format == 34 ? 3 : at.format == 17 ? 2 : at.format == 22 ? 2 : 0;
-                for (uint32_t i = 0; nc && i < p.count && i < 20000; ++i) {
-                    uint32_t v = 0;
-                    if (isz1 == 1) v = ix[i]; else if (isz1 == 2) { uint16_t t; std::memcpy(&t, ix + i * 2, 2); v = t; } else std::memcpy(&v, ix + i * 4, 4);
-                    const uint8_t* ve = reinterpret_cast<const uint8_t*>(vb.addr + static_cast<uint64_t>(static_cast<int64_t>(v) + p.base_vertex) * st.stride + at.relative_offset);
-                    for (int c = 0; c < nc; ++c) {
-                        float f;
-                        if (at.format == 41 || at.format == 17) {
-                            uint16_t h; std::memcpy(&h, ve + c * 2, 2);
-                            const int e = (h >> 10) & 31, m = h & 1023; const float sg = (h & 0x8000) ? -1.f : 1.f;
-                            f = e == 0 ? sg * m * (1.f / 16777216.f) : e == 31 ? sg * 65504.f : sg * (1.f + m / 1024.f) * std::ldexp(1.f, e - 15);
-                        } else std::memcpy(&f, ve + c * 4, 4);
-                        lo[c] = std::min(lo[c], f); hi[c] = std::max(hi[c], f);
-                    }
-                }
-                char t[200];
-                if (nc) std::snprintf(t, sizeof t, " a%u[%g..%g, %g..%g, %g..%g, %g..%g]", k, lo[0], hi[0], lo[1], hi[1], nc > 2 ? lo[2] : 0.f, nc > 2 ? hi[2] : 0.f, nc > 3 ? lo[3] : 0.f, nc > 3 ? hi[3] : 0.f);
-                else std::snprintf(t, sizeof t, " a%u(fmt %d: not decoded)", k, at.format);
-                a += t;
-            }
-            TRACE("    bounds:%s", a.c_str());
-        }
-    }
+    if (g_trace) trace_indexed(p);
     const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     const uint8_t* src = host_ptr(p.index_address);
@@ -849,7 +680,7 @@ void do_draw_elements(const P_DrawElements& p) {
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
     g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
-    trace_snap_after_draw();
+    if (g_trace) trace_snap_after_draw();
 }
 
 // The bytes at a GPU address as the CPU sees them, when they are current: inside a pool, and not a range a submission that has not completed
@@ -1040,7 +871,7 @@ static void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint
     } else {
         counters().draws_skipped.fetch_add(1);
     }
-    trace_snap_after_draw();
+    if (g_trace) trace_snap_after_draw();
 }
 
 void do_draw_indirect(const P_DrawIndirect& p) {
@@ -1066,7 +897,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
             NXLOG_I("nvn.replay", "indirect quads drawn with GPU-made arguments: %llu so far", static_cast<unsigned long long>(n));
         counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
         g_pass_draws++;
-        trace_snap_after_draw();
+        if (g_trace) trace_snap_after_draw();
         return;
     }
     const uint32_t isz = indexed ? index_size_bytes(static_cast<int>(p.type)) : 0;
@@ -1099,7 +930,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     }
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
-    trace_snap_after_draw();
+    if (g_trace) trace_snap_after_draw();
 }
 
 // DrawTransformFeedback(mode, control): draws what the feedback section begun with this control buffer wrote, as many vertices as it wrote
@@ -1130,7 +961,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb_counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     g_pass_draws++;
-    trace_snap_after_draw();
+    if (g_trace) trace_snap_after_draw();
 }
 
 }  // namespace replay
