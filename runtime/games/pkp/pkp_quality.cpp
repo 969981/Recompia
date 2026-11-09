@@ -145,6 +145,9 @@ int hook_parts_lod(::Ctx* c, uint64_t at_fn, void*) {
     static std::mutex mu;
     static std::vector<std::pair<uint64_t, Orig>> objs;
     static int logged = 0;
+    // lod_distance 1 and no probe (the defaults; both are set once, before these hooks are added): nothing below writes or logs, so the
+    // object need not be tracked (the scan of up to 8192 entries under the lock is skipped)
+    if (st().lod_scale == 1.0f && !st().probe) return 0;
     const uint64_t o = c->x[0];
     if (!o || !mem::is_mapped(o, kLodD1 + 4)) return 0;
     State& s = st();
