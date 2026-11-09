@@ -269,3 +269,10 @@ inline 0x7100ec69b4
 #   set's "Hold to Sort" entry becomes "Sort"); with the two shared sites above
 entryhook 0x7100feee78
 entryhook 0x7100ec54a0
+#   Crafting search (pkp_craft.cpp, [pkp] craft_search): the crafting screen's per-frame virtual (x0 = the screen, UI class 0xe3): Y or a click
+#   on the Search key guide asks for a word on the game's keyboard and refills the recipe grid; its open virtual (x0 = the screen: the search
+#   ends when the screen opens); in the grid fill 0x7100ef0b80, after the recipe ids come from 0x7100e634e0 (u16 ids at [sp + 8], count at
+#   [sp + 0x10], w21 tab, w20 station kind): the ids whose result item name does not hold the word are dropped
+entryhook 0x7100eec660
+entryhook 0x7100eeae14
+inline 0x7100ef0c38
