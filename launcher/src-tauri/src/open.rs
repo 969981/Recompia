@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Commands that open a link or a file of the game folder in the system's default program.
+
+use tauri::AppHandle;
+
+use crate::config::load_config;
+use crate::paths::game_dir_of;
+use crate::play;
+
+/// Opens a release page in the default browser.
+#[tauri::command]
+pub fn open_release_url(url: String) -> Result<(), String> {
+    if !openable_link(&url) {
+        return Err("That link cannot be opened from here.".into());
+    }
+    play::open_url(&url)
+}
+
+/// The links the launcher opens in the browser: GitHub (releases, issues) and the project's Discord invite. No spaces, quotes or `&`.
+pub fn openable_link(url: &str) -> bool {
+    (url.starts_with("https://github.com/") || url.starts_with("https://discord.gg/")) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&')
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::openable_link;
+
+    #[test]
+    fn only_github_and_the_discord_invite_open() {
+        assert!(openable_link("https://github.com/featureJosh/Recompia/releases/tag/v0.8.0"));
+        assert!(openable_link("https://discord.gg/gN5g4MtWHr"));
+        for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/ab cd", "https://discord.gg/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
+            assert!(!openable_link(bad), "{bad:?}");
+        }
+    }
+}
+
+#[tauri::command]
+pub fn open_game_file(app: AppHandle, name: String) -> Result<(), String> {
+    if !play::REPORT_FILES.contains(&name.as_str()) {
+        return Err("That file cannot be opened from here.".into());
+    }
+    let path = game_dir_of(&load_config(&app)).join(&name);
+    if !path.is_file() {
+        return Err(format!("{} does not exist.", name));
+    }
+    play::open_with_shell(&path)
+}
+
+#[tauri::command]
+pub fn open_game_dir(app: AppHandle) -> Result<(), String> {
+    play::open_with_shell(&game_dir_of(&load_config(&app)))
+}

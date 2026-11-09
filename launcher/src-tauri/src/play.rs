@@ -66,7 +66,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 
     let app2 = app.clone();
     let dir = game_dir.to_path_buf();
-    let tools = crate::exe_dir().join("tools");
+    let tools = crate::paths::exe_dir().join("tools");
     let first = if crate::shaders::needs_warm_up(game_dir) {
         "Collecting the shaders the game builds while it runs (once, about a minute)..."
     } else {
@@ -141,7 +141,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 /// How Play starts pkp.exe: in its folder, through Proton on Linux (host.rs). Every path (exefs, romfs, shader cache) comes
 /// from pkp.ini next to it.
 fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>) -> Result<std::process::Command, String> {
-    crate::host::sync_runtime_files(&crate::exe_dir(), dir)?;
+    crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;
     let mut cmd = crate::host::windows_program(exe)?;
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
     if let Some(clock) = clock {
