@@ -270,12 +270,7 @@ const GameVocabulary* game_vocabulary() {
     const GameDefaults* d = game_defaults();
     return d ? d->vocabulary : nullptr;
 }
-const char* key_alt_yaw() { return key_or(&GameVocabulary::key_alt_yaw, "alt_yaw"); }
-const char* key_alt_pitch() { return key_or(&GameVocabulary::key_alt_pitch, "alt_pitch"); }
 const char* key_wheel_cycles() { return key_or(&GameVocabulary::key_wheel_cycles, "wheel_cycles"); }
-const char* key_alt_orbit() { return key_or(&GameVocabulary::key_alt_orbit, "alt_orbit"); }
-const char* key_alt_camera() { return key_or(&GameVocabulary::key_alt_camera, "alt_camera"); }
-const char* key_alt_sens() { return key_or(&GameVocabulary::key_alt_sens, "alt_sensitivity"); }
 
 const ActInfo& act_info(Act a) { return acts()[static_cast<int>(a)]; }
 

@@ -42,6 +42,8 @@ static bool retired_key(Sec sec, const std::string& k) {
         {Sec::Tweaks, "glow_color"}, {Sec::Tweaks, "suit_glow"}, {Sec::Tweaks, "ball_glow"}, {Sec::Tweaks, "gun_glow"},
         {Sec::Tweaks, "suit_color"}, {Sec::Tweaks, "gun_color"}, {Sec::Tweaks, "skip_intro"}, {Sec::Tweaks, "skip_boot_logos"},
         {Sec::Tweaks, "fast_menus"}, {Sec::Tweaks, "menu_speed"},
+        {Sec::Mouse, "alt_camera"}, {Sec::Mouse, "alt_sensitivity"}, {Sec::Mouse, "alt_yaw"}, {Sec::Mouse, "alt_pitch"}, {Sec::Mouse, "menu_touch"},
+        {Sec::Pad, "alt_orbit"},
     };
     for (const Retired& r : kRetired)
         if (r.sec == sec && k == r.key) return true;
@@ -150,16 +152,6 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
         case Sec::Mouse:
             if (k == "yaw") return set_num(&s->mouse.yaw_rad);
             if (k == "pitch") return set_num(&s->mouse.pitch_rad);
-            // the ball camera's speed: 0.1 to 20 on the Source scale (the F1 slider's range), in radians per count for the older keys
-            if (k == key_alt_yaw()) return set_real(rad_per_count(0.1), rad_per_count(20.0), &s->mouse.alt_yaw_rad);
-            if (k == key_alt_pitch()) return set_real(rad_per_count(0.1), rad_per_count(20.0), &s->mouse.alt_pitch_rad);
-            if (k == key_alt_camera()) return set_bool(&s->mouse.alt_camera);
-            if (k == key_alt_sens()) {   // Source scale, both directions
-                double x = 0;
-                if (!set_real(0.1, 20.0, &x)) return false;
-                s->mouse.alt_yaw_rad = s->mouse.alt_pitch_rad = rad_per_count(x);
-                return true;
-            }
             if (k == "yaw_source" || k == "pitch_source") {   // Source scale, converted to radians per count
                 double x = 0;
                 if (!set_num(&x)) return false;
@@ -169,7 +161,6 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "invert_y") return set_bool(&s->mouse.invert_y);
             if (k == "invert_x") return set_bool(&s->mouse.invert_x);
             if (k == "menu_cursor") return set_bool(&s->mouse.menu_cursor);
-            if (k == "menu_touch") return true;   // legacy key, dead since it never did anything: accepted and ignored
             if (k == key_wheel_cycles()) return set_bool(&s->mouse.wheel_cycles);
             break;
         case Sec::Tweaks:
@@ -191,7 +182,6 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "gyro_scale") return set_num(&s->pad.gyro_scale);
             if (k == "rumble") return set_bool(&s->pad.rumble);
             if (k == "rumble_scale") return set_num(&s->pad.rumble_scale);
-            if (k == key_alt_orbit()) return set_real(0.0, 6.0, &s->pad.alt_orbit);
             break;
         case Sec::Timing:
             if (k == "tap_ms") return set_int(1, 5000, &s->timing.tap_ms);

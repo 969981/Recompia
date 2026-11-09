@@ -21,9 +21,6 @@ std::string format_settings(const Settings& s) {
     o += "\n[mouse]\n";
     kv("yaw", num(s.mouse.yaw_rad));
     kv("pitch", num(s.mouse.pitch_rad));
-    kv(key_alt_camera(), flag(s.mouse.alt_camera));
-    kv(key_alt_sens(), num(source_sens(s.mouse.alt_yaw_rad)));
-    if (s.mouse.alt_pitch_rad != s.mouse.alt_yaw_rad) kv(key_alt_pitch(), num(s.mouse.alt_pitch_rad));   // a vertical of its own, after the pair
     kv("invert_y", flag(s.mouse.invert_y));
     kv("invert_x", flag(s.mouse.invert_x));
     kv("menu_cursor", flag(s.mouse.menu_cursor));
@@ -45,7 +42,6 @@ std::string format_settings(const Settings& s) {
     kv("gyro_scale", num(s.pad.gyro_scale));
     kv("rumble", flag(s.pad.rumble));
     kv("rumble_scale", num(s.pad.rumble_scale));
-    kv(key_alt_orbit(), num(s.pad.alt_orbit));
 
     o += "\n[padmap]\n";
     for (int i = 0; i < kPadSrcCount; ++i) {

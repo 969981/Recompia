@@ -425,12 +425,6 @@ Checked in a real game run with `tools/test/keys_check.py` (warp to `tallon_cany
 
 `[pad] look_sens`, default `1`, range `0.25` to `3`: multiplies the right stick's deflection in play. Below 1, the top turn speed is lower. Above 1, it is reached sooner. Like `invert_y`, it applies in play only.
 
-`[pad] ball_orbit`, default `2`, range `0` to `6`: how fast, in radians per second, the right stick turns the morph ball camera around the ball at full deflection. `0` turns the stick off and leaves the mouse on. `[mouse] ball_camera = 0` turns both off.
-
-`[mouse] ball_camera`, default `1`: in the morph ball, the mouse and the right stick turn the camera around the ball. Moving the mouse left or right puts the camera on another side of the ball, and it stays there; the ball then rolls in the direction you see. Moving the mouse up or down raises or lowers the camera, between just above the floor and almost overhead. The vertical part goes back to normal when you leave the ball. Rooms with a fixed or scripted camera keep it. `0` gives you the game's own camera, which the mouse does not move. Details in `docs/S48.md`.
-
-`[mouse] ball_sensitivity`, default `2`, range `0.1` to `20`: how fast the mouse turns the morph ball camera, on the same Source engine scale as the settings page (2 is the same speed as the default aim). It sets both directions. Older files with `morph_yaw` and `morph_pitch` (radians per count) still load. A vertical speed of its own can be kept by putting `morph_pitch = <radians per count>` after `ball_sensitivity`; the game writes it that way when the two differ.
-
 ## Window modes and the picture (`controls.ini`, `[display]`)
 
 `window_mode` is `windowed`, `borderless` or `exclusive`. Borderless covers the display at its desktop mode. Exclusive asks Windows for the desktop mode. If the display refuses (a remote or locked session, some drivers), the game logs "window mode 'exclusive' was refused" and uses borderless instead. The setting in the file stays as it was. Alt+Enter and the F1 page switch modes while playing.

@@ -110,9 +110,6 @@ inline double rad_per_count(double source) { return source * kSourceRadPerCount;
 struct MouseSettings {
     double yaw_rad = 0.000767945;   // radians per count, horizontal
     double pitch_rad = 0.000767945;   // radians per count, vertical (separate)
-    double alt_yaw_rad = 0.000767945;     // the alternate body's camera (mpr: the morph ball camera): its own sensitivity, radians per count
-    double alt_pitch_rad = 0.000767945;
-    bool alt_camera = true;                        // the mouse and the right stick turn the alternate body's camera (mpr: the morph ball camera)
     bool invert_y = false;                         // false: mouse up looks up
     bool invert_x = false;
     bool menu_cursor = true;                       // in menus the mouse is a pointer: cursor, hover, click, right click, wheel
@@ -156,7 +153,6 @@ struct PadSettings {
     double gyro_scale = 1.0;
     bool rumble = true;
     double rumble_scale = 1.0;
-    double alt_orbit = 2.0;       // rad/s at full right-stick deflection, 0 = off (0..6). The alternate body's camera only (mpr: morph ball).
 };
 struct TimingSettings {
     int tap_ms = 200;              // a press shorter than this is a tap
@@ -334,34 +330,20 @@ struct GameVocabulary {
     const char* const* ctx_names = nullptr;          // kCtxCount names in enum order
     const GameActLabel* labels = nullptr;            // the launcher's Keyboard rows, in display order
     unsigned label_count = 0;
-    // settings-file keys and launcher labels of the alternate-body and cycle settings (nullptr: the generic key)
-    const char* key_alt_yaw = nullptr;               // [mouse] (mpr: "morph_yaw"; generic "alt_yaw")
-    const char* key_alt_pitch = nullptr;             // [mouse] (mpr: "morph_pitch"; generic "alt_pitch")
+    // settings-file key and launcher label of the wheel setting (nullptr: the generic key)
     const char* key_wheel_cycles = nullptr;          // [mouse] (mpr: "wheel_beams"; generic "wheel_cycles")
-    const char* key_alt_orbit = nullptr;             // [pad]   (mpr: "ball_orbit"; generic "alt_orbit")
-    const char* key_alt_camera = nullptr;            // [mouse] on/off (mpr: "ball_camera"; generic "alt_camera")
-    const char* key_alt_sens = nullptr;              // [mouse] one sensitivity for both directions, Source scale (mpr: "ball_sensitivity"; generic "alt_sensitivity")
-    const char* label_alt_camera = nullptr;          // launcher slider (mpr: "Morph ball camera")
     const char* label_wheel_cycles = nullptr;        // launcher check box (mpr: "Mouse wheel changes the beam")
-    const char* label_alt_camera_on = nullptr;       // launcher check box (mpr: "Mouse and right stick turn the morph ball camera")
 };
 const GameVocabulary* game_vocabulary();             // the registered game's, or nullptr
-// The settings-file keys of the alternate-body and cycle settings: the game's, else the generic ones.
-const char* key_alt_yaw();
-const char* key_alt_pitch();
+// The settings-file key of the wheel setting: the game's, else the generic one.
 const char* key_wheel_cycles();
-const char* key_alt_orbit();
-const char* key_alt_camera();
-const char* key_alt_sens();
 
 // ---- the settings file ---------------------------------------------------------------------------------------------------------
 // Plain ini, '#' or ';' starts a comment. Sections and keys are case-insensitive, whitespace around names and values is ignored.
 //   [meta]     defaults_rev = <n>   (written by the game; the factory-defaults revision of the file, a file without it counts as 0)
 //   [mouse]    yaw = 0.000768   pitch = 0.000768   invert_y = 0   invert_x = 0   menu_cursor = 1   wheel_beams = 1     (radians per count)
 //              yaw_source / pitch_source = 2.0 are accepted as well (Source scale); when both forms appear the last one wins
-//              alt_camera = 1 (the alternate body's camera follows the mouse and the right stick), alt_sensitivity = 2.0 (its sensitivity, Source
-//              scale, both directions; alt_yaw / alt_pitch in radians per count set one direction each)
-//   [pad]      label_abxy (0 = Switch layout, the default; 1 = Xbox layout, by label) deadzone stick_max right_stick_max trigger_threshold gyro gyro_scale rumble rumble_scale alt_orbit
+//   [pad]      label_abxy (0 = Switch layout, the default; 1 = Xbox layout, by label) deadzone stick_max right_stick_max trigger_threshold gyro gyro_scale rumble rumble_scale
 //   [timing]   tap_ms hold_ms double_ms pulse_ms
 //   [display]  window_mode vsync fps_limit (number, 0 = unlimited, auto = refresh rate; fps_cap is read too) width height keep_aspect render_scale render_width render_height aspect fov_offset
 //              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm astc_quality (fast high uncompressed)
@@ -383,7 +365,7 @@ const char* key_alt_sens();
 //   [switch]   <action> = <output>      e.g.  fire = ZR    beam_1 = X+UP    (missing actions keep the default)
 //   [bindings.<ctx>]   <input> = <action> [trigger [ms]]     e.g.   Mouse1 = fire    Left Ctrl = morph hold 250    Space = jump toggle
 //                      ctx is a context name (mpr: all gameplay morph map menu scan). The same input may appear several times in a section.
-//   The action, context and [mouse]/[pad] alternate-body key names in this description are Metroid Prime Remastered's (GameVocabulary).
+//   The action and context names in this description are Metroid Prime Remastered's (GameVocabulary).
 // Unknown sections/keys are ignored with a warning in *warnings (not an error); a malformed value of a known key is an error.
 // parse_settings starts from default_settings() and applies the text on top. If the text has any [bindings.*] section, the default
 // bindings are dropped first (the file is then the whole truth); a file without bindings sections keeps the default bindings.
