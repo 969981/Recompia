@@ -50,20 +50,20 @@ FORMAT = 2          # bump when the build layout or the stamp changes: older bui
 # the lifter as game-build/scripts/make-release.ps1 ships it: paths under RECOMP, the same in the zip (tools/build/recomp/...)
 # and in the repo (recomp/...)
 LIFTER = ['nxrecomp', 'include/nxrecomp', 'games/pkp/CMakeLists.txt', 'games/pkp/config.py']
-SITES = 'games/pkp/main.sites'
 # what the link takes from sdk/ besides the lifted objects and pkp_rt.lib (stamped on its own, as 'runtime')
 SDK_FILES = ['pkp_stub.cpp', 'pkp_rt_api.h', 'pkp.rc', 'pkp.manifest']
 
-# name, NSO file, guest base, NxModule.index, translation units (as recomp/games/pkp/CMakeLists.txt)
-MODULES = [
-    ('main', 'main', 0x7100000000, 0, 230),
-    ('sdk', 'sdk', 0x7500000000, 1, 45),
-    ('subsdk0', 'subsdk0', 0x7600000000, 2, 4),
-    ('rtld', 'rtld', 0x7700000000, 3, 1),
-]
-# recomp/cmake/NxRecomp.cmake flags for the lifted code, in clang (not clang-cl) syntax
-CXXFLAGS = ['-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-std=c++20', '-O1', '-w', '-fno-exceptions', '-fno-rtti',
-            '-fno-strict-aliasing', '-ffp-contract=off', '-fno-threadsafe-statics']
+# the module table and the compile flags come from the bundled lifter, the same tables the developer build (CMake) reads:
+# recomp/games/pkp/config.py (modules) and recomp/nxrecomp/compile_flags.py (ZIG_MINGW)
+sys.path.insert(0, RECOMP)
+from nxrecomp import compile_flags              # noqa: E402
+from nxrecomp.config import load_game           # noqa: E402
+GAME = load_game('pkp')
+# name, NSO file, guest base, NxModule.index, translation units
+MODULES = [(m.name, m.source, m.base, i, m.shards) for i, m in enumerate(GAME.modules)]
+# site lists per module, as paths under RECOMP (main's main.sites)
+SITES = {m.name: 'games/pkp/' + m.sites for m in GAME.modules if m.sites}
+CXXFLAGS = compile_flags.ZIG_MINGW
 COMPILER = [ZIG, 'c++']                 # the compile command before the flags (tests put a fake one here)
 CACHE_MB = 3072                         # default size cap of <game>/build/objcache
 CREATE_NO_WINDOW = 0x08000000
@@ -118,7 +118,7 @@ def tree_hash(root, rels):
 
 def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
-    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, [SITES]), 'sdk': tree_hash(SDK, SDK_FILES),
+    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
             'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES]}
 
 
@@ -258,7 +258,6 @@ class Runner:
 
 def lift(runner, exefs, gen, jobs):
     """One lifter process per module (the lifter itself runs `jobs` worker processes)."""
-    sites = os.path.join(RECOMP, 'games', 'pkp', 'main.sites')
     for k, (name, nso, base, index, shards) in enumerate(MODULES):
         out = os.path.join(gen, name)
         marker = os.path.join(out, '.lifted')
@@ -270,8 +269,8 @@ def lift(runner, exefs, gen, jobs):
         os.makedirs(out)
         args = ['lift', os.path.join(exefs, nso), out, '--name', name, '--base', hex(base), '--shards', str(shards),
                 '--jobs', str(jobs), '--game', 'pkp', '--index', str(index)]
-        if name == 'main':
-            args += ['--sites', sites]
+        if name in SITES:
+            args += ['--sites', os.path.join(RECOMP, *SITES[name].split('/'))]
         cmd = [sys.executable, '-I', os.path.abspath(__file__), '--lift-one', json.dumps(args)]
         rc, tail = runner.run(cmd, cwd=RECOMP)
         if rc != 0:
@@ -550,7 +549,6 @@ def main():
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.lift_one:                       # child process: one lifter run (keeps the lifter's own pool out of this process)
-        sys.path.insert(0, RECOMP)
         from nxrecomp.__main__ import main as nx_main
         return nx_main(json.loads(a.lift_one)) or 0
     if a.check:

@@ -4,9 +4,11 @@
   lift   <input> <outdir> [--game NAME] [--kind nso|nx_elf|static_elf] [--base 0x..] [--name N] [--jobs J] [--shards S]
          [--patches FILE] [--spin-yield]   lift every function of one module
   cover  <input> [--game NAME] ...   per-instruction-word translation coverage of .text
+  build-info [--game NAME]   one JSON line: the game's module table and the compile flags of the lifted code (for CMake)
   funcs  -> python -m nxrecomp.funcs
 """
 import argparse
+import json
 import sys
 
 
@@ -19,9 +21,20 @@ def spec_from(a):
             'spin_yield': getattr(a, 'spin_yield', False) or None}
 
 
+def build_info(game):
+    """The module table of the game config and the compile flags (compile_flags.py), as one JSON-ready dict."""
+    from . import compile_flags as cf
+    from .config import load_game
+    mods = [{'name': m.name, 'file': m.source or m.name, 'base': '0x%x' % m.base, 'index': i, 'shards': m.shards,
+             'sites': m.sites or ''} for i, m in enumerate(load_game(game).modules)]
+    return {'modules': mods, 'clang_cl_opt': cf.CLANG_CL_OPT, 'clang_cl': cf.CLANG_CL, 'clang': cf.CLANG}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='nxrecomp')
     sub = ap.add_subparsers(dest='cmd', required=True)
+    p = sub.add_parser('build-info')
+    p.add_argument('--game', default='generic')
     for name in ('lift', 'cover'):
         p = sub.add_parser(name)
         p.add_argument('input')
@@ -38,6 +51,9 @@ def main(argv=None):
         p.add_argument('--index', type=int, help='module index (NxModule.index, import ids); default: position in the game config')
         p.add_argument('--sites', help='site list: patches, inline callouts, hooks (see sites.load_sites)')
     a = ap.parse_args(argv)
+    if a.cmd == 'build-info':
+        print(json.dumps(build_info(a.game)))
+        return 0
     spec = spec_from(a)
     from . import cover, driver
     if a.cmd == 'lift':

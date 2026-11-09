@@ -18,19 +18,77 @@
 # expects the runtime to provide the functions ctx.h declares as runtime-provided. Public include directories: recomp/include
 # (nxrecomp/ctx.h) and the generated folder (funcs.h).
 #
-# Flags: clang-cl, C++20, no exceptions/RTTI, -fno-strict-aliasing and -ffp-contract=off (smo-recomp's: lifted FP must not be
-# fused or reordered), -mcx16 (128-bit exclusives are cmpxchg16b). Functions longer than the game config's optnone_insns are
+# Flags: C++20 plus the table in nxrecomp/compile_flags.py (shared with the player build; read through `python -m nxrecomp
+# build-info` at configure time): no exceptions/RTTI, -fno-strict-aliasing and -ffp-contract=off (lifted FP must not be fused
+# or reordered), -mcx16 (128-bit exclusives are cmpxchg16b). Functions longer than the game config's optnone_insns are
 # emitted with NX_OPTNONE by the lifter itself (bounded compile time); cmake/nx_cc_launcher.py adds the time-limit fallback.
+#
+# nxrecomp_build_info(<game> <prefix>) reads the game config's module table (recomp/games/<game>/config.py, the same table
+# the player build uses): <prefix>_MODULES = module names in NxModule.index order, and for each module m
+# <prefix>_<m>_FILE (file name in the exefs), _BASE, _INDEX, _SHARDS, _SITES (absolute path of its site list, or empty).
 
 set(NXRECOMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "recomp/ folder")
 set(NX_PYTHON "${NXRECOMP_ROOT}/../tools/.venv/Scripts/python.exe" CACHE FILEPATH "Python with the nxrecomp requirements")
-set(NX_OPT "/O1" CACHE STRING "optimisation flag of the lifted code (clang-cl syntax)")
+set(NX_OPT "" CACHE STRING "optimisation flag of the lifted code (clang-cl syntax); empty: nxrecomp/compile_flags.py CLANG_CL_OPT")
 option(NX_SPIN_YIELD "spin-loop heads of the lifted code call nx_spin_hint(2) (nxrecomp/spin.py; lift --spin-yield)" OFF)
 option(NX_USE_LAUNCHER "wrap lifted-code compiles in cmake/nx_cc_launcher.py (time-limit fallback to optnone / -O0)" OFF)
 
 file(GLOB NX_LIFTER_SOURCES CONFIGURE_DEPENDS
      "${NXRECOMP_ROOT}/nxrecomp/*.py" "${NXRECOMP_ROOT}/nxrecomp/lift/*.py" "${NXRECOMP_ROOT}/nxrecomp/lift/tier2/*.py"
      "${NXRECOMP_ROOT}/include/nxrecomp/*.h")
+
+# one `build-info` run per game and configure: its JSON text, kept in the global property NXRECOMP_INFO_<game>
+function(_nxrecomp_info game out)
+  get_property(json GLOBAL PROPERTY NXRECOMP_INFO_${game})
+  if(NOT json)
+    execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp build-info --game ${game} WORKING_DIRECTORY "${NXRECOMP_ROOT}"
+                    OUTPUT_VARIABLE json RESULT_VARIABLE rc ERROR_VARIABLE err)
+    if(NOT rc EQUAL 0)
+      message(FATAL_ERROR "nxrecomp build-info --game ${game} failed (${NX_PYTHON}): ${err}")
+    endif()
+    set_property(GLOBAL PROPERTY NXRECOMP_INFO_${game} "${json}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NXRECOMP_ROOT}/nxrecomp/compile_flags.py"
+                 "${NXRECOMP_ROOT}/nxrecomp/config.py" "${NXRECOMP_ROOT}/nxrecomp/__main__.py")
+    if(NOT game STREQUAL "generic")
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NXRECOMP_ROOT}/games/${game}/config.py")
+    endif()
+  endif()
+  set(${out} "${json}" PARENT_SCOPE)
+endfunction()
+
+# the JSON array <key> of `build-info` as a CMake list
+function(_nxrecomp_info_list json key out)
+  set(r "")
+  string(JSON n LENGTH "${json}" ${key})
+  if(n GREATER 0)
+    math(EXPR last "${n} - 1")
+    foreach(i RANGE ${last})
+      string(JSON v GET "${json}" ${key} ${i})
+      list(APPEND r "${v}")
+    endforeach()
+  endif()
+  set(${out} "${r}" PARENT_SCOPE)
+endfunction()
+
+function(nxrecomp_build_info game prefix)
+  _nxrecomp_info(${game} json)
+  set(names "")
+  string(JSON n LENGTH "${json}" modules)
+  math(EXPR last "${n} - 1")
+  foreach(i RANGE ${last})
+    string(JSON m GET "${json}" modules ${i} name)
+    list(APPEND names ${m})
+    foreach(k FILE BASE INDEX SHARDS SITES)
+      string(TOLOWER ${k} key)
+      string(JSON v GET "${json}" modules ${i} ${key})
+      if(k STREQUAL "SITES" AND NOT v STREQUAL "")
+        get_filename_component(v "${NXRECOMP_ROOT}/games/${game}/${v}" ABSOLUTE)
+      endif()
+      set(${prefix}_${m}_${k} "${v}" PARENT_SCOPE)
+    endforeach()
+  endforeach()
+  set(${prefix}_MODULES "${names}" PARENT_SCOPE)
+endfunction()
 
 function(nxrecomp_add_module target)
   cmake_parse_arguments(A "" "INPUT;NAME;BASE;INDEX;GAME;KIND;SHARDS;JOBS;OUTDIR;PATCHES;SITES" "" ${ARGN})
@@ -96,10 +154,17 @@ function(nxrecomp_add_module target)
   add_library(${target} STATIC ${shard_srcs} "${A_OUTDIR}/module_${A_NAME}.cpp")
   target_include_directories(${target} PUBLIC "${NXRECOMP_ROOT}/include" "${A_OUTDIR}")
   target_compile_features(${target} PUBLIC cxx_std_20)
+  _nxrecomp_info(generic info)
   if(MSVC)   # clang-cl
-    target_compile_options(${target} PRIVATE ${NX_OPT} /w /EHs-c- /GR- -fno-strict-aliasing -ffp-contract=off -mcx16)
+    string(JSON opt GET "${info}" clang_cl_opt)
+    if(NX_OPT)
+      set(opt "${NX_OPT}")
+    endif()
+    _nxrecomp_info_list("${info}" clang_cl flags)
+    target_compile_options(${target} PRIVATE ${opt} ${flags})
   else()
-    target_compile_options(${target} PRIVATE -O1 -w -fno-exceptions -fno-rtti -fno-strict-aliasing -ffp-contract=off -mcx16)
+    _nxrecomp_info_list("${info}" clang flags)
+    target_compile_options(${target} PRIVATE ${flags})
   endif()
   if(NX_USE_LAUNCHER)
     set_target_properties(${target} PROPERTIES CXX_COMPILER_LAUNCHER "${NX_PYTHON};${NXRECOMP_ROOT}/cmake/nx_cc_launcher.py")
