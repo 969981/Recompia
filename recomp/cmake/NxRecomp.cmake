@@ -28,7 +28,20 @@
 # <prefix>_<m>_FILE (file name in the exefs), _BASE, _INDEX, _SHARDS, _SITES (absolute path of its site list, or empty).
 
 set(NXRECOMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "recomp/ folder")
-set(NX_PYTHON "${NXRECOMP_ROOT}/../tools/.venv/Scripts/python.exe" CACHE FILEPATH "Python with the nxrecomp requirements")
+# The repository's venv (tools/.venv, recomp/requirements.txt) when it is there; else any Python 3 on the PATH, which is enough for
+# build-info (standard library only), so a runtime-only build (pkp_rt.dll on CI) needs no venv. Lifting still needs the requirements.
+if(WIN32)
+  set(_nx_venv_python "${NXRECOMP_ROOT}/../tools/.venv/Scripts/python.exe")
+else()
+  set(_nx_venv_python "${NXRECOMP_ROOT}/../tools/.venv/bin/python")
+endif()
+if(EXISTS "${_nx_venv_python}")
+  set(_nx_default_python "${_nx_venv_python}")
+else()
+  find_package(Python3 3.11 COMPONENTS Interpreter)
+  set(_nx_default_python "${Python3_EXECUTABLE}")
+endif()
+set(NX_PYTHON "${_nx_default_python}" CACHE FILEPATH "Python with the nxrecomp requirements")
 set(NX_OPT "" CACHE STRING "optimisation flag of the lifted code (clang-cl syntax); empty: nxrecomp/compile_flags.py CLANG_CL_OPT")
 option(NX_SPIN_YIELD "spin-loop heads of the lifted code call nx_spin_hint(2) (nxrecomp/spin.py; lift --spin-yield)" OFF)
 option(NX_USE_LAUNCHER "wrap lifted-code compiles in cmake/nx_cc_launcher.py (time-limit fallback to optnone / -O0)" OFF)
