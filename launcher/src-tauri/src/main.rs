@@ -43,6 +43,7 @@ mod shader_archive;
 mod shaders;
 mod steam;
 mod steam_cmds;
+mod states;
 mod storage;
 #[cfg(debug_assertions)]
 mod testhook;
@@ -52,11 +53,11 @@ mod window;
 mod writecheck;
 
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use tauri::Manager;
 
 use config::load_config;
 use paths::{exe_dir, game_dir_of, launcher_path};
+use states::States;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -72,14 +73,7 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && std::path::Path::new("/sys/module/nvidia").exists() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .manage(play::PlayState::default())
-        .manage(Arc::new(setup_job::SetupState::default()))
-        .manage(Arc::new(storage::StorageState::default()))
-        .manage(relay_cmds::RelayState::default())
-        .manage(Arc::new(update::UpdateState::default()))
-        .manage(update::ReleaseStore::default())
+    states::install(tauri::Builder::default().plugin(tauri_plugin_dialog::init()))
         // a swap cut off by closing the window would have to wait for the next start to be undone
         .on_window_event(window::on_event)
         .setup(|app| {
@@ -94,7 +88,7 @@ fn main() {
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
             if let Some(launcher) = launcher_path() {
                 let handle = app.handle().clone();
-                let st = app.state::<Arc<update::UpdateState>>().inner().clone();
+                let st = app.updates().inner().clone();
                 st.set_cleaning(true);
                 std::thread::spawn(move || {
                     let (root, game) = (exe_dir(), game_dir_of(&load_config(&handle)));

@@ -6,13 +6,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, State};
+use tauri::AppHandle;
 
+use crate::states::{StorageArg, States};
 use crate::config::load_config;
 use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
-use crate::setup_job::SetupState;
-use crate::{play, preflight, setuplog, shader_archive, shaders, writecheck};
+use crate::{preflight, setuplog, shader_archive, shaders, writecheck};
 
 /// "Make shader files smaller" and its undo (shader_archive.rs): one at a time, never while the game, setup or an update runs.
 #[derive(Default)]
@@ -22,7 +22,7 @@ pub struct StorageState {
 }
 
 pub fn refuse_during_storage(app: &AppHandle) -> Result<(), String> {
-    if app.state::<Arc<StorageState>>().running.load(Ordering::SeqCst) {
+    if app.storage().running.load(Ordering::SeqCst) {
         return Err("The shader files are being repacked. Wait for it to finish, or stop it in Settings.".into());
     }
     Ok(())
@@ -47,7 +47,7 @@ pub struct StorageStatus {
 
 /// How the translated shaders are stored. Lists the cache folder, so it runs off the UI thread.
 #[tauri::command]
-pub async fn shader_storage(app: AppHandle, state: State<'_, Arc<StorageState>>) -> Result<StorageStatus, String> {
+pub async fn shader_storage(app: AppHandle, state: StorageArg<'_>) -> Result<StorageStatus, String> {
     let dir = game_dir_of(&load_config(&app));
     let running = state.running.load(Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || StorageStatus { storage: shader_archive::storage(&dir), complete: shaders::is_complete(&dir), running })
@@ -58,13 +58,13 @@ pub async fn shader_storage(app: AppHandle, state: State<'_, Arc<StorageState>>)
 /// Starts a storage job after the checks every one of them needs. The guard clears `running` however the job ends.
 pub fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), String> {
     refuse_during_update(app)?;
-    if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == shaders::RunState::Running {
+    if app.setup().progress.lock().unwrap().state == shaders::RunState::Running {
         return Err("Setup is running. Wait for it to finish, or pause it first.".into());
     }
-    if guard::game_running(&app.state::<play::PlayState>()) {
+    if guard::game_running(&app.play()) {
         return Err("The game is running. Close it first: it reads the shader files while it runs.".into());
     }
-    let st = app.state::<Arc<StorageState>>().inner().clone();
+    let st = app.storage().inner().clone();
     if st.running.swap(true, Ordering::SeqCst) {
         return Err("The shader files are already being repacked.".into());
     }
@@ -157,6 +157,6 @@ pub async fn expand_shaders(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn cancel_shader_storage(state: State<Arc<StorageState>>) {
+pub fn cancel_shader_storage(state: StorageArg) {
     state.cancel.store(true, Ordering::SeqCst);
 }

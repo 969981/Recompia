@@ -3,15 +3,16 @@
 
 use std::fs;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::AppHandle;
 
+use crate::states::{RelayArg, States};
 use crate::config::load_config;
 use crate::paths::game_dir_of;
 use crate::{lan, public_ip, relay};
 
 pub fn stop_relay(app: &AppHandle) {
     // take it out first: stopping joins threads, the lock is not held meanwhile
-    let srv = app.state::<RelayState>().0.lock().unwrap().take();
+    let srv = app.relay().0.lock().unwrap().take();
     if let Some(mut srv) = srv {
         srv.stop();
     }
@@ -23,7 +24,7 @@ pub struct RelayState(Mutex<Option<relay::RelayServer>>);
 
 /// Starts the relay (pokopia-native's coop-relay protocol) on 0.0.0.0:port (0 or none: 47610). A running one is stopped first.
 #[tauri::command]
-pub fn relay_start(state: State<RelayState>, port: Option<u16>) -> Result<relay::Status, String> {
+pub fn relay_start(state: RelayArg, port: Option<u16>) -> Result<relay::Status, String> {
     let mut slot = state.0.lock().unwrap();
     if let Some(mut old) = slot.take() {
         old.stop();
@@ -41,7 +42,7 @@ pub fn relay_stop(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn relay_status(state: State<RelayState>) -> Option<relay::Status> {
+pub fn relay_status(state: RelayArg) -> Option<relay::Status> {
     state.0.lock().unwrap().as_ref().map(|s| s.status())
 }
 

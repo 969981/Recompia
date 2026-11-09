@@ -3,16 +3,15 @@
 
 use serde::Serialize;
 use std::path::Path;
-use std::sync::Arc;
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
+use crate::states::{UpdateArg, States};
 use crate::config::{config_path, load_config};
 use crate::guard;
 use crate::paths::{exe_dir, game_dir_of, launcher_path};
 use crate::relay_cmds::stop_relay;
-use crate::setup_job::SetupState;
-use crate::{play, rollback, shaders, update};
+use crate::{rollback, shaders, update};
 
 /// The version updates compare with. None: a dev build, which takes none.
 pub fn update_version(app: &AppHandle) -> Option<String> {
@@ -46,17 +45,17 @@ pub struct Wanted {
 
 pub fn releases_for(app: &AppHandle, refresh: bool, channel: update::Channel) -> Vec<update::GhRelease> {
     let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
-    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, channel)
+    update::load_releases(&app.releases(), &cache, &app.package_info().version.to_string(), refresh, channel)
 }
 
 pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
     // asked again right before files move: the download takes minutes
     let idle = || -> Result<(), String> {
-        if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == shaders::RunState::Running {
+        if app.setup().progress.lock().unwrap().state == shaders::RunState::Running {
             return Err("Setup is running. Pause it first, then update.".into());
         }
-        if guard::game_running(&app.state::<play::PlayState>()) {
+        if guard::game_running(&app.play()) {
             return Err("The game is running. Close it first, then update.".into());
         }
         Ok(())
@@ -117,7 +116,7 @@ pub struct UpdateProgress {
 /// One-click update (update.rs). Emits "update-progress"; on success the launcher restarts and the page hears nothing more.
 /// The Err of a cancel is update::CANCELLED.
 #[tauri::command]
-pub async fn install_update(app: AppHandle, state: State<'_, Arc<update::UpdateState>>) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, state: UpdateArg<'_>) -> Result<(), String> {
     let st = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, None)).await.map_err(|e| e.to_string())?
 }
@@ -132,7 +131,7 @@ pub async fn list_builds(app: AppHandle, channel: String, refresh: Option<bool>)
 
 /// Installs the build the player picked (an older one only with `accepted`); the same steps and restart as the update.
 #[tauri::command]
-pub async fn install_version(app: AppHandle, state: State<'_, Arc<update::UpdateState>>, tag: String, channel: String, accepted: bool) -> Result<(), String> {
+pub async fn install_version(app: AppHandle, state: UpdateArg<'_>, tag: String, channel: String, accepted: bool) -> Result<(), String> {
     let st = state.inner().clone();
     let wanted = Wanted { tag, channel: update::Channel::parse(&channel), accepted };
     tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, Some(wanted))).await.map_err(|e| e.to_string())?
@@ -140,6 +139,6 @@ pub async fn install_version(app: AppHandle, state: State<'_, Arc<update::Update
 
 /// Stops a running update while it is still downloading or unpacking; the install stays as it was.
 #[tauri::command]
-pub fn cancel_update(state: State<Arc<update::UpdateState>>) {
+pub fn cancel_update(state: UpdateArg) {
     state.cancel();
 }

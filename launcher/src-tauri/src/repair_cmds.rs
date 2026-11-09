@@ -2,15 +2,14 @@
 //! Repair and reset commands (repair.rs holds the logic).
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
+use crate::states::{PlayArg, SetupArg};
 use crate::config::{config_path, load_config};
 use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
-use crate::setup_job::SetupState;
 use crate::shaders::RunState;
-use crate::{play, repair};
+use crate::repair;
 
 /// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
 /// updates to be idle. Returns the game folder and the launcher's own settings folder, the only two places a repair may touch.
@@ -19,7 +18,7 @@ pub fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     Ok((game_dir_of(&load_config(app)), cfg))
 }
 
-pub fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<Arc<SetupState>>) -> Result<(PathBuf, PathBuf), String> {
+pub fn repair_guard(app: &AppHandle, play: &PlayArg, setup: &SetupArg) -> Result<(PathBuf, PathBuf), String> {
     if guard::game_running(play) {
         return Err("The game is running. Close it first, then repair.".into());
     }
@@ -37,13 +36,13 @@ pub fn repair_plan(app: AppHandle, actions: Vec<String>, groups: Option<Vec<Stri
 }
 
 #[tauri::command]
-pub fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<Arc<SetupState>>, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
+pub fn repair_apply(app: AppHandle, play: PlayArg, setup: SetupArg, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
     let (game, cfg) = repair_guard(&app, &play, &setup)?;
     repair::apply_with(&game, &cfg, &actions, groups.as_deref())
 }
 
 #[tauri::command]
-pub fn repair_undo(app: AppHandle, play: State<play::PlayState>, setup: State<Arc<SetupState>>) -> Result<repair::Report, String> {
+pub fn repair_undo(app: AppHandle, play: PlayArg, setup: SetupArg) -> Result<repair::Report, String> {
     let (game, cfg) = repair_guard(&app, &play, &setup)?;
     repair::undo(&game, &cfg)
 }

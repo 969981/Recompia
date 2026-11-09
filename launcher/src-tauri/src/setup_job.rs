@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
+use crate::states::SetupArg;
 use crate::config::load_config;
 use crate::guard::refuse_during_update;
 use crate::paths::{exe_dir, game_dir_of};
@@ -37,7 +38,7 @@ pub struct SetupStatus {
 }
 
 #[tauri::command]
-pub fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatus {
+pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
     let dir = game_dir_of(&load_config(&app));
     let progress = state.progress.lock().unwrap().clone();
     let tools_dir = exe_dir().join("tools");
@@ -54,7 +55,7 @@ pub fn setup_status(app: AppHandle, state: State<Arc<SetupState>>) -> SetupStatu
 /// First-run setup: (a) the pkp.ini paths, (b) in a model (b) release, pkp.exe built from the player's dump
 /// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
-pub fn start_setup(app: AppHandle, state: State<Arc<SetupState>>, gentle: Option<bool>) -> Result<(), String> {
+pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Result<(), String> {
     refuse_during_update(&app)?;
     refuse_during_storage(&app)?;
     let cfg = load_config(&app);
@@ -188,6 +189,6 @@ pub fn open_setup_log(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn cancel_setup(state: State<Arc<SetupState>>) {
+pub fn cancel_setup(state: SetupArg) {
     state.cancel.store(true, Ordering::SeqCst);
 }

@@ -4,13 +4,12 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use tauri::Emitter;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
+use crate::states::SetupArg;
 use crate::config::{load_config, save_config};
 use crate::paths::game_dir_of;
-use crate::setup_job::SetupState;
 use crate::{dump, nsp, nup, settings, shaders, writecheck};
 
 #[derive(Serialize, Clone)]
@@ -23,7 +22,7 @@ pub struct NupProgress {
 /// Unpacks a .nup into `<game folder>/nup_dump` (base/ and updates/<version>/, the same layout as a dump folder) and
 /// returns that folder. Emits "nup-progress". A finished unpack of the same package is reused.
 #[tauri::command]
-pub async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path: String) -> Result<String, String> {
+pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<String, String> {
     if state.progress.lock().unwrap().state == shaders::RunState::Running {
         return Err("Setup is running. Pause it first.".into());
     }
@@ -58,7 +57,7 @@ pub async fn import_nup(app: AppHandle, state: State<'_, Arc<SetupState>>, path:
 /// Unpacks the add-on (DLC) in a decrypted .nsp into the folder `[fs] aoc_dir` names (`<game folder>/aoc` when pkp.ini names none,
 /// which is then written there) and returns the add-on ids. The game lists them at its next start.
 #[tauri::command]
-pub async fn import_dlc(app: AppHandle, state: State<'_, Arc<SetupState>>, path: String) -> Result<Vec<String>, String> {
+pub async fn import_dlc(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<Vec<String>, String> {
     if state.progress.lock().unwrap().state == shaders::RunState::Running {
         return Err("Setup is running. Pause it first.".into());
     }
@@ -72,7 +71,7 @@ pub async fn import_dlc(app: AppHandle, state: State<'_, Arc<SetupState>>, path:
 
 /// Stops a running .nup unpack (the call to `import_nup` then returns an error).
 #[tauri::command]
-pub fn cancel_nup(state: State<Arc<SetupState>>) {
+pub fn cancel_nup(state: SetupArg) {
     state.nup_cancel.store(true, Ordering::SeqCst);
 }
 

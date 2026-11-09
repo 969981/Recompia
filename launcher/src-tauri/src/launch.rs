@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Play and the game's state.
 
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
+use crate::states::PlayArg;
 use crate::config::load_config;
 use crate::guard::refuse_during_update;
 use crate::paths::game_dir_of;
@@ -26,6 +27,6 @@ pub fn play(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn game_status(state: State<play::PlayState>) -> play::Status {
+pub fn game_status(state: PlayArg) -> play::Status {
     state.0.lock().unwrap().clone()
 }

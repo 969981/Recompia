@@ -3,8 +3,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
+use crate::states::PlayArg;
 use crate::config::load_config;
 use crate::guard;
 use crate::paths::game_dir_of;
@@ -30,7 +31,7 @@ pub fn save_sources() -> Vec<saveimport::Source> {
 
 /// Imports a save: `source` is a picked folder, or None for the newest one found in Eden / Ryujinx.
 #[tauri::command]
-pub fn import_save(app: AppHandle, state: State<play::PlayState>, source: Option<String>) -> Result<saveimport::Report, String> {
+pub fn import_save(app: AppHandle, state: PlayArg, source: Option<String>) -> Result<saveimport::Report, String> {
     if guard::game_running(&state) {
         return Err("The game is running. Close it first, then import the save.".into());
     }

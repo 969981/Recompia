@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Where the window opens and where it was left.
 
-use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 
 use crate::config::{load_config, save_config, WindowPlace};
-use crate::update;
+use crate::states::States;
 
 /// A handheld's logical screen is smaller than the default window: there the window starts maximized, which also keeps it clear of the
 /// taskbar. On a larger screen the window opens where the player left it (`saved`), else at the default size from tauri.conf.json.
@@ -46,7 +45,7 @@ pub fn place_of(window: &tauri::Window) -> Option<WindowPlace> {
 /// Close handling: an update that is moving files keeps the window open; otherwise the window's place is saved for the next start.
 pub fn on_event(window: &tauri::Window, event: &WindowEvent) {
     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-        if window.state::<Arc<update::UpdateState>>().applying() {
+        if window.updates().applying() {
             api.prevent_close();
             return;
         }

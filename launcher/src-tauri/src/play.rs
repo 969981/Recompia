@@ -7,6 +7,8 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::states::States;
+
 /// Files the launcher may open for the user, by name, inside the game folder.
 pub const REPORT_FILES: [&str; 4] = ["pkp_crash.txt", "pkp_freeze.txt", "pkp_fatal.txt", "pkp.log"];
 
@@ -45,7 +47,7 @@ impl Default for Status {
 pub struct PlayState(pub Mutex<Status>);
 
 fn set_status(app: &AppHandle, s: Status) {
-    *app.state::<PlayState>().0.lock().unwrap() = s.clone();
+    *app.play().0.lock().unwrap() = s.clone();
     let _ = app.emit("game-status", s);
 }
 
@@ -62,7 +64,7 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
 
 pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), String> {
     {
-        let st = app.state::<PlayState>();
+        let st = app.play();
         if st.0.lock().unwrap().state == GameState::Running {
             return Err("The game is already running.".into());
         }
