@@ -4,14 +4,30 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
+
+### Gameplay
+- Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
+  - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
+  - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
+  - Camera aim is still off by default
+
 ## 0.8.2 (build L: Lemur)
 
-**Update:** press **Update** in the launcher. You do not need **Set up again**: the game code is the same as in 0.8.1.
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (camera aim adds hooks, so the game is rebuilt; your saves and shaders are kept).
 
 ### Highlights
 - Added **Add to Steam** (Settings > Game > Steam): put Recompia into your Steam library, with its artwork, so it shows in Game Mode and Big Picture on a Steam Deck or any PC
 - Added **Koi's Camp**, a new look for the launcher: a bright hand-drawn picture behind it, by Koi (press **Colours** in the sidebar to try it). Koi drew it while the bug fixes and the new features kept Jerban busy, so thank you, Koi, and sorry for the wait
-- Nothing in the game changes. Sunrise is still the launcher's default look
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play (camera aim is still **off** by default, see Gameplay). Everything else in the game is as in 0.8.1. Sunrise is still the launcher's default look
+
+### Gameplay
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play
+  - Before: camera aim turned the aim to where the camera looks, and the game stayed in its normal (facing) mode
+  - Now: with camera aim on, the game is in its Joy-Con mouse mode during normal play with any controller or the mouse, whatever its own mouse option says. The pointer stays at the centre of the screen and the camera still turns with the mouse and the right stick. Camera aim's targeting applies in both modes, your tool is not switched to Rock Smash, and the game's own pointer is not shown
+  - Still not: camera aim stays off by default (**Settings > Game > Gameplay** or `[pkp] camera_aim = 1`); the Mouse mode key (free pointer) leaves mouse mode while it is on; only the first player is covered
 
 ### Launcher
 - Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
