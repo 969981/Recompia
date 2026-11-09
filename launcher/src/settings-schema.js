@@ -470,10 +470,10 @@ export const SECTIONS = [
       {
         title: 'Gameplay',
         rows: [
-          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
-          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '1' },
+          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, off by default in Testing builds (switch them on here to try them). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
           { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
-          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '1' },
+          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
         ],
       },
       {

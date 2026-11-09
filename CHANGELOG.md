@@ -8,6 +8,13 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
+### Testing builds
+- Changed five game options to **off by default** in Testing builds, so testers switch on what they want to try
+  - Off: **Camera aim**, **Running jump keeps speed**, the bag/box **Sort** button, the crafting **Search** button and the title screen **Quit Game** prompt
+  - To try one: **Settings > Game > Gameplay** (Camera aim, Running jump), or `[pkp] camera_aim`, `jump_momentum`, `inventory_sort`, `craft_search`, `title_quit` set to `1` in `pkp.ini`. A value you already set stays as it is
+  - The in-game Options screen stays **on** (`[pkp] options_menu`)
+  - Stable builds keep these on by default
+
 ### Launcher
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did

@@ -139,7 +139,7 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void title_install(uint64_t base, play::GameHost* host) {
-    if (!config_get_bool("pkp", "title_quit", true)) {
+    if (!config_get_bool("pkp", "title_quit", false)) {
         NXLOG_I(kTag, "title quit: off ([pkp] title_quit)");
         return;
     }

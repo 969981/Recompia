@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pokémon Pokopia, title screen (pkp_title.cpp): a "Quit Game" key guide next to "(-) Settings"; (+) (Escape) there opens the runtime's
-// "Close the game?" prompt. [pkp] title_quit, on by default. Wired in by pkp_game.cpp.
+// "Close the game?" prompt. [pkp] title_quit, off by default in Testing builds. Wired in by pkp_game.cpp.
 #pragma once
 #include <cstdint>
 

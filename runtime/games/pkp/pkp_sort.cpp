@@ -2,7 +2,7 @@
 // Inventory sort (#323): in the bag screen (X) and the container screens a "(Y) Sort" button sits in the screen's own key guide; Y
 // (keyboard F through the default btn_y binding; R (Space) where the screen uses Y itself) or a left click on the button sorts the items of the
 // panel under the cursor: part-full stacks of the same item are merged up to the game's max stack, then the stacks are ordered by the
-// item table's kind byte, then by item id; empty slots go last. [pkp] inventory_sort (on by default: the button only acts when
+// item table's kind byte, then by item id; empty slots go last. [pkp] inventory_sort (off by default in Testing builds: the button only acts when
 // pressed), [pkp] inventory_autosort (off by default: sorts the bag once each time the screen opens). Both do nothing during Link Play.
 //
 // How the game keeps the bag (main 2.0.1a, measured with page traps and snapshot diffs in scripted runs):
@@ -455,7 +455,7 @@ bool sort_click() {
 
 void sort_install(uint64_t base) {
     g.base = base;
-    g.button = config_get_bool("pkp", "inventory_sort", true);
+    g.button = config_get_bool("pkp", "inventory_sort", false);
     g.autosort = config_get_bool("pkp", "inventory_autosort", false);
     g.log_lists = config_get_int("pkp", "menu_log", 0) > 0;
     if (!g.button && !g.autosort) return;
