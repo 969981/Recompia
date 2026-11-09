@@ -76,7 +76,7 @@ const play::GamePlay& game_play() {
     static const play::GamePlay t = [] {
         play::GamePlay p;
         p.frame_update = kFrameUpdate;
-        p.display_options = play::kDisplayOptQuality;   // view distance and the quality preset (pkp_quality.cpp)
+        p.display_options = play::kDisplayOptQuality;   // the quality preset (pkp_quality.cpp)
         p.quality_preset = &quality_preset;
         p.install_render = &play_install_render;
         p.install = &install_all;

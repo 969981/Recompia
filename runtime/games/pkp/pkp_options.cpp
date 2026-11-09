@@ -213,12 +213,9 @@ const Row kPerformance[] = {
 };
 
 const Row kGraphics[] = {
-    dynamic("Quality Preset", "Sets the view distance and texture options together.", preset_text, preset_max,
+    dynamic("Quality Preset", "Sets the texture options together.", preset_text, preset_max,
             [](const S& s) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); for (int i = 0; i < n; ++i) if (s.display.quality_preset == q[i].id) return i; return n - 1; },
             [](S& s, int v) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); const play::GamePlay* gp = play::game_play(); if (v < n - 1 && gp && gp->quality_preset) gp->quality_preset(q[v].id, s.display); }),
-    number("View Distance", "How far the world is drawn. 1.00x is the console's.", 0, 60, "%.2fx", 1, 0.05,
-           [](const S& s) { return static_cast<int>(std::lround((s.display.view_distance - 1.0) / 0.05)); },
-           [](S& s, int v) { s.display.view_distance = 1.0 + v * 0.05; play::quality_preset_edited(s.display, play::QualityField::ViewDistance); }),
     choice("Dynamic Resolution", "Let the game lower its resolution when the GPU falls behind.", kOffOn, 2, ROW_BOOL(display.dynamic_resolution)),
     names("Texture Filtering", "Sharper textures at an angle.", kAnisoNames, 5,
           [](const S& s) { return index_of(kAniso, 5, s.display.anisotropy, 0); },

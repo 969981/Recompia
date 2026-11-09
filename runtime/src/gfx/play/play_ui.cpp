@@ -1012,9 +1012,9 @@ void resolution_group(Page& p) {
 
 // ---- Graphics -----------------------------------------------------------------------------------------------------------------------
 
-// The game's quality preset (kDisplayOptQuality, the presets of play_types.h quality_presets()): picking one writes its values (view
-// distance, texture LOD bias and anisotropy; a device preset also the render scale and the frame limit); changing one of those afterwards
-// makes it Custom (quality_preset_edited).
+// The game's quality preset (kDisplayOptQuality, the presets of play_types.h quality_presets()): picking one writes its values (texture
+// LOD bias and anisotropy; a device preset also the render scale and the frame limit); changing one of those afterwards makes it Custom
+// (quality_preset_edited).
 
 // What a preset sets, in plain words, from the values the game's hook writes.
 std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* gp, const DisplaySettings& now) {
@@ -1040,8 +1040,6 @@ std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* g
             t += buf;
         }
     }
-    std::snprintf(buf, sizeof buf, "View distance: x%.3g. ", v.view_distance);
-    t += buf;
     if (v.anisotropy > 0) {
         std::snprintf(buf, sizeof buf, "Texture filtering: %dx. ", v.anisotropy);
         t += buf;
@@ -1125,10 +1123,6 @@ void picture_group(Page& p) {
         if (quality) quality_preset_edited(d, f);
         mark(p);
     };
-    if (quality) {
-        if (slider("View distance", &d.view_distance, 1.0, 4.0, "x%.2f")) custom(QualityField::ViewDistance);
-        tip("Multiplies the camera's far clip: terrain and large scenery reach farther. 1 is the console's.");
-    }
     int aniso_sel = 0;
     for (int i = 0; i < kAnisoCount; ++i)
         if (kAnisoValues[i] == d.anisotropy) aniso_sel = i;

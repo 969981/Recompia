@@ -70,7 +70,7 @@ enum : unsigned {
     kDisplayOptBloom = 1u << 2,      // [display] bloom
     kDisplayOptChromatic = 1u << 3,  // [display] chromatic_aberration
     kDisplayOptAll = kDisplayOptFov | kDisplayOptAspect | kDisplayOptBloom | kDisplayOptChromatic,
-    kDisplayOptQuality = 1u << 4,    // [display] quality_preset, view_distance (the game's quality hooks; GamePlay::quality_preset)
+    kDisplayOptQuality = 1u << 4,    // [display] quality_preset (the game's quality hooks; GamePlay::quality_preset)
 };
 
 struct GamePlay {

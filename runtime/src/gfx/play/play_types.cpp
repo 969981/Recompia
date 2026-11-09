@@ -459,12 +459,12 @@ bool parse_input(const std::string& name_in, InputId* out) {
 namespace {
 const QualityPresetInfo kQualityPresets[] = {
     {"switch2", "Switch 2 (console)", "The console's picture.", false},
-    {"high", "High", "A sharper, farther picture than the console's.", false},
-    {"ultra", "Ultra", "The sharpest and farthest picture.", false},
+    {"high", "High", "A sharper picture than the console's.", false},
+    {"ultra", "Ultra", "The sharpest picture.", false},
     {"steamdeck", "Steam Deck", "For the Steam Deck's 1280 x 800 screen: a steady frame rate over sharpness.", true},
     {"legion_go_s", "Legion Go S", "For the Legion Go S's 1920 x 1200 screen: a steady 60 fps.", true},
     {"laptop", "Laptop", "For laptops with built-in or entry graphics: light on the GPU and the battery.", true},
-    {"desktop", "Desktop PC", "For a desktop with a dedicated graphics card: sharp, far and as fast as the display.", true},
+    {"desktop", "Desktop PC", "For a desktop with a dedicated graphics card: sharp and as fast as the display.", true},
     {"custom", "Custom", "Your own values.", false},
 };
 }  // namespace
