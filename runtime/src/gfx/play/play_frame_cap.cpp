@@ -16,13 +16,13 @@ gfx::PresentMode present_mode_for(const DisplaySettings& d) {
 // [display] fps_snap = auto|true|false (controls.ini / F1 "Cap FPS to 30 for Steam Deck"; NXRT_DISPLAY_FPS_SNAP overrides it), read on every apply_frame_cap. auto (default) = on for a detected Steam Deck
 // only (host_is_steam_deck: its 90 / 60 Hz panel has no VRR), off on every other machine (a desktop screen may be VRR, and a
 // player's chosen 40 must stay 40). Returns the divisor k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
-int frame_snap_k(const Settings& s, double cap, float hz, double* snapped, const char** reason) {
+int frame_snap_k(const DisplaySettings& d, double cap, float hz, double* snapped, const char** reason) {
     std::string mode = config_get_str("display", "fps_snap", "");    // the env override, else the player's setting
-    if (mode.empty()) mode = s.display.fps_snap;
+    if (mode.empty()) mode = d.fps_snap;
     const bool forced_on = mode == "true" || mode == "on" || mode == "1";
     const bool forced_off = mode == "false" || mode == "off" || mode == "0";
     *snapped = cap;
-    if (!s.display.vsync) { *reason = "vsync off"; return 0; }
+    if (!d.vsync) { *reason = "vsync off"; return 0; }
     if (forced_off) { *reason = "fps_snap off"; return 0; }
     if (!forced_on && !host_is_steam_deck()) { *reason = "fps_snap auto, not a Steam Deck"; return 0; }
     if (cap <= 0) { *reason = "uncapped"; return 0; }
@@ -64,7 +64,7 @@ void apply_frame_cap(const Settings& s) {
         const double req = cap;
         double snapped = cap;
         const char* reason = "";
-        const int k = frame_snap_k(s, cap, hz, &snapped, &reason);
+        const int k = frame_snap_k(s.display, cap, hz, &snapped, &reason);
         log_frame_cap(req, snapped, hz, k, reason);
         if (k >= 2) cap = snapped;      // hz / k: the limiter period is exactly k refresh intervals
         else if (cap <= 0 || (hz > 0 && cap >= hz)) cap = (vsync_cap && hz > 0) ? static_cast<double>(hz) * 0.9995 : 0;

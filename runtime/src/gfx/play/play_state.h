@@ -162,7 +162,7 @@ SelfTestHost* selftest_host();      // play_automation.cpp
 
 // play_frame_cap.cpp
 gfx::PresentMode present_mode_for(const DisplaySettings& d);
-int frame_snap_k(const Settings& s, double cap, float hz, double* snapped, const char** reason);
+int frame_snap_k(const DisplaySettings& d, double cap, float hz, double* snapped, const char** reason);
 void apply_frame_cap(const Settings& s);
 
 // play_window.cpp

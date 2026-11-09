@@ -117,10 +117,15 @@ public:
         if (st.window) {
             s.window_mode = window_mode_name(platform::fullscreen_mode());
             s.refresh_hz = platform::display_refresh_hz();
-            if (st.settings.display.vsync && st.settings.display.fps_cap > 0) {
+            DisplaySettings disp;   // copied under the lock: update_hook assigns st.settings on the main thread while this runs on the presenting thread
+            {
+                std::lock_guard<std::mutex> lk(st.mu);
+                disp = st.settings.display;
+            }
+            if (disp.vsync && disp.fps_cap > 0) {
                 double sc = 0;
                 const char* why = "";
-                s.snap_k = frame_snap_k(st.settings, st.settings.display.fps_cap, s.refresh_hz, &sc, &why);
+                s.snap_k = frame_snap_k(disp, disp.fps_cap, s.refresh_hz, &sc, &why);
                 s.snap_cap = sc;
             }
             platform::pixel_size(&s.width, &s.height);
