@@ -39,6 +39,7 @@ public:
     virtual void aim_applied(double dx, double dy) = 0;           // Stats: the aim used these counts
     virtual double pitch_limit_deg() const = 0;                   // [play] pitch_limit_deg
     virtual bool log_status() const = 0;                          // [play] log_status
+    virtual void request_quit_prompt() = 0;                       // opens the "Close the game?" prompt (overlay.h open_quit_prompt)
 };
 
 // The game's answer at one frame boundary.

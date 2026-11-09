@@ -1072,6 +1072,9 @@ public:
     }
     double pitch_limit_deg() const override { return g().pitch_limit_deg; }
     bool log_status() const override { return g().log_status; }
+    void request_quit_prompt() override {
+        if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
+    }
 };
 GameHostImpl g_game_host;
 

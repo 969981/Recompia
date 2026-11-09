@@ -570,8 +570,13 @@ InputSnapshot read_input() {
     InputSnapshot snap;
     if (auto src = nxrt::hid::input_source()) {
         src->poll(snap);
+        uint64_t b = 0;
+        for (const auto& n : snap.npad)
+            if (n.connected) b |= n.buttons;
+        nxrt::hid::set_sampled_buttons(b);
         return snap;
     }
+    nxrt::hid::set_sampled_buttons(0);
     snap.npad[0].connected = true;
     snap.npad[0].style = NpadStyle::FullKey;
     if (!profile().docked) {

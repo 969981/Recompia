@@ -17,6 +17,7 @@
 // [pkp] menu_log = 2 lists the panes of the layouts on screen.
 #include "pkp_menu.h"
 #include "pkp_play.h"
+#include "pkp_title.h"
 
 #include <algorithm>
 #include <atomic>
@@ -388,6 +389,7 @@ bool pane_shown(uint64_t pane, uint32_t flags) {
 }
 
 bool g_trace = false;
+std::atomic<uint64_t> g_quit_guide{0};   // the layout of the title's Quit Game key guide (menu_set_quit_guide)
 bool g_trace_pick = false;      // the scan traced: pick() logs its choice once
 #define TRACE(...) do { if (g_trace) NXLOG_I(kTag, "menu chain: " __VA_ARGS__); } while (0)
 
@@ -997,6 +999,13 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (snap.inside && snap.shown && !s.key_guides.empty()) {
         for (const Pane& p : s.panes) {
             if (!p.item || !p.contains(px, py)) continue;
+            // the title's Quit Game is a second instance of the same key guide layout: its own instance sends (+) (pkp_title.cpp). Only
+            // while the title's set is shown: the widget reuses its part instances for later sets
+            const uint64_t quit = g_quit_guide.load(std::memory_order_relaxed);
+            if (quit && title_up() && p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size()) && s.layouts[p.lay].ptr == quit) {
+                if (log_ok(true)) NXLOG_I(kTag, "menu: click on the title's Quit Game key guide -> btn_plus");
+                return play::Act::BtnPlus;
+            }
             const auto it = s.key_guides.find(p.lay_id);
             if (it == s.key_guides.end()) continue;
             if (log_ok(true)) NXLOG_I(kTag, "menu: click on key guide '%s' (layout %u/%u) -> %s", p.name, p.lay_id, p.lay_sub, play::act_info(it->second).name);
@@ -1012,6 +1021,8 @@ bool menu_over_value() { return st().active && st().slider >= 0; }
 bool menu_active() { return st().active; }
 
 bool menu_open() { return st().active && st().cursor >= 0; }
+
+void menu_set_quit_guide(uint64_t layout) { g_quit_guide.store(layout, std::memory_order_relaxed); }
 
 void menu_status_text(char* buf, size_t n) {
     const State& s = st();
