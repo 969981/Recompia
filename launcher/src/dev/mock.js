@@ -160,7 +160,7 @@ const settings = {
   },
   controls: sc.noControls ? {} : {
     'display.window_mode': 'borderless', 'display.width': '1920', 'display.height': '1080', 'display.render_scale': 'auto', 'display.fps_limit': 'auto', 'display.vsync': '1',
-    'display.quality_preset': 'high', 'display.view_distance': '1.5', 'display.lod_bias': '-0.5', 'display.anisotropy': '8', 'display.keep_aspect': '1',
+    'display.quality_preset': 'high', 'display.lod_bias': '-0.5', 'display.anisotropy': '8', 'display.keep_aspect': '1',
     'upscale.mode': 'fsr1', 'upscale.quality': 'quality', 'fps.show': '0', 'audio.volume': '0.8', 'audio.mute_unfocused': '1',
     'mouse.yaw': '0.000767945', 'mouse.pitch': '0.000767945', 'mouse.invert_x': '0', 'mouse.invert_y': '0', 'prompts.style': 'auto',
   },

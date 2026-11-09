@@ -37,6 +37,11 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: Sort tidies the panel under the cursor: part-full stacks of the same item are put together (up to the game's stack size of 99), then the items are ordered by kind, then by item, with empty slots at the end, and the screen shows the new order at once. Nothing is lost. The button sits where the bar showed "Hold to Sort" (holding X still rearranges). In a container screen Y is the game's own Add Stack / Remove All, so there the button sorts with **R** (keyboard Space), shown on the button. On by default; `[pkp] inventory_sort = 0` in `pkp.ini` takes the button away. `[pkp] inventory_autosort = 1` also sorts the bag each time it opens (off by default, because it reorders your bag without a press)
   - Still not: no separate button per panel (one button sorts the panel under the cursor), no other sort orders, and no sorting during Link Play
 
+### Graphics
+- Removed the **view distance** setting: the game always draws as far as on the console (#249)
+  - Before: a view distance above 1x (the F1 Graphics slider, the game's Settings menu, the launcher, the High, Ultra, Legion Go S and Desktop PC presets, or `view_distance` in an ini) made shadows follow the camera, put seams in block textures and left pictures in frames and photo displays blank until you walked up to them
+  - Now: the view distance is always 1x and there is no way to change it. The slider is gone from every settings page, the presets only set texture sharpness (and, for the device presets, the render scale and the frame limit), and an old `view_distance` line in `pkp.ini` or the settings file is ignored. Model detail distance stays the console's unless `[pkp] lod_distance` is set
+
 ### Performance
 - Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
   - Before: the deferred path still waited for completion when landing a previous read, and unfinished work needed separate buffer ownership
