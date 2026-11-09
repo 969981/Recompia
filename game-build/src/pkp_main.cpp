@@ -124,8 +124,8 @@ void check_romfs() {
     if (!gi.romfs_min_files || !nxrt::config_get_bool("fs", "romfs_check", true)) return;
     const nxrt::services::RomfsSummary r = nxrt::services::romfs_summary();
     if (!r.ok) {
-        const std::string msg = "The game data (RomFS) cannot be read: " + r.error +
-                                ". Choose your game files again in the Pokopia launcher (or set [fs] romfs in pkp.ini).";
+        const std::string msg = "The game data (RomFS) cannot be read: " + r.error + ". Choose your game files again in the " + gi.short_title +
+                                " launcher (or set [fs] romfs in " + gi.game_ini + ").";
         die("%s", msg.c_str());
     }
     if (r.files >= gi.romfs_min_files && r.bytes >= gi.romfs_min_bytes) return;
@@ -134,11 +134,11 @@ void check_romfs() {
     std::snprintf(msg, sizeof msg,
                   "Your game data is incomplete, so %s cannot start: the RomFS in %s%s%s has %u files (%.2f GB), version %s has %u (%.2f GB).\n\n"
                   "This happens when the update is dumped without the base game's files under it (an update only holds the files it changes), "
-                  "or when a copy of the romfs folder stopped early. Choose your game files again in the Pokopia launcher: with the base game "
+                  "or when a copy of the romfs folder stopped early. Choose your game files again in the %s launcher: with the base game "
                   "in the same dump (base/romfs next to updates/) it adds the missing files itself. Otherwise dump the game again with the "
                   "update merged into the base game.",
                   gi.short_title, nxrt::services::romfs_dir().c_str(), base.empty() ? "" : " over ", base.c_str(), r.files,
-                  static_cast<double>(r.bytes) / 1e9, gi.version, gi.romfs_min_files, static_cast<double>(gi.romfs_min_bytes) / 1e9);
+                  static_cast<double>(r.bytes) / 1e9, gi.version, gi.romfs_min_files, static_cast<double>(gi.romfs_min_bytes) / 1e9, gi.short_title);
     die("%s", msg);
 }
 
@@ -392,9 +392,13 @@ int main(int argc, char** argv) {
     // [fs] exefs (pkp.ini, or NXRT_FS_EXEFS) names the ExeFS when neither --exefs nor PKP_EXEFS does; installed: relative to the game folder.
     if (!exefs_given) exefs = nxrt::config_get_str("fs", "exefs", installed ? "exefs" : exefs.c_str());
     nxrt::config_set("fs", "exefs", exefs.c_str());     // the one in use, for the About page
-    nxrt::config_set("process", "program_id", "0x0400A3A01EE4C000");     // GetInfo(ProgramId); an ini value or the environment still wins
-    NXLOG_I("boot", "pkp %s (Pokémon Pokopia PC port)", PKP_VERSION);
-    NXLOG_I("boot", "Pokémon Pokopia %s: exefs '%s'", nxrt::game::info().version, exefs.c_str());
+    {
+        char pid[24];
+        std::snprintf(pid, sizeof pid, "0x%016llX", static_cast<unsigned long long>(nxrt::game::info().program_id));
+        nxrt::config_set("process", "program_id", pid);     // GetInfo(ProgramId); an ini value or the environment still wins
+    }
+    NXLOG_I("boot", "pkp %s (%s port)", PKP_VERSION, nxrt::game::info().product);
+    NXLOG_I("boot", "%s %s: exefs '%s'", nxrt::game::info().title, nxrt::game::info().version, exefs.c_str());
 
     if (prepare) return prepare_shaders_main(prepare_if_needed, prepare_threads, prepare_programs);
 
