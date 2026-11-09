@@ -256,3 +256,6 @@ entryhook 0x7100eb1b40
 #   key guide part's fill (x19 part, x21 its table row, w20 text slot; the caller's widget at [x29 + 0x38]): the Quit Game text
 entryhook 0x7100ec5de0
 inline 0x7100ec69b4
+#   Inventory sort (pkp_sort.cpp, [pkp] inventory_sort / inventory_autosort): the bag / container screen's per-frame virtual (x0 = the screen,
+#   UI class 0x8d): Y sorts the panel under the cursor and refreshes the panels
+entryhook 0x7100feee78
