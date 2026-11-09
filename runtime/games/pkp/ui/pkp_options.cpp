@@ -144,6 +144,7 @@ constexpr const char* kAnisoNames[] = {"Game Default", "2x", "4x", "8x", "16x"};
 constexpr const char* kPromptNames[] = {"Switch", "Xbox", "PlayStation", "Steam Controller", "Steam Deck", "Keyboard", "Automatic"};
 static_assert(std::size(kPromptNames) == play::kPromptStyleCount, "one name per PromptStyle");
 constexpr const char* kAheadNames[] = {"No Limit", "0", "1", "2", "3"};
+constexpr const char* kAaNames[] = {"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};      // indexed by extras::AaMode
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
 constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
@@ -208,6 +209,7 @@ const Row kPerformance[] = {
            [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }),
     number("Sharpness", "How much FSR 1 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)),
     number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)),
+    names("Anti-Aliasing", "Smooths jagged edges of the 3D scene. The menus are not filtered.", kAaNames, 5, ROW_ENUM(extras.upscale.aa, extras::AaMode)),
     choice("Low Latency", "Reduces input delay on GPUs that support it.", {"Off", "Auto", "On", "Boost"}, 4, ROW_ENUM(extras.latency.mode, extras::LatencyMode), true),
     names("Frames Ahead", "How many frames may wait for the screen. Fewer is more responsive.", kAheadNames, 5,
           [](const S& s) { return s.extras.latency.frames_ahead + 1; }, [](S& s, int v) { s.extras.latency.frames_ahead = v - 1; }, true),

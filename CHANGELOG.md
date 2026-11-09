@@ -33,7 +33,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: your character turns to the block under the pointer before swinging, so the click lands on it
 
 ### Graphics
-- Added **Anti-aliasing** (SMAA) for the 3D scene: Settings (F1) > Display > Upscaling > **Anti-aliasing**
+- Added **Anti-aliasing** (SMAA) for the 3D scene: the game's Settings > Performance > **Anti-Aliasing**, or Settings (F1) > Display > Upscaling > **Anti-aliasing**
   - Before: the game had no anti-aliasing here, so edges looked jagged
   - Now: pick **SMAA Low**, **Medium**, **High** or **Ultra** and press **Apply and save** (no restart). Only the 3D scene is filtered; the menus and HUD stay sharp. Default (none) is as before. Also `[upscale] aa = off | smaa_low | smaa_medium | smaa_high | smaa_ultra`
   - Still not: not hardware multisampling (MSAA); not applied together with a Scene Resolution below 100% and an upscaler
