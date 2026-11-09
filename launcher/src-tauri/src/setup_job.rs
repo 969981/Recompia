@@ -9,7 +9,7 @@ use tauri::Emitter;
 use tauri::AppHandle;
 
 use crate::states::SetupArg;
-use crate::config::load_config;
+use crate::config::{game_dir, load_config};
 use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of};
 use crate::readiness::setup_started;
@@ -44,7 +44,7 @@ pub struct SetupStatus {
 
 #[tauri::command]
 pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
-    let dir = game_dir_of(&load_config(&app));
+    let dir = game_dir(&app);
     let progress = state.progress.lock().unwrap().clone();
     let tools_dir = exe_dir().join("tools");
     let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
@@ -185,7 +185,7 @@ pub async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
 /// Opens setup.log (next to pkp.exe) in the default editor.
 #[tauri::command]
 pub fn open_setup_log(app: AppHandle) -> Result<(), String> {
-    let path = setuplog::path_of(&game_dir_of(&load_config(&app)));
+    let path = setuplog::path_of(&game_dir(&app));
     if !path.is_file() {
         return Err("There is no setup log yet: it is written when Set up starts.".into());
     }

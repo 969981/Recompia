@@ -8,7 +8,7 @@ use tauri::Emitter;
 use tauri::AppHandle;
 
 use crate::states::SetupArg;
-use crate::config::{load_config, save_config};
+use crate::config::{game_dir, load_config, save_config};
 use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
@@ -26,7 +26,7 @@ pub struct NupProgress {
 #[tauri::command]
 pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<String, CmdError> {
     ensure_idle(&app, &[Need::Setup("Setup is running. Pause it first.")])?;
-    let game_dir = game_dir_of(&load_config(&app));
+    let game_dir = game_dir(&app);
     let out = game_dir.join("nup_dump");
     // a blocked folder fails here, in words, instead of halfway through with an OS error (writecheck.rs)
     writecheck::check(&game_dir).map_err(|e| e.message())?;
@@ -60,7 +60,7 @@ pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Re
 #[tauri::command]
 pub async fn import_dlc(app: AppHandle, path: String) -> Result<Vec<String>, String> {
     ensure_idle(&app, &[Need::Setup("Setup is running. Pause it first.")])?;
-    let game_dir = game_dir_of(&load_config(&app));
+    let game_dir = game_dir(&app);
     writecheck::check(&game_dir).map_err(|e| e.message())?;
     let src = PathBuf::from(path.trim());
     tauri::async_runtime::spawn_blocking(move || nsp::extract(&src, &settings::aoc_target(&game_dir)?))

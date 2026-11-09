@@ -42,6 +42,11 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("launcher.json"))
 }
 
+/// The game folder the saved settings name (the launcher's own folder when none).
+pub fn game_dir(app: &AppHandle) -> PathBuf {
+    crate::paths::game_dir_of(&load_config(app))
+}
+
 pub fn load_config(app: &AppHandle) -> Config {
     config_path(app)
         .ok()

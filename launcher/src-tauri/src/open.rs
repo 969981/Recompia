@@ -3,8 +3,7 @@
 
 use tauri::AppHandle;
 
-use crate::config::load_config;
-use crate::paths::game_dir_of;
+use crate::config::game_dir;
 use crate::play;
 
 /// Opens a release page in the default browser.
@@ -40,7 +39,7 @@ pub fn open_game_file(app: AppHandle, name: String) -> Result<(), String> {
     if !play::REPORT_FILES.contains(&name.as_str()) {
         return Err("That file cannot be opened from here.".into());
     }
-    let path = game_dir_of(&load_config(&app)).join(&name);
+    let path = game_dir(&app).join(&name);
     if !path.is_file() {
         return Err(format!("{} does not exist.", name));
     }
@@ -49,5 +48,5 @@ pub fn open_game_file(app: AppHandle, name: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_game_dir(app: AppHandle) -> Result<(), String> {
-    play::open_with_shell(&game_dir_of(&load_config(&app)))
+    play::open_with_shell(&game_dir(&app))
 }

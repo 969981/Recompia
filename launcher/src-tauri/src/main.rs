@@ -56,8 +56,8 @@ mod writecheck;
 use std::sync::atomic::Ordering;
 use tauri::Manager;
 
-use config::load_config;
-use paths::{exe_dir, game_dir_of, launcher_path};
+use config::{load_config, game_dir};
+use paths::{exe_dir, launcher_path};
 use states::States;
 
 fn main() {
@@ -83,7 +83,7 @@ fn main() {
                 let _ = window::fit_window(&window, load_config(app.handle()).window);
             }
             // Link Play starts from its defaults on every launcher start: nothing left from an earlier session decides the next one (#239)
-            if let Err(e) = settings::reset_link_play(&game_dir_of(&load_config(app.handle()))) {
+            if let Err(e) = settings::reset_link_play(&game_dir(app.handle())) {
                 eprintln!("Link Play reset: {e}");
             }
             // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
@@ -92,7 +92,7 @@ fn main() {
                 let st = app.updates().inner().clone();
                 st.set_cleaning(true);
                 std::thread::spawn(move || {
-                    let (root, game) = (exe_dir(), game_dir_of(&load_config(&handle)));
+                    let (root, game) = (exe_dir(), game_dir(&handle));
                     update::clean_start(&root, &update::old_files(&launcher, &game));
                     st.set_cleaning(false);
                 });

@@ -6,8 +6,7 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 
 use crate::states::{RelayArg, States};
-use crate::config::load_config;
-use crate::paths::game_dir_of;
+use crate::config::game_dir;
 use crate::{lan, public_ip, relay};
 
 pub fn stop_relay(app: &AppHandle) {
@@ -77,6 +76,6 @@ pub fn room_code_check(code: String) -> Result<String, String> {
 /// with `[net] room_code` set, removed when it runs without one). None: no file or no valid code in it.
 #[tauri::command]
 pub fn room_code_host(app: AppHandle) -> Option<String> {
-    let text = fs::read_to_string(game_dir_of(&load_config(&app)).join("room-code.txt")).ok()?;
+    let text = fs::read_to_string(game_dir(&app).join("room-code.txt")).ok()?;
     relay::room_code::normalize(text.trim()).map(|c| relay::room_code::format(&c))
 }

@@ -5,14 +5,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
-use crate::config::load_config;
+use crate::config::game_dir;
 use crate::guard::{ensure_idle, Need};
-use crate::paths::game_dir_of;
 use crate::{play, saveimport};
 
 /// Where the runtime keeps the save and which account folder the game uses (saveimport::locate).
 pub fn save_paths(app: &AppHandle) -> (PathBuf, String) {
-    saveimport::locate(&game_dir_of(&load_config(app)))
+    saveimport::locate(&game_dir(app))
 }
 
 /// Eden and Ryujinx saves of the game found on this PC, newest first.

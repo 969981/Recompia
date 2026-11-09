@@ -9,9 +9,8 @@ use tauri::Emitter;
 use tauri::AppHandle;
 
 use crate::states::{StorageArg, States};
-use crate::config::load_config;
+use crate::config::game_dir;
 use crate::guard::{ensure_idle, Need};
-use crate::paths::game_dir_of;
 use crate::{preflight, setuplog, shader_archive, shaders, writecheck};
 
 /// "Make shader files smaller" and its undo (shader_archive.rs): one at a time, never while the game, setup or an update runs.
@@ -41,7 +40,7 @@ pub struct StorageStatus {
 /// How the translated shaders are stored. Lists the cache folder, so it runs off the UI thread.
 #[tauri::command]
 pub async fn shader_storage(app: AppHandle, state: StorageArg<'_>) -> Result<StorageStatus, String> {
-    let dir = game_dir_of(&load_config(&app));
+    let dir = game_dir(&app);
     let running = state.running.load(Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || StorageStatus { storage: shader_archive::storage(&dir), complete: shaders::is_complete(&dir), running })
         .await
@@ -60,7 +59,7 @@ pub fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), St
         return Err("The shader files are already being repacked.".into());
     }
     st.cancel.store(false, Ordering::SeqCst);
-    Ok((game_dir_of(&load_config(app)), st))
+    Ok((game_dir(app), st))
 }
 
 pub struct StorageRun(Arc<StorageState>);

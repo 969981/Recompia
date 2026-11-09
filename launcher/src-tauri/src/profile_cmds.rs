@@ -4,20 +4,19 @@
 use std::path::PathBuf;
 use tauri::AppHandle;
 
-use crate::config::load_config;
+use crate::config::game_dir;
 use crate::guard::{ensure_idle, Need};
-use crate::paths::game_dir_of;
 use crate::profiles;
 
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
 pub fn profiles_list(app: AppHandle) -> profiles::Store {
-    profiles::load(&game_dir_of(&load_config(&app)))
+    profiles::load(&game_dir(&app))
 }
 
 pub fn profiles_guard(app: &AppHandle) -> Result<PathBuf, String> {
     ensure_idle(app, &[Need::Game("The game is running. Close it first, then change profiles."), Need::Update])?;
-    Ok(game_dir_of(&load_config(app)))
+    Ok(game_dir(app))
 }
 
 #[tauri::command]

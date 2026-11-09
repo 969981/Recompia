@@ -7,10 +7,10 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 
 use crate::states::{UpdateArg, States};
-use crate::config::{config_path, load_config};
+use crate::config::{config_path, game_dir, load_config};
 use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
-use crate::paths::{exe_dir, game_dir_of, launcher_path};
+use crate::paths::{exe_dir, launcher_path};
 use crate::relay_cmds::stop_relay;
 use crate::{rollback, update};
 
@@ -68,7 +68,7 @@ pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Want
     let paths = update::Paths {
         install: exe_dir(),
         launcher: launcher_path().ok_or("Could not find the launcher's own file.")?,
-        game_dir: game_dir_of(&load_config(app)),
+        game_dir: game_dir(app),
     };
     let mut report = |phase: &str, done: u64, total: u64| {
         let _ = app.emit("update-progress", UpdateProgress { phase: phase.to_string(), done, total });

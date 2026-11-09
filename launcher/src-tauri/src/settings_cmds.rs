@@ -3,16 +3,15 @@
 
 use tauri::AppHandle;
 
-use crate::config::load_config;
-use crate::paths::game_dir_of;
+use crate::config::game_dir;
 use crate::settings;
 
 #[tauri::command]
 pub fn read_settings(app: AppHandle) -> settings::SettingsDump {
-    settings::read(&game_dir_of(&load_config(&app)))
+    settings::read(&game_dir(&app))
 }
 
 #[tauri::command]
 pub fn write_settings(app: AppHandle, edits: Vec<settings::Edit>) -> Result<(), String> {
-    settings::apply(&game_dir_of(&load_config(&app)), &edits)
+    settings::apply(&game_dir(&app), &edits)
 }

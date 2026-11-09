@@ -4,16 +4,15 @@
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
-use crate::config::{config_path, load_config};
+use crate::config::{config_path, game_dir};
 use crate::guard::{ensure_idle, Need};
-use crate::paths::game_dir_of;
 use crate::repair;
 
 /// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
 /// updates to be idle. Returns the game folder and the launcher's own settings folder, the only two places a repair may touch.
 pub fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let cfg = config_path(app)?.parent().map(Path::to_path_buf).ok_or("The launcher settings folder is not known.")?;
-    Ok((game_dir_of(&load_config(app)), cfg))
+    Ok((game_dir(app), cfg))
 }
 
 pub fn repair_guard(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
