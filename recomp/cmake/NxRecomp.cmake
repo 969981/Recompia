@@ -10,7 +10,7 @@
 #     [SHARDS <n>]                 exactly n translation units c_000.cpp ... (default 16)
 #     [JOBS <n>]                   lifter processes (default: all cores)
 #     [PATCHES <file>]             instruction patch list
-#     [SITES <file>]               site list: patches, inline callouts, function hooks (nxrecomp/program.py load_sites)
+#     [SITES <file>]               site list: patches, inline callouts, function hooks (nxrecomp/sites.py load_sites)
 #     [OUTDIR <dir>])              where the generated sources go (default: <build>/gen/<target>)
 #
 # Lifts the module with `python -m nxrecomp lift` (a build step, re-run when the input or the lifter changes) and builds

@@ -83,7 +83,7 @@ void guest_svc(Ctx *c, uint32_t number);
  * CNTVCT/CNTFRQ). `sysreg` is bits 20:5 of the MRS/MSR word (o0:op1:CRn:CRm:op2). */
 uint64_t guest_mrs(Ctx *c, uint32_t sysreg);
 void guest_msr(Ctx *c, uint32_t sysreg, uint64_t value);
-/* Sites compiled in by the lifter from a site list (nxrecomp/program.py load_sites): a callout before an instruction, a
+/* Sites compiled in by the lifter from a site list (nxrecomp/sites.py load_sites): a callout before an instruction, a
  * function hook at a function's start, a hook at a mid-function address. A hook returns nonzero when it has done the
  * function's work (the lifted function then returns at once). */
 void nx_site_inline(Ctx *c, uint64_t addr);

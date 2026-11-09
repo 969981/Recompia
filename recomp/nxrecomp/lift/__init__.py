@@ -15,7 +15,7 @@ except ImportError:                      # tier 2 not available (no Capstone)
 
 
 class Lifter(Fn):
-    """Fn with tier-2 fallback. `env` supplies call(), jump tables, etc. (see program.Env)."""
+    """Fn with tier-2 fallback. `env` supplies call(), jump tables, etc. (see env.Env)."""
 
     def __init__(self, entry, end, env):
         Fn.__init__(self, entry, end, env)

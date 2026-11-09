@@ -36,16 +36,16 @@ def main(argv=None):
         p.add_argument('--name', default='main')
         p.add_argument('--patches')
         p.add_argument('--index', type=int, help='module index (NxModule.index, import ids); default: position in the game config')
-        p.add_argument('--sites', help='site list: patches, inline callouts, hooks (see program.load_sites)')
+        p.add_argument('--sites', help='site list: patches, inline callouts, hooks (see sites.load_sites)')
     a = ap.parse_args(argv)
     spec = spec_from(a)
-    from . import program
+    from . import cover, driver
     if a.cmd == 'lift':
-        program.lift_module(spec, a.outdir, a.jobs, a.shards)
+        driver.lift_module(spec, a.outdir, a.jobs, a.shards)
         return 0
     from .config import load_game
-    img = program.open_image(spec)
-    ok, bad, _ = program.cover(img, load_game(a.game))
+    img = driver.open_image(spec)
+    ok, bad, _ = cover.cover(img, load_game(a.game))
     return 0 if not bad else 1
 
 

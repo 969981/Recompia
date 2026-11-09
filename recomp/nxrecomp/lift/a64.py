@@ -3,7 +3,7 @@
 
 This is class Fn of smo-recomp tools/lifter/recomp.py (GPL-3.0-or-later; itself adapted from ssbu-recomp's lifter
 and from the instruction translator of ssbu-recomp, GPL-3.0-or-later), with these changes:
-  * the module-level ELF globals are gone (the program level lives in program.py and works on an Image);
+  * the module-level ELF globals are gone (the program level lives in driver.py and works on an Image);
   * TPIDRRO_EL0 is its own register (c->tpidrro), as in ScarletNX (GPL-3.0-or-later); FPCR / FPSR / NZCV are stored
     and read back; other system registers go to guest_mrs / guest_msr (runtime-provided, see nxrecomp/ctx.h);
   * exclusive pairs (LDXP / LDAXP / STXP / STLXP) incl. 128-bit;

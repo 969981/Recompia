@@ -39,7 +39,8 @@ passes `--spin-yield`). Presets:
 
 - `nxrecomp/image.py` loads a module (NSO, smo-style ELF, or static ELF) into one `Image`; `funcs.py` finds function
   boundaries (`.eh_frame` and sized symbols first); `eh.py` reads CFI and C++ LSDAs; `jumptables.py` resolves `br` tables;
-  `program.py` lifts and writes the sources.
+  `env.py` holds the per-module state, `emit_function.py` turns one function into C++, `driver.py` runs discovery, the worker pool and the
+  sharding, `module_emit.py` writes `funcs.h` and the module descriptor, `sites.py` reads the site lists.
 - Instruction lifting has two tiers. Tier 1 (`lift/a64.py`) decodes bit fields and is the reference where it applies. Tier 2
   (`lift/tier2/`) is Capstone-driven and covers what tier 1 does not: LSE atomics, crypto, the long tail of AdvSIMD, structure
   loads and stores. The files `x_*.py` there override or add handlers; the ported emitters beside them are kept as the base.
