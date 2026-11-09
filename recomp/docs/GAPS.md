@@ -1,6 +1,6 @@
 # Known gaps in the lifter
 
-Numbers come from the oracles at the commit that contains this file: `oracle/difftest/corpus.json` (11,723 in-scope shapes, 618
+The numbers come from test suites that were removed from this repository (they are in the git history, under `oracle/`): `oracle/difftest/corpus.json` (11,723 in-scope shapes, 618
 mnemonics), 565,061 differential tests (the 11,603 shapes before the LRCPC additions; the 120 new ones add 1,270, all identical), 15 end-to-end programs at two optimisation levels (30 runs), 108 known-answer cases.
 
 ## Behaviour that differs from the console
@@ -38,7 +38,7 @@ Each shape is tested with at most 6 real encodings and two machine states (rando
 to 35 x 35 special operand pairs sampled at every 11th pair. The coverage is broad but not exhaustive over registers, immediates and
 operand values.
 
-## Reference corrections and oracle limits
+## Reference corrections and oracle limits (of the removed test suites)
 
 - **Unicorn 2.1.4 executes `ldsmax` / `ldsmin` / `stsmax` / `stsmin` of 8, 16 and 32 bits unsigned** (docs/debug/001.md). The
   differential test takes the result of exactly those instructions from the architectural definition (`spec_smaxmin`), applied
@@ -48,11 +48,3 @@ operand values.
 - The known-answer oracle (`oracle/ka`) skips 7 of 108 cases: 3 with a real branch before the stop, 1 literal load of the code,
   1 window below 0x10000 and 2 windows that cannot be mapped on Windows. 6 more expectations read FPSR flags (QC) and 5 cases
   need FPCR (both gaps above); they are counted apart, not as passes.
-
-## Measured on the game (S1b, docs/S1b.md)
-
-- `cover` is 100% on `main`, `sdk` and `subsdk0`; code outside every discovered function (hand-written SDK stubs) was found by a separate gap scan and is lifted (debug 008).
-- Jump tables: 881 / 622 / 335 resolved; every other `br` is an indirect tail call (debug 007), 6 keep the dispatch fallback.
-- Compile time and size: 6.5 M instructions lift to 453 MB of C++ and compile cold in about two minutes (docs/S1b.md); no function reaches `optnone_insns`.
-- C++ exceptions: only `sdk` has LSDAs; no typed catch and 13 empty `throw()` specifications. Class-hierarchy matching and the unwinder are the runtime's.
-- Still not covered: hook sites on the real game (none configured), FPCR (3 writes, all in unreferenced SDK stubs), and anything that only a run can show.

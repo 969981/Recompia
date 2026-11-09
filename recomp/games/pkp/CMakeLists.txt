@@ -31,7 +31,7 @@ endif()
 set(PKP_EXEFS "${PKP_EXEFS_DEFAULT}" CACHE PATH "folder with the NSOs main, sdk, subsdk0, rtld")
 message(STATUS "pkp: lifting the NSOs in ${PKP_EXEFS}")
 set(PKP_GEN "${PKP_ROOT}/work/lift" CACHE PATH "where the generated sources go")
-# translation units per module: about 45k instructions each (docs/S1b.md); main has 10.3 M instruction words
+# translation units per module: about 45k instructions each; main has 10.3 M instruction words
 set(PKP_SHARDS_MAIN 230 CACHE STRING "translation units of main")
 set(PKP_SHARDS_SDK 45 CACHE STRING "translation units of sdk")
 set(PKP_SHARDS_SUBSDK0 4 CACHE STRING "translation units of subsdk0")
