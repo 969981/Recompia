@@ -229,10 +229,10 @@ struct AudioSettings {
 // ---- button prompts ----------------------------------------------------------------------------------------------------------------
 // Which button icons the game's prompts show: the game's own Switch icons, or those of another pad or the keyboard. Auto follows the
 // last input device used.
-enum class PromptStyle : uint8_t { Switch = 0, Xbox, PlayStation, Keyboard, Auto };
-constexpr int kPromptStyleCount = 5;
-const char* prompt_style_name(PromptStyle s);          // "switch" "xbox" "playstation" "keyboard" "auto"
-bool parse_prompt_style(const std::string& s, PromptStyle* out);   // case-insensitive; also accepts ps, ps4, ps5, dualsense, kbm, keyboard_mouse, mouse
+enum class PromptStyle : uint8_t { Switch = 0, Xbox, PlayStation, Steam, Keyboard, Auto };
+constexpr int kPromptStyleCount = 6;
+const char* prompt_style_name(PromptStyle s);          // "switch" "xbox" "playstation" "steam" "keyboard" "auto"
+bool parse_prompt_style(const std::string& s, PromptStyle* out);   // case-insensitive; also accepts ps, ps4, ps5, dualsense, steamcontroller, kbm, keyboard_mouse, mouse
 struct PromptSettings {
     PromptStyle style = PromptStyle::Auto;     // follows the last used device: keyboard icons until a pad is used (or when none is connected)
 };

@@ -353,7 +353,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
         case Sec::Prompts:
             if (k == "style") {
                 if (!parse_prompt_style(v, &s->prompts.style)) {
-                    *msg = "style must be switch, xbox, playstation, keyboard or auto, got '" + v + "'";
+                    *msg = "style must be switch, xbox, playstation, steam, keyboard or auto, got '" + v + "'";
                     return false;
                 }
                 return true;

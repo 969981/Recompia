@@ -93,7 +93,7 @@
 - **Keyboard and mouse.** The mouse also works in menus: click to confirm the highlighted item; scroll or use the arrow keys to move the highlight.
 - **Change any button** on the F1 **Controls** page.
 - **Joy-Con 2 mouse mode** for placing items: press the middle mouse button.
-- **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation or Switch.
+- **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation, Steam Controller or Switch.
 - **Typing your name** works with a controller, mouse or keyboard.
 - **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or use **Quit game** in F1.
 - **Open the F1 menu from a controller:** off by default; set `[overlay] pad` in `controls.ini` (for example `left_shoulder+right_shoulder`). It cannot be the quit combination.
