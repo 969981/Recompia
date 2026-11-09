@@ -532,6 +532,7 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
 
 /* Larger hit areas only where the primary pointer is a finger. */
 @media (pointer: coarse) {
+  html, body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }   /* no double-tap zoom or tap delay, no grey flash on a tap */
   .win-btn { width: 44px; height: 44px; }
   .nav-item { height: 44px; }
   .btn, .btn.sm { height: 44px; }
