@@ -39,6 +39,14 @@ public:
     virtual void aim_applied(double dx, double dy) = 0;           // Stats: the aim used these counts
     virtual double pitch_limit_deg() const = 0;                   // [play] pitch_limit_deg
     virtual bool log_status() const = 0;                          // [play] log_status
+    virtual void request_quit_prompt() = 0;                       // opens the "Close the game?" prompt (overlay.h open_quit_prompt)
+    // Rebinding from a game's own menu, the same capture as the settings page (play_ui.h UiHost): after begin_capture() the next key press,
+    // mouse button or wheel notch does not reach the game; capture_result() returns it once. Escape cancels (capturing() turns false).
+    virtual void begin_capture() {}
+    virtual bool capturing() const { return false; }
+    virtual bool capture_result(InputId*) { return false; }
+    virtual void cancel_capture() {}
+    virtual bool reserved_key(const InputId&) const { return false; }   // the settings page's own key (F1): never a binding
 };
 
 // The game's answer at one frame boundary.
@@ -63,7 +71,7 @@ enum : unsigned {
     kDisplayOptBloom = 1u << 2,      // [display] bloom
     kDisplayOptChromatic = 1u << 3,  // [display] chromatic_aberration
     kDisplayOptAll = kDisplayOptFov | kDisplayOptAspect | kDisplayOptBloom | kDisplayOptChromatic,
-    kDisplayOptQuality = 1u << 4,    // [display] quality_preset, view_distance (the game's quality hooks; GamePlay::quality_preset)
+    kDisplayOptQuality = 1u << 4,    // [display] quality_preset (the game's quality hooks; GamePlay::quality_preset)
 };
 
 struct GamePlay {

@@ -2,6 +2,7 @@
 // Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "pkp_game.h"
 #include "pkp_aim.h"
+#include "pkp_craft.h"
 #include "pkp_jump.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
@@ -9,7 +10,9 @@
 #include "pkp_play.h"
 #include "pkp_quality.h"
 #include "pkp_save_uuid.h"
+#include "pkp_sort.h"
 #include "pkp_taa.h"
+#include "pkp_title.h"
 
 #include <cstring>
 
@@ -34,13 +37,18 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     taa_install(base);
     jump_install(base);
     aim_install(base);
-    options_install(base);
+    options_install(base, host);
+    title_install(base, host);
+    sort_install(base);
+    craft_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
                      config_get_bool("pkp", "link_story_coop", false));
 }
 void frame_all(bool in_game, double step_seconds, play::GameFrame* out) {
     linkplay_frame();   // the first frame checks main (loaded by now) for Interact everywhere
     play_frame(in_game, step_seconds, out);
+    title_frame();      // (+) on the title: the quit prompt
+    options_frame();    // the Mouse Mode Key row's key capture
 }
 void settings_changed_all(const play::Settings& s) {
     play_settings_changed(s);
@@ -70,7 +78,7 @@ const play::GamePlay& game_play() {
     static const play::GamePlay t = [] {
         play::GamePlay p;
         p.frame_update = kFrameUpdate;
-        p.display_options = play::kDisplayOptQuality;   // view distance and the quality preset (pkp_quality.cpp)
+        p.display_options = play::kDisplayOptQuality;   // the quality preset (pkp_quality.cpp)
         p.quality_preset = &quality_preset;
         p.install_render = &play_install_render;
         p.install = &install_all;

@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pokémon Pokopia, PC picture quality (pkp_quality.h). Offsets in `main` of the 2.0.1 update; the RE notes are work/audit/quality_params.md.
 //
-// View distance ([display] view_distance, [pkp] view_distance). The projection every 3D view uses is built by KTGL's camera class in
-// 0x7101f12114 (pkp_play.cpp: +0x140 near, +0x144 far, +0x148 vertical FOV, +0x14c aspect, +0x158 bit 0 orthographic): it reads near and
-// far and writes the projection (+0xc0) from them. It runs when a camera is set up and whenever the game changes its near, far or FOV
-// (callers 0x7101f11e78, 0x7101f12368 init, 0x7101f124a4). The mid hook after its prologue (0x7101f12130, x0 = the camera; the same site
-// as pkp_play's aspect hook) multiplies far before the builder reads it, for perspective cameras with a screen-like aspect (scene views;
-// shadow and cube cameras are orthographic or square). A small table remembers each camera's own far and the value written, so a rebuild
-// of an already lengthened camera starts from the game's value again (no compounding). A changed factor applies at the camera's next
-// rebuild. Near stays, so depth precision near the eye is unchanged. Objects with their own cull or LOD distances (per-model data: EnableLod
-// / LodStartDistanceArray / PartsLodDistance0/1, table 0x71009eba20) keep them; the far clip ends terrain and big scenery at the horizon.
+// View distance is the console's and cannot be changed (#249). The game's shadow projection and the pictures in frames and photo
+// displays depend on the scene camera's far clip: a longer one made the shadows follow the camera, seamed the block textures and blanked
+// framed pictures until the player walked up to them. The cameras keep the game's own near and far; nothing here touches them.
 //
 // The kids::placeable::camera parameter object (property table 0x71009d3010: FXAA* +0x1dc.., ShadowCascade*Start +0xafc..,
 // ShadowmapKeyLightResolution +0xb98, SSAO* +0x12c4.., RenderResolutionRatio +0x1a5c ...) is committed by 0x71022a9f60 (vtable slot 159, entries
@@ -19,8 +13,8 @@
 // logs the quality fields once per distinct set. None of them is changed here (their renderer readers are not confirmed).
 //
 // Texture sharpness: the renderer's own sampler tuning ([display] lod_bias, anisotropy, play_display.cpp) on every NVN sampler. A
-// [pkp] quality_preset in the ini or the environment wins over the F1 page's values at start and after every settings change (view
-// distance and texture values only: a device preset's render scale and frame limit come from the F1 page's [display] values).
+// [pkp] quality_preset in the ini or the environment wins over the F1 page's values at start and after every settings change (texture
+// values only: a device preset's render scale and frame limit come from the F1 page's [display] values).
 //
 // Fog strength ([pkp] fog_strength, 0 .. 1.5, 1 = the console). The height-fog pass (fragment shader 7c8c05da24a1f5a2, a full-screen pass
 // after lighting) blends three fog layers over the scene: per layer i, factor = (1 - exp(-ramp^2)) * clamp(c3[i].w, 0, 1) * distance ramp,
@@ -54,10 +48,6 @@ constexpr const char* kTag = "pkp";
 
 constexpr uint64_t kCamCommitEnd = 0x22aced8;   // mid: kids camera commit 0x71022a9f60 after the lock release, x19 = the camera (probe)
 constexpr uint64_t kLodJobs[] = {0x2371280, 0x23719ac, 0x2371d80};   // entry: model LOD job builders
-constexpr uint64_t kProjBuild = 0x1f12130;      // mid: KTGL camera projection builder 0x7101f12114 after its prologue, x0 = the camera
-
-// KTGL camera (pkp_play.cpp)
-constexpr size_t kKNear = 0x140, kKFar = 0x144, kKAspect = 0x14c, kKFlags = 0x158, kKSize = 0x160;
 
 // camera fields (property table 0x71009d3010)
 constexpr size_t kNear = 0x10, kFar = 0x14, kFxaaEnable = 0x1ec, kFxaaType = 0x1f0, kFxaaLevel = 0x200, kCascade1 = 0xafc, kCascade2 = 0xb00,
@@ -66,24 +56,22 @@ constexpr size_t kNear = 0x10, kFar = 0x14, kFxaaEnable = 0x1ec, kFxaaType = 0x1
 
 struct Preset {
     const char* name;
-    double view_distance;
     double lod_bias;
     int anisotropy;
     bool frame;          // a device preset: also sets the render scale and the frame limit
     int render_scale;    // [display] render_scale (0 = auto: the window's size, never below 1080p off a handheld)
     int fps_cap;         // [display] fps_limit (-1 = the display's refresh rate)
 };
-// switch2 = the console's picture; the PC presets push the far clip and the texture sharpness. The device presets (#122) also pick a
-// render scale and a frame limit for the machine (100 = 1920 x 1080). Model LOD distance follows the view distance (apply). Upscalers stay
-// off; fog ([pkp] fog_strength) is the console's.
+// switch2 = the console's picture; the PC presets raise the texture sharpness. The device presets (#122) also pick a render scale and a
+// frame limit for the machine (100 = 1920 x 1080). Upscalers stay off; fog ([pkp] fog_strength) and the view distance are the console's.
 constexpr Preset kPresets[] = {
-    {"switch2", 1.0, 0.0, 0, false, 0, 0},
-    {"high", 1.5, -0.5, 8, false, 0, 0},
-    {"ultra", 2.0, -1.0, 16, false, 0, 0},
-    {"steamdeck", 1.0, 0.0, 4, true, 75, 40},     // 1440 x 810 for the 1280 x 800 screen; 40 fps: runs at 40 where the refresh is a multiple (80 Hz OLED / 40 Hz LCD in Steam's Performance menu), else at 30 (90 Hz OLED default)
-    {"legion_go_s", 1.25, 0.0, 8, true, 80, 60},  // 1536 x 864 for the 1920 x 1200 screen, 60 fps
-    {"laptop", 1.0, 0.0, 4, true, 75, 60},        // integrated / entry graphics: fewer pixels, 60 fps
-    {"desktop", 2.0, -0.5, 16, true, 0, -1},      // a dedicated GPU: the window's size (at least 1080p), the display's refresh rate
+    {"switch2", 0.0, 0, false, 0, 0},
+    {"high", -0.5, 8, false, 0, 0},
+    {"ultra", -1.0, 16, false, 0, 0},
+    {"steamdeck", 0.0, 4, true, 75, 40},    // 1440 x 810 for the 1280 x 800 screen; 40 fps: runs at 40 where the refresh is a multiple (80 Hz OLED / 40 Hz LCD in Steam's Performance menu), else at 30 (90 Hz OLED default)
+    {"legion_go_s", 0.0, 8, true, 80, 60},  // 1536 x 864 for the 1920 x 1200 screen, 60 fps
+    {"laptop", 0.0, 4, true, 75, 60},       // integrated / entry graphics: fewer pixels, 60 fps
+    {"desktop", -0.5, 16, true, 0, -1},     // a dedicated GPU: the window's size (at least 1080p), the display's refresh rate
 };
 
 const Preset* find_preset(const std::string& n) {
@@ -94,25 +82,17 @@ const Preset* find_preset(const std::string& n) {
 
 struct State {
     uint64_t base = 0x7100000000ull;
-    std::atomic<float> view{1.0f};
     std::vector<uint32_t> hooks;
     bool probe = false;
     float lod_scale = 1.0f;
     bool ini_lod_set = false;
-    std::atomic<uint64_t> commits{0}, far_writes{0}, builds{0};
-    std::atomic<bool> commit_seen{false}, build_seen{false};
-    struct FarEntry { uint64_t cam; float base, written; };
-    std::mutex far_mu;
-    FarEntry fars[64]{};
-    unsigned far_next = 0;
-    std::atomic<float> last_far{0.f}, last_far_game{0.f};
+    std::atomic<uint64_t> commits{0};
+    std::atomic<bool> commit_seen{false};
     std::mutex log_mu;
     std::vector<std::string> logged;   // distinct probe lines already written (capped)
     bool installed = false;
-    // [pkp] keys from the ini or the environment (win over the F1 page)
+    // [pkp] quality_preset from the ini or the environment (wins over the F1 page)
     const Preset* ini_preset = nullptr;
-    bool ini_view_set = false;
-    double ini_view = 1.0;
 };
 
 State& st() {
@@ -139,8 +119,7 @@ void probe(uint64_t cam, float game_far) {
     const std::string l(line);
     if (std::find(s.logged.begin(), s.logged.end(), l) != s.logged.end()) return;
     s.logged.push_back(l);
-    NXLOG_I(kTag, "quality: camera %llx commit: %s (view distance x%.2f)", static_cast<unsigned long long>(cam), line,
-            static_cast<double>(s.view.load()));
+    NXLOG_I(kTag, "quality: camera %llx commit: %s", static_cast<unsigned long long>(cam), line);
 }
 
 int hook_cam_commit(::Ctx* c, uint64_t, void*) {
@@ -153,7 +132,6 @@ int hook_cam_commit(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-// KTGL projection builder: lengthen the far clip of scene-like perspective cameras (idempotent per camera, see the top of the file).
 // Model LOD job builders 0x7102371280 / 0x71023719ac / 0x7102371d80 (x0 = the model's LOD data: LodStartDistanceArray floats at +0xe8,
 // PartsLodDistance0/1 at +0x174/+0x178, EnablePartsLod +0x154, EnableLod +0x158). [pkp] lod_distance scales the distances (1 = the game's).
 // Only the leading run of positive, increasing array entries (at most 8, ending before +0x108) counts as distances. The data persists, so
@@ -337,57 +315,12 @@ int lod_obj(::Ctx* c, int site, int reg) {
 int hook_lod_obj(::Ctx* c, uint64_t, void*) { return lod_obj(c, kSiteObj, 11); }
 int hook_lod_obj_b(::Ctx* c, uint64_t, void*) { return lod_obj(c, kSiteObjB, 0); }
 
-int hook_proj_build(::Ctx* c, uint64_t, void*) {
+void apply() {
     State& s = st();
-    const uint64_t cam = c->x[0];
-    s.builds.fetch_add(1, std::memory_order_relaxed);
-    if (!cam || !mem::is_mapped(cam, kKSize)) return 0;
-    const float near_v = rd<float>(cam + kKNear), far_v = rd<float>(cam + kKFar), aspect = rd<float>(cam + kKAspect);
-    if (!s.build_seen.exchange(true))
-        NXLOG_I(kTag, "quality: first camera projection build (camera %llx near %g far %g aspect %g, view distance x%.2f)",
-                static_cast<unsigned long long>(cam), static_cast<double>(near_v), static_cast<double>(far_v), static_cast<double>(aspect),
-                static_cast<double>(s.view.load()));
-    if (rd<uint8_t>(cam + kKFlags) & 1) return 0;                                   // orthographic
-    if (!(aspect > 1.2f && aspect < 6.f)) return 0;                                 // square views: shadow, cube, reflection cameras
-    if (!std::isfinite(near_v) || !std::isfinite(far_v) || near_v <= 0.f || far_v <= near_v || far_v > 1e7f) return 0;
-    const float k = s.view.load(std::memory_order_relaxed);
-    std::lock_guard<std::mutex> lk(s.far_mu);
-    State::FarEntry* e = nullptr;
-    for (auto& f : s.fars)
-        if (f.cam == cam) e = &f;
-    if (!e) {
-        if (k == 1.0f) return 0;                                                    // nothing to undo, nothing to do
-        e = &s.fars[s.far_next++ % 64];
-        e->cam = cam;
-        e->base = far_v;
-        e->written = 0.f;
-    } else if (far_v != e->written) {
-        e->base = far_v;                                                            // the game set a new far of its own
-    }
-    const float nf = e->base * k;
-    if (nf != far_v) {
-        wr<float>(cam + kKFar, nf);
-        s.far_writes.fetch_add(1, std::memory_order_relaxed);
-    }
-    e->written = nf;
-    s.last_far_game.store(e->base, std::memory_order_relaxed);
-    s.last_far.store(nf, std::memory_order_relaxed);
-    return 0;
-}
-
-void apply(const play::Settings& set) {
-    State& s = st();
-    double view = set.display.view_distance;
-    if (s.ini_preset) {
-        view = s.ini_preset->view_distance;
-        // after play_display's sampler tuning (play.cpp: display_tuning runs before the game's settings_changed)
-        gfx::tuning().lod_bias.store(static_cast<float>(s.ini_preset->lod_bias));
-        gfx::tuning().anisotropy.store(s.ini_preset->anisotropy);
-    }
-    if (s.ini_view_set) view = s.ini_view;
-    s.view.store(static_cast<float>(std::clamp(view, 1.0, 4.0)));
-    // Model LOD distance follows the view distance (presets x1 / x1.5 / x2, the F1 slider) unless [pkp] lod_distance is set.
-    if (!s.ini_lod_set) s.lod_scale = s.view.load();
+    if (!s.ini_preset) return;
+    // after play_display's sampler tuning (play.cpp: display_tuning runs before the game's settings_changed)
+    gfx::tuning().lod_bias.store(static_cast<float>(s.ini_preset->lod_bias));
+    gfx::tuning().anisotropy.store(s.ini_preset->anisotropy);
 }
 
 }  // namespace
@@ -395,7 +328,6 @@ void apply(const play::Settings& set) {
 bool quality_preset(const char* name, play::DisplaySettings& d) {
     const Preset* p = name ? find_preset(name) : nullptr;
     if (!p) return false;
-    d.view_distance = p->view_distance;
     d.lod_bias = p->lod_bias;
     d.anisotropy = p->anisotropy;
     if (p->frame) {
@@ -415,11 +347,7 @@ void quality_install(uint64_t base, const play::Settings& set) {
         s.ini_preset = find_preset(n);
         if (!s.ini_preset) NXLOG_W(kTag, "quality: [pkp] quality_preset '%s' is not switch2, high, ultra, steamdeck, legion_go_s, laptop or desktop: ignored", n.c_str());
     }
-    if (config_has("pkp", "view_distance")) {
-        s.ini_view_set = true;
-        s.ini_view = config_get_double("pkp", "view_distance", 1.0);
-    }
-    apply(set);
+    apply();
     {
         const double fog = std::clamp(config_get_double("pkp", "fog_strength", 1.0), 0.0, 1.5);
         gfx::Tuning& t = gfx::tuning();
@@ -430,11 +358,9 @@ void quality_install(uint64_t base, const play::Settings& set) {
         if (fog != 1.0) NXLOG_I(kTag, "quality: fog strength x%.2f", fog);
     }
     s.hooks.push_back(hook_add_mid(base + kCamCommitEnd, &hook_cam_commit));
-    s.hooks.push_back(hook_add_mid(base + kProjBuild, &hook_proj_build));
     s.probe = config_get_bool("pkp", "quality_probe", false);
     s.ini_lod_set = config_has("pkp", "lod_distance");
     if (s.ini_lod_set) s.lod_scale = static_cast<float>(std::clamp(config_get_double("pkp", "lod_distance", 1.0), 0.25, 8.0));
-    else s.lod_scale = s.view.load();
     for (uint64_t off : kLodJobs) s.hooks.push_back(hook_add_entry(base + off, &hook_parts_lod));
     s.hooks.push_back(hook_add_mid(base + kLodInst, &hook_lod_inst));
     s.hooks.push_back(hook_add_mid(base + kLodCell, &hook_lod_cell));
@@ -445,8 +371,7 @@ void quality_install(uint64_t base, const play::Settings& set) {
     s.hooks.push_back(hook_add_mid(base + kLodObj, &hook_lod_obj));
     s.hooks.push_back(hook_add_mid(base + kLodObjB, &hook_lod_obj_b));
     s.installed = true;
-    NXLOG_I(kTag, "quality: view distance x%.2f, texture LOD bias %.2f, anisotropy %d (preset %s%s)", static_cast<double>(s.view.load()),
-            static_cast<double>(gfx::tuning().lod_bias.load()), gfx::tuning().anisotropy.load(),
+    NXLOG_I(kTag, "quality: texture LOD bias %.2f, anisotropy %d (preset %s%s)", static_cast<double>(gfx::tuning().lod_bias.load()), gfx::tuning().anisotropy.load(),
             s.ini_preset ? s.ini_preset->name : set.display.quality_preset.c_str(), s.ini_preset ? ", from [pkp] quality_preset" : "");
 }
 
@@ -457,13 +382,11 @@ void quality_remove() {
     s.installed = false;
 }
 
-void quality_settings_changed(const play::Settings& set) { apply(set); }
+void quality_settings_changed(const play::Settings&) { apply(); }
 
 void quality_status_text(char* buf, size_t n) {
     const State& s = st();
-    const int k = std::snprintf(buf, n, " view=%.2f proj_builds=%llu cam_commits=%llu far_writes=%llu far=%g/%g", static_cast<double>(s.view.load()),
-                  static_cast<unsigned long long>(s.builds.load()), static_cast<unsigned long long>(s.commits.load()), static_cast<unsigned long long>(s.far_writes.load()),
-                  static_cast<double>(s.last_far_game.load()), static_cast<double>(s.last_far.load()));
+    const int k = std::snprintf(buf, n, " cam_commits=%llu", static_cast<unsigned long long>(s.commits.load()));
     if (k < 0 || static_cast<size_t>(k) + 1 >= n) return;
     auto cnt = [](int i) { return static_cast<unsigned long long>(g_lod_sites[i].calls.load(std::memory_order_relaxed)); };
     std::snprintf(buf + k, n - k, " lod=inst:%llu,cell:%llu,errA:%llu,errB:%llu,sel:%llu,set:%llu,obj:%llu,objb:%llu", cnt(kSiteInst), cnt(kSiteCell),

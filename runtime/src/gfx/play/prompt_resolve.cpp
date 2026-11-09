@@ -3,6 +3,7 @@
 #include "nxrt/host_device.h"
 
 #include <cctype>
+#include <string_view>
 #include <vector>
 
 #include "nxrt/game.h"
@@ -61,11 +62,12 @@ bool source_for_button(const PadSettings& pad, bool label_abxy, uint64_t bit, Pa
     return false;
 }
 
-// Pad icons: the Xbox, PlayStation or Steam Controller button that presses the Switch button. The icon names the physical button (South is the Xbox A,
+// Pad icons: the Xbox, PlayStation, Steam Controller or Steam Deck button that presses the Switch button. The icon names the physical button (South is the Xbox A,
 // cross), so it is the same whatever the label question says; the label question only decides which source a Switch button comes from.
 // Stick clicks and the d-pad have no icon of their own here: "" (the game keeps its icon). The d-pad icon is always the d-pad.
 const char* pad_name(PromptStyle style, const PadSettings& pad, bool label_abxy, Btn b) {
-    if (b == Btn::DPad) return style == PromptStyle::Xbox ? "xbox/dpad" : style == PromptStyle::Steam ? "steam/dpad" : "ps/dpad";
+    const bool steam_set = style == PromptStyle::Steam || style == PromptStyle::SteamDeck;   // the Deck shares the Steam Controller's art
+    if (b == Btn::DPad) return style == PromptStyle::Xbox ? "xbox/dpad" : steam_set ? "steam/dpad" : "ps/dpad";
     PadSrc src = PadSrc::South;
     if (!source_for_button(pad, label_abxy, button_bit(b), &src)) return "";
     // Indexed by PadSrc: the four face buttons, the shoulders, the triggers, Start, Back; the sticks and the d-pad have no icon.
@@ -82,7 +84,13 @@ const char* pad_name(PromptStyle style, const PadSettings& pad, bool label_abxy,
         "ps/cross", "ps/circle", "ps/square", "ps/triangle", "ps/l1", "ps/r1", "ps/l2", "ps/r2", "ps/options", "ps/create",
         "", "", "", "", "", "", "", "", "", "", "", "",
     };
-    return (style == PromptStyle::Xbox ? kXbox : style == PromptStyle::Steam ? kSteam : kPs)[static_cast<int>(src)];
+    const char* name = (style == PromptStyle::Xbox ? kXbox : steam_set ? kSteam : kPs)[static_cast<int>(src)];
+    // The Steam Deck has View and Menu like an Xbox pad; the Steam Controller's arrows (< and >) are not on it.
+    if (style == PromptStyle::SteamDeck) {
+        if (std::string_view(name) == "steam/menu") return "deck/menu";
+        if (std::string_view(name) == "steam/view") return "deck/view";
+    }
+    return name;
 }
 
 // Does binding b apply in context c? A binding of c applies; an `all` binding applies unless the same input has a binding of c itself.
@@ -157,6 +165,7 @@ std::string resolve_icon(const ResolveIn& in, Icon icon) {
         case PromptStyle::Xbox:
         case PromptStyle::PlayStation:
         case PromptStyle::Steam:
+        case PromptStyle::SteamDeck:
             base = pad_name(in.style, pad, in.label_abxy, b);
             break;
         case PromptStyle::Keyboard: {
@@ -174,7 +183,8 @@ std::string resolve_icon(const ResolveIn& in, Icon icon) {
 }
 
 std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit) {
-    if (style != PromptStyle::Xbox && style != PromptStyle::PlayStation && style != PromptStyle::Steam) return {};
+    if (style != PromptStyle::Xbox && style != PromptStyle::PlayStation && style != PromptStyle::Steam &&
+        style != PromptStyle::SteamDeck) return {};
     if (switch_bit == 0 || (switch_bit & (switch_bit - 1)) != 0) return {};   // exactly one button bit
     using namespace hid;
     // one d-pad direction: the cross with that arm lit (the prompt names a direction); pad_pack_fallback() gives the whole cross
@@ -205,7 +215,7 @@ PromptStyle auto_style(LastDevice last, int last_pad_kind, int connected_pad_kin
         switch (k) {
             case 2: return PromptStyle::PlayStation;
             case 3: return PromptStyle::Switch;
-            case 4: return PromptStyle::Steam;
+            case 4: return host_is_handheld() ? PromptStyle::SteamDeck : PromptStyle::Steam;   // SDL calls the Deck a Steam pad; a handheld host is the Deck
             default: return PromptStyle::Xbox;     // Xbox pads and every pad that is neither a PlayStation, a Switch nor a Steam pad
         }
     };

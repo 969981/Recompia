@@ -90,13 +90,13 @@ export function storageNote(env) {
 // The values: kPresets in runtime/games/pkp/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
 // render_scale 0 and fps_limit -1 are written as auto.
 export const QUALITY_PRESETS = [
-  { id: 'switch2', label: 'Switch 2', view_distance: 1, lod_bias: 0, anisotropy: 0 },
-  { id: 'high', label: 'High', view_distance: 1.5, lod_bias: -0.5, anisotropy: 8 },
-  { id: 'ultra', label: 'Ultra', view_distance: 2, lod_bias: -1, anisotropy: 16 },
-  { id: 'steamdeck', label: 'Steam Deck', view_distance: 1, lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 40 },
-  { id: 'legion_go_s', label: 'Legion Go S', view_distance: 1.25, lod_bias: 0, anisotropy: 8, render_scale: 80, fps_limit: 60 },
-  { id: 'laptop', label: 'Laptop', view_distance: 1, lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 60 },
-  { id: 'desktop', label: 'Desktop PC', view_distance: 2, lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
+  { id: 'switch2', label: 'Switch 2', lod_bias: 0, anisotropy: 0 },
+  { id: 'high', label: 'High', lod_bias: -0.5, anisotropy: 8 },
+  { id: 'ultra', label: 'Ultra', lod_bias: -1, anisotropy: 16 },
+  { id: 'steamdeck', label: 'Steam Deck', lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 40 },
+  { id: 'legion_go_s', label: 'Legion Go S', lod_bias: 0, anisotropy: 8, render_scale: 80, fps_limit: 60 },
+  { id: 'laptop', label: 'Laptop', lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 60 },
+  { id: 'desktop', label: 'Desktop PC', lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
 ];
 
 const AT_PRESET = controls('display', 'quality_preset');
@@ -108,7 +108,6 @@ function presetEdits(id) {
   if (!p) return [];   // Custom is what a preset becomes, never something picked: the F1 list does not offer it either
   const edits = [
     edit(AT_PRESET, id),
-    edit(controls('display', 'view_distance'), String(p.view_distance)),
     edit(controls('display', 'lod_bias'), String(p.lod_bias)),
     edit(controls('display', 'anisotropy'), String(p.anisotropy)),
   ];
@@ -298,7 +297,6 @@ export const SECTIONS = [
             options: QUALITY_PRESETS.map((q) => ({ value: q.id, label: q.label })),
             write: (value) => presetEdits(value), replaces: true,
           },
-          { id: 'view_distance', label: 'View distance', type: 'slider', at: controls('display', 'view_distance'), def: 1, min: 1, max: 4, step: 0.05, suffix: 'x', quality: 'value' },
         ],
       },
       {
@@ -362,10 +360,10 @@ export const SECTIONS = [
         rows: [
           {
             id: 'prompt_style', label: 'Button icons', type: 'select', at: controls('prompts', 'style'), def: 'auto',
-            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
+            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
             options: [
               { value: 'auto', label: 'Automatic' }, { value: 'switch', label: 'Switch' }, { value: 'xbox', label: 'Xbox' },
-              { value: 'playstation', label: 'PlayStation' }, { value: 'steam', label: 'Steam Controller' }, { value: 'keyboard', label: 'Keyboard and mouse' },
+              { value: 'playstation', label: 'PlayStation' }, { value: 'steam', label: 'Steam Controller' }, { value: 'steamdeck', label: 'Steam Deck' }, { value: 'keyboard', label: 'Keyboard and mouse' },
             ],
           },
           { id: 'f1_bindings', label: 'Change bindings in game', type: 'keycap', key: 'F1' },
@@ -472,10 +470,10 @@ export const SECTIONS = [
       {
         title: 'Gameplay',
         rows: [
-          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, off by default. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
-          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
-          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.' }) },
-          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
+          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '1' },
+          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
+          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '1' },
         ],
       },
       {
