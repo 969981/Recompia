@@ -23,6 +23,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
 
 ### Game
+- Added the PC settings to the game's own Settings screen (off by default; set `[pkp] options_menu = 1` in `pkp.ini` to try it)
+  - Before: the display, performance, graphics, picture, mouse, controller and sound settings were only on the F1 page and in the launcher
+  - Now: Settings has nine tabs (Game, Camera and Sound, plus Display, Performance, Graphics, Picture, Mouse and Controller). L and R move through them, long lists and decimals are sliders, and one Save covers every tab. The values are the same ones F1 changes (`controls.ini`)
+  - Still not: the FPS hotkey, quit key, keyboard bindings and pad remap stay on F1, and paths, setup and profiles stay in the launcher. English only; the six new tabs use the Game tab's icon for now
 - Added lines to `pkp.log` for a long wait on the graphics card
   - Before: when the game suddenly dropped to a few frames a second, the log showed that it was waiting but not for what
   - Now: a `slow sync wait` line (at most 20 a session) is written when the game waits 100 ms or more, with the wait number, how long the game was willing to wait and where the graphics queue stood
@@ -68,6 +72,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **In-game Options (off by default):** set `[pkp] options_menu = 1` in `pkp.ini` and start the game (press **Set up again** first). Open Settings and go through all nine tabs with L and R. Change a few values, press Save, and check that F1 shows the same values. Report: anything missing, cut off or not saving, and whether the game still opens Settings normally with the option off
 - **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
 - **Camera aim and running jump (off by default):** turn them on in Settings > Game > Gameplay (the game must be started again). Use an ability or tool that needs aiming (and a swing tool such as Rock Smash), then run and jump. Report: whether the ability goes where the camera looks, anything that feels wrong or off, and whether turning it off fixes it
 - **The story above 60 fps:** play a story scene with the frame limit above 60 (for example DJ Rotom's scene in Rocky Ridges). Report: whether the dialogue continues, and whether the game looks slow during events (it is held at 60 fps on purpose)

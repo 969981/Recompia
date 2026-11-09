@@ -5,6 +5,7 @@
 #include "pkp_jump.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
+#include "pkp_options.h"
 #include "pkp_play.h"
 #include "pkp_quality.h"
 #include "pkp_save_uuid.h"
@@ -33,6 +34,7 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     taa_install(base);
     jump_install(base);
     aim_install(base);
+    options_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
                      config_get_bool("pkp", "link_story_coop", false));
 }
