@@ -38,6 +38,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - D-pad or left stick moves between controls, **A** presses, **B** goes back (closes a question, or returns Home), **LB / RB** switch pages, the right stick scrolls
   - On a slider, left and right change it; on a drop-down, up and down change it
   - A thicker focus ring shows only while a pad is the last thing you used; touching or clicking hides it
+  - The **arrow keys** do the same (Enter presses, Escape goes back), for a handheld whose d-pad reaches the launcher as keys, which is Steam's default layout for a non-Steam shortcut. Text boxes, sliders and drop-downs keep the arrows they need
   - Needs the browser engine of your system to report the pad (Windows and most Linux setups do; if yours does not, nothing changes)
 - Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
 

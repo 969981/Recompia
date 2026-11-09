@@ -70,3 +70,30 @@ export function cycle(i, n, step) {
   if (n <= 0) return -1;
   return ((i < 0 ? (step > 0 ? -1 : 0) : i) + step + n) % n;
 }
+
+// ---- arrow keys (a handheld whose d-pad reaches the launcher as the arrow keys, Steam's default layout for a non-Steam shortcut) ----
+
+const ARROWS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+
+/** The direction of an arrow key press, or null: other keys, and any arrow with Ctrl, Alt, Meta or Shift held, are not navigation. */
+export function keyDir(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return null;
+  return ARROWS[e.key] || null;
+}
+
+/**
+ * Who handles an arrow key: 'nav' (move the focus) or 'native' (leave it to the browser). `kind` is what has the focus: 'none' (no control),
+ * 'text' (a field with a caret), 'select', 'range', 'radio' or 'other'. A text field keeps all four arrows; a drop-down keeps up and down; a slider
+ * and a radio group keep left and right. With nothing focused, up and down scroll the page when it can scroll, left and right take the first control.
+ */
+export function arrowRoute(kind, dir, canScroll = false) {
+  const horizontal = dir === 'left' || dir === 'right';
+  switch (kind) {
+    case 'text': return 'native';
+    case 'select': return horizontal ? 'nav' : 'native';
+    case 'range':
+    case 'radio': return horizontal ? 'native' : 'nav';
+    case 'none': return !horizontal && canScroll ? 'native' : 'nav';
+    default: return 'nav';
+  }
+}
