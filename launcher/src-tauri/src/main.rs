@@ -16,6 +16,7 @@ mod guard;
 mod host;
 mod ini;
 mod lan;
+mod nsp;
 mod launch;
 mod nup;
 mod open;
@@ -121,6 +122,8 @@ fn main() {
             dialogs::pick_folder,
             dump_cmds::validate_dump,
             dialogs::pick_nup,
+            dialogs::pick_nsp,
+            dump_cmds::import_dlc,
             dump_cmds::import_nup,
             dump_cmds::cancel_nup,
             dump_cmds::save_dump,

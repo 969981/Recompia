@@ -205,6 +205,23 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str,
     Ok(())
 }
 
+/// The folder add-ons (DLC) are unpacked into: the one `[fs] aoc_dir` names, else `<dir>/aoc`, which is then written to pkp.ini.
+/// A dump's own aoc folder is therefore filled, not left behind, and pkp serves one folder only.
+pub fn aoc_target(dir: &Path) -> Result<PathBuf, String> {
+    let path = dir.join(PKP_INI);
+    let mut ini = load(&path).unwrap_or_else(Ini::empty);
+    let cur = ini.get("fs", "aoc_dir").unwrap_or_default();
+    if !cur.trim().is_empty() {
+        let p = Path::new(cur.trim());
+        return Ok(if p.is_absolute() { p.to_path_buf() } else { dir.join(p) });
+    }
+    let aoc = dir.join("aoc");
+    fs::create_dir_all(&aoc).map_err(|e| format!("Cannot create {}: {e}", aoc.display()))?;
+    ini.set("fs", "aoc_dir", &portable(dir, &crate::dump::fwd(&aoc)));
+    write_atomic(&path, &ini.to_text())?;
+    Ok(aoc)
+}
+
 #[cfg(test)]
 mod reset_tests {
     use super::*;
@@ -278,5 +295,24 @@ mod reset_tests {
         let names: std::collections::HashSet<PathBuf> = (0..100).map(|_| temp_beside(&target)).collect();
         assert_eq!(names.len(), 100);
         assert!(names.iter().all(|n| n.parent() == target.parent() && n.to_string_lossy().ends_with(".tmp")), "beside the target, so the rename stays on one volume");
+    }
+}
+
+#[cfg(test)]
+mod aoc_tests {
+    use super::*;
+
+    #[test]
+    fn add_ons_go_to_the_named_folder_or_to_aoc_next_to_the_game() {
+        let dir = std::env::temp_dir().join(format!("pkp-aoc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // no pkp.ini: <dir>/aoc, and the key is written for the game
+        assert_eq!(aoc_target(&dir).unwrap(), dir.join("aoc"));
+        assert_eq!(load(&dir.join(PKP_INI)).unwrap().get("fs", "aoc_dir").as_deref(), Some("aoc"));
+        // a key the user (or the dump) set is followed, relative to the game folder
+        fs::write(dir.join(PKP_INI), "[fs]\naoc_dir = dump/aoc\n").unwrap();
+        assert_eq!(aoc_target(&dir).unwrap(), dir.join("dump/aoc"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

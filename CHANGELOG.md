@@ -8,6 +8,12 @@ of the game (version 2.0.1a): the download contains no game files.
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
+### Launcher
+- Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
+  - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
+  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
+  - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
+
 ### Game
 - Added a **Search** button to the crafting menu (#324)
   - Before: finding a recipe meant scrolling through the tabs
@@ -24,10 +30,20 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: clicking broke or placed a block off to the side of the one under the pointer
   - Now: your character turns to the block under the pointer before swinging, so the click lands on it
 
+### Graphics
+- Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
+  - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
+  - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
+  - Still not: bloom and other soft glow effects stay smooth on purpose
+
 ### Controls
 - Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
   - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
   - Now: press left or right on the row (or click it), the row says "Press the new key", then press any key, mouse button or wheel notch. Esc cancels. It works every time, and F1 can't be picked by mistake
+- Added a **Steam Deck** button icon style, and Automatic now picks it on a Steam Deck
+  - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
+  - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
+  - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
 ## 0.9.0 (build M: Monkey)
 

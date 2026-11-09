@@ -146,7 +146,17 @@ async function unpack(path) {
   if (dir) await check(dir);
 }
 
-/** A folder or a .nup, from a dialog, the path field or a drop. */
+/** Unpacks the add-on (DLC) of a decrypted .nsp next to the game; the game lists it at its next start. */
+async function addDlc(path) {
+  try {
+    const ids = await api.importDlc({ path });
+    toast(`DLC added (${ids.join(', ')}). It shows in the game at its next start.`);
+  } catch (e) {
+    toast(errText(e), 'error');
+  }
+}
+
+/** A folder, a .nup or the DLC .nsp, from a dialog, the path field or a drop. */
 function take(path) {
   const s = store.state;
   const p = path.trim();
@@ -154,6 +164,7 @@ function take(path) {
   if (setupRunning(s)) return toast(SETUP_BUSY, 'error');
   if (s.update) return toast('The launcher is updating.', 'error');
   if (s.nup) return toast('Game files are being unpacked.', 'error');
+  if (/\.nsp$/i.test(p)) return addDlc(p);
   return /\.nup$/i.test(p) ? unpack(p) : check(p);
 }
 
@@ -294,6 +305,7 @@ function detailsHtml() {
       <p>The files must already be decrypted. The highest valid update is used, otherwise the base game.</p>
       <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game. Add-ons (DLC) in it are unpacked to nup_dump/aoc and found on their own.</p>
       <p>The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).</p>
+      <p>DLC comes as a decrypted .nsp: press Add DLC (or drop the file here) and its add-on is unpacked into the folder pkp.ini's aoc_dir names, aoc next to the game when it names none.</p>
     </div>
   </details>`;
 }
@@ -310,6 +322,7 @@ function filesHtml(s) {
       <div>${esc(name)}${aoc ? `, ${aoc} add-on${aoc > 1 ? 's' : ''}` : ''}</div>
       <div class="path">${esc(path)}</div>
     </div>
+    <button class="btn sm" data-act="dlc">Add DLC</button>
     <button class="btn sm" data-act="change">Change</button>
   </div>`;
 }
@@ -523,6 +536,7 @@ export function render(el, ctx) {
     switch (act) {
       case 'folder': return pick(api.pickFolder, { title: 'Choose your Pokopia game files folder', start: flow.saved || null });
       case 'nup': return pick(api.pickNup, { start: null });
+      case 'dlc': return pick(api.pickNsp);
       case 'type':
         flow.typing = true;
         draw();

@@ -38,6 +38,7 @@ struct SetMemo {
     const void* spool = nullptr;
     const void* su_tex = nullptr;
     VkImageView su_view = VK_NULL_HANDLE;
+    uint64_t su_near = 0;
     uint32_t n = 0;
     uint64_t h[32] = {};
     VkDescriptorSet ds = VK_NULL_HANDLE;
@@ -52,6 +53,8 @@ static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.spool = S.spool.get();
     m.su_tex = g_su_tex;
     m.su_view = g_su_view;
+    m.su_near = g_su_near_n;
+    for (uint32_t i = 0; i < g_su_near_n; ++i) m.su_near = fnv_step(m.su_near, reinterpret_cast<uint64_t>(g_su_near[i]));
     m.n = 0;
     for (const BindingDesc& d : pl.bindings) {
         if (d.set != set) continue;
@@ -73,7 +76,7 @@ static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
 }
 static bool set_memo_same(const SetMemo& a, const SetMemo& b) {
     return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
-           a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
+           a.su_view == b.su_view && a.su_near == b.su_near && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
 }
 // c[0] of a stage that reads it, filled from the current bindings (nvn_driver_bank.h): a Switch 2 compute program's resource table
 // (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels); a graphics stage's storage
@@ -306,7 +309,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                    } else if (r.tex == g_su_tex) {                  // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
+                    } else if (su_nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
                         ii.sampler = dummy_sampler();
                     }
                 } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {

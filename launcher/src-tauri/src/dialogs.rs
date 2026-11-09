@@ -24,3 +24,10 @@ pub async fn pick_nup(app: AppHandle, start: Option<String>) -> Option<String> {
     }
     dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
 }
+
+/// Asks for the DLC .nsp ("Add DLC"); None when the dialog is closed.
+#[tauri::command]
+pub async fn pick_nsp(app: AppHandle) -> Option<String> {
+    let dlg = app.dialog().file().set_title("Choose your Pokopia DLC .nsp").add_filter("NSP package", &["nsp"]);
+    dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
+}

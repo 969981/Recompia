@@ -31,9 +31,11 @@ export const api = {
   // Choosing the game files
   pickFolder: (args) => invoke('pick_folder', args),   // { title, start }
   pickNup: (args) => invoke('pick_nup', args),   // { start }
+  pickNsp: () => invoke('pick_nsp'),
   validateDump: (args) => invoke('validate_dump', args),   // { path }
   saveDump: (args) => invoke('save_dump', args),   // { path }
   importNup: (args) => invoke('import_nup', args),   // { path }
+  importDlc: (args) => invoke('import_dlc', args),   // { path }
   cancelNup: () => invoke('cancel_nup'),
 
   // Play and setup
