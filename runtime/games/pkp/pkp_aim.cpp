@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Camera aim: the highlighted cell or area of an ability or tool is aimed where the camera looks, not where the character faces.
-// [pkp] camera_aim (on by default).
+// [pkp] camera_aim (off by default).
 //
 // The game's command target query 0x71002e19a0 (x1 = the character; every ability, tool and item preview and action asks it which
 // cells are in front) reads the character's heading through the character's virtual +0x18 (the call returns at 0x71002e1a14 with s0 =
@@ -222,7 +222,7 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void aim_install(uint64_t base) {
-    if (!config_get_bool("pkp", "camera_aim", true)) return;
+    if (!config_get_bool("pkp", "camera_aim", false)) return;
     g.base = base;
     hook_add_mid(base + kHeadingRead, &hook_heading);
     hook_add_mid(base + kSwingPreview, &hook_swing_preview);

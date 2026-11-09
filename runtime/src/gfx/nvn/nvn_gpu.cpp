@@ -1080,6 +1080,9 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
 uint64_t queue_record(std::function<void(Frame&)> record) {
     return queue_submit(std::move(record), true, false);
 }
+uint64_t queue_post(std::function<void(Frame&)> record) {
+    return queue_submit(std::move(record), false, false);
+}
 
 // Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the
 // next present), polling every 0.5 ms, then waits for it on the GPU (wait_serial: a serial still in the batch is flushed at once, an
@@ -1222,7 +1225,17 @@ bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
     wi.semaphoreCount = 1;
     wi.pSemaphores = &g->timeline;
     wi.pValues = &serial;
+    const auto w0 = std::chrono::steady_clock::now();
     const VkResult r = vkWaitSemaphores(g->dev->device(), &wi, timeout_ns);
+    {   // a long wait of the game on the graphics card is logged (at most 20 lines a session): which serial, how long the game was willing to
+        // wait, and where the queue stood, so a report of "the game suddenly runs at 4 fps" can say what it was waiting for
+        static std::atomic<int> logged{0};
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - w0).count();
+        if (ms >= 100.0 && logged.load(std::memory_order_relaxed) < 20 && logged.fetch_add(1, std::memory_order_relaxed) < 20)
+            NXLOG_W(kTag, "slow sync wait: %.0f ms for serial %llu (timeout %llu ns, result %d), last submitted %llu, completed %llu", ms,
+                    static_cast<unsigned long long>(serial), static_cast<unsigned long long>(timeout_ns), static_cast<int>(r),
+                    static_cast<unsigned long long>(g->last_submitted.load()), static_cast<unsigned long long>(g->completed.load()));
+    }
     g->dev->note_result(r, "vkWaitSemaphores (NVN sync)");
     if (g->dev->device_lost()) complete_serial(std::max(serial, g->reserved.load()));
     else read_completed();

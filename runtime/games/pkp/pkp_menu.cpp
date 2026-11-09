@@ -843,7 +843,7 @@ void menu_install(uint64_t base) {
     for (const DrawSite& d : kDrawSites)
         g_draw_hooks.push_back(hook_add_mid(base + d.off, &hook_pane_draw, reinterpret_cast<void*>(static_cast<uintptr_t>(d.reg))));
     s.installed = true;
-    NXLOG_I(kTag, "menu mouse %s (hover moves the game's cursor, click confirms; [pkp] menu_log %d; 3 = the layout chain once a second)", s.enabled ? "on" : "off", s.log_level);
+    NXLOG_I(kTag, "menu mouse %s (the wheel and keys move the selection, a left click confirms the selected entry, the pointer does not pick; [pkp] menu_log %d; 3 = the layout chain once a second)", s.enabled ? "on" : "off", s.log_level);
 }
 
 void menu_remove() {

@@ -1,4 +1,4 @@
-# source-sha256: bbc8b97f7c219b7daebac3445655f85afe641aecf5d6b34e5de70e2a51bd8bf3
+# source-sha256: 41f44dbb265da119223fc604e1af6953fcc0c51ad237bdcb6945357147ca4bbc
 यह अंग्रेज़ी README का मशीनी अनुवाद है, इसमें गलतियाँ हो सकती हैं, और अंग्रेज़ी README ही आधिकारिक है।
 
 Pokopia PC @VERSION@ Linux, SteamOS और Steam Deck के लिए

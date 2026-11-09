@@ -103,7 +103,10 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
                 let _ = w.minimize();
             }
         }
+        // the player's save backups: a timer while the game runs (when switched on), one more copy once it has ended
+        let backups = crate::savebackup::Watch::start(&dir);
         let result = child.wait();
+        backups.finish();
         let (code, wait_err) = match result {
             Ok(s) => (s.code(), None),
             Err(e) => (None, Some(e.to_string())),
@@ -172,14 +175,17 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
         Err(e) => eprintln!("Shaders were not prepared: {}.", e),
         _ => {}
     }
+    // the same rule as Play in the window: without the active profile in pkp.ini the game could start on another player's account and save
     if let Err(e) = crate::profiles::apply_active(game_dir) {
-        eprintln!("Profile not applied: {}.", e);
+        return fail(format!("The profile could not be applied, so the game was not started: {}", e));
     }
     let clock = match crate::events::override_for(game_dir) {
         Ok(clock) => clock,
         Err(e) => return fail(e),
     };
+    let backups = crate::savebackup::Watch::start(game_dir);   // the same save backups as Play in the window
     let status = game_command(&exe, game_dir, clock).and_then(|mut c| c.status().map_err(|e| format!("Could not start pkp.exe: {}", e)));
+    backups.finish();
     let code = match status {
         Ok(st) => st.code().unwrap_or(1),
         Err(e) => return fail(e),

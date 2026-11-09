@@ -4,11 +4,25 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.8.1 (build L: Lynx)
+
+**Update:** press **Update**, then **Set up again** once when it asks (this release adds hooks for the camera aim option and for the new in-game Options, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
+
+### Highlights
+- The PC settings are now in the game's own Settings screen: nine tabs, switched **on** by default (see Game)
+- Added **Repair and reset** and **Choose a version** to Settings > About, and optional save backups with restore
+- Added a camera aim option and a switch for running jumps that keep your speed; both are **off** by default, turn them on in **Settings > Game > Gameplay**
+- Fixed doubled dialogue text above 1920x1080 (#267) and the story getting stuck above 60 fps (#297)
 
 ### Gameplay
-- Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
-- Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
+- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
+- Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
+
+### Performance
+- Added an option to read a small texture back without waiting, for the long frame about once a second with a frame limit on handhelds such as the Legion Go S and Steam Deck (#276). It is **off by default** and #276 is not fixed
+  - Before: about once a second the game reads a tiny 30x16 texture back from the graphics card. Even after 0.8.0, its main thread waited for that read (about 21 ms on a Legion Go S, 13 ms of it waiting for the graphics card), so a capped frame missed its slot and took about 50 ms
+  - Now (only with `[nvn] readback_defer = true` in `pkp.ini`): a small texture read again and again gets the data of the previous read (about a second old) and the new read finishes in the background, so the main thread does not wait
+  - Still not: with the option on, the game froze for good 15 to 30 seconds after the start in our tests (3 of 3 runs), so it stays off until that is fixed. Please do not turn it on for normal play
 
 ### Fixes
 - Fixed dialogue text showing up doubled and garbled when the picture is rendered above 1920x1080 (#267)
@@ -19,6 +33,58 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: scripted events could wait forever when the game ran faster than 60 fps. Setting the frame limit to 60 got past it
   - Now: events, dialogue, transitions and menus always run at 60 fps as on the console, and free play keeps your frame limit. `[pkp] event_hold = false` turns this off
   - Still not: the exact timer that breaks above 60 fps is not known, so this holds the whole event at 60 fps instead of fixing that timer
+
+### Game
+- Added the PC settings to the game's own Settings screen (on by default; `[pkp] options_menu = 0` in `pkp.ini` brings back the original three tabs)
+  - Before: the display, performance, graphics, picture, mouse, controller and sound settings were only on the F1 page and in the launcher
+  - Now: Settings has nine tabs (Game, Camera and Sound, plus Display, Performance, Graphics, Picture, Mouse and Controller). L and R move through them, long lists and decimals are sliders, and one Save covers every tab. The values are the same ones F1 changes (`controls.ini`)
+  - Still not: the FPS hotkey, quit key, keyboard bindings and pad remap stay on F1, and paths, setup and profiles stay in the launcher. English only; the six new tabs use the Game tab's icon for now
+- Added lines to `pkp.log` for a long wait on the graphics card
+  - Before: when the game suddenly dropped to a few frames a second, the log showed that it was waiting but not for what
+  - Now: a `slow sync wait` line (at most 20 a session) is written when the game waits 100 ms or more, with the wait number, how long the game was willing to wait and where the graphics queue stood
+- Added lines to `pkp.log` that say why the mouse pointer in menus is up or not
+  - Before: when the mouse did nothing in a menu, the log could not say whether the window had lost focus, an overlay was open, the game was not in a menu, or the mouse setting was off
+  - Now: `play: menu pointer gate` lines (at most 24 a session) show the state each time it changes, including whether `[mouse] menu_cursor` is on
+- Fixed three small mistakes in the upscaler code that is switched off in this release (depth direction, number of jitter steps, when the picture history is reset). Nothing changes while the upscalers stay off
+- Fixed `pkp.log` not saying which version you run
+  - Before: the first lines of `pkp.log` read `pkp $env:VERSION` in every release, so a log could not be matched to a build
+  - Now: the line shows the real version of the runtime (for example `0.8.1-beta.6`)
+- Fixed a wrong line in `pkp.log` about the menu mouse
+  - Before: it said the mouse pointer moves the game's cursor in menus. It does not: the wheel and the keys move the selection, and a left click confirms the selected entry
+  - Now: the line says what the mouse does
+
+### Launcher
+- Changed the icon of the launcher program and its AppImage to an R on a green leaf shape
+  - Before: the program icon was a plain game controller on a dark square
+  - Now: the program icon (the file, the taskbar and the desktop) is the new R. Nothing inside the launcher window changes. Testing builds use their own icon (a hammer on the R)
+- Added save backups: **Settings > Saves > Backups** copies your save every 5, 10 or 15 minutes while you play, so you can go back if a bug stops your progress
+  - Before: a save that a bug had broken could only be fixed by restoring a copy you had made yourself
+  - Now: pick a time (it is off until you do), and the launcher keeps the newest copies (10 by default) in `save-backups`, with one more copy when the game closes. **Back up now** makes a copy on request, **Restore** puts a chosen copy back with the game closed and copies your current save first so the restore can be undone. A copy is only made when no save is being written, and updates never touch `save-backups`
+
+- Added **Settings > About > Choose a version**, and a list of Testing builds when you join the Testing channel
+  - Before: Update only ever installed the newest build, and there was no way to read about a build before installing it or to go back
+  - Now: the list shows the builds of your channel (Testing builds and the normal releases on Testing, only releases on Stable), newest first, each with its notes. A newer one installs like an update. Going back to an older one asks first; a long way back (an older release line) shows a stronger warning with a box to tick before it can go on. The launcher first copies your save folder, `pkp.ini`, `controls.ini`, `profiles.json` and `launcher.json` to `rollback-backups` next to the game (the last three are kept), and stops without changing anything if that copy cannot be made. Joining Testing opens the list of Testing builds right away
+- Added a question when you switch the launcher to the Testing channel, and help for testers
+  - Before: switching to Testing just switched, and nothing said what to do when something went wrong
+  - Now: the launcher asks you to confirm, and says Testing builds can have bugs and that testers are expected to share what they find and their pkp.log. While on Testing, Settings > About has **Report a problem** and **Show pkp.log** buttons. Each Testing build's notes now list what to test and how to report, and the bug form asks which channel you were on
+- Fixed a start from a shortcut (Steam, Sunshine) ignoring a profile problem
+  - Before: if the launcher could not write the chosen profile into pkp.ini, a start with `--play` carried on anyway and the game could open another player's save
+  - Now: that start stops with a message, like Play in the launcher window
+- Fixed a damaged profiles.json being replaced without a trace
+  - Before: a cut-off or unreadable profiles.json turned into one default profile, and adding a profile then overwrote the file, losing which save belonged to which profile
+  - Now: the damaged file is first copied to `profiles.json.damaged-<date and time>` next to it, and if that copy cannot be made nothing is changed. Your save folders were never touched
+- Added **Settings > About > Repair and reset** for when a setting or a leftover file causes trouble
+  - Before: the only fix was to edit pkp.ini by hand or delete files
+  - Now: choose what to fix (game settings, controls, launcher settings, caches, old copies of the runtime and launcher). You see the list of files before anything changes, and a copy of the changed settings files is kept, so **Undo last repair** puts them back. Your saves, profiles, shaders and game files are never touched
+- Added a choice of what **Reset game settings** resets, in **Settings > About > Repair and reset**
+  - Before: ticking Reset game settings put every game setting in `pkp.ini` back to the default, with no way to keep part of it
+  - Now: ticking it opens a list with one tick per group: Graphics and performance, Network and Link Play, Gameplay options, Game clock and events, Save backup schedule, and Everything else. All are ticked, so doing nothing resets everything as before. Untick a group to keep it. The list of files you review shows which groups reset, and **Undo last repair** puts the whole file back. Your game folders, profile and Link Play identity are kept either way
+- Added a Testing changelog to **What's New** for players on the Testing channel
+  - Before: Testing builds were listed among the releases, each with the whole pending change list
+  - Now: a **Testing** group with **All Testing changes** (every Testing build since the last stable release, newest first), what changed in each build, and its regressions and known problems as a highlighted block at the top. Stable players see no change
+- Fixed the launcher feeling slow on Linux with an NVIDIA card: changing pages and scrolling lagged
+  - Before: the Sunrise colours were a filter on the full-window background, which the launcher redrew on every page change. The picture itself was also much larger than the window needs
+  - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ## 0.8.0 (build L: Lykoi)
 

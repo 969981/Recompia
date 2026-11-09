@@ -14,7 +14,10 @@ mod profiles;
 mod preflight;
 mod public_ip;
 mod relay;
+mod repair;
+mod rollback;
 mod saveimport;
+mod savebackup;
 mod settings;
 mod setuplog;
 mod shader_archive;
@@ -157,7 +160,20 @@ fn stop_relay(app: &AppHandle) {
     }
 }
 
-fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
+/// A build the player picked (update.rs target_for_tag) instead of the newest newer one. `accepted`: the player confirmed the warning for
+/// an older build (the dialogs ask; this side refuses without it).
+struct Wanted {
+    tag: String,
+    channel: update::Channel,
+    accepted: bool,
+}
+
+fn releases_for(app: &AppHandle, refresh: bool, channel: update::Channel) -> Vec<update::GhRelease> {
+    let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
+    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, channel)
+}
+
+fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
     // asked again right before files move: the download takes minutes
     let idle = || -> Result<(), String> {
@@ -171,7 +187,14 @@ fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
     };
     idle()?;
     let version = update_version(app).ok_or("This build does not update itself.")?;
-    let target = update::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?;
+    // the newest newer build, or the one the player picked
+    let (target, older) = match &wanted {
+        None => (update::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?, false),
+        Some(w) => {
+            let t = update::target_for_tag_here(&releases_for(app, false, w.channel), &w.tag).ok_or("That build cannot be installed on this system.")?;
+            (t, update::check_pick(&version, &w.tag, w.accepted)?)
+        }
+    };
     let paths = update::Paths {
         install: exe_dir(),
         launcher: launcher_path().ok_or("Could not find the launcher's own file.")?,
@@ -180,7 +203,17 @@ fn run_update(app: &AppHandle, st: &update::UpdateState) -> Result<(), String> {
     let mut report = |phase: &str, done: u64, total: u64| {
         let _ = app.emit("update-progress", UpdateProgress { phase: phase.to_string(), done, total });
     };
-    let session = update::install(&target, &paths, st, &mut report, &idle)?;
+    // an older build: the player's data is copied first (rollback.rs), after the download and right before the files move; if the copy
+    // cannot be made nothing is replaced
+    let config_dir = config_path(app).ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();
+    let ready = || -> Result<(), String> {
+        idle()?;
+        if older {
+            rollback::backup(&paths.game_dir, &config_dir, &target.tag)?;
+        }
+        Ok(())
+    };
+    let session = update::install(&target, &paths, st, &mut report, &ready)?;
     report("restart", 0, 1);
     stop_relay(app);
     if let Err(e) = update::relaunch(&paths.launcher, &paths.install) {
@@ -210,7 +243,23 @@ struct UpdateProgress {
 #[tauri::command]
 async fn install_update(app: AppHandle, state: State<'_, Arc<update::UpdateState>>) -> Result<(), String> {
     let st = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, None)).await.map_err(|e| e.to_string())?
+}
+
+/// The builds a channel offers, newest first, with their notes and what going to each one means (update.rs builds). Works for Testing
+/// before the channel is saved, so the join question can list them. Empty for a build that takes no updates.
+#[tauri::command]
+async fn list_builds(app: AppHandle, channel: String, refresh: Option<bool>) -> Vec<update::Build> {
+    let Some(version) = update_version(&app) else { return Vec::new() };
+    tauri::async_runtime::spawn_blocking(move || update::builds_here(&releases_for(&app, refresh.unwrap_or(false), update::Channel::parse(&channel)), &version)).await.unwrap_or_default()
+}
+
+/// Installs the build the player picked (an older one only with `accepted`); the same steps and restart as the update.
+#[tauri::command]
+async fn install_version(app: AppHandle, state: State<'_, Arc<update::UpdateState>>, tag: String, channel: String, accepted: bool) -> Result<(), String> {
+    let st = state.inner().clone();
+    let wanted = Wanted { tag, channel: update::Channel::parse(&channel), accepted };
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, Some(wanted))).await.map_err(|e| e.to_string())?
 }
 
 /// Stops a running update while it is still downloading or unpacking; the install stays as it was.
@@ -921,6 +970,85 @@ fn import_save(app: AppHandle, state: State<play::PlayState>, source: Option<Str
     saveimport::import(&sd, &key, &src)
 }
 
+/// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
+/// updates to be idle. Returns the game folder and the launcher's own settings folder, the only two places a repair may touch.
+fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let cfg = config_path(app)?.parent().map(Path::to_path_buf).ok_or("The launcher settings folder is not known.")?;
+    Ok((game_dir_of(&load_config(app)), cfg))
+}
+
+fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<SetupState>) -> Result<(PathBuf, PathBuf), String> {
+    if play.0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then repair.".into());
+    }
+    refuse_during_update(app)?;
+    if setup.progress.lock().unwrap().state == "running" {
+        return Err("Setup is running. Wait for it to finish, then repair.".into());
+    }
+    repair_paths(app)
+}
+
+#[tauri::command]
+fn repair_plan(app: AppHandle, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Plan, String> {
+    let (game, cfg) = repair_paths(&app)?;
+    repair::plan_with(&game, &cfg, &actions, groups.as_deref())
+}
+
+#[tauri::command]
+fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
+    let (game, cfg) = repair_guard(&app, &play, &setup)?;
+    repair::apply_with(&game, &cfg, &actions, groups.as_deref())
+}
+
+#[tauri::command]
+fn repair_undo(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>) -> Result<repair::Report, String> {
+    let (game, cfg) = repair_guard(&app, &play, &setup)?;
+    repair::undo(&game, &cfg)
+}
+
+#[tauri::command]
+fn repair_last(app: AppHandle) -> Result<Option<repair::BackupInfo>, String> {
+    let (game, _) = repair_paths(&app)?;
+    Ok(repair::last_backup(&game))
+}
+
+/// Save backups (savebackup.rs): the status, the list and a copy on request work at any time; a restore needs the game closed. They run
+/// on a worker thread because a copy can wait a moment for the runtime to finish writing the save.
+#[tauri::command]
+async fn backup_status(app: AppHandle) -> Result<savebackup::Status, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::status(&dir)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn backup_list(app: AppHandle) -> Result<Vec<savebackup::Entry>, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::list(&dir)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn backup_now(app: AppHandle) -> Result<savebackup::Outcome, String> {
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::snapshot(&dir, savebackup::KIND_MANUAL)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn backup_restore(app: AppHandle, name: String) -> Result<savebackup::Restored, String> {
+    if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+        return Err("The game is running. Close it first, then restore a backup.".into());
+    }
+    refuse_during_update(&app)?;
+    let dir = game_dir_of(&load_config(&app));
+    tauri::async_runtime::spawn_blocking(move || savebackup::restore(&dir, &name)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn open_backup_dir(app: AppHandle) -> Result<(), String> {
+    let dir = game_dir_of(&load_config(&app)).join(savebackup::DIR);
+    fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {}", dir.display(), e))?;
+    play::open_with_shell(&dir)
+}
+
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
 fn profiles_list(app: AppHandle) -> profiles::Store {
@@ -1302,6 +1430,8 @@ fn main() {
             launcher_state,
             get_releases,
             install_update,
+            list_builds,
+            install_version,
             cancel_update,
             open_release_url,
             save_config,
@@ -1335,6 +1465,15 @@ fn main() {
             profile_rename,
             profile_remove,
             profile_select,
+            repair_plan,
+            repair_apply,
+            repair_undo,
+            repair_last,
+            backup_status,
+            backup_list,
+            backup_now,
+            backup_restore,
+            open_backup_dir,
             open_game_file,
             open_game_dir,
             relay_start,

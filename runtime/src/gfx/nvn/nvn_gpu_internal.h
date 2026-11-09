@@ -393,6 +393,7 @@ bool tex_was_read_back(Texture* t);
 // Any thread but the render thread. queue_record: queue_submit without the GPU wait (returns the serial once the render thread recorded
 // the job). wait_serial_grace: up to grace_ns for the render thread to flush the serial itself, then wait_serial(serial, UINT64_MAX).
 uint64_t queue_record(std::function<void(struct Frame&)> record);
+uint64_t queue_post(std::function<void(struct Frame&)> record);   // [nvn] readback_defer: returns at once (the serial is reserved, not yet recorded)
 struct WaitTimes { uint64_t grace_ns = 0, wait_ns = 0; bool forced_flush = false; };   // [nvn] readback_log: where a read's wait went
 bool wait_serial_grace(uint64_t serial, uint64_t grace_ns, WaitTimes* times = nullptr);
 // download_texture's counts (any thread; tests, the summary): copies recorded, readbacks skipped as unchanged, readbacks in all.

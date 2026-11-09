@@ -107,6 +107,13 @@ struct TexGpu {
     gfx::Buffer rb;
     std::vector<uint64_t> rb_gen;
     std::vector<std::vector<uint8_t>> rb_have;
+    // [nvn] readback_defer (rb_mu): the copy the last read queued without waiting (serial 0: none) and the level/layer range it covers,
+    // tiled into the storage by the next read; rb_last/rb_last_range: when and what the last read asked for.
+    uint64_t rb_defer_serial = 0;
+    std::shared_ptr<std::atomic<bool>> rb_defer_copied;
+    uint32_t rb_defer_range[4] = {};
+    std::chrono::steady_clock::time_point rb_last{};
+    uint32_t rb_last_range[4] = {};
 };
 
 // A virtual-pool texture too big to back fully (Mario Kart World's terrain virtual texture caches: 8192x8192 arrays of 68 layers, 1.4 to
@@ -2843,6 +2850,7 @@ struct RbConfig {
     int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: 0, flush at once; -2: one frame at the limiter's target, 33 ms when unknown)
     bool check = false;         // [nvn] readback_check
     bool log = false;           // [nvn] readback_log
+    bool defer = false;         // [nvn] readback_defer (off: it froze the game, see CONFIG.md)
 };
 const RbConfig& rb_config() {
     static const RbConfig c = [] {
@@ -2851,8 +2859,10 @@ const RbConfig& rb_config() {
         r.grace_ms = nxrt::config_get_int("nvn", "readback_grace_ms", -1);
         r.check = nxrt::config_get_bool("nvn", "readback_check", false);
         r.log = nxrt::config_get_bool("nvn", "readback_log", false);
-        NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s", r.async ? "on" : "off",
-                r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off");
+        r.defer = nxrt::config_get_bool("nvn", "readback_defer", false);
+        NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s, defer %s", r.async ? "on" : "off",
+                r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off",
+                r.defer ? "on" : "off");
         return r;
     }();
     return c;
@@ -2923,7 +2933,7 @@ void rb_note(Texture* t, const TexGpu& g, const TexLayout& L, uint32_t l0, uint3
 // out and wait_serial had to flush an extra submission.
 struct RbTimes {
     uint64_t queue = 0, record = 0, grace = 0, wait = 0, invalidate = 0, tile = 0, total = 0;
-    bool forced = false, async = true, skipped = false;
+    bool forced = false, async = true, skipped = false, deferred = false;
 };
 void rb_report(const Texture* t, const TexGpu& g, const RbTimes& r) {
     using clock = std::chrono::steady_clock;
@@ -2938,9 +2948,9 @@ void rb_report(const Texture* t, const TexGpu& g, const RbTimes& r) {
         ++lines;
         last_line = now;
         const char* thr = nxrt::log_thread_name();
-        NXLOG_I(kTag, "readback_log: texture %u (%s %ux%u), thread %s, %s%s: queue %.2f record %.2f grace %.2f wait %.2f invalidate %.2f tile %.2f total %.2f ms%s",
+        NXLOG_I(kTag, "readback_log: texture %u (%s %ux%u), thread %s, %s%s%s: queue %.2f record %.2f grace %.2f wait %.2f invalidate %.2f tile %.2f total %.2f ms%s",
                 t->id, g.fmt ? g.fmt->name : "?", g.base.width, g.base.height, (thr && *thr) ? thr : "?", r.async ? "async" : "sync",
-                r.skipped ? " skipped" : "", r.queue * ms, r.record * ms, r.grace * ms, r.wait * ms, r.invalidate * ms, r.tile * ms, r.total * ms,
+                r.skipped ? " skipped" : "", r.deferred ? " deferred" : "", r.queue * ms, r.record * ms, r.grace * ms, r.wait * ms, r.invalidate * ms, r.tile * ms, r.total * ms,
                 r.forced ? " forced-flush" : "");
     }
     if (now - window >= std::chrono::seconds(10)) {
@@ -3032,6 +3042,33 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
     job.copied = true;
 }
 
+// Tiles the levels and layers asked for from the readback buffer into the game's storage (the GPU is done with the copy).
+void rb_tile(Texture* t, const TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
+    NXFT("rb.tile");
+    const uint8_t* src = static_cast<const uint8_t*>(g->rb.mapped);
+    for (uint32_t l = l0; l < l0 + nl; ++l) {
+        const tegra::LevelLayout& lv = L.layout.levels[l];
+        for (uint32_t y = y0; y < y0 + ny; ++y)
+            tegra::tile_level(L.desc, lv, src + lv.linear_offset + static_cast<uint64_t>(y) * lv.linear_slice_size,
+                              t->mem + y * L.layout.tiled_layer_stride + lv.tiled_offset);
+    }
+}
+
+// [nvn] readback_defer: puts the copy the last read queued into the storage (rb_mu held). It ran a read period ago, so the GPU is
+// normally done with it and nothing is flushed or waited for.
+void rb_land(Texture* t, TexGpu* g, const TexLayout& L) {
+    const uint64_t serial = std::exchange(g->rb_defer_serial, 0);
+    if (!serial) return;
+    {
+        NXFT("rb.land");
+        wait_serial_grace(serial, 0);
+    }
+    const uint32_t* r = g->rb_defer_range;
+    if (device().device_lost() || !g->rb_defer_copied->load() || r[0] + r[1] > L.levels || r[2] + r[3] > L.layers) return;
+    device().invalidate_buffer(g->rb);
+    rb_tile(t, g, L, r[0], r[1], r[2], r[3]);
+}
+
 // readback_async = false (and calls on the render thread): the old path. Every level, earlier submissions drained first (finish), the
 // copy waited for on the render thread (run_frame_sync), the whole storage tiled again.
 bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
@@ -3087,7 +3124,13 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
         if (logged++ < 10) NXLOG_W(kTag, "texture %u: a scaled render target is not read back into game memory", t->id);
         return false;
     }
-    if (t->cpu_dirty.load()) return false;
+    if (t->cpu_dirty.load()) {
+        // ponytail: a deferred copy older than the CPU's write must not land over it. A CPU write and its upload both between two reads
+        // (never seen here) are not caught; readback_defer = false if a game does that.
+        std::lock_guard<std::mutex> lk(g->rb_mu);
+        g->rb_defer_serial = 0;
+        return false;
+    }
     if (!(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || g->layout == VK_IMAGE_LAYOUT_UNDEFINED) return false;
     const TexLayout L = compute_texture_layout(t->b);
     if (!L.valid || !L.block_linear) return false;
@@ -3111,6 +3154,36 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     }
 
     std::lock_guard<std::mutex> lk(g->rb_mu);
+    rb_land(t, g, L);   // before anything records into rb again
+
+    // [nvn] readback_defer (#276): a small texture the game reads again and again (Pokopia: texture 286, 30x16, about once a second) gets
+    // the data of its previous read, and this read's copy is queued without waiting; the next read lands it. The reading thread (often
+    // the game's main thread) then never waits for the GPU: on a capped frame rate the old forced flush and GPU wait (about 13 ms, 21 ms
+    // in all on a Legion Go S at 40 fps) made the frame miss its slot. A first read, or one after a pause, waits as before.
+    const uint32_t range[4] = {l0, nl, y0, ny};
+    const auto now = rb_clock::now();
+    const bool repeat = g->rb_last.time_since_epoch().count() != 0 && now - g->rb_last < std::chrono::seconds(2) &&
+                        std::equal(range, range + 4, g->rb_last_range);
+    g->rb_last = now;
+    std::copy(range, range + 4, g->rb_last_range);
+    // ponytail: 64 KiB and 2 s are guesses that keep one-off reads (photos, thumbnails: bigger, not repeated) on the waiting path.
+    constexpr uint64_t kDeferMaxBytes = 64 * 1024;
+    if (cfg.defer && repeat && L.layout.linear_size <= kDeferMaxBytes) {
+        auto copied = std::make_shared<std::atomic<bool>>(false);
+        g->rb_defer_serial = queue_post([keep = Ref<Texture>::share(t), g, L, l0, nl, y0, ny, copied](Frame& f) {
+            RbJob job;
+            rb_record(f, keep.get(), g, L, l0, nl, y0, ny, job);
+            copied->store(job.copied);
+        });
+        g->rb_defer_copied = copied;
+        std::copy(range, range + 4, g->rb_defer_range);
+        g_rb_copies.fetch_add(1);
+        if (cfg.log) { times.deferred = true; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
+        rb_note(t, *g, L, l0, nl, y0, ny, "deferred (the previous read's data; this copy lands on the next read)");
+        if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);
+        return true;
+    }
+
     RbJob job;
     uint64_t serial = 0;
     {
@@ -3139,16 +3212,7 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     device().invalidate_buffer(g->rb);
     const auto t_inv1 = cfg.log ? rb_clock::now() : rb_clock::time_point();
     if (cfg.log) times.invalidate = rb_ns(t_inv0, t_inv1);
-    {
-        NXFT("rb.tile");
-        const uint8_t* src = static_cast<const uint8_t*>(g->rb.mapped);
-        for (uint32_t l = l0; l < l0 + nl; ++l) {
-            const tegra::LevelLayout& lv = L.layout.levels[l];
-            for (uint32_t y = y0; y < y0 + ny; ++y)
-                tegra::tile_level(L.desc, lv, src + lv.linear_offset + static_cast<uint64_t>(y) * lv.linear_slice_size,
-                                  t->mem + y * L.layout.tiled_layer_stride + lv.tiled_offset);
-        }
-    }
+    rb_tile(t, g, L, l0, nl, y0, ny);
     if (cfg.log) { const auto t_end = rb_clock::now(); times.tile = rb_ns(t_inv1, t_end); times.total = rb_ns(t_start, t_end); rb_report(t, *g, times); }
     rb_note(t, *g, L, l0, nl, y0, ny, "copied");
     if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);

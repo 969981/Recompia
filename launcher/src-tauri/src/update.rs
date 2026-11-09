@@ -59,7 +59,8 @@ const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.exe";
 const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.AppImage";
 
 /// Top-level names that belong to the player. make-release.ps1 refuses to ship most of them; `apply` skips them all the same.
-const KEEP: [&str; 8] = ["save", "pkp.ini", "profiles.json", "controls.ini", "shader_cache", "build", "nup_dump", UPDATE_DIR];
+/// Never replaced or removed by an update: the player's save, the copies of it (`save-backups`, savebackup.rs; `rollback-backups`, rollback.rs) and settings.
+const KEEP: [&str; 10] = ["save", "save-backups", "pkp.ini", "profiles.json", "controls.ini", "shader_cache", "build", "nup_dump", "rollback-backups", UPDATE_DIR];
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Release {
@@ -330,6 +331,119 @@ pub fn load_releases(store: &ReleaseStore, cache: &Path, version: &str, refresh:
     };
     *mem = Some(list.clone());
     for_channel(list, channel)
+}
+
+/// One build the player can pick: what What's New knows about it plus whether it can be installed here and what going to it means.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Build {
+    pub tag: String,
+    pub name: String,
+    pub date: String,
+    /// the release notes (the "readme" of the build), markdown
+    pub notes: String,
+    pub url: String,
+    pub prerelease: bool,
+    /// this system's package and the checksum file are there
+    pub installable: bool,
+    /// "newer", "installed" or "older" than the running build
+    pub relation: String,
+    /// "none" (newer or the same), "low" (older, same release line) or "high" (older release line)
+    pub risk: String,
+    pub reasons: Vec<String>,
+}
+
+/// Facts about what an older version does not know, by the version that introduced them: going back across one of them is a risk.
+const BOUNDARIES: [(&str, &str); 2] = [
+    ("0.8.0", "Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player's save may not be found."),
+    ("0.7.5", "The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand."),
+];
+
+/// What going from `current` to the build `tag` means: ("none" | "low" | "high", the reasons). Newer or the same: none. Older in the same
+/// release line (same major and minor): low. Older release line, or one that crosses a BOUNDARY: high. Anything unparsable: high.
+pub fn downgrade_risk(current: &str, tag: &str) -> (String, Vec<String>) {
+    let (Some(c), Some(t)) = (Version::parse(current), Version::parse(tag)) else {
+        return ("high".into(), vec!["That version could not be compared with the one you have.".into()]);
+    };
+    if t >= c {
+        return ("none".into(), Vec::new());
+    }
+    let mut reasons = Vec::new();
+    let mut crossed = false;
+    for (since, text) in BOUNDARIES {
+        if let Some(s) = Version::parse(since) {
+            if t < s && s <= c {
+                crossed = true;
+                reasons.push(text.to_string());
+            }
+        }
+    }
+    reasons.push("The game files may have to be built again for the older version, so Set up again can be asked (about 15 to 20 minutes).".into());
+    reasons.push("Files that only the newer version has stay in the folder; they are not removed.".into());
+    let line = |v: &Version| (v.core[0], v.core[1]);
+    let level = if crossed || line(&t) != line(&c) { "high" } else { "low" };
+    (level.into(), reasons)
+}
+
+/// The rule for installing a build the player picked: Ok(true) when it is an older build (the player's data is copied first), Ok(false)
+/// for a newer one. Err: the same build, or an older one the player did not confirm.
+pub fn check_pick(current: &str, tag: &str, accepted: bool) -> Result<bool, String> {
+    let bare = |v: &str| v.trim().trim_start_matches(['v', 'V']).to_string();
+    if bare(current) == bare(tag) {
+        return Err("You already have that build.".into());
+    }
+    let (risk, _) = downgrade_risk(current, tag);
+    if risk != "none" && !accepted {
+        return Err("Going back to an older build needs your confirmation first. Nothing was changed.".into());
+    }
+    Ok(risk != "none")
+}
+
+/// Every release of the list as a pick for the player, newest first. `current`: the running version.
+pub fn builds(list: &[GhRelease], current: &str, suffix: &str) -> Vec<Build> {
+    let mut out: Vec<(Option<Version>, Build)> = list
+        .iter()
+        .map(|r| {
+            let v = Version::parse(&r.tag_name);
+            let relation = match (&v, Version::parse(current)) {
+                (Some(t), Some(c)) if *t > c => "newer",
+                (Some(t), Some(c)) if *t == c => "installed",
+                (Some(_), Some(_)) => "older",
+                _ => "newer",
+            };
+            let (risk, reasons) = downgrade_risk(current, &r.tag_name);
+            let b = Build {
+                tag: r.tag_name.clone(),
+                name: r.title(),
+                date: r.published_at.clone().unwrap_or_default(),
+                notes: r.body.clone().unwrap_or_default(),
+                url: r.html_url.clone(),
+                prerelease: r.prerelease,
+                installable: v.is_some() && asset_for(r, suffix).is_some() && sums_of(r).is_some(),
+                relation: relation.into(),
+                risk,
+                reasons,
+            };
+            (v, b)
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.into_iter().map(|(_, b)| b).collect()
+}
+
+/// The release with exactly this tag, when it can be installed here (this system's package and the checksum file).
+pub fn target_for_tag(list: &[GhRelease], tag: &str, suffix: &str) -> Option<Target> {
+    let r = list.iter().find(|r| r.tag_name == tag)?;
+    Version::parse(&r.tag_name)?;
+    let (a, s) = (asset_for(r, suffix)?, sums_of(r)?);
+    Some(Target { tag: r.tag_name.clone(), asset: a.name.clone(), asset_url: a.browser_download_url.clone(), size: a.size, sums_url: s.browser_download_url.clone() })
+}
+
+pub fn target_for_tag_here(list: &[GhRelease], tag: &str) -> Option<Target> {
+    target_for_tag(list, tag, ASSET_SUFFIX)
+}
+
+pub fn builds_here(list: &[GhRelease], current: &str) -> Vec<Build> {
+    builds(list, current, ASSET_SUFFIX)
 }
 
 /// What `install` fetches.
@@ -969,5 +1083,90 @@ mod channel_tests {
         let testing = for_channel(all, Channel::Testing);
         let (r, _, _) = pick_update(&testing, "0.8.1-beta.2", "-linux-x64.tar.gz").unwrap();
         assert_eq!(r.tag_name, "v0.8.1");
+    }
+
+    #[test]
+    fn going_back_is_ranked_by_how_far() {
+        let r = |cur: &str, tag: &str| downgrade_risk(cur, tag).0;
+        assert_eq!(r("0.8.1-beta.6", "v0.8.1-beta.7"), "none");
+        assert_eq!(r("0.8.1-beta.6", "v0.8.1-beta.6"), "none");
+        assert_eq!(r("0.8.1-beta.6", "v0.8.1-beta.5"), "low", "an earlier build of the same line");
+        assert_eq!(r("0.8.1", "v0.8.1-beta.6"), "low", "a release is newer than its own beta");
+        assert_eq!(r("0.8.1", "v0.8.0"), "low");
+        assert_eq!(r("0.8.0", "v0.7.9"), "high", "another release line, and profiles are older than it");
+        assert_eq!(r("0.7.9", "v0.7.8"), "low");
+        assert_eq!(r("0.7.9", "v0.7.0"), "high", "the one-click updater is older than 0.7.5");
+        assert_eq!(r("0.7.9", "v0.7.5"), "low");
+        assert_eq!(r("0.8.0", "not-a-version"), "high");
+        let (_, reasons) = downgrade_risk("0.8.0", "v0.7.9");
+        assert!(reasons.iter().any(|x| x.contains("Profiles")) && reasons.iter().any(|x| x.contains("Set up again")), "{:?}", reasons);
+        assert!(downgrade_risk("0.8.1", "v0.8.0").1.iter().any(|x| x.contains("Set up again")));
+        assert!(downgrade_risk("0.8.1", "v0.9.0").1.is_empty(), "nothing to warn about going forward");
+    }
+
+    #[test]
+    fn builds_are_listed_newest_first_with_their_relation_to_the_running_one() {
+        let all = list_of(&[("v0.8.0", false), ("v0.8.1-beta.6", true), ("v0.7.9", false), ("v0.8.1-beta.5", true)]);
+        let b = builds(&all, "0.8.1-beta.5", "-linux-x64.tar.gz");
+        let tags: Vec<&str> = b.iter().map(|x| x.tag.as_str()).collect();
+        assert_eq!(tags, ["v0.8.1-beta.6", "v0.8.1-beta.5", "v0.8.0", "v0.7.9"]);
+        let rel: Vec<&str> = b.iter().map(|x| x.relation.as_str()).collect();
+        assert_eq!(rel, ["newer", "installed", "older", "older"]);
+        assert_eq!(b[0].risk, "none");
+        assert_eq!(b[2].risk, "low");
+        assert_eq!(b[3].risk, "high");
+        assert!(b.iter().all(|x| x.installable), "each fixture has a package and a checksum file");
+        assert!(b[0].prerelease && !b[2].prerelease);
+    }
+
+    #[test]
+    fn a_build_without_a_package_or_checksum_is_listed_but_not_installable() {
+        let body = format!("[{},{}]", rel("v0.8.1", false), r#"{"tag_name":"v0.8.0","name":"x","html_url":"https://github.com/featureJosh/Recompia/releases/tag/v0.8.0","draft":false,"prerelease":false,"assets":[]}"#);
+        let all = parse_releases(body.as_bytes()).unwrap();
+        let b = builds(&all, "0.8.1", "-linux-x64.tar.gz");
+        assert_eq!(b.len(), 2);
+        assert!(b[0].installable && !b[1].installable);
+        assert!(target_for_tag(&all, "v0.8.0", "-linux-x64.tar.gz").is_none());
+        assert!(target_for_tag(&all, "v0.8.1", "-linux-x64.tar.gz").is_some());
+    }
+
+    #[test]
+    fn a_tag_that_is_not_in_the_list_is_refused_and_a_channel_list_decides_what_can_be_picked() {
+        let all = list_of(&[("v0.8.1-beta.6", true), ("v0.8.0", false)]);
+        assert!(target_for_tag(&all, "v9.9.9", "-linux-x64.tar.gz").is_none());
+        assert!(target_for_tag(&all, "nonsense", "-linux-x64.tar.gz").is_none());
+        let stable = for_channel(all.clone(), Channel::Stable);
+        assert!(target_for_tag(&stable, "v0.8.1-beta.6", "-linux-x64.tar.gz").is_none(), "a Stable list never offers a Testing build");
+        assert!(builds(&stable, "0.8.0", "-linux-x64.tar.gz").iter().all(|b| !b.prerelease));
+        assert!(target_for_tag(&all, "v0.8.1-beta.6", "-linux-x64.tar.gz").is_some());
+    }
+
+    #[test]
+    fn an_older_build_is_refused_without_the_players_confirmation_and_the_same_build_always() {
+        assert_eq!(check_pick("0.8.1-beta.6", "v0.8.1-beta.7", false), Ok(false), "going forward needs no question");
+        assert!(check_pick("0.8.1-beta.6", "v0.8.1-beta.5", false).unwrap_err().contains("confirmation"));
+        assert_eq!(check_pick("0.8.1-beta.6", "v0.8.1-beta.5", true), Ok(true));
+        assert!(check_pick("0.8.0", "v0.7.9", false).is_err());
+        assert_eq!(check_pick("0.8.0", "v0.7.9", true), Ok(true));
+        assert!(check_pick("0.8.0", "v0.8.0", true).unwrap_err().contains("already"));
+        assert!(check_pick("0.8.0", "V0.8.0", false).is_err());
+        assert!(check_pick("0.8.0", "garbage", false).is_err(), "an unknown version counts as risky");
+    }
+
+    #[test]
+    fn the_plain_update_still_picks_the_newest_newer_build_and_ignores_older_ones() {
+        let all = list_of(&[("v0.8.1", false), ("v0.8.0", false), ("v0.7.9", false)]);
+        assert_eq!(pick_update(&all, "0.8.0", "-linux-x64.tar.gz").unwrap().0.tag_name, "v0.8.1");
+        assert!(pick_update(&all, "0.8.1", "-linux-x64.tar.gz").is_none(), "nothing newer: an older build is never an update");
+    }
+}
+
+#[cfg(test)]
+mod keep_tests {
+    use super::*;
+
+    #[test]
+    fn an_update_never_touches_the_players_save_backups() {
+        assert!(KEEP.contains(&"save-backups") && KEEP.contains(&"save"), "the save and its backups stay through an update");
     }
 }
