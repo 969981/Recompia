@@ -335,6 +335,8 @@ const GameVocabulary* game_vocabulary();             // the registered game's, o
 const char* key_wheel_cycles();
 
 // ---- the settings file ---------------------------------------------------------------------------------------------------------
+// Every key of the fixed sections, with its range and default, is a row of the settings table (play_config_table.cpp), which the reader,
+// the writer, docs/CONFIG.md and the launcher's schema follow; the summary below is the overview.
 // Plain ini, '#' or ';' starts a comment. Sections and keys are case-insensitive, whitespace around names and values is ignored.
 //   [meta]     defaults_rev = <n>   (written by the game; the factory-defaults revision of the file, a file without it counts as 0)
 //   [mouse]    yaw = 0.000768   pitch = 0.000768   invert_y = 0   invert_x = 0   menu_cursor = 1   wheel_beams = 1     (radians per count)

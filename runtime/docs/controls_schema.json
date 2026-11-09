@@ -1,0 +1,137 @@
+{
+  "file": "controls.ini",
+  "sections": [
+    {"name": "meta", "keys": [
+        {"key": "defaults_rev", "type": "int", "default": "5", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."}
+    ]},
+    {"name": "mouse", "keys": [
+        {"key": "yaw", "type": "real", "default": "0.000767945", "doc": "Horizontal mouse sensitivity in radians per count."},
+        {"key": "pitch", "type": "real", "default": "0.000767945", "doc": "Vertical mouse sensitivity in radians per count."},
+        {"key": "yaw_source", "type": "real", "read_only": true, "doc": "Horizontal sensitivity on the Source engine scale (0.022 degrees per count at 1.0), stored as yaw. When both forms appear the last one wins."},
+        {"key": "pitch_source", "type": "real", "read_only": true, "doc": "Vertical sensitivity on the Source engine scale, stored as pitch."},
+        {"key": "invert_y", "type": "bool", "default": "0", "doc": "1: moving the mouse up looks down."},
+        {"key": "invert_x", "type": "bool", "default": "0", "doc": "1: moving the mouse right looks left."},
+        {"key": "menu_cursor", "type": "bool", "default": "1", "doc": "In menus the mouse is a pointer: a visible cursor, left click activates, right click goes back, the wheel scrolls."},
+        {"key": "wheel_cycles", "type": "bool", "default": "1", "doc": "Kept in the file; no action reads it since the cycle actions went. A game may rename the key."}
+    ]},
+    {"name": "tweaks", "keys": [
+        {"key": "language", "type": "text", "default": "auto", "auto": "auto", "overridden_by": {"ini": "system.language", "env": "NXRT_SYSTEM_LANGUAGE"}, "doc": "The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start."}
+    ]},
+    {"name": "pad", "keys": [
+        {"key": "label_abxy", "type": "bool", "default": "0", "doc": "0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter."},
+        {"key": "deadzone", "type": "real", "default": "0.1", "min": 0, "max": 0.5, "doc": "Radial dead zone of the left stick (movement), applied before the game's own."},
+        {"key": "right_deadzone", "type": "real", "default": "0.1", "min": 0, "max": 0.5, "fallback": "deadzone", "doc": "Radial dead zone of the right stick (looking)."},
+        {"key": "invert_y", "type": "bool", "default": "0", "doc": "1: the right stick's up looks down, in play only. Adds to the game's own invert option."},
+        {"key": "look_sens", "type": "real", "default": "1", "min": 0.25, "max": 3, "doc": "Multiplies the right stick's deflection in play."},
+        {"key": "trigger_threshold", "type": "real", "default": "0.35", "min": 0.05, "max": 1, "doc": "Analog trigger travel that counts as ZL / ZR pressed."},
+        {"key": "stick_max", "type": "real", "default": "0.92", "min": 0.5, "max": 1, "doc": "Fraction of the left stick's travel that counts as fully pushed (1 = off), for pads that top out below the edge."},
+        {"key": "right_stick_max", "type": "real", "default": "0.92", "min": 0.5, "max": 1, "fallback": "stick_max", "doc": "The same for the right stick."},
+        {"key": "gyro", "type": "bool", "default": "1", "doc": "Pass the pad's gyro to the game's six-axis sensor."},
+        {"key": "gyro_scale", "type": "real", "default": "1", "doc": "Gyro rate multiplier."},
+        {"key": "rumble", "type": "bool", "default": "1", "doc": "Pass the game's rumble to the pad."},
+        {"key": "rumble_scale", "type": "real", "default": "1", "doc": "Rumble strength multiplier."}
+    ]},
+    {"name": "timing", "keys": [
+        {"key": "tap_ms", "type": "int", "default": "200", "min": 1, "max": 5000, "doc": "A press shorter than this is a tap (ms)."},
+        {"key": "hold_ms", "type": "int", "default": "250", "min": 1, "max": 5000, "doc": "A hold starts after this (ms)."},
+        {"key": "double_ms", "type": "int", "default": "300", "min": 1, "max": 5000, "doc": "The second press of a double tap must come within this of the first release (ms)."},
+        {"key": "pulse_ms", "type": "int", "default": "80", "min": 1, "max": 5000, "doc": "How long a tap or a wheel notch stays pressed on the Switch side (ms)."}
+    ]},
+    {"name": "display", "keys": [
+        {"key": "window_mode", "type": "choice", "default": "windowed", "choices": ["windowed", "borderless", "exclusive"], "doc": "Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing."},
+        {"key": "vsync", "type": "bool", "default": "0", "doc": "0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit."},
+        {"key": "fps_limit", "type": "int", "default": "auto", "min": 0, "max": 1000, "auto": "auto", "aliases": ["fps_cap"], "doc": "Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate."},
+        {"key": "fps_snap", "type": "choice", "default": "auto", "choices": ["auto", "true", "false"], "overridden_by": {"ini": "display.fps_snap", "env": "NXRT_DISPLAY_FPS_SNAP"}, "doc": "With vsync on, a frame limit below the refresh rate snaps to a divisor of it. auto: on a detected Steam Deck only."},
+        {"key": "width", "type": "int", "default": "1280", "min": 320, "max": 16384, "doc": "Windowed client width, remembered."},
+        {"key": "height", "type": "int", "default": "720", "min": 320, "max": 16384, "doc": "Windowed client height, remembered."},
+        {"key": "keep_aspect", "type": "bool", "default": "1", "doc": "Letterbox instead of stretching."},
+        {"key": "vram_cap", "type": "bool", "default": "1", "doc": "On a GPU with 4 GB of video memory or less, a render size that is not set is kept to 2560x1440."},
+        {"key": "render_scale", "type": "int", "default": "auto", "min": 25, "max": 400, "auto": "auto", "doc": "Internal resolution in percent; ignored with a fixed size. Next start."},
+        {"key": "render_width", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal width (with render_height); 0 = follow the window. Next start."},
+        {"key": "render_height", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal height (with render_width); 0 = follow the window. Next start."},
+        {"key": "aspect", "type": "ratio", "default": "auto", "min": 1, "max": 5, "auto": "auto", "doc": "Shape of the 3D view and the HUD: auto (the internal resolution's), W:H (16:9, 21:9, 16:10) or a number. Next start."},
+        {"key": "fov_offset", "type": "real", "default": "0", "min": -30, "max": 40, "doc": "Degrees added to the vertical field of view of every game camera; 0 = the game's own."},
+        {"key": "dynamic_resolution", "type": "bool", "default": "0", "doc": "The game's own dynamic resolution (it lowers the render size when the GPU is late)."},
+        {"key": "anisotropy", "type": "int", "default": "0", "choices": ["0", "2", "4", "8", "16"], "doc": "0 = what the game's samplers ask for; else at least that on every filtering sampler."},
+        {"key": "lod_bias", "type": "real", "default": "0", "min": -2, "max": 2, "doc": "Texture LOD bias added to every sampler; negative is sharper."},
+        {"key": "bloom", "type": "bool", "default": "1", "doc": "The game's bloom."},
+        {"key": "chromatic_aberration", "type": "bool", "default": "1", "doc": "The game's chromatic aberration."},
+        {"key": "quality_preset", "type": "choice", "default": "switch2", "choices": ["switch2", "high", "ultra", "steamdeck", "legion_go_s", "laptop", "desktop", "custom"], "doc": "The set of values last picked on the F1 Graphics page (games with quality hooks); custom after a change by hand."},
+        {"key": "fast_gpu_memory", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.pool_mirror", "env": "NXRT_NVN_POOL_MIRROR"}, "doc": "Device-local copies of the memory pools draws read (up to 2 GiB of video memory). Next start."},
+        {"key": "fewer_gpu_waits", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.pass_barriers", "env": "NXRT_NVN_PASS_BARRIERS"}, "doc": "No full barrier after passes that only wrote their attachments. Next start."},
+        {"key": "shader_prewarm", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.prewarm", "env": "NXRT_NVN_PREWARM"}, "doc": "Build the pipelines recorded by earlier runs ahead of the draws. Next start."},
+        {"key": "astc_quality", "type": "choice", "default": "high", "choices": ["fast", "high", "uncompressed"], "overridden_by": {"ini": "gfx.astc_quality", "env": "NXRT_GFX_ASTC_QUALITY"}, "doc": "ASTC texture quality on this GPU (uncompressed: RGBA8, lots of video memory). Next start."},
+        {"key": "monitor", "type": "int", "default": "auto", "min": 0, "max": 32, "auto": "auto", "doc": "The display the window lives on, 1 = the first; auto = wherever the window opens."}
+    ]},
+    {"name": "audio", "keys": [
+        {"key": "volume", "type": "real", "default": "1", "min": 0, "max": 1, "overridden_by": {"ini": "audio.volume", "env": "NXRT_AUDIO_VOLUME"}, "doc": "Master gain, applied live."},
+        {"key": "mute_unfocused", "type": "bool", "default": "0", "doc": "Silent while the window has no focus."},
+        {"key": "device", "type": "text", "default": "default", "overridden_by": {"ini": "audio.device", "env": "NXRT_AUDIO_DEVICE"}, "doc": "default, or part of an output device's name. Next start."}
+    ]},
+    {"name": "hdr", "keys": [
+        {"key": "mode", "type": "choice", "default": "auto", "choices": ["off", "auto", "on", "native"], "overridden_by": {"ini": "hdr.mode", "env": "NXRT_HDR_MODE"}, "doc": "HDR output."},
+        {"key": "format", "type": "choice", "default": "auto", "choices": ["auto", "hdr10", "scrgb"], "overridden_by": {"ini": "hdr.format", "env": "NXRT_HDR_FORMAT"}, "doc": "Swapchain format (auto: HDR10 when offered, else scRGB)."},
+        {"key": "peak_nits", "type": "real", "default": "0", "min": 200, "max": 10000, "zero_ok": true, "overridden_by": {"ini": "hdr.peak_nits", "env": "NXRT_HDR_PEAK_NITS"}, "doc": "0 = the display's reported peak."},
+        {"key": "paper_white_nits", "type": "real", "default": "0", "min": 80, "max": 500, "zero_ok": true, "overridden_by": {"ini": "hdr.paper_white_nits", "env": "NXRT_HDR_PAPER_WHITE_NITS"}, "doc": "0 = Windows' SDR content brightness."},
+        {"key": "highlight_boost", "type": "real", "default": "1", "min": 0, "max": 2, "overridden_by": {"ini": "hdr.highlight_boost", "env": "NXRT_HDR_HIGHLIGHT_BOOST"}, "doc": "0 = the game's SDR look up to its own white, 1 = highlights reach the peak."}
+    ]},
+    {"name": "upscale", "keys": [
+        {"key": "mode", "type": "choice", "default": "off", "choices": ["off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"], "overridden_by": {"ini": "upscale.mode", "env": "NXRT_UPSCALE_MODE"}, "doc": "Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off."},
+        {"key": "quality", "type": "choice", "default": "quality", "choices": ["native", "quality", "balanced", "performance", "ultra_performance", "custom"], "overridden_by": {"ini": "upscale.quality", "env": "NXRT_UPSCALE_QUALITY"}, "doc": "The temporal modes' render scale preset."},
+        {"key": "sharpness", "type": "real", "default": "0.8", "min": 0, "max": 1, "overridden_by": {"ini": "upscale.sharpness", "env": "NXRT_UPSCALE_SHARPNESS"}, "doc": "Sharpening (1 = sharpest)."},
+        {"key": "scene_scale", "type": "int", "default": "100", "min": 25, "max": 100, "overridden_by": {"ini": "upscale.scene_scale", "env": "NXRT_UPSCALE_SCENE_SCALE"}, "doc": "Percent of the output size the 3D scene is rendered at; HUD and post stay native."},
+        {"key": "fsr_dll", "type": "text", "default": "", "overridden_by": {"ini": "upscale.fsr_dll", "env": "NXRT_UPSCALE_FSR_DLL"}, "doc": "Path of the FidelityFX API DLL for FSR 3, kept as written (empty: next to the exe)."},
+        {"key": "dlss_dll", "type": "text", "default": "", "overridden_by": {"ini": "upscale.dlss_dll", "env": "NXRT_UPSCALE_DLSS_DLL"}, "doc": "Folder of the Streamline and DLSS DLLs, kept as written (empty: next to the exe)."}
+    ]},
+    {"name": "latency", "keys": [
+        {"key": "mode", "type": "choice", "default": "off", "choices": ["off", "auto", "on", "boost"], "overridden_by": {"ini": "latency.mode", "env": "NXRT_LATENCY_MODE"}, "doc": "Low latency mode (auto: whichever of Reflex and Anti-Lag 2 the GPU has; boost: Reflex boost)."},
+        {"key": "frames_ahead", "type": "int", "default": "1", "min": -1, "max": 3, "doc": "With the mode on: frames simulated ahead of the last presented one; -1 = no wait."},
+        {"key": "log_timings", "type": "bool", "default": "0", "overridden_by": {"ini": "latency.log_timings", "env": "NXRT_LATENCY_LOG_TIMINGS"}, "doc": "Log one line of timings per second."}
+    ]},
+    {"name": "picture", "keys": [
+        {"key": "preset", "type": "choice", "choices": ["neutral", "vivid"], "overridden_by": {"ini": "picture.preset", "env": "NXRT_PICTURE_PRESET"}, "read_only": true, "doc": "Fills in the four values below; the keys after it in the file win."},
+        {"key": "contrast", "type": "real", "default": "1", "min": 0.5, "max": 1.5, "overridden_by": {"ini": "picture.contrast", "env": "NXRT_PICTURE_CONTRAST"}, "doc": "Contrast around mid grey."},
+        {"key": "saturation", "type": "real", "default": "1", "min": 0, "max": 2, "overridden_by": {"ini": "picture.saturation", "env": "NXRT_PICTURE_SATURATION"}, "doc": "Saturation (0 = grey)."},
+        {"key": "black", "type": "real", "default": "0", "min": -0.5, "max": 0.25, "overridden_by": {"ini": "picture.black", "env": "NXRT_PICTURE_BLACK"}, "doc": "Black level: below 0 pulls the blacks down, above 0 lifts them."},
+        {"key": "gamma", "type": "real", "default": "1", "min": 0.5, "max": 2, "overridden_by": {"ini": "picture.gamma", "env": "NXRT_PICTURE_GAMMA"}, "doc": "Mid-tone brightness; above 1 brightens."}
+    ]},
+    {"name": "prompts", "keys": [
+        {"key": "style", "type": "choice", "default": "auto", "choices": ["switch", "xbox", "playstation", "steam", "steamdeck", "keyboard", "auto"], "doc": "Which button icons the game's prompts show; auto follows the last used input device."}
+    ]},
+    {"name": "fps", "keys": [
+        {"key": "show", "type": "bool", "default": "0", "doc": "The frame rate counter."},
+        {"key": "key", "type": "key", "default": "F2", "doc": "The keyboard key that shows and hides the counter (never reaches the game)."},
+        {"key": "corner", "type": "choice", "default": "top_left", "choices": ["top_left", "top_right", "bottom_left", "bottom_right"], "doc": "Where the counter sits."},
+        {"key": "detail", "type": "int", "default": "1", "min": 0, "max": 2, "doc": "0 frame rate, 1 also the frame time, 2 also the 1% low and the worst frame."},
+        {"key": "in_screenshots", "type": "bool", "default": "0", "doc": "Draw the counter into screenshots too."}
+    ]},
+    {"name": "quit", "keys": [
+        {"key": "pad", "type": "pad_combo", "default": "back+start", "doc": "Pad buttons held together (back+start) that open the Close the game prompt; none = off."},
+        {"key": "key", "type": "key", "default": "none", "doc": "A keyboard key that opens the Close the game prompt; none = off."}
+    ]},
+    {"name": "overlay", "keys": [
+        {"key": "pad", "type": "pad_combo", "default": "none", "doc": "Pad buttons held together that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."}
+    ]}
+  ],
+  "retired": [
+    {"section": "mouse", "key": "alt_camera"},
+    {"section": "mouse", "key": "alt_sensitivity"},
+    {"section": "mouse", "key": "alt_yaw"},
+    {"section": "mouse", "key": "alt_pitch"},
+    {"section": "mouse", "key": "menu_touch"},
+    {"section": "tweaks", "key": "glow_color"},
+    {"section": "tweaks", "key": "suit_glow"},
+    {"section": "tweaks", "key": "ball_glow"},
+    {"section": "tweaks", "key": "gun_glow"},
+    {"section": "tweaks", "key": "suit_color"},
+    {"section": "tweaks", "key": "gun_color"},
+    {"section": "tweaks", "key": "skip_intro"},
+    {"section": "tweaks", "key": "skip_boot_logos"},
+    {"section": "tweaks", "key": "fast_menus"},
+    {"section": "tweaks", "key": "menu_speed"},
+    {"section": "pad", "key": "alt_orbit"},
+    {"section": "display", "key": "view_distance"},
+    {"section": "upscale", "key": "xess_dll"},
+    {"section": "upscale", "key": "frame_generation"}
+  ]
+}

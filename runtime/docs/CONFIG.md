@@ -369,6 +369,100 @@ If the output device is lost while the game runs (headphones unplugged, Bluetoot
 
 While a sink is active, a line `sink <name>: queue avg A ms (min..max ms), underruns +N (total), dropped +D, written F frames/s (rate R)` is logged every `stats_interval` seconds. The queue is the audio waiting in the device, which is the output latency; `written` should match the rate (lower: the game is starved or the stream is stretched). When a sink closes, it writes one line to the log with its counters: frames written, accepted, dropped, underruns (times the device ran out of audio after playback had started) and the largest number of buffers queued at once.
 
+## `controls.ini` keys
+
+The play-mode settings file `controls.ini` (key `[play] controls`) holds the keys below, then `[padmap]`, `[switch]` and the `[bindings.*]` sections (next part). The F1 settings page and the launcher write it; the game rewrites it in this order. The table is generated from the settings table (`src/gfx/play/play_config_table.cpp`) by `scripts/gen_settings_doc.ps1`, which also writes `docs/controls_schema.json` for the launcher. Defaults are Pokopia's factory settings. A value that does not parse keeps the default and is logged. "Overridden by" names the key of the game ini (or its environment variable) that wins over the file's value when it is set.
+
+<!-- controls.ini keys: generated from src/gfx/play/play_config_table.cpp by scripts/gen_settings_doc.ps1, do not edit -->
+
+| Section | Key | Default | Values | Overridden by | Meaning |
+|---|---|---|---|---|---|
+| `meta` | `defaults_rev` | `5` | `0` to `1000` |  | The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start. |
+| `mouse` | `yaw` | `0.000767945` | a number |  | Horizontal mouse sensitivity in radians per count. |
+| `mouse` | `pitch` | `0.000767945` | a number |  | Vertical mouse sensitivity in radians per count. |
+| `mouse` | `yaw_source` |  | a number |  | Horizontal sensitivity on the Source engine scale (0.022 degrees per count at 1.0), stored as yaw. When both forms appear the last one wins. Read only: never written. |
+| `mouse` | `pitch_source` |  | a number |  | Vertical sensitivity on the Source engine scale, stored as pitch. Read only: never written. |
+| `mouse` | `invert_y` | `0` | `1` `0` |  | 1: moving the mouse up looks down. |
+| `mouse` | `invert_x` | `0` | `1` `0` |  | 1: moving the mouse right looks left. |
+| `mouse` | `menu_cursor` | `1` | `1` `0` |  | In menus the mouse is a pointer: a visible cursor, left click activates, right click goes back, the wheel scrolls. |
+| `mouse` | `wheel_cycles` | `1` | `1` `0` |  | Kept in the file; no action reads it since the cycle actions went. A game may rename the key. |
+| `tweaks` | `language` | `auto` | `auto`, text | `[system] language`, `NXRT_SYSTEM_LANGUAGE` | The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start. |
+| `pad` | `label_abxy` | `0` | `1` `0` |  | 0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter. |
+| `pad` | `deadzone` | `0.1` | `0` to `0.5` |  | Radial dead zone of the left stick (movement), applied before the game's own. |
+| `pad` | `right_deadzone` | `0.1` | `0` to `0.5` |  | Radial dead zone of the right stick (looking). A file with `deadzone` and without this key gives it the value of `deadzone`. |
+| `pad` | `invert_y` | `0` | `1` `0` |  | 1: the right stick's up looks down, in play only. Adds to the game's own invert option. |
+| `pad` | `look_sens` | `1` | `0.25` to `3` |  | Multiplies the right stick's deflection in play. |
+| `pad` | `trigger_threshold` | `0.35` | `0.05` to `1` |  | Analog trigger travel that counts as ZL / ZR pressed. |
+| `pad` | `stick_max` | `0.92` | `0.5` to `1` |  | Fraction of the left stick's travel that counts as fully pushed (1 = off), for pads that top out below the edge. |
+| `pad` | `right_stick_max` | `0.92` | `0.5` to `1` |  | The same for the right stick. A file with `stick_max` and without this key gives it the value of `stick_max`. |
+| `pad` | `gyro` | `1` | `1` `0` |  | Pass the pad's gyro to the game's six-axis sensor. |
+| `pad` | `gyro_scale` | `1` | a number |  | Gyro rate multiplier. |
+| `pad` | `rumble` | `1` | `1` `0` |  | Pass the game's rumble to the pad. |
+| `pad` | `rumble_scale` | `1` | a number |  | Rumble strength multiplier. |
+| `timing` | `tap_ms` | `200` | `1` to `5000` |  | A press shorter than this is a tap (ms). |
+| `timing` | `hold_ms` | `250` | `1` to `5000` |  | A hold starts after this (ms). |
+| `timing` | `double_ms` | `300` | `1` to `5000` |  | The second press of a double tap must come within this of the first release (ms). |
+| `timing` | `pulse_ms` | `80` | `1` to `5000` |  | How long a tap or a wheel notch stays pressed on the Switch side (ms). |
+| `display` | `window_mode` | `windowed` | `windowed` `borderless` `exclusive` |  | Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing. |
+| `display` | `vsync` | `0` | `1` `0` |  | 0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit. |
+| `display` | `fps_limit` (older: `fps_cap`) | `auto` | `auto`, `0` to `1000` |  | Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate. |
+| `display` | `fps_snap` | `auto` | `auto` `true` `false` | `[display] fps_snap`, `NXRT_DISPLAY_FPS_SNAP` | With vsync on, a frame limit below the refresh rate snaps to a divisor of it. auto: on a detected Steam Deck only. |
+| `display` | `width` | `1280` | `320` to `16384` |  | Windowed client width, remembered. |
+| `display` | `height` | `720` | `320` to `16384` |  | Windowed client height, remembered. |
+| `display` | `keep_aspect` | `1` | `1` `0` |  | Letterbox instead of stretching. |
+| `display` | `vram_cap` | `1` | `1` `0` |  | On a GPU with 4 GB of video memory or less, a render size that is not set is kept to 2560x1440. |
+| `display` | `render_scale` | `auto` | `auto`, `25` to `400` |  | Internal resolution in percent; ignored with a fixed size. Next start. |
+| `display` | `render_width` | `0` | `0`, `320` to `16384` |  | Fixed internal width (with render_height); 0 = follow the window. Next start. |
+| `display` | `render_height` | `0` | `0`, `320` to `16384` |  | Fixed internal height (with render_width); 0 = follow the window. Next start. |
+| `display` | `aspect` | `auto` | `auto`, `1` to `5`, W:H (`16:9`) |  | Shape of the 3D view and the HUD: auto (the internal resolution's), W:H (16:9, 21:9, 16:10) or a number. Next start. |
+| `display` | `fov_offset` | `0` | `-30` to `40` |  | Degrees added to the vertical field of view of every game camera; 0 = the game's own. |
+| `display` | `dynamic_resolution` | `0` | `1` `0` |  | The game's own dynamic resolution (it lowers the render size when the GPU is late). |
+| `display` | `anisotropy` | `0` | `0` `2` `4` `8` `16` |  | 0 = what the game's samplers ask for; else at least that on every filtering sampler. |
+| `display` | `lod_bias` | `0` | `-2` to `2` |  | Texture LOD bias added to every sampler; negative is sharper. |
+| `display` | `bloom` | `1` | `1` `0` |  | The game's bloom. |
+| `display` | `chromatic_aberration` | `1` | `1` `0` |  | The game's chromatic aberration. |
+| `display` | `quality_preset` | `switch2` | `switch2` `high` `ultra` `steamdeck` `legion_go_s` `laptop` `desktop` `custom` |  | The set of values last picked on the F1 Graphics page (games with quality hooks); custom after a change by hand. |
+| `display` | `fast_gpu_memory` | `1` | `1` `0` | `[nvn] pool_mirror`, `NXRT_NVN_POOL_MIRROR` | Device-local copies of the memory pools draws read (up to 2 GiB of video memory). Next start. |
+| `display` | `fewer_gpu_waits` | `1` | `1` `0` | `[nvn] pass_barriers`, `NXRT_NVN_PASS_BARRIERS` | No full barrier after passes that only wrote their attachments. Next start. |
+| `display` | `shader_prewarm` | `1` | `1` `0` | `[nvn] prewarm`, `NXRT_NVN_PREWARM` | Build the pipelines recorded by earlier runs ahead of the draws. Next start. |
+| `display` | `astc_quality` | `high` | `fast` `high` `uncompressed` | `[gfx] astc_quality`, `NXRT_GFX_ASTC_QUALITY` | ASTC texture quality on this GPU (uncompressed: RGBA8, lots of video memory). Next start. |
+| `display` | `monitor` | `auto` | `auto`, `0` to `32` |  | The display the window lives on, 1 = the first; auto = wherever the window opens. |
+| `audio` | `volume` | `1` | `0` to `1` | `[audio] volume`, `NXRT_AUDIO_VOLUME` | Master gain, applied live. |
+| `audio` | `mute_unfocused` | `0` | `1` `0` |  | Silent while the window has no focus. |
+| `audio` | `device` | `default` | text | `[audio] device`, `NXRT_AUDIO_DEVICE` | default, or part of an output device's name. Next start. |
+| `hdr` | `mode` | `auto` | `off` `auto` `on` `native` | `[hdr] mode`, `NXRT_HDR_MODE` | HDR output. |
+| `hdr` | `format` | `auto` | `auto` `hdr10` `scrgb` | `[hdr] format`, `NXRT_HDR_FORMAT` | Swapchain format (auto: HDR10 when offered, else scRGB). |
+| `hdr` | `peak_nits` | `0` | `0`, `200` to `10000` | `[hdr] peak_nits`, `NXRT_HDR_PEAK_NITS` | 0 = the display's reported peak. |
+| `hdr` | `paper_white_nits` | `0` | `0`, `80` to `500` | `[hdr] paper_white_nits`, `NXRT_HDR_PAPER_WHITE_NITS` | 0 = Windows' SDR content brightness. |
+| `hdr` | `highlight_boost` | `1` | `0` to `2` | `[hdr] highlight_boost`, `NXRT_HDR_HIGHLIGHT_BOOST` | 0 = the game's SDR look up to its own white, 1 = highlights reach the peak. |
+| `upscale` | `mode` | `off` | `off` `fsr1` `fsr3` `dlss` `xess` `nis` `dlaa` `nearest` | `[upscale] mode`, `NXRT_UPSCALE_MODE` | Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off. |
+| `upscale` | `quality` | `quality` | `native` `quality` `balanced` `performance` `ultra_performance` `custom` | `[upscale] quality`, `NXRT_UPSCALE_QUALITY` | The temporal modes' render scale preset. |
+| `upscale` | `sharpness` | `0.8` | `0` to `1` | `[upscale] sharpness`, `NXRT_UPSCALE_SHARPNESS` | Sharpening (1 = sharpest). |
+| `upscale` | `scene_scale` | `100` | `25` to `100` | `[upscale] scene_scale`, `NXRT_UPSCALE_SCENE_SCALE` | Percent of the output size the 3D scene is rendered at; HUD and post stay native. |
+| `upscale` | `fsr_dll` |  | text | `[upscale] fsr_dll`, `NXRT_UPSCALE_FSR_DLL` | Path of the FidelityFX API DLL for FSR 3, kept as written (empty: next to the exe). |
+| `upscale` | `dlss_dll` |  | text | `[upscale] dlss_dll`, `NXRT_UPSCALE_DLSS_DLL` | Folder of the Streamline and DLSS DLLs, kept as written (empty: next to the exe). |
+| `latency` | `mode` | `off` | `off` `auto` `on` `boost` | `[latency] mode`, `NXRT_LATENCY_MODE` | Low latency mode (auto: whichever of Reflex and Anti-Lag 2 the GPU has; boost: Reflex boost). |
+| `latency` | `frames_ahead` | `1` | `-1` to `3` |  | With the mode on: frames simulated ahead of the last presented one; -1 = no wait. |
+| `latency` | `log_timings` | `0` | `1` `0` | `[latency] log_timings`, `NXRT_LATENCY_LOG_TIMINGS` | Log one line of timings per second. |
+| `picture` | `preset` |  | `neutral` `vivid` | `[picture] preset`, `NXRT_PICTURE_PRESET` | Fills in the four values below; the keys after it in the file win. Read only: never written. |
+| `picture` | `contrast` | `1` | `0.5` to `1.5` | `[picture] contrast`, `NXRT_PICTURE_CONTRAST` | Contrast around mid grey. |
+| `picture` | `saturation` | `1` | `0` to `2` | `[picture] saturation`, `NXRT_PICTURE_SATURATION` | Saturation (0 = grey). |
+| `picture` | `black` | `0` | `-0.5` to `0.25` | `[picture] black`, `NXRT_PICTURE_BLACK` | Black level: below 0 pulls the blacks down, above 0 lifts them. |
+| `picture` | `gamma` | `1` | `0.5` to `2` | `[picture] gamma`, `NXRT_PICTURE_GAMMA` | Mid-tone brightness; above 1 brightens. |
+| `prompts` | `style` | `auto` | `switch` `xbox` `playstation` `steam` `steamdeck` `keyboard` `auto` |  | Which button icons the game's prompts show; auto follows the last used input device. |
+| `fps` | `show` | `0` | `1` `0` |  | The frame rate counter. |
+| `fps` | `key` | `F2` | a keyboard key name (`F2`, `Tab`, `Left Ctrl`) |  | The keyboard key that shows and hides the counter (never reaches the game). |
+| `fps` | `corner` | `top_left` | `top_left` `top_right` `bottom_left` `bottom_right` |  | Where the counter sits. |
+| `fps` | `detail` | `1` | `0` to `2` |  | 0 frame rate, 1 also the frame time, 2 also the 1% low and the worst frame. |
+| `fps` | `in_screenshots` | `0` | `1` `0` |  | Draw the counter into screenshots too. |
+| `quit` | `pad` | `back+start` | `none` or pad buttons joined by `+` (`back+start`) |  | Pad buttons held together (back+start) that open the Close the game prompt; none = off. |
+| `quit` | `key` | `none` | a keyboard key name (`F2`, `Tab`, `Left Ctrl`) |  | A keyboard key that opens the Close the game prompt; none = off. |
+| `overlay` | `pad` | `none` | `none` or pad buttons joined by `+` (`back+start`) |  | Pad buttons held together that open and close the F1 menu; none = off. One equal to [quit] pad is ignored. |
+
+Retired keys, read and ignored without a warning (the next save leaves them out): `[mouse]` `alt_camera`, `alt_sensitivity`, `alt_yaw`, `alt_pitch`, `menu_touch`; `[tweaks]` `glow_color`, `suit_glow`, `ball_glow`, `gun_glow`, `suit_color`, `gun_color`, `skip_intro`, `skip_boot_logos`, `fast_menus`, `menu_speed`; `[pad]` `alt_orbit`; `[display]` `view_distance`; `[upscale]` `xess_dll`, `frame_generation`.
+
+<!-- end of the generated controls.ini keys -->
+
 ## Keyboard and mouse bindings (`controls.ini`)
 
 These live in the play-mode file `controls.ini` (key `[play] controls`), not in `nxrt.ini`. The F1 settings page and the launcher write the same file.

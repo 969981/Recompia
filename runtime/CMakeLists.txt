@@ -59,3 +59,15 @@ if(NXRT_BUILD_GAMES)
         add_subdirectory(games/${_game})
     endforeach()
 endif()
+
+# Developer tool, in no package: the controls.ini docs (docs/CONFIG.md) and the launcher's schema (docs/controls_schema.json) written from
+# the settings table with one game's factory defaults (its data library, docs/GAME_BOUNDARY.md). scripts/gen_settings_doc.ps1 runs it.
+if(NXRT_BUILD_GFX AND NXRT_BUILD_GAMES)
+    foreach(_game ${NXRT_GAMES})
+        if(TARGET nxrt_game_${_game}_data)
+            add_executable(nxrt_settings_doc_${_game} EXCLUDE_FROM_ALL apps/settings_doc.cpp)
+            target_link_libraries(nxrt_settings_doc_${_game} PRIVATE nxrt_gfx nxrt_game_${_game}_data)
+            target_compile_definitions(nxrt_settings_doc_${_game} PRIVATE NXRT_SETTINGS_DOC_REGISTER=nxrt_register_game_${_game}_data)
+        endif()
+    endforeach()
+endif()
