@@ -1474,15 +1474,7 @@ const Import kImports[] = {
 };
 constexpr size_t kImportCount = sizeof(kImports) / sizeof(kImports[0]);
 
-const char* g_names[kImportCount];
-
 }  // namespace
-
-const char* const* movie_import_names(size_t* count) {
-    for (size_t i = 0; i < kImportCount; i++) g_names[i] = kImports[i].name;
-    if (count) *count = kImportCount;
-    return g_names;
-}
 
 bool install_movie_hle() {
     static std::once_flag once;

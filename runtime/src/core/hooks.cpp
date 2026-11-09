@@ -102,13 +102,6 @@ size_t hook_count() {
     return g_all.size();
 }
 
-size_t hook_count_at(uint64_t addr, HookKind kind) {
-    const Snapshot* s = g_snap.load(std::memory_order_acquire);
-    if (!s) return 0;
-    auto it = s->find(addr);
-    return it == s->end() ? 0 : chain_of(it->second, kind).size();
-}
-
 uint64_t hook_calls(uint32_t id) {
     std::lock_guard<std::mutex> lk(g_write);
     for (auto& h : g_all)

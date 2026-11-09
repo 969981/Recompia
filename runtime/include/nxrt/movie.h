@@ -22,9 +22,6 @@ namespace nxrt::media {
 // Safe to call more than once.
 bool install_movie_hle();
 
-// The mangled names of the 41 imports the handlers answer (for tests and docs).
-const char* const* movie_import_names(size_t* count);
-
 struct MovieStats {
     uint64_t extractors_created = 0;
     uint64_t extractors_destroyed = 0;

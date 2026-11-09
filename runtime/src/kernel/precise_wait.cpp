@@ -78,15 +78,8 @@ int64_t precise_late_update(int64_t late_ns, int64_t asked_ns, int64_t took_ns) 
     return next < 0 ? 0 : next > kLateMaxNs ? kLateMaxNs : next;
 }
 
-int64_t precise_late_ns() { return g_late.load(std::memory_order_relaxed); }
 bool precise_sleep_enabled() { return read_flag(g_sleep_on, "precise_sleep"); }
 bool precise_waits_enabled() { return read_flag(g_waits_on, "precise_waits"); }
-void set_precise_timing(int sleep, int waits) {
-    if (sleep >= 0) g_sleep_on.store(sleep ? 1 : 0);
-    if (waits >= 0) g_waits_on.store(waits ? 1 : 0);
-    if (sleep < -1) g_sleep_on.store(-1);   // -2: re-read the config at the next use
-    if (waits < -1) g_waits_on.store(-1);
-}
 
 bool precise_wait_ns(int64_t ns, void* wake_event) {
     const HANDLE ev = static_cast<HANDLE>(wake_event);

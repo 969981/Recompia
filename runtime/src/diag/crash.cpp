@@ -34,8 +34,6 @@ constexpr DWORD kOverflowWaitMs = 30000;
 
 std::mutex g_install_mu;
 bool g_installed = false;
-LPTOP_LEVEL_EXCEPTION_FILTER g_prev_filter = nullptr;
-void* g_veh = nullptr;
 
 // Options copied at install time and read by the handler.
 bool g_path_given = false;  // false: default "<exe>_crash.txt" next to the exe; true with "" : no file
@@ -314,20 +312,11 @@ void crash_install(const CrashOptions& opt) {
     g_on_report = opt.on_report;
     g_user = opt.user;
     if (g_installed) return;
-    g_prev_filter = SetUnhandledExceptionFilter(crash_filter);
+    SetUnhandledExceptionFilter(crash_filter);
     ULONG guarantee = 64 * 1024;  // stack reserved for the handlers if the thread overflows
     SetThreadStackGuarantee(&guarantee);
-    g_veh = AddVectoredExceptionHandler(0, crash_vectored);
+    AddVectoredExceptionHandler(0, crash_vectored);
     g_installed = true;
-}
-
-void crash_uninstall() {
-    std::lock_guard<std::mutex> lk(g_install_mu);
-    if (!g_installed) return;
-    SetUnhandledExceptionFilter(g_prev_filter);
-    if (g_veh) RemoveVectoredExceptionHandler(g_veh);
-    g_veh = nullptr;
-    g_installed = false;
 }
 
 std::string crash_build_report(void* exception_pointers) {
@@ -337,7 +326,5 @@ std::string crash_build_report(void* exception_pointers) {
 }
 
 std::string crash_report_path() { return g_path_given ? g_path : default_report_path(); }
-
-uint32_t crash_exceptions_reported() { return g_reports.load(std::memory_order_relaxed); }
 
 }  // namespace nxrt

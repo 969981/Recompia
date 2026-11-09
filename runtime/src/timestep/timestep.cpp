@@ -130,8 +130,6 @@ struct G {
     bool installed = false;
     std::vector<uint32_t> hooks;
 
-    ClockFn test_clock = nullptr;
-    double det_step_test = 0;           // set_deterministic_for_tests
     bool det = false;                   // this run is deterministic
     double det_step = 1.0 / 60.0;
     double det_now = 0;                 // virtual time: frames * det_step
@@ -174,10 +172,7 @@ uint32_t f2u(float f) {
     return u;
 }
 
-double clock_now() {
-    G& s = g();
-    return s.test_clock ? s.test_clock() : qpc_seconds();
-}
+double clock_now() { return qpc_seconds(); }
 
 // Waits until the clock reaches target (seconds): a high-resolution timer for the bulk, a spin for the last part.
 void wait_until(double target) {
@@ -237,8 +232,8 @@ void begin_frame() {
         if (c.pace && s.have_last && period > 0.0) {
             const double target = grid ? s.next_target : s.last_start + period;
             if (now < target) {
-                if (!s.test_clock) wait_until(target);
-                now = s.test_clock ? target : clock_now();
+                wait_until(target);
+                now = clock_now();
                 std::lock_guard<std::mutex> lk(s.mu);
                 s.st.waits++;
             }
@@ -421,11 +416,10 @@ void install(const Config& cfg) {
     s.st = Stats{};
     s.sum_elapsed = 0;
     s.n_elapsed = 0;
-    s.det = tt::deterministic() || s.det_step_test > 0;
+    s.det = tt::deterministic();
     if (s.det) {
         const double hz = static_cast<double>(kernel::tick_hz());
-        const double ticks = s.det_step_test > 0 ? s.det_step_test * hz
-                                                 : static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
+        const double ticks = static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
         s.det_step = ticks / hz;
         s.det_now = 0;
     }
@@ -491,17 +485,13 @@ void reset_stats() {
     s.n_elapsed = 0;
 }
 
-void set_clock_for_tests(ClockFn fn) { g().test_clock = fn; }
-void set_deterministic_for_tests(double step_seconds) { g().det_step_test = step_seconds; }
-
 void set_run_rate(double hz) {
     G& s = g();
     if (hz > 0) {
         s.det_step = 1.0 / hz;
         s.det = true;
     } else {
-        s.det = tt::deterministic() || s.det_step_test > 0;     // back to what the run was configured with
-        if (s.det_step_test > 0) s.det_step = s.det_step_test;
+        s.det = tt::deterministic();     // back to what the run was configured with
         s.have_last = false;                                     // no frame time across the switch
     }
 }

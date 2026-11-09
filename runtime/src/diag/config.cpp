@@ -272,8 +272,6 @@ bool config_load_file(const char* path) {
     return true;
 }
 
-void config_load_string(const char* text) { replace_ini(S(text)); }
-
 void config_clear() {
     {
         std::lock_guard<std::mutex> g(g_mu);

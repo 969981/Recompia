@@ -799,17 +799,4 @@ void svc_register_memory_group() {
     svc_register(0x52, unmap_transfer_memory);
 }
 
-// Tests only: releases every alias-region window and forgets the MapMemory list and the heap size. The heap itself and
-// the vm map are reset by mem::shutdown().
-void svc_memory_reset_for_tests() {
-    std::lock_guard lk(g_mu);
-    for (auto& kv : g_windows) alias_free(kv.first);
-    g_windows.clear();
-    for (auto& kv : g_phys) VirtualFree(reinterpret_cast<void*>(kv.first), 0, MEM_RELEASE);
-    g_phys.clear();
-    g_maps.clear();
-    g_perm_locked.clear();
-    g_heap_cur = 0;
-}
-
 }  // namespace nxrt

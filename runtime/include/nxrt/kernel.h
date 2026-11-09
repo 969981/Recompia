@@ -169,7 +169,6 @@ void main_thread_release();                                // the adopted main t
 KThread* current_thread();                                 // nullptr on a host thread that is not a guest thread
 ::Ctx* current_ctx();                                      // current_thread()->ctx or nullptr
 std::vector<std::shared_ptr<KThread>> threads();           // every thread ever created and not yet destroyed
-bool thread_join(uint32_t handle, uint32_t timeout_ms);    // host-side wait for the thread to finish (tests, shutdown)
 void kernel_reset();                                       // tests: join/forget threads, clear handles, sync state (no thread may run guest code)
 uint64_t thread_count_running();                           // started and not yet exited
 bool thread_set_priority(KThread& t, int hos_prio);       // updates the object and the host thread
@@ -205,7 +204,6 @@ void starvation_guard_stop();
 uint64_t starvation_boosts();            // boosts given so far
 void install_spin_hint();                // WFE / YIELD of the lifted code hand the host processor over (busy_mutex.cpp, [sched] spin_yield)
 void install_busy_mutex_hle();           // nn::os::LockBusyMutex as host code that yields while it waits (busy_mutex.cpp, [sched] busy_mutex_hle)
-void sched_reset_for_tests();            // forget the slot and re-read the config at the next sched_info()
 
 // ---- time --------------------------------------------------------------------------------------------------------------------
 uint64_t system_tick();                  // the console tick (tick_hz()), from QueryPerformanceCounter
@@ -225,10 +223,8 @@ int64_t precise_timer_request(int64_t rem_ns, int64_t late_ns);
 // Pure: the lateness estimate after one timer wait asked for asked_ns that took took_ns (moving average 1/16, 0..2 ms; samples that came
 // back early or 2 ms or more late are ignored).
 int64_t precise_late_update(int64_t late_ns, int64_t asked_ns, int64_t took_ns);
-int64_t precise_late_ns();               // the current estimate (also gauge kernel.timer_late_us)
 bool precise_sleep_enabled();
 bool precise_waits_enabled();
-void set_precise_timing(int sleep, int waits);   // tests: 1 on, 0 off, -1 leave, -2 re-read the config
 // Waits ns on the calling thread's waitable timer, never ending before ns have passed unless wake_event (a HANDLE, may be null) is set;
 // true when the event ended it.
 bool precise_wait_ns(int64_t ns, void* wake_event);

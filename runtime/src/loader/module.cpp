@@ -604,13 +604,6 @@ bool module_run_init(Module* m, ::Ctx* ctx) {
     return ok;
 }
 
-bool module_run_fini(Module* m, ::Ctx* ctx) {
-    bool ok = true;
-    for (size_t i = m->fini_array().size(); i-- > 0;) ok = run_one(m, ctx, m->fini_array()[i], "fini_array entry") && ok;
-    ok = run_one(m, ctx, m->fini_function(), "DT_FINI") && ok;
-    return ok;
-}
-
 Module* module_at(uint64_t addr) {
     std::lock_guard<std::recursive_mutex> lk(g_lock);
     for (auto& m : g_modules)

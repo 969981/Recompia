@@ -214,24 +214,6 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     h(c);
 }
 
-std::vector<SvcUnknownRecord> svc_unknown_records() {
-    std::lock_guard<std::mutex> lk(g_unk_lock);
-    std::vector<SvcUnknownRecord> v;
-    for (auto& kv : g_unknown) v.push_back(kv.second);
-    return v;
-}
-
-uint64_t svc_unknown_total() { return g_unknown_total.load(); }
-uint64_t svc_call_count(uint32_t number) { return number < kSvcCount ? g_calls[number].load() : 0; }
-
-void svc_reset_counters() {
-    std::lock_guard<std::mutex> lk(g_unk_lock);
-    g_unknown.clear();
-    g_unknown_total = 0;
-    g_log_limit = -1;
-    for (auto& c : g_calls) c = 0;
-}
-
 std::string svc_summary() {
     uint64_t total = 0;
     size_t distinct = 0;

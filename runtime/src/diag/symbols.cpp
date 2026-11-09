@@ -318,8 +318,6 @@ size_t symbols_load_map_text(const std::string& text) {
     return n;
 }
 
-size_t symbols_count() { return current_table()->entries.size(); }
-
 SymbolInfo symbols_lookup(uint64_t host_addr) {
     SymbolInfo info;
     HMODULE mod = nullptr;

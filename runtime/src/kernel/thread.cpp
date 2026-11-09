@@ -199,14 +199,6 @@ std::vector<std::shared_ptr<KThread>> threads() {
     return v;
 }
 
-bool thread_join(uint32_t handle, uint32_t timeout_ms) {
-    auto t = handle_as<KThread>(handle);
-    if (!t || !t->started) return true;
-    HANDLE h = static_cast<HANDLE>(t->host_handle);
-    if (!h) return true;
-    return WaitForSingleObject(h, timeout_ms) == WAIT_OBJECT_0;
-}
-
 uint64_t thread_count_running() {
     uint64_t n = 0;
     for (auto& t : threads()) n += t->started && !t->exited;

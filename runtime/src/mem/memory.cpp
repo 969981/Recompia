@@ -700,28 +700,6 @@ void heap_alias_ranges(std::vector<std::pair<uint64_t, uint64_t>>& out) {
     for (const auto& a : g_aliases) out.emplace_back(a.second.offset, a.second.size);
 }
 
-size_t heap_alias_count() {
-    std::lock_guard lk(g_heap_mu);
-    return g_aliases.size();
-}
-
-bool heap_offset_of(uint64_t addr, uint64_t* offset) {
-    if (!offset) return false;
-    std::lock_guard lk(g_heap_mu);
-    if (g_heap_size && addr >= kHeapBase && addr - kHeapBase < g_heap_size) {
-        *offset = addr - kHeapBase;
-        return true;
-    }
-    auto it = g_aliases.upper_bound(addr);
-    if (it == g_aliases.begin()) return false;
-    --it;
-    if (addr - it->first < it->second.size) {
-        *offset = it->second.offset + (addr - it->first);
-        return true;
-    }
-    return false;
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // vm map (svcQueryMemory)
 

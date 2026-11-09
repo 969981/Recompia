@@ -93,8 +93,6 @@ const std::string& out_dir();
 // ---- the frame boundary ---------------------------------------------------------------------------------------------------------
 // `c` is the live context when called from a hook (needed only for @warp, which calls guest functions; the context is saved and restored).
 void frame_boundary(::Ctx* c = nullptr);
-// frame_source=manual: the caller calls this; `now` hooks are not registered. Resets everything (counters, files closed).
-void reset_for_tests();
 // Registers the game's entry hooks of the frame source and of the state-pointer capture (GameProbes::install_hooks).
 void install_game_hooks();
 // The state-pointer capture, called from the ProcessInput hook (x0 = CPlayerMP1*, x2 = CStateManager&); tests call it directly.
@@ -104,9 +102,7 @@ void set_call_context(::Ctx* c);
 
 // ---- state ---------------------------------------------------------------------------------------------------------------------------
 bool read_state(GameState* out);           // the probes, now (guest memory); false when nothing could be read
-const GameState& last_state();             // the state sampled at the last boundary (valid flags inside)
 uint64_t last_hash();                      // the per-frame hash of the last boundary
-uint64_t chain_hash();                     // running hash over every frame hash: what result.json calls final_hash
 // Probe layout (main-relative offsets, see docs/S5.md); tests point these at host memory built with the same shape.
 struct ProbeLayout {
     uint64_t game_state_global = 0;        // address of the gpGameState variable (a pointer to CGameStateMP1); 0 = game_base + 0x459cc70
@@ -116,9 +112,6 @@ struct ProbeLayout {
 };
 void set_probe_layout(const ProbeLayout& l);
 
-// ---- input -----------------------------------------------------------------------------------------------------------------------------
-PadFrame current_pad();                    // the pad of the frame that just began (script / replay / last live pad)
-void set_live_pad(const PadFrame& p);      // the live pad for recording when no hid source is installed (tests; also used by the hid adapter)
 // ---- the virtual clock and the RNG (deterministic mode) ----------------------------------------------------------------------
 // Used by kernel::system_tick / sleep_ns. Return false when deterministic mode is off (the caller uses the host clock).
 // The script step `@rate <hz>`: the game's step becomes exactly 1/hz for every frame from here on (nothing waits and no host time enters it), 0 = the
@@ -127,7 +120,6 @@ void set_clock_rate(double hz);
 bool virtual_tick(uint64_t* ticks);
 bool virtual_sleep(int64_t ns);
 void rng_fill(void* p, size_t n);          // seeded stream in deterministic mode, OS entropy otherwise
-uint64_t rng_next();
 uint64_t wall_filetime();                  // 100 ns units since 1601: fixed epoch + virtual time in deterministic mode, the host clock otherwise
 
 // ---- plumbing --------------------------------------------------------------------------------------------------------------------------
@@ -144,7 +136,6 @@ using KeySinkFn = bool (*)(const char* input_name, bool down);
 void set_key_sink(KeySinkFn fn);
 // What happens when the run is over (default: flush files, TerminateProcess(code)). Tests install their own.
 using ExitFn = void (*)(int code);
-void set_exit_handler(ExitFn fn);
 bool finished();                           // the run has ended (result written)
 int exit_code();
 // Ends the run now. verdict: "pass" "fail" "crash" "freeze" "timeout" "error". Writes result.json and calls the exit handler.

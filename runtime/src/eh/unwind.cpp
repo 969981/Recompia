@@ -464,13 +464,6 @@ void set_abi_layout(const AbiLayout& l) {
     g_abi_fixed.store(true);
 }
 
-void set_abi_autodetect() {
-    std::lock_guard<std::mutex> lk(g_abi_lock);
-    g_abi = abi_layout_llvm_new();
-    g_abi_fixed.store(false);
-    g_abi_detected.store(false);
-}
-
 const AbiLayout& abi_layout() { return g_abi; }
 
 uint64_t raise(::Ctx* c, const Thrown& t) {
@@ -570,11 +563,5 @@ Stats stats() {
     s.resume_fn_landings = g_stats.resume_landings;
     return s;
 }
-
-void stats_reset() {
-    g_stats.raised = g_stats.resumed = g_stats.caught = g_stats.cleanups = g_stats.uncaught = g_stats.frames = g_stats.catch_landings = g_stats.resume_landings = 0;
-}
-
-size_t catch_frame_depth() { return detail::catch_stack().size(); }
 
 }  // namespace nxrt::eh

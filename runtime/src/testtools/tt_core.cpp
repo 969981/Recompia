@@ -481,38 +481,9 @@ bool finished() { return S().finished; }
 int exit_code() { return S().exit_code; }
 const std::vector<Checkpoint>& checkpoints() { return S().cps; }
 uint64_t last_hash() { return S().last_hash; }
-uint64_t chain_hash() { return S().chain; }
-const GameState& last_state() { return S().gs; }
-PadFrame current_pad() { return S().pad; }
-void set_live_pad(const PadFrame& p) { S().live_pad = p; }
 void set_screenshot_provider(ScreenshotFn fn, void* user) { S().shot_fn = fn; S().shot_user = user; }
-void set_exit_handler(ExitFn fn) { S().exit_fn = fn; }
 void set_mouse_sink(MouseSinkFn fn) { S().mouse_sink = fn; }
 void set_key_sink(KeySinkFn fn) { S().key_sink = fn; }
-
-void reset_for_tests() {
-    State& s = S();
-    s.stop_wall = true;
-    if (s.wall_thread.joinable()) s.wall_thread.join();
-    s.stop_wall = false;
-    s.frame_tid.store(0, std::memory_order_relaxed);   // a recycled thread id must not move the next run's clock
-    if (s.trace) { std::fclose(s.trace); s.trace = nullptr; }
-    detail::svc_every.store(0);
-    ExitFn keep = s.exit_fn;
-    MouseSinkFn keep_m = s.mouse_sink;
-    KeySinkFn keep_k = s.key_sink;
-    ScreenshotFn sf = s.shot_fn;
-    void* su = s.shot_user;
-    s.~State();
-    new (&s) State;
-    s.exit_fn = keep;
-    s.mouse_sink = keep_m;
-    s.key_sink = keep_k;
-    s.shot_fn = sf;
-    s.shot_user = su;
-    detail::set_game_base(game::info().main_base);
-    set_probe_layout(ProbeLayout{});
-}
 
 void set_clock_rate(double hz) {
     if (!S().on) return;
@@ -555,14 +526,6 @@ bool virtual_sleep(int64_t ns) {
         if (left >= 0.002) Sleep(1);
         else SwitchToThread();
     }
-}
-
-uint64_t rng_next() {
-    State& s = S();
-    if (s.on && s.det) return splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
-    uint64_t v = 0;
-    rng_fill(&v, 8);
-    return v;
 }
 
 void rng_fill(void* p, size_t n) {

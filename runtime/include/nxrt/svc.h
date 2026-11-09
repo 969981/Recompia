@@ -37,10 +37,6 @@ struct SvcUnknownRecord {
     uint64_t first_args[8] = {};
     uint64_t first_lr = 0, first_fn = 0, first_pc = 0;
 };
-std::vector<SvcUnknownRecord> svc_unknown_records();
-uint64_t svc_unknown_total();
-uint64_t svc_call_count(uint32_t number);                  // calls dispatched to a handler or counted as unknown
-void svc_reset_counters();                                 // tests
 std::string svc_summary();                                 // "svc: N calls, M distinct, K unknown (0x.., ...)" for the end-of-run log
 
 // ---- groups registered by svc_init (one source file each) ------------------------------------------------------------------------

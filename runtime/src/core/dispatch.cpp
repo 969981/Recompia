@@ -254,15 +254,6 @@ const char* hle_name_at(uint64_t addr) {
 
 size_t hle_count() { return g_thunk_count.load(std::memory_order_acquire); }
 
-size_t hle_stub_count() {
-    std::lock_guard<std::mutex> lk(g_hle_lock);
-    size_t n = 0;
-    for (auto& t : g_thunks) n += t->fn == nullptr;
-    return n;
-}
-
-uint64_t hle_calls(uint64_t addr) { return hle_is_thunk(addr) ? g_thunks[thunk_index(addr)]->calls.load() : 0; }
-
 std::vector<HleInfo> hle_list() {
     std::lock_guard<std::mutex> lk(g_hle_lock);
     std::vector<HleInfo> v;

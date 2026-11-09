@@ -149,19 +149,9 @@ RegResult nxmodule_register(Module* image, const NxModule* nx, uint32_t abi_vers
     return r;
 }
 
-size_t module_register_nxmodule(Module* m, const NxModule* nx) { return nxmodule_register(m, nx, kAbiVersion).functions; }
-
 const NxModule* nxmodule_by_index(uint32_t index) {
     Entry* e = by_index(index);
     return e ? e->nx : nullptr;
-}
-
-const NxModule* nxmodule_by_name(const char* name) {
-    for (size_t k = 0, n = g_count.load(std::memory_order_acquire); k < n; k++) {
-        const NxModule* nx = g_list[k].load(std::memory_order_acquire)->nx;
-        if (nx->name && std::strcmp(nx->name, name) == 0) return nx;
-    }
-    return nullptr;
 }
 
 const NxModule* nxmodule_at(uint64_t addr) {

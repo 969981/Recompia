@@ -27,7 +27,6 @@ Region* region_create(uint64_t addr, uint64_t size);
 // Makes every armed page writable again and frees the region. Owner.
 void region_destroy(Region* r);
 uint64_t region_base(const Region* r);
-uint64_t region_pages(const Region* r);
 
 // Owner: arms pages [first, first + count): read-only, and valid until written. False when a page could not be protected (not committed
 // read-write, banned): nothing in the run is armed then.
@@ -99,6 +98,5 @@ bool all_armed(const Region* r, uint64_t first, uint64_t count);
 uint64_t guard_faults();   // accesses that hit a guarded page (statistics)
 
 uint64_t faults();     // write faults handled so far (statistics)
-uint64_t fault_waits(); // rounds a fault spent waiting for another thread's release of the same page (statistics; stays 0 for foreign faults)
 
 }  // namespace nxrt::mem::ww

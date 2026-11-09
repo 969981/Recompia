@@ -379,8 +379,6 @@ void watchdog_stop() {
     g_running.store(false);
 }
 
-bool watchdog_running() { return g_running.load(); }
-
 namespace {
 std::atomic<void (*)()> g_frame_listener{nullptr};
 }
@@ -394,8 +392,6 @@ void diag_frame_tick() {
 }
 
 uint64_t diag_frame_count() { return g_frames.load(std::memory_order_relaxed); }
-
-uint32_t watchdog_fire_count() { return g_fires.load(std::memory_order_relaxed); }
 
 std::string diag_thread_dump() { return dump_text(); }
 
