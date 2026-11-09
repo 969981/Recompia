@@ -248,8 +248,4 @@ void linkplay_remove() {
     services::ldnapi::set_session_variant(0, kInteractName);
 }
 
-bool linkplay_armed() { return st().armed.load(); }
-bool linkplay_story_armed() { return st().story_armed.load(); }
-uint64_t linkplay_changes() { return st().changes.load(); }
-
 }  // namespace nxrt::games::pkp

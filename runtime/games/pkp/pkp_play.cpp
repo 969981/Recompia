@@ -114,7 +114,6 @@ constexpr uint64_t kCamField = 0x87cd0;                                     // m
 constexpr uint64_t kFollowGate = 0x249848;                                  // mid: w0 bit 0 = run the follow placement (0x783c0) this frame
 constexpr uint64_t kViewsGlobal = 0x3561880;                                // object whose byte +562 says two views (split screen)
 using layout::kSaveRoot;
-constexpr uint64_t kTagCallback = 0x1f90fec;                                // mid: text layout, BLR to the tag handler (w1 type, x2 args, x0 layout)                                 // [ptr] the save/options block
 constexpr int kFullLevel = 30;
 constexpr int kTableW = 1920, kTableH = 1080;
 

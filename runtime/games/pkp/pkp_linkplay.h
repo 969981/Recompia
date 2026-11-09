@@ -44,8 +44,5 @@ void linkplay_remove();
 // native (it is in the mods fingerprint after Interact everywhere); turns Interact everywhere on with it; armed by linkplay_frame() under
 // the same checks, with its own site and word.
 const InteractSite* story_site(const std::string& build_id);
-bool linkplay_story_armed();
-bool linkplay_armed();
-uint64_t linkplay_changes();   // times the hook lifted the Spectator restriction
 
 }  // namespace nxrt::games::pkp

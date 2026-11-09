@@ -1039,8 +1039,6 @@ bool menu_over_value() { return st().active && st().slider >= 0; }
 
 bool menu_active() { return st().active; }
 
-bool menu_open() { return st().active && st().cursor >= 0; }
-
 void menu_set_quit_guide(uint64_t layout) { g_quit_guide.store(layout, std::memory_order_relaxed); }
 void menu_set_sort_guide(uint64_t layout) { g_sort_guide.store(layout, std::memory_order_relaxed); }
 void menu_set_craft_guide(uint64_t layout) { g_craft_guide.store(layout, std::memory_order_relaxed); }

@@ -63,7 +63,7 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-constexpr uint64_t kTagCall = 0x1f90fec;          // mid: BLR to the tag handler
+constexpr uint64_t kTagCall = 0x1f90fec;          // mid: text layout, BLR to the tag handler (w1 type, x2 args, x0 layout)
 using layout::kInputMgr;
 using layout::kActionButtons;
 constexpr uint64_t kActionButton = 0x1126e18;     // u8 (mgr, u16 action, bool remap, bool): the button code of an action
