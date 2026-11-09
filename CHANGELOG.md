@@ -6,12 +6,18 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## 0.8.2 (build L: Lemur)
 
-**Update:** press **Update** in the launcher. You do not need **Set up again**: the game code is the same as in 0.8.1.
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (camera aim adds hooks, so the game is rebuilt; your saves and shaders are kept).
 
 ### Highlights
 - Added **Add to Steam** (Settings > Game > Steam): put Recompia into your Steam library, with its artwork, so it shows in Game Mode and Big Picture on a Steam Deck or any PC
 - Added **Koi's Camp**, a new look for the launcher: a bright hand-drawn picture behind it, by Koi (press **Colours** in the sidebar to try it). Koi drew it while the bug fixes and the new features kept Jerban busy, so thank you, Koi, and sorry for the wait
-- Nothing in the game changes. Sunrise is still the launcher's default look
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play (camera aim is still **off** by default, see Gameplay). Everything else in the game is as in 0.8.1. Sunrise is still the launcher's default look
+
+### Gameplay
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play
+  - Before: camera aim turned the aim to where the camera looks, and the game stayed in its normal (facing) mode
+  - Now: with camera aim on, the game is in its Joy-Con mouse mode during normal play with any controller or the mouse, whatever its own mouse option says. The pointer stays at the centre of the screen and the camera still turns with the mouse and the right stick. Camera aim's targeting applies in both modes, your tool is not switched to Rock Smash, and the game's own pointer is not shown
+  - Still not: camera aim stays off by default (**Settings > Game > Gameplay** or `[pkp] camera_aim = 1`); the Mouse mode key (free pointer) leaves mouse mode while it is on; only the first player is covered
 
 ### Launcher
 - Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
@@ -33,7 +39,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed doubled dialogue text above 1920x1080 (#267) and the story getting stuck above 60 fps (#297)
 
 ### Gameplay
-- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. With it on, the game also runs in its Joy-Con mouse mode during normal play (with any controller or the mouse; the aiming stays the camera aim). It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
+- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
 - Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Performance
