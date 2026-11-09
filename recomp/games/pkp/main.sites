@@ -252,7 +252,14 @@ inline 0x71010132a4
 inline 0x71010132d0
 inline 0x710101334c
 entryhook 0x7100eb1b40
-#   Title screen (pkp_title.cpp, [pkp] title_quit): the key guide widget takes a set (the title's 152 gets a Quit Game guide), and the end of a
-#   key guide part's fill (x19 part, x21 its table row, w20 text slot; the caller's widget at [x29 + 0x38]): the Quit Game text
+#   Title screen (pkp_title.cpp, [pkp] title_quit) and inventory sort (pkp_sort.cpp, [pkp] inventory_sort), one hook each on the same two
+#   sites (the runtime runs both; each returns 0 and acts only on its own set / key guide row): the key guide widget takes a set (x0 widget,
+#   w1 set; the title's 152 gets a Quit Game guide), and the end of a key guide part's fill (x19 part, x21 its table row, w20 text slot; the
+#   caller's widget at [x29 + 0x38]): the Quit Game text; the Sort button's icon and the part's layout for the menu pointer
 entryhook 0x7100ec5de0
 inline 0x7100ec69b4
+#   Inventory sort (pkp_sort.cpp, [pkp] inventory_sort / inventory_autosort): the bag / container screen's per-frame virtual (x0 = the screen,
+#   UI class 0x8d): Y sorts the panel under the cursor and refreshes the panels; the key guide widget's layout pass (x0 widget: the browsing
+#   set's "Hold to Sort" entry becomes "Sort"); with the two shared sites above
+entryhook 0x7100feee78
+entryhook 0x7100ec54a0

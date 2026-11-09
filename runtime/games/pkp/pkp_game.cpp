@@ -9,6 +9,7 @@
 #include "pkp_play.h"
 #include "pkp_quality.h"
 #include "pkp_save_uuid.h"
+#include "pkp_sort.h"
 #include "pkp_taa.h"
 #include "pkp_title.h"
 
@@ -37,6 +38,7 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
     aim_install(base);
     options_install(base);
     title_install(base, host);
+    sort_install(base);
     linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
                      config_get_bool("pkp", "link_story_coop", false));
 }
