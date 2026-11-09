@@ -629,6 +629,7 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
     if (!s.enabled) return 0;
     s.tags.fetch_add(1, std::memory_order_relaxed);
     uint32_t action = 0;
+    if (!c->x[2]) return 0;   // no string: no digits, and the hook would read address 0
     for (uint64_t p = c->x[2]; p < c->x[2] + 16; p += 2) {
         const uint16_t ch = rd<uint16_t>(p);
         if (ch < '0' || ch > '9') break;
