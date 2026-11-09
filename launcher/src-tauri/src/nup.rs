@@ -338,35 +338,11 @@ fn uuid_hex(u: &[u8; 16]) -> String {
     u.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Free bytes on the drive that holds `path` (or its nearest existing parent). None when it cannot be told.
-#[cfg(windows)]
-pub fn free_space(path: &Path) -> Option<u64> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetDiskFreeSpaceExW(dir: *const u16, avail: *mut u64, total: *mut u64, free: *mut u64) -> i32;
-    }
-    let mut p = path;
-    while !p.exists() {
-        p = p.parent()?;
-    }
-    let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
-    let mut avail = 0u64;
-    let (mut total, mut free) = (0u64, 0u64);
-    // SAFETY: wide is NUL-terminated and the out pointers are valid for the call
-    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, &mut total, &mut free) };
-    (ok != 0).then_some(avail)
-}
-#[cfg(not(windows))]
-pub fn free_space(path: &Path) -> Option<u64> {
-    crate::host::free_bytes(path)
-}
-
 /// Unpacks `nup_path` into `out`. A finished unpack of the same package is reused. `progress(done, total, current file)`
 /// is called per file; `cancel` is polled during the unpack. Returns `out`.
 pub fn extract(nup_path: &Path, out: &Path, progress: &mut dyn FnMut(u64, u64, &str), cancel: &dyn Fn() -> bool) -> Result<PathBuf, String> {
     let want = crate::dump::supported().map(|(id, _)| id);
-    extract_with(nup_path, out, progress, cancel, want.as_deref(), &free_space)
+    extract_with(nup_path, out, progress, cancel, want.as_deref(), &crate::preflight::free_bytes)
 }
 
 fn extract_with(
