@@ -56,7 +56,7 @@ constexpr const char* kAstcNames[] = {"Fast", "High (sharper, built in the backg
 constexpr int kAstcCount = static_cast<int>(sizeof kAstcValues / sizeof kAstcValues[0]);
 constexpr Trig kTrigChoices[] = {Trig::Press, Trig::Tap, Trig::Hold, Trig::Toggle, Trig::DoubleTap};
 // The Button prompts combo on the Controller tab, in PromptStyle order.
-constexpr const char* kPromptLabels[kPromptStyleCount] = {"Switch (the game's own)", "Xbox", "PlayStation", "Keyboard and mouse",
+constexpr const char* kPromptLabels[kPromptStyleCount] = {"Switch (the game's own)", "Xbox", "PlayStation", "Steam Controller", "Keyboard and mouse",
                                                           "Auto (follows the last used device)"};
 
 struct SwitchButton {
@@ -344,14 +344,16 @@ void mouse_tab(Page& p) {
 
 // ---- Controller ---------------------------------------------------------------------------------------------------------------------
 
-// The 16 controller buttons, in PadSrc order.
+// The 22 controller buttons, in PadSrc order.
 constexpr const char* kPadSrcLabels[kPadSrcCount] = {
     "A / Cross (bottom)", "B / Circle (right)", "X / Square (left)", "Y / Triangle (top)",
     "LB / L1",            "RB / R1",            "LT / L2",            "RT / R2",
     "Menu / Options",     "View / Create",      "Left stick click",   "Right stick click",
     "D-pad up",           "D-pad down",         "D-pad left",         "D-pad right",
+    "Right grip R4 (upper)", "Left grip L4 (upper)", "Right grip R5 (lower)", "Left grip L5 (lower)",
+    "Touchpad / left trackpad click", "Right trackpad click",
 };
-static_assert(sizeof kPadSrcLabels / sizeof kPadSrcLabels[0] == 16, "one label per controller button");
+static_assert(sizeof kPadSrcLabels / sizeof kPadSrcLabels[0] == 22, "one label per controller button");
 
 // The choices of a controller button: Default, Nothing, then the single Switch buttons in kSwitchButtons order.
 constexpr const char* kPadChoiceNames[] = {
@@ -471,7 +473,7 @@ void prompts_row(const LiveStatus& live, Page& p) {
         }
         ImGui::EndCombo();
     }
-    tip("The button icons in the game's prompts: the game's own Switch icons, Xbox, PlayStation, keyboard and mouse, or Auto to follow the device you used last.");
+    tip("The button icons in the game's prompts: the game's own Switch icons, Xbox, PlayStation, Steam Controller, keyboard and mouse, or Auto to follow the device you used last.");
     if (prompts.style == PromptStyle::Auto) {
         ImGui::SameLine();
         ImGui::TextDisabled("showing %s", cstr(live.prompt_now));

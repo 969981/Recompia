@@ -52,6 +52,8 @@ const wchar_t* const kSourceLabels[kPadSrcCount] = {
     L"A / Cross",   L"B / Circle",     L"X / Square",      L"Y / Triangle",   L"LB / L1",       L"RB / R1",
     L"LT / L2",     L"RT / R2",        L"Start / Menu",  L"Back / View",  L"L stick click", L"R stick click",
     L"D-pad up",    L"D-pad down",     L"D-pad left",      L"D-pad right",
+    L"Right grip R4 (upper)", L"Left grip L4 (upper)", L"Right grip R5 (lower)", L"Left grip L5 (lower)",
+    L"Touchpad / left trackpad click", L"Right trackpad click",
 };
 
 std::vector<std::wstring> layout_items() {

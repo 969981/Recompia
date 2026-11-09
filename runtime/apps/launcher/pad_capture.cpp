@@ -36,6 +36,12 @@ int pad_source_for_gamepad_button(int b) {
         case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return src(PadSrc::DpadDown);
         case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return src(PadSrc::DpadLeft);
         case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return src(PadSrc::DpadRight);
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1: return src(PadSrc::RightPaddle1);
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1: return src(PadSrc::LeftPaddle1);
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2: return src(PadSrc::RightPaddle2);
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2: return src(PadSrc::LeftPaddle2);
+        case SDL_GAMEPAD_BUTTON_TOUCHPAD: return src(PadSrc::Touchpad);
+        case SDL_GAMEPAD_BUTTON_MISC2: return src(PadSrc::TouchpadRight);
         default: return -1;
     }
 }

@@ -31,6 +31,7 @@ void pixel_size(int* w, int* h);              // client size in pixels (0, 0 whi
 bool set_window_size(int w, int h);           // windowed size in screen coordinates
 bool minimized();
 bool focused();
+bool touchscreen_present();                  // a direct touch screen is attached (a handheld, a touch laptop); not a touchpad
 bool visible();
 
 enum class FullscreenMode { Windowed, Borderless, Exclusive };

@@ -43,6 +43,33 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the selected-texture experiment polls completion, retains pending work and uses private readback buffers; disabled by default
   - Still not: a confirmed general fix; accepting older texture data needs guest correctness review and longer testing
 
+### Controllers
+- The new Steam Controller (and other Valve pads) is now recognised as its own kind of controller
+  - The log line `gamepad ... kind` now says "Steam" for it, which helps us check support with a real controller
+- New button icons: **Steam Controller**
+  - Pick it under Button icons (launcher Controls tab, or F1 > Controller), or set `[prompts] style = steam` in `controls.ini`
+  - Automatic uses it when the last pad you used is a Steam Controller that the game sees directly (with Steam Input on, Steam shows the game an Xbox pad, so you get Xbox icons there)
+  - The art is Kenney's Input Prompts (CC0)
+- Steam Controller **rear grips and trackpad clicks** can now be given a Switch button (they did nothing before)
+  - Controls tab > Button layout (launcher, and F1 in game) has six new rows: the four rear grips (R4, L4, R5, L5), the left trackpad click (also a PlayStation touchpad click) and the right trackpad click. `Find a button...` finds them too
+  - They press nothing until you choose a button, so nothing changes for anyone who does not
+  - In `controls.ini` they are `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `touchpad_right` under `[padmap]`
+  - With the Steam Controller icons on, a button given to a grip or trackpad shows the grip or trackpad icon
+- **Touch screens** (Steam Deck, ROG Ally and other handhelds, touch laptops): the game now treats a finger as a finger
+  - A **Menu** button in the bottom left corner opens the F1 menu (it reads **Close** while the menu is open), so a handheld needs no keyboard for it. The menu then has bigger rows, buttons and scroll bars
+  - Taps work the game's own menus, as before; but a tap in play no longer fires the mouse click action (use the tool), and touching the screen no longer switches the button prompts to the keyboard's keys
+  - On by default when a touch screen is found (`touch: touch screen found, menu button on` in `pkp.log`); `[overlay] touch_button = off` turns it off, `on` forces it
+  - The launcher on a touch screen: no double-tap zoom or tap delay
+- **The launcher works with a controller** (Steam Deck, ROG Ally and other handhelds, or any pad), beside touch and the mouse
+  - D-pad or left stick moves between controls, **A** presses, **B** goes back (closes a question, or returns Home), **LB / RB** switch pages, the right stick scrolls
+  - On a slider, left and right change it; on a drop-down, up and down change it
+  - A thicker focus ring shows only while a pad is the last thing you used; touching or clicking hides it
+  - Needs the browser engine of your system to report the pad (Windows and most Linux setups do; if yours does not, nothing changes)
+- Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
+
+### What to test
+- **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
+
 ## 0.8.2 (build L: Lemur)
 
 **Update:** press **Update** in the launcher, then **Set up again** once when it asks (camera aim adds hooks, so the game is rebuilt; your saves and shaders are kept).

@@ -86,7 +86,7 @@ bool parse_trig(const std::string& s, Trig* out) {
 // ---- button prompts ---------------------------------------------------------------------------------------------------------------
 
 namespace {
-const char* const kPromptNames[] = {"switch", "xbox", "playstation", "keyboard", "auto"};
+const char* const kPromptNames[] = {"switch", "xbox", "playstation", "steam", "keyboard", "auto"};
 static_assert(sizeof(kPromptNames) / sizeof(kPromptNames[0]) == kPromptStyleCount, "one name per PromptStyle");
 
 // Every spelling parse_prompt_style accepts (the canonical names are in the table too).
@@ -97,7 +97,9 @@ struct PromptAlias {
 const PromptAlias kPromptAliases[] = {
     {"switch", PromptStyle::Switch},          {"xbox", PromptStyle::Xbox},           {"playstation", PromptStyle::PlayStation},
     {"ps", PromptStyle::PlayStation},         {"ps4", PromptStyle::PlayStation},     {"ps5", PromptStyle::PlayStation},
-    {"dualsense", PromptStyle::PlayStation},  {"keyboard", PromptStyle::Keyboard},   {"kbm", PromptStyle::Keyboard},
+    {"dualsense", PromptStyle::PlayStation},  {"steam", PromptStyle::Steam},         {"steamcontroller", PromptStyle::Steam},
+    {"steam_controller", PromptStyle::Steam},
+    {"keyboard", PromptStyle::Keyboard},      {"kbm", PromptStyle::Keyboard},
     {"keyboard_mouse", PromptStyle::Keyboard}, {"mouse", PromptStyle::Keyboard},     {"auto", PromptStyle::Auto},
 };
 }  // namespace
@@ -120,7 +122,8 @@ bool parse_prompt_style(const std::string& s, PromptStyle* out) {
 namespace {
 const char* const kPadSrcNames[kPadSrcCount] = {"south",         "east",           "west",       "north",      "left_shoulder", "right_shoulder",
                                                 "left_trigger", "right_trigger",  "start",      "back",       "left_stick",    "right_stick",
-                                                "dpad_up",      "dpad_down",      "dpad_left",  "dpad_right"};
+                                                "dpad_up",      "dpad_down",      "dpad_left",  "dpad_right",
+                                                "right_paddle1", "left_paddle1",  "right_paddle2", "left_paddle2", "touchpad",   "touchpad_right"};
 const char* const kCornerNames[] = {"top_left", "top_right", "bottom_left", "bottom_right"};
 }  // namespace
 

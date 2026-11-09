@@ -1,0 +1,55 @@
+// Tests for the pure part of the launcher's controller navigation (src/gamepad-nav-model.js). Run: node launcher/scripts/test-gamepad-nav.mjs
+import { readPad, newlyDown, repeatStep, pickNext, cycle, BTN, FIRST_REPEAT_MS, REPEAT_MS } from '../src/gamepad-nav-model.js';
+
+let bad = 0;
+const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
+const pad = (buttons = {}, axes = [0, 0, 0, 0]) => ({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: !!buttons[i], value: buttons[i] ? 1 : 0 })), axes });
+
+// readPad
+check(readPad(null).dir === null, 'no pad: no direction');
+check(readPad(pad({ [BTN.UP]: 1 })).dir === 'up', 'd-pad up');
+check(readPad(pad({}, [0.9, 0.1, 0, 0])).dir === 'right', 'stick right');
+check(readPad(pad({}, [0.3, 0.3, 0, 0])).dir === null, 'a small stick push is no direction');
+check(readPad(pad({}, [-0.2, -0.8, 0, 0])).dir === 'up', 'stick mostly up');
+check(readPad(pad({}, [0, 0, 0, 0.8])).scroll === 0.8 && readPad(pad({}, [0, 0, 0, 0.1])).scroll === 0, 'right stick scrolls past its dead zone only');
+check(readPad(pad({ [BTN.A]: 1 })).down.has(BTN.A), 'A is down');
+
+// newlyDown: only a fresh press counts
+const held = readPad(pad({ [BTN.A]: 1 }));
+check(newlyDown(held, held).length === 0, 'a held button is not new');
+check(newlyDown(readPad(pad()), held).join() === String(BTN.A), 'a press is new');
+check(newlyDown(null, held).length === 1, 'with no earlier state every held button is new');
+
+// repeat: at once, then after the first delay, then at the repeat rate
+const st = { dir: null, since: 0, last: 0 };
+check(repeatStep(st, 'down', 1000) === true, 'first step at once');
+check(repeatStep(st, 'down', 1000 + FIRST_REPEAT_MS - 10) === false, 'no repeat before the first delay');
+check(repeatStep(st, 'down', 1000 + FIRST_REPEAT_MS) === true, 'repeat after the first delay');
+check(repeatStep(st, 'down', 1000 + FIRST_REPEAT_MS + REPEAT_MS - 5) === false, 'no repeat inside the repeat rate');
+check(repeatStep(st, 'down', 1000 + FIRST_REPEAT_MS + REPEAT_MS) === true, 'repeat at the rate');
+check(repeatStep(st, null, 5000) === false && repeatStep(st, 'left', 5001) === true, 'a new direction steps at once');
+
+// pickNext on a grid:   a b c
+//                       d e f
+const box = (x, y) => ({ left: x, top: y, right: x + 100, bottom: y + 40 });
+const R = [box(0, 0), box(120, 0), box(240, 0), box(0, 60), box(120, 60), box(240, 60)];   // a b c d e f
+check(pickNext(R[0], R, 'right') === 1, 'a right -> b');
+check(pickNext(R[1], R, 'down') === 4, 'b down -> e');
+check(pickNext(R[4], R, 'up') === 1, 'e up -> b');
+check(pickNext(R[4], R, 'left') === 3, 'e left -> d');
+check(pickNext(R[0], R, 'left') === -1, 'nothing left of a');
+check(pickNext(R[0], R, 'up') === -1, 'nothing above a');
+check(pickNext(R[2], R, 'down') === 5, 'c down -> f, not another column');
+// a sideways miss counts double: from a, down goes to d (same column), not e
+check(pickNext(R[0], R, 'down') === 3, 'a down -> d');
+// a tall control beside two short ones: the nearer row wins
+const side = [box(0, 0), { left: 200, top: -100, right: 300, bottom: 150 }, box(200, 200)];
+check(pickNext(side[0], side, 'right') === 1, 'right from a short control reaches the tall one that overlaps its row');
+
+// cycle
+check(cycle(0, 4, 1) === 1 && cycle(3, 4, 1) === 0 && cycle(0, 4, -1) === 3, 'cycle wraps');
+check(cycle(-1, 4, 1) === 0 && cycle(-1, 4, -1) === 3, 'cycle from nothing');
+check(cycle(0, 0, 1) === -1, 'cycle of an empty list');
+
+console.log(bad ? `TEST FAILED (${bad})` : 'gamepad nav model tests passed');
+process.exit(bad ? 1 : 0);

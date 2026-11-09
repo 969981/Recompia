@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// In-game Options: the PC settings of the F1 page, as tabs and rows of the game's own Settings screen. [pkp] options_menu, off by default.
+// In-game Options: the PC settings of the F1 page, as tabs and rows of the game's own Settings screen. [pkp] options_menu, on by default.
 // Nothing reaches the save file: the rows read and write the Settings behind controls.ini, the same store as the F1 page.
 //
 // How the game's Options screen works (main 2.0.1a, static reading):
@@ -138,7 +138,9 @@ constexpr int kSizeCount = static_cast<int>(std::size(kWidths));
 constexpr const char* kSizeNames[kSizeCount + 1] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160", "Custom"};
 constexpr int kAniso[] = {0, 2, 4, 8, 16};
 constexpr const char* kAnisoNames[] = {"Game Default", "2x", "4x", "8x", "16x"};
-constexpr const char* kPromptNames[] = {"Switch", "Xbox", "PlayStation", "Keyboard", "Automatic"};
+// In play::PromptStyle order (the row stores the enum's number).
+constexpr const char* kPromptNames[] = {"Switch", "Xbox", "PlayStation", "Steam Controller", "Keyboard", "Automatic"};
+static_assert(std::size(kPromptNames) == play::kPromptStyleCount, "one name per PromptStyle");
 constexpr const char* kAheadNames[] = {"No Limit", "0", "1", "2", "3"};
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
@@ -284,7 +286,7 @@ const Row kMouse[] = {
     choice("Invert Vertical", "Moving the mouse up looks down.", kOffOn, 2, ROW_BOOL(mouse.invert_y)),
     choice("Invert Horizontal", "Moving the mouse left looks right.", kOffOn, 2, ROW_BOOL(mouse.invert_x)),
     choice("Mouse Pointer in Menus", "Use the mouse as a pointer: hover, click, right click, wheel.", kOffOn, 2, ROW_BOOL(mouse.menu_cursor)),
-    names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, 5, ROW_ENUM(prompts.style, play::PromptStyle)),
+    names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, static_cast<uint8_t>(std::size(kPromptNames)), ROW_ENUM(prompts.style, play::PromptStyle)),
     dynamic("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). Move this to press a new key.",
             mouse_mode_text, mouse_mode_max, [](const S&) { return 0; }, [](S&, int) {}),
 };

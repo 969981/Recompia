@@ -20,6 +20,7 @@
 #include <SDL3/SDL_timer.h>
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -52,6 +53,7 @@
 #include "nxrt/timestep.h"
 #include "nxrt/tt.h"
 #include "menu_mouse.h"
+#include "touch_route.h"
 #include "play_engine.h"
 #include "play_game.h"
 #include "play_selftest.h"
@@ -575,7 +577,9 @@ void handle_event(const input::Event& e, uint64_t now) {
     }
     if (st.overlay && st.overlay->handle_event(e)) return;
     const bool menu_blocked = st.overlay && st.overlay->blocks_game();
-    if ((e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) || e.type == EventType::MouseButtonDown || e.type == EventType::MouseWheel)
+    // a finger is not the keyboard and mouse: the prompts stay as they are (touch_route.h)
+    const MouseRoute touch_route = route_mouse(e.type == EventType::MouseButtonDown || e.type == EventType::MouseButtonUp || e.type == EventType::MouseMotion ? e.flags : 0);
+    if ((e.type == EventType::KeyDown && !(e.flags & input::kFlagRepeat)) || (e.type == EventType::MouseButtonDown && touch_route.sets_last_device) || e.type == EventType::MouseWheel)
         st.last_dev = LastDevice::KeyboardMouse;
     switch (e.type) {
         case EventType::Quit:
@@ -598,13 +602,13 @@ void handle_event(const input::Event& e, uint64_t now) {
             if (!menu_blocked) mm::pointer().on_button(e.u.button.button, true);
             // While the Joy-Con 2 mouse owns the mouse in play, the left and right buttons belong to the device alone (the middle button stays
             // the mouse-mode key). A release is always passed on: it only matters when the press was seen before the device took over.
-            if (!menu_blocked && !(jc2_owns_clicks() && (e.u.button.button == 1 || e.u.button.button == 3))) st.engine->mouse_button(e.u.button.button, true, now);
+            if (!menu_blocked && touch_route.game_click && !(jc2_owns_clicks() && (e.u.button.button == 1 || e.u.button.button == 3))) st.engine->mouse_button(e.u.button.button, true, now);
             break;
         case EventType::MouseButtonUp:
             if (e.u.button.button == 1) st.mouse1 = false;
             st.jc2_buttons &= ~jc2_button_bit(e.u.button.button);
             mm::pointer().on_button(e.u.button.button, false);
-            st.engine->mouse_button(e.u.button.button, false, now);
+            if (touch_route.game_click) st.engine->mouse_button(e.u.button.button, false, now);   // a finger's press never reached the engine, so neither does its release
             break;
         case EventType::MouseWheel: {
             if (menu_blocked) break;
@@ -632,7 +636,7 @@ void handle_event(const input::Event& e, uint64_t now) {
                 st.mouse_y = e.u.motion.y;
                 if (!menu_blocked) mm::pointer().on_motion(e.u.motion.x, e.u.motion.y);
                 // moving the pointer over a menu counts as using the mouse (the prompts switch to keyboard icons); the raw motion of the aim in play does not
-                if (!menu_blocked && st.settings.mouse.menu_cursor && mm::pointer().has_moved()) st.last_dev = LastDevice::KeyboardMouse;
+                if (!menu_blocked && st.settings.mouse.menu_cursor && mm::pointer().has_moved() && touch_route.sets_last_device) st.last_dev = LastDevice::KeyboardMouse;
             }
             break;
         case EventType::WindowFocusLost:
@@ -1420,6 +1424,14 @@ bool start(const StartOptions& opt) {
                 st.overlay->add_panel("Settings", [] { draw_settings_page(g_host); });
                 st.overlay->install_on_renderer();
                 apply_fps_counter(st.settings.fps);
+                {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
+                    std::string tb = config_get_str("overlay", "touch_button", "auto");
+                    for (char& c : tb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    const bool on = tb == "on" || tb == "true" || tb == "1" || tb == "yes" || (tb == "auto" && st.window && platform::touchscreen_present());
+                    st.overlay->set_touch_button(on);
+                    NXLOG_I(kTag, "touch: touch screen %s, menu button %s ([overlay] touch_button = %s)", st.window && platform::touchscreen_present() ? "found" : "not found",
+                            on ? "on" : "off", tb.c_str());
+                }
             }
         }
     }

@@ -22,6 +22,11 @@ h3 { font-size: var(--text-md); font-weight: var(--weight-semi); line-height: va
 
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Controller navigation (gamepad-nav.js) moves the focus with a pad: a thicker ring, only while a pad is the last thing used. */
+body.pad-nav :focus { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+body.pad-nav .toggle input:focus + .track, body.pad-nav .seg input:focus + span { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+body.pad-nav .toggle input:focus, body.pad-nav .seg input:focus, body.pad-nav .slider input:focus { outline: none; }
+body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(--color-focus); outline-offset: 3px; }
 
 .icon {
   width: var(--icon);
@@ -532,6 +537,7 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
 
 /* Larger hit areas only where the primary pointer is a finger. */
 @media (pointer: coarse) {
+  html, body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }   /* no double-tap zoom or tap delay, no grey flash on a tap */
   .win-btn { width: 44px; height: 44px; }
   .nav-item { height: 44px; }
   .btn, .btn.sm { height: 44px; }

@@ -122,7 +122,11 @@ input::PadKind pad_kind(SDL_Gamepad* pad) {
         case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
         case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
             return input::PadKind::Switch;
+        case SDL_GAMEPAD_TYPE_STEAM:
+            return input::PadKind::Steam;
         default:
+            // Valve's second-generation Steam Controller: not sure SDL tags it SDL_GAMEPAD_TYPE_STEAM, so go by the vendor id as well.
+            if (SDL_GetGamepadVendor(pad) == 0x28DE) return input::PadKind::Steam;
             return input::PadKind::Other;
     }
 }
@@ -132,6 +136,7 @@ const char* pad_kind_name(input::PadKind k) {
         case input::PadKind::Xbox: return "Xbox";
         case input::PadKind::PlayStation: return "PlayStation";
         case input::PadKind::Switch: return "Switch";
+        case input::PadKind::Steam: return "Steam";
         default: return "other";
     }
 }
@@ -264,7 +269,7 @@ void translate(const SDL_Event& ev) {
             const bool rel = relative_mouse();
             const float d = pixel_density();
             input::Event e = make_event(input::EventType::MouseMotion, ts);
-            e.flags = static_cast<uint8_t>(rel ? input::kFlagRelative : 0);
+            e.flags = static_cast<uint8_t>((rel ? input::kFlagRelative : 0) | (ev.motion.which == SDL_TOUCH_MOUSEID ? input::kFlagTouch : 0));
             e.u.motion.dx = ev.motion.xrel;
             e.u.motion.dy = ev.motion.yrel;
             e.u.motion.x = ev.motion.x * d;
@@ -281,6 +286,7 @@ void translate(const SDL_Event& ev) {
                 ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? input::EventType::MouseButtonDown : input::EventType::MouseButtonUp,
                 ts);
             e.mods = SDL_GetModState();
+            if (ev.button.which == SDL_TOUCH_MOUSEID) e.flags = input::kFlagTouch;
             e.u.button.button = ev.button.button;
             e.u.button.clicks = ev.button.clicks;
             e.u.button.x = ev.button.x * d;
@@ -453,6 +459,16 @@ bool set_window_size(int w, int h) { return g_window != nullptr && SDL_SetWindow
 bool minimized() { return window_flag(SDL_WINDOW_MINIMIZED); }
 
 bool focused() { return window_flag(SDL_WINDOW_INPUT_FOCUS); }
+
+// A touch screen on the machine (Steam Deck, ROG Ally and other handhelds, touch laptops): SDL lists it as a direct touch device. Not a touchpad.
+bool touchscreen_present() {
+    int n = 0;
+    SDL_TouchID* ids = SDL_GetTouchDevices(&n);
+    bool found = false;
+    for (int i = 0; ids && i < n; ++i) found = found || SDL_GetTouchDeviceType(ids[i]) == SDL_TOUCH_DEVICE_DIRECT;
+    SDL_free(ids);
+    return found;
+}
 
 bool visible() { return g_window != nullptr && !window_flag(SDL_WINDOW_HIDDEN); }
 

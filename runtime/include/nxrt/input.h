@@ -25,7 +25,8 @@ enum class EventType : uint8_t {
     WindowFullscreenChanged,      // window: size in pixels; flags bit0 = now fullscreen
 };
 
-enum EventFlags : uint8_t { kFlagRepeat = 1, kFlagRelative = 1, kFlagFullscreen = 1 };
+// kFlagTouch (mouse motion and buttons): SDL made this mouse event from a finger on a touch screen (its mouse id is SDL_TOUCH_MOUSEID).
+enum EventFlags : uint8_t { kFlagRepeat = 1, kFlagRelative = 1, kFlagFullscreen = 1, kFlagTouch = 2 };
 
 struct Event {
     EventType type = EventType::None;
@@ -67,7 +68,7 @@ MouseDelta mouse_delta_peek();
 // ---- gamepads ---------------------------------------------------------------------------------------------------------
 // The platform opens a gamepad when it is plugged in (GamepadAdded) and closes it when it is unplugged (GamepadRemoved).
 // Controller family, as SDL reports it for the open pad: the button-prompt feature picks its icons by this.
-enum class PadKind : uint8_t { Other = 0, Xbox, PlayStation, Switch };
+enum class PadKind : uint8_t { Other = 0, Xbox, PlayStation, Switch, Steam };
 
 struct GamepadInfo {
     uint32_t id = 0;                // SDL instance id, as in the events

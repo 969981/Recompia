@@ -10,6 +10,9 @@ Check an existing pack:
 Add the derived entries (the d-pad direction icons) to an existing pack without the Kenney pack; other entries are kept byte for byte:
   python -I scripts/build_prompt_pack.py --derive assets/prompts/prompt_icons.pak
 
+Add the Steam Controller icons (steam/, from the Kenney "Steam Controller" folder) to an existing pak; other entries are kept byte for byte:
+  python -I scripts/build_prompt_pack.py --add-steam <pack folder or .zip> --out assets/prompts/prompt_icons.pak
+
 Pack format, little endian:
   header (24 bytes): char magic[4]="MPIP", u32 version=1, u32 count, u32 icon_w=36, u32 icon_h=36, u32 reserved=0
   count directory entries (48 bytes each): char name[40] (ASCII, NUL padded), u32 offset, u32 size (=5184)
@@ -51,6 +54,7 @@ RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
 XBOX_DIR = "Xbox Series"
 PS_DIR = "PlayStation Series"
 KBM_DIR = "Keyboard & Mouse"
+STEAM_DIR = "Steam Controller"
 
 XBOX_MAP = {
     "xbox/a": "xbox_button_color_a",
@@ -80,11 +84,31 @@ PS_MAP = {
     "ps/dpad": "playstation_dpad",
 }
 
+# The Steam Controller set, laid out like the Xbox one (A/B/X/Y by printed letter, bumpers, triggers; the controller's left small button is
+# View and the right one Menu). Kenney's art is coloured like the Steam Deck's.
+STEAM_MAP = {
+    "steam/a": "steam_button_color_a",
+    "steam/b": "steam_button_color_b",
+    "steam/x": "steam_button_color_x",
+    "steam/y": "steam_button_color_y",
+    "steam/lb": "steam_lb",
+    "steam/rb": "steam_rb",
+    "steam/lt": "steam_lt",
+    "steam/rt": "steam_rt",
+    "steam/menu": "steam_button_start_icon",
+    "steam/view": "steam_button_back_icon",
+    "steam/dpad": "steam_dpad",
+    "steam/lg": "steam_lg",                  # left grip (the two rear buttons on a side share it)
+    "steam/rg": "steam_rg",
+    "steam/lp": "steam_button_lp",           # left and right trackpad click
+    "steam/rp": "steam_button_rp",
+}
+
 # One d-pad direction each, for prompts that name a direction (Pokopia's left/right/up/down glyphs): <style>/dpad_<dir>, drawn from the
 # whole cross <style>/dpad by dpad_direction(). Value: the dead centre the arms leave out, in pixels from the icon centre (the Xbox cross
 # is solid there; the PlayStation arms are four pieces split along the diagonals).
 DPAD_DIRS = ("up", "down", "left", "right")
-DPAD_CORE = {"xbox/dpad": 6.5, "ps/dpad": 0.0}
+DPAD_CORE = {"xbox/dpad": 6.5, "ps/dpad": 0.0, "steam/dpad": 6.5}
 DPAD_DIM = 0.4              # the arms not pressed: the cross's luminance x this (a grey cross), alpha kept
 
 # Mouse plus the last-resort generic key.
@@ -280,16 +304,20 @@ def label_for(lname: str, sdl: str) -> str:
 
 # ---------------------------------------------------------------- source loading
 
-def find_pack_root(p: Path) -> Path:
-    if (p / XBOX_DIR).is_dir():
+def find_pack_root(p: Path, folder: str = XBOX_DIR) -> Path:
+    if (p / folder).is_dir():
         return p
     for dirpath, dirnames, _ in os.walk(p):
-        if XBOX_DIR in dirnames:
+        if folder in dirnames:
             return Path(dirpath)
-    raise SystemExit(f"'{XBOX_DIR}' folder not found under {p}")
+    raise SystemExit(f"'{folder}' folder not found under {p}")
 
 
 def open_kenney(arg: str, tmp_dirs: list[Path]) -> Path:
+    return open_kenney_for(arg, tmp_dirs, XBOX_DIR)
+
+
+def open_kenney_for(arg: str, tmp_dirs: list[Path], folder: str) -> Path:
     p = Path(arg)
     if p.is_file() and zipfile.is_zipfile(p):
         dest = Path(tempfile.mkdtemp(prefix="kenney_prompts_"))
@@ -304,7 +332,7 @@ def open_kenney(arg: str, tmp_dirs: list[Path]) -> Path:
         p = dest
     if not p.is_dir():
         raise SystemExit(f"not a folder or zip: {arg}")
-    return find_pack_root(p)
+    return find_pack_root(p, folder)
 
 
 def load_src(root: Path, folder: str, stem: str) -> Image.Image:
@@ -372,6 +400,8 @@ def add_dpad_directions(icons: dict[str, Image.Image]) -> list[str]:
     """Adds <style>/dpad_<dir> for every whole cross in DPAD_CORE (no _pressed twins). Returns the added names."""
     added = []
     for cross, core in DPAD_CORE.items():
+        if cross not in icons:   # a pack built before the Steam set has no steam/dpad
+            continue
         for d in DPAD_DIRS:
             icons[f"{cross}_{d}"] = dpad_direction(icons[cross], d, core)
             added.append(f"{cross}_{d}")
@@ -495,18 +525,18 @@ def verify(path: Path) -> int:
             problems.append(f"file size {len(data)} != header + directory + {count} blocks")
 
     s = set(names)
-    for p in ("xbox/", "ps/", "kbm/"):
+    for p in ("xbox/", "ps/", "steam/", "kbm/"):
         print(f"{p:8s} {sum(1 for n in names if n.startswith(p)):4d} entries")
-    other = [n for n in names if not n.startswith(("xbox/", "ps/", "kbm/"))]
+    other = [n for n in names if not n.startswith(("xbox/", "ps/", "steam/", "kbm/"))]
     if other:
         problems.append(f"unexpected prefixes: {other[:5]}")
     bases = [n for n in names if not n.endswith("_pressed")]
     print(f"base {len(bases)}, _pressed {len(names) - len(bases)}")
-    for p in ("xbox/", "ps/", "kbm/"):
+    for p in ("xbox/", "ps/", "steam/", "kbm/"):
         missing = [n for n in bases if n.startswith(p) and n + "_pressed" not in s]
         orphan = [n for n in names if n.endswith("_pressed") and n[: -len("_pressed")] not in s]
         print(f"{p:8s} pressed twins missing: {len(missing)}, orphan pressed: {len(orphan)}")
-        if p in ("xbox/", "ps/") and missing:
+        if p in ("xbox/", "ps/", "steam/") and missing:
             problems.append(f"{p} base names without _pressed twin: {missing}")
         if orphan:
             problems.append(f"orphan _pressed entries: {orphan[:5]}")
@@ -522,7 +552,7 @@ def write_preview(path: Path, icons: dict[str, Image.Image], font_path: Path) ->
     font = ImageFont.truetype(str(font_path), 10)
     head_font = ImageFont.truetype(str(font_path), 18)
     groups = []
-    for prefix in ("xbox/", "ps/", "kbm/"):
+    for prefix in ("xbox/", "ps/", "steam/", "kbm/"):
         base = sorted((n for n in icons if n.startswith(prefix) and not n.endswith("_pressed")),
                       key=lambda n: n.encode("ascii"))
         groups.append((f"{prefix} base", base))
@@ -552,6 +582,28 @@ def write_preview(path: Path, icons: dict[str, Image.Image], font_path: Path) ->
 
 # ---------------------------------------------------------------- build
 
+def add_steam(args: argparse.Namespace) -> int:
+    """Adds (or replaces) the steam/ entries of an existing pak from the Kenney pack; every other entry is kept as it is."""
+    tmp_dirs: list[Path] = []
+    try:
+        root = open_kenney_for(args.add_steam, tmp_dirs, STEAM_DIR)
+        out = Path(args.out)
+        icons = read_pak(out)
+        for n in [n for n in icons if n.startswith("steam/")]:
+            del icons[n]
+        for name, stem in STEAM_MAP.items():
+            icons[name] = fit_icon(load_src(root, STEAM_DIR, stem))
+        add_dpad_directions(icons)
+        for n in [n for n in icons if n.startswith("steam/")]:
+            icons[n + "_pressed"] = pressed_variant(icons[n])
+        size = write_pak(out, icons)
+        print(f"wrote {out} ({size} bytes), {len(icons)} entries; steam/: {sum(1 for n in icons if n.startswith('steam/'))}")
+        return 0
+    finally:
+        for d in tmp_dirs:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 def build(args: argparse.Namespace) -> int:
     tmp_dirs: list[Path] = []
     try:
@@ -565,6 +617,8 @@ def build(args: argparse.Namespace) -> int:
             icons[name] = fit_icon(load_src(root, XBOX_DIR, stem))
         for name, stem in PS_MAP.items():
             icons[name] = fit_icon(load_src(root, PS_DIR, stem))
+        for name, stem in STEAM_MAP.items():
+            icons[name] = fit_icon(load_src(root, STEAM_DIR, stem))
         for name, stem in OTHER_KBM_MAP.items():
             icons[name] = fit_icon(load_src(root, KBM_DIR, stem))
         add_dpad_directions(icons)
@@ -593,7 +647,7 @@ def build(args: argparse.Namespace) -> int:
 
         base = [n for n in icons if not n.endswith("_pressed")]
         print(f"wrote {out} ({size} bytes), {len(icons)} entries ({len(base)} base + {len(base)} _pressed)")
-        for p in ("xbox/", "ps/", "kbm/"):
+        for p in ("xbox/", "ps/", "steam/", "kbm/"):
             print(f"  {p:8s} {sum(1 for n in base if n.startswith(p))} base")
         print(f"baked text keys (no Kenney image), {len(baked)}:")
         print("  " + ", ".join(f"{sdl} -> {label}" for sdl, label in baked))
@@ -614,12 +668,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preview", help="also write a contact-sheet PNG of all entries here")
     ap.add_argument("--font", default=str(DEFAULT_FONT), help="TTF used for baked key labels and the preview")
     ap.add_argument("--verify", metavar="PAK", help="check an existing pak and exit")
+    ap.add_argument("--add-steam", metavar="KENNEY", help="add the steam/ icons from the Kenney pack (folder or .zip) to the pak given by --out, in place, and exit")
     ap.add_argument("--derive", metavar="PAK", help="add the derived d-pad direction entries to an existing pak in place and exit")
     args = ap.parse_args(argv)
     if args.verify:
         return verify(Path(args.verify))
     if args.derive:
         return derive(Path(args.derive))
+    if args.add_steam:
+        return add_steam(args)
     if not args.kenney:
         ap.error("--kenney is required")
     return build(args)
