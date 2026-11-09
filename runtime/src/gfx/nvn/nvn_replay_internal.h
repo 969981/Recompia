@@ -175,18 +175,27 @@ extern bool g_mirror_stale;
 extern uint32_t g_pass_draws;
 extern uint64_t g_pass_verts;
 extern Frame* F;
-extern std::unordered_map<uint64_t, VkDescriptorSet> g_set_cache;
 extern VkPipeline g_bound_pipeline;
-extern UploadAlloc g_support;
-extern UploadAlloc g_draw_support;
-extern std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;
-extern std::unordered_map<uint64_t, UploadAlloc> g_driver_banks;
-extern uint32_t g_draw_base_instance;
-extern uint32_t g_bank_base_instance;
+// Descriptor sets and what they bind besides the game's resources (nvn_replay_bind.cpp). Most of it lasts one submission (begin_submit):
+// the sets and upload allocations die with the submission's descriptor pools and upload ring.
+struct SetState {   // owner: nvn_replay_bind.cpp
+    std::unordered_map<uint64_t, VkDescriptorSet> cache;           // this submission's sets, by content
+    UploadAlloc support;                                           // this submission's support buffer (render scales 1.0)
+    UploadAlloc draw_support;                                      // the one the next sets bind: support, or one with render scales (support_for_draw)
+    std::unordered_map<uint64_t, UploadAlloc> support_scaled;      // this submission's support buffers with render scales, by content
+    std::unordered_map<uint64_t, UploadAlloc> driver_banks;        // this submission's filled c[0] banks (driver_bank_for), by content
+    uint32_t draw_base_instance = 0;   // the base instance of the draw being set up, for graphics c[0] + 0x644 (0 for indirect draws)
+    uint32_t bank_base_instance = 0;   // the one the bound descriptor sets hold
+    // [nvn] set_reuse: bumped (rp_bump) by whatever in the replay may change what a texture binding resolves to (a pass opens or ends,
+    // other render targets, a feedback or 3D copy, a GPU write, a new submission). With be::g_bind_gen (pools, texture images) it keys the
+    // per-set memo of build_set. Never reset.
+    uint64_t epoch = 1;
+    void begin_submit(Frame& f);
+};
+extern SetState g_sets;
 extern MaskClear g_mask;
 extern bool g_mask_ready, g_mask_ok;
-extern uint64_t g_rp_epoch;
-inline void rp_bump(ft::SplitCount src = ft::kCntCounts) { ++g_rp_epoch; ft::split_count(ft::kCntEpoch); if (src != ft::kCntCounts) ft::split_count(src); }
+inline void rp_bump(ft::SplitCount src = ft::kCntCounts) { ++g_sets.epoch; ft::split_count(ft::kCntEpoch); if (src != ft::kCntCounts) ft::split_count(src); }
 
 // Replay phase profile (frame trace only, [prof] trace): time and count per phase of the draw / dispatch setup, summed over a
 // submission and written as one event per phase at its end (t0 = submission start, duration = the sum, arg = the count), so the

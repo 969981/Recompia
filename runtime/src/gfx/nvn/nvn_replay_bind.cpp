@@ -4,13 +4,20 @@
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
-std::unordered_map<uint64_t, VkDescriptorSet> g_set_cache;
-UploadAlloc g_support;
-UploadAlloc g_draw_support;     // the support buffer the next descriptor sets bind: g_support, or one with render scales (support_for_draw)
-std::unordered_map<uint64_t, UploadAlloc> g_support_scaled;   // this submission's support buffers with render scales, by content
-std::unordered_map<uint64_t, UploadAlloc> g_driver_banks;     // this submission's filled c[0] banks (driver_bank_for), by content
-uint32_t g_draw_base_instance = 0;   // the base instance of the draw being set up, for graphics c[0] + 0x644 (0 for indirect draws)
-uint32_t g_bank_base_instance = 0;   // the one the bound descriptor sets hold
+SetState g_sets;
+
+void SetState::begin_submit(Frame& f) {
+    cache.clear();
+    // one support buffer per submission (Ryujinx SupportBuffer: render scales 1.0, no BGRA remap)
+    support = f.upload(sizeof(SupportBuffer), 256);
+    support_scaled.clear();
+    driver_banks.clear();
+    draw_support = UploadAlloc();
+    if (support) {
+        SupportBuffer sb = support_buffer_defaults();
+        std::memcpy(support.ptr, &sb, sizeof sb);
+    }
+}
 
 // The scale nxrt/gfx_tuning.h asks for on uniform block `idx` of this binding's shader (1 = none): only the chosen fragment shader's block.
 static float ufs_scale_for(const BindingDesc& d, int idx) {
@@ -22,11 +29,11 @@ static float ufs_scale_for(const BindingDesc& d, int idx) {
     return sc;
 }
 
-// Descriptor set number `set` of the bound program: the one of the last draw (SetMemo below), a set of this submission with the same contents (g_set_cache), or a new one.
+// Descriptor set number `set` of the bound program: the one of the last draw (SetMemo below), a set of this submission with the same contents (g_sets.cache), or a new one.
 // Render thread only (scratch arrays below are reused).
 // [nvn] set_reuse: the inputs of the last set built for each set number. A set whose bindings are all sampled textures (combined image
 // samplers by binding or by handle in a uniform block) resolves to the same descriptors as long as the program, the handles, the pools,
-// the replay epoch (g_rp_epoch: passes, render targets, feedback and 3D copies, GPU writes, submissions), be::g_bind_gen (pool
+// the replay epoch (g_sets.epoch: passes, render targets, feedback and 3D copies, GPU writes, submissions), be::g_bind_gen (pool
 // registrations, texture images made, replaced or released) and the scene upscaler's override are the same: such a draw takes the set of
 // the one before without resolving every texture again (about 45 % of the texture sets of a frame are the one before, typically a
 // per-object uniform block changed between two draws of one material). Texel buffer, storage and uniform bindings are never reused
@@ -47,7 +54,7 @@ static SetMemo g_set_memo[4];
 // Fills m with the current inputs of set set of pl; false when the set cannot be reused (a binding of another kind, too many bindings).
 static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.pl = &pl;
-    m.epoch = g_rp_epoch;
+    m.epoch = g_sets.epoch;
     m.gen = be::g_bind_gen.load(std::memory_order_relaxed);
     m.tpool = S.tpool.get();
     m.spool = S.spool.get();
@@ -97,16 +104,16 @@ static VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
         ssbo[n] = {S.ssbo[d.nvn_stage][n].addr, S.ssbo[d.nvn_stage][n].size};
     }
     const uint32_t used = compute ? fill_driver_bank_nvn2_compute(bank, c, ubo, ssbo, S.tex[kCompute], S.img[kCompute])
-                                  : fill_driver_bank_graphics(bank, d.nvn_stage, ssbo, g_draw_base_instance);
+                                  : fill_driver_bank_graphics(bank, d.nvn_stage, ssbo, g_sets.draw_base_instance);
     uint64_t key = kFnvBasisShort ^ used;
     for (uint32_t i = 0; i < used; ++i) key = fnv_step(key, bank[i]);
-    auto it = g_driver_banks.find(key);
-    if (it == g_driver_banks.end()) {
+    auto it = g_sets.driver_banks.find(key);
+    if (it == g_sets.driver_banks.end()) {
         const VkDeviceSize align = std::max<VkDeviceSize>(device().properties().limits.minUniformBufferOffsetAlignment, 256);
         UploadAlloc u = F->upload(kDriverBankBytes, align);
         if (!u) return bi;
         std::memcpy(u.ptr, bank, kDriverBankBytes);
-        it = g_driver_banks.emplace(key, u).first;
+        it = g_sets.driver_banks.emplace(key, u).first;
     }
     return {it->second.buffer, it->second.offset, kDriverBankBytes};
 }
@@ -129,7 +136,7 @@ static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     return now.ds;
 }
 
-// The set resolved from the current state: a set of this submission with the same contents (g_set_cache), or a new one.
+// The set resolved from the current state: a set of this submission with the same contents (g_sets.cache), or a new one.
 static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
     RpScope rp_(kRpSetBuild);
     RpScope rps_(kRpSet0 + static_cast<int>(set & 3));
@@ -164,8 +171,8 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             VkDescriptorBufferInfo bi = {dummy_buffer(), 0, 65536};
             switch (b.nvn.source) {
                 case NvnSource::SupportBuffer:
-                    bi = g_draw_support ? VkDescriptorBufferInfo{g_draw_support.buffer, g_draw_support.offset, sizeof(SupportBuffer)}
-                                        : VkDescriptorBufferInfo{g_support.buffer, g_support.offset, sizeof(SupportBuffer)};
+                    bi = g_sets.draw_support ? VkDescriptorBufferInfo{g_sets.draw_support.buffer, g_sets.draw_support.offset, sizeof(SupportBuffer)}
+                                        : VkDescriptorBufferInfo{g_sets.support.buffer, g_sets.support.offset, sizeof(SupportBuffer)};
                     break;
                 case NvnSource::DriverConstants:
                     bi = driver_bank_for(d);
@@ -414,15 +421,15 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
         if (last[set & 3] == key) rp_count(kRpSame0 + static_cast<int>(set & 3));
         last[set & 3] = key;
     }
-    auto it = g_set_cache.find(key);
-    if (it != g_set_cache.end()) return it->second;
+    auto it = g_sets.cache.find(key);
+    if (it != g_sets.cache.end()) return it->second;
     RpScope rpw_(kRpSetWrite);
     rp_count(kRpMiss0 + static_cast<int>(set & 3));
     VkDescriptorSet ds = F->alloc_set(pl.sets[set]);
     if (!ds) return VK_NULL_HANDLE;
     for (auto& w : writes) w.dstSet = ds;
     vkUpdateDescriptorSets(vkdev(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    g_set_cache[key] = ds;
+    g_sets.cache[key] = ds;
     return ds;
 }
 
@@ -432,7 +439,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
 // with one counter per shader (binding = stage slot * 128 + counter, + 64 for texel buffers), images follow the textures. Vertex shaders
 // read their scales after the fragment shader's (frag_scale_count). Storage images are never scaled (tex_rescale), so images read 1.
 void support_for_draw(const ProgLayout& pl, bool compute) {
-    g_draw_support = UploadAlloc();
+    g_sets.draw_support = UploadAlloc();
     if (render_scale() == 1.0f) return;
     float sc[73];
     for (float& v : sc) v = 1.0f;
@@ -481,16 +488,16 @@ void support_for_draw(const ProgLayout& pl, bool compute) {
     if (!any) return;
     uint64_t key = kFnvBasisShort + static_cast<uint64_t>(frag_count);
     for (float v : sc) { uint32_t u; std::memcpy(&u, &v, 4); key = fnv_step(key, u); }
-    auto it = g_support_scaled.find(key);
-    if (it != g_support_scaled.end()) { g_draw_support = it->second; return; }
+    auto it = g_sets.support_scaled.find(key);
+    if (it != g_sets.support_scaled.end()) { g_sets.draw_support = it->second; return; }
     UploadAlloc u = F->upload(sizeof(SupportBuffer), 256);
     if (!u) return;
     SupportBuffer sb = support_buffer_defaults();
     sb.frag_scale_count[0] = frag_count;
     for (int i = 0; i < 73; ++i) sb.render_scale[i][0] = sc[i];
     std::memcpy(u.ptr, &sb, sizeof sb);
-    g_support_scaled[key] = u;
-    g_draw_support = u;
+    g_sets.support_scaled[key] = u;
+    g_sets.draw_support = u;
 }
 
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp) {

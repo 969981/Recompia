@@ -16,9 +16,6 @@ GState S;
 bool g_mirror_stale = false;    // a GPU write made pages of a pool copy stale while a draw was being set up: bind again at the next draw
 Frame* F = nullptr;
 VkPipeline g_bound_pipeline = VK_NULL_HANDLE;
-// [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
-// targets, a feedback or 3D copy, a GPU write, a new submission). With be::g_bind_gen (pools, texture images) it keys the per-set memo of build_set.
-uint64_t g_rp_epoch = 1;
 constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
                                             "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
                                             "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3", "rp.reuse",
@@ -594,7 +591,6 @@ void replay_begin_submit(Frame& f) {
     S.window_origin = window_origin_mode();
     S.depth_mode = depth_mode();
     P = Pass();
-    g_set_cache.clear();
     g_bound_pipeline = VK_NULL_HANDLE;
     g_dirty = kAllDirty;
     g_pl = nullptr;
@@ -607,15 +603,7 @@ void replay_begin_submit(Frame& f) {
     g_fb_use.clear();
     g_fb_seen = false;
     g_key_dummy_binding = 0;
-    // one support buffer per submission (Ryujinx SupportBuffer: render scales 1.0, no BGRA remap)
-    g_support = f.upload(sizeof(SupportBuffer), 256);
-    g_support_scaled.clear();
-    g_driver_banks.clear();
-    g_draw_support = UploadAlloc();
-    if (g_support) {
-        SupportBuffer sb = support_buffer_defaults();
-        std::memcpy(g_support.ptr, &sb, sizeof sb);
-    }
+    g_sets.begin_submit(f);
 }
 
 void replay_lists(Frame& f, const std::vector<Ref<CmdList>>& lists) {
@@ -666,7 +654,7 @@ void replay_shutdown() {
     P = Pass();
     g_pending.clear();
     out_reset();
-    g_set_cache.clear();
+    g_sets.cache.clear();
     g_fb_use.clear();
     g_fb_clone.clear();
     g_vol3d_use.clear();

@@ -411,7 +411,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (g_trace_hooks) trace_note_fs();
     const ProgLayout* pl = g_pl;
     if (!pl) return false;
-    if (pl->c0_graphics && g_draw_base_instance != g_bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
+    if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
     rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_dirty & (kDesc | kPipe)) {
@@ -484,7 +484,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
-        g_bank_base_instance = g_draw_base_instance;
+        g_sets.bank_base_instance = g_sets.draw_base_instance;
     }
     if (pl->push_bytes && g_gen_tcs) {
         // the pass-through control shader's tessellation levels (NVN's fixed SetInner/OuterTessellationLevels), every draw: cheap, and
@@ -622,7 +622,7 @@ static void checkpoint_draw(uint32_t a, uint32_t b, uint32_t c, bool indirect) {
 
 void do_draw_arrays(const P_DrawArrays& p) {
     count_primitives(p.mode, p.count, p.instance_count);
-    g_draw_base_instance = p.base_instance;
+    g_sets.draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
@@ -648,7 +648,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
 void do_draw_elements(const P_DrawElements& p) {
     PoolReasonScope pr_(kReasonIndex);
     count_primitives(p.mode, p.count, p.instance_count);
-    g_draw_base_instance = p.base_instance;
+    g_sets.draw_base_instance = p.base_instance;
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (g_trace) trace_indexed(p);
@@ -877,7 +877,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     const bool indexed = p.type != 0xffffffffu;
     // the base instance is in the arguments, which the GPU may write and a multi-draw holds one of per draw: the vertex shaders read it
     // as Vulkan's BaseInstance (spirv_base_instance_from_c0), so the c[0] word is not needed and stays 0
-    g_draw_base_instance = 0;
+    g_sets.draw_base_instance = 0;
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     // indirect quads whose arguments the CPU cannot read (the GPU writes them): the indexed arguments made on the GPU, before the pass opens
     BufRef qa{};
@@ -949,7 +949,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     const uint32_t slot = it->second;
     end_pass();
     memory_barrier(F->cb);   // the section's writes (feedback buffer, counter) before the vertex fetch and the indirect read
-    g_draw_base_instance = 0;   // vkCmdDrawIndirectByteCountEXT draws from instance 0
+    g_sets.draw_base_instance = 0;   // vkCmdDrawIndirectByteCountEXT draws from instance 0
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     uint32_t stride = g_key_attr_count ? S.stream[g_key_binding[0]].stride : 0;
