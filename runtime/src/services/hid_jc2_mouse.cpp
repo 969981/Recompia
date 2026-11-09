@@ -83,6 +83,18 @@ void jcms_setup(HidState& s) {
 // One Nmouse sample from the play layer's feed: the pointer in the pointer range, the range itself, the buttons, the wheel (120 per notch, inferred from the game clamping its sum at +-600), and "on its surface" while jc2_mouse_active().
 // Caller holds st().mu.
 void sample_nmouse(HidState& s) {
+    // The blocks are the game's own memory, checked when it lent them. The game may free it without Finalize (the commands clear the
+    // addresses too), so the mapping is checked again before every write.
+    if (s.nm_addr && !mem::is_mapped(s.nm_addr, kNmMinSize)) {
+        NXLOG_W("hid", "Joy-Con 2 mouse: the Nmouse block at %llx is no longer mapped; sampling it stopped", static_cast<unsigned long long>(s.nm_addr));
+        s.nm_addr = s.nm_size = 0;
+        g_jc2_listed.store(false);
+        g_jc2_active.store(false);
+    }
+    if (s.jcms_addr && !mem::is_mapped(s.jcms_addr, kJcmsMinSize)) {
+        NXLOG_W("hid", "Joy-Con 2 mouse: the Jcms block at %llx is no longer mapped; sampling it stopped", static_cast<unsigned long long>(s.jcms_addr));
+        s.jcms_addr = s.jcms_size = 0;
+    }
     if (!s.nm_addr || !g_jc2_listed.load()) return;
     const bool active = nxrt::hid::jc2_mouse_active();
     NmouseInternal ns{};
