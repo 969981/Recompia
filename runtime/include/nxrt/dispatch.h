@@ -36,7 +36,7 @@ HleFn hle_leaf_fn(uint64_t addr);                         // the handler of a le
 bool hle_is_thunk(uint64_t addr);
 const char* hle_name_at(uint64_t addr);                   // name behind a thunk address or nullptr
 size_t hle_count();
-struct HleInfo { std::string name; uint64_t calls = 0; bool stub = false; };
+struct HleInfo { std::string name; uint64_t calls = 0; bool stub = false; };   // calls: counted while the thunk is a logging stub only
 std::vector<HleInfo> hle_list();                          // every thunk, in creation order (end-of-run report)
 void hle_clear();                                         // tests only
 // Name of the HLE function the calling thread is currently inside, or nullptr.

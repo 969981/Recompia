@@ -90,7 +90,7 @@ ByHost g_byhost;
 struct Thunk {
     std::string name;
     HleFn fn = nullptr;       // null: logging stub
-    std::atomic<uint64_t> calls{0};
+    std::atomic<uint64_t> calls{0};  // calls while it was a logging stub (the only calls anything reports; handlers are not counted)
     std::atomic<int> ft_zone{-1};   // frame trace zone ("hle:<name>"), registered on the first slow call
     std::atomic<bool> leaf{false};  // hle_mark_leaf: an import call runs fn directly (no count, trace or import bookkeeping)
 };
@@ -311,7 +311,6 @@ void dispatch_call(::Ctx* c, uint64_t addr) {
     }
     if (hle_is_thunk(addr)) {
         Thunk& t = *g_thunks[thunk_index(addr)];
-        t.calls.fetch_add(1, std::memory_order_relaxed);
         const char* saved = t_hle_name;
         t_hle_name = t.name.c_str();
         // [hle] trace: the line is written after the handler ran, so it carries the result (x0) next to the arguments
@@ -339,7 +338,7 @@ void dispatch_call(::Ctx* c, uint64_t addr) {
         } else {
             // No handler: the console would fault on an unresolved import. A silent 0 is a fake answer, so say so (every
             // call up to 20, then every 1000th) and return 0.
-            uint64_t n = t.calls.load(std::memory_order_relaxed);
+            const uint64_t n = t.calls.fetch_add(1, std::memory_order_relaxed) + 1;
             if (n <= 20 || n % 1000 == 0)
                 NXLOG_W("hle", "UNIMPLEMENTED import %s called (call #%llu, lr=0x%llx, x0=0x%llx x1=0x%llx): returning 0",
                         t.name.c_str(), static_cast<unsigned long long>(n), static_cast<unsigned long long>(lr(c)),

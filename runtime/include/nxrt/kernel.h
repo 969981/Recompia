@@ -131,7 +131,7 @@ struct KThread : KObject {
     std::atomic<bool> exited{false};    // written under the kernel lock (thread_mark_exited), read under the thread-list lock and elsewhere
     std::atomic<bool> aged{false};      // starvation guard (starvation_guard.cpp): the host leaves this thread ready, so its yields keep the processor
     std::atomic<uint64_t> host_affinity{0};   // the host affinity mask sched_apply (or a starvation boost) last gave the host thread
-    std::atomic<int> last_proc{-1};     // host processor the thread was on at its last SVC (svc_dispatch), for the starvation line
+    std::atomic<int> last_proc{-1};     // host processor the thread was on at one of its last 16 SVCs (svc_dispatch samples it), for the starvation line
     uint64_t nsvc = 0;                  // SVCs the thread made (svc_dispatch; only the thread itself writes it)
     YieldRun yrun;                      // [sched] yield_backoff state (svc_thread.cpp; own thread only)
     std::atomic<uint64_t> nyield{0}, nbackoff{0};   // yield SVCs, and of them the ones that slept (written by the thread, read by the census)
