@@ -187,7 +187,6 @@ extern MaskClear g_mask;
 extern bool g_mask_ready, g_mask_ok;
 extern uint64_t g_rp_epoch;
 inline void rp_bump(ft::SplitCount src = ft::kCntCounts) { ++g_rp_epoch; ft::split_count(ft::kCntEpoch); if (src != ft::kCntCounts) ft::split_count(src); }
-bool epoch_exact_on();
 
 // Replay phase profile (frame trace only, [prof] trace): time and count per phase of the draw / dispatch setup, summed over a
 // submission and written as one event per phase at its end (t0 = submission start, duration = the sum, arg = the count), so the

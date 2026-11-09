@@ -19,16 +19,6 @@ VkPipeline g_bound_pipeline = VK_NULL_HANDLE;
 // [nvn] set_reuse: bumped by whatever in the replay may change what a texture binding resolves to (a pass opens or ends, other render
 // targets, a feedback or 3D copy, a GPU write, a new submission). With be::g_bind_gen (pools, texture images) it keys the per-set memo of build_set.
 uint64_t g_rp_epoch = 1;
-// [nvn] epoch_exact (default off: no measured gain): the two bumps that cannot change what a memoized set resolves to are left out: end_pass while no pass is
-// open, and SetRenderTargets that sets the targets already set (see end_pass and mark_dirty).
-bool epoch_exact_on() {
-    static const bool on = [] {
-        const bool v = nxrt::config_get_bool("nvn", "epoch_exact", false);
-        NXLOG_I(kTag, "set_reuse epoch: %s ([nvn] epoch_exact)", v ? "exact (no bump for end_pass without a pass or for the same render targets)" : "every pass end and render target op");
-        return v;
-    }();
-    return on;
-}
 constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
                                             "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
                                             "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3", "rp.reuse",
@@ -107,28 +97,6 @@ static void apply_bind_program(const P_BindProgram& p) {
     if (g_trace) trace_bind_program(p);
 }
 
-// [nvn] epoch_exact: SetRenderTargets that sets exactly the render target state already set (count, every colour and the depth texture,
-// whether each has a view and that view field by field). The state it would write is then the state there is, so nothing the set memo
-// depends on through the targets changes: is_color_feedback reads S.color_tex / S.ncolor, the depth sampled by a draw reads S.depth_tex,
-// and the pass (P, fbl_sampled) is begun by ensure_pass, which bumps on its own.
-static bool same_view(const TextureViewInfo& a, const TextureViewInfo& b) {
-    return a.has_levels == b.has_levels && a.has_layers == b.has_layers && a.has_format == b.has_format && a.has_swizzle == b.has_swizzle &&
-           a.has_depth_stencil_mode == b.has_depth_stencil_mode && a.has_target == b.has_target && a.min_level == b.min_level &&
-           a.num_levels == b.num_levels && a.min_layer == b.min_layer && a.num_layers == b.num_layers && a.format == b.format &&
-           a.swizzle[0] == b.swizzle[0] && a.swizzle[1] == b.swizzle[1] && a.swizzle[2] == b.swizzle[2] && a.swizzle[3] == b.swizzle[3] &&
-           a.depth_stencil_mode == b.depth_stencil_mode && a.target == b.target;
-}
-static bool same_targets(const P_RenderTargets& p) {
-    if (p.count != S.ncolor || p.count > 8) return false;
-    for (uint32_t i = 0; i < p.count; ++i) {
-        const TargetRef& t = p.color[i];
-        if (t.tex != S.color_tex[i].get() || (t.has_view != 0) != S.color_has_view[i]) return false;
-        if (t.has_view && !same_view(t.view, S.color_view[i])) return false;
-    }
-    if (p.depth.tex != S.depth_tex.get() || (p.depth.has_view != 0) != S.depth_has_view) return false;
-    return !p.depth.has_view || same_view(p.depth.view, S.depth_view);
-}
-
 static void mark_dirty(const RecordReader& r) {
     switch (r.op()) {
         case Op::BindProgram: g_dirty |= kPipe | kDesc | kVb; break;
@@ -144,13 +112,7 @@ static void mark_dirty(const RecordReader& r) {
         case Op::SetLineWidth: case Op::SetRasterizerDiscard: case Op::SetPrimitiveRestart: g_dirty |= kDynRaster; break;
         case Op::SetPatchSize: g_dirty |= kPipe; break;   // patch control points are part of the pipeline
         case Op::SetPolygonOffsetClamp: g_dirty |= kDynBias; break;
-        case Op::SetRenderTargets: {
-            g_dirty = kAllDirty;
-            static const bool exact = epoch_exact_on();
-            if (exact && same_targets(r.payload<P_RenderTargets>())) ft::split_count(ft::kCntEpSkipTargets);
-            else rp_bump(ft::kCntEpTargets);
-            break;
-        }
+        case Op::SetRenderTargets: g_dirty = kAllDirty; rp_bump(ft::kCntEpTargets); break;
         default: break;
     }
 }

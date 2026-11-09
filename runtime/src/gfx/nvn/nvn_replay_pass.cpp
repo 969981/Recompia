@@ -36,12 +36,7 @@ static bool same_image(Texture* a, Texture* b) { return a == b || (a && b && a->
 // then ends without a barrier when it only wrote its attachments. Any other caller gets a full barrier, also for passes ended earlier
 // without one.
 void end_pass(bool to_pass) {
-    // [nvn] epoch_exact: with no pass open nothing a memoized set depends on changes here (P stays closed, so fbl_sampled stays false; the
-    // render targets, handles, pools and images are untouched; the barrier below changes no descriptor). Every other change has its own
-    // bump (ensure_pass, feedback / 3D copies, gpu_wrote, bind_gen).
-    static const bool exact = epoch_exact_on();
-    if (P.open || !exact) rp_bump(ft::kCntEpEndPass);
-    else ft::split_count(ft::kCntEpSkipEndPass);
+    rp_bump(ft::kCntEpEndPass);
     if (!P.open) {
         if (!to_pass && !g_pending.empty()) {
             memory_barrier(F->cb);
