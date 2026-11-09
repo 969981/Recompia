@@ -45,6 +45,11 @@ void set_source(const Source* s) { g_source.store(s, std::memory_order_release);
 
 bool is_virtual() { return g_source.load(std::memory_order_acquire) != nullptr; }
 
+uint64_t virtual_frame_step_ticks() {
+    const Source* s = g_source.load(std::memory_order_acquire);
+    return s ? s->frame_step_ticks() : 0;
+}
+
 bool virtual_sleep(int64_t ns) {
     const Source* s = g_source.load(std::memory_order_acquire);
     return s && s->sleep(ns);

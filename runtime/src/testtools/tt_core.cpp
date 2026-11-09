@@ -402,7 +402,8 @@ void seeded_fill(void* p, size_t n) {
     }
 }
 
-const clock::Source kVirtualClock{&virtual_ticks, &virtual_sleep, &virtual_wall_filetime};
+uint64_t virtual_frame_step_ticks() { return S().step_ticks; }
+const clock::Source kVirtualClock{&virtual_ticks, &virtual_sleep, &virtual_wall_filetime, &virtual_frame_step_ticks};
 const entropy::Source kSeededEntropy{&seeded_fill};
 
 // frame_source = svc:N (svc_set_observer): the first guest thread to make an SVC is the frame thread; every Nth of its SVCs is a frame.

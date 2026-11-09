@@ -25,12 +25,15 @@ struct Source {
     uint64_t (*ticks)();                         // the guest counter, at tick_hz()
     bool (*sleep)(int64_t ns);                   // takes a sleep of ns: true = handled (time moved as the source decides), the caller does not wait
     uint64_t (*wall_filetime)();                 // UTC in 100 ns units since 1601-01-01
+    uint64_t (*frame_step_ticks)();              // ticks one game frame advances the clock by (what the frame source steps it with)
 };
 // Installs `s` (null: the host clock again). `s` must stay valid while installed. Install before the guest runs: a thread that is
 // already reading sees the change at its next read.
 void set_source(const Source* s);
 // A source is installed: guest time is not host time. Precise host waits and the yield back-off are then off (they measure host time).
 bool is_virtual();
+// The installed source's frame step in ticks; 0 without a source.
+uint64_t virtual_frame_step_ticks();
 // The source's sleep of ns; false without a source (the caller waits on the host).
 bool virtual_sleep(int64_t ns);
 

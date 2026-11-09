@@ -418,8 +418,7 @@ void install(const Config& cfg) {
     s.det = clock::is_virtual();
     if (s.det) {
         const double hz = static_cast<double>(clock::tick_hz());
-        const double ticks = static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(clock::tick_hz() / 60)));
-        s.det_step = ticks / hz;
+        s.det_step = static_cast<double>(clock::virtual_frame_step_ticks()) / hz;
         s.det_now = 0;
     }
     publish_dt(kGameStep);
