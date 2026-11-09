@@ -989,15 +989,15 @@ fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<Se
 }
 
 #[tauri::command]
-fn repair_plan(app: AppHandle, actions: Vec<String>) -> Result<repair::Plan, String> {
+fn repair_plan(app: AppHandle, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Plan, String> {
     let (game, cfg) = repair_paths(&app)?;
-    repair::plan(&game, &cfg, &actions)
+    repair::plan_with(&game, &cfg, &actions, groups.as_deref())
 }
 
 #[tauri::command]
-fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>, actions: Vec<String>) -> Result<repair::Report, String> {
+fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
     let (game, cfg) = repair_guard(&app, &play, &setup)?;
-    repair::apply(&game, &cfg, &actions)
+    repair::apply_with(&game, &cfg, &actions, groups.as_deref())
 }
 
 #[tauri::command]

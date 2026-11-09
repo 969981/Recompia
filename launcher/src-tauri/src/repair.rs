@@ -19,6 +19,43 @@ const LAUNCHER_JSON: &str = "launcher.json";
 
 pub const ACTIONS: [&str; 5] = ["game_settings", "controls", "launcher_prefs", "caches", "leftovers"];
 
+/// What "Reset game settings" can reset on its own: the pkp.ini sections that belong together, as the player thinks of them. The labels
+/// live in the launcher (`repair-model.js`, which a test keeps in step with these ids). A key whose section is in no list belongs to
+/// `OTHER_GROUP`, so every key is in exactly one group and "all groups" is exactly the old full reset. This table is the only place that
+/// decides which setting belongs where (the game's own menu can use the same split).
+pub const GAME_GROUPS: [(&str, &[&str]); 5] = [
+    ("graphics", &["nvn", "gfx", "upscale", "display", "picture", "hdr", "fps", "latency", "memory", "sched", "media"]),
+    ("network", &["net"]),
+    ("gameplay", &["pkp", "play"]),
+    ("clock", &["time"]),
+    ("backups", &["backup"]),
+];
+/// Every pkp.ini section not named above.
+pub const OTHER_GROUP: &str = "other";
+
+/// All group ids, in the order the launcher lists them.
+pub fn group_ids() -> Vec<String> {
+    GAME_GROUPS.iter().map(|(id, _)| id.to_string()).chain(std::iter::once(OTHER_GROUP.to_string())).collect()
+}
+
+fn group_of(key: &str) -> &'static str {
+    let section = key.split_once('.').map_or("", |(s, _)| s);
+    GAME_GROUPS.iter().find(|(_, sections)| sections.contains(&section)).map_or(OTHER_GROUP, |(id, _)| id)
+}
+
+fn check_groups(groups: &[String]) -> Result<(), String> {
+    if groups.is_empty() {
+        return Err("Pick at least one group of game settings to reset.".into());
+    }
+    let known = group_ids();
+    for g in groups {
+        if !known.contains(g) {
+            return Err(format!("Unknown group of game settings '{}'.", g));
+        }
+    }
+    Ok(())
+}
+
 /// Rebuilt by the game on its next start (the first run may stutter once).
 const CACHE_FILES: [&str; 4] = ["pipeline_cache.bin", "pipeline_keys.bin", "shader_order.txt", "pkp_freeze.txt"];
 /// launcher.json keeps the places the launcher needs; everything else is a preference and goes back to its default.
@@ -51,6 +88,8 @@ struct Step {
     text: Option<String>,
     backup: bool,
     bytes: u64,
+    /// game_settings only: the groups reset, empty when all of them (the full reset)
+    groups: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -62,6 +101,8 @@ pub struct Change {
     pub bytes: u64,
     /// a copy is kept in reset-backup, so Undo brings it back
     pub backup: bool,
+    /// game_settings: the groups that reset when the player picked only some of them; empty means everything
+    pub groups: Vec<String>,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -111,9 +152,15 @@ fn keep_key(key: &str) -> bool {
 }
 
 pub fn reset_ini_text(old: &str) -> String {
+    reset_ini_groups(old, &group_ids())
+}
+
+/// pkp.ini after resetting only `groups`: the kept places and identity always stay, and so does every key of a group that was not picked.
+/// With every group this is exactly the full reset. (Comment lines are not carried over, as before; the backup has them.)
+pub fn reset_ini_groups(old: &str, groups: &[String]) -> String {
     let mut fresh = Ini::empty();
     for (key, value) in Ini::parse(old).all() {
-        if keep_key(&key) {
+        if keep_key(&key) || !groups.iter().any(|g| g == group_of(&key)) {
             if let Some((section, name)) = key.split_once('.') {
                 fresh.set(section, name, &value);
             }
@@ -152,28 +199,38 @@ fn size_of(path: &Path) -> u64 {
     fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
-fn steps(game: &Path, cfg: &Path, actions: &[String]) -> Result<Vec<Step>, String> {
+fn steps(game: &Path, cfg: &Path, actions: &[String], groups: Option<&[String]>) -> Result<Vec<Step>, String> {
     for a in actions {
         if !ACTIONS.contains(&a.as_str()) {
             return Err(format!("Unknown repair action '{}'.", a));
         }
     }
+    if let Some(g) = groups {
+        check_groups(g)?;
+    }
+    // None, or every group, is the full reset; a smaller list resets only those groups
+    let partial: Vec<String> = match groups {
+        Some(g) if !group_ids().iter().all(|id| g.contains(id)) => group_ids().into_iter().filter(|id| g.contains(id)).collect(),
+        _ => Vec::new(),
+    };
     let want = |name: &str| actions.iter().any(|a| a == name);
     let mut out: Vec<Step> = Vec::new();
     if want("game_settings") {
         let path = game.join(PKP_INI);
         if let Ok(bytes) = fs::read(&path) {
             let old = String::from_utf8_lossy(&bytes).into_owned();
-            let text = reset_ini_text(&old);
-            if text != old {
-                out.push(Step { action: "game_settings", root: Root::Game, rel: PKP_INI.into(), text: Some(text), backup: true, bytes: bytes.len() as u64 });
+            let text = if partial.is_empty() { reset_ini_text(&old) } else { reset_ini_groups(&old, &partial) };
+            // the full reset keeps its old test (any rewrite counts); a partial one counts only when a picked key is really there
+            let changed = if partial.is_empty() { text != old } else { Ini::parse(&text).all() != Ini::parse(&old).all() };
+            if changed {
+                out.push(Step { action: "game_settings", root: Root::Game, rel: PKP_INI.into(), text: Some(text), backup: true, bytes: bytes.len() as u64, groups: partial.clone() });
             }
         }
     }
     if want("controls") {
         let path = game.join(CONTROLS_INI);
         if path.is_file() {
-            out.push(Step { action: "controls", root: Root::Game, rel: CONTROLS_INI.into(), text: None, backup: true, bytes: size_of(&path) });
+            out.push(Step { action: "controls", root: Root::Game, rel: CONTROLS_INI.into(), text: None, backup: true, bytes: size_of(&path), groups: Vec::new() });
         }
     }
     if want("launcher_prefs") {
@@ -182,7 +239,7 @@ fn steps(game: &Path, cfg: &Path, actions: &[String]) -> Result<Vec<Step>, Strin
             let old = String::from_utf8_lossy(&bytes).into_owned();
             let text = reset_launcher_text(&old);
             if text != old {
-                out.push(Step { action: "launcher_prefs", root: Root::Config, rel: LAUNCHER_JSON.into(), text: Some(text), backup: true, bytes: bytes.len() as u64 });
+                out.push(Step { action: "launcher_prefs", root: Root::Config, rel: LAUNCHER_JSON.into(), text: Some(text), backup: true, bytes: bytes.len() as u64, groups: Vec::new() });
             }
         }
     }
@@ -190,7 +247,7 @@ fn steps(game: &Path, cfg: &Path, actions: &[String]) -> Result<Vec<Step>, Strin
         for name in CACHE_FILES {
             let path = game.join(name);
             if path.is_file() {
-                out.push(Step { action: "caches", root: Root::Game, rel: name.into(), text: None, backup: false, bytes: size_of(&path) });
+                out.push(Step { action: "caches", root: Root::Game, rel: name.into(), text: None, backup: false, bytes: size_of(&path), groups: Vec::new() });
             }
         }
     }
@@ -205,7 +262,7 @@ fn steps(game: &Path, cfg: &Path, actions: &[String]) -> Result<Vec<Step>, Strin
         names.sort();
         for name in names {
             let bytes = size_of(&game.join(&name));
-            out.push(Step { action: "leftovers", root: Root::Game, rel: name, text: None, backup: false, bytes });
+            out.push(Step { action: "leftovers", root: Root::Game, rel: name, text: None, backup: false, bytes, groups: Vec::new() });
         }
     }
     for s in &out {
@@ -217,7 +274,12 @@ fn steps(game: &Path, cfg: &Path, actions: &[String]) -> Result<Vec<Step>, Strin
 }
 
 pub fn plan(game: &Path, cfg: &Path, actions: &[String]) -> Result<Plan, String> {
-    let changes = steps(game, cfg, actions)?
+    plan_with(game, cfg, actions, None)
+}
+
+/// `groups`: which game settings groups to reset when "game_settings" is picked; None is all of them.
+pub fn plan_with(game: &Path, cfg: &Path, actions: &[String], groups: Option<&[String]>) -> Result<Plan, String> {
+    let changes = steps(game, cfg, actions, groups)?
         .into_iter()
         .map(|s| Change {
             action: s.action.into(),
@@ -225,6 +287,7 @@ pub fn plan(game: &Path, cfg: &Path, actions: &[String]) -> Result<Plan, String>
             what: if s.text.is_some() { "reset" } else { "remove" }.into(),
             bytes: s.bytes,
             backup: s.backup,
+            groups: s.groups,
         })
         .collect();
     Ok(Plan { changes })
@@ -272,6 +335,7 @@ fn copy_into(from: &Path, to: &Path) -> Result<(), String> {
 
 fn describe(step: &Step) -> String {
     match step.action {
+        "game_settings" if !step.groups.is_empty() => "The chosen game settings (pkp.ini) are back to their defaults; the other settings, your game files, profile and paths are kept".to_string(),
         "game_settings" => "Game settings (pkp.ini) are back to their defaults; your game files, profile and paths are kept".to_string(),
         "controls" => "Controls (controls.ini) removed; the game creates it again with its default bindings".to_string(),
         "launcher_prefs" => "Launcher settings are back to their defaults; the game folder, dump folder and update channel are kept".to_string(),
@@ -281,7 +345,11 @@ fn describe(step: &Step) -> String {
 }
 
 pub fn apply(game: &Path, cfg: &Path, actions: &[String]) -> Result<Report, String> {
-    let steps = steps(game, cfg, actions)?;
+    apply_with(game, cfg, actions, None)
+}
+
+pub fn apply_with(game: &Path, cfg: &Path, actions: &[String], groups: Option<&[String]>) -> Result<Report, String> {
+    let steps = steps(game, cfg, actions, groups)?;
     if steps.is_empty() {
         return Ok(Report { done: vec!["Nothing needed changing.".into()], backup: None });
     }
@@ -553,5 +621,152 @@ mod tests {
             assert!(!safe_name(bad), "{}", bad);
         }
         assert!(safe_name("pkp.ini"));
+    }
+
+    /// A pkp.ini with a key in every kind of group, including sections no group names.
+    const INI_GROUPS: &str = "[fs]\nexefs = /g/exefs\nsave_dir = save\n\n[nvn]\nshader_cache = shader_cache/spirv\ndump_missing = shader_cache/missing\npool_mirror = off\nview_scale = 2\n\n[net]\nserver = x\nuid = aaaa\n\n[time]\nclock_offset = 60\nevent_preset = copycat\n\n[account]\nnickname = Koi\nuid = bbbb\n\n[pkp]\njump_momentum = 1\ncamera_aim = 1\n\n[backup]\ninterval_minutes = 10\nkeep = 5\n\n[boot]\nfast = 1\n\n[title]\nskip = 1\n";
+
+    /// The reset as it was before the groups existed: keep only the kept keys.
+    fn old_full_reset(old: &str) -> String {
+        let mut fresh = Ini::empty();
+        for (key, value) in Ini::parse(old).all() {
+            if keep_key(&key) {
+                if let Some((section, name)) = key.split_once('.') {
+                    fresh.set(section, name, &value);
+                }
+            }
+        }
+        let text = fresh.to_text();
+        if old.contains("\r\n") { text } else { text.replace("\r\n", "\n") }
+    }
+
+    /// `section.key` lookup on a parsed file.
+    fn at(ini: &Ini, key: &str) -> Option<String> {
+        let (section, name) = key.split_once('.').unwrap();
+        ini.get(section, name)
+    }
+
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn all_groups_selected_gives_exactly_the_old_full_reset() {
+        for src in [INI, INI_GROUPS, "", "[nvn]\na = 1\r\n"] {
+            assert_eq!(reset_ini_groups(src, &group_ids()), old_full_reset(src));
+            assert_eq!(reset_ini_text(src), old_full_reset(src));
+        }
+        // through the whole plan and apply path: "no list" and "every group" write the same bytes
+        let (g1, c1) = install();
+        let (g2, c2) = install();
+        fs::write(g1.join("pkp.ini"), INI_GROUPS).unwrap();
+        fs::write(g2.join("pkp.ini"), INI_GROUPS).unwrap();
+        let act = vec!["game_settings".to_string()];
+        apply_with(&g1, &c1, &act, None).unwrap();
+        apply_with(&g2, &c2, &act, Some(&group_ids())).unwrap();
+        assert_eq!(fs::read(g1.join("pkp.ini")).unwrap(), fs::read(g2.join("pkp.ini")).unwrap());
+        assert_eq!(fs::read_to_string(g1.join("pkp.ini")).unwrap(), old_full_reset(INI_GROUPS));
+    }
+
+    #[test]
+    fn a_partial_reset_only_drops_the_chosen_groups_and_keeps_the_rest() {
+        let after = Ini::parse(&reset_ini_groups(INI_GROUPS, &ids(&["network", "clock"])));
+        // the chosen groups are gone, except the identity key that is always kept
+        assert_eq!(at(&after, "net.server"), None);
+        assert_eq!(at(&after, "time.clock_offset"), None);
+        assert_eq!(at(&after, "time.event_preset"), None);
+        assert_eq!(at(&after, "net.uid").as_deref(), Some("aaaa"));
+        // everything else is untouched
+        for (k, v) in [("nvn.pool_mirror", "off"), ("nvn.view_scale", "2"), ("pkp.jump_momentum", "1"), ("pkp.camera_aim", "1"), ("backup.interval_minutes", "10"), ("backup.keep", "5"), ("boot.fast", "1"), ("title.skip", "1")] {
+            assert_eq!(at(&after, k).as_deref(), Some(v), "{}", k);
+        }
+        // "other" reaches the sections no group names
+        let after = Ini::parse(&reset_ini_groups(INI_GROUPS, &ids(&["other"])));
+        assert_eq!(at(&after, "boot.fast"), None);
+        assert_eq!(at(&after, "title.skip"), None);
+        assert_eq!(at(&after, "nvn.pool_mirror").as_deref(), Some("off"));
+        let after = Ini::parse(&reset_ini_groups(INI_GROUPS, &ids(&["gameplay"])));
+        assert_eq!(at(&after, "pkp.jump_momentum"), None);
+        assert_eq!(at(&after, "backup.keep").as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn the_paths_and_identity_survive_every_group_choice() {
+        let mut choices: Vec<Vec<String>> = group_ids().into_iter().map(|g| vec![g]).collect();
+        choices.push(group_ids());
+        for groups in choices {
+            let after = Ini::parse(&reset_ini_groups(INI_GROUPS, &groups));
+            for (k, v) in [("fs.exefs", "/g/exefs"), ("fs.save_dir", "save"), ("net.uid", "aaaa"), ("account.nickname", "Koi"), ("account.uid", "bbbb"), ("nvn.shader_cache", "shader_cache/spirv"), ("nvn.dump_missing", "shader_cache/missing")] {
+                assert_eq!(at(&after, k).as_deref(), Some(v), "{} with {:?}", k, groups);
+            }
+        }
+    }
+
+    #[test]
+    fn an_unknown_group_is_refused_and_an_empty_choice_changes_nothing() {
+        let (game, cfg) = install();
+        fs::write(game.join("pkp.ini"), INI_GROUPS).unwrap();
+        let before = snapshot(&game);
+        let act = vec!["game_settings".to_string()];
+        for bad in [ids(&[]), ids(&["bogus"]), ids(&["network", "../pkp.ini"])] {
+            assert!(plan_with(&game, &cfg, &act, Some(&bad)).is_err(), "{:?}", bad);
+            assert!(apply_with(&game, &cfg, &act, Some(&bad)).is_err(), "{:?}", bad);
+        }
+        assert_eq!(snapshot(&game), before);
+        assert!(!game.join(BACKUP_DIR).exists());
+    }
+
+    #[test]
+    fn every_ini_section_belongs_to_exactly_one_group() {
+        let mut seen: Vec<&str> = Vec::new();
+        for (_, sections) in GAME_GROUPS {
+            for s in sections {
+                assert!(!seen.contains(s), "section {} is in two groups", s);
+                seen.push(s);
+            }
+        }
+        let ids = group_ids();
+        assert_eq!(ids.len(), GAME_GROUPS.len() + 1);
+        assert!(ids.contains(&OTHER_GROUP.to_string()));
+        let mut sorted = ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), ids.len(), "group ids must be unique");
+        // every key of a real file lands in a known group; unnamed sections land in "other"
+        for (key, _) in Ini::parse(INI_GROUPS).all() {
+            assert!(ids.contains(&group_of(&key).to_string()), "{}", key);
+        }
+        assert_eq!(group_of("boot.fast"), OTHER_GROUP);
+        assert_eq!(group_of("net.server"), "network");
+        assert_eq!(group_of("nokey"), OTHER_GROUP);
+    }
+
+    #[test]
+    fn a_partial_reset_is_undone_byte_for_byte() {
+        let (game, cfg) = install();
+        fs::write(game.join("pkp.ini"), INI_GROUPS).unwrap();
+        let act = vec!["game_settings".to_string()];
+        let report = apply_with(&game, &cfg, &act, Some(&ids(&["graphics", "gameplay"]))).unwrap();
+        assert!(report.backup.is_some());
+        let now = fs::read_to_string(game.join("pkp.ini")).unwrap();
+        assert!(now.contains("server = x") && !now.contains("pool_mirror") && !now.contains("jump_momentum"));
+        undo(&game, &cfg).unwrap();
+        assert_eq!(fs::read_to_string(game.join("pkp.ini")).unwrap(), INI_GROUPS);
+    }
+
+    #[test]
+    fn the_plan_names_the_chosen_groups() {
+        let (game, cfg) = install();
+        fs::write(game.join("pkp.ini"), INI_GROUPS).unwrap();
+        let act = vec!["game_settings".to_string()];
+        let partial = plan_with(&game, &cfg, &act, Some(&ids(&["clock", "network"]))).unwrap();
+        assert_eq!(partial.changes.len(), 1);
+        assert_eq!(partial.changes[0].groups, ids(&["network", "clock"]), "listed in the table's order");
+        for full in [plan_with(&game, &cfg, &act, None).unwrap(), plan_with(&game, &cfg, &act, Some(&group_ids())).unwrap(), plan(&game, &cfg, &act).unwrap()] {
+            assert!(full.changes[0].groups.is_empty(), "the full reset carries no group list");
+        }
+        // nothing to reset in the picked groups means no change at all
+        fs::write(game.join("pkp.ini"), "[fs]\nexefs = /g\n[net]\nuid = a\n").unwrap();
+        assert!(plan_with(&game, &cfg, &act, Some(&ids(&["clock"]))).unwrap().changes.is_empty());
     }
 }

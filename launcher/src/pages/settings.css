@@ -64,6 +64,9 @@
 .repair-choice { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
 .repair-choice input { margin-top: 3px; flex: none; }
 .repair-note { display: block; color: var(--color-text-2); font-size: var(--text-sm); font-weight: normal; }
+.repair-groups { margin: var(--space-3) 0 0 28px; padding-left: var(--space-3); border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: var(--space-3); }
+.repair-groups[hidden], .repair-warn[hidden] { display: none; }
+.repair-warn { margin: 0; color: var(--color-danger); font-size: var(--text-sm); }
 
 /* Choose a build */
 .builds-dialog { width: min(640px, calc(100vw - 2 * var(--space-4))); }
