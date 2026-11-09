@@ -5,9 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
-use crate::states::PlayArg;
 use crate::config::load_config;
-use crate::guard;
+use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
 use crate::{play, profiles, saveimport, settings};
 
@@ -31,10 +30,8 @@ pub fn save_sources() -> Vec<saveimport::Source> {
 
 /// Imports a save: `source` is a picked folder, or None for the newest one found in Eden / Ryujinx.
 #[tauri::command]
-pub fn import_save(app: AppHandle, state: PlayArg, source: Option<String>) -> Result<saveimport::Report, String> {
-    if guard::game_running(&state) {
-        return Err("The game is running. Close it first, then import the save.".into());
-    }
+pub fn import_save(app: AppHandle, source: Option<String>) -> Result<saveimport::Report, String> {
+    ensure_idle(&app, &[Need::Game("The game is running. Close it first, then import the save.")])?;
     let src = match source.filter(|s| !s.trim().is_empty()) {
         Some(p) => saveimport::resolve_picked(Path::new(p.trim()))
             .ok_or_else(|| format!("{} holds no Pokopia save (it needs the G00 and S00 folders).", p.trim()))?,

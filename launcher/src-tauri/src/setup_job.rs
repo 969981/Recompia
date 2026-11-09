@@ -10,10 +10,9 @@ use tauri::AppHandle;
 
 use crate::states::SetupArg;
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of};
 use crate::readiness::setup_started;
-use crate::storage::refuse_during_storage;
 use crate::shaders::RunState;
 use crate::{dump, gamebuild, host, play, preflight, settings, setuplog, shaders, writecheck};
 
@@ -24,6 +23,12 @@ pub struct SetupState {
     pub cancel: AtomicBool,
     /// Cancel flag of a running .nup unpack.
     pub nup_cancel: AtomicBool,
+}
+
+impl SetupState {
+    pub fn running(&self) -> bool {
+        self.progress.lock().unwrap().state == RunState::Running
+    }
 }
 
 #[derive(Serialize)]
@@ -56,8 +61,7 @@ pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
 /// (gamebuild.rs), (c) the shader cache in shader_cache/spirv, on a worker thread with "setup-status" events.
 #[tauri::command]
 pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Result<(), String> {
-    refuse_during_update(&app)?;
-    refuse_during_storage(&app)?;
+    ensure_idle(&app, &[Need::Update, Need::Storage])?;
     let cfg = load_config(&app);
     let gentle = gentle.unwrap_or(cfg.gentle_build);
     let report = dump::scan(&cfg.dump_dir);

@@ -8,10 +8,10 @@ use tauri::{AppHandle, Manager};
 
 use crate::states::{UpdateArg, States};
 use crate::config::{config_path, load_config};
-use crate::guard;
+use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of, launcher_path};
 use crate::relay_cmds::stop_relay;
-use crate::{rollback, shaders, update};
+use crate::{rollback, update};
 
 /// The version updates compare with. None: a dev build, which takes none.
 pub fn update_version(app: &AppHandle) -> Option<String> {
@@ -51,14 +51,8 @@ pub fn releases_for(app: &AppHandle, refresh: bool, channel: update::Channel) ->
 pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
     // asked again right before files move: the download takes minutes
-    let idle = || -> Result<(), String> {
-        if app.setup().progress.lock().unwrap().state == shaders::RunState::Running {
-            return Err("Setup is running. Pause it first, then update.".into());
-        }
-        if guard::game_running(&app.play()) {
-            return Err("The game is running. Close it first, then update.".into());
-        }
-        Ok(())
+    let idle = || {
+        ensure_idle(app, &[Need::Setup("Setup is running. Pause it first, then update."), Need::Game("The game is running. Close it first, then update.")])
     };
     idle()?;
     let version = update_version(app).ok_or("This build does not update itself.")?;

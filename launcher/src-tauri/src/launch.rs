@@ -5,16 +5,14 @@ use tauri::AppHandle;
 
 use crate::states::PlayArg;
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
 use crate::readiness::readiness;
-use crate::storage::refuse_during_storage;
 use crate::{play, profiles, settings};
 
 #[tauri::command]
 pub fn play(app: AppHandle) -> Result<(), String> {
-    refuse_during_update(&app)?;
-    refuse_during_storage(&app)?;
+    ensure_idle(&app, &[Need::Update, Need::Storage])?;
     let cfg = load_config(&app);
     let probe = readiness(&cfg);
     let (Some(paths), "ready") = (probe.paths, probe.readiness.kind) else {

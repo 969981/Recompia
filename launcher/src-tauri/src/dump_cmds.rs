@@ -9,8 +9,9 @@ use tauri::AppHandle;
 
 use crate::states::SetupArg;
 use crate::config::{load_config, save_config};
+use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
-use crate::{dump, nsp, nup, settings, shaders, writecheck};
+use crate::{dump, nsp, nup, settings, writecheck};
 
 #[derive(Serialize, Clone)]
 pub struct NupProgress {
@@ -23,9 +24,7 @@ pub struct NupProgress {
 /// returns that folder. Emits "nup-progress". A finished unpack of the same package is reused.
 #[tauri::command]
 pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<String, String> {
-    if state.progress.lock().unwrap().state == shaders::RunState::Running {
-        return Err("Setup is running. Pause it first.".into());
-    }
+    ensure_idle(&app, &[Need::Setup("Setup is running. Pause it first.")])?;
     let game_dir = game_dir_of(&load_config(&app));
     let out = game_dir.join("nup_dump");
     // a blocked folder fails here, in words, instead of halfway through with an OS error (writecheck.rs)
@@ -57,10 +56,8 @@ pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Re
 /// Unpacks the add-on (DLC) in a decrypted .nsp into the folder `[fs] aoc_dir` names (`<game folder>/aoc` when pkp.ini names none,
 /// which is then written there) and returns the add-on ids. The game lists them at its next start.
 #[tauri::command]
-pub async fn import_dlc(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<Vec<String>, String> {
-    if state.progress.lock().unwrap().state == shaders::RunState::Running {
-        return Err("Setup is running. Pause it first.".into());
-    }
+pub async fn import_dlc(app: AppHandle, path: String) -> Result<Vec<String>, String> {
+    ensure_idle(&app, &[Need::Setup("Setup is running. Pause it first.")])?;
     let game_dir = game_dir_of(&load_config(&app));
     writecheck::check(&game_dir).map_err(|e| e.message())?;
     let src = PathBuf::from(path.trim());

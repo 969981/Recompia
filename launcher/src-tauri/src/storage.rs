@@ -10,7 +10,7 @@ use tauri::AppHandle;
 
 use crate::states::{StorageArg, States};
 use crate::config::load_config;
-use crate::guard::{self, refuse_during_update};
+use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
 use crate::{preflight, setuplog, shader_archive, shaders, writecheck};
 
@@ -19,13 +19,6 @@ use crate::{preflight, setuplog, shader_archive, shaders, writecheck};
 pub struct StorageState {
     pub running: AtomicBool,
     pub cancel: AtomicBool,
-}
-
-pub fn refuse_during_storage(app: &AppHandle) -> Result<(), String> {
-    if app.storage().running.load(Ordering::SeqCst) {
-        return Err("The shader files are being repacked. Wait for it to finish, or stop it in Settings.".into());
-    }
-    Ok(())
 }
 
 #[derive(Serialize, Clone)]
@@ -57,13 +50,11 @@ pub async fn shader_storage(app: AppHandle, state: StorageArg<'_>) -> Result<Sto
 
 /// Starts a storage job after the checks every one of them needs. The guard clears `running` however the job ends.
 pub fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), String> {
-    refuse_during_update(app)?;
-    if app.setup().progress.lock().unwrap().state == shaders::RunState::Running {
-        return Err("Setup is running. Wait for it to finish, or pause it first.".into());
-    }
-    if guard::game_running(&app.play()) {
-        return Err("The game is running. Close it first: it reads the shader files while it runs.".into());
-    }
+    ensure_idle(app, &[
+        Need::Update,
+        Need::Setup("Setup is running. Wait for it to finish, or pause it first."),
+        Need::Game("The game is running. Close it first: it reads the shader files while it runs."),
+    ])?;
     let st = app.storage().inner().clone();
     if st.running.swap(true, Ordering::SeqCst) {
         return Err("The shader files are already being repacked.".into());

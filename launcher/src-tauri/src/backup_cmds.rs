@@ -5,8 +5,7 @@ use std::fs;
 use tauri::AppHandle;
 
 use crate::config::load_config;
-use crate::states::States;
-use crate::guard::{self, refuse_during_update};
+use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
 use crate::{play, savebackup};
 
@@ -32,10 +31,7 @@ pub async fn backup_now(app: AppHandle) -> Result<savebackup::Outcome, String> {
 
 #[tauri::command]
 pub async fn backup_restore(app: AppHandle, name: String) -> Result<savebackup::Restored, String> {
-    if guard::game_running(&app.play()) {
-        return Err("The game is running. Close it first, then restore a backup.".into());
-    }
-    refuse_during_update(&app)?;
+    ensure_idle(&app, &[Need::Game("The game is running. Close it first, then restore a backup."), Need::Update])?;
     let dir = game_dir_of(&load_config(&app));
     tauri::async_runtime::spawn_blocking(move || savebackup::restore(&dir, &name)).await.map_err(|e| e.to_string())?
 }

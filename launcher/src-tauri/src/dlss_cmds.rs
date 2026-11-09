@@ -5,7 +5,7 @@ use tauri::Emitter;
 use tauri::AppHandle;
 
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of};
 use crate::dlss;
 
@@ -17,7 +17,7 @@ pub fn dlss_status(app: AppHandle) -> dlss::Status {
 /// Downloads NVIDIA's nvngx_dlss.dll (see dlss.rs) on a worker thread, with "dlss-progress" events.
 #[tauri::command]
 pub async fn fetch_dlss(app: AppHandle) -> Result<(), String> {
-    refuse_during_update(&app)?;
+    ensure_idle(&app, &[Need::Update])?;
     let dir = game_dir_of(&load_config(&app));
     let tools_dir = exe_dir().join("tools");
     tauri::async_runtime::spawn_blocking(move || {
