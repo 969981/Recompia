@@ -36,6 +36,8 @@ a log line). It is header-only, so the launcher can use it without linking the r
 | `play_defaults` (`play::GameDefaults`) | (b) | factory `controls.ini`, the defaults revision and the bindings added by each revision |
 | `play` (`play::GamePlay`) | (c) behind a generic API | play mode's game half: input and camera hooks, display hooks, menus, status, the F1 page's Tweaks tab |
 | `prompts` (`play::PromptGame`) | (b) | button prompt icons: the table of icons, how to scan the game's textures, icon size, orientation |
+| `settings_doc` (`setting_doc::Row` list) | (b) | the keys of the game's own game-ini section: CONFIG.md's game section and the launcher's game-ini schema are generated from it (`apps/settings_doc.cpp`) |
+| `render` (`game::Render`, `nxrt/game_render.h`) | (b) | graphics facts read once by the NVN back end and the extras: the texture shape `[nvn] readback_defer` may defer (`readback_defer`), the camera uniform block of the G-buffer pass for temporal upscaling (`camera`: stage, slot, view-projection and view float index, G-buffer colour count, camera-cut speed), the tone-map shaders the HDR patch and the scene upscalers match (`tonemaps`, in order). Null: those features are off |
 
 A game module registers its Info before `nxrt::init()`. The Metroid module is `runtime/games/mpr` and comes as three libraries, each
 a superset of the one before, so each program links only what it needs:
