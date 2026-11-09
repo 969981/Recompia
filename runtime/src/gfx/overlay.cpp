@@ -186,6 +186,14 @@ struct Overlay::Impl {
     float ui_scale = 0.f;             // 0: not applied yet
     bool backend_ready = false;
     std::atomic<bool> visible{false};
+    std::atomic<bool> touch_btn{false};      // set_touch_button: the corner button and finger-sized controls
+    std::atomic<bool> touch_toggle_req{false};   // the ImGui button was tapped while the menu was open: apply_pending toggles outside the frame
+    std::atomic<float> disp_w{0.f}, disp_h{0.f};   // the frame size of the last drawn frame (the button's place, for hit tests off the presenting thread)
+    bool touch_armed = false;                // a finger went down on the corner button and has not come up yet (main thread)
+    bool scaled_touch = false;               // the touch state the style was scaled for
+    ImVec4 touch_rect() const;               // x, y, w, h of the corner button in frame pixels
+    bool touch_button_event(const input::Event& e);   // the hidden menu's corner button; true = the event is the button's
+    void draw_touch_button(bool open);       // inside an ImGui frame
     std::mutex mu;                    // guards the ImGui context: events arrive on the game's main thread, drawing happens on the presenting thread
     int toggle_sc = SDL_SCANCODE_F1;
     bool restore_relative = false;
@@ -287,6 +295,56 @@ struct Overlay::Impl {
     bool quit_key_event(const input::Event& e);   // a physical key while the prompt is open; always consumed
     void draw_quit_prompt();              // mu held, inside an ImGui frame
 };
+
+// The corner button: 52 x 52 UI units at the bottom left, 12 units in. ui_scale grows with the frame (and by a quarter with the touch button on).
+ImVec4 Overlay::Impl::touch_rect() const {
+    const float k = ui_scale > 0.f ? ui_scale : 1.f;
+    const float w = 56.f * k, h = 52.f * k, m = 12.f * k;
+    return ImVec4(m, disp_h.load(std::memory_order_relaxed) - h - m, w, h);
+}
+
+bool Overlay::Impl::touch_button_event(const input::Event& e) {
+    using input::EventType;
+    const ImVec4 r = touch_rect();
+    auto inside = [&](float x, float y) { return x >= r.x && x < r.x + r.z && y >= r.y && y < r.y + r.w; };
+    if (disp_h.load(std::memory_order_relaxed) <= 0.f) return false;   // nothing drawn yet
+    if (e.type == EventType::MouseButtonDown && e.u.button.button == 1) {
+        touch_armed = inside(e.u.button.x, e.u.button.y);
+        return touch_armed;
+    }
+    if (e.type == EventType::MouseMotion) return touch_armed;            // the finger that is on the button does not move the game's pointer
+    if (e.type == EventType::MouseButtonUp && e.u.button.button == 1 && touch_armed) {
+        touch_armed = false;
+        if (inside(e.u.button.x, e.u.button.y)) touch_toggle_req.store(true);   // the same toggle as the F1 key, applied by apply_pending
+        return true;
+    }
+    return false;
+}
+
+void Overlay::Impl::draw_touch_button(bool open) {
+    const ImVec4 r = touch_rect();
+    const float k = ui_scale > 0.f ? ui_scale : 1.f;
+    const ImVec2 p0(r.x, r.y), p1(r.x + r.z, r.y + r.w);
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 24, open ? 200 : 150), 10.f * k);
+    dl->AddRect(p0, p1, IM_COL32(255, 255, 255, open ? 230 : 160), 10.f * k, 0, 1.5f * k);
+    const char* label = open ? "Close" : "Menu";
+    const ImVec2 ts = ImGui::CalcTextSize(label);
+    dl->AddText(ImVec2(p0.x + (r.z - ts.x) * 0.5f, p0.y + (r.w - ts.y) * 0.5f), IM_COL32(255, 255, 255, 235), label);
+    if (open) {
+        // the menu is up: ImGui gets the mouse, so the button is a real widget this time
+        ImGui::SetNextWindowPos(p0, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(r.z, r.w), ImGuiCond_Always);
+        const ImGuiWindowFlags wf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        if (ImGui::Begin("##nxrt_touch_menu", nullptr, wf)) {
+            if (ImGui::InvisibleButton("##close", ImVec2(r.z, r.w))) touch_toggle_req.store(true);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+}
 
 void Overlay::Impl::build_ui() {
     Renderer& r = *ctx.renderer;
@@ -393,13 +451,22 @@ void Overlay::Impl::build_ui() {
 // DPI: the UI is laid out for a 1080 pixel high frame at 16 px text and grows with the frame (4K: twice the size; a Windows display scaling
 // of 150% shows up as more pixels in the same window, so it is covered too). Never below 1: a 720p window keeps the 16 px text.
 void Overlay::Impl::update_scale(const VkExtent2D& extent) {
-    const float want = std::round(std::clamp(static_cast<float>(extent.height) / 1080.f, 1.0f, 3.0f) * 20.f) / 20.f;   // steps of 0.05
-    if (want == ui_scale) return;
+    const bool touch = touch_btn.load(std::memory_order_relaxed);
+    // finger-sized: a quarter bigger than the frame asks for, so rows and buttons reach about 40 px on a 720 to 800 pixel handheld screen
+    const float want = std::round(std::clamp(static_cast<float>(extent.height) / 1080.f * (touch ? 1.25f : 1.f), touch ? 1.25f : 1.0f, 3.0f) * 20.f) / 20.f;   // steps of 0.05
+    if (want == ui_scale && touch == scaled_touch) return;
     ui_scale = want;
+    scaled_touch = touch;
     ImGuiStyle& style = ImGui::GetStyle();
     style = base_style;
     style.ScaleAllSizes(want);
     style.FontScaleDpi = want;
+    if (touch) {   // easier to hit with a finger: a taller row and a wider scroll bar and slider grip
+        style.FramePadding.y = std::max(style.FramePadding.y, 8.f * want);
+        style.ItemSpacing.y = std::max(style.ItemSpacing.y, 8.f * want);
+        style.ScrollbarSize = std::max(style.ScrollbarSize, 22.f * want);
+        style.GrabMinSize = std::max(style.GrabMinSize, 20.f * want);
+    }
 }
 
 std::unique_ptr<Overlay> Overlay::create(const Context& ctx, std::string* error) {
@@ -495,6 +562,8 @@ void Overlay::set_visible(bool v) {
     }
     NXLOG_I(kTag, "overlay %s", v ? "shown" : "hidden");
 }
+
+void Overlay::set_touch_button(bool on) { impl_->touch_btn.store(on); }
 
 bool Overlay::visible() const { return impl_->visible; }
 void Overlay::toggle() { set_visible(!impl_->visible); }
@@ -958,6 +1027,10 @@ bool Overlay::handle_event(const input::Event& e) {
     }
     const bool kb = s.kb_poll() || s.quit_open;
     if (kb && !s.quit_open && (e.type == EventType::KeyDown || e.type == EventType::KeyUp || e.type == EventType::Text)) return s.kb_key_event(e);
+    // a finger on the hidden menu's corner button (the finger's mouse events carry kFlagTouch)
+    if (!s.visible && !kb && s.touch_btn.load(std::memory_order_relaxed) && (e.flags & input::kFlagTouch) &&
+        (e.type == EventType::MouseMotion || e.type == EventType::MouseButtonDown || e.type == EventType::MouseButtonUp))
+        return s.touch_button_event(e);
     if (!s.visible && !kb) return false;
     std::lock_guard<std::mutex> lk(s.mu);
     ImGuiContext* prev = ImGui::GetCurrentContext();
@@ -1004,6 +1077,7 @@ bool Overlay::handle_event(const input::Event& e) {
 }
 
 void Overlay::apply_pending() {
+    if (impl_->touch_toggle_req.exchange(false)) toggle();   // the corner button was tapped (outside the ImGui frame: set_visible takes the lock)
     apply_present_pending();
     apply_window_pending();
 }
@@ -1152,7 +1226,8 @@ void Overlay::draw(const FrameInfo& f) {
     const bool quit_on = s.quit_open;
     const bool kb_on = !quit_on && s.kb_poll();
     const bool save_on = s.save_notice_visible(now_s);
-    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on) {
+    const bool touch_on = s.touch_btn.load(std::memory_order_relaxed) && !kb_on && !quit_on;   // the corner button (menu closed: "Menu", open: "Close")
+    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on) {
         s.last_frame = now;
         s.counter_was_on = false;
         return;
@@ -1175,7 +1250,7 @@ void Overlay::draw(const FrameInfo& f) {
     }
     // a screenshot leaves the counter out unless asked for; with the menu hidden there is then nothing to draw
     const bool show_counter = counter_on && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on) {
+    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on) {
         s.last_frame = now;
         return;
     }
@@ -1189,6 +1264,8 @@ void Overlay::draw(const FrameInfo& f) {
     io.DeltaTime = std::clamp(std::chrono::duration<float>(now - s.last_frame).count(), 1.0f / 1000.f, 0.25f);
     s.last_frame = now;
     io.DisplaySize = ImVec2(static_cast<float>(f.extent.width), static_cast<float>(f.extent.height));
+    s.disp_w.store(io.DisplaySize.x, std::memory_order_relaxed);
+    s.disp_h.store(io.DisplaySize.y, std::memory_order_relaxed);
 
     s.update_scale(f.extent);
     ImGui_ImplVulkan_NewFrame();
@@ -1197,6 +1274,7 @@ void Overlay::draw(const FrameInfo& f) {
     if (s.visible && !kb_on && !quit_on) s.build_ui();
     if (kb_on) s.draw_keyboard(now_s);
     if (quit_on) s.draw_quit_prompt();
+    if (touch_on) s.draw_touch_button(s.visible);
     if (show_counter) s.draw_counter(f, now_s);
     if (note_on) s.draw_note(f);
     if (save_on) s.draw_save_notice(f);

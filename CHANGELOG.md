@@ -29,6 +29,11 @@ of the game (version 2.0.1a): the download contains no game files.
   - They press nothing until you choose a button, so nothing changes for anyone who does not
   - In `controls.ini` they are `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `touchpad_right` under `[padmap]`
   - With the Steam Controller icons on, a button given to a grip or trackpad shows the grip or trackpad icon
+- **Touch screens** (Steam Deck, ROG Ally and other handhelds, touch laptops): the game now treats a finger as a finger
+  - A **Menu** button in the bottom left corner opens the F1 menu (it reads **Close** while the menu is open), so a handheld needs no keyboard for it. The menu then has bigger rows, buttons and scroll bars
+  - Taps work the game's own menus, as before; but a tap in play no longer fires the mouse click action (use the tool), and touching the screen no longer switches the button prompts to the keyboard's keys
+  - On by default when a touch screen is found (`touch: touch screen found, menu button on` in `pkp.log`); `[overlay] touch_button = off` turns it off, `on` forces it
+  - The launcher on a touch screen: no double-tap zoom or tap delay
 - Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
 
 ### What to test

@@ -25,7 +25,8 @@ enum class EventType : uint8_t {
     WindowFullscreenChanged,      // window: size in pixels; flags bit0 = now fullscreen
 };
 
-enum EventFlags : uint8_t { kFlagRepeat = 1, kFlagRelative = 1, kFlagFullscreen = 1 };
+// kFlagTouch (mouse motion and buttons): SDL made this mouse event from a finger on a touch screen (its mouse id is SDL_TOUCH_MOUSEID).
+enum EventFlags : uint8_t { kFlagRepeat = 1, kFlagRelative = 1, kFlagFullscreen = 1, kFlagTouch = 2 };
 
 struct Event {
     EventType type = EventType::None;
