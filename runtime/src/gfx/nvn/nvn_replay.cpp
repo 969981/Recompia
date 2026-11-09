@@ -29,22 +29,18 @@ constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build"
 // excluded: rp.dispatch), plus the NXFT zones rp.cbsetup / rp.cbend of nvn_gpu.cpp (slot, begin / end command buffer, query resets, batch
 // flush). rp.texpoll, rp.mirror, rp.outend are parts of rp.begin / rp.end. The per-binding phases (rp.buf, rp.tex, rp.texel) run only with
 // [prof] replay_fine (a scope each costs more than the work of a cached binding).
-uint64_t g_rp_ns[kRpCount] = {};     // ticks until rp_flush
-uint32_t g_rp_n[kRpCount] = {};
-static uint64_t g_rp_t0 = 0;
-uint64_t g_rp_inner = 0;             // ticks of rp.draw / rp.dispatch scopes and finished ops, so an op's own time can be told from them
-bool g_rp_fine = false;
+RpProfile g_rp;
 static void rp_flush() {
-    if (!g_rp_t0) return;
+    if (!g_rp.t0) return;
     static uint16_t ids[kRpCount];
     static bool named = false;
     if (!named) { for (int i = 0; i < kRpCount; ++i) ids[i] = ft::zone_id(kRpNames[i]); named = true; }
     for (int i = 0; i < kRpCount; ++i)
-        if (g_rp_n[i]) ft::event(ids[i], g_rp_t0, g_rp_t0 + ft::tsc_to_ns(g_rp_ns[i]), g_rp_n[i]);
-    std::memset(g_rp_ns, 0, sizeof g_rp_ns);
-    std::memset(g_rp_n, 0, sizeof g_rp_n);
-    g_rp_t0 = 0;
-    g_rp_inner = 0;
+        if (g_rp.n[i]) ft::event(ids[i], g_rp.t0, g_rp.t0 + ft::tsc_to_ns(g_rp.ns[i]), g_rp.n[i]);
+    std::memset(g_rp.ns, 0, sizeof g_rp.ns);
+    std::memset(g_rp.n, 0, sizeof g_rp.n);
+    g_rp.t0 = 0;
+    g_rp.inner = 0;
 }
 uint32_t g_dirty = kAllDirty;
 GpuWrites g_gw;
@@ -120,25 +116,25 @@ struct RpOpScope {
     bool on;
     Op op;
     uint64_t ta = 0, tb = 0, inner0 = 0;
-    RpOpScope(bool rt, Op o) : on(rt), op(o) { if (on) { inner0 = g_rp_inner; ta = ft::tsc(); } }
+    RpOpScope(bool rt, Op o) : on(rt), op(o) { if (on) { inner0 = g_rp.inner; ta = ft::tsc(); } }
     void mid() { if (on) tb = ft::tsc(); }
     ~RpOpScope() {
         if (!on) return;
         const uint64_t tc = ft::tsc();
-        const uint64_t exec = tc - tb, inner = g_rp_inner - inner0;
+        const uint64_t exec = tc - tb, inner = g_rp.inner - inner0;
         const int ph = (op == Op::DrawArrays || op == Op::DrawElements || op == Op::DrawIndirect || op == Op::DrawXfb) ? kRpTail : kRpOp;
-        g_rp_ns[ph] += exec > inner ? exec - inner : 0;
-        ++g_rp_n[ph];
-        g_rp_ns[kRpOpIn] += tb - ta;
-        ++g_rp_n[kRpOpIn];
-        g_rp_inner = inner0 + (tc - ta);
+        g_rp.ns[ph] += exec > inner ? exec - inner : 0;
+        ++g_rp.n[ph];
+        g_rp.ns[kRpOpIn] += tb - ta;
+        ++g_rp.n[kRpOpIn];
+        g_rp.inner = inner0 + (tc - ta);
     }
 };
 
 static void run_list(const CmdList& list, int depth) {
     if (depth > kMaxDepth) { log_once(kOnceCallDepth, "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
-    const bool rt = ft::on() && g_rp_t0;
+    const bool rt = ft::on() && g_rp.t0;
     for (RecordReader r(list); r.next();) {
         RpOpScope rpo(rt, r.op());
         mark_dirty(r);
@@ -562,12 +558,12 @@ void note_frame_for_pacing() {
 }
 
 void replay_begin_submit(Frame& f) {
-    static const bool fine_init = (g_rp_fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
+    static const bool fine_init = (g_rp.fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
     (void)fine_init;
     rp_flush();
     rp_bump(ft::kCntEpSubmit);    // the sets of the last submission are gone with its descriptor pools
     ft::split_count(ft::kCntSubmissions);
-    g_rp_t0 = ft::on() ? ft::now_ns() : 0;
+    g_rp.t0 = ft::on() ? ft::now_ns() : 0;
     RpScope rp_begin(kRpBegin);
     gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_gate = time: frames flowing = play
     note_frame_for_pacing();
@@ -655,7 +651,7 @@ void replay_end_submit(Frame& f) {
         g_cw[k].active = -1;
     }
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
-    if (rp_te) { g_rp_ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp_n[kRpEnd]; }
+    if (rp_te) { g_rp.ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp.n[kRpEnd]; }
     rp_flush();
     F = nullptr;
 }

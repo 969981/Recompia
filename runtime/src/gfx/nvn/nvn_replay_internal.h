@@ -193,10 +193,14 @@ inline void rp_bump(ft::SplitCount src = ft::kCntCounts) { ++g_rp_epoch; ft::spl
 // per-thread zone totals of ftrace_report.py split the "replay" zone without one event per draw (thousands a frame overflow the
 // event array). Off: one relaxed load per site.
 enum RpPhase { kRpDraw, kRpSets, kRpSetBuild, kRpSetWrite, kRpSetBind, kRpPrep, kRpPass, kRpPipe, kRpDyn, kRpVb, kRpDispatch, kRpSet0, kRpSet1, kRpSet2, kRpSet3, kRpMiss0, kRpMiss1, kRpMiss2, kRpMiss3, kRpBuf, kRpTex, kRpTexel, kRpSame0, kRpSame1, kRpSame2, kRpSame3, kRpReuse, kRpBegin, kRpEnd, kRpOpIn, kRpOp, kRpTail, kRpTexPoll, kRpMirror, kRpOutEnd, kRpCount };
-extern uint64_t g_rp_ns[kRpCount];
-extern uint32_t g_rp_n[kRpCount];
-extern uint64_t g_rp_inner;
-extern bool g_rp_fine;
+struct RpProfile {   // owner: nvn_replay.cpp (rp_flush at each submission's start and end)
+    uint64_t ns[kRpCount] = {};   // ticks until rp_flush
+    uint32_t n[kRpCount] = {};
+    uint64_t t0 = 0;              // the submission's start (ns), 0 while the frame trace is off
+    uint64_t inner = 0;           // ticks of rp.draw / rp.dispatch scopes and finished ops, so an op's own time can be told from them
+    bool fine = false;            // [prof] replay_fine
+};
+extern RpProfile g_rp;
 struct RpScope {
     int ph;
     uint64_t t0;
@@ -204,12 +208,12 @@ struct RpScope {
     ~RpScope() {
         if (!t0) return;
         const uint64_t dt = ft::tsc() - t0;
-        g_rp_ns[ph] += dt;
-        ++g_rp_n[ph];
-        if (ph == kRpDraw || ph == kRpDispatch) g_rp_inner += dt;
+        g_rp.ns[ph] += dt;
+        ++g_rp.n[ph];
+        if (ph == kRpDraw || ph == kRpDispatch) g_rp.inner += dt;
     }
 };
-inline void rp_count(int ph) { if (ft::on()) ++g_rp_n[ph]; }   // a count without time (cache hits)
+inline void rp_count(int ph) { if (ft::on()) ++g_rp.n[ph]; }   // a count without time (cache hits)
 
 // What changed since the last draw. Ops set bits (mark_dirty); a draw handles and clears the groups it needs. A new submission, a
 // new pass and anything that binds other pipelines sets them all (a new command buffer has no dynamic state, a new pass has other
