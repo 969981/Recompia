@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Winsock implementation of net/tcp.h.
 #include "tcp.h"
+#include "win_sock.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -11,16 +12,6 @@
 
 namespace nxrt::tcp {
 namespace {
-
-bool startup() {
-    static std::once_flag once;
-    static bool ok = false;
-    std::call_once(once, [] {
-        WSADATA wd;
-        ok = WSAStartup(MAKEWORD(2, 2), &wd) == 0;
-    });
-    return ok;
-}
 
 const char* reason(int e) {
     switch (e) {
@@ -34,7 +25,7 @@ const char* reason(int e) {
 }  // namespace
 
 Handle dial(const std::string& host, uint16_t port, int timeout_ms, int send_timeout_ms, std::string* err) {
-    if (!startup()) {
+    if (!vnet::ensure_winsock()) {
         *err = "Winsock unavailable";
         return kBad;
     }

@@ -34,6 +34,7 @@
 
 #include "nxrt/log.h"
 #include "relay_wire.h"
+#include "win_sock.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
@@ -58,16 +59,6 @@ constexpr Key kNoKey{};
 constexpr char kDiscRequest[8] = {'P', 'K', 'P', 'D', 'I', 'S', 'C', '1'};
 constexpr char kDiscReply[8] = {'P', 'K', 'P', 'H', 'O', 'S', 'T', '1'};
 constexpr size_t kDiscReplyHdr = 20;   // magic 8 + nonce 8 + u16 port + u8 open rooms + u8 nickname length
-
-bool wsa_up() {   // one WSAStartup for the server's sockets, never undone (the server lives as long as the process)
-    static std::once_flag once;
-    static bool ok = false;
-    std::call_once(once, [] {
-        WSADATA wd;
-        ok = WSAStartup(MAKEWORD(2, 2), &wd) == 0;
-    });
-    return ok;
-}
 
 bool random_bytes(void* p, size_t n) {
     return BCRYPT_SUCCESS(BCryptGenRandom(nullptr, static_cast<PUCHAR>(p), static_cast<ULONG>(n), BCRYPT_USE_SYSTEM_PREFERRED_RNG));
@@ -895,7 +886,7 @@ bool RelayServer::udp() const { return im_->usock != INVALID_SOCKET; }
 
 std::unique_ptr<RelayServer> RelayServer::start(const RelayServerOptions& opt, std::string* why, bool* in_use) {
     if (in_use) *in_use = false;
-    if (!wsa_up()) {
+    if (!ensure_winsock()) {
         if (why) *why = "Winsock unavailable";
         return nullptr;
     }
