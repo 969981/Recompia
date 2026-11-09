@@ -574,8 +574,8 @@ static void count_primitives(uint32_t mode, uint32_t count, uint32_t instances) 
     if (!S.render_enable) return;
     const uint64_t per = mode == NVN_DRAW_PRIMITIVE_PATCHES ? count / std::max<uint32_t>(1, S.patch_size) : primitives_for(static_cast<int>(mode), count);   // patches: input patches
     const uint64_t prims = per * std::max<uint32_t>(1, instances);
-    g_prims_generated += prims;
-    if (g_xfb.active) g_prims_xfb += prims;
+    g_q.prims_generated += prims;
+    if (g_xfb.active) g_q.prims_xfb += prims;
 }
 
 // Quads, quad strips, polygons and line loops, which Vulkan has no topology for, as the triangle (or line strip) index list of the same vertices.

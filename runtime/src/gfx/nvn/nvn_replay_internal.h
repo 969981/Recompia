@@ -297,14 +297,6 @@ extern VkPipeline g_pipe;
 extern VkPrimitiveTopology g_topo;
 extern VkPrimitiveTopology g_pipe_topo;
 extern bool g_restart, g_restart_valid;
-// Occlusion counter (NVN_COUNTER_TYPE_SAMPLES_PASSED): ResetCounter starts a Vulkan occlusion query outside any pass; it stays active across
-// the passes that follow (the console counts continuously); ReportCounter ends it and copies its 64-bit result into the report.
-constexpr uint32_t kOccSlots = 256;
-extern VkQueryPool g_occ_pool;
-extern bool g_occ_tried;
-extern uint32_t g_occ_next;
-extern int32_t g_occ_active, g_occ_last;
-bool occ_ready();
 extern uint8_t g_key_dummy_binding;
 extern bool g_want_depth_ro;
 extern bool g_vb_bound_in_cb;
@@ -323,21 +315,37 @@ struct XfbState {   // owner: nvn_replay_draw.cpp; sections begun and ended by r
     void shutdown();
 };
 extern XfbState g_xfb;
+// ---- counters and reports (nvn_replay_query.cpp) ---------------------------------------------------------------------------------
+// Occlusion counter (NVN_COUNTER_TYPE_SAMPLES_PASSED): ResetCounter starts a Vulkan occlusion query outside any pass; it stays active across
+// the passes that follow (the console counts continuously); ReportCounter ends it and copies its 64-bit result into the report.
+constexpr uint32_t kOccSlots = 256;
 // Windowed GPU counters for the primitive counters (13 = primitives generated, 14 = feedback primitives written): a ResetCounter whose window
 // (up to the matching ReportCounter, in the same list) holds an indirect or feedback draw starts a query the GPU counts those draws with;
 // the CPU counts the other draws exactly (count_primitives) but cannot know the primitives of a draw whose arguments the GPU holds.
-// [0] pipeline statistics (input assembly primitives; a converted quad counts as its two triangles), [1] transform feedback stream 0 query.
+// cw[0] pipeline statistics (input assembly primitives; a converted quad counts as its two triangles), cw[1] transform feedback stream 0 query.
 struct CounterWindow { VkQueryPool pool = VK_NULL_HANDLE; bool tried = false; uint32_t next = 0; int32_t active = -1, last = -1; };
 constexpr uint32_t kCounterSlots = 64;
-extern CounterWindow g_cw[2];
-extern uint64_t g_prims_generated, g_prims_xfb;
 // Conditional render (SetRenderEnableConditional): the console compares the 64-bit counter words of two reports, at the address and
 // 16 bytes after it (yuzu Maxwell3D::ProcessQueryCondition: IfEqual / IfNotEqual), when the command runs. The replay runs in GPU
-// order, so the counters it writes itself (ReportCounter other than samples passed, ReportValue) are known here: g_reports keeps
+// order, so the counters it writes itself (ReportCounter other than samples passed, ReportValue) are known here: `reports` keeps
 // them by address. kReportUnknown marks an address the GPU writes later (samples passed): a condition on it renders, as before. An
 // address the replay never wrote (the game's own memory) is read from the pool.
 constexpr uint64_t kReportUnknown = ~0ull;
-extern std::unordered_map<uint64_t, uint64_t> g_reports;
+struct QueryState {   // owner: nvn_replay_query.cpp; the ops are in run_list (ReportCounter, ResetCounter, ReportValue)
+    VkQueryPool occ_pool = VK_NULL_HANDLE;
+    bool occ_tried = false;
+    uint32_t occ_next = 0;
+    int32_t occ_active = -1, occ_last = -1;
+    CounterWindow cw[2];
+    // Primitive counters (NVN_COUNTER_TYPE_PRIMITIVES_GENERATED = 13, TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN = 14): counted on the CPU by every
+    // draw (count_primitives), process-wide like the console's, zeroed by ResetCounter of their type, dropped at shutdown.
+    uint64_t prims_generated = 0, prims_xfb = 0;
+    std::unordered_map<uint64_t, uint64_t> reports;
+    void end_submit();   // queries cannot outlive their command buffer (F): the counts of unreported counters are dropped
+    void shutdown();     // the query pools are released
+};
+extern QueryState g_q;
+bool occ_ready();
 extern nxrt::GaugeCounter g_gauge_pipeline_binds;
 // ---- frame trace and debug aids (nvn_replay_trace.cpp) ---------------------------------------------------------------------------
 // Their state is private to the trace module. The draw and dispatch paths test one flag per site (both false in play) and call in.

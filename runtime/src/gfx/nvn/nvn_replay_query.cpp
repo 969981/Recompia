@@ -4,39 +4,30 @@
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
-VkQueryPool g_occ_pool = VK_NULL_HANDLE;
-bool g_occ_tried = false;
-uint32_t g_occ_next = 0;
-int32_t g_occ_active = -1, g_occ_last = -1;
+QueryState g_q;
 
 bool occ_ready() {
-    if (g_occ_pool) return true;
-    if (g_occ_tried || !device().features().occlusion_query) return false;
-    g_occ_tried = true;
+    if (g_q.occ_pool) return true;
+    if (g_q.occ_tried || !device().features().occlusion_query) return false;
+    g_q.occ_tried = true;
     VkQueryPoolCreateInfo qi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
     qi.queryType = VK_QUERY_TYPE_OCCLUSION;
     qi.queryCount = kOccSlots;
-    if (vkCreateQueryPool(vkdev(), &qi, nullptr, &g_occ_pool) != VK_SUCCESS) g_occ_pool = VK_NULL_HANDLE;
-    return g_occ_pool != VK_NULL_HANDLE;
+    if (vkCreateQueryPool(vkdev(), &qi, nullptr, &g_q.occ_pool) != VK_SUCCESS) g_q.occ_pool = VK_NULL_HANDLE;
+    return g_q.occ_pool != VK_NULL_HANDLE;
 }
-CounterWindow g_cw[2];
-// Primitive counters (NVN_COUNTER_TYPE_PRIMITIVES_GENERATED = 13, TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN = 14): counted on the CPU by every
-// draw (count_primitives), process-wide like the console's, zeroed by ResetCounter of their type, dropped at shutdown.
-uint64_t g_prims_generated = 0, g_prims_xfb = 0;
-std::unordered_map<uint64_t, uint64_t> g_reports;
-static VkQueryPool g_xq_pool = VK_NULL_HANDLE;     // transform feedback stream queries (counters 13 and 14)
 
 // ---- conditional render ---------------------------------------------------------------------------------------------------------
 void note_report(uint64_t address, uint64_t counter) {
     if (!address) return;
-    if (g_reports.size() > 65536) g_reports.clear();   // bounded: a forgotten address reads from memory again
-    g_reports[address] = counter;
+    if (g_q.reports.size() > 65536) g_q.reports.clear();   // bounded: a forgotten address reads from memory again
+    g_q.reports[address] = counter;
 }
 
 // The counter word at a report address; false when it is not known before the GPU runs.
 static bool report_counter(uint64_t address, uint64_t* out) {
-    auto it = g_reports.find(address);
-    if (it != g_reports.end()) {
+    auto it = g_q.reports.find(address);
+    if (it != g_q.reports.end()) {
         if (it->second == kReportUnknown) return false;
         *out = it->second;
         return true;
@@ -55,7 +46,7 @@ bool conditional_render_enabled(uint32_t mode, uint64_t address) {
     return true;
 }
 
-// ---- windowed GPU counters (see g_cw) ----------------------------------------------------------------------------------------
+// ---- windowed GPU counters (see QueryState::cw) ----------------------------------------------------------------------------------------
 bool cw_ready(CounterWindow& w, bool xfb) {
     if (w.pool) return true;
     if (w.tried) return false;
@@ -85,6 +76,29 @@ bool counter_window_has_gpu_draw(RecordReader look, uint32_t type) {
         if (op == Op::DrawIndirect || op == Op::DrawXfb) return true;
     }
     return false;
+}
+
+void QueryState::end_submit() {
+    if (occ_active >= 0) {
+        vkCmdEndQuery(F->cb, occ_pool, static_cast<uint32_t>(occ_active));
+        occ_active = -1;
+    }
+    for (int k = 0; k < 2; ++k) {
+        cw_end_query(cw[k], k == 1);
+        cw[k].active = -1;
+    }
+}
+
+void QueryState::shutdown() {
+    for (CounterWindow& w : cw) {
+        if (w.pool) vkDestroyQueryPool(vkdev(), w.pool, nullptr);
+        w = CounterWindow();
+    }
+    if (occ_pool) vkDestroyQueryPool(vkdev(), occ_pool, nullptr);
+    occ_pool = VK_NULL_HANDLE;
+    occ_tried = false;
+    occ_active = occ_last = -1;
+    prims_generated = prims_xfb = 0;
 }
 
 }  // namespace replay

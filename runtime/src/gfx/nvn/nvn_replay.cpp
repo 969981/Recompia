@@ -337,18 +337,18 @@ static void run_list(const CmdList& list, int depth) {
                 struct { uint64_t counter, timestamp; } rep = {1, timestamp_ns()};   // counters other than the ones handled below are reported as non-zero
                 if (p.type == NVN_COUNTER_TYPE_SAMPLES_PASSED && occ_ready()) {
                     end_pass();
-                    if (g_occ_active >= 0) {
-                        vkCmdEndQuery(F->cb, g_occ_pool, static_cast<uint32_t>(g_occ_active));
-                        g_occ_last = g_occ_active;
-                        g_occ_active = -1;
+                    if (g_q.occ_active >= 0) {
+                        vkCmdEndQuery(F->cb, g_q.occ_pool, static_cast<uint32_t>(g_q.occ_active));
+                        g_q.occ_last = g_q.occ_active;
+                        g_q.occ_active = -1;
                     }
                     if (p.address) {
                         rep.counter = 0;
-                        g_reports[p.address] = kReportUnknown;   // the query result lands on the GPU
+                        g_q.reports[p.address] = kReportUnknown;   // the query result lands on the GPU
                         do_write_memory(p.address, &rep, sizeof rep);
                         BufRef b = resolve_buffer(p.address, sizeof rep);
-                        if (b.ok && g_occ_last >= 0) {
-                            vkCmdCopyQueryPoolResults(F->cb, g_occ_pool, static_cast<uint32_t>(g_occ_last), 1, b.buffer, b.offset, 16,
+                        if (b.ok && g_q.occ_last >= 0) {
+                            vkCmdCopyQueryPoolResults(F->cb, g_q.occ_pool, static_cast<uint32_t>(g_q.occ_last), 1, b.buffer, b.offset, 16,
                                                       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
                             if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: the result lands in guest memory at completion
                             memory_barrier(F->cb);
@@ -357,15 +357,15 @@ static void run_list(const CmdList& list, int depth) {
                     break;
                 }
                 if (p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED || p.type == NVN_COUNTER_TYPE_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN) {
-                    CounterWindow& cw = g_cw[p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED ? 0 : 1];
+                    CounterWindow& cw = g_q.cw[p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED ? 0 : 1];
                     if (cw.active >= 0) {   // the GPU counted this window (it holds indirect or feedback draws): the report is the query's result
                         end_pass();
-                        cw_end_query(cw, &cw == &g_cw[1]);
+                        cw_end_query(cw, &cw == &g_q.cw[1]);
                         cw.last = cw.active;
                         cw.active = -1;
                         if (p.address) {
                             rep.counter = 0;
-                            g_reports[p.address] = kReportUnknown;   // the result lands on the GPU
+                            g_q.reports[p.address] = kReportUnknown;   // the result lands on the GPU
                             do_write_memory(p.address, &rep, sizeof rep);
                             BufRef b = resolve_buffer(p.address, sizeof rep);
                             if (b.ok) {
@@ -373,12 +373,12 @@ static void run_list(const CmdList& list, int depth) {
                                 vkCmdCopyQueryPoolResults(F->cb, cw.pool, static_cast<uint32_t>(cw.last), 1, b.buffer, b.offset, 16, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
                                 if (pool_copy_on()) gpu_wrote(p.address, 16, kWriteCopy);   // [nvn] pool_copy: lands at completion
                                 memory_barrier(F->cb);
-                                if (&cw == &g_cw[1]) do_write_memory(p.address + 8, &rep.timestamp, 8);
+                                if (&cw == &g_q.cw[1]) do_write_memory(p.address + 8, &rep.timestamp, 8);
                             }
                         }
                         break;
                     }
-                    rep.counter = p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED ? g_prims_generated : g_prims_xfb;
+                    rep.counter = p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED ? g_q.prims_generated : g_q.prims_xfb;
                     note_report(p.address, rep.counter);
                     if (p.address) do_write_memory(p.address, &rep, sizeof rep);
                     break;
@@ -402,16 +402,16 @@ static void run_list(const CmdList& list, int depth) {
                 const auto& p = r.payload<P_Counter>();
                 if (p.type == NVN_COUNTER_TYPE_SAMPLES_PASSED && occ_ready()) {
                     end_pass();
-                    if (g_occ_active >= 0) vkCmdEndQuery(F->cb, g_occ_pool, static_cast<uint32_t>(g_occ_active));
-                    const uint32_t slot = g_occ_next++ % kOccSlots;
-                    vkCmdResetQueryPool(F->cb, g_occ_pool, slot, 1);
-                    vkCmdBeginQuery(F->cb, g_occ_pool, slot, device().features().occlusion_query_precise ? VK_QUERY_CONTROL_PRECISE_BIT : 0);
-                    g_occ_active = static_cast<int32_t>(slot);
-                    g_occ_last = -1;
+                    if (g_q.occ_active >= 0) vkCmdEndQuery(F->cb, g_q.occ_pool, static_cast<uint32_t>(g_q.occ_active));
+                    const uint32_t slot = g_q.occ_next++ % kOccSlots;
+                    vkCmdResetQueryPool(F->cb, g_q.occ_pool, slot, 1);
+                    vkCmdBeginQuery(F->cb, g_q.occ_pool, slot, device().features().occlusion_query_precise ? VK_QUERY_CONTROL_PRECISE_BIT : 0);
+                    g_q.occ_active = static_cast<int32_t>(slot);
+                    g_q.occ_last = -1;
                 } else if (p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED || p.type == NVN_COUNTER_TYPE_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN) {
                     const bool gen = p.type == NVN_COUNTER_TYPE_PRIMITIVES_GENERATED;
-                    (gen ? g_prims_generated : g_prims_xfb) = 0;
-                    CounterWindow& cw = g_cw[gen ? 0 : 1];
+                    (gen ? g_q.prims_generated : g_q.prims_xfb) = 0;
+                    CounterWindow& cw = g_q.cw[gen ? 0 : 1];
                     if (cw.active >= 0) { end_pass(); cw_end_query(cw, !gen); cw.active = -1; }   // an unreported window is over
                     if (counter_window_has_gpu_draw(r, p.type) && cw_ready(cw, !gen)) {
                         static bool noted = false;
@@ -642,14 +642,7 @@ void replay_end_submit(Frame& f) {
             else ++it;
         }
     }
-    if (g_occ_active >= 0) {   // a query cannot outlive its command buffer: the count of an unreported counter is dropped
-        vkCmdEndQuery(f.cb, g_occ_pool, static_cast<uint32_t>(g_occ_active));
-        g_occ_active = -1;
-    }
-    for (int k = 0; k < 2; ++k) {
-        cw_end_query(g_cw[k], k == 1);
-        g_cw[k].active = -1;
-    }
+    g_q.end_submit();
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
     if (rp_te) { g_rp.ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp.n[kRpEnd]; }
     rp_flush();
@@ -658,17 +651,9 @@ void replay_end_submit(Frame& f) {
 
 void replay_shutdown() {
     g_xfb.shutdown();
-    for (CounterWindow& w : g_cw) {
-        if (w.pool) vkDestroyQueryPool(vkdev(), w.pool, nullptr);
-        w = CounterWindow();
-    }
+    g_q.shutdown();
     g_dbg_depth = 0;
     g_gw.reset();
-    if (g_occ_pool) vkDestroyQueryPool(vkdev(), g_occ_pool, nullptr);
-    g_occ_pool = VK_NULL_HANDLE;
-    g_occ_tried = false;
-    g_occ_active = g_occ_last = -1;
-    g_prims_generated = g_prims_xfb = 0;
     g_mask.shutdown();
     g_mask_ready = false;
     if (g_qa.pipe) vkDestroyPipeline(vkdev(), g_qa.pipe, nullptr);
