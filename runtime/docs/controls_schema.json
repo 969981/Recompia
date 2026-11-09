@@ -77,6 +77,7 @@
     ]},
     {"name": "upscale", "keys": [
         {"key": "mode", "type": "choice", "default": "off", "choices": ["off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"], "overridden_by": {"ini": "upscale.mode", "env": "NXRT_UPSCALE_MODE"}, "doc": "Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off."},
+        {"key": "aa", "type": "choice", "default": "off", "choices": ["off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"], "overridden_by": {"ini": "upscale.aa", "env": "NXRT_UPSCALE_AA"}, "doc": "Anti-aliasing of the 3D scene: SMAA on the HDR scene before the tone map (the HUD and the menus are not filtered)."},
         {"key": "quality", "type": "choice", "default": "quality", "choices": ["native", "quality", "balanced", "performance", "ultra_performance", "custom"], "overridden_by": {"ini": "upscale.quality", "env": "NXRT_UPSCALE_QUALITY"}, "doc": "The temporal modes' render scale preset."},
         {"key": "sharpness", "type": "real", "default": "0.8", "min": 0, "max": 1, "overridden_by": {"ini": "upscale.sharpness", "env": "NXRT_UPSCALE_SHARPNESS"}, "doc": "Sharpening (1 = sharpest)."},
         {"key": "scene_scale", "type": "int", "default": "100", "min": 25, "max": 100, "overridden_by": {"ini": "upscale.scene_scale", "env": "NXRT_UPSCALE_SCENE_SCALE"}, "doc": "Percent of the output size the 3D scene is rendered at; HUD and post stay native."},

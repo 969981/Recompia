@@ -486,6 +486,7 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 | `hdr` | `paper_white_nits` | `0` | `0`, `80` to `500` | `[hdr] paper_white_nits`, `NXRT_HDR_PAPER_WHITE_NITS` | 0 = Windows' SDR content brightness. |
 | `hdr` | `highlight_boost` | `1` | `0` to `2` | `[hdr] highlight_boost`, `NXRT_HDR_HIGHLIGHT_BOOST` | 0 = the game's SDR look up to its own white, 1 = highlights reach the peak. |
 | `upscale` | `mode` | `off` | `off` `fsr1` `fsr3` `dlss` `xess` `nis` `dlaa` `nearest` | `[upscale] mode`, `NXRT_UPSCALE_MODE` | Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off. |
+| `upscale` | `aa` | `off` | `off` `smaa_low` `smaa_medium` `smaa_high` `smaa_ultra` | `[upscale] aa`, `NXRT_UPSCALE_AA` | Anti-aliasing of the 3D scene: SMAA on the HDR scene before the tone map (the HUD and the menus are not filtered). |
 | `upscale` | `quality` | `quality` | `native` `quality` `balanced` `performance` `ultra_performance` `custom` | `[upscale] quality`, `NXRT_UPSCALE_QUALITY` | The temporal modes' render scale preset. |
 | `upscale` | `sharpness` | `0.8` | `0` to `1` | `[upscale] sharpness`, `NXRT_UPSCALE_SHARPNESS` | Sharpening (1 = sharpest). |
 | `upscale` | `scene_scale` | `100` | `25` to `100` | `[upscale] scene_scale`, `NXRT_UPSCALE_SCENE_SCALE` | Percent of the output size the 3D scene is rendered at; HUD and post stay native. |
