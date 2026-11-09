@@ -8,6 +8,7 @@
 // hipc::parse, routed to the session's service (or the domain object the message names) and answered by writing the response message
 // back over the buffer. CMIF control messages (types 5 and 7) and Release (type 2) are handled here, never by a service.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -64,6 +65,8 @@ struct Response {
 
 using Handler = std::function<uint32_t(Request&, Response&)>;   // returns a Result code (0 = success)
 
+struct ServiceCounters;   // the per-name request counters (ipc.cpp)
+
 class Service : public std::enable_shared_from_this<Service> {
 public:
     explicit Service(std::string name) : name_(std::move(name)) {}
@@ -76,7 +79,9 @@ public:
     void add_cmd(uint32_t id, const char* cmd_name, Handler h) { cmds_[id] = {cmd_name, std::move(h)}; }
     // Command ids that were requested but have no handler, with counts (for the end-of-run report).
     std::map<uint32_t, uint64_t> unhandled;
-    uint64_t requests = 0;
+    std::atomic<uint64_t> requests{0};
+    // The counters of this object's service name, shared by every object of the name; resolved by the first request (ipc.cpp).
+    std::atomic<ServiceCounters*> counters{nullptr};
 
 protected:
     struct Cmd { const char* name; Handler fn; };
