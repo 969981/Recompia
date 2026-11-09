@@ -63,6 +63,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+          npm run check-api
           node scripts/test-gamepad-nav.mjs
 
       - name: Check (Linux)
