@@ -1238,21 +1238,7 @@ void pipeline_shutdown() {
             if (s) vkDestroyDescriptorSetLayout(d, s, nullptr);
     }
     g_shared_layouts.clear();
-    for (auto& [k, m] : g_modules)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_modules.clear();
-    for (auto& [k, m] : g_variants)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_variants.clear();
-    for (auto& [k, m] : g_dual_src)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_dual_src.clear();
-    for (auto& [k, e] : g_no_out)
-        if (e.first && e.second) vkDestroyShaderModule(d, e.first, nullptr);
-    g_no_out.clear();
-    for (auto& [k, v] : g_xfb_mod)
-        if (v.first) vkDestroyShaderModule(d, v.first, nullptr);
-    g_xfb_mod.clear();
+    module_cache_clear();                        // the threads are stopped: its locks are free
     for (auto& [k, b] : g_const_bufs) device().destroy_buffer(b.first);
     g_const_bufs.clear();
     g_const_n.sub(g_const_n.get());
