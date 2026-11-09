@@ -19,10 +19,10 @@ use serde::Serialize;
 /// Program id of the game (little-endian in the save attribute).
 const PROGRAM_ID: u64 = 0x0400_A3A0_1EE4_C000;
 const TITLE_DIR: &str = "0400A3A01EE4C000";
-/// The runtime's built-in local user (games/pkp/pkp_core.cpp): [account] uid is hi then lo; the save folder is each u64 little-endian.
+/// The runtime's built-in local user (games/pkp/core/pkp_core.cpp): [account] uid is hi then lo; the save folder is each u64 little-endian.
 const DEFAULT_UID: &str = "000000000000000141434e4852656370";
 const SAVE_PARTS: [&str; 3] = ["B00", "G00", "S00"];
-/// Size and journal size the runtime gives the account save (games/pkp/pkp_core.cpp account_save_size).
+/// Size and journal size the runtime gives the account save (games/pkp/core/pkp_core.cpp account_save_size).
 const ACCOUNT_SAVE_SIZE: u64 = 0x400_0000;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]

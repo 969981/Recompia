@@ -58,7 +58,7 @@ fn load_ini(dir: &Path) -> Ini {
 /// The profile that stands for what pkp.ini holds now: the existing save.
 fn default_profile(ini: &Ini) -> Profile {
     let get = |s: &str, k: &str| ini.get(s, k).unwrap_or_default().trim().to_string();
-    // the runtime's own default nickname is "Player" (games/pkp/pkp_core.cpp); an empty key would give the game an empty name
+    // the runtime's own default nickname is "Player" (games/pkp/core/pkp_core.cpp); an empty key would give the game an empty name
     let nickname = Some(get("account", "nickname")).filter(|n| !n.is_empty()).unwrap_or_else(|| "Player".into());
     Profile {
         id: DEFAULT_ID.into(),

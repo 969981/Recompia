@@ -51,7 +51,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
     {
         // [hdr]: the host's HDR scene pipeline (src/gfx/extras): float post targets, and the composite pass's LUT tone map (cbComposite,
         // g_tHdrLut: a log shaper into a 32^3 grade that clips flat at 1 from scene 0.85-1.1) runs as an HDR variant whose highlights climb
-        // above paper white to the display's peak (extras spirv_hdr_tonemap_lut; no game hook). The game's own "true HDR" constants
+        // above paper white to the display's peak (extras spirv_hdr_tonemap_lut; the shader is matched by structure from the render facts in game::Info::render, render/pkp_render_info.cpp; no game hook). The game's own "true HDR" constants
         // (fKIDSTrueHDR, fMaxLum, SIMHDR_PARAMS set at 0x2580198; HdrTvNit / BaseTvNit at 0x2581580) are looked up by name and no shader
         // in the game's data declares them, so driving them would change nothing. Pokopia never asks whether the
         // TV is HDR (no settings / vi / oe / NVN capability query in main) and never calls the NVN2 window HDR procs; what it does declare are the

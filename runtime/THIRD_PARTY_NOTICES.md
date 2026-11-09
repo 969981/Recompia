@@ -256,7 +256,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ## miniz 3.0.2 (MIT)
 
 `third_party/miniz/` is miniz 3.0.2 (https://github.com/richgel999/miniz, release asset `miniz-3.0.2.zip`), the amalgamated `miniz.c` and
-`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/pkp_save_uuid.cpp`).
+`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
 `LICENSE`, reproduced verbatim:
 
 ```text

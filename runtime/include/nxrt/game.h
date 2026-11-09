@@ -7,15 +7,15 @@
 // probes, neutral title facts), so a new title can start with the identity alone and add tables as its hooks are found.
 //
 // What each table is for, and where the Pokopia one lives:
-//   title_defaults   services::TitleProfile defaults (main.npdm, control.nacp); ini keys still override them    games/pkp/pkp_core.cpp
+//   title_defaults   services::TitleProfile defaults (main.npdm, control.nacp); ini keys still override them    games/pkp/core/pkp_core.cpp
 //   timestep         the sites of the real-time frame step (nxrt/timestep.h, Sites)                           (Pokopia sets none)
-//   probes           test-tooling game-state probes and script steps (nxrt/tt.h, GameProbes)                  games/pkp/pkp_tt_probe.cpp
-//   play_defaults    factory controls.ini text and the bindings added by later revisions (play_types.h)       games/pkp/pkp_data.cpp
-//   play             play-mode hooks: aim, camera, display, menu pointer, F1 entries (play_game.h)            games/pkp/pkp_game.cpp
+//   probes           test-tooling game-state probes and script steps (nxrt/tt.h, GameProbes)                  games/pkp/test/pkp_tt_probe.cpp
+//   play_defaults    factory controls.ini text and the bindings added by later revisions (play_types.h)       games/pkp/core/pkp_data.cpp
+//   play             play-mode hooks: aim, camera, display, menu pointer, F1 entries (play_game.h)            games/pkp/core/pkp_game.cpp
 //   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (Pokopia sets none)
-//   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/pkp_core.cpp
-//   settings_doc     the keys of the game's own game-ini section, described (nxrt/setting_doc.h)              games/pkp/pkp_settings_table.cpp
-//   render           graphics facts: readback shape, camera block, tone-map shaders (nxrt/game_render.h)   games/pkp/pkp_render_info.cpp
+//   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/core/pkp_core.cpp
+//   settings_doc     the keys of the game's own game-ini section, described (nxrt/setting_doc.h)              games/pkp/core/pkp_settings_table.cpp
+//   render           graphics facts: readback shape, camera block, tone-map shaders (nxrt/game_render.h)   games/pkp/render/pkp_render_info.cpp
 // The registry is header-only, so programs that do not link the runtime library (the launcher's tools) use it too.
 #pragma once
 #include <cstdint>

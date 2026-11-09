@@ -104,7 +104,7 @@ target_link_options(pkp PRIVATE /MAP /STACK:134217728 /HIGHENTROPYVA:NO /DEBUG /
 add_custom_command(TARGET pkp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${PKP_RUNTIME_DIR}/assets/fonts/DejaVuSans.ttf" "$<TARGET_FILE_DIR:pkp>/fonts/DejaVuSans.ttf")
 
-# Keyboard and mouse prompt icons (runtime games/pkp/pkp_kbm.cpp reads assets\kbm_icons\<name>.png next to the exe): Kenney's Input Prompts
+# Keyboard and mouse prompt icons (runtime games/pkp/input/pkp_kbm.cpp reads assets\kbm_icons\<name>.png next to the exe): Kenney's Input Prompts
 # (CC0), the "Keyboard & Mouse/Default" PNGs, kept in the work folder (not in any repository). Without them the prompts show key names as text.
 set(PKP_KBM_ICONS_DIR "${PKP_ROOT}/work/assets/kenney_input_prompts/Keyboard & Mouse/Default" CACHE PATH "Kenney Input Prompts PNG folder for assets/kbm_icons")
 if(EXISTS "${PKP_KBM_ICONS_DIR}")

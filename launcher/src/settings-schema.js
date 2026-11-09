@@ -110,7 +110,7 @@ export function storageNote(env) {
 // ---- quality presets --------------------------------------------------------------------------------------------------------------
 
 // Ids, labels and which ones set the frame values: kQualityPresets in runtime/src/gfx/play/play_types.cpp (labels without its bracket).
-// The values: kPresets in runtime/games/pkp/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
+// The values: kPresets in runtime/games/pkp/render/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
 // render_scale 0 and fps_limit -1 are written as auto.
 export const QUALITY_PRESETS = [
   { id: 'switch2', label: 'Switch 2', lod_bias: 0, anisotropy: 0 },
