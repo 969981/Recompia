@@ -4,7 +4,6 @@
 //! kept. If the copy cannot be made the install is stopped before anything is replaced. `rollback-backups` is in the update's keep list.
 
 use crate::fsutil::{copy_tree, file_stamp};
-use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use std::fs;
 use std::io;
@@ -27,8 +26,8 @@ pub fn backup(game_dir: &Path, config_dir: &Path, tag: &str) -> Result<PathBuf, 
     let dir = root.join(&name);
     let made = (|| -> io::Result<()> {
         fs::create_dir_all(&dir)?;
-        let ini = fs::read(game_dir.join(PKP_INI)).ok().map(|b| Ini::parse(&String::from_utf8_lossy(&b)));
-        let save_dir = crate::saveimport::save_dir_of(game_dir, &ini.and_then(|i| i.get("fs", "save_dir")).unwrap_or_default());
+        // the folder the runtime plays from, NXRT_FS_SAVE_DIR included (the same rule as the save backups and Import)
+        let save_dir = crate::savebackup::locate(game_dir).0;
         if save_dir.is_dir() {
             copy_tree(&save_dir, &dir.join("save"))?;
         }
