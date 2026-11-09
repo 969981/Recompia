@@ -98,6 +98,8 @@ void cmd(ipc::Service& s, const char* svc, uint32_t id, const char* name, ipc::H
 void rows(ipc::Service& s, const char* svc, std::initializer_list<Row> list);
 // A service object whose release is observed (ssl context and connection counts). on_close runs when the last reference goes.
 std::shared_ptr<ipc::Service> tracked(const char* name, std::function<void()> released, const std::function<void(ipc::Service&)>& setup);
+// Copies input buffer 0 to output buffer 0 (the text commands that answer the text as it was sent).
+void echo_in_to_out(const ipc::Request& req);
 // Copy handles belong to the client (see network_common.cpp).
 void close_copied(const ipc::Request&);
 

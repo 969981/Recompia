@@ -219,4 +219,12 @@ std::shared_ptr<ipc::Service> tracked(const char* name, std::function<void()> re
 // Copy handles belong to the client (HIPC copies them: the guest closes its own afterwards), so there is nothing to close here (debug note 122).
 void close_copied(const ipc::Request&) {}
 
+void echo_in_to_out(const ipc::Request& req) {
+    const ipc::Buffer in = req.in_buf(0);
+    const ipc::Buffer out = req.out_buf(0);
+    std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
+    const uint64_t n = buf_read(in, tmp.data(), in.size);
+    buf_write(out, tmp.data(), n);
+}
+
 }  // namespace nxrt::services::netsvc

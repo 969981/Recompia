@@ -44,13 +44,7 @@ std::shared_ptr<ipc::Service> make_nsd() {
             {100, "GetApplicationServerEnvironmentType", K::U8, 0},
         });
         // Resolve(fqdn_in) -> fqdn_out is the same bytes; ResolveEx answers the same with inner_result 0.
-        auto copy_name = [](ipc::Request& req) {
-            const ipc::Buffer in = req.in_buf(0);
-            const ipc::Buffer out = req.out_buf(0);
-            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
-            const uint64_t n = buf_read(in, tmp.data(), in.size);
-            buf_write(out, tmp.data(), n);
-        };
+        auto copy_name = [](ipc::Request& req) { echo_in_to_out(req); };
         cmd(s, "nsd", 20, "Resolve", [copy_name](ipc::Request& req, ipc::Response&) -> uint32_t {
             copy_name(req);
             return 0;
@@ -233,11 +227,7 @@ std::shared_ptr<ipc::Service> make_ngct() {
             {0, "Match", K::U8, 0},               // b8 matched: false
         });
         cmd(s, "ngct", 1, "Filter", [](ipc::Request& req, ipc::Response&) -> uint32_t {
-            const ipc::Buffer in = req.in_buf(0);
-            const ipc::Buffer out = req.out_buf(0);
-            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
-            const uint64_t n = buf_read(in, tmp.data(), in.size);
-            buf_write(out, tmp.data(), n);
+            echo_in_to_out(req);
             return 0;
         });
     });
@@ -262,11 +252,7 @@ std::shared_ptr<ipc::Service> make_ngc() {
             {3, "Reload", K::Ok},
         });
         cmd(s, "ngc", 2, "Mask", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
-            const ipc::Buffer in = req.in_buf(0);
-            const ipc::Buffer out = req.out_buf(0);
-            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
-            const uint64_t n = buf_read(in, tmp.data(), in.size);
-            buf_write(out, tmp.data(), n);
+            echo_in_to_out(req);
             rsp.push(static_cast<uint32_t>(0));   // words masked
             return 0;
         });
