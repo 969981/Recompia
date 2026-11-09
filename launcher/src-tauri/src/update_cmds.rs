@@ -26,8 +26,7 @@ pub fn update_version(app: &AppHandle) -> Option<String> {
 
 /// The releases (update.rs load_releases) from this session's copy, the network or the cache file.
 pub fn releases_of(app: &AppHandle, refresh: bool) -> Vec<update::GhRelease> {
-    let cache = config_path(app).map(|p| p.with_file_name("releases.json")).unwrap_or_default();
-    update::load_releases(&app.state::<update::ReleaseStore>(), &cache, &app.package_info().version.to_string(), refresh, update::Channel::parse(&load_config(app).channel))
+    releases_for(app, refresh, update::Channel::parse(&load_config(app).channel))
 }
 
 /// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.
