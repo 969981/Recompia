@@ -6,6 +6,32 @@ namespace nxrt::play {
 using namespace detail;
 namespace detail {
 
+// ---- what both hosts share: the rebinding capture (G::capture_state, cap_have, cap_id) and the quit prompt -----------------------------------
+// The game's own menus (GameHost) and the settings page (UiHost) rebind through the same one capture: handle_event hands the next input to it.
+void capture_begin() {
+    G& st = g();
+    std::lock_guard<std::mutex> lk(st.cap_mu);
+    st.cap_have = false;
+    st.capture_state.store(1);
+}
+bool capture_active() { return g().capture_state.load() == 1; }
+bool capture_take(InputId* out) {
+    G& st = g();
+    std::lock_guard<std::mutex> lk(st.cap_mu);
+    if (!st.cap_have) return false;
+    st.cap_have = false;
+    if (out) *out = st.cap_id;
+    return true;
+}
+void capture_cancel() { g().capture_state.store(0); }
+bool key_reserved(const InputId& id) {
+    G& st = g();
+    return st.overlay && id.kind == InKind::Key && id.code == st.overlay->toggle_scancode();
+}
+void quit_prompt_request() {
+    if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
+}
+
 // ---- what the game module gets from play mode (play_game.h GameHost) ----------------------------------------------------------------------
 class GameHostImpl : public GameHost {
 public:
@@ -44,29 +70,12 @@ public:
     }
     double pitch_limit_deg() const override { return g().pitch_limit_deg; }
     bool log_status() const override { return g().log_status; }
-    void request_quit_prompt() override {
-        if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
-    }
-    void begin_capture() override {
-        G& st = g();
-        std::lock_guard<std::mutex> lk(st.cap_mu);
-        st.cap_have = false;
-        st.capture_state.store(1);
-    }
-    bool capturing() const override { return g().capture_state.load() == 1; }
-    bool capture_result(InputId* out) override {
-        G& st = g();
-        std::lock_guard<std::mutex> lk(st.cap_mu);
-        if (!st.cap_have) return false;
-        st.cap_have = false;
-        if (out) *out = st.cap_id;
-        return true;
-    }
-    void cancel_capture() override { g().capture_state.store(0); }
-    bool reserved_key(const InputId& id) const override {
-        G& st = g();
-        return st.overlay && id.kind == InKind::Key && id.code == st.overlay->toggle_scancode();
-    }
+    void request_quit_prompt() override { quit_prompt_request(); }
+    void begin_capture() override { capture_begin(); }
+    bool capturing() const override { return capture_active(); }
+    bool capture_result(InputId* out) override { return capture_take(out); }
+    void cancel_capture() override { capture_cancel(); }
+    bool reserved_key(const InputId& id) const override { return key_reserved(id); }
 };
 GameHostImpl g_game_host;
 
@@ -122,29 +131,12 @@ public:
         return s;
     }
     std::string settings_path() const override { return g().path; }
-    void begin_capture() override {
-        G& st = g();
-        std::lock_guard<std::mutex> lk(st.cap_mu);
-        st.cap_have = false;
-        st.capture_state.store(1);
-    }
-    bool capturing() const override { return g().capture_state.load() == 1; }
-    bool capture_result(InputId* out) override {
-        G& st = g();
-        std::lock_guard<std::mutex> lk(st.cap_mu);
-        if (!st.cap_have) return false;
-        st.cap_have = false;
-        if (out) *out = st.cap_id;
-        return true;
-    }
-    void cancel_capture() override { g().capture_state.store(0); }
-    bool reserved_key(const InputId& id) const override {
-        G& st = g();
-        return st.overlay && id.kind == InKind::Key && id.code == st.overlay->toggle_scancode();
-    }
-    void request_quit_prompt() override {
-        if (G& st = g(); st.overlay) st.overlay->open_quit_prompt();
-    }
+    void begin_capture() override { capture_begin(); }
+    bool capturing() const override { return capture_active(); }
+    bool capture_result(InputId* out) override { return capture_take(out); }
+    void cancel_capture() override { capture_cancel(); }
+    bool reserved_key(const InputId& id) const override { return key_reserved(id); }
+    void request_quit_prompt() override { quit_prompt_request(); }
 };
 Host g_host;
 
