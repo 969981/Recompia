@@ -10,8 +10,8 @@
 #include <mutex>
 #include <set>
 
+#include "nxrt/clock.h"
 #include "nxrt/dispatch.h"
-#include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/module.h"
 #include "nxrt/nxmodule.h"
@@ -63,12 +63,12 @@ void guest_unimpl(uint64_t pc, uint32_t insn, const char* what) {
 
 void guest_svc(Ctx* c, uint32_t number) { nxrt::svc_dispatch(c, number, 0); }
 
-// System registers the lifter does not model inline: the generic timer counters are real (19.2 MHz system tick), other reads give 0, writes are ignored; each register is reported once.
+// System registers the lifter does not model inline: the generic timer counters are real (the system tick, nxrt/clock.h), other reads give 0, writes are ignored; each register is reported once.
 uint64_t guest_mrs(Ctx* c, uint32_t sysreg) {
     switch (sysreg) {                       // the generic timer: the SDK reads CNTPCT_EL0 33 times (nn::os::GetSystemTick and friends)
-        case 0xdf00: return nxrt::kernel::tick_hz();                 // CNTFRQ_EL0: 19.2 MHz (Switch 1) or 31.25 MHz (Switch 2)
+        case 0xdf00: return nxrt::clock::tick_hz();                  // CNTFRQ_EL0: 19.2 MHz (Switch 1) or 31.25 MHz (Switch 2)
         case 0xdf01:                                                // CNTPCT_EL0
-        case 0xdf02: return nxrt::kernel::system_tick();            // CNTVCT_EL0
+        case 0xdf02: return nxrt::clock::ticks();                   // CNTVCT_EL0
         default: break;
     }
     std::lock_guard<std::mutex> lk(nxrt::g_sysreg_lock);

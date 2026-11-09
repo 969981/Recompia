@@ -3,7 +3,7 @@
 //
 // Threads: the Update hook, the mid hooks of Update, the friction hook, the render-timing hook and the movie hook all run on the guest main
 // thread; the two streaming mid hooks run on the render thread and only read the published step (an atomic). Statistics are guarded by a lock.
-#include "nxrt/kernel.h"
+#include "nxrt/clock.h"
 #include "nxrt/timestep.h"
 
 #include <windows.h>
@@ -23,7 +23,6 @@
 #include "nxrt/log.h"
 #include "nxrt/movie.h"
 #include "nxrt/qpc.h"
-#include "nxrt/tt.h"
 #include "nxrt/text.h"
 
 namespace nxrt::timestep {
@@ -416,10 +415,10 @@ void install(const Config& cfg) {
     s.st = Stats{};
     s.sum_elapsed = 0;
     s.n_elapsed = 0;
-    s.det = tt::deterministic();
+    s.det = clock::is_virtual();
     if (s.det) {
-        const double hz = static_cast<double>(kernel::tick_hz());
-        const double ticks = static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
+        const double hz = static_cast<double>(clock::tick_hz());
+        const double ticks = static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(clock::tick_hz() / 60)));
         s.det_step = ticks / hz;
         s.det_now = 0;
     }
@@ -491,7 +490,7 @@ void set_run_rate(double hz) {
         s.det_step = 1.0 / hz;
         s.det = true;
     } else {
-        s.det = tt::deterministic();     // back to what the run was configured with
+        s.det = clock::is_virtual();     // back to what the run was configured with
         s.have_last = false;                                     // no frame time across the switch
     }
 }

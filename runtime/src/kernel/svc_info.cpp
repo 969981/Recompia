@@ -7,14 +7,15 @@
 
 #include "nxrt/game.h"
 #include "nxrt/abi.h"
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
+#include "nxrt/entropy.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/services.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
-#include "nxrt/tt.h"
 
 namespace nxrt {
 namespace {
@@ -40,13 +41,13 @@ constexpr uint64_t kSubAllCores = 0xFFFFFFFFFFFFFFFFull;        // ThreadTickCou
 
 // RandomEntropy seeds nn::os's random generator (GenerateRandomBytes, nn::util::GenerateUuid), so it must differ per process as on
 // the console: one fixed value gave every Pokopia save made here the same player UUID, and Link Play's host refuses a visitor with
-// the host's UUID (error 9005). [process] entropy_seed fixes it for tests; else the OS random source (tt::rng_fill: the seeded
-// stream in deterministic mode), drawn once per process.
+// the host's UUID (error 9005). [process] entropy_seed fixes it for tests; else the OS random source (entropy::fill: the seeded
+// stream in deterministic test mode), drawn once per process.
 uint64_t entropy_seed() {
     static const uint64_t seed = [] {
         if (config_has("process", "entropy_seed")) return static_cast<uint64_t>(config_get_int("process", "entropy_seed", 0));
         uint64_t s = 0;
-        tt::rng_fill(&s, sizeof s);
+        entropy::fill(&s, sizeof s);
         return s ? s : kEntropyFallbackSeed;
     }();
     return seed;
@@ -81,7 +82,7 @@ uint64_t thread_cpu_ticks(HANDLE h) {
     auto to_u64 = [](const FILETIME& f) { return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
     const uint64_t t100ns = to_u64(kernel_time) + to_u64(user_time);
     constexpr uint64_t kUnitsPerSecond = 10000000;
-    const uint64_t hz = kernel::tick_hz();
+    const uint64_t hz = clock::tick_hz();
     return (t100ns / kUnitsPerSecond) * hz + (t100ns % kUnitsPerSecond) * hz / kUnitsPerSecond;
 }
 

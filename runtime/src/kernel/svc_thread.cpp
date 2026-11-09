@@ -13,6 +13,7 @@
 #include <cstdio>
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
+#include "nxrt/clock.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/game.h"
@@ -22,7 +23,6 @@
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
-#include "nxrt/tt.h"
 #include "kernel_internal.h"
 
 namespace nxrt {
@@ -103,7 +103,7 @@ struct YieldBackoff {
 const YieldBackoff& yield_backoff() {
     static const YieldBackoff b = [] {
         YieldBackoff y;
-        y.on = config_get_bool("sched", "yield_backoff", false) && !tt::deterministic();   // deterministic mode: yields stay yields
+        y.on = config_get_bool("sched", "yield_backoff", false) && !clock::is_virtual();   // a virtual clock (deterministic test mode): yields stay yields
         if (!y.on) return y;
         const int64_t start = config_get_int("sched", "yield_backoff_start_us", 2000), cap = config_get_int("sched", "yield_backoff_cap_us", 250);
         y.cfg.start_ns = static_cast<uint64_t>(std::max<int64_t>(start, 0)) * 1000;
@@ -308,7 +308,7 @@ void svc_arbitrate_lock(::Ctx* c) { svc_ret(c, arbitrate_lock(static_cast<uint32
 void svc_arbitrate_unlock(::Ctx* c) { svc_ret(c, arbitrate_unlock(X(c, 0))); }
 void svc_wait_pwk(::Ctx* c) { svc_ret(c, wait_process_wide_key(X(c, 0), X(c, 1), static_cast<uint32_t>(X(c, 2)), static_cast<int64_t>(X(c, 3)))); }
 void svc_signal_pwk(::Ctx* c) { signal_process_wide_key(X(c, 0), static_cast<int32_t>(X(c, 1))); }   // returns void on Horizon: x0 untouched
-void svc_get_system_tick(::Ctx* c) { X(c, 0) = system_tick(); }
+void svc_get_system_tick(::Ctx* c) { X(c, 0) = clock::ticks(); }
 void svc_wait_for_address(::Ctx* c) { svc_ret(c, wait_for_address(X(c, 0), static_cast<uint32_t>(X(c, 1)), static_cast<int32_t>(X(c, 2)), static_cast<int64_t>(X(c, 3)))); }
 void svc_signal_to_address(::Ctx* c) { svc_ret(c, signal_to_address(X(c, 0), static_cast<uint32_t>(X(c, 1)), static_cast<int32_t>(X(c, 2)), static_cast<int32_t>(X(c, 3)))); }
 void svc_nop_ok(::Ctx* c) { svc_ret(c, kOk); }

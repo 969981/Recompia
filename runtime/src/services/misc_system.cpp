@@ -2,33 +2,18 @@
 // csrng, ldr:ro and mm:u (see misc.cpp for the shared provenance and rules).
 #include "misc_internal.h"
 
-#include <windows.h>
-#include <bcrypt.h>
-
-#pragma comment(lib, "bcrypt")
+#include "nxrt/entropy.h"
 
 namespace nxrt::services::miscsvc {
 
 // ---- csrng ----------------------------------------------------------------------------------------------------------------------
-// GenerateRandomBytes(buffer<u8, 6> data): fills the output buffer from the Windows CSPRNG.
+// GenerateRandomBytes(buffer<u8, 6> data): fills the output buffer from the Windows CSPRNG (the seeded stream in deterministic test
+// mode, so replays see the same random numbers).
 std::shared_ptr<Service> make_csrng() {
     return make_iface("csrng", [](Service& s) {
         s.add_cmd(0, "GenerateRandomBytes", [](Request& req, Response&) -> uint32_t {
             const ipc::Buffer b = req.out_buf(0);
-            uint64_t off = 0;
-            if (tt::deterministic()) {                       // test tooling: a seeded stream, so replays see the same random numbers
-                tt::rng_fill(buf_mut(b), static_cast<size_t>(b.size));
-                return 0;
-            }
-            while (off < b.size) {
-                const uint64_t n = std::min<uint64_t>(b.size - off, 0x10000000ull);
-                const NTSTATUS st = BCryptGenRandom(nullptr, buf_mut(b) + off, static_cast<ULONG>(n), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-                if (!BCRYPT_SUCCESS(st)) {
-                    NXLOG_E("csrng", "BCryptGenRandom failed: 0x%lX", static_cast<unsigned long>(st));
-                    return kNotSupported;
-                }
-                off += n;
-            }
+            if (!entropy::fill(buf_mut(b), static_cast<size_t>(b.size))) return kNotSupported;   // the OS generator failed (logged)
             NXLOG_D("csrng", "GenerateRandomBytes: %llu bytes", static_cast<unsigned long long>(b.size));
             return 0;
         });

@@ -14,14 +14,16 @@
 #include <optional>
 #include <thread>
 
-#include "nxrt/kernel.h"
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
+#include "nxrt/entropy.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/game.h"
 #include "nxrt/log.h"
 #include "nxrt/runtime.h"
 #include "nxrt/module.h"
+#include "nxrt/svc.h"
 #include "nxrt/timestep.h"
 #include "nxrt/tt.h"
 #include "tt_internal.h"
@@ -29,10 +31,6 @@
 namespace nxrt::gfx { void wait_screenshot_writes(); }
 
 namespace nxrt::tt {
-namespace detail {
-std::atomic<uint32_t> svc_every{0};
-}  // namespace detail
-
 namespace {
 
 enum class Source { Hook, Tick, Svc, Manual };
@@ -356,6 +354,69 @@ void wall_loop(State* s, double secs) {
     if (!s->finished) end_run(124, "timeout", "wall-clock timeout of " + std::to_string(static_cast<int64_t>(secs)) + " s reached after " + std::to_string(s->frames.load()) + " frames");
 }
 
+// ---- deterministic mode: the virtual clock (nxrt/clock.h) and the seeded stream (nxrt/entropy.h), installed by init ----------------
+uint64_t virtual_ticks() {
+    return S().vticks.fetch_add(1, std::memory_order_relaxed) + 1;     // every read moves time forward by one tick
+}
+
+// A sleep of the frame thread moves the clock by its length and only yields (the frame's own pacing waits must end). Any other thread waits for
+// the clock to reach its wake time, which the frames move, and for at most the sleep's length of host time; it does not move the clock. When
+// every sleep moved it, a thread that polls in a sleep loop (a pad vibration thread, for one) pushed the
+// shared clock as fast as the host ran the loop: 150 to 2000 virtual seconds per 60 frames, and the New Game load waited forever on the
+// planet loading screen (docs/GAME_BOUNDARY.md, "Deterministic mode and the New Game stall").
+bool virtual_sleep(int64_t ns) {
+    State& s = S();
+    const uint64_t add = ns > 0 ? static_cast<uint64_t>(ns) * 192 / 10000 : 0;
+    const DWORD ft = s.frame_tid.load(std::memory_order_relaxed);
+    if (add == 0 || ft == 0 || ft == GetCurrentThreadId()) {
+        if (add) s.vticks.fetch_add(add, std::memory_order_relaxed);
+        SwitchToThread();
+        return true;
+    }
+    const uint64_t target = s.vticks.load(std::memory_order_relaxed) + add;
+    LARGE_INTEGER f, t0, t;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t0);
+    const double limit_s = static_cast<double>(ns) * 1e-9;
+    for (;;) {
+        if (s.vticks.load(std::memory_order_relaxed) >= target || !s.on) return true;
+        QueryPerformanceCounter(&t);
+        const double left = limit_s - static_cast<double>(t.QuadPart - t0.QuadPart) / static_cast<double>(f.QuadPart);
+        if (left <= 0) return true;
+        if (left >= 0.002) Sleep(1);
+        else SwitchToThread();
+    }
+}
+
+uint64_t virtual_wall_filetime() {
+    State& s = S();
+    return 133000000000000000ull + (s.vticks.load() - s.vbase) * 10000ull / 192ull;     // 100 ns units, fixed epoch
+}
+
+void seeded_fill(void* p, size_t n) {
+    State& s = S();
+    uint8_t* b = static_cast<uint8_t*>(p);
+    for (size_t i = 0; i < n;) {
+        const uint64_t v = splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
+        const size_t m = std::min<size_t>(8, n - i);
+        std::memcpy(b + i, &v, m);
+        i += m;
+    }
+}
+
+const clock::Source kVirtualClock{&virtual_ticks, &virtual_sleep, &virtual_wall_filetime};
+const entropy::Source kSeededEntropy{&seeded_fill};
+
+// frame_source = svc:N (svc_set_observer): the first guest thread to make an SVC is the frame thread; every Nth of its SVCs is a frame.
+void on_svc(::Ctx* c) {
+    State& s = S();
+    ::Ctx* expect = nullptr;
+    s.svc_ctx.compare_exchange_strong(expect, c);
+    if (s.svc_ctx.load() != c) return;
+    const uint64_t n = s.svc_count.fetch_add(1) + 1;
+    if (n % s.svc_n == 0) frame_boundary(c);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -376,7 +437,7 @@ bool init() {
     s.script_mode = !s.script.empty();
     s.out = config_get_str("test", "out", "testout");
     s.seed = static_cast<uint64_t>(config_get_int("test", "seed", 0x5EED5EED));
-    s.step_ticks = static_cast<uint64_t>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
+    s.step_ticks = static_cast<uint64_t>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(clock::tick_hz() / 60)));
     s.max_frames = static_cast<uint64_t>(config_get_int("test", "max_frames", 0));
     s.wall_timeout_s = config_get_double("test", "wall_timeout_s", s.script_mode ? 900.0 : 0.0);
     s.freeze_exit = config_get_bool("test", "freeze_exit", s.script_mode);
@@ -395,6 +456,10 @@ bool init() {
     s.t_last = s.t_start;
     s.vticks = s.vbase;
     s.rng_ctr = 0;
+    if (s.det) {                                // guest time and random numbers come from here until shutdown
+        clock::set_source(&kVirtualClock);
+        entropy::set_source(&kSeededEntropy);
+    }
 
     make_dirs(s.out);
     make_dirs(s.shot_dir);
@@ -447,7 +512,7 @@ bool init() {
         }
     }
     diag_set_frame_listener(tick_listener);
-    if (s.src == Source::Svc) detail::svc_every.store(s.svc_n);
+    if (s.src == Source::Svc) svc_set_observer(&on_svc);
     if (s.src == Source::Hook) install_game_hooks();
     if (s.wall_timeout_s > 0) s.wall_thread = std::thread(wall_loop, &s, s.wall_timeout_s);
     return true;
@@ -459,7 +524,11 @@ void shutdown() {
     if (!s.on) return;
     s.stop_wall = true;
     if (s.wall_thread.joinable()) s.wall_thread.join();
-    detail::svc_every.store(0);
+    if (s.src == Source::Svc) svc_set_observer(nullptr);
+    if (s.det) {
+        clock::set_source(nullptr);
+        entropy::set_source(nullptr);
+    }
     release_held_keys(s);
     if (!s.finished) {
         s.finished = true;
@@ -489,71 +558,6 @@ void set_clock_rate(double hz) {
     if (!S().on) return;
     timestep::set_run_rate(hz);
     NXLOG_I("tt", "game step: %s (frame %llu)", hz > 0 ? ("exactly 1/" + std::to_string(hz) + " s").c_str() : "the configured mode", static_cast<unsigned long long>(S().frames.load()));
-}
-
-bool virtual_tick(uint64_t* ticks) {
-    State& s = S();
-    if (!s.on || !s.det) return false;
-    *ticks = s.vticks.fetch_add(1, std::memory_order_relaxed) + 1;     // every read moves time forward by one tick (52 ns)
-    return true;
-}
-
-// A sleep of the frame thread moves the clock by its length and only yields (the frame's own pacing waits must end). Any other thread waits for
-// the clock to reach its wake time, which the frames move, and for at most the sleep's length of host time; it does not move the clock. When
-// every sleep moved it, a thread that polls in a sleep loop (a pad vibration thread, for one) pushed the
-// shared clock as fast as the host ran the loop: 150 to 2000 virtual seconds per 60 frames, and the New Game load waited forever on the
-// planet loading screen (docs/GAME_BOUNDARY.md, "Deterministic mode and the New Game stall").
-bool virtual_sleep(int64_t ns) {
-    State& s = S();
-    if (!s.on || !s.det) return false;
-    const uint64_t add = ns > 0 ? static_cast<uint64_t>(ns) * 192 / 10000 : 0;
-    const DWORD ft = s.frame_tid.load(std::memory_order_relaxed);
-    if (add == 0 || ft == 0 || ft == GetCurrentThreadId()) {
-        if (add) s.vticks.fetch_add(add, std::memory_order_relaxed);
-        SwitchToThread();
-        return true;
-    }
-    const uint64_t target = s.vticks.load(std::memory_order_relaxed) + add;
-    LARGE_INTEGER f, t0, t;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&t0);
-    const double limit_s = static_cast<double>(ns) * 1e-9;
-    for (;;) {
-        if (s.vticks.load(std::memory_order_relaxed) >= target || !s.on) return true;
-        QueryPerformanceCounter(&t);
-        const double left = limit_s - static_cast<double>(t.QuadPart - t0.QuadPart) / static_cast<double>(f.QuadPart);
-        if (left <= 0) return true;
-        if (left >= 0.002) Sleep(1);
-        else SwitchToThread();
-    }
-}
-
-void rng_fill(void* p, size_t n) {
-    State& s = S();
-    uint8_t* b = static_cast<uint8_t*>(p);
-    if (s.on && s.det) {
-        size_t i = 0;
-        while (i < n) {
-            const uint64_t v = splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
-            const size_t m = std::min<size_t>(8, n - i);
-            std::memcpy(b + i, &v, m);
-            i += m;
-        }
-        return;
-    }
-    // host entropy: RtlGenRandom
-    using Fn = BOOLEAN(WINAPI*)(PVOID, ULONG);
-    static Fn fn = reinterpret_cast<Fn>(GetProcAddress(LoadLibraryA("advapi32.dll"), "SystemFunction036"));
-    if (fn) fn(p, static_cast<ULONG>(n));
-    else for (size_t i = 0; i < n; i++) b[i] = static_cast<uint8_t>(rand());
-}
-
-uint64_t wall_filetime() {
-    State& s = S();
-    if (s.on && s.det) return 133000000000000000ull + (s.vticks.load() - s.vbase) * 10000ull / 192ull;     // 100 ns units, fixed epoch
-    FILETIME ft;
-    GetSystemTimePreciseAsFileTime(&ft);
-    return (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -702,17 +706,5 @@ void frame_boundary(::Ctx* c) {
     if ((s.pad.mouse_dx != 0 || s.pad.mouse_dy != 0) && s.mouse_sink && (s.replaying || s.runner_on)) s.mouse_sink(s.pad.mouse_dx, s.pad.mouse_dy);
     if (s.max_frames && k + 1 >= s.max_frames && !s.finished) end_run(1, "fail", "frame budget (max_frames) exhausted");
 }
-
-namespace detail {
-void on_svc(::Ctx* c) {
-    State& s = S();
-    ::Ctx* expect = nullptr;
-    s.svc_ctx.compare_exchange_strong(expect, c);          // the first guest thread to make an SVC is the frame thread
-    if (s.svc_ctx.load() != c) return;
-    const uint64_t n = s.svc_count.fetch_add(1) + 1;
-    const uint32_t every = svc_every.load();
-    if (every && n % every == 0) frame_boundary(c);
-}
-}  // namespace detail
 
 }  // namespace nxrt::tt

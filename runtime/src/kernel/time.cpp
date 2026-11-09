@@ -1,29 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// System tick and high-resolution sleep. Pattern from smo-recomp runtime/os/os_threads.c sleep_ns and SuperMarioWonderRecomp kernel.cpp system_tick.
+// High-resolution sleep (the system tick is in core/clock.cpp). Pattern from smo-recomp runtime/os/os_threads.c sleep_ns.
 #include <windows.h>
 
 #include <string>
 
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
 #include "nxrt/host_device.h"
 #include "nxrt/kernel.h"
-#include "nxrt/game.h"
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
-#include "nxrt/tt.h"
 #include "kernel_internal.h"
 
 namespace nxrt::kernel {
-
-uint64_t tick_hz() {
-    static const uint64_t hz = game::info().platform == game::Platform::Switch2 ? kTickHzSwitch2 : kTickHzSwitch1;
-    return hz;
-}
-
-uint64_t system_tick() {
-    if (uint64_t vt; tt::virtual_tick(&vt)) return vt;      // deterministic mode: the virtual clock (test tooling)
-    return qpc::scale(qpc::ticks(), tick_hz());
-}
 
 // SleepThread takes nanoseconds and the console timer is good to a few microseconds. Sleep() counts whole milliseconds on a
 // 1 ms or 15.6 ms grid, so the wait runs on a high-resolution waitable timer (100 ns units); Sleep() is only the fallback.
@@ -103,14 +92,14 @@ void sleep_once(int64_t ns) {
 }  // namespace
 
 void detail::sleep_timer_ns(int64_t ns) {
-    if (ns <= 0 || tt::virtual_sleep(ns)) return;
+    if (ns <= 0 || clock::virtual_sleep(ns)) return;
     timer_wait(ns);
 }
 
 // On the thread set_blocked_hook names, a sleep longer than 10 ms is cut into 10 ms slices with the hook run between them, as in the kernel
 // waits: Pokopia's main thread sleeps in SleepThread while the software keyboard applet is open (the freeze report's main stack).
 void sleep_ns(int64_t ns) {
-    if (tt::virtual_sleep(ns)) return;                      // deterministic mode: time advances, the thread only yields
+    if (clock::virtual_sleep(ns)) return;                   // a virtual clock (deterministic test mode): time advances, the thread only yields
     constexpr int64_t kSlice = 10000000;
     void (*fn)() = ns > kSlice ? detail::blocked_hook_here() : nullptr;
     if (!fn) return sleep_once(ns);

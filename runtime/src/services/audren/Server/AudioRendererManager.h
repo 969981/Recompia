@@ -25,7 +25,7 @@
 #include "../Integration/IWritableEvent.h"
 #include "../audren_types.h"
 #include "AudioRenderSystem.h"
-#include "nxrt/kernel.h"
+#include "nxrt/clock.h"
 #include "nxrt/log.h"
 
 namespace nxrt::audren {
@@ -38,7 +38,7 @@ struct TickSource {
         return ns * 192 / 10000;
     }
 
-    uint64_t Frequency() const { return nxrt::kernel::tick_hz(); }   // the console tick (Constants::TargetTimerFrequency on Switch 1)
+    uint64_t Frequency() const { return nxrt::clock::tick_hz(); }   // the console tick (Constants::TargetTimerFrequency on Switch 1)
 };
 
 class AudioRendererManager {

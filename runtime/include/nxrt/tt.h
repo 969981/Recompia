@@ -112,15 +112,11 @@ struct ProbeLayout {
 };
 void set_probe_layout(const ProbeLayout& l);
 
-// ---- the virtual clock and the RNG (deterministic mode) ----------------------------------------------------------------------
-// Used by kernel::system_tick / sleep_ns. Return false when deterministic mode is off (the caller uses the host clock).
+// ---- the virtual clock and the seeded random stream (deterministic mode) -----------------------------------------------------
+// init installs them as the guest's clock (nxrt/clock.h) and random source (nxrt/entropy.h); shutdown takes them out again.
 // The script step `@rate <hz>`: the game's step becomes exactly 1/hz for every frame from here on (nothing waits and no host time enters it), 0 = the
 // configured mode again. Areas are loaded at the real rate and measured at a fixed one, in one process.
 void set_clock_rate(double hz);
-bool virtual_tick(uint64_t* ticks);
-bool virtual_sleep(int64_t ns);
-void rng_fill(void* p, size_t n);          // seeded stream in deterministic mode, OS entropy otherwise
-uint64_t wall_filetime();                  // 100 ns units since 1601: fixed epoch + virtual time in deterministic mode, the host clock otherwise
 
 // ---- plumbing --------------------------------------------------------------------------------------------------------------------------
 // Screenshot provider: the graphics layer registers a function that writes the last presented frame as PNG (return false on failure).
@@ -141,12 +137,6 @@ int exit_code();
 // Ends the run now. verdict: "pass" "fail" "crash" "freeze" "timeout" "error". Writes result.json and calls the exit handler.
 void end_run(int code, const char* verdict, const std::string& message);
 const std::vector<Checkpoint>& checkpoints();
-
-// Hot-path switch for frame_source=svc:N, read by the SVC dispatcher (kernel/svc.cpp): 0 = off.
-namespace detail {
-extern std::atomic<uint32_t> svc_every;
-void on_svc(::Ctx* c);
-}  // namespace detail
 
 // ---- the game's probes (nxrt/game.h Info::probes) -----------------------------------------------------------------------------------
 // What the test tooling knows of one game: its frame boundary and player-input hooks, how to read the state, and the script steps that need

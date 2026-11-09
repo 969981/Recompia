@@ -21,7 +21,7 @@
 #include "miniz.h"
 #include "nxrt/log.h"
 #include "nxrt/services.h"
-#include "nxrt/tt.h"
+#include "nxrt/entropy.h"
 
 namespace nxrt::games::pkp {
 namespace {
@@ -171,7 +171,7 @@ void repair() {
 
     uint8_t uuid[16];
     do {
-        tt::rng_fill(uuid, sizeof uuid);
+        entropy::fill(uuid, sizeof uuid);
         uuid[6] = static_cast<uint8_t>((uuid[6] & 0x0F) | 0x40);   // version 4
         uuid[8] = static_cast<uint8_t>((uuid[8] & 0x3F) | 0x80);   // RFC 4122 variant
     } while (std::memcmp(uuid, kShared, 16) == 0);

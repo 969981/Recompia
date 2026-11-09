@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A small Horizon kernel: result codes, kernel objects and the handle table, guest threads (one Win32 thread per guest thread,
-// console core model), and the 19.2 MHz system tick. The SVC dispatcher lives in svc.h, IPC sessions in ipc.h.
+// console core model), and the host sleeps. The SVC dispatcher lives in svc.h, IPC sessions in ipc.h, the system tick in clock.h.
 // Pattern from SuperMarioWonderRecomp runtime/src/kernel.cpp + kernel_state.h (MIT) and smo-recomp runtime/os/os_threads.c (GPL-3.0).
 #pragma once
 #include <atomic>
@@ -205,11 +205,7 @@ uint64_t starvation_boosts();            // boosts given so far
 void install_spin_hint();                // WFE / YIELD of the lifted code hand the host processor over (busy_mutex.cpp, [sched] spin_yield)
 void install_busy_mutex_hle();           // nn::os::LockBusyMutex as host code that yields while it waits (busy_mutex.cpp, [sched] busy_mutex_hle)
 
-// ---- time --------------------------------------------------------------------------------------------------------------------
-uint64_t system_tick();                  // the console tick (tick_hz()), from QueryPerformanceCounter
-constexpr uint64_t kTickHzSwitch1 = 19200000;   // Switch 1 system tick (CNTFRQ_EL0)
-constexpr uint64_t kTickHzSwitch2 = 31250000;   // Switch 2 system tick (SDK 20.5 for Switch 2 uses 31.25 MHz)
-uint64_t tick_hz();                      // the registered game's platform tick frequency
+// ---- time (the console tick and its rate: nxrt/clock.h) ----------------------------------------------------------------------
 void sleep_ns(int64_t ns);               // high-resolution sleep; <= 0 yields
 // SleepThread with the game's polling sleeps shortened: the sleep a call from `lr` gets (`ns` unchanged when lr is not in the table, the
 // request is under 1 ms, or the listed sleep is not shorter). Table entries are offsets from main_base (game.h PollSleep).

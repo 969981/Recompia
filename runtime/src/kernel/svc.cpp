@@ -23,7 +23,6 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
-#include "nxrt/tt.h"
 
 namespace nxrt {
 namespace {
@@ -161,6 +160,7 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
 
 namespace {
 std::atomic<void (*)()> g_busy_hook{nullptr};
+std::atomic<void (*)(::Ctx*)> g_observer{nullptr};
 
 // The hitch line's split of the game's presenting thread: time in system calls, and of it IPC (services, file reads) and waits.
 struct GameSvcTimer {
@@ -179,6 +179,7 @@ struct GameSvcTimer {
 };
 }
 void svc_set_busy_hook(void (*fn)()) { g_busy_hook.store(fn, std::memory_order_release); }
+void svc_set_observer(void (*fn)(::Ctx*)) { g_observer.store(fn, std::memory_order_release); }
 
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     GameSvcTimer game_timer(number);
@@ -187,7 +188,7 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
         self->nsvc++;                                                                                       // runs of yields (svc_thread.cpp)
     }
     if (auto fn = g_busy_hook.load(std::memory_order_relaxed)) fn();
-    if (tt::detail::svc_every.load(std::memory_order_relaxed)) tt::detail::on_svc(c);      // test tooling: frame_source = svc:N
+    if (auto fn = g_observer.load(std::memory_order_relaxed)) fn(c);
     SvcHandler h = svc_handler(number);
     if (number < kSvcCount) g_calls[number].fetch_add(1, std::memory_order_relaxed);
     if (!h) {

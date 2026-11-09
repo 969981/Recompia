@@ -27,6 +27,9 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc = 0);
 // A function svc_dispatch calls before every SVC, on the calling thread (null: none). Play mode keeps its window answering with it while
 // the game boots or loads and no frame boundary pumps the events; it must be cheap (it runs on every SVC of every guest thread).
 void svc_set_busy_hook(void (*fn)());
+// A function svc_dispatch calls before every SVC with the caller's guest context (null: none). The test tooling's frame source svc:N
+// counts SVCs with it. The same cost rule as the busy hook.
+void svc_set_observer(void (*fn)(::Ctx*));
 
 // ---- unknown SVC bookkeeping --------------------------------------------------------------------------------------------------
 // A number with no handler logs "UNKNOWN SVC 0x%02X (<name>) x0..x7 caller=..." (every call up to [svc] unknown_log_limit, default

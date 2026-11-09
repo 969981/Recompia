@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "nxrt/log.h"
-#include "nxrt/tt.h"
 #include "services_internal.h"
 
 namespace nxrt::services::miscsvc {
