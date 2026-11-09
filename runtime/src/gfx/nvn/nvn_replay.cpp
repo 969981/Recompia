@@ -82,9 +82,12 @@ void gpu_wrote(uint64_t addr, uint64_t size, int use) {
 static int g_dbg_depth = 0;                  // debug labels open in this submission (PushDebugGroup / PopDebugGroup)
 nxrt::GaugeCounter g_gauge_pipeline_binds("nvn.cnt.pipeline_binds");   // graphics pipeline binds (cumulative)
 
-void log_once(const char* key, const char* msg) {
-    static std::unordered_map<std::string, bool> seen;
-    if (seen.emplace(key, true).second) NXLOG_W(kTag, "%s", msg);
+void log_once(LogOnce key, const char* msg) {   // render thread only
+    static bool seen[kOnceCount] = {};
+    if (!seen[key]) {
+        seen[key] = true;
+        NXLOG_W(kTag, "%s", msg);
+    }
 }
 
 bool first_time_key(const std::string& key) {   // render thread only
@@ -176,7 +179,7 @@ struct RpOpScope {
 };
 
 static void run_list(const CmdList& list, int depth) {
-    if (depth > kMaxDepth) { log_once("depth", "CallCommands nesting too deep"); return; }
+    if (depth > kMaxDepth) { log_once(kOnceCallDepth, "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
     const bool rt = ft::on() && g_rp_t0;
     for (RecordReader r(list); r.next();) {
@@ -502,7 +505,7 @@ static void run_list(const CmdList& list, int depth) {
                 for (uint32_t i = 0; i < p.count; ++i) {
                     Ref<CmdList> l = handle_lookup(h[i]);
                     if (l) run_list(*l, depth + 1);
-                    else log_once("missing-handle", "CallCommands of an unknown handle skipped");
+                    else log_once(kOnceMissingHandle, "CallCommands of an unknown handle skipped");
                 }
                 break;
             }

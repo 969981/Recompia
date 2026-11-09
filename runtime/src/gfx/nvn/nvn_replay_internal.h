@@ -344,7 +344,12 @@ extern std::atomic<bool> g_trace_req;
 #define TRACE(...) do { if (g_trace) NXLOG_I("nvn.trace", __VA_ARGS__); } while (0)
 const char* tex_desc(const Texture* t, char* buf, size_t n);
 int storage_nonzero_pct(const Texture* t);
-void log_once(const char* key, const char* msg);
+// The warnings log_once writes once per run: one flag each.
+enum LogOnce : uint32_t {
+    kOnceCallDepth, kOnceMissingHandle, kOnceShadowColour, kOnceColorFeedback, kOnceStorageImageDummy, kOnceOutTexel, kOnceTexelBufferDummy,
+    kOnceAttrTypeMismatch, kOnceAlphaTest, kOnceDrawNoVs, kOnceDrawNoTarget, kOnceDownsampleScale, kOnceCount
+};
+void log_once(LogOnce key, const char* msg);
 bool first_time_key(const std::string& key);
 
 inline VkImageViewType view_type_for(const DescriptorBinding& b) {

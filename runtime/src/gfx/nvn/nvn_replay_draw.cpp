@@ -156,7 +156,7 @@ static bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
             // (spirv_int_attributes); stream-out draws use the shader's stream-out variant, which is not patched: scaled floats there
             if (in.type == ScalarType::Float && is_int_format(f) && g_xfb_active) f = scaled_for(f);
             else if ((in.type == ScalarType::Uint || in.type == ScalarType::Sint) && !is_int_format(f))
-                log_once("attr-type-mismatch", "a vertex attribute with a float format feeds an integer shader input (needs a SPIR-V variant)");
+                log_once(kOnceAttrTypeMismatch, "a vertex attribute with a float format feeds an integer shader input (needs a SPIR-V variant)");
             if (key.attr_count >= 16) break;
             KeyAttr& k = key.attr[key.attr_count++];
             k.location = static_cast<uint8_t>(loc);
@@ -233,7 +233,7 @@ static bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
         key.logic_op = static_cast<uint8_t>(vk_logic_op(S.color.logic_op));
         for (uint32_t i = 0; i < 8; ++i) key.blend_enable[i] = 0;
     }
-    if (S.color.alpha_test != 0 && S.color.alpha_test != NVN_ALPHA_FUNC_ALWAYS) log_once("alpha-test", "alpha test is enabled by the game: not implemented (needs a shader variant)");
+    if (S.color.alpha_test != 0 && S.color.alpha_test != NVN_ALPHA_FUNC_ALWAYS) log_once(kOnceAlphaTest, "alpha test is enabled by the game: not implemented (needs a shader variant)");
     return true;
 }
 
@@ -388,7 +388,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     PoolReasonScope pr_(kReasonVertex);
     ResolveScope rs_;
     const ShaderInfo* vs = S.stage[kVertex];
-    if (!vs) { log_once("draw-no-vs", "draw without a vertex shader skipped"); return false; }
+    if (!vs) { log_once(kOnceDrawNoVs, "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
     ++g_draw_idx;
     if (key_check_on()) key_check_draw(counters().presents.load(std::memory_order_relaxed));
@@ -448,7 +448,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;
     { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_fbl_want); }
-    if (!pass_ok) { log_once("draw-no-target", "draw without a usable render target skipped"); return false; }
+    if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
     if (g_prog_writes || g_xfb_active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
     if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {

@@ -316,7 +316,7 @@ void do_downsample(const P_Downsample& p) {
     VkImageResolve rs = {};
     rs.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     rs.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    if (tex_scale(s) != tex_scale(d)) log_once("downsample-scale", "Downsample between a scaled and an unscaled texture: only the common part is resolved");
+    if (tex_scale(s) != tex_scale(d)) log_once(kOnceDownsampleScale, "Downsample between a scaled and an unscaled texture: only the common part is resolved");
     const VkExtent3D e = tex_image_extent(d, 0), es = tex_image_extent(s, 0);
     rs.extent = {std::min(e.width, es.width), std::min(e.height, es.height), 1};
     // a resolve needs one format on both sides: an HDR-promoted destination (RGBA16F for the source's RGBA8) resolves through a blit

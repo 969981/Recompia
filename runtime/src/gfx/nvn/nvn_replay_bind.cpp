@@ -293,7 +293,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             // of those slots, which Vulkan does not allow (VUID-vkCmdDrawIndexed-None-06479). They get the depth dummy instead.
             const bool shadow_mismatch = r.tex && b.image.depth && !tex_is_depth(r.tex);
             if (shadow_mismatch) {   // the stand-in holds the texture's red value (dcmp_view), the console compares against it
-                log_once("shadow-colour", "a depth-comparison sampler is bound to a colour texture: a depth stand-in with its red value is bound");
+                log_once(kOnceShadowColour, "a depth-comparison sampler is bound to a colour texture: a depth stand-in with its red value is bound");
                 if (VkImageView sv = dcmp_view(r.tex, view_type_for(b))) ii.imageView = sv;
                 if (r.has_sampler) ii.sampler = sampler_for(r.smp);
             }
@@ -315,7 +315,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                             static_cast<int>(view_type_for(b)), d.shader->hash.c_str(), b.name.c_str(), b.nvn.index, d.set, d.binding);
                 }
             } else if (feedback) {
-                log_once("color-feedback", "a texture is sampled while it is a colour attachment of the pass: the dummy texture is bound");
+                log_once(kOnceColorFeedback, "a texture is sampled while it is a colour attachment of the pass: the dummy texture is bound");
                 static int reported = 0;
                 if (reported < 40) {   // which draw: the texture, the attachment's subresource, the sampled view, the shaders (S4g)
                     ++reported;
@@ -345,9 +345,10 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 ii.imageView = tex_sampled_view(r.tex, q);
             }
             if (!ii.imageView) {
-                if (r.tex) NXLOG_W(kTag, "storage image: texture %u (%s %dx%dx%d) has no storage view (gpu %d, storage usage %d)", r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?",
-                                   r.tex->b.width, r.tex->b.height, r.tex->b.depth, tex_gpu(r.tex) ? 1 : 0, tex_has_storage(r.tex) ? 1 : 0);
-                log_once("storage-image-dummy", "a storage image binding has no usable texture: a dummy storage image is bound");
+                if (r.tex && first_time_key("storage-view " + std::to_string(r.tex->id)))   // once per texture, not per draw
+                    NXLOG_W(kTag, "storage image: texture %u (%s %dx%dx%d) has no storage view (gpu %d, storage usage %d)", r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?",
+                            r.tex->b.width, r.tex->b.height, r.tex->b.depth, tex_gpu(r.tex) ? 1 : 0, tex_has_storage(r.tex) ? 1 : 0);
+                log_once(kOnceStorageImageDummy, "a storage image binding has no usable texture: a dummy storage image is bound");
                 ii.imageView = dummy_storage_view(view_type_for(b), shader_fmt);
             }
             iinfo.push_back(ii);
@@ -380,7 +381,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 const MirrorSpan ms = out_servable(addr, bytes) ? mirror_span(addr, bytes) : MirrorSpan{};
                 VkBufferView mv = ms.buf ? make_buffer_view(ms.buf, ms.offset, bytes, vfmt) : VK_NULL_HANDLE;
                 if (mv) v = mv;
-                else log_once("out-texel", "a draw reads a compute result held in the pool copy as a texel buffer the copy cannot serve: it reads the pool");
+                else log_once(kOnceOutTexel, "a draw reads a compute result held in the pool copy as a texel buffer the copy cannot serve: it reads the pool");
             }
             if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);      // an image buffer may be written by the shader
             if (!v) {
@@ -389,7 +390,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                             r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
                             static_cast<unsigned long long>(r.tex->storage_size), static_cast<void*>(r.tex->mem), d.shader->hash.c_str(), b.name.c_str(),
                             b.nvn.index, d.set, d.binding);
-                log_once("texel-buffer-dummy", "a texel buffer binding has no usable buffer texture: a dummy buffer view is bound");
+                log_once(kOnceTexelBufferDummy, "a texel buffer binding has no usable buffer texture: a dummy buffer view is bound");
                 v = dummy_buffer_view(shader_fmt, storage);
             }
             if (!v) {
