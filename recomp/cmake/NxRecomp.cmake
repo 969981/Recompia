@@ -167,11 +167,14 @@ function(nxrecomp_add_module target)
     endif()
     list(APPEND shard_srcs "${A_OUTDIR}/c_${n}.cpp")
   endforeach()
+  # <target>.sites next to the library: the site list it was lifted with (nx_sites_stamp.cmake; checked by nxrecomp_check_lift)
+  set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}.sites")
   add_custom_command(
-    OUTPUT ${outs} ${shard_srcs}
+    OUTPUT ${outs} ${shard_srcs} "${stamp}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${A_OUTDIR}"
     COMMAND "${NX_PYTHON}" -m nxrecomp lift "${A_INPUT}" "${A_OUTDIR}" --name ${A_NAME} --base ${A_BASE}
             --shards ${A_SHARDS} --jobs ${A_JOBS} ${extra}
+    COMMAND ${CMAKE_COMMAND} -DMODE=write "-DSITES=${A_SITES}" "-DOUT=${stamp}" -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/nx_sites_stamp.cmake"
     WORKING_DIRECTORY "${NXRECOMP_ROOT}"
     DEPENDS "${A_INPUT}" ${A_SITES} ${NX_LIFTER_SOURCES} ${game_deps}
     COMMENT "nxrecomp: lifting ${A_NAME} (${A_INPUT})"
@@ -194,4 +197,16 @@ function(nxrecomp_add_module target)
   if(NX_USE_LAUNCHER)
     set_target_properties(${target} PROPERTIES CXX_COMPILER_LAUNCHER "${NX_PYTHON};${NXRECOMP_ROOT}/cmake/nx_cc_launcher.py")
   endif()
+endfunction()
+
+# nxrecomp_check_lift(<check target> <prefix> <library folder> <library prefix>): a target, run on every build, that stops the build when
+# an imported module library (<library folder>/<library prefix><m>.lib, modules from nxrecomp_build_info <prefix>) was lifted with
+# other hook sites than this tree's site lists. Make the executable that links them depend on it.
+function(nxrecomp_check_lift target prefix libdir libprefix)
+  set(cmds "")
+  foreach(m IN LISTS ${prefix}_MODULES)
+    list(APPEND cmds COMMAND ${CMAKE_COMMAND} -DMODE=check "-DSITES=${${prefix}_${m}_SITES}" "-DSTAMP=${libdir}/${libprefix}${m}.sites"
+                     -DMODULE=${m} -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/nx_sites_stamp.cmake")
+  endforeach()
+  add_custom_target(${target} ${cmds} COMMENT "nxrecomp: lifted libraries match this tree's hook sites" VERBATIM)
 endfunction()

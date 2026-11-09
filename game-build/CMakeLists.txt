@@ -90,6 +90,10 @@ set_source_files_properties(res/pkp.rc PROPERTIES COMPILE_DEFINITIONS "PKP_VER_M
 target_compile_definitions(pkp PRIVATE PKP_EXEFS_DEFAULT="${PKP_EXEFS_DEFAULT}")
 target_include_directories(pkp PRIVATE "${PKP_GEN_INCLUDE}")
 target_link_libraries(pkp PRIVATE ${PKP_MODULE_LIBS} nxrt_game_pkp nxrt_gfx nxrt)   # nxrt_game_pkp: runtime/games/pkp
+# the imported libraries must be lifted with this tree's site lists (a lift from another checkout or an older main.sites links fine but
+# its missing hooks never run): checked on every build
+nxrecomp_check_lift(pkp_lift_check PKP_MOD "${PKP_LIB_DIR}" pkp_)
+add_dependencies(pkp pkp_lift_check)
 # A linker map next to the exe (host frames get names), a big main stack (lifted
 # code nests deeply), low host allocations so the guest ranges at 0x71_0000_0000 and up stay free.
 if(PKP_RELEASE)
