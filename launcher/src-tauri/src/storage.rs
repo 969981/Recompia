@@ -9,10 +9,10 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager, State};
 
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
 use crate::setup_job::SetupState;
-use crate::{play, preflight, saveimport, setuplog, shader_archive, shaders, writecheck};
+use crate::{play, preflight, setuplog, shader_archive, shaders, writecheck};
 
 /// "Make shader files smaller" and its undo (shader_archive.rs): one at a time, never while the game, setup or an update runs.
 #[derive(Default)]
@@ -61,7 +61,7 @@ pub fn begin_storage(app: &AppHandle) -> Result<(PathBuf, Arc<StorageState>), St
     if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
         return Err("Setup is running. Wait for it to finish, or pause it first.".into());
     }
-    if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+    if guard::game_running(&app.state::<play::PlayState>()) {
         return Err("The game is running. Close it first: it reads the shader files while it runs.".into());
     }
     let st = app.state::<Arc<StorageState>>().inner().clone();

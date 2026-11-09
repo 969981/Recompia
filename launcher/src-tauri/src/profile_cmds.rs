@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
-use crate::{play, profiles, saveimport};
+use crate::{play, profiles};
 
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
@@ -16,7 +16,7 @@ pub fn profiles_list(app: AppHandle) -> profiles::Store {
 }
 
 pub fn profiles_guard(app: &AppHandle, state: &State<play::PlayState>) -> Result<PathBuf, String> {
-    if state.0.lock().unwrap().state == "running" || saveimport::game_running() {
+    if guard::game_running(state) {
         return Err("The game is running. Close it first, then change profiles.".into());
     }
     refuse_during_update(app)?;

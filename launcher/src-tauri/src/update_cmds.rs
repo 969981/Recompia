@@ -8,10 +8,11 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager, State};
 
 use crate::config::{config_path, load_config};
+use crate::guard;
 use crate::paths::{exe_dir, game_dir_of, launcher_path};
 use crate::relay_cmds::stop_relay;
 use crate::setup_job::SetupState;
-use crate::{play, rollback, saveimport, update};
+use crate::{play, rollback, update};
 
 /// The version updates compare with. None: a dev build, which takes none.
 pub fn update_version(app: &AppHandle) -> Option<String> {
@@ -55,7 +56,7 @@ pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Want
         if app.state::<Arc<SetupState>>().progress.lock().unwrap().state == "running" {
             return Err("Setup is running. Pause it first, then update.".into());
         }
-        if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+        if guard::game_running(&app.state::<play::PlayState>()) {
             return Err("The game is running. Close it first, then update.".into());
         }
         Ok(())

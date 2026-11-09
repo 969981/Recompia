@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 
 use crate::config::{config_path, load_config};
-use crate::guard::refuse_during_update;
+use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
 use crate::setup_job::SetupState;
-use crate::{play, repair, saveimport};
+use crate::{play, repair};
 
 /// Repair and reset (repair.rs). Planning and reading the last backup change nothing; applying and undoing need the game, Setup and
 /// updates to be idle. Returns the game folder and the launcher's own settings folder, the only two places a repair may touch.
@@ -18,7 +18,7 @@ pub fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
 }
 
 pub fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<SetupState>) -> Result<(PathBuf, PathBuf), String> {
-    if play.0.lock().unwrap().state == "running" || saveimport::game_running() {
+    if guard::game_running(play) {
         return Err("The game is running. Close it first, then repair.".into());
     }
     refuse_during_update(app)?;

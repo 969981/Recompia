@@ -5,9 +5,9 @@ use std::fs;
 use tauri::{AppHandle, Manager};
 
 use crate::config::load_config;
-use crate::guard::refuse_during_update;
+use crate::guard::{self, refuse_during_update};
 use crate::paths::game_dir_of;
-use crate::{play, saveimport, savebackup};
+use crate::{play, savebackup};
 
 /// Save backups (savebackup.rs): the status, the list and a copy on request work at any time; a restore needs the game closed. They run
 /// on a worker thread because a copy can wait a moment for the runtime to finish writing the save.
@@ -31,7 +31,7 @@ pub async fn backup_now(app: AppHandle) -> Result<savebackup::Outcome, String> {
 
 #[tauri::command]
 pub async fn backup_restore(app: AppHandle, name: String) -> Result<savebackup::Restored, String> {
-    if app.state::<play::PlayState>().0.lock().unwrap().state == "running" || saveimport::game_running() {
+    if guard::game_running(&app.state::<play::PlayState>()) {
         return Err("The game is running. Close it first, then restore a backup.".into());
     }
     refuse_during_update(&app)?;
