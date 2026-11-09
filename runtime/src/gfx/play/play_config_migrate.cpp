@@ -21,14 +21,15 @@ void apply_default_changes(Settings* s, int file_rev, std::string* added) {
     const GameDefaults* gd = game_defaults();
     for (unsigned i = 0; gd && i < gd->change_count; ++i) {
         const GameDefaultChange& c = gd->changes[i];
-        const Sec sec = fixed_sec(lower(c.section));
-        if (c.rev <= file_rev || sec == Sec::Unknown || sec == Sec::Retired) continue;
+        const SettingSection* sec = find_section(lower(c.section));
+        if (c.rev <= file_rev || !sec) continue;
         Settings old = *s, now = *s;
         bool known = false;
         std::string msg;
-        if (!apply_fixed(sec, lower(c.key), c.from, &old, &known, &msg) || !known) continue;
+        int row = -1;
+        if (!apply_fixed(*sec, lower(c.key), c.from, &old, &known, &msg, &row) || !known) continue;
         if (format_settings(old) != format_settings(*s)) continue;
-        if (!apply_fixed(sec, lower(c.key), c.to, &now, &known, &msg) || !known) continue;
+        if (!apply_fixed(*sec, lower(c.key), c.to, &now, &known, &msg, &row) || !known) continue;
         *s = now;
         if (!added->empty()) *added += ", ";
         *added += std::string(c.key) + " = " + c.to + " in [" + c.section + "]";

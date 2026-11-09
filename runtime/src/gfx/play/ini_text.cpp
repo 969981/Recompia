@@ -64,7 +64,7 @@ bool to_bool(const std::string& v, bool* out) {
 }
 
 // One word of a fixed list (case-insensitive): its index in `words`. A word that is none of them sets *msg listing the allowed ones.
-bool pick_word(const std::string& k, const std::string& v, const std::vector<const char*>& words, int* idx, std::string* msg) {
+bool pick_word(const std::string& k, const std::string& v, std::span<const char* const> words, int* idx, std::string* msg) {
     const std::string l = lower(v);
     for (size_t i = 0; i < words.size(); ++i) {
         if (l == words[i]) {

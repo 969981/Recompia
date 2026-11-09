@@ -54,9 +54,11 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
     };
 
     Sec sec = Sec::None;
+    const SettingSection* fixed = nullptr;   // the section, when sec is Fixed
     Ctx ctx = Ctx::All;
-    // Which of the two dead-zone keys the [pad] section has, for the rule after the loop (right_deadzone takes deadzone's value when only deadzone is there).
-    bool pad_has_deadzone = false, pad_has_right_deadzone = false, pad_has_stick_max = false, pad_has_right_stick_max = false;
+    // The table rows the file set, for the fallback rule after the loop (SettingDef::fallback: right_deadzone takes deadzone's value when
+    // only deadzone is there).
+    std::vector<bool> set_rows(settings_table().size(), false);
     for (size_t i = 0; i < lines.size(); ++i) {
         std::string line = trim(lines[i]);
         if (line.empty()) continue;
@@ -84,7 +86,12 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             const std::string key = lower(name);
             if (key.compare(0, 9, "bindings.") == 0 && parse_ctx(name.substr(9), &ctx)) sec = Sec::Bindings;
             else if (key.compare(0, 9, "bindings.") == 0 && retired_ctx(name.substr(9))) sec = Sec::Retired;
-            else if ((sec = fixed_sec(key)) == Sec::Unknown) warn(i, "unknown section '[" + name + "]'");
+            else if ((fixed = find_section(key)) != nullptr) sec = Sec::Fixed;
+            else if (retired_section(key)) sec = Sec::Retired;
+            else {
+                sec = Sec::Unknown;
+                warn(i, "unknown section '[" + name + "]'");
+            }
             continue;
         }
 
@@ -144,25 +151,26 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
 
         bool known = false;
         std::string msg;
+        int row = -1;
+        const std::string label = std::string("[") + fixed->name + "]";
         // A bad value of a fixed key keeps that key's default and the rest of the file (#218: one typo threw the whole file away,
         // and the next save wrote the factory settings over it). The setters write only a value that passed.
-        if (!apply_fixed(sec, lower(key), val, s, &known, &msg)) {
-            warn(i, msg + " (" + sec_label(sec) + " " + key + " keeps its default)");
+        if (!apply_fixed(*fixed, lower(key), val, s, &known, &msg, &row)) {
+            warn(i, msg + " (" + label + " " + key + " keeps its default)");
             continue;
         }
-        if (!known) warn(i, "unknown key '" + key + "' in " + sec_label(sec));
-        if (sec == Sec::Pad) {
-            if (lower(key) == "deadzone") pad_has_deadzone = true;
-            if (lower(key) == "right_deadzone") pad_has_right_deadzone = true;
-            if (lower(key) == "stick_max") pad_has_stick_max = true;
-            if (lower(key) == "right_stick_max") pad_has_right_stick_max = true;
-        }
+        if (!known) warn(i, "unknown key '" + key + "' in " + label);
+        if (row >= 0) set_rows[row] = true;
     }
 
-    // A file written before right_deadzone existed has one dead zone (deadzone), so the right stick takes its value.
-    if (pad_has_deadzone && !pad_has_right_deadzone) s->pad.right_deadzone = s->pad.stick_deadzone;
-    // Same for stick_max: it only ever covered the left stick, so a file that sets it and has no right_stick_max gives the right stick the same value.
-    if (pad_has_stick_max && !pad_has_right_stick_max) s->pad.right_stick_max = s->pad.stick_max;
+    // A key added later than another that covered it (right_deadzone after deadzone, which was the only dead zone; right_stick_max after
+    // stick_max, which only ever covered the left stick): a file that sets the older key and not the newer one gives the newer the same value.
+    const std::span<const SettingDef> table = settings_table();
+    for (size_t r = 0; r < table.size(); ++r) {
+        if (!table[r].fallback || set_rows[r]) continue;
+        const int from = find_setting(table[r].section, table[r].fallback);
+        if (from >= 0 && set_rows[from]) setting_copy(table[from], table[r], s);
+    }
 
     if (has_bindings) {
         // A file with bindings written by an older revision gets the newer factory bindings it lacks (see GameDefaults).

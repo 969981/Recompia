@@ -1,44 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Settings file code shared by play_config*.cpp: the reader (play_config.cpp, play_config_apply.cpp), the factory defaults and their
-// migration (play_config_migrate.cpp) and the writer (play_config_format.cpp). Not for use outside those files.
+// migration (play_config_migrate.cpp) and the writer (play_config_format.cpp), all driven by the settings table (play_config_table.h).
+// Not for use outside those files.
 #pragma once
 #include <string>
 #include <vector>
 
 #include "ini_text.h"
-#include "nxrt/extras.h"
+#include "play_config_table.h"
 #include "play_types.h"
 
 namespace nxrt::play::cfg {
 
-// The words the file uses for the display extras enums, indexed by the enum value (the first word of each list is the default's).
-const std::vector<const char*> kHdrModeWords = {"off", "auto", "on", "native"};
-const std::vector<const char*> kHdrFormatWords = {"auto", "hdr10", "scrgb"};
-const std::vector<const char*> kUpscaleWords = {"off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
-const std::vector<const char*> kUpscaleQualityWords = {"native", "quality", "balanced", "performance", "ultra_performance", "custom"};
-const std::vector<const char*> kLatencyWords = {"off", "auto", "on", "boost"};
-// The upscale words accepted when reading (spatial is an alias of fsr1) and the enum value each one means.
-const std::vector<const char*> kUpscaleReadWords = {"off", "fsr1", "spatial", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
-const extras::UpscaleMode kUpscaleFromWord[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr1,
-                                                extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess, extras::UpscaleMode::Nis,
-                                                extras::UpscaleMode::Dlaa, extras::UpscaleMode::Nearest};
-
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Overlay, Switch, Tweaks, Retired, Bindings };   // Retired: a section of older files that nothing reads, skipped without a warning
+// The state of the reader between section headers: before any, in a section it does not know or that is retired (its keys are skipped),
+// in a [bindings.<ctx>] section, or in a fixed section (play_config_table.h SettingSection).
+enum class Sec { None, Unknown, Retired, Bindings, Fixed };
 
 // play_config.cpp
 Settings builtin_settings();
 bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vector<std::string>* warnings, bool with_default_bindings);
 
 // play_config_apply.cpp
-const char* sec_label(Sec s);
-bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* s, bool* known, std::string* msg);
-Sec fixed_sec(const std::string& key);
-// Actions and contexts of older files that no longer exist (compared like parse_act / parse_ctx do: case, '-' and '_'). A [switch] row, a
-// binding or a [bindings.<ctx>] section that uses one is skipped without a warning.
-bool retired_act(const std::string& name);
-// The two retired actions that pressed a button by default (confirm = A, back = B): the action a binding of an older file gets in their place.
-const char* replaced_act(const std::string& name);
-bool retired_ctx(const std::string& name);
+// Applies one `key = value` (key in lower case) of a fixed section. On a bad value returns false with *msg set (no line prefix) and leaves *s
+// as it was. *known is false for a key the section does not have. *row is the table row it set (-1: none, or a [padmap] / [switch] key).
+bool apply_fixed(const SettingSection& sec, const std::string& k, const std::string& v, Settings* s, bool* known, std::string* msg, int* row);
 
 // play_config_migrate.cpp
 int defaults_rev();
