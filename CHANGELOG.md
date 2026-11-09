@@ -10,6 +10,13 @@ of the game (version 2.0.1a): the download contains no game files.
 - Abilities and tools now aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. To go back, set `[pkp] camera_aim = 0` in `pkp.ini`. Needs **Set up again** once
 - Running jumps now keep your running speed by default. To go back, set `[pkp] jump_momentum = 0` in `pkp.ini`
 
+### Performance
+- Fixed the remaining long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
+  - Before: about once a second the game reads a tiny 30x16 texture back from the graphics card. Even after 0.8.0, its main thread waited for that read (about 21 ms on a Legion Go S, 13 ms of it waiting for the graphics card), so a capped frame missed its slot and took about 50 ms
+  - Now: a small texture read again and again gets the data of the previous read (about a second old) and the new read finishes in the background, so the main thread does not wait. A first read, a large one or one after a pause still waits
+  - Setting: `[nvn] readback_defer = false` brings back the waiting read. With `readback_log = true` these reads show as `deferred`
+  - Still not: not measured on a handheld yet. If you still see the hitch, please send a `pkp.log` with `readback_log = true`
+
 ### Fixes
 - Fixed dialogue text showing up doubled and garbled when the picture is rendered above 1920x1080 (#267)
   - Before: with a render size such as 2880x1620 or 3392x1908 (for example a 2560x1440 window at 133%), the text of a dialogue box was drawn on top of the previous line, so words repeated and letters ran together. It showed most clearly behind the name prompt, where the game is paused

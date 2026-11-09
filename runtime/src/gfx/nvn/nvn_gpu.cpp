@@ -1080,6 +1080,9 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
 uint64_t queue_record(std::function<void(Frame&)> record) {
     return queue_submit(std::move(record), true, false);
 }
+uint64_t queue_post(std::function<void(Frame&)> record) {
+    return queue_submit(std::move(record), false, false);
+}
 
 // Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the
 // next present), polling every 0.5 ms, then waits for it on the GPU (wait_serial: a serial still in the batch is flushed at once, an
