@@ -9,6 +9,7 @@ mod dlss;
 mod dlss_cmds;
 mod dump;
 mod dump_cmds;
+mod error;
 mod events;
 mod fsutil;
 mod gamebuild;

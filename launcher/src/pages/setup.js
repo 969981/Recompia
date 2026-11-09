@@ -4,13 +4,13 @@
 import './setup.css';
 import logoUrl from '../art/logo.png';
 import { api } from '../api.js';
-import { errText, esc, field, icon, row, toast, toggle } from '../ui.js';
+import { errCode, errText, esc, field, icon, row, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { needsFinish, primaryAction } from '../action.js';
 
 const GB = 2 ** 30;   // preflight.rs GB
 const SLOW_CHECK_MS = 200;   // a faster check never shows the "Checking" panel
-const NUP_CANCELLED = 'Unpacking was cancelled.';   // nup.rs CANCELLED: not a failure
+const NUP_CANCELLED = 'nup_cancelled';   // error.rs: the player stopped it, not a failure
 const SETUP_BUSY = 'Setup is running. Pause it first.';
 
 const STEPS = ['Build game', 'Translate shaders', 'First run'];
@@ -136,7 +136,7 @@ async function unpack(path) {
     dir = await store.importNup(path);
   } catch (e) {
     flow.checking = null;
-    if (errText(e) !== NUP_CANCELLED) {
+    if (errCode(e) !== NUP_CANCELLED) {
       flow.error = errText(e);
       flow.report = null;
       flow.changing = false;

@@ -9,6 +9,7 @@ use tauri::AppHandle;
 
 use crate::states::SetupArg;
 use crate::config::{load_config, save_config};
+use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
 use crate::paths::game_dir_of;
 use crate::{dump, nsp, nup, settings, writecheck};
@@ -23,7 +24,7 @@ pub struct NupProgress {
 /// Unpacks a .nup into `<game folder>/nup_dump` (base/ and updates/<version>/, the same layout as a dump folder) and
 /// returns that folder. Emits "nup-progress". A finished unpack of the same package is reused.
 #[tauri::command]
-pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<String, String> {
+pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Result<String, CmdError> {
     ensure_idle(&app, &[Need::Setup("Setup is running. Pause it first.")])?;
     let game_dir = game_dir_of(&load_config(&app));
     let out = game_dir.join("nup_dump");
@@ -49,7 +50,8 @@ pub async fn import_nup(app: AppHandle, state: SetupArg<'_>, path: String) -> Re
         )
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| e.to_string())?
+    .map_err(|m| CmdError::coded_if(m, nup::CANCELLED, error::NUP_CANCELLED))?;
     Ok(dump::fwd(&res))
 }
 

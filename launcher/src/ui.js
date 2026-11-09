@@ -14,6 +14,9 @@ const ICONS = {
 
 export const errText = (e) => (typeof e === 'string' ? e : e?.message ?? String(e));
 
+/** The code of an error a command tagged (error.rs CmdError), else null. Branch on this, never on errText. */
+export const errCode = (e) => (typeof e === 'object' && e !== null ? e.code ?? null : null);
+
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

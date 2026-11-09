@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::states::{UpdateArg, States};
 use crate::config::{config_path, load_config};
+use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of, launcher_path};
 use crate::relay_cmds::stop_relay;
@@ -108,11 +109,16 @@ pub struct UpdateProgress {
 }
 
 /// One-click update (update.rs). Emits "update-progress"; on success the launcher restarts and the page hears nothing more.
-/// The Err of a cancel is update::CANCELLED.
+/// The Err of a cancel has the code error::UPDATE_CANCELLED.
 #[tauri::command]
-pub async fn install_update(app: AppHandle, state: UpdateArg<'_>) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, state: UpdateArg<'_>) -> Result<(), CmdError> {
     let st = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, None)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, None)).await.map_err(|e| e.to_string())?.map_err(update_error)
+}
+
+/// A cancelled update carries the code the page matches; every other failure is plain.
+fn update_error(message: String) -> CmdError {
+    CmdError::coded_if(message, update::CANCELLED, error::UPDATE_CANCELLED)
 }
 
 /// The builds a channel offers, newest first, with their notes and what going to each one means (update.rs builds). Works for Testing
@@ -125,10 +131,10 @@ pub async fn list_builds(app: AppHandle, channel: String, refresh: Option<bool>)
 
 /// Installs the build the player picked (an older one only with `accepted`); the same steps and restart as the update.
 #[tauri::command]
-pub async fn install_version(app: AppHandle, state: UpdateArg<'_>, tag: String, channel: String, accepted: bool) -> Result<(), String> {
+pub async fn install_version(app: AppHandle, state: UpdateArg<'_>, tag: String, channel: String, accepted: bool) -> Result<(), CmdError> {
     let st = state.inner().clone();
     let wanted = Wanted { tag, channel: update::Channel::parse(&channel), accepted };
-    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, Some(wanted))).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || run_update(&app, &st, Some(wanted))).await.map_err(|e| e.to_string())?.map_err(update_error)
 }
 
 /// Stops a running update while it is still downloading or unpacking; the install stays as it was.

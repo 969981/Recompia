@@ -2,14 +2,14 @@
 // and subscribes with ctx.on(fn). Long work is started here, not on a page, so it survives navigation.
 import { listen } from '@tauri-apps/api/event';
 import { api } from './api.js';
-import { confirm, errText, esc, icon, toast } from './ui.js';
+import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
 let compactOffered = false;   // the "free up space" question is asked once per launcher start
 const GB = 2 ** 30;
-const UPDATE_CANCELLED = 'Update cancelled.';   // update.rs CANCELLED: not a failure
+const UPDATE_CANCELLED = 'update_cancelled';   // error.rs: the player stopped it, not a failure
 
 /** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop' | 'storage'. */
 function set(patch, why) {
@@ -221,7 +221,7 @@ export const store = {
     try {
       await api.installUpdate();
     } catch (e) {
-      const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
+      const updateError = errCode(e) === UPDATE_CANCELLED ? null : errText(e);
       set({ update: null, updateError }, 'update');
       if (updateError) toast(updateError, 'error');
     }
@@ -234,7 +234,7 @@ export const store = {
     try {
       await api.installVersion({ tag, channel, accepted });
     } catch (e) {
-      const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
+      const updateError = errCode(e) === UPDATE_CANCELLED ? null : errText(e);
       set({ update: null, updateError }, 'update');
       if (updateError) toast(updateError, 'error');
     }
