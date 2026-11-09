@@ -21,7 +21,6 @@
 namespace nxrt::services::ldn_impl {
 
 // ---- ldn_common.cpp ----------------------------------------------------------------------------------------------------
-std::string lower(std::string s);
 std::string nickname();
 std::string room_code_file();
 bool room_code_setup(std::array<uint8_t, 16>* key);

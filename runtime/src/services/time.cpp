@@ -65,6 +65,7 @@
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/tt.h"
+#include "../net/text_util.h"
 #include "services_internal.h"
 #include "timezone.h"
 
@@ -152,12 +153,6 @@ std::mutex& mu() {
 }
 State& raw_state() {
     static State s;
-    return s;
-}
-
-std::string ascii_lower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;
 }
 
@@ -344,7 +339,7 @@ void init_locked(State& s) {
     // [time] clock_scope (test key, default "user"): "all" moves the network and ephemeral network clocks by the same offset, for
     // game code that prefers the network clock. Anything else is "user" (the behaviour above).
     {
-        const std::string scope = ascii_lower(config_get_str("time", "clock_scope", "user"));
+        const std::string scope = textutil::ascii_lower(config_get_str("time", "clock_scope", "user"));
         if (scope != "user" && scope != "all")
             NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
         else if (scope == "all") {
@@ -356,7 +351,7 @@ void init_locked(State& s) {
         }
     }
     s.auto_correction = false;
-    s.device_utc = ascii_lower(config_get_str("time", "zone", "host")) == "utc";
+    s.device_utc = textutil::ascii_lower(config_get_str("time", "zone", "host")) == "utc";
     s.hosts_ready = false;
     s.host_name.clear();
     s.host_rule.clear();

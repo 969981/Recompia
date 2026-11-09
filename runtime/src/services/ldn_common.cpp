@@ -12,6 +12,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/services_api.h"
+#include "../net/text_util.h"
 #include "ldn_internal.h"
 
 namespace nxrt::services::ldn_impl {
@@ -59,8 +60,7 @@ std::string room_code_file() {
 bool room_code_setup(std::array<uint8_t, 16>* key) {
     std::string v = config_get_str("net", "room_code", "");
     const std::string file = room_code_file();
-    std::string lower = v, norm;
-    for (char& c : lower) c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    std::string lower = textutil::ascii_lower(v), norm;
     if (v.empty()) {
         std::remove(file.c_str());
         return true;
@@ -87,11 +87,6 @@ bool room_code_setup(std::array<uint8_t, 16>* key) {
             shown.c_str(), lower == "new" ? " (new)" : "");
     return true;
 }
-std::string lower(std::string s) {
-    for (char& ch : s) ch = static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
-    return s;
-}
-
 std::string nickname() {
     std::string n = profile().user_nickname;
     return n.empty() ? "Player" : n;
