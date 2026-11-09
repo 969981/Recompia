@@ -24,6 +24,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: clicking broke or placed a block off to the side of the one under the pointer
   - Now: your character turns to the block under the pointer before swinging, so the click lands on it
 
+### Graphics
+- Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
+  - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
+  - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
+  - Still not: bloom and other soft glow effects stay smooth on purpose
+
 ### Controls
 - Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
   - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
