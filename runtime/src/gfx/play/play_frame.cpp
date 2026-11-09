@@ -8,11 +8,9 @@ namespace detail {
 
 // Keep-alive pump: the window's events are normally pumped at the frame boundary. While the game boots or loads it can go ten seconds and
 // more without one, and Windows then calls the window "Not Responding". busy_pump runs before every SVC (svc_set_busy_hook); on the
-// thread that owns the window it pumps the events when the last pump is 100 ms old. Elsewhere it costs a thread-id compare.
-std::atomic<DWORD> g_pump_tid{0};
+// thread that owns the window (the kernel runs it on that thread only) it pumps the events when the last pump is 100 ms old.
 std::atomic<uint64_t> g_last_pump_ms{0};
 void busy_pump() {
-    if (GetCurrentThreadId() != g_pump_tid.load(std::memory_order_relaxed)) return;
     keyboard_service();
     const uint64_t t = SDL_GetTicks();
     if (t - g_last_pump_ms.load(std::memory_order_relaxed) < 100) return;

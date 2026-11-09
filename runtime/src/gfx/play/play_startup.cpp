@@ -181,7 +181,6 @@ bool start(const StartOptions& opt) {
     apply_frame_cap(st.settings);                      // the display's refresh rate is known now (vsync cap)
     kernel::sched_set_process_priority(st.window);     // a person is playing: keep the frame out of the background load
     st.pump_thread = std::this_thread::get_id();
-    g_pump_tid.store(GetCurrentThreadId(), std::memory_order_relaxed);
     st.engine = std::make_unique<Engine>(st.settings);
     st.engine->set_context(Ctx::Menu, now_ns());
     st.source_owner = std::make_unique<PlaySource>(st.engine.get());
@@ -239,7 +238,7 @@ bool start(const StartOptions& opt) {
     }
     // the window keeps answering while the game boots or loads (no frame boundary for seconds), and the on-screen keyboard works while the
     // game waits for it (keyboard_service; also headless with swkbd_prompt = force, which has an overlay and no window)
-    if (st.window || st.overlay) svc_set_busy_hook(&busy_pump);
+    if (st.window || st.overlay) svc_set_busy_hook(GetCurrentThreadId(), &busy_pump);
     kernel::set_blocked_hook(GetCurrentThreadId(), &keyboard_service);
     if (st.window && st.settings.display.monitor > 0) platform::move_to_display(st.settings.display.monitor);
     if (st.window && st.settings.display.window_mode != "windowed") set_window_mode(st.settings.display.window_mode);
@@ -268,6 +267,7 @@ void stop() {
     if (!st.started) return;
     vpad_shutdown();      // a virtual pad from a test script does not outlive play mode
     if (const GamePlay* gp = game_play(); gp && gp->remove) gp->remove();
+    svc_set_busy_hook(0, nullptr);
     kernel::set_blocked_hook(0, nullptr);
     if (st.hook_update) hook_remove(st.hook_update);
     st.hook_update = 0;

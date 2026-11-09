@@ -206,7 +206,8 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
 }
 
 namespace {
-std::atomic<void (*)()> g_busy_hook{nullptr};
+std::atomic<void (*)()> g_busy_hook{nullptr};   // see svc_set_busy_hook
+std::atomic<uint32_t> g_busy_tid{0};
 std::atomic<void (*)(::Ctx*)> g_observer{nullptr};
 
 // The hitch line's split of the game's presenting thread: time in system calls, and of it IPC (services, file reads) and waits.
@@ -225,7 +226,10 @@ struct GameSvcTimer {
     GameSvcTimer& operator=(const GameSvcTimer&) = delete;
 };
 }
-void svc_set_busy_hook(void (*fn)()) { g_busy_hook.store(fn, std::memory_order_release); }
+void svc_set_busy_hook(uint32_t host_tid, void (*fn)()) {
+    g_busy_tid.store(host_tid, std::memory_order_relaxed);
+    g_busy_hook.store(fn, std::memory_order_release);
+}
 void svc_set_observer(void (*fn)(::Ctx*)) { g_observer.store(fn, std::memory_order_release); }
 
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
@@ -235,7 +239,7 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
         if ((self->nsvc & 15) == 0) self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);
         self->nsvc++;                                                                                       // runs of yields (svc_thread.cpp)
     }
-    if (auto fn = g_busy_hook.load(std::memory_order_relaxed)) fn();
+    if (auto fn = g_busy_hook.load(std::memory_order_acquire); fn && GetCurrentThreadId() == g_busy_tid.load(std::memory_order_relaxed)) fn();
     if (auto fn = g_observer.load(std::memory_order_relaxed)) fn(c);
     SvcHandler h = svc_handler(number);
     if (number < kSvcCount) count_svc(number);

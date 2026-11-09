@@ -173,7 +173,6 @@ void handle_event(const input::Event& e, uint64_t now);
 void poll_pads(uint64_t now);
 
 // play_frame.cpp
-extern std::atomic<DWORD> g_pump_tid;
 extern std::atomic<uint64_t> g_last_pump_ms;
 void busy_pump();
 void keyboard_service();
