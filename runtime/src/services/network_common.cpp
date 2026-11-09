@@ -29,15 +29,26 @@ NetState& st() {
     return s;
 }
 
-// Logs the first use of a command. One line per (service, command) for the life of the process (network_reset() clears it).
-void note(const char* svc, uint32_t id, const char* name) {
+namespace {
+
+// The flag of one (service, command), shared by every service object that registers it. Taken once, when the command is registered.
+std::shared_ptr<std::atomic<uint32_t>> first_use_flag(const char* svc, uint32_t id) {
     NetState& s = st();
-    {
-        std::lock_guard<std::mutex> lk(s.mu);
-        if (!s.seen.insert(std::string(svc) + " " + std::to_string(id)).second) return;
-    }
+    std::lock_guard<std::mutex> lk(s.mu);
+    std::shared_ptr<std::atomic<uint32_t>>& f = s.first_use[std::string(svc) + " " + std::to_string(id)];
+    if (!f) f = std::make_shared<std::atomic<uint32_t>>(0);
+    return f;
+}
+
+// Logs the first use of a command. One line per (service, command) for the life of the process (network_reset() starts a new epoch, so it
+// logs again). Runs on every command including the per-packet bsd ones: two atomic loads once it has been logged.
+void note(std::atomic<uint32_t>& logged, const char* svc, uint32_t id, const char* name) {
+    const uint32_t epoch = st().epoch.load(std::memory_order_relaxed);
+    if (logged.load(std::memory_order_relaxed) == epoch || logged.exchange(epoch) == epoch) return;
     NXLOG_I("net", "%s cmd %u %s: answered offline (first use)", svc, id, name);
 }
+
+}  // namespace
 
 // [net] online_test, read once: nifm and ntc report online (nothing reaches the network: bsd and BCAT answer as before).
 bool online_test() {
@@ -179,8 +190,8 @@ uint32_t run(const Row& r, ipc::Request& req, ipc::Response& rsp) {
 
 // One command with its own handler; logs the first use.
 void cmd(ipc::Service& s, const char* svc, uint32_t id, const char* name, ipc::Handler h) {
-    s.add_cmd(id, name, [svc, iface = s.name(), id, name, h = std::move(h)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
-        note(svc, id, name);
+    s.add_cmd(id, name, [svc, iface = s.name(), id, name, h = std::move(h), logged = first_use_flag(svc, id)](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+        note(*logged, svc, id, name);
         log_call(svc, iface, id, name, req);
         return h(req, rsp);
     });

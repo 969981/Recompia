@@ -38,7 +38,8 @@ constexpr int32_t kEaiNoName = -2;                            // EAI_NONAME
 // ---- process state -----------------------------------------------------------------------------------------------------------------------
 struct NetState {
     std::mutex mu;
-    std::set<std::string> seen;          // "<service> <cmd>" already logged
+    std::map<std::string, std::shared_ptr<std::atomic<uint32_t>>> first_use;   // "<service> <cmd>" -> the epoch its first use was logged in
+    std::atomic<uint32_t> epoch{1};      // network_reset() bumps it: every command logs its first use again
     std::map<std::string, int> calls;    // "<service> <cmd> <name>" -> calls logged so far (at most kMaxCallLogs)
     uint32_t next_client_id = 1;         // nifm ClientId, one per IGeneralService
     uint32_t next_cancel_handle = 1;     // sfdnsres cancel handle
@@ -77,8 +78,6 @@ struct TwoEvents {
 
 NetState& st();
 
-// Logs the first use of a command. One line per (service, command) for the life of the process (network_reset() clears it).
-void note(const char* svc, uint32_t id, const char* name);
 // [net] online_test, read once: nifm and ntc report online (nothing reaches the network: bsd and BCAT answer as before).
 bool online_test();
 

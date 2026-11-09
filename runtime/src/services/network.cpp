@@ -59,7 +59,7 @@ void register_network() {
 void network_reset() {
     NetState& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
-    s.seen.clear();
+    s.epoch.fetch_add(1);   // every command logs its first use again
     s.calls.clear();
     s.next_client_id = 1;
     s.next_cancel_handle = 1;
