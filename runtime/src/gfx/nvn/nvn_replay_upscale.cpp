@@ -4,15 +4,7 @@
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
-Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw
-VkImageView g_su_view = VK_NULL_HANDLE;
-// Nearest (#232): the inputs of the tone-map draw that hold the reduced scene, sampled with the nearest sampler (nearest_scene_for_draw)
-Texture* g_su_near[kSuNearMax] = {};
-uint32_t g_su_near_n = 0;
-bool su_nearest(const Texture* t) {
-    for (uint32_t i = 0; i < g_su_near_n; ++i) if (g_su_near[i] == t) return true;
-    return false;
-}
+SceneOverride g_su;
 static Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
 static uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
 // Temporal upscaling: a copy of a vertex slot 0 camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
@@ -125,8 +117,8 @@ static void temporal_for_draw(const ProgLayout& pl) {
     g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
     shadow_invalidate();
     if (out) {
-        g_su_tex = best_r.tex;
-        g_su_view = out;
+        g_su.tex = best_r.tex;
+        g_su.view = out;
     }
 }
 
@@ -142,7 +134,7 @@ static void nearest_scene_for_draw(const ProgLayout& pl, VkExtent3D te) {
     Texture* best = nullptr;
     uint64_t best_area = 0;
     auto add = [](Texture* t) {
-        if (!su_nearest(t) && g_su_near_n < kSuNearMax) g_su_near[g_su_near_n++] = t;
+        if (!g_su.nearest(t) && g_su.near_n < kSuNearMax) g_su.near[g_su.near_n++] = t;
     };
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
@@ -165,17 +157,15 @@ static void nearest_scene_for_draw(const ProgLayout& pl, VkExtent3D te) {
     }
     if (!part && best) add(best);
     static uint32_t told = ~0u;
-    if (told != g_su_near_n) {
-        told = g_su_near_n;
-        NXLOG_I(kTag, "scene upscale: nearest, %u input(s) of the tone-map draw sampled nearest (%s)", g_su_near_n,
+    if (told != g_su.near_n) {
+        told = g_su.near_n;
+        NXLOG_I(kTag, "scene upscale: nearest, %u input(s) of the tone-map draw sampled nearest (%s)", g_su.near_n,
                 part ? "the scene part of full-size targets" : "the largest input below the target size");
     }
 }
 
 void scene_upscale_for_draw(const ProgLayout& pl) {
-    g_su_tex = nullptr;
-    g_su_view = VK_NULL_HANDLE;
-    g_su_near_n = 0;
+    g_su.clear();
     const ShaderInfo* fs = S.stage[kFragment];
     if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
         temporal_for_draw(pl);
@@ -212,8 +202,8 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
                                      extras::scene_upscale_prescale(), extras::upscale_sharpness(), out_tex);
         shadow_invalidate();
         if (up) {
-            g_su_tex = r.tex;
-            g_su_view = up;
+            g_su.tex = r.tex;
+            g_su.view = up;
         }
         return;
     }

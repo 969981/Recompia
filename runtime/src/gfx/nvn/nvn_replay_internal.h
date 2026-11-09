@@ -606,12 +606,22 @@ const uint8_t* cpu_view(uint64_t addr, uint64_t size);   // below
 uint64_t indirect_index_span(const P_DrawIndirect& p);
 void out_before_op(const RecordReader& r);
 BufRef shadow_of(uint64_t addr, VkDeviceSize size, const BufRef& host, bool writes);
-extern Texture* g_su_tex;
-extern VkImageView g_su_view;
+// The scene upscaler's override of one draw (S14), set by scene_upscale_for_draw and read by build_set_resolved; it lives until the next
+// draw that sets up descriptors. tex/view: the upscaled scene replaces the small one. near: Nearest (#232), the inputs of the tone-map
+// draw that hold the reduced scene, sampled with the nearest sampler (nearest_scene_for_draw).
 constexpr uint32_t kSuNearMax = 8;
-extern Texture* g_su_near[kSuNearMax];
-extern uint32_t g_su_near_n;
-bool su_nearest(const Texture* t);
+struct SceneOverride {   // owner: nvn_replay_upscale.cpp
+    Texture* tex = nullptr;
+    VkImageView view = VK_NULL_HANDLE;
+    Texture* near[kSuNearMax] = {};
+    uint32_t near_n = 0;
+    bool nearest(const Texture* t) const {
+        for (uint32_t i = 0; i < near_n; ++i) if (near[i] == t) return true;
+        return false;
+    }
+    void clear() { tex = nullptr; view = VK_NULL_HANDLE; near_n = 0; }
+};
+extern SceneOverride g_su;
 bool tsr_jitter(uint32_t* words, size_t n_words);
 void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);

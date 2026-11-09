@@ -51,10 +51,10 @@ static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.gen = be::g_bind_gen.load(std::memory_order_relaxed);
     m.tpool = S.tpool.get();
     m.spool = S.spool.get();
-    m.su_tex = g_su_tex;
-    m.su_view = g_su_view;
-    m.su_near = g_su_near_n;
-    for (uint32_t i = 0; i < g_su_near_n; ++i) m.su_near = fnv_step(m.su_near, reinterpret_cast<uint64_t>(g_su_near[i]));
+    m.su_tex = g_su.tex;
+    m.su_view = g_su.view;
+    m.su_near = g_su.near_n;
+    for (uint32_t i = 0; i < g_su.near_n; ++i) m.su_near = fnv_step(m.su_near, reinterpret_cast<uint64_t>(g_su.near[i]));
     m.n = 0;
     for (const BindingDesc& d : pl.bindings) {
         if (d.set != set) continue;
@@ -306,10 +306,10 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     ii.imageView = v;
                     ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
                     if (r.has_sampler) ii.sampler = sampler_for(r.smp, r.tex);
-                    if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
-                        ii.imageView = g_su_view;
+                    if (r.tex == g_su.tex && g_su.view) {            // the upscaled scene replaces the small one for this draw (S14)
+                        ii.imageView = g_su.view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                    } else if (su_nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
+                    } else if (g_su.nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
                         ii.sampler = dummy_sampler();
                     }
                 } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {
