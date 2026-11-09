@@ -17,7 +17,7 @@
 //   script=<file.nxs>      run a scripted run (tt_script.h); exit code 0 pass / 1 fail / 5 freeze / 124 wall timeout
 //   regions=<file.tsv>     name table for @area/@warp (default: regions.tsv next to the script, else none)
 //   out=<dir>              output dir (default "testout"): result.json, trace.jsonl, input.nxin, shots/
-//   deterministic=1        fixed RNG seed + virtual clock: one frame = clock_step_ticks (default 320000 = 1/60 s at 19.2 MHz)
+//   deterministic=1        fixed RNG seed + virtual clock: one frame = clock_step_ticks (default 1/60 s at the system tick rate, nxrt/clock.h)
 //   seed=<n>               RNG seed (default 0x5EED5EED)
 //   frame_source=hook|tick|svc:N|manual   (default hook)
 //   trace=<file>           per-frame JSON lines (default <out>/trace.jsonl when anything is enabled; "none" disables)

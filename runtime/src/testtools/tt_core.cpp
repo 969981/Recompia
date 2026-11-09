@@ -43,7 +43,7 @@ struct State {
     int exit_code = -1;
     std::string out, script, regions_file, trace_path, record_path, replay_path;
     uint64_t seed = 0x5EED5EEDull;
-    uint64_t step_ticks = 320000;            // 1/60 s at 19.2 MHz
+    uint64_t step_ticks = 0;                 // virtual ticks per frame ([test] clock_step_ticks, default 1/60 s)
     Source src = Source::Hook;
     uint32_t svc_n = 0;
     std::vector<Region> hash_regions;
@@ -54,10 +54,10 @@ struct State {
 
     std::atomic<uint64_t> frames{0};
     bool started = false;
-    std::atomic<uint64_t> vticks{0};         // virtual clock (19.2 MHz ticks)
+    std::atomic<uint64_t> vticks{0};         // virtual clock (guest ticks at clock::tick_hz())
     std::atomic<DWORD> frame_tid{0};         // the host thread that runs the frame boundary (the one whose sleeps move the clock)
     std::atomic<uint64_t> rng_ctr{0};
-    uint64_t vbase = 19200000ull * 100;      // the virtual clock starts at "100 seconds"
+    uint64_t vbase = 0;                      // the virtual clock starts at "100 seconds" (init)
     uint64_t chain = 0xcbf29ce484222325ull;
     uint64_t last_hash = 0;
     GameState gs;
@@ -366,7 +366,7 @@ uint64_t virtual_ticks() {
 // planet loading screen (docs/GAME_BOUNDARY.md, "Deterministic mode and the New Game stall").
 bool virtual_sleep(int64_t ns) {
     State& s = S();
-    const uint64_t add = ns > 0 ? static_cast<uint64_t>(ns) * 192 / 10000 : 0;
+    const uint64_t add = ns > 0 ? clock::ns_to_ticks(static_cast<uint64_t>(ns)) : 0;
     const DWORD ft = s.frame_tid.load(std::memory_order_relaxed);
     if (add == 0 || ft == 0 || ft == GetCurrentThreadId()) {
         if (add) s.vticks.fetch_add(add, std::memory_order_relaxed);
@@ -390,7 +390,7 @@ bool virtual_sleep(int64_t ns) {
 
 uint64_t virtual_wall_filetime() {
     State& s = S();
-    return 133000000000000000ull + (s.vticks.load() - s.vbase) * 10000ull / 192ull;     // 100 ns units, fixed epoch
+    return 133000000000000000ull + clock::ticks_to_ns(s.vticks.load() - s.vbase) / 100;     // 100 ns units, fixed epoch
 }
 
 void seeded_fill(void* p, size_t n) {
@@ -454,6 +454,7 @@ bool init() {
     QueryPerformanceFrequency(&s.qpf);
     QueryPerformanceCounter(&s.t_start);
     s.t_last = s.t_start;
+    s.vbase = clock::tick_hz() * 100;
     s.vticks = s.vbase;
     s.rng_ctr = 0;
     if (s.det) {                                // guest time and random numbers come from here until shutdown

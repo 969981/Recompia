@@ -665,7 +665,7 @@ All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT
 | `out` | `testout` | Output folder: `result.json`, `trace.jsonl`, `shots/`. |
 | `deterministic` | `false` | Virtual clock (one frame = `clock_step_ticks`), seeded RNG, fixed wall-clock epoch. |
 | `seed` | `0x5EED5EED` | RNG seed of deterministic mode. |
-| `clock_step_ticks` | `320000` | Virtual ticks (19.2 MHz) per frame. |
+| `clock_step_ticks` | 1/60 s | Virtual ticks per frame at the system tick rate (31.25 MHz on Switch 2: 520833). |
 | `frame_source` | `hook` | `hook` (an entry hook on the game's frame update that the lifted game's sites file provides; Pokopia has none, so use `tick`), `tick` (`diag_frame_tick`), `svc:N` (a frame every N SVCs, bring-up), `manual` (the caller drives the frames). |
 | `trace` | `<out>/trace.jsonl` | Per-frame JSON lines; `none` disables. |
 | `record` / `replay` | empty | Record the live pad of every frame / feed a recorded input trace. |
