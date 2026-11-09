@@ -46,10 +46,13 @@ void logf(LogLevel l, const char* tag, const char* fmt, ...)
 #endif
     ;
 
-#define NXLOG_E(tag, ...) ::nxrt::logf(::nxrt::LogLevel::Error, tag, __VA_ARGS__)
-#define NXLOG_W(tag, ...) ::nxrt::logf(::nxrt::LogLevel::Warn, tag, __VA_ARGS__)
-#define NXLOG_I(tag, ...) ::nxrt::logf(::nxrt::LogLevel::Info, tag, __VA_ARGS__)
-#define NXLOG_D(tag, ...) do { if (::nxrt::log_enabled(::nxrt::LogLevel::Debug)) ::nxrt::logf(::nxrt::LogLevel::Debug, tag, __VA_ARGS__); } while (0)
-#define NXLOG_T(tag, ...) do { if (::nxrt::log_enabled(::nxrt::LogLevel::Trace)) ::nxrt::logf(::nxrt::LogLevel::Trace, tag, __VA_ARGS__); } while (0)
+// Every level tests the filter first, so the arguments (strings built for the line, locks taken by a getter) are not evaluated for a level
+// that is off. A line printed before log_init starts the log (the level is Info until then, so E, W and I always reach logf).
+#define NXLOG_AT(lvl, tag, ...) do { if (::nxrt::log_enabled(lvl)) ::nxrt::logf(lvl, tag, __VA_ARGS__); } while (0)
+#define NXLOG_E(tag, ...) NXLOG_AT(::nxrt::LogLevel::Error, tag, __VA_ARGS__)
+#define NXLOG_W(tag, ...) NXLOG_AT(::nxrt::LogLevel::Warn, tag, __VA_ARGS__)
+#define NXLOG_I(tag, ...) NXLOG_AT(::nxrt::LogLevel::Info, tag, __VA_ARGS__)
+#define NXLOG_D(tag, ...) NXLOG_AT(::nxrt::LogLevel::Debug, tag, __VA_ARGS__)
+#define NXLOG_T(tag, ...) NXLOG_AT(::nxrt::LogLevel::Trace, tag, __VA_ARGS__)
 
 }  // namespace nxrt
