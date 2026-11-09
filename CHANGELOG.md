@@ -33,7 +33,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed doubled dialogue text above 1920x1080 (#267) and the story getting stuck above 60 fps (#297)
 
 ### Gameplay
-- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
+- Added a camera aim option: abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when an ability starts. With it on, the game also runs in its Joy-Con mouse mode during normal play (with any controller or the mouse; the aiming stays the camera aim). It is **off by default**: turn it on in **Settings > Game > Gameplay** or with `[pkp] camera_aim = 1` in `pkp.ini`. Needs **Set up again** once (new hooks)
 - Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Performance
