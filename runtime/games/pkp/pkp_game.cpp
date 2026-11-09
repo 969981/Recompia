@@ -41,7 +41,6 @@ void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
 void frame_all(bool in_game, double step_seconds, play::GameFrame* out) {
     linkplay_frame();   // the first frame checks main (loaded by now) for Interact everywhere
     play_frame(in_game, step_seconds, out);
-    aim_frame(in_game);
 }
 void settings_changed_all(const play::Settings& s) {
     play_settings_changed(s);
