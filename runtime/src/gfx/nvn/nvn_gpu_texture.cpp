@@ -2850,7 +2850,7 @@ struct RbConfig {
     int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: 0, flush at once; -2: one frame at the limiter's target, 33 ms when unknown)
     bool check = false;         // [nvn] readback_check
     bool log = false;           // [nvn] readback_log
-    bool defer = true;          // [nvn] readback_defer
+    bool defer = false;         // [nvn] readback_defer (off: it froze the game, see CONFIG.md)
 };
 const RbConfig& rb_config() {
     static const RbConfig c = [] {
@@ -2859,7 +2859,7 @@ const RbConfig& rb_config() {
         r.grace_ms = nxrt::config_get_int("nvn", "readback_grace_ms", -1);
         r.check = nxrt::config_get_bool("nvn", "readback_check", false);
         r.log = nxrt::config_get_bool("nvn", "readback_log", false);
-        r.defer = nxrt::config_get_bool("nvn", "readback_defer", true);
+        r.defer = nxrt::config_get_bool("nvn", "readback_defer", false);
         NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s, defer %s", r.async ? "on" : "off",
                 r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off",
                 r.defer ? "on" : "off");
