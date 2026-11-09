@@ -101,8 +101,6 @@ std::string format_settings(const Settings& s) {
     kv("scene_scale", std::to_string(s.extras.upscale.scene_scale));
     kv("fsr_dll", s.extras.upscale.fsr_dll);
     kv("dlss_dll", s.extras.upscale.dlss_dll);
-    kv("xess_dll", s.extras.upscale.xess_dll);
-    kv("frame_generation", flag(s.extras.upscale.frame_generation));
 
     o += "\n[latency]\n";
     kv("mode", kLatencyWords[static_cast<int>(s.extras.latency.mode)]);

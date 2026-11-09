@@ -51,8 +51,6 @@ struct UpscaleSettings {
     int scene_scale = 100;           // 25 .. 100: percent of the output size the 3D scene is rendered at (the game's own dynamic-resolution path; HUD and post stay native)
     std::string fsr_dll;             // FidelityFX API DLL for FSR 3 (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; empty: next to the exe)
     std::string dlss_dll;            // folder (or sl.interposer.dll path) of the Streamline + DLSS DLLs (empty: next to the exe)
-    std::string xess_dll;            // libxess.dll the player supplies (empty: not used)
-    bool frame_generation = false;   // FSR 3 frame interpolation (needs the FSR 3 mode)
 };
 
 enum class LatencyMode : uint8_t { Off = 0, Auto, On, Boost };   // Auto: whichever of Reflex / Anti-Lag 2 the GPU has; Boost: Reflex boost

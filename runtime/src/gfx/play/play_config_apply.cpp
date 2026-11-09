@@ -44,6 +44,8 @@ static bool retired_key(Sec sec, const std::string& k) {
         {Sec::Tweaks, "fast_menus"}, {Sec::Tweaks, "menu_speed"},
         {Sec::Mouse, "alt_camera"}, {Sec::Mouse, "alt_sensitivity"}, {Sec::Mouse, "alt_yaw"}, {Sec::Mouse, "alt_pitch"}, {Sec::Mouse, "menu_touch"},
         {Sec::Pad, "alt_orbit"},
+        {Sec::Upscale, "xess_dll"}, {Sec::Upscale, "frame_generation"},
+        {Sec::Display, "view_distance"},   // removed in #249: the view distance is the console's
     };
     for (const Retired& r : kRetired)
         if (r.sec == sec && k == r.key) return true;
@@ -326,7 +328,6 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "lod_bias") return set_real(-2.0, 2.0, &s->display.lod_bias);
             if (k == "bloom") return set_bool(&s->display.bloom);
             if (k == "chromatic_aberration") return set_bool(&s->display.chromatic_aberration);
-            if (k == "view_distance") return true;   // removed (#249): the view distance is the console's; old files still load
             if (k == "quality_preset") {
                 const QualityPresetInfo* q = find_quality_preset(v);
                 if (!q) {
@@ -403,12 +404,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
                 u.dlss_dll = v;
                 return true;
             }
-            if (k == "xess_dll") {
-                u.xess_dll = v;
-                return true;
-            }
             if (k == "scene_scale") return set_int(25, 100, &u.scene_scale);
-            if (k == "frame_generation") return set_bool(&u.frame_generation);
             break;
         }
         case Sec::Latency: {

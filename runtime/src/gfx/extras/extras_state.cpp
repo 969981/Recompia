@@ -68,8 +68,6 @@ Settings settings_from_config() {
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");
     s.upscale.dlss_dll = config_get_str("upscale", "dlss_dll", "");
-    s.upscale.xess_dll = config_get_str("upscale", "xess_dll", "");
-    s.upscale.frame_generation = config_get_bool("upscale", "frame_generation", false);
 
     const std::string lm = lower(config_get_str("latency", "mode", "off"));
     s.latency.mode = lm == "auto" ? LatencyMode::Auto : lm == "on" || lm == "1" || lm == "true" ? LatencyMode::On : lm == "boost" ? LatencyMode::Boost : LatencyMode::Off;

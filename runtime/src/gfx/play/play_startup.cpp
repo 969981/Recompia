@@ -49,8 +49,6 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("upscale", "scene_scale")) r.upscale.scene_scale = env.upscale.scene_scale;
     if (config_has("upscale", "fsr_dll")) r.upscale.fsr_dll = env.upscale.fsr_dll;
     if (config_has("upscale", "dlss_dll")) r.upscale.dlss_dll = env.upscale.dlss_dll;
-    if (config_has("upscale", "xess_dll")) r.upscale.xess_dll = env.upscale.xess_dll;
-    if (config_has("upscale", "frame_generation")) r.upscale.frame_generation = env.upscale.frame_generation;
     if (config_has("latency", "mode")) r.latency.mode = env.latency.mode;
     if (config_has("latency", "log_timings")) r.latency.log_timings = env.latency.log_timings;
     // [picture]: a preset or any of the four keys in mpr.ini / the environment replaces the file's picture controls as a whole
