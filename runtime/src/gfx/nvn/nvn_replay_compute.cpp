@@ -33,7 +33,7 @@ static std::vector<ShadowUse> g_shadow_uses;                       // this dispa
 bool g_shadowing = false;
 static bool g_sh_barrier = false, g_sh_copied = false;             // this dispatch: the barrier before the copies in is recorded / some copy in is
 static uint64_t g_sh_uses = 0, g_sh_from_mirror = 0, g_sh_bytes_mirror = 0, g_sh_bytes_pool = 0, g_sh_bytes_out = 0, g_sh_no_span = 0;   // summary line
-static uint64_t g_sh_direct = 0, g_sh_direct_filled = 0, g_sh_bytes_fill = 0, g_sh_bytes_dout = 0, g_sh_merged = 0, g_sh_flushes = 0;
+static uint64_t g_sh_direct = 0, g_sh_direct_filled = 0, g_sh_bytes_fill = 0, g_sh_merged = 0, g_sh_flushes = 0;
 constexpr VkDeviceSize kShadowMax = 16ull << 20;
 
 static bool compute_shadows_on() {
