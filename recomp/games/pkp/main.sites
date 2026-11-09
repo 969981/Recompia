@@ -121,12 +121,6 @@ midhook 0x71006d9d70
 midhook 0x71006f7918
 #   StartAction 0x710027da60 right before it records the started action (w28 = action id, x19 = action component): the character turns to the aim
 midhook 0x710027e5d8
-#   reach ([pkp] camera_aim_reach): the target query once its start cell is final (x28 = character, cell x29 - 0xb8 / - 0xb4), the swing
-#   preview right before its shape constructor call (x22 = character, position x29 - 0x60) and the live hit once its position is chosen
-#   (w22 = tool path, x27 = character, position x29 - 0x80): moved to the column of a farther camera ray hit
-midhook 0x71002e1de8
-midhook 0x71007226bc
-midhook 0x71006da610
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
