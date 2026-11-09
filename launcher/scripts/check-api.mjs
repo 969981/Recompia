@@ -21,7 +21,7 @@ const camel = (n) => n.replace(/_(\w)/g, (_, c) => c.toUpperCase());
 const diff = (a, b) => [...a].filter((x) => !b.has(x)).sort();
 
 const main = readFileSync(join(root, 'src-tauri/src/main.rs'), 'utf8');
-const list = main.match(/generate_handler!\[([\s\S]*?)\]/)?.[1] ?? '';
+const list = main.match(/generate_handler!\[([\s\S]*?)\n\s*\]\)/)?.[1] ?? '';
 const handler = new Set([...list.matchAll(/(?:\w+::)?(\w+)\s*,/g)].map((m) => m[1]));
 
 const apiSrc = readFileSync(join(root, 'src/api.js'), 'utf8');

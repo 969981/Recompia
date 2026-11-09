@@ -43,6 +43,7 @@ mod shaders;
 mod steam;
 mod steam_cmds;
 mod storage;
+#[cfg(debug_assertions)]
 mod testhook;
 mod update;
 mod update_cmds;
@@ -100,22 +101,12 @@ fn main() {
                     st.set_cleaning(false);
                 });
             }
-            // Test runs drive the page without input: PKP_LAUNCHER_EVAL_FILE=<path>. A JS file written there is run in the page once and
-            // deleted; it reports back through document.title (the window title). WebView2's DevTools port does not open for Tauri apps here.
-            if let Ok(path) = std::env::var("PKP_LAUNCHER_EVAL_FILE") {
-                if let Some(win) = app.get_webview_window("main") {
-                    std::thread::spawn(move || loop {
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                        if let Ok(js) = std::fs::read_to_string(&path) {
-                            let _ = std::fs::remove_file(&path);
-                            let _ = win.eval(&js);
-                        }
-                    });
-                }
-            }
+            #[cfg(debug_assertions)]
+            testhook::drive_page(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(debug_assertions)]
             testhook::test_report,
             config::get_config,
             readiness::launcher_state,
