@@ -2,6 +2,7 @@
 // Play mode: loading the settings, start and stop, the process exit and the public API (play.h).
 #include "play_state.h"
 #include "nxrt/text.h"
+#include "nxrt/vi_sinks.h"
 
 namespace nxrt::play {
 using namespace detail;
@@ -190,6 +191,8 @@ bool start(const StartOptions& opt) {
     tt::set_mouse_sink(&input::mouse_delta_add);
     tt::set_key_sink(&key_sink);
     if (st.renderer) tt::set_screenshot_provider(&screenshot_provider, nullptr);
+    if (st.renderer) tt::set_screenshot_flush(&gfx::wait_screenshot_writes);
+    set_hdr_luminance_sink(&extras::hdr_note_layer_luminance);
     if (const std::string script = config_get_str("play", "selftest", ""); !script.empty()) {
         std::string err;
         if (!st.selftest.parse(script, &err)) {
@@ -267,6 +270,7 @@ void stop() {
     if (!st.started) return;
     vpad_shutdown();      // a virtual pad from a test script does not outlive play mode
     if (const GamePlay* gp = game_play(); gp && gp->remove) gp->remove();
+    set_hdr_luminance_sink(nullptr);   // (the screenshot flush stays: a run can end after play stops, and it only waits on a counter)
     svc_set_busy_hook(0, nullptr);
     kernel::set_blocked_hook(0, nullptr);
     if (st.hook_update) hook_remove(st.hook_update);

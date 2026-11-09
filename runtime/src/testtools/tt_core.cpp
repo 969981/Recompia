@@ -28,7 +28,6 @@
 #include "nxrt/tt.h"
 #include "tt_internal.h"
 
-namespace nxrt::gfx { void wait_screenshot_writes(); }
 
 namespace nxrt::tt {
 namespace {
@@ -81,6 +80,7 @@ struct State {
     std::string verdict;
 
     ScreenshotFn shot_fn = nullptr;
+    void (*shot_flush)() = nullptr;
     void* shot_user = nullptr;
     MouseSinkFn mouse_sink = nullptr;
     KeySinkFn key_sink = nullptr;
@@ -550,6 +550,7 @@ int exit_code() { return S().exit_code; }
 const std::vector<Checkpoint>& checkpoints() { return S().cps; }
 uint64_t last_hash() { return S().last_hash; }
 void set_screenshot_provider(ScreenshotFn fn, void* user) { S().shot_fn = fn; S().shot_user = user; }
+void set_screenshot_flush(void (*fn)()) { S().shot_flush = fn; }
 void set_mouse_sink(MouseSinkFn fn) { S().mouse_sink = fn; }
 void set_key_sink(KeySinkFn fn) { S().key_sink = fn; }
 
@@ -631,7 +632,7 @@ void end_run(int code, const char* verdict, const std::string& message) {
         flush_files(s);
         if (s.trace) std::fflush(s.trace);
     }
-    nxrt::gfx::wait_screenshot_writes();   // shots are written on a worker
+    if (void (*flush)() = S().shot_flush) flush();   // shots are written on a worker
     default_exit(code);
 }
 
