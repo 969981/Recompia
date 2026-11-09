@@ -36,6 +36,8 @@ Sec fixed_sec(const std::string& key);
 // Actions and contexts of older files that no longer exist (compared like parse_act / parse_ctx do: case, '-' and '_'). A [switch] row, a
 // binding or a [bindings.<ctx>] section that uses one is skipped without a warning.
 bool retired_act(const std::string& name);
+// The two retired actions that pressed a button by default (confirm = A, back = B): the action a binding of an older file gets in their place.
+const char* replaced_act(const std::string& name);
 bool retired_ctx(const std::string& name);
 
 // play_config_migrate.cpp

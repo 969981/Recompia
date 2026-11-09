@@ -120,7 +120,8 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             Binding b;
             b.in = id;
             b.ctx = ctx;
-            if (retired_act(tok[0])) continue;   // an action that no longer exists: the binding is dropped
+            if (const char* now = replaced_act(tok[0])) tok[0] = now;   // confirm / back of an older file: the button they pressed
+            if (retired_act(tok[0])) continue;   // an action that no longer exists and pressed nothing: the binding is dropped
             if (!parse_act(tok[0], &b.act)) {
                 bail(i, "unknown action '" + tok[0] + "'");
                 return false;

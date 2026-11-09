@@ -68,6 +68,13 @@ bool retired_act(const std::string& name) {
     return false;
 }
 
+const char* replaced_act(const std::string& name) {
+    const std::string k = key_form(name);
+    if (k == "confirm") return "btn_a";
+    if (k == "back") return "btn_b";
+    return nullptr;
+}
+
 bool retired_ctx(const std::string& name) {
     const std::string k = key_form(name);
     return k == "alt" || k == "inspect";
