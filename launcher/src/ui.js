@@ -1,6 +1,5 @@
 // The UI kit. Controls return HTML strings of real inputs, restyled in components.css; pages listen with ordinary
 // `change` / `input` events (delegate on the page root). Inside row() they are named by the row's label.
-import { invoke } from '@tauri-apps/api/core';
 import {
   ArrowLeft, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Copy, Download, ExternalLink, FileArchive, FileText,
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
@@ -12,9 +11,6 @@ const ICONS = {
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
   Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
 };
-
-/** Calls a Rust command. */
-export const api = (cmd, args) => invoke(cmd, args);
 
 export const errText = (e) => (typeof e === 'string' ? e : e?.message ?? String(e));
 

@@ -4,7 +4,8 @@
 // A redraw must never pull a control from under the player: draw() waits while a text field has focus or the pointer is down, and
 // otherwise replaces only the rows whose markup changed. Writes are shown at once and undone from the files if they fail.
 import './settings.css';
-import { api, askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
+import { api } from '../api.js';
+import { askText, confirm, errText, esc, field, group, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { askCompact, store } from '../store.js';
 import { backupDetail, backupNow, backupText, runRestore } from './backups.js';
 import { canUpdate, gamePhase } from '../action.js';
@@ -29,10 +30,10 @@ const fieldOf = (t) => {
 
 export async function render(el, ctx) {
   const [dump, cfg, dlssInfo, overviewInfo] = await Promise.all([
-    api('read_settings'),
-    api('get_config'),
-    api('dlss_status').catch(() => null),
-    api('get_overview').catch(() => null),
+    api.readSettings(),
+    api.getConfig(),
+    api.dlssStatus().catch(() => null),
+    api.getOverview().catch(() => null),
   ]);
   let src = makeSource(dump, cfg);
   let dlss = dlssInfo;
@@ -252,10 +253,10 @@ export async function render(el, ctx) {
   /** Whatever the files say now. Runs inside the queue, so it must not wait for it; from outside see reload. */
   async function readBack(force = false) {
     const [d, c, s, o] = await Promise.all([
-      api('read_settings'),
-      api('get_config'),
-      api('dlss_status').catch(() => dlss),
-      api('get_overview').catch(() => overview),
+      api.readSettings(),
+      api.getConfig(),
+      api.dlssStatus().catch(() => dlss),
+      api.getOverview().catch(() => overview),
     ]);
     src = unsaved.reduce(applyEdits, makeSource(d, c));   // what is still on its way stays on screen
     gameDir = d.game_dir;
@@ -268,8 +269,8 @@ export async function render(el, ctx) {
 
   async function persist(edits, reloads) {
     const { ini, config } = splitEdits(edits);
-    if (ini.length) await api('write_settings', { edits: ini });
-    if (config) await api('save_config', { config: { ...(await api('get_config')), ...config } });
+    if (ini.length) await api.writeSettings({ edits: ini });
+    if (config) await api.saveConfig({ config: { ...(await api.getConfig()), ...config } });
     if (config && 'channel' in config) await store.refreshNews(true);   // another channel, another list of releases
     if (reloads) await store.refresh();
     saved();
@@ -350,7 +351,7 @@ export async function render(el, ctx) {
   /** store.fetchDlss() runs fetch_dlss; the sidebar pill shows it. */
   async function downloadDlss() {
     await store.fetchDlss();
-    dlss = await api('dlss_status');
+    dlss = await api.dlssStatus();
     saved();
     draw();
   }
@@ -391,7 +392,7 @@ export async function render(el, ctx) {
 
   // ---- buttons ------------------------------------------------------------------------------------------------------------------
 
-  const OPEN = { save: () => api('open_save_dir'), game: () => api('open_game_dir') };
+  const OPEN = { save: () => api.openSaveDir(), game: () => api.openGameDir() };
 
   async function runImport(what, source, html) {
     if (!(await confirm({ title: `Import ${what}?`, html, body: html ? '' : IMPORT_FACTS, ok: 'Import' }))) return;
@@ -400,7 +401,7 @@ export async function render(el, ctx) {
     draw();
     try {
       await flush();
-      const r = await api('import_save', { source });
+      const r = await api.importSave({ source });
       importResult = r.backup
         ? { kind: 'ok', text: `Imported ${r.files} files. Your previous save is kept in`, path: r.backup }
         : { kind: 'ok', text: `Imported ${r.files} files. There was no previous save.` };
@@ -427,7 +428,7 @@ export async function render(el, ctx) {
 
   async function refreshSteam() {
     try {
-      steam = await api('steam_status');
+      steam = await api.steamStatus();
     } catch (e) {
       console.warn('steam_status', e);
     }
@@ -435,12 +436,12 @@ export async function render(el, ctx) {
   }
 
   /** Adds or removes one Steam shortcut ('game' starts the game at once, 'launcher' opens this window) and says what happened. */
-  async function steamDo(cmd, target) {
+  async function steamDo(command, target) {
     if (steamBusy) return;
     steamBusy = true;
     draw();
     try {
-      toast(await api(cmd, { target }), 'ok');
+      toast(await command({ target }), 'ok');
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -450,17 +451,17 @@ export async function render(el, ctx) {
 
   async function refreshBackups() {
     try {
-      backups = await api('backup_status');
+      backups = await api.backupStatus();
     } catch (e) {
       console.warn('backup_status', e);
     }
     draw();
   }
 
-  async function changeProfiles(cmd, args, done) {
+  async function changeProfiles(command, args, done) {
     try {
       await flush();
-      profiles = await api(cmd, args);
+      profiles = await command(args);
       await reload();
       toast(done, 'ok');
     } catch (e) {
@@ -473,7 +474,7 @@ export async function render(el, ctx) {
     async browse(arg) {
       const f = FIELDS[arg];
       const start = readField(f, src) || f.placeholder(env()) || null;
-      const picked = await api('pick_folder', { title: f.pick, start });
+      const picked = await api.pickFolder({ title: f.pick, start });
       if (picked) {
         dropLater(f.id);
         const input = el.querySelector(`#${f.id}`);
@@ -490,19 +491,19 @@ export async function render(el, ctx) {
     },
     import: (arg, name) => runImport(`from ${name}`, arg),
     async 'import-folder'() {
-      const picked = await api('pick_folder', { title: 'Choose a folder with the save', start: null });
+      const picked = await api.pickFolder({ title: 'Choose a folder with the save', start: null });
       if (picked) await runImport('this save', picked, `<p class="path selectable">${esc(picked)}</p><p>${esc(IMPORT_FACTS)}</p>`);
     },
     async 'profile-new'() {
       const name = await askText({ title: 'New profile', body: 'It starts with an empty save. Your other saves are not touched.', label: 'Profile name', ok: 'Add' });
       if (name === '') toast('Type a name for the profile', 'error');
-      else if (name) await changeProfiles('profile_add', { name }, `Profile ${name} added`);
+      else if (name) await changeProfiles(api.profileAdd, { name }, `Profile ${name} added`);
     },
-    'profile-use': (arg, name) => changeProfiles('profile_select', { id: arg }, `Playing as ${name}`),
+    'profile-use': (arg, name) => changeProfiles(api.profileSelect, { id: arg }, `Playing as ${name}`),
     async 'profile-rename'(arg, name) {
       const next = await askText({ title: 'Rename profile', label: 'Profile name', value: name, ok: 'Rename' });
       if (next === '') toast('Type a name for the profile', 'error');
-      else if (next && next !== name) await changeProfiles('profile_rename', { id: arg, name: next }, 'Profile renamed');
+      else if (next && next !== name) await changeProfiles(api.profileRename, { id: arg, name: next }, 'Profile renamed');
     },
     async 'profile-remove'(arg, name) {
       const yes = await confirm({
@@ -510,14 +511,14 @@ export async function render(el, ctx) {
         body: 'This only removes the profile from the list. Its save stays in the save folder, so nothing is lost.',
         ok: 'Remove', danger: true,
       });
-      if (yes) await changeProfiles('profile_remove', { id: arg }, 'Profile removed');
+      if (yes) await changeProfiles(api.profileRemove, { id: arg }, 'Profile removed');
     },
     'change-files': () => ctx.go('setup'),
     async 'setup-again'() {
       const yes = await confirm({ title: 'Set up again?', body: 'This builds the game and prepares its shaders again, which takes a while. Your saves are kept.', ok: 'Set up' });
       if (yes && (await store.startSetup())) ctx.go('home');
     },
-    'setup-log': () => api('open_setup_log'),
+    'setup-log': () => api.openSetupLog(),
     'compact-shaders': () => askCompact(),
     async 'expand-shaders'() {
       const st = store.state.storage;
@@ -538,14 +539,14 @@ export async function render(el, ctx) {
         location.reload();
         return;
       }
-      repairBackup = await api('repair_last').catch(() => null);
+      repairBackup = await api.repairLast().catch(() => null);
       await reload().catch((e) => console.error(e));
       draw();
     },
     async 'repair-undo'() {
       await flush();
       if (await runUndo(repairBackup)) {
-        repairBackup = await api('repair_last').catch(() => null);
+        repairBackup = await api.repairLast().catch(() => null);
         await reload().catch((e) => console.error(e));
         toast('Reload the launcher (close and open it) to use the restored launcher settings', 'ok');
       }
@@ -561,16 +562,16 @@ export async function render(el, ctx) {
     },
     update: () => store.installUpdate(),
     'clock-real': (id) => commit(FIELDS[id], 0),
-    'open-url': (url) => api('open_release_url', { url }),
+    'open-url': (url) => api.openReleaseUrl({ url }),
     async 'builds-open'() {
       await flush();
       await chooseBuild(src.config.channel === 'testing' ? 'testing' : 'stable', false);
     },
-    'open-log': () => api('open_game_file', { name: 'pkp.log' }),
-    'steam-add-game': () => steamDo('steam_add', 'game'),
-    'steam-add-launcher': () => steamDo('steam_add', 'launcher'),
-    'steam-remove-game': () => steamDo('steam_remove', 'game'),
-    'steam-remove-launcher': () => steamDo('steam_remove', 'launcher'),
+    'open-log': () => api.openGameFile({ name: 'pkp.log' }),
+    'steam-add-game': () => steamDo(api.steamAdd, 'game'),
+    'steam-add-launcher': () => steamDo(api.steamAdd, 'launcher'),
+    'steam-remove-game': () => steamDo(api.steamRemove, 'game'),
+    'steam-remove-launcher': () => steamDo(api.steamRemove, 'launcher'),
     async 'backup-now'() {
       await flush();
       await backupNow();
@@ -581,7 +582,7 @@ export async function render(el, ctx) {
       await runRestore();
       await refreshBackups();
     },
-    'backup-open': () => api('open_backup_dir'),
+    'backup-open': () => api.openBackupDir(),
   };
 
   // ---- the page -----------------------------------------------------------------------------------------------------------------
@@ -650,17 +651,17 @@ export async function render(el, ctx) {
 
   draw(true);
   store.refreshStorage();
-  api('profiles_list').then((list) => {
+  api.profilesList().then((list) => {
     profiles = list;
     draw();
   }).catch((e) => console.warn('profiles_list', e));
-  api('repair_last').then((info) => {
+  api.repairLast().then((info) => {
     repairBackup = info;
     draw();
   }).catch((e) => console.warn('repair_last', e));
   refreshBackups();
   refreshSteam();
-  api('save_sources').then((list) => {
+  api.saveSources().then((list) => {
     sources = list;
     draw();
   }).catch((e) => console.warn('save_sources', e));

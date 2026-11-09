@@ -2,7 +2,8 @@
 // someone joins Testing (the Testing builds are listed right away) and from Settings > About > Choose a version. The install itself is
 // store.installVersion (the same download, check and restart as Update); the backend refuses an older build that was not confirmed.
 import './news.css';
-import { api, confirm, esc, icon } from '../ui.js';
+import { api } from '../api.js';
+import { confirm, esc, icon } from '../ui.js';
 import { formatDate, render as renderNote } from '../markdown.js';
 import { actionLabel, canConfirm, forChannel, versionOf, warningFor } from '../builds-model.js';
 
@@ -11,7 +12,7 @@ const relationMark = (b) => (b.relation === 'installed' ? 'Installed' : b.relati
 /** The builds of a channel (works for Testing before the channel is saved). Resolves [] when they cannot be loaded. */
 export async function loadBuilds(channel, refresh = false) {
   try {
-    return forChannel(await api('list_builds', { channel, refresh }), channel);
+    return forChannel(await api.listBuilds({ channel, refresh }), channel);
   } catch (e) {
     console.warn('list_builds', e);
     return [];

@@ -1,7 +1,8 @@
 // Home: one button that does the next right thing, what went wrong if anything did, and the newest releases.
 import './home.css';
 import logoUrl from '../art/logo.png';
-import { api, errText, esc, icon, toast } from '../ui.js';
+import { api } from '../api.js';
+import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction } from '../action.js';
 import { readIni, viewOf } from '../linkplay-model.js';
@@ -145,9 +146,9 @@ export function render(el, ctx) {
     if (!t || t.disabled) return;
     if (t.id === 'primary') store.perform(primaryAction(store.state).run, ctx.go);
     if (t.id === 'link-chip') ctx.go('linkplay');
-    if (t.id === 'discord-chip') api('open_release_url', { url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
+    if (t.id === 'discord-chip') api.openReleaseUrl({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
-    if (t.dataset.open) api('open_game_file', { name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
+    if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
       case 'update': return store.installUpdate();
       case 'cancel': return store.cancelUpdate();
@@ -165,14 +166,14 @@ export function render(el, ctx) {
   const discordChip = `<button class="chip on-art" id="discord-chip">${icon('globe')}Discord</button>`;
   const drawChips = () => { part('link').innerHTML = profileChip + linkChip + discordChip; };
   drawChips();
-  api('read_settings').then((data) => {
+  api.readSettings().then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}Link Play: ${LINK_PLAY_LABEL[viewOf(readIni(data.pkp))]}</button>`;
     drawChips();
   }).catch((e) => console.warn('read_settings', e));
   // with more than one profile the player picks who plays here; the choice is the Settings > Saves list
   const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="Profile" ${busy ? 'disabled' : ''}>${
     list.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === list.active ? 'selected' : ''}>Profile: ${esc(p.name)}</option>`).join('')}</select>`;
-  const loadProfiles = () => api('profiles_list').then((list) => {
+  const loadProfiles = () => api.profilesList().then((list) => {
     profileChip = list.profiles.length > 1 ? profileSelect(list, ['starting', 'running', 'finishing'].includes(gamePhase(store.state.game))) : '';
     drawChips();
   }).catch((e) => console.warn('profiles_list', e));
@@ -180,7 +181,7 @@ export function render(el, ctx) {
   el.addEventListener('change', async (e) => {
     if (e.target.id !== 'profile-pick') return;
     try {
-      await api('profile_select', { id: e.target.value });
+      await api.profileSelect({ id: e.target.value });
     } catch (err) {
       toast(errText(err), 'error');
     }

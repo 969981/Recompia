@@ -2,7 +2,8 @@
 // written on opening. A choice or a field applies itself: a commit reads the whole page, so nothing half-written reaches pkp.ini.
 // Fields never redraw on commit (tabbing to the next field must keep its focus); only a mode, role or toggle change redraws, and that keeps focus.
 import './linkplay.css';
-import { api, errText, esc, field, group, icon, row, segmented, toast, toggle } from '../ui.js';
+import { api } from '../api.js';
+import { errText, esc, field, group, icon, row, segmented, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
@@ -22,10 +23,10 @@ const gameActive = (s) => ['starting', 'running', 'finishing'].includes(gamePhas
 const FIELDS = { 'lp-join': 'lanJoin', 'lp-relay': 'relay', 'lp-addr': 'visitAddr', 'lp-code-in': 'visitCode' };
 
 export async function render(el, ctx) {
-  let pkp = { ...(await api('read_settings')).pkp };
+  let pkp = { ...(await api.readSettings()).pkp };
   const mem = stored();
   const ui = uiFrom(pkp, mem);
-  let relay = await api('relay_status').catch(() => null);
+  let relay = await api.relayStatus().catch(() => null);
   // this PC's relay, remembered from last time, is only offered while it runs: the launcher just started, so it does not until the
   // toggle is turned on, and a host there would open the room on a relay that is not there (#239)
   if (!relay && /^127\./.test(ui.relay.trim())) ui.relay = '';
@@ -45,13 +46,13 @@ export async function render(el, ctx) {
   const isVisit = () => ui.view === 'internet' && ui.role === 'visit';
 
   async function save(edits) {
-    await api('write_settings', { edits });
+    await api.writeSettings({ edits });
     pkp = applyEdits(pkp, edits);
     ui.legacy = readIni(pkp).legacy;
   }
 
   async function loadLan() {
-    lan = await api('lan_report').catch(() => null);
+    lan = await api.lanReport().catch(() => null);
     drawLan();
   }
 
@@ -59,13 +60,13 @@ export async function render(el, ctx) {
   async function loadPublicIp() {
     if (publicIp || asking) return;
     asking = true;
-    publicIp = await api('public_ip').catch(() => null) ?? null;
+    publicIp = await api.publicIp().catch(() => null) ?? null;
     asking = false;
     patch(part('lp-share'), shareHtml());
   }
 
   async function loadGameCode() {
-    const c = await api('room_code_host').catch(() => null);
+    const c = await api.roomCodeHost().catch(() => null);
     gameCode = c === dropped ? null : c;
     drawCode();
   }
@@ -236,7 +237,7 @@ export async function render(el, ctx) {
       problems['lp-code-in'] = '';
       if (code) {
         try {
-          ui.visitCode = await api('room_code_check', { code });
+          ui.visitCode = await api.roomCodeCheck({ code });
           const input = part('lp-code-in');
           if (input) input.value = ui.visitCode;
         } catch (e) { problems['lp-code-in'] = errText(e); }
@@ -250,7 +251,7 @@ export async function render(el, ctx) {
     let edits = editsFor(ui, pkp);
     if (!edits?.length) return;
     if (isHost() && !ui.hostCode) {
-      ui.hostCode = mem.hostCode || await api('room_code_new');
+      ui.hostCode = mem.hostCode || await api.roomCodeNew();
       edits = editsFor(ui, pkp);
     }
     await save(edits);
@@ -302,13 +303,13 @@ export async function render(el, ctx) {
   const setRelay = (on) => inOrder(async () => {
     try {
       if (on) {
-        relay = await api('relay_start', { port: RELAY_PORT });
+        relay = await api.relayStart({ port: RELAY_PORT });
         await loadLan();
         if (!ui.relay.trim()) ui.relay = `127.0.0.1:${relayPort(relay)}`;
         await commit();   // also when the field was filled: the file may still say join:<ip>, and the game could not host (#239)
       } else {
         const own = `127.0.0.1:${relayPort(relay)}`;   // left pointing at the relay just stopped, the game could not host
-        await api('relay_stop');
+        await api.relayStop();
         relay = null;
         if (ui.relay.trim() === own) {
           ui.relay = '';
@@ -322,7 +323,7 @@ export async function render(el, ctx) {
   });
 
   const newCode = () => inOrder(async () => {
-    const code = await api('room_code_new');
+    const code = await api.roomCodeNew();
     ui.hostCode = code;
     remember({ hostCode: code });
     dropped = gameCode;
@@ -407,7 +408,7 @@ export async function render(el, ctx) {
 
   const timer = setInterval(async () => {
     if (document.hidden || !isHost()) return;
-    const now = await api('relay_status').catch(() => relay);
+    const now = await api.relayStatus().catch(() => relay);
     const flipped = !!now !== !!relay;
     relay = now;
     if (flipped) {
