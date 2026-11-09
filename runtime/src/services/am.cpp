@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -976,7 +977,9 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
                 NXLOG_I("am", "library applet 0x%x started (%s): it ends as cancelled by the player", a->full_id, why);
                 applet_finish(*a);
             } else {
-                NXLOG_W("am", "library applet 0x%x started (not one Pokopia was seen to launch): it ends at once with no output", a->full_id);
+                const game::Info& gi = game::info();
+                NXLOG_W("am", "library applet 0x%x started (not one %s was seen to launch): it ends at once with no output", a->full_id,
+                        *gi.short_title ? gi.short_title : (*gi.title ? gi.title : "the game"));
                 applet_finish(*a);
             }
             return 0;

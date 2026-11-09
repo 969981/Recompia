@@ -28,6 +28,7 @@
 #include "nxrt/services_api.h"
 #include "coop.h"
 #include "../net/relay_server.h"
+#include "nxrt/game.h"
 #include "../net/text_util.h"
 #include "../net/vnet.h"
 #include "services_internal.h"
@@ -203,7 +204,7 @@ coop_node* native_node() {
     const char* role = c.role == COOP_ROLE_JOIN ? "join" : c.role == COOP_ROLE_HOST ? "host" : "auto";
     if (c.role == COOP_ROLE_JOIN)   // a join:<ip> left over from a visit: Invite Others makes a room nobody can reach (#239)
         NXLOG_W("net", "ldn: [net] mode = %s: this PC can only visit that host. To host (Invite Others to Visit), set [net] mode = auto in "
-                "pkp.ini, or pick Host on the launcher's Link Play page", mode.c_str());
+                "%s, or pick Host on the launcher's Link Play page", mode.c_str(), *game::info().game_ini ? game::info().game_ini : "the ini file");
     NXLOG_I("net", "ldn: protocol native (pokopia-native's co-op), mode %s, port %u, %s", role, c.port,
             c.scope == COOP_SCOPE_INTERNET ? "internet play (links prove the room code; not encrypted)"
             : c.scope == COOP_SCOPE_LOOPBACK ? "loopback peers only" : "LAN peers only");
