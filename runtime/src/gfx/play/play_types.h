@@ -128,6 +128,8 @@ enum class PadSrc : uint8_t {
     LeftShoulder, RightShoulder, LeftTrigger, RightTrigger,
     Start, Back, LeftStick, RightStick,                   // the two sticks are clicks
     DpadUp, DpadDown, DpadLeft, DpadRight,
+    RightPaddle1, LeftPaddle1, RightPaddle2, LeftPaddle2,   // rear grips: Steam Controller R4, L4, R5, L5 (Xbox Elite, DualSense Edge and Joy-Con paddles too)
+    Touchpad, TouchpadRight,                                // trackpad clicks: the touchpad button (a PlayStation touchpad, the Steam Controller's left trackpad), the Steam Controller's right trackpad
     kCount
 };
 constexpr int kPadSrcCount = static_cast<int>(PadSrc::kCount);
@@ -142,7 +144,8 @@ std::string pad_combo_text(uint32_t bits);
 
 struct PadSettings {
     uint64_t remap[kPadSrcCount] = {kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault,
-                                    kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault};
+                                    kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault,
+                                    kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault, kPadDefault};
     bool label_abxy = false;       // false (default): Switch layout, by position (right = Switch A, bottom = B); true: Xbox layout, by label (A = A)
     double stick_deadzone = 0.10;  // left stick, radial, 0..0.5, applied before the game's own dead zone
     double right_deadzone = 0.10;  // right stick (looking), same rule

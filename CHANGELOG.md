@@ -24,6 +24,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Pick it under Button icons (launcher Controls tab, or F1 > Controller), or set `[prompts] style = steam` in `controls.ini`
   - Automatic uses it when the last pad you used is a Steam Controller that the game sees directly (with Steam Input on, Steam shows the game an Xbox pad, so you get Xbox icons there)
   - The art is Kenney's Input Prompts (CC0)
+- Steam Controller **rear grips and trackpad clicks** can now be given a Switch button (they did nothing before)
+  - Controls tab > Button layout (launcher, and F1 in game) has six new rows: the four rear grips (R4, L4, R5, L5), the left trackpad click (also a PlayStation touchpad click) and the right trackpad click. `Find a button...` finds them too
+  - They press nothing until you choose a button, so nothing changes for anyone who does not
+  - In `controls.ini` they are `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `touchpad_right` under `[padmap]`
+  - With the Steam Controller icons on, a button given to a grip or trackpad shows the grip or trackpad icon
+- Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
 
 ### What to test
 - **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
