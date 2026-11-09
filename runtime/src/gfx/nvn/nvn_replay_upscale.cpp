@@ -2,12 +2,24 @@
 // Upscaler hooks of the replay: temporal upscaling (camera block, jitter, the tone-map draw) and the scene upscaler override.
 #include "nvn_replay_internal.h"
 
+#include "nxrt/game_render.h"
+
 namespace nxrt::nvn::be::gpu {
 namespace replay {
 SceneOverride g_su;
+TsrBlock g_tsr;
 static Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
 static uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
-// Temporal upscaling: a copy of a vertex slot 0 camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
+void tsr_resolve() {
+    g_tsr.resolved = true;
+    const game::CameraBlock* cb = extras::temporal_camera_block();
+    if (!cb) return;
+    g_tsr.stage = cb->stage;
+    g_tsr.slot = cb->slot;
+    g_tsr.bytes = extras::temporal_camera_bytes();
+    g_tsr.colors = cb->gbuffer_colors;
+}
+// Temporal upscaling: a copy of the game's camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
 bool tsr_jitter(uint32_t* words, size_t n_words) {
     Texture* d = S.depth_tex.get();
     if (!d || !tex_gpu(d)) return false;
@@ -21,16 +33,18 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
 
 // Scene upscaler (S14, src/gfx/extras/hdr_nvn.h): before a tone-map draw whose HDR scene input is smaller than its target, FSR 1 enlarges the scene
 // to the target's size and the draw samples that instead. The override lives until the next draw.
-// Temporal upscaling (FSR 3 / DLSS / DLAA, src/gfx/extras/temporal.h): a G-buffer draw (4+ colour targets and a depth target) offers its vertex
-// uniform slot 0 as the camera block; the first valid one of the frame is kept with its depth target.
+// Temporal upscaling (FSR 3 / DLSS / DLAA, src/gfx/extras/temporal.h): a G-buffer draw (the game's count of colour targets and a depth target)
+// offers its binding of the game's camera block; the first valid one of the frame is kept with its depth target. Called only while
+// extras::temporal_wanted(), so the game names a block and g_tsr holds it.
 void temporal_gbuffer_note() {
-    if (S.ncolor < 4 || !S.depth_tex || !S.stage[kVertex] || extras::temporal_camera_ready()) return;
-    const GState::Bind& u = S.ubo[kVertex][0];
-    if (!u.addr || u.size < 272) return;
-    uint32_t w[68];
-    std::memcpy(w, host_ptr(u.addr), sizeof w);
-    tsr_jitter(w, 68);                                                    // the camera as the draw sees it (the bound copy is jittered the same way)
-    extras::temporal_note_gbuffer(w, 68);
+    if (S.ncolor < g_tsr.colors || !S.depth_tex || !S.stage[g_tsr.stage] || extras::temporal_camera_ready()) return;
+    const GState::Bind& u = S.ubo[g_tsr.stage][g_tsr.slot];
+    if (!u.addr || u.size < g_tsr.bytes) return;
+    uint32_t w[256];                                                      // at most 1 KiB (temporal_camera_block checks the block's length)
+    const size_t n = static_cast<size_t>(g_tsr.bytes / 4);
+    std::memcpy(w, host_ptr(u.addr), n * 4);
+    tsr_jitter(w, n);                                                     // the camera as the draw sees it (the bound copy is jittered the same way)
+    extras::temporal_note_gbuffer(w, n);
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
 

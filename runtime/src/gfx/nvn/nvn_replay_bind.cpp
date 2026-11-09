@@ -194,14 +194,14 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
                         const float ufs = ufs_scale_for(d, idx);
-                        const bool tsr = d.nvn_stage == kVertex && idx == 0 && bind.size >= 272 && extras::temporal_wanted() && S.depth_tex;
+                        const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex;
                         if (br.ok && (ufs != 1.0f || tsr)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
                             UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
-                                if (tsr && n >= 272) tsr_jitter(reinterpret_cast<uint32_t*>(u.ptr), static_cast<size_t>(n / 4));   // temporal upscaling
+                                if (tsr && n >= g_tsr.bytes) tsr_jitter(reinterpret_cast<uint32_t*>(u.ptr), static_cast<size_t>(n / 4));   // temporal upscaling
                                 const uint32_t mask = ufs != 1.0f ? nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed) : 0u;
                                 for (uint32_t i = 0; i < 32; ++i) {
                                     if (!(mask & (1u << i)) || (i + 1) * 4 > n) continue;

@@ -4,17 +4,19 @@
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
 //   colour   the HDR scene the tone-map draw samples (the same interception as the spatial scene upscaler, nvn_replay.cpp)
-//   depth    the depth target of the G-buffer pass (D24S8 in Pokopia), reversed-Z, NDC z = depth (NVN depth mode NEAR_IS_ZERO)
-//   camera   the G-buffer vertex shaders' uniform block c3 (NVN uniform slot 0 of the vertex stage): floats 0..15 the view-projection
-//            (column-major, jittered), floats 52..67 the view matrix. The projection is VP * inverse(V); its z-column x / y terms are the
-//            sub-pixel jitter (zero without the game's TAA, about +-1 / width with [pkp] game_taa).
+//   depth    the depth target of the G-buffer pass, reversed-Z, NDC z = depth (NVN depth mode NEAR_IS_ZERO)
+//   camera   the uniform block the game names (game::Info::render, nxrt/game_render.h CameraBlock: stage, slot, the float index of the
+//            column-major view-projection and of the view matrix). The projection is VP * inverse(V); its z-column x / y terms are the
+//            sub-pixel jitter (zero unless the game jitters it itself). A game that names no block gets no temporal upscaling.
 //   motion   made here by a compute pass from depth, the current jittered and the previous unjittered view-projection (camera motion only).
-// The projection jitter is added by the runtime (temporal_jitter_block): the game's own TAA jitter does not reach the scene camera.
+// The projection jitter is added by the runtime (temporal_jitter_block) when the block holds none of its own.
 #pragma once
 #include <volk.h>
 
 #include <cstddef>
 #include <cstdint>
+
+namespace nxrt::game { struct CameraBlock; }
 
 namespace nxrt::extras {
 
@@ -50,15 +52,17 @@ public:
 };
 
 // ---- what the replay calls (nvn_replay.cpp) --------------------------------------------------------------------------------------
-bool temporal_wanted();   // a temporal mode is selected
-// A G-buffer draw: `words` is the vertex stage's uniform slot 0 (bytes / 4 words). Keeps the first block that holds a valid camera this frame.
+bool temporal_wanted();   // a temporal mode is selected and the game names a camera block
+// The game's camera block (validated once), or null: no temporal upscaling. temporal_camera_bytes: the bytes a bound block must have (0: none).
+const game::CameraBlock* temporal_camera_block();
+uint32_t temporal_camera_bytes();
+// A G-buffer draw: `words` is the camera block's binding (bytes / 4 words). Keeps the first block that holds a valid camera this frame.
 void temporal_note_gbuffer(const uint32_t* words, size_t n_words);
 bool temporal_camera_ready();   // a camera was kept since the last evaluation
-// The scene camera's jitter. Pokopia's own TAA jitter (0x7102574a18, written into a view object's projection at +0xc0) never reaches the
-// G-buffer camera block (its view-projection stays unjittered with the enable forced, run b7), so the runtime jitters every vertex uniform
-// slot 0 block that holds a valid camera: adds a Halton(2, 3) offset of the frame (8 phases at native size, more when upscaling, +-0.5 px of
-// width x height) to the view-projection in `words` (a copy the draw then binds). False: not a camera block, already jittered, or
-// [upscale] jitter = 0.
+// The scene camera's jitter. A game's own TAA jitter may never reach the camera block, so the
+// runtime jitters every binding of the camera block that holds a valid, unjittered camera: adds a Halton(2, 3) offset of the frame (8
+// phases at native size, more when upscaling, +-0.5 px of width x height) to the view-projection in `words` (a copy the draw then binds).
+// False: not a camera block, already jittered, or [upscale] jitter = 0.
 uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
 // The tone-map draw: colour (view in SHADER_READ_ONLY_OPTIMAL) and depth (depth-aspect view, layout depth_layout) of the scene, the part of

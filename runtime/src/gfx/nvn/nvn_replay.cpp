@@ -556,6 +556,7 @@ void note_frame_for_pacing() {
 void replay_begin_submit(Frame& f) {
     static const bool fine_init = (g_rp.fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
     (void)fine_init;
+    if (!g_tsr.resolved) tsr_resolve();   // the game's camera block (temporal upscaling), once
     rp_flush();
     rp_bump(ft::kCntEpSubmit);    // the sets of the last submission are gone with its descriptor pools
     ft::split_count(ft::kCntSubmissions);

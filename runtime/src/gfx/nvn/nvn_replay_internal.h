@@ -659,6 +659,16 @@ struct SceneOverride {   // owner: nvn_replay_upscale.cpp
     void clear() { tex = nullptr; view = VK_NULL_HANDLE; near_n = 0; }
 };
 extern SceneOverride g_su;
+// Temporal upscaling: where the game's camera block is bound (extras::temporal_camera_block), copied at the first submission so the
+// per-binding test stays a compare. stage -1: the game names none, nothing matches.
+struct TsrBlock {   // owner: nvn_replay_upscale.cpp
+    int stage = -1, slot = -1;
+    uint64_t bytes = UINT64_MAX;   // the bytes a binding of the block must have
+    uint32_t colors = UINT32_MAX;  // the colour targets of a G-buffer draw (at least)
+    bool resolved = false;
+};
+extern TsrBlock g_tsr;
+void tsr_resolve();
 bool tsr_jitter(uint32_t* words, size_t n_words);
 void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
