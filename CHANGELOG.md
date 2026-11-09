@@ -48,7 +48,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
-- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by a friend of the project)
+- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
   - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
   - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
   - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
