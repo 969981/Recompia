@@ -3,6 +3,7 @@
 // store.installVersion (the same download, check and restart as Update); the backend refuses an older build that was not confirmed.
 import './news.css';
 import { api } from '../api.js';
+import { store } from '../store.js';
 import { confirm, esc, icon } from '../ui.js';
 import { formatDate, render as renderNote } from '../markdown.js';
 import { actionLabel, canConfirm, forChannel, versionOf, warningFor } from '../builds-model.js';
@@ -115,4 +116,16 @@ export async function confirmBuild(b) {
     danger: true,
   });
   return yes ? { accepted: true } : null;
+}
+
+/** The builds of a channel with their notes; installs the one the player picks, after the question an older build needs. */
+export async function chooseBuild(channel, join) {
+  const builds = await loadBuilds(channel, true);
+  const picked = await pickBuild(join
+    ? { title: 'Testing builds', intro: 'You are on the Testing channel now. Pick a build to install, or choose Not now and press Update when you want the newest one.', builds }
+    : { title: 'Choose a version', intro: channel === 'testing' ? 'Testing builds and the normal releases. Newer builds install like an update; an older one asks first.' : 'The releases you can install. A newer one installs like an update; an older one asks first.', builds, close: 'Close' });
+  if (!picked) return;
+  const ok = await confirmBuild(picked);
+  if (!ok) return;
+  await store.installVersion(picked.tag, channel, ok.accepted);
 }
