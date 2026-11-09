@@ -43,10 +43,10 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 
-// Launcher colours: 'sunrise' (amber to red, the default; reads well with red-green colour blindness) or 'dusk' (the old violet).
+// Launcher colours: 'sunrise' (amber to red, the default; reads well with red-green colour blindness), 'dusk' (the old violet) or 'koi' (a bright daytime picture).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
-const THEMES = ['sunrise', 'dusk'];
-const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk' };
+const THEMES = ['sunrise', 'dusk', 'koi'];
+const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', koi: 'Koi' };
 function readTheme() {
   try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'sunrise'; } catch { return 'sunrise'; }
 }
