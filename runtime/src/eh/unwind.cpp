@@ -252,28 +252,8 @@ Handler search_phase(const Frame& start, const Thrown& t, bool skip_first, std::
     return h;
 }
 
-// Legacy host-service form: the type of an in-flight exception, keyed by object pointer (the resume call does not repeat it).
-struct TypeEntry { uint64_t exc, type; };
-std::vector<TypeEntry>& legacy_types() {
-    thread_local std::vector<TypeEntry> v;
-    return v;
-}
-void legacy_remember(uint64_t exc, uint64_t type) {
-    auto& v = legacy_types();
-    for (auto& e : v) if (e.exc == exc) { e.type = type; return; }
-    v.push_back({exc, type});
-}
-uint64_t legacy_recall(uint64_t exc) {
-    for (auto& e : legacy_types()) if (e.exc == exc) return e.type;
-    return 0;
-}
-void legacy_forget(uint64_t exc) {
-    auto& v = legacy_types();
-    for (size_t i = 0; i < v.size(); i++) if (v[i].exc == exc) { v.erase(v.begin() + static_cast<ptrdiff_t>(i)); return; }
-}
-
 // Control transfer into a landing pad. Holds no objects with destructors: it ends in a longjmp.
-[[noreturn]] void land(::Ctx* c, const Frame& st, uint64_t frame_cfa, uint64_t pad, int64_t selector, uint64_t exc, bool legacy) {
+[[noreturn]] void land(::Ctx* c, const Frame& st, uint64_t frame_cfa, uint64_t pad, int64_t selector, uint64_t exc) {
     for (int i = 19; i <= 30; i++) c->x[i] = st.x[i];
     c->x[31] = st.sp;
     for (int i = 0; i < 8; i++) c->v[8 + i].d[0] = st.d[i];
@@ -281,7 +261,6 @@ void legacy_forget(uint64_t exc) {
     c->x[1] = static_cast<uint64_t>(selector);
     if (selector != 0) {                      // a catch clause, or (negative) an exception specification violation
         g_stats.caught.fetch_add(1, std::memory_order_relaxed);
-        if (legacy) legacy_forget(exc);
     } else {
         g_stats.cleanups.fetch_add(1, std::memory_order_relaxed);
     }
@@ -321,7 +300,7 @@ void legacy_forget(uint64_t exc) {
 }
 
 // Phase 2: walk again from `start`, landing in every frame with a cleanup pad and in the handler frame.
-[[noreturn]] void cleanup_phase(::Ctx* c, const Frame& start, const Thrown& t, bool skip_first, const Handler& h, bool legacy) {
+[[noreturn]] void cleanup_phase(::Ctx* c, const Frame& start, const Thrown& t, bool skip_first, const Handler& h) {
     Frame fr = start;
     for (int depth = 0; depth < kMaxDepth; depth++) {
         if (fr.pc == 0) break;
@@ -331,15 +310,15 @@ void legacy_forget(uint64_t exc) {
         uint64_t cfa = 0;
         if (!step(fi, &fr, &cfa)) break;
         if (depth == 0 && skip_first) continue;
-        if (cfa == h.cfa && fi.fde == h.fi.fde) land(c, at, cfa, h.pad, h.selector, t.exc, legacy);
+        if (cfa == h.cfa && fi.fde == h.fi.fde) land(c, at, cfa, h.pad, h.selector, t.exc);
         Pick p = pick(fi, at.pc, t, Phase::Cleanup);
-        if (p.land && !p.handler) land(c, at, cfa, p.pad, 0, t.exc, legacy);
+        if (p.land && !p.handler) land(c, at, cfa, p.pad, 0, t.exc);
     }
     NXLOG_E(kTag, "phase 2 did not reach the handler frame found in phase 1 (cfa 0x%llx)", static_cast<unsigned long long>(h.cfa));
     trap("unwinder lost its handler frame", h.cfa);
 }
 
-uint64_t unwind(::Ctx* c, const Thrown& t, bool skip_first, bool legacy) {
+uint64_t unwind(::Ctx* c, const Thrown& t, bool skip_first) {
     const Frame start = frame_from_ctx(c);
     std::string why;
     Handler h = search_phase(start, t, skip_first, &why);
@@ -358,7 +337,7 @@ uint64_t unwind(::Ctx* c, const Thrown& t, bool skip_first, bool legacy) {
         wr64(t.header + static_cast<uint64_t>(g_abi.catch_temp), h.pad);
         wr64(t.header + static_cast<uint64_t>(g_abi.adjusted_ptr), h.adjusted);
     }
-    cleanup_phase(c, start, t, skip_first, h, legacy);
+    cleanup_phase(c, start, t, skip_first, h);
 }
 
 bool readable(uint64_t addr, uint64_t n) { return addr && mem::is_mapped(addr, n); }
@@ -468,12 +447,12 @@ const AbiLayout& abi_layout() { return g_abi; }
 
 uint64_t raise(::Ctx* c, const Thrown& t) {
     g_stats.raised.fetch_add(1, std::memory_order_relaxed);
-    return unwind(c, t, /*skip_first=*/false, /*legacy=*/t.header == 0);
+    return unwind(c, t, /*skip_first=*/false);
 }
 
 uint64_t resume(::Ctx* c, const Thrown& t) {
     g_stats.resumed.fetch_add(1, std::memory_order_relaxed);
-    return unwind(c, t, /*skip_first=*/true, /*legacy=*/t.header == 0);
+    return unwind(c, t, /*skip_first=*/true);
 }
 
 void unwind_raise_exception(::Ctx* c) { c->x[0] = raise(c, thrown_from_unwind_exception(c->x[0])); }
@@ -494,29 +473,6 @@ void unwind_forced_unwind(::Ctx* c) {
     static std::atomic<bool> warned{false};
     if (!warned.exchange(true)) NXLOG_W(kTag, "_Unwind_ForcedUnwind is not supported (thread cancellation): returning _URC_FATAL_PHASE1_ERROR");
     c->x[0] = kUrcFatalPhase1Error;
-}
-
-void legacy_raise(::Ctx* c) {
-    Thrown t;
-    t.exc = c->x[0];
-    t.type = c->x[1];
-    t.object = c->x[0];
-    legacy_remember(t.exc, t.type);
-    uint64_t r = raise(c, t);                                    // returns only without a handler
-    (void)r;
-    terminate_process(c, "uncaught C++ exception (host-service raise)");
-    c->x[0] = kUrcEndOfStack;
-}
-
-void legacy_resume(::Ctx* c) {
-    Thrown t;
-    t.exc = c->x[0];
-    t.object = c->x[0];
-    t.type = legacy_recall(t.exc);
-    uint64_t r = resume(c, t);
-    (void)r;
-    terminate_process(c, "uncaught C++ exception (host-service resume)");
-    c->x[0] = kUrcEndOfStack;
 }
 
 std::string guest_backtrace(const ::Ctx* c, size_t max_frames) {

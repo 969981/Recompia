@@ -130,11 +130,10 @@ void set_mouse_sink(MouseSinkFn fn);
 // Keys still down when the run ends (pass, fail or shutdown) are released with down=false.
 using KeySinkFn = bool (*)(const char* input_name, bool down);
 void set_key_sink(KeySinkFn fn);
-// What happens when the run is over (default: flush files, TerminateProcess(code)). Tests install their own.
-using ExitFn = void (*)(int code);
 bool finished();                           // the run has ended (result written)
 int exit_code();
-// Ends the run now. verdict: "pass" "fail" "crash" "freeze" "timeout" "error". Writes result.json and calls the exit handler.
+// Ends the run now. verdict: "pass" "fail" "crash" "freeze" "timeout" "error". Writes result.json, flushes the files and ends the process
+// with `code`.
 void end_run(int code, const char* verdict, const std::string& message);
 const std::vector<Checkpoint>& checkpoints();
 
@@ -166,4 +165,4 @@ struct GameProbes {
 
 }  // namespace nxrt::tt
 
-// The adapter to the hid service (S3c's input_source.h) lives in tt_hid.cpp and is compiled when that header exists.
+// The adapter to the hid service's input source (nxrt/input_source.h) lives in tt_hid.cpp.

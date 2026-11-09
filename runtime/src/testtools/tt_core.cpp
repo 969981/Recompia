@@ -71,7 +71,6 @@ struct State {
     InputTrace play;                         // what is replayed
     bool replaying = false, recording = false;
     PadFrame pad;                            // pad of the current frame
-    PadFrame live_pad;
     std::vector<Checkpoint> cps;
     std::vector<std::string> shots, missing_shots;
     detail::Runner runner;
@@ -83,7 +82,6 @@ struct State {
 
     ScreenshotFn shot_fn = nullptr;
     void* shot_user = nullptr;
-    ExitFn exit_fn = nullptr;
     MouseSinkFn mouse_sink = nullptr;
     KeySinkFn key_sink = nullptr;
     std::vector<std::string> keys_down;      // names the key steps pressed and not yet released (released when the run ends)
@@ -634,8 +632,7 @@ void end_run(int code, const char* verdict, const std::string& message) {
         if (s.trace) std::fflush(s.trace);
     }
     nxrt::gfx::wait_screenshot_writes();   // shots are written on a worker
-    ExitFn fn = s.exit_fn ? s.exit_fn : default_exit;
-    fn(code);
+    default_exit(code);
 }
 
 void frame_boundary(::Ctx* c) {
@@ -687,7 +684,7 @@ void frame_boundary(::Ctx* c) {
     // 3. the pad of frame k
     PadFrame live;
     const bool have_live = detail::sample_live(&live);
-    if (!have_live) live = s.live_pad;
+    if (!have_live) live = PadFrame{};
     if (s.replaying) {
         s.pad = s.play.at(k);
         if (s.replay_exit && s.play.end_frame && k >= s.play.end_frame && !s.runner_on) {

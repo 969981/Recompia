@@ -82,10 +82,9 @@ void set_abi_layout(const AbiLayout& l);          // fixes the layout (no detect
 const AbiLayout& abi_layout();                    // the layout in use (the newer one until an exception has been seen)
 
 // ---- the unwinder ------------------------------------------------------------------------------------------------------------
-// What is being thrown. The libc++abi front end (unwind_raise_exception) builds it from the _Unwind_Exception; the host-service
-// front end of the S1 end-to-end programs (oracle/e2e/progs/rt.h: raise(object, typeinfo) / resume(object)) builds it directly.
+// What is being thrown. The libc++abi front end (unwind_raise_exception) builds it from the _Unwind_Exception.
 struct Thrown {
-    uint64_t exc = 0;          // handed back to the landing pad in x0 (an _Unwind_Exception*, or the bare object in the legacy form)
+    uint64_t exc = 0;          // handed back to the landing pad in x0 (the _Unwind_Exception*)
     uint64_t type = 0;         // typeinfo of the thrown type; 0 = foreign exception (only catch(...) and cleanups act)
     uint64_t object = 0;       // address of the thrown object (the initial adjustedPtr)
     uint64_t header = 0;       // the _Unwind_Exception whose __cxa_exception fields get the handler info, 0 = write nothing
@@ -118,11 +117,6 @@ void register_unwind_hle();
 int hook_unwind_resume(::Ctx* c, uint64_t addr, void* user);
 int hook_unwind_resume_or_rethrow(::Ctx* c, uint64_t addr, void* user);
 int hook_unwind_delete_exception(::Ctx* c, uint64_t addr, void* user);
-
-// The S1 end-to-end programs' form (progs/rt.h): x0 = object, x1 = typeinfo. A missing handler is std::terminate here (the guest
-// has no way to call it): terminate_process().
-void legacy_raise(::Ctx* c);
-void legacy_resume(::Ctx* c);
 
 // ---- terminate and diagnostics -----------------------------------------------------------------------------------------------
 // Guest backtrace from the registers in `c` (pc = c->x[30], then the CFI chain): "#0 0x... module+off (symbol+off)" lines.
