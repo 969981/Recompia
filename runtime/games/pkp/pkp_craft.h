@@ -6,8 +6,6 @@
 
 namespace nxrt::games::pkp {
 
-extern const Feature kCraftFeature;
-bool craft_click();   // main thread: a left click on the Search key guide (pkp_menu.cpp); the screen asks at its next frame. False (click not
-                      // taken) unless the crafting screen is up and its key guide shows the Search entry
+extern const Feature kCraftFeature;   // a key guide client (pkp_key_guide.h): the Search entry and its click
 
 }  // namespace nxrt::games::pkp

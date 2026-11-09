@@ -27,15 +27,13 @@
 //    commit), so the sorted order shows at once.
 //  * In the bag's browsing state Y has no action (X = pick up / hold to rearrange, A = take out, B = back, - = info, + = drop), so it is
 //    free for the sort.
-//  * The button: the screen's prompts are the game's key guide widget fed a key guide set (0x7100ec5de0 (widget, set)); the browsing
+//  * The button: the screen's prompts are the game's key guide widget fed a key guide set (pkp_key_guide.h; this is a client); the browsing
 //    sets are 10 (the bag: {214 Take Out, 2 Back, 46 Swap, 126 Hold to Sort, 69 Drop, 63 Info}), 16 (the bag on a placeable item: 213
 //    Spit Out) and the container screens' (11, 12, 174, 175, ...: 215 / 216 Add / Remove on A, 154 Add Stack / 155 Remove All on Y).
-//    The widget lays out at most six entries (+0xb0 entries of 0x360 bytes, +0xb8 count; six part slots at +0xa4), so at the entry of
-//    its layout pass 0x7100ec54a0 the "Hold to Sort" entry (126, X held, the second X prompt next to "Swap"; in every browsing set, in
-//    no holding set) becomes key guide 92 ("Sort", the game's own text in every language). At the end of the part's fill (0x7100ec6800,
-//    inline 0x7100ec69b4: x19 the part, x21 the key guide's table row, [x29 + 0x38] the widget) the icon is set to the sort button
-//    (0x7100a7dbcc (part + 0x30, slot 3, action)) and the part's layout is handed to the menu pointer (pkp_menu.cpp
-//    menu_set_sort_guide): a left click on it sorts. The sort button is the first of Y, R, L that no other prompt of the shown set uses
+//    The widget lays out at most six entries (six part slots at +0xa4), so before its layout pass places them the "Hold to Sort" entry (126, X held, the second X prompt next to "Swap"; in every browsing set, in
+//    no holding set) becomes key guide 92 ("Sort", the game's own text in every language). When its part is filled the icon is set to the
+//    sort button and the part's layout is handed to the menu pointer (the key guide's click routing, pkp_menu.cpp): a left click on it
+//    sorts. The sort button is the first of Y, R, L that no other prompt of the shown set uses
 //    (input manager table, below): Y in the bag, R in the container screens (set 186: Add (A), Swap (X), Add Stack (Y), Store All (+),
 //    Info (-); registered there also B, ZL Transfer Half). Its button sorts only while no registered action of the screen is on it.
 //  * m_currentUseItemSlot (save common + 0xc070, u16) holds a bag slot index: after a bag sort it is moved to the new slot of the
@@ -44,8 +42,8 @@
 //    (0x7100e6e4fc), so nothing is sorted and no button is shown while 0x71000376c4 (online) is true.
 #include "pkp_sort.h"
 #include "pkp_guest.h"
+#include "pkp_key_guide.h"
 #include "pkp_layout.h"
-#include "pkp_menu.h"
 #include "pkp_tables.h"
 
 #include <algorithm>
@@ -79,7 +77,6 @@ constexpr uint64_t kTempFlag = 0x36bbfd8;        // u8 per player: the screen wo
 using layout::kSaveRoot;
 constexpr uint64_t kCommon = 0x13d4920, kBagOffline = 0x830, kUseSlot = 0xc070;
 using layout::kItemTable;                        // the item table (the table at +0 while the manager holds < 200 tables, pkp_tables.h)
-using layout::kGuideTable;
 constexpr uint64_t kItemKind = 0x3a;
 constexpr uint64_t kPlayerHelper = 0x30, kActions = 0x78, kType = 0x148, kId = 0x154, kState = 0x160, kScreenKind = 0x168, kCursorKind = 0x169;
 constexpr uint32_t kBagSlots = 120, kMaxSlots = 0x800, kStoreSlots = 0x77a9;   // the stage store is the larger one
@@ -95,12 +92,6 @@ constexpr SortButton kSortButtons[] = {{0x97, 4, hid::kBtnY, "Y"}, {0x03, 0xb, h
 constexpr int kNoButton = -1;   // click only
 constexpr auto kReopenGap = std::chrono::milliseconds(300);   // no screen frame for this long = the screen was closed
 // the key guide button
-using layout::kFillSet;
-constexpr uint64_t kLayoutGuides = 0xec54a0;     // entry: (widget): places one part per entry
-using layout::kPartFilled;
-using layout::kSetIcon;
-using layout::kLayoutOf;
-constexpr uint64_t kWidgetEntries = 0xb0, kWidgetCount = 0xb8, kEntrySize = 0x360;
 constexpr uint16_t kSortGuide = 92;              // key guide "Sort" (action 0xbc)
 constexpr uint16_t kHoldToSortGuide = 126;       // key guide "Hold to Sort" (X held)
 
@@ -117,19 +108,17 @@ struct State {
     std::array<uint8_t, kIdMask + 1> kind_of{};   // item kind + 1, 0 = not looked up yet
     uint64_t sorts = 0;
     // the key guide button
+    int client = -1;                              // the key guide client
     std::atomic<uint64_t> widget{0};              // the key guide widget showing a browsing set
     uint64_t row = 0;                             // key guide 92's table row
     std::atomic<bool> online{false};
     std::atomic<int> shown{0};                    // kSortButtons index shown on the Sort prompt (chosen at its fill), kNoButton = click only
     int pressable = 0;                            // the same while no registered action of the screen uses its button (logged on change)
     std::array<uint16_t, 512> guide_action{};     // key guide id -> its action + 1 (0 = not looked up yet)
-    std::atomic<bool> click{false};               // a click on the button (pkp_menu.cpp, main thread)
+    std::atomic<bool> click{false};               // a click on the button (the key guide's click routing, main thread)
     uint64_t logged_layout = 0;
 };
 State g;
-
-
-uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) { return tables::row(c, g.base, table_off, id); }
 
 // The item table's kind byte (record +0x3a), 0xff when the table cannot be read. Looked up once per id.
 uint8_t item_kind(::Ctx* c, uint32_t id) {
@@ -338,8 +327,8 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
 // The screen is open now (its per-frame hook ran within the reopen gap).
 bool screen_up() { return g.screen && std::chrono::steady_clock::now() - g.last_frame < kReopenGap; }
 
-int hook_fill_set(::Ctx* c, uint64_t, void*) {
-    if (!g.row) g.row = table_row(c, kGuideTable, kSortGuide);
+void set_taken(::Ctx* c, uint64_t widget, uint32_t set) {
+    if (!g.row) g.row = key_guide::guide_row(c, kSortGuide);
     if (g.log_lists && screen_up()) {
         char acts[200];
         size_t k = 0;
@@ -348,47 +337,42 @@ int hook_fill_set(::Ctx* c, uint64_t, void*) {
         const uint64_t d = m ? rd<uint64_t>(m + 8) : 0, n = m ? rd<uint64_t>(m + 0x10) : 0;
         for (uint64_t i = 0; d && i < n && i < 16 && k + 8 < sizeof acts; ++i)
             k += static_cast<size_t>(std::snprintf(acts + k, sizeof acts - k, " %x/%u", rd<uint16_t>(d + i * 0x30 + 0x18), rd<uint32_t>(d + i * 0x30 + 0x20)));
-        NXLOG_I(kTag, "inventory sort: key guide set %llu on widget %llx; screen state %u, actions (action/mode):%s", static_cast<unsigned long long>(c->x[1] & 0xff),
-                static_cast<unsigned long long>(c->x[0]), rd<uint8_t>(g.screen + kState), acts);
+        NXLOG_I(kTag, "inventory sort: key guide set %u on widget %llx; screen state %u, actions (action/mode):%s", set,
+                static_cast<unsigned long long>(widget), rd<uint8_t>(g.screen + kState), acts);
     }
-    return 0;
 }
 
 // Before the widget lays out its parts: while the screen browses, the set's "Hold to Sort" entry (126, X held, the second X prompt next
 // to "Swap"; every browsing set of these screens has it, the holding sets do not) becomes the Sort entry. The widget has six part slots
 // (its layout pass stops at six), all in use, so one entry has to give way; X held still rearranges as before. The fill rebuilds the
 // entries from the set, so this runs on every layout pass.
-int hook_layout_guides(::Ctx* c, uint64_t, void*) {
-    const uint64_t w = c->x[0];
-    if (!w || g.online || !screen_up() || rd<uint8_t>(g.screen + kState) != 1) return 0;
-    const uint64_t data = rd<uint64_t>(w + kWidgetEntries), n = rd<uint64_t>(w + kWidgetCount);
-    if (!data || n == 0 || n > 6 || !mem::is_mapped(data, n * kEntrySize)) return 0;
-    for (uint64_t i = 0; i < n; ++i)
-        if (rd<uint16_t>(data + i * kEntrySize) == kHoldToSortGuide) {
-            wr<uint16_t>(data + i * kEntrySize, kSortGuide);
+void laying_out(::Ctx*, uint64_t w) {
+    if (!w || g.online || !screen_up() || rd<uint8_t>(g.screen + kState) != 1) return;
+    key_guide::Entries e;
+    if (!key_guide::entries(w, &e)) return;
+    for (uint64_t i = 0; i < e.count; ++i)
+        if (e.id(i) == kHoldToSortGuide) {
+            e.set_id(i, kSortGuide);
             g.widget = w;
         }
-    return 0;
 }
 
-// The Sort part is filled: Y's icon, and its layout for the menu pointer.
-void hook_part_filled(::Ctx* c, uint64_t, void*) {
-    if (!g.row || c->x[21] != g.row) return;
-    const uint64_t fp = c->x[29];
+// The Sort part is filled: the sort button's icon, and its layout for the menu pointer.
+void part_filled(::Ctx* c, const key_guide::Part& p) {
+    if (!g.row || p.row != g.row) return;
     const uint64_t w = g.widget.load();
-    if (!w || !mem::is_mapped(fp + 0x38, 8) || rd<uint64_t>(fp + 0x38) != w) return;     // the caller's (0x7100ec54a0) x19: the widget
-    const uint64_t part = c->x[19];
-    const uint64_t sp = (c->x[31] - 0x100) & ~uint64_t{0xf};
+    if (!w || p.widget != w) return;
     // the fill follows a state change in the same frame, after the per-frame hook ran, and maybe before the new actions are registered
     // The button: the first of kSortButtons that no other prompt of the shown set uses (the set is what the player sees; the screen's
     // action list may still be the one of the previous state here, so it is checked per frame instead).
     std::array<bool, 256> used{};
-    const uint64_t data = rd<uint64_t>(w + kWidgetEntries), n = rd<uint64_t>(w + kWidgetCount);
-    for (uint64_t i = 0; data && n <= 6 && i < n; ++i) {
-        const uint16_t id = rd<uint16_t>(data + i * kEntrySize);
+    key_guide::Entries e;
+    if (!key_guide::entries(w, &e)) e.count = 0;
+    for (uint64_t i = 0; i < e.count; ++i) {
+        const uint16_t id = e.id(i);
         if (id == kSortGuide || id >= g.guide_action.size()) continue;
         if (!g.guide_action[id]) {   // the key guide's row: {u16 action, ...} at [row + 8]
-            const uint64_t row = table_row(c, kGuideTable, id);
+            const uint64_t row = key_guide::guide_row(c, id);
             const uint64_t rec = row ? rd<uint64_t>(row + 8) : 0;
             if (!rec || !mem::is_mapped(rec, 2)) continue;
             g.guide_action[id] = static_cast<uint16_t>(rd<uint16_t>(rec) + 1);
@@ -400,34 +384,31 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     for (int i = 0; i < static_cast<int>(std::size(kSortButtons)) && pick == kNoButton; ++i)
         if (button_of(kSortButtons[i].act) == kSortButtons[i].button && !used[kSortButtons[i].button]) pick = i;
     g.shown = pick;
-    if (pick != kNoButton) call(c, g.base + kSetIcon, part + 0x30, 3, kSortButtons[pick].act, 0, 0, sp);
+    if (pick != kNoButton) key_guide::set_icon(c, p, kSortButtons[pick].act);
     if (g.log_lists) NXLOG_I(kTag, "inventory sort: Sort prompt button %s", pick == kNoButton ? "none (click only)" : kSortButtons[pick].name);
-    const uint64_t src = rd<uint64_t>(part + 0x38);
-    const uint64_t lay = src ? call(c, g.base + kLayoutOf, src, 0, 0, 0, 0, sp) : 0;
-    menu_set_sort_guide(lay);
+    const uint64_t lay = key_guide::layout_of(c, p);
+    key_guide::set_click_layout(g.client, lay);
     if (g.log_lists && lay != g.logged_layout) {
         g.logged_layout = lay;
-        NXLOG_I(kTag, "inventory sort: Sort button part %llx (layout %llx) on widget %llx", static_cast<unsigned long long>(part),
+        NXLOG_I(kTag, "inventory sort: Sort button part %llx (layout %llx) on widget %llx", static_cast<unsigned long long>(p.part),
                 static_cast<unsigned long long>(lay), static_cast<unsigned long long>(w));
     }
 }
 
-}  // namespace
-
-bool sort_click() {
+// Main thread: a left click on the Sort part. The bag / container screen sorts at its next frame. Not taken unless the screen is up and
+// its key guide shows the Sort entry (the widget reuses its part instances for other sets, whose clicks go on as before).
+bool click(play::Act* act) {
     const uint64_t w = g.widget.load();
-    if (!screen_up() || !w || !mem::is_mapped(w + kWidgetEntries, 0x10)) return false;
-    const uint64_t data = rd<uint64_t>(w + kWidgetEntries), n = rd<uint64_t>(w + kWidgetCount);
-    if (!data || n == 0 || n > 6 || !mem::is_mapped(data, n * kEntrySize)) return false;
-    for (uint64_t i = 0; i < n; ++i)
-        if (rd<uint16_t>(data + i * kEntrySize) == kSortGuide) {   // the widget shows the Sort entry now
+    key_guide::Entries e;
+    if (!screen_up() || !key_guide::entries(w, &e)) return false;
+    for (uint64_t i = 0; i < e.count; ++i)
+        if (e.id(i) == kSortGuide) {   // the widget shows the Sort entry now
             g.click = true;
+            *act = play::Act::None;
             return true;
         }
     return false;
 }
-
-namespace {
 
 void install(const FeatureInstall& in) {
     const uint64_t base = in.base;
@@ -437,14 +418,11 @@ void install(const FeatureInstall& in) {
     g.log_lists = config_get_int("pkp", "menu_log", 0) > 0;
     if (!g.button && !g.autosort) return;
     in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
-    if (g.button) {   // 0xec5de0 and 0xec69b4 also carry the title's Quit Game hooks (pkp_title.cpp): every hook there returns 0, so all run
-        in.hooks.add_entry(base + kFillSet, &hook_fill_set);
-        in.hooks.add_entry(base + kLayoutGuides, &hook_layout_guides);
-        in.hooks.add_inline(base + kPartFilled, &hook_part_filled);
-    }
-    NXLOG_I(kTag, "inventory sort: button %s, autosort %s (hooks main+0x%llx; key guide button 0x%llx, 0x%llx, 0x%llx)", g.button ? "on" : "off",
-            g.autosort ? "on" : "off", static_cast<unsigned long long>(kScreenFrame), static_cast<unsigned long long>(kFillSet),
-            static_cast<unsigned long long>(kLayoutGuides), static_cast<unsigned long long>(kPartFilled));
+    if (g.button)
+        g.client = key_guide::add({.name = "inventory sort", .set_taken = &set_taken, .laying_out = &laying_out, .part_filled = &part_filled,
+                                   .click = &click, .click_note = "the Sort key guide -> inventory sort"});
+    NXLOG_I(kTag, "inventory sort: button %s, autosort %s (hook main+0x%llx; the button is a key guide entry)", g.button ? "on" : "off",
+            g.autosort ? "on" : "off", static_cast<unsigned long long>(kScreenFrame));
 }
 
 }  // namespace

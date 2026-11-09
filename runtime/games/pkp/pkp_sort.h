@@ -6,8 +6,6 @@
 
 namespace nxrt::games::pkp {
 
-extern const Feature kSortFeature;
-bool sort_click();   // main thread: a left click on the Sort key guide (pkp_menu.cpp); the screen sorts at its next frame. False (click
-                     // not taken) unless the bag / container screen is up and its key guide shows the Sort entry
+extern const Feature kSortFeature;   // a key guide client (pkp_key_guide.h): the Sort entry and its click
 
 }  // namespace nxrt::games::pkp

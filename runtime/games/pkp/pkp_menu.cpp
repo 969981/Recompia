@@ -21,9 +21,7 @@
 // runs the frame and routes the clicks.
 #include "pkp_menu.h"
 #include "pkp_menu_internal.h"
-#include "pkp_craft.h"
-#include "pkp_sort.h"
-#include "pkp_title.h"
+#include "pkp_key_guide.h"
 
 #include <atomic>
 #include <cstdio>
@@ -39,10 +37,6 @@ State& st() {
     static State s;
     return s;
 }
-
-std::atomic<uint64_t> g_quit_guide{0};   // the layout of the title's Quit Game key guide (menu_set_quit_guide)
-std::atomic<uint64_t> g_sort_guide{0};   // the layout of the bag screen's Sort key guide (menu_set_sort_guide)
-std::atomic<uint64_t> g_craft_guide{0};  // the layout of the crafting screen's Search key guide (menu_set_craft_guide)
 
 }  // namespace nxrt::games::pkp::menu_detail
 
@@ -181,25 +175,15 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (snap.inside && snap.shown && !s.key_guides.empty()) {
         for (const Pane& p : s.panes) {
             if (!p.item || !p.contains(px, py)) continue;
-            // the title's Quit Game is a second instance of the same key guide layout: its own instance sends (+) (pkp_title.cpp). Only
-            // while the title's set is shown: the widget reuses its part instances for later sets
-            const uint64_t quit = g_quit_guide.load(std::memory_order_relaxed);
-            if (quit && title_up() && p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size()) && s.layouts[p.lay].ptr == quit) {
-                if (log_ok(true)) NXLOG_I(kTag, "menu: click on the title's Quit Game key guide -> btn_plus");
-                return play::Act::BtnPlus;
-            }
-            // the bag screen's Sort is another instance of the key guide layout: its own instance sorts (pkp_sort.cpp). Only while the
-            // screen shows the Sort entry: the widget reuses its part instances for other sets, whose clicks go on as below
-            const uint64_t sort = g_sort_guide.load(std::memory_order_relaxed);
-            if (sort && p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size()) && s.layouts[p.lay].ptr == sort && sort_click()) {
-                if (log_ok(true)) NXLOG_I(kTag, "menu: click on the Sort key guide -> inventory sort");
-                return play::Act::None;
-            }
-            // the crafting screen's Search, the same way (pkp_craft.cpp): its own instance asks for a word
-            const uint64_t search = g_craft_guide.load(std::memory_order_relaxed);
-            if (search && p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size()) && s.layouts[p.lay].ptr == search && craft_click()) {
-                if (log_ok(true)) NXLOG_I(kTag, "menu: click on the Search key guide -> crafting search");
-                return play::Act::None;
+            // our own key guide entries (the title's Quit Game, the bag's Sort, the crafting screen's Search) are other instances of the
+            // same key guide layout: the instance a client last filled takes the click while the client still shows it (pkp_key_guide.h)
+            if (p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size())) {
+                play::Act act = play::Act::None;
+                const char* note = "";
+                if (key_guide::click(s.layouts[p.lay].ptr, &act, &note)) {
+                    if (log_ok(true)) NXLOG_I(kTag, "menu: click on %s", note);
+                    return act;
+                }
             }
             const auto it = s.key_guides.find(p.lay_id);
             if (it == s.key_guides.end()) continue;
@@ -215,9 +199,6 @@ bool menu_over_value() { return st().active && st().slider >= 0; }
 
 bool menu_active() { return st().active; }
 
-void menu_set_quit_guide(uint64_t layout) { g_quit_guide.store(layout, std::memory_order_relaxed); }
-void menu_set_sort_guide(uint64_t layout) { g_sort_guide.store(layout, std::memory_order_relaxed); }
-void menu_set_craft_guide(uint64_t layout) { g_craft_guide.store(layout, std::memory_order_relaxed); }
 
 
 }  // namespace nxrt::games::pkp

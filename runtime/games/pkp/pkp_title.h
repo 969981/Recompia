@@ -7,6 +7,5 @@
 namespace nxrt::games::pkp {
 
 extern const Feature kTitleFeature;
-bool title_up();      // the title's key guides (set 152) are on screen
 
 }  // namespace nxrt::games::pkp

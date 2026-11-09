@@ -28,17 +28,17 @@
 //    pads and keys away from the game while it is open. Mode 6 takes the 32-byte options {+0 header, +0x10 guide text (UTF-8 char*), +0x18 u16
 //    min length, +0x1a u16 max length, +0x1d u8 1}; the initial text is buf; the game's text check refuses an empty answer. Buffers are guest
 //    heap blocks (0x7101121ee8 ([main+0x3483d58] -> allocator, 3, size, 0x10, &{u32 0x35, u64 0})), kept for the session.
-//  * The button: the screen's prompts are the key guide widget fed set 26 ({Confirm, Close, Favorite}; only the crafting screen's browsing
-//    state uses it). At the widget's set fill (entry 0x7100ec5de0) key guide 158 (the game's own "Search", the Pokédex's) is put in the set's
-//    first free slot (the widget lays out six), and at the end of its part's fill (inline 0x7100ec69b4, as pkp_sort.cpp) its icon becomes Y
-//    (0x7100a7dbcc (part + 0x30, 3, action 0x97)), its text "Search: <word>" while a word is active (0x7100f35f20, text 0xa8, as pkp_title.cpp;
-//    the widget takes set 26 again after a new word), and its layout goes to the menu pointer (pkp_menu.cpp): a click on it asks too. Y is
-//    free in this screen (A Confirm, B Close, X Sort, (+) Favorite, (-) Details, L / R tabs).
+//  * The button: the screen's prompts are the key guide widget (pkp_key_guide.h; this is a client) fed set 26 ({Confirm, Close, Favorite};
+//    only the crafting screen's browsing state uses it). When the widget takes the set, key guide 158 (the game's own "Search", the
+//    Pokédex's) is put in the set's first free slot (the widget lays out six), and when its part is filled its icon becomes Y (action 0x97),
+//    its text "Search: <word>" while a word is active (the widget takes set 26 again after a new word), and its layout goes to the menu
+//    pointer (the key guide's click routing, pkp_menu.cpp): a click on it asks too. Y is free in this screen (A Confirm, B Close, X Sort,
+//    (+) Favorite, (-) Details, L / R tabs).
 //  * Link Play (0x71000376c4 true): the list is local UI, but the key guide is left as the game has it and nothing is filtered.
 #include "pkp_craft.h"
 #include "pkp_guest.h"
+#include "pkp_key_guide.h"
 #include "pkp_layout.h"
-#include "pkp_menu.h"
 #include "pkp_tables.h"
 
 #include <algorithm>
@@ -74,8 +74,6 @@ constexpr uint64_t kAlloc = 0x1121ee8;           // (allocator, 3, size, align, 
 constexpr uint64_t kAllocator = 0x3483d58;
 using layout::kOnline;
 using layout::kItemTable;
-using layout::kGuideTable;
-using layout::kSetTable;
 constexpr uint64_t kRecipeTable = 0x330;
 constexpr uint64_t kNameOf = 0xa34e1c;           // (name id, form) -> UTF-8
 using layout::kLanguage;
@@ -84,17 +82,9 @@ constexpr uint32_t kGridElem = 0x1fd, kDetailElem = 0x1ff;
 constexpr uint16_t kGridClass = 0xe4, kDetailClass = 0xe5;
 constexpr uint64_t kModel = 0x80, kCursor = 0x98;
 // the key guide
-using layout::kFillSet;
-using layout::kPartFilled;
-using layout::kSetIcon;
-using layout::kTextString;
-using layout::kLayoutOf;
-using layout::kWidgetState;
-using layout::kStringText;
 constexpr uint32_t kCraftSet = 26;
 constexpr uint16_t kSearchGuide = 158;           // "Search"
 constexpr uint16_t kActionY = 0x97;              // an action shown with the Y icon
-constexpr int kSetSlots = 6;
 constexpr uint32_t kMaxLen = 20;                 // characters
 constexpr auto kReopenGap = std::chrono::milliseconds(300);
 
@@ -122,6 +112,7 @@ struct State {
     std::unordered_map<uint16_t, std::string> names;   // recipe id -> folded result name (this language)
     uint64_t buf = 0, opts = 0, strs = 0;          // guest blocks for the keyboard
     // the key guide
+    int client = -1;                               // the key guide client
     std::atomic<uint64_t> widget{0};               // the key guide widget that took set 26 last
     uint64_t row = 0;                              // key guide 158's table row
     uint64_t set_ids = 0;                          // set 26's six u16 ids
@@ -141,7 +132,6 @@ uint64_t table_rec(::Ctx* c, uint64_t off, uint32_t id) {
     const uint64_t row = tables::row_or_first(c, g.base, off, id);
     return row && ok(row + 8, 8) ? rd<uint64_t>(row + 8) : 0;
 }
-uint64_t table_row(::Ctx* c, uint64_t off, uint32_t id) { return tables::row(c, g.base, off, id); }
 
 // Case folding for the match: ASCII, Latin-1 and fullwidth Latin capitals to small; markup tags (<...>) dropped. Works on whole UTF-8 sequences,
 // so a match never starts or ends inside a character.
@@ -221,10 +211,7 @@ uint64_t galloc(::Ctx* c, uint64_t size) {
 
 // The screen shows its browsing key guide (set 26 with the Search entry) now: the widget that took set 26 has taken no other set since (the
 // fill hook clears g.widget then) and is shown (state 1 or 2).
-bool guide_up() {
-    const uint64_t w = g.widget.load();
-    return w && ok(w + kWidgetState, 4) && rd<int32_t>(w + kWidgetState) - 1u < 2u;
-}
+bool guide_up() { return key_guide::shown(g.widget.load()); }
 bool screen_up() { return g.screen && std::chrono::steady_clock::now() - g.last_frame < kReopenGap; }
 
 // ---- the list ----
@@ -325,7 +312,7 @@ void ask(::Ctx* c, uint64_t screen) {
     }
     refill(c, screen);
     // the key guide shows the word: the widget takes its set again
-    if (const uint64_t w = g.widget.load(); w && guide_up()) call(c, g.base + kFillSet, w, kCraftSet);
+    if (const uint64_t w = g.widget.load(); w && guide_up()) key_guide::take_set(c, w, kCraftSet);
 }
 
 void clear_query() {
@@ -367,7 +354,7 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     if (g.log) {
         const uint64_t w = g.widget.load();
         NXLOG_I(kTag, "craft search: %s, state %u, key guide widget %llx (state %d), online %d", clicked ? "click" : "Y", state, static_cast<unsigned long long>(w),
-                w ? rd<int32_t>(w + kWidgetState) : -1, g.online.load() ? 1 : 0);
+                key_guide::state(w), g.online.load() ? 1 : 0);
     }
     if (g.online || state != 1 || !guide_up()) return 0;   // browsing only, with the Search prompt up
     ask(c, screen);
@@ -376,68 +363,56 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
 
 // ---- the key guide ----
 
-int hook_fill_set(::Ctx* c, uint64_t, void*) {
-    const uint64_t w = c->x[0];
-    if ((c->x[1] & 0xff) != kCraftSet) {
+void set_taken(::Ctx* c, uint64_t w, uint32_t set) {
+    if (set != kCraftSet) {
         if (w == g.widget.load()) g.widget = 0;
-        return 0;
+        return;
     }
     g.widget = w;
     if (!g.set_ids) {
-        const uint64_t srow = table_row(c, kSetTable, kCraftSet);
-        const uint64_t ids = srow ? rd<uint64_t>(srow + 8) : 0;
-        g.row = table_row(c, kGuideTable, kSearchGuide);
-        if (!ids || !ok(ids, 2 * kSetSlots) || !g.row) return 0;
+        const uint64_t ids = key_guide::set_ids(c, kCraftSet);
+        g.row = key_guide::guide_row(c, kSearchGuide);
+        if (!ids || !g.row) return;
         g.set_ids = ids;
     }
     // Search in the first free slot, or out of the set while online
     const bool online = call(c, g.base + kOnline, 0) & 1;
     g.online = online;
     int at = -1, free_slot = -1;
-    for (int i = 0; i < kSetSlots; ++i) {
+    for (int i = 0; i < key_guide::kSetSlots; ++i) {
         const uint16_t v = rd<uint16_t>(g.set_ids + 2 * i);
         if (v == kSearchGuide) at = i;
         if (v == 0 && free_slot < 0) free_slot = i;
     }
     if (!online && at < 0 && free_slot >= 0) wr<uint16_t>(g.set_ids + 2 * free_slot, kSearchGuide);
     if (online && at >= 0) {   // close the gap: the ids after it move up
-        for (int i = at; i + 1 < kSetSlots; ++i) wr<uint16_t>(g.set_ids + 2 * i, rd<uint16_t>(g.set_ids + 2 * (i + 1)));
-        wr<uint16_t>(g.set_ids + 2 * (kSetSlots - 1), 0);
+        for (int i = at; i + 1 < key_guide::kSetSlots; ++i) wr<uint16_t>(g.set_ids + 2 * i, rd<uint16_t>(g.set_ids + 2 * (i + 1)));
+        wr<uint16_t>(g.set_ids + 2 * (key_guide::kSetSlots - 1), 0);
     }
-    return 0;
 }
 
-void hook_part_filled(::Ctx* c, uint64_t, void*) {
-    if (!g.row || c->x[21] != g.row) return;
-    const uint64_t fp = c->x[29];
+void part_filled(::Ctx* c, const key_guide::Part& p) {
+    if (!g.row || p.row != g.row) return;
     const uint64_t w = g.widget.load();
-    if (!w || !ok(fp + 0x38, 8) || rd<uint64_t>(fp + 0x38) != w) return;   // the caller's (0x7100ec54a0) x19: the widget
-    const uint64_t part = c->x[19];
-    const uint64_t sp = (c->x[31] - 0x100) & ~uint64_t{0xf};
-    call(c, g.base + kSetIcon, part + 0x30, 3, kActionY, 0, 0, sp);
+    if (!w || p.widget != w) return;
+    key_guide::set_icon(c, p, kActionY);
     std::string label;
     {
         std::lock_guard<std::mutex> lk(g.mu);
         if (!g.query.empty()) label = std::string(kSearchWord[language()]) + ": " + g.query;
     }
-    if (!label.empty()) {
-        const uint64_t buf = (c->x[31] - (label.size() + 0x140)) & ~uint64_t{0xf};   // below the guest stack pointer: guest memory
-        std::memcpy(reinterpret_cast<void*>(buf), label.c_str(), label.size() + 1);
-        call(c, g.base + kTextString, part, static_cast<uint32_t>(c->x[20]), kStringText, buf, 0, buf - 0x10);
-    }
-    const uint64_t src = rd<uint64_t>(part + 0x38);
-    menu_set_craft_guide(src ? call(c, g.base + kLayoutOf, src, 0, 0, 0, 0, sp) : 0);
+    if (!label.empty()) key_guide::set_text(c, p, label.c_str());
+    key_guide::set_click_layout(g.client, key_guide::layout_of(c, p));
 }
 
-}  // namespace
-
-bool craft_click() {
+// Main thread: a left click on the Search part; the screen asks at its next frame. Not taken unless the crafting screen is up and its
+// key guide shows the Search entry.
+bool click(play::Act* act) {
     if (!screen_up() || !guide_up() || g.online) return false;
     g.click = true;
+    *act = play::Act::None;
     return true;
 }
-
-namespace {
 
 void install(const FeatureInstall& in) {
     const uint64_t base = in.base;
@@ -450,12 +425,10 @@ void install(const FeatureInstall& in) {
     in.hooks.add_entry(base + kScreenOpen, &hook_screen_open);
     in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
     in.hooks.add_inline(base + kFillIds, &hook_fill_ids);
-    // 0xec5de0 and 0xec69b4 also carry the title's and the inventory sort's key guide hooks: every hook there returns 0 / only observes, so all run
-    in.hooks.add_entry(base + kFillSet, &hook_fill_set);
-    in.hooks.add_inline(base + kPartFilled, &hook_part_filled);
-    NXLOG_I(kTag, "craft search: on (a (Y) Search key guide in the crafting screen; hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx)",
-            static_cast<unsigned long long>(kScreenOpen), static_cast<unsigned long long>(kScreenFrame), static_cast<unsigned long long>(kFillIds),
-            static_cast<unsigned long long>(kFillSet), static_cast<unsigned long long>(kPartFilled));
+    g.client = key_guide::add({.name = "craft search", .set_taken = &set_taken, .part_filled = &part_filled, .click = &click,
+                               .click_note = "the Search key guide -> crafting search"});
+    NXLOG_I(kTag, "craft search: on (a (Y) Search key guide in the crafting screen; hooks main+0x%llx, +0x%llx, +0x%llx)",
+            static_cast<unsigned long long>(kScreenOpen), static_cast<unsigned long long>(kScreenFrame), static_cast<unsigned long long>(kFillIds));
 }
 
 }  // namespace

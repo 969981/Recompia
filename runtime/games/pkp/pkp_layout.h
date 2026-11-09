@@ -19,8 +19,6 @@ constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
 // u32: how many tables it holds (8-byte slots from +0x10; a table at off is there while this is above off / 8, pkp_tables.h).
 constexpr uint64_t kTableCount = 0x2b70;
 constexpr uint64_t kItemTable = 0x638;
-constexpr uint64_t kSetTable = 0x1048;           // key guide sets: up to six key guide ids (u16) per row
-constexpr uint64_t kGuideTable = 0x1050;         // key guides: {u16 action, ff, 00, u8 text, 7f, ..} per row
 
 // ---- the input manager ----
 // Its vector at +0xcd8 (end at +0xce0) maps an action to its button (u32 per action, low byte: 0..3 the d-pad, 4 Y, 5 A, 6 X, 7 B, 8 (-),
@@ -52,13 +50,8 @@ constexpr uint64_t kFrameStep = 0xbfc4fc;
 constexpr uint64_t kOnline = 0x376c4;            // () -> bit 0: Link Play session
 constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
 constexpr uint64_t kChildOf = 0xa6f92c;          // (children (screen + 0x48), element id, u16* class) -> child widget
-constexpr uint64_t kSetIcon = 0xa7dbcc;          // (part + 0x30, slot, action, 0, 0): a key guide part's button icon
 constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id, const char*): a text id with a string argument
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
-
-// ---- the key guide widget (one per player, manager [0x3483fb8], ctor 0x7100ec4958) ----
-constexpr uint64_t kFillSet = 0xec5de0;          // entry: (widget, set id): the widget takes a key guide set
-constexpr uint64_t kPartFilled = 0xec69b4;       // inline: a part has its icon and text (x19 part, x21 key guide row, w20 text slot, [x29 + 0x38] widget)
-constexpr uint64_t kWidgetState = 0x90;          // i32: 1 or 2 while shown
+// The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
 }  // namespace nxrt::games::pkp::layout

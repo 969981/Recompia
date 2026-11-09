@@ -16,6 +16,7 @@
 #include "pkp_options.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_text.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,7 +50,6 @@ constexpr uint64_t kValueNames = 0x100fce0;   // choice widget: value names
 constexpr uint64_t kRowDrawn = 0x100b294;     // inline, after the row's draw called its value widget (x19 = the row)
 constexpr uint64_t kSliderText = 0x100f1b4;   // inline, in the slider's update after its number was drawn (x19 = the row, w20 = the value)
 constexpr uint64_t kTextById = 0xeba100;      // (widget, slot, text id): sets the description
-using layout::kTextString;
 constexpr uint64_t kStore = 0x100b920;        // (screen, id, value, flag): a row's value changed
 constexpr uint64_t kCommit = 0x10092a0;       // (screen, commit): commit or revert the value vector
 constexpr uint64_t kTabPrev = 0x100de9c, kTabNext = 0x100e084;   // the screen's tab change
@@ -66,7 +66,6 @@ constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 
 using layout::kTables;
 constexpr uint64_t kOptionTable = 0x10 + 0x828, kRowId = 0x420, kItemValue = 0x358;
 constexpr uint64_t kVecPtr = 0xa8, kVecCount = 0xb0, kMode = 0x358, kCategory = 0x360, kGroup = 0x361, kTabIndex = 0x364, kDirty = 0x383;
-using layout::kStringText;
 constexpr uint32_t kCustomText = 801;         // past the game's guards (1..800): text id 801 + slot is that slot's description
 constexpr uint32_t kFirstValueSlot = 7;       // text slots of the value names
 constexpr uint32_t kSliderSlot = 0x14, kLabelSlot = 4, kTitleSlot = 0x19;
@@ -352,11 +351,7 @@ using guest::wr;
 using guest::call;
 
 // The string is copied below the guest stack pointer: the game reads it as guest memory.
-void set_text(::Ctx* c, uint64_t widget, uint32_t slot, const char* s) {
-    const uint64_t buf = (c->x[31] - (std::strlen(s) + 0x40)) & ~uint64_t{0xf};
-    std::memcpy(reinterpret_cast<void*>(buf), s, std::strlen(s) + 1);
-    call(c, g.base + kTextString, widget, slot, kStringText, buf, 0, buf - 0x10);
-}
+void set_text(::Ctx* c, uint64_t widget, uint32_t slot, const char* s) { text::set_string(c, g.base, widget, slot, s); }
 
 int row_slot(uint32_t id) { return id >= kFirstId && id < kFirstId + kDirtySlot ? static_cast<int>(id - kFirstId) : -1; }
 const Row* row_at(int tab, int slot) { return slot >= 0 && slot < kTabs[tab].count ? &kTabs[tab].rows[slot] : nullptr; }
