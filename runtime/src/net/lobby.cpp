@@ -175,6 +175,8 @@ std::string room_code_new() {
     return s;
 }
 
+// The prefix is part of the relay protocol (both sides of a keyed room derive the key with it), not a game fact: the same for every game,
+// and fixed, or older builds stop finding keyed rooms.
 std::array<uint8_t, 16> room_key(const std::string& norm) {
     const std::string m = "pokopia-relay room v1" + norm;
     return passphrase_hash(m.data(), m.size());

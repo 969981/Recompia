@@ -529,7 +529,8 @@ ServicePtr make_window_controller() {
 
 // ---- library applets -------------------------------------------------------------------------------------------------------------
 // Every applet Pokopia's main (and the SDK functions it imports) can create gets its own answer; the list and the reasons are in
-// docs/IPC_ANSWERS.md. The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form answers a text, the player select
+// docs/IPC_ANSWERS.md. The answers are an offline console's (no eShop, Nintendo Account, friends or GameShare guests), so they hold for
+// any game: Pokopia's call sites below are where they were checked, not what they are tuned to. The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form answers a text, the player select
 // (0x10) answers the one user or, for its network-account modes, that the player backed out; the error applet (0x0E) logs the error it
 // was given; the shop, friends, data management, network connection and GameShare matchmaking applets end as cancelled by the player
 // (offline: nothing to buy, invite, free or connect to). An applet id nothing here knows ends at once with no output. Command ids

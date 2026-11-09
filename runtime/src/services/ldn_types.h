@@ -139,13 +139,17 @@ constexpr size_t kCreatePrivUser = 0x64, kCreatePrivNetCfg = 0x98;   // CreateNe
 constexpr size_t kConnectUser = 0x44, kConnectVersion = 0x74;                              // Connect
 constexpr size_t kConnPrivSecParam = 0x44, kConnPrivUser = 0x64, kConnPrivVersion = 0x94, kConnPrivNetCfg = 0xA0;   // ConnectPrivate
 constexpr uint32_t kSubnetMask = 0xFFFFFF00;   // the game asks MakeSubnetMask(24) too
+// The first 4 bytes of a Link Play SessionId (ldn_linkplay.h SessionRef): a protocol tag from the relay's first version, the same for every
+// game and fixed (older builds read it to map a scanned network back to its room).
 constexpr uint8_t kSessionTag[4] = {'p', 'k', 'p', 'R'};
 // Connect waits this long for the room state that lists the new node (the relay sends ROOM_STATE right behind JOINED); the lobby's own
 // request timeout is 5 s too (vnet::RelayOptions::timeout_ms).
 constexpr int kRoomStateWaitMs = 5000;
 // Host: datagrams from a node the game has not yet seen in a NetworkInfo are held (vnet::HoldLink) until the game reads a table listing
 // it, at most this long (pokopia-native windows/src/coop/coop_mpnet.c ACCEPT_WAIT_MS: the game polls GetNetworkInfo every frame), and at
-// most kHoldCap of them. KTGL drops a datagram from a sender outside its member table; the new station's first one is its join request.
+// most kHoldCap of them. A game's session layer may drop a datagram from a sender outside the member table it last read (KTGL, Pokopia's
+// engine, does, and the new station's first one is its join request); for any other game a new node's first datagrams wait at most
+// kHoldMs, less once the game reads the table.
 constexpr int kHoldMs = 300;
 constexpr size_t kHoldCap = 32;
 

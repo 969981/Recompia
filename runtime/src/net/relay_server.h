@@ -13,7 +13,8 @@
 //   LAN discovery   on the relay's UDP port. Request (64 B): "PKPDISC1" + 8 B nonce + zeros. Reply, only to a request from a private,
 //                   link-local or loopback IPv4 address and never longer than the request: "PKPHOST1" + the nonce + u16 TCP port + u8
 //                   open rooms (no room key, not full) + u8 nickname length + the host's nickname (<= 32 B). Only a game that hosts on this relay
-//                   answers it; the launcher's PKR1 relay does not.
+//                   answers it; the launcher's PKR1 relay does not. The PKP* magics are protocol bytes, the same for every game and fixed
+//                   (older builds send and match them).
 #pragma once
 #include <cstdint>
 #include <memory>
