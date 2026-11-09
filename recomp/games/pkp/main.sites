@@ -121,12 +121,6 @@ midhook 0x71006d9d70
 midhook 0x71006f7918
 #   StartAction 0x710027da60 right before it records the started action (w28 = action id, x19 = action component): the character turns to the aim
 midhook 0x710027e5d8
-#   mouse mode's "allowed" check 0x71002fa6ac right after it asked the pad style (w0 = style, 1 = two Joy-Cons; x19 = character): for the per-player mode update, camera aim's pinned pointer counts as two Joy-Cons
-midhook 0x71002fa6f8
-#   the same check's last step 0x71002fa8a0 (w0 = the save's mouse option bit; x19 = character): on for the mode update while camera aim pins the pointer
-midhook 0x71002fa8a0
-#   mouse mode turning on 0x71002fa8b0 at the option test (w8 = the save's mouse option byte; x19 = character): no Rock Smash switch and no pointer UI while camera aim pins the pointer
-midhook 0x71002fa8ec
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)

@@ -109,9 +109,6 @@ std::atomic<int> g_jc2_mode{-1};          // -1: not read from the config yet
 std::atomic<bool> g_jc2_request{false};
 std::atomic<bool> g_jc2_listed{false};    // the game set up Nmouse and the device is in its handle table
 std::atomic<bool> g_jc2_active{false};    // last sampled "on its surface"
-std::atomic<uint64_t> g_jc2_pin_ns{0};    // the last jc2_mouse_pin(true) (0: off)
-std::atomic<bool> g_jc2_pinned{false};    // last sampled pinned state
-std::atomic<int> g_jc2_pin_x{-1}, g_jc2_pin_y{-1};  // the pinned pointer position (negative: the range centre)
 
 uint64_t now_ns() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -479,7 +476,6 @@ void jcms_setup(HidState& s) {
 void sample_nmouse(HidState& s) {
     if (!s.nm_addr || !g_jc2_listed.load()) return;
     const bool active = nxrt::hid::jc2_mouse_active();
-    const bool pinned = !active && nxrt::hid::jc2_mouse_pinned();
     NmouseInternal ns{};
     const int32_t prev_x = s.nm_x, prev_y = s.nm_y;
     float wx = 0, wy = 0;
@@ -506,21 +502,12 @@ void sample_nmouse(HidState& s) {
         ns.wheel_y = static_cast<int32_t>(std::lround(wy * 120.f));
         ns.buttons = buttons;
         ns.attributes = kNmAttrConnected;
-    } else if (pinned) {
-        const int px = g_jc2_pin_x.load(), py = g_jc2_pin_y.load();
-        ns.x = px >= 0 ? px : s.nm_w / 2;
-        ns.y = py >= 0 ? py : s.nm_h / 2;
-        ns.attributes = kNmAttrConnected;
     } else {
         ns.x = std::max(0, s.nm_x);
         ns.y = std::max(0, s.nm_y);
     }
     ns.range_w = s.nm_w;
     ns.range_h = s.nm_h;
-    if (pinned != g_jc2_pinned.exchange(pinned) && s.active_logs < 200) {
-        s.active_logs++;
-        NXLOG_I("hid", "Joy-Con 2 mouse %s", pinned ? "pinned: on its surface, pointer at a fixed position" : "not pinned");
-    }
     if (active != g_jc2_active.exchange(active) && s.active_logs < 200) {
         s.active_logs++;
         NXLOG_I("hid", "Joy-Con 2 mouse %s (mode %s)", active ? "ON: the game sees the PC mouse" : "off", nxrt::hid::jc2_mouse_mode_name(nxrt::hid::jc2_mouse_mode()));
@@ -1267,17 +1254,6 @@ bool jc2_mouse_wants_pointer() {
 
 bool jc2_mouse_active() {
     return jc2_mouse_mode() != Jc2MouseMode::Off && services::g_jc2_listed.load() && services::jc2_feed_live();
-}
-
-void jc2_mouse_pin(bool on, int x, int y) {
-    services::g_jc2_pin_x.store(x);
-    services::g_jc2_pin_y.store(y);
-    services::g_jc2_pin_ns.store(on ? services::now_ns() : 0);
-}
-
-bool jc2_mouse_pinned() {
-    const uint64_t t = services::g_jc2_pin_ns.load();
-    return t && jc2_mouse_mode() != Jc2MouseMode::Off && services::g_jc2_listed.load() && services::now_ns() - t < 250000000ull;
 }
 
 }  // namespace nxrt::hid
