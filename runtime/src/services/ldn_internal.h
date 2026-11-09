@@ -58,7 +58,7 @@ struct LobbySlot {
     std::map<std::string, AutoRelay> relays;   // auto: host:port -> its client (lobby is one of them)
     std::shared_ptr<vnet::Lobby> lobby;
 };
-LobbySlot& slot();
+LobbySlot& slot();             // the linkplay backend's (ldn_linkplay.cpp; its reset() clears it)
 std::shared_ptr<vnet::Lobby> process_lobby(bool* auto_mode);
 std::shared_ptr<vnet::Lobby> auto_relay(const std::string& host, uint16_t port);
 uint64_t relay_tag(const vnet::Lobby& l);
@@ -71,7 +71,7 @@ struct Discovery {
     std::vector<vnet::FoundRelay> found;
     std::string logged;
 };
-Discovery& discovery();
+Discovery& discovery();        // the linkplay backend's (ldn_linkplay.cpp; its reset() clears it)
 std::vector<vnet::FoundRelay> discover_cached();
 
 struct RelayRooms {

@@ -2,6 +2,8 @@
 // ldn:u on pokopia-native's co-op module (see the comment below): the coop node from [net] and the nn::ldn commands as coop_ldn_* calls.
 #include "ldn_native.h"
 
+#include "ldn_linkplay.h"
+
 
 #include <algorithm>
 #include <array>
@@ -69,10 +71,45 @@ bool native_protocol() {
     return native;
 }
 
-NativeSlot& native() {
-    static NativeSlot s;
-    return s;
+namespace {
+
+// Owns the process's coop node (native(), made by native_node()). With the module off (no node) a service object gets the linkplay
+// backend's Ldn with no lobby: its offline answers.
+class NativeBackend final : public LdnBackend {
+public:
+    const char* name() const override { return "native"; }
+    std::shared_ptr<LdnSession> open(ipc::Service& s) override {
+        if (coop_node* n = native_node()) {
+            auto l = std::make_shared<NativeLdn>(n);
+            l->add_commands(s);
+            return l;
+        }
+        auto l = std::make_shared<Ldn>(true);
+        l->add_commands(s);
+        return l;
+    }
+    void reset() override {
+        coop_node* node = slot_.node.exchange(nullptr);
+        {
+            std::lock_guard<std::mutex> lk(slot_.mu);
+            slot_.built = false;
+            slot_.build.clear();
+        }
+        if (node) coop_destroy(node);   // finalizes: the host's links and the virtual sockets close
+    }
+
+    NativeSlot slot_;
+};
+
+NativeBackend& backend() {
+    static NativeBackend b;
+    return b;
 }
+
+}  // namespace
+
+LdnBackend& native_backend() { return backend(); }
+NativeSlot& native() { return backend().slot_; }
 
 
 namespace {

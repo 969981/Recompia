@@ -35,11 +35,6 @@
 
 namespace nxrt::services::ldn_impl {
 
-LobbySlot& slot() {
-    static LobbySlot s;
-    return s;
-}
-
 // Everything of a relay client but its host and port. False: [net] room_code is not a code (local wireless stays off).
 bool relay_options(vnet::RelayOptions* o) {
     o->nickname = nickname();
@@ -169,11 +164,6 @@ std::shared_ptr<vnet::Lobby> host_relay() {
 // Auto mode, Scan: the last LAN discovery, a new one at most every kDiscoveryEveryMs (waiting kDiscoveryWaitMs for answers). The relays
 // found are logged when the result changes, not per discovery.
 constexpr int kDiscoveryWaitMs = 400, kDiscoveryEveryMs = 2000;
-
-Discovery& discovery() {
-    static Discovery d;
-    return d;
-}
 
 std::vector<vnet::FoundRelay> discover_cached() {
     Discovery& d = discovery();

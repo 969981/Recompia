@@ -10,6 +10,7 @@
 #include "nxrt/log.h"
 #include "nxrt/services.h"
 #include "coop.h"
+#include "ldn_backend.h"
 #include "ldn_internal.h"
 
 namespace nxrt::services::ldn_impl {
@@ -27,11 +28,11 @@ NativeSlot& native();
 // The process's coop node from [net] (made once; null: local wireless off).
 coop_node* native_node();
 
-class NativeLdn : public std::enable_shared_from_this<NativeLdn> {
+class NativeLdn final : public LdnSession, public std::enable_shared_from_this<NativeLdn> {
 public:
     explicit NativeLdn(coop_node* n) : n_(n) {}
     void add_commands(ipc::Service& s);
-    void shutdown() {
+    void shutdown() override {
         coop_ldn_finalize(n_);
         forget();
     }

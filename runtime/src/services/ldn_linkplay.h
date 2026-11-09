@@ -13,6 +13,7 @@
 #include "nxrt/services.h"
 #include "../net/lobby.h"
 #include "../net/vnet.h"
+#include "ldn_backend.h"
 #include "ldn_internal.h"
 
 namespace nxrt::services::ldn_impl {
@@ -24,11 +25,11 @@ struct SessionRef {
     uint64_t tag = 0;
 };
 
-class Ldn : public std::enable_shared_from_this<Ldn> {
+class Ldn final : public LdnSession, public std::enable_shared_from_this<Ldn> {
 public:
     explicit Ldn(bool offline = false) : offline_(offline) {}
     void add_commands(ipc::Service& s);
-    void shutdown();   // the service object was released: leave and drop the link
+    void shutdown() override;   // the service object was released: leave and drop the link
 
 private:
     using H = uint32_t (Ldn::*)(ipc::Request&, ipc::Response&);

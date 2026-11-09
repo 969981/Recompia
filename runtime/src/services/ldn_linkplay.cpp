@@ -809,4 +809,51 @@ void Ldn::shutdown() {
     if (lobby) lobby->set_events({});
 }
 
+// ---- the backend --------------------------------------------------------------------------------------------------------------------------
+// Owns the process lobby (slot(): the relay clients, ldn_auto_relay.cpp) and the LAN discovery cache (discovery()).
+
+namespace {
+
+class LinkplayBackend final : public LdnBackend {
+public:
+    const char* name() const override { return "linkplay"; }
+    std::shared_ptr<LdnSession> open(ipc::Service& s) override {
+        auto l = std::make_shared<Ldn>();
+        l->add_commands(s);
+        return l;
+    }
+    void reset() override {
+        {
+            std::lock_guard<std::mutex> lk(discovery_.mu);
+            discovery_.ran = false;
+            discovery_.found.clear();
+            discovery_.logged.clear();
+        }
+        std::shared_ptr<vnet::Lobby> old;
+        {
+            std::lock_guard<std::mutex> lk(slot_.mu);
+            old.swap(slot_.lobby);
+            slot_.built = false;
+            slot_.auto_mode = false;
+            slot_.target.clear();
+            slot_.relays.clear();
+        }
+        // old goes away here, outside the lock (a relay client closes its connection)
+    }
+
+    LobbySlot slot_;
+    Discovery discovery_;
+};
+
+LinkplayBackend& linkplay() {
+    static LinkplayBackend b;
+    return b;
+}
+
+}  // namespace
+
+LdnBackend& linkplay_backend() { return linkplay(); }
+LobbySlot& slot() { return linkplay().slot_; }
+Discovery& discovery() { return linkplay().discovery_; }
+
 }  // namespace nxrt::services::ldn_impl
