@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Jump momentum: a running jump carries the running speed instead of the fixed air speed. [pkp] jump_momentum (on by default),
+// Jump momentum: a running jump carries the running speed instead of the fixed air speed. [pkp] jump_momentum (off by default in Testing builds),
 // [pkp] jump_momentum_strength (0..1, default 1).
 //
 // How the game moves the player in the air (main 2.0.1a, measured with a per-frame log and write traps in a scripted run):
@@ -120,7 +120,7 @@ int hook_air_add(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void jump_install(uint64_t base) {
-    if (!config_get_bool("pkp", "jump_momentum", true)) return;
+    if (!config_get_bool("pkp", "jump_momentum", false)) return;
     g.base = base;
     g.strength = static_cast<float>(std::clamp(config_get_double("pkp", "jump_momentum_strength", 1.0), 0.0, 1.0));
     hook_add_entry(base + kSetStep, &hook_set_step);

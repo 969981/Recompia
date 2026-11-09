@@ -9,10 +9,11 @@ import { askCompact, store } from '../store.js';
 import { backupDetail, backupNow, backupText, runRestore } from './backups.js';
 import { canUpdate, gamePhase } from '../action.js';
 import { runRepair, runUndo } from './repair.js';
+import { sendLogs, viewLogs } from './testing-logs.js';
 import { askTesting } from './testing-notice.js';
 import { confirmBuild, loadBuilds, pickBuild } from './builds.js';
 import {
-  DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField,
+  DLSS_DOWNLOAD, IMPORT_FACTS, SECTIONS, applyEdits, customStart, fitNumber, isAvailable, isEnabled, makeSource, optionsFor, readAll, readField, sectionsFor,
   rowsOf, shownChoice, splitEdits, writeField, FIELDS,
 } from '../settings-schema.js';
 
@@ -44,7 +45,9 @@ export async function render(el, ctx) {
   let backups = null;   // savebackup.rs Status: the settings, how many copies and the newest
   let steamBusy = false;
   let steam = null;     // steam.rs Status: Steam found and running, and whether the game and the launcher shortcuts are in it
+  const channelOf = () => (src.config.channel === 'testing' ? 'testing' : 'stable');
   let section = store.state.dlss ? 'graphics' : ctx.section || lastSection;
+  if (!sectionsFor(channelOf()).some((x) => x.id === section)) section = 'display';   // the Testing tab is for Testing only
 
   const customOpen = new Set();   // choice rows showing their number field although the value is a preset
   const pending = new Map();      // field id -> { timer, run }: debounced commits
@@ -185,6 +188,18 @@ export async function render(el, ctx) {
     return text ? `<div class="banner ${noExe && !waiting ? 'warn' : 'info'}" data-banner="${esc(text)}">${icon(noExe && !waiting ? 'triangle-alert' : 'info')}<div>${esc(text)}</div></div>` : '';
   }
 
+  const pillsHtml = () => segmented('section', sectionsFor(channelOf()).map((x) => ({ value: x.id, label: x.label })), section, { label: 'Settings section' });
+
+  /** Joining or leaving Testing adds or removes the Testing tab; a player standing on it when it goes lands on Display. */
+  function syncPills() {
+    const ids = sectionsFor(channelOf()).map((x) => x.id).join();
+    if (!ids.split(',').includes(section)) section = lastSection = 'display';
+    const pills = el.querySelector('.set-pills');
+    if (pills.dataset.ids === ids) return;   // only a changed list is redrawn: a redraw would take the focus off the pill being used
+    pills.dataset.ids = ids;
+    pills.innerHTML = pillsHtml();
+  }
+
   function sectionHtml() {
     const sec = SECTIONS.find((s) => s.id === section);
     const values = readAll(src);
@@ -219,6 +234,7 @@ export async function render(el, ctx) {
       return;
     }
     redraw = false;
+    syncPills();
     const host = body();
     const next = document.createElement('div');
     next.innerHTML = sectionHtml();
@@ -568,6 +584,9 @@ export async function render(el, ctx) {
       await chooseBuild(src.config.channel === 'testing' ? 'testing' : 'stable', false);
     },
     'open-log': () => api('open_game_file', { name: 'pkp.log' }),
+    'logs-send': () => sendLogs(store.state.app?.version ?? ''),
+    'logs-view': viewLogs,
+    'logs-folder': () => api('testing_logs_open_dir'),
     'steam-add-game': () => steamDo('steam_add', 'game'),
     'steam-add-launcher': () => steamDo('steam_add', 'launcher'),
     'steam-remove-game': () => steamDo('steam_remove', 'game'),
@@ -592,7 +611,7 @@ export async function render(el, ctx) {
       <h1>Settings</h1>
       <span class="set-saved" id="set-saved" role="status"></span>
     </div>
-    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label })), section, { label: 'Settings section' })}</div>
+    <div class="set-pills" data-ids="${sectionsFor(channelOf()).map((x) => x.id).join()}">${pillsHtml()}</div>
     <div class="set-body" id="set-body"></div>
   </div>`;
 
