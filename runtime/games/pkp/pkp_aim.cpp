@@ -338,10 +338,12 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
     const uint32_t id = static_cast<uint32_t>(c->x[28]) & 0xffff;
     if (id < kFirstAbility || id > kLastAbility) return 0;
     const uint64_t ch = rd<uint64_t>(c->x[19] + kActionOwner);
+    if (!ch) return 0;
     float yaw;
     if (!mouse_yaw(ch, yaw) && (!g.camera || !camera_yaw(ch, yaw, g.reach))) return 0;
     std::memcpy(reinterpret_cast<void*>(ch + kHeading), &yaw, sizeof yaw);
-    const uint64_t move = rd<uint64_t>(rd<uint64_t>(g.base + kMoveTable) + 0x58);  // ponytail: slot 0, the only player with a follow camera here
+    const uint64_t moves = rd<uint64_t>(g.base + kMoveTable);
+    const uint64_t move = moves ? rd<uint64_t>(moves + 0x58) : 0;  // ponytail: slot 0, the only player with a follow camera here
     if (move) std::memcpy(reinterpret_cast<void*>(move + kController + kControllerYaw), &yaw, sizeof yaw);
     const uint64_t save = rd<uint64_t>(g.base + kSaveRoot);
     const bool alt = rd<uint32_t>(ch + kPlayerMode) == 0 && rd<uint8_t>(ch + kPlayerModeByte) == 0;
