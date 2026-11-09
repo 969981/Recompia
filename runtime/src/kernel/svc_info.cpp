@@ -13,12 +13,27 @@
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
-#include "nxrt/services.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
+#include "kernel_internal.h"
 
 namespace nxrt {
+namespace kernel {
 namespace {
+ProcessHooks g_hooks;     // set once before the guest runs (nxrt::init)
+}  // namespace
+
+void set_process_hooks(const ProcessHooks& h) { g_hooks = h; }
+
+namespace detail {
+const ProcessHooks& process_hooks() { return g_hooks; }
+std::string state_report() { return g_hooks.state_report ? g_hooks.state_report() : std::string("(no state report registered)\n"); }
+}  // namespace detail
+}  // namespace kernel
+
+namespace {
+
+uint64_t call_or_zero(uint64_t (*fn)()) { return fn ? fn() : 0; }
 
 constexpr uint32_t kInvalidCombination = 0xE801;   // kernel result 116 (InvalidCombination); not in kernel.h yet
 
@@ -113,11 +128,11 @@ uint32_t get_info(uint32_t type, uint32_t handle, uint64_t sub, uint64_t& out) {
         case 16:                                                              // SystemResourceSizeTotal: main.npdm (title profile)
             // nn::os enables its virtual address memory manager (VAMM, AllocateAddressRegion) when this is non-zero, and titles that
             // declare it allocate through VAMM unconditionally: report what the title's NPDM says ([process] overrides).
-            out = static_cast<uint64_t>(config_get_int("process", "system_resource_size", static_cast<int64_t>(services::profile().system_resource_size)));
+            out = static_cast<uint64_t>(config_get_int("process", "system_resource_size", static_cast<int64_t>(call_or_zero(kernel::detail::process_hooks().system_resource_size))));
             return kernel::kOk;
         case 17: out = 0; return kernel::kOk;                                 // SystemResourceSizeUsed
         case 18:                                                              // ProgramId: set by the game layer ([process] program_id)
-            out = services::program_id_now();   // [process] program_id, else [title] program_id (default: the title the profile describes)
+            out = call_or_zero(kernel::detail::process_hooks().program_id);   // [process] program_id, else [title] program_id (default: the title the profile describes)
             return kernel::kOk;
         case 20:                                                              // UserExceptionContextAddress
             out = user_exception_context();

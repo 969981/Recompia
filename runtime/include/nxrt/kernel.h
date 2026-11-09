@@ -205,6 +205,14 @@ uint64_t starvation_boosts();            // boosts given so far
 void install_spin_hint();                // WFE / YIELD of the lifted code hand the host processor over (busy_mutex.cpp, [sched] spin_yield)
 void install_busy_mutex_hle();           // nn::os::LockBusyMutex as host code that yields while it waits (busy_mutex.cpp, [sched] busy_mutex_hle)
 
+// ---- what the kernel asks of the layers above it (set once by nxrt::init, src/core/runtime.cpp, before the guest runs) ---------
+struct ProcessHooks {
+    uint64_t (*program_id)() = nullptr;             // GetInfo ProgramId (services: [process] program_id, else the title's)
+    uint64_t (*system_resource_size)() = nullptr;   // GetInfo SystemResourceSizeTotal default (the title profile's NPDM value)
+    std::string (*state_report)() = nullptr;        // the runtime's state summary, logged at svcExitProcess and svcBreak
+};
+void set_process_hooks(const ProcessHooks& h);     // unset members answer 0 / an empty report
+
 // ---- time (the console tick and its rate: nxrt/clock.h) ----------------------------------------------------------------------
 void sleep_ns(int64_t ns);               // high-resolution sleep; <= 0 yields
 // SleepThread with the game's polling sleeps shortened: the sleep a call from `lr` gets (`ns` unchanged when lr is not in the table, the

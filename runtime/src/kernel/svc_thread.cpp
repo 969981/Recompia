@@ -19,7 +19,6 @@
 #include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
-#include "nxrt/runtime.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/svc.h"
@@ -49,7 +48,7 @@ void svc_exit_process(::Ctx* c) {
         }
         NXLOG_I("svc", "svcExitProcess caller chain: %s", chain.c_str());
     }
-    NXLOG_I("runtime", "state at svcExitProcess:\n%s", summary().c_str());
+    NXLOG_I("runtime", "state at svcExitProcess:\n%s", kernel::detail::state_report().c_str());
     log_flush();
     ExitProcess(0);
 }
@@ -330,7 +329,7 @@ void svc_break(::Ctx* c) {
     NXLOG_E("svc", "svcBreak reason 0x%x arg 0x%llx size 0x%llx%s lr=0x%llx in f_%llx", reason, (unsigned long long)arg, (unsigned long long)size, extra,
             (unsigned long long)X(c, 30), (unsigned long long)c->fn);
     if (notify_only) return;
-    NXLOG_I("runtime", "state at svcBreak:\n%s", summary().c_str());
+    NXLOG_I("runtime", "state at svcBreak:\n%s", kernel::detail::state_report().c_str());
     log_flush();
     RaiseException(0xE0000003, EXCEPTION_NONCONTINUABLE, 0, nullptr);
     TerminateProcess(GetCurrentProcess(), 2);

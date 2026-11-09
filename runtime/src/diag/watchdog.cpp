@@ -21,7 +21,6 @@
 #include "nxrt/diag.h"
 #include "nxrt/gauge.h"
 #include "nxrt/dispatch.h"
-#include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/symbols.h"
 #include "stackwalk.h"
@@ -233,8 +232,7 @@ std::string emit_dump(const std::string& report_path, const std::string& header)
     std::string text = header;
     text += '\n';
     text += dump_text();
-    text += kernel::sync_wait_report();
-    text += extra_reports();
+    text += extra_reports();     // the kernel's guest waits first (registered by svc_init), then the GPU, the pools, the frame times
     log_lines(text);
     write_report(report_path, text);
     return text;

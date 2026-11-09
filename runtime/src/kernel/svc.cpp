@@ -172,6 +172,7 @@ void svc_init() {
         svc_register_info_group();
         svc_register_thread_group();
         svc_register_ipc_group();
+        diag_add_report(&kernel::sync_wait_report, false);   // the freeze dump: the guest threads blocked in kernel waits, after the thread dump
         size_t n = 0;
         for (auto* h : g_handlers) n += h != nullptr;
         NXLOG_I("svc", "%zu SVC handlers registered", n);

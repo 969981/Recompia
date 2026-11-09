@@ -56,6 +56,13 @@ bool init(const InitOptions& opt) {
         ok = false;
     }
     svc_init();
+    {   // what the kernel asks of the layers above it: the title's facts (services) and the state summary (here)
+        kernel::ProcessHooks h;
+        h.program_id = &services::program_id_now;
+        h.system_resource_size = []() -> uint64_t { return services::profile().system_resource_size; };
+        h.state_report = &summary;
+        kernel::set_process_hooks(h);
+    }
     kernel::install_spin_hint();
     kernel::starvation_guard_start();
     if (opt.services) {
