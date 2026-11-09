@@ -100,7 +100,7 @@ pub struct Status {
 pub fn locate(game_dir: &Path) -> (PathBuf, String) {
     let ini = fs::read(game_dir.join(PKP_INI)).ok().map(|b| Ini::parse(&String::from_utf8_lossy(&b)));
     let get = |s: &str, k: &str| ini.as_ref().and_then(|i| i.get(s, k)).unwrap_or_default();
-    let env = std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default();   // overrides the ini in the runtime, so here too
+    let env = crate::saveimport::env_save_dir();
     let sd = crate::saveimport::save_dir_of(game_dir, &if env.trim().is_empty() { get("fs", "save_dir") } else { env });
     let key = crate::profiles::strict_save_key(game_dir).unwrap_or_else(|| crate::saveimport::target_key(&sd, &get("account", "uid")));
     (sd, key)

@@ -15,8 +15,7 @@ pub fn save_paths(app: &AppHandle) -> (PathBuf, String) {
     let dir = game_dir_of(&load_config(app));
     let pkp = settings::read(&dir).pkp;
     let get = |k: &str| pkp.get(k).cloned().unwrap_or_default();
-    // NXRT_FS_SAVE_DIR overrides the ini in the runtime, so it does here
-    let env = std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default();
+    let env = saveimport::env_save_dir();
     let sd = saveimport::save_dir_of(&dir, &if env.trim().is_empty() { get("fs.save_dir") } else { env });
     // with profiles, a profile other than the first plays its own account folder, not the newest one
     let key = profiles::strict_save_key(&dir).unwrap_or_else(|| saveimport::target_key(&sd, &get("account.uid")));

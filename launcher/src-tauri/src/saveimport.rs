@@ -152,6 +152,15 @@ pub fn find_sources_here() -> Vec<Source> {
 
 // ---- where the runtime keeps the save ------------------------------------------------------------------------------------------------
 
+/// NXRT_FS_SAVE_DIR, which overrides [fs] save_dir in the runtime and so here too; empty when unset. The tests never see it: they
+/// work in folders of their own, and following the variable would point them at the real save of the PC they run on.
+pub fn env_save_dir() -> String {
+    if cfg!(test) {
+        return String::new();
+    }
+    std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default()
+}
+
 /// The runtime's [fs] save_dir: relative to the game folder; empty is the launcher's default `save`.
 pub fn save_dir_of(game_dir: &Path, ini_value: &str) -> PathBuf {
     let v = ini_value.trim();
