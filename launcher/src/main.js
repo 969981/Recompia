@@ -9,6 +9,7 @@ import logoUrl from './art/logo.png';
 import { api, errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
+import { startGamepadNav } from './gamepad-nav.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
 import * as news from './pages/news.js';
@@ -188,6 +189,7 @@ function drawWindowButtons() {
 }
 
 function start() {
+  startGamepadNav();
   drawNav();
   drawWindowButtons();
   store.subscribe(drawChrome);
