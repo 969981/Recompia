@@ -407,7 +407,9 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     } else {
         g_gen_tcs = nullptr;
     }
-    if (g_dirty & (kPipe | kDesc)) {
+    // The layout depends on the stages only: they change with BindProgram (kPipe) and the generated control shader (kPipe above);
+    // begin_submit and the full resets set kPipe too. kDesc alone (a new binding) keeps the same layout.
+    if (g_dirty & kPipe) {
         const ShaderInfo* stages[6] = {vs, S.stage[kFragment], S.stage[kGeometry], tcs_now(), S.stage[kTessEval], nullptr};
         g_pl = prog_layout(stages);
     }
