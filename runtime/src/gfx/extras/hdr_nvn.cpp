@@ -9,6 +9,7 @@
 #include "nxrt/log.h"
 #include "extras/fsr1_spatial.h"
 #include "extras/nis_spatial.h"
+#include "extras/smaa_scene.h"
 #include "extras/hdr_tonemap_patch.h"
 
 namespace nxrt::extras {
@@ -89,6 +90,19 @@ SpatialUpscaler* scene_upscaler(void* gfx_device, VkExtent2D in, VkExtent2D out)
         else delete f;
     }
     return fsr;
+}
+
+SmaaScene* scene_smaa(void* gfx_device) {
+    static SmaaScene* smaa = nullptr;
+    static bool tried = false;
+    if (!gfx_device) return nullptr;
+    if (!tried) {
+        tried = true;
+        auto* s = new SmaaScene();
+        if (s->init(*static_cast<gfx::Device*>(gfx_device))) smaa = s;
+        else delete s;
+    }
+    return smaa;
 }
 
 float scene_upscale_prescale() { return 0.1f; }

@@ -124,6 +124,7 @@ constexpr const char* kLatencyModeNames[] = {"Off", "Auto", "On", "Boost"};
 constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA", "Nearest (sharp pixels)"};   // indexed by extras::UpscaleMode
 // The order the list shows them in. ponytail: NIS, FSR 3, DLSS, DLAA and XeSS are off until reworked (extras::upscale_mode_enabled, #232).
 constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
+constexpr const char* kAaNames[] = {"Default (none)", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};   // indexed by extras::AaMode
 constexpr const char* kUpscaleQualityNames[] = {"Native (AA only)", "Quality", "Balanced", "Performance", "Ultra performance", "Custom (scene resolution)"};
 
 // Off and the spatial upscalers (FSR 1, NIS) always work. The temporal ones (src/gfx/extras/temporal.h) get depth, camera motion vectors made by
@@ -175,6 +176,22 @@ void upscale_group(Page& p) {
         ImGui::EndCombo();
     }
     if ((u.mode == extras::UpscaleMode::Dlss || u.mode == extras::UpscaleMode::Dlaa) && !extras::temporal_dlss_started()) restart_badge();
+
+    {   // anti-aliasing of the 3D scene: SMAA on the HDR scene before the tone map, so the HUD and the menus stay sharp. Applies with Apply and save.
+        const int aa = static_cast<int>(u.aa);
+        if (ImGui::BeginCombo("Anti-aliasing##upscale_aa", kAaNames[aa])) {
+            for (int i = 0; i < 5; ++i) {
+                if (ImGui::Selectable(kAaNames[i], i == aa) && i != aa) {
+                    u.aa = static_cast<extras::AaMode>(i);
+                    mark(p);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        tip("Smooths jagged edges of the 3D scene only (the HUD and the menus are not filtered). Default: as the game draws it, no anti-aliasing. SMAA: "
+            "Low: the lightest, finds the obvious edges. Medium and High: more edges and longer edge search. Ultra: the finest and the most costly. "
+            "Not hardware multisampling. Not combined with a scene resolution below 100% and an upscaler. Applies with Apply and save, no restart.");
+    }
 
     if (u.mode == extras::UpscaleMode::Fsr3 || u.mode == extras::UpscaleMode::Dlss) {
         const int q = static_cast<int>(u.quality);

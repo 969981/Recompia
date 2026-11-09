@@ -316,6 +316,10 @@ Files: `third_party/ffx_fsr1/` (`fsr1/ffx_fsr1.h`, `ffx_core*.h`, `ffx_common_ty
 
 Files: `third_party/nvidia_nis/` (`NIS_Scaler.h`, `NIS_Config.h`, unmodified). Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. Licence text: `third_party/nvidia_nis/LICENSE.txt`. Source: https://github.com/NVIDIAGameWorks/NVIDIAImageScaling, tag v1.0.3. Used by `src/gfx/extras/nis_spatial.cpp` (the constant setup, `NVScalerUpdateConfig`) and by the compute shader in `src/gfx/extras/nis_shaders.inc`, generated from these headers by `scripts/gen_nis_shaders.py`.
 
+## SMAA (MIT)
+
+Files: `third_party/smaa/` (`SMAA.hlsl`, `AreaTex.h`, `SearchTex.h`, unmodified). Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro, Diego Gutierrez. Licence text: `third_party/smaa/LICENSE.txt`. Source: https://github.com/iryoku/smaa, commit 71c806a838bdd7d517df19192a20f0c61b3ca29d. Used by `src/gfx/extras/smaa_scene.cpp` (the lookup textures) and by the shaders in `src/gfx/extras/smaa_shaders.inc`, generated from `SMAA.hlsl` by `scripts/gen_smaa_shaders.py`.
+
 ## AMD FidelityFX SDK v2.4.0, FidelityFX API headers (MIT)
 
 Files: `third_party/amd_ffx_api/` (`api/include/ffx_api.h`, `ffx_api_types.h`, `ffx_api_loader.h`, `vk/ffx_api_vk.h`, `upscalers/include/ffx_upscale.h`, unmodified). Copyright (c) Advanced Micro Devices, Inc. Licence text: `third_party/amd_ffx_api/LICENSE.txt`. Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, release v2.4.0. Used by `src/gfx/extras/temporal_ffx.cpp`.
