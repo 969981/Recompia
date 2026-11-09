@@ -11,6 +11,7 @@
 #include <string>
 
 #include "nxrt/config.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 
@@ -18,11 +19,6 @@ namespace nxrt::diag {
 namespace {
 
 constexpr const char* kTag = "host";
-
-bool under_wine() {
-    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-    return nt && GetProcAddress(nt, "wine_get_version");
-}
 
 void run_probe() {
     std::ifstream sm("Z:\\proc\\self\\smaps");
@@ -76,7 +72,7 @@ void host_probe_tick(bool presented) {
     if (first == Clock::time_point{}) first = Clock::now();
     if (Clock::now() - first < std::chrono::seconds(60)) return;
     done = true;
-    if (!under_wine()) return;
+    if (!host_is_wine()) return;
     run_probe();
 }
 

@@ -9,6 +9,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
 
@@ -452,8 +453,7 @@ bool heap_create(uint64_t reserve_bytes) {
     }
     // [memory] heap_section: auto (default) = a section unless running under Wine (memory.h), 1 = always, 0 = never
     const std::string mode = nxrt::config_get_str("memory", "heap_section", "auto");
-    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version");
+    const bool wine = host_is_wine();
     if (mode == "0" || (mode != "1" && wine)) {
         void* p = VirtualAlloc(reinterpret_cast<void*>(kHeapBase), static_cast<SIZE_T>(size), MEM_RESERVE, PAGE_NOACCESS);
         if (reinterpret_cast<uint64_t>(p) != kHeapBase) {

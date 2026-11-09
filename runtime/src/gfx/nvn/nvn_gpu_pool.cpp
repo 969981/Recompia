@@ -23,6 +23,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/gauge.h"
 #include "nxrt/memory.h"
@@ -77,19 +78,11 @@ uint64_t import_overlap() { return import_stride() / 4; }
 // ([nvn] pool_lazy_chunk_mb, default 16) is imported a run of cells at a time, the first time a bind touches them, imports nobody bound for
 // a while are dropped, and textures whose storage is not imported are untiled on the CPU (gpu_untile) instead of importing it. Approach
 // after peiikai/LASRecomp runtime/nvn/vulkan/exec.c (lazy 16 MB heap chunks, MIT).
-bool wine_host() {
-    static const bool w = [] {
-        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-        return nt && GetProcAddress(nt, "wine_get_version");
-    }();
-    return w;
-}
-
 bool lazy_on() {
     static const bool on = [] {
         const std::string v = config_get_str("nvn", "pool_lazy", "auto");
-        const bool r = v == "auto" ? wine_host() : (v == "on" || v == "1" || v == "true");
-        NXLOG_I(kTag, "pool_lazy %s (%s%s)", r ? "on" : "off", v.c_str(), v == "auto" ? (wine_host() ? ", Wine" : ", not Wine") : "");
+        const bool r = v == "auto" ? host_is_wine() : (v == "on" || v == "1" || v == "true");
+        NXLOG_I(kTag, "pool_lazy %s (%s%s)", r ? "on" : "off", v.c_str(), v == "auto" ? (host_is_wine() ? ", Wine" : ", not Wine") : "");
         return r;
     }();
     return on;

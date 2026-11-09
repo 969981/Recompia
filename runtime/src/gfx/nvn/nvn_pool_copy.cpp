@@ -38,6 +38,7 @@
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
 #include "nvn_gpu_internal.h"
@@ -50,14 +51,6 @@ constexpr uint64_t kPage = 4096;
 constexpr uint64_t kOutside = ~0ull;      // page_copied of a copy made outside a recording: equal to no serial, and not "never" (0)
 constexpr uint64_t kNone = ~0ull;         // g_land_min with no record
 
-bool wine() {
-    static const bool w = [] {
-        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-        return nt && GetProcAddress(nt, "wine_get_version");
-    }();
-    return w;
-}
-
 // Native Windows keeps ordinary pool imports forever. On an integrated GPU with a small device-local heap those imports share RAM with
 // everything else and eventually make queue submissions fail with VK_ERROR_OUT_OF_DEVICE_MEMORY. Use the bounded shadow cache there too.
 struct AutoDecision {
@@ -69,7 +62,7 @@ std::mutex g_auto_mu;
 AutoDecision g_auto;
 
 bool auto_copy() {
-    if (wine()) return true;
+    if (host_is_wine()) return true;
     if (!active()) return false;     // an early stats call must not latch auto off
     gfx::Device& d = device();
     std::lock_guard<std::mutex> lk(g_auto_mu);
@@ -113,7 +106,7 @@ const Cfg& cfg() {
 void log_cfg(const Cfg& c, bool on) {
     static std::once_flag once;
     std::call_once(once, [&] {
-        const char* why = !c.automatic ? "" : (wine() ? ", Wine" : (on ? ", integrated GPU with at most 8 GiB of device-local memory" : ", not Wine or a small integrated GPU"));
+        const char* why = !c.automatic ? "" : (host_is_wine() ? ", Wine" : (on ? ", integrated GPU with at most 8 GiB of device-local memory" : ", not Wine or a small integrated GPU"));
         NXLOG_I(kTag, "pool_copy %s (%s%s)", on ? "on" : "off", c.mode.c_str(), why);
         if (on)
             NXLOG_I(kTag, "pool_copy: shadows in cells of %llu MiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
@@ -272,7 +265,7 @@ bool covers(const PoolChunk* c, uint64_t off) { return c && c->is_shadow && c->b
 bool pool_copy_on() {
     const Cfg& c = cfg();
     const bool on = c.automatic ? auto_copy() : c.on;
-    if (!c.automatic || wine() || active()) log_cfg(c, on);   // native Windows: wait for a device before deciding or logging auto
+    if (!c.automatic || host_is_wine() || active()) log_cfg(c, on);   // native Windows: wait for a device before deciding or logging auto
     return on;
 }
 uint64_t pool_copy_cell() { return cfg().cell; }

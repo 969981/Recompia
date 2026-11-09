@@ -49,7 +49,7 @@ using NtDelayExecutionFn = LONG(WINAPI*)(BOOLEAN, PLARGE_INTEGER);
 NtDelayExecutionFn short_sleep_fn() {
     static const NtDelayExecutionFn fn = [] () -> NtDelayExecutionFn {
         HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-        const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+        const bool wine = host_is_wine();
         const std::string m = config_get_str("kernel", "short_sleep", "auto");
         const bool sleep = wine && (m == "sleep" || (m == "auto" && host_is_handheld()));
         auto f = sleep && ntdll ? reinterpret_cast<NtDelayExecutionFn>(GetProcAddress(ntdll, "NtDelayExecution")) : nullptr;
