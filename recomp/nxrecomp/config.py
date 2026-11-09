@@ -15,13 +15,14 @@ class ModuleSpec:
     """One module of the program: where it is mapped and how it is lifted. The game's builds (CMake, the player build) take
     their module table from here (`python -m nxrecomp build-info`); NxModule.index is the position in GameConfig.modules."""
 
-    def __init__(self, name, base, source=None, kind='nso', shards=0, sites=None):
+    def __init__(self, name, base, source=None, kind='nso', shards=0, sites=None, entry=False):
         self.name = name              # 'main', 'sdk', 'subsdk0', ...
         self.base = base              # guest address of the module's first byte
         self.source = source          # file name of the module in the exefs, or None
         self.kind = kind              # 'nso' | 'nx_elf' | 'static_elf'
         self.shards = shards          # translation units of the generated code (lift --shards; 0 = by address)
         self.sites = sites            # site list (lift --sites), relative to recomp/games/<name>/, or None
+        self.entry = entry            # the module the process starts in (its base is the entry point); loaded first
 
 
 class GameConfig:

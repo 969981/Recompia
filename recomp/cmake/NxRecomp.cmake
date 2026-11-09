@@ -90,6 +90,18 @@ function(nxrecomp_build_info game prefix)
   set(${prefix}_MODULES "${names}" PARENT_SCOPE)
 endfunction()
 
+# nxrecomp_module_header(<game> <file>) writes the C++ header of the module list (nxrecomp/modheader.py: the NX_MODULES
+# X-macro) at configure time; the file only changes when the module table does. The player build writes the same text.
+function(nxrecomp_module_header game file)
+  _nxrecomp_info(${game} json)      # registers the configure dependencies on the config
+  execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp module-header --game ${game} --out "${file}" WORKING_DIRECTORY "${NXRECOMP_ROOT}"
+                  RESULT_VARIABLE rc ERROR_VARIABLE err)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "nxrecomp module-header --game ${game} failed (${NX_PYTHON}): ${err}")
+  endif()
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NXRECOMP_ROOT}/nxrecomp/modheader.py")
+endfunction()
+
 function(nxrecomp_add_module target)
   cmake_parse_arguments(A "" "INPUT;NAME;BASE;INDEX;GAME;KIND;SHARDS;JOBS;OUTDIR;PATCHES;SITES" "" ${ARGN})
   if(NOT A_NAME)

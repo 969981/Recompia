@@ -48,7 +48,15 @@ if(PKP_RELEASE)
 endif()
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
-foreach(m main sdk subsdk0 rtld)
+# The module list (names, bases, load order) is recomp/games/pkp/config.py: the imported libraries below and the header
+# src/pkp_main.cpp includes come from it (the player build writes the same header for src/pkp_stub.cpp).
+include("${PKP_ROOT}/recomp/cmake/NxRecomp.cmake")
+nxrecomp_build_info(pkp PKP_MOD)
+nxrecomp_module_header(pkp "${CMAKE_CURRENT_BINARY_DIR}/gen/nx_modules.gen.h")
+set(PKP_GEN_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/gen")
+set(PKP_MODULE_LIBS "")
+foreach(m ${PKP_MOD_MODULES})
+    list(APPEND PKP_MODULE_LIBS pkp_${m})
     add_library(pkp_${m} STATIC IMPORTED GLOBAL)
     set_target_properties(pkp_${m} PROPERTIES IMPORTED_LOCATION "${PKP_LIB_DIR}/pkp_${m}.lib")
 endforeach()
@@ -61,6 +69,7 @@ if(PKP_RT_DLL)
     add_library(pkp_rt SHARED src/pkp_main.cpp src/pkp_rt.def)
     set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\"")
     target_compile_definitions(pkp_rt PRIVATE PKP_RT_DLL=1 PKP_GUI_SUBSYSTEM=1 PKP_EXEFS_DEFAULT="exefs")
+    target_include_directories(pkp_rt PRIVATE "${PKP_GEN_INCLUDE}")
     target_link_libraries(pkp_rt PRIVATE nxrt_game_pkp nxrt_gfx nxrt)
     # /DEBUG off: no .pdb path in the DLL. Low host allocations as for pkp.exe (guest ranges at 0x71_0000_0000 stay free).
     target_link_options(pkp_rt PRIVATE /HIGHENTROPYVA:NO /DEBUG:NONE /Brepro)
@@ -79,7 +88,8 @@ set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP
 set_source_files_properties(res/pkp.rc PROPERTIES COMPILE_DEFINITIONS "PKP_VER_MAJOR=${PKP_VER_MAJOR};PKP_VER_MINOR=${PKP_VER_MINOR};PKP_VER_PATCH=${PKP_VER_PATCH};PKP_VER_TEXT=\"${PKP_VERSION}\""
                             OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/pkp.manifest")
 target_compile_definitions(pkp PRIVATE PKP_EXEFS_DEFAULT="${PKP_EXEFS_DEFAULT}")
-target_link_libraries(pkp PRIVATE pkp_main pkp_sdk pkp_subsdk0 pkp_rtld nxrt_game_pkp nxrt_gfx nxrt)   # nxrt_game_pkp: runtime/games/pkp
+target_include_directories(pkp PRIVATE "${PKP_GEN_INCLUDE}")
+target_link_libraries(pkp PRIVATE ${PKP_MODULE_LIBS} nxrt_game_pkp nxrt_gfx nxrt)   # nxrt_game_pkp: runtime/games/pkp
 # A linker map next to the exe (host frames get names), a big main stack (lifted
 # code nests deeply), low host allocations so the guest ranges at 0x71_0000_0000 and up stay free.
 if(PKP_RELEASE)

@@ -61,7 +61,7 @@ SDK_FILES = ['pkp_stub.cpp', 'pkp_rt_api.h', 'pkp.rc', 'pkp.manifest']
 # the module table and the compile flags come from the bundled lifter, the same tables the developer build (CMake) reads:
 # recomp/games/pkp/config.py (modules) and recomp/nxrecomp/compile_flags.py (ZIG_MINGW)
 sys.path.insert(0, RECOMP)
-from nxrecomp import compile_flags              # noqa: E402
+from nxrecomp import compile_flags, modheader   # noqa: E402
 from nxrecomp.config import load_game           # noqa: E402
 GAME = load_game('pkp')
 # name, NSO file, guest base, NxModule.index, translation units
@@ -124,7 +124,8 @@ def tree_hash(root, rels):
 def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
     return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
-            'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES]}
+            'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES],
+            'modheader': hashlib.sha256(modheader.render(GAME.modules).encode()).hexdigest()}
 
 
 def compiler_id():
@@ -556,7 +557,8 @@ def archive(runner, obj, lib, stamp, env):
 def link(runner, lib, game, env):
     libs = [os.path.join(lib, 'pkp_%s.a' % m[0]) for m in MODULES]
     tmp = os.path.join(lib, 'pkp.exe')
-    cmd = [ZIG, 'c++', '-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-O1', '-fno-exceptions', '-fno-rtti', '-I', SDK,
+    modheader.write(GAME.modules, os.path.join(lib, 'gen', 'nx_modules.gen.h'))     # the module list pkp_stub.cpp includes
+    cmd = [ZIG, 'c++', '-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-O1', '-fno-exceptions', '-fno-rtti', '-I', SDK, '-I', os.path.join(lib, 'gen'),
            os.path.join(SDK, 'pkp_stub.cpp'), os.path.join(SDK, 'pkp.rc')] + libs + [os.path.join(SDK, 'pkp_rt.lib'),
            '-o', tmp, '-Wl,--stack,134217728', '-Wl,--subsystem,windows']
     rc, tail = runner.run(cmd, env=env, cwd=SDK)

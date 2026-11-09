@@ -53,14 +53,17 @@
 
 #include "pkp/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
 
+#include "nx_modules.gen.h"     // NX_MODULES: the game's module list, generated from recomp/games/pkp/config.py
+
 #ifdef PKP_RT_DLL
 // Release model (b): this file is built into pkp_rt.dll (the runtime, no game code). pkp.exe is linked on the player's PC from the
-// libraries lifted out of their own dump plus src/pkp_stub.cpp, which passes the four module tables to pkp_rt_main below.
+// libraries lifted out of their own dump plus src/pkp_stub.cpp, which passes the module tables to pkp_rt_main below.
 #include "pkp_rt_api.h"
 #else
 extern "C" {
-extern const NxModule nxmod_main, nxmod_sdk, nxmod_subsdk0, nxmod_rtld;
-extern const uint32_t nxmod_main_abi, nxmod_sdk_abi, nxmod_subsdk0_abi, nxmod_rtld_abi;
+#define NX_MODULE_DECL(name, file, base) extern const NxModule nxmod_##name; extern const uint32_t nxmod_##name##_abi;
+NX_MODULES(NX_MODULE_DECL)
+#undef NX_MODULE_DECL
 }
 #endif
 
@@ -84,17 +87,15 @@ struct GameModule {
 // Load order = the order the console maps them: the entry module first.
 #ifdef PKP_RT_DLL
 GameModule kModules[] = {      // filled by pkp_rt_main from the tables pkp.exe passes
-    {"rtld", nullptr, nullptr, 0x7700000000ull},
-    {"main", nullptr, nullptr, 0x7100000000ull},
-    {"sdk", nullptr, nullptr, 0x7500000000ull},
-    {"subsdk0", nullptr, nullptr, 0x7600000000ull},
+#define NX_MODULE_ROW(name, file, base) {file, nullptr, nullptr, base},
+    NX_MODULES(NX_MODULE_ROW)
+#undef NX_MODULE_ROW
 };
 #else
 const GameModule kModules[] = {
-    {"rtld", &nxmod_rtld, &nxmod_rtld_abi, 0x7700000000ull},
-    {"main", &nxmod_main, &nxmod_main_abi, 0x7100000000ull},
-    {"sdk", &nxmod_sdk, &nxmod_sdk_abi, 0x7500000000ull},
-    {"subsdk0", &nxmod_subsdk0, &nxmod_subsdk0_abi, 0x7600000000ull},
+#define NX_MODULE_ROW(name, file, base) {file, &nxmod_##name, &nxmod_##name##_abi, base},
+    NX_MODULES(NX_MODULE_ROW)
+#undef NX_MODULE_ROW
 };
 #endif
 
@@ -309,10 +310,11 @@ extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
         MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll come from different releases. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
         return 3;
     }
-    kModules[0].nx = mods->rtld; kModules[0].abi = mods->rtld_abi;
-    kModules[1].nx = mods->main; kModules[1].abi = mods->main_abi;
-    kModules[2].nx = mods->sdk; kModules[2].abi = mods->sdk_abi;
-    kModules[3].nx = mods->subsdk0; kModules[3].abi = mods->subsdk0_abi;
+    if (mods->count != sizeof kModules / sizeof kModules[0]) {
+        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll list different game modules. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
+        return 3;
+    }
+    for (uint32_t i = 0; i < mods->count; ++i) { kModules[i].nx = mods->mods[i]; kModules[i].abi = mods->abis[i]; }
 #else
 int main(int argc, char** argv) {
 #endif

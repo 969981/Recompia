@@ -26,7 +26,7 @@ class Config(GameConfig):
         ModuleSpec('main', 0x7100000000, 'main', shards=230, sites='main.sites'),
         ModuleSpec('sdk', 0x7500000000, 'sdk', shards=45),
         ModuleSpec('subsdk0', 0x7600000000, 'subsdk0', shards=4),
-        ModuleSpec('rtld', 0x7700000000, 'rtld', shards=1),
+        ModuleSpec('rtld', 0x7700000000, 'rtld', shards=1, entry=True),
     ]
     overrides = {}
     # rtld's process entry (0x0) has no FDE, symbol or direct branch, so discovery never roots it (runtime/docs/S6.md)

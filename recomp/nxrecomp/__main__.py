@@ -5,6 +5,7 @@
          [--patches FILE] [--spin-yield]   lift every function of one module
   cover  <input> [--game NAME] ...   per-instruction-word translation coverage of .text
   build-info [--game NAME]   one JSON line: the game's module table and the compile flags of the lifted code (for CMake)
+  module-header --game NAME --out FILE   the C++ header of the module list (modheader.py), for the builds of the lifted game
   funcs  -> python -m nxrecomp.funcs
 """
 import argparse
@@ -35,6 +36,9 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     p = sub.add_parser('build-info')
     p.add_argument('--game', default='generic')
+    p = sub.add_parser('module-header')
+    p.add_argument('--game', required=True)
+    p.add_argument('--out', required=True)
     for name in ('lift', 'cover'):
         p = sub.add_parser(name)
         p.add_argument('input')
@@ -53,6 +57,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == 'build-info':
         print(json.dumps(build_info(a.game)))
+        return 0
+    if a.cmd == 'module-header':
+        from . import modheader
+        from .config import load_game
+        modheader.write(load_game(a.game).modules, a.out)
         return 0
     spec = spec_from(a)
     from . import cover, driver
