@@ -155,7 +155,7 @@ static bool build_key(GraphicsKey& key, VkPrimitiveTopology topo) {
             // a float input fed by an integer attribute gets the raw bits: the integer format stays and the pipeline patches the shader
             // (spirv_int_attributes); stream-out draws use the shader's stream-out variant, which is not patched: scaled floats there
             if (in.type == ScalarType::Float && is_int_format(f) && g_xfb_active) f = scaled_for(f);
-            else if ((in.type == ScalarType::Uint || in.type == ScalarType::Sint) && !is_int_format(f))
+            else if ((in.type == ScalarType::Uint || in.type == ScalarType::Sint) && !vk_format_is_integer(f))   // 32-bit integers too
                 log_once(kOnceAttrTypeMismatch, "a vertex attribute with a float format feeds an integer shader input (needs a SPIR-V variant)");
             if (key.attr_count >= 16) break;
             KeyAttr& k = key.attr[key.attr_count++];
