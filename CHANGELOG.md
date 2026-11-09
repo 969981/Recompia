@@ -13,6 +13,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
   - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
+- Added **arrow-key** navigation to the launcher, for a handheld whose d-pad reaches it as keys
+  - Before: Steam's default layout for a non-Steam shortcut sends the d-pad as arrow keys, and the launcher ignored them
+  - Now: the arrow keys move between controls, Enter presses, Escape goes back (closes a question, or returns Home), the same as the pad
+  - Text boxes, sliders and drop-downs keep the arrows they need
 
 ### Game
 - Added a **Search** button to the crafting menu (#324)
