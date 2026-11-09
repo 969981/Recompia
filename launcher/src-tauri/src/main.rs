@@ -22,6 +22,7 @@ mod settings;
 mod setuplog;
 mod shader_archive;
 mod shaders;
+mod steam;
 mod update;
 mod writecheck;
 
@@ -1049,6 +1050,28 @@ fn open_backup_dir(app: AppHandle) -> Result<(), String> {
     play::open_with_shell(&dir)
 }
 
+/// Add to Steam (steam.rs): what is found, and whether the game and the launcher are already in Steam.
+#[tauri::command]
+async fn steam_status(app: AppHandle) -> Result<steam::Status, String> {
+    let testing = load_config(&app).channel == "testing";
+    tauri::async_runtime::spawn_blocking(move || steam::status(testing)).await.map_err(|e| e.to_string())
+}
+
+/// `target`: "game" (starts the game at once) or "launcher" (opens this window).
+#[tauri::command]
+async fn steam_add(app: AppHandle, target: String) -> Result<String, String> {
+    let testing = load_config(&app).channel == "testing";
+    let target = steam::Target::parse(&target)?;
+    tauri::async_runtime::spawn_blocking(move || steam::add(testing, target)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn steam_remove(app: AppHandle, target: String) -> Result<String, String> {
+    let testing = load_config(&app).channel == "testing";
+    let target = steam::Target::parse(&target)?;
+    tauri::async_runtime::spawn_blocking(move || steam::remove(testing, target)).await.map_err(|e| e.to_string())?
+}
+
 /// The profiles (names and ids) and which one plays.
 #[tauri::command]
 fn profiles_list(app: AppHandle) -> profiles::Store {
@@ -1474,6 +1497,9 @@ fn main() {
             backup_now,
             backup_restore,
             open_backup_dir,
+            steam_status,
+            steam_add,
+            steam_remove,
             open_game_file,
             open_game_dir,
             relay_start,

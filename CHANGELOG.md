@@ -4,6 +4,24 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## 0.8.2 (build L: Lemur)
+
+**Update:** press **Update** in the launcher. You do not need **Set up again**: the game code is the same as in 0.8.1.
+
+### Highlights
+- Added **Add to Steam** (Settings > Game > Steam): put Recompia into your Steam library, with its artwork, so it shows in Game Mode and Big Picture on a Steam Deck or any PC
+- Added the **Koi** look: a bright hand-drawn picture behind the launcher, by Koi (press **Colours** in the sidebar to try it). Koi drew it while the bug fixes and the new features kept Jerban busy, so thank you, Koi, and sorry for the wait
+- Nothing in the game changes. Sunrise is still the launcher's default look
+
+### Launcher
+- Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
+  - Before: you had to add a Non-Steam Game by hand in Desktop Mode, set the launch option `--play` yourself, and find or make the pictures
+  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork, drawn by Koi (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list as you had it is kept the first time (`shortcuts.vdf.recompia-backup`, never overwritten).
+- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
+  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
+  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
+  - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
+
 ## 0.8.1 (build L: Lynx)
 
 **Update:** press **Update**, then **Set up again** once when it asks (this release adds hooks for the camera aim option and for the new in-game Options, so the game is rebuilt; your saves and shaders are kept). From 0.7.9 or older the same single Set up again covers everything.
