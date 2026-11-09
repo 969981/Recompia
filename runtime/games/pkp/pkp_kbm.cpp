@@ -32,6 +32,7 @@
 #include "pkp_kbm.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 
 #include <windows.h>
 
@@ -48,7 +49,6 @@
 #include <mutex>
 #include <string>
 
-#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/gfx.h"
 #include "nxrt/hooks.h"
@@ -750,7 +750,7 @@ void settings_changed(const play::Settings& set) {
 void install(const FeatureInstall& in) {
     State& s = st();
     s.base = in.base;
-    s.enabled = config_get_bool("pkp", "kbm_icons", true);
+    s.enabled = settings::get_bool(settings::Key::KbmIcons);
     s.dir = exe_dir() + "assets/kbm_icons/";
     in.hooks.add_mid(in.base + kTagCall, &hook_tag);
     NXLOG_I(kTag, "button prompts %s (keyboard icons from %s, pad icons from the prompt icon pack; the style is [prompts] style)",

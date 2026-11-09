@@ -47,13 +47,13 @@
 #include "pkp_aim.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-#include "nxrt/config.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -358,13 +358,13 @@ void install(const FeatureInstall& in) {
     in.hooks.add_mid(base + kSwingPreview, &hook_swing_preview);
     in.hooks.add_mid(base + kSwingLive, &hook_swing_live);
     in.hooks.add_mid(base + kActionStart, &hook_action_start);
-    g.camera = config_get_bool("pkp", "camera_aim", true);
+    g.camera = settings::get_bool(settings::Key::CameraAim);
     if (!g.camera) {
         NXLOG_I(kTag, "camera aim: off (mouse mode facing hooks main+0x%llx, +0x%llx, +0x%llx)", static_cast<unsigned long long>(kSwingPreview),
                 static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kActionStart));
         return;
     }
-    g.extra = static_cast<int>(std::clamp<int64_t>(config_get_int("pkp", "camera_aim_reach", 2), 0, 4));
+    g.extra = static_cast<int>(settings::get_int(settings::Key::CameraAimReach));
     g.reach = std::max(kReach, 1 + g.extra);
     in.hooks.add_mid(base + kHeadingRead, &hook_heading);
     in.hooks.add_mid(base + kPitchRead, &hook_pitch);

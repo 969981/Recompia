@@ -26,12 +26,12 @@
 #include "pkp_jump.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 
-#include "nxrt/config.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -122,10 +122,10 @@ int hook_air_add(::Ctx* c, uint64_t, void*) {
 }
 
 void install(const FeatureInstall& in) {
-    if (!config_get_bool("pkp", "jump_momentum", true)) return;
+    if (!settings::get_bool(settings::Key::JumpMomentum)) return;
     const uint64_t base = in.base;
     g.base = base;
-    g.strength = static_cast<float>(std::clamp(config_get_double("pkp", "jump_momentum_strength", 1.0), 0.0, 1.0));
+    g.strength = static_cast<float>(settings::get_double(settings::Key::JumpMomentumStrength));
     in.hooks.add_entry(base + kSetStep, &hook_set_step);
     in.hooks.add_entry(base + kAirAdd, &hook_air_add);
     NXLOG_I(kTag, "jump momentum: on, strength %.2f (hooks main+0x%llx, main+0x%llx)", static_cast<double>(g.strength),

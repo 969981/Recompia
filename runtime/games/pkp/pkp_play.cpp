@@ -9,6 +9,7 @@
 // and answers play mode's GamePlay table.
 #include "pkp_play.h"
 #include "pkp_play_internal.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,7 +17,6 @@
 #include <cstdint>
 #include <string>
 
-#include "nxrt/config.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/hooks.h"
@@ -70,7 +70,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
     // so every draw agrees on the projection (#73). With [pkp] taller_fov = false the view is matrix-only (fix_camera leaves the camera's FOV
     // and aspect at 16:9), the draws that rebuild their projection from those fields (objects, characters) sit at the wrong height, and
     // auto falls back to 16:9 with bars (the 0.4.1 letterbox). A forced [display] aspect then still gets the matrix-only taller view.
-    wide().taller_fov = config_get_bool("pkp", "taller_fov", true);
+    wide().taller_fov = settings::get_bool(settings::Key::TallerFov);
     const bool taller_auto = !wide().taller_fov && !(d.aspect > 0) && aspect < kAspect169 && !close_to(aspect, kAspect169);
     if (taller_auto) {
         NXLOG_I(kTag, "aspect auto: the window (%dx%d) is taller than 16:9, so the picture stays 16:9 with bars (#73; [display] aspect forces a "
@@ -79,7 +79,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
     }
     Wide& wd = wide();
     wd.aspect = close_to(aspect, kAspect169) ? kAspect169 : aspect;
-    const bool override_size = config_get_bool("pkp", "render_override", true);
+    const bool override_size = settings::get_bool(settings::Key::RenderOverride);
     if (wide_on()) {   // a non-16:9 shape always takes the wide path (render_override only picks the size for 16:9)
         int gw = kTableW, gh = kTableH;
         if (wd.aspect > kAspect169) gw = static_cast<int>(std::lround(kTableH * wd.aspect)) & ~1;
@@ -154,13 +154,13 @@ void install(const FeatureInstall& in) {
     s.base = base;
     s.host = in.host;
     s.hooks = &in.hooks;
-    s.fps_fix.store(config_get_bool("pkp", "frame_time_fix", true));
-    s.hold_on.store(config_get_bool("pkp", "event_hold", true));
-    s.hold_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "event_hold_ms", 1500), 0, 10000)) * 1000000ull;
-    s.mouse_cam.store(config_get_bool("pkp", "mouse_camera", true));
-    s.game_limit.store(config_get_bool("pkp", "game_frame_limit", false));
-    s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
-    s.grace_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "camera_grace_ms", 250), 0, 5000)) * 1000000ull;
+    s.fps_fix.store(settings::get_bool(settings::Key::FrameTimeFix));
+    s.hold_on.store(settings::get_bool(settings::Key::EventHold));
+    s.hold_ns = static_cast<uint64_t>(settings::get_int(settings::Key::EventHoldMs)) * 1000000ull;
+    s.mouse_cam.store(settings::get_bool(settings::Key::MouseCamera));
+    s.game_limit.store(settings::get_bool(settings::Key::GameFrameLimit));
+    s.cam_every_frame.store(settings::get_bool(settings::Key::CameraEveryFrame));
+    s.grace_ns = static_cast<uint64_t>(settings::get_int(settings::Key::CameraGraceMs)) * 1000000ull;
     s.hooks->add_mid(base + kFrameMultiplier, &hook_frame_multiplier);
     for (const uint64_t site : kTweenStep) s.hooks->add_mid(base + site, &hook_tween_step);
     s.hooks->add_mid(base + kSyncPeriod, &hook_sync_period);

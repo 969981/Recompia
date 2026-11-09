@@ -16,6 +16,7 @@
 #include "pkp_options.h"
 #include "pkp_guest.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 #include "pkp_text.h"
 
 #include <algorithm>
@@ -27,7 +28,6 @@
 #include <vector>
 
 #include "nxrt/audio_sink.h"
-#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/extras.h"
 #include "nxrt/host_device.h"
@@ -673,7 +673,7 @@ void frame(bool, double, play::GameFrame*) {
 }
 
 void install(const FeatureInstall& in) {
-    if (!config_get_bool("pkp", "options_menu", true)) return;
+    if (!settings::get_bool(settings::Key::OptionsMenu)) return;
     const uint64_t base = in.base;
     g.base = base;
     g_host = in.host;

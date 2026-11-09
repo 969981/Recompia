@@ -15,8 +15,8 @@
 #include "pkp_guest.h"
 #include "pkp_key_guide.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 
-#include "nxrt/config.h"
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
 
@@ -94,7 +94,7 @@ bool click(play::Act* act) {
 }
 
 void install(const FeatureInstall& in) {
-    if (!config_get_bool("pkp", "title_quit", true)) {
+    if (!settings::get_bool(settings::Key::TitleQuit)) {
         NXLOG_I(kTag, "title quit: off ([pkp] title_quit)");
         return;
     }

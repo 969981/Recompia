@@ -13,12 +13,12 @@
 // host's Spectator setting, the session flag and the advertise data are not touched. Known gaps (pokopia-native): the visitor's join notice
 // and the host's settings row still say Spectator Mode; a visitor's bag goes home with it as in Palette Town.
 #include "pkp_linkplay.h"
+#include "pkp_settings.h"
 
 #include <atomic>
 #include <cstring>
 #include <vector>
 
-#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -127,8 +127,8 @@ namespace {
 void install(const FeatureInstall& in) {
     State& s = st();
     if (s.hook) return;
-    bool on = config_get_bool("pkp", "link_interact_everywhere", false);
-    const bool story = config_get_bool("pkp", "link_story_coop", false);
+    bool on = settings::get_bool(settings::Key::LinkInteractEverywhere);
+    const bool story = settings::get_bool(settings::Key::LinkStoryCoop);
     const uint64_t base = in.base;
     s.base = base;
     s.hooks = &in.hooks;

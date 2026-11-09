@@ -25,6 +25,7 @@
 // found (the env parameter table 0x71009d3010 has HeightFogLayer0/1 Start, End and Color at +0x8d8..+0x908, but no 3-layer writer was traced).
 #include "pkp_quality.h"
 #include "pkp_guest.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <atomic>
@@ -35,7 +36,6 @@
 #include <string>
 #include <vector>
 
-#include "nxrt/config.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -349,14 +349,14 @@ void install(const FeatureInstall& in) {
     const uint64_t base = in.base;
     const play::Settings& set = in.settings;
     s.base = base;
-    if (config_has("pkp", "quality_preset")) {
-        const std::string n = config_get_str("pkp", "quality_preset", "switch2");
+    if (settings::is_set(settings::Key::QualityPreset)) {
+        const std::string n = settings::get_str(settings::Key::QualityPreset);
         s.ini_preset = find_preset(n);
         if (!s.ini_preset) NXLOG_W(kTag, "quality: [pkp] quality_preset '%s' is not switch2, high, ultra, steamdeck, legion_go_s, laptop or desktop: ignored", n.c_str());
     }
     apply();
     {
-        const double fog = std::clamp(config_get_double("pkp", "fog_strength", 1.0), 0.0, 1.5);
+        const double fog = settings::get_double(settings::Key::FogStrength);
         gfx::Tuning& t = gfx::tuning();
         t.ufs_block.store(3);
         t.ufs_mask.store((1u << 3) | (1u << 7) | (1u << 11));   // c3[0].w, c3[1].w, c3[2].w
@@ -365,9 +365,9 @@ void install(const FeatureInstall& in) {
         if (fog != 1.0) NXLOG_I(kTag, "quality: fog strength x%.2f", fog);
     }
     in.hooks.add_mid(base + kCamCommitEnd, &hook_cam_commit);
-    s.probe = config_get_bool("pkp", "quality_probe", false);
-    s.ini_lod_set = config_has("pkp", "lod_distance");
-    if (s.ini_lod_set) s.lod_scale = static_cast<float>(std::clamp(config_get_double("pkp", "lod_distance", 1.0), 0.25, 8.0));
+    s.probe = settings::get_bool(settings::Key::QualityProbe);
+    s.ini_lod_set = settings::is_set(settings::Key::LodDistance);
+    if (s.ini_lod_set) s.lod_scale = static_cast<float>(settings::get_double(settings::Key::LodDistance));
     for (uint64_t off : kLodJobs) in.hooks.add_entry(base + off, &hook_parts_lod);
     in.hooks.add_mid(base + kLodInst, &hook_lod_inst);
     in.hooks.add_mid(base + kLodCell, &hook_lod_cell);

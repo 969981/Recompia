@@ -18,12 +18,12 @@
 // 2026-11-02 run confirmed that fix; 0 = the game's 1080p layout) switches all of it on.
 #include "pkp_play_internal.h"
 #include "pkp_gfx_heap.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 
-#include "nxrt/config.h"
 #include "nxrt/extras.h"
 #include "nxrt/hooks.h"
 #include "nxrt/host_device.h"
@@ -292,7 +292,7 @@ void install_render_size_hooks(uint64_t base) {
     s.hooks->add_mid(base + kSetViewports, &hook_set_viewports);
     s.hooks->add_entry(base + kRecordViewports, &hook_record_viewports);
     s.hooks->add_mid(base + kReplayViewports, &hook_replay_viewports);
-    g_frac_vp_on.store(config_get_bool("pkp", "scene_viewport_fix", true), std::memory_order_relaxed);
+    g_frac_vp_on.store(settings::get_bool(settings::Key::SceneViewportFix), std::memory_order_relaxed);
     const TargetFix mode = target_fix_from_config();
     g_target_fix.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
     s.hooks->add_entry(base + kCreateTarget, &hook_create_target);

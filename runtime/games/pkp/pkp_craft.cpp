@@ -39,6 +39,7 @@
 #include "pkp_guest.h"
 #include "pkp_key_guide.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 #include "pkp_tables.h"
 
 #include <algorithm>
@@ -50,7 +51,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/hooks.h"
 #include "nxrt/input_source.h"
@@ -416,12 +416,12 @@ bool click(play::Act* act) {
 
 void install(const FeatureInstall& in) {
     const uint64_t base = in.base;
-    if (!config_get_bool("pkp", "craft_search", true)) {
+    if (!settings::get_bool(settings::Key::CraftSearch)) {
         NXLOG_I(kTag, "craft search: off ([pkp] craft_search)");
         return;
     }
     g.base = base;
-    g.log = config_get_int("pkp", "menu_log", 0) > 0;
+    g.log = settings::is_set(settings::Key::MenuLog) && settings::get_int(settings::Key::MenuLog) > 0;   // only when set: the menu's default 1 does not log the searches
     in.hooks.add_entry(base + kScreenOpen, &hook_screen_open);
     in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
     in.hooks.add_inline(base + kFillIds, &hook_fill_ids);

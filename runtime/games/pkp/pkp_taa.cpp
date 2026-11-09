@@ -36,6 +36,7 @@
 // game reads it; 2 also sets the TemporalAA3 pass switch at each of its render calls (only meaningful when the probe shows the pass exists).
 #include "pkp_taa.h"
 #include "pkp_guest.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <atomic>
@@ -43,7 +44,6 @@
 #include <cstring>
 #include <vector>
 
-#include "nxrt/config.h"
 #include "nxrt/extras.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -169,7 +169,7 @@ int hook_setup_once(::Ctx* c, uint64_t, void* user) {
 void install(const FeatureInstall& in) {
     State& s = st();
     if (s.installed) return;
-    s.force = static_cast<int>(std::clamp<int64_t>(config_get_int("pkp", "game_taa", 0), 0, 2));
+    s.force = static_cast<int>(settings::get_int(settings::Key::GameTaa));
     in.hooks.add_mid(in.base + kCopySite, &hook_copy);
     in.hooks.add_mid(in.base + kJitterSite, &hook_jitter);
     in.hooks.add_entry(in.base + kTaa3Setup, &hook_taa3_setup);

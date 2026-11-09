@@ -44,6 +44,7 @@
 #include "pkp_guest.h"
 #include "pkp_key_guide.h"
 #include "pkp_layout.h"
+#include "pkp_settings.h"
 #include "pkp_tables.h"
 
 #include <algorithm>
@@ -54,7 +55,6 @@
 #include <cstring>
 #include <vector>
 
-#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/hooks.h"
 #include "nxrt/input_source.h"
@@ -413,9 +413,9 @@ bool click(play::Act* act) {
 void install(const FeatureInstall& in) {
     const uint64_t base = in.base;
     g.base = base;
-    g.button = config_get_bool("pkp", "inventory_sort", true);
-    g.autosort = config_get_bool("pkp", "inventory_autosort", false);
-    g.log_lists = config_get_int("pkp", "menu_log", 0) > 0;
+    g.button = settings::get_bool(settings::Key::InventorySort);
+    g.autosort = settings::get_bool(settings::Key::InventoryAutosort);
+    g.log_lists = settings::is_set(settings::Key::MenuLog) && settings::get_int(settings::Key::MenuLog) > 0;   // only when set: the menu's default 1 does not log the lists
     if (!g.button && !g.autosort) return;
     in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
     if (g.button)

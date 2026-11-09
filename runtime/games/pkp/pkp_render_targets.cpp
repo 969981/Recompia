@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pokémon Pokopia, play mode: render targets the game creates at a literal size (#44; split out of pkp_play.cpp).
 #include "pkp_play_internal.h"
+#include "pkp_settings.h"
 
 #include <algorithm>
 #include <cctype>
@@ -8,7 +9,6 @@
 #include <cstdint>
 #include <string>
 
-#include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/text.h"
@@ -77,7 +77,7 @@ std::atomic<uint32_t> g_target_logged{0};
 std::atomic<uint64_t> g_target_unlisted[128]{}; // every possible caller (121 total) can be remembered; an unlisted 1920x1080 create logs once
 
 TargetFix target_fix_from_config() {
-    std::string v = config_get_str("pkp", "target_fix", "screen");
+    std::string v = settings::get_str(settings::Key::TargetFix);
     v = nxrt::text::lower(std::move(v));
     if (v == "off" || v == "0" || v == "false" || v == "no") return TargetFix::Off;
     if (v == "all") return TargetFix::All;

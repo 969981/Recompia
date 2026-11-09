@@ -22,12 +22,12 @@
 #include "pkp_menu.h"
 #include "pkp_menu_internal.h"
 #include "pkp_key_guide.h"
+#include "pkp_settings.h"
 
 #include <atomic>
 #include <cstdio>
 #include <string>
 
-#include "nxrt/config.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 
@@ -49,12 +49,12 @@ namespace {
 void install(const FeatureInstall& in) {
     State& s = st();
     s.base = in.base;
-    s.enabled = config_get_bool("pkp", "menu_mouse", true);
-    s.log_level = static_cast<int>(config_get_int("pkp", "menu_log", 1));
-    s.ig_enabled = config_get_bool("pkp", "menu_in_game", true);     // on: drawn-layout detection confirmed with the bag (p5m)
+    s.enabled = settings::get_bool(settings::Key::MenuMouse);
+    s.log_level = static_cast<int>(settings::get_int(settings::Key::MenuLog));
+    s.ig_enabled = settings::get_bool(settings::Key::MenuInGame);     // on: drawn-layout detection confirmed with the bag (p5m)
     s.ig_ignore.clear();
     {   // "id/sub id/sub ..." (the ids the "in-game menu up" log line prints)
-        const std::string list = config_get_str("pkp", "menu_in_game_ignore", "");
+        const std::string list = settings::get_str(settings::Key::MenuInGameIgnore);
         unsigned id = 0, sub = 0;
         int used = 0;
         for (const char* q = list.c_str(); *q;) {
@@ -69,7 +69,7 @@ void install(const FeatureInstall& in) {
     s.key_guides.clear();
     {   // "id=act ..." (act names as in the [switch] section: btn_minus, btn_plus, btn_x ...). 881468973 = the title's "(-) Settings" guide
         // (p5m: 'Win_000_btn_key_guide_0' at 1722,1003..1920,1075; gameplay's HUD guides use the layout too, see key_guide_drawn); "" turns them off
-        const std::string list = config_get_str("pkp", "menu_key_guides", "881468973=btn_minus");  // gitleaks:allow (a layout id, not a key)
+        const std::string list = settings::get_str(settings::Key::MenuKeyGuides);
         char name[32];
         unsigned id = 0;
         int used = 0;

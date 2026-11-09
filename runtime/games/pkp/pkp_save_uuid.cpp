@@ -3,6 +3,7 @@
 // magic 0x31227687, end of the compressed data at +0x10, zlib stream from 0x130. The rewrite is the one work/tools/pkp_uuid.py made
 // (checked in game: a save so changed joins a host made from the same original save).
 #include "pkp_save_uuid.h"
+#include "pkp_settings.h"
 
 #include <windows.h>
 
@@ -18,7 +19,6 @@
 #include <vector>
 
 #include "miniz.h"
-#include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/services.h"
 #include "nxrt/tt.h"
@@ -231,7 +231,7 @@ void repair() {
 void save_uuid_repair() {
     static std::atomic<bool> done{false};
     if (done.exchange(true)) return;
-    if (!config_get_bool("pkp", "uuid_repair", true)) {
+    if (!settings::get_bool(settings::Key::UuidRepair)) {
         NXLOG_I(kTag, "player UUID: repair off ([pkp] uuid_repair = false)");
         return;
     }
