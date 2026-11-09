@@ -13,11 +13,10 @@ of the game (version 2.0.1a): the download contains no game files.
 - Running jumps keeping your running speed (added in 0.8.0 as an ini option) is now a switch in **Settings > Game > Gameplay** too. It stays **off by default**; `[pkp] jump_momentum = 1` also turns it on
 
 ### Performance
-- Fixed the remaining long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
+- Added an option to read a small texture back without waiting, for the long frame about once a second with a frame limit on handhelds such as the Legion Go S and Steam Deck (#276). It is **off by default** and #276 is not fixed
   - Before: about once a second the game reads a tiny 30x16 texture back from the graphics card. Even after 0.8.0, its main thread waited for that read (about 21 ms on a Legion Go S, 13 ms of it waiting for the graphics card), so a capped frame missed its slot and took about 50 ms
-  - Now: a small texture read again and again gets the data of the previous read (about a second old) and the new read finishes in the background, so the main thread does not wait. A first read, a large one or one after a pause still waits
-  - Setting: `[nvn] readback_defer = false` brings back the waiting read. With `readback_log = true` these reads show as `deferred`
-  - Still not: not measured on a handheld yet. If you still see the hitch, please send a `pkp.log` with `readback_log = true`
+  - Now (only with `[nvn] readback_defer = true` in `pkp.ini`): a small texture read again and again gets the data of the previous read (about a second old) and the new read finishes in the background, so the main thread does not wait
+  - Still not: with the option on, the game froze for good 15 to 30 seconds after the start in our tests (3 of 3 runs), so it stays off until that is fixed. Please do not turn it on for normal play
 
 ### Fixes
 - Fixed dialogue text showing up doubled and garbled when the picture is rendered above 1920x1080 (#267)
@@ -96,7 +95,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Reset game settings, part of it** (Settings > About > Repair and reset): tick **Reset game settings** and look at the list that opens. Untick a group or two, press Review, and check that the list names only the groups you left ticked. Apply it, start the game, and check that the settings you unticked are still as you set them (for example your game clock offset) and the ones you left ticked are back to the default. Then **Undo last repair**. Report: which groups you ticked, what the review said, anything that changed that you unticked, and the exact words of any error
 - **What's New on Testing:** open **All Testing changes** and the newest build. Report: anything missing, cut off or confusing, especially the Regressions and What to test blocks
 - **Launcher speed:** change pages for a minute in both colour themes. We measured it on one NVIDIA PC under Linux. Report: smooth or laggy (1 to 5), your graphics card, Windows or Linux (Wayland or X11), Steam Deck or another handheld
-- **The once-a-second hitch with a frame limit (#276):** set a frame limit (for example 30 or 40 fps), add `[nvn] readback_log = true` to `pkp.ini`, then walk and turn the camera for a minute. Do it again with `[nvn] readback_defer = false` as well. Report: whether the hitch is gone with the default and back with `false`, anything in the game that looks wrong or late (it now gets data about a second old from one tiny texture), and attach both `pkp.log` files (the `texture 286` lines should say `deferred`)
+- **The once-a-second hitch with a frame limit (#276):** the fix for it is switched off in this build (it froze the game in our tests), so the hitch is expected to still be there on handhelds. Do not turn `[nvn] readback_defer` on. Report only if the game freezes or hitches in a way that 0.8.0 did not
 - **Start the game** after any repair and play for a few minutes. Report: whether it starts, how long the first start takes, any new stutter, and attach pkp.log
 
 ### Regressions and known problems
