@@ -167,6 +167,8 @@ struct State {
     std::atomic<uint64_t> mm_dropped{0};
     std::atomic<bool> mm_gate{false};        // the game's mouse mode is let through its "two Joy-Cons" check (hook_mm_style)
     uint64_t mm_gate_logs = 0;
+    uint64_t mm_exit_ns = 0;                 // the key turned mouse mode off at this time while the game's flag was still on (0 = not leaving)
+    uint64_t mm_diag_ns = 0, mm_diag_logs = 0;
     bool render_installed = false, installed = false;
 };
 
@@ -967,6 +969,16 @@ constexpr uint64_t kMmOption = 0x2fa8a0;      // mid: the check's last step (w0 
 constexpr uint64_t kMmStart = 0x2fa8ec;       // mid: mouse mode turning on, at the option test (w8 = the option byte; x19 = character)
 constexpr uint64_t kMmPlayers = 0x3561928;    // qword: the player manager; + 0x30 = the local player's character
 constexpr uint64_t kMmScreen = 0x35aebf0;     // qword: + 0xf0 -> + 0x18 -> + 0x4340 / + 0x4344 = the screen size the pointer is unprojected with
+constexpr uint64_t kMmOn = 0xaa81;            // character: the game's mouse mode is on (u8)
+constexpr uint64_t kMmHitCell = 0xaa30, kMmHitValid = 0xaa82;   // character: the pointer's hit cell (s16 x3) and its valid flag
+constexpr uint64_t kMmSwingPos = 0xaa50, kMmSwingValid = 0xaa84; // character: the swing tools' position under the pointer (vec4) and its flag
+constexpr uint64_t kMmPosition = 0x20c0, kMmHeading = 0x2404;   // character: world position (vec4), heading (radians)
+
+// The local player's character, 0 when there is none.
+uint64_t mm_player(State& s) {
+    const uint64_t mgr = s.base ? rd<uint64_t>(s.base + kMmPlayers) : 0;
+    return mgr ? rd<uint64_t>(mgr + 0x30) : 0;
+}
 
 bool mm_local(uint64_t ch) {
     State& s = st();
@@ -1169,11 +1181,45 @@ void play_frame(bool in_game, double, play::GameFrame*) {
     const bool pressed = n != s.mm_seen;
     s.mm_seen = n;
     const bool gate = in_game && hid::jc2_mouse_wants_pointer();
-    if (gate != s.mm_gate.exchange(gate, std::memory_order_relaxed) && s.mm_gate_logs < 200) {
+    // Leaving mouse mode: the game turns it off itself (0x710031618c: allowed, and the mouse no longer on its surface -> 0x71002fa8b0 off,
+    // the pointer hidden, the ability restored), but only while the check still says "allowed". So after the request ends the gate stays
+    // open for the local player until the game's flag drops (the mouse is captured again, so it is off its surface). If the flag is still
+    // set after 3 s in play (the mouse never left its surface), it is cleared here: the game then stays on its current tool.
+    const uint64_t ch = mm_player(s);
+    const bool flag = ch && rd<uint8_t>(ch + kMmOn) != 0;
+    bool leaving = false;
+    if (!gate && flag) {
+        const uint64_t now = mono_ns();
+        if (!s.mm_exit_ns) s.mm_exit_ns = now;
+        if (in_game && now - s.mm_exit_ns > 3000000000ull) {
+            wr<uint8_t>(ch + kMmOn, 0);
+            NXLOG_W(kTag, "mouse mode: the game did not leave its mouse mode within 3 s; cleared its flag");
+            s.mm_exit_ns = 0;
+        } else {
+            leaving = true;
+        }
+    } else {
+        s.mm_exit_ns = 0;
+    }
+    const bool open = gate || leaving;
+    if (open != s.mm_gate.exchange(open, std::memory_order_relaxed) && s.mm_gate_logs < 200) {
         s.mm_gate_logs++;
-        NXLOG_I(kTag, "mouse mode: the game's Joy-Con 2 mouse mode is %s", gate ? "allowed (two Joy-Cons, mouse option on)" : "the game's own answer again");
+        NXLOG_I(kTag, "mouse mode: the game's Joy-Con 2 mouse mode is %s", gate ? "allowed (two Joy-Cons, mouse option on)" : leaving ? "allowed until the game leaves it" : "the game's own answer again");
     }
     if (gate) mm_pointer_space(s);
+    // what the pointer hits, every 2 s while the game's mouse mode is on (at most 40 lines): screen size, pointer cell, swing position,
+    // the character's cell and heading
+    if (flag && s.mm_diag_logs < 40 && mono_ns() - s.mm_diag_ns > 2000000000ull) {
+        s.mm_diag_ns = mono_ns();
+        s.mm_diag_logs++;
+        int w = 0, h = 0;
+        const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a ? rd<uint64_t>(a + 0xf0) : 0, scr = b ? rd<uint64_t>(b + 0x18) : 0;
+        if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
+        NXLOG_I(kTag, "mouse mode: screen %dx%d, pointer cell %d,%d,%d (valid %u), swing pos %.0f,%.0f (valid %u), player %.0f,%.0f heading %.2f",
+                w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMmHitValid),
+                static_cast<double>(rd<float>(ch + kMmSwingPos)), static_cast<double>(rd<float>(ch + kMmSwingPos + 8)), rd<uint8_t>(ch + kMmSwingValid),
+                static_cast<double>(rd<float>(ch + kMmPosition)), static_cast<double>(rd<float>(ch + kMmPosition + 8)), static_cast<double>(rd<float>(ch + kMmHeading)));
+    }
     if (hid::jc2_mouse_mode() == hid::Jc2MouseMode::Off) {
         if (pressed) mouse_mode_log(s, "key ignored: [input] jc2_mouse = off");
         mouse_mode_set(s, false, "off (jc2_mouse = off)");

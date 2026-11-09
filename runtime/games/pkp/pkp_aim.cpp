@@ -39,8 +39,11 @@
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
 // With no such hit, everything stays as without the reach.
 //
-// The game's own Joy-Con 2 mouse mode (character + 0xaa81, the Mouse mode key: pkp_play.cpp) aims with its pointer: while it is on, every
-// hook here leaves the game alone (follow_camera answers 0).
+// The game's own Joy-Con 2 mouse mode (character + 0xaa81, the Mouse mode key: pkp_play.cpp) aims with its pointer: while it is on, the
+// camera targeting here leaves the game alone (follow_camera answers 0). In that mode the game places the swing tools' shape at the block
+// under the pointer (character + 0xaa50) but still turns it by the character's heading; on a Switch 2 the character turns to the pointer,
+// which needs Joy-Con 2 sensor data the PC does not have. So in mouse mode the swing heading hooks and the action start turn the shape and
+// the character toward that block instead (mouse_yaw). Those three hooks are installed with camera aim off too.
 #include "pkp_aim.h"
 
 #include <algorithm>
@@ -75,6 +78,8 @@ constexpr uint64_t kPlayerManager = 0x3561928;   // qword: the player manager; +
 constexpr uint64_t kCameraManager = 0x3561948;   // qword: the camera manager
 constexpr uint64_t kManagerPlayer = 0x30;
 constexpr uint64_t kMouseModeOn = 0xaa81;        // character: the game's Joy-Con 2 mouse mode is on (u8)
+constexpr uint64_t kMouseSwingPos = 0xaa50, kMouseSwingValid = 0xaa84;  // character: the swing position under the pointer (vec4), its flag
+constexpr uint64_t kMouseHitPos = 0xaa60, kMouseHitValid = 0xaa82;      // character: the pointer's hit position (vec4), its flag
 constexpr uint64_t kFollow = 0x10;               // camera manager + 0x10: the embedded follow camera of slot 0
 constexpr uint64_t kActiveTable = 0xc58;         // + signed byte(manager + 0xcc8) * 8: the active camera pointer of slot 0
 constexpr uint64_t kActiveIndex = 0xcc8;
@@ -98,6 +103,8 @@ struct State {
     uint64_t logged_pitch = 0;
     uint64_t logged_reach = 0;
     int extra = 0;     // [pkp] camera_aim_reach
+    bool camera = false;   // [pkp] camera_aim
+    uint64_t logged_mouse = 0;
     int reach = kReach;
 };
 State g;
@@ -178,9 +185,31 @@ bool camera_yaw(uint64_t ch, float& yaw, int reach) {
     return std::isfinite(yaw);
 }
 
+// The game's mouse mode is on for the local player's character ch: the heading from the character to the block under the pointer.
+bool mouse_yaw(uint64_t ch, float& yaw) {
+    const uint64_t mgr = rd<uint64_t>(g.base + kPlayerManager);
+    if (!mgr || !ch || ch != rd<uint64_t>(mgr + kManagerPlayer) || !rd<uint8_t>(ch + kMouseModeOn)) return false;
+    uint64_t t = 0;
+    if (rd<uint8_t>(ch + kMouseSwingValid)) t = ch + kMouseSwingPos;
+    else if (rd<uint8_t>(ch + kMouseHitValid)) t = ch + kMouseHitPos;
+    if (!t) return false;
+    const float dx = rd<float>(t) - rd<float>(ch + kPosition), dz = rd<float>(t + 8) - rd<float>(ch + kPosition + 8);
+    if (!(dx * dx + dz * dz > 1.f) || !std::isfinite(dx) || !std::isfinite(dz)) return false;
+    yaw = std::atan2(dx, dz);
+    return true;
+}
+
 void replace(::Ctx* c, unsigned reg, uint64_t ch, const char* what, int reach) {
     float yaw;
-    if (!camera_yaw(ch, yaw, reach)) return;
+    if (mouse_yaw(ch, yaw)) {
+        if (g.logged_mouse < 8) {
+            g.logged_mouse++;
+            NXLOG_I(kTag, "mouse mode: %s heading %.3f -> toward the pointer %.3f", what, static_cast<double>(c->v[reg].f[0]), static_cast<double>(yaw));
+        }
+        c->v[reg].f[0] = yaw;
+        return;
+    }
+    if (!g.camera || !camera_yaw(ch, yaw, reach)) return;
     if (g.logged < 8) {
         g.logged++;
         NXLOG_I(kTag, "camera aim: %s heading %.3f -> camera yaw %.3f", what, static_cast<double>(c->v[reg].f[0]), static_cast<double>(yaw));
@@ -301,7 +330,7 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
     if (id < kFirstAbility || id > kLastAbility) return 0;
     const uint64_t ch = rd<uint64_t>(c->x[19] + kActionOwner);
     float yaw;
-    if (!camera_yaw(ch, yaw, g.reach)) return 0;
+    if (!mouse_yaw(ch, yaw) && (!g.camera || !camera_yaw(ch, yaw, g.reach))) return 0;
     std::memcpy(reinterpret_cast<void*>(ch + kHeading), &yaw, sizeof yaw);
     const uint64_t move = rd<uint64_t>(rd<uint64_t>(g.base + kMoveTable) + 0x58);  // ponytail: slot 0, the only player with a follow camera here
     if (move) std::memcpy(reinterpret_cast<void*>(move + kController + kControllerYaw), &yaw, sizeof yaw);
@@ -314,15 +343,21 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void aim_install(uint64_t base) {
-    if (!config_get_bool("pkp", "camera_aim", true)) return;
     g.base = base;
+    // the swing headings and the action start also turn the game's mouse mode toward the pointer, with camera aim off too
+    hook_add_mid(base + kSwingPreview, &hook_swing_preview);
+    hook_add_mid(base + kSwingLive, &hook_swing_live);
+    hook_add_mid(base + kActionStart, &hook_action_start);
+    g.camera = config_get_bool("pkp", "camera_aim", true);
+    if (!g.camera) {
+        NXLOG_I(kTag, "camera aim: off (mouse mode facing hooks main+0x%llx, +0x%llx, +0x%llx)", static_cast<unsigned long long>(kSwingPreview),
+                static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kActionStart));
+        return;
+    }
     g.extra = static_cast<int>(std::clamp<int64_t>(config_get_int("pkp", "camera_aim_reach", 2), 0, 4));
     g.reach = std::max(kReach, 1 + g.extra);
     hook_add_mid(base + kHeadingRead, &hook_heading);
-    hook_add_mid(base + kSwingPreview, &hook_swing_preview);
-    hook_add_mid(base + kSwingLive, &hook_swing_live);
     hook_add_mid(base + kPitchRead, &hook_pitch);
-    hook_add_mid(base + kActionStart, &hook_action_start);
     if (g.extra > 0) {
         hook_add_mid(base + kQueryBase, &hook_query_base);
         hook_add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);

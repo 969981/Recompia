@@ -46,6 +46,7 @@ public:
     virtual bool capturing() const { return false; }
     virtual bool capture_result(InputId*) { return false; }
     virtual void cancel_capture() {}
+    virtual bool reserved_key(const InputId&) const { return false; }   // the settings page's own key (F1): never a binding
 };
 
 // The game's answer at one frame boundary.
