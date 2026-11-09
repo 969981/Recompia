@@ -253,10 +253,13 @@ const Row kPicture[] = {
 
 // The Mouse mode key (the Joy-Con 2 mouse mode, pkp_play.cpp): its binding in play, any key, mouse button or wheel notch. The row shows the
 // key; moving it either way starts a capture (play mode's rebind capture, GameHost::begin_capture) and the next input becomes the key, saved
-// at once (Escape cancels). The new key replaces any other play binding of that input; an all-context binding of it still works elsewhere.
+// at once (Escape cancels). The slider sits in the middle of a wide range, so every left/right press or click moves it and starts a capture
+// (with 0..1 it stuck at the end after one change and the next press did nothing). The new key replaces any other play binding of that input; an all-context binding of it still works elsewhere.
 play::GameHost* g_host = nullptr;
 bool g_mm_capture = false;     // waiting for the key
 bool g_mm_redraw = false;      // the row's text changed outside a value change
+std::string g_mm_shown;        // the key just picked, until play::apply_settings reaches current_settings (next frame)
+constexpr int kMmMid = 100;
 
 std::string mouse_mode_key_name(const S& s) {
     std::string out;
@@ -266,11 +269,11 @@ std::string mouse_mode_key_name(const S& s) {
     return out.empty() ? "None" : out;
 }
 const char* mouse_mode_text(int, char* out, size_t n) {
-    if (g_mm_capture) return "Press a key or mouse button (Esc: cancel)";
-    std::snprintf(out, n, "%s", mouse_mode_key_name(play::current_settings()).c_str());
+    if (g_mm_capture) return "Press the new key (Esc: cancel)";
+    std::snprintf(out, n, "%s", g_mm_shown.empty() ? mouse_mode_key_name(play::current_settings()).c_str() : g_mm_shown.c_str());
     return out;
 }
-int mouse_mode_max() { return 1; }
+int mouse_mode_max() { return 2 * kMmMid; }
 void set_mouse_mode_key(S& s, const play::InputId& in) {
     std::erase_if(s.bindings, [&](const play::Binding& b) { return b.act == play::Act::MouseMode || (b.in == in && b.ctx == play::Ctx::Play); });
     s.bindings.push_back(play::Binding{in, play::Ctx::Play, play::Act::MouseMode, play::Trig::Press, 0});
@@ -284,8 +287,8 @@ const Row kMouse[] = {
     choice("Invert Horizontal", "Moving the mouse left looks right.", kOffOn, 2, ROW_BOOL(mouse.invert_x)),
     choice("Mouse Pointer in Menus", "Use the mouse as a pointer: hover, click, right click, wheel.", kOffOn, 2, ROW_BOOL(mouse.menu_cursor)),
     names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, static_cast<uint8_t>(std::size(kPromptNames)), ROW_ENUM(prompts.style, play::PromptStyle)),
-    dynamic("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). Move this to press a new key.",
-            mouse_mode_text, mouse_mode_max, [](const S&) { return 0; }, [](S&, int) {}),
+    dynamic("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). To change it, press left or right on this row (or click it), then press the new key or mouse button. Esc cancels.",
+            mouse_mode_text, mouse_mode_max, [](const S&) { return kMmMid; }, [](S&, int) {}),
 };
 
 const Row kController[] = {
@@ -514,10 +517,13 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
 
 int hook_store(::Ctx* c, uint64_t, void*) {
     const Row* r = c->x[0] == g.child ? shown_row(c->x[1] & 0xff) : nullptr;
-    if (r && r->text == &mouse_mode_text && g_host && !g_mm_capture) {   // the Mouse Mode Key row moved: wait for the new key
-        g_host->begin_capture();
-        g_mm_capture = true;
-        g_mm_redraw = true;
+    if (r && r->text == &mouse_mode_text) {          // the Mouse Mode Key row moved: wait for the new key
+        if (g_host && !g_mm_capture) {
+            g_host->begin_capture();
+            g_mm_capture = true;
+            g_mm_redraw = true;
+            NXLOG_I(kTag, "options: Mouse Mode Key: waiting for a key");
+        }
         return 0;
     }
     if (!r || !r->live) return 0;
@@ -659,11 +665,19 @@ int hook_text_by_id(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void options_frame() {
+    if (!g_mm_shown.empty() && !g_mm_capture && mouse_mode_key_name(play::current_settings()) == g_mm_shown) g_mm_shown.clear();
     if (!g_mm_capture || !g_host) return;
     play::InputId in;
     if (g_host->capture_result(&in)) {
+        if (g_host->reserved_key(in)) {              // F1 opens the settings page: keep the old key
+            NXLOG_I(kTag, "options: Mouse Mode Key: %s opens the settings page, the key stays", play::input_name(in).c_str());
+            g_mm_capture = false;
+            g_mm_redraw = true;
+            return;
+        }
         S s = play::current_settings();
         set_mouse_mode_key(s, in);
+        g_mm_shown = play::input_name(in);
         play::apply_settings(s);                     // main thread, next frame; also writes controls.ini
         NXLOG_I(kTag, "options: Mouse Mode Key = %s", play::input_name(in).c_str());
     } else if (g_host->capturing()) {

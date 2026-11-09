@@ -1095,6 +1095,10 @@ public:
         return true;
     }
     void cancel_capture() override { g().capture_state.store(0); }
+    bool reserved_key(const InputId& id) const override {
+        G& st = g();
+        return st.overlay && id.kind == InKind::Key && id.code == st.overlay->toggle_scancode();
+    }
 };
 GameHostImpl g_game_host;
 
