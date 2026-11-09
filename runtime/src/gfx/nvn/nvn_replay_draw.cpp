@@ -424,9 +424,9 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         if (g_trace) trace_dump_raw(*pl);
         scene_upscale_for_draw(*pl);
     }
-    if (g_fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
+    if (g_copies.fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;
-    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_fbl_want); }
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_copies.fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
     if (g_prog_writes || g_xfb.active) g_pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);

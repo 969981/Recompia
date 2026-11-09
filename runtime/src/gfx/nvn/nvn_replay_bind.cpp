@@ -279,12 +279,12 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 r.tex = nullptr;                                   // none of the texture paths below apply
             }
             if (r.tex) {
-                const auto fb = g_fb_use.find(r.tex);
-                if (fb != g_fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
+                const auto fb = g_copies.fb_use.find(r.tex);
+                if (fb != g_copies.fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
             }
             if (r.tex && wants_vol3d(b, r)) {                      // a sampler3D over 2D storage samples the 3D copy (vol3d_prepare)
-                const auto vc = g_vol3d_use.find(r.tex);
-                if (vc != g_vol3d_use.end()) {
+                const auto vc = g_copies.vol3d_use.find(r.tex);
+                if (vc != g_copies.vol3d_use.end()) {
                     r.tex = vc->second;
                     r.view.has_layers = false;                     // the copy is the chosen layer, one slice deep
                 }
@@ -469,8 +469,8 @@ void support_for_draw(const ProgLayout& pl, bool compute) {
         if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
         TexResolved r = resolve_texture(d);
         if (!r.tex) continue;
-        const auto fb = g_fb_use.find(r.tex);
-        if (fb != g_fb_use.end()) r.tex = fb->second;
+        const auto fb = g_copies.fb_use.find(r.tex);
+        if (fb != g_copies.fb_use.end()) r.tex = fb->second;
         float s = tex_scale(r.tex);
         if (s == 1.0f) continue;
         const int idx = static_cast<int>(b.binding % 64u);

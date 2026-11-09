@@ -161,7 +161,6 @@ struct Pass {
     uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)
 };
 extern Pass P;
-extern uint8_t g_fbl_want;
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
@@ -429,8 +428,8 @@ inline uint32_t read_handle_word(int stage, int bank, int word) {
 // texture and sampler pools (S.tpool / S.spool) and their entries. Entries change only in texture_pool_register / sampler_pool_store,
 // which bump be::g_bind_gen under the pool's lock after the write; texture images remade or released (tex_rescale,
 // tex_enable_feedback_loop, release_texture_gpu, re-init) bump it too, though they keep the Texture* and the entry. The feedback remap
-// (g_fb_use), the 3D copies (g_vol3d_use), passes and render targets are applied by the callers AFTER resolve_texture, so they are not
-// inputs. Invariant: a slot of g_rc is used only within the draw scope it was filled in (g_rc_stamp, armed per begin_draw / do_dispatch
+// (g_copies.fb_use), the 3D copies (g_copies.vol3d_use), passes and render targets are applied by the callers AFTER resolve_texture, so they are not
+// inputs. Invariant: a slot of g_rc.slots is used only within the draw scope it was filled in (g_rc.stamp, armed per begin_draw / do_dispatch
 // for that ProgLayout) and only while the handle read again now, both pool pointers and g_bind_gen (read before the resolve) are what
 // they were: so a slot is never staler than a call made at its fill time, and any pool write or image remake in between re-resolves.
 struct ResolveSlot {
@@ -439,9 +438,12 @@ struct ResolveSlot {
     const void* spool = nullptr;
     TexResolved r;
 };
-extern std::vector<ResolveSlot> g_rc;
-extern const ProgLayout* g_rc_pl;
-extern uint64_t g_rc_stamp;
+struct ResolveCache {   // owner: nvn_replay_textures.cpp (resolve_texture); armed by ResolveScope
+    std::vector<ResolveSlot> slots;    // one per binding of `pl`
+    const ProgLayout* pl = nullptr;    // the layout of the draw scope (null: no scope, resolve_texture resolves every time)
+    uint64_t stamp = 0;                // the draw scope
+};
+extern ResolveCache g_rc;
 bool resolve_once_on();
 // RAII draw scope: arm() once the draw's ProgLayout is known; the scope ends with the draw or dispatch setup.
 struct ResolveScope {
@@ -451,11 +453,11 @@ struct ResolveScope {
     void arm(const ProgLayout* pl) {
         static const bool on = resolve_once_on();
         if (!on || !pl) return;
-        ++g_rc_stamp;
-        g_rc_pl = pl;
-        if (g_rc.size() < pl->bindings.size()) g_rc.resize(pl->bindings.size());
+        ++g_rc.stamp;
+        g_rc.pl = pl;
+        if (g_rc.slots.size() < pl->bindings.size()) g_rc.slots.resize(pl->bindings.size());
     }
-    ~ResolveScope() { g_rc_pl = nullptr; }
+    ~ResolveScope() { g_rc.pl = nullptr; }
 };
 TexResolved resolve_texture(const BindingDesc& d);
 ViewRequest make_request(const DescriptorBinding& b, const TexResolved& r);
@@ -497,10 +499,6 @@ struct FbClone {
     uint64_t last = 0;                                     // serial of the last submission that used the copy
     uint64_t gen[16] = {};                                 // the attachment's write generation of each level when it was copied (0: never)
 };
-extern std::unordered_map<Texture*, FbClone> g_fb_clone;
-extern std::unordered_map<Texture*, Texture*> g_fb_use;
-extern bool g_fb_seen;
-extern std::atomic<int64_t> g_fb_clone_n;
 
 // The texture is the image of a colour slot that the open pass has in the feedback loop layout (its draw samples it there).
 inline bool fbl_sampled(Texture* t) {
@@ -525,8 +523,24 @@ struct Vol3dCopy {
     uint64_t copied = UINT64_MAX;                          // serial of the submission of the last copy
     uint64_t last = 0;                                     // serial of the last submission that used it
 };
-extern std::unordered_map<Texture*, Vol3dCopy> g_vol3d;
-extern std::unordered_map<Texture*, Texture*> g_vol3d_use;
+// The copies a draw samples instead of the game's texture (feedback attachments, 3D views of 2D storage). The copies are keyed by the
+// texture's address. A texture the game finalizes (every area load makes new render targets) leaves its copy behind, a full-size image
+// each (S34 soak: 500 an hour, about 3 GB an hour of GPU memory). A copy that no submission has used for kFbIdleSubmits is released
+// (end_submit, every 128th submission); one that is still in use stays (and one released too early is made again on its next use).
+constexpr uint64_t kFbIdleSubmits = 600;
+struct TexCopies {   // owner: nvn_replay_textures.cpp (feedback_prepare, vol3d_prepare)
+    std::unordered_map<Texture*, FbClone> fb_clone;      // attachment -> its copy (same shape, no storage in game memory)
+    std::unordered_map<Texture*, Texture*> fb_use;       // attachment -> the copy the current draw samples
+    bool fb_seen = false;                                // the last check found a feedback binding: check every draw until it goes away
+    std::atomic<int64_t> fb_clone_n{0};                  // fb_clone's size, mirrored for the gauge (the map itself is render thread only)
+    uint8_t fbl_want = 0;                                // colour slots the current draw samples through the feedback loop layout (-> ensure_pass)
+    std::unordered_map<Texture*, Vol3dCopy> vol3d;       // 2D texture -> its 3D copy
+    std::unordered_map<Texture*, Texture*> vol3d_use;    // 2D texture -> the copy the current draw samples
+    void begin_submit() { fb_use.clear(); fb_seen = false; }
+    void end_submit(uint64_t serial);   // the idle sweeps
+    void shutdown();
+};
+extern TexCopies g_copies;
 
 inline bool wants_vol3d(const DescriptorBinding& b, const TexResolved& r) {
     if (!r.tex || view_type_for(b) != VK_IMAGE_VIEW_TYPE_3D) return false;
@@ -667,11 +681,5 @@ bool counter_window_has_gpu_draw(RecordReader look, uint32_t type);
 
 }  // namespace replay
 using namespace replay;
-
-// The copies of feedback attachments are keyed by the attachment's address. A texture the game finalizes (every area load makes new render
-// targets) leaves its copy behind, a full-size image each (S34 soak: 500 an hour, about 3 GB an hour of GPU memory). A copy that no submission
-// has used for kFbIdleSubmits is released; one that is still in use stays (and one released too early is made again on its next use).
-constexpr uint64_t kFbIdleSubmits = 600;
-void fb_sweep(uint64_t serial);
 
 }  // namespace nxrt::nvn::be::gpu

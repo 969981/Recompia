@@ -4,10 +4,8 @@
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
-uint8_t g_fbl_want = 0;         // colour slots the current draw samples through the feedback loop layout (feedback_prepare -> ensure_pass)
-std::vector<ResolveSlot> g_rc;
-const ProgLayout* g_rc_pl = nullptr;   // the layout of the draw scope (null: no scope, resolve_texture resolves every time)
-uint64_t g_rc_stamp = 0;
+ResolveCache g_rc;
+TexCopies g_copies;
 bool resolve_once_on() {
     static const bool on = [] {
         const bool v = nxrt::config_get_bool("nvn", "resolve_once", true);
@@ -54,16 +52,16 @@ TexResolved resolve_texture(const BindingDesc& d) {
         const int idx = b.nvn.index;
         if (idx >= 0 && idx < 16) handle = handle_texture_id(S.img[d.nvn_stage][idx]);   // texture id only (image_as_texture ignores the sampler)
     }
-    const ProgLayout* pl = g_rc_pl;
+    const ProgLayout* pl = g_rc.pl;
     if (!pl || &d < pl->bindings.data() || &d >= pl->bindings.data() + pl->bindings.size()) return resolve_handle(handle);
-    ResolveSlot& sl = g_rc[static_cast<size_t>(&d - pl->bindings.data())];
+    ResolveSlot& sl = g_rc.slots[static_cast<size_t>(&d - pl->bindings.data())];
     const uint64_t gen = be::g_bind_gen.load(std::memory_order_acquire);   // before the resolve: a write after it is seen next time
-    if (sl.stamp == g_rc_stamp && sl.gen == gen && sl.handle == handle && sl.tpool == S.tpool.get() && sl.spool == S.spool.get()) {
+    if (sl.stamp == g_rc.stamp && sl.gen == gen && sl.handle == handle && sl.tpool == S.tpool.get() && sl.spool == S.spool.get()) {
         ft::split_count(ft::kCntResolveHit);
         return sl.r;
     }
     sl.r = resolve_handle(handle);
-    sl.stamp = g_rc_stamp;
+    sl.stamp = g_rc.stamp;
     sl.gen = gen;
     sl.handle = handle;
     sl.tpool = S.tpool.get();
@@ -139,10 +137,6 @@ bool samples_depth_target(const ProgLayout& pl) {
     }
     return false;
 }
-std::unordered_map<Texture*, FbClone> g_fb_clone;          // attachment -> its copy (same shape, no storage in game memory)
-std::unordered_map<Texture*, Texture*> g_fb_use;           // attachment -> the copy the current draw samples
-bool g_fb_seen = false;                                    // the last check found a feedback binding: check every draw until it goes away
-std::atomic<int64_t> g_fb_clone_n{0};                      // g_fb_clone's size, mirrored for the gauge (the map itself is render thread only)
 
 // [nvn] feedback_loop: auto (default) = the feedback loop layout where the GPU has VK_EXT_attachment_feedback_loop_layout, off = the copy.
 static bool fb_loop_on() {
@@ -166,10 +160,10 @@ static bool fb_levels_on() {
 }
 
 static Texture* feedback_clone(Texture* t) {
-    FbClone& fe = g_fb_clone[t];
+    FbClone& fe = g_copies.fb_clone[t];
     fe.last = F ? F->serial : 0;
     Ref<Texture>& c = fe.tex;
-    g_fb_clone_n.store(static_cast<int64_t>(g_fb_clone.size()), std::memory_order_relaxed);
+    g_copies.fb_clone_n.store(static_cast<int64_t>(g_copies.fb_clone.size()), std::memory_order_relaxed);
     if (c && (c->b.width != t->b.width || c->b.height != t->b.height || c->b.depth != t->b.depth || c->fmt != t->fmt || c->levels != t->levels || c->layers != t->layers ||
               (c->gpu && tex_scale(c.get()) != tex_scale(t))))
         c = Ref<Texture>();                                 // the game made another texture at this address
@@ -201,8 +195,8 @@ static void feedback_label(const TexResolved& r, const char* what) {
 }
 
 void feedback_prepare(const ProgLayout& pl) {
-    if (!g_fb_use.empty()) { g_fb_use.clear(); rp_bump(ft::kCntEpFeedback); }
-    g_fbl_want = 0;
+    if (!g_copies.fb_use.empty()) { g_copies.fb_use.clear(); rp_bump(ft::kCntEpFeedback); }
+    g_copies.fbl_want = 0;
     bool any = false;
     TexResolved loop_label;
     for (const BindingDesc& d : pl.bindings) {
@@ -210,12 +204,12 @@ void feedback_prepare(const ProgLayout& pl) {
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
         if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
         const TexResolved r = resolve_texture(d);
-        if (!r.tex || !tex_gpu(r.tex) || !is_color_feedback(r.tex) || r.tex->b.samples > 1 || g_fb_use.count(r.tex)) continue;
+        if (!r.tex || !tex_gpu(r.tex) || !is_color_feedback(r.tex) || r.tex->b.samples > 1 || g_copies.fb_use.count(r.tex)) continue;
         any = true;
         if (fb_loop_on()) {
             uint8_t slots = 0;
             for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (shares_image(r.tex, S.color_tex[i].get())) slots |= static_cast<uint8_t>(1u << i);
-            if (slots && (g_fbl_want & slots) == slots) continue;          // another binding of the same image
+            if (slots && (g_copies.fbl_want & slots) == slots) continue;          // another binding of the same image
             if (!tex_has_feedback_loop(r.tex)) {                          // the first feedback draw of this image: remade with the usage (once)
                 end_pass();
                 tex_enable_feedback_loop(r.tex, *F);
@@ -225,7 +219,7 @@ void feedback_prepare(const ProgLayout& pl) {
                     end_pass();
                     tex_ensure_current(r.tex, *F);
                 }
-                g_fbl_want |= slots;
+                g_copies.fbl_want |= slots;
                 if (gpass_on() && !loop_label.tex) loop_label = r;   // stamped after the pass ends below (the open pass's draws are its own interval)
                 continue;
             }
@@ -236,7 +230,7 @@ void feedback_prepare(const ProgLayout& pl) {
             end_pass();
             tex_ensure_current(r.tex, *F);                                // storage the game wrote since the image was made reaches the copy too
         }
-        FbClone& fe = g_fb_clone[r.tex];
+        FbClone& fe = g_copies.fb_clone[r.tex];
         const uint32_t nlv = tex_levels(r.tex);
         // the levels the draw's view covers (a level outside it may stay stale: its generation says so when a later view covers it)
         uint32_t lo = 0, hi = nlv;
@@ -259,7 +253,7 @@ void feedback_prepare(const ProgLayout& pl) {
             rc.extent = tex_image_extent(r.tex, lv);
             regions.push_back(rc);
         }
-        g_fb_use[r.tex] = c;
+        g_copies.fb_use[r.tex] = c;
         rp_bump(ft::kCntEpFeedback);   // [nvn] set_reuse: what this texture resolves to changed
         if (regions.empty()) continue;                                    // the copy is current for every level the draw samples (no pass break)
         end_pass();
@@ -281,26 +275,24 @@ void feedback_prepare(const ProgLayout& pl) {
     }
     // The draws before this one wrote the attachment it reads through the feedback loop layout: the pass ends (with a barrier) and the draw's
     // pass begins in that layout (ensure_pass). Each such draw gets its own pass, as each copy did.
-    if (g_fbl_want) {
+    if (g_copies.fbl_want) {
         end_pass();
         if (loop_label.tex) feedback_label(loop_label, "loop");
     }
-    g_fb_seen = any;
+    g_copies.fb_seen = any;
 }
-std::unordered_map<Texture*, Vol3dCopy> g_vol3d;           // 2D texture -> its 3D copy
-std::unordered_map<Texture*, Texture*> g_vol3d_use;        // 2D texture -> the copy the current draw samples
 
 static void vol3d_prepare(const ProgLayout& pl) {
-    g_vol3d_use.clear();
+    g_copies.vol3d_use.clear();
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
         if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
         const TexResolved r = resolve_texture(d);
-        if (!wants_vol3d(b, r) || g_vol3d_use.count(r.tex) || !tex_gpu(r.tex)) continue;
+        if (!wants_vol3d(b, r) || g_copies.vol3d_use.count(r.tex) || !tex_gpu(r.tex)) continue;
         const uint32_t layer = r.has_view && r.view.has_layers ? static_cast<uint32_t>(r.view.min_layer) : 0;
         if (layer >= tex_layers(r.tex)) continue;
-        Vol3dCopy& e = g_vol3d[r.tex];
+        Vol3dCopy& e = g_copies.vol3d[r.tex];
         if (e.src.get() != r.tex) e.src = Ref<Texture>::share(r.tex);
         e.last = F ? F->serial : 0;
         Ref<Texture>& c = e.tex;
@@ -352,7 +344,7 @@ static void vol3d_prepare(const ProgLayout& pl) {
                 NXLOG_I(kTag, "texture %u (%s %dx%d, target %d) is sampled as 3D by %s binding %s: it gets a 3D copy one slice deep", r.tex->id,
                         r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.width, r.tex->b.height, r.tex->b.target, d.shader->hash.c_str(), b.name.c_str());
         }
-        g_vol3d_use[r.tex] = c.get();
+        g_copies.vol3d_use[r.tex] = c.get();
         rp_bump(ft::kCntEpVol3d);
     }
 }
@@ -442,14 +434,32 @@ void prepare_textures(const ProgLayout& pl) {
     gstamp("uploads/layouts");
 }
 
-}  // namespace replay
-void fb_sweep(uint64_t serial) {
-    g_fb_use.clear();       // raw pointers into the copies: none is in use between two submissions
-    for (auto it = g_fb_clone.begin(); it != g_fb_clone.end();) {
-        if (serial > it->second.last + kFbIdleSubmits) it = g_fb_clone.erase(it);
-        else ++it;
+void TexCopies::end_submit(uint64_t serial) {
+    if ((serial & 127) == 0 && !fb_clone.empty()) {
+        fb_use.clear();       // raw pointers into the copies: none is in use between two submissions
+        for (auto it = fb_clone.begin(); it != fb_clone.end();) {
+            if (serial > it->second.last + kFbIdleSubmits) it = fb_clone.erase(it);
+            else ++it;
+        }
+        fb_clone_n.store(static_cast<int64_t>(fb_clone.size()), std::memory_order_relaxed);
     }
-    g_fb_clone_n.store(static_cast<int64_t>(g_fb_clone.size()), std::memory_order_relaxed);
+    if ((serial & 127) == 0 && !vol3d.empty()) {   // 3D copies of 2D textures no submission used for kFbIdleSubmits are released
+        vol3d_use.clear();
+        for (auto it = vol3d.begin(); it != vol3d.end();) {
+            if (serial > it->second.last + kFbIdleSubmits) it = vol3d.erase(it);
+            else ++it;
+        }
+    }
 }
+
+void TexCopies::shutdown() {
+    fb_use.clear();
+    fb_clone.clear();
+    vol3d_use.clear();
+    vol3d.clear();
+    fb_clone_n.store(0, std::memory_order_relaxed);
+}
+
+}  // namespace replay
 
 }  // namespace nxrt::nvn::be::gpu

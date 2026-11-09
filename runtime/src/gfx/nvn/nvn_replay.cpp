@@ -600,8 +600,7 @@ void replay_begin_submit(Frame& f) {
     g_vb_bound_in_cb = false;
     shadow_invalidate();
     g_want_depth_ro = false;
-    g_fb_use.clear();
-    g_fb_seen = false;
+    g_copies.begin_submit();
     g_key_dummy_binding = 0;
     g_sets.begin_submit(f);
 }
@@ -622,14 +621,7 @@ void replay_end_submit(Frame& f) {
         out_end_submit(F->cb, F->serial);
     }
     end_pass();
-    if ((f.serial & 127) == 0 && !g_fb_clone.empty()) fb_sweep(f.serial);
-    if ((f.serial & 127) == 0 && !g_vol3d.empty()) {   // 3D copies of 2D textures no submission used for kFbIdleSubmits are released
-        g_vol3d_use.clear();
-        for (auto it = g_vol3d.begin(); it != g_vol3d.end();) {
-            if (f.serial > it->second.last + kFbIdleSubmits) it = g_vol3d.erase(it);
-            else ++it;
-        }
-    }
+    g_copies.end_submit(f.serial);
     g_q.end_submit();
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
     if (rp_te) { g_rp.ns[kRpEnd] += ft::tsc() - rp_te; ++g_rp.n[kRpEnd]; }
@@ -655,18 +647,14 @@ void replay_shutdown() {
     g_pending.clear();
     out_reset();
     g_sets.cache.clear();
-    g_fb_use.clear();
-    g_fb_clone.clear();
-    g_vol3d_use.clear();
-    g_vol3d.clear();
-    g_fb_clone_n.store(0, std::memory_order_relaxed);
+    g_copies.shutdown();
 }
 
 // Gauge (nxrt/gauge.h): reads the atomic mirror above, never the map. Removed before the globals are destroyed.
 namespace {
 struct ReplayGauges {
     ReplayGauges() {
-        nxrt::gauge_register("nvn.replay.fb_clones", [] { return g_fb_clone_n.load(std::memory_order_relaxed); });
+        nxrt::gauge_register("nvn.replay.fb_clones", [] { return g_copies.fb_clone_n.load(std::memory_order_relaxed); });
     }
     ~ReplayGauges() { nxrt::gauge_unregister("nvn.replay.fb_clones"); }
 };
