@@ -242,19 +242,25 @@ void hook_fill_ids(::Ctx* c, uint64_t, void*) {
     g.list = static_cast<uint32_t>(c->x[21]) & 0xff;
     g.tab = static_cast<uint32_t>(c->x[20]) & 0xff;
     g.have_fill = true;
-    if (g.folded.empty() || g.online) return;
+    std::string folded, query;   // copied under g.mu, which ask and clear_query hold while they change them
+    {
+        std::lock_guard<std::mutex> lk(g.mu);
+        folded = g.folded;
+        query = g.query;
+    }
+    if (folded.empty() || g.online) return;
     const uint64_t sp = c->x[31];
     const uint64_t ids = rd<uint64_t>(sp + 8), n = rd<uint64_t>(sp + 0x10);
     if (!ids || n == 0 || n > 0x5dc || !ok(ids, n * 2)) return;
     uint64_t k = 0;
     for (uint64_t i = 0; i < n; ++i) {
         const uint16_t id = rd<uint16_t>(ids + i * 2);
-        if (id == 0 || recipe_name(c, id).find(g.folded) == std::string::npos) continue;
+        if (id == 0 || recipe_name(c, id).find(folded) == std::string::npos) continue;
         wr<uint16_t>(ids + k++ * 2, id);
     }
     wr<uint64_t>(sp + 0x10, k);
     if (g.log)
-        NXLOG_I(kTag, "craft search: '%s' keeps %llu of %llu recipes (list %u, tab %u)", g.query.c_str(), static_cast<unsigned long long>(k),
+        NXLOG_I(kTag, "craft search: '%s' keeps %llu of %llu recipes (list %u, tab %u)", query.c_str(), static_cast<unsigned long long>(k),
                 static_cast<unsigned long long>(n), g.list, g.tab);
 }
 
