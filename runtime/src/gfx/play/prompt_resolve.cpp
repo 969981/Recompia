@@ -71,15 +71,16 @@ const char* pad_name(PromptStyle style, const PadSettings& pad, bool label_abxy,
     // Indexed by PadSrc: the four face buttons, the shoulders, the triggers, Start, Back; the sticks and the d-pad have no icon.
     static const char* const kXbox[kPadSrcCount] = {
         "xbox/a", "xbox/b", "xbox/x", "xbox/y", "xbox/lb", "xbox/rb", "xbox/lt", "xbox/rt", "xbox/menu", "xbox/view",
-        "", "", "", "", "", "",
+        "", "", "", "", "", "", "", "", "", "", "", "",
     };
     static const char* const kSteam[kPadSrcCount] = {
         "steam/a", "steam/b", "steam/x", "steam/y", "steam/lb", "steam/rb", "steam/lt", "steam/rt", "steam/menu", "steam/view",
         "", "", "", "", "", "",
+        "steam/rg", "steam/lg", "steam/rg", "steam/lg", "steam/lp", "steam/rp",   // the grips (upper and lower on a side share the icon) and the trackpad clicks
     };
     static const char* const kPs[kPadSrcCount] = {
         "ps/cross", "ps/circle", "ps/square", "ps/triangle", "ps/l1", "ps/r1", "ps/l2", "ps/r2", "ps/options", "ps/create",
-        "", "", "", "", "", "",
+        "", "", "", "", "", "", "", "", "", "", "", "",
     };
     return (style == PromptStyle::Xbox ? kXbox : style == PromptStyle::Steam ? kSteam : kPs)[static_cast<int>(src)];
 }

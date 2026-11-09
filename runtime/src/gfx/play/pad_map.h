@@ -14,7 +14,7 @@ namespace nxrt::play {
 //            Face buttons: cfg.label_abxy = true maps by the printed label (raw.face_label: label A -> Switch A, B -> B, X -> X, Y -> Y), so an
 //            Xbox pad's bottom button (label A) is Switch A; false maps by position: SOUTH -> B, EAST -> A, WEST -> Y, NORTH -> X.
 //            LEFT_SHOULDER -> L, RIGHT_SHOULDER -> R, START -> PLUS, BACK -> MINUS, LEFT_STICK -> LStick click, RIGHT_STICK -> RStick click,
-//            DPAD_* -> Up/Down/Left/Right. Triggers: axis value / 32767 >= cfg.trigger_threshold -> ZL / ZR. GUIDE and MISC1 do nothing.
+//            DPAD_* -> Up/Down/Left/Right. Triggers: axis value / 32767 >= cfg.trigger_threshold -> ZL / ZR. GUIDE and MISC1 do nothing; so do the rear grips and trackpad clicks (PadSrc::RightPaddle1 ... TouchpadRight) until [padmap] gives them a button.
 //  sticks    raw axis / 32768 (clamped to -1..1), y flipped (SDL y down = +, hid y up = +), radial dead zone cfg.stick_deadzone with the
 //            remaining travel rescaled to 0..1 ((len - dz) / (1 - dz)), then * 32767 rounded; the result is within +-32767.
 // Stick dead zones: cfg.stick_deadzone for the left stick, cfg.right_deadzone for the right one.

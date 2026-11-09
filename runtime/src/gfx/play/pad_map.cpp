@@ -12,6 +12,7 @@ namespace {
 enum SdlButton : int {
     kSdlSouth = 0, kSdlEast, kSdlWest, kSdlNorth, kSdlBack, kSdlGuide, kSdlStart, kSdlLeftStick, kSdlRightStick,
     kSdlLeftShoulder, kSdlRightShoulder, kSdlDpadUp, kSdlDpadDown, kSdlDpadLeft, kSdlDpadRight, kSdlMisc1,
+    kSdlRightPaddle1, kSdlLeftPaddle1, kSdlRightPaddle2, kSdlLeftPaddle2, kSdlTouchpad, kSdlMisc2,
 };
 // SDL_GamepadAxis order (platform.h GamepadRaw::axes).
 enum SdlAxis : int { kAxisLeftX = 0, kAxisLeftY, kAxisRightX, kAxisRightY, kAxisLeftTrigger, kAxisRightTrigger };
@@ -33,6 +34,18 @@ constexpr ButtonMap kOtherButtons[] = {
     {kSdlLeftStick, PadSrc::LeftStick, hid::kBtnStickL},    {kSdlRightStick, PadSrc::RightStick, hid::kBtnStickR},
     {kSdlDpadUp, PadSrc::DpadUp, hid::kBtnUp},              {kSdlDpadDown, PadSrc::DpadDown, hid::kBtnDown},
     {kSdlDpadLeft, PadSrc::DpadLeft, hid::kBtnLeft},        {kSdlDpadRight, PadSrc::DpadRight, hid::kBtnRight},
+};
+
+// Buttons with no built-in meaning: they press nothing until [padmap] gives them a Switch button (pad_default_buttons returns 0).
+// SDL names the Steam Controller's inputs as: R4 RIGHT_PADDLE1, L4 LEFT_PADDLE1, R5 RIGHT_PADDLE2, L5 LEFT_PADDLE2, left trackpad click TOUCHPAD,
+// right trackpad click MISC2 (SDL 3.4 SDL_gamepad.c, the mapping it gives the Steam Controller).
+struct ExtraButton {
+    int sdl;
+    PadSrc src;
+};
+constexpr ExtraButton kExtraButtons[] = {
+    {kSdlRightPaddle1, PadSrc::RightPaddle1}, {kSdlLeftPaddle1, PadSrc::LeftPaddle1}, {kSdlRightPaddle2, PadSrc::RightPaddle2},
+    {kSdlLeftPaddle2, PadSrc::LeftPaddle2},   {kSdlTouchpad, PadSrc::Touchpad},       {kSdlMisc2, PadSrc::TouchpadRight},
 };
 
 // SDL stick axis (-32768..32767) to -1..1.
@@ -88,6 +101,9 @@ void map_pad(const platform::GamepadRaw& raw, const PadSettings& cfg, hid::NpadI
     for (const ButtonMap& m : kOtherButtons) {
         if (raw.buttons & (1u << m.sdl)) press(m.src, hid::btn(m.btn));
     }
+    for (const ExtraButton& e : kExtraButtons) {
+        if (raw.buttons & (1u << e.sdl)) press(e.src, 0);   // nothing unless remapped
+    }
 
     if (raw.axes[kAxisLeftTrigger] / 32767.0 >= cfg.trigger_threshold) press(PadSrc::LeftTrigger, hid::btn(hid::kBtnZL));
     if (raw.axes[kAxisRightTrigger] / 32767.0 >= cfg.trigger_threshold) press(PadSrc::RightTrigger, hid::btn(hid::kBtnZR));
@@ -106,6 +122,9 @@ uint32_t pad_src_held(const platform::GamepadRaw& raw, const PadSettings& cfg) {
     }
     for (const ButtonMap& m : kOtherButtons) {
         if (raw.buttons & (1u << m.sdl)) held |= pad_src_bit(m.src);
+    }
+    for (const ExtraButton& e : kExtraButtons) {
+        if (raw.buttons & (1u << e.sdl)) held |= pad_src_bit(e.src);
     }
     if (raw.axes[kAxisLeftTrigger] / 32767.0 >= cfg.trigger_threshold) held |= pad_src_bit(PadSrc::LeftTrigger);
     if (raw.axes[kAxisRightTrigger] / 32767.0 >= cfg.trigger_threshold) held |= pad_src_bit(PadSrc::RightTrigger);

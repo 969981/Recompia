@@ -98,6 +98,10 @@ STEAM_MAP = {
     "steam/menu": "steam_button_start_icon",
     "steam/view": "steam_button_back_icon",
     "steam/dpad": "steam_dpad",
+    "steam/lg": "steam_lg",                  # left grip (the two rear buttons on a side share it)
+    "steam/rg": "steam_rg",
+    "steam/lp": "steam_button_lp",           # left and right trackpad click
+    "steam/rp": "steam_button_rp",
 }
 
 # One d-pad direction each, for prompts that name a direction (Pokopia's left/right/up/down glyphs): <style>/dpad_<dir>, drawn from the

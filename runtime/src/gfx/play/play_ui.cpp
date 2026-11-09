@@ -344,14 +344,16 @@ void mouse_tab(Page& p) {
 
 // ---- Controller ---------------------------------------------------------------------------------------------------------------------
 
-// The 16 controller buttons, in PadSrc order.
+// The 22 controller buttons, in PadSrc order.
 constexpr const char* kPadSrcLabels[kPadSrcCount] = {
     "A / Cross (bottom)", "B / Circle (right)", "X / Square (left)", "Y / Triangle (top)",
     "LB / L1",            "RB / R1",            "LT / L2",            "RT / R2",
     "Menu / Options",     "View / Create",      "Left stick click",   "Right stick click",
     "D-pad up",           "D-pad down",         "D-pad left",         "D-pad right",
+    "Right grip R4 (upper)", "Left grip L4 (upper)", "Right grip R5 (lower)", "Left grip L5 (lower)",
+    "Touchpad / left trackpad click", "Right trackpad click",
 };
-static_assert(sizeof kPadSrcLabels / sizeof kPadSrcLabels[0] == 16, "one label per controller button");
+static_assert(sizeof kPadSrcLabels / sizeof kPadSrcLabels[0] == 22, "one label per controller button");
 
 // The choices of a controller button: Default, Nothing, then the single Switch buttons in kSwitchButtons order.
 constexpr const char* kPadChoiceNames[] = {
