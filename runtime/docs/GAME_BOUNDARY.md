@@ -29,7 +29,7 @@ a log line). It is header-only, so the launcher can use it without linking the r
 | --- | --- | --- |
 | `id`, `title`, `product`, `short_title`, `program_id`, `version` | identity | logs, window titles, the controls.ini header, the launcher's branding and ini comment, the title profile |
 | `main_base` | (a) | the default guest base of play mode, timestep and test tooling (`[play]`, `[time]`, `[test] game_base` still override) |
-| `exe_name`, `setup_exe_name`, `launcher_ini`, `game_ini`, `shader_pack`, `save_folder` | file names | the launcher finds and starts the programs; the game exe reads `game_ini`; services put saves under `%APPDATA%\<save_folder>` |
+| `exe_name`, `game_ini`, `shader_pack`, `save_folder` | file names | the game exe reads `game_ini`; services put saves under `%APPDATA%\<save_folder>` |
 | `title_defaults(TitleProfile&)` | (a) | the services' title profile (program id, name, version, languages, save sizes, main thread, nickname, user id) |
 | `timestep` (`timestep::Sites`) | (b) | the frame-step patch: frame update entry, mid-function sites with their load kind, render timing counter and its wrap, movie update, per-tick sampler |
 | `probes` (`tt::GameProbes`) | (c) behind a generic API | test tooling: state readout, warp, grant, item, guest calls, object dump, ray casts, watches |
@@ -54,8 +54,6 @@ handling, aim feedback, pitch limit, log status). Hooks keep their registration 
 before its own frame hook and the game's input hooks after it, as before.
 
 CMake: `NXRT_BUILD_GAMES` (on) adds every module listed in `NXRT_GAMES` (default `mpr`), so a second game needs no edit of the base.
-`NXRT_LAUNCHER_GAME` (mpr) picks the launcher's branding and its `games/<id>/launcher.rc`; when that module is not built, the launcher builds unbranded. The setup tool has `MPRS_GAME` (mpr) and
-the release builder reads `tools/release/games/<id>.json` (`MPR_RELEASE_GAME`, default mpr).
 
 ## The audit
 
@@ -107,8 +105,7 @@ the release builder reads `tools/release/games/<id>.json` (`MPR_RELEASE_GAME`, d
 | Where (before) | Kind | Now |
 | --- | --- | --- |
 | "Metroid Prime Remastered PC" window title and dialog captions | (a) | `Info::product` |
-| `mpr.exe`, `mpr_setup.exe`, `mpr_launcher.ini`, `shader_cache.mprshc` | (a) | `Info` file names |
-| `apps/launcher/launcher.rc`, `launcher.manifest` (version info, icon, manifest) | (c) | `games/mpr/`, picked by `NXRT_LAUNCHER_GAME` |
+| `mpr.exe`, `shader_cache.mprshc` | (a) | `Info` file names |
 
 ### game exe
 
@@ -158,7 +155,6 @@ These are still Metroid-shaped in the base. None of them blocks a second game fr
 - Moved code keeps namespace `nxrt::play`. Done to keep the move mechanical; rename to `nxrt::games::mpr` later.
 - Test tooling vocabulary. `tt::GameState` fields (morph, beam, visor, missiles), the hash over them (`tt_core.cpp`) and the item
   names in `tt_script.cpp`.
-- Launcher names. Target `mpr_launcher`, library `mpr_launcher_core`, namespace `mprl`, window class `MprLauncherWindow`.
 - Setup tool. The texture and program stages read Retro's formats; the version resources and the window class name are Metroid's.
 - Release templates (README, HELP) and the release's licence notice name the game.
 - Docs. Older docs (S*.md) and CONFIG.md still give the old paths of the moved files.
@@ -188,7 +184,7 @@ show different moments in two runs (docs/S5.md, known limits). Compare runs at a
 ## Adding a game
 
 1. `runtime/games/<id>/` with a CMakeLists that builds `nxrt_game_<id>_data` (and `_core`, and the full library if it has play
-   mode), an `Info` and `nxrt_register_game_<id>*()` functions; `launcher.rc` if it ships the launcher.
+   mode), an `Info` and `nxrt_register_game_<id>*()` functions.
 2. A game exe that calls the register function before `nxrt::init()`.
 3. `recomp/games/<id>/` with a `<id>_modules` target; build it with `scripts\build_game.cmd <id>`.
 4. `tools/setup/src/games/<id>.cpp` and `tools/release/games/<id>.json`.

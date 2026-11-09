@@ -51,6 +51,3 @@ target_link_options(nxrt_gfx_demo PRIVATE /MAP /DEBUG /STACK:8388608)
 foreach(dll ${NXRT_A2B_DLLS})
     add_custom_command(TARGET nxrt_gfx_demo POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:nxrt_gfx_demo>")
 endforeach()
-
-# The launcher (apps/launcher).
-include(${CMAKE_CURRENT_LIST_DIR}/launcher.cmake)

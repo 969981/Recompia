@@ -54,7 +54,7 @@ until Set up rebuilds pkp.exe (the shader cache is kept). Headless check of the 
 The launcher looks for its tools in `tools\` next to its own exe. A release folder must contain:
 
 ```
-pkp.exe                     the game (game-build, -Release)
+pkp.exe                     the game (game-build)
 PokopiaLauncher.exe         this launcher (npm run tauri build)
 Play.bat                    release\Play.bat (optional)
 tools\

@@ -104,8 +104,6 @@ const game::Info& data_info() {
         g.languages = 0x1ffffu;
         g.platform = game::Platform::Switch2;
         g.exe_name = "pkp.exe";
-        g.setup_exe_name = "pkp_setup.exe";
-        g.launcher_ini = "pkp_launcher.ini";
         g.game_ini = "pkp.ini";
         g.shader_pack = "shader_cache.pkpshc";
         g.save_folder = "PokopiaRecompPC";

@@ -28,9 +28,9 @@ if(PKP_RELEASE)
     add_compile_options("-clang:-ffile-prefix-map=${PKP_ROOT}=.")
 endif()
 
-# The release version ("0.1.0"; "dev" for local builds). The game log, --version and the exe's file properties show it, and the
-# launcher (built from the runtime with the same cache value) shows it in its window. game-build/scripts/build.ps1 -Version sets it.
-set(PKP_VERSION "dev" CACHE STRING "release version shown by pkp.exe and the launcher")
+# The release version ("0.1.0"; "dev" for local builds). The game log, --version and the exe's file properties show it.
+# game-build/scripts/build.ps1 -Version sets it.
+set(PKP_VERSION "dev" CACHE STRING "release version shown by pkp.exe")
 set(PKP_VER_MAJOR 0)
 set(PKP_VER_MINOR 0)
 set(PKP_VER_PATCH 0)
@@ -42,7 +42,6 @@ endif()
 # PKP_RUNTIME_DIR: which runtime checkout compiles in (default the main one; a worktree such as runtime-wt/boot2 for branch work)
 set(PKP_RUNTIME_DIR "${PKP_ROOT}/runtime" CACHE PATH "runtime source tree compiled into pkp.exe")
 set(NXRT_GAMES "pkp" CACHE STRING "" FORCE)            # runtime/games/pkp only
-set(NXRT_LAUNCHER_GAME "pkp" CACHE STRING "" FORCE)
 set(NXRT_RECOMP_INCLUDE "${PKP_ROOT}/recomp/include" CACHE PATH "")
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
