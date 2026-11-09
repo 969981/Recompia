@@ -33,6 +33,23 @@ const char* sec_label(Sec s) {
     }
 }
 
+// Keys that older builds wrote and nothing reads any more: accepted and ignored, so an old file loads without a warning. The next save
+// leaves them out.
+static bool retired_key(Sec sec, const std::string& k) {
+    struct Retired {
+        Sec sec;
+        const char* key;
+    };
+    static const Retired kRetired[] = {
+        {Sec::Tweaks, "glow_color"}, {Sec::Tweaks, "suit_glow"}, {Sec::Tweaks, "ball_glow"}, {Sec::Tweaks, "gun_glow"},
+        {Sec::Tweaks, "suit_color"}, {Sec::Tweaks, "gun_color"}, {Sec::Tweaks, "skip_intro"}, {Sec::Tweaks, "skip_boot_logos"},
+        {Sec::Tweaks, "fast_menus"}, {Sec::Tweaks, "menu_speed"},
+    };
+    for (const Retired& r : kRetired)
+        if (r.sec == sec && k == r.key) return true;
+    return false;
+}
+
 // Applies one `key = value` of a fixed section. On a bad value returns false with *msg set (no line prefix).
 // *known is false for a key the section does not have.
 bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* s, bool* known, std::string* msg) {
@@ -172,12 +189,12 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
         case Sec::Camera:
             if (k == "gun_drives_view") return set_bool(&s->camera.gun_drives_view);
             break;
-        case Sec::Tweaks: {
-            bool mine = false;
-            if (!fastboot_apply(k, v, &s->fastboot, &mine, msg)) return false;
-            if (mine) return true;
-            return apply_tweaks_key(k, v, &s->tweaks, known, msg);
-        }
+        case Sec::Tweaks:
+            if (k == "language") {
+                s->language = lower(v) == "auto" ? std::string() : v;
+                return true;
+            }
+            break;
         case Sec::Pad:
             if (k == "label_abxy") return set_bool(&s->pad.label_abxy);
             if (k == "deadzone") return set_real(0.0, 0.5, &s->pad.stick_deadzone);
@@ -463,6 +480,7 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
         default:
             break;
     }
+    if (retired_key(sec, k)) return true;
     *known = false;
     return true;
 }

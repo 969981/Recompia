@@ -139,11 +139,6 @@ void draw_settings_page(UiHost& host) {
             audio_page(p);
             ImGui::EndTabItem();
         }
-        if (const GamePlay* gp = game_play(); gp && gp->tweaks_tab && ImGui::BeginTabItem("Game")) {   // the game's optional looks and start-up tweaks
-            if (gp->tweaks_tab(p.edit)) mark(p);
-            if (fastboot_ui(p.edit.fastboot)) mark(p);   // start-up and menu tweaks (play_ui_fastboot.cpp)
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("About")) {
             draw_about_page(host.settings_path());
             ImGui::EndTabItem();

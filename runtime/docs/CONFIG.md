@@ -411,41 +411,9 @@ To change a key, add a line `Key = action` to `[bindings.all]` (every context) o
 
 Checked in a real game run with `tools/test/keys_check.py` (warp to `tallon_canyon_cavern`, grant the other beams and visors, press each key and read the game's own beam and visor numbers): `1` to `4` give power, wave, ice and plasma, the wheel steps wave, ice, wave, and `5` to `8` give combat, scan, thermal and x-ray.
 
-### Start-up and menus (`controls.ini`, `[tweaks]`)
+### Game language (`controls.ini`, `[tweaks]`)
 
-All off by default; with them off the game starts and plays as it always did. They are on the F1 page (Extras tab, "Start-up and menus") and on the launcher's Extras tab. See `docs/S46.md`.
-
-`[tweaks] skip_intro`, default `0`. `1` skips the opening cutscene of a new game (the gunship landing on the Frigate Orpheon) without a key press. It uses the game's own cutscene skip: in the Exterior Docking Hangar the cutscene counts as skippable, and the skip button is pressed for the game the moment the game accepts it (about two seconds in), then the game fades out and jumps to the state the end of the cutscene leaves. Other cutscenes play as usual. Takes effect at the next new game.
-
-`[tweaks] skip_boot_logos`, default `0`. `1` ends the title's 14 second intro movie (the logo forming) as soon as it starts, so the title screen with "press start" comes up at once.
-
-`[tweaks] language`, default `auto`. The game's language: `auto` uses the Windows display language when the game has it, else English; a name such as `French` or `LatinAmericanSpanish` picks one (names as in `[system] language`). The launcher's Extras tab sets it. `[system] language` in the game ini wins over it. Applies at the next start.
-
-`[tweaks] fast_menus`, default `0`, and `[tweaks] menu_speed`, default `2`, range `1` to `4`. With `fast_menus = 1` the front end (title, main menu, save slots, difficulty, options, extras) runs its clock `menu_speed` times faster: its animations, fades, waits and the attract-mode timer. The transition movies between the title, the main menu and Extras are cut after 1/`menu_speed` of their length. The looping movies behind the menus, their sound and the game itself keep their speed. `menu_speed` is read only while `fast_menus` is on. Applies at once.
-
-### Glow colour (`controls.ini`, `[tweaks]`)
-
-`[tweaks] glow_color`, default `off`: `off` keeps the game's colours. `R,G,B` (0 to 255 each, as a colour picker shows them) recolours the glows of Samus's equipment: the morph ball's glowing stripes, inner glow, boost glow, trail and light, the arm cannon's charge glow and lit panels, and the suit's lights (the visor glow and the small lights on the chest, belt, knees and shins, on all four suits, from their glow maps). The colour multiplies the game's glow, so the ball's white glow takes it exactly, the charge's yellow mixes with it (magenta gives a pink-red charge), and a darker colour gives a dimmer glow. The morph ball's shell keeps its colours. The cannon's panels and the suit's lights keep the game's brightness and take the setting's hue, for every beam. Their glow textures are recoloured as the game uploads them, which takes about a second in the background. A change applies at once, with no restart. Details in `docs/S44.md`.
-
-`[tweaks] suit_glow`, `ball_glow` and `gun_glow`, default `auto`: `auto` follows `glow_color`, `off` keeps the game's colour for that part even when `glow_color` is set, and `R,G,B` gives the part its own colour.
-
-The launcher's Tweaks tab and the F1 page's Tweaks tab have the switch, three sliders with a colour swatch, a Reset button that goes back to the game's colours, and the per-part choice. The F1 page shows the colour in the game while the sliders move; Apply and save keeps it.
-
-`NXRT_GLOW_TEST_FILE` (environment, test aid): a file of `[tweaks]` lines. When it changes, its values replace the saved ones in the running game (checked twice a second).
-
-`NXRT_GLOW_LOG_TEXTURES` (environment, discovery aid): `1` logs the identity (tail hash) of every sRGB ASTC texture the glow's texture hook sees, once each, while a glow colour is on. `WxH,WxH,...` also claims every texture of those sizes under a numbered discovery id without changing it, so the runtime's `edited by the host (id ...)` lines match each texture id to its tail. See `docs/S44.md`.
-
-`NXRT_GLOW_TEST_FILL` (environment, test aid): `1` paints every glow texture texel in the glow colour at full strength, to show whether a texture reaches the screen.
-
-### Suit and arm cannon colour (`controls.ini`, `[tweaks]`)
-
-`[tweaks] suit_color`, default `off`: `off` keeps the game's paint. `R,G,B` (0 to 255 each) repaints Samus's suit in that colour, anything from black to white, keeping the shading and detail of the game's textures. The morph ball and the spider ball follow it. The visor, the lights painted on the suit and the glow keep their colours (the glow has `glow_color`).
-
-`[tweaks] gun_color`, default `off`: the same for the arm cannon's shell (first person, every suit and beam).
-
-Both are on the launcher's Tweaks tab and the F1 page's Tweaks tab (a switch, three sliders and a swatch each, and "Reset the paint"). A change shows in the game about a quarter of a second after the slider stops; the textures are repainted in the background (about 0.1 to 0.15 s per texture). Details in `docs/S45.md`.
-
-`NXRT_TINT_TEST_FILE` (environment, test aid): a file of `[tweaks]` lines (`suit_color = ...`, `gun_color = ...`). When it changes, its values replace the saved ones in the running game (checked twice a second).
+`[tweaks] language`, default `auto`. The game's language: `auto` uses the Windows display language when the game has it, else English; a name such as `French` or `LatinAmericanSpanish` picks one (names as in `[system] language`). Edit it in `controls.ini`; `[system] language` in the game ini wins over it. Applies at the next start.
 
 ### Controller face buttons (`controls.ini`, `[pad]`)
 

@@ -83,8 +83,7 @@ CMake: `NXRT_BUILD_GAMES` (on) adds every module listed in `NXRT_GAMES` (default
 | `src/gfx/play/play_scenefix.*` (S42: the guard on CModConSceneNode render queries, `[game] modcon_query_guard`) and its test | (c) | `games/mpr/`; installed and removed by `games/mpr/mpr_play.cpp` next to the lock-on camera |
 | `src/gfx/play/play_glow.*`, `play_glow_ui.cpp` (S44: the glow colour on the morph ball tables, particle generators and incandescence draws) and its test | (c) | `games/mpr/`; installed, set, ticked and removed by `games/mpr/mpr_play.cpp` (after the lock-on camera; the ball's inner glow from the ProcessInput hook); the F1 Tweaks tab through `GamePlay::tweaks_tab` |
 | `games/mpr/mpr_fastboot.*` (S46: skip the opening cutscene, the title's intro movie, faster front end) | (c) | was already in `games/mpr`, but compiled into nxrt_gfx and called from play.cpp; now in the `nxrt_game_mpr` library and called from `mpr_play.cpp` |
-| `games/mpr/mpr_tint.*` (S45: suit and arm cannon paint, recolouring the game's textures) and its test | (c) | was in `games/mpr`, called from play.cpp; now in `nxrt_game_mpr`, installed, set, ticked and removed by `games/mpr/mpr_play.cpp`. The texture edit mechanism it uses (`include/nxrt/tex_edit.h`, `src/gfx/nvn/nvn_tex_edit.cpp`) is the base's (b) |
-| `src/gfx/play/play_fastboot.*`, `play_ui_fastboot.cpp`, `play_tweaks.h`, launcher `page_fastboot.cpp` and `page_tweaks.cpp` (the `[tweaks]` keys, their F1 rows and launcher pages) | (b) | stay in the base: they are the settings file's format and its editors, like `[aim]` and `[camera]`; the keys name Metroid's features (gap below) |
+| `games/mpr/mpr_tint.*` (S45: suit and arm cannon paint, recolouring the game's textures) and its test | (c) | was in `games/mpr`, called from play.cpp; now in `nxrt_game_mpr`, installed, set, ticked and removed by `games/mpr/mpr_play.cpp`. |
 | `src/gfx/play/play_display.cpp` the hooks on the game's resolution, FOV and HUD code | (c) | `games/mpr/display_hooks.cpp`; the display math and the texture filtering settings (`display_tuning`) stay in the base |
 | `src/gfx/play/menu_mouse.cpp` the game's menu hooks | (c) | `games/mpr/menu_mouse_game.cpp`; the pointer state and the math stay in the base (`menu_mouse_math.cpp`) |
 | `src/gfx/extras/tonemap_hook.*` | (c) | `games/mpr/mpr_tonemap.*` |
@@ -150,8 +149,6 @@ These are still Metroid-shaped in the base. None of them blocks a second game fr
   generic names and the game actions have no factory output. What is still fixed in the base: the number and kinds of slots (four-member
   sets A and B, one alternate body, one inspect context), the `[aim]` (lock-on) and `[camera]` sections, and one launcher sentence on the
   Keyboard page that lists Metroid's contexts.
-- `[tweaks]` names Metroid's features. `skip_intro`, `skip_boot_logos`, `fast_menus`, `glow_color` and the per-part glow keys are base
-  settings code (`play_fastboot.h`, `play_tweaks.h`) and launcher pages; a second game would want its own tweak list from `GameDefaults`.
 - Moved code keeps namespace `nxrt::play`. Done to keep the move mechanical; rename to `nxrt::games::mpr` later.
 - Test tooling vocabulary. `tt::GameState` fields (morph, beam, visor, missiles), the hash over them (`tt_core.cpp`) and the item
   names in `tt_script.cpp`.

@@ -99,8 +99,6 @@ struct GamePlay {
     void (*status_text)(char* buf, size_t n) = nullptr;
     // F1 page, Mouse tab: where = 0 after the sensitivity sliders, 1 after the invert boxes, 2 at the end. Returns true when edit changed.
     bool (*mouse_tab)(int where, Settings& edit) = nullptr;
-    // F1 page, Tweaks tab: the game's optional looks ([tweaks], play_tweaks.h). Returns true when edit changed; nullptr = no Tweaks tab.
-    bool (*tweaks_tab)(Settings& edit) = nullptr;
     // F1 page, Graphics tab (kDisplayOptQuality): writes a quality preset's values into d (the ids of quality_presets(), play_types.h; a
     // device preset also writes render_scale and fps_cap). False: unknown name.
     bool (*quality_preset)(const char* name, DisplaySettings& d) = nullptr;

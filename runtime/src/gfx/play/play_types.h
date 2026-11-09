@@ -18,8 +18,6 @@
 #include <vector>
 
 #include "nxrt/extras.h"
-#include "play_fastboot.h"
-#include "play_tweaks.h"
 
 namespace nxrt::play {
 
@@ -287,7 +285,6 @@ struct Settings {
     MouseSettings mouse;
     AimSettings aim;
     CameraSettings camera;
-    TweakSettings tweaks;          // [tweaks] (play_tweaks.h): optional looks, off by default
     PadSettings pad;
     TimingSettings timing;
     DisplaySettings display;
@@ -297,7 +294,8 @@ struct Settings {
     FpsSettings fps;
     QuitSettings quit;
     OverlaySettings overlay;
-    FastbootSettings fastboot;     // [tweaks] skip_intro skip_boot_logos fast_menus menu_speed (play_fastboot.h, S46)
+    std::string language;          // [tweaks] language: a language name (AmericanEnglish, French ...) or "" = auto (the Windows language). Read by the
+                                   // settings service at start-up (services/common.cpp); kept here so a save writes it back. Applies at the next start.
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
     // [meta] defaults_rev: the factory-defaults revision the file was written with (0 when the file has no [meta]). When a file with
@@ -394,8 +392,7 @@ const char* key_alt_sens();
 //   [picture]  contrast (0.5..1.5) saturation (0..2) black (-0.5..0.25) gamma (0.5..2), neutral 1 1 0 1; preset (neutral vivid) is read, not written
 //   [audio]    volume (0..1) mute_unfocused (1/0) device (default or part of an output device's name)
 //   [prompts]  style = switch|xbox|playstation|keyboard|auto   (which button icons the game's prompts show; auto, the default, follows the last used input device)
-//   [tweaks]   skip_intro skip_boot_logos fast_menus (1/0) menu_speed (1..4)   (play_fastboot.h)
-//              glow_color (off | R,G,B) suit_glow ball_glow gun_glow (auto | off | R,G,B)   (play_tweaks.h)
+//   [tweaks]   language (auto or a language name such as French; next start)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
 //   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
 //   [overlay]  pad (pad buttons held together; none = off, the default; not the [quit] pad)   (open and close the F1 menu)

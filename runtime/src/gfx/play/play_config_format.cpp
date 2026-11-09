@@ -35,8 +35,7 @@ std::string format_settings(const Settings& s) {
     o += "\n[camera]\n";
     kv("gun_drives_view", flag(s.camera.gun_drives_view));
     o += "\n[tweaks]\n";
-    fastboot_format(s.fastboot, &o);
-    o += format_tweaks(s.tweaks);
+    kv("language", s.language.empty() ? "auto" : s.language);
 
     o += "\n[pad]\n";
     kv("label_abxy", flag(s.pad.label_abxy));
