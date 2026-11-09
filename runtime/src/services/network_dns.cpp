@@ -1,0 +1,293 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// nsd, sfdnsres, ntc, ngct, ngc and notif: name resolution, network clock and text filter services, offline. See network.cpp.
+#include "network_internal.h"
+
+#include <atomic>
+#include <cstring>
+#include <functional>
+#include <initializer_list>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "nxrt/config.h"
+#include "nxrt/kernel.h"
+#include "nxrt/log.h"
+#include "../net/vnet.h"
+#include "../net/vsock.h"
+#include "coop.h"
+#include "ldn.h"
+#include "services_internal.h"
+
+namespace nxrt::services::netsvc {
+
+namespace {
+
+// =============================================================================================================================================
+// nsd: nsd:u, nsd:a (IManager). The environment is the retail one (lp1); Resolve returns the name as it was given.
+// =============================================================================================================================================
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_nsd() {
+    return make_iface("nn::nsd::detail::IManager", [](ipc::Service& s) {
+        cmd(s, "nsd", 11, "GetEnvironmentIdentifier", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+            static const uint8_t kEnv[8] = {'l', 'p', '1', 0, 0, 0, 0, 0};
+            buf_write(req.out_buf(0), kEnv, sizeof kEnv);
+            return 0;
+        });
+        rows(s, "nsd", {
+            {15, "SetChangeEnvironmentIdentifierDisabled", K::Ok},
+            {100, "GetApplicationServerEnvironmentType", K::U8, 0},
+        });
+        // Resolve(fqdn_in) -> fqdn_out is the same bytes; ResolveEx answers the same with inner_result 0.
+        auto copy_name = [](ipc::Request& req) {
+            const ipc::Buffer in = req.in_buf(0);
+            const ipc::Buffer out = req.out_buf(0);
+            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
+            const uint64_t n = buf_read(in, tmp.data(), in.size);
+            buf_write(out, tmp.data(), n);
+        };
+        cmd(s, "nsd", 20, "Resolve", [copy_name](ipc::Request& req, ipc::Response&) -> uint32_t {
+            copy_name(req);
+            return 0;
+        });
+        cmd(s, "nsd", 21, "ResolveEx", [copy_name](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            copy_name(req);
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+    });
+}
+
+namespace {
+
+// =============================================================================================================================================
+// sfdnsres: sfdnsres (IResolver). Every lookup fails: host not found (netdb 1, EAI_NONAME). Error text commands answer the glibc strings.
+// =============================================================================================================================================
+
+std::string netdb_text(int32_t e) {
+    switch (e) {
+        case 1: return "Unknown host";
+        case 2: return "Temporary failure in name resolution";
+        case 3: return "Non-recoverable failure in name resolution";
+        case 4: return "No address associated with name";
+        default: return "Unknown error";
+    }
+}
+
+std::string gai_text(int32_t e) {
+    switch (e) {
+        case -1: return "Invalid value for ai_flags";
+        case -2: return "Name or service not known";
+        case -3: return "Temporary failure in name resolution";
+        case -4: return "Non-recoverable failure in name resolution";
+        case -5: return "No address associated with hostname";
+        case -6: return "ai_family not supported";
+        case -7: return "ai_socktype not supported";
+        case -8: return "Servicename not supported for ai_socktype";
+        case -9: return "Address family for hostname not supported";
+        case -10: return "Memory allocation failure";
+        case -11: return "System error";
+        default: return "Unknown error";
+    }
+}
+
+void write_text(const ipc::Buffer& out, const std::string& text) {
+    std::vector<uint8_t> z(text.size() + 1, 0);
+    std::memcpy(z.data(), text.data(), text.size());
+    buf_write(out, z.data(), z.size());
+}
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_resolver() {
+    return make_iface("nn::socket::resolver::IResolver", [](ipc::Service& s) {
+        // GetHostByNameRequest / GetHostByAddrRequest: (netdb_error, bsd_errno, size)
+        cmd(s, "sfdnsres", 2, "GetHostByNameRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(static_cast<uint32_t>(kNetdbHostNotFound));
+            rsp.push(static_cast<uint32_t>(kBsdNetDown));
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+        cmd(s, "sfdnsres", 3, "GetHostByAddrRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(static_cast<uint32_t>(kNetdbHostNotFound));
+            rsp.push(static_cast<uint32_t>(kBsdNetDown));
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+        cmd(s, "sfdnsres", 4, "GetHostStringErrorRequest", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+            int32_t e = req.arg<int32_t>(0);
+            write_text(req.out_buf(0), netdb_text(e));
+            return 0;
+        });
+        cmd(s, "sfdnsres", 5, "GetGaiStringErrorRequest", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+            int32_t e = req.arg<int32_t>(0);
+            write_text(req.out_buf(0), gai_text(e));
+            return 0;
+        });
+        // GetAddrInfoRequest: (bsd_errno, gai_error, size)
+        cmd(s, "sfdnsres", 6, "GetAddrInfoRequest", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
+            rsp.push(static_cast<uint32_t>(0));
+            rsp.push(static_cast<int32_t>(kEaiNoName));
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+        cmd(s, "sfdnsres", 8, "GetCancelHandleRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(alloc_cancel_handle());
+            return 0;
+        });
+        rows(s, "sfdnsres", {
+            {9, "CancelRequest", K::Ok},
+        });
+        // GetHostByNameRequestWithOptions / GetHostByAddrRequestWithOptions: (size, netdb_error, bsd_errno)
+        cmd(s, "sfdnsres", 10, "GetHostByNameRequestWithOptions", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(static_cast<uint32_t>(0));
+            rsp.push(static_cast<uint32_t>(kNetdbHostNotFound));
+            rsp.push(static_cast<uint32_t>(kBsdNetDown));
+            return 0;
+        });
+        cmd(s, "sfdnsres", 11, "GetHostByAddrRequestWithOptions", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(static_cast<uint32_t>(0));
+            rsp.push(static_cast<uint32_t>(kNetdbHostNotFound));
+            rsp.push(static_cast<uint32_t>(kBsdNetDown));
+            return 0;
+        });
+        // GetAddrInfoRequestWithOptions: (size, gai_error, netdb_error, bsd_errno)
+        cmd(s, "sfdnsres", 12, "GetAddrInfoRequestWithOptions", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            ask_dns(req);
+            rsp.push(static_cast<uint32_t>(0));
+            rsp.push(static_cast<int32_t>(kEaiNoName));
+            rsp.push(static_cast<uint32_t>(0));
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+        // ResolverSetOptionRequest: (i32 ret, u32 bsd_errno), accepted
+        cmd(s, "sfdnsres", 14, "ResolverSetOptionRequest", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push(static_cast<int32_t>(0));
+            rsp.push(static_cast<uint32_t>(0));
+            return 0;
+        });
+    });
+}
+
+namespace {
+
+// =============================================================================================================================================
+// ntc: ntc (IStaticService) and IEnsureNetworkClockAvailabilityService. The network clock task fails at once with "network not available"
+// (time 1000), or succeeds at once with [net] online_test = on; Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
+// =============================================================================================================================================
+
+struct NtcTask {
+    ServiceEvent finish;
+    uint32_t result = 0;
+};
+
+std::shared_ptr<ipc::Service> make_ntc_task() {
+    auto t = std::make_shared<NtcTask>();
+    return make_iface("nn::ntc::detail::IEnsureNetworkClockAvailabilityService", [t](ipc::Service& s) {
+        cmd(s, "ntc", 0, "StartTask", [t](ipc::Request&, ipc::Response&) -> uint32_t {
+            t->result = online_test() ? 0 : kTimeNetworkNotAvailable;
+            t->finish.signal();
+            return t->result;
+        });
+        cmd(s, "ntc", 1, "GetFinishNotificationEvent", [t](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.out_copy.push_back(t->finish.new_handle());
+            return 0;
+        });
+        cmd(s, "ntc", 2, "GetResult", [t](ipc::Request&, ipc::Response&) -> uint32_t { return t->result; });
+        cmd(s, "ntc", 3, "Cancel", [t](ipc::Request&, ipc::Response&) -> uint32_t {
+            t->result = kTimeTaskCanceled;
+            t->finish.signal();
+            return 0;
+        });
+    });
+}
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_ntc_static() {
+    return make_iface("nn::ntc::detail::IStaticService", [](ipc::Service& s) {
+        cmd(s, "ntc", 0, "CreateEnsureNetworkClockAvailabilityService", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            rsp.push_object(make_ntc_task());
+            return 0;
+        });
+    });
+}
+
+namespace {
+
+// =============================================================================================================================================
+// ngct: ngct:u (IService). No word list: Match finds nothing, Filter returns the text as it was sent.
+// =============================================================================================================================================
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_ngct() {
+    return make_iface("nn::ngct::detail::IService", [](ipc::Service& s) {
+        rows(s, "ngct", {
+            {0, "Match", K::U8, 0},               // b8 matched: false
+        });
+        cmd(s, "ngct", 1, "Filter", [](ipc::Request& req, ipc::Response&) -> uint32_t {
+            const ipc::Buffer in = req.in_buf(0);
+            const ipc::Buffer out = req.out_buf(0);
+            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
+            const uint64_t n = buf_read(in, tmp.data(), in.size);
+            buf_write(out, tmp.data(), n);
+            return 0;
+        });
+    });
+}
+
+namespace {
+
+// =============================================================================================================================================
+// ngc: ngc:u (nn::ngc::detail::IService), the profanity filter behind nn::ngc::ProfanityFilter. No word list: Check finds nothing and
+// Mask returns the text as it was sent, with no word masked. Pokopia's name check (the keyboard's text check) calls Mask (cmd 2, text in
+// buffer A, masked text in buffer B) and refuses the name when the call fails: with the generic stub's error every name was "a word or
+// character that isn't allowed" and the keyboard reopened forever (fork issue #6).
+// =============================================================================================================================================
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_ngc() {
+    return make_iface("nn::ngc::detail::IService", [](ipc::Service& s) {
+        rows(s, "ngc", {
+            {0, "GetContentVersion", K::U32, 1},
+            {1, "Check", K::U32, 0},              // u32 mask of the checks that matched: none
+            {3, "Reload", K::Ok},
+        });
+        cmd(s, "ngc", 2, "Mask", [](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            const ipc::Buffer in = req.in_buf(0);
+            const ipc::Buffer out = req.out_buf(0);
+            std::vector<uint8_t> tmp(static_cast<size_t>(in.size));
+            const uint64_t n = buf_read(in, tmp.data(), in.size);
+            buf_write(out, tmp.data(), n);
+            rsp.push(static_cast<uint32_t>(0));   // words masked
+            return 0;
+        });
+    });
+}
+
+namespace {
+
+// =============================================================================================================================================
+// notif: notif:a (INotificationServicesForApplication). No alarms; Initialize accepted.
+// =============================================================================================================================================
+
+}  // namespace
+
+std::shared_ptr<ipc::Service> make_notif() {
+    return make_iface("nn::notification::INotificationServicesForApplication", [](ipc::Service& s) {
+        rows(s, "notif", {
+            {520, "ListAlarmSettings", K::S32, 0},
+            {1000, "Initialize", K::Ok},
+        });
+    });
+}
+
+}  // namespace nxrt::services::netsvc
