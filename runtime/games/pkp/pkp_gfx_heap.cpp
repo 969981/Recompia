@@ -22,6 +22,7 @@
 // size used before (larger sizes now need more: untested). At 1920x1080 and below nothing is hooked. Pools stay under 4 GiB (the suballocator may keep 32-bit offsets): a
 // render size whose start-up RT use plus 1 GiB would not fit is clamped to the largest that fits.
 #include "pkp_gfx_heap.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <atomic>
@@ -81,8 +82,8 @@ Heap& heap() {
     return h;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
 
 int hook_pass_config(::Ctx* c, uint64_t, void*) {
     Heap& hp = heap();

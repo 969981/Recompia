@@ -14,6 +14,7 @@
 // Long lists and decimals are sliders whose numeric text is replaced by the row's own (hook after 0x710100f0a0's text call).
 // Hooks are the sites listed in recomp/games/pkp/main.sites.
 #include "pkp_options.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <cmath>
@@ -344,22 +345,9 @@ struct State {
     uint8_t* rec[kSlots] = {};
 } g;
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
-
-uint64_t call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0, uint64_t sp = 0) {
-    const ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    c->x[2] = a2;
-    c->x[3] = a3;
-    c->x[4] = a4;
-    if (sp) c->x[31] = sp;
-    dispatch_call(c, fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
+using guest::rd;
+using guest::wr;
+using guest::call;
 
 // The string is copied below the guest stack pointer: the game reads it as guest memory.
 void set_text(::Ctx* c, uint64_t widget, uint32_t slot, const char* s) {

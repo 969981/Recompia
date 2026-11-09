@@ -24,6 +24,7 @@
 //    Other characters and Link Play visitors (moved by the network) keep the game's motion.
 // The factor is applied from the second air frame on (the first one measures the game's air step); it does not depend on the frame rate.
 #include "pkp_jump.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +48,7 @@ constexpr uint64_t kAirborne = 0x8;              // body flags: set from the tak
 constexpr int kHistory = 8;                      // ground frames averaged for the take-off speed
 constexpr float kMaxScale = 2.0f;
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
+using guest::rd;
 
 struct State {
     uint64_t base = 0;

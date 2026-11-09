@@ -43,6 +43,7 @@
 //  * Link Play: online the bag is m_useItemInventoryOnline and container moves go through the game's network requests
 //    (0x7100e6e4fc), so nothing is sorted and no button is shown while 0x71000376c4 (online) is true.
 #include "pkp_sort.h"
+#include "pkp_guest.h"
 #include "pkp_menu.h"
 
 #include <algorithm>
@@ -98,8 +99,9 @@ constexpr uint64_t kWidgetEntries = 0xb0, kWidgetCount = 0xb8, kEntrySize = 0x36
 constexpr uint16_t kSortGuide = 92;              // key guide "Sort" (action 0xbc)
 constexpr uint16_t kHoldToSortGuide = 126;       // key guide "Hold to Sort" (X held)
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
+using guest::call;
 
 struct State {
     uint64_t base = 0;
@@ -121,36 +123,12 @@ struct State {
 };
 State g;
 
-uint64_t call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0, uint64_t sp = 0) {
-    const ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    c->x[2] = a2;
-    c->x[3] = a3;
-    c->x[4] = a4;
-    if (sp) c->x[31] = sp;
-    dispatch_call(c, g.base + fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
-uint64_t call_ptr(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0) {
-    const ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    dispatch_call(c, fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
 
 // A row of one of the data-table manager's tables, as the game looks it up (table->vtable[0x38](0)->vtable[0x30](id)); 0 if none.
 uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) {
     const uint64_t mgr = rd<uint64_t>(g.base + kTables);
     if (!mgr || !mem::is_mapped(mgr + kTableCount, 4)) return 0;
-    const uint64_t t = rd<uint64_t>(mgr + table_off + 0x10);
-    const uint64_t rows = t ? call_ptr(c, rd<uint64_t>(rd<uint64_t>(t) + 0x38), t, 0) : 0;
-    return rows ? call_ptr(c, rd<uint64_t>(rd<uint64_t>(rows) + 0x30), rows, id) : 0;
+    return guest::table_lookup<2>(c, rd<uint64_t>(mgr + table_off + 0x10), id);
 }
 
 // The item table's kind byte (record +0x3a), 0xff when the table cannot be read. Looked up once per id.
@@ -209,7 +187,7 @@ bool sort_slots(::Ctx* c, uint64_t arr, uint32_t n, bool bag) {
     // Merge: a stack whose 8 bytes equal an earlier stack's but for the count tops the earlier ones up to the max stack (slot order);
     // what is left stays a stack of its own, an emptied slot joins the empty ones.
     std::vector<uint32_t> merged_into(n, ~0u);   // an emptied slot -> the slot its last items went to
-    const uint32_t max = std::min<uint32_t>(static_cast<uint32_t>(call(c, kMaxStack, 0) & 0xffff), 0xff);
+    const uint32_t max = std::min<uint32_t>(static_cast<uint32_t>(call(c, g.base + kMaxStack, 0) & 0xffff), 0xff);
     if (max > 1) {
         std::vector<Slot> kept;
         kept.reserve(items.size());
@@ -261,19 +239,19 @@ void sort_screen(::Ctx* c, uint64_t screen, uint8_t player, uint8_t kind) {
     if (kind == 4 || kind == 9) return;   // the bag's sub-area and the special kind 9 are left alone
     const uint8_t type = rd<uint8_t>(screen + kType);
     const uint16_t id = rd<uint16_t>(screen + kId);
-    uint64_t arr = call(c, kInventory, player, kind, type, id, 0);
+    uint64_t arr = call(c, g.base + kInventory, player, kind, type, id, 0);
     uint32_t n = kBagSlots;
     if (kind != 0) {   // containers: the call returns the whole store; the container is count slots from its first one
         const uint64_t buf = (c->x[31] - 0x80) & ~uint64_t{0xf};
         std::memset(reinterpret_cast<void*>(buf), 0, 16);
-        if (!(call(c, kContainerSlots, type, id, buf, buf + 4, 0, buf - 0x40) & 1)) return;
+        if (!(call(c, g.base + kContainerSlots, type, id, buf, buf + 4, 0, buf - 0x40) & 1)) return;
         const uint32_t first = rd<uint32_t>(buf);
         n = rd<uint32_t>(buf + 4);
         if (!arr || first + uint64_t{n} > kStoreSlots) return;
         arr += uint64_t{first} * 16;
         if (g.log_lists) NXLOG_I(kTag, "inventory sort: container type %u id %u, store slots %u..%u", type, id, first, first + n);
     }
-    if (sort_slots(c, arr, n, kind == 0)) call(c, kRefresh, screen);
+    if (sort_slots(c, arr, n, kind == 0)) call(c, g.base + kRefresh, screen);
 }
 
 // The button of an action (input manager table), -1 if unknown.
@@ -336,12 +314,12 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     const bool clicked = g.click.exchange(false);
     const bool pressed = (buttons && !g.prev_buttons) || clicked;
     g.prev_buttons = buttons;
-    const bool online = call(c, kOnline, 0) & 1;
+    const bool online = call(c, g.base + kOnline, 0) & 1;
     g.online = online;
     if (!pressed && !g.auto_pending) return 0;
 
     const uint8_t state = rd<uint8_t>(screen + kState);
-    const uint8_t player = static_cast<uint8_t>(call(c, kPlayerOf, screen + kPlayerHelper));
+    const uint8_t player = static_cast<uint8_t>(call(c, g.base + kPlayerOf, screen + kPlayerHelper));
     if (pressed && g.log_lists)
         NXLOG_I(kTag, "inventory sort: %s, state %u, player %u, temp %u, online %u, cursor kind %u", clicked ? "click" : "button", state, player,
                 player < 2 ? rd<uint8_t>(g.base + kTempFlag + player) : 0xff, online, rd<uint8_t>(screen + kCursorKind));
@@ -426,10 +404,10 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     for (int i = 0; i < static_cast<int>(std::size(kSortButtons)) && pick == kNoButton; ++i)
         if (button_of(kSortButtons[i].act) == kSortButtons[i].button && !used[kSortButtons[i].button]) pick = i;
     g.shown = pick;
-    if (pick != kNoButton) call(c, kSetIcon, part + 0x30, 3, kSortButtons[pick].act, 0, 0, sp);
+    if (pick != kNoButton) call(c, g.base + kSetIcon, part + 0x30, 3, kSortButtons[pick].act, 0, 0, sp);
     if (g.log_lists) NXLOG_I(kTag, "inventory sort: Sort prompt button %s", pick == kNoButton ? "none (click only)" : kSortButtons[pick].name);
     const uint64_t src = rd<uint64_t>(part + 0x38);
-    const uint64_t lay = src ? call(c, kLayoutOf, src, 0, 0, 0, 0, sp) : 0;
+    const uint64_t lay = src ? call(c, g.base + kLayoutOf, src, 0, 0, 0, 0, sp) : 0;
     menu_set_sort_guide(lay);
     if (g.log_lists && lay != g.logged_layout) {
         g.logged_layout = lay;

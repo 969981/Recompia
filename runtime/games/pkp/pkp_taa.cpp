@@ -35,6 +35,7 @@
 // [pkp] game_taa = 1 (default 0: not proven) writes enable = 1 and, when the pattern count is below 2, 8 into the parameter block before the
 // game reads it; 2 also sets the TemporalAA3 pass switch at each of its render calls (only meaningful when the probe shows the pass exists).
 #include "pkp_taa.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <atomic>
@@ -79,8 +80,8 @@ State& st() {
     return s;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
 
 // Writes enable = 1 and a usable pattern count into a parameter block when [pkp] game_taa is on.
 void force_on(uint64_t blk) {

@@ -16,6 +16,7 @@
 // The hover and the selection still feed the log, the status line, the wheel over a slider and the in-game menu detection;
 // [pkp] menu_log = 2 lists the panes of the layouts on screen.
 #include "pkp_menu.h"
+#include "pkp_guest.h"
 #include "pkp_craft.h"
 #include "pkp_play.h"
 #include "pkp_sort.h"
@@ -138,7 +139,7 @@ State& st() {
     return s;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
+using guest::rd;
 
 // The range lies in guest memory that can be read (cached per 4 KiB page for one scan).
 bool ok(uint64_t a, uint64_t n) {

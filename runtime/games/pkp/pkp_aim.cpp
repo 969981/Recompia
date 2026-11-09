@@ -45,6 +45,7 @@
 // which needs Joy-Con 2 sensor data the PC does not have. So in mouse mode the swing heading hooks and the action start turn the shape and
 // the character toward that block instead (mouse_yaw). Those three hooks are installed with camera aim off too.
 #include "pkp_aim.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <cmath>
@@ -94,8 +95,8 @@ constexpr uint64_t kQueryRowReturn = 0x2e1d78;   // the row helper's return into
 constexpr uint64_t kInteractReturn = 0x2f73a8;   // the target query's return into the nearby-object interaction 0x2f7340
 constexpr uint64_t kReachLogs = 8;               // reach column moves logged (on change)
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
 
 struct State {
     uint64_t base = 0;

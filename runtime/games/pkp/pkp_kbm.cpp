@@ -30,6 +30,7 @@
 // drawn over with whatever A shows in the current prompt style (the Enter key's icon in keyboard style, the pad's button icon in a pad
 // style; nxrt/tex_patch.h texture_patch_bc7_matching), in the art's style: a white key with its symbol cut out and the art's soft dark shadow.
 #include "pkp_kbm.h"
+#include "pkp_guest.h"
 
 #include <windows.h>
 
@@ -136,21 +137,8 @@ State& st() {
     return s;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-
-uint64_t call_guest(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0, uint64_t sp = 0) {
-    ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    c->x[2] = a2;
-    c->x[3] = a3;
-    c->x[4] = a4;
-    if (sp) c->x[31] = sp;
-    dispatch_call(c, st().base + fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
+using guest::rd;
+using guest::call;
 
 // ---- what each glyph should show ----
 std::string label_of(const play::InputId& in) {
@@ -484,10 +472,10 @@ bool resolve_code(::Ctx* c, State& s, uint32_t code, uint32_t action) {
     if (code >= static_cast<uint32_t>(kMaxCode)) return true;
     const uint64_t scratch = (c->x[31] - 0x400) & ~0xfull, sp = scratch - 0x100;
     std::memset(reinterpret_cast<void*>(scratch), 0, 16);
-    call_guest(c, kTagIcon, 0x30, action, scratch, scratch + 4, scratch + 6, sp);
+    call(c, s.base + kTagIcon, 0x30, action, scratch, scratch + 4, scratch + 6, sp);
     const uint32_t sprite = rd<uint32_t>(scratch);
-    const uint64_t sheet = call_guest(c, kSheet, scratch + 4, 0, 0, 0, 0, sp);
-    const uint64_t rec = sheet ? call_guest(c, kSheetSprite, sheet, sprite, 0, 0, 0, sp) : 0;
+    const uint64_t sheet = call(c, s.base + kSheet, scratch + 4, 0, 0, 0, 0, sp);
+    const uint64_t rec = sheet ? call(c, s.base + kSheetSprite, sheet, sprite, 0, 0, 0, sp) : 0;
     if (!rec || !mem::is_mapped(rec, 88)) return false;
     s.code_slot[code] = -1;
     char name[65] = {};
@@ -647,7 +635,7 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
     if (action == 0 || action > 0x1ff || action == 255) return 0;
     const uint64_t mgr = rd<uint64_t>(s.base + kInputMgr);
     if (!mgr) return 0;
-    const uint32_t code = static_cast<uint32_t>(call_guest(c, kActionButton, mgr, action, 1, 0)) & 0xff;
+    const uint32_t code = static_cast<uint32_t>(call(c, s.base + kActionButton, mgr, action, 1, 0)) & 0xff;
     std::string label;
     bool icon = false;
     {
@@ -665,7 +653,7 @@ int hook_tag(::Ctx* c, uint64_t, void*) {
     // the key's name in the game's font: the layout's add-character call, then the handler call does nothing
     const uint64_t layout = c->x[0];
     const uint64_t add_char = rd<uint64_t>(rd<uint64_t>(layout) + 16);
-    for (char ch : "[" + label + "]") call_guest(c, add_char - s.base, layout, static_cast<uint8_t>(ch), 0xffffffffull);
+    for (char ch : "[" + label + "]") call(c, add_char, layout, static_cast<uint8_t>(ch), 0xffffffffull);
     c->x[8] = s.base + kEmpty;
     s.texts.fetch_add(1, std::memory_order_relaxed);
     return 0;

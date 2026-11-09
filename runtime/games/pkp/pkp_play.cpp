@@ -60,6 +60,7 @@
 // the branch last ran: counts read while the branch is closed are applied when it opens again within that time (the view ends where the
 // hand moved it) and dropped after it (a scripted camera does not jump when control comes back).
 #include "pkp_play.h"
+#include "pkp_guest.h"
 #include "pkp_gfx_heap.h"
 #include "pkp_kbm.h"
 #include "pkp_movie_test.h"
@@ -177,8 +178,8 @@ State& st() {
     return s;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
 
 // ---- render resolution ----
 uint32_t level_size(int level, bool width) {

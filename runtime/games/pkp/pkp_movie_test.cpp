@@ -12,6 +12,7 @@
 // takes the next decoded frame from the player's video output queue the way 0x7101fd7a60 does (GetOutputBuffer into the output's NV12
 // buffer, release) but does not upload or draw it: the game's draw path needs its render context.
 #include "pkp_movie_test.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <chrono>
@@ -60,17 +61,9 @@ constexpr uint64_t kPlayerState = 3552, kPlayerVideoOut = 1184;
 // video output (the object 0x7101fd7a60 works on)
 constexpr uint64_t kVoDecoder = 8, kVoMode = 16, kVoCount = 40, kVoQueue = 56, kVoMutex = 72, kVoCap = 104, kVoBuf = 112, kVoW = 120, kVoH = 124;
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
-
-uint64_t call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0) {
-    ::Ctx saved = *c;
-    c->x[0] = a0; c->x[1] = a1; c->x[2] = a2; c->x[3] = a3; c->x[4] = a4;
-    dispatch_call(c, fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
+using guest::rd;
+using guest::wr;
+using guest::call;
 
 void noop(::Ctx* c) { c->x[0] = 0; }
 

@@ -18,6 +18,7 @@
 // (the keyboard's Escape by default) opens the runtime's "Close the game?" prompt. A click on the prompt sends (+) too (pkp_menu.cpp,
 // menu_set_quit_guide).
 #include "pkp_title.h"
+#include "pkp_guest.h"
 
 #include <cstring>
 
@@ -58,32 +59,15 @@ struct State {
     uint64_t prev_buttons = 0;
 } g;
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
-bool ok(uint64_t a, uint64_t n) { return a >= 0x1000000000ull && mem::is_mapped(a, n); }
-
-uint64_t call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t sp = 0) {
-    const ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    c->x[2] = a2;
-    c->x[3] = a3;
-    if (sp) c->x[31] = sp;
-    dispatch_call(c, fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
+using guest::rd;
+using guest::wr;
+using guest::ok;
 
 // A row of one of the manager's data tables, as the game looks it up (table->vtable[0x38](0)->vtable[0x30](id)); 0 if none.
 uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) {
     const uint64_t mgr = rd<uint64_t>(g.base + kTables);
     if (!mgr || !ok(mgr + kTableVersion, 4) || rd<uint32_t>(mgr + kTableVersion) <= 0x20a) return 0;
-    const uint64_t t = rd<uint64_t>(mgr + table_off + 0x10);
-    if (!t) return 0;
-    const uint64_t sub = call(c, rd<uint64_t>(rd<uint64_t>(t) + 0x38), t, 0);
-    if (!sub) return 0;
-    return call(c, rd<uint64_t>(rd<uint64_t>(sub) + 0x30), sub, id);
+    return guest::table_lookup<4>(c, rd<uint64_t>(mgr + table_off + 0x10), id);
 }
 
 int hook_fill_set(::Ctx* c, uint64_t, void*) {
@@ -127,10 +111,10 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     const size_t n = std::strlen(s);
     const uint64_t buf = (c->x[31] - (n + 0x40)) & ~uint64_t{0xf};     // below the guest stack pointer: the game reads it as guest memory
     std::memcpy(reinterpret_cast<void*>(buf), s, n + 1);
-    call(c, g.base + kTextString, part, slot, kStringText, buf, buf - 0x10);
+    guest::call_n<4>(c, g.base + kTextString, {part, slot, kStringText, buf}, buf - 0x10);
     // the part's layout, for the menu pointer: a click on it is (+)
     const uint64_t src = rd<uint64_t>(part + 0x38);
-    const uint64_t lay = src ? call(c, g.base + kLayoutOf, src, 0, 0, 0, buf - 0x10) : 0;
+    const uint64_t lay = src ? guest::call_n<4>(c, g.base + kLayoutOf, {src}, buf - 0x10) : 0;
     menu_set_quit_guide(lay);
     NXLOG_I(kTag, "title quit: prompt text set (part 0x%llx, slot %u, language %u, layout 0x%llx)", static_cast<unsigned long long>(part), slot, lang,
             static_cast<unsigned long long>(lay));

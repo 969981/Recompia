@@ -24,6 +24,7 @@
 // fog, values above 1 raise only the layers whose amount is below 1 (the shader clamps it). No guest hook: the CPU writer of the block was not
 // found (the env parameter table 0x71009d3010 has HeightFogLayer0/1 Start, End and Color at +0x8d8..+0x908, but no 3-layer writer was traced).
 #include "pkp_quality.h"
+#include "pkp_guest.h"
 
 #include <algorithm>
 #include <atomic>
@@ -100,8 +101,8 @@ State& st() {
     return s;
 }
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
+using guest::rd;
+using guest::wr;
 
 void probe(uint64_t cam, float game_far) {
     char line[512];

@@ -36,6 +36,7 @@
 //    free in this screen (A Confirm, B Close, X Sort, (+) Favorite, (-) Details, L / R tabs).
 //  * Link Play (0x71000376c4 true): the list is local UI, but the key guide is left as the game has it and nothing is filtered.
 #include "pkp_craft.h"
+#include "pkp_guest.h"
 #include "pkp_menu.h"
 
 #include <algorithm>
@@ -96,9 +97,10 @@ constexpr const char* kSearchWord[9] = {"検索", "Search", "Rechercher", "Cerca
 constexpr const char* kGuideWord[9] = {"アイテムの名前", "Item name", "Nom de l'objet", "Nome dello strumento", "Item-Name", "Nombre del objeto",
                                        "道具名稱", "도구 이름", "道具名称"};
 
-template <class T> T rd(uint64_t a) { T v; std::memcpy(&v, reinterpret_cast<const void*>(a), sizeof(T)); return v; }
-template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*>(a), &v, sizeof(T)); }
-bool ok(uint64_t a, uint64_t n) { return a >= 0x1000000000ull && mem::is_mapped(a, n); }
+using guest::rd;
+using guest::wr;
+using guest::ok;
+using guest::call;
 
 struct State {
     uint64_t base = 0;
@@ -122,23 +124,6 @@ struct State {
 };
 State g;
 
-uint64_t call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0, uint64_t sp = 0) {
-    const ::Ctx saved = *c;
-    c->x[0] = a0;
-    c->x[1] = a1;
-    c->x[2] = a2;
-    c->x[3] = a3;
-    c->x[4] = a4;
-    if (sp) c->x[31] = sp;
-    dispatch_call(c, fn);
-    const uint64_t r = c->x[0];
-    *c = saved;
-    return r;
-}
-uint64_t call_main(::Ctx* c, uint64_t off, uint64_t a0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0, uint64_t sp = 0) {
-    return call(c, g.base + off, a0, a1, a2, a3, a4, sp);
-}
-
 uint32_t language() {
     const uint64_t p = rd<uint64_t>(g.base + kLanguage);
     const uint32_t l = p && ok(p, 4) ? rd<uint32_t>(p) : 1;
@@ -150,18 +135,13 @@ uint64_t table_rec(::Ctx* c, uint64_t off, uint32_t min_tables, uint32_t id) {
     const uint64_t mgr = rd<uint64_t>(g.base + kTables);
     if (!mgr || !ok(mgr + kTableCount, 4)) return 0;
     if (rd<uint32_t>(mgr + kTableCount) < min_tables) off = 0;
-    const uint64_t t = rd<uint64_t>(mgr + 0x10 + off);
-    if (!t) return 0;
-    const uint64_t rows = call(c, rd<uint64_t>(rd<uint64_t>(t) + 0x38), t, 0);
-    const uint64_t row = rows ? call(c, rd<uint64_t>(rd<uint64_t>(rows) + 0x30), rows, id) : 0;
+    const uint64_t row = guest::table_lookup<5>(c, rd<uint64_t>(mgr + 0x10 + off), id);
     return row && ok(row + 8, 8) ? rd<uint64_t>(row + 8) : 0;
 }
 uint64_t table_row(::Ctx* c, uint64_t off, uint32_t id) {
     const uint64_t mgr = rd<uint64_t>(g.base + kTables);
     if (!mgr || !ok(mgr + kTableCount, 4)) return 0;
-    const uint64_t t = rd<uint64_t>(mgr + 0x10 + off);
-    const uint64_t rows = t ? call(c, rd<uint64_t>(rd<uint64_t>(t) + 0x38), t, 0) : 0;
-    return rows ? call(c, rd<uint64_t>(rd<uint64_t>(rows) + 0x30), rows, id) : 0;
+    return guest::table_lookup<5>(c, rd<uint64_t>(mgr + 0x10 + off), id);
 }
 
 // Case folding for the match: ASCII, Latin-1 and fullwidth Latin capitals to small; markup tags (<...>) dropped. Works on whole UTF-8 sequences,
@@ -214,7 +194,7 @@ const std::string& recipe_name(::Ctx* c, uint16_t rid) {
     const uint64_t irec = item ? table_rec(c, kItemTable, 200, item) : 0;
     const uint16_t nid = irec && ok(irec + 0x22, 2) ? rd<uint16_t>(irec + 0x22) : 0;
     if (nid && nid <= 3000) {
-        const uint64_t p = call_main(c, kNameOf, nid, 0);
+        const uint64_t p = call(c, g.base + kNameOf, nid, 0);
         for (uint64_t a = p; p && name.size() < 200 && ok(a, 1); ++a) {
             const char ch = rd<char>(a);
             if (!ch) break;
@@ -227,7 +207,7 @@ const std::string& recipe_name(::Ctx* c, uint16_t rid) {
 uint64_t child(::Ctx* c, uint64_t screen, uint32_t elem, uint16_t want) {
     const uint64_t sp = (c->x[31] - 0x200) & ~uint64_t{0xf};
     wr<uint16_t>(sp + 0x100, 0);
-    const uint64_t o = call_main(c, kChildOf, screen + kChildren, elem, sp + 0x100, 0, 0, sp);
+    const uint64_t o = call(c, g.base + kChildOf, screen + kChildren, elem, sp + 0x100, 0, 0, sp);
     return o && rd<uint16_t>(sp + 0x100) == want ? o : 0;
 }
 
@@ -237,7 +217,7 @@ uint64_t galloc(::Ctx* c, uint64_t size) {
     const uint64_t sp = (c->x[31] - 0x200) & ~uint64_t{0xf};
     wr<uint32_t>(sp + 0x100, 0x35);
     wr<uint64_t>(sp + 0x108, 0);
-    return call_main(c, kAlloc, rd<uint64_t>(a), 3, size, 0x10, sp + 0x100, sp);
+    return call(c, g.base + kAlloc, rd<uint64_t>(a), 3, size, 0x10, sp + 0x100, sp);
 }
 
 // The screen shows its browsing key guide (set 26 with the Search entry) now: the widget that took set 26 has taken no other set since (the
@@ -285,14 +265,14 @@ int grid_cursor(::Ctx* c, uint64_t screen) {
 void refill(::Ctx* c, uint64_t screen) {
     const uint64_t grid = child(c, screen, kGridElem, kGridClass);
     if (!grid || !g.have_fill) return;
-    call_main(c, kGridFill, grid, g.list, g.tab, 0, 0);
-    call_main(c, kGridShow, grid);
+    call(c, g.base + kGridFill, grid, g.list, g.tab, 0, 0);
+    call(c, g.base + kGridShow, grid);
     const uint64_t model = grid_model(grid);
     const uint64_t v = model ? rd<uint64_t>(model + 8) : 0;
     const uint64_t n = v ? rd<uint64_t>(v + 8) : 0;
     const uint16_t first = n ? rd<uint16_t>(rd<uint64_t>(v) + 4) : 0;
     if (first)
-        if (const uint64_t det = child(c, screen, kDetailElem, kDetailClass)) call_main(c, kDetailShow, det, first);
+        if (const uint64_t det = child(c, screen, kDetailElem, kDetailClass)) call(c, g.base + kDetailShow, det, first);
     if (g.log)
         NXLOG_I(kTag, "craft search: list filled again, %llu entries, first recipe %u, cursor %d", static_cast<unsigned long long>(n), first,
                 model ? rd<int32_t>(model + kCursor) : -1);
@@ -323,7 +303,7 @@ void ask(::Ctx* c, uint64_t screen) {
     wr<uint8_t>(g.opts + 0x1d, 1);
     const int cursor_before = grid_cursor(c, screen);
     if (g.log) NXLOG_I(kTag, "craft search: asking (initial '%s')", g.query.c_str());
-    const bool answered = call_main(c, kAsk, 6, g.buf, 0x100, g.opts) & 1;
+    const bool answered = call(c, g.base + kAsk, 6, g.buf, 0x100, g.opts) & 1;
     std::string word(reinterpret_cast<const char*>(g.buf), strnlen(reinterpret_cast<const char*>(g.buf), 0xff));
     if (g.log)
         NXLOG_I(kTag, "craft search: keyboard %s '%s' (grid cursor %d before, %d after)", answered ? "answered" : "cancelled", word.c_str(), cursor_before,
@@ -340,7 +320,7 @@ void ask(::Ctx* c, uint64_t screen) {
     }
     refill(c, screen);
     // the key guide shows the word: the widget takes its set again
-    if (const uint64_t w = g.widget.load(); w && guide_up()) call_main(c, kFillSet, w, kCraftSet);
+    if (const uint64_t w = g.widget.load(); w && guide_up()) call(c, g.base + kFillSet, w, kCraftSet);
 }
 
 void clear_query() {
@@ -367,7 +347,7 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
         g.click = false;
     }
     g.last_frame = now;
-    g.online = call_main(c, kOnline, 0) & 1;
+    g.online = call(c, g.base + kOnline, 0) & 1;
     uint64_t buttons = 0;
     if (auto src = hid::input_source()) {
         hid::InputSnapshot snap;
@@ -406,7 +386,7 @@ int hook_fill_set(::Ctx* c, uint64_t, void*) {
         g.set_ids = ids;
     }
     // Search in the first free slot, or out of the set while online
-    const bool online = call_main(c, kOnline, 0) & 1;
+    const bool online = call(c, g.base + kOnline, 0) & 1;
     g.online = online;
     int at = -1, free_slot = -1;
     for (int i = 0; i < kSetSlots; ++i) {
@@ -429,7 +409,7 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     if (!w || !ok(fp + 0x38, 8) || rd<uint64_t>(fp + 0x38) != w) return;   // the caller's (0x7100ec54a0) x19: the widget
     const uint64_t part = c->x[19];
     const uint64_t sp = (c->x[31] - 0x100) & ~uint64_t{0xf};
-    call_main(c, kSetIcon, part + 0x30, 3, kActionY, 0, 0, sp);
+    call(c, g.base + kSetIcon, part + 0x30, 3, kActionY, 0, 0, sp);
     std::string label;
     {
         std::lock_guard<std::mutex> lk(g.mu);
@@ -438,10 +418,10 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     if (!label.empty()) {
         const uint64_t buf = (c->x[31] - (label.size() + 0x140)) & ~uint64_t{0xf};   // below the guest stack pointer: guest memory
         std::memcpy(reinterpret_cast<void*>(buf), label.c_str(), label.size() + 1);
-        call_main(c, kTextString, part, static_cast<uint32_t>(c->x[20]), kStringText, buf, 0, buf - 0x10);
+        call(c, g.base + kTextString, part, static_cast<uint32_t>(c->x[20]), kStringText, buf, 0, buf - 0x10);
     }
     const uint64_t src = rd<uint64_t>(part + 0x38);
-    menu_set_craft_guide(src ? call_main(c, kLayoutOf, src, 0, 0, 0, 0, sp) : 0);
+    menu_set_craft_guide(src ? call(c, g.base + kLayoutOf, src, 0, 0, 0, 0, sp) : 0);
 }
 
 }  // namespace
