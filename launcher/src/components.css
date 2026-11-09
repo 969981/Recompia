@@ -76,6 +76,11 @@ h3 { font-size: var(--text-md); font-weight: var(--weight-semi); line-height: va
 .brand > * { pointer-events: none; }
 .brand-logo { height: 28px; width: auto; }
 .brand-mark { display: none; width: 26px; height: 26px; flex: none; border-radius: 8px; box-shadow: var(--shadow-sm); }
+/* The Testing channel: the Testing mark (and a small tag next to the wordmark) replace the Stable look. [data-channel] is set by main.js. */
+.brand-mark-testing { display: none; width: 30px; height: 30px; flex: none; object-fit: contain; }
+.brand-tag { display: none; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-accent); color: var(--color-bg, #fff); font-size: 10px; font-weight: var(--weight-bold); letter-spacing: .06em; text-transform: uppercase; }
+:root[data-channel="testing"] .brand-mark-testing { display: block; }
+:root[data-channel="testing"] .brand-tag { display: inline-block; }
 
 .nav-item {
   position: relative;
@@ -496,8 +501,9 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
 @media (max-width: 999.98px) {
   #nav { align-items: center; padding-inline: var(--space-2); }
   .brand { justify-content: center; width: 100%; padding: 0; }
-  .brand-name, .nav-label { display: none; }
+  .brand-name, .brand-tag, .nav-label { display: none !important; }
   .brand-mark { display: block; }
+  :root[data-channel="testing"] .brand-mark { display: none; }
   .nav-item { justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-sm); }
   .nav-dot { position: absolute; top: 8px; right: 8px; margin: 0; }
   .nav-item:is(:hover, :focus-visible) .nav-tip {

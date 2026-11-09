@@ -148,6 +148,9 @@ jobs:
             $c = 'src-tauri/tauri.conf.json'; (Get-Content -Raw $c) -replace '"version": "[^"]*"', "`"version`": `"$env:VERSION`"" | Set-Content -NoNewline $c
             $t = 'src-tauri/Cargo.toml'; (Get-Content -Raw $t) -replace '(?m)^version = "[^"]*"', "version = `"$env:VERSION`"" | Set-Content -NoNewline $t
           }
+          if ($env:GITHUB_REF -eq 'refs/heads/testing') {   # a Testing build has its own icon (the Stable icons stay in the repository untouched)
+            Copy-Item -Force src-tauri/icons-testing/* src-tauri/icons/
+          }
           npm ci
           npm run tauri build
           if ($LASTEXITCODE) { exit 1 }
@@ -268,6 +271,9 @@ jobs:
           if [ -n "$REL_TAG" ]; then   # the launcher window shows its own version
             sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
             sed -i -E "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          fi
+          if [ "$GITHUB_REF" = "refs/heads/testing" ]; then   # a Testing build has its own icon (the Stable icons stay in the repository untouched)
+            cp -f src-tauri/icons-testing/* src-tauri/icons/
           fi
           npm ci --no-audit --no-fund
           npm run tauri build -- --bundles appimage --config '{"bundle":{"active":true}}'
