@@ -4,29 +4,30 @@
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
-DynShadow g_dsh;
-VbShadow g_vbsh[16];
-IbShadow g_ibsh;
+CmdState g_cmd;
+void CmdState::begin_submit() {
+    bound_pipeline = VK_NULL_HANDLE;
+    dirty = kAllDirty;
+    pl = nullptr;
+    pipe = VK_NULL_HANDLE;
+    topo = pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+    restart_valid = false;
+    vb_bound_in_cb = false;
+    shadow_invalidate();
+    want_depth_ro = false;
+    key_dummy_binding = 0;
+}
 // vkCmdBindIndexBuffer unless the same (buffer, offset, type) is already bound in this command buffer.
 static void bind_index_buffer(VkCommandBuffer cb, VkBuffer buf, VkDeviceSize off, VkIndexType type) {
     if (bind_coalesce_on()) {
-        if (g_ibsh.ok && g_ibsh.buf == buf && g_ibsh.off == off && g_ibsh.type == type) { ft::split_count(ft::kCntSkipped); return; }
-        g_ibsh = {buf, off, type, true};
+        if (g_cmd.ibsh.ok && g_cmd.ibsh.buf == buf && g_cmd.ibsh.off == off && g_cmd.ibsh.type == type) { ft::split_count(ft::kCntSkipped); return; }
+        g_cmd.ibsh = {buf, off, type, true};
     }
     vkCmdBindIndexBuffer(cb, buf, off, type);
 }
-const ProgLayout* g_pl = nullptr;
-VkPipeline g_pipe = VK_NULL_HANDLE;
-VkPrimitiveTopology g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
-VkPrimitiveTopology g_pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
-static bool g_pipe_fbl = false;        // g_pipe was made for a pass with a feedback loop attachment (GraphicsKey::fb_loop)
-bool g_restart = false, g_restart_valid = false;
+static bool g_pipe_fbl = false;        // g_cmd.pipe was made for a pass with a feedback loop attachment (GraphicsKey::fb_loop)
 static uint32_t g_key_attr_count = 0;
 static uint8_t g_key_binding[16] = {};
-
-uint8_t g_key_dummy_binding = 0;      // 1 + the binding that feeds the defaults of unset vertex attributes (0: none)
-bool g_want_depth_ro = false;         // some texture this draw samples is the current depth attachment
-bool g_vb_bound_in_cb = false;        // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
 
 XfbState g_xfb;
 static bool g_pipe_xfb = false;             // the bound pipeline is a stream-out variant
@@ -104,9 +105,9 @@ static void set_viewports_and_scissors() {
         std::array<VkRect2D, 16> as = {};
         std::memcpy(av.data(), vp, sizeof(VkViewport) * nvp);
         std::memcpy(as.data(), sc, sizeof(VkRect2D) * nvp);
-        const bool cv = g_dsh.vp.changed(av) || g_dsh.nvp != nvp;
-        const bool cs = g_dsh.sc.changed(as) || g_dsh.nsc != nvp;
-        g_dsh.nvp = g_dsh.nsc = nvp;
+        const bool cv = g_cmd.dsh.vp.changed(av) || g_cmd.dsh.nvp != nvp;
+        const bool cs = g_cmd.dsh.sc.changed(as) || g_cmd.dsh.nsc != nvp;
+        g_cmd.dsh.nvp = g_cmd.dsh.nsc = nvp;
         if (cv) vkCmdSetViewportWithCount(cb, nvp, vp); else ft::split_count(ft::kCntSkipped);
         if (cs) vkCmdSetScissorWithCount(cb, nvp, sc); else ft::split_count(ft::kCntSkipped);
         return;
@@ -245,50 +246,50 @@ static void set_dynamic_state(uint32_t dirty, VkPrimitiveTopology topo, bool ind
     if (dirty & kDynVp) set_viewports_and_scissors();
     if (dirty & kDynRaster) {
         const VkCullModeFlags cull = vk_cull_mode(S.poly.cull_face);
-        if (ch(g_dsh.cull, static_cast<uint32_t>(cull))) vkCmdSetCullMode(cb, cull);
+        if (ch(g_cmd.dsh.cull, static_cast<uint32_t>(cull))) vkCmdSetCullMode(cb, cull);
         VkFrontFace ff = vk_front_face(S.poly.front_face);
         if (S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT) ff = ff == VK_FRONT_FACE_CLOCKWISE ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;   // unflipped viewport
-        if (ch(g_dsh.front, static_cast<uint32_t>(ff))) vkCmdSetFrontFace(cb, ff);
-        if (ch(g_dsh.discard, static_cast<uint32_t>(S.rasterizer_discard ? 1 : 0))) vkCmdSetRasterizerDiscardEnable(cb, S.rasterizer_discard);
+        if (ch(g_cmd.dsh.front, static_cast<uint32_t>(ff))) vkCmdSetFrontFace(cb, ff);
+        if (ch(g_cmd.dsh.discard, static_cast<uint32_t>(S.rasterizer_discard ? 1 : 0))) vkCmdSetRasterizerDiscardEnable(cb, S.rasterizer_discard);
         const float lw = device().features().wide_lines ? std::max(1.0f, S.line_width) : 1.0f;
-        if (ch(g_dsh.line_width, lw)) vkCmdSetLineWidth(cb, lw);
+        if (ch(g_cmd.dsh.line_width, lw)) vkCmdSetLineWidth(cb, lw);
     }
-    if (topo != g_topo) {
+    if (topo != g_cmd.topo) {
         vkCmdSetPrimitiveTopology(cb, topo);
-        g_topo = topo;
+        g_cmd.topo = topo;
     }
     const bool restart = S.prim_restart && indexed &&
                          ((index_type == NVN_INDEX_TYPE_UNSIGNED_INT && S.restart_index == 0xffffffffu) || (index_type == NVN_INDEX_TYPE_UNSIGNED_SHORT && S.restart_index == 0xffffu) ||
                           (index_type == NVN_INDEX_TYPE_UNSIGNED_BYTE && S.restart_index == 0xffu));
-    if (!g_restart_valid || restart != g_restart || (!co && (dirty & kDynRaster))) {
+    if (!g_cmd.restart_valid || restart != g_cmd.restart || (!co && (dirty & kDynRaster))) {
         vkCmdSetPrimitiveRestartEnable(cb, restart);
-        g_restart = restart;
-        g_restart_valid = true;
+        g_cmd.restart = restart;
+        g_cmd.restart_valid = true;
     }
     const bool have_depth = P.depth_fmt != VK_FORMAT_UNDEFINED;
     if (dirty & kDynDepth) {
         const bool dt = have_depth && S.ds.depth_test, dw = have_depth && !P.depth_ro && S.ds.depth_test && S.ds.depth_write;
         const VkCompareOp dc = vk_compare_op(S.ds.depth_func ? S.ds.depth_func : NVN_DEPTH_FUNC_LESS);
         const bool dbt = have_depth && S.depth_bounds && device().features().depth_bounds;
-        if (ch(g_dsh.depth_test, static_cast<uint32_t>(dt))) vkCmdSetDepthTestEnable(cb, dt);
-        if (ch(g_dsh.depth_write, static_cast<uint32_t>(dw))) vkCmdSetDepthWriteEnable(cb, dw);
-        if (ch(g_dsh.depth_cmp, static_cast<uint32_t>(dc))) vkCmdSetDepthCompareOp(cb, dc);
-        if (ch(g_dsh.depth_bounds_test, static_cast<uint32_t>(dbt))) vkCmdSetDepthBoundsTestEnable(cb, dbt);
-        if (S.depth_bounds && device().features().depth_bounds && ch(g_dsh.depth_bounds, std::array<float, 2>{S.db_near, S.db_far})) vkCmdSetDepthBounds(cb, S.db_near, S.db_far);
+        if (ch(g_cmd.dsh.depth_test, static_cast<uint32_t>(dt))) vkCmdSetDepthTestEnable(cb, dt);
+        if (ch(g_cmd.dsh.depth_write, static_cast<uint32_t>(dw))) vkCmdSetDepthWriteEnable(cb, dw);
+        if (ch(g_cmd.dsh.depth_cmp, static_cast<uint32_t>(dc))) vkCmdSetDepthCompareOp(cb, dc);
+        if (ch(g_cmd.dsh.depth_bounds_test, static_cast<uint32_t>(dbt))) vkCmdSetDepthBoundsTestEnable(cb, dbt);
+        if (S.depth_bounds && device().features().depth_bounds && ch(g_cmd.dsh.depth_bounds, std::array<float, 2>{S.db_near, S.db_far})) vkCmdSetDepthBounds(cb, S.db_near, S.db_far);
     }
     if (dirty & kDynStencil) {
         const bool ste = P.has_stencil && S.ds.stencil_test;
-        if (ch(g_dsh.stencil_test, static_cast<uint32_t>(ste))) vkCmdSetStencilTestEnable(cb, ste);
+        if (ch(g_cmd.dsh.stencil_test, static_cast<uint32_t>(ste))) vkCmdSetStencilTestEnable(cb, ste);
         for (int f = 0; f < 2; ++f) {
             const VkStencilFaceFlags face = f == 0 ? VK_STENCIL_FACE_FRONT_BIT : VK_STENCIL_FACE_BACK_BIT;
             const std::array<uint32_t, 5> op = {static_cast<uint32_t>(face), static_cast<uint32_t>(vk_stencil_op(S.ds.stencil_fail[f])), static_cast<uint32_t>(vk_stencil_op(S.ds.depth_pass[f])),
                                                 static_cast<uint32_t>(vk_stencil_op(S.ds.depth_fail[f])), static_cast<uint32_t>(vk_compare_op(S.ds.stencil_func[f] ? S.ds.stencil_func[f] : NVN_STENCIL_FUNC_ALWAYS))};
-            if (ch(g_dsh.stencil_op[f], op))
+            if (ch(g_cmd.dsh.stencil_op[f], op))
                 vkCmdSetStencilOp(cb, face, static_cast<VkStencilOp>(op[1]), static_cast<VkStencilOp>(op[2]), static_cast<VkStencilOp>(op[3]), static_cast<VkCompareOp>(op[4]));
-            if (ch(g_dsh.stencil_ref[f], static_cast<uint32_t>(S.stencil_ref[f]))) vkCmdSetStencilReference(cb, face, S.stencil_ref[f]);
-            if (ch(g_dsh.stencil_cmask[f], static_cast<uint32_t>(S.stencil_vmask[f]))) vkCmdSetStencilCompareMask(cb, face, S.stencil_vmask[f]);
+            if (ch(g_cmd.dsh.stencil_ref[f], static_cast<uint32_t>(S.stencil_ref[f]))) vkCmdSetStencilReference(cb, face, S.stencil_ref[f]);
+            if (ch(g_cmd.dsh.stencil_cmask[f], static_cast<uint32_t>(S.stencil_vmask[f]))) vkCmdSetStencilCompareMask(cb, face, S.stencil_vmask[f]);
             const uint32_t wm = P.depth_ro ? 0u : static_cast<uint32_t>(S.stencil_wmask[f]);
-            if (ch(g_dsh.stencil_wmask[f], wm)) vkCmdSetStencilWriteMask(cb, face, wm);
+            if (ch(g_cmd.dsh.stencil_wmask[f], wm)) vkCmdSetStencilWriteMask(cb, face, wm);
         }
     }
     if (dirty & kDynBias) {
@@ -297,13 +298,13 @@ static void set_dynamic_state(uint32_t dirty, VkPrimitiveTopology topo, bool ind
         const bool bias = (mode == NVN_POLYGON_MODE_FILL && (off & NVN_POLYGON_OFFSET_ENABLE_FILL)) ||
                           (mode == NVN_POLYGON_MODE_LINE && (off & NVN_POLYGON_OFFSET_ENABLE_LINE)) ||
                           (mode == NVN_POLYGON_MODE_POINT && (off & NVN_POLYGON_OFFSET_ENABLE_POINT));
-        if (ch(g_dsh.bias_enable, static_cast<uint32_t>(bias))) vkCmdSetDepthBiasEnable(cb, bias);
+        if (ch(g_cmd.dsh.bias_enable, static_cast<uint32_t>(bias))) vkCmdSetDepthBiasEnable(cb, bias);
         const float bclamp = device().features().depth_bias_clamp ? S.bias_clamp : 0.0f;
-        if (ch(g_dsh.bias, std::array<float, 3>{S.bias_units, bclamp, S.bias_factor})) vkCmdSetDepthBias(cb, S.bias_units, bclamp, S.bias_factor);
+        if (ch(g_cmd.dsh.bias, std::array<float, 3>{S.bias_units, bclamp, S.bias_factor})) vkCmdSetDepthBias(cb, S.bias_units, bclamp, S.bias_factor);
     }
     if (dirty & kDynBlend) {
         const std::array<float, 4> bc = {S.blend_color[0], S.blend_color[1], S.blend_color[2], S.blend_color[3]};
-        if (ch(g_dsh.blend, bc)) vkCmdSetBlendConstants(cb, S.blend_color);
+        if (ch(g_cmd.dsh.blend, bc)) vkCmdSetBlendConstants(cb, S.blend_color);
     }
 }
 
@@ -396,7 +397,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         if (!S.stage[kTessCtl]) {
             const ShaderInfo* gen = passthrough_tcs_for(vs, S.stage[kTessEval]);
             if (!gen) { note_unsupported("tessellation draw: evaluation shader without a control shader, no pass-through could be made"); return false; }
-            if (gen != g_gen_tcs) g_dirty |= kPipe;
+            if (gen != g_gen_tcs) g_cmd.dirty |= kPipe;
             g_gen_tcs = gen;
         }
     } else {
@@ -404,46 +405,46 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     }
     // The layout depends on the stages only: they change with BindProgram (kPipe) and the generated control shader (kPipe above);
     // begin_submit and the full resets set kPipe too. kDesc alone (a new binding) keeps the same layout.
-    if (g_dirty & kPipe) {
+    if (g_cmd.dirty & kPipe) {
         const ShaderInfo* stages[6] = {vs, S.stage[kFragment], S.stage[kGeometry], tcs_now(), S.stage[kTessEval], nullptr};
-        g_pl = prog_layout(stages);
+        g_cmd.pl = prog_layout(stages);
     }
     if (g_trace_hooks) trace_note_fs();
-    const ProgLayout* pl = g_pl;
+    const ProgLayout* pl = g_cmd.pl;
     if (!pl) return false;
-    if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_dirty |= kDesc;   // c[0] + 0x644 changed: new sets
+    if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_cmd.dirty |= kDesc;   // c[0] + 0x644 changed: new sets
     rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
-    if (g_dirty & (kDesc | kPipe)) {
+    if (g_cmd.dirty & (kDesc | kPipe)) {
         RpScope rp_(kRpPrep);
-        g_prog_writes = false;
-        for (const BindingDesc& d : pl->bindings) g_prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        g_cmd.prog_writes = false;
+        for (const BindingDesc& d : pl->bindings) g_cmd.prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         attach_targets(false);
-        g_want_depth_ro = samples_depth_target(*pl);
+        g_cmd.want_depth_ro = samples_depth_target(*pl);
         prepare_textures(*pl);
         if (g_trace) trace_dump_raw(*pl);
         scene_upscale_for_draw(*pl);
     }
-    if (g_copies.fb_seen || (g_dirty & (kDesc | kPipe))) feedback_prepare(*pl);
+    if (g_copies.fb_seen || (g_cmd.dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;
-    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_copies.fbl_want); }
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_cmd.want_depth_ro, g_copies.fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
-    if (g_prog_writes || g_xfb.active) g_bar.pass_unsafe = true;
+    if (g_cmd.prog_writes || g_xfb.active) g_bar.pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
-    if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {
+    if ((g_cmd.dirty & kPipe) || topo != g_cmd.pipe_topo || !g_cmd.pipe || g_pipe_fbl != (P.fbl != 0)) {
         RpScope rp_(kRpPipe);
         GraphicsKey key;
         build_key(key, topo);
         key.fb_loop = P.fbl != 0 ? 1 : 0;   // the pass has an attachment in the feedback loop layout
         g_pipe_fbl = key.fb_loop != 0;
-        g_pipe = graphics_pipeline(key, *pl);
+        g_cmd.pipe = graphics_pipeline(key, *pl);
         g_pipe_xfb = key.xfb != 0;
-        g_pipe_topo = topo;
+        g_cmd.pipe_topo = topo;
         g_key_attr_count = key.attr_count;
-        g_key_dummy_binding = key.dummy_binding;
+        g_cmd.key_dummy_binding = key.dummy_binding;
         for (uint32_t i = 0; i < key.attr_count; ++i) g_key_binding[i] = key.attr[i].binding;
     }
-    if (!g_pipe) return false;
+    if (!g_cmd.pipe) return false;
     // a draw inside a stream-out section that has no stream-out variant and nothing to render to has no effect
     if (g_xfb.active && !g_pipe_xfb && !P.ncolor && !S.depth_tex) return false;
     if (g_trace) trace_draw(mode, indexed, *pl);
@@ -453,11 +454,11 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
             NXLOG_I("nvn.xfb", "draw under transform feedback: vs %s mode %d attrs %u xfb0 %llx/%llu", S.stage[kVertex]->hash.c_str(), mode, S.attr_count,
                     static_cast<unsigned long long>(S.xfb[0].addr), static_cast<unsigned long long>(S.xfb[0].size));
     }
-    if (g_pipe != g_bound_pipeline) {
+    if (g_cmd.pipe != g_cmd.bound_pipeline) {
         xfb_end_in_pass();     // the pipeline cannot change while feedback is active; the byte counter carries the position over
-        vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_pipe);
+        vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_cmd.pipe);
         g_gauge_pipeline_binds.add(1);
-        g_bound_pipeline = g_pipe;
+        g_cmd.bound_pipeline = g_cmd.pipe;
     }
     if (g_xfb.active && g_pipe_xfb && !g_xfb.began && device().features().transform_feedback && S.xfb[0].addr) {
         BufRef xb = resolve_buffer(S.xfb[0].addr, S.xfb[0].size);
@@ -479,8 +480,8 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
             note_unsupported("transform feedback into an address outside every pool");
         }
     }
-    { RpScope rp_(kRpDyn); set_dynamic_state(g_dirty, topo, indexed, index_type); }
-    if (g_dirty & kDesc) {
+    { RpScope rp_(kRpDyn); set_dynamic_state(g_cmd.dirty, topo, indexed, index_type); }
+    if (g_cmd.dirty & kDesc) {
         RpScope rp_(kRpSets);
         support_for_draw(*pl, false);
         bind_sets(*pl, VK_PIPELINE_BIND_POINT_GRAPHICS);
@@ -499,7 +500,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
                     S.stage[kTessEval]->hash.c_str(), g_gen_tcs->hash.c_str(), static_cast<unsigned>(std::clamp<uint32_t>(S.patch_size, 1, 32)),
                     S.tess_outer[0], S.tess_outer[1], S.tess_outer[2], S.tess_outer[3], S.tess_inner[0], S.tess_inner[1]);
     }
-    if (g_dirty & (kVb | kPipe)) {
+    if (g_cmd.dirty & (kVb | kPipe)) {
         RpScope rp_(kRpVb);
         const bool co = bind_coalesce_on();
         // pending run of bindings to bind with one call
@@ -510,12 +511,12 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
             if (!rn) return;
             vkCmdBindVertexBuffers2(F->cb, rfirst, rn, rb, ro, rs, rst);
             if (rn > 1) ft::split_count(ft::kCntMerged, rn - 1);
-            g_vb_bound_in_cb = true;
+            g_cmd.vb_bound_in_cb = true;
             rn = 0;
         };
         auto add = [&](uint32_t binding, VkBuffer buf, VkDeviceSize off, VkDeviceSize size, VkDeviceSize stride) {
             if (co && binding < 16) {
-                VbShadow& sh = g_vbsh[binding];
+                VbShadow& sh = g_cmd.vbsh[binding];
                 if (sh.ok && sh.buf == buf && sh.off == off && sh.size == size && sh.stride == stride) { ft::split_count(ft::kCntSkipped); flush(); return; }
                 sh = {buf, off, size, stride, true};
                 if (rn && rfirst + rn == binding) {
@@ -529,7 +530,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
                 return;
             }
             vkCmdBindVertexBuffers2(F->cb, binding, 1, &buf, &off, &size, &stride);
-            g_vb_bound_in_cb = true;
+            g_cmd.vb_bound_in_cb = true;
         };
         // bindings in ascending order so that neighbours merge
         uint32_t order[16], norder = 0;
@@ -542,7 +543,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         if (co) std::sort(order, order + norder);
         for (uint32_t k = 0; k < norder; ++k) {
             const uint32_t binding = order[k];
-            if (g_key_dummy_binding && binding == static_cast<uint32_t>(g_key_dummy_binding - 1)) {
+            if (g_cmd.key_dummy_binding && binding == static_cast<uint32_t>(g_cmd.key_dummy_binding - 1)) {
                 add(binding, dummy_buffer(), kDummyAttrFloatOffset, 32, 0);
                 continue;
             }
@@ -553,17 +554,17 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
             add(binding, br.buffer, br.offset, size, stride);
         }
         flush();
-        if (!g_vb_bound_in_cb) {
+        if (!g_cmd.vb_bound_in_cb) {
             // the pipeline's vertex binding strides are dynamic: a command buffer that never bound a vertex buffer must still bind one
             VkBuffer dummy = dummy_buffer();
             VkDeviceSize off = 0, size = 65536, stride = 0;
             vkCmdBindVertexBuffers2(F->cb, 0, 1, &dummy, &off, &size, &stride);
-            g_vb_bound_in_cb = true;
-            if (co) g_vbsh[0] = {dummy, off, size, stride, true};
+            g_cmd.vb_bound_in_cb = true;
+            if (co) g_cmd.vbsh[0] = {dummy, off, size, stride, true};
         }
     }
-    g_dirty = g_mirror_stale ? (kVb | kDesc) : 0;     // a storage buffer of this draw made copied pages stale: the next draw binds again
-    g_mirror_stale = false;
+    g_cmd.dirty = g_cmd.mirror_stale ? (kVb | kDesc) : 0;     // a storage buffer of this draw made copied pages stale: the next draw binds again
+    g_cmd.mirror_stale = false;
     *topo_out = topo;
     return true;
 }
@@ -802,7 +803,7 @@ static bool quad_args_gpu(const P_DrawIndirect& p, BufRef* out) {
     vkCmdPushConstants(F->cb, q.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 4, &at);
     vkCmdDispatch(F->cb, 1, 1, 1);
     memory_barrier(F->cb);   // the dispatch's write before the indirect read
-    g_bound_pipeline = VK_NULL_HANDLE;
+    g_cmd.bound_pipeline = VK_NULL_HANDLE;
     out->buffer = dst.buffer;
     out->offset = dst.offset;
     out->ok = true;

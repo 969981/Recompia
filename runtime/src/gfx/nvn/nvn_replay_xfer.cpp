@@ -43,10 +43,10 @@ void do_clear_color(const P_ClearColor& p) {
             static bool noted = false;
             if (!noted) { noted = true; NXLOG_I("nvn.replay", "replay: ClearColor with a partial channel mask (first): rt%u mask %x, drawn with that colour write mask", p.target, p.mask); }
             counters().clears.fetch_add(1, std::memory_order_relaxed);
-            g_bound_pipeline = VK_NULL_HANDLE;
-            g_dirty = kAllDirty;
-            g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
-            g_restart_valid = false;
+            g_cmd.bound_pipeline = VK_NULL_HANDLE;
+            g_cmd.dirty = kAllDirty;
+            g_cmd.topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
+            g_cmd.restart_valid = false;
             shadow_invalidate();
             return;
         }
@@ -79,10 +79,10 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
             static bool noted = false;
             if (!noted) { noted = true; NXLOG_I("nvn.replay", "replay: ClearDepthStencil with a partial stencil mask (first): mask %x, drawn with that stencil write mask", p.stencil_mask); }
             counters().clears.fetch_add(1, std::memory_order_relaxed);
-            g_bound_pipeline = VK_NULL_HANDLE;
-            g_dirty = kAllDirty;
-            g_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
-            g_restart_valid = false;
+            g_cmd.bound_pipeline = VK_NULL_HANDLE;
+            g_cmd.dirty = kAllDirty;
+            g_cmd.topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;   // binding a pipeline without these dynamic states invalidates them
+            g_cmd.restart_valid = false;
             shadow_invalidate();
             return;
         }

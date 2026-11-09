@@ -411,7 +411,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     VkPipeline pipe = compute_pipeline(cs, *pl);
     if (!pipe) return;
     vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
-    g_bound_pipeline = VK_NULL_HANDLE;
+    g_cmd.bound_pipeline = VK_NULL_HANDLE;
     support_for_draw(*pl, true);
     const BufRef ind = indirect ? held_or_pool(indirect, 12, kOutIndirect, true) : BufRef{};   // arguments a dispatch wrote: from the copy
     g_shadowing = compute_shadows_on();
@@ -437,7 +437,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     }
     shadows_after_dispatch();
     memory_barrier(F->cb);
-    g_dirty = kAllDirty;
+    g_cmd.dirty = kAllDirty;
     shadow_invalidate();
     counters().dispatches.fetch_add(1, std::memory_order_relaxed);
 }

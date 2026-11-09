@@ -114,7 +114,7 @@ static void temporal_for_draw(const ProgLayout& pl) {
     if (!src || !dv) return;
     VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
                                                 S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex);
-    g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
+    g_cmd.dirty = kAllDirty;                                                  // the SDKs bind their own compute state
     shadow_invalidate();
     if (out) {
         g_su.tex = best_r.tex;

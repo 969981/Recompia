@@ -16,7 +16,6 @@ void PassBarriers::begin_submit(bool tracked_on) {
     pending.clear();
     pass_unsafe = false;
 }
-bool g_prog_writes = false;     // the bound program has storage buffer or storage image bindings
 
 // ---- passes ----------------------------------------------------------------------------------------------------------------
 // Ends transform feedback in the open pass, remembering the bytes written in the counter buffer (a pass break must not restart the buffer).
@@ -70,8 +69,8 @@ void end_pass(bool to_pass) {
         g_bar.pending.clear();
     }
     g_bar.pass_unsafe = false;
-    g_bound_pipeline = VK_NULL_HANDLE;
-    g_dirty = kAllDirty;
+    g_cmd.bound_pipeline = VK_NULL_HANDLE;
+    g_cmd.dirty = kAllDirty;
 }
 
 // A pass is about to use `t` as an attachment in `layout`. An earlier pass that ended without a barrier wrote it, and no layout change
@@ -242,7 +241,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
     P.open = true;
     rp_bump(ft::kCntEpBeginPass);
     counters().passes.fetch_add(1, std::memory_order_relaxed);
-    g_bound_pipeline = VK_NULL_HANDLE;
+    g_cmd.bound_pipeline = VK_NULL_HANDLE;
     return true;
 }
 

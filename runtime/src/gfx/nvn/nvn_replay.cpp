@@ -13,9 +13,7 @@ namespace replay {
 constexpr int kMaxDepth = 8;
 
 GState S;
-bool g_mirror_stale = false;    // a GPU write made pages of a pool copy stale while a draw was being set up: bind again at the next draw
 Frame* F = nullptr;
-VkPipeline g_bound_pipeline = VK_NULL_HANDLE;
 constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build", "rp.set.write", "rp.set.bind", "rp.prep", "rp.pass",
                                             "rp.pipe", "rp.dyn", "rp.vb", "rp.dispatch", "rp.set0", "rp.set1", "rp.set2", "rp.set3",
                                             "rp.miss0", "rp.miss1", "rp.miss2", "rp.miss3", "rp.buf", "rp.tex", "rp.texel", "rp.same0", "rp.same1", "rp.same2", "rp.same3", "rp.reuse",
@@ -39,7 +37,6 @@ static void rp_flush() {
     g_rp.t0 = 0;
     g_rp.inner = 0;
 }
-uint32_t g_dirty = kAllDirty;
 GpuWrites g_gw;
 static void note_gw(uint64_t addr, uint64_t size) {
     if (!size || !F) return;
@@ -56,8 +53,8 @@ void gpu_wrote(uint64_t addr, uint64_t size, int use) {
     rp_bump(ft::kCntEpGpuWrote);
     note_gw(addr, size);
     if (note_gpu_write(addr, size, use)) {
-        g_dirty |= kVb | kDesc;
-        g_mirror_stale = true;
+        g_cmd.dirty |= kVb | kDesc;
+        g_cmd.mirror_stale = true;
     }
 }
 static int g_dbg_depth = 0;                  // debug labels open in this submission (PushDebugGroup / PopDebugGroup)
@@ -90,20 +87,20 @@ static void apply_bind_program(const P_BindProgram& p) {
 
 static void mark_dirty(const RecordReader& r) {
     switch (r.op()) {
-        case Op::BindProgram: g_dirty |= kPipe | kDesc | kVb; break;
-        case Op::BindBuffers: g_dirty |= r.payload<P_BindBuffers>().kind == kBufVertex ? kVb : kDesc; break;
-        case Op::BindTextures: case Op::BindImages: case Op::SetTexturePool: case Op::SetSamplerPool: g_dirty |= kDesc; break;
-        case Op::BindVertexAttribs: case Op::BindVertexStreams: g_dirty |= kPipe | kVb; break;
-        case Op::BindBlend: case Op::BindColor: case Op::BindChannelMask: case Op::BindMultisample: case Op::SetDepthClamp: g_dirty |= kPipe; break;
-        case Op::BindPolygon: g_dirty |= kPipe | kDynRaster | kDynBias; break;
-        case Op::BindDepthStencil: case Op::SetDepthBounds: g_dirty |= kDynDepth | kDynStencil; break;
-        case Op::SetViewports: case Op::SetScissors: case Op::SetDepthRanges: g_dirty |= kDynVp; break;
-        case Op::SetStencil: g_dirty |= kDynStencil; break;
-        case Op::SetBlendColor: g_dirty |= kDynBlend; break;
-        case Op::SetLineWidth: case Op::SetRasterizerDiscard: case Op::SetPrimitiveRestart: g_dirty |= kDynRaster; break;
-        case Op::SetPatchSize: g_dirty |= kPipe; break;   // patch control points are part of the pipeline
-        case Op::SetPolygonOffsetClamp: g_dirty |= kDynBias; break;
-        case Op::SetRenderTargets: g_dirty = kAllDirty; rp_bump(ft::kCntEpTargets); break;
+        case Op::BindProgram: g_cmd.dirty |= kPipe | kDesc | kVb; break;
+        case Op::BindBuffers: g_cmd.dirty |= r.payload<P_BindBuffers>().kind == kBufVertex ? kVb : kDesc; break;
+        case Op::BindTextures: case Op::BindImages: case Op::SetTexturePool: case Op::SetSamplerPool: g_cmd.dirty |= kDesc; break;
+        case Op::BindVertexAttribs: case Op::BindVertexStreams: g_cmd.dirty |= kPipe | kVb; break;
+        case Op::BindBlend: case Op::BindColor: case Op::BindChannelMask: case Op::BindMultisample: case Op::SetDepthClamp: g_cmd.dirty |= kPipe; break;
+        case Op::BindPolygon: g_cmd.dirty |= kPipe | kDynRaster | kDynBias; break;
+        case Op::BindDepthStencil: case Op::SetDepthBounds: g_cmd.dirty |= kDynDepth | kDynStencil; break;
+        case Op::SetViewports: case Op::SetScissors: case Op::SetDepthRanges: g_cmd.dirty |= kDynVp; break;
+        case Op::SetStencil: g_cmd.dirty |= kDynStencil; break;
+        case Op::SetBlendColor: g_cmd.dirty |= kDynBlend; break;
+        case Op::SetLineWidth: case Op::SetRasterizerDiscard: case Op::SetPrimitiveRestart: g_cmd.dirty |= kDynRaster; break;
+        case Op::SetPatchSize: g_cmd.dirty |= kPipe; break;   // patch control points are part of the pipeline
+        case Op::SetPolygonOffsetClamp: g_cmd.dirty |= kDynBias; break;
+        case Op::SetRenderTargets: g_cmd.dirty = kAllDirty; rp_bump(ft::kCntEpTargets); break;
         default: break;
     }
 }
@@ -235,7 +232,7 @@ static void run_list(const CmdList& list, int depth) {
             case Op::SetRasterizerDiscard: S.rasterizer_discard = r.payload<P_U32>().v != 0; break;
             case Op::SetDepthClamp: S.depth_clamp = r.payload<P_U32>().v != 0; break;
             case Op::SetPrimitiveRestart: { const auto& p = r.payload<P_PrimitiveRestart>(); S.prim_restart = p.enable != 0; S.restart_index = p.index; break; }
-            case Op::SetPatchSize: S.patch_size = r.payload<P_U32>().v; g_dirty |= kPipe; break;   // the patch size is in the pipeline key
+            case Op::SetPatchSize: S.patch_size = r.payload<P_U32>().v; g_cmd.dirty |= kPipe; break;   // the patch size is in the pipeline key
             case Op::SetTessLevels: {
                 const auto& p = r.payload<P_TessLevels>();
                 if (p.outer) std::memcpy(S.tess_outer, p.v, sizeof S.tess_outer);
@@ -588,17 +585,8 @@ void replay_begin_submit(Frame& f) {
     S.window_origin = window_origin_mode();
     S.depth_mode = depth_mode();
     P = Pass();
-    g_bound_pipeline = VK_NULL_HANDLE;
-    g_dirty = kAllDirty;
-    g_pl = nullptr;
-    g_pipe = VK_NULL_HANDLE;
-    g_topo = g_pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
-    g_restart_valid = false;
-    g_vb_bound_in_cb = false;
-    shadow_invalidate();
-    g_want_depth_ro = false;
+    g_cmd.begin_submit();
     g_copies.begin_submit();
-    g_key_dummy_binding = 0;
     g_sets.begin_submit(f);
 }
 

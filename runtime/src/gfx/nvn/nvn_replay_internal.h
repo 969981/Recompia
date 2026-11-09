@@ -175,10 +175,7 @@ struct PassBarriers {   // owner: nvn_replay_pass.cpp
     void begin_submit(bool tracked_on);
 };
 extern PassBarriers g_bar;
-extern bool g_prog_writes;
-extern bool g_mirror_stale;
 extern Frame* F;
-extern VkPipeline g_bound_pipeline;
 // Descriptor sets and what they bind besides the game's resources (nvn_replay_bind.cpp). Most of it lasts one submission (begin_submit):
 // the sets and upload allocations die with the submission's descriptor pools and upload ring.
 struct SetState {   // owner: nvn_replay_bind.cpp
@@ -233,7 +230,6 @@ inline void rp_count(int ph) { if (ft::on()) ++g_rp.n[ph]; }   // a count withou
 enum : uint32_t {
     kPipe = 1, kDesc = 2, kVb = 4, kDynVp = 8, kDynRaster = 16, kDynDepth = 32, kDynStencil = 64, kDynBias = 128, kDynBlend = 256, kAllDirty = 0x1ff
 };
-extern uint32_t g_dirty;
 
 // [nvn] bind_coalesce: fewer Vulkan calls per draw. Vertex buffers, descriptor sets and the index buffer are bound in ranges / only when they
 // changed, and dynamic state is sent only when its value differs from the last one sent in this command buffer (the shadow). Vulkan keeps
@@ -270,15 +266,33 @@ struct DynShadow {
     Sh<std::array<float, 3>> bias;
     Sh<std::array<float, 4>> blend;
 };
-extern DynShadow g_dsh;
 struct VbShadow { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize off = 0, size = 0, stride = 0; bool ok = false; };
-extern VbShadow g_vbsh[16];
 struct IbShadow { VkBuffer buf = VK_NULL_HANDLE; VkDeviceSize off = 0; VkIndexType type = VK_INDEX_TYPE_NONE_KHR; bool ok = false; };
-extern IbShadow g_ibsh;
+
+// What the replay has recorded into the current command buffer and the draw state derived from it: the dirty bits, the bound pipeline
+// and program layout, dynamic topology and restart, the bind shadows. begin_submit resets what a new command buffer does not have.
+struct CmdState {   // owner: nvn_replay_draw.cpp (begin_draw); the other ops set dirty bits and drop the bound pipeline
+    uint32_t dirty = kAllDirty;
+    bool mirror_stale = false;   // a GPU write made pages of a pool copy stale while a draw was being set up: bind again at the next draw
+    VkPipeline bound_pipeline = VK_NULL_HANDLE;
+    const ProgLayout* pl = nullptr;   // the bound program's layout (looked up on kPipe)
+    VkPipeline pipe = VK_NULL_HANDLE;   // the graphics pipeline of the last draw set up
+    VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM, pipe_topo = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+    bool restart = false, restart_valid = false;
+    uint8_t key_dummy_binding = 0;   // 1 + the binding that feeds the defaults of unset vertex attributes (0: none)
+    bool want_depth_ro = false;      // some texture this draw samples is the current depth attachment
+    bool vb_bound_in_cb = false;     // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
+    bool prog_writes = false;        // the bound program has storage buffer or storage image bindings
+    DynShadow dsh;                   // bind_coalesce: the dynamic state, vertex and index buffers last sent in this command buffer
+    VbShadow vbsh[16];
+    IbShadow ibsh;
+    void begin_submit();
+};
+extern CmdState g_cmd;
 inline void shadow_invalidate() {
-    g_dsh = DynShadow();
-    for (VbShadow& v : g_vbsh) v = VbShadow();
-    g_ibsh = IbShadow();
+    g_cmd.dsh = DynShadow();
+    for (VbShadow& v : g_cmd.vbsh) v = VbShadow();
+    g_cmd.ibsh = IbShadow();
 }
 // A command may write [addr, addr + size) of pool memory: device-local copies of those pages are stale, and bindings that point at them are
 // made again (vertex buffers and descriptor sets).
@@ -304,14 +318,6 @@ inline bool gw_settled(uint64_t addr, uint64_t size) {
     return true;
 }
 void gpu_wrote(uint64_t addr, uint64_t size, int use);
-extern const ProgLayout* g_pl;
-extern VkPipeline g_pipe;
-extern VkPrimitiveTopology g_topo;
-extern VkPrimitiveTopology g_pipe_topo;
-extern bool g_restart, g_restart_valid;
-extern uint8_t g_key_dummy_binding;
-extern bool g_want_depth_ro;
-extern bool g_vb_bound_in_cb;
 // Transform feedback (stream-out). One byte counter per feedback control buffer (NVN's Begin/End/Draw take its address): slot * 16 bytes
 // into `counter`. vkCmdEndTransformFeedbackEXT writes the bytes of the section there; DrawTransformFeedback reads them
 // (vkCmdDrawIndirectByteCountEXT). slot_written: the slot holds a count. Kept across submissions; shutdown() releases the counter buffer.
