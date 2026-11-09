@@ -580,10 +580,7 @@ void replay_begin_submit(Frame& f) {
             last_on = on ? 1 : 0;
             if (ab > 0) ft::mark(on ? "gpuperf.on" : "gpuperf.off", static_cast<uint32_t>(counters().presents.load()));
         }
-        g_tracked = on && tracked;
-        set_narrow_barriers(g_tracked);
-        g_pending.clear();
-        g_pass_unsafe = false;
+        g_bar.begin_submit(on && tracked);
         RpScope rp_(kRpMirror);
         ft::SplitScope sp_(ft::kSplSetup);
         mirror_begin_submit(f, on);
@@ -644,7 +641,7 @@ void replay_shutdown() {
     pipeline_shutdown();
     S = GState();
     P = Pass();
-    g_pending.clear();
+    g_bar.pending.clear();
     out_reset();
     g_sets.cache.clear();
     g_copies.shutdown();

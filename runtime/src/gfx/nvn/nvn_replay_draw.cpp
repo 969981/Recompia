@@ -428,7 +428,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     bool pass_ok;
     { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_want_depth_ro, g_copies.fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
-    if (g_prog_writes || g_xfb.active) g_pass_unsafe = true;
+    if (g_prog_writes || g_xfb.active) g_bar.pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
     if ((g_dirty & kPipe) || topo != g_pipe_topo || !g_pipe || g_pipe_fbl != (P.fbl != 0)) {
         RpScope rp_(kRpPipe);
@@ -640,8 +640,8 @@ void do_draw_arrays(const P_DrawArrays& p) {
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, 0, p.base_instance);
     }
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-    g_pass_draws++;
-    g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
+    P.draws++;
+    P.verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     if (g_trace) trace_snap_after_draw();
 }
 
@@ -676,8 +676,8 @@ void do_draw_elements(const P_DrawElements& p) {
         vkCmdDrawIndexed(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     }
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-    g_pass_draws++;
-    g_pass_verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
+    P.draws++;
+    P.verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);
     if (g_trace) trace_snap_after_draw();
 }
 
@@ -865,7 +865,7 @@ static void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint
     }
     if (drew) {
         counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-        g_pass_draws++;
+        P.draws++;
     } else {
         counters().draws_skipped.fetch_add(1);
     }
@@ -894,7 +894,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
         if ((n & (n - 1)) == 0)   // 1, 2, 4, 8, ...
             NXLOG_I("nvn.replay", "indirect quads drawn with GPU-made arguments: %llu so far", static_cast<unsigned long long>(n));
         counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-        g_pass_draws++;
+        P.draws++;
         if (g_trace) trace_snap_after_draw();
         return;
     }
@@ -927,7 +927,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
         vkCmdDrawIndirect(F->cb, ib.buffer, ib.offset, 1, 16);
     }
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-    g_pass_draws++;
+    P.draws++;
     if (g_trace) trace_snap_after_draw();
 }
 
@@ -958,7 +958,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     checkpoint_draw(static_cast<uint32_t>(p.control), static_cast<uint32_t>(p.control >> 32), 1, true);   // the count is the section's byte counter
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb.counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
-    g_pass_draws++;
+    P.draws++;
     if (g_trace) trace_snap_after_draw();
 }
 

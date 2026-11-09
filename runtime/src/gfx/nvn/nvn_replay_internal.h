@@ -159,20 +159,24 @@ struct Pass {
     uint32_t samples = 1;
     float scale = 1.0f;         // resolution scale of the attachments ([gfx] render_scale): viewports and scissors are multiplied by it
     uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)
+    uint32_t draws = 0;         // draws recorded in the pass (GPU pass profiler)
+    uint64_t verts = 0;         // vertices (indices for indexed draws) times instances of those draws
 };
-extern Pass P;
+extern Pass P;   // owner: nvn_replay_pass.cpp (ensure_pass, end_pass)
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
 // the same layout, and every command other than a pass or a layout change, get a full barrier first (end_pass).
 struct PendingWrite { Ref<Texture> tex; VkImageLayout layout; };
-extern std::vector<PendingWrite> g_pending;
-extern bool g_tracked;
-extern bool g_pass_unsafe;
+struct PassBarriers {   // owner: nvn_replay_pass.cpp
+    std::vector<PendingWrite> pending;
+    bool tracked = false;       // this submission uses tracked barriers
+    bool pass_unsafe = false;   // a draw of the open pass may write memory other than its attachments
+    void begin_submit(bool tracked_on);
+};
+extern PassBarriers g_bar;
 extern bool g_prog_writes;
 extern bool g_mirror_stale;
-extern uint32_t g_pass_draws;
-extern uint64_t g_pass_verts;
 extern Frame* F;
 extern VkPipeline g_bound_pipeline;
 // Descriptor sets and what they bind besides the game's resources (nvn_replay_bind.cpp). Most of it lasts one submission (begin_submit):

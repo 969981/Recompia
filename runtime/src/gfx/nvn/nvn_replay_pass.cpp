@@ -9,13 +9,14 @@ Pass P;
 static VkImageLayout color_layout(uint8_t fbl, uint32_t slot) {
     return (fbl >> slot) & 1 ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 }
-std::vector<PendingWrite> g_pending;
-bool g_tracked = false;         // this submission uses tracked barriers
-bool g_pass_unsafe = false;     // a draw of the open pass may write memory other than its attachments
+PassBarriers g_bar;
+void PassBarriers::begin_submit(bool tracked_on) {
+    tracked = tracked_on;
+    set_narrow_barriers(tracked);
+    pending.clear();
+    pass_unsafe = false;
+}
 bool g_prog_writes = false;     // the bound program has storage buffer or storage image bindings
-
-uint32_t g_pass_draws = 0;      // draws recorded in the open pass (GPU pass profiler)
-uint64_t g_pass_verts = 0;      // vertices (indices for indexed draws) times instances of those draws
 
 // ---- passes ----------------------------------------------------------------------------------------------------------------
 // Ends transform feedback in the open pass, remembering the bytes written in the counter buffer (a pass break must not restart the buffer).
@@ -38,9 +39,9 @@ static bool same_image(Texture* a, Texture* b) { return a == b || (a && b && a->
 void end_pass(bool to_pass) {
     rp_bump(ft::kCntEpEndPass);
     if (!P.open) {
-        if (!to_pass && !g_pending.empty()) {
+        if (!to_pass && !g_bar.pending.empty()) {
             memory_barrier(F->cb);
-            g_pending.clear();
+            g_bar.pending.clear();
         }
         return;
     }
@@ -51,24 +52,24 @@ void end_pass(bool to_pass) {
         char b[112];
         std::snprintf(b, sizeof b, "pass %ux%u c%u:%d d%d%s", P.extent.width, P.extent.height, P.ncolor, static_cast<int>(P.color_fmt[0]), static_cast<int>(P.depth_fmt),
                       P.depth_ro ? " ro" : "");
-        gpass_stamp(*F, b, g_pass_draws);
+        gpass_stamp(*F, b, P.draws);
         char vb[128];
         std::snprintf(vb, sizeof vb, "gv:%s", b);
-        ft::mark(vb, static_cast<uint32_t>(std::min<uint64_t>(g_pass_verts, 0xffffffffull)));
+        ft::mark(vb, static_cast<uint32_t>(std::min<uint64_t>(P.verts, 0xffffffffull)));
     }
-    if (to_pass && g_tracked && !g_pass_unsafe) {
+    if (to_pass && g_bar.tracked && !g_bar.pass_unsafe) {
         auto remember = [](Texture* t, VkImageLayout l) {
             if (!t || !tex_gpu(t)) return;
-            for (const PendingWrite& w : g_pending) if (w.tex.get() == t) return;
-            g_pending.push_back({Ref<Texture>::share(t), l});
+            for (const PendingWrite& w : g_bar.pending) if (w.tex.get() == t) return;
+            g_bar.pending.push_back({Ref<Texture>::share(t), l});
         };
         for (uint32_t i = 0; i < P.ncolor; ++i) remember(P.color[i].tex, color_layout(P.fbl, i));
         if (!P.depth_ro) remember(P.depth.tex, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     } else {
         memory_barrier(F->cb);
-        g_pending.clear();
+        g_bar.pending.clear();
     }
-    g_pass_unsafe = false;
+    g_bar.pass_unsafe = false;
     g_bound_pipeline = VK_NULL_HANDLE;
     g_dirty = kAllDirty;
 }
@@ -76,8 +77,8 @@ void end_pass(bool to_pass) {
 // A pass is about to use `t` as an attachment in `layout`. An earlier pass that ended without a barrier wrote it, and no layout change
 // (which would carry the dependency) happens in between: the two passes need a barrier.
 static bool pending_conflict(Texture* t, VkImageLayout layout) {
-    if (!t || g_pending.empty()) return false;
-    for (const PendingWrite& w : g_pending)
+    if (!t || g_bar.pending.empty()) return false;
+    for (const PendingWrite& w : g_bar.pending)
         if (same_image(w.tex.get(), t) && tex_layout(t) == w.layout && layout == w.layout) return true;
     return false;
 }
@@ -143,19 +144,17 @@ float attach_targets(bool fix) {
 bool ensure_pass(bool depth_ro, uint8_t fbl) {
     if (P.open && targets_match() && P.depth_ro == depth_ro && P.fbl == fbl) return true;
     end_pass(true);
-    if (!g_pending.empty()) {
+    if (!g_bar.pending.empty()) {
         bool conflict = false;
         for (uint32_t i = 0; i < S.ncolor && !conflict; ++i) conflict = pending_conflict(S.color_tex[i].get(), color_layout(fbl, i));
         if (!conflict && S.depth_tex)
             conflict = pending_conflict(S.depth_tex.get(), depth_ro ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         if (conflict) {
             memory_barrier(F->cb);
-            g_pending.clear();
+            g_bar.pending.clear();
         }
     }
     if (gpass_on()) gpass_stamp(*F, "gap", 0);      // copies, dispatches, barriers and layout changes since the previous pass
-    g_pass_draws = 0;
-    g_pass_verts = 0;
     const float pass_scale = attach_targets(true);
     P = Pass();
     P.depth_ro = depth_ro;
