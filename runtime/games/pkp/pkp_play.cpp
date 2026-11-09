@@ -1035,11 +1035,11 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
     // game targets of that shape (1080 high when wider, 1920 wide when narrower; the back end's scale on top) and the camera / UI hooks above.
     const bool fixed_size = d.render_width > 0 && d.render_height > 0;
     double aspect = fixed_size ? play::display_aspect(d, d.render_width, d.render_height) : play::display_aspect(d, window_w, window_h);
-    // Taller than 16:9 (16:10 handhelds): by default (taller_fov on) the taller view is made through the camera's FOV and aspect (taller_fields),
+    // Taller than 16:9 (16:10 handhelds): when taller_fov is on (it is off by default) the taller view is made through the camera's FOV and aspect (taller_fields),
     // so every draw agrees on the projection (#73). With [pkp] taller_fov = false the view is matrix-only (fix_camera leaves the camera's FOV
     // and aspect at 16:9), the draws that rebuild their projection from those fields (objects, characters) sit at the wrong height, and
     // auto falls back to 16:9 with bars (the 0.4.1 letterbox). A forced [display] aspect then still gets the matrix-only taller view.
-    wide().taller_fov = config_get_bool("pkp", "taller_fov", true);
+    wide().taller_fov = config_get_bool("pkp", "taller_fov", false);
     const bool taller_auto = !wide().taller_fov && !(d.aspect > 0) && aspect < kAspect169 && !close_to(aspect, kAspect169);
     if (taller_auto) {
         NXLOG_I(kTag, "aspect auto: the window (%dx%d) is taller than 16:9, so the picture stays 16:9 with bars (#73; [display] aspect forces a "

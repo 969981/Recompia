@@ -813,7 +813,7 @@ void menu_install(uint64_t base) {
     s.base = base;
     s.enabled = config_get_bool("pkp", "menu_mouse", true);
     s.log_level = static_cast<int>(config_get_int("pkp", "menu_log", 1));
-    s.ig_enabled = config_get_bool("pkp", "menu_in_game", true);     // on: drawn-layout detection confirmed with the bag (p5m)
+    s.ig_enabled = config_get_bool("pkp", "menu_in_game", false);    // off by default; on: drawn-layout detection confirmed with the bag (p5m)
     s.ig_ignore.clear();
     {   // "id/sub id/sub ..." (the ids the "in-game menu up" log line prints)
         const std::string list = config_get_str("pkp", "menu_in_game_ignore", "");
