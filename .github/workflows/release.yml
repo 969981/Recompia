@@ -276,7 +276,15 @@ jobs:
             cp -f src-tauri/icons-testing/* src-tauri/icons/
           fi
           npm ci --no-audit --no-fund
-          npm run tauri build -- --bundles appimage --config '{"bundle":{"active":true}}'
+          # linuxdeploy and its plugins are downloaded from GitHub while bundling; a failed download (HTTP 504, a missing plugin) fails the
+          # job although nothing is wrong with the code (0.8.2 and beta.12). The compiled launcher is reused, so a retry only repeats the bundling.
+          for try in 1 2 3; do
+            if npm run tauri build -- --bundles appimage --config '{"bundle":{"active":true}}'; then break; fi
+            [ "$try" = 3 ] && { echo "::error::the AppImage could not be bundled after 3 tries"; exit 1; }
+            echo "::warning::AppImage bundling failed (try $try of 3), trying again in 30 s"
+            rm -rf src-tauri/target/release/bundle/appimage
+            sleep 30
+          done
           ls -la src-tauri/target/release/bundle/appimage/
 
       - name: AppImage runtime without FUSE 2
