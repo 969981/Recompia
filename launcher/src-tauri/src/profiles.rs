@@ -10,9 +10,7 @@
 //! its save: removing it only drops the entry, the save folder stays on disk.
 
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::RandomState;
 use std::fs;
-use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
 
 use crate::ini::Ini;
@@ -114,23 +112,19 @@ fn save(dir: &Path, s: &Store) -> Result<(), String> {
     write_atomic(&dir.join(FILE), &text)
 }
 
-fn random_hex() -> String {
-    let mut out = String::new();
-    for _ in 0..2 {
-        let mut h = RandomState::new().build_hasher();
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-        h.write_u32(std::process::id());
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+/// 32 hex digits from the OS random source (the one room codes use).
+fn random_hex() -> std::io::Result<String> {
+    let mut bytes = [0u8; 16];
+    crate::relay::room_code::os_random(&mut bytes)?;
+    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-fn new_uid(taken: &[&str]) -> String {
+fn new_uid(taken: &[&str]) -> Result<String, String> {
     loop {
-        let u = random_hex();
+        let u = random_hex().map_err(|e| format!("Cannot make an id for the profile: {}", e))?;
         // a zero half is not a valid account uid for the game, and the built-in user belongs to the default
         if u[..16] != *"0000000000000000" && u[16..] != *"0000000000000000" && u != BUILT_IN_UID && !taken.iter().any(|t| t.eq_ignore_ascii_case(&u)) {
-            return u;
+            return Ok(u);
         }
     }
 }
@@ -172,7 +166,7 @@ pub fn add(dir: &Path, name: &str) -> Result<Store, String> {
         return Err(format!("There is already a profile called {}.", name));
     }
     let uids: Vec<&str> = s.profiles.iter().flat_map(|p| [p.uid.as_str(), p.net_uid.as_str()]).collect();
-    let (uid, net_uid) = (new_uid(&uids), new_uid(&uids));
+    let (uid, net_uid) = (new_uid(&uids)?, new_uid(&uids)?);
     let id = format!("p{}", &uid[..8]);
     s.profiles.push(Profile { id, name: name.clone(), uid, nickname: nickname_of(&name), net_uid });
     save(dir, &s)?;
