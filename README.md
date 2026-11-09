@@ -90,7 +90,7 @@
 
 ### Controls
 - **Any controller:** Xbox, PlayStation, Switch Pro and more, with rumble and motion. Buttons follow the Switch layout by default.
-- **Keyboard and mouse.** The mouse also works in menus: click to pick, scroll to move.
+- **Keyboard and mouse.** The mouse also works in menus: click to confirm the highlighted item; scroll or use the arrow keys to move the highlight.
 - **Change any button** on the F1 **Controls** page.
 - **Joy-Con 2 mouse mode** for placing items: press the middle mouse button.
 - **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation or Switch.

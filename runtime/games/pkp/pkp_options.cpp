@@ -615,7 +615,7 @@ int hook_text_by_id(::Ctx* c, uint64_t, void*) {
 }  // namespace
 
 void options_install(uint64_t base) {
-    if (!config_get_bool("pkp", "options_menu", false)) return;
+    if (!config_get_bool("pkp", "options_menu", true)) return;
     g.base = base;
     hook_add_entry(base + kOpen, &hook_open);
     hook_add_entry(base + kOption, &hook_option);
