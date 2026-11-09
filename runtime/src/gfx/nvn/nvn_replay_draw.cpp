@@ -579,37 +579,75 @@ static void count_primitives(uint32_t mode, uint32_t count, uint32_t instances) 
     if (g_xfb.active) g_q.prims_xfb += prims;
 }
 
-// Quads, quad strips, polygons and line loops, which Vulkan has no topology for, as the triangle (or line strip) index list of the same vertices.
-// `in` holds the vertex indices of the draw in order (for DrawArrays: first, first + 1, ...). Shared by the direct and the indirect draws.
-static std::vector<uint32_t> convert_prim_indices(PrimConversion conv, const std::vector<uint32_t>& in) {
-    std::vector<uint32_t> idx;
-    const size_t n = in.size();
+// The number of indices bind_prim_indices makes from n vertices.
+static uint64_t prim_index_count(PrimConversion conv, uint32_t n) {
     switch (conv) {
-        case PrimConversion::Quads:
-            for (size_t q = 0; q + 3 < n; q += 4) idx.insert(idx.end(), {in[q], in[q + 1], in[q + 2], in[q], in[q + 2], in[q + 3]});
-            break;
-        case PrimConversion::QuadStrip:
-            for (size_t q = 0; q + 3 < n; q += 2) idx.insert(idx.end(), {in[q], in[q + 1], in[q + 2], in[q + 2], in[q + 1], in[q + 3]});
-            break;
-        case PrimConversion::Polygon:
-            for (size_t k = 1; k + 1 < n; ++k) idx.insert(idx.end(), {in[0], in[k], in[k + 1]});
-            break;
-        case PrimConversion::LineLoop:
-            idx = in;
-            if (!in.empty()) idx.push_back(in[0]);
-            break;
-        default: idx = in; break;
+        case PrimConversion::Quads: return static_cast<uint64_t>(n / 4) * 6;
+        case PrimConversion::QuadStrip: return n >= 4 ? static_cast<uint64_t>((n - 4) / 2 + 1) * 6 : 0;
+        case PrimConversion::Polygon: return n >= 3 ? static_cast<uint64_t>(n - 2) * 3 : 0;
+        case PrimConversion::LineLoop: return n ? static_cast<uint64_t>(n) + 1 : 0;
+        default: return n;
     }
-    return idx;
 }
 
-// Binds an index list of 32-bit indices from the upload buffer. False: no room.
-static bool bind_u32_indices(const std::vector<uint32_t>& idx) {
-    UploadAlloc u = F->upload(idx.size() * 4, 4);
-    if (!u) return false;
-    std::memcpy(u.ptr, idx.data(), idx.size() * 4);
+// Quads, quad strips, polygons and line loops, which Vulkan has no topology for, as the triangle (or line strip) index list of the same
+// vertices, written straight into the upload buffer and bound as 32-bit indices (also widens 8-bit indices: conv None). `in(i)` gives the
+// i-th vertex index of the draw (for DrawArrays: first + i); each is read once, in order. Shared by the direct and the indirect draws.
+// Returns the index count; 0: nothing to draw, or no room in the upload buffer (nothing bound).
+template <class Src>
+static uint64_t bind_prim_indices(PrimConversion conv, uint32_t n, Src in) {
+    const uint64_t m = prim_index_count(conv, n);
+    if (!m) return 0;
+    UploadAlloc u = F->upload(m * 4, 4);
+    if (!u) return 0;
+    uint8_t* o = u.ptr;
+    auto put = [&o](uint32_t v) { std::memcpy(o, &v, 4); o += 4; };
+    switch (conv) {
+        case PrimConversion::Quads:
+            for (uint32_t q = 0; q + 3 < n; q += 4) {
+                const uint32_t a = in(q), b = in(q + 1), c = in(q + 2), d = in(q + 3);
+                put(a); put(b); put(c); put(a); put(c); put(d);
+            }
+            break;
+        case PrimConversion::QuadStrip: {   // n >= 4
+            uint32_t a = in(0), b = in(1);
+            for (uint32_t q = 0; q + 3 < n; q += 2) {
+                const uint32_t c = in(q + 2), d = in(q + 3);
+                put(a); put(b); put(c); put(c); put(b); put(d);
+                a = c; b = d;
+            }
+            break;
+        }
+        case PrimConversion::Polygon: {     // n >= 3
+            const uint32_t f = in(0);
+            uint32_t prev = in(1);
+            for (uint32_t k = 1; k + 1 < n; ++k) {
+                const uint32_t next = in(k + 1);
+                put(f); put(prev); put(next);
+                prev = next;
+            }
+            break;
+        }
+        case PrimConversion::LineLoop: {    // n >= 1
+            const uint32_t f = in(0);
+            put(f);
+            for (uint32_t i = 1; i < n; ++i) put(in(i));
+            put(f);
+            break;
+        }
+        default:
+            for (uint32_t i = 0; i < n; ++i) put(in(i));
+            break;
+    }
     bind_index_buffer(F->cb, u.buffer, u.offset, VK_INDEX_TYPE_UINT32);
-    return true;
+    return m;
+}
+
+// The i-th index of an index list of isz bytes per index, widened to 32 bits.
+static inline uint32_t read_index(const uint8_t* src, uint32_t isz, uint32_t i) {
+    if (isz == 1) return src[i];
+    if (isz == 2) { uint16_t t; std::memcpy(&t, src + i * 2, 2); return t; }
+    uint32_t v; std::memcpy(&v, src + i * 4, 4); return v;
 }
 
 // [gfx] gpu_checkpoints = all: a checkpoint before the draw names it (vertex and fragment shader, counts) if the device is lost while it runs.
@@ -633,12 +671,10 @@ void do_draw_arrays(const P_DrawArrays& p) {
         vkCmdDraw(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), p.first, p.base_instance);
     } else {
         // QUADS / QUAD_STRIP / POLYGON / LINE_LOOP: generate an index buffer
-        std::vector<uint32_t> in(p.count);
-        for (uint32_t k = 0; k < p.count; ++k) in[k] = p.first + k;
-        const std::vector<uint32_t> idx = convert_prim_indices(conv, in);
-        if (idx.empty()) return;
-        if (!bind_u32_indices(idx)) return;
-        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, 0, p.base_instance);
+        const uint32_t first = p.first;
+        const uint64_t m = bind_prim_indices(conv, p.count, [first](uint32_t k) { return first + k; });
+        if (!m) return;
+        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(m), std::max<uint32_t>(1, p.instance_count), 0, 0, p.base_instance);
     }
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     P.draws++;
@@ -659,18 +695,9 @@ void do_draw_elements(const P_DrawElements& p) {
     checkpoint_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
     if (conv != PrimConversion::None || isz == 1) {
         // widen to 32 bit and/or convert the primitive
-        std::vector<uint32_t> in(p.count);
-        for (uint32_t i = 0; i < p.count; ++i) {
-            uint32_t v = 0;
-            if (isz == 1) v = src[i];
-            else if (isz == 2) { uint16_t t; std::memcpy(&t, src + i * 2, 2); v = t; }
-            else std::memcpy(&v, src + i * 4, 4);
-            in[i] = v;
-        }
-        const std::vector<uint32_t> idx = convert_prim_indices(conv, in);
-        if (idx.empty()) return;
-        if (!bind_u32_indices(idx)) return;
-        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
+        const uint64_t m = bind_prim_indices(conv, p.count, [src, isz](uint32_t i) { return read_index(src, isz, i); });
+        if (!m) return;
+        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(m), std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     } else {
         BufRef br = resolve_read(p.index_address, static_cast<uint64_t>(p.count) * isz, kReadIndex);
         bind_index_buffer(F->cb, br.buffer, br.offset, vk_index_type(static_cast<int>(p.type)));
@@ -839,29 +866,22 @@ static void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint
         const uint32_t count = v[0], instances = v[1];
         if (!count || !instances) continue;
         if (!indirect_args_plausible(count, instances)) { note_unsupported("indirect draw conversion: implausible arguments (stale guest memory?)"); continue; }
-        std::vector<uint32_t> in(count);
         int32_t base_vertex = 0;
         uint32_t base_instance = v[3];
+        const uint8_t* src = nullptr;
         if (indexed) {
             base_vertex = static_cast<int32_t>(v[3]);
             base_instance = v[4];
-            const uint8_t* src = cpu_view(p.index_address + static_cast<uint64_t>(v[2]) * isz, static_cast<uint64_t>(count) * isz);
+            src = cpu_view(p.index_address + static_cast<uint64_t>(v[2]) * isz, static_cast<uint64_t>(count) * isz);
             if (!src) { note_unsupported("indirect draw conversion: the indices are not readable by the CPU (written by the GPU)"); break; }
-            for (uint32_t k = 0; k < count; ++k) {
-                uint32_t x = 0;
-                if (isz == 1) x = src[k];
-                else if (isz == 2) { uint16_t t; std::memcpy(&t, src + k * 2, 2); x = t; }
-                else std::memcpy(&x, src + k * 4, 4);
-                in[k] = x;
-            }
-        } else {
-            for (uint32_t k = 0; k < count; ++k) in[k] = v[2] + k;
         }
         count_primitives(p.mode, count, instances);
-        const std::vector<uint32_t> idx = convert_prim_indices(conv, in);
-        if (idx.empty() || !bind_u32_indices(idx)) continue;
+        const uint32_t first = v[2];
+        const uint64_t m = src ? bind_prim_indices(conv, count, [src, isz](uint32_t k) { return read_index(src, isz, k); })
+                               : bind_prim_indices(conv, count, [first](uint32_t k) { return first + k; });
+        if (!m) continue;
         checkpoint_draw(count, instances, 0, false);   // the CPU read the arguments: a direct draw
-        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(idx.size()), instances, 0, base_vertex, base_instance);
+        vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(m), instances, 0, base_vertex, base_instance);
         drew = true;
     }
     if (drew) {
