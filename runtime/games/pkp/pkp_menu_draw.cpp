@@ -130,7 +130,8 @@ int hook_pane_draw(::Ctx* c, uint64_t, void* user) {
         // the draw goes on only for panes it shows (0x100, no hidden ancestor, alpha); record those
         const uint32_t fl = *reinterpret_cast<const uint32_t*>(pane + kPaneFlags);
         bool shown = (fl & 0x100) && *reinterpret_cast<const uint8_t*>(pane + kPaneAlpha) != 0;
-        for (uint64_t q = pane; shown && q; q = *reinterpret_cast<const uint64_t*>(q + kPaneParent))
+        uint64_t q = pane;   // depth-capped like mark_with_ancestors and pane_shown
+        for (int depth = 0; shown && q && depth < 64; ++depth, q = *reinterpret_cast<const uint64_t*>(q + kPaneParent))
             if (*reinterpret_cast<const uint32_t*>(q + kPaneFlags) & 0x40) shown = false;
         if (shown) mark_with_ancestors(pane, frame);
     } else {
