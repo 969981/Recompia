@@ -3,8 +3,11 @@
 #pragma once
 #include <cstdint>
 
+#include "play_game.h"
+
 namespace nxrt::games::pkp {
 
-void options_install(uint64_t base);
+void options_install(uint64_t base, play::GameHost* host);
+void options_frame();   // frame boundary, main thread: the Mouse Mode Key row's key capture
 
 }  // namespace nxrt::games::pkp

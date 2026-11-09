@@ -128,6 +128,12 @@ midhook 0x71002e1de8
 midhook 0x71007226bc
 midhook 0x71006da610
 # PC features (runtime games/pkp/pkp_play.cpp)
+#   Joy-Con 2 mouse mode (#367): the game's "mouse mode allowed" check 0x71002fa6ac right after it asked the pad style (w0 = style,
+#   1 = two Joy-Cons; x19 = character), its last step (w0 = the save's mouse option bit) and mouse mode turning on at the option test
+#   in 0x71002fa8b0 (w8 = the option byte): while the Mouse mode key is on, the local player counts as two Joy-Cons with the option on
+midhook 0x71002fa6f8
+midhook 0x71002fa8a0
+midhook 0x71002fa8ec
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
 entryhook 0x7101129990

@@ -38,6 +38,9 @@
 // 0x710009db4c, x29 - 0x60) and the live hit's at 0x71006da610 (x29 - 0x80, tool path only: w22 set, x27 = the character). The shape
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
 // With no such hit, everything stays as without the reach.
+//
+// The game's own Joy-Con 2 mouse mode (character + 0xaa81, the Mouse mode key: pkp_play.cpp) aims with its pointer: while it is on, every
+// hook here leaves the game alone (follow_camera answers 0).
 #include "pkp_aim.h"
 
 #include <algorithm>
@@ -71,6 +74,7 @@ constexpr uint64_t kPosition = 0x20c0;           // character: world position (v
 constexpr uint64_t kPlayerManager = 0x3561928;   // qword: the player manager; +0x30 = the local player
 constexpr uint64_t kCameraManager = 0x3561948;   // qword: the camera manager
 constexpr uint64_t kManagerPlayer = 0x30;
+constexpr uint64_t kMouseModeOn = 0xaa81;        // character: the game's Joy-Con 2 mouse mode is on (u8)
 constexpr uint64_t kFollow = 0x10;               // camera manager + 0x10: the embedded follow camera of slot 0
 constexpr uint64_t kActiveTable = 0xc58;         // + signed byte(manager + 0xcc8) * 8: the active camera pointer of slot 0
 constexpr uint64_t kActiveIndex = 0xcc8;
@@ -102,6 +106,7 @@ State g;
 uint64_t follow_camera(uint64_t ch) {
     const uint64_t mgr = rd<uint64_t>(g.base + kPlayerManager);
     if (!mgr || ch != rd<uint64_t>(mgr + kManagerPlayer)) return 0;
+    if (rd<uint8_t>(ch + kMouseModeOn)) return 0;   // the game's mouse mode aims with its pointer
     const uint64_t cm = rd<uint64_t>(g.base + kCameraManager);
     if (!cm || !mem::is_mapped(cm, kActiveIndex + 1)) return 0;
     const int8_t slot = rd<int8_t>(cm + kActiveIndex);

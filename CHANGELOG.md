@@ -21,6 +21,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
   - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
 
+- Fixed the **Joy-Con 2 mouse mode** key doing nothing in the game (#367)
+  - Before: the middle mouse button freed the mouse pointer, but the game never switched to its mouse mode: on a Switch 2 that mode only exists with two detached Joy-Cons, and the PC controller counts as a Pro Controller. Changing the key or its trigger did not help
+  - Now: the key turns on the game's own mouse mode, as when a Joy-Con 2 is laid on its side: the game shows its pointer, switches to Rock Smash and you point and click (left button) to break and place blocks where the pointer is. Press the key again to go back to the camera. The pointer lines up with the picture at any render size, and camera aim steps aside while the mouse mode is on
+  - The key can now be changed in the game's own **Settings > Mouse > Mouse Mode Key**: move the row, then press any keyboard key, mouse button or wheel notch (Esc cancels). The F1 **Controls** page (`mouse_mode`) still works too
+  - Needs **Set up again** once (new game hooks)
+
 ### Game
 - Added a **Quit Game** prompt to the title screen, next to Settings (#319)
   - Before: the title had only "(-) Settings"; the game could be closed with the window's close button, the quit key or the pad's quit combination, but nothing on the title said so

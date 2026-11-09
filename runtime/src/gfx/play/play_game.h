@@ -40,6 +40,12 @@ public:
     virtual double pitch_limit_deg() const = 0;                   // [play] pitch_limit_deg
     virtual bool log_status() const = 0;                          // [play] log_status
     virtual void request_quit_prompt() = 0;                       // opens the "Close the game?" prompt (overlay.h open_quit_prompt)
+    // Rebinding from a game's own menu, the same capture as the settings page (play_ui.h UiHost): after begin_capture() the next key press,
+    // mouse button or wheel notch does not reach the game; capture_result() returns it once. Escape cancels (capturing() turns false).
+    virtual void begin_capture() {}
+    virtual bool capturing() const { return false; }
+    virtual bool capture_result(InputId*) { return false; }
+    virtual void cancel_capture() {}
 };
 
 // The game's answer at one frame boundary.
