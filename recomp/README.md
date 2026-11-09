@@ -28,11 +28,13 @@ Python is `tools\.venv\Scripts\python.exe` at the repository root (3.13; package
                              [--shards 16] [--jobs 8] [--patches FILE] [--sites FILE] [--spin-yield]
     python -m nxrecomp cover <module.nso|prog.elf> [--game pkp]      per-instruction-word translation coverage of .text
     python -m nxrecomp.funcs <module> --out functions.tsv             function boundaries and the evidence for each
+    python -m nxrecomp build-info [--game pkp]                       the game's module table and the compile flags (JSON)
 
 In a CMake build (the game), `cmake/NxRecomp.cmake` gives `nxrecomp_add_module(<target> INPUT <file> ...)`, which
-lifts as a build step and builds the result as a static library (flags: C++20, `-fno-strict-aliasing`, `-ffp-contract=off`,
-`-mcx16`, optnone for functions over `optnone_insns` instructions; `NX_USE_LAUNCHER` adds a time-limit fallback; `NX_SPIN_YIELD`
-passes `--spin-yield`). Presets:
+lifts as a build step and builds the result as a static library (flags from `nxrecomp/compile_flags.py`, shared with the
+player build: C++20, `-fno-strict-aliasing`, `-ffp-contract=off`, `-mcx16`; optnone for functions over `optnone_insns`
+instructions; `NX_USE_LAUNCHER` adds a time-limit fallback; `NX_SPIN_YIELD` passes `--spin-yield`), and
+`nxrecomp_build_info(<game> <prefix>)` reads the module table of `games/<game>/config.py`. Presets:
 `cmake --preset default`.
 
 ## How it is built
