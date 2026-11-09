@@ -22,6 +22,7 @@
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/movie.h"
+#include "nxrt/qpc.h"
 #include "nxrt/tt.h"
 #include "nxrt/text.h"
 
@@ -120,16 +121,7 @@ namespace {
 
 constexpr const char* kTag = "timestep";
 
-double qpc_seconds() {
-    static const double inv = [] {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        return 1.0 / static_cast<double>(f.QuadPart);
-    }();
-    LARGE_INTEGER t;
-    QueryPerformanceCounter(&t);
-    return static_cast<double>(t.QuadPart) * inv;
-}
+double qpc_seconds() { return qpc::seconds(); }
 
 struct G {
     std::mutex mu;                      // statistics and the csv

@@ -9,6 +9,7 @@
 #include "nxrt/kernel.h"
 #include "nxrt/game.h"
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 #include "nxrt/tt.h"
 #include "kernel_internal.h"
 
@@ -21,16 +22,7 @@ uint64_t tick_hz() {
 
 uint64_t system_tick() {
     if (uint64_t vt; tt::virtual_tick(&vt)) return vt;      // deterministic mode: the virtual clock (test tooling)
-    static const uint64_t freq = [] {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        return static_cast<uint64_t>(f.QuadPart);
-    }();
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    const uint64_t v = static_cast<uint64_t>(c.QuadPart);
-    const uint64_t hz = tick_hz();
-    return (v / freq) * hz + (v % freq) * hz / freq;     // split so the multiplication cannot overflow
+    return qpc::scale(qpc::ticks(), tick_hz());
 }
 
 // SleepThread takes nanoseconds and the console timer is good to a few microseconds. Sleep() counts whole milliseconds on a
@@ -122,12 +114,7 @@ void sleep_ns(int64_t ns) {
     constexpr int64_t kSlice = 10000000;
     void (*fn)() = ns > kSlice ? detail::blocked_hook_here() : nullptr;
     if (!fn) return sleep_once(ns);
-    const auto qpc_ns = [] {
-        LARGE_INTEGER f, c;
-        QueryPerformanceFrequency(&f);
-        QueryPerformanceCounter(&c);
-        return static_cast<int64_t>(c.QuadPart / f.QuadPart * 1000000000 + c.QuadPart % f.QuadPart * 1000000000 / f.QuadPart);
-    };
+    const auto qpc_ns = [] { return static_cast<int64_t>(qpc::now_ns()); };
     const int64_t until = qpc_ns() + ns;
     for (int64_t rem = ns; rem > 0; rem = until - qpc_ns()) {
         if (rem <= kSlice) return sleep_once(rem);

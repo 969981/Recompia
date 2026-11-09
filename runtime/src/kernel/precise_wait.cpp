@@ -13,6 +13,7 @@
 #include "kernel_internal.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
+#include "nxrt/qpc.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 
@@ -38,16 +39,7 @@ bool read_flag(std::atomic<int>& f, const char* key) {
     return v != 0;
 }
 
-int64_t qpc_ns() {
-    static const int64_t f = [] {
-        LARGE_INTEGER q;
-        QueryPerformanceFrequency(&q);
-        return static_cast<int64_t>(q.QuadPart);
-    }();
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    return c.QuadPart / f * 1000000000 + c.QuadPart % f * 1000000000 / f;
-}
+int64_t qpc_ns() { return static_cast<int64_t>(qpc::now_ns()); }
 
 // The calling thread's waitable timer: high resolution when the OS has it, else a plain one (older Wine/Proton builds may refuse
 // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION; logged once per process). Null only when both fail.
