@@ -28,6 +28,23 @@ target_link_libraries(nxrt_astc2bc7 INTERFACE "${NXRT_A2B_DIR}/astc2bc7.lib" "${
 file(GLOB NXRT_A2B_DLLS "${NXRT_A2B_DIR}/astcdec-*-shared.dll")
 
 file(GLOB_RECURSE NXRT_GFX_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/*.cpp")
+# The vendor upscalers (src/gfx/extras): each one can be left out of the build. Off, its source is replaced by its *_off.cpp stub, which
+# reports the backend unavailable; the callers then fall back as they do when the SDK is missing at run time (FSR 1 for NIS, no temporal pass
+# for DLSS / FSR 3). The replay only sees the common interfaces (temporal.h, spatial_upscaler.h). FSR 1 is always built.
+option(NXRT_UPSCALER_DLSS "NVIDIA DLSS / DLAA through Streamline (extras/temporal_dlss.cpp)" ON)
+option(NXRT_UPSCALER_FSR3 "AMD FSR 3.1 through the FidelityFX API (extras/temporal_ffx.cpp)" ON)
+option(NXRT_UPSCALER_NIS "NVIDIA Image Scaling (extras/nis_spatial.cpp)" ON)
+list(FILTER NXRT_GFX_SOURCES EXCLUDE REGEX "_off\\.cpp$")
+set(_nxrt_up_src_DLSS temporal_dlss)
+set(_nxrt_up_src_FSR3 temporal_ffx)
+set(_nxrt_up_src_NIS nis_spatial)
+foreach(_nxrt_up_opt IN ITEMS DLSS FSR3 NIS)
+    set(_nxrt_up_src "${_nxrt_up_src_${_nxrt_up_opt}}")
+    if(NOT NXRT_UPSCALER_${_nxrt_up_opt})
+        list(FILTER NXRT_GFX_SOURCES EXCLUDE REGEX "/extras/${_nxrt_up_src}\\.cpp$")
+        list(APPEND NXRT_GFX_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/extras/${_nxrt_up_src}_off.cpp")
+    endif()
+endforeach()
 add_library(nxrt_gfx STATIC ${NXRT_GFX_SOURCES})
 # The About page of the F1 menu shows the commit this build was made from (read when CMake configures; absent without git).
 find_package(Git QUIET)
