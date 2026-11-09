@@ -139,7 +139,7 @@ void install(const FeatureInstall& in) {
     s.story_armed.store(false);
     s.logged_story.store(false);
     services::ldnapi::set_session_variant(0, kInteractName);
-    services::ldnapi::set_story_mod(false);
+    services::ldnapi::set_coop_mods({});
     bool want_story = story;
     if (want_story && !services::ldnapi::native_protocol()) {
         NXLOG_W(kTag, "Story co-op ([pkp] link_story_coop): ignored, it needs [net] protocol = native (the relay Link Play has no such setting)");
@@ -175,7 +175,7 @@ InteractCheck story_arm(const std::string& build_id, bool site_lifted, uint32_t 
     else if (!site_lifted) c = InteractCheck::NotLifted;
     else if (word != site->word) c = InteractCheck::WordDiffers;
     if (c == InteractCheck::Ok) {
-        services::ldnapi::set_story_mod(true);
+        services::ldnapi::set_coop_mods({kStoryName});
         s.story_armed.store(true, std::memory_order_release);
         NXLOG_I(kTag, "Story co-op: armed at main+0x%llx (build %s); Link Play sessions are refused to players without it (mods fingerprint)",
                 static_cast<unsigned long long>(site->site), shown.c_str());
@@ -256,7 +256,7 @@ void remove() {   // the registry has removed the hooks
     s.armed.store(false);
     s.story_armed.store(false);
     s.story_hook = 0;
-    services::ldnapi::set_story_mod(false);
+    services::ldnapi::set_coop_mods({});
     s.hook = 0;
     s.hooks = nullptr;
     s.checked.store(false);

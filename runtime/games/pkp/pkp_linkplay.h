@@ -21,6 +21,8 @@ enum class InteractCheck { Ok, UnknownBuild, NotLifted, WordDiffers };
 
 constexpr uint8_t kInteractVariant = 1;                   // the ldn session variant while the hook is armed
 constexpr const char* kInteractName = "Interact everywhere";
+// Story co-op's name in the co-op mods fingerprint (ldnapi::set_coop_mods): pokopia-native's COOP_STORY_MOD, byte for byte.
+constexpr const char* kStoryName = "Story co-op (experimental)";
 
 // Pure: the site of main build `build_id` (null when none is known).
 const InteractSite* interact_site(const std::string& build_id);

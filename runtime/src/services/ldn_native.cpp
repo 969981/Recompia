@@ -54,8 +54,9 @@ namespace nxrt::services::ldn_impl {
 // coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; Pokopia's "Interact everywhere" while armed, the same
 // name pokopia-native adds as COOP_INTERACT_MOD), 0 without one. The variant's bits 12..14 of the local communication version are a
 // Link Play (relay) thing and are not sent here: the game's version goes out as the game gave it.
-// Story co-op (pokopia-native's "Story co-op (experimental)", docs/story-coop.md; ldnapi::set_story_mod, armed by games/pkp/pkp_linkplay.cpp)
-// adds COOP_STORY_MOD after the Interact name, so both on give pokopia-native's fingerprint c75a2da0380038c1.
+// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order: Pokopia's Story co-op
+// (games/pkp/pkp_linkplay.cpp) adds COOP_STORY_MOD's name after the Interact one, so both on give pokopia-native's fingerprint
+// c75a2da0380038c1.
 // Not mapped (the module has no counterpart; pokopia-native cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
 // (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
 // built here from the node tables the game reads.
@@ -128,15 +129,16 @@ const char* coop_hook_build(void*) {
 }
 uint64_t coop_hook_mods(void*, char* what, size_t n) {
     std::string name;
-    if (!own_variant(&name) || name.empty()) return 0;
-    // pokopia-native's coop_hmods order: the cheats (none here), "Interact everywhere", then "Story co-op (experimental)"
+    std::vector<std::string> mods;
+    if (!own_variant(&name, &mods) || name.empty()) return 0;
+    // pokopia-native's coop_hmods order: the cheats (none here), the variant's name, then the game module's co-op mods in its order
     uint64_t h = coop_mods_add(0, name.c_str());
-    if (story_flag().load()) {
-        h = coop_mods_add(h, COOP_STORY_MOD);
-        std::snprintf(what, n, "%s, %s", name.c_str(), COOP_STORY_MOD);
-    } else {
-        std::snprintf(what, n, "%s", name.c_str());
+    std::string shown = name;
+    for (const std::string& m : mods) {
+        h = coop_mods_add(h, m.c_str());
+        shown += ", " + m;
     }
+    std::snprintf(what, n, "%s", shown.c_str());
     return h;
 }
 

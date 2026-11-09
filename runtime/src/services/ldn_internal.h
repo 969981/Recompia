@@ -35,10 +35,10 @@ struct Variant {
     std::mutex mu;
     uint8_t value = 0;
     std::string what;
+    std::vector<std::string> mods;   // ldnapi::set_coop_mods
 };
 Variant& variant();
-std::atomic<bool>& story_flag();
-uint8_t own_variant(std::string* what = nullptr);
+uint8_t own_variant(std::string* what = nullptr, std::vector<std::string>* mods = nullptr);
 int16_t wire_version(int16_t game);
 int16_t game_version(int16_t wire);
 uint8_t variant_of(int16_t wire);

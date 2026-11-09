@@ -21,14 +21,11 @@ Variant& variant() {
     static Variant v;
     return v;
 }
-std::atomic<bool>& story_flag() {
-    static std::atomic<bool> f{false};
-    return f;
-}
-uint8_t own_variant(std::string* what) {
+uint8_t own_variant(std::string* what, std::vector<std::string>* mods) {
     Variant& v = variant();
     std::lock_guard<std::mutex> lk(v.mu);
     if (what) *what = v.what;
+    if (mods) *mods = v.mods;
     return v.value;
 }
 // The game's version on the wire: its variant in bits 12..14. Only for versions 0..0xfff (the game's own bits never collide); any other is

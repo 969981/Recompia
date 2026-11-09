@@ -58,7 +58,7 @@ void ldn_reset() {
         g_seen.clear();
     }
     ldnapi::set_session_variant(0, "");
-    ldnapi::set_story_mod(false);
+    ldnapi::set_coop_mods({});
     for (LdnBackend* b : {&linkplay_backend(), &native_backend()}) b->reset();
 }
 
@@ -71,8 +71,16 @@ void set_session_variant(uint8_t v, const char* what) {
     s.what = what ? what : "";
 }
 uint8_t session_variant() { return own_variant(); }
-void set_story_mod(bool on) { story_flag().store(on); }
-bool story_mod() { return story_flag().load(); }
+void set_coop_mods(const std::vector<std::string>& names) {
+    Variant& s = variant();
+    std::lock_guard<std::mutex> lk(s.mu);
+    s.mods = names;
+}
+std::vector<std::string> coop_mods() {
+    std::vector<std::string> m;
+    own_variant(nullptr, &m);
+    return m;
+}
 bool native_protocol() { return services::native_protocol(); }
 }  // namespace ldnapi
 
