@@ -7,7 +7,5 @@
 namespace nxrt::games::pkp {
 
 void aim_install(uint64_t base);
-// Once per frame (main thread): pins the Joy-Con 2 mouse pointer for the game's mouse mode while camera aim applies.
-void aim_frame(bool in_game);
 
 }  // namespace nxrt::games::pkp

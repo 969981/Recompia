@@ -42,11 +42,4 @@ bool jc2_mouse_wants_pointer();
 // True while the virtual Joy-Con 2 mouse is on its surface (the game sees mouse input): the camera must not use the mouse counts.
 bool jc2_mouse_active();
 
-// Pinned pointer (a game layer aiming with the game's own mouse mode, for example camera aim): while jc2_mouse_pin(true) is called at least
-// every 250 ms and the mouse is not active, the Joy-Con 2 mouse is on its surface with the pointer pinned at (x, y) (negative: the centre
-// of the pointer range), no buttons and no wheel. It needs no PC mouse and is not jc2_mouse_active(): the camera keeps the mouse counts
-// and the stick. jc2_mouse_pin(false) ends it at once; the free pointer (active) always wins.
-void jc2_mouse_pin(bool on, int x = -1, int y = -1);
-bool jc2_mouse_pinned();
-
 }  // namespace nxrt::hid
