@@ -411,11 +411,16 @@ mod tests {
     fn a_save_is_refused_when_the_damaged_file_cannot_be_copied() {
         let d = tmp("refuse", "[account]\nuid = aaaa\n");
         fs::write(d.join(FILE), "broken").unwrap();
-        // every candidate name is taken, so no copy can be made
-        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-        for i in 0..1000 {
-            let name = if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) };
-            fs::write(d.join(name), "x").unwrap();
+        // every candidate name is taken, so no copy can be made. The stamp has a resolution of one second, so start at the top of a second
+        // and take the names of this second and the next: the 1000 writes and add() may straddle the change.
+        let ms = chrono::Utc::now().timestamp_subsec_millis() as u64;
+        std::thread::sleep(std::time::Duration::from_millis(1000 - ms));
+        let now = chrono::Utc::now();
+        for stamp in [now, now + chrono::Duration::seconds(1)].map(|t| t.format("%Y%m%d-%H%M%S").to_string()) {
+            for i in 0..1000 {
+                let name = if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) };
+                fs::write(d.join(name), "x").unwrap();
+            }
         }
         let err = add(&d, "Sam").unwrap_err();
         assert!(err.contains("damaged"), "{}", err);
