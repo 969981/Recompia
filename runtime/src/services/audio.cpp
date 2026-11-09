@@ -21,6 +21,7 @@
 #include "audren/audren_types.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
+#include "gauge_hook.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "services_internal.h"
@@ -100,12 +101,6 @@ audren::AudioRendererConfiguration read_config(const Request& req) {
 
 // ---- gauges (include/nxrt/gauge.h): audren.* (the renderer totals are kept by AudioRenderSystem, see audren/Server/AudioRenderSystem.h)
 GaugeCounter g_audren_renderers("audren.renderers");   // open IAudioRenderer objects
-// Removes its gauge when this file's statics are torn down.
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_voices("audren.voices_in_use", [] { return audren::g_gauge_voices_in_use.load(std::memory_order_relaxed); });
 GaugeHook gauge_waves("audren.wavebuffers_queued", [] { return audren::g_gauge_wavebuffers_queued.load(std::memory_order_relaxed); });
 GaugeHook gauge_pools("audren.memory_pools", [] { return audren::g_gauge_memory_pools.load(std::memory_order_relaxed); });

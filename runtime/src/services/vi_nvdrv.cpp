@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "nxrt/gauge.h"
+#include "gauge_hook.h"
 #include "nxrt/log.h"
 #include "nxrt/services_api.h"
 #include "services_internal.h"
@@ -31,12 +32,6 @@ NvState& nv() {
 namespace {
 
 // ---- gauges (include/nxrt/gauge.h): the nvdrv tables, counted under the state lock ----
-// Removes its gauge when this file's statics are torn down.
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_nv_files("nv.files", [] {   // open nvdrv device files (nvmap, gpu channels, as-gpu, ...)
     NvState& s = nv();
     std::lock_guard<std::mutex> lk(s.mu);
