@@ -9,10 +9,13 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
+- Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
+  - Before: both were off until you turned them on in **Settings > Game > Gameplay** or in `pkp.ini`
+  - Now: both are on unless you turn them off: the switches in **Settings > Game > Gameplay**, or `[pkp] camera_aim = 0` / `jump_momentum = 0` in `pkp.ini`. If you already switched one off, it stays off
+  - Still not: the Link Play options (Interact everywhere, Story co-op) stay off by default, because every player in a session needs the same setting
 - Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
   - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
   - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
-  - Camera aim is still off by default
 
 ### Performance
 - Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
