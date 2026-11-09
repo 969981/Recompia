@@ -43,6 +43,7 @@
 #include "nvn_format.h"
 #include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
+#include "nvn_readback_policy.h"
 #include "extras/hdr_nvn.h"
 #include "nvn_texdata.h"
 #include "nvn_texprep.h"
@@ -59,6 +60,22 @@ static uint64_t g_wgen_next = 0;                        // render thread only (m
 // The Vulkan side of a texture: Texture::gpu points to it (created by gpu::tex_gpu, freed by gpu::tex_destroy).
 static std::mutex g_live_mu;
 static std::set<struct TexGpu*> g_live_set;
+
+// Each deferred job owns its own buffer. Cancellation only drops a shared owner; it never reuses an in-flight buffer.
+// The queued callback keeps this object alive until it has recorded; actual destruction uses GPU retirement.
+struct DeferredReadback {
+    gfx::Buffer buffer;
+    std::atomic<bool> copied{false};
+    uint64_t serial = 0;
+    rbdiag::Stamp stamp;
+    std::chrono::steady_clock::time_point requested;
+    ~DeferredReadback() {
+        if (buffer && gpu::active()) {
+            gfx::Buffer old = buffer;
+            gpu::defer_destroy([old]() mutable { if (gpu::active()) gpu::device().destroy_buffer(old); });
+        }
+    }
+};
 
 struct TexGpu {
     bool promoted = false;                              // HDR scene pipeline: an 8-bit sRGB render target kept as RGBA16F (src/gfx/extras/hdr_nvn.h)
@@ -104,14 +121,16 @@ struct TexGpu {
     // of it. Both render thread only (the dedupe runs in queue order there). rb_mu: held by a reading thread from the queueing to the
     // tiling, so two guest threads reading the image do not interleave.
     std::mutex rb_mu;
+    std::atomic<uint64_t> rb_sync_epoch{0};
     gfx::Buffer rb;
     std::vector<uint64_t> rb_gen;
     std::vector<std::vector<uint8_t>> rb_have;
-    // [nvn] readback_defer (rb_mu): the copy the last read queued without waiting (serial 0: none) and the level/layer range it covers,
-    // tiled into the storage by the next read; rb_last/rb_last_range: when and what the last read asked for.
-    uint64_t rb_defer_serial = 0;
-    std::shared_ptr<std::atomic<bool>> rb_defer_copied;
-    uint32_t rb_defer_range[4] = {};
+    // Candidate readback state is protected by rb_mu. Each pending copy owns a different GPU buffer.
+    // rb_last/rb_last_range: when and what the last read asked for.
+    std::shared_ptr<DeferredReadback> rb_pending;
+    bool rb_previous_valid = false;
+    rbdiag::Stamp rb_previous;
+    std::chrono::steady_clock::time_point rb_previous_at{};
     std::chrono::steady_clock::time_point rb_last{};
     uint32_t rb_last_range[4] = {};
 };
@@ -2851,6 +2870,7 @@ struct RbConfig {
     bool check = false;         // [nvn] readback_check
     bool log = false;           // [nvn] readback_log
     bool defer = false;         // [nvn] readback_defer (off: it froze the game, see CONFIG.md)
+    uint32_t texture = 0;        // [nvn] readback_defer_texture: explicit diagnostic texture id, 0 disables
 };
 const RbConfig& rb_config() {
     static const RbConfig c = [] {
@@ -2860,6 +2880,9 @@ const RbConfig& rb_config() {
         r.check = nxrt::config_get_bool("nvn", "readback_check", false);
         r.log = nxrt::config_get_bool("nvn", "readback_log", false);
         r.defer = nxrt::config_get_bool("nvn", "readback_defer", false);
+        const int64_t texture = nxrt::config_get_int("nvn", "readback_defer_texture", 0);
+        if (texture > 0 && texture <= UINT32_MAX) r.texture = static_cast<uint32_t>(texture);
+        NXLOG_I(kTag, "readback candidate: private buffers, completion-only polling, selected texture %u (0 disables); experimental stale-data semantics", r.texture);
         NXLOG_I(kTag, "readback: async %s, grace %s ms, check %s, log %s, defer %s", r.async ? "on" : "off",
                 r.grace_ms == -1 ? "auto (0)" : r.grace_ms == -2 ? "one frame" : std::to_string(r.grace_ms).c_str(), r.check ? "on" : "off", r.log ? "on" : "off",
                 r.defer ? "on" : "off");
@@ -2969,7 +2992,8 @@ struct RbJob {
     bool skipped = false;       // every level and layer asked for is in the storage already: nothing recorded
     bool copied = false;        // the copy is recorded into rb; false with skipped false: nothing to read (no buffer, image changed)
 };
-void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, RbJob& job) {
+void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, RbJob& job,
+               gfx::Buffer* private_buffer = nullptr) {
     NXFT("rb.record");
     const auto rec0 = rb_config().log ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
     struct RecTimer {
@@ -2983,7 +3007,7 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
         g->rb_have.assign(g->levels, std::vector<uint8_t>(g->layers, 0));
     }
     auto gen = [g](uint32_t l) { return g->wgen[std::min(l, kGenLevels - 1)]; };
-    bool have = true;
+    bool have = private_buffer == nullptr;   // a private deferred buffer never borrows the normal buffer's deduplication state
     for (uint32_t l = l0; l < l0 + nl && have; ++l) {
         if (g->rb_gen[l] != gen(l)) have = false;
         for (uint32_t y = y0; y < y0 + ny && have; ++y) have = g->rb_have[l][y] != 0;
@@ -2997,15 +3021,16 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
         const tegra::LevelLayout& lv = L.layout.levels[l];
         need = std::max<uint64_t>(need, lv.linear_offset + static_cast<uint64_t>(y0 + ny) * lv.linear_slice_size);
     }
-    if (g->rb.size < need) {
+    gfx::Buffer& destination = private_buffer ? *private_buffer : g->rb;
+    if (destination.size < need) {
         gfx::Buffer nb;
         if (device().create_buffer(need, VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx::MemoryUse::Readback, &nb, "nvn texture readback") != VK_SUCCESS)
             return;
-        if (g->rb) {
-            gfx::Buffer old = g->rb;
+        if (destination) {
+            gfx::Buffer old = destination;
             defer_destroy([old]() mutable { device().destroy_buffer(old); });
         }
-        g->rb = nb;
+        destination = nb;
     }
     std::vector<uint64_t> before(g->levels);
     for (uint32_t l = 0; l < g->levels; ++l) before[l] = gen(l);
@@ -3020,7 +3045,7 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
         r.imageExtent = {lv.width, lv.height, lv.depth};
         regions.push_back(r);
     }
-    vkCmdCopyImageToBuffer(f.cb, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g->rb.buffer, static_cast<uint32_t>(regions.size()),
+    vkCmdCopyImageToBuffer(f.cb, g->img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination.buffer, static_cast<uint32_t>(regions.size()),
                            regions.data());
     VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -3031,6 +3056,7 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
     // take the new numbers; a level the storage was current for before stays current (only the restore moved its number).
     for (uint32_t l = 0; l < g->levels; ++l) {
         const bool current = g->rb_gen[l] == before[l];
+        if (private_buffer) continue;   // normal readback still owns its buffer and cached generations
         if (l >= l0 && l < l0 + nl) {
             if (!current) std::fill(g->rb_have[l].begin(), g->rb_have[l].end(), uint8_t{0});
             for (uint32_t y = y0; y < y0 + ny; ++y) g->rb_have[l][y] = 1;
@@ -3043,9 +3069,9 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
 }
 
 // Tiles the levels and layers asked for from the readback buffer into the game's storage (the GPU is done with the copy).
-void rb_tile(Texture* t, const TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
+void rb_tile(Texture* t, const gfx::Buffer& buffer, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
     NXFT("rb.tile");
-    const uint8_t* src = static_cast<const uint8_t*>(g->rb.mapped);
+    const uint8_t* src = static_cast<const uint8_t*>(buffer.mapped);
     for (uint32_t l = l0; l < l0 + nl; ++l) {
         const tegra::LevelLayout& lv = L.layout.levels[l];
         for (uint32_t y = y0; y < y0 + ny; ++y)
@@ -3054,19 +3080,40 @@ void rb_tile(Texture* t, const TexGpu* g, const TexLayout& L, uint32_t l0, uint3
     }
 }
 
-// [nvn] readback_defer: puts the copy the last read queued into the storage (rb_mu held). It ran a read period ago, so the GPU is
-// normally done with it and nothing is flushed or waited for.
-void rb_land(Texture* t, TexGpu* g, const TexLayout& L) {
-    const uint64_t serial = std::exchange(g->rb_defer_serial, 0);
-    if (!serial) return;
-    {
-        NXFT("rb.land");
-        wait_serial_grace(serial, 0);
+// Candidate completion-only landing (rb_mu held): pending GPU work and its private buffer remain owned, never waited on or reused.
+ReadbackPoll rb_land(Texture* t, TexGpu* g, const TexLayout& L, const rbdiag::Stamp& request) {
+    const auto pending = g->rb_pending;
+    if (!pending) return ReadbackPoll::Complete;
+    ReadbackProgress progress;
+    const ReadbackPoll polled = poll_readback_serial(pending->serial, &progress);
+    if (rb_config().log) {
+        static std::atomic<unsigned> lines{0};
+        if (lines.fetch_add(1, std::memory_order_relaxed) < 200)
+            NXLOG_I(kTag, "readback_poll: texture %u serial %llu state %s, reserved %llu flushed %llu submitted %llu timeline %llu", t->id,
+                    static_cast<unsigned long long>(pending->serial), polled == ReadbackPoll::Pending ? "pending" : polled == ReadbackPoll::Complete ? "complete" : "failed",
+                    static_cast<unsigned long long>(progress.reserved), static_cast<unsigned long long>(progress.flushed),
+                    static_cast<unsigned long long>(progress.submitted), static_cast<unsigned long long>(progress.completed));
     }
-    const uint32_t* r = g->rb_defer_range;
-    if (device().device_lost() || !g->rb_defer_copied->load() || r[0] + r[1] > L.levels || r[2] + r[3] > L.layers) return;
-    device().invalidate_buffer(g->rb);
-    rb_tile(t, g, L, r[0], r[1], r[2], r[3]);
+    if (polled != ReadbackPoll::Complete) return polled;   // retain ownership and all metadata while unfinished
+    const auto& r = pending->stamp.range;
+    if (!pending->copied.load(std::memory_order_acquire) || !pending->buffer ||
+        !(pending->stamp == request) || t->prep_gen.load(std::memory_order_acquire) != request.cpu_generation ||
+        g->rb_sync_epoch.load(std::memory_order_acquire) != request.sync_epoch ||
+        t->cpu_dirty.load() || t->destroyed.load() || !r.fits(L.levels, L.layers)) {
+        g->rb_pending.reset();
+        g->rb_previous_valid = false;
+        return ReadbackPoll::Failed;
+    }
+    device().invalidate_buffer(pending->buffer);
+    rb_tile(t, pending->buffer, L, r.level, r.levels, r.layer, r.layers);
+    // Normal-buffer deduplication must not claim that these older landed bytes are current GPU data.
+    g->rb_gen.clear();
+    g->rb_have.clear();
+    g->rb_previous = request;
+    g->rb_previous_valid = true;
+    g->rb_previous_at = pending->requested;   // age the data from its request, not from when a late reader finally lands it
+    g->rb_pending.reset();
+    return ReadbackPoll::Complete;
 }
 
 // readback_async = false (and calls on the render thread): the old path. Every level, earlier submissions drained first (finish), the
@@ -3100,6 +3147,7 @@ bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
     std::memcpy(lin.data(), rb.mapped, static_cast<size_t>(size));
     device().destroy_buffer(rb);
     tegra::tile(L.desc, L.layout, lin.data(), t->mem);
+    g->rb_sync_epoch.fetch_add(1, std::memory_order_release);
     return true;
 }
 }  // namespace
@@ -3125,10 +3173,10 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
         return false;
     }
     if (t->cpu_dirty.load()) {
-        // ponytail: a deferred copy older than the CPU's write must not land over it. A CPU write and its upload both between two reads
-        // (never seen here) are not caught; readback_defer = false if a game does that.
+        // CPU notifications also bump prep_gen, so writes followed by an upload between two reads invalidate old results too.
         std::lock_guard<std::mutex> lk(g->rb_mu);
-        g->rb_defer_serial = 0;
+        g->rb_pending.reset();   // the callback / GPU-retirement deleter retains any in-flight private buffer
+        g->rb_previous_valid = false;
         return false;
     }
     if (!(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || g->layout == VK_IMAGE_LAYOUT_UNDEFINED) return false;
@@ -3145,6 +3193,8 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     const auto t_start = cfg.log ? rb_clock::now() : rb_clock::time_point();
 
     if (!cfg.async || on_render_thread()) {
+        // Do not acquire rb_mu on the render thread: a guest holding it may be waiting for an earlier queued read job.
+        // This path uses a local buffer; its epoch invalidates older deferred results without touching their ownership.
         if (!download_all_levels_sync(t, g, L)) return false;
         if (cfg.log) { times.async = false; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
         g_rb_copies.fetch_add(1);
@@ -3154,29 +3204,64 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     }
 
     std::lock_guard<std::mutex> lk(g->rb_mu);
-    rb_land(t, g, L);   // before anything records into rb again
 
     // [nvn] readback_defer (#276): a small texture the game reads again and again (Pokopia: texture 286, 30x16, about once a second) gets
     // the data of its previous read, and this read's copy is queued without waiting; the next read lands it. The reading thread (often
     // the game's main thread) then never waits for the GPU: on a capped frame rate the old forced flush and GPU wait (about 13 ms, 21 ms
     // in all on a Legion Go S at 40 fps) made the frame miss its slot. A first read, or one after a pause, waits as before.
     const uint32_t range[4] = {l0, nl, y0, ny};
+    const rbdiag::Stamp request{t->id, t->prep_gen.load(std::memory_order_acquire), reinterpret_cast<uintptr_t>(t->mem),
+                               t->storage_size, {l0, nl, y0, ny}, g->rb_sync_epoch.load(std::memory_order_acquire)};
     const auto now = rb_clock::now();
     const bool repeat = g->rb_last.time_since_epoch().count() != 0 && now - g->rb_last < std::chrono::seconds(2) &&
                         std::equal(range, range + 4, g->rb_last_range);
     g->rb_last = now;
     std::copy(range, range + 4, g->rb_last_range);
-    // ponytail: 64 KiB and 2 s are guesses that keep one-off reads (photos, thumbnails: bigger, not repeated) on the waiting path.
+    // Explicit texture-id selection is required in addition to the exact observed format/extent. This does not prove stale-data safety.
     constexpr uint64_t kDeferMaxBytes = 64 * 1024;
-    if (cfg.defer && repeat && L.layout.linear_size <= kDeferMaxBytes) {
-        auto copied = std::make_shared<std::atomic<bool>>(false);
-        g->rb_defer_serial = queue_post([keep = Ref<Texture>::share(t), g, L, l0, nl, y0, ny, copied](Frame& f) {
+    const bool exact_texture = g->format == VK_FORMAT_R8G8B8A8_SRGB && g->base.width == 30 && g->base.height == 16 &&
+                               g->base.depth == 1 && L.levels == 1 && L.layers == 1 && L.layout.linear_size <= kDeferMaxBytes;
+    const bool may_defer = rbdiag::eligible(cfg.defer, cfg.texture, exact_texture, repeat,
+                                           g->rb_previous_valid, g->rb_previous, request);
+    if (g->rb_pending && !may_defer) {
+        g->rb_pending.reset();   // incompatible / CPU-written / expired: retire, never reuse, its private buffer
+        g->rb_previous_valid = false;
+    }
+    if (may_defer && g->rb_pending) {
+        const double age = std::chrono::duration<double>(now - g->rb_pending->requested).count();
+        if (age >= 2.0) {
+            g->rb_pending.reset();   // bounded stale-data age: the fresh synchronous path uses the separate normal buffer
+            g->rb_previous_valid = false;
+        } else {
+            const ReadbackPoll landed = rb_land(t, g, L, request);
+            if (landed == ReadbackPoll::Failed) return false;
+            if (landed == ReadbackPoll::Pending) {
+                if (std::chrono::duration<double>(now - g->rb_previous_at).count() < 2.0 &&
+                    t->prep_gen.load(std::memory_order_acquire) == request.cpu_generation &&
+                    g->rb_sync_epoch.load(std::memory_order_acquire) == request.sync_epoch && !t->cpu_dirty.load()) {
+                    if (cfg.log) { times.deferred = true; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
+                    return true;   // matching cached range only; do not queue another copy or touch the pending buffer
+                }
+                g->rb_pending.reset();
+                g->rb_previous_valid = false;
+            }
+        }
+    }
+    if (may_defer && g->rb_previous_valid && !g->rb_pending &&
+        std::chrono::duration<double>(now - g->rb_previous_at).count() < 2.0 &&
+        t->prep_gen.load(std::memory_order_acquire) == request.cpu_generation &&
+        g->rb_sync_epoch.load(std::memory_order_acquire) == request.sync_epoch && !t->cpu_dirty.load()) {
+        auto pending = std::make_shared<DeferredReadback>();
+        pending->stamp = request;
+        pending->requested = now;
+        pending->serial = queue_readback_post([keep = Ref<Texture>::share(t), g, L, l0, nl, y0, ny, pending](Frame& f) {
             RbJob job;
-            rb_record(f, keep.get(), g, L, l0, nl, y0, ny, job);
-            copied->store(job.copied);
+            // A notification between request and recording invalidates the job without touching guest storage.
+            if (keep->destroyed.load() || keep->prep_gen.load(std::memory_order_acquire) != pending->stamp.cpu_generation) return;
+            rb_record(f, keep.get(), g, L, l0, nl, y0, ny, job, &pending->buffer);
+            pending->copied.store(job.copied, std::memory_order_release);
         });
-        g->rb_defer_copied = copied;
-        std::copy(range, range + 4, g->rb_defer_range);
+        g->rb_pending = pending;
         g_rb_copies.fetch_add(1);
         if (cfg.log) { times.deferred = true; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
         rb_note(t, *g, L, l0, nl, y0, ny, "deferred (the previous read's data; this copy lands on the next read)");
@@ -3193,13 +3278,19 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     const auto t_queued = cfg.log ? rb_clock::now() : rb_clock::time_point();
     if (cfg.log) { times.queue = rb_ns(t_start, t_queued); times.record = job.record_ns; }
     if (job.skipped) {
+        g->rb_previous = request;
+        g->rb_previous_valid = true;
+        g->rb_previous_at = rb_clock::now();
         if (cfg.log) { times.skipped = true; times.total = rb_ns(t_start, rb_clock::now()); rb_report(t, *g, times); }
         g_rb_skipped.fetch_add(1);
         rb_note(t, *g, L, l0, nl, y0, ny, "skipped (not written since the last readback)");
         if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);
         return true;   // the storage holds that data already
     }
-    if (!job.copied) return false;   // no buffer, or the image changed: the storage is read as it is (as without a GPU image)
+    if (!job.copied) {
+        g->rb_previous_valid = false;
+        return false;   // no buffer, or the image changed: do not treat an old cached result as a new successful read
+    }
     g_rb_copies.fetch_add(1);
     {
         NXFT("rb.wait");
@@ -3212,7 +3303,10 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     device().invalidate_buffer(g->rb);
     const auto t_inv1 = cfg.log ? rb_clock::now() : rb_clock::time_point();
     if (cfg.log) times.invalidate = rb_ns(t_inv0, t_inv1);
-    rb_tile(t, g, L, l0, nl, y0, ny);
+    rb_tile(t, g->rb, L, l0, nl, y0, ny);
+    g->rb_previous = request;
+    g->rb_previous_valid = t->prep_gen.load(std::memory_order_acquire) == request.cpu_generation;
+    g->rb_previous_at = rb_clock::now();
     if (cfg.log) { const auto t_end = rb_clock::now(); times.tile = rb_ns(t_inv1, t_end); times.total = rb_ns(t_start, t_end); rb_report(t, *g, times); }
     rb_note(t, *g, L, l0, nl, y0, ny, "copied");
     if (cfg.check) rb_log_crc(t, L, l0, nl, y0, ny);

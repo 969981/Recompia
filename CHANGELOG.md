@@ -14,6 +14,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
   - Camera aim is still off by default
 
+### Performance
+- Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
+  - Before: the deferred path still waited for completion when landing a previous read, and unfinished work needed separate buffer ownership
+  - Now: the selected-texture experiment polls completion, retains pending work and uses private readback buffers; disabled by default
+  - Still not: a confirmed general fix; accepting older texture data needs guest correctness review and longer testing
+
 ## 0.8.2 (build L: Lemur)
 
 **Update:** press **Update** in the launcher, then **Set up again** once when it asks (camera aim adds hooks, so the game is rebuilt; your saves and shaders are kept).
