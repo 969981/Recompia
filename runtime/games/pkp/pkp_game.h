@@ -17,4 +17,5 @@ namespace nxrt::games::pkp {
 const game::Info& data_info();     // pkp_data.cpp
 const game::Info& core_info();     // pkp_core.cpp
 const game::Info& full_info();     // pkp_game.cpp
+const game::Render& render_info(); // pkp_render_info.cpp
 }  // namespace nxrt::games::pkp

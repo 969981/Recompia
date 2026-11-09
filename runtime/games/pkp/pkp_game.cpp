@@ -153,6 +153,7 @@ const game::Info& full_info() {
     static const game::Info info = [] {
         game::Info g = core_info();
         g.play = &game_play();
+        g.render = &render_info();
         return g;
     }();
     return info;

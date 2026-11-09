@@ -15,6 +15,7 @@
 //   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (Pokopia sets none)
 //   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/pkp_core.cpp
 //   settings_doc     the keys of the game's own game-ini section, described (nxrt/setting_doc.h)              games/pkp/pkp_settings_table.cpp
+//   render           graphics facts: readback shape, camera block, tone-map shaders (nxrt/game_render.h)   games/pkp/pkp_render_info.cpp
 // The registry is header-only, so programs that do not link the runtime library (the launcher's tools) use it too.
 #pragma once
 #include <cstdint>
@@ -29,6 +30,8 @@ namespace play { struct GamePlay; struct GameDefaults; struct PromptGame; }
 }  // namespace nxrt
 
 namespace nxrt::game {
+
+struct Render;   // nxrt/game_render.h
 
 // One nn::os::SleepThread call that sits in a polling loop of the game: the loop re-checks its condition after every sleep, so a shorter
 // sleep only checks more often (a 1 s poll for work that takes milliseconds costs up to a second each time). `ret` is the return address
@@ -80,6 +83,8 @@ struct Info {
     // The keys the game reads from its own sections of the game ini ([pkp]), one row each: the docs (runtime/docs/CONFIG.md) and the
     // launcher's schema of the game ini are generated from it (apps/settings_doc.cpp). Pure data: the pure-data library can set it.
     std::vector<setting_doc::Row> (*settings_doc)() = nullptr;
+    // What the graphics back end may know about the game's rendering (nxrt/game_render.h); null: those features are off.
+    const Render* render = nullptr;
 };
 
 // The registered game, or nullptr. One slot per program (the function-local static is shared by every translation unit that inlines it).
