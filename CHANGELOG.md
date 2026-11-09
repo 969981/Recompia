@@ -11,7 +11,7 @@ of the game (version 2.0.1a): the download contains no game files.
 ### Launcher
 - Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
   - Before: you had to add a Non-Steam Game by hand in Desktop Mode, set the launch option `--play` yourself, and find or make the pictures
-  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list is kept (`shortcuts.vdf.recompia-backup`).
+  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork, drawn by Koi (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list as you had it is kept the first time (`shortcuts.vdf.recompia-backup`, never overwritten).
 - Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
   - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
   - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it

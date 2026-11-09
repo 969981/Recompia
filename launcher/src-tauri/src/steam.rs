@@ -6,14 +6,15 @@
 //!    memory and writes it when it closes, so it is only edited while Steam is not running.
 //!  * `<Steam>/userdata/<account>/config/grid/<id>.png` (wide), `<id>p.png` (portrait), `<id>_hero.png`, `<id>_logo.png`, `<id>_icon.png`,
 //!    where `<id>` is the short app id: the CRC-32 of the quoted exe path followed by the name, with the top bit set.
-//! The old file is copied to `shortcuts.vdf.recompia-backup` before every change. Only our own entry and our own artwork are added,
+//! The old file is copied to `shortcuts.vdf.recompia-backup` before the first change and that copy is kept (never overwritten, so it stays the
+//! file the user had). Only our own entry and our own artwork are added,
 //! replaced or removed; other shortcuts are kept as they are (unknown fields too).
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-// ---- the artwork, embedded (the grids and hero are Koi's illustration with the wordmark; the icons are the launcher's) ----
+// ---- the artwork, embedded (the grids and hero are Koi's illustration with the wordmark; the icons are the launcher's: the R on a leaf, and the hammer R on Testing) ----
 const WIDE: &[u8] = include_bytes!("../assets/steam/grid_wide.png");
 const PORTRAIT: &[u8] = include_bytes!("../assets/steam/grid_portrait.png");
 const HERO: &[u8] = include_bytes!("../assets/steam/hero.png");
@@ -346,6 +347,16 @@ fn load_root(file: &Path) -> Result<Vec<(String, Val)>, String> {
     }
 }
 
+/// Keeps a copy of Steam's shortcut list as the user had it: made once, the first time we change an existing file, and never overwritten
+/// (a later add or remove would otherwise replace it with a file that already has our entries).
+fn save_backup(cfg: &Path, file: &Path) -> Result<(), String> {
+    let backup = cfg.join("shortcuts.vdf.recompia-backup");
+    if file.exists() && !backup.exists() {
+        fs::copy(file, &backup).map_err(|e| format!("could not save a backup of Steam's shortcut list: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Adds the shortcut and the artwork for one account folder. The file is only rewritten after it parsed and the old one is saved.
 pub fn add_to_account(account: &Path, spec: &Spec) -> Result<(), String> {
     let cfg = account.join("config");
@@ -359,9 +370,7 @@ pub fn add_to_account(account: &Path, spec: &Spec) -> Result<(), String> {
     }
     let icon_path = grid.join(format!("{id}_icon.png")).to_string_lossy().into_owned();
     add_entry(&mut root, spec, &icon_path);
-    if file.exists() {
-        fs::copy(&file, cfg.join("shortcuts.vdf.recompia-backup")).map_err(|e| format!("could not save a backup of Steam's shortcut list: {e}"))?;
-    }
+    save_backup(&cfg, &file)?;
     write_atomic(&file, &write(&root))
 }
 
@@ -372,9 +381,7 @@ pub fn remove_from_account(account: &Path, spec: &Spec) -> Result<bool, String> 
     let mut root = load_root(&file)?;
     let had = remove_entry(&mut root, spec);
     if had {
-        if file.exists() {
-            fs::copy(&file, cfg.join("shortcuts.vdf.recompia-backup")).map_err(|e| format!("could not save a backup of Steam's shortcut list: {e}"))?;
-        }
+        save_backup(&cfg, &file)?;
         write_atomic(&file, &write(&root))?;
     }
     let id = short_id(&spec.exe, &spec.name);
@@ -419,8 +426,8 @@ impl Target {
     }
 }
 
-/// The shortcut for this launcher's own file (the AppImage when run from one). The game shortcut is named "Recompia" (the name the
-/// SteamGridDB page uses) and starts the game with `--play`; the launcher shortcut is "Recompia Launcher" and has no launch option.
+/// The shortcut for this launcher's own file (the AppImage when run from one). The game shortcut is named "Recompia" (the name the game
+/// goes by, so a SteamGridDB search for it finds the right title) and starts the game with `--play`; the launcher shortcut is "Recompia Launcher" and has no launch option.
 pub fn spec_here(testing: bool, target: Target) -> Result<Spec, String> {
     let exe = std::env::var_os("APPIMAGE")
         .map(PathBuf::from)
@@ -591,6 +598,27 @@ mod tests {
         assert!(parse(&[1, b'k', 0, b'v']).is_err());      // string not finished
         assert!(parse(&[2, b'k', 0, 1, 2]).is_err());      // number cut short
         assert!(parse(&[0, b'a', 0]).is_err());            // map not closed
+    }
+
+    #[test]
+    fn the_backup_stays_the_file_the_user_had() {
+        let acc = tmp("backup");
+        let cfg = acc.join("config");
+        fs::create_dir_all(&cfg).unwrap();
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0]); b.extend_from_slice(b"shortcuts\0");
+        b.extend_from_slice(&[0]); b.extend_from_slice(b"0\0");
+        b.push(1); b.extend_from_slice(b"AppName\0Mine\0");
+        b.extend_from_slice(&[8, 8, 8]);
+        fs::write(cfg.join("shortcuts.vdf"), &b).unwrap();
+        let mut launcher = spec(false);
+        launcher.name = "Recompia Launcher".into();
+        launcher.launch = String::new();
+        add_to_account(&acc, &spec(false)).unwrap();
+        add_to_account(&acc, &launcher).unwrap();
+        assert!(remove_from_account(&acc, &spec(false)).unwrap());
+        assert_eq!(fs::read(cfg.join("shortcuts.vdf.recompia-backup")).unwrap(), b);
+        let _ = fs::remove_dir_all(&acc);
     }
 
     #[test]
