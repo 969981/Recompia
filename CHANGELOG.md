@@ -6,13 +6,20 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks and the longer camera aim reach adds three, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
+- Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
+  - Before: both were off until you turned them on in **Settings > Game > Gameplay** or in `pkp.ini`
+  - Now: both are on unless you turn them off: the switches in **Settings > Game > Gameplay**, or `[pkp] camera_aim = 0` / `jump_momentum = 0` in `pkp.ini`. If you already switched one off, it stays off
+  - Still not: the Link Play options (Interact everywhere, Story co-op) stay off by default, because every player in a session needs the same setting
 - Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
   - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
   - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
-  - Camera aim is still off by default
+- Camera aim reaches 2 blocks farther
+  - Before: with camera aim on, abilities, tools and placement only reached the cell next to your character, even when the camera looked at a block a few cells away
+  - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
+  - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
 
 ### Performance
 - Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
