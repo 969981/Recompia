@@ -6,24 +6,43 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. No **Set up again** is needed if you are on 0.8.1 or 0.8.1-beta.10 or newer.
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
 
-### Launcher
-- Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
-  - Before: you had to add a Non-Steam Game by hand in Desktop Mode, set the launch option `--play` yourself, and find or make the pictures
-  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork, drawn by Koi (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list as you had it is kept the first time (`shortcuts.vdf.recompia-backup`, never overwritten).
-- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
-  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
-  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
-  - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
+### Gameplay
+- Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
+  - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
+  - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
+  - Camera aim is still off by default
 
 ### Game
 - In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
 
 ### What to test
-- **Add to Steam:** on Linux or the Steam Deck, close Steam, open Settings > Game > Steam, press **Add to Steam** for the game (and the launcher if you like), start Steam, and look in your library (Non-Steam). Report: whether the shortcut and its artwork show, whether it starts the game (or the launcher), anything that went wrong, and whether your other Non-Steam shortcuts are still there. Windows is untested; please say if you try it
-- **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
-- **In-game Options:** with the game closed, add `options_menu = 1` below `[pkp]` in `pkp.ini` (next to `pkp.exe`), start the game, and open **Settings**: nine tabs, switched with L and R. Change a value on two tabs, choose **Save**, reopen Settings and check F1 shows the same values. To report a problem, use launcher **Settings > About > Report a problem** and attach `pkp.log` (**Show pkp.log**)
+- **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
+
+## 0.8.2 (build L: Lemur)
+
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (camera aim adds hooks, so the game is rebuilt; your saves and shaders are kept).
+
+### Highlights
+- Added **Add to Steam** (Settings > Game > Steam): put Recompia into your Steam library, with its artwork, so it shows in Game Mode and Big Picture on a Steam Deck or any PC
+- Added **Koi's Camp**, a new look for the launcher: a bright hand-drawn picture behind it, by Koi (press **Colours** in the sidebar to try it). Koi drew it while the bug fixes and the new features kept Jerban busy, so thank you, Koi, and sorry for the wait
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play (camera aim is still **off** by default, see Gameplay). Everything else in the game is as in 0.8.1. Sunrise is still the launcher's default look
+
+### Gameplay
+- Camera aim now runs the game in its Joy-Con mouse mode during normal play
+  - Before: camera aim turned the aim to where the camera looks, and the game stayed in its normal (facing) mode
+  - Now: with camera aim on, the game is in its Joy-Con mouse mode during normal play with any controller or the mouse, whatever its own mouse option says. The pointer stays at the centre of the screen and the camera still turns with the mouse and the right stick. Camera aim's targeting applies in both modes, your tool is not switched to Rock Smash, and the game's own pointer is not shown
+  - Still not: camera aim stays off by default (**Settings > Game > Gameplay** or `[pkp] camera_aim = 1`); the Mouse mode key (free pointer) leaves mouse mode while it is on; only the first player is covered
+
+### Launcher
+- Added **Settings > Game > Steam**: put Recompia into your Steam library with its artwork, so it shows in Game Mode and Big Picture
+  - Before: you had to add a Non-Steam Game by hand in Desktop Mode, set the launch option `--play` yourself, and find or make the pictures
+  - Now: two buttons. **Game in Steam** adds a shortcut named Recompia that starts the game at once; **Launcher in Steam** adds one named Recompia Launcher that opens this window first. Both come with the artwork, drawn by Koi (the Testing build uses the Testing icon and says Testing in the name). Close Steam first and start it again afterwards. Remove takes the shortcut and its pictures out again; your other shortcuts are not touched, and a copy of Steam's shortcut list as you had it is kept the first time (`shortcuts.vdf.recompia-backup`, never overwritten).
+- Added an optional **Koi's Camp** look: a bright daytime picture behind the launcher (artwork by Koi, hand drawn)
+  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
+  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi's Camp. Sunrise stays the default, and nothing changes unless you press it
+  - Still not: Koi's Camp has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
 
 ## 0.8.1 (build L: Lynx)
 
