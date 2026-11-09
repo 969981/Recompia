@@ -27,7 +27,7 @@ pub fn backup(game_dir: &Path, config_dir: &Path, tag: &str) -> Result<PathBuf, 
     let made = (|| -> io::Result<()> {
         fs::create_dir_all(&dir)?;
         // the folder the runtime plays from, NXRT_FS_SAVE_DIR included (the same rule as the save backups and Import)
-        let save_dir = crate::savebackup::locate(game_dir).0;
+        let save_dir = crate::saveimport::locate(game_dir).0;
         if save_dir.is_dir() {
             copy_tree(&save_dir, &dir.join("save"))?;
         }

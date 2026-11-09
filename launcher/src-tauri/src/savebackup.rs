@@ -10,6 +10,7 @@
 //! is thrown away and tried again a moment later. A backup that cannot be made is skipped quietly (the next tick tries again).
 
 use crate::fsutil::{copy_tree, file_stamp};
+use crate::saveimport::locate;
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use serde::{Deserialize, Serialize};
@@ -96,15 +97,6 @@ pub struct Status {
 
 // ---- where ----------------------------------------------------------------------------------------------------------------------
 
-/// The runtime's save folder and the account folder the game uses for the active profile, from pkp.ini (the same rule as Import).
-pub fn locate(game_dir: &Path) -> (PathBuf, String) {
-    let ini = fs::read(game_dir.join(PKP_INI)).ok().map(|b| Ini::parse(&String::from_utf8_lossy(&b)));
-    let get = |s: &str, k: &str| ini.as_ref().and_then(|i| i.get(s, k)).unwrap_or_default();
-    let env = crate::saveimport::env_save_dir();
-    let sd = crate::saveimport::save_dir_of(game_dir, &if env.trim().is_empty() { get("fs", "save_dir") } else { env });
-    let key = crate::profiles::strict_save_key(game_dir).unwrap_or_else(|| crate::saveimport::target_key(&sd, &get("account", "uid")));
-    (sd, key)
-}
 
 fn root_of(game_dir: &Path, key: &str) -> PathBuf {
     game_dir.join(DIR).join(key)

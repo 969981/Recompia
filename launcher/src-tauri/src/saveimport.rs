@@ -199,6 +199,18 @@ fn meta_attr_matches(meta: &Path) -> bool {
     attr.len() >= 66 && attr.get(..16).is_some_and(|a| a.eq_ignore_ascii_case(&app_hex())) && attr.get(64..66) == Some("01")   // get(): a non-ASCII byte there is no match, not a panic
 }
 
+/// The runtime's save folder and the account folder the game uses for the active profile, from pkp.ini (settings::read_pkp, the
+/// runtime's own rule for repeated keys). Import, backup, restore and rollback all ask here.
+pub fn locate(game_dir: &Path) -> (PathBuf, String) {
+    let pkp = crate::settings::read_pkp(game_dir);
+    let get = |k: &str| pkp.get(k).cloned().unwrap_or_default();
+    let env = env_save_dir();
+    let sd = save_dir_of(game_dir, &if env.trim().is_empty() { get("fs.save_dir") } else { env });
+    // with profiles, a profile other than the first plays its own account folder, not the newest one
+    let key = crate::profiles::strict_save_key(game_dir).unwrap_or_else(|| target_key(&sd, &get("account.uid")));
+    (sd, key)
+}
+
 /// The account save folder name to import into: the game's existing one (its .meta names the game and the account type), else the
 /// folder of [account] uid, else the runtime's built-in user.
 pub fn target_key(save_dir: &Path, ini_uid: &str) -> String {
@@ -376,6 +388,19 @@ mod tests {
         let r = meta_attr_matches(&p);
         let _ = fs::remove_file(&p);
         r
+    }
+
+    #[test]
+    fn a_repeated_save_dir_key_takes_the_last_value_like_the_runtime() {
+        let dir = std::env::temp_dir().join(format!("pkp-locate-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("pkp.ini"), "[fs]
+save_dir = first
+save_dir = second
+").unwrap();
+        let (sd, _) = locate(&dir);
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(sd, dir.join("second"));
     }
 
     #[test]

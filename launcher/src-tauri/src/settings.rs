@@ -48,6 +48,12 @@ pub fn file_for(dir: &Path, which: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// pkp.ini as `section.key` -> value. A key that appears twice keeps its last value, which is what the runtime does (diag/config.cpp
+/// parse_ini overwrites), so every launcher reading of pkp.ini that must agree with the game goes through here.
+pub fn read_pkp(dir: &Path) -> HashMap<String, String> {
+    map_of(&load(&dir.join(PKP_INI)))
+}
+
 pub fn read(dir: &Path) -> SettingsDump {
     let pkp = load(&dir.join(PKP_INI));
     let controls = load(&dir.join(CONTROLS_INI));

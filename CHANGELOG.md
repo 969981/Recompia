@@ -9,6 +9,7 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
 ### Launcher
+- Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
