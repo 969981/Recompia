@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Inventory sort (#323): in the bag screen (X) and the container screens a "(Y) Sort" button sits in the screen's own key guide; Y
-// (keyboard F through the default btn_y binding; (+) where the screen uses Y itself) or a left click on the button sorts the items of the
+// (keyboard F through the default btn_y binding; R (Space) where the screen uses Y itself) or a left click on the button sorts the items of the
 // panel under the cursor: part-full stacks of the same item are merged up to the game's max stack, then the stacks are ordered by the
 // item table's kind byte, then by item id; empty slots go last. [pkp] inventory_sort (on by default: the button only acts when
 // pressed), [pkp] inventory_autosort (off by default: sorts the bag once each time the screen opens). Both do nothing during Link Play.
@@ -35,8 +35,9 @@
 //    no holding set) becomes key guide 92 ("Sort", the game's own text in every language). At the end of the part's fill (0x7100ec6800,
 //    inline 0x7100ec69b4: x19 the part, x21 the key guide's table row, [x29 + 0x38] the widget) the icon is set to the sort button
 //    (0x7100a7dbcc (part + 0x30, slot 3, action)) and the part's layout is handed to the menu pointer (pkp_menu.cpp
-//    menu_set_sort_guide): a left click on it sorts. The sort button is Y (action 0x97) in the bag, (+) (0x88, the bag's "Drop") in the
-//    container screens, whose Y is the game's Add Stack / Remove All, unless the screen has a (+) action; then click only.
+//    menu_set_sort_guide): a left click on it sorts. The sort button is the first of Y, R, L that no other prompt of the shown set uses
+//    (input manager table, below): Y in the bag, R in the container screens (set 186: Add (A), Swap (X), Add Stack (Y), Store All (+),
+//    Info (-); registered there also B, ZL Transfer Half). Its button sorts only while no registered action of the screen is on it.
 //  * m_currentUseItemSlot (save common + 0xc070, u16) holds a bag slot index: after a bag sort it is moved to the new slot of the
 //    same item.
 //  * Link Play: online the bag is m_useItemInventoryOnline and container moves go through the game's network requests
@@ -78,7 +79,14 @@ constexpr uint64_t kTableCount = 0x2b70, kItemTable = 0x638, kItemKind = 0x3a, k
 constexpr uint64_t kPlayerHelper = 0x30, kActions = 0x78, kType = 0x148, kId = 0x154, kState = 0x160, kScreenKind = 0x168, kCursorKind = 0x169;
 constexpr uint32_t kBagSlots = 120, kMaxSlots = 0x800, kStoreSlots = 0x77a9;   // the stage store is the larger one
 constexpr uint32_t kIdMask = 0x1fff;
-constexpr uint16_t kActY = 0x97, kActPlus = 0x88;   // the game's actions on Y ("Transfer All", "Add Stack") and (+) ("Drop")
+// The game's input manager [main+0x3561718]: its vector at +0xcd8 maps an action to its button (u32 per action, low byte: 0..3 the d-pad,
+// 4 Y, 5 A, 6 X, 7 B, 8 (-), 9 (+), 0xa L, 0xb R, 0xc ZL, 0xd ZR, 0xe / 0xf the stick clicks; 0x7101126e18 reads it for the key guide icons).
+constexpr uint64_t kInputMgr = 0x3561718, kActionButtons = 0xcd8;
+// The sort button: the first of these whose button no prompt of the shown key guide set and no registered action of the screen uses.
+// Y in the bag; R in the container screens (Y is Add Stack / Remove All, (+) Store All / Retrieve All, ZL Transfer Half there); then L.
+struct SortButton { uint16_t act; uint8_t button; hid::NpadButtonBit pad; const char* name; };   // an action shown as that button (the icon), the pad bit
+constexpr SortButton kSortButtons[] = {{0x97, 4, hid::kBtnY, "Y"}, {0x03, 0xb, hid::kBtnR, "R"}, {0x0e, 0xa, hid::kBtnL, "L"}};
+constexpr int kNoButton = -1;   // click only
 constexpr auto kReopenGap = std::chrono::milliseconds(300);   // no screen frame for this long = the screen was closed
 // the key guide button
 constexpr uint64_t kFillSet = 0xec5de0;          // entry: (widget, set)
@@ -105,7 +113,9 @@ struct State {
     std::atomic<uint64_t> widget{0};              // the key guide widget showing a browsing set
     uint64_t row = 0;                             // key guide 92's table row
     std::atomic<bool> online{false};
-    std::atomic<uint16_t> sort_act{kActY};      // the button that sorts in this screen (its action), 0 = none free (click only)
+    std::atomic<int> shown{0};                    // kSortButtons index shown on the Sort prompt (chosen at its fill), kNoButton = click only
+    int pressable = 0;                            // the same while no registered action of the screen uses its button (logged on change)
+    std::array<uint16_t, 512> guide_action{};     // key guide id -> its action + 1 (0 = not looked up yet)
     std::atomic<bool> click{false};               // a click on the button (pkp_menu.cpp, main thread)
     uint64_t logged_layout = 0;
 };
@@ -266,23 +276,26 @@ void sort_screen(::Ctx* c, uint64_t screen, uint8_t player, uint8_t kind) {
     if (sort_slots(c, arr, n, kind == 0)) call(c, kRefresh, screen);
 }
 
-// The pad button that sorts in this screen (as the game action shown on the button): in the bag Y (0x97), free while browsing; in a
-// container screen Y is the game's Add Stack / Remove All (key guides 154 / 155 in every container browsing set), so (+) (0x88, the
-// bag's Drop) unless the screen has a (+) action. 0 = none (the button only takes clicks). `browsing`: the action list is the browsing
-// one (in the bag a Y action there, e.g. the game's own Transfer All, also leaves only clicks).
-uint16_t free_sort_action(uint64_t screen, bool browsing) {
+// The button of an action (input manager table), -1 if unknown.
+int button_of(uint16_t act) {
+    const uint64_t im = rd<uint64_t>(g.base + kInputMgr);
+    if (!im || !mem::is_mapped(im + kActionButtons, 16)) return -1;
+    const uint64_t b = rd<uint64_t>(im + kActionButtons), e = rd<uint64_t>(im + kActionButtons + 8);
+    if (!b || e < b || act >= (e - b) / 4 || !mem::is_mapped(b + act * 4ull, 4)) return -1;
+    return rd<uint8_t>(b + act * 4ull);
+}
+
+// Marks the buttons of the screen's registered actions (all modes) in `used`. False when the list cannot be read.
+bool mark_registered(uint64_t screen, std::array<bool, 256>& used) {
     const uint64_t m = rd<uint64_t>(screen + kActions);
-    if (!m || !mem::is_mapped(m, 0x20)) return 0;
+    if (!m || !mem::is_mapped(m, 0x20)) return false;
     const uint64_t d = rd<uint64_t>(m + 8), n = rd<uint64_t>(m + 0x10);
-    if (n > 64 || (n && !mem::is_mapped(d, n * 0x30))) return 0;
-    bool y = false, plus = false;
+    if (n > 64 || (n && !mem::is_mapped(d, n * 0x30))) return false;
     for (uint64_t i = 0; i < n; ++i) {
-        const uint16_t act = rd<uint16_t>(d + i * 0x30 + 0x18);
-        y = y || act == kActY;
-        plus = plus || act == kActPlus;
+        const int b = button_of(rd<uint16_t>(d + i * 0x30 + 0x18));
+        if (b >= 0) used[b] = true;
     }
-    if (rd<uint8_t>(screen + kScreenKind) == 0) return browsing && y ? 0 : kActY;
-    return plus ? 0 : kActPlus;
+    return true;
 }
 
 int hook_screen_frame(::Ctx* c, uint64_t, void*) {
@@ -301,11 +314,17 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     }
     g.last_frame = now;
 
-    const uint16_t act = free_sort_action(screen, rd<uint8_t>(screen + kState) == 1);
-    if (act != g.sort_act.load() && g.log_lists && rd<uint8_t>(screen + kState) == 1)
-        NXLOG_I(kTag, "inventory sort: sort button now %s", act == kActY ? "Y" : act == kActPlus ? "(+)" : "none (click only)");
-    g.sort_act = act;
-    const uint64_t mask = act == kActY ? hid::btn(hid::kBtnY) : act == kActPlus ? hid::btn(hid::kBtnPlus) : 0;
+    // The prompt's button sorts only while no action of the screen is on it (the action list is complete one frame after a state change;
+    // the prompt was chosen from the shown set): otherwise the prompt takes clicks only, and the game keeps the button.
+    int pick = g.shown.load();
+    if (pick != kNoButton && rd<uint8_t>(screen + kState) == 1) {
+        std::array<bool, 256> used{};
+        if (!mark_registered(screen, used) || used[kSortButtons[pick].button]) pick = kNoButton;
+    }
+    if (pick != g.pressable && g.log_lists && rd<uint8_t>(screen + kState) == 1)
+        NXLOG_I(kTag, "inventory sort: sort button now %s", pick == kNoButton ? "none (click only)" : kSortButtons[pick].name);
+    if (rd<uint8_t>(screen + kState) == 1) g.pressable = pick;
+    const uint64_t mask = g.pressable == kNoButton ? 0 : hid::btn(kSortButtons[g.pressable].pad);
     uint64_t buttons = 0;
     if (g.button && mask) {
         if (auto src = hid::input_source()) {
@@ -387,8 +406,28 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
     const uint64_t part = c->x[19];
     const uint64_t sp = (c->x[31] - 0x100) & ~uint64_t{0xf};
     // the fill follows a state change in the same frame, after the per-frame hook ran, and maybe before the new actions are registered
-    const uint16_t act = g.screen ? free_sort_action(g.screen, false) : g.sort_act.load();
-    if (act) call(c, kSetIcon, part + 0x30, 3, act, 0, 0, sp);
+    // The button: the first of kSortButtons that no other prompt of the shown set uses (the set is what the player sees; the screen's
+    // action list may still be the one of the previous state here, so it is checked per frame instead).
+    std::array<bool, 256> used{};
+    const uint64_t data = rd<uint64_t>(w + kWidgetEntries), n = rd<uint64_t>(w + kWidgetCount);
+    for (uint64_t i = 0; data && n <= 6 && i < n; ++i) {
+        const uint16_t id = rd<uint16_t>(data + i * kEntrySize);
+        if (id == kSortGuide || id >= g.guide_action.size()) continue;
+        if (!g.guide_action[id]) {   // the key guide's row: {u16 action, ...} at [row + 8]
+            const uint64_t row = table_row(c, kGuideTable, id);
+            const uint64_t rec = row ? rd<uint64_t>(row + 8) : 0;
+            if (!rec || !mem::is_mapped(rec, 2)) continue;
+            g.guide_action[id] = static_cast<uint16_t>(rd<uint16_t>(rec) + 1);
+        }
+        const int b = button_of(static_cast<uint16_t>(g.guide_action[id] - 1));
+        if (b >= 0) used[b] = true;
+    }
+    int pick = kNoButton;
+    for (int i = 0; i < static_cast<int>(std::size(kSortButtons)) && pick == kNoButton; ++i)
+        if (button_of(kSortButtons[i].act) == kSortButtons[i].button && !used[kSortButtons[i].button]) pick = i;
+    g.shown = pick;
+    if (pick != kNoButton) call(c, kSetIcon, part + 0x30, 3, kSortButtons[pick].act, 0, 0, sp);
+    if (g.log_lists) NXLOG_I(kTag, "inventory sort: Sort prompt button %s", pick == kNoButton ? "none (click only)" : kSortButtons[pick].name);
     const uint64_t src = rd<uint64_t>(part + 0x38);
     const uint64_t lay = src ? call(c, kLayoutOf, src, 0, 0, 0, 0, sp) : 0;
     menu_set_sort_guide(lay);

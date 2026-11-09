@@ -6,7 +6,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, and the longer camera aim reach and the title's Quit Game prompt add new ones, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, and the longer camera aim reach, the title's Quit Game prompt and the inventory Sort button add new ones, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
 - Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
@@ -26,6 +26,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the title had only "(-) Settings"; the game could be closed with the window's close button, the quit key or the pad's quit combination, but nothing on the title said so
   - Now: a second prompt in the game's own style, left of Settings, reads Quit Game in the game's language with the (+) button's icon (Esc on the keyboard). Pressing (+) or Esc on the title, or clicking the prompt, opens the "Close the game?" box: Quit closes the game, Cancel goes back to the title. On by default; `[pkp] title_quit = 0` in `pkp.ini` takes it away
   - Still not: on a title that already shows a (+) Credits prompt there is no Quit Game (that title is left as it is); the Close the game? box is the PC port's own, not drawn in the game's style
+- Added a **Sort** button to the bag and containers (#323): a **(Y) Sort** button in the screen's own button bar (keyboard **F**), which the mouse can click too
+  - Before: items stayed where they were put; tidying meant moving them one by one with X
+  - Now: Sort tidies the panel under the cursor: part-full stacks of the same item are put together (up to the game's stack size of 99), then the items are ordered by kind, then by item, with empty slots at the end, and the screen shows the new order at once. Nothing is lost. The button sits where the bar showed "Hold to Sort" (holding X still rearranges). In a container screen Y is the game's own Add Stack / Remove All, so there the button sorts with **R** (keyboard Space), shown on the button. On by default; `[pkp] inventory_sort = 0` in `pkp.ini` takes the button away. `[pkp] inventory_autosort = 1` also sorts the bag each time it opens (off by default, because it reorders your bag without a press)
+  - Still not: no separate button per panel (one button sorts the panel under the cursor), no other sort orders, and no sorting during Link Play
 
 ### Performance
 - Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
