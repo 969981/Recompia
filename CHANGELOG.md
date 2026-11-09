@@ -48,6 +48,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the line says what the mouse does
 
 ### Launcher
+- Added an optional **Koi** look: a bright daytime picture behind the launcher (artwork by a friend of the project)
+  - Before: the colours button switched between Sunrise and Dusk, both with the same island picture
+  - Now: the button (**Colours** in the sidebar) goes Sunrise, Dusk, Koi. Sunrise stays the default, and nothing changes unless you press it
+  - Still not: Koi has no setting of its own yet; it is picked with the colours button, and the launcher remembers it
 - Testing builds have their own icon and a **Testing** tag in the launcher
   - Before: a Testing launcher looked exactly like the Stable one, in the taskbar, on the desktop and in the window
   - Now: the Testing build uses a different icon (a hammer on the R), and the sidebar shows it with a **Testing** tag whenever the update channel is Testing. Stable builds keep the current icon.
@@ -81,6 +85,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the colours are part of the picture, which is smaller (about 180 KB for both themes instead of 430 KB for one), and a page change animates for 160 ms instead of 280 ms. It looks the same. On one test machine (RTX 4070 Ti, Wayland) the slowest frames of a page change (median of 6 runs each) went from 84 ms to 35 ms
 
 ### What to test
+- **The Koi look:** press **Colours** in the launcher's sidebar until it says Koi. Look at Home, Settings and What's New. Report: any text that is hard to read over the picture, anything that looks cut off or blurry, and whether changing pages feels smooth (compared with Sunrise)
 - **The Testing icon:** open the launcher from the taskbar or desktop and look at the icon (a hammer on the R) and the sidebar (a **Testing** tag next to the logo). Report: anything that looks blurry, cut off, or that still shows the old icon
 - **In-game Options (off by default):** with the game closed, use **Set up again** in the launcher and let it finish. Open `pkp.ini` next to `pkp.exe` in a text editor. Find `[pkp]` and add `options_menu = 1` on its own line below it; if that line is already there, change its value to `1`. Save the file and start the game. Open the game's **Settings**: you should see nine tabs (Game, Camera, Sound, Display, Performance, Graphics, Picture, Mouse and Controller). Use **L** and **R** to visit them all. Change a value on two different tabs, choose **Save**, close and reopen Settings, then press **F1** and check that it shows the same values. If a row's description says **Applies after a restart**, close and start the game again before checking it. Finally, change the line back to `options_menu = 0` and restart: Settings should open normally with its original three tabs. To report a problem, open launcher **Settings > About > Report a problem**. Say which tab and row, the value you picked, what you expected and what happened; attach `pkp.log` (the **Show pkp.log** button there opens it). Report anything missing, cut off, not saved or not applied
 - **Save backups** (Settings > Saves > Backups): choose every 5 minutes, play for about 10 minutes and close the game. Look in the `save-backups` folder next to the game: there should be copies (one more from when the game closed). Then, with the game closed and a copy of your save folder made by hand first, try **Restore** on an older copy. Report: how many copies you saw, whether Restore brought the older save back, and anything odd (a copy that is missing, an error, a slow start while it copies)
