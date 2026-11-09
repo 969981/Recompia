@@ -304,9 +304,8 @@ void pull(::Ctx* c, State& s) {
     if (s.taken % 300 == 0) NXLOG_I(kTag, "%llu frames taken", (unsigned long long)s.taken);
 }
 
-}  // namespace
-
-void movie_test_frame(::Ctx* c) {
+// the game thread, once a frame (the registry's game-frame tick)
+void game_frame(::Ctx* c) {
     State& s = st();
     if (!s.init) {
         s.init = true;
@@ -327,5 +326,9 @@ void movie_test_frame(::Ctx* c) {
     }
     pull(c, s);
 }
+
+}  // namespace
+
+const Feature kMovieTestFeature = {.name = "movie_test", .game_frame = &game_frame};
 
 }  // namespace nxrt::games::pkp

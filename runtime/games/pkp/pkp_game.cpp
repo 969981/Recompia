@@ -3,9 +3,13 @@
 #include "pkp_game.h"
 #include "pkp_aim.h"
 #include "pkp_craft.h"
+#include "pkp_feature.h"
 #include "pkp_jump.h"
+#include "pkp_kbm.h"
+#include "pkp_layout.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
+#include "pkp_movie_test.h"
 #include "pkp_options.h"
 #include "pkp_play.h"
 #include "pkp_quality.h"
@@ -15,8 +19,8 @@
 #include "pkp_title.h"
 
 #include <cstring>
+#include <iterator>
 
-#include "nxrt/config.h"
 #include "play_game.h"
 #include "play_types.h"
 
@@ -28,49 +32,79 @@ namespace {
 // that pumps window events and samples the pad/keyboard for play mode (needs `entryhook 0x7101fdcde4` in recomp/games/pkp/main.sites).
 constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 
-// play mode's install / remove / status, plus the menu mouse (pkp_menu.cpp) and Link Play's Interact everywhere (pkp_linkplay.cpp)
+// ---- the feature registry ----
+// Every feature module, in install order. Their frame, game-frame, settings and status callbacks run in this order too; removal runs in
+// reverse. Before any of them the registry adds its game-frame tick at layout::kFrameStep, so the game-frame callbacks run before play's
+// frame-rate hook at that site, as they did when that hook called them. Where the order matters:
+//   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
+//   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
+//   play, kbm           play's status fields come first in the status line, kbm's right after them
+//   kbm, movie_test     game-frame callbacks, kbm's first
+//   title, sort, craft  share the key guide's hook sites (fill-set entry, part-filled inline), where hooks run in registration order
+//   options             after title: title's frame callback runs first
+// No other two features hook the same address.
+constexpr const Feature* kFeatures[] = {
+    &kSaveUuidFeature, &kLinkplayFeature, &kPlayFeature, &kKbmFeature, &kMovieTestFeature, &kMenuFeature, &kQualityFeature,
+    &kTaaFeature, &kJumpFeature, &kAimFeature, &kTitleFeature, &kSortFeature, &kCraftFeature, &kOptionsFeature,
+};
+constexpr size_t kFeatureCount = std::size(kFeatures);
+
+struct Registry {
+    HookSet sets[kFeatureCount];   // each feature's hooks (pkp_hook_set.h)
+    HookSet tick;                  // the game-frame tick
+    bool render_installed = false, installed = false;
+};
+Registry& reg() {
+    static Registry r;
+    return r;
+}
+
+// The game thread, once a frame: every feature's game-frame callback (before the frame-rate hook at the same site, pkp_frame_rate.cpp).
+int hook_game_frame(::Ctx* c, uint64_t, void*) {
+    for (const Feature* f : kFeatures)
+        if (f->game_frame) f->game_frame(c);
+    return 0;
+}
+
+void install_render_all(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h) {
+    Registry& r = reg();
+    if (r.render_installed) return;
+    for (size_t i = 0; i < kFeatureCount; ++i)
+        if (kFeatures[i]->install_render) kFeatures[i]->install_render(base, d, window_w, window_h, r.sets[i]);
+    r.render_installed = true;
+}
 void install_all(uint64_t base, play::GameHost* host, const play::Settings& s) {
-    save_uuid_repair();   // before the game is loaded, so before it reads its save (pkp_save_uuid.h)
-    play_install(base, host, s);
-    menu_install(base);
-    quality_install(base, s);
-    taa_install(base);
-    jump_install(base);
-    aim_install(base);
-    options_install(base, host);
-    title_install(base, host);
-    sort_install(base);
-    craft_install(base);
-    linkplay_install(base, config_get_bool("pkp", "link_interact_everywhere", false),
-                     config_get_bool("pkp", "link_story_coop", false));
+    Registry& r = reg();
+    if (r.installed) return;
+    r.tick.add_mid(base + layout::kFrameStep, &hook_game_frame);
+    for (size_t i = 0; i < kFeatureCount; ++i)
+        if (kFeatures[i]->install) kFeatures[i]->install(FeatureInstall{base, host, s, r.sets[i]});
+    r.installed = true;
 }
 void frame_all(bool in_game, double step_seconds, play::GameFrame* out) {
-    linkplay_frame();   // the first frame checks main (loaded by now) for Interact everywhere
-    play_frame(in_game, step_seconds, out);
-    title_frame();      // (+) on the title: the quit prompt
-    options_frame();    // the Mouse Mode Key row's key capture
+    for (const Feature* f : kFeatures)
+        if (f->frame) f->frame(in_game, step_seconds, out);
 }
 void settings_changed_all(const play::Settings& s) {
-    play_settings_changed(s);
-    quality_settings_changed(s);
+    for (const Feature* f : kFeatures)
+        if (f->settings_changed) f->settings_changed(s);
 }
 void remove_all() {
-    linkplay_remove();
-    taa_remove();
-    quality_remove();
-    menu_remove();
-    play_remove();
+    Registry& r = reg();
+    r.tick.clear();
+    for (size_t i = kFeatureCount; i-- > 0;) {
+        r.sets[i].clear();
+        if (kFeatures[i]->remove) kFeatures[i]->remove();
+    }
+    r.installed = r.render_installed = false;
 }
 void status_all(char* buf, size_t n) {
-    play_status_text(buf, n);
-    const size_t k = std::strlen(buf);
-    if (k + 1 < n) menu_status_text(buf + k, n - k);
-    const size_t k2 = std::strlen(buf);
-    if (k2 + 1 < n) quality_status_text(buf + k2, n - k2);
-    const size_t k3 = std::strlen(buf);
-    if (k3 + 2 < n) {
-        buf[k3] = ' ';
-        taa_status_text(buf + k3 + 1, n - k3 - 1);
+    if (!n) return;
+    buf[0] = 0;
+    for (const Feature* f : kFeatures) {
+        if (!f->status_text) continue;
+        const size_t k = std::strlen(buf);
+        if (k + 1 < n) f->status_text(buf + k, n - k);
     }
 }
 
@@ -80,7 +114,7 @@ const play::GamePlay& game_play() {
         p.frame_update = kFrameUpdate;
         p.display_options = play::kDisplayOptQuality;   // the quality preset (pkp_quality.cpp)
         p.quality_preset = &quality_preset;
-        p.install_render = &play_install_render;
+        p.install_render = &install_render_all;
         p.install = &install_all;
         p.remove = &remove_all;
         p.frame = &frame_all;

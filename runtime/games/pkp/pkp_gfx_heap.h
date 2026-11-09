@@ -3,7 +3,8 @@
 // 1920x1080 targets; play mode's render resolution (pkp_play.cpp) grows them, and the arena they come from, by what the larger targets need.
 #pragma once
 #include <cstdint>
-#include <vector>
+
+#include "pkp_hook_set.h"
 
 namespace nxrt::games::pkp {
 
@@ -21,6 +22,6 @@ struct GfxHeapPlan {
 GfxHeapPlan gfx_heap_plan(int w, int h);
 
 // Registers the two hooks (only when the plan grows a pool) and logs the plan. Call before the guest boots.
-void gfx_heap_install(uint64_t base, const GfxHeapPlan& plan, std::vector<uint32_t>* hooks);
+void gfx_heap_install(uint64_t base, const GfxHeapPlan& plan, HookSet& hooks);
 
 }  // namespace nxrt::games::pkp

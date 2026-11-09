@@ -22,8 +22,6 @@
 // (0x89e398, s0 = 60.0, x28 now, x25 the previous frame's tick, d8 the tick frequency) puts the measured rate in s0 for frames shorter
 // than 1/60 s, the same rule as the multiplier.
 #include "pkp_play_internal.h"
-#include "pkp_kbm.h"
-#include "pkp_movie_test.h"
 
 #include <algorithm>
 #include <cmath>
@@ -70,9 +68,7 @@ bool event_hold(State& s) {
 }
 
 int hook_frame_multiplier(::Ctx* c, uint64_t, void*) {
-    State& s = st();
-    kbm_frame(c);
-    movie_test_frame(c);   // [test] movie (pkp_movie_test.cpp)
+    State& s = st();   // the registry's game-frame tick ran just before, at the same site (pkp_game.cpp)
     if (!s.fps_fix.load(std::memory_order_relaxed)) return 0;
     if (event_hold(s)) {   // the retail rule while an event plays
         s.last_mult.store(c->v[0].f32[0], std::memory_order_relaxed);

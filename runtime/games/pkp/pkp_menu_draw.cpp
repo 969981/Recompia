@@ -25,7 +25,6 @@ std::atomic<uint64_t> g_drawn_key[kDrawnSlots];
 std::atomic<uint32_t> g_drawn_frame[kDrawnSlots];
 std::atomic<uint32_t> g_frame{1};             // play mode frames (menu_in_game runs once per frame)
 std::atomic<uint64_t> g_draw_calls{0};
-std::vector<uint32_t> g_draw_hooks;
 
 size_t drawn_slot(uint64_t lay) { return static_cast<size_t>((lay >> 4) * 0x9e3779b97f4a7c15ull >> 52) & (kDrawnSlots - 1); }
 

@@ -121,16 +121,19 @@ int hook_air_add(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-}  // namespace
-
-void jump_install(uint64_t base) {
+void install(const FeatureInstall& in) {
     if (!config_get_bool("pkp", "jump_momentum", true)) return;
+    const uint64_t base = in.base;
     g.base = base;
     g.strength = static_cast<float>(std::clamp(config_get_double("pkp", "jump_momentum_strength", 1.0), 0.0, 1.0));
-    hook_add_entry(base + kSetStep, &hook_set_step);
-    hook_add_entry(base + kAirAdd, &hook_air_add);
+    in.hooks.add_entry(base + kSetStep, &hook_set_step);
+    in.hooks.add_entry(base + kAirAdd, &hook_air_add);
     NXLOG_I(kTag, "jump momentum: on, strength %.2f (hooks main+0x%llx, main+0x%llx)", static_cast<double>(g.strength),
             static_cast<unsigned long long>(kSetStep), static_cast<unsigned long long>(kAirAdd));
 }
+
+}  // namespace
+
+const Feature kJumpFeature = {.name = "jump", .install = &install};
 
 }  // namespace nxrt::games::pkp

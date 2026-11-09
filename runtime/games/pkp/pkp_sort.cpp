@@ -437,21 +437,28 @@ bool sort_click() {
     return false;
 }
 
-void sort_install(uint64_t base) {
+namespace {
+
+void install(const FeatureInstall& in) {
+    const uint64_t base = in.base;
     g.base = base;
     g.button = config_get_bool("pkp", "inventory_sort", true);
     g.autosort = config_get_bool("pkp", "inventory_autosort", false);
     g.log_lists = config_get_int("pkp", "menu_log", 0) > 0;
     if (!g.button && !g.autosort) return;
-    hook_add_entry(base + kScreenFrame, &hook_screen_frame);
+    in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
     if (g.button) {   // 0xec5de0 and 0xec69b4 also carry the title's Quit Game hooks (pkp_title.cpp): every hook there returns 0, so all run
-        hook_add_entry(base + kFillSet, &hook_fill_set);
-        hook_add_entry(base + kLayoutGuides, &hook_layout_guides);
-        hook_add_inline(base + kPartFilled, &hook_part_filled);
+        in.hooks.add_entry(base + kFillSet, &hook_fill_set);
+        in.hooks.add_entry(base + kLayoutGuides, &hook_layout_guides);
+        in.hooks.add_inline(base + kPartFilled, &hook_part_filled);
     }
     NXLOG_I(kTag, "inventory sort: button %s, autosort %s (hooks main+0x%llx; key guide button 0x%llx, 0x%llx, 0x%llx)", g.button ? "on" : "off",
             g.autosort ? "on" : "off", static_cast<unsigned long long>(kScreenFrame), static_cast<unsigned long long>(kFillSet),
             static_cast<unsigned long long>(kLayoutGuides), static_cast<unsigned long long>(kPartFilled));
 }
+
+}  // namespace
+
+const Feature kSortFeature = {.name = "sort", .install = &install};
 
 }  // namespace nxrt::games::pkp

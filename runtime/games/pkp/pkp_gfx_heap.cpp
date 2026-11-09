@@ -139,15 +139,15 @@ GfxHeapPlan gfx_heap_plan(int w, int h) {
     return plan_for(1920, 1080);   // not reached: any shape at 1080 lines fits
 }
 
-void gfx_heap_install(uint64_t base, const GfxHeapPlan& plan, std::vector<uint32_t>* hooks) {
+void gfx_heap_install(uint64_t base, const GfxHeapPlan& plan, HookSet& hooks) {
     Heap& hp = heap();
     hp.plan = plan;
     if (plan.extra_general == 0 && plan.extra_rt == 0) {
         NXLOG_I(kTag, "graphics pools: the console's (game targets %dx%d), not hooked", plan.w, plan.h);
         return;
     }
-    hooks->push_back(hook_add_mid(base + kPassConfig, &hook_pass_config));
-    hooks->push_back(hook_add_mid(base + kArenaConfig, &hook_arena_config));
+    hooks.add_mid(base + kPassConfig, &hook_pass_config);
+    hooks.add_mid(base + kArenaConfig, &hook_arena_config);
     NXLOG_I(kTag, "graphics pools for %dx%d game targets: general +%llu MiB (%llu MiB), render targets +%llu MiB (%llu MiB), arena 0x%llx (+%llu MiB)",
             plan.w, plan.h, static_cast<unsigned long long>(plan.extra_general / kMiB), static_cast<unsigned long long>(plan.general / kMiB),
             static_cast<unsigned long long>(plan.extra_rt / kMiB), static_cast<unsigned long long>(plan.rt / kMiB),

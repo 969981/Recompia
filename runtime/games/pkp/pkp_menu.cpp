@@ -50,9 +50,11 @@ namespace nxrt::games::pkp {
 
 using namespace menu_detail;
 
-void menu_install(uint64_t base) {
+namespace {
+
+void install(const FeatureInstall& in) {
     State& s = st();
-    s.base = base;
+    s.base = in.base;
     s.enabled = config_get_bool("pkp", "menu_mouse", true);
     s.log_level = static_cast<int>(config_get_int("pkp", "menu_log", 1));
     s.ig_enabled = config_get_bool("pkp", "menu_in_game", true);     // on: drawn-layout detection confirmed with the bag (p5m)
@@ -89,17 +91,26 @@ void menu_install(uint64_t base) {
         }
     }
     for (const DrawSite& d : kDrawSites)
-        g_draw_hooks.push_back(hook_add_mid(base + d.off, &hook_pane_draw, reinterpret_cast<void*>(static_cast<uintptr_t>(d.reg))));
+        in.hooks.add_mid(in.base + d.off, &hook_pane_draw, reinterpret_cast<void*>(static_cast<uintptr_t>(d.reg)));
     s.installed = true;
     NXLOG_I(kTag, "menu mouse %s (the wheel and keys move the selection, a left click confirms the selected entry, the pointer does not pick; [pkp] menu_log %d; 3 = the layout chain once a second)", s.enabled ? "on" : "off", s.log_level);
 }
 
-void menu_remove() {
-    for (uint32_t id : g_draw_hooks) hook_remove(id);
-    g_draw_hooks.clear();
+void remove() {   // the registry has removed the pane draw hooks
     st().installed = false;
     st().ig_up = false;
 }
+
+void status_text(char* buf, size_t n) {
+    const State& s = st();
+    std::snprintf(buf, n, " menu_layouts=%u menu_panes=%u menu_entries=%u hover='%s' selected='%s' clicks=%u in_game_menu=%d (%u/%u) in_game_opens=%u",
+                  s.n_layouts.load(), s.n_panes.load(), s.n_items.load(), s.hover_name, s.focus_name, s.n_clicks.load(),
+                  s.ig_up ? 1 : 0, s.ig_lay_id, s.ig_lay_sub, s.n_ig_opens.load());
+}
+
+}  // namespace
+
+const Feature kMenuFeature = {.name = "menu", .install = &install, .remove = &remove, .status_text = &status_text};
 
 play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     State& s = st();
@@ -208,11 +219,5 @@ void menu_set_quit_guide(uint64_t layout) { g_quit_guide.store(layout, std::memo
 void menu_set_sort_guide(uint64_t layout) { g_sort_guide.store(layout, std::memory_order_relaxed); }
 void menu_set_craft_guide(uint64_t layout) { g_craft_guide.store(layout, std::memory_order_relaxed); }
 
-void menu_status_text(char* buf, size_t n) {
-    const State& s = st();
-    std::snprintf(buf, n, " menu_layouts=%u menu_panes=%u menu_entries=%u hover='%s' selected='%s' clicks=%u in_game_menu=%d (%u/%u) in_game_opens=%u",
-                  s.n_layouts.load(), s.n_panes.load(), s.n_items.load(), s.hover_name, s.focus_name, s.n_clicks.load(),
-                  s.ig_up ? 1 : 0, s.ig_lay_id, s.ig_lay_sub, s.n_ig_opens.load());
-}
 
 }  // namespace nxrt::games::pkp

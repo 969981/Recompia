@@ -238,4 +238,10 @@ void save_uuid_repair() {
     repair();
 }
 
+namespace {
+void install(const FeatureInstall&) { save_uuid_repair(); }
+}  // namespace
+
+const Feature kSaveUuidFeature = {.name = "save_uuid", .install = &install};
+
 }  // namespace nxrt::games::pkp

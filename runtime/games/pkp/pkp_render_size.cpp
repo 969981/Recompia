@@ -273,7 +273,7 @@ void game_target_memory(uint64_t base, int* w, int* h) {
                 plan.w, plan.h);
     *w = plan.w;
     *h = plan.h;
-    gfx_heap_install(base, plan, &st().hooks);
+    gfx_heap_install(base, plan, *st().hooks);
 }
 
 // The hooks that make the game's screen-relative targets and their viewports follow the render size (both size paths below).
@@ -287,15 +287,15 @@ void install_render_size_hooks(uint64_t base) {
         {kLevelWidth, hook_level_w}, {kLevelHeight, hook_level_h}, {kFullWidth, hook_full_w}, {kFullHeight, hook_full_h},
         {kCopyParams, hook_copy_params},
     };
-    for (const auto& t : table) s.hooks.push_back(hook_add_entry(base + t.off, t.fn));
-    s.hooks.push_back(hook_add_mid(base + kSetViewport, &hook_set_viewport));
-    s.hooks.push_back(hook_add_mid(base + kSetViewports, &hook_set_viewports));
-    s.hooks.push_back(hook_add_entry(base + kRecordViewports, &hook_record_viewports));
-    s.hooks.push_back(hook_add_mid(base + kReplayViewports, &hook_replay_viewports));
+    for (const auto& t : table) s.hooks->add_entry(base + t.off, t.fn);
+    s.hooks->add_mid(base + kSetViewport, &hook_set_viewport);
+    s.hooks->add_mid(base + kSetViewports, &hook_set_viewports);
+    s.hooks->add_entry(base + kRecordViewports, &hook_record_viewports);
+    s.hooks->add_mid(base + kReplayViewports, &hook_replay_viewports);
     g_frac_vp_on.store(config_get_bool("pkp", "scene_viewport_fix", true), std::memory_order_relaxed);
     const TargetFix mode = target_fix_from_config();
     g_target_fix.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
-    s.hooks.push_back(hook_add_entry(base + kCreateTarget, &hook_create_target));
+    s.hooks->add_entry(base + kCreateTarget, &hook_create_target);
     if (s.w.load() != kTableW || s.h.load() != kTableH)
         NXLOG_I(kTag, "render targets with a literal size: %s ([pkp] target_fix)",
                 mode == TargetFix::Off   ? "all kept as authored"

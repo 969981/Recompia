@@ -652,9 +652,8 @@ int hook_text_by_id(::Ctx* c, uint64_t, void*) {
     return 1;
 }
 
-}  // namespace
-
-void options_frame() {
+// frame boundary, main thread: the Mouse Mode Key row's key capture
+void frame(bool, double, play::GameFrame*) {
     if (!g_mm_shown.empty() && !g_mm_capture && mouse_mode_key_name(play::current_settings()) == g_mm_shown) g_mm_shown.clear();
     if (!g_mm_capture || !g_host) return;
     play::InputId in;
@@ -678,26 +677,31 @@ void options_frame() {
     g_mm_redraw = true;
 }
 
-void options_install(uint64_t base, play::GameHost* host) {
+void install(const FeatureInstall& in) {
     if (!config_get_bool("pkp", "options_menu", true)) return;
+    const uint64_t base = in.base;
     g.base = base;
-    g_host = host;
-    hook_add_entry(base + kOpen, &hook_open);
-    hook_add_entry(base + kOption, &hook_option);
-    hook_add_entry(base + kValueNames, &hook_value_names);
-    hook_add_inline(base + kRowDrawn, &hook_row_drawn);
-    hook_add_inline(base + kSliderText, &hook_slider_text);
-    hook_add_entry(base + kTextById, &hook_text_by_id);
-    hook_add_entry(base + kCommit, &hook_commit);
-    hook_add_entry(base + kStore, &hook_store);
-    hook_add_entry(base + kTabPrev, &hook_tab_prev);
-    hook_add_entry(base + kTabNext, &hook_tab_next);
-    hook_add_inline(base + kListCap, &hook_list_cap);
-    hook_add_inline(base + kBarList, &hook_bar_list);
-    hook_add_inline(base + kBarState, &hook_bar_state);
-    hook_add_inline(base + kBarIcons, &hook_bar_icons);
-    hook_add_entry(base + kBarTitle, &hook_bar_title);
+    g_host = in.host;
+    in.hooks.add_entry(base + kOpen, &hook_open);
+    in.hooks.add_entry(base + kOption, &hook_option);
+    in.hooks.add_entry(base + kValueNames, &hook_value_names);
+    in.hooks.add_inline(base + kRowDrawn, &hook_row_drawn);
+    in.hooks.add_inline(base + kSliderText, &hook_slider_text);
+    in.hooks.add_entry(base + kTextById, &hook_text_by_id);
+    in.hooks.add_entry(base + kCommit, &hook_commit);
+    in.hooks.add_entry(base + kStore, &hook_store);
+    in.hooks.add_entry(base + kTabPrev, &hook_tab_prev);
+    in.hooks.add_entry(base + kTabNext, &hook_tab_next);
+    in.hooks.add_inline(base + kListCap, &hook_list_cap);
+    in.hooks.add_inline(base + kBarList, &hook_bar_list);
+    in.hooks.add_inline(base + kBarState, &hook_bar_state);
+    in.hooks.add_inline(base + kBarIcons, &hook_bar_icons);
+    in.hooks.add_entry(base + kBarTitle, &hook_bar_title);
     NXLOG_I(kTag, "options: PC settings in the game's menu are on (%d tabs)", kTabCount);
 }
+
+}  // namespace
+
+const Feature kOptionsFeature = {.name = "options", .install = &install, .frame = &frame};
 
 }  // namespace nxrt::games::pkp

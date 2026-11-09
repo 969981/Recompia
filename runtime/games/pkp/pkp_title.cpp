@@ -125,28 +125,22 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
             static_cast<unsigned long long>(lay));
 }
 
-}  // namespace
-
-void title_install(uint64_t base, play::GameHost* host) {
+void install(const FeatureInstall& in) {
     if (!config_get_bool("pkp", "title_quit", true)) {
         NXLOG_I(kTag, "title quit: off ([pkp] title_quit)");
         return;
     }
+    const uint64_t base = in.base;
     g.base = base;
-    g.host = host;
-    hook_add_entry(base + kFillSet, &hook_fill_set);
-    hook_add_inline(base + kPartFilled, &hook_part_filled);
+    g.host = in.host;
+    in.hooks.add_entry(base + kFillSet, &hook_fill_set);
+    in.hooks.add_inline(base + kPartFilled, &hook_part_filled);
     NXLOG_I(kTag, "title quit: on (a (+) Quit Game prompt next to (-) Settings on the title; hooks main+0x%llx, +0x%llx)",
             static_cast<unsigned long long>(kFillSet), static_cast<unsigned long long>(kPartFilled));
 }
 
-bool title_up() {
-    const uint64_t w = g.widget;
-    if (!w || !ok(w + kWidgetSet, 8)) return false;
-    return rd<uint8_t>(w + kWidgetSet) == kTitleSet && rd<int32_t>(w + kWidgetState) - 1u < 2u;
-}
-
-void title_frame() {
+// main thread, once per frame: (+) on the title opens the quit prompt
+void frame(bool, double, play::GameFrame*) {
     if (!g.host) return;
     const uint64_t buttons = hid::sampled_buttons();
     const uint64_t plus = hid::btn(hid::kBtnPlus);
@@ -156,5 +150,15 @@ void title_frame() {
     NXLOG_I(kTag, "title quit: (+) on the title, the Close the game? prompt opens");
     g.host->request_quit_prompt();
 }
+
+}  // namespace
+
+bool title_up() {
+    const uint64_t w = g.widget;
+    if (!w || !ok(w + kWidgetSet, 8)) return false;
+    return rd<uint8_t>(w + kWidgetSet) == kTitleSet && rd<int32_t>(w + kWidgetState) - 1u < 2u;
+}
+
+const Feature kTitleFeature = {.name = "title", .install = &install, .frame = &frame};
 
 }  // namespace nxrt::games::pkp

@@ -351,14 +351,13 @@ int hook_action_start(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-}  // namespace
-
-void aim_install(uint64_t base) {
+void install(const FeatureInstall& in) {
+    const uint64_t base = in.base;
     g.base = base;
     // the swing headings and the action start also turn the game's mouse mode toward the pointer, with camera aim off too
-    hook_add_mid(base + kSwingPreview, &hook_swing_preview);
-    hook_add_mid(base + kSwingLive, &hook_swing_live);
-    hook_add_mid(base + kActionStart, &hook_action_start);
+    in.hooks.add_mid(base + kSwingPreview, &hook_swing_preview);
+    in.hooks.add_mid(base + kSwingLive, &hook_swing_live);
+    in.hooks.add_mid(base + kActionStart, &hook_action_start);
     g.camera = config_get_bool("pkp", "camera_aim", true);
     if (!g.camera) {
         NXLOG_I(kTag, "camera aim: off (mouse mode facing hooks main+0x%llx, +0x%llx, +0x%llx)", static_cast<unsigned long long>(kSwingPreview),
@@ -367,17 +366,21 @@ void aim_install(uint64_t base) {
     }
     g.extra = static_cast<int>(std::clamp<int64_t>(config_get_int("pkp", "camera_aim_reach", 2), 0, 4));
     g.reach = std::max(kReach, 1 + g.extra);
-    hook_add_mid(base + kHeadingRead, &hook_heading);
-    hook_add_mid(base + kPitchRead, &hook_pitch);
+    in.hooks.add_mid(base + kHeadingRead, &hook_heading);
+    in.hooks.add_mid(base + kPitchRead, &hook_pitch);
     if (g.extra > 0) {
-        hook_add_mid(base + kQueryBase, &hook_query_base);
-        hook_add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
-        hook_add_mid(base + kSwingLivePos, &hook_swing_live_pos);
+        in.hooks.add_mid(base + kQueryBase, &hook_query_base);
+        in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
+        in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
     }
     NXLOG_I(kTag, "camera aim: on (hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx), reach +%d cells",
             static_cast<unsigned long long>(kHeadingRead), static_cast<unsigned long long>(kSwingPreview),
             static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kPitchRead),
             static_cast<unsigned long long>(kActionStart), g.extra);
 }
+
+}  // namespace
+
+const Feature kAimFeature = {.name = "aim", .install = &install};
 
 }  // namespace nxrt::games::pkp

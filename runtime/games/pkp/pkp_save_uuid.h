@@ -8,9 +8,13 @@
 // none. A copy of the account folder is kept first, in <save dir>/uuid-backup/<time>/.
 #pragma once
 
+#include "pkp_feature.h"
+
 namespace nxrt::games::pkp {
 
 // Runs once per process; does nothing when [pkp] uuid_repair = false, without a save, or when the save has another UUID. Logged.
 void save_uuid_repair();
+// The registry's first feature: its install runs the repair, before the game is loaded (so before it reads its save).
+extern const Feature kSaveUuidFeature;
 
 }  // namespace nxrt::games::pkp

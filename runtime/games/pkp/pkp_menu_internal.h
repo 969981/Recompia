@@ -130,7 +130,6 @@ constexpr DrawSite kDrawSites[] = {
 extern std::atomic<uint32_t> g_frame;
 extern std::atomic<uint64_t> g_draw_calls;
 extern std::atomic<uint64_t> g_pane_table_full;
-extern std::vector<uint32_t> g_draw_hooks;
 bool drawn_recent(uint64_t lay);
 bool draw_hooks_live();
 enum { kNoRecord = 0, kStale = 1, kFresh = 2 };

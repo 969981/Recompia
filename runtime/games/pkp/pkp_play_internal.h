@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "pkp_guest.h"
+#include "pkp_hook_set.h"
 #include "pkp_layout.h"
 #include "play_game.h"
 
@@ -28,7 +29,7 @@ constexpr uint64_t kSetViewport = 0x17b50ac, kSetViewports = 0x17b5254;     // m
 constexpr uint64_t kRecordViewports = 0x17c0420;                            // entry: records viewports into the pass state (x0 ctx + 0x10, w1 n, x2 rects)
 constexpr uint64_t kCreateTarget = 0x1796810;                               // entry: KTGL 2D render-target create (w1 width, w2 height, w4 format)
 constexpr double kGameMaxFps = 60.0;                                        // the frame logic's design rate (event hold)
-constexpr uint64_t kFrameMultiplier = 0xbfc4fc;                             // mid: s0 multiplier, s8 frame time
+constexpr uint64_t kFrameMultiplier = layout::kFrameStep;                   // mid: s0 multiplier, s8 frame time
 constexpr uint64_t kTweenStep[4] = {0xe51688, 0xe516f0, 0xe5173c, 0xe51788};   // mid: general tween step (fadd s0, s0, s1): x19 tween, x10 counter, s0 multiplier, s1 0.5
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
@@ -70,7 +71,7 @@ struct State {
     double pend_dx = 0, pend_dy = 0;
     uint64_t last_turn_ns = 0;
     std::atomic<uint64_t> cam_field{0}, follow_forced{0}, cam_dropped{0};
-    std::vector<uint32_t> hooks;
+    HookSet* hooks = nullptr;                // the registry's set for play (pkp_feature.h): every hook of these files goes in it
     std::atomic<uint64_t> res_calls{0}, copy_calls{0}, vp_fixes{0}, fps_calls{0}, cam_calls{0}, cam_moves{0};
     std::atomic<uint64_t> vp_shapes[16]{};   // distinct scissor sizes the viewport stretch has touched (logged once each)
     std::atomic<uint32_t> vp_shape_n{0};
@@ -97,6 +98,9 @@ struct State {
 };
 
 State& st();
+
+// ---- Joy-Con 2 mouse mode key, play mode's frame (pkp_mouse_mode.cpp) ----
+void play_frame(bool in_game, double step_seconds, play::GameFrame* out);
 
 // ---- render resolution (pkp_render_size.cpp) ----
 int hook_copy_params(::Ctx* c, uint64_t, void*);

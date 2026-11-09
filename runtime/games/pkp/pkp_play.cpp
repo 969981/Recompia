@@ -9,7 +9,6 @@
 // and answers play mode's GamePlay table.
 #include "pkp_play.h"
 #include "pkp_play_internal.h"
-#include "pkp_kbm.h"
 
 #include <algorithm>
 #include <cmath>
@@ -39,10 +38,13 @@ namespace nxrt::games::pkp {
 
 using namespace play_detail;
 
-void play_install_render(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h) {
+namespace {
+
+void install_render(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h, HookSet& hooks) {
     State& s = st();
     if (s.render_installed) return;
     s.base = base;
+    s.hooks = &hooks;
     int w = kTableW, h = kTableH;
     pick_size(d, window_w, window_h, &w, &h);
     s.dynres.store(d.dynamic_resolution);
@@ -88,17 +90,17 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         s.w.store(gw);
         s.h.store(gh);
         install_render_size_hooks(base);
-        s.hooks.push_back(hook_add_mid(base + kCamSubmit, &hook_cam_submit));
-        s.hooks.push_back(hook_add_mid(base + kProjBuild, &hook_proj_build));
+        s.hooks->add_mid(base + kCamSubmit, &hook_cam_submit);
+        s.hooks->add_mid(base + kProjBuild, &hook_proj_build);
         wd.ui_size = mem::alloc_kernel(16);
         if (wd.ui_size) {
             wr<int32_t>(wd.ui_size, gw);
             wr<int32_t>(wd.ui_size + 4, gh);
-            s.hooks.push_back(hook_add_mid(base + kUiCamera, &hook_ui_camera));
+            s.hooks->add_mid(base + kUiCamera, &hook_ui_camera);
         }
         if (wd.aspect > kAspect169) {
-            s.hooks.push_back(hook_add_mid(base + kTextSpacing, &hook_text_spacing));
-            s.hooks.push_back(hook_add_mid(base + kTextWriterStyle, &hook_text_writer_style));
+            s.hooks->add_mid(base + kTextSpacing, &hook_text_spacing);
+            s.hooks->add_mid(base + kTextWriterStyle, &hook_text_writer_style);
         }
         float scale = 1.0f;
         if (fixed_size) scale = static_cast<float>(d.render_height) / gh;
@@ -118,7 +120,7 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
         // The game's own size (the back end's [gfx] render_scale enlarges it). Its dynamic resolution still drops the scene viewport below
         // 1920x1080 when frames run late (1664x936 seen at 1440p: the scene then covers part of the targets, a hard-edged band): with
         // [display] dynamic_resolution off, the per-frame copy of the parameters keeps the top level ([upscale] scene_scale below it).
-        s.hooks.push_back(hook_add_entry(base + kCopyParams, hook_copy_params));
+        s.hooks->add_entry(base + kCopyParams, hook_copy_params);
         // [display] render_scale for the NVN back end, which renders the game's targets at that factor: a fixed size by its height, auto
         // by the window's height (at least 1), a percentage of the console's 1920x1080
         float scale = 1.0f;
@@ -142,11 +144,16 @@ void play_install_render(uint64_t base, const play::DisplaySettings& d, int wind
             d.dynamic_resolution ? "on" : "off");
 }
 
-void play_install(uint64_t base, play::GameHost* host, const play::Settings& set) {
+void settings_changed(const play::Settings& set) { st().dynres.store(set.display.dynamic_resolution); }
+
+void install(const FeatureInstall& in) {
     State& s = st();
     if (s.installed) return;
+    const uint64_t base = in.base;
+    const play::Settings& set = in.settings;
     s.base = base;
-    s.host = host;
+    s.host = in.host;
+    s.hooks = &in.hooks;
     s.fps_fix.store(config_get_bool("pkp", "frame_time_fix", true));
     s.hold_on.store(config_get_bool("pkp", "event_hold", true));
     s.hold_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "event_hold_ms", 1500), 0, 10000)) * 1000000ull;
@@ -154,19 +161,18 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     s.game_limit.store(config_get_bool("pkp", "game_frame_limit", false));
     s.cam_every_frame.store(config_get_bool("pkp", "camera_every_frame", true));
     s.grace_ns = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("pkp", "camera_grace_ms", 250), 0, 5000)) * 1000000ull;
-    s.hooks.push_back(hook_add_mid(base + kFrameMultiplier, &hook_frame_multiplier));
-    for (const uint64_t site : kTweenStep) s.hooks.push_back(hook_add_mid(base + site, &hook_tween_step));
-    s.hooks.push_back(hook_add_mid(base + kSyncPeriod, &hook_sync_period));
-    s.hooks.push_back(hook_add_mid(base + kFixedStepRate, &hook_fixed_step_rate));
-    s.hooks.push_back(hook_add_mid(base + kCamField, &hook_cam_field));
-    s.hooks.push_back(hook_add_mid(base + kCamStick, &hook_cam_stick));
-    s.hooks.push_back(hook_add_mid(base + kFollowGate, &hook_follow_gate));
-    s.hooks.push_back(hook_add_mid(base + kMmStyle, &hook_mm_style));
-    s.hooks.push_back(hook_add_mid(base + kMmOption, &hook_mm_option));
-    s.hooks.push_back(hook_add_mid(base + kMmStart, &hook_mm_start));
-    kbm_install(base, &s.hooks);
+    s.hooks->add_mid(base + kFrameMultiplier, &hook_frame_multiplier);
+    for (const uint64_t site : kTweenStep) s.hooks->add_mid(base + site, &hook_tween_step);
+    s.hooks->add_mid(base + kSyncPeriod, &hook_sync_period);
+    s.hooks->add_mid(base + kFixedStepRate, &hook_fixed_step_rate);
+    s.hooks->add_mid(base + kCamField, &hook_cam_field);
+    s.hooks->add_mid(base + kCamStick, &hook_cam_stick);
+    s.hooks->add_mid(base + kFollowGate, &hook_follow_gate);
+    s.hooks->add_mid(base + kMmStyle, &hook_mm_style);
+    s.hooks->add_mid(base + kMmOption, &hook_mm_option);
+    s.hooks->add_mid(base + kMmStart, &hook_mm_start);
     s.installed = true;
-    play_settings_changed(set);
+    settings_changed(set);
     NXLOG_I(kTag, "frame-time fix %s (event hold %s, %llu ms), game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",
             s.fps_fix.load() ? "on" : "off", s.hold_on.load() ? "on" : "off", static_cast<unsigned long long>(s.hold_ns / 1000000ull),
             s.game_limit.load() ? "kept" : "off", set.display.fps_cap, set.display.vsync ? "on" : "off",
@@ -174,21 +180,44 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
             static_cast<unsigned long long>(s.grace_ns / 1000000ull));
 }
 
-void play_remove() {
+void remove() {   // the registry has removed play's hooks
     State& s = st();
     if (s.mm_want) hid::jc2_mouse_request(false);
     s.mm_want = false;
     s.mm_gate.store(false);
-    for (uint32_t id : s.hooks) hook_remove(id);
-    s.hooks.clear();
+    s.hooks = nullptr;
     s.installed = s.render_installed = false;
     s.host = nullptr;
 }
 
-void play_settings_changed(const play::Settings& set) {
-    st().dynres.store(set.display.dynamic_resolution);
-    kbm_settings_changed(set);
+void status_text(char* buf, size_t n) {
+    const State& s = st();
+    const int k = std::snprintf(buf, n, " render=%dx%d res_hooks=%llu copies=%llu set_vp=%llu vp_fixes=%llu mult=%.3f short_frames=%llu sync=%llu fixed_step=%llu cam=%llu cam_moves=%llu cam_field=%llu follow_forced=%llu cam_dropped=%llu mouse_mode=%d mm_dropped=%llu", s.w.load(), s.h.load(),
+                  static_cast<unsigned long long>(s.res_calls.load()), static_cast<unsigned long long>(s.copy_calls.load()), static_cast<unsigned long long>(g_set_vp_fixes.load()), static_cast<unsigned long long>(s.vp_fixes.load()),
+                  static_cast<double>(s.last_mult.load()), static_cast<unsigned long long>(s.fps_calls.load()),
+                  static_cast<unsigned long long>(s.sync_calls.load()), static_cast<unsigned long long>(s.fixed_calls.load()),
+                  static_cast<unsigned long long>(s.cam_calls.load()), static_cast<unsigned long long>(s.cam_moves.load()),
+                  static_cast<unsigned long long>(s.cam_field.load()), static_cast<unsigned long long>(s.follow_forced.load()),
+                  static_cast<unsigned long long>(s.cam_dropped.load()), s.mm_want ? 1 : 0, static_cast<unsigned long long>(s.mm_dropped.load()));
+    if (k > 0 && static_cast<size_t>(k) < n && wide_on()) {
+        const Wide& w = wide();
+        std::snprintf(buf + k, n - k, " aspect=%.3f cam_fixes=%llu aspect_puts=%llu fov_puts=%llu ui_fixes=%llu", w.aspect,
+                      static_cast<unsigned long long>(w.cam_fixes.load()), static_cast<unsigned long long>(w.aspect_puts.load()),
+                      static_cast<unsigned long long>(w.fov_puts.load()), static_cast<unsigned long long>(w.ui_fixes.load()));
+    }
 }
+
+}  // namespace
+
+const Feature kPlayFeature = {
+    .name = "play",
+    .install_render = &install_render,
+    .install = &install,
+    .remove = &remove,
+    .frame = &play_frame,
+    .settings_changed = &settings_changed,
+    .status_text = &status_text,
+};
 
 play::DisplayLive play_display_live() {
     play::DisplayLive l;
@@ -200,27 +229,6 @@ play::DisplayLive play_display_live() {
 }
 
 uint32_t play_display_calls() { return static_cast<uint32_t>(st().res_calls.load() + st().copy_calls.load()); }
-
-
-void play_status_text(char* buf, size_t n) {
-    const State& s = st();
-    const int k = std::snprintf(buf, n, " render=%dx%d res_hooks=%llu copies=%llu set_vp=%llu vp_fixes=%llu mult=%.3f short_frames=%llu sync=%llu fixed_step=%llu cam=%llu cam_moves=%llu cam_field=%llu follow_forced=%llu cam_dropped=%llu mouse_mode=%d mm_dropped=%llu", s.w.load(), s.h.load(),
-                  static_cast<unsigned long long>(s.res_calls.load()), static_cast<unsigned long long>(s.copy_calls.load()), static_cast<unsigned long long>(g_set_vp_fixes.load()), static_cast<unsigned long long>(s.vp_fixes.load()),
-                  static_cast<double>(s.last_mult.load()), static_cast<unsigned long long>(s.fps_calls.load()),
-                  static_cast<unsigned long long>(s.sync_calls.load()), static_cast<unsigned long long>(s.fixed_calls.load()),
-                  static_cast<unsigned long long>(s.cam_calls.load()), static_cast<unsigned long long>(s.cam_moves.load()),
-                  static_cast<unsigned long long>(s.cam_field.load()), static_cast<unsigned long long>(s.follow_forced.load()),
-                  static_cast<unsigned long long>(s.cam_dropped.load()), s.mm_want ? 1 : 0, static_cast<unsigned long long>(s.mm_dropped.load()));
-    int k2 = k;
-    if (k > 0 && static_cast<size_t>(k) < n && wide_on()) {
-        const Wide& w = wide();
-        const int m = std::snprintf(buf + k, n - k, " aspect=%.3f cam_fixes=%llu aspect_puts=%llu fov_puts=%llu ui_fixes=%llu", w.aspect,
-                                    static_cast<unsigned long long>(w.cam_fixes.load()), static_cast<unsigned long long>(w.aspect_puts.load()),
-                                    static_cast<unsigned long long>(w.fov_puts.load()), static_cast<unsigned long long>(w.ui_fixes.load()));
-        if (m > 0) k2 += m;
-    }
-    if (k2 > 0 && static_cast<size_t>(k2) < n) kbm_status_text(buf + k2, n - k2);
-}
 
 bool play_follow_live() {
     const uint64_t t = g_follow_ns.load(std::memory_order_relaxed);

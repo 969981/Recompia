@@ -83,7 +83,6 @@ const Preset* find_preset(const std::string& n) {
 
 struct State {
     uint64_t base = 0x7100000000ull;
-    std::vector<uint32_t> hooks;
     bool probe = false;
     float lod_scale = 1.0f;
     bool ini_lod_set = false;
@@ -342,9 +341,13 @@ bool quality_preset(const char* name, play::DisplaySettings& d) {
     return true;
 }
 
-void quality_install(uint64_t base, const play::Settings& set) {
+namespace {
+
+void install(const FeatureInstall& in) {
     State& s = st();
     if (s.installed) return;
+    const uint64_t base = in.base;
+    const play::Settings& set = in.settings;
     s.base = base;
     if (config_has("pkp", "quality_preset")) {
         const std::string n = config_get_str("pkp", "quality_preset", "switch2");
@@ -361,34 +364,29 @@ void quality_install(uint64_t base, const play::Settings& set) {
         t.ufs_hash.store(0x7c8c05da24a1f5a2ull);
         if (fog != 1.0) NXLOG_I(kTag, "quality: fog strength x%.2f", fog);
     }
-    s.hooks.push_back(hook_add_mid(base + kCamCommitEnd, &hook_cam_commit));
+    in.hooks.add_mid(base + kCamCommitEnd, &hook_cam_commit);
     s.probe = config_get_bool("pkp", "quality_probe", false);
     s.ini_lod_set = config_has("pkp", "lod_distance");
     if (s.ini_lod_set) s.lod_scale = static_cast<float>(std::clamp(config_get_double("pkp", "lod_distance", 1.0), 0.25, 8.0));
-    for (uint64_t off : kLodJobs) s.hooks.push_back(hook_add_entry(base + off, &hook_parts_lod));
-    s.hooks.push_back(hook_add_mid(base + kLodInst, &hook_lod_inst));
-    s.hooks.push_back(hook_add_mid(base + kLodCell, &hook_lod_cell));
-    s.hooks.push_back(hook_add_mid(base + kLodErrA, &hook_lod_err_a));
-    s.hooks.push_back(hook_add_mid(base + kLodErrB, &hook_lod_err_b));
-    s.hooks.push_back(hook_add_entry(base + kLodSel, &hook_lod_sel));
-    s.hooks.push_back(hook_add_entry(base + kLodSet, &hook_lod_set));
-    s.hooks.push_back(hook_add_mid(base + kLodObj, &hook_lod_obj));
-    s.hooks.push_back(hook_add_mid(base + kLodObjB, &hook_lod_obj_b));
+    for (uint64_t off : kLodJobs) in.hooks.add_entry(base + off, &hook_parts_lod);
+    in.hooks.add_mid(base + kLodInst, &hook_lod_inst);
+    in.hooks.add_mid(base + kLodCell, &hook_lod_cell);
+    in.hooks.add_mid(base + kLodErrA, &hook_lod_err_a);
+    in.hooks.add_mid(base + kLodErrB, &hook_lod_err_b);
+    in.hooks.add_entry(base + kLodSel, &hook_lod_sel);
+    in.hooks.add_entry(base + kLodSet, &hook_lod_set);
+    in.hooks.add_mid(base + kLodObj, &hook_lod_obj);
+    in.hooks.add_mid(base + kLodObjB, &hook_lod_obj_b);
     s.installed = true;
     NXLOG_I(kTag, "quality: texture LOD bias %.2f, anisotropy %d (preset %s%s)", static_cast<double>(gfx::tuning().lod_bias.load()), gfx::tuning().anisotropy.load(),
             s.ini_preset ? s.ini_preset->name : set.display.quality_preset.c_str(), s.ini_preset ? ", from [pkp] quality_preset" : "");
 }
 
-void quality_remove() {
-    State& s = st();
-    for (uint32_t id : s.hooks) hook_remove(id);
-    s.hooks.clear();
-    s.installed = false;
-}
+void remove() { st().installed = false; }   // the registry has removed the hooks
 
-void quality_settings_changed(const play::Settings&) { apply(); }
+void settings_changed(const play::Settings&) { apply(); }
 
-void quality_status_text(char* buf, size_t n) {
+void status_text(char* buf, size_t n) {
     const State& s = st();
     const int k = std::snprintf(buf, n, " cam_commits=%llu", static_cast<unsigned long long>(s.commits.load()));
     if (k < 0 || static_cast<size_t>(k) + 1 >= n) return;
@@ -396,5 +394,15 @@ void quality_status_text(char* buf, size_t n) {
     std::snprintf(buf + k, n - k, " lod=inst:%llu,cell:%llu,errA:%llu,errB:%llu,sel:%llu,set:%llu,obj:%llu,objb:%llu", cnt(kSiteInst), cnt(kSiteCell),
                   cnt(kSiteErrA), cnt(kSiteErrB), cnt(kSiteSel), cnt(kSiteSet), cnt(kSiteObj), cnt(kSiteObjB));
 }
+
+}  // namespace
+
+const Feature kQualityFeature = {
+    .name = "quality",
+    .install = &install,
+    .remove = &remove,
+    .settings_changed = &settings_changed,
+    .status_text = &status_text,
+};
 
 }  // namespace nxrt::games::pkp

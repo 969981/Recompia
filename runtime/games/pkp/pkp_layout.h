@@ -44,6 +44,11 @@ constexpr uint64_t kSaveHeading = 0x741a10;      // the local player's heading w
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
 
+// ---- the main loop ----
+// mid: the frame step (0xbfc404) where its frame multiplier is joined (s0 the multiplier, s8 the frame time): the game thread, once a
+// frame. The feature registry's game-frame tick (pkp_game.cpp) and the frame-rate hook (pkp_frame_rate.cpp) sit here, in that order.
+constexpr uint64_t kFrameStep = 0xbfc4fc;
+
 // ---- game functions ----
 constexpr uint64_t kOnline = 0x376c4;            // () -> bit 0: Link Play session
 constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout

@@ -57,12 +57,6 @@ void mm_pointer_space(State& s) {
     hid::jc2_mouse_set_pointer_space(w, h);
 }
 
-}  // namespace nxrt::games::pkp::play_detail
-
-namespace nxrt::games::pkp {
-
-using namespace play_detail;
-
 // ---- Joy-Con 2 mouse mode ----
 // The Mouse mode key (Act::MouseMode, middle button in play) flips the request for the Joy-Con 2 mouse: the game then sees the PC mouse on its
 // surface and the camera lets go of the mouse (hook_cam_*: counts dropped while jc2_mouse_active(); play mode stops capturing and hides the
@@ -154,4 +148,4 @@ void play_frame(bool in_game, double, play::GameFrame*) {
     }
 }
 
-}  // namespace nxrt::games::pkp
+}  // namespace nxrt::games::pkp::play_detail

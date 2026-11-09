@@ -18,6 +18,7 @@
 #include <cstring>
 #include <vector>
 
+#include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -45,12 +46,13 @@ constexpr uint64_t kNormalPattern = 0x5ffffffeull;   // bits 1-28 and 30: Palett
 
 struct State {
     uint64_t base = 0;
+    HookSet* hooks = nullptr;              // the registry's set for Link Play (pkp_feature.h)
     uint32_t hook = 0;                     // 0: not installed
     uint32_t story_hook = 0;               // 0: Story co-op off or not installed
     std::atomic<bool> story_armed{false};
     std::atomic<bool> logged_story{false};
     std::atomic<bool> armed{false};        // main checked: the hook may change the mask
-    std::atomic<bool> checked{false};      // linkplay_frame() made its decision
+    std::atomic<bool> checked{false};      // the frame callback made its decision
     std::atomic<bool> logged_change{false};
     std::atomic<uint64_t> changes{0};
 };
@@ -118,10 +120,18 @@ bool interact_apply(uint64_t* x) {
     return true;
 }
 
-void linkplay_install(uint64_t base, bool on, bool story) {
+namespace {
+
+// Registers the midhook at main+site when [pkp] link_interact_everywhere (or link_story_coop) is on (main is not loaded yet, so nothing
+// is checked here) and logs the choice. The hook does nothing until linkplay_arm() accepted main.
+void install(const FeatureInstall& in) {
     State& s = st();
     if (s.hook) return;
+    bool on = config_get_bool("pkp", "link_interact_everywhere", false);
+    const bool story = config_get_bool("pkp", "link_story_coop", false);
+    const uint64_t base = in.base;
     s.base = base;
+    s.hooks = &in.hooks;
     s.armed.store(false);
     s.checked.store(false);
     s.logged_change.store(false);
@@ -143,15 +153,17 @@ void linkplay_install(uint64_t base, bool on, bool story) {
         NXLOG_I(kTag, "Interact everywhere ([pkp] link_interact_everywhere): off, Link Play outside Palette Town keeps the game's Spectator Mode");
         return;
     }
-    s.hook = hook_add_mid(base + kSites[0].site, &hook_mask);
+    s.hook = in.hooks.add_mid(base + kSites[0].site, &hook_mask);
     NXLOG_I(kTag, "Interact everywhere ([pkp] link_interact_everywhere): on, hook at main+0x%llx, main is checked once the game runs",
             static_cast<unsigned long long>(kSites[0].site));
     if (want_story) {
-        s.story_hook = hook_add_mid(base + kStorySites[0].site, &hook_talk);
+        s.story_hook = in.hooks.add_mid(base + kStorySites[0].site, &hook_talk);
         NXLOG_I(kTag, "Story co-op ([pkp] link_story_coop): on, hook at main+0x%llx, main is checked once the game runs",
                 static_cast<unsigned long long>(kStorySites[0].site));
     }
 }
+
+}  // namespace
 
 InteractCheck story_arm(const std::string& build_id, bool site_lifted, uint32_t word) {
     State& s = st();
@@ -170,7 +182,7 @@ InteractCheck story_arm(const std::string& build_id, bool site_lifted, uint32_t 
         return c;
     }
     s.story_armed.store(false);
-    hook_remove(s.story_hook);
+    s.hooks->remove(s.story_hook);
     s.story_hook = 0;
     if (c == InteractCheck::WordDiffers)
         NXLOG_W(kTag, "Story co-op: not applied: the word at main+0x%llx is %08x, expected %08x (build %s)",
@@ -196,7 +208,7 @@ InteractCheck linkplay_arm(const std::string& build_id, bool site_lifted, uint32
         return c;
     }
     s.armed.store(false);
-    hook_remove(s.hook);
+    s.hooks->remove(s.hook);
     s.hook = 0;
     services::ldnapi::set_session_variant(0, kInteractName);
     if (c == InteractCheck::WordDiffers)
@@ -208,7 +220,11 @@ InteractCheck linkplay_arm(const std::string& build_id, bool site_lifted, uint32
     return c;
 }
 
-void linkplay_frame() {
+namespace {
+
+// Once per frame (play mode's frame: main is loaded): the first call checks main (its build id, the lifted site, the instruction word)
+// and arms the hook or removes it; logs once either way.
+void frame(bool, double, play::GameFrame*) {
     State& s = st();
     if (!s.hook || s.checked.load(std::memory_order_relaxed)) return;
     const Module* m = module_at(s.base);
@@ -235,17 +251,20 @@ void linkplay_frame() {
     }
 }
 
-void linkplay_remove() {
+void remove() {   // the registry has removed the hooks
     State& s = st();
     s.armed.store(false);
     s.story_armed.store(false);
-    if (s.story_hook) hook_remove(s.story_hook);
     s.story_hook = 0;
     services::ldnapi::set_story_mod(false);
-    if (s.hook) hook_remove(s.hook);
     s.hook = 0;
+    s.hooks = nullptr;
     s.checked.store(false);
     services::ldnapi::set_session_variant(0, kInteractName);
 }
+
+}  // namespace
+
+const Feature kLinkplayFeature = {.name = "linkplay", .install = &install, .remove = &remove, .frame = &frame};
 
 }  // namespace nxrt::games::pkp

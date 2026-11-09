@@ -445,22 +445,29 @@ bool craft_click() {
     return true;
 }
 
-void craft_install(uint64_t base) {
+namespace {
+
+void install(const FeatureInstall& in) {
+    const uint64_t base = in.base;
     if (!config_get_bool("pkp", "craft_search", true)) {
         NXLOG_I(kTag, "craft search: off ([pkp] craft_search)");
         return;
     }
     g.base = base;
     g.log = config_get_int("pkp", "menu_log", 0) > 0;
-    hook_add_entry(base + kScreenOpen, &hook_screen_open);
-    hook_add_entry(base + kScreenFrame, &hook_screen_frame);
-    hook_add_inline(base + kFillIds, &hook_fill_ids);
+    in.hooks.add_entry(base + kScreenOpen, &hook_screen_open);
+    in.hooks.add_entry(base + kScreenFrame, &hook_screen_frame);
+    in.hooks.add_inline(base + kFillIds, &hook_fill_ids);
     // 0xec5de0 and 0xec69b4 also carry the title's and the inventory sort's key guide hooks: every hook there returns 0 / only observes, so all run
-    hook_add_entry(base + kFillSet, &hook_fill_set);
-    hook_add_inline(base + kPartFilled, &hook_part_filled);
+    in.hooks.add_entry(base + kFillSet, &hook_fill_set);
+    in.hooks.add_inline(base + kPartFilled, &hook_part_filled);
     NXLOG_I(kTag, "craft search: on (a (Y) Search key guide in the crafting screen; hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx)",
             static_cast<unsigned long long>(kScreenOpen), static_cast<unsigned long long>(kScreenFrame), static_cast<unsigned long long>(kFillIds),
             static_cast<unsigned long long>(kFillSet), static_cast<unsigned long long>(kPartFilled));
 }
+
+}  // namespace
+
+const Feature kCraftFeature = {.name = "craft", .install = &install};
 
 }  // namespace nxrt::games::pkp

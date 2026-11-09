@@ -739,30 +739,38 @@ std::string exe_dir() {
     return cut == std::string::npos ? std::string() : p.substr(0, cut + 1);
 }
 
-}  // namespace
-
-void kbm_install(uint64_t base, std::vector<uint32_t>* hooks) {
-    State& s = st();
-    s.base = base;
-    s.enabled = config_get_bool("pkp", "kbm_icons", true);
-    s.dir = exe_dir() + "assets/kbm_icons/";
-    hooks->push_back(hook_add_mid(base + kTagCall, &hook_tag));
-    NXLOG_I(kTag, "button prompts %s (keyboard icons from %s, pad icons from the prompt icon pack; the style is [prompts] style)",
-            s.enabled ? "on" : "off ([pkp] kbm_icons = 0)", s.dir.c_str());
-}
-
-void kbm_frame(::Ctx* c) { frame(c); }
-
-void kbm_settings_changed(const play::Settings& set) {
+// main thread: the key names for every pad button
+void settings_changed(const play::Settings& set) {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     s.settings = set;
     compute_want_locked(s);
 }
 
-void kbm_status_text(char* buf, size_t n) {
+void install(const FeatureInstall& in) {
+    State& s = st();
+    s.base = in.base;
+    s.enabled = config_get_bool("pkp", "kbm_icons", true);
+    s.dir = exe_dir() + "assets/kbm_icons/";
+    in.hooks.add_mid(in.base + kTagCall, &hook_tag);
+    NXLOG_I(kTag, "button prompts %s (keyboard icons from %s, pad icons from the prompt icon pack; the style is [prompts] style)",
+            s.enabled ? "on" : "off ([pkp] kbm_icons = 0)", s.dir.c_str());
+    settings_changed(in.settings);
+}
+
+void status_text(char* buf, size_t n) {
     std::snprintf(buf, n, " kbm_tags=%llu kbm_texts=%llu kbm_patches=%llu", static_cast<unsigned long long>(st().tags.load()),
                   static_cast<unsigned long long>(st().texts.load()), static_cast<unsigned long long>(st().patches.load()));
 }
+
+}  // namespace
+
+const Feature kKbmFeature = {
+    .name = "kbm",
+    .install = &install,
+    .game_frame = &frame,
+    .settings_changed = &settings_changed,
+    .status_text = &status_text,
+};
 
 }  // namespace nxrt::games::pkp

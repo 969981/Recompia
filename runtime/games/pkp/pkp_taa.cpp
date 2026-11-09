@@ -69,7 +69,6 @@ constexpr int32_t kForcedPattern = 8;
 struct State {
     bool installed = false;
     int force = 0;   // [pkp] game_taa: 1 the camera TAA enable, 2 also the TemporalAA3 pass switch
-    std::vector<uint32_t> hooks;
     std::atomic<bool> copy_logged{false}, jitter_logged{false}, jitter_on_logged{false}, taa3_setup_logged{false}, taa3_render_logged{false};
     std::atomic<bool> taa1_logged{false}, ktss_logged{false};
     std::atomic<uint64_t> copies{0}, jitter_calls{0}, jitter_on{0}, taa3_renders{0};
@@ -167,36 +166,33 @@ int hook_setup_once(::Ctx* c, uint64_t, void* user) {
     return 0;
 }
 
-}  // namespace
-
-void taa_install(uint64_t base) {
+void install(const FeatureInstall& in) {
     State& s = st();
     if (s.installed) return;
     s.force = static_cast<int>(std::clamp<int64_t>(config_get_int("pkp", "game_taa", 0), 0, 2));
-    s.hooks.push_back(hook_add_mid(base + kCopySite, &hook_copy));
-    s.hooks.push_back(hook_add_mid(base + kJitterSite, &hook_jitter));
-    s.hooks.push_back(hook_add_entry(base + kTaa3Setup, &hook_taa3_setup));
-    s.hooks.push_back(hook_add_entry(base + kTaa3Render, &hook_taa3_render));
-    s.hooks.push_back(hook_add_entry(base + kTaa1Setup, &hook_setup_once, &s.taa1_logged));
-    s.hooks.push_back(hook_add_entry(base + kKtssSetup, &hook_setup_once, &s.ktss_logged));
+    in.hooks.add_mid(in.base + kCopySite, &hook_copy);
+    in.hooks.add_mid(in.base + kJitterSite, &hook_jitter);
+    in.hooks.add_entry(in.base + kTaa3Setup, &hook_taa3_setup);
+    in.hooks.add_entry(in.base + kTaa3Render, &hook_taa3_render);
+    in.hooks.add_entry(in.base + kTaa1Setup, &hook_setup_once, &s.taa1_logged);
+    in.hooks.add_entry(in.base + kKtssSetup, &hook_setup_once, &s.ktss_logged);
     if (s.force) NXLOG_I(kTag, "taa: [pkp] game_taa = %d: the engine's temporal AA is switched on (experimental)", s.force);
     s.installed = true;
 }
 
-void taa_remove() {
-    State& s = st();
-    if (!s.installed) return;
-    for (uint32_t id : s.hooks) hook_remove(id);
-    s.hooks.clear();
-    s.installed = false;
-}
+void remove() { st().installed = false; }   // the registry has removed the hooks
 
-void taa_status_text(char* buf, size_t n) {
+// (the leading space separates it from the fields before it in the status line)
+void status_text(char* buf, size_t n) {
     State& s = st();
-    std::snprintf(buf, n, "game TAA %d: game enable %d type %d pattern %d; copies %llu, jitter steps %llu (TAA on %llu), TAA3 renders %llu", s.force,
+    std::snprintf(buf, n, " game TAA %d: game enable %d type %d pattern %d; copies %llu, jitter steps %llu (TAA on %llu), TAA3 renders %llu", s.force,
                   s.game_enable.load(), s.game_type.load(), s.game_pattern.load(), static_cast<unsigned long long>(s.copies.load()),
                   static_cast<unsigned long long>(s.jitter_calls.load()), static_cast<unsigned long long>(s.jitter_on.load()),
                   static_cast<unsigned long long>(s.taa3_renders.load()));
 }
+
+}  // namespace
+
+const Feature kTaaFeature = {.name = "taa", .install = &install, .remove = &remove, .status_text = &status_text};
 
 }  // namespace nxrt::games::pkp
