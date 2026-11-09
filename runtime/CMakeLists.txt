@@ -59,11 +59,3 @@ if(NXRT_BUILD_GAMES)
         add_subdirectory(games/${_game})
     endforeach()
 endif()
-# The launcher's branding and factory settings: the data part of one game module and its launcher.rc (version info, manifest). Without that
-# module the launcher builds unbranded, with no resources.
-if(TARGET mpr_launcher AND TARGET nxrt_game_${NXRT_LAUNCHER_GAME}_data)
-    target_sources(mpr_launcher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/games/${NXRT_LAUNCHER_GAME}/launcher.rc")
-    target_link_libraries(mpr_launcher PRIVATE nxrt_game_${NXRT_LAUNCHER_GAME}_data)
-    target_compile_definitions(mpr_launcher PRIVATE NXRT_LAUNCHER_GAME_REGISTER=nxrt_register_game_${NXRT_LAUNCHER_GAME}_data)
-    target_link_options(mpr_launcher PRIVATE /MANIFEST:NO)   # launcher.rc carries the manifest
-endif()
