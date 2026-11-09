@@ -38,6 +38,7 @@ const char* hle_name_at(uint64_t addr);                   // name behind a thunk
 size_t hle_count();
 struct HleInfo { std::string name; uint64_t calls = 0; bool stub = false; };   // calls: counted while the thunk is a logging stub only
 std::vector<HleInfo> hle_list();                          // every thunk, in creation order (end-of-run report)
+void hle_trace_init();                                    // reads [hle] trace / trace_limit; nxrt::init() calls it once after the config is loaded
 void hle_clear();                                         // tests only
 // Name of the HLE function the calling thread is currently inside, or nullptr.
 const char* hle_current_name();

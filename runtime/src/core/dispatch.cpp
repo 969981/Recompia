@@ -108,15 +108,8 @@ struct HleTrace {
     int64_t limit = 0;
     std::atomic<int64_t> seq{0};
 };
-HleTrace& hle_trace() {
-    static HleTrace* t = [] {
-        auto* h = new HleTrace;
-        h->prefix = config_get_str("hle", "trace", "");
-        h->limit = config_get_int("hle", "trace_limit", 20000);
-        return h;
-    }();
-    return *t;
-}
+HleTrace g_hle_trace;   // written once by hle_trace_init() before any guest code runs, read-only after
+HleTrace& hle_trace() { return g_hle_trace; }
 
 constexpr size_t kMaxThunks = mem::kHleSize / 16;
 
@@ -266,6 +259,11 @@ void hle_clear() {
     g_thunk_count.store(0);
     g_thunks.clear();
     g_thunk_by_name.clear();
+}
+
+void hle_trace_init() {
+    g_hle_trace.prefix = config_get_str("hle", "trace", "");
+    g_hle_trace.limit = config_get_int("hle", "trace_limit", 20000);
 }
 
 const char* hle_current_name() { return t_hle_name; }

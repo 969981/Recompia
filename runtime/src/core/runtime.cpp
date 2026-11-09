@@ -41,6 +41,7 @@ bool init(const InitOptions& opt) {
     const char* ini = opt.ini_path ? opt.ini_path : std::getenv("NXRT_INI");
     config_load_file(ini && *ini ? ini : "nxrt.ini");
     if (opt.cache_env) config_cache_env(true);
+    hle_trace_init();
     LogOptions lo;
     lo.path = opt.log_path;
     log_init(lo);
