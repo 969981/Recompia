@@ -95,6 +95,10 @@ public:
 // handheld mode and player 1 as a connected idle FullKey pad (so a game that waits for a controller proceeds).
 void set_input_source(std::shared_ptr<InputSource> src);
 std::shared_ptr<InputSource> input_source();
+// The buttons of the hid service's newest sample, every connected npad ORed (NpadButton bits): what the game reads. Any thread. The service
+// sets it each sample (about every 5 ms); a game module reads it to see a button the game itself does not handle.
+uint64_t sampled_buttons();
+void set_sampled_buttons(uint64_t buttons);
 
 // A source driven by code: the tests and scripted runs. Thread safe.
 class ManualInputSource : public InputSource {

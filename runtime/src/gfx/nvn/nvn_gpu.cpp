@@ -1039,10 +1039,14 @@ void present_batch_done(const gfx::Renderer::SubmitPrefix& p) {
 }
 
 // Queues a submission with the next serial (in queue order). wait: until the render thread has run it (and, with gpu_done, the GPU too).
-uint64_t queue_submit(std::function<void(Frame&)> record, bool wait, bool gpu_done) {
+uint64_t queue_submit(std::function<void(Frame&)> record, bool wait, bool gpu_done, bool flush_after = false) {
     if (g->dev->device_lost()) return g->reserved.load();
     if (on_render_thread()) {
         const uint64_t serial = submit_on_render_thread(record);
+        if (flush_after) {
+            if (g->one_submit && g->sw) g->park.release(serial);
+            flush_batch();
+        }
         if (gpu_done) { wait_serial_blocking(serial); retire(); }
         return serial;
     }
@@ -1052,8 +1056,13 @@ uint64_t queue_submit(std::function<void(Frame&)> record, bool wait, bool gpu_do
     {
         std::lock_guard<std::mutex> lk(g->qmu);
         serial = g->reserved.fetch_add(1) + 1;
-        g->queue.push_back([record = std::move(record), serial, done, gpu_done] {
+        g->queue.push_back([record = std::move(record), serial, done, gpu_done, flush_after] {
             submit_on_render_thread(record, serial);
+            if (flush_after) {
+                // Release is a threshold: it also covers the entry flush_batch is about to park.
+                if (g->one_submit && g->sw) g->park.release(serial);
+                flush_batch();
+            }
             if (gpu_done) { wait_serial_blocking(serial); retire(); }
             if (done) {
                 std::lock_guard<std::mutex> l2(done->m);
@@ -1082,6 +1091,27 @@ uint64_t queue_record(std::function<void(Frame&)> record) {
 }
 uint64_t queue_post(std::function<void(Frame&)> record) {
     return queue_submit(std::move(record), false, false);
+}
+uint64_t queue_readback_post(std::function<void(Frame&)> record) {
+    return queue_submit(std::move(record), false, false, true);
+}
+
+ReadbackPoll poll_readback_serial(uint64_t serial, ReadbackProgress* progress) {
+    // Do not use wait_serial(serial, 0): its poll requests a flush. This is a completion query only.
+    if (!g || !serial || !g->timeline || g->dev->device_lost()) return ReadbackPoll::Failed;
+    uint64_t completed = 0;
+    const VkResult result = vkGetSemaphoreCounterValue(g->dev->device(), g->timeline, &completed);
+    if (result != VK_SUCCESS) {
+        g->dev->note_result(result, "deferred readback completion poll");
+        return ReadbackPoll::Failed;
+    }
+    if (progress) {
+        progress->reserved = g->reserved.load();
+        progress->flushed = g->flushed_pub.load();
+        progress->submitted = g->last_submitted.load();
+        progress->completed = completed;
+    }
+    return completed >= serial ? ReadbackPoll::Complete : ReadbackPoll::Pending;
 }
 
 // Gives the render thread up to grace_ns to hand the serial to the GPU on its own (with [nvn] submit_batch = frame the batch goes with the

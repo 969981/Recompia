@@ -165,6 +165,8 @@ struct State {
     bool mm_want = false;
     uint64_t mm_log_ns = 0;
     std::atomic<uint64_t> mm_dropped{0};
+    std::atomic<bool> mm_gate{false};        // the game's mouse mode is let through its "two Joy-Cons" check (hook_mm_style)
+    uint64_t mm_gate_logs = 0;
     bool render_installed = false, installed = false;
 };
 
@@ -959,6 +961,41 @@ void game_target_memory(uint64_t base, int* w, int* h) {
     gfx_heap_install(base, plan, &st().hooks);
 }
 
+// Joy-Con 2 mouse mode gate (see "Joy-Con 2 mouse mode" below)
+constexpr uint64_t kMmStyle = 0x2fa6f8;       // mid: the check right after it asked the pad style (w0, 1 = two Joy-Cons; x19 = character)
+constexpr uint64_t kMmOption = 0x2fa8a0;      // mid: the check's last step (w0 = the save's mouse option bit; x19 = character)
+constexpr uint64_t kMmStart = 0x2fa8ec;       // mid: mouse mode turning on, at the option test (w8 = the option byte; x19 = character)
+constexpr uint64_t kMmPlayers = 0x3561928;    // qword: the player manager; + 0x30 = the local player's character
+constexpr uint64_t kMmScreen = 0x35aebf0;     // qword: + 0xf0 -> + 0x18 -> + 0x4340 / + 0x4344 = the screen size the pointer is unprojected with
+
+bool mm_local(uint64_t ch) {
+    State& s = st();
+    if (!s.mm_gate.load(std::memory_order_relaxed) || !ch) return false;
+    const uint64_t mgr = rd<uint64_t>(s.base + kMmPlayers);
+    return mgr && ch == rd<uint64_t>(mgr + 0x30);
+}
+int hook_mm_style(::Ctx* c, uint64_t, void*) {
+    if (mm_local(c->x[19])) c->x[0] = 1;
+    return 0;
+}
+int hook_mm_option(::Ctx* c, uint64_t, void*) {
+    if (mm_local(c->x[19])) c->x[0] = 1;
+    return 0;
+}
+int hook_mm_start(::Ctx* c, uint64_t, void*) {
+    if (mm_local(c->x[19])) c->x[8] |= 1;
+    return 0;
+}
+
+// The game's screen size for the pointer, 0 when it is not there yet.
+void mm_pointer_space(State& s) {
+    const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a && mem::is_mapped(a + 0xf0, 8) ? rd<uint64_t>(a + 0xf0) : 0,
+                   scr = b && mem::is_mapped(b + 0x18, 8) ? rd<uint64_t>(b + 0x18) : 0;
+    int w = 0, h = 0;
+    if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
+    hid::jc2_mouse_set_pointer_space(w, h);
+}
+
 }  // namespace
 
 void play_install_render(uint64_t base, const play::DisplaySettings& d, int window_w, int window_h) {
@@ -1083,6 +1120,9 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
     s.hooks.push_back(hook_add_mid(base + kCamField, &hook_cam_field));
     s.hooks.push_back(hook_add_mid(base + kCamStick, &hook_cam_stick));
     s.hooks.push_back(hook_add_mid(base + kFollowGate, &hook_follow_gate));
+    s.hooks.push_back(hook_add_mid(base + kMmStyle, &hook_mm_style));
+    s.hooks.push_back(hook_add_mid(base + kMmOption, &hook_mm_option));
+    s.hooks.push_back(hook_add_mid(base + kMmStart, &hook_mm_start));
     kbm_install(base, &s.hooks);
     s.installed = true;
     play_settings_changed(set);
@@ -1095,9 +1135,18 @@ void play_install(uint64_t base, play::GameHost* host, const play::Settings& set
 
 // ---- Joy-Con 2 mouse mode ----
 // The Mouse mode key (Act::MouseMode, middle button in play) flips the request for the Joy-Con 2 mouse: the game then sees the PC mouse on its
-// surface, enters its own mouse mode (block placement, Rock Smash cursor) and the camera lets go of the mouse (hook_cam_*: counts dropped
-// while jc2_mouse_active(); play mode stops capturing and hides the OS cursor). The request ends when the key is pressed again, or when the
-// game stops being in play (a menu, the pause screen, a loading screen).
+// surface and the camera lets go of the mouse (hook_cam_*: counts dropped while jc2_mouse_active(); play mode stops capturing and hides the
+// OS cursor). The request ends when the key is pressed again, or when the game stops being in play (a menu, the pause screen, a loading
+// screen).
+// The game's own mouse mode (#367): its per-player mode update asks 0x71002fa6ac "is mouse mode allowed" before it runs the detector (30
+// frames of the mouse on its surface) and keeps asking while the mode is on. That check answers no unless the pad style is two detached
+// Joy-Cons (0x710112ac60 == 1) and the save's mouse option bit is set; the PC pad is a Pro Controller, so the key moved nothing in the game.
+// While the request is on (or [input] jc2_mouse = on) and the game is in play, the mid hooks below make the check see two Joy-Cons and the
+// option on for the local player, and the turn-on (0x71002fa8b0) see the option too: the game switches to Rock Smash, shows its pointer and
+// aims every tool with it, as on a Switch 2 with a Joy-Con 2 on its side. Its other gates (menus, Link Play roles, busy states, the unlock)
+// stay the game's. When the request ends the check says no again and the game leaves mouse mode itself (restoring the ability).
+// The game unprojects the pointer with its screen size ([[[0x71035aebf0] + 0xf0] + 0x18] + 0x4340 / + 0x4344), not with the pointer range,
+// so play_frame gives the hid service that size for the pointer's x, y.
 void mouse_mode_log(State& s, const char* what) {
     const uint64_t now = mono_ns();
     if (s.mm_log_ns != 0 && now - s.mm_log_ns < 250000000ull) return;      // rate limit: a stuck key must not flood the log
@@ -1119,6 +1168,12 @@ void play_frame(bool in_game, double, play::GameFrame*) {
     const uint64_t n = s.host->action_activations(play::Act::MouseMode);
     const bool pressed = n != s.mm_seen;
     s.mm_seen = n;
+    const bool gate = in_game && hid::jc2_mouse_wants_pointer();
+    if (gate != s.mm_gate.exchange(gate, std::memory_order_relaxed) && s.mm_gate_logs < 200) {
+        s.mm_gate_logs++;
+        NXLOG_I(kTag, "mouse mode: the game's Joy-Con 2 mouse mode is %s", gate ? "allowed (two Joy-Cons, mouse option on)" : "the game's own answer again");
+    }
+    if (gate) mm_pointer_space(s);
     if (hid::jc2_mouse_mode() == hid::Jc2MouseMode::Off) {
         if (pressed) mouse_mode_log(s, "key ignored: [input] jc2_mouse = off");
         mouse_mode_set(s, false, "off (jc2_mouse = off)");
@@ -1138,6 +1193,7 @@ void play_remove() {
     State& s = st();
     if (s.mm_want) hid::jc2_mouse_request(false);
     s.mm_want = false;
+    s.mm_gate.store(false);
     for (uint32_t id : s.hooks) hook_remove(id);
     s.hooks.clear();
     s.installed = s.render_installed = false;

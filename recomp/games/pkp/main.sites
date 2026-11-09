@@ -121,7 +121,19 @@ midhook 0x71006d9d70
 midhook 0x71006f7918
 #   StartAction 0x710027da60 right before it records the started action (w28 = action id, x19 = action component): the character turns to the aim
 midhook 0x710027e5d8
+#   reach ([pkp] camera_aim_reach): the target query once its start cell is final (x28 = character, cell x29 - 0xb8 / - 0xb4), the swing
+#   preview right before its shape constructor call (x22 = character, position x29 - 0x60) and the live hit once its position is chosen
+#   (w22 = tool path, x27 = character, position x29 - 0x80): moved to the column of a farther camera ray hit
+midhook 0x71002e1de8
+midhook 0x71007226bc
+midhook 0x71006da610
 # PC features (runtime games/pkp/pkp_play.cpp)
+#   Joy-Con 2 mouse mode (#367): the game's "mouse mode allowed" check 0x71002fa6ac right after it asked the pad style (w0 = style,
+#   1 = two Joy-Cons; x19 = character), its last step (w0 = the save's mouse option bit) and mouse mode turning on at the option test
+#   in 0x71002fa8b0 (w8 = the option byte): while the Mouse mode key is on, the local player counts as two Joy-Cons with the option on
+midhook 0x71002fa6f8
+midhook 0x71002fa8a0
+midhook 0x71002fa8ec
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
 entryhook 0x7101129990
@@ -246,3 +258,14 @@ inline 0x71010132a4
 inline 0x71010132d0
 inline 0x710101334c
 entryhook 0x7100eb1b40
+#   Title screen (pkp_title.cpp, [pkp] title_quit) and inventory sort (pkp_sort.cpp, [pkp] inventory_sort), one hook each on the same two
+#   sites (the runtime runs both; each returns 0 and acts only on its own set / key guide row): the key guide widget takes a set (x0 widget,
+#   w1 set; the title's 152 gets a Quit Game guide), and the end of a key guide part's fill (x19 part, x21 its table row, w20 text slot; the
+#   caller's widget at [x29 + 0x38]): the Quit Game text; the Sort button's icon and the part's layout for the menu pointer
+entryhook 0x7100ec5de0
+inline 0x7100ec69b4
+#   Inventory sort (pkp_sort.cpp, [pkp] inventory_sort / inventory_autosort): the bag / container screen's per-frame virtual (x0 = the screen,
+#   UI class 0x8d): Y sorts the panel under the cursor and refreshes the panels; the key guide widget's layout pass (x0 widget: the browsing
+#   set's "Hold to Sort" entry becomes "Sort"); with the two shared sites above
+entryhook 0x7100feee78
+entryhook 0x7100ec54a0
