@@ -200,7 +200,7 @@ PromptStyle auto_style(LastDevice last, int last_pad_kind, int connected_pad_kin
         switch (k) {
             case 2: return PromptStyle::PlayStation;
             case 3: return PromptStyle::Switch;
-            default: return PromptStyle::Xbox;     // Xbox pads and every pad that is neither a PlayStation nor a Switch pad
+            default: return PromptStyle::Xbox;     // Xbox pads, Steam pads (4) and every pad that is neither a PlayStation nor a Switch pad
         }
     };
     // A handheld is played with its own controls: its trackpad, touchscreen and on-screen keyboard reach the game as mouse and keyboard

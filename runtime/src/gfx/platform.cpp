@@ -122,7 +122,11 @@ input::PadKind pad_kind(SDL_Gamepad* pad) {
         case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
         case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
             return input::PadKind::Switch;
+        case SDL_GAMEPAD_TYPE_STEAM:
+            return input::PadKind::Steam;
         default:
+            // Valve's second-generation Steam Controller: not sure SDL tags it SDL_GAMEPAD_TYPE_STEAM, so go by the vendor id as well.
+            if (SDL_GetGamepadVendor(pad) == 0x28DE) return input::PadKind::Steam;
             return input::PadKind::Other;
     }
 }
@@ -132,6 +136,7 @@ const char* pad_kind_name(input::PadKind k) {
         case input::PadKind::Xbox: return "Xbox";
         case input::PadKind::PlayStation: return "PlayStation";
         case input::PadKind::Switch: return "Switch";
+        case input::PadKind::Steam: return "Steam";
         default: return "other";
     }
 }

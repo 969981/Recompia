@@ -17,6 +17,10 @@ of the game (version 2.0.1a): the download contains no game files.
 ### Game
 - In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
 
+### Controllers
+- The new Steam Controller (and other Valve pads) is now recognised as its own kind of controller; its button prompts are the Xbox ones for now, as before
+  - The log line `gamepad ... kind` now says "Steam" for it, which helps us check support with a real controller
+
 ### What to test
 - **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
 

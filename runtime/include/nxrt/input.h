@@ -67,7 +67,7 @@ MouseDelta mouse_delta_peek();
 // ---- gamepads ---------------------------------------------------------------------------------------------------------
 // The platform opens a gamepad when it is plugged in (GamepadAdded) and closes it when it is unplugged (GamepadRemoved).
 // Controller family, as SDL reports it for the open pad: the button-prompt feature picks its icons by this.
-enum class PadKind : uint8_t { Other = 0, Xbox, PlayStation, Switch };
+enum class PadKind : uint8_t { Other = 0, Xbox, PlayStation, Switch, Steam };
 
 struct GamepadInfo {
     uint32_t id = 0;                // SDL instance id, as in the events
