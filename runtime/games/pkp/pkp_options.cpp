@@ -15,6 +15,7 @@
 // Hooks are the sites listed in recomp/games/pkp/main.sites.
 #include "pkp_options.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,7 +49,7 @@ constexpr uint64_t kValueNames = 0x100fce0;   // choice widget: value names
 constexpr uint64_t kRowDrawn = 0x100b294;     // inline, after the row's draw called its value widget (x19 = the row)
 constexpr uint64_t kSliderText = 0x100f1b4;   // inline, in the slider's update after its number was drawn (x19 = the row, w20 = the value)
 constexpr uint64_t kTextById = 0xeba100;      // (widget, slot, text id): sets the description
-constexpr uint64_t kTextString = 0xf35f20;    // (widget, slot, text id, const char*): text id with a string argument
+using layout::kTextString;
 constexpr uint64_t kStore = 0x100b920;        // (screen, id, value, flag): a row's value changed
 constexpr uint64_t kCommit = 0x10092a0;       // (screen, commit): commit or revert the value vector
 constexpr uint64_t kTabPrev = 0x100de9c, kTabNext = 0x100e084;   // the screen's tab change
@@ -60,16 +61,17 @@ constexpr uint64_t kBarList = 0x10132a4;      // inline in the tab bar build: th
 constexpr uint64_t kBarState = 0x10132d0;     // inline at the bl that picks the bar's layout for its tab count (x21 = bar, x9 = the table, w1 = the entry)
 constexpr uint64_t kBarIcons = 0x101334c;     // inline before the bar's icons are set (x21 = bar)
 constexpr uint64_t kBarTitle = 0xeb1b40;      // (bar, title byte): the title under the bar
-constexpr uint64_t kChild = 0xa6f92c;         // (children, id, u16* class): a child widget
+using layout::kChildOf;
 constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 0)
-constexpr uint64_t kTables = 0x35618f0;       // qword: the data-table manager
+using layout::kTables;
 constexpr uint64_t kOptionTable = 0x10 + 0x828, kRowId = 0x420, kItemValue = 0x358;
 constexpr uint64_t kVecPtr = 0xa8, kVecCount = 0xb0, kMode = 0x358, kCategory = 0x360, kGroup = 0x361, kTabIndex = 0x364, kDirty = 0x383;
-constexpr uint32_t kStringText = 0xa8;        // "<string;0(lstr1)>"
+using layout::kStringText;
 constexpr uint32_t kCustomText = 801;         // past the game's guards (1..800): text id 801 + slot is that slot's description
 constexpr uint32_t kFirstValueSlot = 7;       // text slots of the value names
 constexpr uint32_t kSliderSlot = 0x14, kLabelSlot = 4, kTitleSlot = 0x19;
-constexpr uint64_t kLayoutOf = 0x9132fc, kPaneIndex = 0xa72644;  // the slot to pane lookup
+using layout::kLayoutOf;
+constexpr uint64_t kPaneIndex = 0xa72644;     // the slot to pane lookup (with layout::kLayoutOf)
 constexpr uint32_t kPaneWidth = 0xf0;         // int16, text pane
 constexpr int16_t kSliderTextWidth = 420;     // room for the longest value name above the slider
 constexpr uint8_t kFirstId = 0x25;
@@ -576,7 +578,7 @@ void hook_bar_icons(::Ctx* c, uint64_t, void*) {
     const uint64_t cls = (c->x[31] - 0x20) & ~uint64_t{0xf};
     for (uint32_t i = kGameTabs; i < kTabCount; ++i) {
         wr<uint16_t>(cls, 0);
-        const uint64_t cell = call(c, g.base + kChild, bar + 0x48, kFirstCell + i, cls, 0, 0, cls - 0x10);
+        const uint64_t cell = call(c, g.base + kChildOf, bar + 0x48, kFirstCell + i, cls, 0, 0, cls - 0x10);
         if (!cell || rd<uint16_t>(cls) != kCellClass) continue;
         call(c, g.base + kSetSprite, cell + 0x30, 5, kIconOn, 0, 0, cls - 0x10);
         call(c, g.base + kSetSprite, cell + 0x30, 6, kIconOff, 0, 0, cls - 0x10);

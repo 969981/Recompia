@@ -46,6 +46,7 @@
 // the character toward that block instead (mouse_yaw). Those three hooks are installed with camera aim off too.
 #include "pkp_aim.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -70,17 +71,24 @@ constexpr uint64_t kCollisionMeta = 0x355d3c6;   // u16[block id]: bit 0 = solid
 constexpr uint64_t kActionStart = 0x27e5d8;      // mid: StartAction, the action really starts (w28 = action id, x19 = action component)
 constexpr uint64_t kActionOwner = 0x978;         // action component: the character
 constexpr uint32_t kFirstAbility = 878, kLastAbility = 885;  // the abilities' actions (Leafage, Rototiller, Water Gun, swing tools)
-constexpr uint64_t kHeading = 0x2404;            // character: heading (radians), a copy of the movement controller's
-constexpr uint64_t kSaveRoot = 0x3561930, kSaveHeading = 0x741a10, kPlayerMode = 0x5a34, kPlayerModeByte = 0x5a39;  // both 0: the heading lives in the save data
+// character heading (layout::kHeading), save heading: both kPlayerMode and kPlayerModeByte 0 = the heading lives in the save data
+using layout::kHeading;
+using layout::kSaveRoot;
+using layout::kSaveHeading;
+using layout::kPlayerMode;
+using layout::kPlayerModeByte;
 constexpr uint64_t kMoveTable = 0x356a778;       // qword: + 0x58 + slot * 8 = the movement component of a local slot
-constexpr uint64_t kController = 0xbc0, kControllerYaw = 0x64;  // movement component: the controller and its heading (what the model and attacks use)
-constexpr uint64_t kPosition = 0x20c0;           // character: world position (vec4)
-constexpr uint64_t kPlayerManager = 0x3561928;   // qword: the player manager; +0x30 = the local player
+using layout::kController;                       // movement component: the controller; + kControllerYaw its heading (what the model and attacks use)
+constexpr uint64_t kControllerYaw = 0x64;
+using layout::kPosition;
+using layout::kPlayerManager;
 constexpr uint64_t kCameraManager = 0x3561948;   // qword: the camera manager
-constexpr uint64_t kManagerPlayer = 0x30;
-constexpr uint64_t kMouseModeOn = 0xaa81;        // character: the game's Joy-Con 2 mouse mode is on (u8)
-constexpr uint64_t kMouseSwingPos = 0xaa50, kMouseSwingValid = 0xaa84;  // character: the swing position under the pointer (vec4), its flag
-constexpr uint64_t kMouseHitPos = 0xaa60, kMouseHitValid = 0xaa82;      // character: the pointer's hit position (vec4), its flag
+using layout::kManagerPlayer;
+using layout::kMouseModeOn;
+using layout::kMouseSwingPos;
+using layout::kMouseSwingValid;
+constexpr uint64_t kMouseHitPos = 0xaa60;        // character: the pointer's hit position (vec4); its flag is layout::kMouseHitValid
+using layout::kMouseHitValid;
 constexpr uint64_t kFollow = 0x10;               // camera manager + 0x10: the embedded follow camera of slot 0
 constexpr uint64_t kActiveTable = 0xc58;         // + signed byte(manager + 0xcc8) * 8: the active camera pointer of slot 0
 constexpr uint64_t kActiveIndex = 0xcc8;

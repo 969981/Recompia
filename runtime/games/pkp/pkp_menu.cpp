@@ -17,6 +17,7 @@
 // [pkp] menu_log = 2 lists the panes of the layouts on screen.
 #include "pkp_menu.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 #include "pkp_craft.h"
 #include "pkp_play.h"
 #include "pkp_sort.h"
@@ -46,7 +47,7 @@ namespace {
 constexpr const char* kTag = "pkp";
 
 // ---- offsets ----
-constexpr uint64_t kUiMgr = 0x35aebf8;          // [ptr] the UI manager
+using layout::kUiMgr;                           // [ptr] the UI manager
 // The UI manager (ctor 0x710087bd60) holds two placeable pools of one type (ctor 0x71009fee60), at +0x84808 (A) and +0x8c858 (B). Pool:
 // +0x8 free-slot ring, +0x1030 {entry** data, u64 count} of the entries in use (cap 512), +0x8048 mutex*, slots of 48 bytes at +0x2048.
 //   pool A entry (looked up by (id, sub) in 0x710087da00 / 0x7100911bc0): +8 u32 id, +12 u32 sub, +32 -> {placeable** data, u64 count} =

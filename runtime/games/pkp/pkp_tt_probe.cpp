@@ -18,6 +18,7 @@
 #include <cstring>
 
 #include "nxrt/log.h"
+#include "pkp_layout.h"
 #include "tt_internal.h"
 
 namespace nxrt::tt::pkp {
@@ -26,19 +27,19 @@ namespace {
 using nxrt::tt::detail::game_base;
 using nxrt::tt::detail::read_mem;
 
-constexpr uint64_t kPlayerManager = 0x3561928;
-constexpr uint64_t kManagerPlayer = 0x30;
-constexpr uint64_t kPlayerPos = 0x20c0;
-constexpr uint64_t kPlayerYaw = 0x2404;
+using games::pkp::layout::kPlayerManager;
+using games::pkp::layout::kManagerPlayer;
+using games::pkp::layout::kPosition;
+using games::pkp::layout::kHeading;
 // The local player's class (vtable main+0x322fda8) overrides both getters (0x71002e4084, 0x71002e4420): while its mode word at +0x5a34 is 0 and
 // the byte at +0x5a39 is 0 (vtable slots 504/512), the position and heading come from the save data instead (+0x7419f0, +0x741a10).
-constexpr uint64_t kPlayerMode = 0x5a34;
-constexpr uint64_t kPlayerModeByte = 0x5a39;
+using games::pkp::layout::kPlayerMode;
+using games::pkp::layout::kPlayerModeByte;
 constexpr uint64_t kSaveAltPos = 0x7419f0;
-constexpr uint64_t kSaveAltYaw = 0x741a10;
+using games::pkp::layout::kSaveHeading;
 constexpr uint64_t kPlayerAction = 0x18b8;
 constexpr uint64_t kActionState = 0x984;
-constexpr uint64_t kSaveData = 0x3561930;
+using games::pkp::layout::kSaveRoot;
 constexpr uint64_t kSaveTimeOfDay = 0x13d373c;
 constexpr uint64_t kSavePlayTime = 0x4a5418;
 constexpr uint64_t kSaveStageId = 0xc91f20;
@@ -53,14 +54,14 @@ bool read_state(GameState* out) {
     const uint64_t base = game_base();
     const uint64_t mgr = rd64(base + kPlayerManager);
     const uint64_t player = mgr ? rd64(mgr + kManagerPlayer) : 0;
-    const uint64_t save = rd64(base + kSaveData);
+    const uint64_t save = rd64(base + kSaveRoot);
     if (player) {
         float p[3], yaw = 0;
         uint32_t mode = 1;
         uint8_t mode_byte = 1;
         const bool alt = save && rd(player + kPlayerMode, &mode) && rd(player + kPlayerModeByte, &mode_byte) && mode == 0 && mode_byte == 0;
-        const uint64_t pos_at = alt ? save + kSaveAltPos : player + kPlayerPos;
-        const uint64_t yaw_at = alt ? save + kSaveAltYaw : player + kPlayerYaw;
+        const uint64_t pos_at = alt ? save + kSaveAltPos : player + kPosition;
+        const uint64_t yaw_at = alt ? save + kSaveHeading : player + kHeading;
         if (rd(pos_at, &p) && std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2])) {
             std::memcpy(g.pos, p, sizeof p);
             if (rd(yaw_at, &yaw) && std::isfinite(yaw)) g.yaw = yaw;

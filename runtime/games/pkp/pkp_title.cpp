@@ -19,6 +19,7 @@
 // menu_set_quit_guide).
 #include "pkp_title.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 
 #include <cstring>
 
@@ -34,15 +35,19 @@ namespace nxrt::games::pkp {
 namespace {
 
 constexpr const char* kTag = "pkp";
-constexpr uint64_t kFillSet = 0xec5de0;        // entry: (widget, set id): the key guide widget takes a set
-constexpr uint64_t kPartFilled = 0xec69b4;     // inline: a key guide part has its icon and text (x19 part, x21 row, w20 text slot)
-constexpr uint64_t kTextString = 0xf35f20;     // (widget, slot, text id, const char*)
-constexpr uint64_t kLayoutOf = 0x9132fc;       // (source) -> layout
-constexpr uint64_t kTables = 0x35618f0;        // qword: the data-table manager
-constexpr uint64_t kLanguage = 0x36ca680;      // qword -> u32 language 0..8
-constexpr uint64_t kSetTable = 0x1048, kGuideTable = 0x1050, kTableVersion = 0x2b70;
-constexpr uint64_t kWidgetSet = 0xf0, kWidgetState = 0x90;
-constexpr uint32_t kTitleSet = 152, kQuitGuide = 267, kStringText = 0xa8;
+using layout::kFillSet;
+using layout::kPartFilled;
+using layout::kTextString;
+using layout::kLayoutOf;
+using layout::kTables;
+using layout::kLanguage;
+using layout::kSetTable;
+using layout::kGuideTable;
+using layout::kTableCount;
+constexpr uint64_t kWidgetSet = 0xf0;
+using layout::kWidgetState;
+using layout::kStringText;
+constexpr uint32_t kTitleSet = 152, kQuitGuide = 267;
 constexpr int kSetSlots = 6;
 
 // "Quit Game" in the game's languages (0..8, the order of its text banks: the key guide bank's own "Settings" / "Quit" words checked)
@@ -66,7 +71,7 @@ using guest::ok;
 // A row of one of the manager's data tables, as the game looks it up (table->vtable[0x38](0)->vtable[0x30](id)); 0 if none.
 uint64_t table_row(::Ctx* c, uint64_t table_off, uint32_t id) {
     const uint64_t mgr = rd<uint64_t>(g.base + kTables);
-    if (!mgr || !ok(mgr + kTableVersion, 4) || rd<uint32_t>(mgr + kTableVersion) <= 0x20a) return 0;
+    if (!mgr || !ok(mgr + kTableCount, 4) || rd<uint32_t>(mgr + kTableCount) <= 0x20a) return 0;
     return guest::table_lookup<4>(c, rd<uint64_t>(mgr + table_off + 0x10), id);
 }
 

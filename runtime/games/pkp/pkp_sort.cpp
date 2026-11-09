@@ -44,6 +44,7 @@
 //    (0x7100e6e4fc), so nothing is sorted and no button is shown while 0x71000376c4 (online) is true.
 #include "pkp_sort.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 #include "pkp_menu.h"
 
 #include <algorithm>
@@ -71,18 +72,23 @@ constexpr uint64_t kRefresh = 0xff12e8;          // (screen): panels re-read the
 constexpr uint64_t kPlayerOf = 0xa6fd58;         // (screen + 0x30) -> player index
 constexpr uint64_t kInventory = 0xe6dc2c;        // (player, kind, type, id, use_temp) -> slot array
 constexpr uint64_t kContainerSlots = 0x2ee4bc;   // (type, id, u32* first, u32* count) -> valid
-constexpr uint64_t kOnline = 0x376c4;            // () -> bit 0: Link Play session
+using layout::kOnline;
 constexpr uint64_t kMaxStack = 0x2a7f0c;         // () -> the max stack (u16)
 constexpr uint64_t kTempFlag = 0x36bbfd8;        // u8 per player: the screen works on a temp copy (an item is held)
-constexpr uint64_t kSaveRoot = 0x3561930, kCommon = 0x13d4920, kBagOffline = 0x830, kUseSlot = 0xc070;
-constexpr uint64_t kTables = 0x35618f0;          // data-table manager; item table at +0x10 + 0x638 (+0 while it holds < 200 tables)
-constexpr uint64_t kTableCount = 0x2b70, kItemTable = 0x638, kItemKind = 0x3a, kGuideTable = 0x1050;
+using layout::kSaveRoot;
+constexpr uint64_t kCommon = 0x13d4920, kBagOffline = 0x830, kUseSlot = 0xc070;
+using layout::kTables;                           // data-table manager; item table at +0x10 + 0x638 (+0 while it holds < 200 tables)
+using layout::kTableCount;
+using layout::kItemTable;
+using layout::kGuideTable;
+constexpr uint64_t kItemKind = 0x3a;
 constexpr uint64_t kPlayerHelper = 0x30, kActions = 0x78, kType = 0x148, kId = 0x154, kState = 0x160, kScreenKind = 0x168, kCursorKind = 0x169;
 constexpr uint32_t kBagSlots = 120, kMaxSlots = 0x800, kStoreSlots = 0x77a9;   // the stage store is the larger one
 constexpr uint32_t kIdMask = 0x1fff;
 // The game's input manager [main+0x3561718]: its vector at +0xcd8 maps an action to its button (u32 per action, low byte: 0..3 the d-pad,
 // 4 Y, 5 A, 6 X, 7 B, 8 (-), 9 (+), 0xa L, 0xb R, 0xc ZL, 0xd ZR, 0xe / 0xf the stick clicks; 0x7101126e18 reads it for the key guide icons).
-constexpr uint64_t kInputMgr = 0x3561718, kActionButtons = 0xcd8;
+using layout::kInputMgr;
+using layout::kActionButtons;
 // The sort button: the first of these whose button no prompt of the shown key guide set and no registered action of the screen uses.
 // Y in the bag; R in the container screens (Y is Add Stack / Remove All, (+) Store All / Retrieve All, ZL Transfer Half there); then L.
 struct SortButton { uint16_t act; uint8_t button; hid::NpadButtonBit pad; const char* name; };   // an action shown as that button (the icon), the pad bit
@@ -90,11 +96,11 @@ constexpr SortButton kSortButtons[] = {{0x97, 4, hid::kBtnY, "Y"}, {0x03, 0xb, h
 constexpr int kNoButton = -1;   // click only
 constexpr auto kReopenGap = std::chrono::milliseconds(300);   // no screen frame for this long = the screen was closed
 // the key guide button
-constexpr uint64_t kFillSet = 0xec5de0;          // entry: (widget, set)
+using layout::kFillSet;
 constexpr uint64_t kLayoutGuides = 0xec54a0;     // entry: (widget): places one part per entry
-constexpr uint64_t kPartFilled = 0xec69b4;       // inline: x19 part, x21 key guide row, [x29 + 0x38] widget
-constexpr uint64_t kSetIcon = 0xa7dbcc;          // (part + 0x30, slot, action, 0, 0)
-constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
+using layout::kPartFilled;
+using layout::kSetIcon;
+using layout::kLayoutOf;
 constexpr uint64_t kWidgetEntries = 0xb0, kWidgetCount = 0xb8, kEntrySize = 0x360;
 constexpr uint16_t kSortGuide = 92;              // key guide "Sort" (action 0xbc)
 constexpr uint16_t kHoldToSortGuide = 126;       // key guide "Hold to Sort" (X held)

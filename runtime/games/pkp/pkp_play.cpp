@@ -61,6 +61,7 @@
 // hand moved it) and dropped after it (a scripted camera does not jump when control comes back).
 #include "pkp_play.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 #include "pkp_gfx_heap.h"
 #include "pkp_kbm.h"
 #include "pkp_movie_test.h"
@@ -112,7 +113,7 @@ constexpr uint64_t kCamStick = 0x87d30;                                     // m
 constexpr uint64_t kCamField = 0x87cd0;                                     // mid: x19 camera, the update past its scene check, before the turn gate
 constexpr uint64_t kFollowGate = 0x249848;                                  // mid: w0 bit 0 = run the follow placement (0x783c0) this frame
 constexpr uint64_t kViewsGlobal = 0x3561880;                                // object whose byte +562 says two views (split screen)
-constexpr uint64_t kSaveGlobal = 0x3561930;
+using layout::kSaveRoot;
 constexpr uint64_t kTagCallback = 0x1f90fec;                                // mid: text layout, BLR to the tag handler (w1 type, x2 args, x0 layout)                                 // [ptr] the save/options block
 constexpr int kFullLevel = 30;
 constexpr int kTableW = 1920, kTableH = 1080;
@@ -853,11 +854,13 @@ float wrap_angle(float a) {
 }
 
 // The strafe style option the camera reads through 0x27abc8 (player 1 reads its own block, the others the shared one).
+constexpr uint64_t kSaveStrafeP1 = 0x1718b64;   // save data: u8, player 1's strafe style (nonzero = on)
+constexpr uint64_t kSaveStrafe = 0x6cfdd8;      // save data: u8, bit 1 = the shared block's strafe style
 bool twin_angles(uint8_t player) {
-    const uint64_t save = rd<uint64_t>(st().base + kSaveGlobal);
+    const uint64_t save = rd<uint64_t>(st().base + kSaveRoot);
     if (!save) return false;
-    if (player == 1) return mem::is_mapped(save + 24218468, 1) && rd<uint8_t>(save + 24218468) != 0;
-    return mem::is_mapped(save + 7142872, 1) && (rd<uint8_t>(save + 7142872) & 2) != 0;
+    if (player == 1) return mem::is_mapped(save + kSaveStrafeP1, 1) && rd<uint8_t>(save + kSaveStrafeP1) != 0;
+    return mem::is_mapped(save + kSaveStrafe, 1) && (rd<uint8_t>(save + kSaveStrafe) & 2) != 0;
 }
 
 uint64_t mono_ns() {
@@ -968,24 +971,28 @@ void game_target_memory(uint64_t base, int* w, int* h) {
 constexpr uint64_t kMmStyle = 0x2fa6f8;       // mid: the check right after it asked the pad style (w0, 1 = two Joy-Cons; x19 = character)
 constexpr uint64_t kMmOption = 0x2fa8a0;      // mid: the check's last step (w0 = the save's mouse option bit; x19 = character)
 constexpr uint64_t kMmStart = 0x2fa8ec;       // mid: mouse mode turning on, at the option test (w8 = the option byte; x19 = character)
-constexpr uint64_t kMmPlayers = 0x3561928;    // qword: the player manager; + 0x30 = the local player's character
+using layout::kPlayerManager;                 // qword: the player manager; + kManagerPlayer = the local player's character
+using layout::kManagerPlayer;
 constexpr uint64_t kMmScreen = 0x35aebf0;     // qword: + 0xf0 -> + 0x18 -> + 0x4340 / + 0x4344 = the screen size the pointer is unprojected with
-constexpr uint64_t kMmOn = 0xaa81;            // character: the game's mouse mode is on (u8)
-constexpr uint64_t kMmHitCell = 0xaa30, kMmHitValid = 0xaa82;   // character: the pointer's hit cell (s16 x3) and its valid flag
-constexpr uint64_t kMmSwingPos = 0xaa50, kMmSwingValid = 0xaa84; // character: the swing tools' position under the pointer (vec4) and its flag
-constexpr uint64_t kMmPosition = 0x20c0, kMmHeading = 0x2404;   // character: world position (vec4), heading (radians)
+using layout::kMouseModeOn;                   // character: the game's mouse mode is on (u8)
+constexpr uint64_t kMmHitCell = 0xaa30;       // character: the pointer's hit cell (s16 x3); its valid flag is layout::kMouseHitValid
+using layout::kMouseHitValid;
+using layout::kMouseSwingPos;                 // character: the swing tools' position under the pointer (vec4) and its flag
+using layout::kMouseSwingValid;
+using layout::kPosition;                      // character: world position (vec4), heading (radians)
+using layout::kHeading;
 
 // The local player's character, 0 when there is none.
 uint64_t mm_player(State& s) {
-    const uint64_t mgr = s.base ? rd<uint64_t>(s.base + kMmPlayers) : 0;
-    return mgr ? rd<uint64_t>(mgr + 0x30) : 0;
+    const uint64_t mgr = s.base ? rd<uint64_t>(s.base + kPlayerManager) : 0;
+    return mgr ? rd<uint64_t>(mgr + kManagerPlayer) : 0;
 }
 
 bool mm_local(uint64_t ch) {
     State& s = st();
     if (!s.mm_gate.load(std::memory_order_relaxed) || !ch) return false;
-    const uint64_t mgr = rd<uint64_t>(s.base + kMmPlayers);
-    return mgr && ch == rd<uint64_t>(mgr + 0x30);
+    const uint64_t mgr = rd<uint64_t>(s.base + kPlayerManager);
+    return mgr && ch == rd<uint64_t>(mgr + kManagerPlayer);
 }
 int hook_mm_style(::Ctx* c, uint64_t, void*) {
     if (mm_local(c->x[19])) c->x[0] = 1;
@@ -1187,13 +1194,13 @@ void play_frame(bool in_game, double, play::GameFrame*) {
     // open for the local player until the game's flag drops (the mouse is captured again, so it is off its surface). If the flag is still
     // set after 3 s in play (the mouse never left its surface), it is cleared here: the game then stays on its current tool.
     const uint64_t ch = mm_player(s);
-    const bool flag = ch && rd<uint8_t>(ch + kMmOn) != 0;
+    const bool flag = ch && rd<uint8_t>(ch + kMouseModeOn) != 0;
     bool leaving = false;
     if (!gate && flag) {
         const uint64_t now = mono_ns();
         if (!s.mm_exit_ns) s.mm_exit_ns = now;
         if (in_game && now - s.mm_exit_ns > 3000000000ull) {
-            wr<uint8_t>(ch + kMmOn, 0);
+            wr<uint8_t>(ch + kMouseModeOn, 0);
             NXLOG_W(kTag, "mouse mode: the game did not leave its mouse mode within 3 s; cleared its flag");
             s.mm_exit_ns = 0;
         } else {
@@ -1217,9 +1224,9 @@ void play_frame(bool in_game, double, play::GameFrame*) {
         const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a ? rd<uint64_t>(a + 0xf0) : 0, scr = b ? rd<uint64_t>(b + 0x18) : 0;
         if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
         NXLOG_I(kTag, "mouse mode: screen %dx%d, pointer cell %d,%d,%d (valid %u), swing pos %.0f,%.0f (valid %u), player %.0f,%.0f heading %.2f",
-                w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMmHitValid),
-                static_cast<double>(rd<float>(ch + kMmSwingPos)), static_cast<double>(rd<float>(ch + kMmSwingPos + 8)), rd<uint8_t>(ch + kMmSwingValid),
-                static_cast<double>(rd<float>(ch + kMmPosition)), static_cast<double>(rd<float>(ch + kMmPosition + 8)), static_cast<double>(rd<float>(ch + kMmHeading)));
+                w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMouseHitValid),
+                static_cast<double>(rd<float>(ch + kMouseSwingPos)), static_cast<double>(rd<float>(ch + kMouseSwingPos + 8)), rd<uint8_t>(ch + kMouseSwingValid),
+                static_cast<double>(rd<float>(ch + kPosition)), static_cast<double>(rd<float>(ch + kPosition + 8)), static_cast<double>(rd<float>(ch + kHeading)));
     }
     if (hid::jc2_mouse_mode() == hid::Jc2MouseMode::Off) {
         if (pressed) mouse_mode_log(s, "key ignored: [input] jc2_mouse = off");

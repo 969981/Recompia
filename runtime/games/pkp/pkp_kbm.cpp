@@ -31,6 +31,7 @@
 // style; nxrt/tex_patch.h texture_patch_bc7_matching), in the art's style: a white key with its symbol cut out and the art's soft dark shadow.
 #include "pkp_kbm.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 
 #include <windows.h>
 
@@ -63,14 +64,15 @@ namespace {
 constexpr const char* kTag = "pkp";
 
 constexpr uint64_t kTagCall = 0x1f90fec;          // mid: BLR to the tag handler
-constexpr uint64_t kInputMgr = 0x3561718;         // [ptr] the input manager
+using layout::kInputMgr;
+using layout::kActionButtons;
 constexpr uint64_t kActionButton = 0x1126e18;     // u8 (mgr, u16 action, bool remap, bool): the button code of an action
 constexpr uint64_t kTagIcon = 0xa8332c;           // (type, id, u32* sprite, u16* sheet, u16* extra): the sprite of an icon tag
 constexpr uint64_t kSheet = 0x9125e0;             // (u16* sheet) -> the sprite sheet
 constexpr uint64_t kSheetSprite = 0x24ec2c0;      // (sheet, sprite id) -> the 88-byte sprite record
 constexpr uint64_t kEmpty = 0x124750;             // a function that only returns
-constexpr uint64_t kDataMgr = 0x35618f0;          // [ptr] the game's data tables (the sprite sheet lookups read it)
-constexpr uint64_t kUiMgr = 0x35aebf8;            // [ptr] the UI resource manager (holds the loaded sprite sheets)
+using layout::kTables;
+using layout::kUiMgr;
 constexpr uint32_t kGuestMagic = 0x4e585433;      // "NXT3": the runtime's header in the game's NVN objects (+8)
 
 // Glyph slots: the 16 button codes, then the two stick glyphs.
@@ -519,7 +521,7 @@ bool resolve_code(::Ctx* c, State& s, uint32_t code, uint32_t action) {
 // Every code of the input manager's action table, once: the HUD draws the same atlas sprites without text tags. Caller holds s.mu.
 // Stays unresolved (to be tried again) while the sprite sheet is not loaded.
 void resolve_all(::Ctx* c, State& s, uint64_t mgr) {
-    const uint64_t tab = rd<uint64_t>(mgr + 0xcd8), end = rd<uint64_t>(mgr + 0xce0);
+    const uint64_t tab = rd<uint64_t>(mgr + kActionButtons), end = rd<uint64_t>(mgr + kActionButtons + 8);
     if (!tab || end <= tab || end - tab > 4 * 0x400 || !mem::is_mapped(tab, end - tab)) return;
     bool ready = true;
     for (uint32_t action = 1; action < (end - tab) / 4 && action <= 0x1ff && ready; ++action) {
@@ -671,7 +673,7 @@ void frame(::Ctx* c) {
         bool ready = s.all_resolved;
         if (!ready && eff != play::PromptStyle::Switch && s.frame_tries < 400) {
             const uint64_t mgr = rd<uint64_t>(s.base + kInputMgr);
-            if (mgr && rd<uint64_t>(s.base + kDataMgr) && rd<uint64_t>(s.base + kUiMgr)) {
+            if (mgr && rd<uint64_t>(s.base + kTables) && rd<uint64_t>(s.base + kUiMgr)) {
                 ++s.frame_tries;
                 resolve_all(c, s, mgr);
                 ready = s.all_resolved;

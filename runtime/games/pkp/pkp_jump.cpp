@@ -25,6 +25,7 @@
 // The factor is applied from the second air frame on (the first one measures the game's air step); it does not depend on the frame rate.
 #include "pkp_jump.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -42,8 +43,10 @@ constexpr const char* kTag = "pkp";
 constexpr uint64_t kSetStep = 0x2778cc;          // (character, const float step[4]): [character + 0x18a8] + 0x30 = step
 constexpr uint64_t kStepCall = 0x714aac;         // return address of the movement update's call (x19 = the movement component)
 constexpr uint64_t kAirAdd = 0x70bc44;           // controller virtual +0x40 (controller, const float v[3]): controller + 0xf0 += v
-constexpr uint64_t kPlayerManager = 0x3561928;   // qword: the player manager; +0x30 = the local player
-constexpr uint64_t kManagerPlayer = 0x30, kBody = 0x18a8, kBodyFlags = 0xb8, kController = 0xbc0;
+using layout::kPlayerManager;
+using layout::kManagerPlayer;
+using layout::kController;
+constexpr uint64_t kBody = 0x18a8, kBodyFlags = 0xb8;
 constexpr uint64_t kAirborne = 0x8;              // body flags: set from the take-off frame to the landing
 constexpr int kHistory = 8;                      // ground frames averaged for the take-off speed
 constexpr float kMaxScale = 2.0f;

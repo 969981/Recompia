@@ -37,6 +37,7 @@
 //  * Link Play (0x71000376c4 true): the list is local UI, but the key guide is left as the game has it and nothing is filtered.
 #include "pkp_craft.h"
 #include "pkp_guest.h"
+#include "pkp_layout.h"
 #include "pkp_menu.h"
 
 #include <algorithm>
@@ -63,29 +64,35 @@ constexpr uint64_t kScreenOpen = 0xeeae14;       // entry: crafting screen virtu
 constexpr uint64_t kScreenFrame = 0xeec660;      // entry: crafting screen virtual +0x48 (per frame), x0 = the screen
 constexpr uint64_t kFillIds = 0xef0c38;          // inline in the grid fill 0x7100ef0b80, after the ids came
 constexpr uint64_t kScreenVtable = 0x333cf28;    // the vtable pointer the screen holds
-constexpr uint64_t kChildOf = 0xa6f92c;          // (screen + 0x48, element, u16* class) -> child
+using layout::kChildOf;
 constexpr uint64_t kGridFill = 0xef0734;         // (grid, list, tab, cursor, scroll)
 constexpr uint64_t kGridShow = 0xe75028;         // (grid)
 constexpr uint64_t kDetailShow = 0xeed680;       // (detail pane, recipe id)
 constexpr uint64_t kAsk = 0x1131700;             // (mode, char* buf, size, options*) -> bit 0: OK
 constexpr uint64_t kAlloc = 0x1121ee8;           // (allocator, 3, size, align, tag*)
 constexpr uint64_t kAllocator = 0x3483d58;
-constexpr uint64_t kOnline = 0x376c4;            // () -> bit 0: Link Play session
-constexpr uint64_t kTables = 0x35618f0, kTableCount = 0x2b70, kRecipeTable = 0x330, kItemTable = 0x638, kGuideTable = 0x1050, kSetTable = 0x1048;
+using layout::kOnline;
+using layout::kTables;
+using layout::kTableCount;
+using layout::kItemTable;
+using layout::kGuideTable;
+using layout::kSetTable;
+constexpr uint64_t kRecipeTable = 0x330;
 constexpr uint64_t kNameOf = 0xa34e1c;           // (name id, form) -> UTF-8
-constexpr uint64_t kLanguage = 0x36ca680;        // qword -> u32 language 0..8
+using layout::kLanguage;
 constexpr uint64_t kChildren = 0x48, kState = 0xa8;
 constexpr uint32_t kGridElem = 0x1fd, kDetailElem = 0x1ff;
 constexpr uint16_t kGridClass = 0xe4, kDetailClass = 0xe5;
 constexpr uint64_t kModel = 0x80, kCursor = 0x98;
 // the key guide
-constexpr uint64_t kFillSet = 0xec5de0;          // entry: (widget, set)
-constexpr uint64_t kPartFilled = 0xec69b4;       // inline: x19 part, x21 key guide row, w20 text slot, [x29 + 0x38] widget
-constexpr uint64_t kSetIcon = 0xa7dbcc;          // (part + 0x30, slot, action, 0, 0)
-constexpr uint64_t kTextString = 0xf35f20;       // (part, slot, text id, const char*)
-constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
-constexpr uint64_t kWidgetState = 0x90;   // i32: 1 or 2 while shown
-constexpr uint32_t kCraftSet = 26, kStringText = 0xa8;
+using layout::kFillSet;
+using layout::kPartFilled;
+using layout::kSetIcon;
+using layout::kTextString;
+using layout::kLayoutOf;
+using layout::kWidgetState;
+using layout::kStringText;
+constexpr uint32_t kCraftSet = 26;
 constexpr uint16_t kSearchGuide = 158;           // "Search"
 constexpr uint16_t kActionY = 0x97;              // an action shown with the Y icon
 constexpr int kSetSlots = 6;
