@@ -14,6 +14,11 @@ of the game (version 2.0.1a): the download contains no game files.
   - To try one: **Settings > Game > Gameplay** (Camera aim, Running jump), or `[pkp] camera_aim`, `jump_momentum`, `inventory_sort`, `craft_search`, `title_quit` set to `1` in `pkp.ini`. A value you already set stays as it is
   - The in-game Options screen stays **on** (`[pkp] options_menu`)
   - Stable builds keep these on by default
+- Added a **Testing** tab to Settings, shown only on the Testing channel: send logs, read them, and switch the experimental features on
+  - **Export and report** makes one zip of `pkp.log`, `pkp.log.prev`, the crash files, `setup.log` and `pkp.ini`, opens its folder (`testing-logs` next to `pkp.exe`) and the bug report form. Drag the zip into the form: the launcher has no GitHub login, so nothing is uploaded for you
+  - Names in paths, your account and server settings and IP addresses are removed before anything is written. Long logs keep their end, so the zip stays under GitHub's 25 MB limit
+  - **View logs** shows the end of each file in the launcher, with a filter and a Copy button
+  - The five options above (Camera aim, Running jump, Sort, Search, Quit Game) are listed under **Experimental features**. On Stable, Camera aim and Running jump stay in **Game > Gameplay**
 
 ### Launcher
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand

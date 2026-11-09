@@ -222,7 +222,7 @@ const WRITE = {
 
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
-const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
+export const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
 const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
 const open = (url, label = 'Open') => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
@@ -235,6 +235,17 @@ export const DLSS_DOWNLOAD = {
 };
 
 export const IMPORT_FACTS = 'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.';
+
+// Camera aim and the running jump: in Game > Gameplay, but on the Testing channel they live in the Testing tab (same fields, one place at a time).
+const AIM_ROWS = [
+          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
+          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
+          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
+];
+const isTesting = (v) => v.channel === 'testing';
+const showWhen = (on) => (rows) => rows.map((r) => ({ ...r, when: (v, e) => on(v) && (r.when ? r.when(v, e) : true) }));
+const elsewhere = showWhen((v) => !isTesting(v));
+const onTesting = showWhen(isTesting);
 
 export const SECTIONS = [
   {
@@ -470,10 +481,8 @@ export const SECTIONS = [
       {
         title: 'Gameplay',
         rows: [
-          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, off by default in Testing builds (switch them on here to try them). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
-          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
-          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
-          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
+          { id: 'gameplay_note', type: 'note', when: (v) => v.channel !== 'testing', note: () => ({ text: 'New ways of playing, off by default in Testing builds (switch them on here to try them). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          ...elsewhere(AIM_ROWS),
         ],
       },
       {
@@ -616,7 +625,41 @@ export const SECTIONS = [
       },
     ],
   },
+  {
+    id: 'testing',
+    label: 'Testing',
+    only: 'testing',   // shown on the Testing channel only (sectionsFor)
+    groups: [
+      {
+        title: 'Send logs',
+        rows: [
+          { id: 'logs_note', type: 'note', note: () => ({ text: 'Export and report makes one zip of your logs (names in paths, account and server settings and IP addresses are removed), opens its folder and the bug form. Drag the zip into the form: the launcher has no GitHub login, so nothing is sent for you.' }) },
+          {
+            id: 'logs', label: 'Logs', type: 'info', value: 'pkp.log, setup.log, crash files and pkp.ini',
+            actions: [
+              { act: 'logs-send', label: 'Export and report', icon: 'upload' },
+              { act: 'logs-view', label: 'View logs', icon: 'file-text' },
+              { act: 'logs-folder', label: 'Open folder', icon: 'folder-open' },
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Experimental features',
+        rows: [
+          { id: 'experimental_note', type: 'note', note: () => ({ text: 'Testing builds ship these off, so you choose what to try. They take effect the next time the game starts, and need the game built with this version (Set up again once after an update). Tell us what you find.' }) },
+          ...onTesting(AIM_ROWS),
+          { id: 'inventory_sort', label: 'Sort button (bag and boxes)', type: 'toggle', at: pkp('pkp', 'inventory_sort'), def: '0' },
+          { id: 'craft_search', label: 'Search button (crafting)', type: 'toggle', at: pkp('pkp', 'craft_search'), def: '0' },
+          { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', at: pkp('pkp', 'title_quit'), def: '0' },
+        ],
+      },
+    ],
+  },
 ];
+
+/** The sections a channel shows: Testing-only sections appear on the Testing channel. */
+export const sectionsFor = (channel) => SECTIONS.filter((sec) => !sec.only || sec.only === channel);
 
 export const FIELDS = Object.fromEntries(
   SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.rows)).filter((r) => r.at).map((f) => [f.id, f]),

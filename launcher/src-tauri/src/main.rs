@@ -24,6 +24,7 @@ mod setuplog;
 mod shader_archive;
 mod shaders;
 mod steam;
+mod testlogs;
 mod update;
 mod writecheck;
 
@@ -1161,6 +1162,33 @@ fn open_game_dir(app: AppHandle) -> Result<(), String> {
     play::open_with_shell(&game_dir_of(&load_config(&app)))
 }
 
+/// The Testing tab: the log files that exist (pkp.log, setup.log, the crash files, pkp.ini) for the viewer's list.
+#[tauri::command]
+fn testing_logs_list(app: AppHandle) -> Vec<testlogs::LogFile> {
+    testlogs::list(&game_dir_of(&load_config(&app)))
+}
+
+/// The Testing tab's viewer: the end of one of those files, with names in paths, account and server settings and IP addresses removed.
+#[tauri::command]
+fn testing_log_read(app: AppHandle, name: String, lines: Option<usize>) -> Result<testlogs::Tail, String> {
+    testlogs::read_tail(&game_dir_of(&load_config(&app)), &name, lines)
+}
+
+/// The Testing tab's export: one redacted zip of the logs in `testing-logs` next to pkp.exe. Nothing is uploaded.
+#[tauri::command]
+fn testing_logs_export(app: AppHandle, version: String) -> Result<testlogs::Exported, String> {
+    let cfg = load_config(&app);
+    testlogs::export(&game_dir_of(&cfg), &version, &cfg.channel)
+}
+
+/// Opens the folder of the exported zips (made if missing), so the zip can be dragged into a GitHub issue.
+#[tauri::command]
+fn testing_logs_open_dir(app: AppHandle) -> Result<(), String> {
+    let dir = game_dir_of(&load_config(&app)).join(testlogs::OUT_DIR);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    play::open_with_shell(&dir)
+}
+
 
 /// Test runs only (PKP_LAUNCHER_EVAL_FILE set): the page writes a result next to the eval file, <file>.out.
 #[tauri::command]
@@ -1526,6 +1554,10 @@ fn main() {
             steam_add,
             steam_remove,
             open_game_file,
+            testing_logs_list,
+            testing_log_read,
+            testing_logs_export,
+            testing_logs_open_dir,
             open_game_dir,
             relay_start,
             relay_stop,

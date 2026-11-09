@@ -53,10 +53,11 @@ export function toast(message, kind = '') {
 
 /**
  * A modal question on a native <dialog>. Resolves true for OK; Esc, Cancel or a click outside give false.
- * opts: { title, body (plain text), html (trusted markup, instead of body), ok = 'OK', cancel = 'Cancel', danger, alert (no Cancel) }
+ * opts: { title, body (plain text), html (trusted markup, instead of body), ok = 'OK', cancel = 'Cancel', danger, alert (no Cancel),
+ *         setup (dlg) => void, called once the markup is in the page, to wire its controls }
  */
 export function confirm(opts = {}) {
-  const { title = '', body = '', html = '', ok = 'OK', cancel = 'Cancel', danger = false, alert = false } = opts;
+  const { title = '', body = '', html = '', ok = 'OK', cancel = 'Cancel', danger = false, alert = false, setup } = opts;
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong';
@@ -71,6 +72,7 @@ export function confirm(opts = {}) {
         <button class="btn ${danger ? 'danger' : 'primary'}" data-answer="ok">${esc(ok)}</button>
       </div>`;
     document.body.appendChild(dlg);
+    setup?.(dlg);
     dlg.addEventListener('close', () => {
       dlg.remove();
       resolve(dlg.returnValue === 'ok');
