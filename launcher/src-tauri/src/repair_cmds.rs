@@ -2,6 +2,7 @@
 //! Repair and reset commands (repair.rs holds the logic).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use crate::config::{config_path, load_config};
@@ -18,7 +19,7 @@ pub fn repair_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     Ok((game_dir_of(&load_config(app)), cfg))
 }
 
-pub fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<SetupState>) -> Result<(PathBuf, PathBuf), String> {
+pub fn repair_guard(app: &AppHandle, play: &State<play::PlayState>, setup: &State<Arc<SetupState>>) -> Result<(PathBuf, PathBuf), String> {
     if guard::game_running(play) {
         return Err("The game is running. Close it first, then repair.".into());
     }
@@ -36,13 +37,13 @@ pub fn repair_plan(app: AppHandle, actions: Vec<String>, groups: Option<Vec<Stri
 }
 
 #[tauri::command]
-pub fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
+pub fn repair_apply(app: AppHandle, play: State<play::PlayState>, setup: State<Arc<SetupState>>, actions: Vec<String>, groups: Option<Vec<String>>) -> Result<repair::Report, String> {
     let (game, cfg) = repair_guard(&app, &play, &setup)?;
     repair::apply_with(&game, &cfg, &actions, groups.as_deref())
 }
 
 #[tauri::command]
-pub fn repair_undo(app: AppHandle, play: State<play::PlayState>, setup: State<SetupState>) -> Result<repair::Report, String> {
+pub fn repair_undo(app: AppHandle, play: State<play::PlayState>, setup: State<Arc<SetupState>>) -> Result<repair::Report, String> {
     let (game, cfg) = repair_guard(&app, &play, &setup)?;
     repair::undo(&game, &cfg)
 }
