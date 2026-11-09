@@ -8,6 +8,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "../Constants.h"
 #include "../audren_common.h"
@@ -37,6 +38,7 @@ class HostAudioDevice : public IHardwareDevice {
     uint32_t _sampleRate;
     uint32_t _channelCount;
     float _volume = 1.0f;
+    std::vector<int16_t> _scratch;   // AppendBuffer's output frames, kept between calls
 };
 
 class HostAudioDeviceDriver : public IHardwareDeviceDriver {

@@ -44,8 +44,9 @@ void HostAudioDevice::AppendBuffer(Span<const int16_t> data, uint32_t channelCou
         return;
     }
 
-    // Interleaved, scaled, at this device's channel count.
-    std::vector<int16_t> out(frames * _channelCount, 0);
+    // Interleaved, scaled, at this device's channel count. The buffer is the device's own, reused every frame (one thread appends to a device).
+    std::vector<int16_t>& out = _scratch;
+    out.assign(frames * _channelCount, 0);
 
     const uint32_t copyChannels = channelCount < _channelCount ? channelCount : _channelCount;
 
