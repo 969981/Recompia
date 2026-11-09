@@ -59,7 +59,7 @@ struct ResolveIn {
     const Settings* settings = nullptr;        // bindings (keyboard style) and the pad remap (pad styles); null: the built-in mapping
 };
 
-// The name of the prompt pack entry that replaces the game's icon: "xbox/a", "ps/cross", "kbm/space", with "_pressed" appended for a
+// The name of the prompt pack entry that replaces the game's icon: "xbox/a", "ps/cross", "steam/a", "kbm/space", with "_pressed" appended for a
 // pressed icon. Pad styles show the physical button that presses the Switch button, following settings->pad.remap. Empty: keep the
 // game's own icon (Switch style, a keyboard style button no input is bound to, or a pad style where nothing presses the button or the
 // pad source is a stick click or the d-pad).
@@ -86,7 +86,7 @@ std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_
 std::string pad_pack_fallback(const std::string& name);
 
 // Which style "auto" shows: keyboard and mouse once the last input came from them, else the kind of the pad used last.
-// Pad kinds are input::PadKind values: 0 other, 1 Xbox, 2 PlayStation, 3 Switch, 4 Steam (Steam pads show the Xbox icons for now). connected_pad_kind is -1 without a pad. Before any
+// Pad kinds are input::PadKind values: 0 other, 1 Xbox, 2 PlayStation, 3 Switch, 4 Steam. connected_pad_kind is -1 without a pad. Before any
 // input: the first pad if one is connected, else the keyboard.
 enum class LastDevice : uint8_t { None, KeyboardMouse, Pad };
 PromptStyle auto_style(LastDevice last, int last_pad_kind, int connected_pad_kind);

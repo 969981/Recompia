@@ -362,10 +362,10 @@ export const SECTIONS = [
         rows: [
           {
             id: 'prompt_style', label: 'Button icons', type: 'select', at: controls('prompts', 'style'), def: 'auto',
-            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
+            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
             options: [
               { value: 'auto', label: 'Automatic' }, { value: 'switch', label: 'Switch' }, { value: 'xbox', label: 'Xbox' },
-              { value: 'playstation', label: 'PlayStation' }, { value: 'keyboard', label: 'Keyboard and mouse' },
+              { value: 'playstation', label: 'PlayStation' }, { value: 'steam', label: 'Steam Controller' }, { value: 'keyboard', label: 'Keyboard and mouse' },
             ],
           },
           { id: 'f1_bindings', label: 'Change bindings in game', type: 'keycap', key: 'F1' },
