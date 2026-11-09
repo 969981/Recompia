@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Upscaler hooks of the replay: temporal upscaling (camera block, jitter, the tone-map draw) and the scene upscaler override.
+#include "nvn_replay_internal.h"
+
+namespace nxrt::nvn::be::gpu {
+namespace replay {
+Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw; without g_su_view: sampled nearest
+VkImageView g_su_view = VK_NULL_HANDLE;
+static Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
+static uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
+// Temporal upscaling: a copy of a vertex slot 0 camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
+bool tsr_jitter(uint32_t* words, size_t n_words) {
+    Texture* d = S.depth_tex.get();
+    if (!d || !tex_gpu(d)) return false;
+    const VkExtent3D e = tex_image_extent(d, 0);
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);   // the scene's viewport is that part of the target: half a pixel of it
+    const uint32_t w = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.width * fx)));
+    const uint32_t h = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.height * fy)));
+    return extras::temporal_jitter_block(words, n_words, w, h, g_tsr_frame);
+}
+
+// Scene upscaler (S14, src/gfx/extras/hdr_nvn.h): before a tone-map draw whose HDR scene input is smaller than its target, FSR 1 enlarges the scene
+// to the target's size and the draw samples that instead. The override lives until the next draw.
+// Temporal upscaling (FSR 3 / DLSS / DLAA, src/gfx/extras/temporal.h): a G-buffer draw (4+ colour targets and a depth target) offers its vertex
+// uniform slot 0 as the camera block; the first valid one of the frame is kept with its depth target.
+void temporal_gbuffer_note() {
+    if (S.ncolor < 4 || !S.depth_tex || !S.stage[kVertex] || extras::temporal_camera_ready()) return;
+    const GState::Bind& u = S.ubo[kVertex][0];
+    if (!u.addr || u.size < 272) return;
+    uint32_t w[68];
+    std::memcpy(w, host_ptr(u.addr), sizeof w);
+    tsr_jitter(w, 68);                                                    // the camera as the draw sees it (the bound copy is jittered the same way)
+    extras::temporal_note_gbuffer(w, 68);
+    if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
+}
+
+// The game's scene covers only part of its targets (extras::scene_fraction, Pokopia's [upscale] scene_scale, #116): the part of a scene
+// image of size `scene` that holds it, and the size of the image the tone-map draw then needs, out / fraction, so that its own lookup at
+// uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
+static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex) {
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);
+    if (fx >= 1.0f && fy >= 1.0f) return false;
+    part->width = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.width * fx)), 1, scene.width);
+    part->height = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.height * fy)), 1, scene.height);
+    // rounded down: fraction * out_tex <= out, so the draw's lookups at uv * fraction stay inside the written out-sized corner
+    out_tex->width = std::max<uint32_t>(out.width, static_cast<uint32_t>(out.width / fx));
+    out_tex->height = std::max<uint32_t>(out.height, static_cast<uint32_t>(out.height / fy));
+    static bool told = false;
+    if (!told) {
+        told = true;
+        NXLOG_I(kTag, "scene upscale: the scene covers %ux%u of its %ux%u target (fraction %.3f x %.3f): %ux%u -> %ux%u, handed to the tone-map draw "
+                "in a %ux%u image", part->width, part->height, scene.width, scene.height, fx, fy, part->width, part->height, out.width, out.height,
+                out_tex->width, out_tex->height);
+    }
+    return true;
+}
+
+// The tone-map draw with a temporal mode: the largest 2D colour input is the HDR scene; the SDK's result (target size) replaces it for this draw.
+static void temporal_for_draw(const ProgLayout& pl) {
+    ++g_tsr_frame;                                                        // one tone-map draw per frame: the next frame's jitter phase
+    Texture* target = S.color_tex[0].get();
+    Texture* depth = g_tsr_depth.get();
+    static bool told_intercept = false, told_input = false, told_depth = false;
+    if (!told_intercept) {
+        told_intercept = true;
+        NXLOG_I(kTag, "temporal: tone-map draw %s intercepted (target %ux%u)", S.stage[kFragment]->hash.c_str(), target ? target->b.width : 0,
+                target ? target->b.height : 0);
+    }
+    if (!extras::temporal_camera_ready()) {                              // counts the frames without a camera (warns after 120)
+        extras::temporal_evaluate(nullptr, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, {}, {}, false);
+        return;
+    }
+    if (!tex_gpu(target) || !depth || !tex_gpu(depth)) {
+        if (!told_depth) {
+            told_depth = true;
+            NXLOG_W(kTag, "temporal: camera found but no usable target / G-buffer depth texture at the tone-map draw");
+        }
+        return;
+    }
+    const BindingDesc* best = nullptr;
+    TexResolved best_r{};
+    uint64_t best_area = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex) || shares_image(r.tex, depth)) continue;
+        const VkExtent3D e = tex_image_extent(r.tex, 0);
+        const uint64_t area = static_cast<uint64_t>(e.width) * e.height;
+        if (area > best_area) { best_area = area; best = &d; best_r = r; }
+    }
+    if (!best) {
+        if (!told_input) {
+            told_input = true;
+            NXLOG_W(kTag, "temporal: the tone-map draw samples no 2D colour texture to use as the scene");
+        }
+        return;
+    }
+    const DescriptorBinding& b = best->shader->refl.bindings[best->index];
+    const VkExtent3D ce = tex_image_extent(best_r.tex, 0), de = tex_image_extent(depth, 0), te = tex_image_extent(target, 0);
+    VkExtent2D render{std::min(ce.width, de.width), std::min(ce.height, de.height)}, out_tex{};
+    if (VkExtent2D part{}; scene_part(render, VkExtent2D{te.width, te.height}, &part, &out_tex)) render = part;
+    end_pass();                                                           // compute work cannot run inside a render pass
+    tex_ensure_current(best_r.tex, *F);
+    tex_transition(best_r.tex, *F, tex_sampled_layout(best_r.tex));
+    tex_transition(depth, *F, tex_sampled_layout(depth));
+    VkImageView src = tex_sampled_view(best_r.tex, make_request(b, best_r));
+    ViewRequest dr;
+    dr.depth_aspect = true;
+    VkImageView dv = tex_sampled_view(depth, dr);
+    if (!src || !dv) return;
+    VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
+                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex);
+    g_dirty = kAllDirty;                                                  // the SDKs bind their own compute state
+    shadow_invalidate();
+    if (out) {
+        g_su_tex = best_r.tex;
+        g_su_view = out;
+    }
+}
+
+void scene_upscale_for_draw(const ProgLayout& pl) {
+    g_su_tex = nullptr;
+    g_su_view = VK_NULL_HANDLE;
+    const ShaderInfo* fs = S.stage[kFragment];
+    if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
+        temporal_for_draw(pl);
+        return;
+    }
+    if (!fs || !extras::scene_upscale_wanted() || S.ncolor == 0 || !S.color_tex[0] || !extras::hdr_is_tonemap(fs->spirv, fs->hash)) return;
+    Texture* target = S.color_tex[0].get();
+    if (!tex_gpu(target)) return;
+    const VkExtent3D te = tex_image_extent(target, 0);   // image sizes: with a render scale the upscaler works on the real pixels
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || shares_image(r.tex, S.depth_tex.get())) continue;
+        const VkExtent3D se = tex_image_extent(r.tex, 0);
+        // the scene is either a smaller image or the top-left part of a full-size one (scene_part)
+        VkExtent2D in_view{se.width, se.height}, out_tex{};
+        if (!scene_part(in_view, VkExtent2D{te.width, te.height}, &in_view, &out_tex) && se.width >= te.width && se.height >= te.height) return;   // nothing to enlarge
+        if (in_view.width >= te.width && in_view.height >= te.height) return;
+        if (extras::upscale_mode() == extras::UpscaleMode::Nearest) {   // no pass: the draw samples the small scene with a nearest sampler (#232)
+            g_su_tex = r.tex;
+            return;
+        }
+        extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), in_view, VkExtent2D{te.width, te.height});
+        if (!su) return;
+        end_pass();                                                           // compute work cannot run inside a render pass
+        tex_ensure_current(r.tex, *F);
+        tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
+        VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
+        if (!src) return;
+        VkImageView up = su->upscale(F->cb, src, in_view, VkExtent2D{se.width, se.height}, VkExtent2D{te.width, te.height}, true,
+                                     extras::scene_upscale_prescale(), extras::upscale_sharpness(), out_tex);
+        shadow_invalidate();
+        if (up) {
+            g_su_tex = r.tex;
+            g_su_view = up;
+        }
+        return;
+    }
+}
+
+}  // namespace replay
+
+}  // namespace nxrt::nvn::be::gpu
