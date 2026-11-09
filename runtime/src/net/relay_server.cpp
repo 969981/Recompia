@@ -1013,13 +1013,9 @@ std::vector<LocalAddr> local_ipv4() {
 
 std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
     std::vector<FoundRelay> out;
-    WSADATA wd;   // one WSAStartup per call, undone below (Winsock counts them)
-    if (WSAStartup(MAKEWORD(2, 2), &wd) != 0) return out;
+    if (!ensure_winsock()) return out;
     const SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s == INVALID_SOCKET) {
-        WSACleanup();
-        return out;
-    }
+    if (s == INVALID_SOCKET) return out;
     const BOOL on = TRUE;
     ::setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&on), sizeof on);
     BOOL off = FALSE;
@@ -1030,7 +1026,6 @@ std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
     any.sin_addr.s_addr = htonl(INADDR_ANY);
     if (::bind(s, reinterpret_cast<const sockaddr*>(&any), sizeof any) != 0) {
         ::closesocket(s);
-        WSACleanup();
         return out;
     }
     uint8_t req[kDiscoveryLen] = {};
@@ -1078,7 +1073,6 @@ std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
         out.push_back(std::move(f));
     }
     ::closesocket(s);
-    WSACleanup();
     return out;
 }
 
