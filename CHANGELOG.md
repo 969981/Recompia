@@ -6,11 +6,34 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+**Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
+
+### Game
+- Added a **Search** button to the crafting menu (#324)
+  - Before: finding a recipe meant scrolling through the tabs
+  - Now: press **Y** (keyboard **F**) or click **Search** in the button bar. The same keyboard as name entry opens (works with a controller: d-pad or stick to pick keys, A to type, + for OK), type part of an item name and the list shows only the recipes whose item name contains it, in your game language. Upper and lower case don't matter
+  - The search stays on when you change tabs or use the game's Sort, and the button shows the word (for example "Search: log"). Cancel on the keyboard shows every recipe again; closing the crafting screen (or crafting something) clears the search
+  - Want it gone? `[pkp] craft_search = 0` in `pkp.ini`
+  - Still not: no search during Link Play, and only the item name is searched (not materials or descriptions)
+
+### Gameplay
+- Fixed **camera aim** staying off after you used the Joy-Con 2 mouse mode once (#367)
+  - Before: turning mouse mode off left the game stuck half in it, so camera aim never came back until a restart
+  - Now: pressing the mouse mode key again fully leaves mouse mode and camera aim works again right away
+- Fixed the Joy-Con 2 mouse mode hitting the wrong block (#367)
+  - Before: clicking broke or placed a block off to the side of the one under the pointer
+  - Now: your character turns to the block under the pointer before swinging, so the click lands on it
+
 ### Graphics
 - Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
   - Still not: bloom and other soft glow effects stay smooth on purpose
+
+### Controls
+- Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
+  - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
+  - Now: press left or right on the row (or click it), the row says "Press the new key", then press any key, mouse button or wheel notch. Esc cancels. It works every time, and F1 can't be picked by mistake
 
 ## 0.9.0 (build M: Monkey)
 
