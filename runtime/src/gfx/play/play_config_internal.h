@@ -23,7 +23,7 @@ const extras::UpscaleMode kUpscaleFromWord[] = {extras::UpscaleMode::Off, extras
                                                 extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess, extras::UpscaleMode::Nis,
                                                 extras::UpscaleMode::Dlaa, extras::UpscaleMode::Nearest};
 
-enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Overlay, Switch, Aim, Camera, Tweaks, Bindings };
+enum class Sec { None, Unknown, Meta, Mouse, Pad, PadMap, Timing, Display, Audio, Hdr, Upscale, Latency, Picture, Prompts, Fps, Quit, Overlay, Switch, Tweaks, Retired, Bindings };   // Retired: a section of older files that nothing reads, skipped without a warning
 
 // play_config.cpp
 Settings builtin_settings();

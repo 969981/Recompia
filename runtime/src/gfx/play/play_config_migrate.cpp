@@ -22,7 +22,7 @@ void apply_default_changes(Settings* s, int file_rev, std::string* added) {
     for (unsigned i = 0; gd && i < gd->change_count; ++i) {
         const GameDefaultChange& c = gd->changes[i];
         const Sec sec = fixed_sec(lower(c.section));
-        if (c.rev <= file_rev || sec == Sec::Unknown) continue;
+        if (c.rev <= file_rev || sec == Sec::Unknown || sec == Sec::Retired) continue;
         Settings old = *s, now = *s;
         bool known = false;
         std::string msg;

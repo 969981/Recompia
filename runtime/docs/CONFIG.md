@@ -401,14 +401,6 @@ To change a key, add a line `Key = action` to `[bindings.all]` (every context) o
 
 `[mouse] menu_cursor`, default `1`: in menus the mouse works like a pointer: a visible cursor, left click activates (in Pokopia: the selected entry, the pointer does not move the selection), right click goes back, the wheel scrolls. While it is on, the left click drives no binding in the menu and map contexts. The old key `menu_touch` is ignored; a file that still has it loads without a warning and nothing changes.
 
-### Lock-on and camera feel (`controls.ini`, `[aim]` and `[camera]`)
-
-`[aim] lock_mode`, default `free` (it was `classic` before defaults revision 3; a `controls.ini` still on `classic` from an older revision moves to `free` once, and a later choice of `classic` stays). `classic` is the game's own lock-on: the view turns to face the target. `free` starts the lock the same way, then centres the view on the target once. After that the mouse and right stick still turn the view, and the view is held so the locked target stays on screen inside the margin. The gun and reticle stay on the target, and shots home and strafing circle it, as in the normal lock. Releasing the lock returns to normal aim. The scan visor always uses the classic lock. See `docs/S32.md` for details.
-
-`[aim] free_lock_margin`, default `0.15`, range `0` to `0.4`: the share of the screen kept clear along every edge while `lock_mode = free` holds the view. `0` lets the target reach the edge; `0.15` keeps it in the middle 70 percent.
-
-`[camera] gun_drives_view`, default `1`. `1` is the game's own behaviour: the arm cannon is fixed to the view, so its idle drift, walking bob and landing dip move the whole view. `0` makes the view follow only the mouse and the stick. Those movements move the gun on screen instead, and the view stays still. Takes effect at once, no restart needed. Set it from the F1 page or the launcher, where it shows as "Steady view" (ticked means `0`).
-
 Checked in a real game run with `tools/test/keys_check.py` (warp to `tallon_canyon_cavern`, grant the other beams and visors, press each key and read the game's own beam and visor numbers): `1` to `4` give power, wave, ice and plasma, the wheel steps wave, ice, wave, and `5` to `8` give combat, scan, thermal and x-ray.
 
 ### Game language (`controls.ini`, `[tweaks]`)

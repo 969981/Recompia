@@ -250,22 +250,6 @@ struct FpsSettings {
     bool in_screenshots = false;                         // [fps] in_screenshots: the counter is drawn into screenshots too (test tooling asks for this)
 };
 
-// ---- lock-on and camera feel (S32) --------------------------------------------------------------------------------------------
-// [aim] lock_mode: classic is the game's own lock-on (the view turns to the target); free starts the same way (the game centres the target)
-// and then lets the mouse and the right stick move the view, as long as the target stays on the screen (free_lock_margin).
-// [camera] gun_drives_view: 1 is the game's own behaviour (the gun's idle drift, walking bob and landing dip move the view); 0 keeps the view still.
-enum class LockMode : uint8_t { Classic = 0, Free };
-const char* lock_mode_name(LockMode m);                       // "classic" "free"
-bool parse_lock_mode(const std::string& s, LockMode* out);    // case-insensitive
-struct AimSettings {
-    LockMode lock_mode = LockMode::Classic;
-    double free_lock_margin = 0.15;   // [aim] free_lock_margin (0..0.4): with the free lock the view may move, but the locked target stays inside the screen with this
-                                      // fraction of the screen size kept free along every edge (0 = right at the edge, 0.15 = the middle 70 percent)
-};
-struct CameraSettings {
-    bool gun_drives_view = true;   // [camera] gun_drives_view: the arm cannon is fixed to the view, so its idle drift, walking bob and landing dip move the view
-};
-
 // ---- quit shortcut ------------------------------------------------------------------------------------------------------------
 // A pad combination and a keyboard key that open the overlay's "Close the game?" prompt (the same prompt as the F1 page's Quit button).
 // Neither reaches the game. The pad buttons are physical ones (before [padmap]), all held on one pad.
@@ -283,8 +267,6 @@ struct OverlaySettings {
 
 struct Settings {
     MouseSettings mouse;
-    AimSettings aim;
-    CameraSettings camera;
     PadSettings pad;
     TimingSettings timing;
     DisplaySettings display;
@@ -324,8 +306,8 @@ struct GameDefaultAddition {
 // (a value the player picked themselves stays).
 struct GameDefaultChange {
     int rev;
-    const char* section;   // "aim"
-    const char* key;       // "lock_mode"
+    const char* section;   // "display"
+    const char* key;       // "render_scale"
     const char* from;
     const char* to;
 };

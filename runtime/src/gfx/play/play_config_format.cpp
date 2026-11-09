@@ -29,11 +29,6 @@ std::string format_settings(const Settings& s) {
     kv("menu_cursor", flag(s.mouse.menu_cursor));
     kv(key_wheel_cycles(), flag(s.mouse.wheel_cycles));
 
-    o += "\n[aim]\n";
-    kv("lock_mode", lock_mode_name(s.aim.lock_mode));
-    kv("free_lock_margin", num(s.aim.free_lock_margin));
-    o += "\n[camera]\n";
-    kv("gun_drives_view", flag(s.camera.gun_drives_view));
     o += "\n[tweaks]\n";
     kv("language", s.language.empty() ? "auto" : s.language);
 

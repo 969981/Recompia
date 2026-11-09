@@ -87,7 +87,7 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             continue;
         }
 
-        if (sec == Sec::Unknown) continue;   // the keys of an unknown section are skipped
+        if (sec == Sec::Unknown || sec == Sec::Retired) continue;   // the keys of an unknown or retired section are skipped
 
         // Bindings keep the key before the LAST '=' (the key may itself be "="); their value never contains '='.
         const size_t eq = sec == Sec::Bindings ? line.rfind('=') : line.find('=');
@@ -181,22 +181,6 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
 }  // namespace cfg
 
 using namespace cfg;
-
-// [aim] lock_mode names. Case-insensitive, no trimming (the file parser has already trimmed the value).
-const char* lock_mode_name(LockMode m) { return m == LockMode::Free ? "free" : "classic"; }
-
-bool parse_lock_mode(const std::string& s, LockMode* out) {
-    const std::string key = lower(s);
-    if (key == "classic") {
-        if (out) *out = LockMode::Classic;
-        return true;
-    }
-    if (key == "free") {
-        if (out) *out = LockMode::Free;
-        return true;
-    }
-    return false;
-}
 
 bool parse_settings(const std::string& text, Settings* out, std::string* err, std::vector<std::string>* warnings) {
     Settings s = builtin_settings();

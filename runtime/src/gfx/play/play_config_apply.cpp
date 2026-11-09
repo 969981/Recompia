@@ -26,8 +26,6 @@ const char* sec_label(Sec s) {
         case Sec::Quit: return "[quit]";
         case Sec::Overlay: return "[overlay]";
         case Sec::Switch: return "[switch]";
-        case Sec::Aim: return "[aim]";
-        case Sec::Camera: return "[camera]";
         case Sec::Tweaks: return "[tweaks]";
         default: return "";
     }
@@ -173,21 +171,6 @@ bool apply_fixed(Sec sec, const std::string& k, const std::string& v, Settings* 
             if (k == "menu_cursor") return set_bool(&s->mouse.menu_cursor);
             if (k == "menu_touch") return true;   // legacy key, dead since it never did anything: accepted and ignored
             if (k == key_wheel_cycles()) return set_bool(&s->mouse.wheel_cycles);
-            break;
-        case Sec::Aim:
-            if (k == "lock_mode") {
-                LockMode m = LockMode::Classic;
-                if (!parse_lock_mode(v, &m)) {
-                    *msg = "lock_mode must be classic or free, got '" + v + "'";
-                    return false;
-                }
-                s->aim.lock_mode = m;
-                return true;
-            }
-            if (k == "free_lock_margin") return set_real(0.0, 0.4, &s->aim.free_lock_margin);
-            break;
-        case Sec::Camera:
-            if (k == "gun_drives_view") return set_bool(&s->camera.gun_drives_view);
             break;
         case Sec::Tweaks:
             if (k == "language") {
@@ -504,8 +487,7 @@ Sec fixed_sec(const std::string& key) {
     if (key == "fps") return Sec::Fps;
     if (key == "quit") return Sec::Quit;
     if (key == "overlay") return Sec::Overlay;
-    if (key == "aim") return Sec::Aim;
-    if (key == "camera") return Sec::Camera;
+    if (key == "aim" || key == "camera") return Sec::Retired;   // [aim] lock_mode free_lock_margin, [camera] gun_drives_view
     if (key == "tweaks") return Sec::Tweaks;
     if (key == "switch") return Sec::Switch;
     return Sec::Unknown;
