@@ -252,3 +252,7 @@ inline 0x71010132a4
 inline 0x71010132d0
 inline 0x710101334c
 entryhook 0x7100eb1b40
+#   Title screen (pkp_title.cpp, [pkp] title_quit): the key guide widget takes a set (the title's 152 gets a Quit Game guide), and the end of a
+#   key guide part's fill (x19 part, x21 its table row, w20 text slot; the caller's widget at [x29 + 0x38]): the Quit Game text
+entryhook 0x7100ec5de0
+inline 0x7100ec69b4

@@ -6,7 +6,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks and the longer camera aim reach adds three, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, and the longer camera aim reach and the title's Quit Game prompt add new ones, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
 - Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
@@ -20,6 +20,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: with camera aim on, abilities, tools and placement only reached the cell next to your character, even when the camera looked at a block a few cells away
   - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
   - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
+
+### Game
+- Added a **Quit Game** prompt to the title screen, next to Settings (#319)
+  - Before: the title had only "(-) Settings"; the game could be closed with the window's close button, the quit key or the pad's quit combination, but nothing on the title said so
+  - Now: a second prompt in the game's own style, left of Settings, reads Quit Game in the game's language with the (+) button's icon (Esc on the keyboard). Pressing (+) or Esc on the title, or clicking the prompt, opens the "Close the game?" box: Quit closes the game, Cancel goes back to the title. On by default; `[pkp] title_quit = 0` in `pkp.ini` takes it away
+  - Still not: on a title that already shows a (+) Credits prompt there is no Quit Game (that title is left as it is); the Close the game? box is the PC port's own, not drawn in the game's style
 
 ### Performance
 - Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
