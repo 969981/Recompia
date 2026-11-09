@@ -123,7 +123,9 @@ struct State {
     std::map<std::string, Image> images;
     uint32_t frames = 0, frame_tries = 0;            // kbm_frame: game frames seen, lookups tried before the first tag
     uint64_t types_logged[4] = {};                   // text tag types logged once (diagnostics)
+#if NXRT_TESTTOOLS
     std::vector<uint64_t> dumped;                    // atlases written to NXRT_PKP_KBM_DUMP
+#endif
     std::string title_icon;                          // the title art's A: the Enter key bound to A (else A's icon)
     std::vector<uint8_t> title_px;                   // ... drawn (kTitleArt), for title_px_icon
     std::string title_px_icon;
@@ -450,6 +452,7 @@ uint64_t find_texture(uint64_t root) {
     return 0;
 }
 
+#if NXRT_TESTTOOLS   // a dev aid: release packages carry no env-var dumps
 // NXRT_PKP_KBM_DUMP=<folder>: the atlas's level 0 as raw BC7 blocks (<folder>/atlas_<id>_<w>x<h>.bc7), once per texture. Caller holds s.mu.
 void dump_atlas(State& s, uint64_t tex) {
     const char* dir = std::getenv("NXRT_PKP_KBM_DUMP");
@@ -468,6 +471,7 @@ void dump_atlas(State& s, uint64_t tex) {
         NXLOG_I(kTag, "kbm: atlas #%u (%ux%u, %u levels, %s) written to %s", ti.id, w, h, ti.levels, ti.srgb ? "sRGB" : "linear", path);
     }
 }
+#endif
 
 // Looks up the sprite of a glyph code (through an action that shows it) and, for a code with a slot, where it is in the atlas. Caller holds s.mu.
 // False: the sprite sheet is not loaded yet (the code stays unknown, to be looked up again).
@@ -502,7 +506,9 @@ bool resolve_code(::Ctx* c, State& s, uint32_t code, uint32_t action) {
         g.tex = 0;
         return true;
     }
+#if NXRT_TESTTOOLS
     dump_atlas(s, g.tex);
+#endif
     float u0 = 1, v0 = 1, u1 = 0, v1 = 0;
     for (int k = 0; k < 4; ++k) {
         const float u = rd<float>(quad + 24 + 8 * k), v = rd<float>(quad + 28 + 8 * k);

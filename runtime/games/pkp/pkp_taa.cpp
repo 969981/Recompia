@@ -30,8 +30,8 @@
 // Hooks (main.sites):
 //   0x7102126a88  mid, in the camera block copy 0x7102123e80 (x20 = source block), before it reads +0x1a1c (not reached in play; kept as a probe).
 //   0x7102574a18  mid, in the jitter step (x9 = the parameter block, x25 = the view object), before the game reads +0x1a1c.
-//   0x7101e53748, 0x7101e5389c  entry, TemporalAA3 slot setup and render (x0 = the pass): log whether the pass exists, its switch and slots.
-//   0x7101e39b64, 0x7101e577ac  entry, TemporalAA (v1) and KTSS slot setup: log once if reached.
+//   0x7101e5389c  entry, TemporalAA3 render (x0 = the pass): logs once, counts, and sets the pass switch with game_taa 2.
+// The log-only hooks (TemporalAA3, TemporalAA (v1) and KTSS slot setup) are in pkp_taa_probe.cpp, built with the test tools only.
 // [pkp] game_taa = 1 (default 0: not proven) writes enable = 1 and, when the pattern count is below 2, 8 into the parameter block before the
 // game reads it; 2 also sets the TemporalAA3 pass switch at each of its render calls (only meaningful when the probe shows the pass exists).
 #include "pkp_taa.h"
@@ -57,10 +57,7 @@ constexpr const char* kTag = "pkp";
 
 constexpr uint64_t kCopySite = 0x2126a88;     // camera block copy 0x7102123e80, x20 = source
 constexpr uint64_t kJitterSite = 0x2574a18;   // jitter step in 0x71008b6254, x9 = the parameter block, x25 = the view object
-constexpr uint64_t kTaa3Setup = 0x1e53748;    // entry: TemporalAA3 pass slot setup (x0 = pass)
 constexpr uint64_t kTaa3Render = 0x1e5389c;   // entry: TemporalAA3 pass render (x0 = pass; nothing happens unless byte +0xc)
-constexpr uint64_t kTaa1Setup = 0x1e39b64;    // entry: TemporalAA (v1) pass slot setup
-constexpr uint64_t kKtssSetup = 0x1e577ac;    // entry: KTSS pass slot setup
 constexpr uint64_t kEnable = 0x1a1c, kType = 0x1a20, kPattern = 0x1a2c;   // parameter block
 constexpr uint64_t kViewJitX = 0x1a24, kViewJitY = 0x1a28;                // view object
 constexpr uint64_t kPassSwitch = 0xc, kPassSlots = 79 * 4, kPassSize = 0x168;
@@ -69,8 +66,7 @@ constexpr int32_t kForcedPattern = 8;
 struct State {
     bool installed = false;
     int force = 0;   // [pkp] game_taa: 1 the camera TAA enable, 2 also the TemporalAA3 pass switch
-    std::atomic<bool> copy_logged{false}, jitter_logged{false}, jitter_on_logged{false}, taa3_setup_logged{false}, taa3_render_logged{false};
-    std::atomic<bool> taa1_logged{false}, ktss_logged{false};
+    std::atomic<bool> copy_logged{false}, jitter_logged{false}, jitter_on_logged{false}, taa3_render_logged{false};
     std::atomic<uint64_t> copies{0}, jitter_calls{0}, jitter_on{0}, taa3_renders{0};
     std::atomic<int32_t> game_enable{-1}, game_type{-1}, game_pattern{-1};
 };
@@ -136,15 +132,6 @@ int hook_jitter(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-int hook_taa3_setup(::Ctx* c, uint64_t, void*) {
-    State& s = st();
-    const uint64_t p = c->x[0];
-    if (p && mem::is_mapped(p, kPassSize) && !s.taa3_setup_logged.exchange(true))
-        NXLOG_I(kTag, "taa: TemporalAA3 pass exists (%llx): switch byte %u, colour / depth / output slot ids %d %d %d", static_cast<unsigned long long>(p),
-                rd<uint8_t>(p + kPassSwitch), rd<int32_t>(p + kPassSlots), rd<int32_t>(p + kPassSlots + 4), rd<int32_t>(p + kPassSlots + 8));
-    return 0;
-}
-
 int hook_taa3_render(::Ctx* c, uint64_t, void*) {
     State& s = st();
     const uint64_t p = c->x[0];
@@ -158,24 +145,13 @@ int hook_taa3_render(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-int hook_setup_once(::Ctx* c, uint64_t, void* user) {
-    State& s = st();
-    auto* flag = static_cast<std::atomic<bool>*>(user);
-    if (!flag->exchange(true))
-        NXLOG_I(kTag, "taa: %s pass slot setup called (pass %llx)", flag == &s.taa1_logged ? "TemporalAA (v1)" : "KTSS", static_cast<unsigned long long>(c->x[0]));
-    return 0;
-}
-
 void install(const FeatureInstall& in) {
     State& s = st();
     if (s.installed) return;
     s.force = static_cast<int>(settings::get_int(settings::Key::GameTaa));
     in.hooks.add_mid(in.base + kCopySite, &hook_copy);
     in.hooks.add_mid(in.base + kJitterSite, &hook_jitter);
-    in.hooks.add_entry(in.base + kTaa3Setup, &hook_taa3_setup);
     in.hooks.add_entry(in.base + kTaa3Render, &hook_taa3_render);
-    in.hooks.add_entry(in.base + kTaa1Setup, &hook_setup_once, &s.taa1_logged);
-    in.hooks.add_entry(in.base + kKtssSetup, &hook_setup_once, &s.ktss_logged);
     if (s.force) NXLOG_I(kTag, "taa: [pkp] game_taa = %d: the engine's temporal AA is switched on (experimental)", s.force);
     s.installed = true;
 }

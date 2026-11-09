@@ -36,8 +36,6 @@ namespace {
 constexpr const char* kTag = "pkp.movietest";
 // main, Pokopia 2.0.1a (offsets from the main base)
 constexpr uint64_t kPlayerCreate = 0x1fd33ec;    // (renderer, gfx, const Config*, Allocator*) -> Player*
-constexpr uint64_t kPlayerOpen = 0x1fd3940;      // (Player*, Entry*, int video_track, int audio_track) -> bool
-constexpr uint64_t kPlayerStart = 0x1fd3b38;     // (Player*) -> bool; its body is 0x1fd3b98 (Player*, start ms), run step by step below
 // steps of 0x1fd3b98 (start) with no audio track, on Player+104 unless noted
 constexpr uint64_t kStOutputs = 0x1fd4cec;       // makes the audio/video output objects (Player+1176 / +1184) -> result
 constexpr uint64_t kStVideoOut = 0x1fd765c;      // (video out, *(Player+40) allocator, *(Player+48) renderer): 6 MiB + renderer object + nvn sync

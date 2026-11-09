@@ -10,7 +10,10 @@
 #include "pkp_layout.h"
 #include "pkp_linkplay.h"
 #include "pkp_menu.h"
+#if NXRT_TESTTOOLS
 #include "pkp_movie_test.h"
+#include "pkp_taa_probe.h"
+#endif
 #include "pkp_options.h"
 #include "pkp_play.h"
 #include "pkp_quality.h"
@@ -40,15 +43,24 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
-//   kbm, movie_test     game-frame callbacks, kbm's first
+//   kbm, movie_test     game-frame callbacks, kbm's first (movie_test and taa_probe are test tools: in the table only with NXRT_TESTTOOLS, which
+//                       a release package builds without; the registry has no stub for them)
 //   title, sort, craft  key guide clients (pkp_key_guide.h): they add themselves at install, and the key guide's callbacks run in that
 //                       order
 //   key_guide           after its clients: its install registers the hooks they need
 //   options             after title: title's frame callback runs first
 // No other two features hook the same address.
 constexpr const Feature* kFeatures[] = {
-    &kSaveUuidFeature, &kLinkplayFeature, &kPlayFeature, &kKbmFeature, &kMovieTestFeature, &kMenuFeature, &kQualityFeature,
-    &kTaaFeature, &kJumpFeature, &kAimFeature, &kTitleFeature, &kSortFeature, &kCraftFeature, &key_guide::kKeyGuideFeature,
+    &kSaveUuidFeature, &kLinkplayFeature, &kPlayFeature, &kKbmFeature,
+#if NXRT_TESTTOOLS
+    &kMovieTestFeature,
+#endif
+    &kMenuFeature, &kQualityFeature,
+    &kTaaFeature,
+#if NXRT_TESTTOOLS
+    &kTaaProbeFeature,
+#endif
+    &kJumpFeature, &kAimFeature, &kTitleFeature, &kSortFeature, &kCraftFeature, &key_guide::kKeyGuideFeature,
     &kOptionsFeature,
 };
 constexpr size_t kFeatureCount = std::size(kFeatures);
