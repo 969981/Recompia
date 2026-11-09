@@ -187,7 +187,7 @@ fn meta_attr_matches(meta: &Path) -> bool {
     let Ok(text) = fs::read_to_string(meta) else { return false };
     let Some(attr) = text.lines().find_map(|l| l.strip_prefix("attr=")) else { return false };
     // attr: application id (8 bytes), uid (16), system id (8), type (1 byte at 32; 1 = account)
-    attr.len() >= 66 && attr[..16].eq_ignore_ascii_case(&app_hex()) && &attr[64..66] == "01"
+    attr.len() >= 66 && attr.get(..16).is_some_and(|a| a.eq_ignore_ascii_case(&app_hex())) && attr.get(64..66) == Some("01")   // get(): a non-ASCII byte there is no match, not a panic
 }
 
 /// The account save folder name to import into: the game's existing one (its .meta names the game and the account type), else the
@@ -354,4 +354,37 @@ pub fn game_running() -> bool {
     fs::read_dir("/proc")
         .map(|rd| rd.flatten().any(|e| fs::read_to_string(e.path().join("comm")).map(|c| c.trim() == "pkp.exe").unwrap_or(false)))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_with(attr: &str) -> bool {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let p = std::env::temp_dir().join(format!("pkp-meta-{}-{}.meta", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+        fs::write(&p, format!("size=1\nattr={}\n", attr)).unwrap();
+        let r = meta_attr_matches(&p);
+        let _ = fs::remove_file(&p);
+        r
+    }
+
+    #[test]
+    fn an_account_meta_of_the_game_matches() {
+        let attr = format!("{}{}{}01{}", app_hex(), "ab".repeat(16), "00".repeat(8), "00".repeat(31));
+        assert!(meta_with(&attr));
+        assert!(!meta_with(&attr.replace("01", "00")));
+    }
+
+    #[test]
+    fn a_non_ascii_attr_is_no_match_and_no_panic() {
+        // a multi-byte character straddling offsets 16 and 64
+        let mut attr = "é".repeat(8);
+        attr.push_str(&"0".repeat(60));
+        assert!(attr.len() >= 66);
+        assert!(!meta_with(&attr));
+        let mut late = "0".repeat(63);
+        late.push_str("éé");
+        assert!(late.len() >= 66 && !meta_with(&late));
+    }
 }
