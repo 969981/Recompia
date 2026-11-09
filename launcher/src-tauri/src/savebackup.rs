@@ -9,7 +9,7 @@
 //! `<key>.journal.<pid>`) was present before or after it and the folder listing (path, size, time) did not change meanwhile; otherwise it
 //! is thrown away and tried again a moment later. A backup that cannot be made is skipped quietly (the next tick tries again).
 
-use crate::fsutil::copy_tree;
+use crate::fsutil::{copy_tree, file_stamp};
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use serde::{Deserialize, Serialize};
@@ -173,7 +173,7 @@ fn digest(data: &Path, meta: Option<&Path>) -> io::Result<(String, u64, u64)> {
 }
 
 fn stamp(root: &Path, kind: &str) -> String {
-    let base = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let base = file_stamp();
     let first = format!("{}-{}", base, kind);
     if !root.join(&first).exists() {
         return first;

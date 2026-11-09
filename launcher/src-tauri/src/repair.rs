@@ -313,7 +313,7 @@ pub fn last_backup(game: &Path) -> Option<BackupInfo> {
 }
 
 fn stamp(game: &Path) -> String {
-    let base = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let base = crate::fsutil::file_stamp();
     let taken = |n: &str| game.join(BACKUP_DIR).join(n).exists();
     if !taken(&base) {
         return base;

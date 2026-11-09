@@ -98,7 +98,7 @@ fn keep_damaged(dir: &Path) -> Result<(), String> {
     if !is_damaged(&path) {
         return Ok(());
     }
-    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let stamp = crate::fsutil::file_stamp();
     let target = (0..1000)
         .map(|i| dir.join(if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) }))
         .find(|p| !p.exists())

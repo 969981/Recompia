@@ -228,23 +228,6 @@ fn copy_tree(src: &Path, dst: &Path, n: &mut u64) -> io::Result<()> {
     Ok(())
 }
 
-/// UTC time as yyyymmdd-hhmmss (no time-zone crate needed).
-fn stamp() -> String {
-    let secs = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let (days, rem) = (secs / 86400, secs % 86400);
-    // civil-from-days (H. Hinnant)
-    let z = days as i64 + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z.rem_euclid(146097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("{:04}{:02}{:02}-{:02}{:02}{:02}", y, m, d, rem / 3600, rem % 3600 / 60, rem % 60)
-}
-
 fn put_back(old: &[PathBuf], bacc: &Path) {
     for p in old {
         let back = bacc.join(p.file_name().unwrap());
@@ -267,7 +250,7 @@ pub fn import(save_dir: &Path, key: &str, src: &Path) -> Result<Report, String> 
         return Err(format!("{} is inside the save folder the game plays. Pick a copy outside it.", fwd(src)));
     }
     fs::create_dir_all(&acc).map_err(|e| format!("Cannot create {}: {}", fwd(&acc), e))?;
-    let t = stamp();
+    let t = crate::fsutil::file_stamp();
 
     // 1. stage the copy beside the root; a failure here changes nothing
     let stage = acc.join(format!("{}.import-{}", key, t));
