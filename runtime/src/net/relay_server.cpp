@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// relay_server.h: the embedded relay, a port of launcher/src-tauri/src/relay/server.rs (same frames, room rules, UDP path and limits; the
-// semantics are documented in launcher/src-tauri/src/relay/mod.rs), and LAN discovery. Winsock.
+// relay_server.h: the embedded relay for the v3 protocol (frames in relay_wire.h, which is its only definition; the launcher's relay
+// speaks the different PKR1 protocol and does not interoperate), and LAN discovery. Winsock.
 #include "relay_server.h"
 
 #include "nxrt/host_device.h"
@@ -900,7 +900,7 @@ std::unique_ptr<RelayServer> RelayServer::start(const RelayServerOptions& opt, s
         return nullptr;
     }
     // No SO_EXCLUSIVEADDRUSE: it fails the bind while connections of an earlier run sit in TIME_WAIT (a host restarting the game within a
-    // minute could not host); Windows' default already refuses a second bind over a live socket (the launcher relay binds the same way).
+    // minute could not host); Windows' default already refuses a second bind over a live socket.
     // Wine (Linux sockets): a listener bind fails on TIME_WAIT without SO_REUSEADDR, which there still refuses a live listener.
     auto bind_any = [&](SOCKET s, bool listener) {
         if (listener && host_is_wine()) {

@@ -4,8 +4,8 @@
 //
 //   Lobby          abstract: connect (HELLO), scan, create, join, leave, set_advertise, reject, plus one event sink (room state pushes and
 //                  "you are out of the room"). Each Lobby is also the Link of its node while it is in a room (link()).
-//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v3: the reference is
-//                  launcher/src-tauri/src/relay/mod.rs). A reader thread turns frames into events, request answers and Link deliveries;
+//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (relay protocol v3, served by net/relay_server.cpp; the
+//                  frame format is defined by net/relay_wire.h, there is no other spec). A reader thread turns frames into events, request answers and Link deliveries;
 //                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer. A v2 relay (ERROR 1 to the
 //                  v3 HELLO) is dialled again with proto 2: everything as before, TCP only.
 //                  UDP datagram path (v3, RelayOptions::udp): in a room the relay hands out a token (UDP_OFFER); a third thread proves
@@ -117,7 +117,7 @@ public:
     // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
     virtual bool udp_active() const { return false; }
     // The server version string of the relay's WELCOME (empty before the first connect). The embedded relay
-    // and the launcher's put a random instance id in it, so it names one relay whatever address it was reached by.
+    // puts a random instance id in it, so it names one relay whatever address it was reached by.
     virtual std::string server_version() const { return {}; }
 };
 
@@ -147,7 +147,7 @@ const char* build_stamp();
 std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n);
 std::array<uint8_t, 32> sha256(const void* p, size_t n);
 
-// Room codes (launcher/src-tauri/src/relay/mod.rs "Room codes"): 16 symbols of Crockford base32 (80 bits), shown XXXX-XXXX-XXXX-XXXX.
+// Room codes (same format as launcher/src-tauri/src/relay/room_code.rs): 16 symbols of Crockford base32 (80 bits), shown XXXX-XXXX-XXXX-XXXX.
 constexpr size_t kRoomCodeLen = 16;
 // The 16 symbols of a typed code; false when it is not one. Case, '-' and spaces do not matter; O reads as 0, I and L as 1.
 bool room_code_normalize(const std::string& in, std::string* out);

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Relay protocol v3 wire codec, shared by the client (lobby.cpp) and the embedded server (relay_server.cpp). Internal to net/.
-// Reference: launcher/src-tauri/src/relay/mod.rs. Frame = u32 len (bytes after it, 1..8192) + u8 type + payload, little-endian;
+// This file is the definition of the v3 wire format (the launcher's old reference, relay/codec.rs, is gone). Frame = u32 len (bytes after it, 1..8192) + u8 type + payload, little-endian;
 // str = u8 len + UTF-8; blob = u16 len + bytes. UDP packets: u8 type + u64 token (+ the datagram header and payload), no length prefix.
 #pragma once
 #include <array>

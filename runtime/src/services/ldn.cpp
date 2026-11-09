@@ -401,7 +401,7 @@ std::shared_ptr<vnet::Lobby> auto_relay(const std::string& host, uint16_t port) 
 }
 
 // A relay's identity in the session id (bytes 8..13): the first 6 bytes of SHA-256 of its WELCOME server version, which carries a random
-// instance id on the embedded and the launcher's relay. The host (at 127.0.0.1) and every visitor (at a LAN address) get the same value
+// instance id on the embedded relay. The host (at 127.0.0.1) and every visitor (at a LAN address) get the same value
 // for one relay, and two relays get different ones. 0: not known (never connected).
 uint64_t relay_tag(const vnet::Lobby& l) {
     const std::string v = l.server_version();
@@ -420,7 +420,7 @@ void firewall_hint() {
 }
 
 // Auto mode, CreateNetwork: the relay in this process on 0.0.0.0:39660, started on the first call that can start it and never stopped
-// (it runs until the process exits). A port already taken (the launcher's relay on this PC, another game) is that relay's: it is used as it
+// (it runs until the process exits). A port already taken (another game on this PC) is that relay's: it is used as it
 // is. Either way the host is a relay client to 127.0.0.1:39660.
 std::shared_ptr<vnet::Lobby> host_relay() {
     static std::mutex mu;
