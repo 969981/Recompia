@@ -18,6 +18,7 @@ constexpr const char* kHdrModeWords[] = {"off", "auto", "on", "native"};
 constexpr const char* kHdrFormatWords[] = {"auto", "hdr10", "scrgb"};
 constexpr const char* kUpscaleWords[] = {"off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
 constexpr const char* kUpscaleQualityWords[] = {"native", "quality", "balanced", "performance", "ultra_performance", "custom"};
+constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"};   // [upscale] aa, indexed by extras::AaMode
 constexpr const char* kLatencyWords[] = {"off", "auto", "on", "boost"};
 constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive"};
 constexpr const char* kAstcWords[] = {"fast", "high", "uncompressed"};
@@ -304,6 +305,8 @@ const SettingDef kTable[] = {
     {ROW("upscale", "mode", Custom), CUSTOM(read_upscale_mode, write_upscale_mode), .words = kUpscaleWords, .syntax = "choice",
      .nxrt_key = "upscale.mode",
      .doc = "Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off."},
+    {ROW("upscale", "aa", Choice), ENUM(extras.upscale.aa, extras::AaMode), .words = kAaWords, .nxrt_key = "upscale.aa",
+     .doc = "Anti-aliasing of the 3D scene: SMAA on the HDR scene before the tone map (the HUD and the menus are not filtered)."},
     {ROW("upscale", "quality", Choice), ENUM(extras.upscale.quality, extras::UpscaleQuality), .words = kUpscaleQualityWords,
      .nxrt_key = "upscale.quality", .doc = "The temporal modes' render scale preset."},
     {ROW("upscale", "sharpness", Real), REAL(extras.upscale.sharpness), .lo = 0.0, .hi = 1.0, .ranged = true, .exact = true,

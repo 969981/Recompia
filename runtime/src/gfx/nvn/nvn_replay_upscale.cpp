@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Upscaler hooks of the replay: temporal upscaling (camera block, jitter, the tone-map draw) and the scene upscaler override.
 #include "nvn_replay_internal.h"
+#include "extras/smaa_scene.h"
 
 #include "nxrt/game_render.h"
 
@@ -178,11 +179,63 @@ static void nearest_scene_for_draw(const ProgLayout& pl, VkExtent3D te) {
     }
 }
 
+// SMAA ([upscale] aa): the HDR scene the tone-map draw reads goes through extras::SmaaScene and the draw reads the result, so only the 3D picture is
+// filtered (the HUD and the menus are drawn after the tone map). The scene is the first 2D colour input that is a float image (RGBA16F or R11G11B10F) of the target's size.
+static void smaa_scene_for_draw(const ProgLayout& pl, VkExtent3D te, extras::AaMode aa) {
+    struct Seen { uint32_t w, h; VkFormat f; } tried[8];
+    uint32_t tried_n = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D || b.image.depth) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex) || shares_image(r.tex, S.depth_tex.get())) continue;
+        const VkExtent3D se = tex_image_extent(r.tex, 0);
+        const VkFormat sf = tex_vk_format(r.tex);
+        if (static_cast<int>(tried_n) < 8) tried[tried_n++] = {se.width, se.height, sf};
+        if (se.width != te.width || se.height != te.height || (sf != VK_FORMAT_R16G16B16A16_SFLOAT && sf != VK_FORMAT_B10G11R11_UFLOAT_PACK32)) continue;
+        extras::SmaaScene* sm = extras::scene_smaa(&device());
+        if (!sm) return;
+        end_pass();                                                           // the passes cannot run inside a render pass
+        tex_ensure_current(r.tex, *F);
+        tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
+        VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
+        if (!src) return;
+        VkImageView out = sm->apply(F->cb, src, VkExtent2D{se.width, se.height}, aa);
+        shadow_invalidate();
+        if (out) {
+            g_su.tex = r.tex;
+            g_su.view = out;
+        }
+        static bool told = false;
+        if (!told) {
+            told = true;
+            NXLOG_I(kTag, "scene anti-aliasing: SMAA on the %ux%u scene (texture %llu)", se.width, se.height, static_cast<unsigned long long>(r.tex->id));
+        }
+        return;
+    }
+    static bool warned = false;
+    if (!warned) {
+        warned = true;
+        NXLOG_W(kTag, "scene anti-aliasing: no float scene input the size of the tone-map target (%ux%u): SMAA skipped", te.width, te.height);
+        for (uint32_t i = 0; i < tried_n; ++i) NXLOG_W(kTag, "  tone-map input %u: %ux%u format %d", i, tried[i].w, tried[i].h, static_cast<int>(tried[i].f));
+    }
+}
+
 void scene_upscale_for_draw(const ProgLayout& pl) {
     g_su.clear();
     const ShaderInfo* fs = S.stage[kFragment];
     if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
         temporal_for_draw(pl);
+        return;
+    }
+    const extras::AaMode aa = extras::aa_mode();
+    const bool tonemap = fs && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash);
+    // SMAA runs when the scene is shown at its own size (an upscaled scene part keeps its upscaler; SMAA does not read a part of an image)
+    if (aa != extras::AaMode::Off && tonemap && (!extras::scene_upscale_wanted() || extras::upscale_scene_scale() >= 100)) {
+        Texture* tgt = S.color_tex[0].get();
+        if (tex_gpu(tgt)) smaa_scene_for_draw(pl, tex_image_extent(tgt, 0), aa);
         return;
     }
     if (!fs || !extras::scene_upscale_wanted() || S.ncolor == 0 || !S.color_tex[0] || !extras::hdr_is_tonemap(fs->spirv, fs->hash)) return;
