@@ -402,7 +402,7 @@ std::shared_ptr<vnet::Lobby> auto_relay(const std::string& host, uint16_t port) 
 
 // A relay's identity in the session id (bytes 8..13): the first 6 bytes of SHA-256 of its WELCOME server version, which carries a random
 // instance id on the embedded and the launcher's relay. The host (at 127.0.0.1) and every visitor (at a LAN address) get the same value
-// for one relay, and two relays get different ones. 0: not known (never connected, the loopback relay of tests).
+// for one relay, and two relays get different ones. 0: not known (never connected).
 uint64_t relay_tag(const vnet::Lobby& l) {
     const std::string v = l.server_version();
     if (v.empty()) return 0;
@@ -1849,15 +1849,6 @@ std::shared_ptr<ipc::Service> make_ldn_user_creator() {
 }
 
 coop_node* ldn_native_node() { return native().node.load(); }
-
-void ldn_set_lobby(std::shared_ptr<vnet::Lobby> lobby) {
-    LobbySlot& s = slot();
-    std::lock_guard<std::mutex> lk(s.mu);
-    s.built = true;
-    s.auto_mode = false;
-    s.target.clear();
-    s.lobby = std::move(lobby);
-}
 
 void ldn_reset() {
     {

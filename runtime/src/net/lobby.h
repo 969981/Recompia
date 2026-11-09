@@ -12,16 +12,14 @@
 //                  it over UDP to the relay's port (HELLO every 100 ms for 3 s, then every 5 s as keepalive / NAT refresh) and on the
 //                  first ACK switches the game datagrams to UDP both ways (UDP_MODE 1). No ACK for 15 s: back to TCP (UDP_MODE 0),
 //                  still probing. Until then, and whenever UDP is blocked, datagrams go over the TCP connection as in v2.
-//   LoopbackRelay  an in-process server with the relay's semantics: client() hands out LoopbackLobby objects.
 //
 // Room semantics (the server's): room R (1..254) is 169.254.R.0/24, the host is .1 (node 0), guests the lowest free .2...8 (node N-1),
 // node MAC 02:00:a9:fe:R:N. A datagram to .255 goes to every other member, never back to the sender; to a member's vIP, to that member.
-// Room codes: a lobby with a room key (RelayOptions::room_key, LoopbackRelay::client) creates its rooms with that key; such a room is
+// Room codes: a lobby with a room key (RelayOptions::room_key) creates its rooms with that key; such a room is
 // listed to and joinable by lobbies with the same key only (kLobbyRoomCode otherwise). A lobby without a key creates open rooms that
 // everyone sees (LAN play). Scans of a keyed lobby list the open rooms and the rooms with its key.
 //
-// Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient; for the loopback, the thread of
-// whichever client caused them). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
+// Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
 // (scan/create/join) of the same lobby. Requests are serialised per lobby; call them from one thread at a time anyway (the ldn HLE does).
 #pragma once
 #include <array>
@@ -118,7 +116,7 @@ public:
     virtual void set_events(LobbyEvents ev) = 0;
     // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
     virtual bool udp_active() const { return false; }
-    // The server version string of the relay's WELCOME (empty before the first connect, and for the loopback relay). The embedded relay
+    // The server version string of the relay's WELCOME (empty before the first connect). The embedded relay
     // and the launcher's put a random instance id in it, so it names one relay whatever address it was reached by.
     virtual std::string server_version() const { return {}; }
 };
@@ -141,18 +139,6 @@ struct RelayOptions {
 bool parse_server(const std::string& s, std::string* host, uint16_t* port);
 
 std::shared_ptr<Lobby> make_relay_client(const RelayOptions& opt);
-
-// ---- LoopbackRelay ---------------------------------------------------------------------------------------------------------------------
-class LoopbackRelay {
-public:
-    LoopbackRelay();
-    ~LoopbackRelay();
-    std::shared_ptr<Lobby> client(const std::string& nickname, const std::array<uint8_t, 16>& room_key = {});
-    struct State;
-
-private:
-    std::shared_ptr<State> st_;
-};
 
 // ---- helpers -----------------------------------------------------------------------------------------------------------------------------
 // What HELLO sends as the build stamp: identifies the runtime's relay client (NXRT_BUILD_STAMP at compile time, else a fixed string).
