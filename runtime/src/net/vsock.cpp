@@ -2,6 +2,7 @@
 // UDP socket table over a vnet::Link (see vsock.h). One mutex guards the table and every socket's state; one condition variable wakes
 // blocking receivers. The link is never called with the mutex held (a hub delivers on the sending thread, back into inbound()).
 #include "vsock.h"
+#include "text_util.h"
 
 #include <chrono>
 #include <cstring>
@@ -37,19 +38,7 @@ constexpr uint32_t kLimitedBroadcast = 0xFFFFFFFFu;
 // The payload's first kDumpBytes bytes as hex for the Debug udp lines ("|" every 16 bytes, "..." when cut). 192 covers Pokopia's KTGL
 // join request (171 bytes with its 4-byte routing header, work/mp/join-reject-analysis.md). Only built when Debug is on (NXLOG_D).
 constexpr size_t kDumpBytes = 192;
-std::string hex_head(const std::vector<uint8_t>& b) {
-    static const char kHex[] = "0123456789abcdef";
-    const size_t n = b.size() < kDumpBytes ? b.size() : kDumpBytes;
-    std::string s;
-    s.reserve(n * 3 + n / 16 * 2 + 4);
-    for (size_t i = 0; i < n; ++i) {
-        if (i) s += (i % 16) ? " " : " | ";
-        s += kHex[b[i] >> 4];
-        s += kHex[b[i] & 15];
-    }
-    if (n < b.size()) s += " ...";
-    return s;
-}
+std::string hex_head(const std::vector<uint8_t>& b) { return textutil::hex_head(b, kDumpBytes); }
 }  // namespace
 
 Stack::Stack(std::shared_ptr<vnet::Link> fixed) : fixed_(std::move(fixed)) {

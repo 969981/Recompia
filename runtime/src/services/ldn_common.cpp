@@ -101,18 +101,7 @@ void copy_name(char (&dst)[33], const std::string& s) {
 
 // The first 128 bytes of the advertise data as hex for the Debug SetAdvertiseData line ("|" every 16 bytes, "..." when cut). Pokopia puts
 // the host's KTGL member id in it (work/mp/join-reject-analysis.md section 3). Only built when Debug is on (NXLOG_D).
-std::string hex_head(const std::vector<uint8_t>& b) {
-    static const char kHex[] = "0123456789abcdef";
-    const size_t n = b.size() < 128 ? b.size() : 128;
-    std::string s;
-    for (size_t i = 0; i < n; ++i) {
-        if (i) s += (i % 16) ? " " : " | ";
-        s += kHex[b[i] >> 4];
-        s += kHex[b[i] & 15];
-    }
-    if (n < b.size()) s += " ...";
-    return s;
-}
+std::string hex_head(const std::vector<uint8_t>& b) { return textutil::hex_head(b, 128); }
 
 // Logs the first use of a command (one line per command id for the life of the process; network_reset() clears it).
 std::mutex g_seen_mu;

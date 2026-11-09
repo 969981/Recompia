@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace nxrt::textutil {
 
@@ -18,6 +19,21 @@ inline std::string ascii_lower(std::string s) {
 inline void trim_blanks(std::string& s) {
     while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.pop_back();
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(s.begin());
+}
+
+// The first max_bytes bytes of b as hex ("|" every 16 bytes, "..." when cut). For the Debug lines that dump a payload.
+inline std::string hex_head(const std::vector<uint8_t>& b, size_t max_bytes) {
+    static const char kHex[] = "0123456789abcdef";
+    const size_t n = b.size() < max_bytes ? b.size() : max_bytes;
+    std::string s;
+    s.reserve(n * 3 + n / 16 * 2 + 4);
+    for (size_t i = 0; i < n; ++i) {
+        if (i) s += (i % 16) ? " " : " | ";
+        s += kHex[b[i] >> 4];
+        s += kHex[b[i] & 15];
+    }
+    if (n < b.size()) s += " ...";
+    return s;
 }
 
 // The largest n' <= n that does not cut inside a UTF-8 sequence of s (n itself when s[n] starts a character or n >= s.size()).
