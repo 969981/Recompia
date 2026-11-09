@@ -192,11 +192,9 @@ struct DisplaySettings {
     double lod_bias = 0;           // texture LOD bias added to every sampler (-2.0 .. 2.0; negative is sharper)
     bool bloom = true;
     bool chromatic_aberration = true;
-    // Games with quality hooks (play_game.h kDisplayOptQuality, live): the view distance multiplies the camera's far clip (1.0 .. 4.0, 1 = the
-    // console's), the preset names the set of values last picked on the F1 page (switch2, high, ultra, steamdeck, legion_go_s, laptop,
-    // desktop; custom after a single change, quality_presets() below).
+    // Games with quality hooks (play_game.h kDisplayOptQuality, live): the preset names the set of values last picked on the F1 page
+    // (switch2, high, ultra, steamdeck, legion_go_s, laptop, desktop; custom after a single change, quality_presets() below).
     std::string quality_preset = "switch2";
-    double view_distance = 1.0;
     // ---- S38 GPU paths, at the next start; [nvn] pool_mirror and pass_barriers in mpr.ini or the environment win over these.
     bool fast_gpu_memory = true;   // device-local copies of the pools draws read ([nvn] pool_mirror = on); costs up to 2 GiB of video memory
     bool fewer_gpu_waits = true;   // no full barrier after passes that only wrote their attachments ([nvn] pass_barriers = tracked)
@@ -208,7 +206,7 @@ struct DisplaySettings {
 
 // ---- quality presets ([display] quality_preset, the F1 Graphics page) ------------------------------------------------------------
 // The presets in the combo's order, "custom" last. The game's GamePlay::quality_preset hook writes their values. The picture presets
-// (switch2, high, ultra) set the view distance, texture LOD bias and anisotropy; the device presets (sets_frame) also set the render
+// (switch2, high, ultra) set the texture LOD bias and anisotropy; the device presets (sets_frame) also set the render
 // scale and the frame limit. Changing one of the values the current preset set makes it custom (quality_preset_edited).
 struct QualityPresetInfo {
     const char* id;       // the ini value, lowercase
@@ -218,7 +216,7 @@ struct QualityPresetInfo {
 };
 const QualityPresetInfo* quality_presets(int* count);              // all of them, custom last
 const QualityPresetInfo* find_quality_preset(const std::string& id);   // case-insensitive; nullptr for an unknown id
-enum class QualityField : uint8_t { ViewDistance, LodBias, Anisotropy, RenderScale, FrameLimit };
+enum class QualityField : uint8_t { LodBias, Anisotropy, RenderScale, FrameLimit };
 // The player changed `f` by hand: d.quality_preset becomes "custom" when the current preset set that value. True when it changed.
 bool quality_preset_edited(DisplaySettings& d, QualityField f);
 
@@ -232,10 +230,10 @@ struct AudioSettings {
 // ---- button prompts ----------------------------------------------------------------------------------------------------------------
 // Which button icons the game's prompts show: the game's own Switch icons, or those of another pad or the keyboard. Auto follows the
 // last input device used.
-enum class PromptStyle : uint8_t { Switch = 0, Xbox, PlayStation, Steam, Keyboard, Auto };
-constexpr int kPromptStyleCount = 6;
-const char* prompt_style_name(PromptStyle s);          // "switch" "xbox" "playstation" "steam" "keyboard" "auto"
-bool parse_prompt_style(const std::string& s, PromptStyle* out);   // case-insensitive; also accepts ps, ps4, ps5, dualsense, steamcontroller, kbm, keyboard_mouse, mouse
+enum class PromptStyle : uint8_t { Switch = 0, Xbox, PlayStation, Steam, SteamDeck, Keyboard, Auto };
+constexpr int kPromptStyleCount = 7;
+const char* prompt_style_name(PromptStyle s);          // "switch" "xbox" "playstation" "steam" "steamdeck" "keyboard" "auto"
+bool parse_prompt_style(const std::string& s, PromptStyle* out);   // case-insensitive; also accepts ps, ps4, ps5, dualsense, steamcontroller, deck, steam_deck, kbm, keyboard_mouse, mouse
 struct PromptSettings {
     PromptStyle style = PromptStyle::Auto;     // follows the last used device: keyboard icons until a pad is used (or when none is connected)
 };

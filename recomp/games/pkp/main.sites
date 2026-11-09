@@ -185,7 +185,7 @@ midhook 0x7101f779d0
 #   wide text (#176): the text writer style copy 0x7101f8775c after its stores (x19 = the writer; spacing at +0x38ec)
 midhook 0x7101f877b0
 #   quality: the camera commit (0x71022a9f60) after it copied the staged blocks over the live fields and released the lock, x19 = the
-#   camera (pkp_quality.cpp: the view distance multiplies the live Far clip +0x14; probe log of the quality fields)
+#   camera (pkp_quality.cpp: probe log of the quality fields)
 midhook 0x71022aced8
 #   engine TAA (pkp_taa.cpp, [pkp] game_taa): the camera block copy 0x7102123e80 before it reads the TAA enable +0x1a1c (x20 = source),
 #   and the jitter step of 0x71008b6254 before it reads +0x1a1c (x9 = the renderer's camera block)
@@ -269,3 +269,10 @@ inline 0x7100ec69b4
 #   set's "Hold to Sort" entry becomes "Sort"); with the two shared sites above
 entryhook 0x7100feee78
 entryhook 0x7100ec54a0
+#   Crafting search (pkp_craft.cpp, [pkp] craft_search): the crafting screen's per-frame virtual (x0 = the screen, UI class 0xe3): Y or a click
+#   on the Search key guide asks for a word on the game's keyboard and refills the recipe grid; its open virtual (x0 = the screen: the search
+#   ends when the screen opens); in the grid fill 0x7100ef0b80, after the recipe ids come from 0x7100e634e0 (u16 ids at [sp + 8], count at
+#   [sp + 0x10], w21 tab, w20 station kind): the ids whose result item name does not hold the word are dropped
+entryhook 0x7100eec660
+entryhook 0x7100eeae14
+inline 0x7100ef0c38

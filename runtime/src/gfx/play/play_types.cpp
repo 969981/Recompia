@@ -86,7 +86,7 @@ bool parse_trig(const std::string& s, Trig* out) {
 // ---- button prompts ---------------------------------------------------------------------------------------------------------------
 
 namespace {
-const char* const kPromptNames[] = {"switch", "xbox", "playstation", "steam", "keyboard", "auto"};
+const char* const kPromptNames[] = {"switch", "xbox", "playstation", "steam", "steamdeck", "keyboard", "auto"};
 static_assert(sizeof(kPromptNames) / sizeof(kPromptNames[0]) == kPromptStyleCount, "one name per PromptStyle");
 
 // Every spelling parse_prompt_style accepts (the canonical names are in the table too).
@@ -98,7 +98,8 @@ const PromptAlias kPromptAliases[] = {
     {"switch", PromptStyle::Switch},          {"xbox", PromptStyle::Xbox},           {"playstation", PromptStyle::PlayStation},
     {"ps", PromptStyle::PlayStation},         {"ps4", PromptStyle::PlayStation},     {"ps5", PromptStyle::PlayStation},
     {"dualsense", PromptStyle::PlayStation},  {"steam", PromptStyle::Steam},         {"steamcontroller", PromptStyle::Steam},
-    {"steam_controller", PromptStyle::Steam},
+    {"steam_controller", PromptStyle::Steam}, {"steamdeck", PromptStyle::SteamDeck}, {"steam_deck", PromptStyle::SteamDeck},
+    {"deck", PromptStyle::SteamDeck},
     {"keyboard", PromptStyle::Keyboard},      {"kbm", PromptStyle::Keyboard},
     {"keyboard_mouse", PromptStyle::Keyboard}, {"mouse", PromptStyle::Keyboard},     {"auto", PromptStyle::Auto},
 };
@@ -462,12 +463,12 @@ bool parse_input(const std::string& name_in, InputId* out) {
 namespace {
 const QualityPresetInfo kQualityPresets[] = {
     {"switch2", "Switch 2 (console)", "The console's picture.", false},
-    {"high", "High", "A sharper, farther picture than the console's.", false},
-    {"ultra", "Ultra", "The sharpest and farthest picture.", false},
+    {"high", "High", "A sharper picture than the console's.", false},
+    {"ultra", "Ultra", "The sharpest picture.", false},
     {"steamdeck", "Steam Deck", "For the Steam Deck's 1280 x 800 screen: a steady frame rate over sharpness.", true},
     {"legion_go_s", "Legion Go S", "For the Legion Go S's 1920 x 1200 screen: a steady 60 fps.", true},
     {"laptop", "Laptop", "For laptops with built-in or entry graphics: light on the GPU and the battery.", true},
-    {"desktop", "Desktop PC", "For a desktop with a dedicated graphics card: sharp, far and as fast as the display.", true},
+    {"desktop", "Desktop PC", "For a desktop with a dedicated graphics card: sharp and as fast as the display.", true},
     {"custom", "Custom", "Your own values.", false},
 };
 }  // namespace

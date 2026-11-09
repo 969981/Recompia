@@ -47,7 +47,7 @@ std::wstring sens_text(int pos) {
 }
 
 // The button icon drop-down, in the order it shows. The list index is what the page reads and writes; the enum value is what is saved.
-const PromptStyle kStyles[] = {PromptStyle::Auto, PromptStyle::Keyboard, PromptStyle::Xbox, PromptStyle::PlayStation, PromptStyle::Steam, PromptStyle::Switch};
+const PromptStyle kStyles[] = {PromptStyle::Auto, PromptStyle::Keyboard, PromptStyle::Xbox, PromptStyle::PlayStation, PromptStyle::Steam, PromptStyle::SteamDeck, PromptStyle::Switch};
 constexpr int kStyleCount = static_cast<int>(sizeof kStyles / sizeof kStyles[0]);
 
 // The free-lock edge margin as a percent slider: 0.15 -> 15, 0..40 only.
@@ -136,7 +136,7 @@ public:
 
         f.heading(L"Button prompts");
         f.combo(
-            L"Button icons", {L"Automatic (follows what you use)", L"Keyboard and mouse", L"Xbox", L"PlayStation", L"Steam Controller", L"Switch (the game's own)"},
+            L"Button icons", {L"Automatic (follows what you use)", L"Keyboard and mouse", L"Xbox", L"PlayStation", L"Steam Controller", L"Steam Deck", L"Switch (the game's own)"},
             [](const Settings& s) {
                 for (int i = 0; i < kStyleCount; ++i)
                     if (kStyles[i] == s.prompts.style) return i;

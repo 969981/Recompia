@@ -6,69 +6,132 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, and the longer camera aim reach, the title's Quit Game prompt and the inventory Sort button add new ones, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
-### Gameplay
-- Camera aim and running jumps keeping their speed are now **on by default** (opt out instead of opt in)
-  - Before: both were off until you turned them on in **Settings > Game > Gameplay** or in `pkp.ini`
-  - Now: both are on unless you turn them off: the switches in **Settings > Game > Gameplay**, or `[pkp] camera_aim = 0` / `jump_momentum = 0` in `pkp.ini`. If you already switched one off, it stays off
-  - Still not: the Link Play options (Interact everywhere, Story co-op) stay off by default, because every player in a session needs the same setting
-- Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
-  - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
-  - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
-- Camera aim reaches 2 blocks farther
-  - Before: with camera aim on, abilities, tools and placement only reached the cell next to your character, even when the camera looked at a block a few cells away
-  - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
-  - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
-
-- Fixed the **Joy-Con 2 mouse mode** key doing nothing in the game (#367)
-  - Before: the middle mouse button freed the mouse pointer, but the game never switched to its mouse mode: on a Switch 2 that mode only exists with two detached Joy-Cons, and the PC controller counts as a Pro Controller. Changing the key or its trigger did not help
-  - Now: the key turns on the game's own mouse mode, as when a Joy-Con 2 is laid on its side: the game shows its pointer, switches to Rock Smash and you point and click (left button) to break and place blocks where the pointer is. Press the key again to go back to the camera. The pointer lines up with the picture at any render size, and camera aim steps aside while the mouse mode is on
-  - The key can now be changed in the game's own **Settings > Mouse > Mouse Mode Key**: move the row, then press any keyboard key, mouse button or wheel notch (Esc cancels). The F1 **Controls** page (`mouse_mode`) still works too
-  - Needs **Set up again** once (new game hooks)
+### Launcher
+- Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
+  - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
+  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
+  - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
+- Added **arrow-key** navigation to the launcher, for a handheld whose d-pad reaches it as keys
+  - Before: Steam's default layout for a non-Steam shortcut sends the d-pad as arrow keys, and the launcher ignored them
+  - Now: the arrow keys move between controls, Enter presses, Escape goes back (closes a question, or returns Home), the same as the pad
+  - Text boxes, sliders and drop-downs keep the arrows they need
 
 ### Game
-- Added a **Quit Game** prompt to the title screen, next to Settings (#319)
-  - Before: the title had only "(-) Settings"; the game could be closed with the window's close button, the quit key or the pad's quit combination, but nothing on the title said so
-  - Now: a second prompt in the game's own style, left of Settings, reads Quit Game in the game's language with the (+) button's icon (Esc on the keyboard). Pressing (+) or Esc on the title, or clicking the prompt, opens the "Close the game?" box: Quit closes the game, Cancel goes back to the title. On by default; `[pkp] title_quit = 0` in `pkp.ini` takes it away
-  - Still not: on a title that already shows a (+) Credits prompt there is no Quit Game (that title is left as it is); the Close the game? box is the PC port's own, not drawn in the game's style
-- Added a **Sort** button to the bag and containers (#323): a **(Y) Sort** button in the screen's own button bar (keyboard **F**), which the mouse can click too
-  - Before: items stayed where they were put; tidying meant moving them one by one with X
-  - Now: Sort tidies the panel under the cursor: part-full stacks of the same item are put together (up to the game's stack size of 99), then the items are ordered by kind, then by item, with empty slots at the end, and the screen shows the new order at once. Nothing is lost. The button sits where the bar showed "Hold to Sort" (holding X still rearranges). In a container screen Y is the game's own Add Stack / Remove All, so there the button sorts with **R** (keyboard Space), shown on the button. On by default; `[pkp] inventory_sort = 0` in `pkp.ini` takes the button away. `[pkp] inventory_autosort = 1` also sorts the bag each time it opens (off by default, because it reorders your bag without a press)
-  - Still not: no separate button per panel (one button sorts the panel under the cursor), no other sort orders, and no sorting during Link Play
+- Added a **Search** button to the crafting menu (#324)
+  - Before: finding a recipe meant scrolling through the tabs
+  - Now: press **Y** (keyboard **F**) or click **Search** in the button bar. The same keyboard as name entry opens (works with a controller: d-pad or stick to pick keys, A to type, + for OK), type part of an item name and the list shows only the recipes whose item name contains it, in your game language. Upper and lower case don't matter
+  - The search stays on when you change tabs or use the game's Sort, and the button shows the word (for example "Search: log"). Cancel on the keyboard shows every recipe again; closing the crafting screen (or crafting something) clears the search
+  - Want it gone? `[pkp] craft_search = 0` in `pkp.ini`
+  - Still not: no search during Link Play, and only the item name is searched (not materials or descriptions)
 
-### Performance
-- Added an opt-in diagnostic candidate for the recurring small-texture readback hitch (#276)
-  - Before: the deferred path still waited for completion when landing a previous read, and unfinished work needed separate buffer ownership
-  - Now: the selected-texture experiment polls completion, retains pending work and uses private readback buffers; disabled by default
-  - Still not: a confirmed general fix; accepting older texture data needs guest correctness review and longer testing
+### Gameplay
+- Fixed **camera aim** staying off after you used the Joy-Con 2 mouse mode once (#367)
+  - Before: turning mouse mode off left the game stuck half in it, so camera aim never came back until a restart
+  - Now: pressing the mouse mode key again fully leaves mouse mode and camera aim works again right away
+- Fixed the Joy-Con 2 mouse mode hitting the wrong block (#367)
+  - Before: clicking broke or placed a block off to the side of the one under the pointer
+  - Now: your character turns to the block under the pointer before swinging, so the click lands on it
 
-### Controllers
-- The new Steam Controller (and other Valve pads) is now recognised as its own kind of controller
-  - The log line `gamepad ... kind` now says "Steam" for it, which helps us check support with a real controller
-- New button icons: **Steam Controller**
-  - Pick it under Button icons (launcher Controls tab, or F1 > Controller), or set `[prompts] style = steam` in `controls.ini`
-  - Automatic uses it when the last pad you used is a Steam Controller that the game sees directly (with Steam Input on, Steam shows the game an Xbox pad, so you get Xbox icons there)
-  - The art is Kenney's Input Prompts (CC0)
-- Steam Controller **rear grips and trackpad clicks** can now be given a Switch button (they did nothing before)
-  - Controls tab > Button layout (launcher, and F1 in game) has six new rows: the four rear grips (R4, L4, R5, L5), the left trackpad click (also a PlayStation touchpad click) and the right trackpad click. `Find a button...` finds them too
-  - They press nothing until you choose a button, so nothing changes for anyone who does not
-  - In `controls.ini` they are `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `touchpad_right` under `[padmap]`
-  - With the Steam Controller icons on, a button given to a grip or trackpad shows the grip or trackpad icon
-- **Touch screens** (Steam Deck, ROG Ally and other handhelds, touch laptops): the game now treats a finger as a finger
-  - A **Menu** button in the bottom left corner opens the F1 menu (it reads **Close** while the menu is open), so a handheld needs no keyboard for it. The menu then has bigger rows, buttons and scroll bars
-  - Taps work the game's own menus, as before; but a tap in play no longer fires the mouse click action (use the tool), and touching the screen no longer switches the button prompts to the keyboard's keys
-  - On by default when a touch screen is found (`touch: touch screen found, menu button on` in `pkp.log`); `[overlay] touch_button = off` turns it off, `on` forces it
-  - The launcher on a touch screen: no double-tap zoom or tap delay
-- **The launcher works with a controller** (Steam Deck, ROG Ally and other handhelds, or any pad), beside touch and the mouse
-  - D-pad or left stick moves between controls, **A** presses, **B** goes back (closes a question, or returns Home), **LB / RB** switch pages, the right stick scrolls
-  - On a slider, left and right change it; on a drop-down, up and down change it
-  - A thicker focus ring shows only while a pad is the last thing you used; touching or clicking hides it
-  - Needs the browser engine of your system to report the pad (Windows and most Linux setups do; if yours does not, nothing changes)
-- Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
+### Graphics
+- Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
+  - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
+  - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
+  - Still not: bloom and other soft glow effects stay smooth on purpose
 
-### What to test
-- **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
+### Controls
+- Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
+  - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
+  - Now: press left or right on the row (or click it), the row says "Press the new key", then press any key, mouse button or wheel notch. Esc cancels. It works every time, and F1 can't be picked by mistake
+- Added a **Steam Deck** button icon style, and Automatic now picks it on a Steam Deck
+  - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
+  - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
+  - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
+
+## 0.9.0 (build M: Monkey)
+
+**Update:** press **Update**, then **Set up again** once (new game hooks for Quit Game, Sort, the mouse mode key and the longer camera aim reach; your saves and shaders are kept).
+
+The Monkey patch is all about quality of life: tidy bags in one press, aim where you look from farther away, finally use the Joy-Con 2 mouse mode, and play from a handheld without ever touching a keyboard.
+
+### Highlights
+- Added a **Sort** button to your bag and every storage box: one press stacks everything up and puts it in order (#323)
+- Fixed the **Joy-Con 2 mouse mode**: middle mouse now really turns on the game's own pointer, so you can point and click to break and place blocks, and you can bind it to any key (#367)
+- Changed **camera aim** and **running jump momentum** to on by default, and camera aim now reaches 2 blocks farther
+- Added full **controller and touch** support for handhelds: drive the launcher with a pad, tap a Menu button for the in-game settings, and map the Steam Controller's back grips and trackpads
+
+### Known issues
+- While the Joy-Con 2 mouse mode is on, the game holds you on Rock Smash and you can't swap tools: that's how the game's own mouse mode works. Press the mouse mode key again to swap
+- Sort does nothing during Link Play, to keep both players' bags in step
+- The Close the game? box on the title is the PC port's own, so it doesn't look like the game's menus yet
+
+### Game
+- Added a **Sort** button to the bag and to storage boxes (#323)
+  - Before: tidying meant moving items around one by one
+  - Now: press **Y** (keyboard **F**) or click **Sort** in the button bar. Half-full stacks of the same item merge (up to 99), then everything lines up by type with the empty slots at the end. Nothing is ever lost
+  - In storage boxes **Y** is the game's own Add Stack / Remove All, so Sort is on **R** there (keyboard **Space**)
+  - Sort tidies the panel your cursor is on. Holding **X** still rearranges like before
+  - Want it gone? `[pkp] inventory_sort = 0` in `pkp.ini`. Want the bag sorted every time you open it? `[pkp] inventory_autosort = 1`
+- Added **Quit Game** to the title screen, next to Settings (#319)
+  - Press **(+)** (keyboard **Esc**) or click it: Quit closes the game, Cancel takes you back
+  - Shown in your game language. `[pkp] title_quit = 0` in `pkp.ini` hides it
+
+| Before | After |
+|---|---|
+| ![Bag before Sort: items scattered with an empty slot in the middle](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-on.png) | ![Bag after Sort: items grouped by type, empty slot moved to the end](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-sorted.png) |
+
+![Storage box after Sort: the box packed to the left, with Sort on Space in the button bar](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/box-sorted.png)
+
+| Title screen | Quit Game pressed |
+|---|---|
+| ![Title screen with Quit Game next to Settings in the bottom right corner](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-title.png) | ![The Close the game? box with Quit and Cancel](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-quit-prompt.png) |
+
+### Gameplay
+- Changed **camera aim** and **running jump momentum** to on by default (#368)
+  - Camera aim: abilities and tools hit where your camera looks, not just where your character faces
+  - Running jump momentum: a running jump carries your running speed instead of slowing to the game's fixed air speed. Jump height is the same
+  - Don't like them? Turn them off in **Settings > Game > Gameplay**, or `[pkp] camera_aim = 0` / `jump_momentum = 0`. If you had switched one off already, it stays off
+- Added 2 blocks of reach to camera aim (#370)
+  - Before: camera aim only reached the block right next to you
+  - Now: look at a block up to 3 away and Water Gun, Leafage, Rototiller, Rock Smash, Cut, their upgrades and block placing all land there
+  - The A button for talking and picking things up keeps the game's normal range. `[pkp] camera_aim_reach` sets the extra blocks (0 to 4, default 2)
+- Removed the "always in Joy-Con mouse mode" behaviour that came with camera aim in 0.8.2
+  - Camera aim now aims like in 0.8.1 and your tool is never switched for you
+- Fixed the **Joy-Con 2 mouse mode** key doing nothing (#367)
+  - Before: middle mouse freed your cursor, but the game never switched to its pointer mode, whatever key or trigger you picked
+  - Now: middle mouse turns on the game's own pointer, just like laying a Joy-Con 2 on its side on a Switch 2. Point, left click to break and place, press middle mouse again to go back to the camera. The pointer lines up at any resolution, and camera aim steps aside while it's on
+  - Rebind it to any key, mouse button or wheel notch in the game's **Settings > Mouse > Mouse Mode Key** (move the row, then press the key; Esc cancels), or on the F1 **Controls** page
+
+### Graphics
+- Removed the **view distance** setting: the world is always drawn as far as on the console (#249)
+  - Before: anything above 1x made shadows follow the camera, put seams in block textures and left pictures in frames blank until you walked up
+  - Now: always 1x. The slider is gone from every menu and preset, and an old `view_distance` line in your ini is ignored
+
+### Controls
+- Added support for the new **Steam Controller** (and other Valve pads): it's recognised as its own controller
+- Added **Steam Controller button icons** (art by Kenney, CC0)
+  - Pick them under Button Icons (launcher Controls tab, or F1 > Controller), or `[prompts] style = steam` in `controls.ini`
+  - Automatic picks them when the game sees the Steam Controller directly. With Steam Input on, Steam shows the game an Xbox pad, so you get Xbox icons
+- Added the Steam Controller's **back grips and trackpad clicks** to button mapping
+  - Six new rows under Controls > Button layout (launcher and F1): R4, L4, R5, L5, the left trackpad click (also the PlayStation touchpad click) and the right trackpad click
+  - They do nothing until you give them a button, so nobody's setup changes
+- Added **touch screen** support (Steam Deck, ROG Ally, Legion Go, touch laptops)
+  - A **Menu** button in the bottom left corner opens the F1 settings, so a handheld never needs a keyboard. The menu gets bigger rows, buttons and scroll bars
+  - Taps still work the game's menus, but a tap during play no longer swings your tool, and touching the screen no longer swaps the button icons to keyboard keys
+  - On by default when a touch screen is found. `[overlay] touch_button = off` turns it off
+
+### Launcher
+- Added **controller navigation** to the launcher (great for Steam Deck, ROG Ally and other handhelds)
+  - D-pad or left stick moves, **A** presses, **B** goes back, **LB / RB** switch pages, the right stick scrolls
+  - Sliders change with left and right, drop-downs with up and down
+  - A thick focus ring shows while you use a pad and hides when you touch or click
+- Changed the launcher on touch screens: no more double-tap zoom or tap delay
+
+### For developers
+- `runtime/games/pkp/pkp_play.cpp`: mid hooks 0x71002fa6f8 / 0x71002fa8a0 / 0x71002fa8ec let the game's mouse-mode check (0x71002fa6ac: two Joy-Cons + the save's mouse option) through for the local player while the Mouse mode key's request is on; `jc2_mouse_set_pointer_space` gives Nmouse x, y in the game's screen size; `GameHost` gains the rebind capture (`begin_capture` / `capture_result`)
+- nvn: an opt-in, off-by-default experiment for the recurring small-texture readback hitch (#276): completion-polled readback with private buffers. Not a fix yet
+- Release workflow: the third-party base payload now comes from our own v0.8.2 release (the upstream v0.1.1 repository is gone); the AppImage bundling retries up to 3 times
 
 ## 0.8.2 (build L: Lemur)
 

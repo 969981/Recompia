@@ -1,5 +1,5 @@
 // Tests for the pure part of the launcher's controller navigation (src/gamepad-nav-model.js). Run: node launcher/scripts/test-gamepad-nav.mjs
-import { readPad, newlyDown, repeatStep, pickNext, cycle, BTN, FIRST_REPEAT_MS, REPEAT_MS } from '../src/gamepad-nav-model.js';
+import { readPad, newlyDown, repeatStep, pickNext, cycle, keyDir, arrowRoute, BTN, FIRST_REPEAT_MS, REPEAT_MS } from '../src/gamepad-nav-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -50,6 +50,18 @@ check(pickNext(side[0], side, 'right') === 1, 'right from a short control reache
 check(cycle(0, 4, 1) === 1 && cycle(3, 4, 1) === 0 && cycle(0, 4, -1) === 3, 'cycle wraps');
 check(cycle(-1, 4, 1) === 0 && cycle(-1, 4, -1) === 3, 'cycle from nothing');
 check(cycle(0, 0, 1) === -1, 'cycle of an empty list');
+
+// arrow keys
+check(keyDir({ key: 'ArrowUp' }) === 'up' && keyDir({ key: 'ArrowRight' }) === 'right', 'arrow keys give directions');
+check(keyDir({ key: 'Enter' }) === null && keyDir({ key: 'a' }) === null, 'other keys give none');
+check(keyDir({ key: 'ArrowLeft', shiftKey: true }) === null && keyDir({ key: 'ArrowLeft', ctrlKey: true }) === null && keyDir({ key: 'ArrowLeft', altKey: true }) === null, 'an arrow with a modifier is not navigation');
+check(['up', 'down', 'left', 'right'].every((d) => arrowRoute('text', d) === 'native'), 'a text field keeps all four arrows');
+check(arrowRoute('select', 'up') === 'native' && arrowRoute('select', 'down') === 'native' && arrowRoute('select', 'left') === 'nav', 'a drop-down keeps up and down');
+check(arrowRoute('range', 'left') === 'native' && arrowRoute('range', 'right') === 'native' && arrowRoute('range', 'down') === 'nav', 'a slider keeps left and right');
+check(arrowRoute('radio', 'right') === 'native' && arrowRoute('radio', 'up') === 'nav', 'a radio group keeps left and right');
+check(arrowRoute('other', 'down') === 'nav' && arrowRoute('other', 'left') === 'nav', 'a button moves the focus');
+check(arrowRoute('none', 'down', true) === 'native' && arrowRoute('none', 'down', false) === 'nav', 'nothing focused: down scrolls only a page that can scroll');
+check(arrowRoute('none', 'left', true) === 'nav' && arrowRoute('none', 'right', false) === 'nav', 'nothing focused: left and right take the first control');
 
 console.log(bad ? `TEST FAILED (${bad})` : 'gamepad nav model tests passed');
 process.exit(bad ? 1 : 0);

@@ -1803,8 +1803,16 @@ void shadows_after_dispatch() {
     }
 }
 
-Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw; without g_su_view: sampled nearest
+Texture* g_su_tex = nullptr;                 // scene upscaler override (S14), see scene_upscale_for_draw
 VkImageView g_su_view = VK_NULL_HANDLE;
+// Nearest (#232): the inputs of the tone-map draw that hold the reduced scene, sampled with the nearest sampler (nearest_scene_for_draw)
+constexpr uint32_t kSuNearMax = 8;
+Texture* g_su_near[kSuNearMax] = {};
+uint32_t g_su_near_n = 0;
+bool su_nearest(const Texture* t) {
+    for (uint32_t i = 0; i < g_su_near_n; ++i) if (g_su_near[i] == t) return true;
+    return false;
+}
 Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
 uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
 // Temporal upscaling: a copy of a vertex slot 0 camera block with this frame's jitter added (extras::temporal_jitter_block). False: left alone.
@@ -1835,6 +1843,7 @@ struct SetMemo {
     const void* spool = nullptr;
     const void* su_tex = nullptr;
     VkImageView su_view = VK_NULL_HANDLE;
+    uint64_t su_near = 0;
     uint32_t n = 0;
     uint64_t h[32] = {};
     VkDescriptorSet ds = VK_NULL_HANDLE;
@@ -1849,6 +1858,8 @@ bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.spool = S.spool.get();
     m.su_tex = g_su_tex;
     m.su_view = g_su_view;
+    m.su_near = g_su_near_n;
+    for (uint32_t i = 0; i < g_su_near_n; ++i) m.su_near = (m.su_near ^ reinterpret_cast<uint64_t>(g_su_near[i])) * 1099511628211ull;
     m.n = 0;
     for (const BindingDesc& d : pl.bindings) {
         if (d.set != set) continue;
@@ -1870,7 +1881,7 @@ bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
 }
 bool set_memo_same(const SetMemo& a, const SetMemo& b) {
     return a.pl == b.pl && a.epoch == b.epoch && a.gen == b.gen && a.tpool == b.tpool && a.spool == b.spool && a.su_tex == b.su_tex &&
-           a.su_view == b.su_view && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
+           a.su_view == b.su_view && a.su_near == b.su_near && a.n == b.n && std::memcmp(a.h, b.h, sizeof(uint64_t) * a.n) == 0;
 }
 // c[0] of a stage that reads it, filled from the current bindings (nvn_driver_bank.h): a Switch 2 compute program's resource table
 // (storage buffer sizes for the bounds checks of the light culling, GPU particle and volume field kernels); a graphics stage's storage
@@ -2103,7 +2114,7 @@ VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                     if (r.tex == g_su_tex && g_su_view) {            // the upscaled scene replaces the small one for this draw (S14)
                         ii.imageView = g_su_view;
                         ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                    } else if (r.tex == g_su_tex) {                  // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
+                    } else if (su_nearest(r.tex)) {                  // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
                         ii.sampler = dummy_sampler();
                     }
                 } else if (first_time_key("dummy-view " + d.shader->hash + " " + b.name + " " + std::to_string(r.tex->id))) {
@@ -2619,9 +2630,52 @@ void temporal_for_draw(const ProgLayout& pl) {
     }
 }
 
+// Nearest (#232): no pass, the tone-map draw samples the reduced scene with the nearest sampler (clamp to edge). With the scene in the
+// top-left part of full-size targets (scene_part: [upscale] scene_scale) every full-size colour input of the draw holds a part of scene
+// size (the scene and the post images made at its size), so each of them is sampled nearest; a full-size input read whole is read 1:1,
+// where nearest and bilinear give the same texels, and smaller inputs (bloom) stay filtered. Without a scene part the largest input
+// below the target size is the scene. The first input alone was not always the scene: the stretch stayed bilinear.
+void nearest_scene_for_draw(const ProgLayout& pl, VkExtent3D te) {
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);
+    const bool part = fx < 1.0f || fy < 1.0f;
+    Texture* best = nullptr;
+    uint64_t best_area = 0;
+    auto add = [](Texture* t) {
+        if (!su_nearest(t) && g_su_near_n < kSuNearMax) g_su_near[g_su_near_n++] = t;
+    };
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D || b.image.depth) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex) || shares_image(r.tex, S.depth_tex.get())) continue;
+        const VkExtent3D se = tex_image_extent(r.tex, 0);
+        const bool full = se.width >= te.width && se.height >= te.height;
+        if (part) {
+            if (full) add(r.tex);
+            continue;
+        }
+        const uint64_t area = static_cast<uint64_t>(se.width) * se.height;
+        if (!full && area > best_area) {
+            best = r.tex;
+            best_area = area;
+        }
+    }
+    if (!part && best) add(best);
+    static uint32_t told = ~0u;
+    if (told != g_su_near_n) {
+        told = g_su_near_n;
+        NXLOG_I(kTag, "scene upscale: nearest, %u input(s) of the tone-map draw sampled nearest (%s)", g_su_near_n,
+                part ? "the scene part of full-size targets" : "the largest input below the target size");
+    }
+}
+
 void scene_upscale_for_draw(const ProgLayout& pl) {
     g_su_tex = nullptr;
     g_su_view = VK_NULL_HANDLE;
+    g_su_near_n = 0;
     const ShaderInfo* fs = S.stage[kFragment];
     if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
         temporal_for_draw(pl);
@@ -2631,6 +2685,10 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
     Texture* target = S.color_tex[0].get();
     if (!tex_gpu(target)) return;
     const VkExtent3D te = tex_image_extent(target, 0);   // image sizes: with a render scale the upscaler works on the real pixels
+    if (extras::upscale_mode() == extras::UpscaleMode::Nearest) {
+        nearest_scene_for_draw(pl, te);
+        return;
+    }
     for (const BindingDesc& d : pl.bindings) {
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
@@ -2643,10 +2701,6 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
         VkExtent2D in_view{se.width, se.height}, out_tex{};
         if (!scene_part(in_view, VkExtent2D{te.width, te.height}, &in_view, &out_tex) && se.width >= te.width && se.height >= te.height) return;   // nothing to enlarge
         if (in_view.width >= te.width && in_view.height >= te.height) return;
-        if (extras::upscale_mode() == extras::UpscaleMode::Nearest) {   // no pass: the draw samples the small scene with a nearest sampler (#232)
-            g_su_tex = r.tex;
-            return;
-        }
         extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), in_view, VkExtent2D{te.width, te.height});
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass

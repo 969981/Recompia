@@ -46,6 +46,7 @@ public:
     virtual bool capturing() const { return false; }
     virtual bool capture_result(InputId*) { return false; }
     virtual void cancel_capture() {}
+    virtual bool reserved_key(const InputId&) const { return false; }   // the settings page's own key (F1): never a binding
 };
 
 // The game's answer at one frame boundary.
@@ -70,7 +71,7 @@ enum : unsigned {
     kDisplayOptBloom = 1u << 2,      // [display] bloom
     kDisplayOptChromatic = 1u << 3,  // [display] chromatic_aberration
     kDisplayOptAll = kDisplayOptFov | kDisplayOptAspect | kDisplayOptBloom | kDisplayOptChromatic,
-    kDisplayOptQuality = 1u << 4,    // [display] quality_preset, view_distance (the game's quality hooks; GamePlay::quality_preset)
+    kDisplayOptQuality = 1u << 4,    // [display] quality_preset (the game's quality hooks; GamePlay::quality_preset)
 };
 
 struct GamePlay {
