@@ -706,58 +706,28 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
         }
     }
 
-    // ---- host pixel edit (nxrt/tex_edit.h): the kept edited data, or this call makes it ------------------------------------
-    TexEditKey edit;
-    bool edit_make = false;
-    if (fmt.astc && (mode == Mode::Bc7 || mode == Mode::Rgba8) && L.layers == 1 && geo[0].d == 1 && t.b.target == NVN_TEXTURE_TARGET_2D &&
-        tex_edit_active()) {
-        edit = tex_edit_match(t, src_mem);
-        if (edit.id) {
-            std::vector<uint8_t> kept;
-            if (tex_edit_lookup(edit, out.format, kept) && kept.size() == out_total) {
-                out.data = std::move(kept);
-                tex_edit_note(t);
-                NXLOG_I(kTag, "texture %u: edited data (host id %016llx) reused", t.id, static_cast<unsigned long long>(edit.id));
-                return true;
-            }
-            edit_make = true;
-        }
-    }
-    struct EditGuard {   // a failure below gives up the data this call was to make, so a waiting thread makes it itself
-        const TexEditKey* k = nullptr;
-        VkFormat f = VK_FORMAT_UNDEFINED;
-        ~EditGuard() {
-            if (k) tex_edit_abandon(*k, f);
-        }
-    } edit_guard;
-    if (edit_make) {
-        edit_guard.k = &edit;
-        edit_guard.f = out.format;
-    }
-
     // ---- disk cache ---------------------------------------------------------------------------------------------------------
     const bool bc7 = mode == Mode::Bc7;
     const int quality = bc7 ? bc7_quality() : 0;
     (void)quality;
-    if (entry_applies && !edit_make) {
+    if (entry_applies) {
         if (cache_read(cache_file, key, out)) {
             out.from_cache = true;
             NXLOG_I(kTag, "texture %u: %s data from cache %s", t.id, mode == Mode::Bc5 ? "BC5" : mode == Mode::Rgba8 ? "RGBA8" : "BC7", cache_file.c_str());
-            if (upgrade_possible && !edit_make) schedule_upgrade(t, src_mem, upgrade_key, upgrade_quality, cache_dir());   // a fast entry served now; the high one is made behind
+            if (upgrade_possible) schedule_upgrade(t, src_mem, upgrade_key, upgrade_quality, cache_dir());   // a fast entry served now; the high one is made behind
             return true;
         }
         if (mode == Mode::Bc5) return fail("the BC5 cache entry could not be read");
     }
     // (uncompressed mode: the decode to RGBA8 is short and needs no cache, so a background job does it too)
-    if (caps.cache_only && mode != Mode::Passthrough && !edit_make && !uncompressed) {   // background job: a transcode is a long CPU job on data that may not be final; the render thread does it if it is needed
+    if (caps.cache_only && mode != Mode::Passthrough && !uncompressed) {   // background job: a transcode is a long CPU job on data that may not be final; the render thread does it if it is needed
         out.error = "no cache entry";
         return false;
     }
     // only BC7 results are written to the cache, and never over a valid entry of another format (RGBA8 / BC5 entries come from the setup tool)
     if (!bc7 || (entry_format != VK_FORMAT_UNDEFINED && entry_format != out.format)) cache_file.clear();
-    if (edit_make) cache_file.clear();   // edited data stays out of the shared cache
     // needed this frame and no entry: the quickest preset now (not cached, no upgrade); the background job makes the entry and the real data
-    const bool provisional = caps.provisional && bc7 && !edit_make && quality > 0;
+    const bool provisional = caps.provisional && bc7 && quality > 0;
     if (provisional) {
         cache_file.clear();
         out.provisional = true;
@@ -802,39 +772,6 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
     in.block_h = fmt.block_h;
 
     const auto t0 = std::chrono::steady_clock::now();
-    if (edit_make) {
-        // decode each level to RGBA8, let the host edit it, encode it again (one layer, one slice: checked above)
-        a2b_options eopt = opt;
-        eopt.quality = tex_edit_quality();
-        std::vector<uint8_t> rgba;
-        for (size_t i = 0; i < geo.size(); ++i) {
-            const LevelGeom& g = geo[i];
-            const PreparedLevel& pl = out.level[i];
-            in.width = g.w;
-            in.height = g.h;
-            uint8_t* dst = out.data.data() + pl.offset;
-            uint8_t* px = dst;
-            if (bc7) {
-                rgba.resize(static_cast<size_t>(g.w) * g.h * 4);
-                px = rgba.data();
-            }
-            a2b_status st = a2b_decode_astc_rgba8(&in, lin.data() + g.lin_off, static_cast<size_t>(g.slice), 0, px, nullptr);
-            if (st != A2B_OK) return fail(std::string("ASTC decode for the edit failed: ") + a2b_status_string(st));
-            tex_edit_level(edit.id, static_cast<uint32_t>(i), g.w, g.h, px);
-            if (bc7) {
-                st = a2b_encode_bc7(g.w, g.h, px, &eopt, dst, static_cast<size_t>(pl.size), nullptr);
-                if (st != A2B_OK) return fail(std::string("BC7 encode of the edit failed: ") + a2b_status_string(st));
-            }
-            diag_progress();
-        }
-        const double ms = ms_since(t0);
-        tex_edit_store(edit, out.format, out.data, ms);
-        edit_guard.k = nullptr;
-        tex_edit_note(t);
-        NXLOG_I(kTag, "texture %u: edited by the host (id %016llx), %s %ux%u, %u levels: %.1f ms", t.id, static_cast<unsigned long long>(edit.id),
-                bc7 ? "BC7" : "RGBA8", geo[0].w, geo[0].h, L.levels, ms);
-        return true;
-    }
     for (size_t i = 0; i < geo.size(); ++i) {
         const LevelGeom& g = geo[i];
         const PreparedLevel& pl = out.level[i];
@@ -865,7 +802,7 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
 
     if (!cache_file.empty() && !cache_write(cache_file, key, out))
         NXLOG_W(kTag, "texture %u: could not write cache file %s", t.id, cache_file.c_str());
-    if (upgrade_possible && !edit_make && !provisional) schedule_upgrade(t, src_mem, upgrade_key, upgrade_quality, cache_dir());   // the fast transcode serves now; the high preset is made behind
+    if (upgrade_possible && !provisional) schedule_upgrade(t, src_mem, upgrade_key, upgrade_quality, cache_dir());   // the fast transcode serves now; the high preset is made behind
     return true;
 }
 
