@@ -6,13 +6,17 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks, so the game is rebuilt; your saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once when it asks (the game code goes back to the 0.8.1 hooks and the longer camera aim reach adds three, so the game is rebuilt; your saves and shaders are kept).
 
 ### Gameplay
 - Took camera aim's Joy-Con mouse mode out again (it came with 0.8.2)
   - Before: with camera aim on, 0.8.2 ran the game in its Joy-Con mouse mode during normal play
   - Now: camera aim aims as it did in 0.8.1 and the game stays in its normal mode. The mouse mode's hooks are gone, so this build needs **Set up again** once, like 0.8.2 did
   - Camera aim is still off by default
+- Camera aim reaches 2 blocks farther
+  - Before: with camera aim on, abilities, tools and placement only reached the cell next to your character, even when the camera looked at a block a few cells away
+  - Now: look at a block up to 3 cells from your character (2 more than before) and the highlight, Water Gun, Leafage, Rototiller, the swing of Rock Smash, Cut and their upgrades, and block placement go there. `[pkp] camera_aim_reach` in `pkp.ini` sets the extra cells (default 2, 0 = the game's own range, at most 4). When the camera looks at nothing within that range, aiming works as before
+  - Still not: the A-button interaction with nearby things keeps the game's range, and there is no crosshair
 
 ### Game
 - In Testing builds the in-game Options screen is **off by default** (it is on in the Stable release), so Testing players can choose: set `[pkp] options_menu = 1` in `pkp.ini` to turn it on. Camera aim and running jumps keep their own switches in **Settings > Game > Gameplay**, off by default
@@ -42,6 +46,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed: the in-game Options screen's Button Icons list showed the wrong names after the Steam Controller icons were added (this build only; it is off by default in Testing)
 
 ### What to test
+- **Camera aim reach:** with camera aim on, look at a block 2 or 3 cells away and use Water Gun, Rock Smash, Cut and a block to place. Report: whether the highlight and the action land on the block you look at, and anything that now hits the wrong block
 - **Camera aim after the mouse mode is gone:** turn camera aim on in Settings > Game > Gameplay (the game must be started again after Set up again). Use an ability or a swing tool and check it aims where the camera looks and the game plays as in 0.8.1. Report: anything that feels different from 0.8.1
 
 ## 0.8.2 (build L: Lemur)
