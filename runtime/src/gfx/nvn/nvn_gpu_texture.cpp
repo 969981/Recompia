@@ -5,155 +5,14 @@
 // Uploads: prepare_texture (nvn_texdata.cpp) gives the bytes, they go through a staging buffer into one buffer-to-image copy per
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
-#include <chrono>
-#include <mutex>
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <cmath>
-#include <cstdio>
-#include <condition_variable>
-#include <cstring>
-#include <deque>
-#include <filesystem>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <initializer_list>
-#include <map>
-#include <memory>
-#include <set>
-#include <tuple>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "nxrt/config.h"
-#include "nxrt/frame_limiter.h"
-#include "nxrt/ftrace.h"
-#include "nxrt/gfx_tuning.h"
-#include "nxrt/host_device.h"
-#include "nxrt/gauge.h"
-#include "nxrt/log.h"
-#include "nxrt/memory.h"
-#include "nxrt/write_watch.h"
-#include "vk_gauges.h"
-#include "nvn_dcmp.h"
-#include "nvn_enums.h"
-#include "nvn_format.h"
-#include "nvn_format_guard.h"
-#include "nvn_gpu_internal.h"
-#include "nvn_readback_policy.h"
-#include "extras/hdr_nvn.h"
-#include "nvn_texdata.h"
-#include "nvn_texprep.h"
-#include "nvn_texup.h"
-#include "nvn_texture_layout.h"
-#include "tegra_tiling.h"
-#include "astc2bc7.h"
+#include "nvn_gpu_texture_internal.h"
 
 namespace nxrt::nvn::be {
-
-constexpr uint32_t kGenLevels = 16;
 static uint64_t g_wgen_next = 0;                        // render thread only (move_layout, the replay)
 
 // The Vulkan side of a texture: Texture::gpu points to it (created by gpu::tex_gpu, freed by gpu::tex_destroy).
 static std::mutex g_live_mu;
 static std::set<struct TexGpu*> g_live_set;
-
-// Each deferred job owns its own buffer. Cancellation only drops a shared owner; it never reuses an in-flight buffer.
-// The queued callback keeps this object alive until it has recorded; actual destruction uses GPU retirement.
-struct DeferredReadback {
-    gfx::Buffer buffer;
-    std::atomic<bool> copied{false};
-    uint64_t serial = 0;
-    rbdiag::Stamp stamp;
-    std::chrono::steady_clock::time_point requested;
-    ~DeferredReadback() {
-        if (buffer && gpu::active()) {
-            gfx::Buffer old = buffer;
-            gpu::defer_destroy([old]() mutable { if (gpu::active()) gpu::device().destroy_buffer(old); });
-        }
-    }
-};
-
-struct TexGpu {
-    bool promoted = false;                              // HDR scene pipeline: an 8-bit sRGB render target kept as RGBA16F (src/gfx/extras/hdr_nvn.h)
-    gfx::Image img;                                     // the image; created without a view (views are cached below)
-    const FormatInfo* fmt = nullptr;
-    VkFormat format = VK_FORMAT_UNDEFINED;              // the image format: the NVN one, its fallback, or BC7 for ASTC
-    VkImageType type = VK_IMAGE_TYPE_2D;
-    VkExtent3D base = {1, 1, 1};                        // level 0 extent (depth for 3D images)
-    uint32_t levels = 1, layers = 1;
-    VkImageUsageFlags usage = 0;
-    VkImageCreateFlags cflags = 0;                      // the create flags the image was made with
-    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;   // tracked layout (the same for every level and layer)
-    bool failed = false;                                // no image: the texture is not usable on the GPU (logged once)
-    bool transcoded = false;                            // ASTC stored as BC7
-    bool mutable_fmt = false;                           // sRGB and UNORM views of the image are allowed
-    bool cube = false;                                  // created with CUBE_COMPATIBLE
-    bool depth = false;                                 // depth and/or stencil aspect
-    bool uploaded = false;                              // the image holds the storage's content (or the black fallback)
-    bool gpu_written = false;                           // rendered by the GPU since the CPU last wrote the storage
-    float scale = 1.0f;                                 // resolution scale: base is the NVN size times this ([gfx] render_scale, render targets only)
-    bool scale_blocked = false;                         // was scaled, brought back to 1 (bound as a storage image, or paired with an unscaled target)
-    std::map<std::array<uint32_t, 12>, VkImageView> views;
-    int refs = 1;                                       // texture objects over the same storage share one image (render thread)
-    struct SparseState* sparse = nullptr;               // a sparse-residency image (a big texture of a virtual pool), else null
-    // CPU-streamed textures (tex_ensure_current): uploads for CPU writes that came at most kStreamGap presents apart, in a row
-    uint32_t cpu_streak = 0, cpu_upload_at = 0;
-    bool streamed = false;                              // rewritten by the CPU frame after frame: not write-watched, read again once per present
-    uint32_t streamed_at = 0;                           // present count of the last read in that mode
-    bool untiled = false;                               // the last upload went through gpu_untile (cheap enough to repeat every frame)
-    // Write generations per level (kGenLevels; deeper levels share the last slot): a level gets a new, globally unique number whenever it may
-    // have been written. A copy of the image (the feedback copies of nvn_replay.cpp) remembers the numbers it copied and copies again only
-    // the levels whose number changed. Every write goes through a layout change into a writable layout (move_layout: all levels) or is a
-    // render pass (tex_transition_attach / tex_mark_gpu_written with its level), so a copy that leaves the image in TRANSFER_SRC sees each later
-    // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
-    uint64_t wgen[kGenLevels] = {};
-    bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
-    bool read_back = false;                             // download_texture copied it into game memory (the CPU reads it): a dispatch that writes
-                                                        // it is never skipped ([nvn] async_compute). Render thread (set in download_texture's job)
-    // [nvn] readback_async (download_texture). rb: the readback buffer, laid out like the linear image (tegra::Layout offsets), grown to
-    // the largest request and never shrunk; freed with the image (tex_destroy). rb_gen[level]: the write generation the level had when the
-    // storage last got it (read after the layout restore, which counts as a write); rb_have[level][layer]: the storage holds that layer
-    // of it. Both render thread only (the dedupe runs in queue order there). rb_mu: held by a reading thread from the queueing to the
-    // tiling, so two guest threads reading the image do not interleave.
-    std::mutex rb_mu;
-    std::atomic<uint64_t> rb_sync_epoch{0};
-    gfx::Buffer rb;
-    std::vector<uint64_t> rb_gen;
-    std::vector<std::vector<uint8_t>> rb_have;
-    // Candidate readback state is protected by rb_mu. Each pending copy owns a different GPU buffer.
-    // rb_last/rb_last_range: when and what the last read asked for.
-    std::shared_ptr<DeferredReadback> rb_pending;
-    bool rb_previous_valid = false;
-    rbdiag::Stamp rb_previous;
-    std::chrono::steady_clock::time_point rb_previous_at{};
-    std::chrono::steady_clock::time_point rb_last{};
-    uint32_t rb_last_range[4] = {};
-};
-
-// A virtual-pool texture too big to back fully (Mario Kart World's terrain virtual texture caches: 8192x8192 arrays of 68 layers, 1.4 to
-// 5.8 GB, of which a few hundred MB of tiles are mapped) is a Vulkan sparse-residency image. Host sparse blocks get device memory when a
-// mapped guest tile lands on them; the mip tail and the levels whose guest tiles are not whole GOB-block runs are bound at creation.
-struct SparseState {
-    VkDeviceSize page = 0x10000;                        // bytes of one sparse block (the image's memory alignment)
-    uint32_t mem_type = 0;
-    VkExtent3D gran = {1, 1, 1};                        // texels of one sparse block
-    uint32_t tail_first = 0;                            // first level of the mip tail
-    VkDeviceSize tail_size = 0, tail_offset = 0, tail_stride = 0;
-    bool single_tail = false;
-    std::vector<VkDeviceMemory> chunks;                 // device memory the blocks are suballocated from
-    VkDeviceSize chunk_used = 0, chunk_size = 0;
-    std::set<uint64_t> bound;                           // (layer, level, block y, block x) of the bound blocks
-    TexLayout L;                                        // the guest layout
-    std::vector<VkSparseImageMemoryBind> binds;         // waiting for the next flush
-    std::vector<VkSparseMemoryBind> opaque;
-    uint64_t bytes = 0;                                 // device memory bound
-    uint64_t tiles_uploaded = 0;
-};
 
 Texture::~Texture() {
     if (gpu) gpu::destroy_texture_gpu(gpu);
@@ -161,106 +20,16 @@ Texture::~Texture() {
 }
 
 namespace gpu {
-namespace {
 
-constexpr const char* kTag = "nvn.tex";
+namespace tex {
 std::atomic<uint64_t> g_live_images{0};
-nxrt::GaugeCounter g_gauge_textures_live("nvn.textures_live");               // TexGpu objects alive (g_live_set)
+static nxrt::GaugeCounter g_gauge_textures_live("nvn.textures_live");               // TexGpu objects alive (g_live_set)
 nxrt::GaugeCounter g_gauge_texture_snapshots("nvn.texture_snapshots");       // debug snapshots kept (g_snaps; the list never shrinks)
 
 // Logs a message only the first time its key is seen (render thread only).
 bool first_time(const std::string& key) {
     static std::set<std::string> seen;
     return seen.insert(key).second;
-}
-
-uint64_t div_up(uint64_t a, uint64_t b) { return (a + b - 1) / b; }
-
-// ---- formats -------------------------------------------------------------------------------------------------------------
-bool is_block_format(VkFormat f) {
-    return (f >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && f <= VK_FORMAT_BC7_SRGB_BLOCK) ||
-           (f >= VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK && f <= VK_FORMAT_EAC_R11G11_SNORM_BLOCK) ||
-           (f >= VK_FORMAT_ASTC_4x4_UNORM_BLOCK && f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK);
-}
-
-bool is_srgb(VkFormat f) {
-    switch (f) {
-        case VK_FORMAT_R8G8B8A8_SRGB:
-        case VK_FORMAT_B8G8R8A8_SRGB:
-        case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
-        case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-        case VK_FORMAT_BC2_SRGB_BLOCK:
-        case VK_FORMAT_BC3_SRGB_BLOCK:
-        case VK_FORMAT_BC7_SRGB_BLOCK:
-            return true;
-        default:
-            break;
-    }
-    if (f >= VK_FORMAT_ASTC_4x4_UNORM_BLOCK && f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK)
-        return ((static_cast<int>(f) - static_cast<int>(VK_FORMAT_ASTC_4x4_UNORM_BLOCK)) & 1) != 0;
-    return false;
-}
-
-// The sRGB / UNORM partner of a format (the two may view the same image when it is mutable), UNDEFINED when there is none.
-VkFormat srgb_partner(VkFormat f) {
-    switch (f) {
-        case VK_FORMAT_R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_SRGB;
-        case VK_FORMAT_R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_UNORM;
-        case VK_FORMAT_B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_SRGB;
-        case VK_FORMAT_B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_UNORM;
-        case VK_FORMAT_BC1_RGB_UNORM_BLOCK: return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
-        case VK_FORMAT_BC1_RGB_SRGB_BLOCK: return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-        case VK_FORMAT_BC1_RGBA_UNORM_BLOCK: return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
-        case VK_FORMAT_BC1_RGBA_SRGB_BLOCK: return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
-        case VK_FORMAT_BC2_UNORM_BLOCK: return VK_FORMAT_BC2_SRGB_BLOCK;
-        case VK_FORMAT_BC2_SRGB_BLOCK: return VK_FORMAT_BC2_UNORM_BLOCK;
-        case VK_FORMAT_BC3_UNORM_BLOCK: return VK_FORMAT_BC3_SRGB_BLOCK;
-        case VK_FORMAT_BC3_SRGB_BLOCK: return VK_FORMAT_BC3_UNORM_BLOCK;
-        case VK_FORMAT_BC7_UNORM_BLOCK: return VK_FORMAT_BC7_SRGB_BLOCK;
-        case VK_FORMAT_BC7_SRGB_BLOCK: return VK_FORMAT_BC7_UNORM_BLOCK;
-        default: break;
-    }
-    if (f >= VK_FORMAT_ASTC_4x4_UNORM_BLOCK && f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK) {
-        const int base = static_cast<int>(VK_FORMAT_ASTC_4x4_UNORM_BLOCK);
-        return static_cast<VkFormat>(((static_cast<int>(f) - base) ^ 1) + base);   // the ASTC UNORM/SRGB pairs are consecutive
-    }
-    return VK_FORMAT_UNDEFINED;
-}
-
-// The float member of a 32/64/128-bit integer format's class and back: Maxwell moves the raw bits, whatever the shader's declared
-// type (the translated shaders declare every sampled value and colour output as float).
-VkFormat float_alias(VkFormat f) {
-    switch (f) {
-        case VK_FORMAT_R32_UINT: case VK_FORMAT_R32_SINT: return VK_FORMAT_R32_SFLOAT;
-        case VK_FORMAT_R32G32_UINT: case VK_FORMAT_R32G32_SINT: return VK_FORMAT_R32G32_SFLOAT;
-        case VK_FORMAT_R32G32B32A32_UINT: case VK_FORMAT_R32G32B32A32_SINT: return VK_FORMAT_R32G32B32A32_SFLOAT;
-        default: return VK_FORMAT_UNDEFINED;
-    }
-}
-VkFormat uint_alias(VkFormat f) {
-    switch (f) {
-        case VK_FORMAT_R32_SFLOAT: case VK_FORMAT_R32_SINT: return VK_FORMAT_R32_UINT;
-        case VK_FORMAT_R32G32_SFLOAT: case VK_FORMAT_R32G32_SINT: return VK_FORMAT_R32G32_UINT;
-        case VK_FORMAT_R32G32B32A32_SFLOAT: case VK_FORMAT_R32G32B32A32_SINT: return VK_FORMAT_R32G32B32A32_UINT;
-        default: return VK_FORMAT_UNDEFINED;
-    }
-}
-VkFormat sint_alias(VkFormat f) {
-    switch (f) {
-        case VK_FORMAT_R32_SFLOAT: case VK_FORMAT_R32_UINT: return VK_FORMAT_R32_SINT;
-        case VK_FORMAT_R32G32_SFLOAT: case VK_FORMAT_R32G32_UINT: return VK_FORMAT_R32G32_SINT;
-        case VK_FORMAT_R32G32B32A32_SFLOAT: case VK_FORMAT_R32G32B32A32_UINT: return VK_FORMAT_R32G32B32A32_SINT;
-        default: return VK_FORMAT_UNDEFINED;
-    }
-}
-bool bit_alias_class(VkFormat f) { return float_alias(f) != VK_FORMAT_UNDEFINED || uint_alias(f) != VK_FORMAT_UNDEFINED; }
-
-// Same image family: the format itself, its sRGB / UNORM partner, or a raw-bit alias of the same size, on a mutable image.
-bool format_view_ok(const TexGpu& g, VkFormat fmt) {
-    if (fmt == g.format) return true;
-    if (!g.mutable_fmt) return false;
-    if (srgb_partner(g.format) == fmt) return true;
-    return bit_alias_class(g.format) && (fmt == float_alias(g.format) || fmt == uint_alias(g.format) || fmt == sint_alias(g.format));
 }
 
 // A promoted image answers the 8-bit RGBA formats the game asks for (its sRGB and UNORM views) with its own format: the values are linear floats.
@@ -287,18 +56,7 @@ VkFormat promoted_view_format(const TexGpu& g, VkFormat f) {
     return f;
 }
 
-// The format a colour attachment of this image is rendered through: integer 32-bit formats as their float alias, because the
-// translated fragment shaders write float outputs and the console stores the register bits unconverted.
-VkFormat attachment_format_of(const TexGpu& g, VkFormat requested) {
-    const VkFormat f = requested == VK_FORMAT_UNDEFINED ? g.format : requested;
-    if (g.mutable_fmt && bit_alias_class(f)) {
-        const VkFormat a = float_alias(f);
-        if (a != VK_FORMAT_UNDEFINED && format_view_ok(g, a)) return a;
-    }
-    return f;
-}
-
-VkImageAspectFlags aspect_bits(const FormatInfo* f) {
+static VkImageAspectFlags aspect_bits(const FormatInfo* f) {
     switch (f->aspect) {
         case kAspectDepth: return VK_IMAGE_ASPECT_DEPTH_BIT;
         case kAspectStencil: return VK_IMAGE_ASPECT_STENCIL_BIT;
@@ -307,16 +65,7 @@ VkImageAspectFlags aspect_bits(const FormatInfo* f) {
     }
 }
 
-// ---- shapes --------------------------------------------------------------------------------------------------------------
-struct Shape {
-    VkImageType type = VK_IMAGE_TYPE_2D;
-    VkExtent3D base = {1, 1, 1};
-    uint32_t levels = 1, layers = 1;
-    bool cube = false;
-    uint32_t samples = 1;                      // multisampled render target / resolve source
-};
-
-Shape shape_of(const Texture& t) {
+static Shape shape_of(const Texture& t) {
     const TextureBuilderInfo& b = t.b;
     Shape s;
     const bool is1d = b.target == NVN_TEXTURE_TARGET_1D || b.target == NVN_TEXTURE_TARGET_1D_ARRAY;
@@ -335,12 +84,7 @@ Shape shape_of(const Texture& t) {
     return s;
 }
 
-VkExtent3D level_extent(const VkExtent3D& base, uint32_t level) {
-    auto shr = [level](uint32_t v) { return level >= 32 ? 1u : std::max<uint32_t>(1, v >> level); };
-    return {shr(base.width), shr(base.height), shr(base.depth)};
-}
-
-gfx::ImageDesc make_desc(const Shape& s, VkFormat fmt, VkImageUsageFlags usage, VkImageCreateFlags flags) {
+static gfx::ImageDesc make_desc(const Shape& s, VkFormat fmt, VkImageUsageFlags usage, VkImageCreateFlags flags) {
     gfx::ImageDesc d;
     d.type = s.type;
     d.format = fmt;
@@ -357,19 +101,11 @@ gfx::ImageDesc make_desc(const Shape& s, VkFormat fmt, VkImageUsageFlags usage, 
     return d;
 }
 
-VkImageCreateFlags base_flags(const Shape& s, VkFormat fmt) {
-    VkImageCreateFlags f = 0;
-    if (s.cube) f |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-    if (s.type == VK_IMAGE_TYPE_3D) f |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;   // 2D views of the slices
-    if (srgb_partner(fmt) != VK_FORMAT_UNDEFINED || bit_alias_class(fmt)) f |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-    return f;
-}
-
 // ---- sparse residency images --------------------------------------------------------------------------------------------------
 constexpr uint64_t kGuestTile = 0x10000;   // NVN sparse tile: 64 KiB of storage
 
 // A level whose 64 KiB pieces of storage are each a whole run of GOB blocks of one block row, so that a piece is a rectangle of texels.
-bool sparse_level_chunked(const SparseState& sp, uint32_t level) {
+static bool sparse_level_chunked(const SparseState& sp, uint32_t level) {
     const TexLayout& L = sp.L;
     if (level >= L.layout.levels.size() || level >= sp.tail_first) return false;
     const tegra::LevelLayout& lv = L.layout.levels[level];
@@ -381,7 +117,7 @@ bool sparse_level_chunked(const SparseState& sp, uint32_t level) {
            L.layout.tiled_layer_stride % kGuestTile == 0;
 }
 
-bool sparse_alloc(SparseState& sp, VkDeviceSize bytes, VkDeviceMemory* mem, VkDeviceSize* off) {
+static bool sparse_alloc(SparseState& sp, VkDeviceSize bytes, VkDeviceMemory* mem, VkDeviceSize* off) {
     bytes = (bytes + sp.page - 1) / sp.page * sp.page;
     if (sp.chunks.empty() || sp.chunk_used + bytes > sp.chunk_size) {
         VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
@@ -400,7 +136,7 @@ bool sparse_alloc(SparseState& sp, VkDeviceSize bytes, VkDeviceMemory* mem, VkDe
 }
 
 // Binds the block (bx, by) of (layer, level) when it is not bound yet.
-bool sparse_bind_block(TexGpu& g, uint32_t layer, uint32_t level, uint32_t bx, uint32_t by) {
+static bool sparse_bind_block(TexGpu& g, uint32_t layer, uint32_t level, uint32_t bx, uint32_t by) {
     SparseState& sp = *g.sparse;
     const uint64_t key = (static_cast<uint64_t>(layer) << 48) | (static_cast<uint64_t>(level) << 40) | (static_cast<uint64_t>(by) << 20) | bx;
     if (sp.bound.count(key)) return true;
@@ -420,7 +156,7 @@ bool sparse_bind_block(TexGpu& g, uint32_t layer, uint32_t level, uint32_t bx, u
 }
 
 // Binds the texel rectangle of (layer, level).
-bool sparse_bind_rect(TexGpu& g, uint32_t layer, uint32_t level, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
+static bool sparse_bind_rect(TexGpu& g, uint32_t layer, uint32_t level, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
     const SparseState& sp = *g.sparse;
     for (uint32_t by = y0 / sp.gran.height; by <= (y0 + h - 1) / sp.gran.height; ++by)
         for (uint32_t bx = x0 / sp.gran.width; bx <= (x0 + w - 1) / sp.gran.width; ++bx)
@@ -429,7 +165,7 @@ bool sparse_bind_rect(TexGpu& g, uint32_t layer, uint32_t level, uint32_t x0, ui
 }
 
 // Hands the waiting binds to the queue and waits for them (binds are rare: new blocks only).
-bool sparse_flush_binds(TexGpu& g) {
+static bool sparse_flush_binds(TexGpu& g) {
     SparseState& sp = *g.sparse;
     if (sp.binds.empty() && sp.opaque.empty()) return true;
     VkSparseImageMemoryBindInfo ib = {g.img.image, static_cast<uint32_t>(sp.binds.size()), sp.binds.data()};
@@ -563,17 +299,16 @@ bool create_sparse_texture(Texture* t, TexGpu* g, const Shape& s, std::string* w
     return true;
 }
 
-
 // ---- creation -------------------------------------------------------------------------------------------------------------
 // Makes the image of t (or the failed marker when no format works). Stores the result in t->gpu, which is never null afterwards.
 // A new write generation for one level (level >= 0) or for all of them (level < 0).
-void bump_gen(TexGpu& g, int level) {
+static void bump_gen(TexGpu& g, int level) {
     if (level >= 0) { g.wgen[std::min<uint32_t>(static_cast<uint32_t>(level), kGenLevels - 1)] = ++g_wgen_next; return; }
     for (uint64_t& w : g.wgen) w = ++g_wgen_next;
 }
 
 // Layouts nothing writes the image in: a move into any other one counts as a write of every level (or of `level` alone).
-bool read_only_layout(VkImageLayout l) {
+static bool read_only_layout(VkImageLayout l) {
     return l == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL || l == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
            l == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || l == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
 }
@@ -717,34 +452,11 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     return g;
 }
 
-// The texture's image, created on first use. Null when the texture has no usable image (the failure is counted and logged once).
-TexGpu* tex_or_null(Texture* t, float want_scale = 1.0f) {
-    if (!t || !active()) return nullptr;
-    if (t->gpu) return t->gpu->failed ? nullptr : t->gpu;
-    if (Ref<Texture> alias = texture_registry_find_alias(t)) {
-        TexGpu* ag = alias->gpu;
-        if (ag && !ag->failed) {
-            // the same bytes under another texture object: one image (the object rendered to and the one that is sampled are not the same
-            // object); what the image holds is as current for this object as for the one it was made for
-            t->gpu = ag;
-            g_bind_gen.fetch_add(1, std::memory_order_relaxed);
-            ++ag->refs;
-            if (ag->uploaded || ag->gpu_written) t->cpu_dirty.store(false);
-            static int logged = 0;
-            if (logged++ < 20) NXLOG_I(kTag, "texture %u shares the image of texture %u (the same storage)", t->id, alias->id);
-            return ag;
-        }
-    }
-    NXFT_MIN("tex.create", 30000);
-    TexGpu* g = create_texture_gpu(t, want_scale);
-    return g->failed ? nullptr : g;
-}
-
 // The resolution scale: the game's play settings ([display] render_scale, turned into a factor by the game module and handed over in
 // gfx::tuning) or, for tests, [gfx] render_scale (a number, NXRT_GFX_RENDER_SCALE), which wins. Fixed once known: images keep their size.
 // Stays 1 (not fixed) until one of them is there.
-float g_render_scale = 0.0f;
-float render_scale_now() {
+static float g_render_scale = 0.0f;
+static float render_scale_now() {
     if (g_render_scale > 0.0f) return g_render_scale;
     const std::string v = nxrt::config_get_str("gfx", "render_scale", "");
     float sc = 1.0f;
@@ -766,7 +478,7 @@ float render_scale_now() {
 // The scale a texture gets when its image is made for a render target (after Ryujinx's TextureScaling rules): 2D colour or depth targets
 // of at least 32x32, not block-compressed, not pitch-linear, and not square powers of two (shadow
 // maps, LUTs). Everything else, and every texture first used another way, keeps the NVN size.
-float attachment_scale(const Texture& t) {
+static float attachment_scale(const Texture& t) {
     const float sc = render_scale_now();
     if (sc == 1.0f) return 1.0f;
     const TextureBuilderInfo& b = t.b;
@@ -783,7 +495,7 @@ float attachment_scale(const Texture& t) {
 }
 
 // ---- barriers and copies ----------------------------------------------------------------------------------------------------
-void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level = -1) {
+void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level) {
     if (g.layout == to) return;
     if (!read_only_layout(to)) bump_gen(g, write_level);
     // A 3D image created with 2D_ARRAY_COMPATIBLE: without maintenance9 the layer range of a barrier means all depth slices.
@@ -798,7 +510,6 @@ void copy_regions_to_image(Frame& f, TexGpu& g, VkBuffer buf, const std::vector<
     vkCmdCopyBufferToImage(f.cb, buf, g.img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), regions.data());
     move_layout(f, g, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
-
 
 // ---- sparse residency: uploads --------------------------------------------------------------------------------------------------
 // The dirty ranges of a sparse texture's storage are uploaded tile by tile: a 64 KiB guest tile of a tiled level is a rectangle of texels
@@ -996,9 +707,8 @@ void sparse_update(Texture* t, TexGpu& g, Frame& f) {
     }
 }
 
-
 // The image gets zeros (transparent black). Block formats are filled from a zeroed staging buffer; uncompressed ones are cleared.
-void fill_zero(Frame& f, TexGpu& g) {
+static void fill_zero(Frame& f, TexGpu& g) {
     if (!(g.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) return;
     if (is_block_format(g.format)) {
         uint32_t bw = 0, bh = 0, bytes = 0;
@@ -1037,7 +747,7 @@ void fill_zero(Frame& f, TexGpu& g) {
 
 // ---- views ----------------------------------------------------------------------------------------------------------------
 // The view with these fields, created once and cached on the image.
-VkImageView view_for(TexGpu& g, VkImageViewType type, uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count,
+static VkImageView view_for(TexGpu& g, VkImageViewType type, uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count,
                      VkFormat fmt, VkImageAspectFlags aspect, const VkComponentMapping& swz) {
     const std::array<uint32_t, 12> key = {static_cast<uint32_t>(type), base_level, level_count, base_layer, layer_count,
                                           static_cast<uint32_t>(fmt), static_cast<uint32_t>(aspect), static_cast<uint32_t>(swz.r),
@@ -1080,43 +790,24 @@ VkImageView view_for(TexGpu& g, VkImageViewType type, uint32_t base_level, uint3
     return view;
 }
 
-VkImageView bad_view(const Texture& t, const char* what) {
+static VkImageView bad_view(const Texture& t, const char* what) {
     if (first_time("view " + std::to_string(t.id) + " " + what))
         NXLOG_W(kTag, "texture %u: view not possible (%s): the binding gets the dummy view", t.id, what);
     return VK_NULL_HANDLE;
 }
 
-const VkComponentMapping kIdentity = {};
-
-// Dummy views: 1x1 (x1) textures of each view type, black (or depth 1.0), made the first time they are asked for.
-struct Dummy {
-    gfx::Image img;
-    VkImageView view = VK_NULL_HANDLE;
-    bool tried = false;
-};
+static const VkComponentMapping kIdentity = {};
 constexpr VkImageViewType kDummyTypes[6] = {VK_IMAGE_VIEW_TYPE_1D, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY,
                                             VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_VIEW_TYPE_CUBE_ARRAY, VK_IMAGE_VIEW_TYPE_3D};
 
-int dummy_index(VkImageViewType type) {
+static int dummy_index(VkImageViewType type) {
     for (int i = 0; i < 6; ++i)
         if (kDummyTypes[i] == type) return i;
     return 1;   // anything else: a 2D dummy
 }
-
-struct Shared {
-    std::map<uint64_t, std::vector<std::pair<SamplerInfo, VkSampler>>> samplers;
-    VkSampler dummy_sampler = VK_NULL_HANDLE;
-    Dummy color[6];
-    Dummy depth[6];
-    std::map<std::pair<int, int>, Dummy> storage;   // (view type, format): GENERAL-layout 1x1 storage images
-    DcmpValues dcmp_vals;                           // depth-compare stand-ins by cleared value (dcmp_view)
-    Dummy dcmp[kDcmpMaxValues][6];                  // ... per value and view type
-    std::unordered_map<uint32_t, std::pair<uint32_t, float>> dcmp_tex;   // texture id -> (prep_gen when read, red of texel 0)
-    std::map<std::tuple<int, uint32_t, uint32_t, uint32_t>, Dummy> sized;   // (view type, width, height, layers): dummy_view_sized
-};
 Shared g_sh;
 
-bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 1.0f, uint32_t width = 1, uint32_t height = 1, uint32_t layers2d = 1) {
+static bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 1.0f, uint32_t width = 1, uint32_t height = 1, uint32_t layers2d = 1) {
     d.tried = true;
     const VkFormat fmt = depth ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     gfx::ImageDesc id;
@@ -1177,7 +868,7 @@ bool make_dummy(Dummy& d, VkImageViewType type, bool depth, float depth_value = 
 }
 
 // ---- samplers -------------------------------------------------------------------------------------------------------------
-uint64_t sampler_hash(const SamplerInfo& s) {
+static uint64_t sampler_hash(const SamplerInfo& s) {
     uint64_t h = 1469598103934665603ull;
     auto mix = [&h](uint64_t v) {
         h ^= v;
@@ -1207,7 +898,7 @@ uint64_t sampler_hash(const SamplerInfo& s) {
     return h;
 }
 
-VkSamplerAddressMode wrap_mode(int nvn_wrap) {
+static VkSamplerAddressMode wrap_mode(int nvn_wrap) {
     const VkSamplerAddressMode m = vk_address_mode(nvn_wrap);
     if (m == VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE && !device().features().sampler_mirror_clamp_to_edge)
         return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
@@ -1215,7 +906,7 @@ VkSamplerAddressMode wrap_mode(int nvn_wrap) {
 }
 
 // Without custom border colours: the nearest of transparent black, opaque black and opaque white.
-VkBorderColor standard_border(const SamplerInfo& s) {
+static VkBorderColor standard_border(const SamplerInfo& s) {
     float c[4];
     for (int k = 0; k < 4; ++k) {
         if (s.border_kind == 0) {
@@ -1246,7 +937,7 @@ VkBorderColor standard_border(const SamplerInfo& s) {
 }
 
 // Null when the device refuses the sampler (the caller then uses the dummy sampler).
-VkSampler create_sampler(const SamplerInfo& s) {
+static VkSampler create_sampler(const SamplerInfo& s) {
     const gfx::DeviceFeatures& ft = device().features();
     const bool mips = min_filter_uses_mips(s.min_filter);
     VkSamplerCustomBorderColorCreateInfoEXT cbc = {VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT};
@@ -1292,10 +983,6 @@ VkSampler create_sampler(const SamplerInfo& s) {
     vk_gauge_samplers().add(1);
     return out;
 }
-
-}  // namespace
-
-namespace {
 // ---- CPU writes without a flush --------------------------------------------------------------------------------------------
 // A texture in a CPU_UNCACHED pool is coherent on the console: the game writes it and the GPU sees the bytes without FlushMappedRange.
 // ACNH's text renderer rasterizes the glyphs it needs into such a texture (an R8 2048x4096 glyph cache) as new characters come up; an
@@ -1303,11 +990,11 @@ namespace {
 // are therefore armed in one write-watch region over the heap (nxrt/write_watch.h), before the storage is read for the upload. At the start
 // of every submission the pages the CPU wrote since are handed to textures_cpu_wrote, as a flush of them would be: the textures there are
 // uploaded again before their next use (and armed again). A texture the GPU renders to is not armed. [nvn] tex_write_watch = auto (off under Wine) | true | false.
-mem::ww::Region* g_tex_ww = nullptr;
-bool g_tex_ww_tried = false;
-std::vector<uint64_t> g_tex_ww_pages;
+static mem::ww::Region* g_tex_ww = nullptr;
+static bool g_tex_ww_tried = false;
+static std::vector<uint64_t> g_tex_ww_pages;
 
-mem::ww::Region* tex_ww() {
+static mem::ww::Region* tex_ww() {
     if (!g_tex_ww_tried) {
         g_tex_ww_tried = true;
         // auto (default): off under Wine (Proton, SteamOS). There the heap is private memory imported as amdgpu userptr BOs, and
@@ -1351,11 +1038,11 @@ struct ArmQueue {
     uint64_t seq = 0;
     bool started = false;
 };
-ArmQueue* g_armq = nullptr;     // never destroyed: the worker runs until the process ends
-std::mutex g_arm_import_mu;     // tex_arm_import_mutex: the worker's arms against pool_lazy's imports
-std::atomic<uint64_t> g_arm_async_jobs{0}, g_arm_async_rewritten{0};
+static ArmQueue* g_armq = nullptr;     // never destroyed: the worker runs until the process ends
+static std::mutex g_arm_import_mu;     // tex_arm_import_mutex: the worker's arms against pool_lazy's imports
+static std::atomic<uint64_t> g_arm_async_jobs{0}, g_arm_async_rewritten{0};
 // the hitch log: arms the worker made, and uploads it found written before its arm (uploaded again), during a slow frame
-const bool g_arm_hitch_registered =
+static const bool g_arm_hitch_registered =
     (nxrt::hitch_add_counter("tex_arms_async", []() -> uint64_t { return g_arm_async_jobs.load(std::memory_order_relaxed); }),
      nxrt::hitch_add_counter("tex_rewritten_before_arm", []() -> uint64_t { return g_arm_async_rewritten.load(std::memory_order_relaxed); }), true);
 
@@ -1364,7 +1051,7 @@ bool tex_ww_async_on() {
     return on;
 }
 
-void arm_worker() {
+static void arm_worker() {
     log_set_thread_name("nvn-ww-arm");
     ArmQueue& aq = *g_armq;
     std::unique_lock<std::mutex> lk(aq.mu);
@@ -1401,12 +1088,11 @@ void arm_worker() {
         lk.lock();
     }
 }
-
-}  // namespace
+}  // namespace tex
 
 std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
 
-namespace {
+namespace tex {
 // Render thread, after the storage was read for an upload of content `hash` (have_hash false: unknown). Arms the pages on the worker.
 void tex_ww_arm_later(Texture* t, const TexGpu& g, bool have_hash, uint64_t hash) {
     if (!tex_ww_wanted(*t, g)) return;
@@ -1465,12 +1151,11 @@ void sparse_bind_for_copy(Texture* t, TexGpu& g, uint32_t layer, uint32_t level)
                 static_cast<unsigned long long>(lv.tiled_size / kGuestTile), ptrs.size(), static_cast<unsigned long long>(sp.bytes >> 20));
     }
 }
+}  // namespace tex
 
-}  // namespace
-
-// ---- texture interface (gpu::*, internal.h) -----------------------------------------------------------------------------
 TexGpu* tex_gpu(Texture* t) { return tex_or_null(t); }
 
+// ---- texture interface (gpu::*, internal.h) -----------------------------------------------------------------------------
 TexGpu* tex_gpu_attachment(Texture* t) {
     if (!t || t->gpu || !active()) return tex_or_null(t);
     if (texture_registry_find_alias(t)) return tex_or_null(t);   // shares the image (and its scale) of the texture it aliases
@@ -1608,7 +1293,8 @@ void tex_poll_cpu_writes() {
 // the pool (the game's memory, imported) into a device-local linear buffer, which is copied to the image: no CPU work. Like a sampler
 // on the console, it reads the storage when the GPU runs the command. One level, one layer, 2D, block depth 1, rows of whole 16-byte
 // pieces, the image in the storage's own format, 64 KiB and more; anything else takes the CPU path.
-namespace {
+
+namespace tex {
 #include "nvn_untile_shader.inc"
 struct UntilePush { uint32_t base, ppr, total, gobs_x, ys, sw2; };
 struct Untiler {
@@ -1623,9 +1309,9 @@ struct Untiler {
     uint32_t next = 0;
     VkDeviceSize ssbo_align = 256;
 };
-Untiler g_untile;
+static Untiler g_untile;
 
-bool untiler_init() {
+static bool untiler_init() {
     Untiler& u = g_untile;
     if (u.tried) return u.ok;
     u.tried = true;
@@ -1676,7 +1362,7 @@ bool untiler_init() {
 }
 
 // A pitch-linear texture whose rows are whole texels: the copy to the image reads the pool directly (no CPU copy, no staging).
-bool gpu_pitch_copy(Texture* t, TexGpu& g, Frame& f, const TexLayout& L) {
+static bool gpu_pitch_copy(Texture* t, TexGpu& g, Frame& f, const TexLayout& L) {
     const uint32_t bpb = L.fmt->bytes;
     if (!bpb || L.pitch % bpb || L.fmt->block_w != 1 || L.fmt->block_h != 1 || g.base.depth != 1) return false;
     const uint64_t bytes = L.pitch * g.base.height;
@@ -1695,8 +1381,8 @@ bool gpu_pitch_copy(Texture* t, TexGpu& g, Frame& f, const TexLayout& L) {
 }
 
 // True when the image now gets the storage's content from a GPU untile (or pitch copy) recorded into f.
-bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why);
-bool gpu_untile(Texture* t, TexGpu& g, Frame& f) {
+static bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why);
+static bool gpu_untile(Texture* t, TexGpu& g, Frame& f) {
     const char* why = "";
     if (gpu_untile_impl(t, g, f, &why)) return true;
     static int logged = 0;
@@ -1707,7 +1393,7 @@ bool gpu_untile(Texture* t, TexGpu& g, Frame& f) {
     return false;
 }
 
-bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
+static bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
     static const bool on = nxrt::config_get_bool("nvn", "gpu_untile", true);
     if (!on) return *why = "off", false;
     if (!t->mem || t->vpool || t->levels != 1 || t->layers != 1 || t->storage_size < (64u << 10)) return *why = "storage, levels or layers", false;
@@ -1780,13 +1466,10 @@ bool gpu_untile_impl(Texture* t, TexGpu& g, Frame& f, const char** why) {
     e.serial = f.serial;
     return true;
 }
-}  // namespace
-
-namespace {
 // The CPU wrote an HDR-promoted texture (RGBA16F image, 8-bit sRGB storage): the storage is prepared in its NVN format and goes in
 // through tex_copy_buffer_converted, which blits it into the float16 image (sRGB decoded to linear, as the game's views read it).
 // False when that is not possible: the caller clears the image as before.
-bool upload_promoted(Texture* t, TexGpu& g, Frame& f) {
+static bool upload_promoted(Texture* t, TexGpu& g, Frame& f) {
     if (!g.fmt || t->levels != 1 || g.layers != 1 || !(g.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) return false;
     TexCaps caps;
     caps.image_format = g.fmt->vk;
@@ -1815,7 +1498,7 @@ bool upload_promoted(Texture* t, TexGpu& g, Frame& f) {
     counters().texture_uploads.fetch_add(1);
     return true;
 }
-}  // namespace
+}  // namespace tex
 
 void tex_ensure_current(Texture* t, Frame& f) {
     NXFT_MIN("tex.ensure", 30000);
@@ -2111,22 +1794,22 @@ bool tex_promoted(Texture* t) {
 // another layout. A buffer copy addresses the buffer in the image's texel size, so a copy straight into or out of it reads or writes past
 // the game's bytes (issue #76: RGBA16F for RGBA8 is twice the bytes, VK_ERROR_DEVICE_LOST on NVIDIA). These go through a transient image
 // in the other format and a blit, which converts on the GPU. The transient images are made per transfer (rare) and freed after the frame.
-namespace {
 
-bool format_has(VkFormat f, VkFormatFeatureFlags need) {
+namespace tex {
+static bool format_has(VkFormat f, VkFormatFeatureFlags need) {
     VkFormatProperties fp = {};
     vkGetPhysicalDeviceFormatProperties(device().physical(), f, &fp);
     return (fp.optimalTilingFeatures & need) == need;
 }
 
 // A blit can convert between a and b: colour, not block compressed, not integer (a blit does not convert integers to or from floats).
-bool blit_convertible(VkFormat a, VkFormat b) {
+static bool blit_convertible(VkFormat a, VkFormat b) {
     for (VkFormat f : {a, b})
         if (f == VK_FORMAT_UNDEFINED || is_block_format(f) || vk_format_is_integer(f)) return false;
     return true;
 }
 
-bool make_transient(VkImageType type, VkFormat fmt, VkExtent3D e, uint32_t layers, gfx::Image* out, std::string* why) {
+static bool make_transient(VkImageType type, VkFormat fmt, VkExtent3D e, uint32_t layers, gfx::Image* out, std::string* why) {
     gfx::ImageDesc d;
     d.type = type;
     d.format = fmt;
@@ -2140,11 +1823,10 @@ bool make_transient(VkImageType type, VkFormat fmt, VkExtent3D e, uint32_t layer
     return device().create_image(d, out, why) == VK_SUCCESS;
 }
 
-void free_transient(gfx::Image img) {
+static void free_transient(gfx::Image img) {
     defer_destroy([img]() mutable { device().destroy_image(img); });
 }
-
-}  // namespace
+}  // namespace tex
 
 bool tex_copy_buffer_converted(Texture* t, Frame& f, VkBuffer buffer, const VkBufferImageCopy& c, bool to_texture, const char** why) {
     TexGpu* g = tex_or_null(t);
@@ -2586,8 +2268,8 @@ void tex_shutdown() {
     g_sh = Shared();
 }
 
-namespace {
-float half_to_float(uint16_t h) {
+namespace tex {
+static float half_to_float(uint16_t h) {
     const uint32_t s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
     float v;
     if (e == 0) v = std::ldexp(static_cast<float>(m), -24);
@@ -2595,18 +2277,18 @@ float half_to_float(uint16_t h) {
     else v = std::ldexp(static_cast<float>(m + 1024), static_cast<int>(e) - 25);
     return s ? -v : v;
 }
-float small_float(uint32_t bits, int mant_bits) {   // unsigned 11 / 10 bit float (5 bit exponent)
+static float small_float(uint32_t bits, int mant_bits) {   // unsigned 11 / 10 bit float (5 bit exponent)
     const uint32_t e = bits >> mant_bits, m = bits & ((1u << mant_bits) - 1);
     if (e == 0) return std::ldexp(static_cast<float>(m), -14 - mant_bits);
     if (e == 31) return m ? NAN : INFINITY;
     return std::ldexp(1.0f + static_cast<float>(m) / static_cast<float>(1u << mant_bits), static_cast<int>(e) - 15);
 }
-uint8_t to8(float v, bool hdr) {
+static uint8_t to8(float v, bool hdr) {
     if (!(v == v)) return 255;
     if (hdr) v = v / (1.0f + v);          // display of a high dynamic range value
     return static_cast<uint8_t>(std::min(1.0f, std::max(0.0f, v)) * 255.0f + 0.5f);
 }
-}  // namespace
+}  // namespace tex
 
 // The decode of a dump: texel bytes of a level to RGBA8 (saved as a PNG when path is not empty) plus per-channel statistics.
 static bool convert_png_impl(const uint8_t* src, VkFormat f, VkExtent3D e, uint32_t bpp, VkImageAspectFlags aspect, const std::string& path, std::string* stats) {
@@ -2682,7 +2364,7 @@ static uint32_t dump_bpp(VkFormat f, VkImageAspectFlags* aspect) {
     }
 }
 
-namespace {
+namespace tex {
 struct Snapshot {
     gfx::Buffer buf;
     VkFormat format = VK_FORMAT_UNDEFINED;
@@ -2691,8 +2373,8 @@ struct Snapshot {
     uint32_t bpp = 0;
     bool raw = false;                  // a block-compressed image copied as it is (the buffer is written to a file as it is)
 };
-std::vector<Snapshot> g_snaps;
-}  // namespace
+static std::vector<Snapshot> g_snaps;
+}  // namespace tex
 
 int snapshot_record(Texture* t, Frame& fr) {
     TexGpu* g = t ? t->gpu : nullptr;
@@ -2863,7 +2545,8 @@ void texture_registered(Texture* t) { texprep::on_registered(t); }
 // ~65 ms a read on the Deck, 38 % of its in-world spikes). [nvn] readback_async: the render thread records the copy in queue order and
 // goes on; the reading thread waits for the GPU, then tiles the levels it asked for into the storage. A level whose write generation did
 // not move since the storage last got it is not copied again.
-namespace {
+
+namespace tex {
 struct RbConfig {
     bool async = true;          // [nvn] readback_async
     int64_t grace_ms = -1;      // [nvn] readback_grace_ms (-1 auto: 0, flush at once; -2: one frame at the limiter's target, 33 ms when unknown)
@@ -2872,7 +2555,7 @@ struct RbConfig {
     bool defer = false;         // [nvn] readback_defer (off: it froze the game, see CONFIG.md)
     uint32_t texture = 0;        // [nvn] readback_defer_texture: explicit diagnostic texture id, 0 disables
 };
-const RbConfig& rb_config() {
+static const RbConfig& rb_config() {
     static const RbConfig c = [] {
         RbConfig r;
         r.async = nxrt::config_get_bool("nvn", "readback_async", true);
@@ -2891,13 +2574,13 @@ const RbConfig& rb_config() {
     return c;
 }
 
-std::atomic<uint64_t> g_rb_copies{0}, g_rb_skipped{0}, g_rb_calls{0};
+static std::atomic<uint64_t> g_rb_copies{0}, g_rb_skipped{0}, g_rb_calls{0};
 
 // How long the reading thread waits for the render thread to hand the copy to the GPU before it flushes it itself. Auto is 0 (#276): the
 // render thread almost never gets to it within a frame, so a frame's wait only held the reading thread (often the game's main thread) for
 // about 17 ms and then the flush was forced anyway; measured on a PC at 60 fps, long frames per 10 s 5.9 -> 0.0, the slowest read 154 -> 6 ms.
 // -2 is the old auto: one frame at the limiter's target.
-uint64_t rb_grace_ns() {
+static uint64_t rb_grace_ns() {
     const int64_t ms = rb_config().grace_ms;
     if (ms >= 0) return static_cast<uint64_t>(ms) * 1000000ull;
     if (ms == -1) return 0;
@@ -2906,7 +2589,7 @@ uint64_t rb_grace_ns() {
     return fps > 0.0 ? static_cast<uint64_t>(1e9 / fps) : 33000000ull;
 }
 
-uint32_t crc32_update(uint32_t crc, const uint8_t* p, size_t n) {
+static uint32_t crc32_update(uint32_t crc, const uint8_t* p, size_t n) {
     static const std::array<uint32_t, 256> table = [] {
         std::array<uint32_t, 256> t{};
         for (uint32_t i = 0; i < 256; ++i) {
@@ -2923,7 +2606,7 @@ uint32_t crc32_update(uint32_t crc, const uint8_t* p, size_t n) {
 
 // [nvn] readback_check: the CRC-32 of what the storage holds of each level asked for (untiled, the layers asked for in order), the same
 // on both paths, so readback_async true and false can be compared run against run.
-void rb_log_crc(Texture* t, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
+static void rb_log_crc(Texture* t, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
     for (uint32_t l = l0; l < l0 + nl; ++l) {
         const tegra::LevelLayout& lv = L.layout.levels[l];
         std::vector<uint8_t> lin(static_cast<size_t>(lv.linear_slice_size), 0);
@@ -2937,7 +2620,7 @@ void rb_log_crc(Texture* t, const TexLayout& L, uint32_t l0, uint32_t nl, uint32
 }
 
 // One line for each of the first 20 textures read back: what is read, from which thread, and what was done.
-void rb_note(Texture* t, const TexGpu& g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, const char* what) {
+static void rb_note(Texture* t, const TexGpu& g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, const char* what) {
     static std::mutex mu;
     static std::set<uint32_t> seen;
     {
@@ -2958,7 +2641,7 @@ struct RbTimes {
     uint64_t queue = 0, record = 0, grace = 0, wait = 0, invalidate = 0, tile = 0, total = 0;
     bool forced = false, async = true, skipped = false, deferred = false;
 };
-void rb_report(const Texture* t, const TexGpu& g, const RbTimes& r) {
+static void rb_report(const Texture* t, const TexGpu& g, const RbTimes& r) {
     using clock = std::chrono::steady_clock;
     static std::mutex mu;
     static uint64_t lines = 0, n = 0, sum = 0, max = 0, over16 = 0, forced = 0;
@@ -2992,7 +2675,7 @@ struct RbJob {
     bool skipped = false;       // every level and layer asked for is in the storage already: nothing recorded
     bool copied = false;        // the copy is recorded into rb; false with skipped false: nothing to read (no buffer, image changed)
 };
-void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, RbJob& job,
+static void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny, RbJob& job,
                gfx::Buffer* private_buffer = nullptr) {
     NXFT("rb.record");
     const auto rec0 = rb_config().log ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
@@ -3069,7 +2752,7 @@ void rb_record(Frame& f, Texture* t, TexGpu* g, const TexLayout& L, uint32_t l0,
 }
 
 // Tiles the levels and layers asked for from the readback buffer into the game's storage (the GPU is done with the copy).
-void rb_tile(Texture* t, const gfx::Buffer& buffer, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
+static void rb_tile(Texture* t, const gfx::Buffer& buffer, const TexLayout& L, uint32_t l0, uint32_t nl, uint32_t y0, uint32_t ny) {
     NXFT("rb.tile");
     const uint8_t* src = static_cast<const uint8_t*>(buffer.mapped);
     for (uint32_t l = l0; l < l0 + nl; ++l) {
@@ -3081,7 +2764,7 @@ void rb_tile(Texture* t, const gfx::Buffer& buffer, const TexLayout& L, uint32_t
 }
 
 // Candidate completion-only landing (rb_mu held): pending GPU work and its private buffer remain owned, never waited on or reused.
-ReadbackPoll rb_land(Texture* t, TexGpu* g, const TexLayout& L, const rbdiag::Stamp& request) {
+static ReadbackPoll rb_land(Texture* t, TexGpu* g, const TexLayout& L, const rbdiag::Stamp& request) {
     const auto pending = g->rb_pending;
     if (!pending) return ReadbackPoll::Complete;
     ReadbackProgress progress;
@@ -3118,7 +2801,7 @@ ReadbackPoll rb_land(Texture* t, TexGpu* g, const TexLayout& L, const rbdiag::St
 
 // readback_async = false (and calls on the render thread): the old path. Every level, earlier submissions drained first (finish), the
 // copy waited for on the render thread (run_frame_sync), the whole storage tiled again.
-bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
+static bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
     const uint64_t size = L.layout.linear_size;
     finish();   // earlier submissions must be done before the copy reads the image
     gfx::Buffer rb;
@@ -3150,7 +2833,7 @@ bool download_all_levels_sync(Texture* t, TexGpu* g, const TexLayout& L) {
     g->rb_sync_epoch.fetch_add(1, std::memory_order_release);
     return true;
 }
-}  // namespace
+}  // namespace tex
 
 ReadbackStats readback_stats() {
     ReadbackStats s;
@@ -3313,9 +2996,9 @@ bool download_texture(Texture* t, uint32_t level_first, uint32_t level_count, ui
     return true;
 }
 
-
 // ---- BUFFER-target textures: texel buffer views -------------------------------------------------------------------------------
-namespace {
+
+namespace tex {
 struct BufViewKey {
     VkBuffer buffer;
     VkDeviceSize offset, range;
@@ -3327,10 +3010,10 @@ struct BufViewKey {
         return format < o.format;
     }
 };
-std::mutex g_bufview_mu;
-std::map<BufViewKey, VkBufferView> g_bufviews;
+static std::mutex g_bufview_mu;
+static std::map<BufViewKey, VkBufferView> g_bufviews;
 
-bool buffer_format_ok(VkFormat f, bool storage) {
+static bool buffer_format_ok(VkFormat f, bool storage) {
     static std::mutex mu;
     static std::map<VkFormat, VkFormatFeatureFlags> cache;
     std::lock_guard<std::mutex> lk(mu);
@@ -3342,7 +3025,7 @@ bool buffer_format_ok(VkFormat f, bool storage) {
     }
     return (it->second & (storage ? VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT : VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT)) != 0;
 }
-}  // namespace
+}  // namespace tex
 
 VkBufferView make_buffer_view(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range, VkFormat format) {
     std::lock_guard<std::mutex> lk(g_bufview_mu);
