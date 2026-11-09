@@ -1,9 +1,9 @@
-"""Run mpr.exe in a window for a fixed time with the frame trace on, then print the report.
+"""Run pkp.exe in a window for a fixed time with the frame trace on, then print the report.
 
   python prof_run.py --exe game-build\\build\\display\\mpr.exe --cap 120 --seconds 40 --tag base120 [--vsync] [--env K=V ...] [--ini-extra "[sec]\\nkey=v"]
 
 Runs in work\\run_prof_<tag> (its own controls.ini with the requested cap), shares work\\run\\bc7_cache. Output: work\\prof\\<tag>.trace,
-<tag>.json (the numbers) and the report on stdout. Needs the game folder at <project root>\\game (romfs) as boot.py does.
+<tag>.json (the numbers) and the report on stdout. Needs the game folder at <project root>\\game (romfs).
 """
 import argparse, ctypes, os, re, shutil, subprocess, sys, threading, time
 
@@ -37,7 +37,7 @@ class CpuLoad:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--exe', default=os.path.join(ROOT, 'game-build', 'build', 'display', 'mpr.exe'))
+    ap.add_argument('--exe', default=os.path.join(ROOT, 'game-build', 'build', 'release', 'pkp.exe'))
     ap.add_argument('--cap', type=int, default=60)
     ap.add_argument('--seconds', type=int, default=40)
     ap.add_argument('--skip', type=float, default=10)
@@ -53,7 +53,7 @@ def main():
     ap.add_argument('--no-report', action='store_true')
     ap.add_argument('--ini-append', default='', help='text appended to the run folder controls.ini (for example "[fps]\nin_screenshots = 1"; \n is a new line)')
     ap.add_argument('--hogs', type=int, default=0, help='run N busy-loop processes (normal priority) during the run: a repeatable background load')
-    ap.add_argument('--prio', default='', help='process priority class of mpr.exe: high | above | idle (default normal)')
+    ap.add_argument('--prio', default='', help='process priority class of pkp.exe: high | above | idle (default normal)')
     a = ap.parse_args()
     run = os.path.join(ROOT, 'work', 'run_prof_' + a.tag)
     os.makedirs(run, exist_ok=True)
@@ -79,7 +79,7 @@ def main():
     if a.shots_every: env['NXRT_BOOT_SCREENSHOT_EVERY'] = a.shots_every
     for kv in a.env:
         k, v = kv.split('=', 1); env[k] = v
-    cmd = [a.exe, '--log', 'mpr.log', '--max-seconds', str(a.seconds), '--link', 'rtld']
+    cmd = [a.exe, '--log', 'pkp.log', '--max-seconds', str(a.seconds), '--link', 'rtld']
     t = time.time()
     flags = {'high': 0x80, 'above': 0x8000, 'idle': 0x40, 'realtime': 0x100}.get(a.prio, 0)
     hogs = [subprocess.Popen([sys.executable, '-c', 'while True: pass']) for _ in range(a.hogs)]

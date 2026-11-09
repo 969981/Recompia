@@ -4,12 +4,12 @@
 // Play mode itself is the game-independent PC front end: the window, the SDL event pump, the frame limiter, the binding engine that turns
 // keys, mouse buttons and pads into Switch pad input, the menu pointer state, the F1 overlay and its settings file. What only makes sense for
 // one game goes through GamePlay: the hooks on that game's functions (raw mouse aim, camera look, lock-on, display options, menu widgets, the
-// tone curve), what the game's state says about the context (play, alternate body, inspect; mpr: gameplay, morph ball, scan) and its parts of the F1 page. A game without a
+// tone curve), what the game's state says about the context and its parts of the F1 page. A game without a
 // GamePlay table still gets a window, pad input, the frame limiter and the overlay; the context is then always the menu.
 //
 // Order at start (play.cpp start()): install_render (before the frame-boundary hook), the frame-boundary hook at frame_update, install.
 // Order at every frame boundary (main thread): settings_changed (when the page applied new settings), events, pads, frame_begin, the engine's
-// tick, frame (context and hints), then the menu pointer (menu_frame).
+// tick, frame (the context), then the menu pointer (menu_frame).
 #pragma once
 #include <cstddef>
 #include <cstdint>

@@ -48,7 +48,7 @@ a superset of the one before, so each program links only what it needs:
 
 The play-mode half talks to the base through two tables in `src/gfx/play/play_game.h`. `GamePlay` is what the game gives the base
 (function pointers: `install_render`, `install`, `remove`, `settings_changed`, `frame_begin`, `frame`, `display_live`, `menu_*`,
-`status`, `status_text`, `mouse_tab`, `tweaks_tab`, plus the guest address of the frame update hook). `GameHost` is what the base gives the game
+`status`, `status_text`, `mouse_tab`, plus the guest address of the frame update hook). `GameHost` is what the base gives the game
 (a virtual class implemented in `play.cpp`: current settings, action state, the right stick, pad look, the per-input-tick mouse
 handling, aim feedback, pitch limit, log status). Hooks keep their registration order: the base installs the game's render hooks
 before its own frame hook and the game's input hooks after it, as before.
@@ -81,7 +81,7 @@ CMake: `NXRT_BUILD_GAMES` (on) adds every module listed in `NXRT_GAMES` (default
 | `src/gfx/play/play.cpp` ProcessInput, SetTransform, first-person and ball camera think hooks, player pointer, free look, ball look, beam hints | (c) | `games/mpr/mpr_play.cpp` behind `GamePlay`; the mouse sampling logic that was inside the input hook stays in the base as `GameHost::input_tick` |
 | `src/gfx/play/play_aim.*`, `play_lockcam.*`, `play_lookrate.*` (Samus's aim, lock-on camera, look rate) | (c) | `games/mpr/` |
 | `src/gfx/play/play_scenefix.*` (S42: the guard on CModConSceneNode render queries, `[game] modcon_query_guard`) and its test | (c) | `games/mpr/`; installed and removed by `games/mpr/mpr_play.cpp` next to the lock-on camera |
-| `src/gfx/play/play_glow.*`, `play_glow_ui.cpp` (S44: the glow colour on the morph ball tables, particle generators and incandescence draws) and its test | (c) | `games/mpr/`; installed, set, ticked and removed by `games/mpr/mpr_play.cpp` (after the lock-on camera; the ball's inner glow from the ProcessInput hook); the F1 Tweaks tab through `GamePlay::tweaks_tab` |
+| `src/gfx/play/play_glow.*`, `play_glow_ui.cpp` (S44: the glow colour on the morph ball tables, particle generators and incandescence draws) and its test | (c) | `games/mpr/`; installed, set, ticked and removed by `games/mpr/mpr_play.cpp` (after the lock-on camera; the ball's inner glow from the ProcessInput hook) |
 | `games/mpr/mpr_fastboot.*` (S46: skip the opening cutscene, the title's intro movie, faster front end) | (c) | was already in `games/mpr`, but compiled into nxrt_gfx and called from play.cpp; now in the `nxrt_game_mpr` library and called from `mpr_play.cpp` |
 | `games/mpr/mpr_tint.*` (S45: suit and arm cannon paint, recolouring the game's textures) and its test | (c) | was in `games/mpr`, called from play.cpp; now in `nxrt_game_mpr`, installed, set, ticked and removed by `games/mpr/mpr_play.cpp`. |
 | `src/gfx/play/play_display.cpp` the hooks on the game's resolution, FOV and HUD code | (c) | `games/mpr/display_hooks.cpp`; the display math and the texture filtering settings (`display_tuning`) stay in the base |
@@ -132,8 +132,7 @@ message box titles from `info().title`. Its own names (`mpr.log`, `mpr.ini`, `--
 ### recomp
 
 The recompiler (`nxrecomp/`) has no game knowledge. `0x7100000000` there is the console's load address for main, a platform fact.
-`scripts/build_mpr.cmd` is now a wrapper around a generic `scripts/build_game.cmd <id>`, which builds `games/<id>` (target
-`<id>_modules`, repository root passed as `NX_ROOT`).
+`scripts/build_game.cmd <id>` builds `games/<id>` (target `<id>_modules`, repository root passed as `NX_ROOT`).
 
 ## Gaps
 

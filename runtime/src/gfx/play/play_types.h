@@ -3,12 +3,12 @@
 //
 // Vocabulary:
 //   input    a physical thing on the keyboard or mouse: a key (SDL scancode), a mouse button or a wheel notch.
-//   action   what the player wants the game to do (Metroid Prime Remastered: "fire", "jump", "beam_2"). The game only knows the Switch pad,
+//   action   what the player wants the game to do (Pokopia: "move_forward", "btn_a", "dpad_up"). The game only knows the Switch pad,
 //            so every action is tied to a Switch output (buttons and stick directions) by the [switch] table of the settings file.
-//   context  where the player is: in play, in the alternate body (the morph ball), on the map, in a menu, inspecting (the scan visor).
+//   context  where the player is: in play, on the map, in a menu.
 //            `all` is a layer under every context.
-// The action and context slots are generic; the registered game names them and gives their factory outputs and the launcher's labels
-// (GameVocabulary below; Metroid Prime Remastered: games/mpr/mpr_vocabulary.cpp). Without a game the slots keep generic names.
+// The action and context slots are generic; the registered game may name them and give their factory outputs and the launcher's labels
+// (GameVocabulary below). Pokopia uses the generic names.
 //   trigger  how an input turns into an action: press (while held), tap (a short pulse after a quick release), hold (after a delay,
 //            while held), toggle (each press flips it), doubletap (a second quick press, while held).
 // A binding says "in this context, this input drives this action with this trigger".
@@ -53,7 +53,7 @@ constexpr int kActCount = static_cast<int>(Act::kCount);
 
 struct ActInfo {
     Act act;
-    const char* name;           // the name used in the settings file: "move_forward" "btn_zl"; the game's for its slots (mpr: "fire" "beam_1")
+    const char* name;           // the name used in the settings file: "move_forward" "btn_zl"; the game's for its slots
     const char* default_out;    // the default [switch] entry in output syntax (see parse_output): "ZR", "X+UP", "LS_UP" ... "" = none
 };
 const ActInfo& act_info(Act a);                         // the registered game's row (GameVocabulary::acts), else the generic one
@@ -357,10 +357,10 @@ const char* key_wheel_cycles();
 //   [overlay]  pad (pad buttons held together; none = off, the default; not the [quit] pad)   (open and close the F1 menu)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
-//   [switch]   <action> = <output>      e.g.  fire = ZR    beam_1 = X+UP    (missing actions keep the default)
-//   [bindings.<ctx>]   <input> = <action> [trigger [ms]]     e.g.   Mouse1 = fire    Left Ctrl = morph hold 250    Space = jump toggle
-//                      ctx is a context name (mpr: all gameplay morph map menu scan). The same input may appear several times in a section.
-//   The action and context names in this description are Metroid Prime Remastered's (GameVocabulary).
+//   [switch]   <action> = <output>      e.g.  btn_zr = ZR    dpad_up = UP    (missing actions keep the default)
+//   [bindings.<ctx>]   <input> = <action> [trigger [ms]]     e.g.   Mouse1 = btn_zr    Left Ctrl = btn_lstick hold 250    Space = btn_r toggle
+//                      ctx is a context name (all play map menu). The same input may appear several times in a section.
+//   A game with a GameVocabulary may rename the actions and contexts.
 // Unknown sections/keys are ignored with a warning in *warnings (not an error); a malformed value of a known key is an error.
 // parse_settings starts from default_settings() and applies the text on top. If the text has any [bindings.*] section, the default
 // bindings are dropped first (the file is then the whole truth); a file without bindings sections keeps the default bindings.

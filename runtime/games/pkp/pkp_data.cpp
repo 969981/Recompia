@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: who the game is, what its files are called and its factory controls.ini (nxrt/game.h Info). Pure data, no runtime:
-// the launcher links this part alone, so the factory settings live here (its Keyboard page and Reset start from them).
+// Pokémon Pokopia: who the game is, what its files are called and its factory controls.ini (nxrt/game.h Info). Pure data, no runtime,
+// so the factory settings can be read without linking the rest.
 #include "pkp_game.h"
 
 #include "play_types.h"
@@ -111,7 +111,7 @@ const game::Info& data_info() {
         // logs (#44, #47, #49, #69, #76, #95, #119). Keep in step with game-build/release_b/dump_hashes.json "romfs".
         g.romfs_min_files = 36;
         g.romfs_min_bytes = 7246052773ull;
-        g.play_defaults = &game_defaults();   // the launcher writes and resets controls.ini from these too
+        g.play_defaults = &game_defaults();
         return g;
     }();
     return info;

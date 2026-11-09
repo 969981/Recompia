@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The game boundary (docs/GAME_BOUNDARY.md): everything one title supplies to the game-independent base.
 //
-// The runtime, the launcher and the test tooling know no game. A game module (runtime/games/<id>/, a static library the game exe links)
-// fills one Info and registers it with set_current() before anything reads it: before nxrt::init() in the game exe, at the top of the
-// launcher's WinMain and of the test mains. Every part is optional. A null table or an empty string turns off what needs it (no hooks, no
+// The runtime and the test tooling know no game. A game module (runtime/games/<id>/, a static library the game exe links)
+// fills one Info and registers it with set_current() before anything reads it: before nxrt::init() in the game exe and at the top of the
+// test mains. Every part is optional. A null table or an empty string turns off what needs it (no hooks, no
 // probes, neutral title facts), so a new title can start with the identity alone and add tables as its hooks are found.
 //
-// What each table is for, and where the Metroid Prime Remastered one lives:
-//   title_defaults   services::TitleProfile defaults (main.npdm, control.nacp); ini keys still override them    games/mpr/mpr_core.cpp
-//   timestep         the sites of the real-time frame step (nxrt/timestep.h, Sites)                           games/mpr/mpr_core.cpp, mpr_sites.h
-//   probes           test-tooling game-state probes and script steps (nxrt/tt.h, GameProbes)                  games/mpr/mpr_tt_probe.cpp
-//   play_defaults    factory controls.ini text and the bindings added by later revisions (play_types.h)       games/mpr/mpr_defaults.cpp
-//   play             play-mode hooks: aim, camera, lock-on, display, menu pointer, F1 entries (play_game.h)     games/mpr/mpr_play.cpp
-//   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      games/mpr/mpr_prompts.cpp
+// What each table is for, and where the Pokopia one lives:
+//   title_defaults   services::TitleProfile defaults (main.npdm, control.nacp); ini keys still override them    games/pkp/pkp_core.cpp
+//   timestep         the sites of the real-time frame step (nxrt/timestep.h, Sites)                           (Pokopia sets none)
+//   probes           test-tooling game-state probes and script steps (nxrt/tt.h, GameProbes)                  games/pkp/pkp_tt_probe.cpp
+//   play_defaults    factory controls.ini text and the bindings added by later revisions (play_types.h)       games/pkp/pkp_data.cpp
+//   play             play-mode hooks: aim, camera, display, menu pointer, F1 entries (play_game.h)            games/pkp/pkp_game.cpp
+//   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (Pokopia sets none)
 //   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/pkp_core.cpp
-// The registry is header-only, so programs that do not link the runtime library (the launcher) use it too.
+// The registry is header-only, so programs that do not link the runtime library (the launcher's tools) use it too.
 #pragma once
 #include <cstdint>
 
@@ -42,21 +42,21 @@ enum class Platform : uint8_t { Switch1, Switch2 };
 
 struct Info {
     // ---- identity ----
-    const char* id = "";                    // short id, also the stem of the game's file names: "mpr"
-    const char* title = "";                 // the game's own name: "Metroid Prime Remastered"
-    const char* product = "";               // the PC port's name in window titles and dialogs: "Metroid Prime Remastered PC"
-    const char* short_title = "";           // a short name for file headers (the launcher's ini comment): "Metroid Prime" (empty: product)
+    const char* id = "";                    // short id, also the stem of the game's file names: "pkp"
+    const char* title = "";                 // the game's own name: "Pokémon Pokopia"
+    const char* product = "";               // the PC port's name in window titles and dialogs: "Pokémon Pokopia PC"
+    const char* short_title = "";           // a short name for file headers: "Pokopia" (empty: product)
     uint64_t program_id = 0;                // the Switch title id
-    const char* version = "";               // the game version the hooks were found in: "1.0.0"
+    const char* version = "";               // the game version the hooks were found in: "2.0.1"
     uint64_t main_base = 0x7100000000ull;   // where main is mapped (the lifter's base for it): hook offsets are relative to this
     uint32_t languages = 0;                 // control.nacp SupportedLanguage: bit n = services::Language n (0: American English only)
     Platform platform = Platform::Switch1;  // the console the game targets
 
     // ---- files and branding ----
-    const char* exe_name = "";              // the game exe: "mpr.exe"
-    const char* game_ini = "";              // the settings file the setup tool writes and the game exe reads: "mpr.ini"
-    const char* shader_pack = "";           // the shader pack file next to the setup tool: "shader_cache.mprshc"
-    const char* save_folder = "";           // save data folder under %APPDATA%: "MPRRecomp" (empty: "nxrt")
+    const char* exe_name = "";              // the game exe: "pkp.exe"
+    const char* game_ini = "";              // the settings file the game exe reads: "pkp.ini"
+    const char* shader_pack = "";           // the shader pack file: "shader_cache.pkpshc"
+    const char* save_folder = "";           // save data folder under %APPDATA%: "PokopiaRecompPC" (empty: "nxrt")
 
     // ---- game data ----
     // The RomFS of the supported version holds at least this many files and bytes (0: not checked). A RomFS with less is missing files and

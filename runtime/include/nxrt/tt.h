@@ -4,8 +4,8 @@
 // asks for it, so a normal run pays nothing.
 //
 // The central idea is ONE frame boundary, tt::frame_boundary(), called once per game frame by whichever source is configured
-// ([test] frame_source): the game hook (an entry hook on CGameArchitectureSupport::Update, needs the site list in
-// tests/sites/mpr_testtools.sites compiled into the lifted game), the runtime's diag_frame_tick (the present path), an SVC counter
+// ([test] frame_source): the game hook (an entry hook on the game's frame update, needs an entry in the sites
+// file compiled into the lifted game), the runtime's diag_frame_tick (the present path), an SVC counter
 // (bring-up: svc:N = a pseudo frame every N SVCs of the first guest thread) or the caller itself (manual). At each boundary:
 //   1. the virtual clock steps (deterministic mode),
 //   2. the game state is read from guest memory (probes) and one trace line + state hash is written,

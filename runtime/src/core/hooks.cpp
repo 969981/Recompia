@@ -3,7 +3,7 @@
 // Design: an immutable snapshot (address -> hooks of each kind) published through an atomic pointer. Registration copies the snapshot,
 // edits the copy and publishes it; retired snapshots stay allocated until hooks_clear() because a guest thread may still be reading one.
 // The call path takes no lock. The site-list scheme the lifted callouts come from is ssbu-recomp's tools/lifter/relift_sites.py (via
-// recomp nxrecomp/program.py load_sites); nothing of ssbu's code is used here.
+// recomp nxrecomp/sites.py load_sites); nothing of ssbu's code is used here.
 #include "nxrt/hooks.h"
 
 #include <atomic>
