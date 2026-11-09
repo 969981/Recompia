@@ -17,7 +17,6 @@ import bisect
 import collections
 import multiprocessing
 import os
-import struct
 import sys
 import time
 
@@ -619,7 +618,8 @@ def write_module_files(env, outdir, all_funcs, resume, catchers):
     if not resume:
         m.append('  { 0, 0 },')
     m.append('};')
-    eh_name = emit_eh_tables(env, m)
+    from . import ehtables
+    eh_name = ehtables.emit(env, m)
     m.append('extern const NxModule nxmod_%s;' % name)
     m.append('extern const uint32_t nxmod_%s_abi;' % name)
     m.append('const uint32_t nxmod_%s_abi = NXRECOMP_ABI_VERSION;' % name)
@@ -628,17 +628,6 @@ def write_module_files(env, outdir, all_funcs, resume, catchers):
     m.append('}')
     m.append('')
     _write_if_changed(os.path.join(outdir, 'module_%s.cpp' % name), '\n'.join(m))
-
-
-def img_sym(img, i):
-    name_off, info, other, shndx, value, size = struct.unpack_from('<IBBHQQ', img.mem, img.sym_off + i * 24)
-    return img.cstr(img.str_off + name_off), info & 0xf, info >> 4, shndx, value, size
-
-
-def emit_eh_tables(env, m):
-    """Append the NxEh tables of the module to m (unwind rows, call sites, actions, types) -> expression for NxModule.eh."""
-    from . import ehtables
-    return ehtables.emit(env, m)
 
 
 # ---------------------------------------------------------------------------------------------------- coverage

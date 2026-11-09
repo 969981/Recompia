@@ -59,7 +59,7 @@ typedef struct Ctx {
 } Ctx;
 
 /* ======================================================================================================== */
-/* runtime-provided: declared here, implemented by the runtime (or, for tests, by oracle/e2e/rt)             */
+/* runtime-provided: declared here, implemented by the runtime                                              */
 /* ======================================================================================================== */
 
 /* Indirect call or tail call to a guest address (BLR, BR out of a function, an unresolved jump table).

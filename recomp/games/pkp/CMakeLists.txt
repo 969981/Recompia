@@ -35,7 +35,7 @@ set(PKP_GEN "${PKP_ROOT}/work/lift" CACHE PATH "where the generated sources go")
 set(PKP_SHARDS_MAIN 230 CACHE STRING "translation units of main")
 set(PKP_SHARDS_SDK 45 CACHE STRING "translation units of sdk")
 set(PKP_SHARDS_SUBSDK0 4 CACHE STRING "translation units of subsdk0")
-set(PKP_SITES "${CMAKE_CURRENT_LIST_DIR}/main.sites" CACHE FILEPATH "hook sites of main for this build (resolved from sites.sig)")
+set(PKP_SITES "${CMAKE_CURRENT_LIST_DIR}/main.sites" CACHE FILEPATH "hook sites of main")
 
 nxrecomp_add_module(pkp_main INPUT "${PKP_EXEFS}/main" NAME main INDEX 0 BASE 0x7100000000 GAME pkp SHARDS ${PKP_SHARDS_MAIN}
                     SITES "${PKP_SITES}" OUTDIR "${PKP_GEN}/main")
@@ -46,11 +46,3 @@ nxrecomp_add_module(pkp_subsdk0 INPUT "${PKP_EXEFS}/subsdk0" NAME subsdk0 INDEX 
 nxrecomp_add_module(pkp_rtld INPUT "${PKP_EXEFS}/rtld" NAME rtld INDEX 3 BASE 0x7700000000 GAME pkp SHARDS 1
                     OUTDIR "${PKP_GEN}/rtld")
 add_custom_target(pkp_modules DEPENDS pkp_main pkp_sdk pkp_subsdk0 pkp_rtld)
-
-# Link check (target pkp_link_check): the four libraries plus stubs for what the runtime provides. Proves every symbol resolves.
-# The stubs live with the mpr game folder, which this repository does not carry: no target then (configure must not fail on it).
-if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../mpr/link_check.cpp")
-    add_executable(pkp_link_check EXCLUDE_FROM_ALL ../mpr/link_check.cpp)
-    target_link_libraries(pkp_link_check PRIVATE pkp_main pkp_sdk pkp_subsdk0 pkp_rtld)
-    target_compile_options(pkp_link_check PRIVATE /w /EHs-c- /GR-)
-endif()

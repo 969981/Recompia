@@ -9,7 +9,7 @@ rows "from pc: CFA = reg + off, register R saved at CFA + off" plus the call-sit
 Parsing follows the DWARF 5 and LSB .eh_frame specifications; the C++ LSDA layout is the Itanium C++ ABI's.
 The FDE walk through .eh_frame_hdr's table and the record layout are adapted from smo-recomp
 tools/extract/functions.py and ssbu-recomp tools/lifter/recomp_eh.py (both GPL-3.0-or-later); the CFA interpreter is
-new (checked against llvm-dwarfdump in oracle/e2e).
+new.
 """
 import struct
 from collections import namedtuple

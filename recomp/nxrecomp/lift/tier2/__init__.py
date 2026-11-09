@@ -2,8 +2,8 @@
 """Tier 2 of the instruction lifter: Capstone-driven emitters, for what tier 1 (lift/a64.py) does not decode.
 
 The emitters are SuperMarioWonderRecomp's (MIT; see recomp/THIRD_PARTY.md), ported to nxrecomp's context and helpers
-(include/nxrecomp/cxx.h), and brought to the project's exactness standard by the differential test (oracle/difftest):
-what Wonder's own test accepted (NaN payloads "both NaN", estimates "more precise") is not accepted here.
+(include/nxrecomp/cxx.h), and brought to a stricter exactness standard than Wonder's own: NaN payloads and estimate
+instructions are translated bit-exactly, not "both NaN" / "more precise".
 
 Tier2.lift(fn, w, pc) -> one statement for the instruction word w at address pc, or raises Unimpl. Branches are never seen
 here: tier 1 handles every branch.

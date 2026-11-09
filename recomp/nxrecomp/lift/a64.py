@@ -7,7 +7,7 @@ and from the instruction translator of ssbu-recomp, GPL-3.0-or-later), with thes
   * TPIDRRO_EL0 is its own register (c->tpidrro), as in ScarletNX (GPL-3.0-or-later); FPCR / FPSR / NZCV are stored
     and read back; other system registers go to guest_mrs / guest_msr (runtime-provided, see nxrecomp/ctx.h);
   * exclusive pairs (LDXP / LDAXP / STXP / STLXP) incl. 128-bit;
-  * an instruction tier 1 does not know raises Unimpl and is handed to tier 2 (lift/tier2.py, Capstone-driven,
+  * an instruction tier 1 does not know raises Unimpl and is handed to tier 2 (lift/tier2/, Capstone-driven,
     ported from SuperMarioWonderRecomp, MIT) by lift.Lifter.
 
 Every guest function becomes `void f_<addr>(Ctx *c)` working on the register context of nxrecomp/ctx.h. Guest memory
@@ -133,7 +133,7 @@ class Fn:
         # op0 0..3: reserved / unallocated / SVE. None of these is an instruction on the console's Cortex-A57
         # (ARMv8.0, no SVE): executing one raises an undefined-instruction exception, so the faithful translation is a
         # trap. Nintendo's SDK uses this deliberately (UDF #0xdefe, the word 0xe7ffdefe, in Halt / DebugBreak paths).
-        # [from smo-recomp; checked against Unicorn by the difftest's trap tests]
+        # [from smo-recomp]
         return 'guest_trap("undefined instruction", 0x%xULL);' % pc
 
     # ---- data processing, immediate

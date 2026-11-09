@@ -5,16 +5,16 @@ An `Image` holds the module's bytes as they sit in memory (offset 0 = the module
 the dynamic-linking tables (symbols, relocations, PLT) when there are any, and the unwind-table location. Three loaders:
 
   Image.from_nso(bytes, base)       a Switch NSO (LZ4 segments, MOD0 header)          -- the game
-  Image.from_nx_elf(path, base)     the ELF tools/extract's nso_to_elf writes         -- the game, via an ELF
-  Image.from_static_elf(path)       an ordinary static (non-PIE) ELF64 AArch64        -- the end-to-end test programs
+  Image.from_nx_elf(path, base)     an NSO converted to an ELF (image at file offset 0x1000)
+  Image.from_static_elf(path)       an ordinary static (non-PIE) ELF64 AArch64
 
-Everything else in the package (function discovery, the lifter, the oracles) goes through this class, so the lifter
+Everything else in the package (function discovery, the lifter) goes through this class, so the lifter
 needs no game-specific file format. Adapted from smo-recomp tools/extract/functions.py (Module) and
 tools/lifter/recomp.py (_elf_layout), GPL-3.0-or-later.
 """
 import struct
 
-NX_ELF_OFF = 0x1000          # file offset of the image in the ELF files nso_to_elf writes
+NX_ELF_OFF = 0x1000          # file offset of the image in an NSO converted to an ELF
 
 
 def sext(v, n):

@@ -2,7 +2,7 @@
 """Per-game configuration of Pokémon Pokopia (Nintendo Switch 2, title 0400A3A01EE4C000).
 
 Supported builds of main are listed in BUILDS (build id -> display version); the setup tool checks the build id. The
-lifter itself is build-neutral: hook sites come from sites.sig, resolved per build into main.sites.
+lifter itself is build-neutral: the hook sites of main are in main.sites.
 Modules: main at 0x7100000000, sdk, subsdk0 (nn::movie) and rtld at the runtime's bases.
 """
 import os
@@ -30,4 +30,3 @@ class Config(GameConfig):
     overrides = {}
     # rtld's process entry (0x0) has no FDE, symbol or direct branch, so discovery never roots it (runtime/docs/S6.md)
     extra_entries = {'rtld': [0x0]}
-    patches = None

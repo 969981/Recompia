@@ -34,9 +34,6 @@ class GameConfig:
     # extra function entries the discovery cannot see (offsets are module-relative), per module name
     extra_entries = {}
 
-    # instruction patches: file of `<address> <original word> <new word>` lines (see program.load_patches), or None
-    patches = None
-
     # a function with more than this many instructions is compiled with optnone (bounded compile time); the build's
     # time-limit fallback (cmake/nx_cc_launcher.py) lowers it when a file still takes too long
     optnone_insns = 20000
@@ -44,13 +41,6 @@ class GameConfig:
     # spin loops (spin.py): their head also calls nx_spin_hint(2), the runtime's spin hook (`lift --spin-yield` turns it on too).
     # Their loads are lifted as poll loads either way.
     spin_yield = False
-
-    # host function names to treat as noreturn-like terminators (none by default)
-    noreturn_imports = ()
-
-    # a hook the game config may use to name functions in the generated code's comments: addr -> str
-    def function_name(self, module, addr):
-        return None
 
 
 def load_game(name):
