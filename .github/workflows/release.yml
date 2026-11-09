@@ -23,7 +23,9 @@ permissions:
 env:
   LLVM_VERSION: 23.1.4
   RYUBING_COMMIT: a82350bb774f70fcbd41c9987bf67a3775409963
-  BASE_RELEASE: v0.1.1            # upstream package the third-party payload comes from (make-release.ps1)
+  # package the third-party payload comes from (make-release.ps1): the upstream v0.1.1 repository is gone, so our own last release
+  BASE_REPO: Dittobyte/Recompia
+  BASE_RELEASE: v0.8.2
   # the release this run publishes: the pushed tag, or a manual run's release_tag; empty = build only
   REL_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
 
@@ -171,7 +173,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download $env:BASE_RELEASE -R drakolordx7/pokopia-recomp -p '*.zip' -D build/base
+          gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p '*-win64.zip' -D build/base
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
               -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -Out build/rel
 
