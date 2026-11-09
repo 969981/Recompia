@@ -1468,4 +1468,9 @@ Stats stats() {
     return s;
 }
 
+Settings current_settings() { return g_host.settings(); }
+static std::atomic<uint64_t> g_game_menu_edits{0};
+void apply_settings(const Settings& s) { g_host.apply(s); g_game_menu_edits.fetch_add(1, std::memory_order_relaxed); }
+uint64_t game_menu_edits() { return g_game_menu_edits.load(std::memory_order_relaxed); }
+
 }  // namespace nxrt::play
