@@ -14,11 +14,14 @@
 //   play             play-mode hooks: aim, camera, display, menu pointer, F1 entries (play_game.h)            games/pkp/pkp_game.cpp
 //   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (Pokopia sets none)
 //   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/pkp_core.cpp
+//   settings_doc     the keys of the game's own game-ini section, described (nxrt/setting_doc.h)              games/pkp/pkp_settings_table.cpp
 // The registry is header-only, so programs that do not link the runtime library (the launcher's tools) use it too.
 #pragma once
 #include <cstdint>
+#include <vector>
 
 namespace nxrt {
+namespace setting_doc { struct Row; }
 namespace services { struct TitleProfile; }
 namespace timestep { struct Sites; }
 namespace tt { struct GameProbes; }
@@ -74,6 +77,9 @@ struct Info {
     const play::PromptGame* prompts = nullptr;
     const PollSleep* poll_sleeps = nullptr;
     uint32_t poll_sleep_count = 0;
+    // The keys the game reads from its own sections of the game ini ([pkp]), one row each: the docs (runtime/docs/CONFIG.md) and the
+    // launcher's schema of the game ini are generated from it (apps/settings_doc.cpp). Pure data: the pure-data library can set it.
+    std::vector<setting_doc::Row> (*settings_doc)() = nullptr;
 };
 
 // The registered game, or nullptr. One slot per program (the function-local static is shared by every translation unit that inlines it).

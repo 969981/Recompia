@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The Pokémon Pokopia game module (docs/GAME_BOUNDARY.md, pkp_game.h). Libraries, each a superset of the one before:
-#   nxrt_game_pkp_data   identity, branding, factory controls.ini (pure data)
+#   nxrt_game_pkp_data   identity, branding, factory controls.ini, the [pkp] key table (pure data)
 #   nxrt_game_pkp_core   + title facts, test probes (links nxrt)
 #   nxrt_game_pkp        + play-mode hooks (links nxrt_gfx; only with NXRT_BUILD_GFX). pkp.exe links this one.
 set(_pkp "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -10,7 +10,7 @@ if(NXRT_TESTTOOLS)
     list(APPEND NXRT_GAME_PKP_INCLUDES "${_rt}/src/testtools")   # pkp_tt_probe.cpp
 endif()
 
-add_library(nxrt_game_pkp_data STATIC "${_pkp}/pkp_data.cpp")
+add_library(nxrt_game_pkp_data STATIC "${_pkp}/pkp_data.cpp" "${_pkp}/pkp_settings_table.cpp")
 target_include_directories(nxrt_game_pkp_data PUBLIC ${NXRT_GAME_PKP_INCLUDES})
 target_compile_features(nxrt_game_pkp_data PUBLIC cxx_std_20)
 

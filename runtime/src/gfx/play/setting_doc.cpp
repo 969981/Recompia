@@ -1,25 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The Markdown and JSON forms of a table of ini settings, see setting_doc.h.
-#include "setting_doc.h"
+// The Markdown and JSON forms of a table of ini settings, see nxrt/setting_doc.h.
+#include "nxrt/setting_doc.h"
 
 #include <cctype>
 #include <cstdio>
-#include <cstdlib>
 #include <string>
 #include <vector>
 
 namespace nxrt::setting_doc {
 namespace {
 
-// A number as the docs show it: the shortest of %g that reads back.
-std::string number(double v) {
-    char buf[64];
-    for (int digits = 6; digits <= 17; ++digits) {
-        std::snprintf(buf, sizeof buf, "%.*g", digits, v);
-        if (std::strtod(buf, nullptr) == v) break;
-    }
-    return buf;
-}
+std::string number(double v) { return number_text(v); }
 
 std::string code(const std::string& s) { return "`" + s + "`"; }
 
@@ -72,7 +63,7 @@ std::string values_text(const Row& r) {
         for (size_t i = 0; i < r.choices.size(); ++i) c += (i ? " " : "") + code(r.choices[i]);
         parts.push_back(c);
     } else if (r.has_min && r.has_max) {
-        parts.push_back(code(number(r.min)) + " to " + code(number(r.max)));
+        parts.push_back(code(number(r.min)) + " to " + code(number(r.max)) + (r.clamped ? " (clamped into it)" : ""));
         if (r.type == "ratio") parts.push_back("W:H (" + code("16:9") + ")");
     } else if (r.type == "bool") {
         parts.push_back(code("1") + " " + code("0"));
@@ -115,14 +106,18 @@ std::string env_name(const std::string& section, const std::string& key) {
     return r;
 }
 
-std::string markdown(const std::vector<Row>& rows) {
-    std::string o = "| Section | Key | Default | Values | Overridden by | Meaning |\n|---|---|---|---|---|---|\n";
+std::string markdown(const std::vector<Row>& rows, Store store) {
+    const bool own_env = store == Store::GameIni;
+    std::string o = std::string("| Section | Key | Default | Values | ") + (own_env ? "Environment variable" : "Overridden by") +
+                    " | Meaning |\n|---|---|---|---|---|---|\n";
     for (const Row& r : rows) {
         if (r.retired) continue;
         std::string key = code(r.key);
         for (const std::string& a : r.aliases) key += " (older: " + code(a) + ")";
         std::string over;
-        if (!r.nxrt_key.empty()) {
+        if (own_env) {
+            over = code(env_name(r.section, r.key));
+        } else if (!r.nxrt_key.empty()) {
             const size_t dot = r.nxrt_key.find('.');
             const std::string sec = r.nxrt_key.substr(0, dot), k = r.nxrt_key.substr(dot + 1);
             over = code("[" + sec + "] " + k) + ", " + code(env_name(sec, k));
@@ -130,7 +125,8 @@ std::string markdown(const std::vector<Row>& rows) {
         std::string meaning = r.doc;
         if (r.read_only) meaning += " Read only: never written.";
         if (!r.fallback.empty()) meaning += " A file with " + code(r.fallback) + " and without this key gives it the value of " + code(r.fallback) + ".";
-        o += "| " + code(r.section) + " | " + cell(key) + " | " + (r.def.empty() ? std::string() : cell(code(r.def))) + " | " + cell(values_text(r)) +
+        const std::string def = r.optional ? "unset" : r.def.empty() ? std::string() : cell(code(r.def));
+        o += "| " + code(r.section) + " | " + cell(key) + " | " + def + " | " + cell(values_text(r)) +
              " | " + cell(over) + " | " + cell(meaning) + " |\n";
     }
     bool any = false;
@@ -153,7 +149,7 @@ std::string markdown(const std::vector<Row>& rows) {
     return o;
 }
 
-std::string schema_json(const std::string& file, const std::vector<Row>& rows) {
+std::string schema_json(const std::string& file, const std::vector<Row>& rows, Store store) {
     std::string o = "{\n  \"file\": " + json_text(file) + ",\n  \"sections\": [";
     bool first_sec = true;
     for (const std::string& sec : sections_in_order(rows)) {
@@ -162,15 +158,19 @@ std::string schema_json(const std::string& file, const std::vector<Row>& rows) {
         for (const Row& r : rows) {
             if (r.section != sec || r.retired) continue;
             std::string k = "        {\"key\": " + json_text(r.key) + ", \"type\": " + json_text(r.type);
-            if (!r.read_only) k += ", \"default\": " + json_text(r.def);
+            if (r.optional) k += ", \"optional\": true";
+            else if (!r.read_only) k += ", \"default\": " + json_text(r.def);
             if (r.has_min) k += ", \"min\": " + number(r.min);
             if (r.has_max) k += ", \"max\": " + number(r.max);
+            if (r.clamped) k += ", \"clamped\": true";
             if (r.zero_ok) k += ", \"zero_ok\": true";
             if (!r.choices.empty()) k += ", \"choices\": " + json_list(r.choices);
             if (!r.auto_word.empty()) k += ", \"auto\": " + json_text(r.auto_word);
             if (!r.aliases.empty()) k += ", \"aliases\": " + json_list(r.aliases);
             if (!r.fallback.empty()) k += ", \"fallback\": " + json_text(r.fallback);
-            if (!r.nxrt_key.empty()) {
+            if (store == Store::GameIni) {
+                k += ", \"env\": " + json_text(env_name(r.section, r.key));
+            } else if (!r.nxrt_key.empty()) {
                 const size_t dot = r.nxrt_key.find('.');
                 k += ", \"overridden_by\": {\"ini\": " + json_text(r.nxrt_key) + ", \"env\": " +
                      json_text(env_name(r.nxrt_key.substr(0, dot), r.nxrt_key.substr(dot + 1))) + "}";

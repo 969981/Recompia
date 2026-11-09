@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "nxrt/setting_doc.h"
 #include "play_types.h"
-#include "setting_doc.h"
 
 namespace nxrt::play {
 
