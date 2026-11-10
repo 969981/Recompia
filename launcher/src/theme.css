@@ -179,7 +179,7 @@
   --shadow-text: 0 2px 40px rgba(26, 12, 4, 0.55), 0 1px 3px rgba(26, 12, 4, 0.3);
 }
 
-/* Koi's Camp (theme id koi): a bright daytime picture (hand-drawn art by Koi) behind the same dark glass; teal-green neutrals, the default mint accent */
+/* Meadow (theme id koi, kept for saved settings): a bright daytime picture (placeholder artwork) behind the same dark glass; teal-green neutrals, the default mint accent */
 :root[data-theme="koi"] {
   --art-url: url("./art/koi-sharp.webp");
   --art-soft-url: url("./art/koi-soft.webp");
