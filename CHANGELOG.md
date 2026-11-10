@@ -69,7 +69,10 @@ This release is also, in part, a compliance update: the launcher's logo and icon
 - Changed the logo, icons and Steam shortcut pictures to neutral placeholders, and took the earlier game's name and a personal folder path out of comments and scripts
   - Before: the logo and icons were multi-colour bubble letters like the game's, and the Steam shortcut pictures carried that lettering
   - Now: the logo is plain "Recompia" text, the icons are an R on a rounded square (Testing: with a T badge), and the Steam shortcut pictures are a plain meadow with the same wordmark; the README pictures are plain placeholders too
-  - Still not: the **Koi's Camp** colours keep Koi's hand-drawn picture for now (credited in Settings > About); the whole look is due a refresh
+- Changed the **Koi's Camp** colours to **Meadow**, an original scene made for the project, and made the launcher's pictures smaller
+  - Before: the colours used a hand-drawn picture of characters from the game, and the Steam shortcut pictures were plain flat meadows
+  - Now: Meadow is a drawn countryside scene (hills, trees, a pond and a path) with no characters; the picture file is about 40 KB smaller, and the Steam shortcut pictures use the same scene as 256-colour PNGs of about 55 KB each. A colour you had picked keeps working
+  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
