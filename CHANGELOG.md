@@ -33,6 +33,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - The F1 menu opens from a controller by clicking both sticks (L3 + R3) (#364)
   - Before: no controller shortcut was set, and the README's example (L + R) is the game's Dive chord, so holding R and L to dive opened the menu instead
   - Now: `[overlay] pad` defaults to `left_stick+right_stick`. A `controls.ini` from an earlier release keeps the value it already has (`none` = off); set the key to `left_stick+right_stick` there, or delete the line, to get the shortcut
+- Fixed a controller dropping stick and button input during vacuuming, breaking and Rollout above 30 fps when it goes through BetterJoy (#374)
+  - Before: the game sent the controller a new rumble value on almost every frame while it rumbled, about 100 times a second at 100 fps. BetterJoy passes each one to the controller over Bluetooth and stopped reading the stick and buttons while it caught up
+  - Now: rumble goes to the controller at most 30 times a second at any frame rate, the rate that already worked at a 30 fps cap
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
