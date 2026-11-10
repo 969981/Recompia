@@ -13,7 +13,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## 0.10.2 (build N: Numbat Hotfix a2)
 
-**Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
+**Update:** press **Update**, then **Set up again** once. It rebuilds the game code for Clock Notation's new hook: a few minutes coming from 0.10.1, longer if you skipped 0.10.0's Set up. Your shaders and saves are kept; no shader is translated again.
 
 The Numbat hotfix brings back the colourful logo, translates the launcher into nine languages, fixes an AMD start-up crash and BetterJoy input loss, and adds Time and Events tabs to the game's Settings.
 
