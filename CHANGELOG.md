@@ -16,6 +16,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: pkp.exe and pkp_rt.dll both carry the runtime API they were built for, and the launcher reads it before Play and Set up. An exe from another release than the dll is relinked by Set up; a dll from another release than the tools is named on the main page, with what to do (extract the whole release over the folder)
 
 ### Game
+- Fixed the game closing right at start ("pkp.exe exited with code 4") on some PCs with an AMD graphics card
+  - Before: when an older AMD driver was still installed next to the current one (common with a Ryzen processor's own graphics), the card was listed twice and the game could pick the old driver's copy, which crashed inside the driver on the first frames
+  - Now: the copy with the older driver is skipped and the log says so; reinstalling the graphics driver removes the leftover
 - Added a **Time** tab and an **Events** tab to the game's own Settings screen, for moving the game's clock without restarting (#385)
   - Before: the game's date and time came from the PC, and the launcher's event preset or `clock_offset` only applied at the next start
   - Now: **Time** has Time Travel (Off follows the real time) and Year, Month, Day, Hour and Minute rows; the clock changes when you leave the screen. **Events** lists the events of `pokopia_events.tsv` (one line each: start date, end date and name, separated by tabs); pressing one sets the clock to noon on its first day, marks it **Chosen** (one at a time) and fills the Time tab. Nothing is written to your save or to Settings
