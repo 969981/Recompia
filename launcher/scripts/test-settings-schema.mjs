@@ -70,6 +70,8 @@ for (const p of QUALITY_PRESETS) {
   check(accepts(presetKey, p.id), `quality preset ${p.id} is not a runtime preset`);
   check(accepts(schemaKey(at('display', 'lod_bias')), p.lod_bias), `quality preset ${p.id}: lod_bias ${p.lod_bias}`);
   check(accepts(schemaKey(at('display', 'anisotropy')), p.anisotropy), `quality preset ${p.id}: anisotropy ${p.anisotropy}`);
+  check(accepts(schemaKey(at('display', 'shadow_quality')), p.shadow_quality), `quality preset ${p.id}: shadow_quality ${p.shadow_quality}`);
+  check(accepts(schemaKey(at('upscale', 'aa')), p.aa), `quality preset ${p.id}: aa ${p.aa}`);
   if (p.render_scale !== undefined) check(p.render_scale === 0 || accepts(schemaKey(at('display', 'render_scale')), p.render_scale), `quality preset ${p.id}: render_scale`);
   if (p.fps_limit !== undefined) check(p.fps_limit === -1 || accepts(schemaKey(at('display', 'fps_limit')), p.fps_limit), `quality preset ${p.id}: fps_limit`);
 }
