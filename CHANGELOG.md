@@ -103,13 +103,13 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
 
 | Before | After |
 |---|---|
-| ![Bag before Sort: items scattered with an empty slot in the middle](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-on.png) | ![Bag after Sort: items grouped by type, empty slot moved to the end](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-sorted.png) |
+| ![Bag before Sort: items scattered with an empty slot in the middle](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) | ![Bag after Sort: items grouped by type, empty slot moved to the end](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) |
 
-![Storage box after Sort: the box packed to the left, with Sort on Space in the button bar](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/box-sorted.png)
+![Storage box after Sort: the box packed to the left, with Sort on Space in the button bar](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png)
 
 | Title screen | Quit Game pressed |
 |---|---|
-| ![Title screen with Quit Game next to Settings in the bottom right corner](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-title.png) | ![The Close the game? box with Quit and Cancel](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-quit-prompt.png) |
+| ![Title screen with Quit Game next to Settings in the bottom right corner](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) | ![The Close the game? box with Quit and Cancel](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) |
 
 ### Gameplay
 - Changed **camera aim** and **running jump momentum** to on by default (#368)
@@ -346,7 +346,7 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
 
 | Before | After |
 |---|---|
-| ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
+| ![Before: tint only](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) | ![After: dashed outline](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png) |
 
 ### Link Play
 - Fixed every visit failing with "A communication error occurred" (error 9005), even with the room found and the same mods on both sides
@@ -555,7 +555,7 @@ This one is a small fix for people who keep the game in a different folder than 
 release on, updating is one click: press **Update** in the launcher and it does the rest. The game code is unchanged, so no
 **Set up again** is needed.
 
-![The new launcher](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/launcher-rework/1-home.png)
+![The new launcher](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png)
 
 ### Highlights
 - **One-click updates.** No more downloading zips, no more extracting over your install. The launcher fetches the new release,
@@ -831,11 +831,11 @@ stood at the wrong height, floors such as the planks by the Pokémon Center were
 
 **Now:** the world fills the frame. Left = before, right = 0.6.0 (16:10, scene size 75%):
 
-![16:10, before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/bugs/scene-viewport-163/ab_1610_75.jpg)
+![16:10, before and after](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png)
 
 1440p, scene size 75%:
 
-![1440p, before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/bugs/scene-viewport-163/ab_1440_75.jpg)
+![1440p, before and after](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png)
 
 #### Stuck on the Poké Ball wipe when leaving an area (#144)
 **What was wrong:** above 60 fps (or unlimited), leaving an area could leave the Poké Ball wipe half open with your controls locked.
@@ -903,7 +903,7 @@ message. Off by default.
 Shaders are no longer rebuilt in the background while you play. On a Steam Deck's 4 cores that work fought with the game itself.
 Measured on a Steam Deck OLED with this change alone:
 
-![Steam Deck fps before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/release/0.6.0/deck-rebuilds-off-fps.png)
+![Steam Deck fps before and after](https://raw.githubusercontent.com/Dittobyte/Recompia/main/docs/assets/screenshots/placeholder.png)
 
 #### Steam Deck and Linux: less stutter (not yet measured on a Deck)
 - No more hitch about once a second: reading a picture back from the GPU no longer pauses the game.

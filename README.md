@@ -57,12 +57,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Title screen</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Building your island</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>Title screen</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>Building your island</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
   </tr>
 </table>
 
