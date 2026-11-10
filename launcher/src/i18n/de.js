@@ -488,4 +488,9 @@ export default {
   'Updated to {version}': 'Aktualisiert auf {version}',
   'All Testing changes': 'Alle Testing-Änderungen',
   'OK': 'OK',
+  'Local connection': 'Lokale Verbindung',
+  'Invite Others to Visit': 'Andere zum Besuch einladen',
+  'Visit a Friend': 'Einen Freund besuchen',
+  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': 'Windows behandelt dieses Netzwerk als öffentlich, sodass andere PCs dich möglicherweise nicht erreichen. Stelle es unter Einstellungen > Netzwerk auf „Privat“.',
+  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': 'Wenn die Windows-Firewall nach diesem Programm fragt, erlaube es in privaten Netzwerken. Wurde einmal falsch geantwortet, entferne die Blockierungsregeln für das Programm unter Windows Defender Firewall > App zulassen.',
 };

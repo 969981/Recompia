@@ -488,4 +488,9 @@ export default {
   'Updated to {version}': '已更新到 {version}',
   'All Testing changes': '所有 Testing 更改',
   'OK': '确定',
+  'Local connection': '本地连接',
+  'Invite Others to Visit': '邀请他人来访',
+  'Visit a Friend': '拜访好友',
+  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': 'Windows 将此网络视为公用网络，因此其他电脑可能无法连接到你。请在“设置 > 网络”中将其设为专用。',
+  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': '如果 Windows 防火墙询问此程序，请在专用网络上允许它。如果曾经回答错误，请在“Windows Defender 防火墙 > 允许应用”中删除该程序的阻止规则。',
 };

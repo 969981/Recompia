@@ -488,4 +488,9 @@ export default {
   'Updated to {version}': 'Mis à jour vers {version}',
   'All Testing changes': 'Tous les changements Testing',
   'OK': 'OK',
+  'Local connection': 'Connexion locale',
+  'Invite Others to Visit': 'Inviter d\'autres joueurs à visiter',
+  'Visit a Friend': 'Rendre visite à un ami',
+  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': 'Windows traite ce réseau comme Public, d\'autres PC risquent donc de ne pas pouvoir vous joindre. Passez-le en Privé dans Paramètres > Réseau.',
+  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': 'Si le Pare-feu Windows pose une question sur ce programme, autorisez-le sur les réseaux privés. Si une mauvaise réponse a été donnée une fois, supprimez les règles de blocage du programme dans Pare-feu Windows Defender > Autoriser une application.',
 };

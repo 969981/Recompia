@@ -488,4 +488,9 @@ export default {
   'Updated to {version}': '{version}(으)로 업데이트했습니다',
   'All Testing changes': '모든 Testing 변경 사항',
   'OK': '확인',
+  'Local connection': '로컬 연결',
+  'Invite Others to Visit': '다른 사람을 초대하여 방문하기',
+  'Visit a Friend': '친구 방문하기',
+  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': 'Windows가 이 네트워크를 공용으로 취급하므로 다른 PC가 연결하지 못할 수 있습니다. 설정 > 네트워크에서 개인으로 바꾸세요.',
+  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': 'Windows 방화벽이 이 프로그램에 대해 물으면 개인 네트워크에서 허용하세요. 한 번 잘못 답했다면 Windows Defender 방화벽 > 앱 허용에서 이 프로그램의 차단 규칙을 제거하세요.',
 };

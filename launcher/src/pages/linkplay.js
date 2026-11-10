@@ -8,7 +8,7 @@ import { errText, esc, field, group, icon, row, segmented, toast, toggle } from 
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
-  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, pathParts,
+  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, lanNotice, pathParts,
   protocolEdits, readIni, relayPort, shownCode, storyEdits, uiFrom,
 } from '../linkplay-model.js';
 
@@ -106,7 +106,7 @@ export async function render(el, ctx) {
   function lanHtml() {
     if (!lan) return '';
     const notice = [lan.warning, lan.firewall_hint].filter(Boolean);
-    const note = notice.length ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(notice[0])}${notice[1] ? `<div>${esc(notice[1])}</div>` : ''}</div></div>` : '';
+    const note = notice.length ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(lanNotice(notice[0]))}${notice[1] ? `<div>${esc(lanNotice(notice[1]))}</div>` : ''}</div></div>` : '';
     const rows = addressRows(lan, HOST_PORT).map(addressRow);
     return note + group(t('This PC'), rows.length ? rows : [row(t('No address found'), '')]);
   }

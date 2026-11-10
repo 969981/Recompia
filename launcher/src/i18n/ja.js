@@ -488,4 +488,9 @@ export default {
   'Updated to {version}': '{version} に更新しました',
   'All Testing changes': 'Testingのすべての変更',
   'OK': 'OK',
+  'Local connection': 'ローカル接続',
+  'Invite Others to Visit': '他の人を招待して訪問してもらう',
+  'Visit a Friend': '友だちを訪問する',
+  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': 'Windowsはこのネットワークをパブリックとして扱っているため、他のPCから接続できない場合があります。設定 > ネットワークでプライベートに変更してください。',
+  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': 'Windowsファイアウォールがこのプログラムについてたずねたらプライベートネットワークで許可してください。誤って回答した場合は、Windows Defenderファイアウォール > アプリの許可 で、このプログラムのブロックルールを削除してください。',
 };
