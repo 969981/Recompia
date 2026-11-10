@@ -8,7 +8,10 @@
 namespace nxrt::games::pkp {
 namespace {
 
-// [nvn] readback_defer (#276): texture 286, 30x16 RGBA8 sRGB, one level and layer, which the game reads back about once a second.
+// [nvn] readback_defer (#276): the scene-colour probes, two 30x16 RGBA8 sRGB render targets (one level, one layer; ids 286 and 287 in our
+// logs) a draw pass reduces the scene image into. Once a second a timer (0x71010f5380) reads one back (ReadTexels then InvalidateTexels,
+// no fence), averages 288 of its 480 texels on the CPU and feeds the mean into a colour the consumer smooths by 0.1 a frame: data one read
+// period old only delays that tint by a second.
 constexpr game::ReadbackShape kReadbackDefer = {VK_FORMAT_R8G8B8A8_SRGB, 30, 16, 1, 1, 1};
 
 // The camera: the G-buffer pass (4+ colour targets, D24S8 depth, reversed-Z) binds its vertex shaders' block c3 at NVN vertex uniform

@@ -389,13 +389,15 @@ uint32_t pool_flags_at(uint64_t gpu_address);
 // True once download_texture copied the texture's image into game memory (the CPU reads it): [nvn] async_compute never skips a dispatch
 // that writes it (nvn_gpu_texture.cpp). Render thread; creates nothing.
 bool tex_was_read_back(Texture* t);
-// ---- readback ([nvn] readback_async, nvn_gpu.cpp / nvn_gpu_texture.cpp) -----------------------------------------------------------
+// ---- readback ([nvn] readback_async / readback_defer, nvn_gpu.cpp / nvn_gpu_texture_readback.cpp) ---------------------------------
 // Any thread but the render thread. queue_record: queue_submit without the GPU wait (returns the serial once the render thread recorded
 // the job). wait_serial_grace: up to grace_ns for the render thread to flush the serial itself, then wait_serial(serial, UINT64_MAX).
 uint64_t queue_record(std::function<void(struct Frame&)> record);
-uint64_t queue_post(std::function<void(struct Frame&)> record);   // [nvn] readback_defer: returns at once (the serial is reserved, not yet recorded)
-// Candidate-only deferred copies flush in queue order after recording, without a CPU/GPU wait or another present.
+// queue_readback_post: returns at once with the reserved serial; the render thread records the job in queue order and flushes the batch
+// right after it, so the copy reaches the GPU with no thread waiting for it (a deferred readback is never waited for, only polled).
 uint64_t queue_readback_post(std::function<void(struct Frame&)> record);
+// poll_readback_serial: the GPU timeline against the serial, a query only (nothing is flushed or waited for). Failed: no back end, no
+// serial, or the device is lost. progress ([nvn] readback_log): where the queue stands.
 enum class ReadbackPoll { Pending, Complete, Failed };
 struct ReadbackProgress { uint64_t reserved = 0, flushed = 0, submitted = 0, completed = 0; };
 ReadbackPoll poll_readback_serial(uint64_t serial, ReadbackProgress* progress = nullptr);

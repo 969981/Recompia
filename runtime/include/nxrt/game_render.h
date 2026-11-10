@@ -11,8 +11,10 @@
 
 namespace nxrt::game {
 
-// [nvn] readback_defer (#276, a diagnostic option): the one texture shape whose CPU reads may be served from the previous read while this
-// read's copy is queued. The texture id still comes from [nvn] readback_defer_texture; this is the shape it must have as well.
+// [nvn] readback_defer (#276): the one texture shape whose CPU reads (nvnTextureReadTexels) may be served from the previous read while this
+// read's copy is queued, so the reading thread never waits for the GPU. Name a small render target the game reads again and again and
+// whose consumer tolerates data one read period old (on the console these reads are plain memory reads that get whatever the GPU had
+// finished). Every image of this format, extent, level and layer count qualifies; a texture id would not, ids change between sessions.
 struct ReadbackShape {
     uint32_t vk_format = 0;                 // the host image's VkFormat (after the back end's format choice)
     uint32_t width = 0, height = 0, depth = 0;
