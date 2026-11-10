@@ -3,12 +3,21 @@
 // from the settings page; the sampler cache includes them in its key, so a change takes effect on the next draw without a restart.
 #pragma once
 #include <atomic>
+#include <cstdint>
 
 namespace nxrt::gfx {
+
+// Shadow map resolution (play settings [display] shadow_quality): the game's shadow maps (square power-of-two depth targets, which the render
+// scale leaves alone) are made this many times larger per side. Default: as the game draws them. Live: the maps are remade at the new size.
+enum class ShadowQuality : uint8_t { Default = 0, High, VeryHigh, Ultra, Extreme };
+inline float shadow_scale_of(ShadowQuality q) {
+    return q == ShadowQuality::Extreme ? 8.0f : q == ShadowQuality::Ultra ? 4.0f : q == ShadowQuality::VeryHigh ? 3.0f : q == ShadowQuality::High ? 2.0f : 1.0f;
+}
 
 struct Tuning {
     std::atomic<int> anisotropy{0};        // 0 = what the game's samplers ask for; 2, 4, 8, 16 = at least this much on every filtering sampler
     std::atomic<float> lod_bias{0.0f};     // added to the LOD bias of every sampler (negative = sharper)
+    std::atomic<float> shadow_scale{1.0f};  // shadow_scale_of(shadow quality): the NVN back end makes the game's shadow maps this many times larger per side
     std::atomic<float> render_scale{0.0f};  // the NVN back end's resolution scale from the game's play settings ([display] render_scale); 0 = not set
     // What the NVN back end presented last (its present path writes them every frame, the F1 page reads them): the game picture handed to the
     // output stage (the window texture's crop in rendered pixels, so the render scale is in it) and the size it is shown at (the swapchain

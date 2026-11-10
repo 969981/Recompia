@@ -392,6 +392,15 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
     static const bool reduced = config_get_bool("nvn", "reduced_precision", false);
     std::vector<uint32_t> reduced_words;
     if (reduced && spirv_reduced_precision(*code, reduced_words)) code = &reduced_words;
+    // [nvn] shadow_blur (default true): 3 x 3 samples for each shadow map sample when the map was made larger (spirv_shadow_blur)
+    static const bool shadow_blur = config_get_bool("nvn", "shadow_blur", true);
+    std::vector<uint32_t> blurred;
+    int blur_taps = 0;
+    if (shadow_blur && spirv_shadow_blur(*code, blurred, &blur_taps)) {
+        code = &blurred;
+        static std::atomic<int> logged{0};
+        if (logged++ < 4) NXLOG_I(kTag, "shadow_blur: shader %s: %d shadow map samples", what ? what : "?", blur_taps);
+    }
     static const bool init_outputs = config_get_bool("nvn", "init_outputs", true);
     std::vector<uint32_t> initialised;
     if (init_outputs && spirv_init_outputs(*code, initialised)) code = &initialised;

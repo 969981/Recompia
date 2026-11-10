@@ -183,6 +183,7 @@ void upscale_group(Page& p) {
             for (int i = 0; i < 5; ++i) {
                 if (ImGui::Selectable(kAaNames[i], i == aa) && i != aa) {
                     u.aa = static_cast<extras::AaMode>(i);
+                    quality_preset_edited(p.edit.display, QualityField::AntiAliasing);
                     mark(p);
                 }
             }

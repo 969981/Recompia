@@ -77,6 +77,13 @@ std::vector<SpvIntSlot> spirv_predict_int_inputs(const std::vector<uint32_t>& in
 // untouched) otherwise; the caller then uses spirv_add_outputs.
 bool spirv_gs_passthrough(const std::vector<uint32_t>& in, const std::vector<SpvOutputSlot>& slots, std::vector<uint32_t>& out);
 
+// A fragment shader that compares against a shadow map (OpImageSampleDref* with a 2D coordinate). The game's PCF takes 16 samples one texel of
+// the size it made the map with apart, each a bilinear 2x2 footprint. On a map made larger (S times, the support buffer's render_scale[1 + i])
+// the footprints no longer meet and the shadow edge shows bands. Each sample becomes, when S > 1, the average of 3 x 3 samples a third of
+// that texel (S / 3 / size) apart, centred on the coordinate; S = 1 (the map as the game made it): the sample as it was.
+// `taps` gets the number of samples changed. False (out untouched) when the module has no such sample or lacks what the patch needs.
+bool spirv_shadow_blur(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, int* taps = nullptr);
+
 // Moves the fragment output at Location 1 to Location 0, Index 1. False (out untouched) when the module has no such output.
 bool spirv_dual_source_output(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
 
