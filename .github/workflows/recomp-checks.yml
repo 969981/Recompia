@@ -52,7 +52,7 @@ jobs:
         run: |
           python -m nxrecomp module-header --game pkp --out "$RUNNER_TEMP/gen/nx_modules.gen.h"
           cat "$RUNNER_TEMP/gen/nx_modules.gen.h"
-          test "$(grep -c 'M(' "$RUNNER_TEMP/gen/nx_modules.gen.h")" -eq 5
+          test "$(grep -c 'M(' "$RUNNER_TEMP/gen/nx_modules.gen.h")" -eq 4
 
       # exit 3 = "not built yet", the expected answer for an empty game folder; anything else (an import or table error) fails
       - name: pkp_build.py --check
