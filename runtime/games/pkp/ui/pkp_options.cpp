@@ -277,7 +277,7 @@ const char* mouse_mode_text(int, char* out, size_t n) {
     std::snprintf(out, n, "%s", g_mm_shown.empty() ? mouse_mode_key_name(play::current_settings()).c_str() : g_mm_shown.c_str());
     return out;
 }
-int mouse_mode_max() { return 2 * kMmMid; }
+[[maybe_unused]] int mouse_mode_max() { return 2 * kMmMid; }   // the parked Mouse Mode Key row
 void set_mouse_mode_key(S& s, const play::InputId& in) {
     std::erase_if(s.bindings, [&](const play::Binding& b) { return b.act == play::Act::MouseMode || (b.in == in && b.ctx == play::Ctx::Play); });
     s.bindings.push_back(play::Binding{in, play::Ctx::Play, play::Act::MouseMode, play::Trig::Press, 0});
@@ -291,8 +291,11 @@ const Row kMouse[] = {
     choice("Invert Horizontal", "Moving the mouse left looks right.", kOffOn, 2, ROW_BOOL(mouse.invert_x)),
     choice("Mouse Pointer in Menus", "Use the mouse as a pointer: hover, click, right click, wheel.", kOffOn, 2, ROW_BOOL(mouse.menu_cursor)),
     names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, static_cast<uint8_t>(std::size(kPromptNames)), ROW_ENUM(prompts.style, play::PromptStyle)),
+    // parked with the Joy-Con 2 mouse mode (pkp_mouse_mode.cpp kMouseModeParked): put the row back when the mode returns
+#if 0
     dynamic("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). To change it, press left or right on this row (or click it), then press the new key or mouse button. Esc cancels.",
             mouse_mode_text, mouse_mode_max, [](const S&) { return kMmMid; }, [](S&, int) {}),
+#endif
 };
 
 const Row kController[] = {

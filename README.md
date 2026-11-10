@@ -92,7 +92,6 @@
 - **Any controller:** Xbox, PlayStation, Switch Pro and more, with rumble and motion. Buttons follow the Switch layout by default.
 - **Keyboard and mouse.** The mouse also works in menus: click to confirm the highlighted item; scroll or use the arrow keys to move the highlight.
 - **Change any button** on the F1 **Controls** page.
-- **Joy-Con 2 mouse mode** for placing and breaking blocks with a pointer: press the middle mouse button. Change the key in **Settings > Mouse > Mouse Mode Key** or on the F1 **Controls** page.
 - **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation, Steam Controller or Switch.
 - **Typing your name** works with a controller, mouse or keyboard.
 - **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or use **Quit game** in F1.
