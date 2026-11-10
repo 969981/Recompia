@@ -137,6 +137,7 @@ struct State {
     int64_t gap_ns = 0;                                   // host UTC - steady time (ns) when the clocks were last in step
     int64_t local_delta = 0, network_delta = 0, ephemeral_delta = 0;   // seconds added to host UTC per clock
     bool auto_correction = false;
+    bool scope_all = false;                               // [time] clock_scope = all: the network clocks follow the game clock's offset
     bool device_utc = false;                              // [time] zone = UTC
     bool hosts_ready = false;
     std::string host_name;
@@ -332,6 +333,7 @@ void init_locked(State& s) {
     s.local_delta = (offset_min < -kMaxOffsetMinutes ? -kMaxOffsetMinutes : offset_min > kMaxOffsetMinutes ? kMaxOffsetMinutes : offset_min) * 60;
     s.network_delta = 0;
     s.ephemeral_delta = 0;
+    s.scope_all = false;
     // [time] clock_scope (test key, default "user"): "all" moves the network and ephemeral network clocks by the same offset, for
     // game code that prefers the network clock. Anything else is "user" (the behaviour above).
     {
@@ -339,6 +341,7 @@ void init_locked(State& s) {
         if (scope != "user" && scope != "all")
             NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
         else if (scope == "all") {
+            s.scope_all = true;
             NXLOG_I("time", "time: [time] clock_scope = all: the network clocks are moved by the same offset as the game clock");
             if (s.local_delta) {
                 s.network_delta = s.local_delta;
@@ -779,6 +782,54 @@ void register_time() {
         add(name, [name, perm] { return make_static(name, perm); });
     }
 }
+
+// ---- the game clock, moved while the game runs -------------------------------------------------------------------------------
+// The same offset as [time] clock_offset, but set at run time (the Time tab of the in-game Options): the game sees it as the player setting
+// the console's date and time by hand, so it is told the clocks changed.
+namespace timetravel {
+int64_t offset() {
+    std::lock_guard<std::mutex> lk(mu());
+    return state_locked().local_delta;
+}
+int64_t real_now() { return host_unix_now(); }
+
+// The game's view of a unix time under the device zone rule. v = year, month, day, hour, minute, second.
+bool local_calendar(int64_t posix, int v[6]) {
+    std::lock_guard<std::mutex> lk(mu());
+    tz::CalendarTime cal{};
+    tz::CalendarAdditionalInfo info{};
+    if (!tz::to_calendar(device_rule(state_locked()), posix, &cal, &info)) return false;
+    v[0] = cal.year; v[1] = cal.month; v[2] = cal.day; v[3] = cal.hour; v[4] = cal.minute; v[5] = cal.second;
+    return true;
+}
+
+// The unix time of a date and time in the device zone (the inverse of local_calendar); false for one that does not exist.
+bool posix_of_local(int y, int mo, int d, int h, int mi, int64_t* out) {
+    std::lock_guard<std::mutex> lk(mu());
+    tz::CalendarTime cal{};
+    cal.year = static_cast<int16_t>(y); cal.month = static_cast<int8_t>(mo); cal.day = static_cast<int8_t>(d);
+    cal.hour = static_cast<int8_t>(h); cal.minute = static_cast<int8_t>(mi); cal.second = 0;
+    int64_t times[2] = {0, 0};
+    const int n = tz::to_posix(device_rule(state_locked()), cal, times);
+    if (n < 1 || n > 2) return false;
+    *out = times[0];
+    return true;
+}
+
+// Moves the game clock to `seconds` from the host clock (0 = real time), limited to +-10 years like [time] clock_offset.
+void set_offset(int64_t seconds) {
+    constexpr int64_t kMax = 10ll * 366 * 24 * 3600;
+    seconds = seconds < -kMax ? -kMax : seconds > kMax ? kMax : seconds;
+    std::lock_guard<std::mutex> lk(mu());
+    State& s = state_locked();
+    if (seconds == s.local_delta) return;
+    s.local_delta = seconds;
+    if (s.scope_all) s.network_delta = s.ephemeral_delta = seconds;
+    write_shm(s);
+    s.clock_event.signal();
+    NXLOG_I("time", "game clock: now %+lld s from the host clock (host %lld)", static_cast<long long>(seconds), static_cast<long long>(host_unix_now()));
+}
+}  // namespace timetravel
 
 void time_reset() {
     std::lock_guard<std::mutex> lk(mu());

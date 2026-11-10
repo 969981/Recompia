@@ -58,7 +58,8 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_key_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"
         "${_pkp}/ui/pkp_sort.cpp"
-        "${_pkp}/ui/pkp_craft.cpp")
+        "${_pkp}/ui/pkp_craft.cpp"
+        "${_pkp}/ui/pkp_time.cpp")
     if(NXRT_TESTTOOLS)
         target_sources(nxrt_game_pkp PRIVATE
             "${_pkp}/test/pkp_movie_test.cpp"
