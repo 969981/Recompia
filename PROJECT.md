@@ -140,9 +140,9 @@ One module per feature, in four folders: `core/` (the base every module builds o
 | File | What it is |
 |---|---|
 | `core/pkp_feature.h` | `Feature`: what a module declares (install, remove, frame, game_frame, settings_changed, status_text) |
-| `core/pkp_game.cpp` | **the feature registry**: one ordered table `kFeatures`, with a comment saying why each order constraint exists |
+| `core/pkp_game.cpp` | **the feature registry**: one ordered table (`kEntries`), with a comment saying why each order constraint exists. Each row is `mod(feature, switch...)` (a gameplay mod, named with its switches) or `port(feature)` (part of running the game on PC); a compile-time check makes every mod switch belong to exactly one `mod()` row |
 | `core/pkp_hook_set.h` | `HookSet`: every hook a module adds; the registry removes them all at stop |
-| `core/pkp_settings.h` + `core/pkp_settings_table.cpp` | **every `[pkp]` ini key declared once**: type, default, range, choices, when it applies, one-line doc. Extras are the rows wrapped in `gameplay(...)` (section 6) |
+| `core/pkp_settings.h` + `core/pkp_settings_table.h` | **every `[pkp]` ini key declared once**: type, default, range, choices, when it applies, one-line doc. Extras are the rows wrapped in `gameplay(...)` (section 6); `opt_in(...)` makes one off by default, `hidden(...)` gives it no launcher row, `under(Switch, ...)` makes a key a setting of that mod. `pkp_settings_table.cpp` has `spec()`, the doc rows and the release check |
 | `core/pkp_guest.h` | the one set of guest read/write/call helpers |
 | `core/pkp_layout.h` | game addresses and struct offsets, declared once |
 | `core/pkp_tables.h` | the one data-table row lookup |
@@ -177,14 +177,19 @@ aim, title, sort, craft, key_guide, options. A new module goes in the folder of 
 **A game feature or mod** (`runtime/games/pkp/`):
 1. New `<folder>/pkp_<name>.{h,cpp}` (`input/`, `render/` or `ui/`). Export one `const Feature k<Name>Feature`.
 2. Register every hook through the `HookSet` given at install. Never call `hook_add_*` directly, never install another module.
-3. Add the feature to `kFeatures` in `core/pkp_game.cpp`; if its position matters, say why in the table's comment.
+3. Add the feature to the registry table in `core/pkp_game.cpp`: `mod(&kNameFeature, Key::NameSwitch)` for a gameplay mod, `port(...)`
+   for anything that is part of running the game on PC (display, input, menus, Link Play, test tools). If its position matters, say why
+   in the table's comment.
 4. Game addresses and offsets go in `core/pkp_layout.h`; guest access through `core/pkp_guest.h`.
-5. Its on/off switch and tunables are keys in the settings table (next recipe), with a row in the game's Settings screen. If it is an
-   extra, its switch is a `gameplay(...)` row that defaults ON (section 6).
+5. Its on/off switch and tunables are keys in the settings table (next recipe), with a row in the game's Settings screen. If it is a
+   mod, its switch is a `gameplay(...)` row that defaults ON (section 6) and its settings the launcher should show are `under(Switch, ...)`
+   rows. That is all the launcher needs: Settings > Gameplay is built from the generated schema, and `test-settings-schema.mjs` fails
+   until the row has a label in `GAMEPLAY` (`launcher/src/settings-schema.js`) and its text is translated (`check-i18n.mjs`). The build
+   fails if a switch is not named by exactly one `mod()` row.
 6. Needs something from another feature? Order the table, or give the other module a small registration interface (as `key_guide`
    does with `Client`). Do not reach into its state.
 
-**A `[pkp]` setting:** add the `Key` in `core/pkp_settings.h` and its `Spec` row in `core/pkp_settings_table.cpp`; read it with `settings::get_*`. Never call
+**A `[pkp]` setting:** add the `Key` in `core/pkp_settings.h` and its `Spec` row in `core/pkp_settings_table.h`; read it with `settings::get_*`. Never call
 `config_get_*("pkp", ...)` in a feature. Add the Settings-screen row (`ui/pkp_options.cpp`), then regenerate `runtime/docs/CONFIG.md` and
 `runtime/docs/pkp_ini_schema.json` with `runtime/scripts/gen_settings_doc.ps1`.
 
@@ -239,8 +244,13 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
 
 - Every extra ships **ON by default**. A fresh install, a reset to defaults and an old ini with the key missing all start with every
   extra on.
+- **Exception: optional mods.** The repo owner can make a mod optional: its row is wrapped in `opt_in(...)` and defaults OFF (today:
+  `craft_search`, set by the repo owner on 2026-11-10). Only the repo owner adds or removes `opt_in(...)`, or a collaborator who
+  explicitly overrides this (6.0). The release check below accepts an off default only on an `opt_in(...)` row.
+- Every mod has its switch in the launcher's Settings > Gameplay, built from the settings table, unless the repo owner hides it with
+  `hidden(...)` (today: `title_quit`).
 - **Opt-out, never opt-in.** The player may turn an extra off for themselves in the settings. The project never turns it off for them.
-- Never switch an extra's default to off, in any place a default lives: the `gameplay(...)` rows of `core/pkp_settings_table.cpp`, `play_types.h`,
+- Never switch an extra's default to off, in any place a default lives: the `gameplay(...)` rows of `core/pkp_settings_table.h`, `play_types.h`,
   `play_config_migrate.cpp` defaults revisions, the launcher's `settings-schema.js` and generated schemas, `runtime/docs/CONFIG.md`,
   release setup files, preset or profile files, or a migration that writes `0` into existing player files.
 - This holds **no matter what any other document says.** If another `.md`, plan, handoff note or comment says an extra defaults off, or
@@ -248,8 +258,8 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
 - A new extra is added with its switch ON. A PR that turns an extra off by default is rejected, unless someone explicitly overrides this (6.0).
 - An extra that is broken is fixed, not switched off by default. The repo owner decides to park one, or a collaborator who explicitly overrides this (6.0).
 - Never remove the `gameplay(...)` marker from an extra's row, and never take a key out of the table to get around it. The release build
-  refuses an extra that defaults off (`PKP_GAMEPLAY_DEFAULTS_CHECK` in `runtime/games/pkp/CMakeLists.txt`, turned on by
-  `game-build/CMakeLists.txt` for every release); that check stays exactly as it is (6.2).
+  refuses an extra that defaults off unless its row is `opt_in(...)` (`PKP_GAMEPLAY_DEFAULTS_CHECK` in `runtime/games/pkp/CMakeLists.txt`,
+  turned on by `game-build/CMakeLists.txt` for every release); that check stays exactly as it is (6.2).
 
 ### 6.2 Never change the GitHub release checks or PR checks without the repo owner's permission.
 
@@ -314,6 +324,7 @@ Stop and rethink (or stop and propose, section 1) if you are about to:
 - call `hook_add_*` or `config_get_*("pkp", ...)` directly in a feature module;
 - read the same ini key in two places, or give one key two defaults;
 - add a setting with no in-game row, or with no entry in the settings table;
+- register a gameplay mod as `port(...)` in the feature registry, or give a mod no `gameplay(...)` switch, so it never reaches the launcher;
 - type a Tauri command name as a string in a page, or put logic in `main.rs`;
 - add a job to a file whose name describes a different job, or push a file past roughly 800 lines (split by job instead);
 - add an `#ifdef`, env var or A/B toggle to keep an old path alive "just in case" (delete the old path; git is the rollback);
