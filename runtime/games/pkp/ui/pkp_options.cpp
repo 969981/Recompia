@@ -66,6 +66,7 @@ constexpr uint64_t kListCap = 0x1012a60;      // inline at the bl that sizes the
 constexpr uint64_t kBarList = 0x10132a4;      // inline in the tab bar build: the three tabs are in the list (x0/x22 = list, x19 = parent, x21 = bar, w24 = mode)
 constexpr uint64_t kBarState = 0x10132d0;     // inline at the bl that picks the bar's layout for its tab count (x21 = bar, x9 = the table, w1 = the entry)
 constexpr uint64_t kBarIcons = 0x101334c;     // inline before the bar's icons are set (x21 = bar)
+constexpr uint64_t kClockText = 0xead978;     // (hour, minute, out): the time of day as text, in the layout of the game language (out holds 0x1000 bytes)
 constexpr uint64_t kBarTitle = 0xeb1b40;      // (bar, title byte): the title under the bar
 using layout::kChildOf;
 constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 0)
@@ -340,6 +341,10 @@ Shown shown_clock() {
 }
 #define TIME_ROW(k, off, hi) [](const S&) { return clamp_pos(shown_clock().v[k] - (off), (hi) + 1); }, [](S&, int) {}
 
+constexpr const char* kClockWords[3] = {"auto", "12h", "24h"};
+constexpr const char* kClockNames[4] = {"Game", "12 hour", "24 hour"};
+int clock_format_index(const std::string& f) { return f == "12h" ? 1 : f == "24h" ? 2 : 0; }
+
 const Row kTime[] = {
     choice("Time Travel", "Off: the game follows the real date and time. On: the game is set to the date and time below when you leave this screen.",
            kOffOn, 2, [](const S&) { return services::timetravel::offset() != 0 ? 1 : 0; }, [](S&, int) {}),
@@ -348,6 +353,8 @@ const Row kTime[] = {
     number("Day", "The day of the month (a day past the end of the month becomes its last day).", 0, 30, "%.0f", 1, 1, TIME_ROW(2, 1, 30)),
     number("Hour", "The hour of the day, 0 to 23.", 0, 23, "%.0f", 0, 1, TIME_ROW(3, 0, 23)),
     number("Minute", "The minute.", 0, 59, "%.0f", 0, 1, TIME_ROW(4, 0, 59)),
+    choice("Clock Notation", "How the game shows the time of day. Game: its language decides (English 12 hours with AM/PM, German 24 hours). A screen that is already open shows the new notation after you close it and open it again.", kClockNames, 3,
+           [](const S& s) { return clock_format_index(s.clock_format); }, [](S& s, int v) { s.clock_format = kClockWords[std::clamp(v, 0, 2)]; }),
 };
 
 std::vector<TimeEvent> g_events;               // what the Events tab shows, in row order (the labels point into it)
@@ -576,6 +583,20 @@ bool find_records(::Ctx* c) {
     return true;
 }
 
+// The game's time-of-day text. [tweaks] clock_format: 12h or 24h write the text here; auto leaves the language's own layout to the game.
+int hook_clock_text(::Ctx* c, uint64_t, void*) {
+    const std::string& f = play::current_settings().clock_format;
+    const int format = clock_format_index(f);
+    if (format == 0) return 0;
+    const int hour = static_cast<int>(c->x[0] & 0xffffffff) % 24, minute = static_cast<int>(c->x[1] & 0xffffffff) % 60;
+    const uint64_t out = c->x[2];
+    char text[40];
+    if (format == 2) std::snprintf(text, sizeof text, "%02d:%02d", hour, minute);
+    else std::snprintf(text, sizeof text, "%d:%02d<nbs2>%s", hour % 12 == 0 ? 12 : hour % 12, minute, hour < 12 ? "AM" : "PM");
+    for (size_t i = 0; i <= std::strlen(text); ++i) wr<uint8_t>(out + i, static_cast<uint8_t>(text[i]));
+    return 1;
+}
+
 int hook_open(::Ctx* c, uint64_t, void*) {
     const uint64_t child = c->x[0];
     if (!g.rec[0] && !find_records(c)) {
@@ -618,7 +639,7 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
     if (!g.active || c->x[0] != g.child) return 0;
     vector_to_store();
     if (c->x[1] & 1) {
-        if (std::memcmp(g.cur[kTimeTab], g.orig[kTimeTab], sizeof g.cur[kTimeTab]) != 0) apply_time_tab();
+        if (std::memcmp(g.cur[kTimeTab], g.orig[kTimeTab], 6 * sizeof(int)) != 0) apply_time_tab();
         S s = play::current_settings();
         if (build_settings(s)) play::apply_settings(s);   // main thread, next frame; also writes controls.ini
         std::memcpy(g.orig, g.cur, sizeof g.orig);
@@ -810,6 +831,7 @@ void frame(bool, double, play::GameFrame*) {
 }
 
 void install(const FeatureInstall& in) {
+    in.hooks.add_entry(in.base + kClockText, &hook_clock_text);   // clock_format works without the Settings tabs too
     if (!settings::get_bool(settings::Key::OptionsMenu)) return;
     const uint64_t base = in.base;
     g.base = base;

@@ -21,6 +21,7 @@ constexpr const char* kUpscaleQualityWords[] = {"native", "quality", "balanced",
 constexpr const char* kShadowWords[] = {"default", "high", "very_high", "ultra", "extreme"};   // [display] shadow_quality, indexed by gfx::ShadowQuality
 constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"};   // [upscale] aa, indexed by extras::AaMode
 constexpr const char* kLatencyWords[] = {"off", "auto", "on", "boost"};
+constexpr const char* kClockFormatWords[] = {"auto", "12h", "24h"};
 constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive"};
 constexpr const char* kAstcWords[] = {"fast", "high", "uncompressed"};
 constexpr const char* kFpsSnapWords[] = {"auto", "true", "false"};
@@ -214,6 +215,9 @@ const SettingDef kTable[] = {
 
     {ROW("tweaks", "language", Text), TEXT(language), .auto_word = "auto", .nxrt_key = "system.language",
      .doc = "The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start."},
+
+    {ROW("tweaks", "clock_format", Choice), TEXT(clock_format), .words = kClockFormatWords,
+     .doc = "How the game shows the time of day: auto (the game's language decides: 12 hours with AM/PM for English, 24 hours for German), 12h or 24h."},
 
     {ROW("pad", "label_abxy", Bool), FLAG(pad.label_abxy),
      .doc = "0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter."},

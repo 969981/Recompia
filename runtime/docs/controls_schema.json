@@ -15,7 +15,8 @@
         {"key": "wheel_cycles", "type": "bool", "default": "1", "doc": "Kept in the file; no action reads it since the cycle actions went. A game may rename the key."}
     ]},
     {"name": "tweaks", "keys": [
-        {"key": "language", "type": "text", "default": "auto", "auto": "auto", "overridden_by": {"ini": "system.language", "env": "NXRT_SYSTEM_LANGUAGE"}, "doc": "The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start."}
+        {"key": "language", "type": "text", "default": "auto", "auto": "auto", "overridden_by": {"ini": "system.language", "env": "NXRT_SYSTEM_LANGUAGE"}, "doc": "The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start."},
+        {"key": "clock_format", "type": "choice", "default": "auto", "choices": ["auto", "12h", "24h"], "doc": "How the game shows the time of day: auto (the game's language decides: 12 hours with AM/PM for English, 24 hours for German), 12h or 24h."}
     ]},
     {"name": "pad", "keys": [
         {"key": "label_abxy", "type": "bool", "default": "0", "doc": "0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter."},

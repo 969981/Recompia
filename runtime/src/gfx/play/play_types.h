@@ -272,6 +272,7 @@ struct Settings {
     OverlaySettings overlay;
     std::string language;          // [tweaks] language: a language name (AmericanEnglish, French ...) or "" = auto (the Windows language). Read by the
                                    // settings service at start-up (services/common.cpp); kept here so a save writes it back. Applies at the next start.
+    std::string clock_format = "auto";   // [tweaks] clock_format: "auto" (the game's language decides), "12h" or "24h". The game's clock text hook reads it.
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
     // [meta] defaults_rev: the factory-defaults revision the file was written with (0 when the file has no [meta]). When a file with
