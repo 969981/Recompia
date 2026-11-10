@@ -280,7 +280,19 @@ static float render_scale_now() {
 // The scale a texture gets when its image is made for a render target (after Ryujinx's TextureScaling rules): 2D colour or depth targets
 // of at least 32x32, not block-compressed, not pitch-linear, and not square powers of two (shadow
 // maps, LUTs). Everything else, and every texture first used another way, keeps the NVN size.
+// A shadow map: a square power-of-two depth target. The render scale leaves it alone; the shadow quality setting sizes it on its own.
+static bool is_shadow_map(const Texture& t) {
+    return t.fmt && t.fmt->aspect != kAspectColor && t.b.target == NVN_TEXTURE_TARGET_2D && t.b.width == t.b.height && t.b.width >= 256 &&
+           (t.b.width & (t.b.width - 1)) == 0 && !(t.b.flags & NVN_TEXTURE_FLAGS_LINEAR);
+}
+
 static float attachment_scale(const Texture& t) {
+    if (is_shadow_map(t)) {
+        const float ss = gfx::tuning().shadow_scale.load(std::memory_order_relaxed);   // live: tex_scale_wanted differs from the image's scale, the next pass remakes it
+        static int logged = 0;
+        if (logged++ < 8) NXLOG_I(kTag, "shadow map candidate: texture %u %s %ux%u (shadow scale %.0f)", t.id, t.fmt->name, t.b.width, t.b.height, ss);
+        return ss;
+    }
     const float sc = render_scale_now();
     if (sc == 1.0f) return 1.0f;
     const TextureBuilderInfo& b = t.b;
@@ -492,7 +504,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     // rescale (once a frame, as the texture kept wanting its scale)
     if (device().create_image(make_desc(s, g->format, g->usage, g->cflags ? g->cflags : base_flags(s, g->format)), &ni, &err) != VK_SUCCESS) {
         NXLOG_W(kTag, "texture %u: cannot remake it at %ux%u (%s): it keeps scale %.3f", t->id, s.base.width, s.base.height, err.c_str(), g->scale);
-        if (to == 1.0f) g->scale_blocked = true;
+        if (to == 1.0f || is_shadow_map(*t)) g->scale_blocked = true;   // not retried every pass (a shadow map too large for the GPU stays as it is)
         return false;
     }
     static int logged = 0;
@@ -535,7 +547,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     g->layout = nl;
     bump_gen(*g, -1);
     g->scale = to;
-    if (to == 1.0f) g->scale_blocked = true;
+    if (to == 1.0f && !is_shadow_map(*t)) g->scale_blocked = true;   // a shadow map goes back to 1 by choice and can be scaled again
     return true;
 }
 

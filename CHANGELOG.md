@@ -45,6 +45,13 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
   - Still not: bloom and other soft glow effects stay smooth on purpose
 
+- Added **Shadow quality**: sharper shadows (Settings (F1) > Graphics > **Shadow quality**, right under Texture anisotropy, or the game's Settings > **Shadow Quality**)
+  - Before: shadows were drawn from a 2048 x 2048 map, so their edges looked blocky up close
+  - Now: pick **High (2x)**, **Very High (3x)**, **Ultra (4x)** or **Extreme (8x)** to make the shadow maps that many times larger per side. It applies at once, no restart. Default is as the game draws them. Also `[display] shadow_quality = default | high | very_high | ultra | extreme`
+  - The game's soft shadow edge is made of 16 samples a texel of the original map apart; on a larger map the gaps between them showed as bands. With any option above Default each of those samples is now the average of 3 x 3 samples, which keeps the edge smooth. `[nvn] shadow_blur = false` turns that off
+  - **Quality preset** now sets it with the anti-aliasing: High gives High (2x) and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the others give Default and no anti-aliasing. Changing either by hand makes the preset Custom
+  - Still not: Ultra and Extreme use a lot of video memory (a 4x map is 128 MiB, an 8x one 512 MiB, and the game makes several); a size the GPU can't make leaves that map as the game made it
+
 ### Controls
 - Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
   - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar

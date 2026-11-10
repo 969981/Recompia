@@ -440,7 +440,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
 // read their scales after the fragment shader's (frag_scale_count). Storage images are never scaled (tex_rescale), so images read 1.
 void support_for_draw(const ProgLayout& pl, bool compute) {
     g_sets.draw_support = UploadAlloc();
-    if (render_scale() == 1.0f) return;
+    if (render_scale() == 1.0f && gfx::tuning().shadow_scale.load(std::memory_order_relaxed) == 1.0f) return;
     float sc[73];
     for (float& v : sc) v = 1.0f;
     int frag_count = 0;

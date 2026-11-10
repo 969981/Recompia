@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "nxrt/extras.h"
+#include "nxrt/gfx_tuning.h"
 
 namespace nxrt::play {
 
@@ -180,6 +181,7 @@ struct DisplaySettings {
     bool dynamic_resolution = false;   // the game's own dynamic resolution (it lowers the render size when the GPU is late)
     int anisotropy = 0;            // 0 = what the game's samplers ask for; 2, 4, 8 or 16 = at least that on every filtering sampler
     double lod_bias = 0;           // texture LOD bias added to every sampler (-2.0 .. 2.0; negative is sharper)
+    gfx::ShadowQuality shadow_quality = gfx::ShadowQuality::Default;   // the game's shadow maps made 2x, 3x, 4x or 8x larger per side (live)
     bool bloom = true;
     bool chromatic_aberration = true;
     // Games with quality hooks (play_game.h kDisplayOptQuality, live): the preset names the set of values last picked on the F1 page
@@ -196,7 +198,7 @@ struct DisplaySettings {
 
 // ---- quality presets ([display] quality_preset, the F1 Graphics page) ------------------------------------------------------------
 // The presets in the combo's order, "custom" last. The game's GamePlay::quality_preset hook writes their values. The picture presets
-// (switch2, high, ultra) set the texture LOD bias and anisotropy; the device presets (sets_frame) also set the render
+// (switch2, high, ultra) set the texture LOD bias, anisotropy, shadow quality and anti-aliasing; the device presets (sets_frame) also set the render
 // scale and the frame limit. Changing one of the values the current preset set makes it custom (quality_preset_edited).
 struct QualityPresetInfo {
     const char* id;       // the ini value, lowercase
@@ -206,7 +208,7 @@ struct QualityPresetInfo {
 };
 const QualityPresetInfo* quality_presets(int* count);              // all of them, custom last
 const QualityPresetInfo* find_quality_preset(const std::string& id);   // case-insensitive; nullptr for an unknown id
-enum class QualityField : uint8_t { LodBias, Anisotropy, RenderScale, FrameLimit };
+enum class QualityField : uint8_t { LodBias, Anisotropy, Shadows, AntiAliasing, RenderScale, FrameLimit };
 // The player changed `f` by hand: d.quality_preset becomes "custom" when the current preset set that value. True when it changed.
 bool quality_preset_edited(DisplaySettings& d, QualityField f);
 
