@@ -9,6 +9,8 @@
 //! `<key>.journal.<pid>`) was present before or after it and the folder listing (path, size, time) did not change meanwhile; otherwise it
 //! is thrown away and tried again a moment later. A backup that cannot be made is skipped quietly (the next tick tries again).
 
+use crate::fsutil::{copy_tree, file_stamp};
+use crate::saveimport::locate;
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 use serde::{Deserialize, Serialize};
@@ -95,15 +97,6 @@ pub struct Status {
 
 // ---- where ----------------------------------------------------------------------------------------------------------------------
 
-/// The runtime's save folder and the account folder the game uses for the active profile, from pkp.ini (the same rule as Import).
-pub fn locate(game_dir: &Path) -> (PathBuf, String) {
-    let ini = fs::read(game_dir.join(PKP_INI)).ok().map(|b| Ini::parse(&String::from_utf8_lossy(&b)));
-    let get = |s: &str, k: &str| ini.as_ref().and_then(|i| i.get(s, k)).unwrap_or_default();
-    let env = std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default();   // overrides the ini in the runtime, so here too
-    let sd = crate::saveimport::save_dir_of(game_dir, &if env.trim().is_empty() { get("fs", "save_dir") } else { env });
-    let key = crate::profiles::strict_save_key(game_dir).unwrap_or_else(|| crate::saveimport::target_key(&sd, &get("account", "uid")));
-    (sd, key)
-}
 
 fn root_of(game_dir: &Path, key: &str) -> PathBuf {
     game_dir.join(DIR).join(key)
@@ -150,20 +143,6 @@ fn listing(root: &Path) -> io::Result<Listing> {
     Ok(out)
 }
 
-fn copy_tree(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for e in fs::read_dir(src)? {
-        let e = e?;
-        let (from, to) = (e.path(), dst.join(e.file_name()));
-        if e.metadata()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
-            fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
-
 /// SHA-256 over every file (sorted by path) as path, length and bytes; the meta text is part of it. Also the totals.
 fn digest(data: &Path, meta: Option<&Path>) -> io::Result<(String, u64, u64)> {
     let mut h = Sha256::new();
@@ -186,7 +165,7 @@ fn digest(data: &Path, meta: Option<&Path>) -> io::Result<(String, u64, u64)> {
 }
 
 fn stamp(root: &Path, kind: &str) -> String {
-    let base = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let base = file_stamp();
     let first = format!("{}-{}", base, kind);
     if !root.join(&first).exists() {
         return first;

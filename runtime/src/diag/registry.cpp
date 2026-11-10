@@ -57,14 +57,6 @@ void diag_unregister_thread() {
     t_ctx = nullptr;
 }
 
-void diag_set_thread_ctx(::Ctx* ctx) {
-    t_ctx = ctx;
-    if (t_index != ~size_t(0)) {
-        std::lock_guard<std::mutex> lk(g_lock);
-        if (t_index < g_threads.size()) g_threads[t_index].ctx = ctx;
-    }
-}
-
 ::Ctx* diag_thread_ctx() { return t_ctx; }
 
 std::vector<ThreadRecord> diag_threads() {
@@ -116,11 +108,6 @@ std::vector<std::string> diag_recent_files() {
     size_t start = (g_files_next + kRing - g_files_count) % kRing;
     for (size_t i = 0; i < g_files_count; i++) out.push_back(g_files[(start + i) % kRing]);
     return out;
-}
-
-void diag_clear_recent_files() {
-    std::lock_guard<std::mutex> lk(g_files_lock);
-    g_files_next = g_files_count = 0;
 }
 
 }  // namespace nxrt

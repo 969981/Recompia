@@ -2,6 +2,7 @@
 //! Reads and edits the runtime's ini files next to pkp.exe. The key schema lives in the frontend;
 //! this side only moves `section.key` values in and out, with the careful editor in ini.rs.
 
+use crate::fsutil::{self, AtomicFail};
 use crate::ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -47,6 +48,12 @@ pub fn file_for(dir: &Path, which: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// pkp.ini as `section.key` -> value. A key that appears twice keeps its last value, which is what the runtime does (diag/config.cpp
+/// parse_ini overwrites), so every launcher reading of pkp.ini that must agree with the game goes through here.
+pub fn read_pkp(dir: &Path) -> HashMap<String, String> {
+    map_of(&load(&dir.join(PKP_INI)))
+}
+
 pub fn read(dir: &Path) -> SettingsDump {
     let pkp = load(&dir.join(PKP_INI));
     let controls = load(&dir.join(CONTROLS_INI));
@@ -59,12 +66,11 @@ pub fn read(dir: &Path) -> SettingsDump {
     }
 }
 
+/// Writes `text` over `path` through a temporary file (fsutil::write_atomic), with this module's wording for a failure.
 pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
-    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
-    fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        format!("cannot replace {}: {}", path.display(), e)
+    fsutil::write_atomic(path, text.as_bytes()).map_err(|fail| match fail {
+        AtomicFail::Write { tmp, error } => format!("cannot write {}: {}", tmp.display(), error),
+        AtomicFail::Replace { error } => format!("cannot replace {}: {}", path.display(), error),
     })
 }
 
@@ -278,6 +284,14 @@ mod reset_tests {
         let (changed, out) = run("");
         assert!(!changed);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn writers_of_one_file_do_not_share_a_temporary_name() {
+        let target = Path::new("some").join("x.ini");
+        let names: std::collections::HashSet<PathBuf> = (0..100).map(|_| fsutil::temp_beside(&target)).collect();
+        assert_eq!(names.len(), 100);
+        assert!(names.iter().all(|n| n.parent() == target.parent() && n.to_string_lossy().ends_with(".tmp")), "beside the target, so the rename stays on one volume");
     }
 }
 

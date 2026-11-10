@@ -9,10 +9,9 @@
 //       below), the two-phase search/cleanup walk of the guest stack over NxModule.eh, the personality routine's typeinfo
 //       matching, landing (x0 = _Unwind_Exception*, x1 = selector, callee-saved registers and SP of the landing frame), and
 //       nx_catch_call's setjmp frames. The guest's own libunwind/personality (__gxx_personality_v0) is never called.
-// The guest reaches the handlers in three ways, all equivalent: an HLE thunk by import name ("_Unwind_RaiseException", registered
-// by register_unwind_hle()), an entry hook on the guest function (hook_add_entry + hook_unwind_*), or a lifter function override
-// (game config `overrides`: guest address -> "nxrt_unwind_raise_exception", which the runtime exports as the extern "C" functions
-// h_nxrt_unwind_raise_exception etc. in src/eh/handlers.cpp).
+// The guest reaches the handlers in two ways, both equivalent: an HLE thunk by import name ("_Unwind_RaiseException", registered
+// by register_unwind_hle()), or a lifter function override (game config `overrides`: guest address -> "nxrt_unwind_raise_exception",
+// which the runtime exports as the extern "C" functions h_nxrt_unwind_raise_exception etc. in src/eh/handlers.cpp).
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -80,14 +79,12 @@ struct AbiLayout {
 AbiLayout abi_layout_llvm_new();                  // reserve word first
 AbiLayout abi_layout_llvm_old();                  // no reserve word
 void set_abi_layout(const AbiLayout& l);          // fixes the layout (no detection)
-void set_abi_autodetect();                        // forget the layout and detect it again at the next exception (the default state)
 const AbiLayout& abi_layout();                    // the layout in use (the newer one until an exception has been seen)
 
 // ---- the unwinder ------------------------------------------------------------------------------------------------------------
-// What is being thrown. The libc++abi front end (unwind_raise_exception) builds it from the _Unwind_Exception; the host-service
-// front end of the S1 end-to-end programs (oracle/e2e/progs/rt.h: raise(object, typeinfo) / resume(object)) builds it directly.
+// What is being thrown. The libc++abi front end (unwind_raise_exception) builds it from the _Unwind_Exception.
 struct Thrown {
-    uint64_t exc = 0;          // handed back to the landing pad in x0 (an _Unwind_Exception*, or the bare object in the legacy form)
+    uint64_t exc = 0;          // handed back to the landing pad in x0 (the _Unwind_Exception*)
     uint64_t type = 0;         // typeinfo of the thrown type; 0 = foreign exception (only catch(...) and cleanups act)
     uint64_t object = 0;       // address of the thrown object (the initial adjustedPtr)
     uint64_t header = 0;       // the _Unwind_Exception whose __cxa_exception fields get the handler info, 0 = write nothing
@@ -117,21 +114,9 @@ void unwind_forced_unwind(::Ctx* c);             // unsupported: logs once, retu
 // _Unwind_Resume_or_Rethrow, _Unwind_DeleteException, _Unwind_ForcedUnwind). Idempotent. Call before module_link_all() when an
 // import by those names must reach the runtime (module_override_symbol is applied for the first four).
 void register_unwind_hle();
-// Entry-hook functions (hooks.h SiteHookFn shape) for the guest functions that implement the same API in the recompiled program:
-// hook_add_entry(addr_of__Unwind_RaiseException, hook_unwind_raise_exception, nullptr), etc. They run the handler and return 1.
-int hook_unwind_raise_exception(::Ctx* c, uint64_t addr, void* user);
 int hook_unwind_resume(::Ctx* c, uint64_t addr, void* user);
 int hook_unwind_resume_or_rethrow(::Ctx* c, uint64_t addr, void* user);
 int hook_unwind_delete_exception(::Ctx* c, uint64_t addr, void* user);
-
-// The S1 end-to-end programs' form (progs/rt.h): x0 = object, x1 = typeinfo. A missing handler is std::terminate here (the guest
-// has no way to call it): terminate_process().
-void legacy_raise(::Ctx* c);
-void legacy_resume(::Ctx* c);
-
-// ---- catch frames ------------------------------------------------------------------------------------------------------------
-// nx_catch_call (ctx.h) is defined in src/eh/catch_call.cpp on top of these; they are exposed for tests and diagnostics.
-size_t catch_frame_depth();                       // catch frames live on the calling thread
 
 // ---- terminate and diagnostics -----------------------------------------------------------------------------------------------
 // Guest backtrace from the registers in `c` (pc = c->x[30], then the CFI chain): "#0 0x... module+off (symbol+off)" lines.
@@ -147,7 +132,6 @@ struct Stats {
     uint64_t raised = 0, resumed = 0, caught = 0, cleanups = 0, uncaught = 0, frames_walked = 0, catch_frame_landings = 0, resume_fn_landings = 0;
 };
 Stats stats();
-void stats_reset();
 
 }  // namespace nxrt::eh
 

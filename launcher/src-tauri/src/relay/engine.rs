@@ -820,7 +820,11 @@ impl Relay {
             let mut ev = 0;
             if !k.closing {
                 if k.st != St::Pair {
-                    ev |= poll::IN;
+                    // a host link answers every ping into `out`: while the host does not read those pongs it is not read either (as
+                    // a pair is not), so `out` stays bounded; it then goes silent and the idle timer closes it
+                    if k.out.len() < OUT_MAX {
+                        ev |= poll::IN;
+                    }
                 } else if let Some(p) = k.pair {
                     if self.k[p].out.len() < OUT_MAX {
                         let tok = k.tok + (now - k.tok_at) * self.c.link_bps / 1000;

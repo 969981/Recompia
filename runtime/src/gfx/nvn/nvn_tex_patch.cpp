@@ -11,6 +11,7 @@
 #include "astc2bc7.h"
 #include "nvn_core.h"
 #include "nvn_format.h"
+#include "nvn_fnv.h"
 #include "nvn_texture_layout.h"
 
 namespace nxrt::gfx {
@@ -149,11 +150,11 @@ int texture_patch_bc7_matching(const Bc7Match& m, const uint8_t* rgba, std::vect
     for (const nvn::be::Ref<Texture>& r : nvn::be::texture_registry_collect(pred, &want)) {
         Texture* t = r.get();
         if (checked) checked->push_back(t->id);
-        uint64_t hash = 0xcbf29ce484222325ull;   // FNV-1a 64 of the rectangle's blocks, row by row
+        uint64_t hash = nvn::be::kFnvBasis;   // FNV-1a 64 of the rectangle's blocks, row by row
         const bool read = with_level(t, 0, m.x, m.y, m.w, m.h, false, [&](uint8_t* lin, size_t stride) {
             for (uint32_t by = 0; by < m.h / 4; ++by) {
                 const uint8_t* row = lin + (m.y / 4 + by) * stride + static_cast<size_t>(m.x / 4) * 16;
-                for (size_t i = 0; i < static_cast<size_t>(m.w / 4) * 16; ++i) hash = (hash ^ row[i]) * 0x100000001b3ull;
+                for (size_t i = 0; i < static_cast<size_t>(m.w / 4) * 16; ++i) hash = nvn::be::fnv_step(hash, row[i]);
             }
         });
         if (read && hash == m.hash && patch(t, m.x, m.y, m.w, m.h, rgba, nullptr)) ++n;

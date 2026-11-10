@@ -26,7 +26,6 @@ struct ThreadRecord {
 // the crash handler. Returns the record index (handle for diag_unregister_thread).
 size_t diag_register_thread(const char* name, ::Ctx* ctx, uint64_t guest_tid = 0);
 void diag_unregister_thread();                 // the calling thread; closes its handle
-void diag_set_thread_ctx(::Ctx* ctx);          // the Ctx now running on this thread (call_guest nesting restores the old one)
 ::Ctx* diag_thread_ctx();                      // thread-local current Ctx or nullptr
 std::vector<ThreadRecord> diag_threads();      // snapshot of the registry (names, tids, Ctx only: host_handle is always null; use diag_threads_dup for a usable handle)
 // Like diag_threads, but every host_handle is a private duplicate made under the registry lock, so a thread that unregisters meanwhile cannot
@@ -38,7 +37,6 @@ void diag_threads_release(std::vector<ThreadRecord>& recs);   // closes the dupl
 // A ring of the last 32 file/dir opens of any thread, printed by the crash handler: what the game was loading.
 void diag_note_file(const char* what, const char* path);       // what: "open", "dir", "read", ...
 std::vector<std::string> diag_recent_files();                  // oldest first, "[tid] what path"
-void diag_clear_recent_files();
 
 // ---- crash handler -------------------------------------------------------------------------------------------------------
 struct CrashOptions {
@@ -51,7 +49,6 @@ struct CrashOptions {
 };
 // Installs SetUnhandledExceptionFilter (+ a vectored handler for stack overflow and guest traps 0xE0000001/2). Idempotent.
 void crash_install(const CrashOptions& opt = {});
-void crash_uninstall();
 // Builds the report text for an exception without terminating (also used by the self-test).
 // Layout (every section is always present, with "(none)" when it has nothing):
 //   HOST EXCEPTION 0x<code> at host address 0x<addr> on thread <name> (tid N)
@@ -69,8 +66,6 @@ std::string crash_build_report(void* exception_pointers /* EXCEPTION_POINTERS* *
 // The file the crash report goes to: the path given to crash_install, else "<exe name>_crash.txt" next to the exe ("" = no file). The memory guard
 // writes its report there too.
 std::string crash_report_path();
-// Number of exceptions the installed handler has turned into reports (tests).
-uint32_t crash_exceptions_reported();
 
 // ---- sampling profiler (S34) -----------------------------------------------------------------------------------------
 // `[prof] sample_hz` > 0 starts a thread that samples every registered thread's host stack, weighted by the CPU cycles the thread used; the
@@ -93,13 +88,11 @@ struct WatchdogOptions {
 };
 void watchdog_start(const WatchdogOptions& opt = {});
 void watchdog_stop();
-bool watchdog_running();
 void diag_progress();                  // a heartbeat that is not a frame: long work that is moving (texture transcodes on a cold cache) keeps the watchdog quiet
 void diag_frame_tick();                // call once per presented frame (or any heartbeat)
 void diag_frame_tick_nolisten();       // the same without calling the frame listener (the test tooling's own boundary)
 void diag_set_frame_listener(void (*fn)());   // called by diag_frame_tick after counting (test tooling's frame source "tick"); null removes it
 uint64_t diag_frame_count();
-uint32_t watchdog_fire_count();
 // Extra sections of the freeze dump and of the crash report: each function returns text (it must never block: the process may be frozen
 // or crashing; take locks with try_lock and say "(busy)"). Registered once at start-up. in_crash_report = false keeps a section out of the
 // crash report (one it already has, like the frame times).

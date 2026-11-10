@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// relay_server.h: the embedded relay, a port of launcher/src-tauri/src/relay/server.rs (same frames, room rules, UDP path and limits; the
-// semantics are documented in launcher/src-tauri/src/relay/mod.rs), and LAN discovery. Winsock.
+// relay_server.h: the embedded relay for the v3 protocol (frames in relay_wire.h, which is its only definition; the launcher's relay
+// speaks the different PKR1 protocol and does not interoperate), and LAN discovery. Winsock.
 #include "relay_server.h"
 
 #include "nxrt/host_device.h"
@@ -34,6 +34,7 @@
 
 #include "nxrt/log.h"
 #include "relay_wire.h"
+#include "win_sock.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
@@ -58,16 +59,6 @@ constexpr Key kNoKey{};
 constexpr char kDiscRequest[8] = {'P', 'K', 'P', 'D', 'I', 'S', 'C', '1'};
 constexpr char kDiscReply[8] = {'P', 'K', 'P', 'H', 'O', 'S', 'T', '1'};
 constexpr size_t kDiscReplyHdr = 20;   // magic 8 + nonce 8 + u16 port + u8 open rooms + u8 nickname length
-
-bool wsa_up() {   // one WSAStartup for the server's sockets, never undone (the server lives as long as the process)
-    static std::once_flag once;
-    static bool ok = false;
-    std::call_once(once, [] {
-        WSADATA wd;
-        ok = WSAStartup(MAKEWORD(2, 2), &wd) == 0;
-    });
-    return ok;
-}
 
 bool random_bytes(void* p, size_t n) {
     return BCRYPT_SUCCESS(BCryptGenRandom(nullptr, static_cast<PUCHAR>(p), static_cast<ULONG>(n), BCRYPT_USE_SYSTEM_PREFERRED_RNG));
@@ -877,7 +868,7 @@ struct RelayServer::Impl {
         size_t k = nick.size();
         if (k > kMaxNick) k = kMaxNick;
         if (k > n - kDiscReplyHdr) k = n - kDiscReplyHdr;
-        while (k && k < nick.size() && (static_cast<uint8_t>(nick[k]) & 0xC0) == 0x80) --k;   // not inside a UTF-8 sequence
+        k = text::utf8_cut(nick, k);   // not inside a UTF-8 sequence
         rep.push_back(static_cast<uint8_t>(k));
         rep.insert(rep.end(), nick.begin(), nick.begin() + static_cast<std::ptrdiff_t>(k));
         ::sendto(usock, reinterpret_cast<const char*>(rep.data()), static_cast<int>(rep.size()), 0, reinterpret_cast<const sockaddr*>(&from), sizeof from);
@@ -895,12 +886,12 @@ bool RelayServer::udp() const { return im_->usock != INVALID_SOCKET; }
 
 std::unique_ptr<RelayServer> RelayServer::start(const RelayServerOptions& opt, std::string* why, bool* in_use) {
     if (in_use) *in_use = false;
-    if (!wsa_up()) {
+    if (!ensure_winsock()) {
         if (why) *why = "Winsock unavailable";
         return nullptr;
     }
     // No SO_EXCLUSIVEADDRUSE: it fails the bind while connections of an earlier run sit in TIME_WAIT (a host restarting the game within a
-    // minute could not host); Windows' default already refuses a second bind over a live socket (the launcher relay binds the same way).
+    // minute could not host); Windows' default already refuses a second bind over a live socket.
     // Wine (Linux sockets): a listener bind fails on TIME_WAIT without SO_REUSEADDR, which there still refuses a live listener.
     auto bind_any = [&](SOCKET s, bool listener) {
         if (listener && host_is_wine()) {
@@ -1022,13 +1013,9 @@ std::vector<LocalAddr> local_ipv4() {
 
 std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
     std::vector<FoundRelay> out;
-    WSADATA wd;   // one WSAStartup per call, undone below (Winsock counts them)
-    if (WSAStartup(MAKEWORD(2, 2), &wd) != 0) return out;
+    if (!ensure_winsock()) return out;
     const SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s == INVALID_SOCKET) {
-        WSACleanup();
-        return out;
-    }
+    if (s == INVALID_SOCKET) return out;
     const BOOL on = TRUE;
     ::setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&on), sizeof on);
     BOOL off = FALSE;
@@ -1039,7 +1026,6 @@ std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
     any.sin_addr.s_addr = htonl(INADDR_ANY);
     if (::bind(s, reinterpret_cast<const sockaddr*>(&any), sizeof any) != 0) {
         ::closesocket(s);
-        WSACleanup();
         return out;
     }
     uint8_t req[kDiscoveryLen] = {};
@@ -1087,7 +1073,6 @@ std::vector<FoundRelay> discover_relays(uint16_t port, int wait_ms) {
         out.push_back(std::move(f));
     }
     ::closesocket(s);
-    WSACleanup();
     return out;
 }
 

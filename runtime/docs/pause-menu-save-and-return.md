@@ -10,9 +10,9 @@ The pause menu (the + button) has **Save and Quit**. The game itself only autosa
 - The label "Save and Quit" is not in this repository. It is game text, in the game's packed text archive (`LD_C0_R.BIN` with `LI_C0_R.IDX` in the romfs). There is no reader for that archive here.
 - The game ends its own run through the Switch system call `svcExitProcess`. The runtime logs the caller chain and ends the process (`runtime/src/kernel/svc_thread.cpp`, `svc_exit_process`). Whether "Save and Quit" goes through that call or only returns to the title screen is NOT confirmed. Issue #174 says it "forces you to go back to the main menu", which suggests the title screen, so the real quit may come later, from the title.
 - The runtime has its own quit paths that do not depend on the game's menu: F1 > Quit game, the `[quit]` key and pad shortcut, and closing the window (`runtime/src/gfx/play/play.cpp`, `quit_now`). So a "save and return" action can be added without removing a way to quit.
-- The game's menus are KTGL layouts. `runtime/games/pkp/pkp_menu.cpp` walks the layouts in use every frame, finds entries by pane name, and handles hover and click. `[pkp] menu_log = 2` lists the panes of the layouts on screen; `3` lists the layout chain once a second.
-- `runtime/games/pkp/pkp_options.cpp` (the in-game Options) already hooks the game's Settings screen, rewrites row text, and calls game functions by address. The offsets are for `main` of game version 2.0.1. The reverse-engineering notes behind them are not in this repository; the author may already know the pause menu.
-- The main menu opens with Escape (`btn_plus`) in the default keyboard bindings (`runtime/games/pkp/pkp_data.cpp`).
+- The game's menus are KTGL layouts. `runtime/games/pkp/ui/pkp_menu.cpp` walks the layouts in use every frame, finds entries by pane name, and handles hover and click. `[pkp] menu_log = 2` lists the panes of the layouts on screen; `3` lists the layout chain once a second.
+- `runtime/games/pkp/ui/pkp_options.cpp` (the in-game Options) already hooks the game's Settings screen, rewrites row text, and calls game functions by address. The offsets are for `main` of game version 2.0.1. The reverse-engineering notes behind them are not in this repository; the author may already know the pause menu.
+- The main menu opens with Escape (`btn_plus`) in the default keyboard bindings (`runtime/games/pkp/core/pkp_data.cpp`).
 
 ## What is not known
 1. The layout and pane names of the pause menu, and which pane is "Save and Quit".

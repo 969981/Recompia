@@ -23,7 +23,6 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
-#include "nxrt/tt.h"
 
 namespace nxrt {
 namespace {
@@ -36,8 +35,53 @@ const NameEntry kNames[] = {
 #undef NXRT_SVC
 
 SvcHandler g_handlers[kSvcCount];
-std::atomic<uint64_t> g_calls[kSvcCount];
 std::once_flag g_init_once;
+
+// SVC counts (the end-of-run summary, the kernel.svc_calls gauge). Every host thread counts into a block of its own with plain stores (no
+// locked instruction, no cache line shared with other threads); a reader sums all blocks. A block is never freed: when its thread ends it
+// goes back to the pool and the next new thread carries on counting in it, so the sums keep the calls of threads that have ended.
+struct SvcTally {
+    std::atomic<uint64_t> n[kSvcCount] = {};   // written only by the owning thread (relaxed load + store), read by anyone
+    std::atomic<bool> in_use{true};
+    SvcTally* next = nullptr;                  // set once, before the block is published
+};
+std::atomic<SvcTally*> g_tallies{nullptr};
+thread_local SvcTally* t_tally = nullptr;
+
+struct TallyRelease {
+    ~TallyRelease() {
+        if (!t_tally) return;
+        t_tally->in_use.store(false, std::memory_order_release);
+        t_tally = nullptr;
+    }
+};
+
+// The calling thread's block (its first SVC): a free one from the pool, else a new one.
+SvcTally* tally_acquire() {
+    thread_local TallyRelease release;         // hands the block back when the thread ends
+    (void)release;
+    for (SvcTally* t = g_tallies.load(std::memory_order_acquire); t; t = t->next) {
+        bool free_block = false;
+        if (!t->in_use.load(std::memory_order_relaxed) && t->in_use.compare_exchange_strong(free_block, true, std::memory_order_acquire))
+            return t_tally = t;
+    }
+    SvcTally* t = new SvcTally;
+    t->next = g_tallies.load(std::memory_order_relaxed);
+    while (!g_tallies.compare_exchange_weak(t->next, t, std::memory_order_release, std::memory_order_relaxed)) {}
+    return t_tally = t;
+}
+
+inline void count_svc(uint32_t number) {
+    SvcTally* t = t_tally ? t_tally : tally_acquire();
+    std::atomic<uint64_t>& c = t->n[number];
+    c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+}
+
+uint64_t svc_calls_of(uint32_t number) {
+    uint64_t n = 0;
+    for (const SvcTally* t = g_tallies.load(std::memory_order_acquire); t; t = t->next) n += t->n[number].load(std::memory_order_relaxed);
+    return n;
+}
 
 std::mutex g_unk_lock;
 std::map<uint32_t, SvcUnknownRecord> g_unknown;
@@ -97,15 +141,10 @@ void wait_site_record(::Ctx* c, uint32_t number, uint64_t req, uint64_t t0, uint
 }
 
 // ---- gauges (include/nxrt/gauge.h) ----
-// Removes its gauge when the file's statics are torn down (declared after the tables above, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { gauge_register(n, std::move(f)); }
-    ~GaugeHook() { gauge_unregister(name); }
-};
 GaugeHook gauge_svc_calls("kernel.svc_calls", [] {   // SVCs answered since start (all numbers)
     uint64_t n = 0;
-    for (auto& c : g_calls) n += c.load(std::memory_order_relaxed);
+    for (const SvcTally* t = g_tallies.load(std::memory_order_acquire); t; t = t->next)
+        for (const auto& c : t->n) n += c.load(std::memory_order_relaxed);
     return static_cast<int64_t>(n);
 });
 GaugeHook gauge_svc_unknown_kinds("kernel.svc_unknown_kinds", [] {   // distinct unknown SVC numbers seen (the map only grows)
@@ -133,6 +172,7 @@ void svc_init() {
         svc_register_info_group();
         svc_register_thread_group();
         svc_register_ipc_group();
+        diag_add_report(&kernel::sync_wait_report, false);   // the freeze dump: the guest threads blocked in kernel waits, after the thread dump
         size_t n = 0;
         for (auto* h : g_handlers) n += h != nullptr;
         NXLOG_I("svc", "%zu SVC handlers registered", n);
@@ -166,7 +206,9 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
 }
 
 namespace {
-std::atomic<void (*)()> g_busy_hook{nullptr};
+std::atomic<void (*)()> g_busy_hook{nullptr};   // see svc_set_busy_hook
+std::atomic<uint32_t> g_busy_tid{0};
+std::atomic<void (*)(::Ctx*)> g_observer{nullptr};
 
 // The hitch line's split of the game's presenting thread: time in system calls, and of it IPC (services, file reads) and waits.
 struct GameSvcTimer {
@@ -184,18 +226,23 @@ struct GameSvcTimer {
     GameSvcTimer& operator=(const GameSvcTimer&) = delete;
 };
 }
-void svc_set_busy_hook(void (*fn)()) { g_busy_hook.store(fn, std::memory_order_release); }
+void svc_set_busy_hook(uint32_t host_tid, void (*fn)()) {
+    g_busy_tid.store(host_tid, std::memory_order_relaxed);
+    g_busy_hook.store(fn, std::memory_order_release);
+}
+void svc_set_observer(void (*fn)(::Ctx*)) { g_observer.store(fn, std::memory_order_release); }
 
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     GameSvcTimer game_timer(number);
     if (kernel::KThread* self = kernel::current_thread()) {
-        self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);   // the starvation line
+        // the starvation line's "last ran on processor": sampled at every 16th SVC of the thread (and its first)
+        if ((self->nsvc & 15) == 0) self->last_proc.store(static_cast<int>(GetCurrentProcessorNumber()), std::memory_order_relaxed);
         self->nsvc++;                                                                                       // runs of yields (svc_thread.cpp)
     }
-    if (auto fn = g_busy_hook.load(std::memory_order_relaxed)) fn();
-    if (tt::detail::svc_every.load(std::memory_order_relaxed)) tt::detail::on_svc(c);      // test tooling: frame_source = svc:N
+    if (auto fn = g_busy_hook.load(std::memory_order_acquire); fn && GetCurrentThreadId() == g_busy_tid.load(std::memory_order_relaxed)) fn();
+    if (auto fn = g_observer.load(std::memory_order_relaxed)) fn(c);
     SvcHandler h = svc_handler(number);
-    if (number < kSvcCount) g_calls[number].fetch_add(1, std::memory_order_relaxed);
+    if (number < kSvcCount) count_svc(number);
     if (!h) {
         report_unknown(c, number, pc);
         c->x[0] = kernel::kNotImplemented;
@@ -220,34 +267,18 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     h(c);
 }
 
-std::vector<SvcUnknownRecord> svc_unknown_records() {
-    std::lock_guard<std::mutex> lk(g_unk_lock);
-    std::vector<SvcUnknownRecord> v;
-    for (auto& kv : g_unknown) v.push_back(kv.second);
-    return v;
-}
-
-uint64_t svc_unknown_total() { return g_unknown_total.load(); }
-uint64_t svc_call_count(uint32_t number) { return number < kSvcCount ? g_calls[number].load() : 0; }
-
-void svc_reset_counters() {
-    std::lock_guard<std::mutex> lk(g_unk_lock);
-    g_unknown.clear();
-    g_unknown_total = 0;
-    g_log_limit = -1;
-    for (auto& c : g_calls) c = 0;
-}
-
 std::string svc_summary() {
     uint64_t total = 0;
     size_t distinct = 0;
-    for (auto& c : g_calls)
-        if (c.load()) { total += c.load(); distinct++; }
-    std::string s = "svc: " + std::to_string(total) + " calls, " + std::to_string(distinct) + " distinct, " + std::to_string(g_unknown_total.load()) + " unknown";
     // The busiest three, so a guest spinning on one SVC shows which.
     std::vector<std::pair<uint64_t, uint32_t>> top;
     for (uint32_t n = 0; n < kSvcCount; n++)
-        if (const uint64_t k = g_calls[n].load()) top.emplace_back(k, n);
+        if (const uint64_t k = svc_calls_of(n)) {
+            total += k;
+            distinct++;
+            top.emplace_back(k, n);
+        }
+    std::string s = "svc: " + std::to_string(total) + " calls, " + std::to_string(distinct) + " distinct, " + std::to_string(g_unknown_total.load()) + " unknown";
     std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
     if (!top.empty()) {
         s += " (most:";

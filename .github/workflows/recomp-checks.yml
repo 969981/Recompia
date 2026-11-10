@@ -1,0 +1,65 @@
+# Checks the recompiler and the player-side build script on every pull request and push to main that touches recomp/,
+# game-build/release_b/ or this workflow. No game data is needed: byte-compile the lifter and pkp_build.py, import every lifter
+# module (with recomp/requirements.txt), print the game's build tables (python -m nxrecomp build-info, which CMake reads), and
+# run pkp_build.py --check in the package layout (tools/build/recomp next to it), which loads the same tables.
+name: Recompiler checks
+
+on:
+  pull_request:
+    paths:
+      - 'recomp/**'
+      - 'game-build/release_b/**'
+      - '.github/workflows/recomp-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'recomp/**'
+      - 'game-build/release_b/**'
+      - '.github/workflows/recomp-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recomp:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q recomp/nxrecomp recomp/games
+          python -m py_compile game-build/release_b/pkp_build.py game-build/release_b/fetch_dlss.py
+
+      - name: Lifter modules import
+        working-directory: recomp
+        run: |
+          python -m pip install -q -r requirements.txt
+          python -c "import importlib, pkgutil, nxrecomp; [importlib.import_module(m.name) for m in pkgutil.walk_packages(nxrecomp.__path__, 'nxrecomp.')]"
+
+      - name: Build tables
+        working-directory: recomp
+        run: python -m nxrecomp build-info --game pkp
+
+      # the C++ module list pkp_main.cpp and pkp_stub.cpp include (CMake and pkp_build.py both write it with nxrecomp.modheader)
+      - name: Module header
+        working-directory: recomp
+        run: |
+          python -m nxrecomp module-header --game pkp --out "$RUNNER_TEMP/gen/nx_modules.gen.h"
+          cat "$RUNNER_TEMP/gen/nx_modules.gen.h"
+          test "$(grep -c 'M(' "$RUNNER_TEMP/gen/nx_modules.gen.h")" -eq 5
+
+      # exit 3 = "not built yet", the expected answer for an empty game folder; anything else (an import or table error) fails
+      - name: pkp_build.py --check
+        run: |
+          ln -s ../../recomp game-build/release_b/recomp
+          set +e
+          python -I game-build/release_b/pkp_build.py --check --game "$RUNNER_TEMP/game"
+          rc=$?
+          set -e
+          test "$rc" -eq 3

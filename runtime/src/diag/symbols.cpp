@@ -3,6 +3,7 @@
 // "Publics by Value" and "Static symbols" entries, undecorates the MSVC names with dbghelp and resolves a host address
 // to the nearest preceding symbol. Only the main exe has a table; other modules are reported by name and offset.
 #include "nxrt/symbols.h"
+#include "nxrt/text.h"
 
 #include <windows.h>
 #include <dbghelp.h>
@@ -53,7 +54,8 @@ void install_table(std::shared_ptr<const Table> t) {
     g_table = std::move(t);
 }
 
-bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
+using text::is_space;
+using text::trim;
 
 struct Token {
     size_t pos;
@@ -70,12 +72,6 @@ std::vector<Token> tokenize(std::string_view line) {
         if (i > start) out.push_back({start, i - start});
     }
     return out;
-}
-
-std::string_view trim(std::string_view s) {
-    while (!s.empty() && is_space(s.front())) s.remove_prefix(1);
-    while (!s.empty() && is_space(s.back())) s.remove_suffix(1);
-    return s;
 }
 
 int hex_value(char c) {
@@ -317,8 +313,6 @@ size_t symbols_load_map_text(const std::string& text) {
     install_table(std::move(t));
     return n;
 }
-
-size_t symbols_count() { return current_table()->entries.size(); }
 
 SymbolInfo symbols_lookup(uint64_t host_addr) {
     SymbolInfo info;

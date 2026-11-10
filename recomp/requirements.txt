@@ -3,4 +3,3 @@
 # uv pip install --python tools\.venv -r recomp\requirements.txt
 capstone==5.0.9     # instruction decode for the tier-2 lifter and jump tables
 lz4                 # NSO segment decompression (nxrecomp/nso.py)
-pyelftools          # ELF reading (tools/analysis, tools/boot, tools/survey)

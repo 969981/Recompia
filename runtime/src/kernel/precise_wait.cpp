@@ -13,6 +13,7 @@
 #include "kernel_internal.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
+#include "nxrt/qpc.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 
@@ -38,16 +39,7 @@ bool read_flag(std::atomic<int>& f, const char* key) {
     return v != 0;
 }
 
-int64_t qpc_ns() {
-    static const int64_t f = [] {
-        LARGE_INTEGER q;
-        QueryPerformanceFrequency(&q);
-        return static_cast<int64_t>(q.QuadPart);
-    }();
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    return c.QuadPart / f * 1000000000 + c.QuadPart % f * 1000000000 / f;
-}
+int64_t qpc_ns() { return static_cast<int64_t>(qpc::now_ns()); }
 
 // The calling thread's waitable timer: high resolution when the OS has it, else a plain one (older Wine/Proton builds may refuse
 // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION; logged once per process). Null only when both fail.
@@ -70,11 +62,6 @@ HANDLE thread_timer() {
     return tl_timer.h;
 }
 
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_late("kernel.timer_late_us", [] { return g_late.load(std::memory_order_relaxed) / 1000; });
 }  // namespace
 
@@ -91,15 +78,8 @@ int64_t precise_late_update(int64_t late_ns, int64_t asked_ns, int64_t took_ns) 
     return next < 0 ? 0 : next > kLateMaxNs ? kLateMaxNs : next;
 }
 
-int64_t precise_late_ns() { return g_late.load(std::memory_order_relaxed); }
 bool precise_sleep_enabled() { return read_flag(g_sleep_on, "precise_sleep"); }
 bool precise_waits_enabled() { return read_flag(g_waits_on, "precise_waits"); }
-void set_precise_timing(int sleep, int waits) {
-    if (sleep >= 0) g_sleep_on.store(sleep ? 1 : 0);
-    if (waits >= 0) g_waits_on.store(waits ? 1 : 0);
-    if (sleep < -1) g_sleep_on.store(-1);   // -2: re-read the config at the next use
-    if (waits < -1) g_waits_on.store(-1);
-}
 
 bool precise_wait_ns(int64_t ns, void* wake_event) {
     const HANDLE ev = static_cast<HANDLE>(wake_event);

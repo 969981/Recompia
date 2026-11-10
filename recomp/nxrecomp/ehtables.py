@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Emit the NxEh unwind tables (nxrecomp/ctx.h) of a module: CFI rows and saved-register lists of every FDE, plus the
-C++ LSDA call sites, action records and type tables. The runtime's unwinder (or oracle/e2e/rt/eh_rt.c) walks the guest
+C++ LSDA call sites, action records and type tables. The runtime's unwinder walks the guest
 stack with these."""
 from . import eh as ehmod
 

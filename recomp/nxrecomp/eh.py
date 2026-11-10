@@ -3,13 +3,13 @@
 landing pads, action and type tables).
 
 What the lifter needs from it: the exact start and end of every function (the FDE list), the landing pads (they
-become resume entries of the lifted functions, see program.py), and, for the runtime's unwinder, per function the
+become resume entries of the lifted functions, see emit_function.py), and, for the runtime's unwinder, per function the
 rows "from pc: CFA = reg + off, register R saved at CFA + off" plus the call-site / action / type tables.
 
 Parsing follows the DWARF 5 and LSB .eh_frame specifications; the C++ LSDA layout is the Itanium C++ ABI's.
 The FDE walk through .eh_frame_hdr's table and the record layout are adapted from smo-recomp
 tools/extract/functions.py and ssbu-recomp tools/lifter/recomp_eh.py (both GPL-3.0-or-later); the CFA interpreter is
-new (checked against llvm-dwarfdump in oracle/e2e).
+new.
 """
 import struct
 from collections import namedtuple

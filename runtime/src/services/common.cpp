@@ -16,10 +16,9 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/services.h"
+#include "nxrt/text.h"
 #include "services_internal.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 
 namespace nxrt::services {
@@ -151,16 +150,8 @@ constexpr LangName kLangs[] = {
     {"BrazilianPortuguese", Language::BrazilianPortuguese, "pt-BR"},
 };
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) a++;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) b--;
-    return s.substr(a, b - a);
-}
+using text::lower;
+using text::trim;
 
 bool parse_language(const std::string& s, Language& out) {
     const std::string l = lower(trim(s));
@@ -244,7 +235,7 @@ std::string controls_language() {
     if (!GetFullPathNameA(rel.c_str(), MAX_PATH, full, nullptr)) return {};
     char buf[64] = {};
     GetPrivateProfileStringA("tweaks", "language", "", buf, sizeof buf, full);
-    return trim(buf);
+    return trim(std::string(buf));
 }
 
 uint32_t parse_language_mask(const std::string& s, uint32_t def) {

@@ -3,7 +3,7 @@
 // Design: an immutable snapshot (address -> hooks of each kind) published through an atomic pointer. Registration copies the snapshot,
 // edits the copy and publishes it; retired snapshots stay allocated until hooks_clear() because a guest thread may still be reading one.
 // The call path takes no lock. The site-list scheme the lifted callouts come from is ssbu-recomp's tools/lifter/relift_sites.py (via
-// recomp nxrecomp/program.py load_sites); nothing of ssbu's code is used here.
+// recomp nxrecomp/sites.py load_sites); nothing of ssbu's code is used here.
 #include "nxrt/hooks.h"
 
 #include <atomic>
@@ -100,13 +100,6 @@ bool hook_remove(uint32_t id) {
 size_t hook_count() {
     std::lock_guard<std::mutex> lk(g_write);
     return g_all.size();
-}
-
-size_t hook_count_at(uint64_t addr, HookKind kind) {
-    const Snapshot* s = g_snap.load(std::memory_order_acquire);
-    if (!s) return 0;
-    auto it = s->find(addr);
-    return it == s->end() ? 0 : chain_of(it->second, kind).size();
 }
 
 uint64_t hook_calls(uint32_t id) {

@@ -4,12 +4,12 @@
 // Play mode itself is the game-independent PC front end: the window, the SDL event pump, the frame limiter, the binding engine that turns
 // keys, mouse buttons and pads into Switch pad input, the menu pointer state, the F1 overlay and its settings file. What only makes sense for
 // one game goes through GamePlay: the hooks on that game's functions (raw mouse aim, camera look, lock-on, display options, menu widgets, the
-// tone curve), what the game's state says about the context (play, alternate body, inspect; mpr: gameplay, morph ball, scan) and its parts of the F1 page. A game without a
+// tone curve), what the game's state says about the context and its parts of the F1 page. A game without a
 // GamePlay table still gets a window, pad input, the frame limiter and the overlay; the context is then always the menu.
 //
 // Order at start (play.cpp start()): install_render (before the frame-boundary hook), the frame-boundary hook at frame_update, install.
 // Order at every frame boundary (main thread): settings_changed (when the page applied new settings), events, pads, frame_begin, the engine's
-// tick, frame (context and hints), then the menu pointer (menu_frame).
+// tick, frame (the context), then the menu pointer (menu_frame).
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -37,7 +37,6 @@ public:
     // counts gathered since the last frame boundary on the first call after it (pumping the window's events once more first), zero after that.
     virtual void input_tick(double* dx, double* dy) = 0;
     virtual void aim_applied(double dx, double dy) = 0;           // Stats: the aim used these counts
-    virtual double pitch_limit_deg() const = 0;                   // [play] pitch_limit_deg
     virtual bool log_status() const = 0;                          // [play] log_status
     virtual void request_quit_prompt() = 0;                       // opens the "Close the game?" prompt (overlay.h open_quit_prompt)
     // Rebinding from a game's own menu, the same capture as the settings page (play_ui.h UiHost): after begin_capture() the next key press,
@@ -52,10 +51,7 @@ public:
 // The game's answer at one frame boundary.
 struct GameFrame {
     float look_scale = 1.f;          // the gyro's pitch rate is multiplied by this before the game reads it
-    bool hints_valid = false;        // the cycle fields are meaningful
-    int cycle_index = -1;            // the selected set-A member in the bindings' numbering (SetA1..SetA4 = 0..3), -1 = unknown (mpr: the beam)
-    unsigned cycle_mask = 0;         // bit i = SetA<i+1> selectable (mpr: the beams owned)
-    Ctx play_ctx = Ctx::Play;    // the context while the game is in play (Play, Alt, Inspect)
+    Ctx play_ctx = Ctx::Play;        // the context while the game is in play
 };
 
 struct GameStatus {
@@ -99,8 +95,6 @@ struct GamePlay {
     void (*status_text)(char* buf, size_t n) = nullptr;
     // F1 page, Mouse tab: where = 0 after the sensitivity sliders, 1 after the invert boxes, 2 at the end. Returns true when edit changed.
     bool (*mouse_tab)(int where, Settings& edit) = nullptr;
-    // F1 page, Tweaks tab: the game's optional looks ([tweaks], play_tweaks.h). Returns true when edit changed; nullptr = no Tweaks tab.
-    bool (*tweaks_tab)(Settings& edit) = nullptr;
     // F1 page, Graphics tab (kDisplayOptQuality): writes a quality preset's values into d (the ids of quality_presets(), play_types.h; a
     // device preset also writes render_scale and fps_cap). False: unknown name.
     bool (*quality_preset)(const char* name, DisplaySettings& d) = nullptr;

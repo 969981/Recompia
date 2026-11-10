@@ -5,16 +5,17 @@
 // remote-memory path (CanBootWithRemoteMemory returns 1): nn::gsv (the GraphicsSupervisor TIPC session), nn::nvsrv and
 // nn::gpu::sdk boot the console GPU driver. nxrt implements NVN on the host (nvnBootstrapLoader), so no driver is needed: the
 // boot calls answer on the host and return, and the guest's graphics allocator registration still runs as game code.
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 
 #include "nxrt/abi.h"
 #include "nxrt/dispatch.h"
-#include "nxrt/extras.h"
 #include "nxrt/game.h"
 #include "nxrt/log.h"
 #include "nxrt/module.h"
 #include "nxrt/services_api.h"
+#include "nxrt/vi_sinks.h"
 #include "nxrt/video_codec.h"
 
 namespace nxrt {
@@ -110,13 +111,17 @@ void vi_get_native_window(::Ctx* c) {
 
 // nn::vi::SetLayerNext{Extended,Standard}ContentLuminanceRangeMetadata(Layer*, uint16_t min, uint16_t max): what the game declares about its
 // picture for an HDR TV (Pokopia: extended 0..400, standard 0..300 nits, from its graphics-system defaults, every time it makes the layer). The
-// values go to the HDR extras ([hdr] mode = native uses them); nn::Result 0.
+// values go to the HDR sink the graphics layer registered ([hdr] mode = native uses them; none: dropped); nn::Result 0.
+std::atomic<HdrLuminanceSink> g_hdr_sink{nullptr};
+void note_luminance(bool extended, ::Ctx* c) {
+    if (HdrLuminanceSink fn = g_hdr_sink.load(std::memory_order_acquire)) fn(extended, static_cast<uint16_t>(c->x[1]), static_cast<uint16_t>(c->x[2]));
+}
 void vi_layer_extended_luminance(::Ctx* c) {
-    extras::hdr_note_layer_luminance(true, static_cast<uint16_t>(c->x[1]), static_cast<uint16_t>(c->x[2]));
+    note_luminance(true, c);
     c->x[0] = 0;
 }
 void vi_layer_standard_luminance(::Ctx* c) {
-    extras::hdr_note_layer_luminance(false, static_cast<uint16_t>(c->x[1]), static_cast<uint16_t>(c->x[2]));
+    note_luminance(false, c);
     c->x[0] = 0;
 }
 
@@ -147,6 +152,8 @@ void vi_get_display_vsync_event(::Ctx* c) {
 void streamplay_native_window(::Ctx* c) { c->x[0] = reinterpret_cast<uint64_t>(g_native_window); }
 
 }  // namespace
+
+void set_hdr_luminance_sink(HdrLuminanceSink fn) { g_hdr_sink.store(fn, std::memory_order_release); }
 
 void install_switch2_hle() {
     if (game::info().platform != game::Platform::Switch2) return;

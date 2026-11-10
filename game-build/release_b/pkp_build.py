@@ -8,14 +8,19 @@ The package ships no game code. This script
   1. verifies the dump's ExeFS against dump_hashes.json (the supported build: sha256 of every module + main's build ID),
   2. lifts the four NSOs with the bundled lifter (recomp/nxrecomp) into <game>/build/lift,
   3. compiles the generated C++ with the bundled Zig (zig c++, mingw target) into <game>/build/obj, in parallel,
-  4. links pkp.exe = sdk/pkp_stub.cpp + the lifted objects + sdk/pkp_rt.lib (the runtime, pkp_rt.dll in the package),
-  5. deletes the generated sources and objects (unless --keep) and records the result in <game>/build/done.json.
+  4. archives the objects into one library per module in <game>/build/lib (kept after the build),
+  5. links pkp.exe = sdk/pkp_stub.cpp + the module libraries + sdk/pkp_rt.lib (the runtime, pkp_rt.dll in the package),
+  6. deletes the generated sources and objects (unless --keep) and records the result in <game>/build/done.json.
 
-The build stamp (state.json, done.json) is the dump (main build ID, module hashes) plus tool_stamp(): everything in this
-package that goes into pkp.exe (lifter sources, main.sites, compile flags, the SDK files with pkp_rt.lib). A release that
-changes any of them makes an older stamp stale: Set up then lifts, compiles and links again from scratch (the old pkp.exe
-stays until the new one is linked over it). --check compares <game>/build/done.json with this package's tools only (no
-dump check, well under a second) and prints one JSON line {"current": bool, "reason": text}; exit 0 current, 3 not.
+Stamps, one per stage. The library stamp (lib_stamp(): the dump's main build ID and module hashes, the lifter sources,
+the site lists, the module table, the compile flags and the compiler) is everything the module libraries are made from.
+state.json holds it for the lift and obj folders of a build in progress, lib/stamp.json for the finished libraries.
+A release that changes none of it (only the runtime or the SDK files) links again from the kept libraries: steps 2-4 are
+skipped. Any other change, a missing or unreadable stamp, or a stamp from an older release (another FORMAT or shape)
+lifts, compiles and links again from scratch (the old pkp.exe stays until the new one is linked over it).
+done.json is the full stamp (the dump plus tool_stamp(): everything in this package that goes into pkp.exe). --check
+compares it with this package's tools only (no dump check, well under a second) and prints one JSON line
+{"current": bool, "reason": text}; exit 0 current, 3 not.
 
 Object cache: every compiled object is also kept in <game>/build/objcache under a key of its source text, the generated headers,
 the lifter's include/ tree, the compiler and the flags (class ObjCache), so Set up again after a release that changes only some
@@ -46,24 +51,24 @@ SDK = os.path.join(HERE, 'sdk')
 # tools/linux/zig (PKP_ZIG overrides it); it cross-compiles the same x86_64-windows-gnu objects
 ZIG = (os.path.join(HERE, 'zig', 'zig.exe') if os.name == 'nt'
        else os.environ.get('PKP_ZIG') or os.path.join(os.path.dirname(HERE), 'linux', 'zig', 'zig'))
-FORMAT = 2          # bump when the build layout or the stamp changes: older builds (partial or done) are then started over
+FORMAT = 3          # bump when the build layout or the stamp changes: older builds (partial or done) are then started over
 # the lifter as game-build/scripts/make-release.ps1 ships it: paths under RECOMP, the same in the zip (tools/build/recomp/...)
 # and in the repo (recomp/...)
 LIFTER = ['nxrecomp', 'include/nxrecomp', 'games/pkp/CMakeLists.txt', 'games/pkp/config.py']
-SITES = 'games/pkp/main.sites'
 # what the link takes from sdk/ besides the lifted objects and pkp_rt.lib (stamped on its own, as 'runtime')
 SDK_FILES = ['pkp_stub.cpp', 'pkp_rt_api.h', 'pkp.rc', 'pkp.manifest']
 
-# name, NSO file, guest base, NxModule.index, translation units (as recomp/games/pkp/CMakeLists.txt)
-MODULES = [
-    ('main', 'main', 0x7100000000, 0, 230),
-    ('sdk', 'sdk', 0x7500000000, 1, 45),
-    ('subsdk0', 'subsdk0', 0x7600000000, 2, 4),
-    ('rtld', 'rtld', 0x7700000000, 3, 1),
-]
-# recomp/cmake/NxRecomp.cmake flags for the lifted code, in clang (not clang-cl) syntax
-CXXFLAGS = ['-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-std=c++20', '-O1', '-w', '-fno-exceptions', '-fno-rtti',
-            '-fno-strict-aliasing', '-ffp-contract=off', '-fno-threadsafe-statics']
+# the module table and the compile flags come from the bundled lifter, the same tables the developer build (CMake) reads:
+# recomp/games/pkp/config.py (modules) and recomp/nxrecomp/compile_flags.py (ZIG_MINGW)
+sys.path.insert(0, RECOMP)
+from nxrecomp import compile_flags, modheader   # noqa: E402
+from nxrecomp.config import load_game           # noqa: E402
+GAME = load_game('pkp')
+# name, NSO file, guest base, NxModule.index, translation units
+MODULES = [(m.name, m.source, m.base, i, m.shards) for i, m in enumerate(GAME.modules)]
+# site lists per module, as paths under RECOMP (main's main.sites)
+SITES = {m.name: 'games/pkp/' + m.sites for m in GAME.modules if m.sites}
+CXXFLAGS = compile_flags.ZIG_MINGW
 COMPILER = [ZIG, 'c++']                 # the compile command before the flags (tests put a fake one here)
 CACHE_MB = 3072                         # default size cap of <game>/build/objcache
 CREATE_NO_WINDOW = 0x08000000
@@ -118,8 +123,28 @@ def tree_hash(root, rels):
 
 def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
-    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, [SITES]), 'sdk': tree_hash(SDK, SDK_FILES),
-            'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES]}
+    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
+            'runtime': sha256(os.path.join(SDK, 'pkp_rt.lib')), 'cxxflags': CXXFLAGS, 'modules': [list(m) for m in MODULES],
+            'modheader': hashlib.sha256(modheader.render(GAME.modules).encode()).hexdigest()}
+
+
+def compiler_id():
+    """The compiler for stamps and cache keys: the file hash of each part of COMPILER that is a file (the bundled Zig)."""
+    return ','.join(sha256(c) if os.path.isfile(c) else c for c in COMPILER)
+
+
+def lib_stamp(want, tools, compiler):
+    """Everything the module libraries are made from: the stamp of the lift, compile and archive stages. The runtime and
+    the SDK files are not in it (they only go into the link)."""
+    stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'], 'compiler': compiler}
+    stamp.update((k, tools[k]) for k in ('lifter', 'sites', 'cxxflags', 'modules'))
+    return stamp
+
+
+def libs_current(lib, stamp):
+    """Whether lib/ holds every module library, archived under exactly this stamp."""
+    return read_json(os.path.join(lib, 'stamp.json')) == stamp and all(
+        os.path.isfile(os.path.join(lib, 'pkp_%s.a' % m[0])) for m in MODULES)
 
 
 def check(game):
@@ -258,7 +283,6 @@ class Runner:
 
 def lift(runner, exefs, gen, jobs):
     """One lifter process per module (the lifter itself runs `jobs` worker processes)."""
-    sites = os.path.join(RECOMP, 'games', 'pkp', 'main.sites')
     for k, (name, nso, base, index, shards) in enumerate(MODULES):
         out = os.path.join(gen, name)
         marker = os.path.join(out, '.lifted')
@@ -270,8 +294,8 @@ def lift(runner, exefs, gen, jobs):
         os.makedirs(out)
         args = ['lift', os.path.join(exefs, nso), out, '--name', name, '--base', hex(base), '--shards', str(shards),
                 '--jobs', str(jobs), '--game', 'pkp', '--index', str(index)]
-        if name == 'main':
-            args += ['--sites', sites]
+        if name in SITES:
+            args += ['--sites', os.path.join(RECOMP, *SITES[name].split('/'))]
         cmd = [sys.executable, '-I', os.path.abspath(__file__), '--lift-one', json.dumps(args)]
         rc, tail = runner.run(cmd, cwd=RECOMP)
         if rc != 0:
@@ -406,12 +430,11 @@ class ObjCache:
             pass
 
 
-def make_cache(folder, cap_mb):
-    """The object cache for this package's compiler and flags, or None when cap_mb is 0 or the compiler cannot be hashed."""
+def make_cache(folder, cap_mb, compiler):
+    """The object cache for this package's compiler (compiler_id()) and flags, or None when cap_mb is 0."""
     if cap_mb <= 0:
         return None
     try:
-        compiler = ','.join(sha256(c) if os.path.isfile(c) else c for c in COMPILER)
         return ObjCache(folder, cap_mb << 20, compiler, ' '.join(CXXFLAGS), tree_hash(RECOMP, ['include']))
     except OSError:
         return None
@@ -508,11 +531,15 @@ def clear_high_entropy_va(exe):
         f.write(dc.to_bytes(2, 'little'))
 
 
-def link(runner, obj, game, env):
-    progress('link', 0, 1, 'Linking pkp.exe')
-    libs = []
+def archive(runner, obj, lib, stamp, env):
+    """One library per module (lib/pkp_<name>.a) from the objects, then lib/stamp.json. The old stamp goes first and the
+    new one is written last, so a stop or failure in between leaves libraries that are never taken as current."""
+    os.makedirs(lib, exist_ok=True)
+    stamp_p = os.path.join(lib, 'stamp.json')
+    if os.path.isfile(stamp_p):
+        os.remove(stamp_p)
     for name, _, _, _, _ in MODULES:
-        a = os.path.join(obj, 'pkp_%s.a' % name)
+        a = os.path.join(lib, 'pkp_%s.a' % name)
         if os.path.isfile(a):
             os.remove(a)
         objs = sorted(os.path.join(obj, name, f) for f in os.listdir(os.path.join(obj, name)) if f.endswith('.o'))
@@ -524,9 +551,14 @@ def link(runner, obj, game, env):
         rc, tail = runner.run([ZIG, 'ar', 'rcs', a, '@' + rsp], env=env)
         if rc != 0:
             raise Fail('Archiving %s failed (exit %d):\n%s' % (name, rc, tail))
-        libs.append(a)
-    tmp = os.path.join(obj, 'pkp.exe')
-    cmd = [ZIG, 'c++', '-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-O1', '-fno-exceptions', '-fno-rtti', '-I', SDK,
+    write_json(stamp_p, stamp)
+
+
+def link(runner, lib, game, env):
+    libs = [os.path.join(lib, 'pkp_%s.a' % m[0]) for m in MODULES]
+    tmp = os.path.join(lib, 'pkp.exe')
+    modheader.write(GAME.modules, os.path.join(lib, 'gen', 'nx_modules.gen.h'))     # the module list pkp_stub.cpp includes
+    cmd = [ZIG, 'c++', '-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-O1', '-fno-exceptions', '-fno-rtti', '-I', SDK, '-I', os.path.join(lib, 'gen'),
            os.path.join(SDK, 'pkp_stub.cpp'), os.path.join(SDK, 'pkp.rc')] + libs + [os.path.join(SDK, 'pkp_rt.lib'),
            '-o', tmp, '-Wl,--stack,134217728', '-Wl,--subsystem,windows']
     rc, tail = runner.run(cmd, env=env, cwd=SDK)
@@ -550,7 +582,6 @@ def main():
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.lift_one:                       # child process: one lifter run (keeps the lifter's own pool out of this process)
-        sys.path.insert(0, RECOMP)
         from nxrecomp.__main__ import main as nx_main
         return nx_main(json.loads(a.lift_one)) or 0
     if a.check:
@@ -576,28 +607,48 @@ def main():
         if not os.path.isfile(ZIG):
             raise Fail('The bundled compiler is missing (%s). Extract the release zip again.' % ZIG)
         want = verify(a.exefs)
-        stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'], 'tools': tool_stamp()}
+        tools = tool_stamp()
+        stamp = {'format': FORMAT, 'main_build_id': want['main_build_id'], 'sha256': want['sha256'], 'tools': tools}
+        compiler = compiler_id()
+        libstamp = lib_stamp(want, tools, compiler)
         state_p = os.path.join(build, 'state.json')
-        # another dump or another release (or no readable state): start over. Removing lift/ drops the modules' .lifted
-        # markers too, so a changed lifter or main.sites lifts everything again, not only recompiles
-        if read_json(state_p) != stamp:
+        # the lift and obj folders belong to the library stamp in state.json: another dump, lifter, flags or compiler (or no
+        # readable state, or one from an older release) starts them over. Removing lift/ drops the modules' .lifted markers
+        # too, so a changed lifter or main.sites lifts everything again, not only recompiles
+        if read_json(state_p) != libstamp:
             for d in ('lift', 'obj'):
                 shutil.rmtree(os.path.join(build, d), ignore_errors=True)
-            write_json(state_p, stamp)
+            write_json(state_p, libstamp)
         times['verify'] = round(time.time() - t0, 1)
         runner = Runner(cancel_file)
         env = dict(os.environ)
         env['ZIG_GLOBAL_CACHE_DIR'] = os.path.join(build, 'zig-cache')
         env['ZIG_LOCAL_CACHE_DIR'] = os.path.join(build, 'zig-cache')
-        gen, obj = os.path.join(build, 'lift'), os.path.join(build, 'obj')
+        gen, obj, lib = os.path.join(build, 'lift'), os.path.join(build, 'obj'), os.path.join(build, 'lib')
+        reuse = libs_current(lib, libstamp)
+        if reuse:                        # only the runtime or the SDK files changed: link the kept libraries again
+            progress('lift', len(MODULES), len(MODULES), 'Game code unchanged')
+            progress('compile', 1, 1, 'Game code unchanged')
+        else:
+            t = time.time()
+            lift(runner, a.exefs, gen, a.jobs)
+            times['lift'] = round(time.time() - t, 1)
+            t = time.time()
+            compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(build, 'objcache'), a.cache_mb, compiler))
+            times['compile'] = round(time.time() - t, 1)
         t = time.time()
-        lift(runner, a.exefs, gen, a.jobs)
-        times['lift'] = round(time.time() - t, 1)
-        t = time.time()
-        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(build, 'objcache'), a.cache_mb))
-        times['compile'] = round(time.time() - t, 1)
-        t = time.time()
-        exe = link(runner, obj, game, env)
+        progress('link', 0, 1, 'Linking pkp.exe')
+        if not reuse:
+            archive(runner, obj, lib, libstamp, env)
+        try:
+            exe = link(runner, lib, game, env)
+        except Fail:
+            if reuse:                    # a kept library may be damaged: the next Set up builds them again
+                try:
+                    os.remove(os.path.join(lib, 'stamp.json'))
+                except OSError:
+                    pass
+            raise
         times['link'] = round(time.time() - t, 1)
         if not a.keep:
             progress('finish', 0, 1, 'Removing the build files')

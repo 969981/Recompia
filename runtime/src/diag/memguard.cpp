@@ -229,13 +229,4 @@ void memguard_stop() {
     g_thread.join();
 }
 
-bool memguard_running() {
-    std::lock_guard<std::mutex> ctl(g_ctl);
-    return g_thread.joinable();
-}
-
-uint64_t memguard_peak() { return g_peak.load(); }
-
-bool memguard_tripped() { return g_tripped.load(); }
-
 }  // namespace nxrt

@@ -25,8 +25,5 @@ uint64_t memguard_footprint_host();  // memguard_footprint() minus the discount 
 double memguard_limit_gb(const char* env_text);   // positive number or 8.0
 void memguard_start(const MemGuardOptions& opt = {});
 void memguard_stop();                // joins the guard thread
-bool memguard_running();
-uint64_t memguard_peak();            // highest footprint seen by the guard
-bool memguard_tripped();             // on_exceed has fired
 
 }  // namespace nxrt

@@ -29,6 +29,9 @@ class SpatialUpscaler;
 // The upscaler of the current mode for in -> out (created on first use; gfx_device is the gfx::Device of the NVN back end). NIS covers 1x to 2x per side;
 // beyond that, or when NIS failed to start, FSR 1 is used.
 SpatialUpscaler* scene_upscaler(void* gfx_device, VkExtent2D in, VkExtent2D out);
+// SMAA on the HDR scene ([upscale] aa, live): the replay runs it on the scene the tone-map draw reads, so only the 3D picture is filtered.
+class SmaaScene;
+SmaaScene* scene_smaa(void* gfx_device);              // created on first use; null when it failed to start
 float scene_upscale_prescale();                       // pre-exposure scene colour is about 10x smaller than the display-referred range
 
 }  // namespace nxrt::extras

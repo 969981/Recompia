@@ -29,12 +29,6 @@ std::atomic<uint64_t> g_next_id{0x50};
 thread_local KThread* t_self = nullptr;
 thread_local std::shared_ptr<KThread> t_keepalive;   // released explicitly before ExitThread (which skips destructors)
 
-// Removes its gauge when the file's statics are torn down (declared after g_all, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 // Thread objects in the list: live threads plus exited ones that something still refers to (a game handle, a waiter). thread_create drops the
 // exited, unreferenced ones, and kernel_reset() drops all of them.
 GaugeHook gauge_threads("kernel.threads", [] {
@@ -203,14 +197,6 @@ std::vector<std::shared_ptr<KThread>> threads() {
     auto v = g_all;
     ReleaseSRWLockShared(&g_list_lock);
     return v;
-}
-
-bool thread_join(uint32_t handle, uint32_t timeout_ms) {
-    auto t = handle_as<KThread>(handle);
-    if (!t || !t->started) return true;
-    HANDLE h = static_cast<HANDLE>(t->host_handle);
-    if (!h) return true;
-    return WaitForSingleObject(h, timeout_ms) == WAIT_OBJECT_0;
 }
 
 uint64_t thread_count_running() {

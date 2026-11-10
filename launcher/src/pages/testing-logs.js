@@ -1,19 +1,20 @@
 // The Testing tab's log tools: send (export a redacted zip, open the folder and the bug form) and the viewer. The Rust side is testlogs.rs.
-import { api, confirm, errText, esc, icon, toast } from '../ui.js';
+import { api } from '../api.js';
+import { confirm, errText, esc, icon, toast } from '../ui.js';
 import { REPORT_URL, fileLabel, filterLines, sizeText, zipName } from '../testing-model.js';
 
-const open = (url) => api('open_release_url', { url });
+const open = (url) => api.openReleaseUrl({ url });
 
 /** Exports the logs, then shows the folder and the bug form and says what to drag where. Nothing is uploaded from the launcher. */
 export async function sendLogs(version) {
   let ex;
   try {
-    ex = await api('testing_logs_export', { version });
+    ex = await api.testingLogsExport({ version });
   } catch (e) {
     toast(errText(e), 'error');
     return;
   }
-  await api('testing_logs_open_dir').catch((e) => console.warn(e));
+  await api.testingLogsOpenDir().catch((e) => console.warn(e));
   await confirm({
     title: 'Your logs are ready',
     html: `<p><code>${esc(zipName(ex.path))}</code> (${sizeText(ex.bytes)}) is in the folder that just opened. Names in paths, account and server settings and IP addresses were removed.</p>
@@ -25,7 +26,7 @@ export async function sendLogs(version) {
 
 /** A window with the end of each log, a filter and a copy button. Reads through testing_log_read, which redacts like the export. */
 export async function viewLogs() {
-  const files = await api('testing_logs_list');
+  const files = await api.testingLogsList();
   if (!files.length) {
     toast('There are no logs yet. Start the game once, then look again.', 'error');
     return;
@@ -52,7 +53,7 @@ export async function viewLogs() {
       };
       const load = async () => {
         try {
-          const t = await api('testing_log_read', { name: $('#logv-file').value });
+          const t = await api.testingLogRead({ name: $('#logv-file').value });
           text = t.text;
           $('#logv-note').textContent = t.truncated ? 'Showing the end of the file. The export keeps the end too.' : '';
         } catch (e) {

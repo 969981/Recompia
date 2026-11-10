@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "extras/vk_make.h"
 #include "nxrt/log.h"
 #include "vk_gauges.h"
 
@@ -35,16 +36,6 @@ void image_barrier(VkCommandBuffer cb, VkImage img, VkImageLayout from, VkImageL
     vkCmdPipelineBarrier2(cb, &di);
 }
 
-VkShaderModule make_module(VkDevice d, const uint32_t* code, size_t bytes) {
-    VkShaderModuleCreateInfo mi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    mi.codeSize = bytes;
-    mi.pCode = code;
-    VkShaderModule m = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(d, &mi, nullptr, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
-    vk_gauge_shader_modules().add(1);
-    return m;
-}
-
 }  // namespace
 
 bool OverlayComposite::init(gfx::Device& dev) {
@@ -57,13 +48,7 @@ bool OverlayComposite::init(gfx::Device& dev) {
         return false;
     };
 
-    VkSamplerCreateInfo sci = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
-    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sci.maxLod = 0.0f;
-    if (vkCreateSampler(d, &sci, nullptr, &linear_) != VK_SUCCESS) return fail("overlay sampler");
-    vk_gauge_samplers().add(1);
+    if (!make_clamp_sampler(d, VK_FILTER_LINEAR, &linear_)) return fail("overlay sampler");
 
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo li = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -81,13 +66,7 @@ bool OverlayComposite::init(gfx::Device& dev) {
     if (vkCreatePipelineLayout(d, &pli, nullptr, &layout_) != VK_SUCCESS) return fail("overlay pipeline layout");
     vk_gauge_pipeline_layouts().add(1);
 
-    const VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetRing};
-    VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    dpi.maxSets = kSetRing;
-    dpi.poolSizeCount = 1;
-    dpi.pPoolSizes = &ps;
-    if (vkCreateDescriptorPool(d, &dpi, nullptr, &pool_) != VK_SUCCESS) return fail("overlay descriptor pool");
-    vk_gauge_descriptor_pools().add(1);
+    if (!make_sampler_pool(d, kSetRing, &pool_)) return fail("overlay descriptor pool");
     VkDescriptorSetLayout ls[kSetRing];
     for (auto& x : ls) x = set_layout_;
     VkDescriptorSetAllocateInfo ai = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};

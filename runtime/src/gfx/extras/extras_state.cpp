@@ -10,21 +10,20 @@
 
 #include "nxrt/config.h"
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 #include "extras/hdr_math.h"
 
 namespace nxrt::extras {
 namespace {
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 std::mutex g_mu;
 Settings g_settings;
 bool g_settings_set = false;
 std::atomic<int> g_upscale_mode{-1};          // -1: not read yet
 std::atomic<float> g_upscale_sharp{0.8f};
+std::atomic<int> g_aa_mode{0};
 std::atomic<int> g_scene_scale{100};
 std::atomic<float> g_scene_fx{1.0f}, g_scene_fy{1.0f};   // scene_fraction
 std::atomic<int> g_upscale_quality{static_cast<int>(UpscaleQuality::Quality)};
@@ -66,12 +65,12 @@ Settings settings_from_config() {
     s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
                       : uq == "performance" ? UpscaleQuality::Performance : uq == "ultra_performance" || uq == "ultraperformance" ? UpscaleQuality::UltraPerformance
                       : uq == "custom" ? UpscaleQuality::Custom : UpscaleQuality::Quality;
+    const std::string aa = lower(config_get_str("upscale", "aa", "off"));
+    s.upscale.aa = aa == "smaa_low" ? AaMode::SmaaLow : aa == "smaa_medium" ? AaMode::SmaaMedium : aa == "smaa_high" ? AaMode::SmaaHigh : aa == "smaa_ultra" ? AaMode::SmaaUltra : AaMode::Off;
     s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", 0.8), 0.0, 1.0);
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");
     s.upscale.dlss_dll = config_get_str("upscale", "dlss_dll", "");
-    s.upscale.xess_dll = config_get_str("upscale", "xess_dll", "");
-    s.upscale.frame_generation = config_get_bool("upscale", "frame_generation", false);
 
     const std::string lm = lower(config_get_str("latency", "mode", "off"));
     s.latency.mode = lm == "auto" ? LatencyMode::Auto : lm == "on" || lm == "1" || lm == "true" ? LatencyMode::On : lm == "boost" ? LatencyMode::Boost : LatencyMode::Off;
@@ -96,6 +95,7 @@ Settings settings() {
         g_settings_set = true;
         g_upscale_mode.store(static_cast<int>(g_settings.upscale.mode));
         g_upscale_sharp.store(static_cast<float>(g_settings.upscale.sharpness));
+        g_aa_mode.store(static_cast<int>(g_settings.upscale.aa));
         g_scene_scale.store(g_settings.upscale.scene_scale);
         g_upscale_quality.store(static_cast<int>(g_settings.upscale.quality));
         set_picture_live(g_settings.picture);
@@ -111,6 +111,7 @@ void set_settings(const Settings& in) {
     g_settings_set = true;
     g_upscale_mode.store(static_cast<int>(s.upscale.mode));
     g_upscale_sharp.store(static_cast<float>(s.upscale.sharpness));
+    g_aa_mode.store(static_cast<int>(s.upscale.aa));
     g_scene_scale.store(s.upscale.scene_scale);
     g_upscale_quality.store(static_cast<int>(s.upscale.quality));
     set_picture_live(s.picture);
@@ -155,6 +156,11 @@ UpscaleMode upscale_mode() {
 }
 
 float upscale_sharpness() { return g_upscale_sharp.load(std::memory_order_relaxed); }
+
+AaMode aa_mode() {
+    upscale_mode();      // reads the settings once
+    return static_cast<AaMode>(g_aa_mode.load(std::memory_order_relaxed));
+}
 
 int upscale_scene_scale() {
     upscale_mode();      // reads the settings once

@@ -41,6 +41,18 @@ private:
     std::atomic<int64_t> v_{0};
 };
 
+// A callback gauge tied to the lifetime of a namespace-scope static: registered when the static is built, removed when it is destroyed, so
+// the callback never outlives the state it reads. Declare each hook after the state its callback reads; statics are destroyed in reverse
+// order, so the hook goes first. `name` must outlive the hook (use a string literal).
+//   GaugeHook gauge_handles("kernel.handles", [] { return static_cast<int64_t>(handle_count()); });
+struct GaugeHook {
+    const char* name;
+    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { gauge_register(n, std::move(f)); }
+    ~GaugeHook() { gauge_unregister(name); }
+    GaugeHook(const GaugeHook&) = delete;
+    GaugeHook& operator=(const GaugeHook&) = delete;
+};
+
 // ---- the sampler -----------------------------------------------------------------------------------------------------------
 // Started by the runtime when `[diag] soak_csv` (env NXRT_DIAG_SOAK_CSV) names a file; `[diag] soak_interval_s` (default 10) is the period.
 // Each line is a JSON object: t (seconds since start), frame, win_frames, ft_p50/ft_p99/ft_max (ms between presented frames in the window),

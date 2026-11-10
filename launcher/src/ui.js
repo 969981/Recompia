@@ -1,24 +1,21 @@
 // The UI kit. Controls return HTML strings of real inputs, restyled in components.css; pages listen with ordinary
 // `change` / `input` events (delegate on the page root). Inside row() they are named by the row's label.
-import { invoke } from '@tauri-apps/api/core';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
-  Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
-  Server, Settings, Shield, ShieldCheck, Sparkles, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Volume2, Wifi, WifiOff, Wrench, X,
+  ArrowLeft, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Copy, Download, ExternalLink, FileArchive, FileText,
+  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
+  Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
 } from 'lucide';
 
 const ICONS = {
-  ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clipboard, Copy,
-  Download, ExternalLink, FileArchive, FileText, Folder, FolderOpen, FolderSearch, Gamepad2, Globe, HardDrive, House, Info,
-  Keyboard, Link, LoaderCircle, Maximize2, Minus, Monitor, Mouse, Newspaper, Palette, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
-  Server, Settings, Shield, ShieldCheck, Sparkles, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Volume2, Wifi, WifiOff, Wrench, X,
+  ArrowLeft, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Copy, Download, ExternalLink, FileArchive, FileText,
+  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
+  Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
 };
 
-/** Calls a Rust command. */
-export const api = (cmd, args) => invoke(cmd, args);
-
 export const errText = (e) => (typeof e === 'string' ? e : e?.message ?? String(e));
+
+/** The code of an error a command tagged (error.rs CmdError), else null. Branch on this, never on errText. */
+export const errCode = (e) => (typeof e === 'object' && e !== null ? e.code ?? null : null);
 
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

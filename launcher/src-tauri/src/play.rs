@@ -7,6 +7,8 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::states::States;
+
 /// Files the launcher may open for the user, by name, inside the game folder.
 pub const REPORT_FILES: [&str; 4] = ["pkp_crash.txt", "pkp_freeze.txt", "pkp_fatal.txt", "pkp.log"];
 
@@ -17,10 +19,18 @@ pub struct ReportFile {
     pub fresh: bool,
 }
 
+/// What the game is doing. The page gets the lowercase word: "idle", "running" or "exited".
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum GameState {
+    Idle,
+    Running,
+    Exited,
+}
+
 #[derive(Serialize, Clone)]
 pub struct Status {
-    /// "idle", "running" or "exited"
-    pub state: String,
+    pub state: GameState,
     pub code: Option<i32>,
     pub crashed: bool,
     pub files: Vec<ReportFile>,
@@ -29,7 +39,7 @@ pub struct Status {
 
 impl Default for Status {
     fn default() -> Self {
-        Status { state: "idle".into(), code: None, crashed: false, files: vec![], message: String::new() }
+        Status { state: GameState::Idle, code: None, crashed: false, files: vec![], message: String::new() }
     }
 }
 
@@ -37,7 +47,7 @@ impl Default for Status {
 pub struct PlayState(pub Mutex<Status>);
 
 fn set_status(app: &AppHandle, s: Status) {
-    *app.state::<PlayState>().0.lock().unwrap() = s.clone();
+    *app.play().0.lock().unwrap() = s.clone();
     let _ = app.emit("game-status", s);
 }
 
@@ -54,8 +64,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
 
 pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), String> {
     {
-        let st = app.state::<PlayState>();
-        if st.0.lock().unwrap().state == "running" {
+        let st = app.play();
+        if st.0.lock().unwrap().state == GameState::Running {
             return Err("The game is already running.".into());
         }
     }
@@ -66,13 +76,13 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 
     let app2 = app.clone();
     let dir = game_dir.to_path_buf();
-    let tools = crate::exe_dir().join("tools");
+    let tools = crate::paths::exe_dir().join("tools");
     let first = if crate::shaders::needs_warm_up(game_dir) {
         "Collecting the shaders the game builds while it runs (once, about a minute)..."
     } else {
         "Checking the shaders the game builds while it runs..."
     };
-    set_status(app, Status { state: "running".into(), message: first.into(), ..Default::default() });
+    set_status(app, Status { state: GameState::Running, message: first.into(), ..Default::default() });
     std::thread::spawn(move || {
         // every start: the run-time shaders seen so far must all be translated (the warm-up run collects them the first
         // time, e.g. for a setup finished before it existed). A failure here is logged in the status, the game still starts.
@@ -85,7 +95,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock)) {
             Ok(c) => c,
             Err(e) => {
-                set_status(&app2, Status { state: "exited".into(), crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
+                set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
                 return;
             }
         };
@@ -93,11 +103,11 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                set_status(&app2, Status { state: "exited".into(), crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
+                set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
                 return;
             }
         };
-        set_status(&app2, Status { state: "running".into(), message: format!("pkp.exe started (process {})", child.id()), ..Default::default() });
+        set_status(&app2, Status { state: GameState::Running, message: format!("pkp.exe started (process {})", child.id()), ..Default::default() });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.minimize();
@@ -112,7 +122,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             Err(e) => (None, Some(e.to_string())),
         };
         // shaders the game built while it ran: translated now, so the next run has them (the state stays "running" meanwhile)
-        set_status(&app2, Status { state: "running".into(), message: "Translating the shaders the game built while it ran...".into(), ..Default::default() });
+        set_status(&app2, Status { state: GameState::Running, message: "Translating the shaders the game built while it ran...".into(), ..Default::default() });
         let shaders = match crate::shaders::translate_missing(&dir, &tools) {
             Ok(0) => String::new(),
             Ok(n) => format!(" {} new shaders translated.", n),
@@ -127,7 +137,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
             (None, Some(c)) => format!("pkp.exe exited with code {} (0x{:08X}).", c, c as u32),
             (None, None) => "pkp.exe was ended by the system.".to_string(),
         };
-        set_status(&app2, Status { state: "exited".into(), code, crashed, files, message: message + &prep + &shaders });
+        set_status(&app2, Status { state: GameState::Exited, code, crashed, files, message: message + &prep + &shaders });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -141,7 +151,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
 /// How Play starts pkp.exe: in its folder, through Proton on Linux (host.rs). Every path (exefs, romfs, shader cache) comes
 /// from pkp.ini next to it.
 fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>) -> Result<std::process::Command, String> {
-    crate::host::sync_runtime_files(&crate::exe_dir(), dir)?;
+    crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;
     let mut cmd = crate::host::windows_program(exe)?;
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
     if let Some(clock) = clock {

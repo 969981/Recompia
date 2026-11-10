@@ -41,7 +41,6 @@ using ipc::Request;
 using ipc::Response;
 using ipc::Service;
 
-constexpr size_t kAttributeSize = 0x40;
 constexpr size_t kOptionOffset = 0x40;
 constexpr size_t kEntrySize = 0x20;
 constexpr uint8_t kStorageSd = 1;       // CapsAlbumStorage_Sd
@@ -54,6 +53,13 @@ std::filesystem::path exe_dir() {
     return std::filesystem::path(buf).parent_path();
 }
 
+// UTF-8 text <-> path (C++20 keeps UTF-8 in char8_t): file names with non-ASCII characters keep their bytes in paths and in the log.
+std::filesystem::path path_from_utf8(const std::string& s) { return std::filesystem::path(std::u8string(s.begin(), s.end())); }
+std::string path_utf8(const std::filesystem::path& p) {
+    const std::u8string s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
+
 template <typename T>
 void release(T*& p) {
     if (p) p->Release();
@@ -63,7 +69,7 @@ void release(T*& p) {
 }  // namespace
 
 std::filesystem::path album_dir() {
-    std::filesystem::path d = std::filesystem::u8path(config_get_str("album", "dir", "album"));
+    std::filesystem::path d = path_from_utf8(config_get_str("album", "dir", "album"));
     if (d.empty()) d = "album";
     return d.is_absolute() ? d : exe_dir() / d;
 }
@@ -169,13 +175,13 @@ uint32_t save_screenshot(Request& req, Response& rsp) {
     std::string why;
     if (!album_write_png(file, reinterpret_cast<const uint8_t*>(img.addr), w, h, &why)) {
         // Reported as saved: a failure would make the game show the error applet for what is a host disk problem.
-        NXLOG_E("caps", "SaveScreenShot (cmd %u): writing %s failed: %s", req.cmd, file.u8string().c_str(), why.c_str());
+        NXLOG_E("caps", "SaveScreenShot (cmd %u): writing %s failed: %s", req.cmd, path_utf8(file).c_str(), why.c_str());
         rsp.out.insert(rsp.out.end(), entry, entry + sizeof entry);
         return 0;
     }
     const uint64_t fsize = std::filesystem::file_size(file, ec);
     NXLOG_I("caps", "SaveScreenShot (cmd %u): %ux%u photo saved to %s (%llu bytes, report option 0x%x)", req.cmd, w, h,
-            file.u8string().c_str(), static_cast<unsigned long long>(ec ? 0 : fsize), option);
+            path_utf8(file).c_str(), static_cast<unsigned long long>(ec ? 0 : fsize), option);
 
     // ApplicationAlbumEntry: u64 size, u64 hash (none kept: 0), AlbumFileDateTime {u16 year, u8 month, day, hour, minute, second, id},
     // u8 storage, u8 content, 5 bytes pad, u8 1.

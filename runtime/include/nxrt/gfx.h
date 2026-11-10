@@ -375,6 +375,8 @@ private:
 // ---- image helpers (PNG through SDL3, no extra dependency) --------------------------------------------------------------
 bool save_png_rgba(const std::string& path, const uint8_t* rgba, uint32_t w, uint32_t h);
 bool load_png_rgba(const std::string& path, std::vector<uint8_t>* rgba, uint32_t* w, uint32_t* h);
+// Waits (at most 15 s) for the screenshot files the renderer still writes on a worker.
+void wait_screenshot_writes();
 struct ImageDiff {
     uint32_t width = 0, height = 0;
     bool same_size = false;

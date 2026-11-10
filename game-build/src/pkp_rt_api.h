@@ -6,7 +6,7 @@
 #pragma once
 #include <stdint.h>
 
-#define PKP_RT_API 1u     // bump when this struct or the exported set changes
+#define PKP_RT_API 2u     // bump when this struct or the exported set changes
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,8 +15,9 @@ struct NxModule;
 typedef struct PkpRtModules {
     uint32_t size;        // sizeof(PkpRtModules)
     uint32_t api;         // PKP_RT_API
-    const struct NxModule *rtld, *main, *sdk, *subsdk0;
-    const uint32_t *rtld_abi, *main_abi, *sdk_abi, *subsdk0_abi;
+    uint32_t count;       // modules in the two arrays below, in load order (nx_modules.gen.h, written from the game config)
+    const struct NxModule* const* mods;       // nxmod_<name> of each module
+    const uint32_t* const* abis;              // nxmod_<name>_abi of each module
 } PkpRtModules;
 
 int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods);

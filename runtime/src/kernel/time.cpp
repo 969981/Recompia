@@ -1,37 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// System tick and high-resolution sleep. Pattern from smo-recomp runtime/os/os_threads.c sleep_ns and SuperMarioWonderRecomp kernel.cpp system_tick.
+// High-resolution sleep (the system tick is in core/clock.cpp). Pattern from smo-recomp runtime/os/os_threads.c sleep_ns.
 #include <windows.h>
 
 #include <string>
 
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
 #include "nxrt/host_device.h"
 #include "nxrt/kernel.h"
-#include "nxrt/game.h"
 #include "nxrt/log.h"
-#include "nxrt/tt.h"
+#include "nxrt/qpc.h"
 #include "kernel_internal.h"
 
 namespace nxrt::kernel {
-
-uint64_t tick_hz() {
-    static const uint64_t hz = game::info().platform == game::Platform::Switch2 ? kTickHzSwitch2 : kTickHzSwitch1;
-    return hz;
-}
-
-uint64_t system_tick() {
-    if (uint64_t vt; tt::virtual_tick(&vt)) return vt;      // deterministic mode: the virtual clock (test tooling)
-    static const uint64_t freq = [] {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        return static_cast<uint64_t>(f.QuadPart);
-    }();
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    const uint64_t v = static_cast<uint64_t>(c.QuadPart);
-    const uint64_t hz = tick_hz();
-    return (v / freq) * hz + (v % freq) * hz / freq;     // split so the multiplication cannot overflow
-}
 
 // SleepThread takes nanoseconds and the console timer is good to a few microseconds. Sleep() counts whole milliseconds on a
 // 1 ms or 15.6 ms grid, so the wait runs on a high-resolution waitable timer (100 ns units); Sleep() is only the fallback.
@@ -49,7 +30,7 @@ using NtDelayExecutionFn = LONG(WINAPI*)(BOOLEAN, PLARGE_INTEGER);
 NtDelayExecutionFn short_sleep_fn() {
     static const NtDelayExecutionFn fn = [] () -> NtDelayExecutionFn {
         HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-        const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+        const bool wine = host_is_wine();
         const std::string m = config_get_str("kernel", "short_sleep", "auto");
         const bool sleep = wine && (m == "sleep" || (m == "auto" && host_is_handheld()));
         auto f = sleep && ntdll ? reinterpret_cast<NtDelayExecutionFn>(GetProcAddress(ntdll, "NtDelayExecution")) : nullptr;
@@ -111,23 +92,18 @@ void sleep_once(int64_t ns) {
 }  // namespace
 
 void detail::sleep_timer_ns(int64_t ns) {
-    if (ns <= 0 || tt::virtual_sleep(ns)) return;
+    if (ns <= 0 || clock::virtual_sleep(ns)) return;
     timer_wait(ns);
 }
 
 // On the thread set_blocked_hook names, a sleep longer than 10 ms is cut into 10 ms slices with the hook run between them, as in the kernel
 // waits: Pokopia's main thread sleeps in SleepThread while the software keyboard applet is open (the freeze report's main stack).
 void sleep_ns(int64_t ns) {
-    if (tt::virtual_sleep(ns)) return;                      // deterministic mode: time advances, the thread only yields
+    if (clock::virtual_sleep(ns)) return;                   // a virtual clock (deterministic test mode): time advances, the thread only yields
     constexpr int64_t kSlice = 10000000;
     void (*fn)() = ns > kSlice ? detail::blocked_hook_here() : nullptr;
     if (!fn) return sleep_once(ns);
-    const auto qpc_ns = [] {
-        LARGE_INTEGER f, c;
-        QueryPerformanceFrequency(&f);
-        QueryPerformanceCounter(&c);
-        return static_cast<int64_t>(c.QuadPart / f.QuadPart * 1000000000 + c.QuadPart % f.QuadPart * 1000000000 / f.QuadPart);
-    };
+    const auto qpc_ns = [] { return static_cast<int64_t>(qpc::now_ns()); };
     const int64_t until = qpc_ns() + ns;
     for (int64_t rem = ns; rem > 0; rem = until - qpc_ns()) {
         if (rem <= kSlice) return sleep_once(rem);
