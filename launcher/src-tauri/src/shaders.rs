@@ -300,14 +300,28 @@ fn on_path(exe: &str) -> Vec<PathBuf> {
     std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(exe)).filter(|f| f.is_file()).collect()).unwrap_or_default()
 }
 
+/// The files of tools/spirv_harness without which the translator cannot start.
+const HARNESS_FILES: &[&str] = &[
+    "spirv_harness.exe",
+    "spirv_harness.dll",
+    "spirv_harness.deps.json",
+    "spirv_harness.runtimeconfig.json",
+    "hostfxr.dll",
+    "hostpolicy.dll",
+    "coreclr.dll",
+];
+
 /// Finds the tools in `tools_dir` (the launcher's `tools/` folder). Python: `tools/python/python.exe` (Linux:
 /// `tools/linux/python/bin/python3`), else the first python.exe (python3) on PATH that has `lz4`. Every missing piece is named
 /// in the error.
 pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
     let mut missing = Vec::new();
-    let harness = tools_dir.join("spirv_harness").join("spirv_harness.exe");
-    if !harness.is_file() {
-        missing.push(format!("the shader translator ({})", harness.display()));
+    let harness_dir = tools_dir.join("spirv_harness");
+    let harness = harness_dir.join("spirv_harness.exe");
+    // what the self-contained .NET publish needs to start at all; an empty file is a cut-off copy or extraction (#366)
+    let broken: Vec<&str> = HARNESS_FILES.iter().copied().filter(|f| fs::metadata(harness_dir.join(f)).map_or(true, |m| m.len() == 0)).collect();
+    if !broken.is_empty() {
+        missing.push(format!("the shader translator ({}: {} missing or empty)", harness_dir.display(), broken.join(", ")));
     }
     let extract = tools_dir.join("shaders").join("extract_corpus.py");
     if !extract.is_file() {
@@ -415,6 +429,28 @@ fn run_tool(mut cmd: Command, cancel: &AtomicBool, idle: bool, log: Option<&LogF
             return Err(format!("{} did not end in time", name));
         }
     }
+}
+
+/// What the harness writes in its `--out` folder when a run fails (`ErrorFile` in tools/shaders/harness/Program.cs).
+const HARNESS_ERROR: &str = "harness_error.txt";
+
+/// `run_tool` for the shader translator writing to `stage`. Under Proton its stdout and stderr never reach the launcher (#366), so
+/// a failure is explained from `stage`: the harness's own error file, or, with no `stage` folder at all, that it never started.
+fn run_harness(cmd: Command, stage: &Path, cancel: &AtomicBool, idle: bool, log: Option<&LogFn>, line: impl FnMut(&str)) -> Result<bool, String> {
+    run_tool(cmd, cancel, idle, log, None, line).map_err(|e| {
+        let why = match fs::read_to_string(stage.join(HARNESS_ERROR)) {
+            Ok(t) => format!("The shader translator reported:\n{}", t.trim()),
+            Err(_) if !stage.is_dir() => {
+                "The shader translator never started (it creates its output folder first): the program that runs it (Proton or Wine) failed before it."
+                    .to_string()
+            }
+            Err(_) => "The shader translator started but wrote no error report.".to_string(),
+        };
+        if let Some(f) = log {
+            f(&why);
+        }
+        format!("{}\n{}", e, why)
+    })
 }
 
 /// Header + rows of a tsv file (rows without the trailing newline).
@@ -530,7 +566,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     let mut cmd = crate::host::windows_program(&tools_dir.join("spirv_harness").join("spirv_harness.exe"))?;
     cmd.arg("--batch").arg(crate::host::win_path(&input)).arg("--out").arg(crate::host::win_path(&stage)).args(["--jobs", &jobs, "--no-val"]);
     cmd.env("DOTNET_gcServer", "1");
-    if !run_tool(cmd, &AtomicBool::new(false), false, None, None, |_| {})? {
+    if !run_harness(cmd, &stage, &AtomicBool::new(false), false, None, |_| {})? {
         return Err("the shader translator stopped".into());
     }
     let n = commit_stage(&stage, &spirv)?;
@@ -715,7 +751,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         // server GC: with the default workstation GC each collection stops every worker (about 4x slower)
         cmd.env("DOTNET_gcServer", "1");
         let base = finished;
-        let ok = run_tool(cmd, cancel, job.idle, job.log.as_ref(), None, |l| {
+        let ok = run_harness(cmd, &stage, cancel, job.idle, job.log.as_ref(), |l| {
             // "  <n>/<count>  <s> s" every 500 blocks
             if let Some(n) = l.trim().split('/').next().and_then(|x| x.parse::<u64>().ok()) {
                 report(p("translate", base + n, total, format!("Translating shaders: {} of {}", base + n, total)));
