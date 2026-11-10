@@ -22,6 +22,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the game's language chose the notation (English showed 12 hours with AM/PM whatever the PC's region), and nothing in the settings changed it
   - Now: pick 12 hour or 24 hour (`[tweaks] clock_format` in `controls.ini`: `auto`, `12h` or `24h`); Game keeps the language's own. A screen that is already open shows the new notation after you close it and open it again
   - Still not: a launcher row for it
+- Button prompts: the face buttons are plain white, like the rest of the prompt icons
+  - Before: Xbox, PlayStation, Steam Controller and Steam Deck prompts drew A/B/X/Y and cross/circle/square/triangle as coloured buttons
+  - Now: they use Kenney's monotone white buttons, matching the bumpers, triggers, d-pad and keyboard icons. Switch prompts are unchanged
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
