@@ -1,6 +1,7 @@
 // The Settings page's state: one object every module reads and writes (st), and env(st), the facts about the launcher the schema's
 // rows ask for (which rows are on, what a button says). Modules never keep page state of their own; they go through st.
 import { store } from '../../store.js';
+import { t } from '../../i18n.js';
 import { canUpdate, gamePhase } from '../../action.js';
 import { makeSource } from '../../settings-schema.js';
 import { backupDetail, backupText } from '../backups.js';
@@ -62,10 +63,10 @@ export function env(st) {
     canUpdate: canUpdate(s),
     updating: !!s.update,
     checking: st.checking,
-    updateText: st.checking ? 'Checking'
-      : update ? `Version ${update.tag.replace(/^v/, '')} is available`
+    updateText: st.checking ? t('Checking')
+      : update ? t('Version {version} is available', { version: update.tag.replace(/^v/, '') })
       : !st.checked ? ''
-      : s.news.releases.length ? 'You have the latest version'
-      : 'Could not reach GitHub',
+      : s.news.releases.length ? t('You have the latest version')
+      : t('Could not reach GitHub'),
   };
 }

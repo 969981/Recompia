@@ -2,6 +2,7 @@
 // its place for as long as the page is open.
 import './news.css';
 import { api } from '../api.js';
+import { t } from '../i18n.js';
 import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canUpdate } from '../action.js';
@@ -14,13 +15,13 @@ function item(r, s) {
   if (r.virtual) {
     return `<button class="note-item" data-tag="${esc(r.tag)}">
     <span class="note-item-title clip"><strong>${esc(r.name)}</strong></span>
-    <span class="note-item-sub">${r.count} Testing build${r.count === 1 ? '' : 's'}<span class="note-mark">Testing</span></span>
+    <span class="note-item-sub">${esc(r.count === 1 ? t('1 Testing build') : t('{count} Testing builds', { count: r.count }))}<span class="note-mark">${esc(t('Testing'))}</span></span>
   </button>`;
   }
   const { version, build } = parseReleaseName(r.name, r.tag);
   const date = formatDate(r.date);
-  const mark = s.news.update?.tag === r.tag ? '<span class="note-mark new">Update</span>'
-    : version === s.app?.version ? '<span class="note-mark">Installed</span>' : r.prerelease ? '<span class="note-mark">Testing</span>' : '';
+  const mark = s.news.update?.tag === r.tag ? `<span class="note-mark new">${esc(t('Update'))}</span>`
+    : version === s.app?.version ? `<span class="note-mark">${esc(t('Installed'))}</span>` : r.prerelease ? `<span class="note-mark">${esc(t('Testing'))}</span>` : '';
   return `<button class="note-item" data-tag="${esc(r.tag)}">
     <span class="note-item-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}</span>
     <span class="note-item-sub">${date ? `<time>${esc(date)}</time>` : ''}${mark}</span>
@@ -31,7 +32,7 @@ function noteHead(r, s) {
   if (r.virtual) {
     return `<div class="grow">
       <h1>${esc(r.name)}</h1>
-      <time>Every Testing build since the last stable release, newest first</time>
+      <time>${esc(t('Every Testing build since the last stable release, newest first'))}</time>
     </div>`;
   }
   const { version, build } = parseReleaseName(r.name, r.tag);
@@ -39,9 +40,9 @@ function noteHead(r, s) {
   const newer = s.news.update && isNewer(version, s.app?.version);
   const updating = !!s.update;
   const action = newer
-    ? `<button class="btn primary" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${updating ? `${icon('loader-circle', 'spin')}Updating` : `${icon('download')}Update`}</button>`
+    ? `<button class="btn primary" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${updating ? `${icon('loader-circle', 'spin')}${esc(t('Updating'))}` : `${icon('download')}${esc(t('Update'))}`}</button>`
     : '';
-  const open = isGithub(r.url) ? `<button class="btn quiet icon-only" data-url="${esc(r.url)}" aria-label="Open on GitHub" title="Open on GitHub">${icon('external-link')}</button>` : '';
+  const open = isGithub(r.url) ? `<button class="btn quiet icon-only" data-url="${esc(r.url)}" aria-label="${esc(t('Open on GitHub'))}" title="${esc(t('Open on GitHub'))}">${icon('external-link')}</button>` : '';
   return `<div class="grow">
       <h1>${esc(version)}${build ? ` <span class="note-build">${esc(build)}</span>` : ''}</h1>
       ${date ? `<time>${esc(date)}</time>` : ''}
@@ -49,14 +50,14 @@ function noteHead(r, s) {
     ${open}${action}`;
 }
 
-const BANNER = 'A Testing build: newer than the latest stable release and less tested. You are on Testing: please tell us what you find and attach pkp.log (Settings > About > Report a problem).';
+const BANNER = () => t('A Testing build: newer than the latest stable release and less tested. You are on Testing: please tell us what you find and attach pkp.log (Settings > About > Report a problem).');
 
 /** A note's body. Testing notes (and the overview) get their regressions as a highlighted block at the top, and a banner. */
 function noteBody(r) {
   const { version } = parseReleaseName(r.name, r.tag);
   if (r.virtual) return renderNote(r.body, { warn: true });
   if (!r.prerelease) return renderNote(r.body, { title: version });
-  return `<p class="md-banner">${icon('triangle-alert')}<span>${esc(BANNER)}</span></p>\n${renderNote(r.body, { title: version, warn: true })}`;
+  return `<p class="md-banner">${icon('triangle-alert')}<span>${esc(BANNER())}</span></p>\n${renderNote(r.body, { title: version, warn: true })}`;
 }
 
 const groupHtml = (g, s) => `${g.label ? `<div class="note-group">${esc(g.label)}</div>` : ''}${g.items.map((x) => item(x, s)).join('')}`;
@@ -64,15 +65,15 @@ const groupHtml = (g, s) => `${g.label ? `<div class="note-group">${esc(g.label)
 export function render(el, ctx) {
   el.innerHTML = `<div class="page news-page">
     <div class="news glass" id="split" hidden>
-      <div class="note-list" id="list" role="navigation" aria-label="Releases"></div>
+      <div class="note-list" id="list" role="navigation" aria-label="${esc(t('Releases'))}"></div>
       <article class="note" id="note" tabindex="0">
         <header class="note-head" id="head"></header>
         <div class="md selectable" id="body"></div>
       </article>
     </div>
     <div class="empty glass" id="empty" hidden>
-      <span>Patch notes load when you are online.</span>
-      <button class="btn" id="retry">${icon('refresh-cw')}Try again</button>
+      <span>${esc(t('Patch notes load when you are online.'))}</span>
+      <button class="btn" id="retry">${icon('refresh-cw')}${esc(t('Try again'))}</button>
     </div>
   </div>`;
 
@@ -135,12 +136,12 @@ export function render(el, ctx) {
   }
 
   el.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-tag], [data-url], [data-act], #retry');
-    if (!t) return;
-    if (t.id === 'retry') return check();
-    if (t.dataset.tag) return select(t.dataset.tag);
-    if (t.dataset.act === 'update') return store.installUpdate();
-    if (t.dataset.url) api.openReleaseUrl({ url: t.dataset.url }).catch((err) => toast(errText(err), 'error'));
+    const hit = e.target.closest('[data-tag], [data-url], [data-act], #retry');
+    if (!hit) return;
+    if (hit.id === 'retry') return check();
+    if (hit.dataset.tag) return select(hit.dataset.tag);
+    if (hit.dataset.act === 'update') return store.installUpdate();
+    if (hit.dataset.url) api.openReleaseUrl({ url: hit.dataset.url }).catch((err) => toast(errText(err), 'error'));
   });
 
   el.addEventListener('keydown', (e) => {

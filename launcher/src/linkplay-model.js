@@ -9,6 +9,8 @@
 //   mode join:<ip>, internet true, code    Internet visit without a relay.
 //   protocol linkplay                      the old relay Link Play. Any Link Play choice writes protocol = native; the toggles do not (as before).
 // `[net] server` belongs to the old protocol and is never written here.
+import { t } from './i18n.js';
+
 export const HOST_PORT = 47600;
 export const RELAY_PORT = 47610;
 
@@ -49,9 +51,9 @@ export const loopbackAddr = (s) => parseAddr(s)?.ip[0] === 127;
 export function addrProblem(s, { port = HOST_PORT, lan = false, remote = false } = {}) {
   const v = String(s ?? '').trim();
   if (!v) return '';
-  if (!validAddr(v)) return `Type an address like 192.0.2.10 or 192.0.2.10:${port}`;
-  if (remote && loopbackAddr(v)) return 'That is your own PC. Type the address the host shares with you.';
-  return lan && !localAddr(v) ? 'Not on your network. Use Internet for this address.' : '';
+  if (!validAddr(v)) return t('Type an address like 192.0.2.10 or 192.0.2.10:{port}', { port });
+  if (remote && loopbackAddr(v)) return t('That is your own PC. Type the address the host shares with you.');
+  return lan && !localAddr(v) ? t('Not on your network. Use Internet for this address.') : '';
 }
 
 /** The keys this page cares about, read the way the runtime reads them. */

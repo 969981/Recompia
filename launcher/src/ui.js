@@ -12,6 +12,8 @@ const ICONS = {
   Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
 };
 
+import { t } from './i18n.js';
+
 export const errText = (e) => (typeof e === 'string' ? e : e?.message ?? String(e));
 
 /** The code of an error a command tagged (error.rs CmdError), else null. Branch on this, never on errText. */
@@ -53,7 +55,7 @@ export function toast(message, kind = '') {
  * opts: { title, body (plain text), html (trusted markup, instead of body), ok = 'OK', cancel = 'Cancel', danger, alert (no Cancel) }
  */
 export function confirm(opts = {}) {
-  const { title = '', body = '', html = '', ok = 'OK', cancel = 'Cancel', danger = false, alert = false } = opts;
+  const { title = '', body = '', html = '', ok = t('OK'), cancel = t('Cancel'), danger = false, alert = false } = opts;
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong';
@@ -88,7 +90,7 @@ export function confirm(opts = {}) {
  * opts: { title, body, label, value, ok = 'OK', max }
  */
 export function askText(opts = {}) {
-  const { title = '', body = '', label = '', value = '', ok = 'OK', max = 24 } = opts;
+  const { title = '', body = '', label = '', value = '', ok = t('OK'), max = 24 } = opts;
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong';
@@ -101,7 +103,7 @@ export function askText(opts = {}) {
           <input class="input" id="ask-text" type="text" maxlength="${max}" value="${esc(value)}" aria-label="${esc(label || title)}" autocomplete="off" spellcheck="false" />
         </div>
         <div class="modal-actions">
-          <button class="btn quiet" type="button" data-answer="">Cancel</button>
+          <button class="btn quiet" type="button" data-answer="">${esc(t('Cancel'))}</button>
           <button class="btn primary" type="submit" value="ok" data-answer="ok">${esc(ok)}</button>
         </div>
       </form>`;

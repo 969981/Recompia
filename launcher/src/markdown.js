@@ -5,6 +5,8 @@
 //
 // Images (`![alt](url)`) become their alt text: the app's CSP allows no remote images.
 
+import { date } from './i18n.js';
+
 const ISSUES = 'https://github.com/featureJosh/pokopia-recomp/issues/';
 
 // What open_release_url accepts, tested on escaped text: an escaped & " ' < > starts with "&", so it never gets through.
@@ -232,8 +234,8 @@ export function isNewer(a, b) {
   return false;
 }
 
-/** "Oct 30, 2026", or "October 30, 2026" with month 'long'. A date that does not parse gives ''. */
+/** "Oct 30, 2026" in English (the language's own order and words otherwise), or "October 30, 2026" with month 'long'. A date that does not parse gives ''. */
 export function formatDate(iso, month = 'short') {
   const d = new Date(iso ?? '');
-  return Number.isNaN(+d) ? '' : d.toLocaleDateString('en-US', { month, day: 'numeric', year: 'numeric' });
+  return Number.isNaN(+d) ? '' : date(d, { month, day: 'numeric', year: 'numeric' });
 }

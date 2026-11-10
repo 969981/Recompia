@@ -2,6 +2,7 @@
 import './home.css';
 import logoUrl from '../art/logo.png';
 import { api } from '../api.js';
+import { num, t } from '../i18n.js';
 import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction } from '../action.js';
@@ -9,10 +10,10 @@ import { readIni, viewOf } from '../linkplay-model.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 
 const REPORT_LABEL = {
-  'pkp_crash.txt': 'Crash report',
-  'pkp_freeze.txt': 'Freeze report',
-  'pkp_fatal.txt': 'Error report',
-  'pkp.log': 'Game log',
+  'pkp_crash.txt': t('Crash report'),
+  'pkp_freeze.txt': t('Freeze report'),
+  'pkp_fatal.txt': t('Error report'),
+  'pkp.log': t('Game log'),
 };
 const CARDS = 3;   // home.css shows fewer where they do not fit
 const CARD_LINES = 1;   // one highlight, clamped: two half-cut bullets read as broken text
@@ -29,7 +30,7 @@ function releaseCard(r) {
   const lines = highlights(r.body, CARD_LINES);
   return `<button class="release glass hover" data-tag="${esc(r.tag)}">
     <span class="release-head">
-      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ' <span class="note-mark">Testing</span>' : ''}</span>
+      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ` <span class="note-mark">${esc(t('Testing'))}</span>` : ''}</span>
       ${date ? `<time>${esc(date)}</time>` : ''}
     </span>
     ${lines.map((l) => `<span class="release-line">${esc(l)}</span>`).join('')}
@@ -40,8 +41,8 @@ function crashCard(game) {
   const files = (game.files ?? []).filter((f) => f.fresh || f.name === 'pkp.log');
   return `<div class="home-card glass strong" role="alert">
     <div class="home-card-head">
-      ${icon('circle-alert')}<h2>The game stopped unexpectedly</h2>
-      <button class="btn quiet sm icon-only" data-act="dismiss" aria-label="Dismiss" title="Dismiss">${icon('x')}</button>
+      ${icon('circle-alert')}<h2>${esc(t('The game stopped unexpectedly'))}</h2>
+      <button class="btn quiet sm icon-only" data-act="dismiss" aria-label="${esc(t('Dismiss'))}" title="${esc(t('Dismiss'))}">${icon('x')}</button>
     </div>
     <p class="selectable">${esc(game.message)}</p>
     ${files.length ? `<div class="cluster">${files.map((f) => `<button class="btn sm" data-open="${esc(f.name)}" title="${esc(f.name)}">${icon('file-text')}${esc(REPORT_LABEL[f.name] ?? f.name)}</button>`).join('')}</div>` : ''}
@@ -49,18 +50,18 @@ function crashCard(game) {
 }
 
 const updateErrorCard = (s) => `<div class="home-card glass strong" role="alert">
-    <div class="home-card-head">${icon('circle-alert')}<h2>The update did not finish</h2></div>
+    <div class="home-card-head">${icon('circle-alert')}<h2>${esc(t('The update did not finish'))}</h2></div>
     <p class="selectable">${esc(s.updateError)}</p>
-    <div class="cluster"><button class="btn sm" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${icon('refresh-cw')}Try again</button></div>
+    <div class="cluster"><button class="btn sm" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${icon('refresh-cw')}${esc(t('Try again'))}</button></div>
   </div>`;
 
 const repackMessage = (r) => {
-  const what = r.kind === 'expand' ? 'Unpacking shader files' : 'Packing shader files';
-  return r.total ? `${what}: ${r.done.toLocaleString('en')} of ${r.total.toLocaleString('en')}` : `${what}...`;
+  const what = r.kind === 'expand' ? t('Unpacking shader files') : t('Packing shader files');
+  return r.total ? t('{what}: {done} of {total}', { what, done: num(r.done), total: num(r.total) }) : `${what}...`;
 };
 
 const QUIET = new Set(['ready', 'no_files', 'setup', 'resume']);
-const LINK_PLAY_LABEL = { off: 'Off', lan: 'Same network', internet: 'Internet' };
+const LINK_PLAY_LABEL = { off: t('Off'), lan: t('Same network'), internet: t('Internet') };
 const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
 
 export function render(el, ctx) {
@@ -69,7 +70,7 @@ export function render(el, ctx) {
       <h1 class="display"><img class="home-logo" src="${logoUrl}" alt="Pokopia" /></h1>
       <div class="home-actions">
         <button class="btn primary big" id="primary"></button>
-        <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}Update</button>
+        <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>
         <span id="link"></span>
       </div>
       <p class="home-detail" id="detail" hidden></p>
@@ -81,7 +82,7 @@ export function render(el, ctx) {
       </div>
       <div class="home-notices" id="notices"></div>
     </div>
-    <section class="home-news" id="news" aria-label="Newest releases"></section>
+    <section class="home-news" id="news" aria-label="${esc(t('Newest releases'))}"></section>
   </div>`;
 
   const part = (id) => el.querySelector(`#${id}`);
@@ -109,7 +110,7 @@ export function render(el, ctx) {
     if (s.task.pct === null) part('task-bar').removeAttribute('value');
     else part('task-bar').value = s.task.pct;
     stop.dataset.act = update ? 'cancel' : kind === 'repack' ? 'stop-repack' : 'pause';
-    patch(stop, update ? `${icon('x')}Cancel` : kind === 'repack' ? `${icon('square')}Stop` : `${icon('pause')}Pause`);
+    patch(stop, update ? `${icon('x')}${esc(t('Cancel'))}` : kind === 'repack' ? `${icon('square')}${esc(t('Stop'))}` : `${icon('pause')}${esc(t('Pause'))}`);
     stop.hidden = update && !canCancelUpdate(s);
   }
 
@@ -122,7 +123,7 @@ export function render(el, ctx) {
 
     const update = part('update');
     update.hidden = !canUpdate(s);
-    update.title = s.news.update ? `Update to ${parseReleaseName(s.news.update.name, s.news.update.tag).version}` : '';
+    update.title = s.news.update ? t('Update to {version}', { version: parseReleaseName(s.news.update.name, s.news.update.tag).version }) : '';
 
     const ready = s.app?.readiness;
     // the button already says what no_files/setup/resume need; the detail only explains a problem
@@ -167,12 +168,12 @@ export function render(el, ctx) {
   const drawChips = () => { part('link').innerHTML = profileChip + linkChip + discordChip; };
   drawChips();
   api.readSettings().then((data) => {
-    linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}Link Play: ${LINK_PLAY_LABEL[viewOf(readIni(data.pkp))]}</button>`;
+    linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
     drawChips();
   }).catch((e) => console.warn('read_settings', e));
   // with more than one profile the player picks who plays here; the choice is the Settings > Saves list
-  const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="Profile" ${busy ? 'disabled' : ''}>${
-    list.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === list.active ? 'selected' : ''}>Profile: ${esc(p.name)}</option>`).join('')}</select>`;
+  const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="${esc(t('Profile'))}" ${busy ? 'disabled' : ''}>${
+    list.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === list.active ? 'selected' : ''}>${esc(t('Profile: {name}', { name: p.name }))}</option>`).join('')}</select>`;
   const loadProfiles = () => api.profilesList().then((list) => {
     profileChip = list.profiles.length > 1 ? profileSelect(list, ['starting', 'running', 'finishing'].includes(gamePhase(store.state.game))) : '';
     drawChips();
