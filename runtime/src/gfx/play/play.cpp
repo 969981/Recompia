@@ -1428,8 +1428,8 @@ bool start(const StartOptions& opt) {
                 st.overlay->add_panel("Settings", [] { draw_settings_page(g_host); });
                 st.overlay->install_on_renderer();
                 apply_fps_counter(st.settings.fps);
-                {   // [overlay] touch_button: off (the default), on, or auto (when the machine has a touch screen)
-                    std::string tb = config_get_str("overlay", "touch_button", "off");
+                {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
+                    std::string tb = config_get_str("overlay", "touch_button", "auto");
                     for (char& c : tb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                     const bool on = tb == "on" || tb == "true" || tb == "1" || tb == "yes" || (tb == "auto" && st.window && platform::touchscreen_present());
                     st.overlay->set_touch_button(on);

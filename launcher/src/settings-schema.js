@@ -246,7 +246,6 @@ const GAMEPLAY_ROWS = [
   { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', at: pkp('pkp', 'title_quit'), def: '0' },
   { id: 'menu_in_game', label: 'Mouse in the game\'s menus', type: 'toggle', at: pkp('pkp', 'menu_in_game'), def: '0' },
   { id: 'taller_fov', label: 'Taller view on 16:10 screens', type: 'toggle', at: pkp('pkp', 'taller_fov'), def: '0' },
-  { id: 'touch_button', label: 'Menu button for touch screens', type: 'toggle', at: pkp('overlay', 'touch_button'), def: '0' },
   { id: 'compile_note', label: '"Preparing shaders" note', type: 'toggle', at: pkp('nvn', 'compile_note'), def: '0' },
 ];
 const isTesting = (v) => v.channel === 'testing';
