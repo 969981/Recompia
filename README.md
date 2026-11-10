@@ -97,7 +97,7 @@
 - **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation, Steam Controller or Switch.
 - **Typing your name** works with a controller, mouse or keyboard.
 - **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or use **Quit game** in F1.
-- **Open the F1 menu from a controller:** off by default; set `[overlay] pad` in `controls.ini` (for example `left_stick+right_stick`). It cannot be the quit combination.
+- **Open the F1 menu from a controller:** click both sticks (L3 + R3); change or turn it off with `[overlay] pad` in `controls.ini` (`none` = off). It cannot be the quit combination.
 
 ### Steam Deck and handhelds
 - Steam Deck, Legion Go S and other handhelds are recognised: controller icons stay on screen and the picture size suits the screen.
