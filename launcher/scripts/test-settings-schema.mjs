@@ -6,7 +6,7 @@
 //   - the quality presets are the runtime's preset words and their numbers are in the keys' ranges.
 // pkp.ini sections other than [pkp] ([fs], [backup], [time], [audio]) have no table and are not checked.
 // Run: node scripts/test-settings-schema.mjs   (exit 1 on a mismatch)
-import { FIELDS, QUALITY_PRESETS, SCHEMAS, schemaKey, isRetired } from '../src/settings-schema.js';
+import { FIELDS, QUALITY_PRESETS, SCHEMAS, gameplayKeys, schemaKey, isRetired } from '../src/settings-schema.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -72,6 +72,17 @@ for (const p of QUALITY_PRESETS) {
   check(accepts(schemaKey(at('display', 'anisotropy')), p.anisotropy), `quality preset ${p.id}: anisotropy ${p.anisotropy}`);
   if (p.render_scale !== undefined) check(p.render_scale === 0 || accepts(schemaKey(at('display', 'render_scale')), p.render_scale), `quality preset ${p.id}: render_scale`);
   if (p.fps_limit !== undefined) check(p.fps_limit === -1 || accepts(schemaKey(at('display', 'fps_limit')), p.fps_limit), `quality preset ${p.id}: fps_limit`);
+}
+
+// Gameplay mods (the runtime's "gameplay" group): each a bool on by default, each a toggle of Settings > Gameplay with that default. A
+// release run (release.yml) runs this too, so a launcher whose schema has a mod turned off for a test build does not ship.
+const mods = gameplayKeys();
+check(mods.length > 0, 'no gameplay mods in the [pkp] schema');
+for (const key of mods) {
+  const k = schemaKey({ file: 'pkp', section: 'pkp', key });
+  check(k.type === 'bool' && k.default === '1', `gameplay mod [pkp] ${key}: ${k.type}, default ${k.default}; a gameplay mod is a bool on by default`);
+  const f = FIELDS[key];
+  check(!!f && f.type === 'toggle' && String(f.def) === '1', `gameplay mod [pkp] ${key}: no toggle on by default in Settings > Gameplay`);
 }
 
 check(keys > 10, `only ${keys} keys checked`);

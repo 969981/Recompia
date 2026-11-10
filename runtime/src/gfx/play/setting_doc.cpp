@@ -176,6 +176,7 @@ std::string schema_json(const std::string& file, const std::vector<Row>& rows, S
                      json_text(env_name(r.nxrt_key.substr(0, dot), r.nxrt_key.substr(dot + 1))) + "}";
             }
             if (r.read_only) k += ", \"read_only\": true";
+            if (!r.group.empty()) k += ", \"group\": " + json_text(r.group);
             k += ", \"doc\": " + json_text(r.doc) + "}";
             keys += (first_key ? "\n" : ",\n") + k;
             first_key = false;

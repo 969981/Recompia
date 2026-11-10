@@ -154,6 +154,10 @@ jobs:
             Copy-Item -Force src-tauri/icons-testing/* src-tauri/icons/
           }
           npm ci
+          # the Settings page against the runtime's schemas: among others every gameplay mod on by default (the runtime's own table is
+          # held to that by PKP_GAMEPLAY_DEFAULTS_CHECK in the pkp_rt.dll step), so a test build's default cannot ship
+          node scripts/test-settings-schema.mjs
+          if ($LASTEXITCODE) { exit 1 }
           npm run tauri build
           if ($LASTEXITCODE) { exit 1 }
 
