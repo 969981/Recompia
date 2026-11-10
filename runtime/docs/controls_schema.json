@@ -55,7 +55,7 @@
         {"key": "dynamic_resolution", "type": "bool", "default": "0", "doc": "The game's own dynamic resolution (it lowers the render size when the GPU is late)."},
         {"key": "anisotropy", "type": "int", "default": "0", "choices": ["0", "2", "4", "8", "16"], "doc": "0 = what the game's samplers ask for; else at least that on every filtering sampler."},
         {"key": "lod_bias", "type": "real", "default": "0", "min": -2, "max": 2, "doc": "Texture LOD bias added to every sampler; negative is sharper."},
-        {"key": "shadow_quality", "type": "choice", "default": "default", "choices": ["default", "high", "very_high", "ultra", "extreme"], "overridden_by": {"ini": "display.shadow_quality", "env": "NXRT_DISPLAY_SHADOW_QUALITY"}, "doc": "Shadow map resolution: the game's shadow maps made 2x (high), 3x (very_high), 4x (ultra) or 8x (extreme) larger per side. Applies at once."},
+        {"key": "shadow_quality", "type": "choice", "default": "default", "choices": ["default", "high", "very_high", "ultra", "extreme"], "overridden_by": {"ini": "display.shadow_quality", "env": "NXRT_DISPLAY_SHADOW_QUALITY"}, "doc": "Shadow map resolution: the game's shadow maps made 2x (high), 3x (very_high), 4x (ultra) or 8x (extreme) larger per side. Live."},
         {"key": "bloom", "type": "bool", "default": "1", "doc": "The game's bloom."},
         {"key": "chromatic_aberration", "type": "bool", "default": "1", "doc": "The game's chromatic aberration."},
         {"key": "quality_preset", "type": "choice", "default": "switch2", "choices": ["switch2", "high", "ultra", "steamdeck", "legion_go_s", "laptop", "desktop", "custom"], "doc": "The set of values last picked on the F1 Graphics page (games with quality hooks); custom after a change by hand."},
@@ -99,7 +99,7 @@
         {"key": "gamma", "type": "real", "default": "1", "min": 0.5, "max": 2, "overridden_by": {"ini": "picture.gamma", "env": "NXRT_PICTURE_GAMMA"}, "doc": "Mid-tone brightness; above 1 brightens."}
     ]},
     {"name": "prompts", "keys": [
-        {"key": "style", "type": "choice", "default": "auto", "choices": ["switch", "xbox", "playstation", "steam", "steamdeck", "keyboard", "auto"], "doc": "Which button icons the game's prompts show; auto follows the last used input device."}
+        {"key": "style", "type": "choice", "default": "auto", "choices": ["switch", "xbox", "playstation", "steam", "steamdeck", "switch1", "switch2", "wiiu", "steamframe", "index", "touch", "keyboard", "auto"], "doc": "Which button icons the game's prompts show; auto follows the last used input device."}
     ]},
     {"name": "fps", "keys": [
         {"key": "show", "type": "bool", "default": "0", "doc": "The frame rate counter."},

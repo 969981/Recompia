@@ -16,8 +16,8 @@
 //   expect_fps:N:TOL       fail unless the last measure was within TOL (fraction, e.g. 0.03) of N fps
 //   expect_late:MS         fail unless the frames that waited in the last measure started within MS (p99) of their scheduled time
 //   set:<key>=<value>      change a setting the way the settings page does (queued, applied at the next frame, written to the settings file):
-//                          vsync (0/1), fps_cap, window_mode, yaw_source, pitch_source, invert_y, invert_x, prompt_style (switch xbox playstation
-//                          keyboard auto: the Button prompts combo of the Controller tab)
+//                          vsync (0/1), fps_cap, window_mode, yaw_source, pitch_source, invert_y, invert_x, prompt_style (any [prompts] style
+//                          name: the Button prompts combo of the Controller tab)
 //   expect_present:X       fail unless the swapchain presents with mode X (fifo, mailbox, immediate)
 //   expect_cap:N           fail unless the frame limiter's target is N fps
 //   expect_ini:TEXT        fail unless the settings file contains TEXT

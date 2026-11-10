@@ -148,7 +148,8 @@ constexpr const char* kSizeNames[kSizeCount + 1] = {"1280 x 720", "1600 x 900", 
 constexpr int kAniso[] = {0, 2, 4, 8, 16};
 constexpr const char* kAnisoNames[] = {"Game Default", "2x", "4x", "8x", "16x"};
 // In play::PromptStyle order (the row stores the enum's number).
-constexpr const char* kPromptNames[] = {"Switch", "Xbox", "PlayStation", "Steam Controller", "Steam Deck", "Keyboard", "Automatic"};
+constexpr const char* kPromptNames[] = {"Switch",      "Xbox",        "PlayStation", "Steam Controller", "Steam Deck", "Nintendo Switch", "Switch 2",
+                                        "Wii U",       "Steam Frame", "Valve Index", "Touch",            "Keyboard",   "Automatic"};
 static_assert(std::size(kPromptNames) == play::kPromptStyleCount, "one name per PromptStyle");
 constexpr const char* kAheadNames[] = {"No Limit", "0", "1", "2", "3"};
 constexpr const char* kAaNames[] = {"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};      // indexed by extras::AaMode

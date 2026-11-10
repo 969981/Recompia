@@ -432,10 +432,13 @@ export const SECTIONS = [
         rows: [
           {
             id: 'prompt_style', label: t('Button icons'), type: 'select', ...fromSchema(controls('prompts', 'style')),
-            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
+            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', nintendo_switch: 'switch1', ns1: 'switch1', switch_2: 'switch2', nintendo_switch_2: 'switch2', nintendo_switch2: 'switch2', ns2: 'switch2', wii_u: 'wiiu', steam_frame: 'steamframe', frame: 'steamframe', valve_index: 'index', valveindex: 'index', touchscreen: 'touch', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
             options: [
               { value: 'auto', label: t('Automatic') }, { value: 'switch', label: t('Switch') }, { value: 'xbox', label: t('Xbox') },
-              { value: 'playstation', label: t('PlayStation') }, { value: 'steam', label: t('Steam Controller') }, { value: 'steamdeck', label: t('Steam Deck') }, { value: 'keyboard', label: t('Keyboard and mouse') },
+              { value: 'playstation', label: t('PlayStation') }, { value: 'steam', label: t('Steam Controller') }, { value: 'steamdeck', label: t('Steam Deck') },
+              { value: 'switch1', label: t('Nintendo Switch') }, { value: 'switch2', label: t('Nintendo Switch 2') }, { value: 'wiiu', label: t('Wii U') },
+              { value: 'steamframe', label: t('Steam Frame') }, { value: 'index', label: t('Valve Index') }, { value: 'touch', label: t('Touch') },
+              { value: 'keyboard', label: t('Keyboard and mouse') },
             ],
           },
           { id: 'f1_bindings', label: t('Change bindings in game'), type: 'keycap', key: 'F1' },

@@ -29,8 +29,9 @@ namespace ui {
 
 constexpr Trig kTrigChoices[] = {Trig::Press, Trig::Tap, Trig::Hold, Trig::Toggle, Trig::DoubleTap};
 // The Button prompts combo on the Controller tab, in PromptStyle order.
-constexpr const char* kPromptLabels[kPromptStyleCount] = {"Switch (the game's own)", "Xbox", "PlayStation", "Steam Controller", "Steam Deck", "Keyboard and mouse",
-                                                          "Auto (follows the last used device)"};
+constexpr const char* kPromptLabels[kPromptStyleCount] = {"Switch (the game's own)", "Xbox", "PlayStation", "Steam Controller", "Steam Deck",
+                                                          "Nintendo Switch", "Nintendo Switch 2", "Wii U", "Steam Frame", "Valve Index", "Touch",
+                                                          "Keyboard and mouse", "Auto (follows the last used device)"};
 
 struct SwitchButton {
     const char* name;
@@ -219,7 +220,8 @@ void prompts_row(const LiveStatus& live, Page& p) {
         }
         ImGui::EndCombo();
     }
-    tip("The button icons in the game's prompts: the game's own Switch icons, Xbox, PlayStation, Steam Controller, Steam Deck, keyboard and mouse, or Auto to follow the device you used last.");
+    tip("The button icons in the game's prompts: the game's own Switch icons, another controller's (Xbox, PlayStation, Steam Controller, Steam Deck, Nintendo Switch, "
+        "Switch 2, Wii U, Steam Frame, Valve Index), touch gestures, keyboard and mouse, or Auto to follow the device you used last.");
     if (prompts.style == PromptStyle::Auto) {
         ImGui::SameLine();
         ImGui::TextDisabled("showing %s", cstr(live.prompt_now));
