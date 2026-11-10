@@ -43,7 +43,8 @@
   <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
   <a href="docs/i18n/README.es.md">Español</a> ·
   <a href="docs/i18n/README.ar.md">العربية</a> ·
-  <a href="docs/i18n/README.hi.md">हिन्दी</a>
+  <a href="docs/i18n/README.hi.md">हिन्दी</a> ·
+  <a href="docs/i18n/README.pt-BR.md">Português (Brasil)</a>
 </p>
 <!-- i18n-bar:end -->
 
