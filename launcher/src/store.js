@@ -2,6 +2,8 @@
 // and subscribes with ctx.on(fn). Long work is started here, not on a page, so it survives navigation.
 import { listen } from '@tauri-apps/api/event';
 import { api } from './api.js';
+import { num, t } from './i18n.js';
+import { fromBackend } from './backend-text.js';
 import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
@@ -27,7 +29,7 @@ function set(patch, why) {
 function preflightList(pre) {
   const rows = pre.checks.filter((c) => c.level !== 'ok').map((c) => {
     const bad = c.level === 'fail';
-    return `<li class="${bad ? 'bad' : 'warn'}">${icon(bad ? 'circle-x' : 'triangle-alert')}<div><strong>${esc(c.title)}</strong><span>${esc(c.detail)}</span></div></li>`;
+    return `<li class="${bad ? 'bad' : 'warn'}">${icon(bad ? 'circle-x' : 'triangle-alert')}<div><strong>${esc(fromBackend(c.title))}</strong><span>${esc(fromBackend(c.detail))}</span></div></li>`;
   });
   return `<ul class="modal-list">${rows.join('')}</ul>`;
 }
@@ -42,11 +44,11 @@ async function passPreflight() {
     return { go: true };
   }
   if (pre.blocked) {
-    await confirm({ title: 'Set up cannot start yet', html: preflightList(pre), ok: 'Close', alert: true });
+    await confirm({ title: t('Set up cannot start yet'), html: preflightList(pre), ok: t('Close'), alert: true });
     return { go: false };
   }
   if (pre.warnings) {
-    const go = await confirm({ title: 'Check these before you start', html: preflightList(pre), ok: 'Set up anyway' });
+    const go = await confirm({ title: t('Check these before you start'), html: preflightList(pre), ok: t('Set up anyway') });
     return { go, gentle: pre.suggest_gentle || undefined };
   }
   return { go: true };
@@ -57,8 +59,8 @@ async function onSetupEvent(p) {
   set({ setup: { ...store.state.setup, progress: p } }, 'setup');
   if (p.state === 'running') return;
   await store.refresh();
-  if (was === 'running' && p.state === 'done') toast('Setup finished', 'ok');
-  if (was === 'running' && p.state === 'error') toast('Setup stopped with an error', 'error');
+  if (was === 'running' && p.state === 'done') toast(t('Setup finished'), 'ok');
+  if (was === 'running' && p.state === 'error') toast(t('Setup stopped with an error'), 'error');
 }
 
 export const store = {
@@ -124,8 +126,8 @@ export const store = {
       const r = await api.compactShaders();
       await store.refreshStorage();
       const freed = Math.max(0, (before?.loose_bytes ?? 0) + (before?.archive_bytes ?? 0) - (store.state.storage?.loose_bytes ?? 0) - (store.state.storage?.archive_bytes ?? 0));
-      if (r.finished) toast(`Shader files packed: ${gb(freed)} freed`, 'ok');
-      else toast(`Stopped. ${gb(freed)} freed so far, the rest is packed next time.`);
+      if (r.finished) toast(t('Shader files packed: {size} freed', { size: gb(freed) }), 'ok');
+      else toast(t('Stopped. {size} freed so far, the rest is packed next time.', { size: gb(freed) }));
     } catch (e) {
       toast(errText(e), 'error');
     } finally {
@@ -139,8 +141,8 @@ export const store = {
     if (store.state.repack) return;
     set({ repack: { kind: 'expand', done: 0, total: store.state.storage?.archive_shaders ?? 0 } }, 'task');
     try {
-      if (await api.expandShaders()) toast('Shader files unpacked', 'ok');
-      else toast('Stopped. Unpacking continues where it stopped.');
+      if (await api.expandShaders()) toast(t('Shader files unpacked'), 'ok');
+      else toast(t('Stopped. Unpacking continues where it stopped.'));
     } catch (e) {
       toast(errText(e), 'error');
     } finally {
@@ -300,15 +302,15 @@ export async function askCompact() {
   const o = compactOffer(store.state) ?? { free: store.state.storage?.free_estimate ?? 0, loose: store.state.storage?.loose_bytes ?? 0, files: store.state.storage?.loose_files ?? 0 };
   const li = (cls, ic, title, text) => `<li class="${cls}">${icon(ic)}<div><strong>${esc(title)}</strong><span>${esc(text)}</span></div></li>`;
   const go = await confirm({
-    title: `Free up about ${gb(o.free)}?`,
-    html: `<p>Your translated shaders take ${gb(o.loose)} as ${o.files.toLocaleString('en')} separate files. Packed into a few compressed files, they take a fraction of that.</p>
+    title: t('Free up about {size}?', { size: gb(o.free) }),
+    html: `<p>${esc(t('Your translated shaders take {size} as {files} separate files. Packed into a few compressed files, they take a fraction of that.', { size: gb(o.loose), files: num(o.files) }))}</p>
       <ul class="modal-list">
-        ${li('ok', 'circle-check', 'Nothing is translated again', 'The shaders are packed as they are. It takes a few minutes, and you can stop at any time.')}
-        ${li('ok', 'circle-check', 'The game runs the same', 'It reads packed shaders as quickly as loose ones.')}
-        ${li('warn', 'triangle-alert', 'Loose shader files are going away', 'A later update stops reading them, so this will be needed anyway.')}
+        ${li('ok', 'circle-check', t('Nothing is translated again'), t('The shaders are packed as they are. It takes a few minutes, and you can stop at any time.'))}
+        ${li('ok', 'circle-check', t('The game runs the same'), t('It reads packed shaders as quickly as loose ones.'))}
+        ${li('warn', 'triangle-alert', t('Loose shader files are going away'), t('A later update stops reading them, so this will be needed anyway.'))}
       </ul>`,
-    ok: 'Free up space',
-    cancel: 'Not now',
+    ok: t('Free up space'),
+    cancel: t('Not now'),
   });
   if (go) await store.compactShaders();
 }
@@ -324,6 +326,6 @@ function afterUpdate() {
   const app = store.state.app;
   if (!app?.updated || autoFinishDone) return;
   autoFinishDone = true;
-  toast(`Updated to ${app.version}`, 'ok');
+  toast(t('Updated to {version}', { version: app.version }), 'ok');
   if (needsFinish(app.readiness?.kind)) store.startSetup();
 }

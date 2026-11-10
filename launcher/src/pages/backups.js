@@ -2,24 +2,25 @@
 // shown here; the on/off setting and the interval are plain pkp.ini keys ([backup] interval_minutes, keep) drawn by the settings schema.
 import { api } from '../api.js';
 import { confirm, errText, esc, toast } from '../ui.js';
+import { language, t } from '../i18n.js';
 
-const KIND = { auto: 'Automatic', exit: 'When the game closed', manual: 'Back up now', 'before-restore': 'Before a restore' };
+const KIND = { auto: t('Automatic'), exit: t('When the game closed'), manual: t('Back up now'), 'before-restore': t('Before a restore') };
 
 export const size = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
 export const when = (iso) => {
   const d = new Date(iso ?? '');
-  return Number.isNaN(+d) ? String(iso ?? '') : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(+d) ? String(iso ?? '') : d.toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
 /** The short value on the Backups row: how many copies there are. */
 export function backupText(status) {
-  if (!status) return 'Checking';
-  return status.count ? `${status.count} backup${status.count === 1 ? '' : 's'}` : 'None yet';
+  if (!status) return t('Checking');
+  return status.count ? (status.count === 1 ? t('1 backup') : t('{count} backups', { count: status.count })) : t('None yet');
 }
 
 /** The line under it: how big they are together and when the newest was made ('' when there is none). */
 export function backupDetail(status) {
-  return status?.count ? `Together ${size(status.bytes)}. The newest is from ${when(status.last?.created)}.` : '';
+  return status?.count ? t('Together {size}. The newest is from {when}.', { size: size(status.bytes), when: when(status.last?.created) }) : '';
 }
 
 /** Radio list of the copies, newest first selected. Resolves the chosen folder name, or null (Cancel, Esc, click outside). */
@@ -31,8 +32,8 @@ function pick(list) {
     dlg.innerHTML = `
       <form method="dialog">
         <div class="modal-body">
-          <h2 id="modal-title">Restore a backup</h2>
-          <p>Pick the moment to go back to. Your current save is copied first, so you can undo this by restoring the copy called "Before a restore".</p>
+          <h2 id="modal-title">${esc(t('Restore a backup'))}</h2>
+          <p>${esc(t('Pick the moment to go back to. Your current save is copied first, so you can undo this by restoring the copy called "Before a restore".'))}</p>
           <ul class="backup-list">
             ${list.map((e, i) => `<li><label class="backup-choice">
               <input type="radio" name="backup" value="${esc(e.name)}" ${i === 0 ? 'checked' : ''} />
@@ -42,8 +43,8 @@ function pick(list) {
           </ul>
         </div>
         <div class="modal-actions">
-          <button class="btn quiet" type="button" data-answer="">Cancel</button>
-          <button class="btn primary" type="submit" data-answer="ok">Restore</button>
+          <button class="btn quiet" type="button" data-answer="">${esc(t('Cancel'))}</button>
+          <button class="btn primary" type="submit" data-answer="ok">${esc(t('Restore'))}</button>
         </div>
       </form>`;
     document.body.appendChild(dlg);
@@ -68,9 +69,9 @@ function pick(list) {
 export async function backupNow() {
   try {
     const r = await api.backupNow();
-    if (r.result === 'made') toast('Backup made', 'ok');
-    else if (r.result === 'unchanged') toast('Nothing has changed since the last backup', 'ok');
-    else toast('There is no save to back up yet', 'ok');
+    if (r.result === 'made') toast(t('Backup made'), 'ok');
+    else if (r.result === 'unchanged') toast(t('Nothing has changed since the last backup'), 'ok');
+    else toast(t('There is no save to back up yet'), 'ok');
     return r.result === 'made';
   } catch (e) {
     toast(errText(e), 'error');
@@ -88,22 +89,22 @@ export async function runRestore() {
     return false;
   }
   if (!list.length) {
-    toast('There are no backups yet', 'error');
+    toast(t('There are no backups yet'), 'error');
     return false;
   }
   const name = await pick(list);
   if (!name) return false;
   const e = list.find((x) => x.name === name);
   const yes = await confirm({
-    title: 'Restore this backup?',
-    html: `<p>Your save goes back to <strong>${esc(when(e.created))}</strong>. Anything you did in the game after that moment is gone from the save, but it is copied first as "Before a restore", so you can come back to it.</p><p>The game must be closed.</p>`,
-    ok: 'Restore',
+    title: t('Restore this backup?'),
+    html: `<p>${esc(t('Your save goes back to {when}. Anything you did in the game after that moment is gone from the save, but it is copied first as "Before a restore", so you can come back to it.', { when: '\u0001' })).replace('\u0001', `<strong>${esc(when(e.created))}</strong>`)}</p><p>${esc(t('The game must be closed.'))}</p>`,
+    ok: t('Restore'),
     danger: true,
   });
   if (!yes) return false;
   try {
     await api.backupRestore({ name });
-    toast('Save restored', 'ok');
+    toast(t('Save restored'), 'ok');
     return true;
   } catch (err) {
     toast(errText(err), 'error');

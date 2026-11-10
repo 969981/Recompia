@@ -9,6 +9,7 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
 
 ### Launcher
+- The launcher is now translated into Spanish, English, Japanese, French, Italian, German, Korean, Simplified Chinese and Traditional Chinese. It follows the system language by default (English when it cannot tell), and Settings > About > Language changes it
 - Fixed Set up finishing at once while the game still refused to start with "pkp.exe and pkp_rt.dll come from different releases", after an update that replaced only some files
   - Before: the launcher compared pkp.exe only with the build tools in the tools folder. A new pkp_rt.dll next to old tools (files copied by hand, or a zip extracted without its tools folder) looked current, so Set up did nothing and the game refused the exe
   - Now: pkp.exe and pkp_rt.dll both carry the runtime API they were built for, and the launcher reads it before Play and Set up. An exe from another release than the dll is relinked by Set up; a dll from another release than the tools is named on the main page, with what to do (extract the whole release over the folder)

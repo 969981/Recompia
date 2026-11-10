@@ -1,5 +1,6 @@
 // The save folder's buttons: import a save from another place, back up and restore.
 import { api } from '../../api.js';
+import { num, t } from '../../i18n.js';
 import { confirm, errText, esc, toast } from '../../ui.js';
 import { backupNow, runRestore } from '../backups.js';
 import { IMPORT_FACTS } from '../../settings-schema.js';
@@ -17,7 +18,7 @@ export function createSaveActions(h) {
   }
 
   async function runImport(what, source, html) {
-    if (!(await confirm({ title: `Import ${what}?`, html, body: html ? '' : IMPORT_FACTS, ok: 'Import' }))) return;
+    if (!(await confirm({ title: t('Import {what}?', { what }), html, body: html ? '' : IMPORT_FACTS, ok: t('Import') }))) return;
     st.importing = true;
     st.importResult = null;
     h.draw();
@@ -25,9 +26,9 @@ export function createSaveActions(h) {
       await h.flush();
       const r = await api.importSave({ source });
       st.importResult = r.backup
-        ? { kind: 'ok', text: `Imported ${r.files} files. Your previous save is kept in`, path: r.backup }
-        : { kind: 'ok', text: `Imported ${r.files} files. There was no previous save.` };
-      toast('Save imported', 'ok');
+        ? { kind: 'ok', text: t('Imported {count} files. Your previous save is kept in', { count: r.files }), path: r.backup }
+        : { kind: 'ok', text: t('Imported {count} files. There was no previous save.', { count: r.files }) };
+      toast(t('Save imported'), 'ok');
     } catch (e) {
       st.importResult = { kind: 'danger', text: errText(e) };
       toast(errText(e), 'error');
@@ -45,10 +46,10 @@ export function createSaveActions(h) {
       }).catch((e) => console.warn('save_sources', e));
     },
     actions: {
-      import: (arg, name) => runImport(`from ${name}`, arg),
+      import: (arg, name) => runImport(t('from {name}', { name }), arg),
       async 'import-folder'() {
-        const picked = await api.pickFolder({ title: 'Choose a folder with the save', start: null });
-        if (picked) await runImport('this save', picked, `<p class="path selectable">${esc(picked)}</p><p>${esc(IMPORT_FACTS)}</p>`);
+        const picked = await api.pickFolder({ title: t('Choose a folder with the save'), start: null });
+        if (picked) await runImport(t('this save'), picked, `<p class="path selectable">${esc(picked)}</p><p>${esc(IMPORT_FACTS)}</p>`);
       },
       async 'backup-now'() {
         await h.flush();
