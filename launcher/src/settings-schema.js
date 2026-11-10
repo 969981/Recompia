@@ -23,6 +23,7 @@
 // Rows that are not fields: info (label, value, actions), keycap (label, key), note (a line of text), and { expand } for rows made from env.
 
 import { num, t } from './i18n.js';
+import { previewItem } from './prompt-pack-model.js';
 import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
 import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
 
@@ -61,6 +62,25 @@ export function fromSchema(at) {
   const k = schemaKey(at);
   if (!k) throw new Error(`settings-schema: [${at.section}] ${at.key} is not in the runtime's ${at.file} schema`);
   return { at, def: k.default, ...(k.min !== undefined && { min: k.min }), ...(k.max !== undefined && { max: k.max }) };
+}
+
+// ---- button icons -------------------------------------------------------------------------------------------------------------------
+
+/** The other spellings of [prompts] style the runtime reads (parse_prompt_style). */
+const PROMPT_ALIASES = {
+  ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam',
+  deck: 'steamdeck', steam_deck: 'steamdeck', nintendo_switch: 'switch1', ns1: 'switch1', switch_2: 'switch2', nintendo_switch_2: 'switch2',
+  nintendo_switch2: 'switch2', ns2: 'switch2', wii_u: 'wiiu', steam_frame: 'steamframe', frame: 'steamframe', valve_index: 'index',
+  valveindex: 'index', touchscreen: 'touch', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard',
+};
+
+/** The Button icons preview of a style: { text } for the game's own icons and Automatic, else { items: [{ button, icon }] } with the icon
+ *  of each Switch button as the runtime shows it with the factory pad mapping and keys (the schema's choice_details, from prompt_preview). */
+export function promptPreview(style) {
+  const w = PROMPT_ALIASES[word(style)] ?? word(style);
+  if (w === 'switch') return { text: t("The game's own Switch icons") };
+  if (w === 'auto') return { text: t('The icons of the device you used last') };
+  return { items: (schemaKey(controls('prompts', 'style'))?.choice_details?.[w] ?? []).map(previewItem) };
 }
 
 // ---- shader files -------------------------------------------------------------------------------------------------------------------
@@ -432,7 +452,7 @@ export const SECTIONS = [
         rows: [
           {
             id: 'prompt_style', label: t('Button icons'), type: 'select', ...fromSchema(controls('prompts', 'style')),
-            aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', nintendo_switch: 'switch1', ns1: 'switch1', switch_2: 'switch2', nintendo_switch_2: 'switch2', nintendo_switch2: 'switch2', ns2: 'switch2', wii_u: 'wiiu', steam_frame: 'steamframe', frame: 'steamframe', valve_index: 'index', valveindex: 'index', touchscreen: 'touch', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
+            aliases: PROMPT_ALIASES,
             options: [
               { value: 'auto', label: t('Automatic') }, { value: 'switch', label: t('Switch') }, { value: 'xbox', label: t('Xbox') },
               { value: 'playstation', label: t('PlayStation') }, { value: 'steam', label: t('Steam Controller') }, { value: 'steamdeck', label: t('Steam Deck') },
@@ -441,6 +461,7 @@ export const SECTIONS = [
               { value: 'keyboard', label: t('Keyboard and mouse') },
             ],
           },
+          { id: 'prompt_preview', label: t('Preview'), type: 'glyphs', glyphs: (v) => promptPreview(v.prompt_style) },
           { id: 'f1_bindings', label: t('Change bindings in game'), type: 'keycap', key: 'F1' },
         ],
       },

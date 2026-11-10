@@ -10,11 +10,12 @@ let lastSection = 'display';   // coming back to Settings lands where the player
 
 export const rememberSection = (id) => { lastSection = id; };
 
-export function createState({ dump, cfg, dlss, overview }, ctx) {
+export function createState({ dump, cfg, dlss, overview, promptIcons }, ctx) {
   return {
     src: makeSource(dump, cfg),
     dlss,
     overview,
+    promptIcons,          // pack entry -> image URL for the Button icons preview (prompt-icons.js), null without an icon pack
     gameDir: dump.game_dir,
     sources: [],
     profiles: { active: 'default', profiles: [] },
@@ -57,6 +58,7 @@ export function env(st) {
     backupDetail: backupDetail(st.backups),
     importing: st.importing,
     importResult: st.importResult,
+    promptIcons: st.promptIcons,
     dlssCanFetch: !!st.dlss?.available,
     dlssPresent: !!st.dlss?.present,
     dlssBusy: !!s.dlss,

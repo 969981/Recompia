@@ -23,6 +23,7 @@
 #include "nxrt/overlay.h"
 #include "nxrt/platform.h"
 #include "play_game.h"
+#include "play_ui_prompt_preview.h"
 
 namespace nxrt::play {
 namespace ui {
@@ -222,10 +223,13 @@ void prompts_row(const LiveStatus& live, Page& p) {
     }
     tip("The button icons in the game's prompts: the game's own Switch icons, another controller's (Xbox, PlayStation, Steam Controller, Steam Deck, Nintendo Switch, "
         "Switch 2, Wii U, Steam Frame, Valve Index), touch gestures, keyboard and mouse, or Auto to follow the device you used last.");
+    PromptStyle shown = prompts.style;
     if (prompts.style == PromptStyle::Auto) {
         ImGui::SameLine();
         ImGui::TextDisabled("showing %s", cstr(live.prompt_now));
+        if (!parse_prompt_style(cstr(live.prompt_now), &shown)) shown = PromptStyle::Switch;
     }
+    prompt_preview_strip(shown, p.edit);
 }
 
 void pad_tab(const LiveStatus& live, Page& p) {   // the Gamepad tab of the Controls page

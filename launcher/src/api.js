@@ -12,6 +12,7 @@ export const api = {
   getOverview: () => invoke('get_overview'),
   readSettings: () => invoke('read_settings'),
   writeSettings: (args) => invoke('write_settings', args),   // { edits }
+  promptIconPack: () => invoke('prompt_icon_pack'),   // ArrayBuffer: assets/prompts/prompt_icons.pak
 
   // Updates and builds
   getReleases: (args) => invoke('get_releases', args),   // { refresh }

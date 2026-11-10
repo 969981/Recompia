@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ini_text.h"
+#include "prompt_resolve.h"
 #include "nxrt/extras.h"
 
 namespace nxrt::play {
@@ -53,15 +54,28 @@ bool read_pitch_source(const std::string& k, const std::string& v, Settings* s, 
     return true;
 }
 
-bool read_prompt_style(const std::string&, const std::string& v, Settings* s, std::string* msg) {
-    if (parse_prompt_style(v, &s->prompts.style)) return true;
-    *msg = "style must be switch, xbox, playstation, steam, keyboard or auto, got '" + v + "'";
-    return false;
-}
-std::string write_prompt_style(const Settings& s) { return prompt_style_name(s.prompts.style); }
 std::vector<std::string> prompt_style_words() {
     std::vector<std::string> r;
     for (int i = 0; i < kPromptStyleCount; ++i) r.push_back(prompt_style_name(static_cast<PromptStyle>(i)));
+    return r;
+}
+bool read_prompt_style(const std::string&, const std::string& v, Settings* s, std::string* msg) {
+    if (parse_prompt_style(v, &s->prompts.style)) return true;
+    std::string words;
+    for (const std::string& w : prompt_style_words()) words += (words.empty() ? "" : ", ") + w;
+    *msg = "style must be one of " + words + ", got '" + v + "'";
+    return false;
+}
+std::string write_prompt_style(const Settings& s) { return prompt_style_name(s.prompts.style); }
+// The launcher's preview of each style: "A=xbox/a" per Switch button (prompt_preview), with the factory pad mapping and bindings.
+std::vector<std::pair<std::string, std::vector<std::string>>> prompt_style_details(const Settings& defaults) {
+    std::vector<std::pair<std::string, std::vector<std::string>>> r;
+    for (int i = 0; i < kPromptStyleCount; ++i) {
+        const PromptStyle style = static_cast<PromptStyle>(i);
+        std::vector<std::string> items;
+        for (const PromptPreviewItem& it : prompt_preview(style, defaults)) items.push_back(std::string(it.button) + "=" + it.icon);
+        if (!items.empty()) r.emplace_back(prompt_style_name(style), std::move(items));
+    }
     return r;
 }
 
@@ -343,7 +357,8 @@ const SettingDef kTable[] = {
     {ROW("picture", "gamma", Real), REAL(extras.picture.gamma), .lo = 0.5, .hi = 2.0, .ranged = true, .exact = true,
      .nxrt_key = "picture.gamma", .doc = "Mid-tone brightness; above 1 brightens."},
 
-    {ROW("prompts", "style", Custom), CUSTOM(read_prompt_style, write_prompt_style), .word_fn = prompt_style_words, .syntax = "choice",
+    {ROW("prompts", "style", Custom), CUSTOM(read_prompt_style, write_prompt_style), .word_fn = prompt_style_words,
+     .details_fn = prompt_style_details, .syntax = "choice",
      .doc = "Which button icons the game's prompts show; auto follows the last used input device."},
 
     {ROW("fps", "show", Bool), FLAG(fps.show), .doc = "The frame rate counter."},
@@ -592,6 +607,7 @@ std::vector<setting_doc::Row> settings_doc_rows() {
             for (const char* w : d.words) r.choices.push_back(w);
             for (int a : d.allowed) r.choices.push_back(std::to_string(a));
             if (d.word_fn) r.choices = d.word_fn();
+            if (d.details_fn) r.choice_details = d.details_fn(defaults);
             if (d.auto_word) r.auto_word = d.auto_word;
             if (d.renamed_from) r.aliases.push_back(d.renamed_from);
             if (d.fallback) r.fallback = d.fallback;

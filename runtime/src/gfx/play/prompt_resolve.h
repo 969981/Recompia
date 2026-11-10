@@ -65,6 +65,16 @@ struct ResolveIn {
 // rotates, middle button moves; kbm/mouse1 and kbm/mouse2). Every other style and context keeps the game's own stick icon.
 std::string resolve_icon(const ResolveIn& in, Icon icon);
 
+// One entry of a button icon preview (the F1 Controller tab, the launcher through the docs' choice_details): a Switch button and the
+// pack entry the style shows for it ("" = the game's own icon).
+struct PromptPreviewItem {
+    const char* button;   // "A" "B" "X" "Y" "L" "R" "ZL" "ZR" "Plus" "Minus" "D-pad"
+    std::string icon;
+};
+// What a style shows for each Switch button, with the pad remap, label_abxy and bindings (menu context) of `s`. Empty for Switch (the game's
+// own icons) and Auto (the caller resolves it first).
+std::vector<PromptPreviewItem> prompt_preview(PromptStyle style, const Settings& s);
+
 // Keyboard and mouse: the input that presses this Switch button in the given context, following the bindings of the settings.
 // Looks at actions whose [switch] output is exactly that button (confirm and back before the raw btn_ actions), in the bindings that
 // apply in ctx (a binding of the context beats the `all` layer for the same input), then in the other contexts. False: nothing is bound.

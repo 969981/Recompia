@@ -183,28 +183,40 @@ bool input_for_button(const Settings& s, Ctx ctx, Btn b, InputId* out) {
     return false;
 }
 
+namespace {
+// The pack entry a style shows for Switch button b: the pad set's button (pad remap of `settings`, or the built-in mapping without
+// settings), or for the keyboard the key bound to it in ctx. "" = the game's own icon.
+std::string button_icon(PromptStyle style, const Settings* settings, bool label_abxy, Ctx ctx, Btn b) {
+    const PadSettings no_pad{};
+    if (const PadIconSet* set = pad_set(style)) return pad_name(*set, settings ? settings->pad : no_pad, label_abxy, b);
+    if (style != PromptStyle::Keyboard || !settings) return {};
+    InputId id;
+    if (!input_for_button(*settings, ctx, b, &id)) return {};
+    return kbm_pack_name(id);
+}
+}  // namespace
+
 std::string resolve_icon(const ResolveIn& in, Icon icon) {
     // The map's stick icons: the mouse buttons that drive the map (left drag rotates, middle drag moves). Only keyboard style on the map.
     if (icon == Icon::LStick || icon == Icon::RStick) {
         if (in.style != PromptStyle::Keyboard || in.ctx != Ctx::Map) return {};
         return icon == Icon::LStick ? "kbm/mouse1" : "kbm/mouse2";
     }
-    const Btn b = icon_button(icon);
-    const PadSettings no_pad{};
-    const PadSettings& pad = in.settings ? in.settings->pad : no_pad;
-    std::string base;
-    if (const PadIconSet* set = pad_set(in.style)) {
-        base = pad_name(*set, pad, in.label_abxy, b);
-    } else if (in.style == PromptStyle::Keyboard) {
-        if (!in.settings) return {};
-        InputId id;
-        if (!input_for_button(*in.settings, in.ctx, b, &id)) return {};
-        base = kbm_pack_name(id);
-    } else {
-        return {};
-    }
+    const std::string base = button_icon(in.style, in.settings, in.label_abxy, in.ctx, icon_button(icon));
     if (base.empty()) return {};
     return icon_pressed(icon) ? base + "_pressed" : base;
+}
+
+std::vector<PromptPreviewItem> prompt_preview(PromptStyle style, const Settings& s) {
+    static constexpr struct {
+        const char* label;
+        Btn btn;
+    } kButtons[] = {{"A", Btn::A},   {"B", Btn::B},   {"X", Btn::X},       {"Y", Btn::Y},         {"L", Btn::L},           {"R", Btn::R},
+                    {"ZL", Btn::ZL}, {"ZR", Btn::ZR}, {"Plus", Btn::Plus}, {"Minus", Btn::Minus}, {"D-pad", Btn::DPad}};
+    std::vector<PromptPreviewItem> r;
+    if (!prompt_style_is_pad(style) && style != PromptStyle::Keyboard) return r;
+    for (const auto& b : kButtons) r.push_back({b.label, button_icon(style, &s, s.pad.label_abxy, Ctx::Menu, b.btn)});
+    return r;
 }
 
 std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit) {

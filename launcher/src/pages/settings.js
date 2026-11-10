@@ -20,15 +20,17 @@ import { createSteamActions } from './settings/steam.js';
 import { createRepairActions } from './settings/repair-actions.js';
 import { createUpdateActions } from './settings/updates.js';
 import { createGameActions } from './settings/game.js';
+import { loadPromptIcons } from './settings/prompt-icons.js';
 
 export async function render(el, ctx) {
-  const [dump, cfg, dlss, overview] = await Promise.all([
+  const [dump, cfg, dlss, overview, promptIcons] = await Promise.all([
     api.readSettings(),
     api.getConfig(),
     api.dlssStatus().catch(() => null),
     api.getOverview().catch(() => null),
+    loadPromptIcons(),
   ]);
-  const st = createState({ dump, cfg, dlss, overview }, ctx);
+  const st = createState({ dump, cfg, dlss, overview, promptIcons }, ctx);
 
   el.innerHTML = `<div class="page set">
     <div class="set-head">

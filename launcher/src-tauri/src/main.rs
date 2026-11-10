@@ -24,6 +24,7 @@ mod open;
 mod paths;
 mod play;
 mod preflight;
+mod prompts;
 mod profile_cmds;
 mod profiles;
 mod public_ip;
@@ -125,6 +126,7 @@ fn main() {
             dump_cmds::save_dump,
             settings_cmds::read_settings,
             settings_cmds::write_settings,
+            settings_cmds::prompt_icon_pack,
             launch::play,
             setup_job::setup_status,
             setup_job::start_setup,

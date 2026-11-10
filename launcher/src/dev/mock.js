@@ -343,6 +343,7 @@ function handle(cmd, args) {
       }).then(() => `${GAME_DIR}/nup_dump`);
     case 'cancel_nup': nupStop = true; return null;
     case 'read_settings': return structuredClone(settings);
+    case 'prompt_icon_pack': throw 'assets/prompts/prompt_icons.pak not found in the game folder';   // the preview row says so
     case 'write_settings':
       for (const e of args.edits) settings[e.file][`${e.section}.${e.key}`] = e.value;
       return null;

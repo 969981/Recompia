@@ -15,6 +15,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - Added six **Button Icons** themes: **Nintendo Switch**, **Nintendo Switch 2**, **Wii U**, **Steam Frame**, **Valve Index** and **Touch**, and the **Steam Deck** theme now uses real Steam Deck art
   - Before: the prompts could show the game's own icons, Xbox, PlayStation, Steam Controller, Steam Deck (the Steam Controller's art with Xbox View and Menu symbols) or keyboard and mouse
   - Now: pick any of them in the game's Settings (Button Icons), on the F1 Controller tab, in the launcher's Controls tab or with `[prompts] style` in `controls.ini` (`switch1`, `switch2`, `wiiu`, `steamframe`, `index`, `touch`). All are the white Kenney icons and follow your button remapping. Steam Deck shows the Deck's own L1/R1, L4/L5/R4/R5 back buttons and trackpads. Valve Index shows A, B, the triggers and the trackpad (its left stick stands for the d-pad); Touch shows gestures (tap, two-finger tap, swipes, pinch)
+  - Also: the launcher's Controls tab (under Button icons) and the F1 Controller tab now show a preview of the chosen theme: each Switch button with the icon it gets. F1 follows your current remapping and key bindings; the launcher shows the default ones
   - Still not: Automatic never picks the new themes on its own (a Switch pad still shows the game's own icons); buttons a controller doesn't have keep the game's icon
 
 ## 0.10.2 (build N: Numbat Hotfix a2)
