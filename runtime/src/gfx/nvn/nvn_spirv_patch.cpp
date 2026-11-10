@@ -20,6 +20,17 @@ struct Inst {
     uint32_t op, len;
 };
 
+// The instructions of a module after its 5-word header, in order. False on a zero or overrunning word count (a malformed module).
+bool decode_insts(const std::vector<uint32_t>& w, std::vector<Inst>& insts) {
+    for (size_t i = 5; i < w.size();) {
+        const uint32_t len = w[i] >> 16;
+        if (!len || i + len > w.size()) return false;
+        insts.push_back({i, w[i] & 0xffff, len});
+        i += len;
+    }
+    return true;
+}
+
 bool is_type_or_constant(uint32_t op) { return (op >= OpTypeVoid && op <= OpTypeForwardPointer) || (op >= 41 && op <= 52); }
 
 }  // namespace
@@ -27,12 +38,7 @@ bool is_type_or_constant(uint32_t op) { return (op >= OpTypeVoid && op <= OpType
 bool spirv_add_outputs(const std::vector<uint32_t>& in, const std::vector<SpvOutputSlot>& slots, std::vector<uint32_t>& out) {
     if (slots.empty() || in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
 
     uint32_t bound = in[3];
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> ints;    // (width, signed) -> id
@@ -126,12 +132,7 @@ namespace nxrt::nvn::be::gpu {
 bool spirv_dual_source_output(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
     if (in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     std::map<uint32_t, bool> is_output;
     for (const Inst& n : insts)
         if (n.op == OpVariable && n.len >= 4 && in[n.at + 3] == StorageOutput) is_output[in[n.at + 2]] = true;
@@ -165,12 +166,7 @@ enum : uint32_t { OpCapability = 17, OpExecutionMode = 16, OpConstant = 43, OpSt
 bool spirv_add_xfb(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, std::vector<SpvXfbOutput>* layout, uint32_t* stride) {
     if (in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     uint32_t bound = in[3];
     uint32_t f32 = 0, entry_id = 0;
     size_t first_type = 0, after_entry = 0, first_cap_end = 0;
@@ -287,12 +283,7 @@ bool spirv_outputs_to_private(const std::vector<uint32_t>& in, std::vector<uint3
     if (in.size() < 5) return false;
     enum : uint32_t { OpVariableOp = 59, OpDecorateOp = 71, OpEntryPointOp = 15, StoragePrivate = 6, DecIndex = 32, DecComponent = 31, DecBuiltIn = 11 };
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     std::map<uint32_t, bool> out_var, has_location, builtin;
     for (const Inst& n : insts) {
         const uint32_t* w = &in[n.at];
@@ -345,12 +336,7 @@ bool spirv_gs_passthrough(const std::vector<uint32_t>& in, const std::vector<Spv
     if (!spirv_add_outputs(in, slots, tmp)) return false;       // the outputs (never written yet) and the interface entries
 
     std::vector<Inst> insts;
-    for (size_t i = 5; i < tmp.size();) {
-        const uint32_t len = tmp[i] >> 16;
-        if (!len || i + len > tmp.size()) return false;
-        insts.push_back({i, tmp[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(tmp, insts)) return false;
     uint32_t bound = tmp[3];
     uint32_t f32 = 0, int32 = 0, v4 = 0, ptr_in_v4 = 0, first_function = 0, input_triangles = 0;
     std::map<uint32_t, uint32_t> location, var_type, array_elem, array_len_id, int_const;   // var -> Location / pointer type; array type -> element / length id; value -> id
@@ -424,12 +410,7 @@ bool spirv_int_attributes(const std::vector<uint32_t>& in, const std::vector<Spv
                       OpBitcastOp = 124, OpEntryPointOp = 15, OpFunctionOp = 54, DecComponent = 31, StorageInputC = 1, StoragePrivateC = 6 };
     if (slots.empty() || in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     uint32_t bound = in[3];
     uint32_t f32 = 0, v4 = 0, u32 = 0, s32 = 0, entry_id = 0;
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> ptrs;      // (storage, pointee) -> pointer type id
@@ -649,12 +630,7 @@ std::vector<SpvIntSlot> spirv_predict_int_inputs(const std::vector<uint32_t>& in
     std::map<uint32_t, uint32_t> ptr_pointee, array_elem, array_len, const_value, location, var_ptr;
     std::map<uint32_t, uint32_t> var_elems;                          // candidate Input variable -> number of vec4 elements (1 for a plain vec4)
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return result;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return result;
     for (const Inst& n : insts) {
         const uint32_t* w = &in[n.at];
         if (n.op == OpTypeFloatOp && n.len >= 3 && w[2] == 32) f32 = w[1];
@@ -733,12 +709,7 @@ bool spirv_init_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>& 
                       ModelVertex = 0, ModelTessEval = 2, ModelGeometry = 3 };
     if (in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     uint32_t bound = in[3];
     size_t entry_at = 0, first_function = 0;
     uint32_t entries = 0;
@@ -875,12 +846,7 @@ bool spirv_base_instance_from_c0(const std::vector<uint32_t>& in, std::vector<ui
                       DecBuiltIn = 11, BuiltInBaseInstance = 4425, StorageInput = 1, StorageUniform = 2, ModelVertex = 0 };
     if (in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     uint32_t bound = in[3];
     bool vertex = false;
     uint32_t base_var = 0;
@@ -960,12 +926,7 @@ bool spirv_reduced_precision(const std::vector<uint32_t>& in, std::vector<uint32
                       StorageFunction = 7, kOne = 0x3f800000u };
     if (in.size() < 5) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     bool fragment = false, have_entry = false;
     std::map<uint32_t, bool> f32_type;                   // OpTypeFloat 32 ids
     std::map<uint32_t, uint32_t> f32_const;              // OpConstant of a 32-bit float -> its bits
@@ -1067,12 +1028,7 @@ bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t
     BallotRewrite st;
     if (in.size() < 5 || in[0] != 0x07230203u || in[3] == 0 || in[3] > (1u << 22)) return false;
     std::vector<Inst> insts;
-    for (size_t i = 5; i < in.size();) {
-        const uint32_t len = in[i] >> 16;
-        if (!len || i + len > in.size()) return false;
-        insts.push_back({i, in[i] & 0xffff, len});
-        i += len;
-    }
+    if (!decode_insts(in, insts)) return false;
     const uint32_t bound = in[3];
     std::vector<size_t> def(bound, 0);
     std::vector<uint8_t> is_const(bound, 0), is_true(bound, 0), shuf_fn(bound, 0), nst(bound, 0);   // nst: stores into each id (2: more)

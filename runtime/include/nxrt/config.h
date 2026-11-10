@@ -15,8 +15,6 @@ namespace nxrt {
 
 // Loads (replaces) the ini from a file. Returns false when the file cannot be read (the config stays empty).
 bool config_load_file(const char* path);
-// Loads from a string (tests). Replaces the current ini content.
-void config_load_string(const char* text);
 void config_clear();
 // Programmatic override, as if it were in the ini (tests, command-line options). Env still wins over it.
 void config_set(const char* section, const char* key, const char* value);

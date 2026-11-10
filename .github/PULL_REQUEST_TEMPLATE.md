@@ -12,7 +12,3 @@ Fixes #
 ## Source
 
 <!-- Taken from pokopia-native? "Based on pokopia-native (MIT) `<path>` @`<commit>`". Otherwise delete this section. -->
-
-## Tested on
-
-<!-- Machine / platform and what you checked. "Compiles only" is fine, say so. -->

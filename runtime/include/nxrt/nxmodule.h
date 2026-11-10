@@ -50,7 +50,6 @@ RegResult nxmodule_register(Module* image, const NxModule* nx, uint32_t abi_vers
 #define NXRT_REGISTER_NXMODULE(image, nxmod) ::nxrt::nxmodule_register((image), &(nxmod), NXRECOMP_ABI_VERSION)
 
 const NxModule* nxmodule_by_index(uint32_t index);
-const NxModule* nxmodule_by_name(const char* name);
 const NxModule* nxmodule_at(uint64_t addr);        // the registered module whose [base, text_end) contains addr, or null
 std::vector<const NxModule*> nxmodules();          // registration order
 void nxmodules_clear();                            // tests (also done by modules_unload_all)

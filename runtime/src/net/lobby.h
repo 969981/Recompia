@@ -4,24 +4,22 @@
 //
 //   Lobby          abstract: connect (HELLO), scan, create, join, leave, set_advertise, reject, plus one event sink (room state pushes and
 //                  "you are out of the room"). Each Lobby is also the Link of its node while it is in a room (link()).
-//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (launcher "pkp host", relay protocol v3: the reference is
-//                  launcher/src-tauri/src/relay/mod.rs). A reader thread turns frames into events, request answers and Link deliveries;
+//   RelayClient    Lobby + Link over ONE TCP connection to the relay server (relay protocol v3, served by net/relay_server.cpp; the
+//                  frame format is defined by net/relay_wire.h, there is no other spec). A reader thread turns frames into events, request answers and Link deliveries;
 //                  sends share one mutex; PING every 5 s; SCAN/CREATE/JOIN wait up to 5 s for their answer. A v2 relay (ERROR 1 to the
 //                  v3 HELLO) is dialled again with proto 2: everything as before, TCP only.
 //                  UDP datagram path (v3, RelayOptions::udp): in a room the relay hands out a token (UDP_OFFER); a third thread proves
 //                  it over UDP to the relay's port (HELLO every 100 ms for 3 s, then every 5 s as keepalive / NAT refresh) and on the
 //                  first ACK switches the game datagrams to UDP both ways (UDP_MODE 1). No ACK for 15 s: back to TCP (UDP_MODE 0),
 //                  still probing. Until then, and whenever UDP is blocked, datagrams go over the TCP connection as in v2.
-//   LoopbackRelay  an in-process server with the relay's semantics: client() hands out LoopbackLobby objects.
 //
 // Room semantics (the server's): room R (1..254) is 169.254.R.0/24, the host is .1 (node 0), guests the lowest free .2...8 (node N-1),
 // node MAC 02:00:a9:fe:R:N. A datagram to .255 goes to every other member, never back to the sender; to a member's vIP, to that member.
-// Room codes: a lobby with a room key (RelayOptions::room_key, LoopbackRelay::client) creates its rooms with that key; such a room is
+// Room codes: a lobby with a room key (RelayOptions::room_key) creates its rooms with that key; such a room is
 // listed to and joinable by lobbies with the same key only (kLobbyRoomCode otherwise). A lobby without a key creates open rooms that
 // everyone sees (LAN play). Scans of a keyed lobby list the open rooms and the rooms with its key.
 //
-// Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient; for the loopback, the thread of
-// whichever client caused them). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
+// Threads: events and Link deliveries arrive on the lobby's own thread (the reader thread of a RelayClient). A sink may call room() / in_room() and vnet::set_current_link(); it must not call a blocking request
 // (scan/create/join) of the same lobby. Requests are serialised per lobby; call them from one thread at a time anyway (the ldn HLE does).
 #pragma once
 #include <array>
@@ -118,8 +116,8 @@ public:
     virtual void set_events(LobbyEvents ev) = 0;
     // The game datagrams currently go over UDP (relay v3 path proven both ways). Diagnostics and tests.
     virtual bool udp_active() const { return false; }
-    // The server version string of the relay's WELCOME (empty before the first connect, and for the loopback relay). The embedded relay
-    // and the launcher's put a random instance id in it, so it names one relay whatever address it was reached by.
+    // The server version string of the relay's WELCOME (empty before the first connect). The embedded relay
+    // puts a random instance id in it, so it names one relay whatever address it was reached by.
     virtual std::string server_version() const { return {}; }
 };
 
@@ -142,18 +140,6 @@ bool parse_server(const std::string& s, std::string* host, uint16_t* port);
 
 std::shared_ptr<Lobby> make_relay_client(const RelayOptions& opt);
 
-// ---- LoopbackRelay ---------------------------------------------------------------------------------------------------------------------
-class LoopbackRelay {
-public:
-    LoopbackRelay();
-    ~LoopbackRelay();
-    std::shared_ptr<Lobby> client(const std::string& nickname, const std::array<uint8_t, 16>& room_key = {});
-    struct State;
-
-private:
-    std::shared_ptr<State> st_;
-};
-
 // ---- helpers -----------------------------------------------------------------------------------------------------------------------------
 // What HELLO sends as the build stamp: identifies the runtime's relay client (NXRT_BUILD_STAMP at compile time, else a fixed string).
 const char* build_stamp();
@@ -161,7 +147,7 @@ const char* build_stamp();
 std::array<uint8_t, 16> passphrase_hash(const void* p, size_t n);
 std::array<uint8_t, 32> sha256(const void* p, size_t n);
 
-// Room codes (launcher/src-tauri/src/relay/mod.rs "Room codes"): 16 symbols of Crockford base32 (80 bits), shown XXXX-XXXX-XXXX-XXXX.
+// Room codes (same format as launcher/src-tauri/src/relay/room_code.rs): 16 symbols of Crockford base32 (80 bits), shown XXXX-XXXX-XXXX-XXXX.
 constexpr size_t kRoomCodeLen = 16;
 // The 16 symbols of a typed code; false when it is not one. Case, '-' and spaces do not matter; O reads as 0, I and L as 1.
 bool room_code_normalize(const std::string& in, std::string* out);

@@ -1,20 +1,21 @@
-# Checks the launcher on every pull request and push to main that touches launcher/, game-build/release_b/ or this workflow:
-# the front end (npm ci + build), cargo check (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and a
-# Python syntax check of pkp_build.py. The release workflow builds the same code only on tags and manual runs; this catches
-# breakage in the pull request instead. No publish, no tests.
+# Checks the launcher on every pull request and push to main that touches launcher/, the runtime's generated settings schemas (the
+# Settings page reads them) or this workflow: the front end (npm ci + build, the Settings page against the schemas), cargo check
+# (Linux and x86_64-pc-windows-gnu), cargo clippy (warnings shown, not fatal) and cargo test (Linux). The release workflow builds
+# the same code only on tags and manual runs; this catches breakage in the pull request instead.
+# No publish. The recompiler and pkp_build.py have their own workflow (recomp-checks.yml).
 name: Launcher checks
 
 on:
   pull_request:
     paths:
       - 'launcher/**'
-      - 'game-build/release_b/**'
+      - 'runtime/docs/*_schema.json'
       - '.github/workflows/launcher-checks.yml'
   push:
     branches: [main]
     paths:
       - 'launcher/**'
-      - 'game-build/release_b/**'
+      - 'runtime/docs/*_schema.json'
       - '.github/workflows/launcher-checks.yml'
 
 permissions:
@@ -61,7 +62,9 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+          npm run check-api
           node scripts/test-gamepad-nav.mjs
+          node scripts/test-settings-schema.mjs
 
       - name: Check (Linux)
         working-directory: launcher/src-tauri
@@ -75,5 +78,7 @@ jobs:
         working-directory: launcher/src-tauri
         run: cargo check --target x86_64-pc-windows-gnu --all-targets
 
-      - name: Build script (Python)
-        run: python3 -m py_compile game-build/release_b/pkp_build.py
+      # the save folder override must not reach the tests (saveimport.rs); unset, not empty
+      - name: Test (Linux)
+        working-directory: launcher/src-tauri
+        run: env -u NXRT_FS_SAVE_DIR cargo test

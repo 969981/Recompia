@@ -435,7 +435,6 @@ void region_destroy(Region* r) {
 }
 
 uint64_t region_base(const Region* r) { return r ? r->base : 0; }
-uint64_t region_pages(const Region* r) { return r ? r->npages : 0; }
 
 bool arm(Region* r, uint64_t first, uint64_t count) {
     if (!r || !count || first >= r->npages || count > r->npages - first) return false;
@@ -661,6 +660,5 @@ void forget(uint64_t addr, uint64_t size, bool ban) {
 void ban_section(uint64_t offset, uint64_t size) { forget(kHeapBase + offset, size, true); }
 
 uint64_t faults() { return g_faults.load(std::memory_order_relaxed); }
-uint64_t fault_waits() { return g_waits.load(std::memory_order_relaxed); }
 
 }  // namespace nxrt::mem::ww

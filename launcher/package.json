@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "check-api": "node scripts/check-api.mjs",
     "tauri": "tauri"
   },
   "devDependencies": {

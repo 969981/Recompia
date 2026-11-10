@@ -3,8 +3,6 @@
 // (169.254.R.N/24, the addresses ldn hands out); it carries no TCP and knows no ports beyond the two fields of a Datagram.
 //
 //   Link            one node's attachment: send() a datagram out, inbound datagrams go to the receiver set on it (any thread).
-//   LoopbackHub     an in-process switch: N links, unicast by dst_ip, x.y.z.255 copied to every other link of the same /24
-//                   (never back to the sender). Two virtual nodes in one process.
 //   current link    the process-wide link the bsd socket table uses (vsock::stack()). ldn sets it on connect and clears it on
 //                   disconnect (phase 2); no link = the sockets answer ENETUNREACH, as a console with no network up does.
 //
@@ -32,7 +30,7 @@ struct Datagram {
 
 using Receiver = std::function<void(const Datagram&)>;
 
-// Thread-safe. The receiver runs on the thread that delivers (the sender's thread for LoopbackHub, a reader thread for a relay);
+// Thread-safe. The receiver runs on the thread that delivers (a reader thread for a relay);
 // it must not call back into the same link's set_receiver.
 class Link {
 public:
@@ -50,21 +48,6 @@ protected:
 private:
     std::mutex rx_mu_;
     Receiver rx_;
-};
-
-class HubLink;
-
-// In-process switch. Links stay valid after the hub object goes away (they share its state).
-class LoopbackHub {
-public:
-    LoopbackHub();
-    // A new link with this virtual IP (host order).
-    std::shared_ptr<Link> add(uint32_t ip);
-
-private:
-    friend class HubLink;
-    struct State;
-    std::shared_ptr<State> st_;
 };
 
 // ---- HoldLink -----------------------------------------------------------------------------------------------------------------------------

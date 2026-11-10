@@ -3,6 +3,7 @@
 // Standard C++ only (no windows.h, no nxrt headers besides tt_script.h). Errors are returned, never thrown.
 
 #include "nxrt/tt_script.h"
+#include "nxrt/text.h"
 
 #include <cctype>
 #include <cmath>
@@ -27,21 +28,9 @@ void set_err(std::string* err, const std::string& message) {
     if (err) *err = message;
 }
 
-bool is_ws(char c) {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f';
-}
-
-std::string trim(const std::string& s) {
-    std::size_t b = 0, e = s.size();
-    while (b < e && is_ws(s[b])) b++;
-    while (e > b && is_ws(s[e - 1])) e--;
-    return s.substr(b, e - b);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::is_space;
+using text::lower;
+using text::trim;
 
 std::string upper(std::string s) {
     for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -50,7 +39,7 @@ std::string upper(std::string s) {
 
 std::string first_word(const std::string& s) {
     std::size_t e = 0;
-    while (e < s.size() && !is_ws(s[e])) e++;
+    while (e < s.size() && !is_space(s[e])) e++;
     return s.substr(0, e);
 }
 
@@ -63,9 +52,9 @@ std::vector<std::string> split_ws(const std::string& s) {
     std::vector<std::string> out;
     std::size_t i = 0;
     while (i < s.size()) {
-        while (i < s.size() && is_ws(s[i])) i++;
+        while (i < s.size() && is_space(s[i])) i++;
         std::size_t b = i;
-        while (i < s.size() && !is_ws(s[i])) i++;
+        while (i < s.size() && !is_space(s[i])) i++;
         if (i > b) out.push_back(s.substr(b, i - b));
     }
     return out;
@@ -377,7 +366,7 @@ bool parse_stmt(const std::string& body, const std::vector<std::string>& t, cons
             if (tk.size() >= 2 && lower(tk[tk.size() - 2]) == "for") {
                 // name is trimmed, so the last token ends the string; skip the blanks before it to reach the "for" token
                 std::size_t p = name.size() - tk.back().size();
-                while (p > 0 && is_ws(name[p - 1])) p--;
+                while (p > 0 && is_space(name[p - 1])) p--;
                 const std::size_t for_at = p - tk[tk.size() - 2].size();
                 if (!count_arg(tk.back(), &s.count, msg)) return false;
                 name = trim(name.substr(0, for_at));

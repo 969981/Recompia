@@ -19,6 +19,7 @@
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 namespace nxrt::ft {
 
@@ -53,11 +54,6 @@ size_t g_zones_written = 0;
 size_t g_threads_written = 0;
 bool g_started = false;
 thread_local int t_index = -1;
-
-uint64_t qpc_freq() {
-    static const uint64_t f = [] { LARGE_INTEGER x; QueryPerformanceFrequency(&x); return static_cast<uint64_t>(x.QuadPart); }();
-    return f;
-}
 
 int thread_index() {
     if (t_index >= 0) return t_index;
@@ -102,17 +98,16 @@ namespace {
 std::mutex g_tsc_mu;
 uint64_t g_tsc_q0 = 0, g_tsc_c0 = 0, g_tsc_last_q = 0;
 double g_ns_per_tick = 0.0;
-uint64_t qpc_now() { LARGE_INTEGER c; QueryPerformanceCounter(&c); return static_cast<uint64_t>(c.QuadPart); }
-double q_to_ns(uint64_t dq) { return static_cast<double>(dq) * 1e9 / static_cast<double>(qpc_freq()); }
+double q_to_ns(uint64_t dq) { return static_cast<double>(dq) * 1e9 / static_cast<double>(qpc::freq()); }
 }  // namespace
 
 void tsc_init() {
     std::lock_guard<std::mutex> lk(g_tsc_mu);
     if (g_ns_per_tick > 0) return;
-    g_tsc_q0 = qpc_now();
+    g_tsc_q0 = qpc::ticks();
     g_tsc_c0 = __rdtsc();
     Sleep(20);
-    const uint64_t q1 = qpc_now(), c1 = __rdtsc();
+    const uint64_t q1 = qpc::ticks(), c1 = __rdtsc();
     const double ns = q_to_ns(q1 - g_tsc_q0);
     g_ns_per_tick = c1 > g_tsc_c0 && ns > 0 ? ns / static_cast<double>(c1 - g_tsc_c0) : 0.3;
     g_tsc_last_q = q1;
@@ -120,8 +115,8 @@ void tsc_init() {
 
 uint64_t tsc_to_ns(uint64_t ticks) {
     if (g_ns_per_tick <= 0) tsc_init();
-    const uint64_t q = qpc_now();
-    if (q - g_tsc_last_q > qpc_freq()) {
+    const uint64_t q = qpc::ticks();
+    if (q - g_tsc_last_q > qpc::freq()) {
         std::lock_guard<std::mutex> lk(g_tsc_mu);
         const uint64_t c = __rdtsc();
         const double ns = q_to_ns(q - g_tsc_q0);
@@ -175,12 +170,7 @@ void split_frame(uint64_t presents) {
     p_last = presents;
 }
 
-uint64_t now_ns() {
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    const uint64_t q = static_cast<uint64_t>(c.QuadPart), f = qpc_freq();
-    return (q / f) * 1000000000ull + ((q % f) * 1000000000ull) / f;
-}
+uint64_t now_ns() { return qpc::now_ns(); }
 
 uint16_t zone_id(const char* name) {
     std::lock_guard<std::mutex> lk(g_mu);
@@ -237,13 +227,12 @@ CpuSnap take_snap() {
 }
 
 double tsc_per_ns() {
-    LARGE_INTEGER a, b;
-    QueryPerformanceCounter(&a);
+    const uint64_t qa = qpc::ticks();
     const unsigned long long c0 = __rdtsc();
     Sleep(60);
-    QueryPerformanceCounter(&b);
+    const uint64_t qb = qpc::ticks();
     const unsigned long long c1 = __rdtsc();
-    const double ns = static_cast<double>(b.QuadPart - a.QuadPart) * 1e9 / static_cast<double>(qpc_freq());
+    const double ns = static_cast<double>(qb - qa) * 1e9 / static_cast<double>(qpc::freq());
     return ns > 0 ? static_cast<double>(c1 - c0) / ns : 3.0;
 }
 

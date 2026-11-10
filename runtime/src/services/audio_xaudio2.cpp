@@ -33,6 +33,7 @@
 #include "nxrt/audio_standin.h"
 #include "nxrt/config.h"
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 
 #pragma comment(lib, "xaudio2.lib")
 
@@ -63,10 +64,7 @@ double now_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-std::string lower_ascii(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 void log_devices(const std::vector<OutputDevice>& devices) {
     if (devices.empty()) NXLOG_I("audio", "xaudio2: no active output endpoints");
@@ -79,13 +77,13 @@ void log_devices(const std::vector<OutputDevice>& devices) {
 // The endpoint [audio] device asks for. "default" (or empty) is the default endpoint (empty id). Otherwise an exact endpoint id
 // wins, then the first endpoint whose friendly name contains the text (ASCII case-insensitive). No match: a warning and the default.
 std::wstring pick_device(const std::vector<OutputDevice>& devices, const std::string& want) {
-    if (want.empty() || lower_ascii(want) == "default") return {};
+    if (want.empty() || lower(want) == "default") return {};
     for (const OutputDevice& d : devices) {
         if (to_utf8(d.id) == want) return d.id;
     }
-    const std::string needle = lower_ascii(want);
+    const std::string needle = lower(want);
     for (const OutputDevice& d : devices) {
-        if (lower_ascii(d.name).find(needle) != std::string::npos) return d.id;
+        if (lower(d.name).find(needle) != std::string::npos) return d.id;
     }
     NXLOG_W("audio", "xaudio2: [audio] device = %s matches no active output device; using the default device", want.c_str());
     return {};

@@ -106,13 +106,14 @@ const char* band_name(int host_prio) {
 
 // One line: the starved thread, its band and console cores, and the busiest threads of this process and the busiest other programs between
 // the two snapshots (ms of CPU). A starver of ours shows as a thread with about the whole window; none: another program or the system.
-// The thread's host placement when it was found starved (before the boost changed it): affinity, ideal processor, the processor of its last SVC.
+// The thread's host placement when it was found starved (before the boost changed it): affinity, ideal processor, the processor of one of
+// its last 16 SVCs (svc_dispatch samples it).
 std::string placement(const KThread& t) {
     PROCESSOR_NUMBER pn{};
     char ideal[24] = "?";
     if (GetThreadIdealProcessorEx(static_cast<HANDLE>(t.host_handle), &pn)) std::snprintf(ideal, sizeof ideal, "%u:%u", pn.Group, pn.Number);
     char buf[128];
-    std::snprintf(buf, sizeof buf, "host affinity 0x%llx, ideal processor %s, last ran on processor %d (at its last SVC)",
+    std::snprintf(buf, sizeof buf, "host affinity 0x%llx, ideal processor %s, last ran on processor %d (at a recent SVC)",
                   static_cast<unsigned long long>(t.host_affinity.load(std::memory_order_relaxed)), ideal, t.last_proc.load(std::memory_order_relaxed));
     return buf;
 }

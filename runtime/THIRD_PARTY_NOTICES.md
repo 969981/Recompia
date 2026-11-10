@@ -256,7 +256,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ## miniz 3.0.2 (MIT)
 
 `third_party/miniz/` is miniz 3.0.2 (https://github.com/richgel999/miniz, release asset `miniz-3.0.2.zip`), the amalgamated `miniz.c` and
-`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/pkp_save_uuid.cpp`).
+`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
 `LICENSE`, reproduced verbatim:
 
 ```text
@@ -286,7 +286,7 @@ THE SOFTWARE.
 
 ## Ryujinx and ryubing (MIT)
 
-The service files below adapt code, tables or layouts from Ryujinx and its fork ryubing, both under the MIT licence (their headers name the source files): `src/services/acc.cpp`, `am.cpp`, `audio_out.cpp`, `hid.cpp`, `logfault.cpp`, `misc.cpp`, `network.cpp`, `pl.cpp`, `power.cpp`, `settings.cpp`, `time.cpp`, `timezone.cpp` and `vi_nv.cpp`. Licence text, from `refs/ryubing/LICENSE.txt`:
+The service files below adapt code, tables or layouts from Ryujinx and its fork ryubing, both under the MIT licence (their headers name the source files): `src/services/acc.cpp`, `am.cpp`, `audio_out.cpp`, `hid.cpp`, `hid_jc2_mouse.cpp`, `ldn_types.h`, `ldn_linkplay.h`, `ldn_linkplay.cpp`, `logfault.cpp`, `misc*.cpp` (`misc_internal.h`), `network*.cpp` (`network_internal.h`), `pl.cpp`, `power.cpp`, `settings.cpp`, `time.cpp`, `timezone.cpp`, `vi_nv.cpp`, `vi_display.cpp` and `vi_nvdrv.cpp`. The audio renderer in `src/services/audren/**` (135 files) is a file-by-file port of Ryujinx.Audio from ryubing (`src/Ryujinx.Audio/Renderer/**`, `Constants.cs`, `Integration`); each of its headers names the C# file it ports, and its files are covered by the same notice. Licence text, from `refs/ryubing/LICENSE.txt`:
 
 ```text
 MIT License
@@ -315,6 +315,10 @@ Files: `third_party/ffx_fsr1/` (`fsr1/ffx_fsr1.h`, `ffx_core*.h`, `ffx_common_ty
 ## NVIDIA Image Scaling SDK v1.0.3 (MIT)
 
 Files: `third_party/nvidia_nis/` (`NIS_Scaler.h`, `NIS_Config.h`, unmodified). Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. Licence text: `third_party/nvidia_nis/LICENSE.txt`. Source: https://github.com/NVIDIAGameWorks/NVIDIAImageScaling, tag v1.0.3. Used by `src/gfx/extras/nis_spatial.cpp` (the constant setup, `NVScalerUpdateConfig`) and by the compute shader in `src/gfx/extras/nis_shaders.inc`, generated from these headers by `scripts/gen_nis_shaders.py`.
+
+## SMAA (MIT)
+
+Files: `third_party/smaa/` (`SMAA.hlsl`, `AreaTex.h`, `SearchTex.h`, unmodified). Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro, Diego Gutierrez. Licence text: `third_party/smaa/LICENSE.txt`. Source: https://github.com/iryoku/smaa, commit 71c806a838bdd7d517df19192a20f0c61b3ca29d. Used by `src/gfx/extras/smaa_scene.cpp` (the lookup textures) and by the shaders in `src/gfx/extras/smaa_shaders.inc`, generated from `SMAA.hlsl` by `scripts/gen_smaa_shaders.py`.
 
 ## AMD FidelityFX SDK v2.4.0, FidelityFX API headers (MIT)
 

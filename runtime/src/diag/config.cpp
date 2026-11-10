@@ -2,6 +2,7 @@
 #include "nxrt/config.h"
 
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 
 #include <atomic>
 #include <cerrno>
@@ -43,20 +44,9 @@ std::string S(const char* p) { return p ? std::string(p) : std::string(); }
 std::atomic<bool> g_cache_on{false};
 std::atomic<uint64_t> g_gen{1};
 
-bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f'; }
-
-std::string trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && is_space(s[b])) ++b;
-    while (e > b && is_space(s[e - 1])) --e;
-    return s.substr(b, e - b);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
+using text::is_space;
+using text::lower;
+using text::trim;
 
 std::string canon_id(const std::string& section, const std::string& key) {
     std::string id = lower(trim(section));
@@ -281,8 +271,6 @@ bool config_load_file(const char* path) {
     replace_ini(text);
     return true;
 }
-
-void config_load_string(const char* text) { replace_ini(S(text)); }
 
 void config_clear() {
     {

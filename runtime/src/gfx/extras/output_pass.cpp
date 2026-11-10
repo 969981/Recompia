@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "extras/vk_make.h"
 #include "nxrt/log.h"
 #include "vk_gauges.h"
 
@@ -22,16 +23,6 @@ struct EncodePush {
     float p[4];       // x = mode, y = paper white nits, z = peak nits, w = 1: apply the picture controls
     float adj[4];     // picture controls: contrast, saturation, black, gamma
 };
-VkShaderModule make_module(VkDevice d, const uint32_t* code, size_t bytes) {
-    VkShaderModuleCreateInfo mi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    mi.codeSize = bytes;
-    mi.pCode = code;
-    VkShaderModule m = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(d, &mi, nullptr, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
-    vk_gauge_shader_modules().add(1);
-    return m;
-}
-
 }  // namespace
 
 bool OutputPass::init(gfx::Device& dev) {
@@ -44,16 +35,8 @@ bool OutputPass::init(gfx::Device& dev) {
         return false;
     };
 
-    VkSamplerCreateInfo sci = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
-    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sci.maxLod = 0.0f;
-    if (vkCreateSampler(d, &sci, nullptr, &linear_) != VK_SUCCESS) return fail("linear sampler");
-    vk_gauge_samplers().add(1);
-    sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;
-    if (vkCreateSampler(d, &sci, nullptr, &nearest_) != VK_SUCCESS) return fail("nearest sampler");
-    vk_gauge_samplers().add(1);
+    if (!make_clamp_sampler(d, VK_FILTER_LINEAR, &linear_)) return fail("linear sampler");
+    if (!make_clamp_sampler(d, VK_FILTER_NEAREST, &nearest_)) return fail("nearest sampler");
 
     auto set_layout = [&](std::initializer_list<VkDescriptorSetLayoutBinding> b, VkDescriptorSetLayout* out) {
         std::vector<VkDescriptorSetLayoutBinding> v(b);
@@ -78,13 +61,7 @@ bool OutputPass::init(gfx::Device& dev) {
     if (!set_layout({{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}}, &enc_set_layout_)) return fail("encode set layout");
     if (!pipe_layout(enc_set_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(EncodePush), &enc_layout_)) return fail("encode pipeline layout");
 
-    const VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetRing};
-    VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    dpi.maxSets = kSetRing;
-    dpi.poolSizeCount = 1;
-    dpi.pPoolSizes = &ps;
-    if (vkCreateDescriptorPool(d, &dpi, nullptr, &pool_) != VK_SUCCESS) return fail("descriptor pool");
-    vk_gauge_descriptor_pools().add(1);
+    if (!make_sampler_pool(d, kSetRing, &pool_)) return fail("descriptor pool");
     {
         VkDescriptorSetLayout ls[kSetRing];
         for (auto& x : ls) x = enc_set_layout_;

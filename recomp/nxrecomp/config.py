@@ -12,13 +12,17 @@ import os
 
 
 class ModuleSpec:
-    """One module of the program: where it is mapped and how it is lifted."""
+    """One module of the program: where it is mapped and how it is lifted. The game's builds (CMake, the player build) take
+    their module table from here (`python -m nxrecomp build-info`); NxModule.index is the position in GameConfig.modules."""
 
-    def __init__(self, name, base, source=None, kind='nso'):
+    def __init__(self, name, base, source=None, kind='nso', shards=0, sites=None, entry=False):
         self.name = name              # 'main', 'sdk', 'subsdk0', ...
         self.base = base              # guest address of the module's first byte
-        self.source = source          # default input path (relative to the game's work dir) or None
+        self.source = source          # file name of the module in the exefs, or None
         self.kind = kind              # 'nso' | 'nx_elf' | 'static_elf'
+        self.shards = shards          # translation units of the generated code (lift --shards; 0 = by address)
+        self.sites = sites            # site list (lift --sites), relative to recomp/games/<name>/, or None
+        self.entry = entry            # the module the process starts in (its base is the entry point); loaded first
 
 
 class GameConfig:
@@ -34,9 +38,6 @@ class GameConfig:
     # extra function entries the discovery cannot see (offsets are module-relative), per module name
     extra_entries = {}
 
-    # instruction patches: file of `<address> <original word> <new word>` lines (see program.load_patches), or None
-    patches = None
-
     # a function with more than this many instructions is compiled with optnone (bounded compile time); the build's
     # time-limit fallback (cmake/nx_cc_launcher.py) lowers it when a file still takes too long
     optnone_insns = 20000
@@ -44,13 +45,6 @@ class GameConfig:
     # spin loops (spin.py): their head also calls nx_spin_hint(2), the runtime's spin hook (`lift --spin-yield` turns it on too).
     # Their loads are lifted as poll loads either way.
     spin_yield = False
-
-    # host function names to treat as noreturn-like terminators (none by default)
-    noreturn_imports = ()
-
-    # a hook the game config may use to name functions in the generated code's comments: addr -> str
-    def function_name(self, module, addr):
-        return None
 
 
 def load_game(name):

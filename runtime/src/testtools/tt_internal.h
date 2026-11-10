@@ -64,7 +64,6 @@ private:
     int64_t remaining_ = 0;
     uint64_t start_frame_ = 0;
     uint64_t start_ms_ = 0;
-    double start_igt_ = -1;
     uint64_t next_mash_ms_ = 0, mash_release_ms_ = 0;
     int64_t default_timeout_ = 3600;
     uint64_t held_ = 0, pressing_ = 0;
@@ -110,7 +109,7 @@ bool watch_start(::Ctx* c, int what);      // the game's probes: arm the debug-r
 void watch_stop();                          // disarm and log the hits
 void watch_flush(uint64_t frame);           // log the hits recorded since the last call (once per frame)
 bool give_item(int item, int amount);      // the game's probes: writes amount and capacity of one item of CPlayerStateMP1
-// ---- tt_hid.cpp: the hid adapter (a no-op when S3c's input_source.h is not in the tree) ----
+// ---- tt_hid.cpp: the adapter to the hid service's input source ----
 void install_input();                      // (re)installs the wrapping source when the hid service's source changed; called every frame
 bool sample_live(PadFrame* out);           // the pad of the live source (the one installed before ours); false when there is none
 // pad for the sampler thread (override_live: replay/script replaces the live source; merge_live: with override_live, the live pad's buttons are

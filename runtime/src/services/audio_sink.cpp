@@ -47,12 +47,7 @@ SinkStats current_stats() {
 }
 
 // ---- gauges (include/nxrt/gauge.h): the sink's own counters, same numbers as stats_report() ----
-// Removes its gauge when this file's statics are torn down (declared after g_sink, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
+// Each GaugeHook removes its gauge when this file's statics are torn down (declared after g_sink, so it goes first).
 GaugeHook gauge_frames_written("audio.sink_frames_written", [] { return static_cast<int64_t>(current_stats().frames_written); });
 GaugeHook gauge_frames_accepted("audio.sink_frames_accepted", [] { return static_cast<int64_t>(current_stats().frames_accepted); });
 GaugeHook gauge_frames_dropped("audio.sink_frames_dropped", [] { return static_cast<int64_t>(current_stats().frames_dropped); });   // overruns: device queue full

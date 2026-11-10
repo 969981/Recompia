@@ -26,6 +26,7 @@
 #include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 
 namespace nxrt::kernel {
 namespace {
@@ -155,7 +156,7 @@ void init_locked() {
         return;
     }
     std::string aff = config_get_str("sched", "affinity", "soft");
-    for (char& ch : aff) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    aff = nxrt::text::lower(std::move(aff));
     if (aff != "soft" && aff != "strict") NXLOG_W("sched", "[sched] affinity = %s is not soft or strict: soft", aff.c_str());
     g_info.soft = aff != "strict";
     DWORD_PTR proc = 0, sys = 0;
@@ -218,13 +219,6 @@ SchedInfo sched_info() {
     return g_info;
 }
 
-void sched_reset_for_tests() {
-    std::lock_guard<std::mutex> lk(g_lock);
-    g_done = false;
-    g_info = SchedInfo{};
-    if (g_slot_mutex) { CloseHandle(g_slot_mutex); g_slot_mutex = nullptr; }     // so the next sched_info() can take the same slot again
-}
-
 // nn::os priorities run 0 (highest) .. 31 (lowest); HOS priority = nn::os + 28. Six bands under the model:
 // <= 4, 5..8, 9..15, 16, 17, 18..31 (smo: 17 against 18 on one core decided a use-after-free race in 2 of 91 stage-entry runs).
 int sched_host_priority(int hos_prio) {
@@ -271,7 +265,7 @@ static void sched_disable_power_throttling() {
 void sched_set_process_priority(bool interactive) {
     sched_disable_power_throttling();
     std::string v = config_get_str("sched", "priority_class", "auto");
-    for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    v = nxrt::text::lower(std::move(v));
     DWORD cls = 0;
     if (v == "high") cls = HIGH_PRIORITY_CLASS;
     else if (v == "above_normal" || v == "above") cls = ABOVE_NORMAL_PRIORITY_CLASS;

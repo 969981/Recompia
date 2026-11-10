@@ -9,6 +9,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
 
@@ -90,12 +91,6 @@ std::map<uint64_t, Alias> g_aliases;      // view address -> record
 std::map<uint64_t, uint64_t> g_alias_used;
 
 // ---- gauges (include/nxrt/gauge.h); each callback takes the lock of the state it reads ----
-// Removes its gauge when this file's statics are torn down (declared after them, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_heap_reserved("mem.heap_reserved", [] { return static_cast<int64_t>(heap_reserved()); });   // section size
 GaugeHook gauge_heap_committed("mem.heap_committed", [] { return static_cast<int64_t>(heap_committed()); });   // committed through heap_commit
 GaugeHook gauge_aliases("mem.aliases", [] {   // heap alias views live (g_heap_mu)
@@ -458,8 +453,7 @@ bool heap_create(uint64_t reserve_bytes) {
     }
     // [memory] heap_section: auto (default) = a section unless running under Wine (memory.h), 1 = always, 0 = never
     const std::string mode = nxrt::config_get_str("memory", "heap_section", "auto");
-    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version");
+    const bool wine = host_is_wine();
     if (mode == "0" || (mode != "1" && wine)) {
         void* p = VirtualAlloc(reinterpret_cast<void*>(kHeapBase), static_cast<SIZE_T>(size), MEM_RESERVE, PAGE_NOACCESS);
         if (reinterpret_cast<uint64_t>(p) != kHeapBase) {
@@ -704,28 +698,6 @@ bool heap_alias_unmap(uint64_t view_addr) {
 void heap_alias_ranges(std::vector<std::pair<uint64_t, uint64_t>>& out) {
     std::lock_guard lk(g_heap_mu);
     for (const auto& a : g_aliases) out.emplace_back(a.second.offset, a.second.size);
-}
-
-size_t heap_alias_count() {
-    std::lock_guard lk(g_heap_mu);
-    return g_aliases.size();
-}
-
-bool heap_offset_of(uint64_t addr, uint64_t* offset) {
-    if (!offset) return false;
-    std::lock_guard lk(g_heap_mu);
-    if (g_heap_size && addr >= kHeapBase && addr - kHeapBase < g_heap_size) {
-        *offset = addr - kHeapBase;
-        return true;
-    }
-    auto it = g_aliases.upper_bound(addr);
-    if (it == g_aliases.begin()) return false;
-    --it;
-    if (addr - it->first < it->second.size) {
-        *offset = it->second.offset + (addr - it->first);
-        return true;
-    }
-    return false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

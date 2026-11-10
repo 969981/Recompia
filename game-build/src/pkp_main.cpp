@@ -51,16 +51,19 @@
 #include "nxrt/runtime.h"
 #include "nxrt/services.h"
 
-#include "pkp/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
+#include "pkp/core/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
+
+#include "nx_modules.gen.h"     // NX_MODULES: the game's module list, generated from recomp/games/pkp/config.py
 
 #ifdef PKP_RT_DLL
 // Release model (b): this file is built into pkp_rt.dll (the runtime, no game code). pkp.exe is linked on the player's PC from the
-// libraries lifted out of their own dump plus src/pkp_stub.cpp, which passes the four module tables to pkp_rt_main below.
+// libraries lifted out of their own dump plus src/pkp_stub.cpp, which passes the module tables to pkp_rt_main below.
 #include "pkp_rt_api.h"
 #else
 extern "C" {
-extern const NxModule nxmod_main, nxmod_sdk, nxmod_subsdk0, nxmod_rtld;
-extern const uint32_t nxmod_main_abi, nxmod_sdk_abi, nxmod_subsdk0_abi, nxmod_rtld_abi;
+#define NX_MODULE_DECL(name, file, base) extern const NxModule nxmod_##name; extern const uint32_t nxmod_##name##_abi;
+NX_MODULES(NX_MODULE_DECL)
+#undef NX_MODULE_DECL
 }
 #endif
 
@@ -84,17 +87,15 @@ struct GameModule {
 // Load order = the order the console maps them: the entry module first.
 #ifdef PKP_RT_DLL
 GameModule kModules[] = {      // filled by pkp_rt_main from the tables pkp.exe passes
-    {"rtld", nullptr, nullptr, 0x7700000000ull},
-    {"main", nullptr, nullptr, 0x7100000000ull},
-    {"sdk", nullptr, nullptr, 0x7500000000ull},
-    {"subsdk0", nullptr, nullptr, 0x7600000000ull},
+#define NX_MODULE_ROW(name, file, base) {file, nullptr, nullptr, base},
+    NX_MODULES(NX_MODULE_ROW)
+#undef NX_MODULE_ROW
 };
 #else
 const GameModule kModules[] = {
-    {"rtld", &nxmod_rtld, &nxmod_rtld_abi, 0x7700000000ull},
-    {"main", &nxmod_main, &nxmod_main_abi, 0x7100000000ull},
-    {"sdk", &nxmod_sdk, &nxmod_sdk_abi, 0x7500000000ull},
-    {"subsdk0", &nxmod_subsdk0, &nxmod_subsdk0_abi, 0x7600000000ull},
+#define NX_MODULE_ROW(name, file, base) {file, &nxmod_##name, &nxmod_##name##_abi, base},
+    NX_MODULES(NX_MODULE_ROW)
+#undef NX_MODULE_ROW
 };
 #endif
 
@@ -124,8 +125,8 @@ void check_romfs() {
     if (!gi.romfs_min_files || !nxrt::config_get_bool("fs", "romfs_check", true)) return;
     const nxrt::services::RomfsSummary r = nxrt::services::romfs_summary();
     if (!r.ok) {
-        const std::string msg = "The game data (RomFS) cannot be read: " + r.error +
-                                ". Choose your game files again in the Pokopia launcher (or set [fs] romfs in pkp.ini).";
+        const std::string msg = "The game data (RomFS) cannot be read: " + r.error + ". Choose your game files again in the " + gi.short_title +
+                                " launcher (or set [fs] romfs in " + gi.game_ini + ").";
         die("%s", msg.c_str());
     }
     if (r.files >= gi.romfs_min_files && r.bytes >= gi.romfs_min_bytes) return;
@@ -134,11 +135,11 @@ void check_romfs() {
     std::snprintf(msg, sizeof msg,
                   "Your game data is incomplete, so %s cannot start: the RomFS in %s%s%s has %u files (%.2f GB), version %s has %u (%.2f GB).\n\n"
                   "This happens when the update is dumped without the base game's files under it (an update only holds the files it changes), "
-                  "or when a copy of the romfs folder stopped early. Choose your game files again in the Pokopia launcher: with the base game "
+                  "or when a copy of the romfs folder stopped early. Choose your game files again in the %s launcher: with the base game "
                   "in the same dump (base/romfs next to updates/) it adds the missing files itself. Otherwise dump the game again with the "
                   "update merged into the base game.",
                   gi.short_title, nxrt::services::romfs_dir().c_str(), base.empty() ? "" : " over ", base.c_str(), r.files,
-                  static_cast<double>(r.bytes) / 1e9, gi.version, gi.romfs_min_files, static_cast<double>(gi.romfs_min_bytes) / 1e9);
+                  static_cast<double>(r.bytes) / 1e9, gi.version, gi.romfs_min_files, static_cast<double>(gi.romfs_min_bytes) / 1e9, gi.short_title);
     die("%s", msg);
 }
 
@@ -309,10 +310,11 @@ extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
         MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll come from different releases. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
         return 3;
     }
-    kModules[0].nx = mods->rtld; kModules[0].abi = mods->rtld_abi;
-    kModules[1].nx = mods->main; kModules[1].abi = mods->main_abi;
-    kModules[2].nx = mods->sdk; kModules[2].abi = mods->sdk_abi;
-    kModules[3].nx = mods->subsdk0; kModules[3].abi = mods->subsdk0_abi;
+    if (mods->count != sizeof kModules / sizeof kModules[0]) {
+        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll list different game modules. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
+        return 3;
+    }
+    for (uint32_t i = 0; i < mods->count; ++i) { kModules[i].nx = mods->mods[i]; kModules[i].abi = mods->abis[i]; }
 #else
 int main(int argc, char** argv) {
 #endif
@@ -392,9 +394,13 @@ int main(int argc, char** argv) {
     // [fs] exefs (pkp.ini, or NXRT_FS_EXEFS) names the ExeFS when neither --exefs nor PKP_EXEFS does; installed: relative to the game folder.
     if (!exefs_given) exefs = nxrt::config_get_str("fs", "exefs", installed ? "exefs" : exefs.c_str());
     nxrt::config_set("fs", "exefs", exefs.c_str());     // the one in use, for the About page
-    nxrt::config_set("process", "program_id", "0x0400A3A01EE4C000");     // GetInfo(ProgramId); an ini value or the environment still wins
-    NXLOG_I("boot", "pkp %s (Pokémon Pokopia PC port)", PKP_VERSION);
-    NXLOG_I("boot", "Pokémon Pokopia %s: exefs '%s'", nxrt::game::info().version, exefs.c_str());
+    {
+        char pid[24];
+        std::snprintf(pid, sizeof pid, "0x%016llX", static_cast<unsigned long long>(nxrt::game::info().program_id));
+        nxrt::config_set("process", "program_id", pid);     // GetInfo(ProgramId); an ini value or the environment still wins
+    }
+    NXLOG_I("boot", "pkp %s (%s port)", PKP_VERSION, nxrt::game::info().product);
+    NXLOG_I("boot", "%s %s: exefs '%s'", nxrt::game::info().title, nxrt::game::info().version, exefs.c_str());
 
     if (prepare) return prepare_shaders_main(prepare_if_needed, prepare_threads, prepare_programs);
 

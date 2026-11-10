@@ -35,12 +35,6 @@ uint64_t g_next_base = 0;
 TlsInfo g_tls;
 
 // ---- gauges (include/nxrt/gauge.h); each callback takes g_lock, the lock of the data it counts ----
-// Removes its gauge when this file's statics are torn down (declared after them, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_modules("loader.modules", [] {
     std::lock_guard<std::recursive_mutex> lk(g_lock);
     return static_cast<int64_t>(g_modules.size());
@@ -607,13 +601,6 @@ bool module_run_init(Module* m, ::Ctx* ctx) {
     if (!m->linked()) { NXLOG_E(kTag, "%s: init before link", m->name().c_str()); return false; }
     bool ok = run_one(m, ctx, m->init_function(), "DT_INIT");
     for (uint64_t a : m->init_array()) ok = run_one(m, ctx, a, "init_array entry") && ok;
-    return ok;
-}
-
-bool module_run_fini(Module* m, ::Ctx* ctx) {
-    bool ok = true;
-    for (size_t i = m->fini_array().size(); i-- > 0;) ok = run_one(m, ctx, m->fini_array()[i], "fini_array entry") && ok;
-    ok = run_one(m, ctx, m->fini_function(), "DT_FINI") && ok;
     return ok;
 }
 

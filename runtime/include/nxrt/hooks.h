@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Site hooks: the runtime half of the lifter's site lists (recomp nxrecomp/program.py load_sites). Lifted code calls
+// Site hooks: the runtime half of the lifter's site lists (recomp nxrecomp/sites.py load_sites). Lifted code calls
 //   nx_site_inline(c, addr)          before the instruction at addr                       (kind inline)
 //   nx_site_midhook(c, addr)         before the instruction at addr; nonzero = "handled"   (kind midhook)
 //   nx_hook_entry(c, addr)           at the start of the function at addr; nonzero = "handled" (kind entryhook)
@@ -33,7 +33,6 @@ uint32_t hook_add_mid(uint64_t addr, SiteHookFn fn, void* user = nullptr);
 uint32_t hook_add_entry(uint64_t addr, SiteHookFn fn, void* user = nullptr);
 bool hook_remove(uint32_t id);                       // false for an unknown id
 size_t hook_count();                                 // registered hooks
-size_t hook_count_at(uint64_t addr, HookKind kind);
 uint64_t hook_calls(uint32_t id);                    // times the hook was called (0 for an unknown id)
 uint64_t hook_site_calls(HookKind kind);             // calls into nx_site_inline / nx_site_midhook / nx_hook_entry, hooked or not
 void hooks_clear();                                  // tests: remove every hook and zero the counters (no guest thread may be inside a hook)

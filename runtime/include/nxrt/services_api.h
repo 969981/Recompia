@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace nxrt::services {
 
@@ -80,10 +81,11 @@ constexpr int kVariantShift = 12;
 constexpr uint16_t kVariantMask = 0x7000;
 void set_session_variant(uint8_t variant, const char* what);
 uint8_t session_variant();
-// Story co-op (pokopia-native's "Story co-op (experimental)", COOP_STORY_MOD): a second opt-in mod after the session variant, only for
-// [net] protocol = native, where it is added to the mods fingerprint after the variant's name (coop_hmods order: Interact, then Story).
-void set_story_mod(bool on);
-bool story_mod();
+// Co-op mods: more opt-in mods a game module has on, by name, for [net] protocol = native only. The co-op module's mods fingerprint, which
+// peers compare before a join, is the session variant's name followed by these names in this order (none counted while no variant is
+// set); a name must be byte for byte what the other builds use. Empty: none. Set it like the variant; any thread.
+void set_coop_mods(const std::vector<std::string>& names);
+std::vector<std::string> coop_mods();
 // Whether ldn:u speaks [net] protocol = native (the default).
 bool native_protocol();
 }  // namespace ldnapi

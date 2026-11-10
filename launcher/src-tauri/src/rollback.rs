@@ -3,7 +3,7 @@
 //! `profiles.json` and the launcher's `launcher.json`, in `<game folder>/rollback-backups/<date-time>-before-<tag>/`. The last three are
 //! kept. If the copy cannot be made the install is stopped before anything is replaced. `rollback-backups` is in the update's keep list.
 
-use crate::ini::Ini;
+use crate::fsutil::{copy_tree, file_stamp};
 use crate::settings::PKP_INI;
 use std::fs;
 use std::io;
@@ -14,20 +14,6 @@ const KEEP_LAST: usize = 3;
 /// Single files next to pkp.exe that are the player's.
 const FILES: [&str; 3] = [PKP_INI, "controls.ini", "profiles.json"];
 
-fn copy_tree(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for e in fs::read_dir(src)? {
-        let e = e?;
-        let (from, to) = (e.path(), dst.join(e.file_name()));
-        if e.metadata()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
-            fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
-
 /// A folder name part: letters, digits, `.` and `-` only.
 fn clean(tag: &str) -> String {
     tag.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
@@ -36,12 +22,12 @@ fn clean(tag: &str) -> String {
 /// Copies the player's data. `config_dir`: where the launcher keeps launcher.json. Returns the folder made.
 pub fn backup(game_dir: &Path, config_dir: &Path, tag: &str) -> Result<PathBuf, String> {
     let root = game_dir.join(DIR);
-    let name = format!("{}-before-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), clean(tag));
+    let name = format!("{}-before-{}", file_stamp(), clean(tag));
     let dir = root.join(&name);
     let made = (|| -> io::Result<()> {
         fs::create_dir_all(&dir)?;
-        let ini = fs::read(game_dir.join(PKP_INI)).ok().map(|b| Ini::parse(&String::from_utf8_lossy(&b)));
-        let save_dir = crate::saveimport::save_dir_of(game_dir, &ini.and_then(|i| i.get("fs", "save_dir")).unwrap_or_default());
+        // the folder the runtime plays from, NXRT_FS_SAVE_DIR included (the same rule as the save backups and Import)
+        let save_dir = crate::saveimport::locate(game_dir).0;
         if save_dir.is_dir() {
             copy_tree(&save_dir, &dir.join("save"))?;
         }

@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Packs the player zip (release model b: no game code or data in it; the player's PC lifts and links pkp.exe from their own dump).
 # Everything built from this repo is taken from the given build outputs and the checkout; the unchanged third-party payload (Zig, embedded
-# Python, FSR 3 / Streamline DLLs, astcdec, fonts, input icons, licence texts) comes from a base package (the upstream v0.1.1 zip).
+# Python, FSR 3 / Streamline DLLs, astcdec, fonts, input icons, licence texts) comes from a base package (the previous release zip; release.yml BASE_REPO / BASE_RELEASE).
 # ponytail: base zip for the third-party payload; fetch each piece from its own source when one of them needs a new version.
 #   pwsh game-build\scripts\make-release.ps1 -Version 0.2.0 -Base PokopiaRecomp-0.1.1-win64.zip -RtDir game-build\build\rtdll `
 #        -Launcher launcher\src-tauri\target\release\pokopia-launcher.exe -Harness work\rel\harness -Out work\rel
 param(
     [Parameter(Mandatory)][string]$Version,
-    [Parameter(Mandatory)][string]$Base,       # upstream player zip
+    [Parameter(Mandatory)][string]$Base,       # previous player zip (third-party payload)
     [Parameter(Mandatory)][string]$RtDir,      # folder with pkp_rt.dll + pkp_rt.lib (game-build, PKP_RT_DLL=ON PKP_RELEASE=ON)
     [Parameter(Mandatory)][string]$Launcher,   # pokopia-launcher.exe (launcher, npm run tauri build)
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder

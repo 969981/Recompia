@@ -1,7 +1,8 @@
 // What's New: two panes like Apple Notes, the releases left, the note right. Each pane scrolls by itself; each note keeps
 // its place for as long as the page is open.
 import './news.css';
-import { api, errText, esc, icon, toast } from '../ui.js';
+import { api } from '../api.js';
+import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canUpdate } from '../action.js';
 import { formatDate, isNewer, parseReleaseName, render as renderNote } from '../markdown.js';
@@ -139,7 +140,7 @@ export function render(el, ctx) {
     if (t.id === 'retry') return check();
     if (t.dataset.tag) return select(t.dataset.tag);
     if (t.dataset.act === 'update') return store.installUpdate();
-    if (t.dataset.url) api('open_release_url', { url: t.dataset.url }).catch((err) => toast(errText(err), 'error'));
+    if (t.dataset.url) api.openReleaseUrl({ url: t.dataset.url }).catch((err) => toast(errText(err), 'error'));
   });
 
   el.addEventListener('keydown', (e) => {

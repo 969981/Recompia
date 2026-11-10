@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The runtime's _Unwind_* entry points as HLE thunks, entry hooks and lifter function overrides (eh.h).
+// The runtime's _Unwind_* entry points as HLE thunks and lifter function overrides (eh.h).
 #include "nxrt/dispatch.h"
 #include "nxrt/eh.h"
 #include "nxrt/module.h"
@@ -20,11 +20,6 @@ void register_unwind_hle() {
         if (it.override_symbol) module_override_symbol(it.name);   // the guest's own libunwind must never run: the runtime is the unwinder
     }
 }
-
-int hook_unwind_raise_exception(::Ctx* c, uint64_t, void*) { unwind_raise_exception(c); return 1; }
-int hook_unwind_resume(::Ctx* c, uint64_t, void*) { unwind_resume(c); return 1; }
-int hook_unwind_resume_or_rethrow(::Ctx* c, uint64_t, void*) { unwind_resume_or_rethrow(c); return 1; }
-int hook_unwind_delete_exception(::Ctx* c, uint64_t, void*) { unwind_delete_exception(c); return 1; }
 
 }  // namespace nxrt::eh
 

@@ -9,10 +9,12 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
 ### Launcher
+- Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
   - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
+- **Set up again** after an update that changes only the runtime now just relinks the game (seconds instead of translating and compiling it again); it keeps the compiled game libraries (a few hundred MB) in `build/lib`
 
 ### Game
 - Added a **Search** button to the crafting menu (#324)
@@ -31,6 +33,10 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: your character turns to the block under the pointer before swinging, so the click lands on it
 
 ### Graphics
+- Added **Anti-aliasing** (SMAA) for the 3D scene: the game's Settings > Performance > **Anti-Aliasing**, or Settings (F1) > Display > Upscaling > **Anti-aliasing**
+  - Before: the game had no anti-aliasing here, so edges looked jagged
+  - Now: pick **SMAA Low**, **Medium**, **High** or **Ultra** and press **Apply and save** (no restart). Only the 3D scene is filtered; the menus and HUD stay sharp. Default (none) is as before. Also `[upscale] aa = off | smaa_low | smaa_medium | smaa_high | smaa_ultra`
+  - Still not: not hardware multisampling (MSAA); not applied together with a Scene Resolution below 100% and an upscaler
 - Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size

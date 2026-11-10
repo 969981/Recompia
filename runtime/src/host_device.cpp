@@ -5,6 +5,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/log.h"
+#include "nxrt/text.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -23,35 +24,26 @@ namespace nxrt {
 
 namespace {
 
-std::string lower_trimmed(std::string s) {
-    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
-    size_t i = 0;
-    while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
-    s.erase(0, i);
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 // An SMBIOS string: HKLM\HARDWARE\DESCRIPTION\System\BIOS (Windows; Wine's wineboot fills it from SMBIOS), else the Linux DMI file
 // through Wine's Z: drive (on Windows that path does not exist).
 std::string smbios(const char* value, const char* dmi_file) {
     char buf[128] = {};
     DWORD n = sizeof buf;
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\BIOS", value, RRF_RT_REG_SZ, nullptr, buf, &n) == ERROR_SUCCESS)
-        return lower_trimmed(buf);
+        return text::lower_trim(buf);
     std::ifstream f(std::string("Z:\\sys\\class\\dmi\\id\\") + dmi_file);
     std::string s;
-    if (f && std::getline(f, s)) return lower_trimmed(s);
+    if (f && std::getline(f, s)) return text::lower_trim(s);
     return {};
 }
 
 bool detect(std::string* why) {
-    const std::string forced = lower_trimmed(config_get_str("host", "handheld", "auto"));
+    const std::string forced = text::lower_trim(config_get_str("host", "handheld", "auto"));
     if (forced == "1" || forced == "on" || forced == "true" || forced == "yes") return *why = "[host] handheld = on", true;
     if (forced == "0" || forced == "off" || forced == "false" || forced == "no") return *why = "[host] handheld = off", false;
     char env[16] = {};
     const DWORD n = GetEnvironmentVariableA("SteamDeck", env, sizeof env);
-    if (n > 0 && n < sizeof env && lower_trimmed(std::string(env, n)) == "1") return *why = "Steam's SteamDeck=1", true;
+    if (n > 0 && n < sizeof env && text::lower_trim(std::string(env, n)) == "1") return *why = "Steam's SteamDeck=1", true;
     const std::string product = smbios("SystemProductName", "product_name"), family = smbios("SystemFamily", "product_family");
     // Steam Deck LCD / OLED. The Go S's product names are SKU codes (83N6, ...), its family names the model: "Legion Go S 8APU1".
     // ROG Ally and Ally X: product "ROG Ally RC71L_RC71L" / "ROG Ally X RC72LA_RC72LA", family "ROG Ally" (read on an Ally under CachyOS).
@@ -79,7 +71,7 @@ bool host_is_steam_deck() {
         char env[16] = {};
         const DWORD n = GetEnvironmentVariableA("SteamDeck", env, sizeof env);
         const std::string product = smbios("SystemProductName", "product_name");
-        const bool d = (n > 0 && n < sizeof env && lower_trimmed(std::string(env, n)) == "1") || product == "jupiter" || product == "galileo";
+        const bool d = (n > 0 && n < sizeof env && text::lower_trim(std::string(env, n)) == "1") || product == "jupiter" || product == "galileo";
         NXLOG_I("host", "steam deck: %s (board '%s')", d ? "yes" : "no", product.c_str());
         return d;
     }();
@@ -101,7 +93,7 @@ namespace {
 std::string env_lower(const char* name) {
     char v[64] = {};
     const DWORD n = GetEnvironmentVariableA(name, v, sizeof v);
-    return n > 0 && n < sizeof v ? lower_trimmed(std::string(v, n)) : std::string();
+    return n > 0 && n < sizeof v ? text::lower_trim(std::string(v, n)) : std::string();
 }
 
 bool file_exists(const wchar_t* path) {
@@ -180,7 +172,7 @@ void queue_url(std::string url) {
 
 bool host_steam_keyboard_wanted() {
     static const bool want = [] {
-        const std::string c = lower_trimmed(config_get_str("applet", "steam_keyboard", "auto"));
+        const std::string c = text::lower_trim(config_get_str("applet", "steam_keyboard", "auto"));
         bool w = false;
         const char* why = "";
         if (c == "1" || c == "on" || c == "true" || c == "yes") {

@@ -15,11 +15,11 @@
 #include <vector>
 
 #include "kernel_internal.h"
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
-#include "nxrt/tt.h"
 
 namespace nxrt::kernel {
 namespace detail {
@@ -75,12 +75,8 @@ void unlock_mutex(uint64_t addr) {
     wake_thread(*next);
 }
 
-// Monotonic nanoseconds from the registered console's tick frequency, split so the multiplication cannot overflow.
-int64_t now_ns() {
-    const uint64_t t = system_tick();
-    const uint64_t hz = tick_hz();
-    return static_cast<int64_t>((t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz);
-}
+// Monotonic nanoseconds of the console tick (virtual time under a virtual clock).
+int64_t now_ns() { return static_cast<int64_t>(clock::now_ns()); }
 
 // set_blocked_hook: the host thread that runs a hook while it is blocked in a kernel wait, and the hook.
 std::atomic<DWORD> g_blocked_tid{0};
@@ -117,7 +113,7 @@ void kick(KThread& t) {
 // (their last stretch cannot be woken; here an event is). Not under the deterministic clock (now_ns is then virtual time).
 void sleep_rem_locked(KThread& t, int64_t rem_ns) {
     if (rem_ns < 0) return sleep_locked(t, INFINITE);
-    if (precise_waits_enabled() && !tt::deterministic()) {
+    if (precise_waits_enabled() && !clock::is_virtual()) {
         if (rem_ns > 2500000) return sleep_locked(t, static_cast<DWORD>(std::min<int64_t>((rem_ns - 1500000) / 1000000, 0x7FFFFFFE)));
         struct Event {
             HANDLE h = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -413,12 +409,6 @@ void notify_waitable_changed() {
 
 // ---- gauges (include/nxrt/gauge.h): wait-queue lengths ----
 namespace {
-// Removes its gauge when the file's statics are torn down (declared after the wait queues, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 
 // Length of one wait queue under the kernel lock. The sampler never waits for the kernel lock: -1 while a thread holds it.
 int64_t queue_len(const std::vector<KThread*>& v) {

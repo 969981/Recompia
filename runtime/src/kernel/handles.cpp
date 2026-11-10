@@ -68,12 +68,6 @@ void handles_reset() {
 
 // ---- gauges (include/nxrt/gauge.h): live handles per object type ----
 namespace {
-// Removes its gauge when the file's statics are torn down (the hooks are declared after g_handles, so they go first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 
 // Handle-table entries of one object type: a walk of at most 0x3000 entries under the table lock (shared).
 size_t count_type(ObjType t) {

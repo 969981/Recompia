@@ -9,21 +9,13 @@
 #include <string>
 
 #include "nxrt/input_source.h"
+#include "nxrt/text.h"
 
 namespace nxrt::play {
 namespace {
 
-std::string trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
+using text::trim;
 
 std::string upper(std::string s) {
     for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -42,7 +34,7 @@ std::string name_key(const std::string& s) {
 // ---- contexts and triggers ---------------------------------------------------------------------------------------------------
 
 // The generic names; the registered game names the contexts itself (GameVocabulary::ctx_names).
-const char* const kCtxNames[] = {"all", "play", "alt", "map", "menu", "inspect"};
+const char* const kCtxNames[] = {"all", "play", "map", "menu"};
 static_assert(sizeof(kCtxNames) / sizeof(kCtxNames[0]) == kCtxCount, "one name per Ctx");
 const char* const* ctx_names() {
     const GameVocabulary* v = game_vocabulary();
@@ -225,30 +217,10 @@ const ActInfo kActs[] = {
     {Act::LookDown, "look_down", "RS_DOWN"},
     {Act::LookLeft, "look_left", "RS_LEFT"},
     {Act::LookRight, "look_right", "RS_RIGHT"},
-    {Act::Primary, "primary", ""},
-    {Act::Target, "target", ""},
-    {Act::Secondary, "secondary", ""},
-    {Act::Jump, "jump", ""},
-    {Act::AltForm, "alt_form", ""},
-    {Act::LookHold, "look_hold", ""},
-    {Act::Map, "map", ""},
-    {Act::Pause, "pause", ""},
-    {Act::Confirm, "confirm", "A"},
-    {Act::Back, "back", "B"},
     {Act::DpadUp, "dpad_up", "UP"},
     {Act::DpadDown, "dpad_down", "DOWN"},
     {Act::DpadLeft, "dpad_left", "LEFT"},
     {Act::DpadRight, "dpad_right", "RIGHT"},
-    {Act::SetA1, "set_a_1", ""},
-    {Act::SetA2, "set_a_2", ""},
-    {Act::SetA3, "set_a_3", ""},
-    {Act::SetA4, "set_a_4", ""},
-    {Act::SetB1, "set_b_1", ""},
-    {Act::SetB2, "set_b_2", ""},
-    {Act::SetB3, "set_b_3", ""},
-    {Act::SetB4, "set_b_4", ""},
-    {Act::SetANext, "set_a_next", ""},
-    {Act::SetAPrev, "set_a_prev", ""},
     {Act::BtnA, "btn_a", "A"},
     {Act::BtnB, "btn_b", "B"},
     {Act::BtnX, "btn_x", "X"},
@@ -278,12 +250,7 @@ const GameVocabulary* game_vocabulary() {
     const GameDefaults* d = game_defaults();
     return d ? d->vocabulary : nullptr;
 }
-const char* key_alt_yaw() { return key_or(&GameVocabulary::key_alt_yaw, "alt_yaw"); }
-const char* key_alt_pitch() { return key_or(&GameVocabulary::key_alt_pitch, "alt_pitch"); }
 const char* key_wheel_cycles() { return key_or(&GameVocabulary::key_wheel_cycles, "wheel_cycles"); }
-const char* key_alt_orbit() { return key_or(&GameVocabulary::key_alt_orbit, "alt_orbit"); }
-const char* key_alt_camera() { return key_or(&GameVocabulary::key_alt_camera, "alt_camera"); }
-const char* key_alt_sens() { return key_or(&GameVocabulary::key_alt_sens, "alt_sensitivity"); }
 
 const ActInfo& act_info(Act a) { return acts()[static_cast<int>(a)]; }
 

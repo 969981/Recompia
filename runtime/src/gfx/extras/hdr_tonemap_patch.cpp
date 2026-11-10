@@ -156,7 +156,7 @@ bool spirv_hdr_tonemap(const std::vector<uint32_t>& in, std::vector<uint32_t>& o
     return const_added;
 }
 
-bool spirv_hdr_tonemap_lut(const std::vector<uint32_t>& in, float peak_ratio, std::vector<uint32_t>& out) {
+bool spirv_hdr_tonemap_lut(const std::vector<uint32_t>& in, float shaper_scale, float shaper_bias, float peak_ratio, std::vector<uint32_t>& out) {
     enum : uint32_t {
         kOpTypeInt = 21, kOpTypePointer = 32, kOpFunctionEnd = 56, kOpVariable = 59, kOpAccessChain = 65, kOpDecorate = 71, kOpFSub = 131,
         kOpReturn = 253, kDecLocation = 30, kScOutput = 3, kScPrivate = 6, kGlslExp = 27, kGlslSmoothStep = 49,
@@ -185,8 +185,8 @@ bool spirv_hdr_tonemap_lut(const std::vector<uint32_t>& in, float peak_ratio, st
         const uint32_t* w = &in[n.pos];
         if (n.op == kOpTypeInt && n.len == 4 && w[2] == 32 && w[3] == 1) t_int = w[1];
         if (n.op == kOpTypeVector && n.len == 4 && w[2] == t_float && w[3] == 4) t_v4 = w[1];
-        if (n.op == kOpConstant && n.len == 4 && w[1] == t_float && w[3] == float_bits(5.55555582f)) c_a = w[2];
-        if (n.op == kOpConstant && n.len == 4 && w[1] == t_float && w[3] == float_bits(0.0479959995f)) c_b = w[2];
+        if (n.op == kOpConstant && n.len == 4 && w[1] == t_float && w[3] == float_bits(shaper_scale)) c_a = w[2];
+        if (n.op == kOpConstant && n.len == 4 && w[1] == t_float && w[3] == float_bits(shaper_bias)) c_b = w[2];
     }
     if (!t_int || !t_v4 || !c_a || !c_b) return false;
 
@@ -219,7 +219,7 @@ bool spirv_hdr_tonemap_lut(const std::vector<uint32_t>& in, float peak_ratio, st
     }
     if (!idx[0] || !idx[1] || !idx[2]) return false;
 
-    // the shaper: exactly three Fma(x, 5.5555558, 0.047996), one per channel, all in the entry function
+    // the shaper: exactly three Fma(x, shaper_scale, shaper_bias), one per channel, all in the entry function
     std::vector<size_t> shaper;
     size_t fn_begin = SIZE_MAX, fn_end = SIZE_MAX;
     for (size_t k = 0; k < insts.size(); ++k) {

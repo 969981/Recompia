@@ -13,6 +13,8 @@
 
 #include "nxrt/config.h"
 #include "nxrt/extras.h"
+#include "nxrt/game.h"
+#include "nxrt/game_render.h"
 #include "nxrt/gfx.h"
 #include "nxrt/log.h"
 
@@ -20,6 +22,7 @@ namespace nxrt::extras {
 namespace {
 
 constexpr const char* kTag = "temporal";
+constexpr uint32_t kMaxCameraWords = 256;   // a camera block longer than this (1 KiB of floats) is not taken
 
 #include "extras/temporal_shaders.inc"
 
@@ -65,7 +68,7 @@ bool inverse(const M4& in, M4& out) {   // Gauss-Jordan with partial pivoting
 }
 void to_float(const M4& a, float* out) { for (int i = 0; i < 16; ++i) out[i] = static_cast<float>(a.m[i]); }
 
-// The camera of one frame, from the G-buffer vertex shaders' block c3 (see temporal.h).
+// The camera of one frame, from the game's camera block in the G-buffer pass (game::CameraBlock, see temporal.h).
 struct Camera {
     M4 vpj, vpu, view, proj_u;
     double jit[2] = {};          // the projection's jitter in NDC (ndc_jittered = ndc + jit)
@@ -74,13 +77,17 @@ struct Camera {
     double fwd[3] = {}, pos[3] = {}, right[3] = {}, up[3] = {};
 };
 
-bool parse_camera(const uint32_t* w, size_t n, Camera& cam) {
-    if (n < 68) return false;
-    float f[68];
-    std::memcpy(f, w, sizeof f);
-    for (float x : f) if (!std::isfinite(x)) return false;
-    for (int i = 0; i < 16; ++i) cam.vpj.m[i] = f[i];
-    for (int i = 0; i < 16; ++i) cam.view.m[i] = f[52 + i];
+// The block's length in words, every one of them a finite float: the view-projection and the view matrix and whatever lies before them.
+uint32_t camera_words(const game::CameraBlock& cb) { return std::max(cb.view_proj, cb.view) + 16; }
+
+bool parse_camera(const game::CameraBlock& cb, const uint32_t* w, size_t n, Camera& cam) {
+    const uint32_t words = camera_words(cb);
+    if (n < words) return false;
+    float f[kMaxCameraWords];
+    std::memcpy(f, w, words * sizeof(float));
+    for (uint32_t i = 0; i < words; ++i) if (!std::isfinite(f[i])) return false;
+    for (int i = 0; i < 16; ++i) cam.vpj.m[i] = f[cb.view_proj + i];
+    for (int i = 0; i < 16; ++i) cam.view.m[i] = f[cb.view + i];
     const M4& v = cam.view;
     // the view matrix: an orthonormal rotation, translation, last row 0 0 0 1
     if (std::fabs(v.at(3, 0)) > 1e-4 || std::fabs(v.at(3, 1)) > 1e-4 || std::fabs(v.at(3, 2)) > 1e-4 || std::fabs(v.at(3, 3) - 1.0) > 1e-4) return false;
@@ -290,7 +297,27 @@ void temporal_note_game_jitter(float x_ndc, float y_ndc) {
     g_game_jit_y.store(y_ndc, std::memory_order_relaxed);
 }
 
-bool temporal_wanted() { return upscale_temporal(); }
+const game::CameraBlock* temporal_camera_block() {
+    static const game::CameraBlock* const cb = [] () -> const game::CameraBlock* {
+        const game::Render* gr = game::info().render;
+        const game::CameraBlock* c = gr ? gr->camera : nullptr;
+        if (!c) return nullptr;
+        if (c->stage > 4 || c->slot >= 16 || camera_words(*c) > kMaxCameraWords) {
+            NXLOG_W(kTag, "the game's camera block (stage %u, slot %u, %u words) is out of range: temporal upscaling off", c->stage, c->slot,
+                    camera_words(*c));
+            return nullptr;
+        }
+        return c;
+    }();
+    return cb;
+}
+
+uint32_t temporal_camera_bytes() {
+    const game::CameraBlock* cb = temporal_camera_block();
+    return cb ? camera_words(*cb) * 4 : 0;
+}
+
+bool temporal_wanted() { return upscale_temporal() && temporal_camera_block(); }
 
 uint32_t temporal_jitter_phase_count() { return g_jitter_phase_count.load(std::memory_order_relaxed); }
 
@@ -310,20 +337,21 @@ double radical_inverse(uint32_t i, uint32_t base) {
 // size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px.
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
-    if (mode == 0 || !words || n_words < 68 || width < 16 || height < 16) return false;
+    const game::CameraBlock* cb = temporal_camera_block();
+    if (mode == 0 || !cb || !words || n_words < camera_words(*cb) || width < 16 || height < 16) return false;
     Camera c;
-    if (!parse_camera(words, n_words, c)) return false;
+    if (!parse_camera(*cb, words, n_words, c)) return false;
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
     const uint32_t phases = temporal_jitter_phase_count();
     const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
     const double jx = (2.0 * radical_inverse(idx, 2) - 1.0) / width, jy = (2.0 * radical_inverse(idx, 3) - 1.0) / height;
     float f[16];
-    std::memcpy(f, words, sizeof f);
+    std::memcpy(f, words + cb->view_proj, sizeof f);
     for (int col = 0; col < 4; ++col) {   // column-major: ndc.x += jx, ndc.y += jy (clip x += jx * w)
         f[col * 4 + 0] = static_cast<float>(f[col * 4 + 0] + jx * f[col * 4 + 3]);
         f[col * 4 + 1] = static_cast<float>(f[col * 4 + 1] + jy * f[col * 4 + 3]);
     }
-    std::memcpy(words, f, sizeof f);
+    std::memcpy(words + cb->view_proj, f, sizeof f);
     static std::atomic<bool> logged{false};
     if (!logged.exchange(true))
         NXLOG_I(kTag, "jitter injected into the scene camera (Halton 2/3, %u phases, %ux%u): first %+.4f %+.4f px", phases, width, height,
@@ -336,8 +364,9 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
     std::lock_guard<std::mutex> lk(s.mu);
     if (s.have_cam) return;
     ++s.gbuffer_blocks;
+    const game::CameraBlock* cb = temporal_camera_block();
     Camera c;
-    if (!words || !parse_camera(words, n_words, c)) {
+    if (!cb || !words || !parse_camera(*cb, words, n_words, c)) {
         ++s.rejected_blocks;
         return;
     }
@@ -345,8 +374,9 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
     s.have_cam = true;
     if (!s.logged_cam) {
         s.logged_cam = true;
-        NXLOG_I(kTag, "camera from the G-buffer uniform block (vertex slot 0: view-projection floats 0..15, view 52..67): projection x %.4f y %.4f, "
+        NXLOG_I(kTag, "camera from the G-buffer uniform block (stage %u slot %u: view-projection floats %u..%u, view %u..%u): projection x %.4f y %.4f, "
                       "z %.6g w-term %.4f, jitter %+.6f %+.6f NDC, camera at %.1f %.1f %.1f",
+                cb->stage, cb->slot, cb->view_proj, cb->view_proj + 15, cb->view, cb->view + 15,
                 c.proj_u.at(0, 0), c.proj_u.at(1, 1), c.p22, c.p23, c.jit[0], c.jit[1], c.pos[0], c.pos[1], c.pos[2]);
     }
 }
@@ -428,10 +458,10 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     if (s.have_prev) {
         const double dot = cur.fwd[0] * s.prev.fwd[0] + cur.fwd[1] * s.prev.fwd[1] + cur.fwd[2] * s.prev.fwd[2];
         const double dx = cur.pos[0] - s.prev.pos[0], dy = cur.pos[1] - s.prev.pos[1], dz = cur.pos[2] - s.prev.pos[2];
-        // A teleport can keep the same facing. Ordinary movement must not cut: the player's own step in the game's world space is about 350
-        // units a second walking and 450 to 550 running (pkp_jump.cpp), so the camera that follows it moves at least that fast. The cut is a
-        // jump beyond 3000 units a second (and at least 20 units); measure the real camera speed before tightening it.
-        const double jump = std::max(20.0, ms * 3.0);
+        // A teleport can keep the same facing. Ordinary movement must not cut: the game names the camera speed that is a cut
+        // (game::CameraBlock::cut_per_ms, at least cut_min world units).
+        const game::CameraBlock& block = *temporal_camera_block();   // non-null: a camera was kept
+        const double jump = std::max(block.cut_min, ms * block.cut_per_ms);
         if (dot < 0.9 || dx * dx + dy * dy + dz * dz > jump * jump) reset = true;
     }
     const Camera& prev = reset ? cur : s.prev;

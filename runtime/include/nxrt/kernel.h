@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A small Horizon kernel: result codes, kernel objects and the handle table, guest threads (one Win32 thread per guest thread,
-// console core model), and the 19.2 MHz system tick. The SVC dispatcher lives in svc.h, IPC sessions in ipc.h.
+// console core model), and the host sleeps. The SVC dispatcher lives in svc.h, IPC sessions in ipc.h, the system tick in clock.h.
 // Pattern from SuperMarioWonderRecomp runtime/src/kernel.cpp + kernel_state.h (MIT) and smo-recomp runtime/os/os_threads.c (GPL-3.0).
 #pragma once
 #include <atomic>
@@ -131,7 +131,7 @@ struct KThread : KObject {
     std::atomic<bool> exited{false};    // written under the kernel lock (thread_mark_exited), read under the thread-list lock and elsewhere
     std::atomic<bool> aged{false};      // starvation guard (starvation_guard.cpp): the host leaves this thread ready, so its yields keep the processor
     std::atomic<uint64_t> host_affinity{0};   // the host affinity mask sched_apply (or a starvation boost) last gave the host thread
-    std::atomic<int> last_proc{-1};     // host processor the thread was on at its last SVC (svc_dispatch), for the starvation line
+    std::atomic<int> last_proc{-1};     // host processor the thread was on at one of its last 16 SVCs (svc_dispatch samples it), for the starvation line
     uint64_t nsvc = 0;                  // SVCs the thread made (svc_dispatch; only the thread itself writes it)
     YieldRun yrun;                      // [sched] yield_backoff state (svc_thread.cpp; own thread only)
     std::atomic<uint64_t> nyield{0}, nbackoff{0};   // yield SVCs, and of them the ones that slept (written by the thread, read by the census)
@@ -169,7 +169,6 @@ void main_thread_release();                                // the adopted main t
 KThread* current_thread();                                 // nullptr on a host thread that is not a guest thread
 ::Ctx* current_ctx();                                      // current_thread()->ctx or nullptr
 std::vector<std::shared_ptr<KThread>> threads();           // every thread ever created and not yet destroyed
-bool thread_join(uint32_t handle, uint32_t timeout_ms);    // host-side wait for the thread to finish (tests, shutdown)
 void kernel_reset();                                       // tests: join/forget threads, clear handles, sync state (no thread may run guest code)
 uint64_t thread_count_running();                           // started and not yet exited
 bool thread_set_priority(KThread& t, int hos_prio);       // updates the object and the host thread
@@ -205,13 +204,16 @@ void starvation_guard_stop();
 uint64_t starvation_boosts();            // boosts given so far
 void install_spin_hint();                // WFE / YIELD of the lifted code hand the host processor over (busy_mutex.cpp, [sched] spin_yield)
 void install_busy_mutex_hle();           // nn::os::LockBusyMutex as host code that yields while it waits (busy_mutex.cpp, [sched] busy_mutex_hle)
-void sched_reset_for_tests();            // forget the slot and re-read the config at the next sched_info()
 
-// ---- time --------------------------------------------------------------------------------------------------------------------
-uint64_t system_tick();                  // the console tick (tick_hz()), from QueryPerformanceCounter
-constexpr uint64_t kTickHzSwitch1 = 19200000;   // Switch 1 system tick (CNTFRQ_EL0)
-constexpr uint64_t kTickHzSwitch2 = 31250000;   // Switch 2 system tick (SDK 20.5 for Switch 2 uses 31.25 MHz)
-uint64_t tick_hz();                      // the registered game's platform tick frequency
+// ---- what the kernel asks of the layers above it (set once by nxrt::init, src/core/runtime.cpp, before the guest runs) ---------
+struct ProcessHooks {
+    uint64_t (*program_id)() = nullptr;             // GetInfo ProgramId (services: [process] program_id, else the title's)
+    uint64_t (*system_resource_size)() = nullptr;   // GetInfo SystemResourceSizeTotal default (the title profile's NPDM value)
+    std::string (*state_report)() = nullptr;        // the runtime's state summary, logged at svcExitProcess and svcBreak
+};
+void set_process_hooks(const ProcessHooks& h);     // unset members answer 0 / an empty report
+
+// ---- time (the console tick and its rate: nxrt/clock.h) ----------------------------------------------------------------------
 void sleep_ns(int64_t ns);               // high-resolution sleep; <= 0 yields
 // SleepThread with the game's polling sleeps shortened: the sleep a call from `lr` gets (`ns` unchanged when lr is not in the table, the
 // request is under 1 ms, or the listed sleep is not shorter). Table entries are offsets from main_base (game.h PollSleep).
@@ -225,10 +227,8 @@ int64_t precise_timer_request(int64_t rem_ns, int64_t late_ns);
 // Pure: the lateness estimate after one timer wait asked for asked_ns that took took_ns (moving average 1/16, 0..2 ms; samples that came
 // back early or 2 ms or more late are ignored).
 int64_t precise_late_update(int64_t late_ns, int64_t asked_ns, int64_t took_ns);
-int64_t precise_late_ns();               // the current estimate (also gauge kernel.timer_late_us)
 bool precise_sleep_enabled();
 bool precise_waits_enabled();
-void set_precise_timing(int sleep, int waits);   // tests: 1 on, 0 off, -1 leave, -2 re-read the config
 // Waits ns on the calling thread's waitable timer, never ending before ns have passed unless wake_event (a HANDLE, may be null) is set;
 // true when the event ended it.
 bool precise_wait_ns(int64_t ns, void* wake_event);

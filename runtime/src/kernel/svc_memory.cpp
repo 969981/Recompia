@@ -94,7 +94,7 @@ bool all_code_data(uint64_t addr, uint64_t size) {
 // The map region: where MapSharedMemory / MapTransferMemory / MapPhysicalMemory destinations may be, the ASLR region GetInfo reports
 // (svc_info.cpp: 0x8000000 + 0x7FF8000000). The SDK picks random free addresses in it (StackGuardManager::MapAtRandomAddress) and retries
 // on a refusal, so any address the host can give out exactly is accepted.
-constexpr uint64_t kMapRegionBase = 0x0008000000ull, kMapRegionSize = 0x7FF8000000ull;
+constexpr uint64_t kMapRegionBase = 0x0008000000ull;
 // The guest layout owns [kMainBase, kKernelBase + kKernelSize) (images, HLE thunks, heap view, stacks, kernel region): only the alias
 // region of that span and everything below the main image is open for map calls.
 bool in_map_region(uint64_t addr, uint64_t size) {
@@ -104,12 +104,6 @@ bool in_map_region(uint64_t addr, uint64_t size) {
 std::map<uint64_t, uint64_t> g_reserve_base;   // window address -> base of its host reservation (differs when addr is not 64 KiB aligned)
 
 // ---- gauges (include/nxrt/gauge.h): every callback takes g_mu, the lock of the state it reads ----
-// Removes its gauge when the file's statics are torn down (declared after the containers above, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { gauge_register(n, std::move(f)); }
-    ~GaugeHook() { gauge_unregister(name); }
-};
 GaugeHook gauge_heap_bytes("mem.heap_bytes", [] {   // SetHeapSize value (guest heap in use)
     std::lock_guard lk(g_mu);
     return static_cast<int64_t>(heap_now());
@@ -803,19 +797,6 @@ void svc_register_memory_group() {
     svc_register(0x50, create_shared_memory);
     svc_register(0x51, map_transfer_memory);
     svc_register(0x52, unmap_transfer_memory);
-}
-
-// Tests only: releases every alias-region window and forgets the MapMemory list and the heap size. The heap itself and
-// the vm map are reset by mem::shutdown().
-void svc_memory_reset_for_tests() {
-    std::lock_guard lk(g_mu);
-    for (auto& kv : g_windows) alias_free(kv.first);
-    g_windows.clear();
-    for (auto& kv : g_phys) VirtualFree(reinterpret_cast<void*>(kv.first), 0, MEM_RELEASE);
-    g_phys.clear();
-    g_maps.clear();
-    g_perm_locked.clear();
-    g_heap_cur = 0;
 }
 
 }  // namespace nxrt

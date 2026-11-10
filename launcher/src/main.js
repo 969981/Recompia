@@ -6,7 +6,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import markUrl from './art/mark.svg';
 import markTestingUrl from './art/mark-testing.png';
 import logoUrl from './art/logo.png';
-import { api, errText, esc, icon } from './ui.js';
+import { api } from './api.js';
+import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
 import { startGamepadNav } from './gamepad-nav.js';
@@ -87,7 +88,7 @@ function drawNav() {
 /** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a glance. */
 async function syncChannel() {
   try {
-    const c = await api('get_config');
+    const c = await api.getConfig();
     document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
   } catch (e) {
     console.warn('get_config', e);

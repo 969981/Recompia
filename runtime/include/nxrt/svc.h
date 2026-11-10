@@ -24,9 +24,13 @@ const char* svc_name(uint32_t number);                     // Switchbrew name or
 // Entry point of the lifted code's `svc #n` (guest_svc). `pc` is the guest address of the svc instruction when the caller knows it
 // (0 otherwise; the log then names the lifted function through ctx->fn and x30).
 void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc = 0);
-// A function svc_dispatch calls before every SVC, on the calling thread (null: none). Play mode keeps its window answering with it while
-// the game boots or loads and no frame boundary pumps the events; it must be cheap (it runs on every SVC of every guest thread).
-void svc_set_busy_hook(void (*fn)());
+// A function svc_dispatch calls before every SVC made by the host thread `host_tid` (fn null: none). Play mode keeps its window answering
+// with it while the game boots or loads and no frame boundary pumps the events. The kernel filters on the thread, so the hook itself needs
+// no thread check and every other thread pays one relaxed load (null when no hook is set).
+void svc_set_busy_hook(uint32_t host_tid, void (*fn)());
+// A function svc_dispatch calls before every SVC with the caller's guest context (null: none). The test tooling's frame source svc:N
+// counts SVCs with it. The same cost rule as the busy hook.
+void svc_set_observer(void (*fn)(::Ctx*));
 
 // ---- unknown SVC bookkeeping --------------------------------------------------------------------------------------------------
 // A number with no handler logs "UNKNOWN SVC 0x%02X (<name>) x0..x7 caller=..." (every call up to [svc] unknown_log_limit, default
@@ -37,10 +41,6 @@ struct SvcUnknownRecord {
     uint64_t first_args[8] = {};
     uint64_t first_lr = 0, first_fn = 0, first_pc = 0;
 };
-std::vector<SvcUnknownRecord> svc_unknown_records();
-uint64_t svc_unknown_total();
-uint64_t svc_call_count(uint32_t number);                  // calls dispatched to a handler or counted as unknown
-void svc_reset_counters();                                 // tests
 std::string svc_summary();                                 // "svc: N calls, M distinct, K unknown (0x.., ...)" for the end-of-run log
 
 // ---- groups registered by svc_init (one source file each) ------------------------------------------------------------------------

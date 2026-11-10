@@ -48,10 +48,22 @@ std::recursive_mutex& mu() {
     return m;
 }
 
+}  // namespace
+
+// What every request counts, per service name, accumulated over sessions. Lock-free on the request path: the first request of an object
+// resolves its ServiceCounters under mu(), after that it is two atomic updates. The entries are never freed (objects keep pointers).
+struct ServiceCounters {
+    std::atomic<uint64_t> requests{0};
+    std::atomic<bool> stub{false};
+};
+
+namespace {
+
 struct Registry {
     std::map<std::string, ServiceFactory> factories;
     std::vector<std::string> stubs_requested;
-    std::map<std::string, ServiceStats> stats;   // per service name, accumulated over sessions
+    std::map<std::string, ServiceStats> stats;   // per service name, accumulated over sessions: the unhandled commands
+    std::map<std::string, std::unique_ptr<ServiceCounters>> counters;   // per service name: the request counts
 };
 
 Registry& reg() {
@@ -69,12 +81,22 @@ ServiceStats& stats_for(const std::string& name) {   // caller holds mu()
     return s;
 }
 
+ServiceCounters* counters_for(const std::string& name) {   // caller holds mu()
+    std::unique_ptr<ServiceCounters>& c = reg().counters[name];
+    if (!c) c = std::make_unique<ServiceCounters>();
+    return c.get();
+}
+
 void count_request(Service& s) {
-    std::lock_guard<std::recursive_mutex> lk(mu());
-    s.requests++;
-    ServiceStats& st = stats_for(s.name());
-    st.requests++;
-    st.stub = s.is_stub();
+    s.requests.fetch_add(1, std::memory_order_relaxed);
+    ServiceCounters* c = s.counters.load(std::memory_order_acquire);
+    if (!c) {
+        std::lock_guard<std::recursive_mutex> lk(mu());
+        c = counters_for(s.name());
+        s.counters.store(c, std::memory_order_release);
+    }
+    c->requests.fetch_add(1, std::memory_order_relaxed);
+    c->stub.store(s.is_stub(), std::memory_order_relaxed);
 }
 
 uint32_t rd16(const std::vector<uint8_t>& v, size_t off) {
@@ -364,6 +386,10 @@ void registry_reset() {
     r.factories["sm:"] = sm;
     r.stubs_requested.clear();
     r.stats.clear();
+    for (auto& kv : r.counters) {
+        kv.second->requests.store(0);
+        kv.second->stub.store(false);
+    }
 }
 
 // ---- sessions -----------------------------------------------------------------------------------------------------------
@@ -572,8 +598,17 @@ uint32_t send_sync_request(::Ctx* c, uint32_t session_handle, uint64_t msg_addr,
 
 std::vector<ServiceStats> service_stats() {
     std::lock_guard<std::recursive_mutex> lk(mu());
+    std::map<std::string, ServiceStats> merged = reg().stats;   // the unhandled commands
+    for (const auto& kv : reg().counters) {
+        const uint64_t requests = kv.second->requests.load();
+        if (!requests) continue;   // a name that was never asked (or cleared by registry_reset) has no entry
+        ServiceStats& st = merged[kv.first];
+        if (st.name.empty()) st.name = kv.first;
+        st.requests = requests;
+        st.stub = kv.second->stub.load();
+    }
     std::vector<ServiceStats> v;
-    for (const auto& kv : reg().stats) v.push_back(kv.second);
+    for (auto& kv : merged) v.push_back(std::move(kv.second));
     return v;
 }
 

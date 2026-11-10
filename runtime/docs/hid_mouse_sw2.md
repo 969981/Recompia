@@ -132,7 +132,7 @@ Wheel units: *inferred* 120 per notch (the game clamps its sum at ±600).
   `jc2_mouse_request(false)` to take it back. Play mode stops capturing while `jc2_mouse_wants_pointer()` is true (mode on, or auto with
   a request), so the pointer becomes absolute and the Joy-Con 2 mouse goes on its surface.
 - The game's own mouse mode is only allowed with two detached Joy-Cons and the save's mouse option on (`0x71002fa6ac`; pad style
-  `0x710112ac60` must be 1). The PC pad is a Pro Controller, so `games/pkp/pkp_play.cpp` lets the check through for the local player
+  `0x710112ac60` must be 1). The PC pad is a Pro Controller, so `games/pkp/input/pkp_play.cpp` lets the check through for the local player
   while the Mouse mode key's request is on (mid hooks 0x71002fa6f8, 0x71002fa8a0, 0x71002fa8ec), and gives the hid service the game's
   screen size for x, y (`jc2_mouse_set_pointer_space`): the game unprojects the pointer with that size, not with the pointer range.
 - Placement / Rock Smash detection is not done: auto mode without a request means the Joy-Con 2 mouse is live only where the camera

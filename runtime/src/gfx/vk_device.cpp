@@ -21,6 +21,7 @@
 #include "nxrt/gfx.h"
 #include "nxrt/log.h"
 #include "nxrt/platform.h"
+#include "nxrt/text.h"
 #include "vk_gauges.h"
 #include "extras/temporal.h"
 
@@ -57,10 +58,7 @@ namespace {
 constexpr const char* kTag = "gfx";
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using text::lower;
 
 const char* type_name(int t) {
     static const char* const names[] = {"other", "integrated", "discrete", "virtual", "cpu"};

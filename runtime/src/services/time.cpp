@@ -9,12 +9,12 @@
 // Model (one process-wide state, guarded by one mutex):
 //   * posix time of a clock = host UTC (GetSystemTimePreciseAsFileTime) + that clock's offset. The user and the local clock share the
 //     local offset (on the console the user clock is the local clock); the network and the ephemeral network clock have their own.
-//   * steady clock: ticks since start-up (kernel::system_tick, 19.2 MHz, 1 tick = 625/12 ns) + the base + the internal offset + the
+//   * steady clock: ticks since start-up (clock::ticks, 31.25 MHz on Switch 2, 1 tick = 32 ns) + the base + the internal offset + the
 //     test offset (both in ns, TimeSpanType). The base is the host RTC value at start-up (seconds since 2000-01-01, as GetRtcValue),
 //     so the steady clock carries on across runs like the console's, which is RTC-backed and survives reboots: a SteadyClockTimePoint
 //     the game saved in an earlier run still measures real elapsed time. Seconds are the floor of the sum; the sequence is monotonic.
 //   * every change of an offset rewrites the shared memory, so the guest's fast GetCurrentTime path sees the same values.
-//   * host sleep ([time] resync, PR #172): the host counter behind kernel::system_tick stops while the host sleeps under Proton
+//   * host sleep ([time] resync, PR #172): the host counter behind clock::ticks stops while the host sleeps under Proton
 //     (CLOCK_MONOTONIC), so with the game open across a sleep every clock fell behind by the nap until the next launch. A watcher
 //     compares host UTC with the steady clock every 2 s; when the gap grew by more than 2 s the steady clock gets the difference
 //     (sleep_ns: the console's RTC-backed steady clock runs on through sleep) and the shared memory is written again. A host clock
@@ -61,10 +61,10 @@
 #include <windows.h>
 #endif
 
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
-#include "nxrt/kernel.h"
 #include "nxrt/log.h"
-#include "nxrt/tt.h"
+#include "nxrt/text.h"
 #include "services_internal.h"
 #include "timezone.h"
 
@@ -155,12 +155,6 @@ State& raw_state() {
     return s;
 }
 
-std::string ascii_lower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
-
 std::string str_of(const char* p, size_t n) {
     size_t l = 0;
     while (l < n && p[l]) ++l;
@@ -168,15 +162,12 @@ std::string str_of(const char* p, size_t n) {
 }
 
 // ---- clocks -------------------------------------------------------------------------------------------------------------------
-// Console ticks to ns (19.2 MHz: 625 / 12 ns per tick; 31.25 MHz: 32 ns per tick), split so the multiplication cannot overflow.
-uint64_t raw_ticks_ns() {
-    const uint64_t t = kernel::system_tick(), hz = kernel::tick_hz();
-    return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
-}
+// Console ticks to ns (19.2 MHz: 625 / 12 ns per tick; 31.25 MHz: 32 ns per tick).
+uint64_t raw_ticks_ns() { return clock::now_ns(); }
 
 int64_t host_unix_now() {
 #if defined(_WIN32)
-    const uint64_t t = tt::wall_filetime();   // 100 ns ticks since 1601-01-01 (the host clock; a fixed epoch + virtual time in deterministic test mode)
+    const uint64_t t = clock::wall_filetime();   // 100 ns ticks since 1601-01-01 (the host clock; a fixed epoch + virtual time in deterministic test mode)
     return static_cast<int64_t>((t - 116444736000000000ull) / 10000000ull);
 #else
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -186,7 +177,7 @@ int64_t host_unix_now() {
 // Host UTC in ns since 1970 (the watcher needs better than seconds).
 int64_t host_unix_now_ns() {
 #if defined(_WIN32)
-    const uint64_t t = tt::wall_filetime();
+    const uint64_t t = clock::wall_filetime();
     return static_cast<int64_t>(t - 116444736000000000ull) * 100;
 #else
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -344,7 +335,7 @@ void init_locked(State& s) {
     // [time] clock_scope (test key, default "user"): "all" moves the network and ephemeral network clocks by the same offset, for
     // game code that prefers the network clock. Anything else is "user" (the behaviour above).
     {
-        const std::string scope = ascii_lower(config_get_str("time", "clock_scope", "user"));
+        const std::string scope = text::lower(config_get_str("time", "clock_scope", "user"));
         if (scope != "user" && scope != "all")
             NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
         else if (scope == "all") {
@@ -356,7 +347,7 @@ void init_locked(State& s) {
         }
     }
     s.auto_correction = false;
-    s.device_utc = ascii_lower(config_get_str("time", "zone", "host")) == "utc";
+    s.device_utc = text::lower(config_get_str("time", "zone", "host")) == "utc";
     s.hosts_ready = false;
     s.host_name.clear();
     s.host_rule.clear();
