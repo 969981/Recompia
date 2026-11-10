@@ -10,7 +10,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing and sharper shadows, no more hitch once a second at a frame cap, a Search button for crafting, and DLC added in one click.
 
-This release is also, in part, a compliance update: the launcher's logo and icons, the Steam shortcut pictures and the README pictures are neutral placeholders, and the code no longer carries the earlier game's name. The launcher will get a new look soon.
+This release is also, in part, a compliance update: the launcher's logo and icons are plain ones, the README pictures are placeholders, and the code no longer carries the earlier game's name. The launcher will get a new look soon.
 
 ### Highlights
 - Added a **Search** button to the crafting menu: type part of an item name and only those recipes are listed (#324)
@@ -66,10 +66,70 @@ This release is also, in part, a compliance update: the launcher's logo and icon
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
 ### Launcher
+- Changed the logo and icons to plain ones, and took the earlier game's name and a personal folder path out of comments and scripts
+  - Before: the logo and icons were multi-colour bubble letters like the game's
+  - Now: the logo is plain "Recompia" text and the icons are an R on a rounded square (Testing: with a T badge); the README pictures are plain placeholders
+  - Still not: the launcher's **Koi's Camp** colours and the Steam shortcut pictures keep Koi's hand-drawn picture
+- Added **Meadow**, a fourth launcher colour with an original scene made for the project (hills, trees, a pond and a path), next to Sunrise, Dusk and Koi's Camp
+  - Before: Koi's Camp was the only daytime picture
+  - Now: pick **Meadow** with the Colours button; the new picture is about 100 KB, and the Steam shortcut pictures are lighter 256-colour PNGs
+  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
+- Added **Add DLC** to the launcher and a **Steam Deck** button icon style
+- Fixed **Repair** and **Undo** in the launcher, which could not run
+
+### Known issues
+- The **Joy-Con 2 mouse mode** is switched off for now (it aimed at the wrong blocks on PC); camera aim is not affected
+- Crafting Search does nothing during Link Play
+- Shadow quality Ultra and Extreme need a lot of video memory
+
+### Game
+- Added a **Search** button to the crafting menu (#324)
+  - Before: finding a recipe meant scrolling through the tabs
+  - Now: press **Y** (keyboard **F**) or click **Search** in the button bar. The same keyboard as name entry opens (works with a controller: d-pad or stick to pick keys, A to type, + for OK), type part of an item name and the list shows only the recipes whose item name contains it, in your game language. Upper and lower case don't matter
+  - The search stays on when you change tabs or use the game's Sort, and the button shows the word (for example "Search: log"). Cancel on the keyboard shows every recipe again; closing the crafting screen (or crafting something) clears the search
+  - Want it gone? `[pkp] craft_search = 0` in `pkp.ini`
+  - Still not: no search during Link Play, and only the item name is searched (not materials or descriptions)
+- **Joy-Con 2 mouse mode** is switched off for now: it aimed at the wrong blocks on PC. The middle mouse button no longer turns it on and the **Mouse Mode Key** row is gone from **Settings > Mouse**. Camera aim is not affected
+
+### Graphics
+- Added **Anti-aliasing** (SMAA) for the 3D scene: the game's Settings > Performance > **Anti-Aliasing**, or Settings (F1) > Display > Upscaling > **Anti-aliasing**
+  - Before: the game had no anti-aliasing here, so edges looked jagged
+  - Now: pick **SMAA Low**, **Medium**, **High** or **Ultra** and press **Apply and save** (no restart). Only the 3D scene is filtered; the menus and HUD stay sharp. Default (none) is as before. Also `[upscale] aa = off | smaa_low | smaa_medium | smaa_high | smaa_ultra`
+  - Still not: not hardware multisampling (MSAA); not applied together with a Scene Resolution below 100% and an upscaler
+- Added **Shadow quality**: sharper shadows (Settings (F1) > Graphics > **Shadow quality**, right under Texture anisotropy, or the game's Settings > **Shadow Quality**)
+  - Before: shadows were drawn from a 2048 x 2048 map, so their edges looked blocky up close
+  - Now: pick **High (2x)**, **Very High (3x)**, **Ultra (4x)** or **Extreme (8x)** to make the shadow maps that many times larger per side. It applies at once, no restart. Default is as the game draws them. Also `[display] shadow_quality = default | high | very_high | ultra | extreme`
+  - The game's soft shadow edge is made of 16 samples a texel of the original map apart; on a larger map the gaps between them showed as bands. With any option above Default each of those samples is now the average of 3 x 3 samples, which keeps the edge smooth. `[nvn] shadow_blur = false` turns that off
+  - **Quality preset** now sets it with the anti-aliasing: High gives High (2x) and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the others give Default and no anti-aliasing. Changing either by hand makes the preset Custom
+  - Still not: Ultra and Extreme use a lot of video memory (a 4x map is 128 MiB, an 8x one 512 MiB, and the game makes several); a size the GPU can't make leaves that map as the game made it
+- Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
+  - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
+  - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
+  - Still not: bloom and other soft glow effects stay smooth on purpose
+- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+  - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
+  - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
+
+### Performance
+- Fixed the long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
+  - Before: about once a second the game reads a tiny 30x16 picture of the scene back from the graphics card to work out the scene's average colour. Its main thread waited for that read (about 21 ms on a Legion Go S at 40 fps), so one capped frame in every forty missed its slot and took twice as long: a visible hitch while walking or turning the camera. The 0.8.0 change had only helped without a frame limit
+  - Now: that read gets the previous second's picture at once and the new one is fetched in the background, so the main thread never waits. On the console the game reads that picture straight from memory without waiting for the graphics card either, so this is what it did there. Legion Go S at a 40 fps cap: frames over twice the median per 10 s 8.8 -> 0.2, 1% low 18-20 -> 21-34 fps. `[nvn] readback_defer = false` in `pkp.ini` brings the waiting read back
+  - Still not: the scene's average colour, which tints the picture slowly, now follows a change of scene about a second later than before; the frame rate itself is as before
+
+### Controls
+- Added a **Steam Deck** button icon style, and Automatic now picks it on a Steam Deck
+  - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
+  - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
+  - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
+
+### Launcher
 - Changed the logo, icons and Steam shortcut pictures to neutral placeholders, and took the earlier game's name and a personal folder path out of comments and scripts
   - Before: the logo and icons were multi-colour bubble letters like the game's, and the Steam shortcut pictures carried that lettering
   - Now: the logo is plain "Recompia" text, the icons are an R on a rounded square (Testing: with a T badge), and the Steam shortcut pictures are a plain meadow with the same wordmark; the README pictures are plain placeholders too
-  - Still not: the **Koi's Camp** colours keep Koi's hand-drawn picture for now (credited in Settings > About); the whole look is due a refresh
+- Changed the **Koi's Camp** colours to **Meadow**, an original scene made for the project, and made the launcher's pictures smaller
+  - Before: the colours used a hand-drawn picture of characters from the game, and the Steam shortcut pictures were plain flat meadows
+  - Now: Meadow is a drawn countryside scene (hills, trees, a pond and a path) with no characters; the picture file is about 40 KB smaller, and the Steam shortcut pictures use the same scene as 256-colour PNGs of about 55 KB each. A colour you had picked keeps working
+  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start

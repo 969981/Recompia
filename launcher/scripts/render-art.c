@@ -177,12 +177,19 @@ static uint8_t *copy(const uint8_t *rgba, int width, int height) {
 #define SHARP_QUALITY 84
 
 int main(int argc, char **argv) {
-  if (argc != 6) die("usage: render-art SOURCE.svg SHARP.webp SOFT.webp SHARP-SUNRISE.webp SOFT-SUNRISE.webp");
+  if (argc != 6 && argc != 4)
+    die("usage: render-art SOURCE.svg SHARP.webp SOFT.webp [SHARP-SUNRISE.webp SOFT-SUNRISE.webp]");
   uint8_t *sharp = render(argv[1], SHARP_W, SHARP_H);
   /* Regenerate the small image from the sharp render, then blur at its own scale. */
   uint8_t *small = downsample(sharp, 160, 100, SHARP_W / 160);
   /* At 160px wide, an 8px Gaussian radius is 56px at the displayed window scale. */
   uint8_t *soft = soften(small, 160, 100, 8);
+  if (argc == 4) {   /* a picture with no Sunrise variant (the Meadow theme) */
+    encode(argv[2], sharp, SHARP_W, SHARP_H, SHARP_QUALITY);
+    encode(argv[3], soft, 160, 100, 85);
+    free(small);
+    return 0;
+  }
   uint8_t *sharp_sunrise = copy(sharp, SHARP_W, SHARP_H);
   uint8_t *soft_sunrise = copy(soft, 160, 100);
   tint_sunrise(sharp_sunrise, SHARP_W, SHARP_H);

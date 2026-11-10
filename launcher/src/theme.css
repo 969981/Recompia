@@ -198,3 +198,23 @@
   --backdrop: rgba(4, 22, 20, 0.54);
   --shadow-text: 0 2px 40px rgba(4, 22, 20, 0.6), 0 1px 3px rgba(4, 22, 20, 0.35);
 }
+
+/* Meadow (theme id meadow): a bright daytime picture (an original scene, art/meadow.svg) behind the same dark glass; teal-green neutrals, the default mint accent */
+:root[data-theme="meadow"] {
+  --art-url: url("./art/meadow-sharp.webp");
+  --art-soft-url: url("./art/meadow-soft.webp");
+  --art-position: 50% 56%;
+  --color-bg: #08201f;
+  --color-menu: #12332f;
+  --color-solid: #10302c;
+  --color-solid-raised: #1a423d;
+  --surface-sunken: rgba(4, 22, 20, 0.4);
+  --glass-tint: rgba(6, 30, 28, 0.5);               /* a little darker than Dusk: the picture is bright, text must keep 4.5:1 */
+  --glass-tint-strong: rgba(6, 30, 28, 0.68);
+  --scrim-hero:
+    linear-gradient(90deg, rgba(4, 22, 20, 0.66) 0%, rgba(4, 22, 20, 0.36) 32%, rgba(4, 22, 20, 0) 54%),
+    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(4, 22, 20, 0.66) 0%, rgba(4, 22, 20, 0.52) 50%, rgba(4, 22, 20, 0) 100%),
+    linear-gradient(0deg, rgba(4, 22, 20, 0.78) 0%, rgba(4, 22, 20, 0.2) 30%, rgba(4, 22, 20, 0) 44%);
+  --backdrop: rgba(4, 22, 20, 0.54);
+  --shadow-text: 0 2px 40px rgba(4, 22, 20, 0.6), 0 1px 3px rgba(4, 22, 20, 0.35);
+}

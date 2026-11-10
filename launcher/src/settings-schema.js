@@ -654,6 +654,7 @@ export const SECTIONS = [
           { id: 'repo', label: 'Source code', type: 'info', actions: [open(REPO_URL, 'GitHub')] },
           { id: 'community', label: 'Community', type: 'info', value: 'Recompia Discord: help, testing and chat', actions: [open(DISCORD_URL, 'Join Discord')] },
           { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: 'Artwork by Koi, hand drawn' },
+          { id: 'meadow-credit', label: 'Meadow', type: 'info', value: 'Original artwork made for the project' },
           { id: 'bug', label: 'Report a bug', type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],
       },
