@@ -4,13 +4,27 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## 0.10.1 (build N: Narwhal Hotfix a1)
+
+**Update:** press **Update**. No **Set up again** is needed (your saves and shaders are kept).
+
+This is a small hotfix, mainly a compliance update: the launcher's logo and icons are plain ones, the README pictures are placeholders, and the code no longer carries the earlier game's name. The launcher will get a new look soon.
+
+### Launcher
+- Changed the logo and icons to plain ones, and took the earlier game's name and a personal folder path out of comments and scripts
+  - Before: the logo and icons were multi-colour bubble letters like the game's
+  - Now: the logo is plain "Recompia" text and the icons are an R on a rounded square (Testing: with a T badge); the README pictures are plain placeholders
+  - Still not: the launcher's **Koi's Camp** colours and the Steam shortcut pictures keep Koi's hand-drawn picture
+- Added **Meadow**, a fourth launcher colour with an original scene made for the project (hills, trees, a pond and a path), next to Sunrise, Dusk and Koi's Camp
+  - Before: Koi's Camp was the only daytime picture
+  - Now: pick **Meadow** with the Colours button; the new picture is about 100 KB, and the Steam shortcut pictures are lighter 256-colour PNGs
+  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
+
 ## 0.10.0 (build N: Narwhal)
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept). This first Set up after the update may be a full one and take as long as usual; later runtime-only updates relink in seconds.
 
 The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing and sharper shadows, no more hitch once a second at a frame cap, a Search button for crafting, and DLC added in one click.
-
-This release is also, in part, a compliance update: the launcher's logo and icons are plain ones, the README pictures are placeholders, and the code no longer carries the earlier game's name. The launcher will get a new look soon.
 
 ### Highlights
 - Added a **Search** button to the crafting menu: type part of an item name and only those recipes are listed (#324)
@@ -66,14 +80,6 @@ This release is also, in part, a compliance update: the launcher's logo and icon
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
 ### Launcher
-- Changed the logo and icons to plain ones, and took the earlier game's name and a personal folder path out of comments and scripts
-  - Before: the logo and icons were multi-colour bubble letters like the game's
-  - Now: the logo is plain "Recompia" text and the icons are an R on a rounded square (Testing: with a T badge); the README pictures are plain placeholders
-  - Still not: the launcher's **Koi's Camp** colours and the Steam shortcut pictures keep Koi's hand-drawn picture
-- Added **Meadow**, a fourth launcher colour with an original scene made for the project (hills, trees, a pond and a path), next to Sunrise, Dusk and Koi's Camp
-  - Before: Koi's Camp was the only daytime picture
-  - Now: pick **Meadow** with the Colours button; the new picture is about 100 KB, and the Steam shortcut pictures are lighter 256-colour PNGs
-  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
 - Added **Add DLC** to the launcher and a **Steam Deck** button icon style
 - Fixed **Repair** and **Undo** in the launcher, which could not run
 
@@ -123,13 +129,6 @@ This release is also, in part, a compliance update: the launcher's logo and icon
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
 ### Launcher
-- Changed the logo, icons and Steam shortcut pictures to neutral placeholders, and took the earlier game's name and a personal folder path out of comments and scripts
-  - Before: the logo and icons were multi-colour bubble letters like the game's, and the Steam shortcut pictures carried that lettering
-  - Now: the logo is plain "Recompia" text, the icons are an R on a rounded square (Testing: with a T badge), and the Steam shortcut pictures are a plain meadow with the same wordmark; the README pictures are plain placeholders too
-- Changed the **Koi's Camp** colours to **Meadow**, an original scene made for the project, and made the launcher's pictures smaller
-  - Before: the colours used a hand-drawn picture of characters from the game, and the Steam shortcut pictures were plain flat meadows
-  - Now: Meadow is a drawn countryside scene (hills, trees, a pond and a path) with no characters; the picture file is about 40 KB smaller, and the Steam shortcut pictures use the same scene as 256-colour PNGs of about 55 KB each. A colour you had picked keeps working
-  - Still not: a custom-drawn look from an artist, which comes with the visual refresh
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
