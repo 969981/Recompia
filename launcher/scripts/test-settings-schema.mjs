@@ -6,7 +6,7 @@
 //   - the quality presets are the runtime's preset words and their numbers are in the keys' ranges.
 // pkp.ini sections other than [pkp] ([fs], [backup], [time], [audio]) have no table and are not checked.
 // Run: node scripts/test-settings-schema.mjs   (exit 1 on a mismatch)
-import { FIELDS, QUALITY_PRESETS, SCHEMAS, gameplayKeys, schemaKey, isRetired } from '../src/settings-schema.js';
+import { FIELDS, QUALITY_PRESETS, SCHEMAS, gameplayKeys, isGameplaySwitch, schemaKey, isRetired } from '../src/settings-schema.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -76,15 +76,25 @@ for (const p of QUALITY_PRESETS) {
   if (p.fps_limit !== undefined) check(p.fps_limit === -1 || accepts(schemaKey(at('display', 'fps_limit')), p.fps_limit), `quality preset ${p.id}: fps_limit`);
 }
 
-// Gameplay mods (the runtime's "gameplay" group): each a bool on by default, each a toggle of Settings > Gameplay with that default. A
-// release run (release.yml) runs this too, so a launcher whose schema has a mod turned off for a test build does not ship.
+// Gameplay mods (the runtime's "gameplay" group). A switch is a bool, on by default unless the runtime marks it opt_in (then off), and a
+// toggle of Settings > Gameplay with that default unless it is hidden (then no row). A mod's setting ("parent") is a row shown under its
+// switch with the runtime's default. A release run (release.yml) runs this too, so a launcher whose schema has a switch turned off for a
+// test build does not ship.
 const mods = gameplayKeys();
 check(mods.length > 0, 'no gameplay mods in the [pkp] schema');
 for (const key of mods) {
   const k = schemaKey({ file: 'pkp', section: 'pkp', key });
-  check(k.type === 'bool' && k.default === '1', `gameplay mod [pkp] ${key}: ${k.type}, default ${k.default}; a gameplay mod is a bool on by default`);
   const f = FIELDS[key];
-  check(!!f && f.type === 'toggle' && String(f.def) === '1', `gameplay mod [pkp] ${key}: no toggle on by default in Settings > Gameplay`);
+  if (isGameplaySwitch(k)) {
+    const def = k.opt_in ? '0' : '1';
+    check(k.type === 'bool' && k.default === def, `gameplay mod [pkp] ${key}: ${k.type}, default ${k.default}; a switch is a bool, default ${def}${k.opt_in ? ' (opt_in)' : ''}`);
+    if (k.hidden) check(!f, `gameplay mod [pkp] ${key} is hidden but has a row in Settings > Gameplay`);
+    else check(!!f && f.type === 'toggle' && String(f.def) === def, `gameplay mod [pkp] ${key}: no toggle with default ${def} in Settings > Gameplay`);
+  } else {
+    const parent = schemaKey({ file: 'pkp', section: 'pkp', key: k.parent });
+    check(!!parent && isGameplaySwitch(parent) && !parent.hidden, `gameplay setting [pkp] ${key}: its parent ${k.parent} is not a shown switch`);
+    check(!!f && String(f.def) === k.default && typeof f.when === 'function', `gameplay setting [pkp] ${key}: no row with default ${k.default} under ${k.parent} in Settings > Gameplay`);
+  }
 }
 
 check(keys > 10, `only ${keys} keys checked`);
