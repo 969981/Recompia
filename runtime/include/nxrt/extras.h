@@ -2,7 +2,7 @@
 // Display extras (S14): HDR output, upscaling, frame generation and low-latency modes.
 //
 // Everything here is off by default except HDR "auto" (HDR is used when the display and Windows offer it). The settings are read once at
-// start-up from the play-mode settings file (controls.ini, sections [hdr] [upscale] [latency]) with mpr.ini / environment overrides, and
+// start-up from the play-mode settings file (controls.ini, sections [hdr] [upscale] [latency]) with the game's ini / environment overrides, and
 // the live part can be changed from the F1 page. The pieces:
 //
 //   HDR       the game's scene pipeline is switched to float targets and a tone curve whose shoulder reaches the display's peak; the
@@ -98,7 +98,7 @@ struct Settings {
     PictureSettings picture;
 };
 
-// Reads [hdr] [upscale] [latency] from the nxrt configuration (mpr.ini, environment NXRT_HDR_MODE ...). Never fails.
+// Reads [hdr] [upscale] [latency] from the nxrt configuration (the game's ini, environment NXRT_HDR_MODE ...). Never fails.
 Settings settings_from_config();
 // The settings in force (set once by play mode / the boot code from the file; the live fields change from the F1 page).
 Settings settings();
