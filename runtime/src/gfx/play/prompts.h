@@ -27,6 +27,7 @@ public:
     uint32_t width() const { return w_; }
     uint32_t height() const { return h_; }
     size_t size() const { return index_.size(); }
+    std::vector<std::string> names() const;                          // every entry, sorted
     const std::string& error() const { return err_; }
 private:
     struct Entry { std::string name; uint32_t off; };

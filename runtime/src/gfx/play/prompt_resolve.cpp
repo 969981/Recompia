@@ -3,7 +3,6 @@
 #include "nxrt/host_device.h"
 
 #include <cctype>
-#include <string_view>
 #include <vector>
 
 #include "nxrt/game.h"
@@ -60,35 +59,70 @@ bool source_for_button(const PadSettings& pad, bool label_abxy, uint64_t bit, Pa
     return false;
 }
 
-// Pad icons: the Xbox, PlayStation, Steam Controller or Steam Deck button that presses the Switch button. The icon names the physical button (South is the Xbox A,
-// cross), so it is the same whatever the label question says; the label question only decides which source a Switch button comes from.
-// Stick clicks and the d-pad have no icon of their own here: "" (the game keeps its icon). The d-pad icon is always the d-pad.
-const char* pad_name(PromptStyle style, const PadSettings& pad, bool label_abxy, Btn b) {
-    const bool steam_set = style == PromptStyle::Steam || style == PromptStyle::SteamDeck;   // the Deck shares the Steam Controller's art
-    if (b == Btn::DPad) return style == PromptStyle::Xbox ? "xbox/dpad" : steam_set ? "steam/dpad" : "ps/dpad";
+// The icon sets of the pad styles: one pack entry per PadSrc, named by the physical button (South is the Xbox A, the PlayStation cross,
+// the Nintendo B), so it is the same whatever the label question says; the label question only decides which source a Switch button
+// comes from. "" = the controller has no icon for that source (the game keeps its own); the stick clicks and the single d-pad
+// directions have none in any set (the d-pad prompt is the set's whole cross, `dpad`, and pad_pack_name adds the direction). The entries
+// are built by runtime/scripts/build_prompt_pack.py (PAD_SETS: same prefixes and names). Columns: South East West North,
+// LeftShoulder RightShoulder LeftTrigger RightTrigger, Start Back, LeftStick RightStick, DpadUp DpadDown DpadLeft DpadRight,
+// RightPaddle1 LeftPaddle1 RightPaddle2 LeftPaddle2, Touchpad TouchpadRight.
+struct PadIconSet {
+    PromptStyle style;
+    const char* dpad;
+    const char* names[kPadSrcCount];
+};
+constexpr PadIconSet kPadSets[] = {
+    {PromptStyle::Xbox, "xbox/dpad",
+     {"xbox/a", "xbox/b", "xbox/x", "xbox/y", "xbox/lb", "xbox/rb", "xbox/lt", "xbox/rt", "xbox/menu", "xbox/view",
+      "", "", "", "", "", "", "", "", "", "", "", ""}},
+    {PromptStyle::PlayStation, "ps/dpad",
+     {"ps/cross", "ps/circle", "ps/square", "ps/triangle", "ps/l1", "ps/r1", "ps/l2", "ps/r2", "ps/options", "ps/create",
+      "", "", "", "", "", "", "", "", "", "", "", ""}},
+    // the grips (upper and lower on a side share the icon) and the trackpad clicks
+    {PromptStyle::Steam, "steam/dpad",
+     {"steam/a", "steam/b", "steam/x", "steam/y", "steam/lb", "steam/rb", "steam/lt", "steam/rt", "steam/menu", "steam/view",
+      "", "", "", "", "", "", "steam/rg", "steam/lg", "steam/rg", "steam/lg", "steam/lp", "steam/rp"}},
+    // the rear buttons R4 L4 R5 L5 and the trackpads
+    {PromptStyle::SteamDeck, "deck/dpad",
+     {"deck/a", "deck/b", "deck/x", "deck/y", "deck/l1", "deck/r1", "deck/l2", "deck/r2", "deck/menu", "deck/view",
+      "", "", "", "", "", "", "deck/r4", "deck/l4", "deck/r5", "deck/l5", "deck/lp", "deck/rp"}},
+    // Nintendo layout: B at the bottom, A at the right, Y at the left, X at the top; Plus is Start, Minus is Back
+    {PromptStyle::NintendoSwitch, "ns1/dpad",
+     {"ns1/b", "ns1/a", "ns1/y", "ns1/x", "ns1/l", "ns1/r", "ns1/zl", "ns1/zr", "ns1/plus", "ns1/minus",
+      "", "", "", "", "", "", "", "", "", "", "", ""}},
+    {PromptStyle::Switch2, "ns2/dpad",   // + the Switch 2 Pro Controller's rear GR and GL
+     {"ns2/b", "ns2/a", "ns2/y", "ns2/x", "ns2/l", "ns2/r", "ns2/zl", "ns2/zr", "ns2/plus", "ns2/minus",
+      "", "", "", "", "", "", "ns2/gr", "ns2/gl", "ns2/gr", "ns2/gl", "", ""}},
+    {PromptStyle::WiiU, "wiiu/dpad",
+     {"wiiu/b", "wiiu/a", "wiiu/y", "wiiu/x", "wiiu/l", "wiiu/r", "wiiu/zl", "wiiu/zr", "wiiu/plus", "wiiu/minus",
+      "", "", "", "", "", "", "", "", "", "", "", ""}},
+    {PromptStyle::SteamFrame, "frame/dpad",   // the grips like the Steam Controller's
+     {"frame/a", "frame/b", "frame/x", "frame/y", "frame/l1", "frame/r1", "frame/l2", "frame/r2", "frame/menu", "frame/view",
+      "", "", "", "", "", "", "frame/rg", "frame/lg", "frame/rg", "frame/lg", "", ""}},
+    // A, B, the triggers and the trackpad press; no X, Y, shoulders, Start or Back. The d-pad is the left stick (SteamVR's usual binding).
+    {PromptStyle::ValveIndex, "index/dpad",
+     {"index/a", "index/b", "", "", "", "", "index/lt", "index/rt", "", "",
+      "", "", "", "", "", "", "", "", "", "", "index/track", "index/track"}},
+    // Gestures: tap confirms, a two-finger tap goes back, hold and double tap for the other two, swipes for the shoulders, pinch for the
+    // triggers, a two-finger double tap and hold for Start and Back, a one-finger swipe for the d-pad.
+    {PromptStyle::Touch, "touch/dpad",
+     {"touch/tap", "touch/two", "touch/hold", "touch/double", "touch/swipe_left", "touch/swipe_right", "touch/zoom_out", "touch/zoom_in",
+      "touch/two_double", "touch/two_hold", "", "", "", "", "", "", "", "", "", "", "", ""}},
+};
+
+const PadIconSet* pad_set(PromptStyle style) {
+    for (const PadIconSet& s : kPadSets)
+        if (s.style == style) return &s;
+    return nullptr;
+}
+
+// Pad icons: the button of the style's controller that presses the Switch button ("" when nothing presses it or the set has no icon
+// for that source: the game keeps its icon). The d-pad icon is always the whole d-pad.
+const char* pad_name(const PadIconSet& set, const PadSettings& pad, bool label_abxy, Btn b) {
+    if (b == Btn::DPad) return set.dpad;
     PadSrc src = PadSrc::South;
     if (!source_for_button(pad, label_abxy, button_bit(b), &src)) return "";
-    // Indexed by PadSrc: the four face buttons, the shoulders, the triggers, Start, Back; the sticks and the d-pad have no icon.
-    static const char* const kXbox[kPadSrcCount] = {
-        "xbox/a", "xbox/b", "xbox/x", "xbox/y", "xbox/lb", "xbox/rb", "xbox/lt", "xbox/rt", "xbox/menu", "xbox/view",
-        "", "", "", "", "", "", "", "", "", "", "", "",
-    };
-    static const char* const kSteam[kPadSrcCount] = {
-        "steam/a", "steam/b", "steam/x", "steam/y", "steam/lb", "steam/rb", "steam/lt", "steam/rt", "steam/menu", "steam/view",
-        "", "", "", "", "", "",
-        "steam/rg", "steam/lg", "steam/rg", "steam/lg", "steam/lp", "steam/rp",   // the grips (upper and lower on a side share the icon) and the trackpad clicks
-    };
-    static const char* const kPs[kPadSrcCount] = {
-        "ps/cross", "ps/circle", "ps/square", "ps/triangle", "ps/l1", "ps/r1", "ps/l2", "ps/r2", "ps/options", "ps/create",
-        "", "", "", "", "", "", "", "", "", "", "", "",
-    };
-    const char* name = (style == PromptStyle::Xbox ? kXbox : steam_set ? kSteam : kPs)[static_cast<int>(src)];
-    // The Steam Deck has View and Menu like an Xbox pad; the Steam Controller's arrows (< and >) are not on it.
-    if (style == PromptStyle::SteamDeck) {
-        if (std::string_view(name) == "steam/menu") return "deck/menu";
-        if (std::string_view(name) == "steam/view") return "deck/view";
-    }
-    return name;
+    return set.names[static_cast<int>(src)];
 }
 
 // Does binding b apply in context c? A binding of c applies; an `all` binding applies unless the same input has a binding of c itself.
@@ -149,46 +183,51 @@ bool input_for_button(const Settings& s, Ctx ctx, Btn b, InputId* out) {
     return false;
 }
 
+namespace {
+// The pack entry a style shows for Switch button b: the pad set's button (pad remap of `settings`, or the built-in mapping without
+// settings), or for the keyboard the key bound to it in ctx. "" = the game's own icon.
+std::string button_icon(PromptStyle style, const Settings* settings, bool label_abxy, Ctx ctx, Btn b) {
+    const PadSettings no_pad{};
+    if (const PadIconSet* set = pad_set(style)) return pad_name(*set, settings ? settings->pad : no_pad, label_abxy, b);
+    if (style != PromptStyle::Keyboard || !settings) return {};
+    InputId id;
+    if (!input_for_button(*settings, ctx, b, &id)) return {};
+    return kbm_pack_name(id);
+}
+}  // namespace
+
 std::string resolve_icon(const ResolveIn& in, Icon icon) {
     // The map's stick icons: the mouse buttons that drive the map (left drag rotates, middle drag moves). Only keyboard style on the map.
     if (icon == Icon::LStick || icon == Icon::RStick) {
         if (in.style != PromptStyle::Keyboard || in.ctx != Ctx::Map) return {};
         return icon == Icon::LStick ? "kbm/mouse1" : "kbm/mouse2";
     }
-    const Btn b = icon_button(icon);
-    const PadSettings no_pad{};
-    const PadSettings& pad = in.settings ? in.settings->pad : no_pad;
-    std::string base;
-    switch (in.style) {
-        case PromptStyle::Xbox:
-        case PromptStyle::PlayStation:
-        case PromptStyle::Steam:
-        case PromptStyle::SteamDeck:
-            base = pad_name(in.style, pad, in.label_abxy, b);
-            break;
-        case PromptStyle::Keyboard: {
-            if (!in.settings) return {};
-            InputId id;
-            if (!input_for_button(*in.settings, in.ctx, b, &id)) return {};
-            base = kbm_pack_name(id);
-            break;
-        }
-        default:
-            return {};
-    }
+    const std::string base = button_icon(in.style, in.settings, in.label_abxy, in.ctx, icon_button(icon));
     if (base.empty()) return {};
     return icon_pressed(icon) ? base + "_pressed" : base;
 }
 
+std::vector<PromptPreviewItem> prompt_preview(PromptStyle style, const Settings& s) {
+    static constexpr struct {
+        const char* label;
+        Btn btn;
+    } kButtons[] = {{"A", Btn::A},   {"B", Btn::B},   {"X", Btn::X},       {"Y", Btn::Y},         {"L", Btn::L},           {"R", Btn::R},
+                    {"ZL", Btn::ZL}, {"ZR", Btn::ZR}, {"Plus", Btn::Plus}, {"Minus", Btn::Minus}, {"D-pad", Btn::DPad}};
+    std::vector<PromptPreviewItem> r;
+    if (!prompt_style_is_pad(style) && style != PromptStyle::Keyboard) return r;
+    for (const auto& b : kButtons) r.push_back({b.label, button_icon(style, &s, s.pad.label_abxy, Ctx::Menu, b.btn)});
+    return r;
+}
+
 std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit) {
-    if (style != PromptStyle::Xbox && style != PromptStyle::PlayStation && style != PromptStyle::Steam &&
-        style != PromptStyle::SteamDeck) return {};
+    const PadIconSet* set = pad_set(style);
+    if (!set) return {};
     if (switch_bit == 0 || (switch_bit & (switch_bit - 1)) != 0) return {};   // exactly one button bit
     using namespace hid;
     // one d-pad direction: the cross with that arm lit (the prompt names a direction); pad_pack_fallback() gives the whole cross
     const char* dir = switch_bit == btn(kBtnUp) ? "_up" : switch_bit == btn(kBtnDown) ? "_down" : switch_bit == btn(kBtnLeft) ? "_left"
                     : switch_bit == btn(kBtnRight) ? "_right" : nullptr;
-    if (dir) return std::string(pad_name(style, pad, label_abxy, Btn::DPad)) + dir;
+    if (dir) return std::string(set->dpad) + dir;
     Btn b = Btn::None;
     for (int i = 0; i < static_cast<int>(Btn::kCount); ++i)
         if (button_bit(static_cast<Btn>(i)) == switch_bit) {
@@ -196,8 +235,10 @@ std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_
             break;
         }
     if (b == Btn::None) return {};
-    return pad_name(style, pad, label_abxy, b);
+    return pad_name(*set, pad, label_abxy, b);
 }
+
+bool prompt_style_is_pad(PromptStyle style) { return pad_set(style) != nullptr; }
 
 std::string pad_pack_fallback(const std::string& name) {
     for (const std::string dir : {"_up", "_down", "_left", "_right"}) {

@@ -73,8 +73,21 @@ function noteHtml(r, e) {
 /** Automatic first, then every language by its own name (so a player who cannot read the current one still finds theirs). */
 const languageSelect = () => select('language', [[AUTO, t('Automatic (system language)')], ...LANGUAGES.map((l) => [l.code, l.name])], savedLanguage(), { label: t('Language') });
 
+/** The Button icons preview: each Switch button with its icon; a dashed box where the game keeps its own icon. */
+function glyphsControl(r, values, e) {
+  const g = r.glyphs(values);
+  if (g.text) return `<span class="set-value">${esc(g.text)}</span>`;
+  if (!e.promptIcons) return `<span class="set-value">${esc(t('No icon pack in the game folder'))}</span>`;
+  return `<div class="set-glyphs">${g.items.map(({ button, icon }) => {
+    const url = icon ? e.promptIcons(icon) : '';
+    const tip = url ? t('Switch {button} shows this icon', { button }) : t("Switch {button} keeps the game's own icon", { button });
+    return `<figure class="set-glyph" title="${esc(tip)}">${url ? `<img src="${url}" alt="">` : '<span class="set-glyph-none"></span>'}<figcaption>${esc(button)}</figcaption></figure>`;
+  }).join('')}</div>`;
+}
+
 function rowOf(st, r, values, e) {
   if (r.type === 'note') return noteHtml(r, e);
+  if (r.type === 'glyphs') return rowHtml(r, 'set-glyphrow', r.label, glyphsControl(r, values, e));
   if (r.type === 'language') return rowHtml(r, '', r.label, languageSelect());
   if (r.type === 'keycap') return rowHtml(r, '', r.label, `<kbd class="set-key">${esc(r.key)}</kbd>`);
   if (r.type === 'info') return rowHtml(r, 'set-info', r.label, infoControl(r, e));

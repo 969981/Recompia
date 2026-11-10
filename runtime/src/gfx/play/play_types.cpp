@@ -78,7 +78,8 @@ bool parse_trig(const std::string& s, Trig* out) {
 // ---- button prompts ---------------------------------------------------------------------------------------------------------------
 
 namespace {
-const char* const kPromptNames[] = {"switch", "xbox", "playstation", "steam", "steamdeck", "keyboard", "auto"};
+const char* const kPromptNames[] = {"switch",     "xbox",  "playstation", "steam", "steamdeck", "switch1", "switch2",
+                                    "wiiu",       "steamframe", "index", "touch", "keyboard", "auto"};
 static_assert(sizeof(kPromptNames) / sizeof(kPromptNames[0]) == kPromptStyleCount, "one name per PromptStyle");
 
 // Every spelling parse_prompt_style accepts (the canonical names are in the table too).
@@ -92,6 +93,13 @@ const PromptAlias kPromptAliases[] = {
     {"dualsense", PromptStyle::PlayStation},  {"steam", PromptStyle::Steam},         {"steamcontroller", PromptStyle::Steam},
     {"steam_controller", PromptStyle::Steam}, {"steamdeck", PromptStyle::SteamDeck}, {"steam_deck", PromptStyle::SteamDeck},
     {"deck", PromptStyle::SteamDeck},
+    {"switch1", PromptStyle::NintendoSwitch}, {"nintendo_switch", PromptStyle::NintendoSwitch}, {"ns1", PromptStyle::NintendoSwitch},
+    {"switch2", PromptStyle::Switch2},        {"switch_2", PromptStyle::Switch2},    {"nintendo_switch_2", PromptStyle::Switch2},
+    {"nintendo_switch2", PromptStyle::Switch2}, {"ns2", PromptStyle::Switch2},
+    {"wiiu", PromptStyle::WiiU},              {"wii_u", PromptStyle::WiiU},
+    {"steamframe", PromptStyle::SteamFrame},  {"steam_frame", PromptStyle::SteamFrame}, {"frame", PromptStyle::SteamFrame},
+    {"index", PromptStyle::ValveIndex},       {"valve_index", PromptStyle::ValveIndex}, {"valveindex", PromptStyle::ValveIndex},
+    {"touch", PromptStyle::Touch},            {"touchscreen", PromptStyle::Touch},
     {"keyboard", PromptStyle::Keyboard},      {"kbm", PromptStyle::Keyboard},
     {"keyboard_mouse", PromptStyle::Keyboard}, {"mouse", PromptStyle::Keyboard},     {"auto", PromptStyle::Auto},
 };

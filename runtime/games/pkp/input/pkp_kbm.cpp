@@ -572,8 +572,7 @@ void compute_want_locked(State& s) {
                 break;
             }
         }
-    } else if (eff == play::PromptStyle::Xbox || eff == play::PromptStyle::PlayStation || eff == play::PromptStyle::Steam ||
-               eff == play::PromptStyle::SteamDeck) {
+    } else if (play::prompt_style_is_pad(eff)) {
         // the pad's own button that presses each Switch button, following [padmap] and [pad] label_abxy; the stick clicks and the
         // stick glyphs have no pad icon and keep the game's own
         for (int i = 0; i < kCodes; ++i)

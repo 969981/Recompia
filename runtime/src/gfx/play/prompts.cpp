@@ -86,6 +86,13 @@ bool IconPack::load_file(const std::string& path) {
     return load_memory(std::move(b));
 }
 
+std::vector<std::string> IconPack::names() const {
+    std::vector<std::string> r;
+    r.reserve(index_.size());
+    for (const Entry& e : index_) r.push_back(e.name);
+    return r;
+}
+
 const uint8_t* IconPack::find(const std::string& name) const {
     auto it = std::lower_bound(index_.begin(), index_.end(), name, [](const Entry& e, const std::string& n) { return e.name < n; });
     if (it == index_.end() || it->name != name) return nullptr;

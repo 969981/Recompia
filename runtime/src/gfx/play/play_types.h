@@ -221,11 +221,17 @@ struct AudioSettings {
 
 // ---- button prompts ----------------------------------------------------------------------------------------------------------------
 // Which button icons the game's prompts show: the game's own Switch icons, or those of another pad or the keyboard. Auto follows the
-// last input device used.
-enum class PromptStyle : uint8_t { Switch = 0, Xbox, PlayStation, Steam, SteamDeck, Keyboard, Auto };
-constexpr int kPromptStyleCount = 7;
-const char* prompt_style_name(PromptStyle s);          // "switch" "xbox" "playstation" "steam" "steamdeck" "keyboard" "auto"
-bool parse_prompt_style(const std::string& s, PromptStyle* out);   // case-insensitive; also accepts ps, ps4, ps5, dualsense, steamcontroller, deck, steam_deck, kbm, keyboard_mouse, mouse
+// last input device used. Every pad style is a set of the icon pack (prompt_resolve.cpp, kPadSets). Settings files store the name, so a
+// new style may go anywhere before Keyboard.
+enum class PromptStyle : uint8_t {
+    Switch = 0, Xbox, PlayStation, Steam, SteamDeck, NintendoSwitch, Switch2, WiiU, SteamFrame, ValveIndex, Touch, Keyboard, Auto
+};
+constexpr int kPromptStyleCount = 13;
+// "switch" "xbox" "playstation" "steam" "steamdeck" "switch1" "switch2" "wiiu" "steamframe" "index" "touch" "keyboard" "auto"
+const char* prompt_style_name(PromptStyle s);
+// Case-insensitive; also accepts ps, ps4, ps5, dualsense, steamcontroller, deck, steam_deck, nintendo_switch, ns1, ns2, nintendo_switch_2,
+// wii_u, steam_frame, frame, valve_index, touchscreen, kbm, keyboard_mouse, mouse.
+bool parse_prompt_style(const std::string& s, PromptStyle* out);
 struct PromptSettings {
     PromptStyle style = PromptStyle::Auto;     // follows the last used device: keyboard icons until a pad is used (or when none is connected)
 };
