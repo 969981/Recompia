@@ -112,15 +112,15 @@ export function storageNote(env) {
 
 // Ids, labels and which ones set the frame values: kQualityPresets in runtime/src/gfx/play/play_types.cpp (labels without its bracket).
 // The values: kPresets in runtime/games/pkp/render/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
-// render_scale 0 and fps_limit -1 are written as auto.
+// shadow_quality is [display] shadow_quality and aa is [upscale] aa. render_scale 0 and fps_limit -1 are written as auto.
 export const QUALITY_PRESETS = [
-  { id: 'switch2', label: t('Switch 2'), lod_bias: 0, anisotropy: 0 },
-  { id: 'high', label: t('High'), lod_bias: -0.5, anisotropy: 8 },
-  { id: 'ultra', label: t('Ultra'), lod_bias: -1, anisotropy: 16 },
-  { id: 'steamdeck', label: t('Steam Deck'), lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 40 },
-  { id: 'legion_go_s', label: t('Legion Go S'), lod_bias: 0, anisotropy: 8, render_scale: 80, fps_limit: 60 },
-  { id: 'laptop', label: t('Laptop'), lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 60 },
-  { id: 'desktop', label: t('Desktop PC'), lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
+  { id: 'switch2', label: t('Switch 2'), lod_bias: 0, anisotropy: 0, shadow_quality: 'default', aa: 'off' },
+  { id: 'high', label: t('High'), lod_bias: -0.5, anisotropy: 8, shadow_quality: 'high', aa: 'smaa_high' },
+  { id: 'ultra', label: t('Ultra'), lod_bias: -1, anisotropy: 16, shadow_quality: 'very_high', aa: 'smaa_ultra' },
+  { id: 'steamdeck', label: t('Steam Deck'), lod_bias: 0, anisotropy: 4, shadow_quality: 'default', aa: 'off', render_scale: 75, fps_limit: 40 },
+  { id: 'legion_go_s', label: t('Legion Go S'), lod_bias: 0, anisotropy: 8, shadow_quality: 'default', aa: 'off', render_scale: 80, fps_limit: 60 },
+  { id: 'laptop', label: t('Laptop'), lod_bias: 0, anisotropy: 4, shadow_quality: 'default', aa: 'off', render_scale: 75, fps_limit: 60 },
+  { id: 'desktop', label: t('Desktop PC'), lod_bias: -0.5, anisotropy: 16, shadow_quality: 'very_high', aa: 'smaa_high', render_scale: 0, fps_limit: -1 },
 ];
 
 const PRESET = fromSchema(controls('display', 'quality_preset'));
@@ -131,6 +131,8 @@ const FPS_LIMIT = fromSchema(controls('display', 'fps_limit'));
 const AT_FPS_LIMIT = FPS_LIMIT.at;
 const AT_LOD_BIAS = fromSchema(controls('display', 'lod_bias')).at;
 const AT_ANISOTROPY = fromSchema(controls('display', 'anisotropy')).at;
+const AT_SHADOW_QUALITY = fromSchema(controls('display', 'shadow_quality')).at;
+const AT_AA = fromSchema(controls('upscale', 'aa')).at;
 
 function presetEdits(id) {
   const p = QUALITY_PRESETS.find((q) => q.id === id);
@@ -139,6 +141,8 @@ function presetEdits(id) {
     edit(AT_PRESET, id),
     edit(AT_LOD_BIAS, String(p.lod_bias)),
     edit(AT_ANISOTROPY, String(p.anisotropy)),
+    edit(AT_SHADOW_QUALITY, p.shadow_quality),
+    edit(AT_AA, p.aa),
   ];
   if (p.render_scale !== undefined) edits.push(edit(AT_RENDER_SCALE, p.render_scale > 0 ? String(p.render_scale) : 'auto'));
   if (p.fps_limit !== undefined) edits.push(edit(AT_FPS_LIMIT, p.fps_limit >= 0 ? String(p.fps_limit) : 'auto'));

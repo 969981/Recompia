@@ -4,6 +4,13 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+### Launcher
+- Fixed **Quality preset** in the launcher leaving Shadow quality and Anti-aliasing as they were
+  - Before: picking High, Ultra or Desktop PC in Settings > Graphics set only the texture settings (and the render resolution and frame limit for the device presets), so the game kept the old shadows and anti-aliasing
+  - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
+
 ## 0.10.2 (build N: Numbat Hotfix a2)
 
 **Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
