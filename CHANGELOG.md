@@ -14,6 +14,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: pkp.exe and pkp_rt.dll both carry the runtime API they were built for, and the launcher reads it before Play and Set up. An exe from another release than the dll is relinked by Set up; a dll from another release than the tools is named on the main page, with what to do (extract the whole release over the folder)
 
 ### Game
+- Button prompts: the face buttons are plain white, like the rest of the prompt icons
+  - Before: Xbox, PlayStation, Steam Controller and Steam Deck prompts drew A/B/X/Y and cross/circle/square/triangle as coloured buttons
+  - Now: they use Kenney's monotone white buttons, matching the bumpers, triggers, d-pad and keyboard icons. Switch prompts are unchanged
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
