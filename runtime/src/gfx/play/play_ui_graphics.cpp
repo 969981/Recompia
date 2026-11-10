@@ -30,6 +30,7 @@ namespace ui {
 constexpr const char* kAnisoNames[] = {"Game default", "2x", "4x", "8x", "16x"};
 constexpr int kAnisoValues[] = {0, 2, 4, 8, 16};
 constexpr int kAnisoCount = static_cast<int>(sizeof kAnisoValues / sizeof kAnisoValues[0]);
+constexpr const char* kShadowNames[] = {"Default", "High (2x)", "Very High (3x)", "Ultra (4x)", "Extreme (8x)"};   // indexed by extras::ShadowQuality
 constexpr const char* kAstcValues[] = {"fast", "high", "uncompressed"};
 constexpr const char* kAstcNames[] = {"Fast", "High (sharper, built in the background)", "Uncompressed (lots of video memory)"};
 constexpr int kAstcCount = static_cast<int>(sizeof kAstcValues / sizeof kAstcValues[0]);
@@ -99,15 +100,16 @@ void hdr_group(Page& p) {
 // ---- Graphics -----------------------------------------------------------------------------------------------------------------------
 
 // The game's quality preset (kDisplayOptQuality, the presets of play_types.h quality_presets()): picking one writes its values (texture
-// LOD bias and anisotropy; a device preset also the render scale and the frame limit); changing one of those afterwards makes it Custom
+// LOD bias, anisotropy, shadow quality and anti-aliasing; a device preset also the render scale and the frame limit); changing one of those afterwards makes it Custom
 // (quality_preset_edited).
 
 // What a preset sets, in plain words, from the values the game's hook writes.
-std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* gp, const DisplaySettings& now) {
+std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* gp, const Settings& now) {
     std::string t = q.about;
     if (!gp || !gp->quality_preset) return t;
-    DisplaySettings v = now;
-    if (!gp->quality_preset(q.id, v)) return t;
+    Settings sv = now;
+    if (!gp->quality_preset(q.id, sv)) return t;
+    const DisplaySettings& v = sv.display;
     char buf[160];
     t += "\n";
     if (q.sets_frame) {
@@ -132,6 +134,14 @@ std::string quality_preset_summary(const QualityPresetInfo& q, const GamePlay* g
     } else {
         t += "Texture filtering: the game's. ";
     }
+    {
+        static const char* const kShadowSummary[] = {"the game's", "2x", "3x", "4x", "8x"};
+        t += std::string("Shadows: ") + kShadowSummary[static_cast<int>(v.shadow_quality)] + ". ";
+    }
+    {
+        static const char* const kAaSummary[] = {"off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};
+        t += std::string("Anti-aliasing: ") + kAaSummary[static_cast<int>(sv.extras.upscale.aa)] + ". ";
+    }
     t += v.lod_bias < 0 ? "Textures: sharper." : v.lod_bias > 0 ? "Textures: softer." : "Textures: the game's sharpness.";
     if (q.sets_frame) t += "\nThe render scale applies on restart.";
     return t;
@@ -146,9 +156,9 @@ void quality_preset_combo(Page& p, const GamePlay* gp) {
         if (d.quality_preset == qs[i].id) sel = i;
     if (ImGui::BeginCombo("Quality preset", qs[sel].name)) {
         for (int i = 0; i < count - 1; ++i) {
-            if (ImGui::Selectable(qs[i].name, i == sel) && i != sel && gp->quality_preset && gp->quality_preset(qs[i].id, d)) mark(p);
+            if (ImGui::Selectable(qs[i].name, i == sel) && i != sel && gp->quality_preset && gp->quality_preset(qs[i].id, p.edit)) mark(p);
             if (ImGui::IsItemHovered()) {
-                const std::string t = quality_preset_summary(qs[i], gp, d);
+                const std::string t = quality_preset_summary(qs[i], gp, p.edit);
                 ImGui::SetItemTooltip("%s", t.c_str());
             }
         }
@@ -222,6 +232,20 @@ void picture_group(Page& p) {
         ImGui::EndCombo();
     }
     tip("Sharper textures at a slant. Game default keeps what the game asks for; the other entries are a minimum on every filtering sampler.");
+    {   // shadow map resolution: the shadow maps are remade at the new size on the next frame
+        const int sq = static_cast<int>(d.shadow_quality);
+        if (ImGui::BeginCombo("Shadow quality##shadows_quality", kShadowNames[sq])) {
+            for (int i = 0; i < 5; ++i) {
+                if (ImGui::Selectable(kShadowNames[i], i == sq) && i != sq) {
+                    d.shadow_quality = static_cast<gfx::ShadowQuality>(i);
+                    custom(QualityField::Shadows);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        tip("Resolution of the game's shadow maps. Default: as the game draws them. High: 2x, Very High: 3x, Ultra: 4x and Extreme: 8x larger per side, "
+            "which makes shadow edges sharper and costs video memory and speed (Ultra and Extreme a lot). Applies at once.");
+    }
     if (slider("Texture LOD bias", &d.lod_bias, -2.0, 2.0, "%.2f")) custom(QualityField::LodBias);
     tip("Negative values pick sharper texture levels, positive values softer ones.");
     if (opts & kDisplayOptBloom) {

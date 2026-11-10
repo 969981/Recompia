@@ -13,6 +13,6 @@ namespace nxrt::games::pkp {
 extern const Feature kQualityFeature;
 // F1 Graphics page: the values of a preset written into d. "switch2", "high", "ultra": texture LOD bias, anisotropy;
 // "steamdeck", "legion_go_s", "laptop", "desktop": those and the render scale and frame limit. False for an unknown name (and "custom").
-bool quality_preset(const char* name, play::DisplaySettings& d);
+bool quality_preset(const char* name, play::Settings& s);
 
 }  // namespace nxrt::games::pkp

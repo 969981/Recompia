@@ -18,6 +18,7 @@ constexpr const char* kHdrModeWords[] = {"off", "auto", "on", "native"};
 constexpr const char* kHdrFormatWords[] = {"auto", "hdr10", "scrgb"};
 constexpr const char* kUpscaleWords[] = {"off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
 constexpr const char* kUpscaleQualityWords[] = {"native", "quality", "balanced", "performance", "ultra_performance", "custom"};
+constexpr const char* kShadowWords[] = {"default", "high", "very_high", "ultra", "extreme"};   // [display] shadow_quality, indexed by gfx::ShadowQuality
 constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"};   // [upscale] aa, indexed by extras::AaMode
 constexpr const char* kLatencyWords[] = {"off", "auto", "on", "boost"};
 constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive"};
@@ -271,6 +272,8 @@ const SettingDef kTable[] = {
      .doc = "0 = what the game's samplers ask for; else at least that on every filtering sampler."},
     {ROW("display", "lod_bias", Real), REAL(display.lod_bias), .lo = -2.0, .hi = 2.0, .ranged = true, .exact = true,
      .doc = "Texture LOD bias added to every sampler; negative is sharper."},
+    {ROW("display", "shadow_quality", Choice), ENUM(display.shadow_quality, gfx::ShadowQuality), .words = kShadowWords, .nxrt_key = "display.shadow_quality",
+     .doc = "Shadow map resolution: the game's shadow maps made 2x (high), 3x (very_high), 4x (ultra) or 8x (extreme) larger per side. Live."},
     {ROW("display", "bloom", Bool), FLAG(display.bloom), .doc = "The game's bloom."},
     {ROW("display", "chromatic_aberration", Bool), FLAG(display.chromatic_aberration), .doc = "The game's chromatic aberration."},
     {ROW("display", "quality_preset", Custom), CUSTOM(read_quality_preset, write_quality_preset), .word_fn = quality_preset_words, .syntax = "choice",

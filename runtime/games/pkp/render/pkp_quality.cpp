@@ -62,17 +62,19 @@ struct Preset {
     bool frame;          // a device preset: also sets the render scale and the frame limit
     int render_scale;    // [display] render_scale (0 = auto: the window's size, never below 1080p off a handheld)
     int fps_cap;         // [display] fps_limit (-1 = the display's refresh rate)
+    gfx::ShadowQuality shadows;   // [display] shadow_quality
+    extras::AaMode aa;            // [upscale] aa
 };
 // switch2 = the console's picture; the PC presets raise the texture sharpness. The device presets (#122) also pick a render scale and a
 // frame limit for the machine (100 = 1920 x 1080). Upscalers stay off; fog ([pkp] fog_strength) and the view distance are the console's.
 constexpr Preset kPresets[] = {
-    {"switch2", 0.0, 0, false, 0, 0},
-    {"high", -0.5, 8, false, 0, 0},
-    {"ultra", -1.0, 16, false, 0, 0},
-    {"steamdeck", 0.0, 4, true, 75, 40},    // 1440 x 810 for the 1280 x 800 screen; 40 fps: runs at 40 where the refresh is a multiple (80 Hz OLED / 40 Hz LCD in Steam's Performance menu), else at 30 (90 Hz OLED default)
-    {"legion_go_s", 0.0, 8, true, 80, 60},  // 1536 x 864 for the 1920 x 1200 screen, 60 fps
-    {"laptop", 0.0, 4, true, 75, 60},       // integrated / entry graphics: fewer pixels, 60 fps
-    {"desktop", -0.5, 16, true, 0, -1},     // a dedicated GPU: the window's size (at least 1080p), the display's refresh rate
+    {"switch2", 0.0, 0, false, 0, 0, gfx::ShadowQuality::Default, extras::AaMode::Off},
+    {"high", -0.5, 8, false, 0, 0, gfx::ShadowQuality::High, extras::AaMode::SmaaHigh},
+    {"ultra", -1.0, 16, false, 0, 0, gfx::ShadowQuality::VeryHigh, extras::AaMode::SmaaUltra},
+    {"steamdeck", 0.0, 4, true, 75, 40, gfx::ShadowQuality::Default, extras::AaMode::Off},    // 1440 x 810 for the 1280 x 800 screen; 40 fps: runs at 40 where the refresh is a multiple (80 Hz OLED / 40 Hz LCD in Steam's Performance menu), else at 30 (90 Hz OLED default)
+    {"legion_go_s", 0.0, 8, true, 80, 60, gfx::ShadowQuality::Default, extras::AaMode::Off},  // 1536 x 864 for the 1920 x 1200 screen, 60 fps
+    {"laptop", 0.0, 4, true, 75, 60, gfx::ShadowQuality::Default, extras::AaMode::Off},       // integrated / entry graphics: fewer pixels, 60 fps
+    {"desktop", -0.5, 16, true, 0, -1, gfx::ShadowQuality::VeryHigh, extras::AaMode::SmaaHigh},     // a dedicated GPU: the window's size (at least 1080p), the display's refresh rate
 };
 
 const Preset* find_preset(const std::string& n) {
@@ -324,15 +326,22 @@ void apply() {
     // after play_display's sampler tuning (play.cpp: display_tuning runs before the game's settings_changed)
     gfx::tuning().lod_bias.store(static_cast<float>(s.ini_preset->lod_bias));
     gfx::tuning().anisotropy.store(s.ini_preset->anisotropy);
+    gfx::tuning().shadow_scale.store(gfx::shadow_scale_of(s.ini_preset->shadows));
+    extras::Settings x = extras::settings();   // the live anti-aliasing: the settings file keeps what the page set, the preset in the ini wins
+    x.upscale.aa = s.ini_preset->aa;
+    extras::set_settings(x);
 }
 
 }  // namespace
 
-bool quality_preset(const char* name, play::DisplaySettings& d) {
+bool quality_preset(const char* name, play::Settings& s) {
     const Preset* p = name ? find_preset(name) : nullptr;
     if (!p) return false;
+    play::DisplaySettings& d = s.display;
+    s.extras.upscale.aa = p->aa;
     d.lod_bias = p->lod_bias;
     d.anisotropy = p->anisotropy;
+    d.shadow_quality = p->shadows;
     if (p->frame) {
         d.render_scale = p->render_scale;
         d.fps_cap = p->fps_cap;

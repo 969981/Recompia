@@ -64,16 +64,24 @@ int thread_index() {
     return t_index;
 }
 
-void flush_locked() {
+// The names and the thread table (g_mu held: zone_id() and the stop path use the same lock).
+void flush_names_locked() {
     if (!g_file) return;
     // names first so the reader knows every id it meets
     for (; g_zones_written < g_zone_names.size(); ++g_zones_written) std::fprintf(g_file, "# zone %zu %s\n", g_zones_written, g_zone_names[g_zones_written].c_str());
-    const size_t n = std::min(g_n.load(std::memory_order_acquire), g_cap);
     const size_t nt = std::min<size_t>(g_next_thread.load(), kMaxThreads);
     for (; g_threads_written < nt; ++g_threads_written) {
         const char* nm = g_thread_names[g_threads_written].empty() ? "-" : g_thread_names[g_threads_written].c_str();
         std::fprintf(g_file, "# thread %zu %u %s\n", g_threads_written, g_thread_tids[g_threads_written], nm);
     }
+}
+
+// The events, formatted and written without g_mu. A second of events is about 100 thousand lines, tens of milliseconds; while the lock was
+// held for that long, every thread that records a mark (zone_id takes g_mu) waited for it, so the trace itself made a stall once a second.
+// Only the writer thread, and the stop path after it was joined, touch g_written and the file here.
+void flush_events() {
+    if (!g_file) return;
+    const size_t n = std::min(g_n.load(std::memory_order_acquire), g_cap);
     for (; g_written < n; ++g_written) {
         const Ev& e = g_ev[g_written];
         std::fprintf(g_file, "%llu %u %u %u %u\n", static_cast<unsigned long long>(e.t0), e.dur, e.thread, e.zone, e.arg);
@@ -81,11 +89,19 @@ void flush_locked() {
     std::fflush(g_file);
 }
 
+void flush_locked() {
+    flush_names_locked();
+    flush_events();
+}
+
 void writer_main() {
     while (!g_stop.load()) {
         for (int i = 0; i < 10 && !g_stop.load(); ++i) Sleep(100);
-        std::lock_guard<std::mutex> lk(g_mu);
-        flush_locked();
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            flush_names_locked();
+        }
+        flush_events();
     }
 }
 

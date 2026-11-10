@@ -40,7 +40,6 @@
 #include "nvn_format.h"
 #include "nvn_format_guard.h"
 #include "nvn_gpu_internal.h"
-#include "nvn_readback_policy.h"
 #include "extras/hdr_nvn.h"
 #include "nvn_texdata.h"
 #include "nvn_texprep.h"
@@ -53,13 +52,35 @@ namespace nxrt::nvn::be {
 
 constexpr uint32_t kGenLevels = 16;
 
-// Each deferred job owns its own buffer. Cancellation only drops a shared owner; it never reuses an in-flight buffer.
-// The queued callback keeps this object alive until it has recorded; actual destruction uses GPU retirement.
+// ---- readback ([nvn] readback_async / readback_defer, nvn_gpu_texture_readback.cpp) ------------------------------------------------
+// The levels and layers one read asks for.
+struct ReadbackRange {
+    uint32_t level = 0, levels = 0, layer = 0, layers = 0;
+    bool operator==(const ReadbackRange&) const = default;
+    bool fits(uint32_t level_count, uint32_t layer_count) const {
+        return levels && layers && level < level_count && levels <= level_count - level && layer < layer_count && layers <= layer_count - layer;
+    }
+};
+// What a read asked for and the state of the storage it asked about. Two reads with equal stamps want the same bytes of the same image:
+// only then may a deferred copy stand in for the read ([nvn] readback_defer). cpu_generation: Texture::prep_gen (a CPU write or an upload
+// in between makes the previous read's data wrong); sync_epoch: TexGpu::rb_sync_epoch (a synchronous read on the render thread refreshed
+// the storage without rb_mu, so the deferred bookkeeping is stale).
+struct ReadbackStamp {
+    uint32_t texture = 0, cpu_generation = 0;
+    uintptr_t storage = 0;
+    uint64_t storage_bytes = 0;
+    ReadbackRange range;
+    uint64_t sync_epoch = 0;
+    bool operator==(const ReadbackStamp&) const = default;
+};
+// A deferred copy ([nvn] readback_defer): queued by one read, landed by a later one once the GPU has finished it, never waited for. It owns
+// its own buffer (the normal readback buffer TexGpu::rb keeps its deduplication state): dropping the last owner retires the buffer through
+// the GPU-retirement list, so a copy still in flight on the GPU keeps its memory. The queued record job holds an owner until it has recorded.
 struct DeferredReadback {
     gfx::Buffer buffer;
-    std::atomic<bool> copied{false};
-    uint64_t serial = 0;
-    rbdiag::Stamp stamp;
+    std::atomic<bool> copied{false};                    // the record job copied into buffer (false: nothing to land)
+    uint64_t serial = 0;                                // the submission the copy is in (poll_readback_serial)
+    ReadbackStamp stamp;
     std::chrono::steady_clock::time_point requested;
     ~DeferredReadback() {
         if (buffer && gpu::active()) {
@@ -117,14 +138,15 @@ struct TexGpu {
     gfx::Buffer rb;
     std::vector<uint64_t> rb_gen;
     std::vector<std::vector<uint8_t>> rb_have;
-    // Candidate readback state is protected by rb_mu. Each pending copy owns a different GPU buffer.
-    // rb_last/rb_last_range: when and what the last read asked for.
+    // [nvn] readback_defer, under rb_mu. rb_pending: the copy the last read queued, still to land. rb_previous (valid, at): the read whose
+    // data the storage holds, and when that data was requested from the GPU. rb_last / rb_last_range: when and what the last read asked for
+    // (a read repeats when it asks the same within 2 s).
     std::shared_ptr<DeferredReadback> rb_pending;
     bool rb_previous_valid = false;
-    rbdiag::Stamp rb_previous;
+    ReadbackStamp rb_previous;
     std::chrono::steady_clock::time_point rb_previous_at{};
     std::chrono::steady_clock::time_point rb_last{};
-    uint32_t rb_last_range[4] = {};
+    ReadbackRange rb_last_range;
 };
 
 // A virtual-pool texture too big to back fully (Mario Kart World's terrain virtual texture caches: 8192x8192 arrays of 68 layers, 1.4 to

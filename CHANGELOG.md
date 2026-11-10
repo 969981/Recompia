@@ -51,6 +51,13 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
   - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
 
+- Added **Shadow quality**: sharper shadows (Settings (F1) > Graphics > **Shadow quality**, right under Texture anisotropy, or the game's Settings > **Shadow Quality**)
+  - Before: shadows were drawn from a 2048 x 2048 map, so their edges looked blocky up close
+  - Now: pick **High (2x)**, **Very High (3x)**, **Ultra (4x)** or **Extreme (8x)** to make the shadow maps that many times larger per side. It applies at once, no restart. Default is as the game draws them. Also `[display] shadow_quality = default | high | very_high | ultra | extreme`
+  - The game's soft shadow edge is made of 16 samples a texel of the original map apart; on a larger map the gaps between them showed as bands. With any option above Default each of those samples is now the average of 3 x 3 samples, which keeps the edge smooth. `[nvn] shadow_blur = false` turns that off
+  - **Quality preset** now sets it with the anti-aliasing: High gives High (2x) and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the others give Default and no anti-aliasing. Changing either by hand makes the preset Custom
+  - Still not: Ultra and Extreme use a lot of video memory (a 4x map is 128 MiB, an 8x one 512 MiB, and the game makes several); a size the GPU can't make leaves that map as the game made it
+
 ### Controls
 - Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
   - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
@@ -59,6 +66,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
   - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
+
+### Performance
+- Fixed the long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
+  - Before: about once a second the game reads a tiny 30x16 picture of the scene back from the graphics card to work out the scene's average colour. Its main thread waited for that read (about 21 ms on a Legion Go S at 40 fps), so one capped frame in every forty missed its slot and took twice as long: a visible hitch while walking or turning the camera. The 0.8.0 change had only helped without a frame limit
+  - Now: that read gets the previous second's picture at once and the new one is fetched in the background, so the main thread never waits. On the console the game reads that picture straight from memory without waiting for the graphics card either, so this is what it did there. Legion Go S at a 40 fps cap: frames over twice the median per 10 s 8.8 -> 0.2, 1% low 18-20 -> 21-34 fps. `[nvn] readback_defer = false` in `pkp.ini` brings the waiting read back
+  - Still not: the scene's average colour, which tints the picture slowly, now follows a change of scene about a second later than before; the frame rate itself is as before
 
 ## 0.9.0 (build M: Monkey)
 

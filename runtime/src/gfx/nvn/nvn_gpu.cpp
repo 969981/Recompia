@@ -1090,15 +1090,17 @@ uint64_t run_frame_sync(const std::function<void(Frame&)>& fn) {
 uint64_t queue_record(std::function<void(Frame&)> record) {
     return queue_submit(std::move(record), true, false);
 }
-uint64_t queue_post(std::function<void(Frame&)> record) {
-    return queue_submit(std::move(record), false, false);
-}
+// [nvn] readback_defer: returns at once with the reserved serial; the render thread records the job in queue order and flushes the batch
+// right after it, so the copy reaches the GPU without any thread waiting for it. The flush is in the job itself on purpose: a wait_serial
+// from the reading thread for a serial the render thread had not recorded yet made the render thread flush the batch before it, consume
+// flush_wanted, and then hold the recorded job in the next batch until a present; when the reading thread was the presenting one, the game
+// froze for good (#327, #331).
 uint64_t queue_readback_post(std::function<void(Frame&)> record) {
     return queue_submit(std::move(record), false, false, true);
 }
 
+// [nvn] readback_defer: has the GPU finished the serial? A query only: wait_serial(serial, 0) would ask for a flush.
 ReadbackPoll poll_readback_serial(uint64_t serial, ReadbackProgress* progress) {
-    // Do not use wait_serial(serial, 0): its poll requests a flush. This is a completion query only.
     if (!g || !serial || !g->timeline || g->dev->device_lost()) return ReadbackPoll::Failed;
     uint64_t completed = 0;
     const VkResult result = vkGetSemaphoreCounterValue(g->dev->device(), g->timeline, &completed);

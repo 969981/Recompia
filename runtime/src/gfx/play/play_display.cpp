@@ -80,6 +80,7 @@ bool hud_ortho(float* left, float* right, float* bottom, float* top, double disp
 void display_tuning(const DisplaySettings& d) {
     gfx::tuning().anisotropy.store(d.anisotropy);
     gfx::tuning().lod_bias.store(static_cast<float>(std::clamp(d.lod_bias, -2.0, 2.0)));
+    gfx::tuning().shadow_scale.store(gfx::shadow_scale_of(d.shadow_quality));
 }
 
 }  // namespace nxrt::play

@@ -1275,3 +1275,183 @@ bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t
 }
 
 }  // namespace nxrt::nvn::be::gpu
+
+namespace nxrt::nvn::be::gpu {
+
+// Shadow map blur (spirv_shadow_blur, declared in nvn_spirv_patch.h).
+bool spirv_shadow_blur(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, int* taps) {
+    enum : uint32_t { OpNameOp = 5, OpExtInstImportOp = 11, OpExtInstOp = 12, OpCapabilityOp = 17, OpTypeBoolOp = 20, OpTypeSampledImageOp = 27, OpConstantOp = 43,
+                      OpLoadOp = 61, OpAccessChainOp = 65, OpDecorateOp = 71, OpCompositeConstructOp = 80, OpCompositeExtractOp = 81,
+                      OpImageSampleDrefImplicitLodOp = 89, OpImageSampleDrefExplicitLodOp = 90, OpImageOp = 100, OpImageQuerySizeLodOp = 103,
+                      OpConvertSToFOp = 111, OpFAddOp = 129, OpFSubOp = 131, OpFMulOp = 133, OpFDivOp = 136, OpFOrdGreaterThanOp = 186,
+                      OpPhiOp = 245, OpSelectionMergeOp = 247, OpLabelOp = 248, OpBranchOp = 249, OpBranchConditionalOp = 250,
+                      DecBinding = 33, StorageUniformC = 2, ModelFragmentC = 4, CapImageQuery = 50, GlslFAbs = 4 };
+    if (in.size() < 5) return false;
+    std::vector<Inst> insts;
+    if (!decode_insts(in, insts)) return false;
+    uint32_t bound = in[3];
+    bool fragment = false, has_image_query = false;
+    uint32_t f32 = 0, i32 = 0, v2f = 0, v2i = 0, boolean = 0, ptr_u_f32 = 0, glsl = 0, sbuf = 0, first_function = 0;
+    std::map<uint32_t, uint32_t> binding, var_ptr, load_var, load_type, image_of_sampled, coord_type;   // variable -> Binding / pointer type; load -> variable / type
+    std::map<uint32_t, std::pair<uint32_t, uint32_t>> ptr_of;                                           // pointer type -> (storage class, pointee)
+    std::map<uint32_t, bool> named_sbuf;
+    auto name_is = [&](const Inst& n, const char* s) {
+        return n.len >= 3 && std::strncmp(reinterpret_cast<const char*>(&in[n.at + 2]), s, (n.len - 2) * 4) == 0;
+    };
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (!first_function && n.op == OpFunction) first_function = n.at;
+        if (n.op == OpCapabilityOp && n.len == 2 && w[1] == CapImageQuery) has_image_query = true;
+        else if (n.op == OpEntryPoint && n.len >= 3) fragment = w[1] == ModelFragmentC;
+        else if (n.op == OpExtInstImportOp && name_is(n, "GLSL.std.450")) glsl = w[1];
+        else if (n.op == OpNameOp && name_is(n, "support_buffer")) named_sbuf[w[1]] = true;
+        else if (n.op == OpDecorateOp && n.len == 4 && w[2] == DecBinding) binding[w[1]] = w[3];
+        else if (n.op == OpTypeBoolOp && n.len == 2) boolean = w[1];
+        else if (n.op == OpTypeFloat && n.len >= 3 && w[2] == 32) f32 = w[1];
+        else if (n.op == OpTypeInt && n.len == 4 && w[2] == 32 && !i32) i32 = w[1];
+        else if (n.op == OpTypePointer && n.len == 4) ptr_of[w[1]] = {w[2], w[3]};
+        else if (n.op == OpTypeSampledImageOp && n.len == 3) image_of_sampled[w[1]] = w[2];
+        else if (n.op == OpVariable && n.len >= 4) var_ptr[w[2]] = w[1];
+        else if (n.op == OpLoadOp && n.len >= 4) { load_var[w[2]] = w[3]; load_type[w[2]] = w[1]; }
+        else if (n.op == OpCompositeConstructOp && n.len == 5) coord_type[w[2]] = w[1];
+    }
+    if (!fragment || !glsl || !f32 || !i32 || !first_function) return false;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpTypeVector && n.len == 4) {
+            if (w[2] == f32 && w[3] == 2) v2f = w[1];
+            if (w[2] == i32 && w[3] == 2) v2i = w[1];
+        } else if (n.op == OpTypePointer && n.len == 4 && w[2] == StorageUniformC && w[3] == f32) {
+            ptr_u_f32 = w[1];
+        }
+    }
+    for (const auto& [v, pt] : var_ptr) {
+        const auto p = ptr_of.find(pt);
+        if (named_sbuf.count(v) && p != ptr_of.end() && p->second.first == StorageUniformC) sbuf = v;
+    }
+    if (!sbuf || !v2f) return false;
+    // the Dref samples worth a blur: a 2D float coordinate built by OpCompositeConstruct, a sampled image loaded from a numbered variable
+    auto wanted = [&](const Inst& n) {
+        const uint32_t* w = &in[n.at];
+        if ((n.op != OpImageSampleDrefImplicitLodOp && n.op != OpImageSampleDrefExplicitLodOp) || n.len < 6) return false;
+        const auto ct = coord_type.find(w[4]);
+        const auto lv = load_var.find(w[3]);
+        const auto lt = load_type.find(w[3]);
+        return ct != coord_type.end() && ct->second == v2f && lv != load_var.end() && binding.count(lv->second) && lt != load_type.end() &&
+               image_of_sampled.count(lt->second);
+    };
+    int count = 0;
+    for (const Inst& n : insts) if (wanted(n)) ++count;
+    if (!count) return false;
+
+    std::vector<uint32_t> decls, body;
+    std::map<uint32_t, uint32_t> fconst, iconst;
+    auto fc = [&](float v) {
+        uint32_t bits;
+        std::memcpy(&bits, &v, 4);
+        auto it = fconst.find(bits);
+        if (it != fconst.end()) return it->second;
+        const uint32_t id = bound++;
+        decls.insert(decls.end(), {(4u << 16) | OpConstantOp, f32, id, bits});
+        fconst[bits] = id;
+        return id;
+    };
+    auto ic = [&](uint32_t v) {
+        auto it = iconst.find(v);
+        if (it != iconst.end()) return it->second;
+        const uint32_t id = bound++;
+        decls.insert(decls.end(), {(4u << 16) | OpConstantOp, i32, id, v});
+        iconst[v] = id;
+        return id;
+    };
+    if (!v2i) {
+        v2i = bound++;
+        decls.insert(decls.end(), {(4u << 16) | OpTypeVector, v2i, i32, 2u});
+    }
+    if (!boolean) {
+        boolean = bound++;
+        decls.insert(decls.end(), {(2u << 16) | OpTypeBoolOp, boolean});
+    }
+    if (!ptr_u_f32) {
+        ptr_u_f32 = bound++;
+        decls.insert(decls.end(), {(4u << 16) | OpTypePointer, ptr_u_f32, StorageUniformC, f32});
+    }
+    const uint32_t c_zero = fc(0.0f), c_one = fc(1.0f), c_third = fc(1.0f / 3.0f), c_ninth = fc(1.0f / 9.0f), i_member = ic(5), i_zero = ic(0);
+
+    auto emit = [&](std::initializer_list<uint32_t> l) { body.insert(body.end(), l.begin(), l.end()); };
+    auto bin = [&](uint32_t op, uint32_t type, uint32_t a, uint32_t b) {
+        const uint32_t id = bound++;
+        emit({(5u << 16) | op, type, id, a, b});
+        return id;
+    };
+
+    // the module up to the first function, with the ImageQuery capability added when it is missing
+    std::vector<uint32_t> head(in.begin(), in.begin() + 5);
+    if (!has_image_query) head.insert(head.end(), {(2u << 16) | OpCapabilityOp, CapImageQuery});
+    for (const Inst& n : insts) {
+        if (n.at == first_function) break;
+        head.insert(head.end(), in.begin() + static_cast<std::ptrdiff_t>(n.at), in.begin() + static_cast<std::ptrdiff_t>(n.at + n.len));
+    }
+    bool in_functions = false;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.at == first_function) in_functions = true;
+        if (!in_functions) continue;
+        if (!wanted(n)) {
+            body.insert(body.end(), in.begin() + static_cast<std::ptrdiff_t>(n.at), in.begin() + static_cast<std::ptrdiff_t>(n.at + n.len));
+            continue;
+        }
+        const uint32_t counter = binding[load_var[w[3]]] % 64u;     // the texture's index among the shader's textures (support_for_draw's slot is 1 + this)
+        const uint32_t img_type = image_of_sampled[load_type[w[3]]];
+        // S: the texture's scale (render_scale[1 + i]; 1 for a map at the size the game made it with)
+        const uint32_t ptr = bound++;
+        emit({(6u << 16) | OpAccessChainOp, ptr_u_f32, ptr, sbuf, i_member, ic(1u + counter)});
+        const uint32_t sc_raw = bound++;
+        emit({(4u << 16) | OpLoadOp, f32, sc_raw, ptr});
+        const uint32_t sc = bound++;
+        emit({(6u << 16) | OpExtInstOp, f32, sc, glsl, GlslFAbs, sc_raw});
+        const uint32_t more = bin(OpFOrdGreaterThanOp, boolean, sc, c_one);
+        const uint32_t l_then = bound++, l_else = bound++, l_merge = bound++;
+        emit({(3u << 16) | OpSelectionMergeOp, l_merge, 0u});
+        emit({(4u << 16) | OpBranchConditionalOp, more, l_then, l_else});
+        // S > 1: the average of 3 x 3 samples a third of a texel of the size the game made the map with (S / 3 / size) apart, centred on the
+        // coordinate; the game's 16 samples are a whole such texel apart and the footprints of a map made larger no longer meet
+        emit({(2u << 16) | OpLabelOp, l_then});
+        const uint32_t img = bound++;
+        emit({(4u << 16) | OpImageOp, img_type, img, w[3]});
+        const uint32_t sz = bound++;
+        emit({(5u << 16) | OpImageQuerySizeLodOp, v2i, sz, img, i_zero});
+        const uint32_t sx = bound++, sxf = bound++;
+        emit({(5u << 16) | OpCompositeExtractOp, i32, sx, sz, 0u});
+        emit({(4u << 16) | OpConvertSToFOp, f32, sxf, sx});
+        const uint32_t pos = bin(OpFDivOp, f32, bin(OpFMulOp, f32, sc, c_third), sxf);
+        const uint32_t neg = bin(OpFSubOp, f32, c_zero, pos);
+        const uint32_t step[3] = {neg, c_zero, pos};
+        uint32_t sum = 0;
+        for (int j = 0; j < 9; ++j) {
+            const uint32_t off = bound++;
+            emit({(5u << 16) | OpCompositeConstructOp, v2f, off, step[j % 3], step[j / 3]});
+            const uint32_t nc = bin(OpFAddOp, v2f, w[4], off);
+            const uint32_t r = bound++;
+            for (uint32_t i = 0; i < n.len; ++i) body.push_back(i == 4 ? nc : (i == 2 ? r : w[i]));
+            sum = sum ? bin(OpFAddOp, f32, sum, r) : r;
+        }
+        const uint32_t avg = bin(OpFMulOp, f32, sum, c_ninth);
+        emit({(2u << 16) | OpBranchOp, l_merge});
+        // S = 1: the sample as it was
+        emit({(2u << 16) | OpLabelOp, l_else});
+        const uint32_t plain = bound++;
+        for (uint32_t i = 0; i < n.len; ++i) body.push_back(i == 2 ? plain : w[i]);
+        emit({(2u << 16) | OpBranchOp, l_merge});
+        emit({(2u << 16) | OpLabelOp, l_merge});
+        emit({(7u << 16) | OpPhiOp, w[1], w[2], avg, l_then, plain, l_else});
+    }
+    out = std::move(head);
+    out.insert(out.end(), decls.begin(), decls.end());
+    out.insert(out.end(), body.begin(), body.end());
+    out[3] = bound;
+    if (taps) *taps = count;
+    return true;
+}
+
+}  // namespace nxrt::nvn::be::gpu
