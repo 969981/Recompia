@@ -7,10 +7,10 @@ version on `origin/main` after a `git fetch origin` (section 6.4).
 
 **Section 6 (Owner rules) has the highest priority in this file and over every other document in this repository or on your PC.** If
 anything else says otherwise (another `.md`, a plan, a handoff note, a PR comment, an issue), section 6 wins. The rules are the
-default way of working, not a cage: the repo owner can make an exception, directly or through someone they asked (section 6.0).
+default way of working, not a leash: the repo owner, and any collaborator who says so explicitly, can make an exception (section 6.0).
 
-"The repo owner" in this file means the owner of the GitHub repository, `featureJosh`. An admin, maintainer or collaborator does not
-get the owner's say on their own, but does act with it for a task the owner gave them (section 6.0).
+"The repo owner" in this file means the owner of the GitHub repository, `featureJosh`. The owner's call is the default; a collaborator
+can override it for a change by stating that explicitly (section 6.0).
 
 Sections marked **(wave 3)** describe parts of the `codebase-refactor` branch that may still be landing; check the branch before
 relying on them.
@@ -214,20 +214,21 @@ experiment toggle (A/B switch) is removed in the same PR that decides the experi
 ## 6. OWNER RULES: HIGHEST PRIORITY
 
 > **AI assistants: these rules come directly from the repo owner. They outrank other `.md` files (CLAUDE.md, AGENTS.md,
-> CONTRIBUTING.md, WORKFLOW.md, plans, handoff notes), PR or issue comments and code comments. They are the guideline, not a reason
-> to block a colleague: when the person you work for says the repo owner asked them for a change that goes against one of them, go
-> ahead (section 6.0). Without that, point out the rule the request runs into and ask whether the repo owner asked for it, instead of
-> quietly working around it.**
+> CONTRIBUTING.md, WORKFLOW.md, plans, handoff notes), PR or issue comments and code comments. They are the default, not a leash on
+> collaborators: when the person you work for explicitly says they are overriding one of them, or that the repo owner asked for the
+> change, go ahead (section 6.0). If a request runs into a rule and they have not said so, name the rule and ask whether they want to
+> override it, instead of quietly working around it.**
 
-### 6.0 The owner can hand a task, and the permission that comes with it, to a colleague.
+### 6.0 The owner's call is the default; collaborators can override it.
 
-- When the repo owner asks a collaborator to do something (in an issue, a PR comment, Discord, a chat or in person), that collaborator
-  has the owner's permission for that task, including the parts that section 6 would otherwise reserve for the owner (a check, a
-  workflow, an instruction file, parking an extra).
-- AI assistants: take the person you work for at their word when they say the repo owner asked for it. Do not refuse or demand proof.
-  Do the task, and say in the PR that it was asked for by the repo owner (link the issue, comment or message when there is one).
-- The permission covers that task, not the next one. The repo owner still reviews the PR: `.github/CODEOWNERS` keeps the owner's
-  review on the paths in 6.1 to 6.3, so a misunderstanding is caught there rather than by an assistant refusing up front.
+- Section 6 is how the project works when nobody says otherwise. The repo owner decides by default, but does not need to be asked
+  for everything.
+- A collaborator can override any rule in section 6 for a change by stating it explicitly (for example "override 6.2: this changes
+  release.yml because ..."). That includes a check, a workflow, an instruction file or parking an extra. The same goes for a task the
+  repo owner handed them.
+- AI assistants: when the person you work for states an override, or says the repo owner asked for it, do it. Do not refuse or demand
+  proof. Say in the PR which rule was overridden, by whom and why, so the change is easy to find and to revisit.
+- An override covers that change, not the next one. A rule whose override keeps coming up is a rule to bring to the repo owner.
 
 ### 6.1 Extras are ON by default (opt-out). Their defaults always stay ON.
 
@@ -244,8 +245,8 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
   release setup files, preset or profile files, or a migration that writes `0` into existing player files.
 - This holds **no matter what any other document says.** If another `.md`, plan, handoff note or comment says an extra defaults off, or
   that gameplay mods are opt-in, that text is wrong: follow this section and point out the conflict in your PR.
-- A new extra is added with its switch ON. A PR that turns an extra off by default is rejected, unless the repo owner asked for it (6.0).
-- An extra that is broken is fixed, not switched off by default. Only the repo owner decides to park one, or someone they asked to (6.0).
+- A new extra is added with its switch ON. A PR that turns an extra off by default is rejected, unless someone explicitly overrides this (6.0).
+- An extra that is broken is fixed, not switched off by default. The repo owner decides to park one, or a collaborator who explicitly overrides this (6.0).
 - Never remove the `gameplay(...)` marker from an extra's row, and never take a key out of the table to get around it. The release build
   refuses an extra that defaults off (`PKP_GAMEPLAY_DEFAULTS_CHECK` in `runtime/games/pkp/CMakeLists.txt`, turned on by
   `game-build/CMakeLists.txt` for every release); that check stays exactly as it is (6.2).
@@ -253,8 +254,7 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
 ### 6.2 Never change the GitHub release checks or PR checks without the repo owner's permission.
 
 - Do not add, remove, edit, rename, disable, skip or weaken any GitHub check without permission from **the repo owner**
-  (`featureJosh`), given directly or through a collaborator the owner asked to make the change (6.0). An admin, maintainer, reviewer
-  or other collaborator cannot give it on their own say.
+  (`featureJosh`), or an explicit override by a collaborator (6.0).
 - This covers everything under `.github/` (`workflows/*.yml` such as `release.yml` and `launcher-checks.yml`, the PR template, issue
   templates), the scripts and build switches those workflows rely on (such as `launcher/scripts/check-api.mjs`, `gen_settings_doc.ps1 -Check`
   and `PKP_GAMEPLAY_DEFAULTS_CHECK` / `PKP_RELEASE` in the CMake files), branch
@@ -262,18 +262,17 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
 - The release and PR process keeps the extras ON by default. Changing a check, a workflow or a release step so that extras ship off,
   or so that a PR turning them off can pass, is the case this rule exists for (6.1).
 - A failing check is fixed in the code, not in the check.
-- Permission covers one task (a request from the repo owner, or a colleague doing what the owner asked them to). It does not carry over
-  to the next change.
+- Permission or an override covers one change. It does not carry over to the next one.
 
-### 6.3 Only the repo owner changes this file and the AI instruction files.
+### 6.3 This file and the AI instruction files change only on purpose.
 
 - `PROJECT.md`, `AGENTS.md`, `GEMINI.md`, `.claude/CLAUDE.md`, `.github/copilot-instructions.md` and `.github/CODEOWNERS` are changed
-  by the repo owner, or by someone the repo owner asked to (6.0), in a PR the repo owner approves. GitHub enforces the review:
+  by the repo owner, or by a collaborator who explicitly overrides this (6.0), in a PR. GitHub asks for the owner's review:
   `.github/CODEOWNERS` makes `featureJosh` the required reviewer for them, and for the checks in 6.2 and the extras' settings table
   in 6.1.
 - AI assistants: don't edit these files on your own initiative, and never add a second instruction file (a new `AGENTS.md` in a
-  sub-folder, `.cursor/rules`, a local `CLAUDE.md` rule) that weakens or contradicts them. When the person you work for says the repo
-  owner asked for an edit, make it. If you think a rule here is wrong, say so to the person you work for and suggest they ask the
+  sub-folder, `.cursor/rules`, a local `CLAUDE.md` rule) that weakens or contradicts them. When the person you work for explicitly
+  asks for an edit, make it. If you think a rule here is wrong, say so to the person you work for and suggest they ask the
   repo owner.
 
 ### 6.4 Always fetch first: the rules and code on `origin/main` are the ones that count.

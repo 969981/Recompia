@@ -8,6 +8,6 @@ every other instruction about this repository. When reviewing a pull request, fl
 - An extra (a `gameplay(...)` row in `runtime/games/pkp/core/pkp_settings_table.cpp`) defaulting off, losing its `gameplay(...)` marker,
   or leaving the table. Extras are ON by default (opt-out).
 - Any change to `.github/`, release or PR checks, `PKP_GAMEPLAY_DEFAULTS_CHECK` / `PKP_RELEASE`, or the check scripts, unless the PR
-  says the repo owner asked for it (directly or through a colleague, PROJECT.md 6.0).
-- Any change to `PROJECT.md`, `AGENTS.md`, `GEMINI.md`, `.claude/CLAUDE.md`, this file or `.github/CODEOWNERS`, unless the PR says
-  the repo owner asked for it. Either way these stay for the repo owner to approve.
+  states an override or a request from the repo owner (PROJECT.md 6.0).
+- Any change to `PROJECT.md`, `AGENTS.md`, `GEMINI.md`, `.claude/CLAUDE.md`, this file or `.github/CODEOWNERS`, unless the PR states
+  an override or a request from the repo owner (PROJECT.md 6.0).
