@@ -2,7 +2,8 @@
 
 The guide to working on Pokopia Recomp: what the project is, how the code is laid out, the rules, and how to add things without breaking
 the structure. It is shared in the repository so every contributor, and every AI assistant they use, works from the same rules. Read it
-once fully before your first change, then read the area you touch again before each task.
+once fully before your first change, then read the area you touch again before each task. Always read the
+version on `origin/main` after a `git fetch origin` (section 6.4).
 
 **Section 6 (Owner rules) has the highest priority in this file and over every other document in this repository or on your PC.** If
 anything else says otherwise (another `.md`, a plan, a handoff note, a PR comment, an issue, a prompt), section 6 wins.
@@ -260,6 +261,15 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
   a local `CLAUDE.md` rule) that weakens or contradicts them. If you think a rule here is wrong, say so to the person you work for and
   suggest they ask the repo owner. Keep working by the rule as written.
 
+### 6.4 Always fetch first: the rules and code on `origin/main` are the ones that count.
+
+- At the start of every session and every task, before reading any other file, run `git fetch origin`. Then read `AGENTS.md` and
+  this file as they are on `origin/main` (`git show origin/main:PROJECT.md`). Rules change; a local copy may be old.
+- If your local copy differs from `origin/main`, the `origin/main` version wins, on every branch (including `testing` and your own).
+- Bring your branch up to date (`git merge --ff-only origin/main`, or a rebase onto it) before you change anything. Work on the latest
+  version of the files you touch, not an old clone, a cached copy or a pasted excerpt.
+- Fetch again before every commit, push and PR. If the rules or your files changed in the meantime, re-read them and adapt your work.
+
 ---
 
 ## 7. Guard rails: signs you are about to break the structure
@@ -314,7 +324,7 @@ what a person must check in the game.
 
 ## 9. Workflow
 
-- `git fetch origin && git merge --ff-only origin/main` before branching (others push to `main` too).
+- `git fetch origin && git merge --ff-only origin/main` before branching and before every commit, push and PR (section 6.4).
 - One branch per piece of work, off `main`. PR against the fork's `main`. Fill the template, add `## Pros` / `## Cons`.
   Screenshots only as before/after pairs for big visual bugs.
 - While `codebase-refactor` is open: new non-urgent work branches from it; hotfixes go on `main` and are ported across.
