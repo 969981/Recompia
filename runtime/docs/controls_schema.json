@@ -113,7 +113,7 @@
         {"key": "key", "type": "key", "default": "none", "doc": "A keyboard key that opens the Close the game prompt; none = off."}
     ]},
     {"name": "overlay", "keys": [
-        {"key": "pad", "type": "pad_combo", "default": "none", "doc": "Pad buttons held together that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."}
+        {"key": "pad", "type": "pad_combo", "default": "left_stick+right_stick", "doc": "Pad buttons held together (left_stick+right_stick) that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."}
     ]}
   ],
   "retired": [

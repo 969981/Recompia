@@ -360,7 +360,7 @@ const SettingDef kTable[] = {
      .doc = "A keyboard key that opens the Close the game prompt; none = off."},
 
     {ROW("overlay", "pad", Custom), CUSTOM(read_overlay_pad, write_overlay_pad), .syntax = "pad_combo",
-     .doc = "Pad buttons held together that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."},
+     .doc = "Pad buttons held together (left_stick+right_stick) that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."},
 
     // Keys older builds wrote that nothing reads any more.
     {ROW("tweaks", "glow_color", Retired)}, {ROW("tweaks", "suit_glow", Retired)}, {ROW("tweaks", "ball_glow", Retired)},

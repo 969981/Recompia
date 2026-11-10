@@ -91,7 +91,7 @@
 - **Los iconos de los botones en pantalla corresponden al dispositivo que estás usando:** teclado, Xbox, PlayStation o Switch.
 - **Escribir tu nombre** funciona con mando, ratón o teclado.
 - **Sal sin Alt+F4:** mantén pulsados Select y Start (View y Menu en un mando de Xbox), o usa **Quit game** en F1.
-- **Abre el menú F1 desde un mando:** está desactivado de forma predeterminada; configura `[overlay] pad` en `controls.ini`, por ejemplo `left_stick+right_stick`. No puede ser la misma combinación usada para salir.
+- **Abre el menú F1 desde un mando:** pulsa los dos sticks a la vez (L3 + R3); cámbialo o desactívalo con `[overlay] pad` en `controls.ini` (`none` = desactivado). No puede ser la misma combinación usada para salir.
 
 ### Steam Deck y dispositivos portátiles
 - Se reconocen Steam Deck, Legion Go S y otros dispositivos portátiles: los iconos del mando permanecen en pantalla y el tamaño de la imagen se adapta a la pantalla.
