@@ -6,7 +6,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## 0.10.0 (build N: Narwhal)
 
-**Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
+**Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept). This first Set up after the update may be a full one and take as long as usual; later runtime-only updates relink in seconds.
 
 The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing and sharper shadows, no more hitch once a second at a frame cap, a Search button for crafting, and DLC added in one click.
 
@@ -16,6 +16,7 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
 - Fixed the **hitch about once a second** with a frame cap on the Legion Go S and Steam Deck (#276)
 - Fixed new Pokémon and areas staying **invisible until a restart** (#304)
 - Added **Add DLC** to the launcher and a **Steam Deck** button icon style
+- Fixed **Repair** and **Undo** in the launcher, which could not run
 
 ### Known issues
 - The **Joy-Con 2 mouse mode** is switched off for now (it aimed at the wrong blocks on PC); camera aim is not affected
@@ -73,6 +74,14 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
 - The sidebar can now be hidden so the artwork is unobstructed: a **Hide sidebar** button next to the theme switcher collapses it, and a **Show sidebar** button in the corner brings it back. The choice is remembered per PC
 - **Set up again** after an update that changes only the runtime now just relinks the game (seconds instead of translating and compiling it again); it keeps the compiled game libraries (a few hundred MB) in `build/lib`
 - Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
+- Fixed **Repair** and **Undo** on the Setup page: they could not start
+- Fixed the backup made before a **downgrade** copying the wrong save folder
+- Fixed the launcher crashing during the save check when a save's info file held non-English text
+
+### Under the hood
+- The code was reorganised from top to bottom so new features have a clean place to go. You should notice nothing, except:
+  - Settings (F1) and `controls.ini` are shorter: old settings that did nothing are gone. Your old `controls.ini` still loads; the removed lines are dropped the next time it is saved, and the old `confirm` / `back` bindings become `btn_a` / `btn_b`
+  - The release package no longer carries developer test tools
 
 ## 0.9.0 (build M: Monkey)
 
