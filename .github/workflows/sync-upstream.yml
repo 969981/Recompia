@@ -106,7 +106,7 @@ jobs:
             echo "Release $tag exists already; skip duplicate publish"
             exit 0
           fi
-          gh workflow run release.yml --ref main -f release_tag="$tag" -f sync_snapshot=true
+          gh workflow run release.yml --ref "$tag" -f release_tag="$tag" -f sync_snapshot=true
           echo "Triggered Release workflow for $tag"
 
       - name: Report

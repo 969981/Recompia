@@ -8,7 +8,7 @@ The [sync workflow](../.github/workflows/sync-upstream.yml) follows the official
 - On new upstream commits: merge into mirror `main`, without force-pushing. Conflicts fail closed.
 - **Local CI workflows are preserved** during the merge. This avoids the GitHub App/GITHUB_TOKEN limitation on updating `.github/workflows` through a push. Review new upstream workflow changes separately.
 - One prerelease tag per upstream history position: `v<next-patch>-rc.<upstream-commit-count>` (for example `v0.9.1-rc.1234`). A tag never gets overwritten and repeated checks do not generate duplicate builds.
-- Explicitly dispatch the original [Release](../.github/workflows/release.yml) workflow from mirror `main` with `sync_snapshot=true`. Because `GITHUB_TOKEN` pushes don't trigger new push workflows, dispatch is essential.
+- Explicitly dispatch the original [Release](../.github/workflows/release.yml) workflow at the snapshot tag with `sync_snapshot=true`. Because `GITHUB_TOKEN` pushes don't trigger new push workflows, dispatch is essential.
 - The release workflow builds its Windows ZIP and Linux tar.gz containing an AppImage and publishes checksums as a GitHub **prerelease**. A failure does not count as a published release.
 - The initial installation triggers one baseline snapshot build, even if upstream `main` has not advanced.
 
