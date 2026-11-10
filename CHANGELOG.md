@@ -101,16 +101,6 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
   - Press **(+)** (keyboard **Esc**) or click it: Quit closes the game, Cancel takes you back
   - Shown in your game language. `[pkp] title_quit = 0` in `pkp.ini` hides it
 
-| Before | After |
-|---|---|
-| ![Bag before Sort: items scattered with an empty slot in the middle](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-on.png) | ![Bag after Sort: items grouped by type, empty slot moved to the end](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/bag-sorted.png) |
-
-![Storage box after Sort: the box packed to the left, with Sort on Space in the button bar](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/i323-sort/box-sorted.png)
-
-| Title screen | Quit Game pressed |
-|---|---|
-| ![Title screen with Quit Game next to Settings in the bottom right corner](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-title.png) | ![The Close the game? box with Quit and Cancel](https://raw.githubusercontent.com/Dittobyte/Recompia/evidence/aspect-16-10/docs/bugs/319-title-quit/after-quit-prompt.png) |
-
 ### Gameplay
 - Changed **camera aim** and **running jump momentum** to on by default (#368)
   - Camera aim: abilities and tools hit where your camera looks, not just where your character faces
@@ -344,10 +334,6 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
   - Now: on Intel's Windows driver the pipeline cache is loaded but not saved (`[nvn] pipeline_cache_save`, `auto`); the driver's own disk cache still keeps compiled pipelines between starts
   - Still not: on Intel, Prepare shaders keeps nothing in `pipeline_cache.bin`, so pipelines the driver's cache doesn't have are built again at their first use
 
-| Before | After |
-|---|---|
-| ![Before: tint only](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/before.png) | ![After: dashed outline](https://raw.githubusercontent.com/featureJosh/Recompia/evidence/aspect-16-10/docs/bugs/242-move-outline/after.png) |
-
 ### Link Play
 - Fixed every visit failing with "A communication error occurred" (error 9005), even with the room found and the same mods on both sides
   - Cause: every save made with this project got the same player id (UUID `b9ae85ed-...`), and the host turns away a visitor with its own id. The runtime's random seed (GetInfo RandomEntropy) was one fixed value on every PC, so the id the game rolls at new game came out the same for everyone
@@ -554,8 +540,6 @@ This one is a small fix for people who keep the game in a different folder than 
 **This is the last update you ever install by hand.** Extract it over your 0.7.0 install one more time, and from the next
 release on, updating is one click: press **Update** in the launcher and it does the rest. The game code is unchanged, so no
 **Set up again** is needed.
-
-![The new launcher](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/launcher-rework/1-home.png)
 
 ### Highlights
 - **One-click updates.** No more downloading zips, no more extracting over your install. The launcher fetches the new release,
@@ -829,13 +813,7 @@ not exactly 1920x1080, the 3D world went into the wrong part of the screen. On 1
 stood at the wrong height, floors such as the planks by the Pokémon Center were missing and a blank band sat under the picture. At
 1440p and wider, only a corner of the screen showed the world.
 
-**Now:** the world fills the frame. Left = before, right = 0.6.0 (16:10, scene size 75%):
-
-![16:10, before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/bugs/scene-viewport-163/ab_1610_75.jpg)
-
-1440p, scene size 75%:
-
-![1440p, before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/bugs/scene-viewport-163/ab_1440_75.jpg)
+**Now:** the world fills the frame (16:10 and 1440p, scene size 75%).
 
 #### Stuck on the Poké Ball wipe when leaving an area (#144)
 **What was wrong:** above 60 fps (or unlimited), leaving an area could leave the Poké Ball wipe half open with your controls locked.
@@ -901,9 +879,6 @@ message. Off by default.
 
 #### Steam Deck: smoother play
 Shaders are no longer rebuilt in the background while you play. On a Steam Deck's 4 cores that work fought with the game itself.
-Measured on a Steam Deck OLED with this change alone:
-
-![Steam Deck fps before and after](https://raw.githubusercontent.com/featureJosh/pokopia-recomp/evidence/aspect-16-10/docs/release/0.6.0/deck-rebuilds-off-fps.png)
 
 #### Steam Deck and Linux: less stutter (not yet measured on a Deck)
 - No more hitch about once a second: reading a picture back from the GPU no longer pauses the game.
