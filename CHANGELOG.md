@@ -30,6 +30,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Fixed the inventory **Sort** prompt showing **L** on some screens, where L also turns the page to the tab on the left
   - Before: where Y and R both had an action, the Sort prompt took L; pressing it sorted the panel and switched the tab at the same time
   - Now: Sort is Y in the bag and R in container screens; where both are taken the prompt is click only (left click or the menu pointer), and L only turns the page
+- The F1 menu opens from a controller by clicking both sticks (L3 + R3) (#364)
+  - Before: no controller shortcut was set, and the README's example (L + R) is the game's Dive chord, so holding R and L to dive opened the menu instead
+  - Now: `[overlay] pad` defaults to `left_stick+right_stick`. A `controls.ini` from an earlier release keeps the value it already has (`none` = off); set the key to `left_stick+right_stick` there, or delete the line, to get the shortcut
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)

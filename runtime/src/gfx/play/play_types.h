@@ -256,7 +256,7 @@ struct QuitSettings {
 // A pad combination that opens or closes the F1 overlay menu, like the F1 key. Based on pokopia-native (MIT) windows/src/nxrt/front/menu.c @e5d9ac6
 // (Minus + Plus there; here it is off by default, since Minus + Plus is this project's quit combination). Same rules as QuitSettings::pad.
 struct OverlaySettings {
-    uint32_t pad = 0;   // [overlay] pad: bits of PadSrc, 0 = off; one equal to [quit] pad is ignored with a warning
+    uint32_t pad = pad_src_bit(PadSrc::LeftStick) | pad_src_bit(PadSrc::RightStick);   // [overlay] pad: bits of PadSrc, 0 = off (L3 + R3: L + R is the game's Dive chord, #364); one equal to [quit] pad is ignored with a warning
 };
 
 struct Settings {
@@ -358,7 +358,7 @@ const char* key_wheel_cycles();
 //   [tweaks]   language (auto or a language name such as French; next start)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
 //   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
-//   [overlay]  pad (pad buttons held together; none = off, the default; not the [quit] pad)   (open and close the F1 menu)
+//   [overlay]  pad (pad buttons held together, left_stick+right_stick by default; none = off; not the [quit] pad)   (open and close the F1 menu)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
 //   [switch]   <action> = <output>      e.g.  btn_zr = ZR    dpad_up = UP    (missing actions keep the default)
