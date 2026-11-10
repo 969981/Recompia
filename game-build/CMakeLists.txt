@@ -45,7 +45,7 @@ set(NXRT_GAMES "pkp" CACHE STRING "" FORCE)            # runtime/games/pkp only
 set(NXRT_RECOMP_INCLUDE "${PKP_ROOT}/recomp/include" CACHE PATH "")
 if(PKP_RELEASE)
     set(NXRT_TESTTOOLS OFF)                             # release packages carry no test tooling (runtime option, default on)
-    set(PKP_GAMEPLAY_DEFAULTS_CHECK ON)                 # and every gameplay mod on by default (runtime/games/pkp/core/pkp_settings_table.cpp)
+    set(PKP_GAMEPLAY_DEFAULTS_CHECK ON)                 # and every gameplay mod on by default unless opt_in (runtime/games/pkp/core/pkp_settings_table.h)
 endif()
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Crafting search (pkp_craft.cpp): a "(Y) Search" key guide in the crafting screen; Y or a click asks for a word on the game's keyboard and the
-// recipe list keeps the recipes whose item name holds it. [pkp] craft_search (on).
+// recipe list keeps the recipes whose item name holds it. [pkp] craft_search (off by default).
 #pragma once
 #include "core/pkp_feature.h"
 

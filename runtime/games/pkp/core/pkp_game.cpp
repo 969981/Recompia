@@ -22,8 +22,11 @@
 #include "render/pkp_taa.h"
 #include "ui/pkp_title.h"
 
+#include <array>
 #include <cstring>
 #include <iterator>
+
+#include "core/pkp_settings_table.h"
 
 #include "play_game.h"
 #include "play_types.h"
@@ -50,20 +53,57 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   key_guide           after its clients: its install registers the hooks they need
 //   options             after title: title's frame callback runs first
 // No other two features hook the same address.
-constexpr const Feature* kFeatures[] = {
-    &kSaveUuidFeature, &kLinkplayFeature, &kPlayFeature, &kKbmFeature,
-#if NXRT_TESTTOOLS
-    &kMovieTestFeature,
-#endif
-    &kMenuFeature, &kQualityFeature,
-    &kTaaFeature,
-#if NXRT_TESTTOOLS
-    &kTaaProbeFeature,
-#endif
-    &kJumpFeature, &kAimFeature, &kTitleFeature, &kSortFeature, &kCraftFeature, &key_guide::kKeyGuideFeature,
-    &kOptionsFeature,
+//
+// Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]
+// table, pkp_settings_table.h), which the launcher shows in Settings > Gameplay on its own. port(): part of playing the game on a PC
+// (display, input, menus, Link Play, test tools), whose settings are not mod switches. Checked below at compile time: every switch of
+// the table belongs to exactly one mod row, and a mod row names only switches. So a new mod cannot ship without a launcher switch.
+struct Entry {
+    const Feature* feature;
+    settings::Key switches[2];   // a mod's switches (Key::Count: none); a port row has none
 };
-constexpr size_t kFeatureCount = std::size(kFeatures);
+constexpr Entry mod(const Feature* f, settings::Key a, settings::Key b = settings::Key::Count) { return {f, {a, b}}; }
+constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, settings::Key::Count}}; }
+
+using enum settings::Key;
+constexpr Entry kEntries[] = {
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kPlayFeature), port(&kKbmFeature),
+#if NXRT_TESTTOOLS
+    port(&kMovieTestFeature),
+#endif
+    port(&kMenuFeature), port(&kQualityFeature),
+    port(&kTaaFeature),
+#if NXRT_TESTTOOLS
+    port(&kTaaProbeFeature),
+#endif
+    mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
+    mod(&kCraftFeature, CraftSearch), port(&key_guide::kKeyGuideFeature),
+    port(&kOptionsFeature),
+};
+constexpr size_t kFeatureCount = std::size(kEntries);
+
+constexpr bool every_switch_claimed_once() {
+    for (size_t k = 0; k < static_cast<size_t>(settings::Key::Count); ++k) {
+        const auto key = static_cast<settings::Key>(k);
+        int owners = 0;
+        for (const Entry& e : kEntries)
+            for (settings::Key sw : e.switches) {
+                if (sw == settings::Key::Count) continue;
+                if (!settings::table::is_switch(sw)) return false;   // a mod row names a key that is not a gameplay() switch
+                if (sw == key) ++owners;
+            }
+        if (settings::table::is_switch(key) && owners != 1) return false;
+    }
+    return true;
+}
+static_assert(every_switch_claimed_once(),
+              "feature registry: every gameplay() switch of the [pkp] table belongs to exactly one mod() row, and a mod() row names only switches");
+
+constexpr auto kFeatures = [] {
+    std::array<const Feature*, kFeatureCount> a{};
+    for (size_t i = 0; i < kFeatureCount; ++i) a[i] = kEntries[i].feature;
+    return a;
+}();
 
 struct Registry {
     HookSet sets[kFeatureCount];   // each feature's hooks (pkp_hook_set.h)

@@ -28,7 +28,7 @@
 // When an ability's action really starts (0x710027e5d8 in StartAction, right before it records the action id: w28 = id, x19 = the
 // action component) the character snaps to the same heading (its copy, the movement controller's and, in the save-data mode, the save's), so the animation plays toward the target. It does not turn otherwise.
 //
-// Reach, [pkp] camera_aim_reach (extra cells, default 2, 0 = the game's own range). The game targets the forward cell next to the
+// Reach, [pkp] camera_aim_reach (extra cells, default 0 = the game's own range). The game targets the forward cell next to the
 // character: the query 0x71002e19a0 starts from the character's cell plus one cardinal step (kept at [x29 - 0xb8] x, y and
 // [x29 - 0xb4] z) and the swing shapes sit about one cell ahead. With extra reach the ray accepts solid cells up to 1 + extra cells
 // from the character's column (cells past the old two-cell box only in front of the character). When the first solid cell is two or
