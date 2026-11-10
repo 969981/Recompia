@@ -42,6 +42,7 @@
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nvn_format_guard.h"
+#include "nvn_fnv.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_spirv_patch.h"
 #include "extras/hdr_nvn.h"
@@ -77,6 +78,7 @@ bool g_cache_big = false;                       // the file loaded at start was 
 std::map<std::pair<const ShaderInfo*, std::vector<uint32_t>>, VkShaderModule> g_variants;
 std::unordered_map<const ShaderInfo*, VkShaderModule> g_dual_src;
 std::unordered_map<const ShaderInfo*, std::pair<VkShaderModule, bool>> g_no_out;   // (module, owned by this map)      // fragment shaders with private outputs (passes without colour attachments)
+std::unordered_map<const ShaderInfo*, std::pair<VkShaderModule, bool>> g_hdr_frag;   // (module, owned by this map): HDR tone-map variants (hdr_fragment_module)
 std::unordered_map<const ShaderInfo*, std::pair<VkShaderModule, uint32_t>> g_xfb_mod;   // vertex shaders with the captured outputs, their stride       // fragment shaders with the second blend source at Location 0, Index 1
 // One pipeline per key. `up`: a linked pipeline (nvn_gpl.cpp) that a background thread is replacing with an optimised one; the lookup swaps it in.
 struct GfxEntry {
@@ -421,8 +423,8 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
         NXLOG_E(kTag, "vkCreateShaderModule failed (%d) for %s", static_cast<int>(r), what);
         return m;
     }
-    uint64_t id = 1469598103934665603ull ^ (static_cast<uint64_t>(code->size()) * 0x9e3779b97f4a7c15ull);
-    for (uint32_t w : *code) id = (id ^ w) * 1099511628211ull;
+    uint64_t id = kFnvBasisShort ^ (static_cast<uint64_t>(code->size()) * 0x9e3779b97f4a7c15ull);
+    for (uint32_t w : *code) id = fnv_step(id, w);
     {
         std::lock_guard<std::mutex> lk(g_module_id_mu);
         g_module_ids[m] = id;
@@ -477,12 +479,12 @@ static VkShaderModule no_output_module(const ShaderInfo* fs) {
 static VkShaderModule hdr_fragment_module(const ShaderInfo* fs) {
     if (!extras::hdr_scene_active() || fs->spirv.size() > 65536) return shader_module(fs);   // Pokopia's composite tone map is about 24.5k words
     std::lock_guard<std::recursive_mutex> lk(g_module_mu);
-    static std::unordered_map<const ShaderInfo*, VkShaderModule> cache;
-    auto it = cache.find(fs);
-    if (it != cache.end()) return it->second;
+    auto it = g_hdr_frag.find(fs);
+    if (it != g_hdr_frag.end()) return it->second.first;
     std::vector<uint32_t> patched;
-    VkShaderModule m = extras::hdr_tonemap_variant(fs->spirv, fs->hash, patched) ? create_module(patched, fs->hash.c_str()) : shader_module(fs);
-    cache[fs] = m;
+    const bool variant = extras::hdr_tonemap_variant(fs->spirv, fs->hash, patched);
+    VkShaderModule m = variant ? create_module(patched, fs->hash.c_str()) : shader_module(fs);
+    g_hdr_frag[fs] = {m, variant};
     return m;
 }
 
@@ -1024,8 +1026,8 @@ bool compute_build_bg(const ShaderInfo* cs, const ProgLayout& layout, bool prewa
 }  // namespace
 
 uint64_t compute_layout_key(const ProgLayout& layout) {
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&h](uint64_t v) { for (int i = 0; i < 8; ++i) h = (h ^ ((v >> (8 * i)) & 0xff)) * 1099511628211ull; };
+    uint64_t h = kFnvBasisShort;
+    auto mix = [&h](uint64_t v) { for (int i = 0; i < 8; ++i) h = fnv_step(h, (v >> (8 * i)) & 0xff); };
     for (const BindingDesc& d : layout.bindings) {
         mix(d.set);
         mix(d.binding);
@@ -1177,6 +1179,8 @@ void module_cache_clear() {
     g_dual_src.clear();
     for (auto& [k, e] : g_no_out) if (e.first && e.second) vkDestroyShaderModule(d, e.first, nullptr);
     g_no_out.clear();
+    for (auto& [k, e] : g_hdr_frag) if (e.first && e.second) vkDestroyShaderModule(d, e.first, nullptr);
+    g_hdr_frag.clear();                 // its other entries are g_modules' (destroyed above): none may outlive this
     for (auto& [k, v] : g_xfb_mod) if (v.first) vkDestroyShaderModule(d, v.first, nullptr);
     g_xfb_mod.clear();
     std::lock_guard<std::mutex> lk2(g_module_id_mu);
@@ -1237,21 +1241,7 @@ void pipeline_shutdown() {
             if (s) vkDestroyDescriptorSetLayout(d, s, nullptr);
     }
     g_shared_layouts.clear();
-    for (auto& [k, m] : g_modules)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_modules.clear();
-    for (auto& [k, m] : g_variants)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_variants.clear();
-    for (auto& [k, m] : g_dual_src)
-        if (m) vkDestroyShaderModule(d, m, nullptr);
-    g_dual_src.clear();
-    for (auto& [k, e] : g_no_out)
-        if (e.first && e.second) vkDestroyShaderModule(d, e.first, nullptr);
-    g_no_out.clear();
-    for (auto& [k, v] : g_xfb_mod)
-        if (v.first) vkDestroyShaderModule(d, v.first, nullptr);
-    g_xfb_mod.clear();
+    module_cache_clear();                        // the threads are stopped: its locks are free
     for (auto& [k, b] : g_const_bufs) device().destroy_buffer(b.first);
     g_const_bufs.clear();
     g_const_n.sub(g_const_n.get());

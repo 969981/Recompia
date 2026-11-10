@@ -1,14 +1,15 @@
 // The one source of app state. Owns every Tauri event listener, so a page never calls listen(); a page reads store.state
 // and subscribes with ctx.on(fn). Long work is started here, not on a page, so it survives navigation.
 import { listen } from '@tauri-apps/api/event';
-import { api, confirm, errText, esc, icon, toast } from './ui.js';
+import { api } from './api.js';
+import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
 let compactOffered = false;   // the "free up space" question is asked once per launcher start
 const GB = 2 ** 30;
-const UPDATE_CANCELLED = 'Update cancelled.';   // update.rs CANCELLED: not a failure
+const UPDATE_CANCELLED = 'update_cancelled';   // error.rs: the player stopped it, not a failure
 
 /** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop' | 'storage'. */
 function set(patch, why) {
@@ -35,7 +36,7 @@ function preflightList(pre) {
 async function passPreflight() {
   let pre;
   try {
-    pre = await api('preflight');
+    pre = await api.preflight();
   } catch (e) {
     toast(errText(e), 'error');
     return { go: true };
@@ -108,7 +109,7 @@ export const store = {
   /** Reloads shader_storage (it lists the cache folder: a second or two on a hard drive, so it is not part of refresh()). */
   async refreshStorage() {
     try {
-      set({ storage: await api('shader_storage') }, 'storage');
+      set({ storage: await api.shaderStorage() }, 'storage');
     } catch (e) {
       console.warn('shader_storage', e);
     }
@@ -120,7 +121,7 @@ export const store = {
     const before = store.state.storage;
     set({ repack: { kind: 'compact', done: 0, total: before?.loose_files ?? 0 } }, 'task');
     try {
-      const r = await api('compact_shaders');
+      const r = await api.compactShaders();
       await store.refreshStorage();
       const freed = Math.max(0, (before?.loose_bytes ?? 0) + (before?.archive_bytes ?? 0) - (store.state.storage?.loose_bytes ?? 0) - (store.state.storage?.archive_bytes ?? 0));
       if (r.finished) toast(`Shader files packed: ${gb(freed)} freed`, 'ok');
@@ -138,7 +139,7 @@ export const store = {
     if (store.state.repack) return;
     set({ repack: { kind: 'expand', done: 0, total: store.state.storage?.archive_shaders ?? 0 } }, 'task');
     try {
-      if (await api('expand_shaders')) toast('Shader files unpacked', 'ok');
+      if (await api.expandShaders()) toast('Shader files unpacked', 'ok');
       else toast('Stopped. Unpacking continues where it stopped.');
     } catch (e) {
       toast(errText(e), 'error');
@@ -148,11 +149,11 @@ export const store = {
     }
   },
 
-  cancelRepack: () => api('cancel_shader_storage').catch((e) => toast(errText(e), 'error')),
+  cancelRepack: () => api.cancelShaderStorage().catch((e) => toast(errText(e), 'error')),
 
   /** Reloads launcher_state, setup_status and game_status. A failed part keeps its last value. */
   async refresh() {
-    const [app, setup, game] = await Promise.allSettled([api('launcher_state'), api('setup_status'), api('game_status')]);
+    const [app, setup, game] = await Promise.allSettled([api.launcherState(), api.setupStatus(), api.gameStatus()]);
     const patch = { loadError: app.status === 'rejected' ? errText(app.reason) : null };
     if (app.status === 'fulfilled') patch.app = app.value;
     if (setup.status === 'fulfilled') patch.setup = setup.value;
@@ -163,7 +164,7 @@ export const store = {
   /** get_releases. refresh=false serves the cache, true asks GitHub. Silent on failure: patch notes are optional. */
   async refreshNews(refresh = false) {
     try {
-      const news = await api('get_releases', { refresh });
+      const news = await api.getReleases({ refresh });
       set({ news: { releases: news?.releases ?? [], update: news?.update ?? null } }, 'news');
     } catch (e) {
       console.warn('get_releases', e);
@@ -178,8 +179,8 @@ export const store = {
     try {
       const pass = await passPreflight();
       if (!pass.go) return false;
-      await api('start_setup', { gentle: gentle ?? pass.gentle });
-      const setup = await api('setup_status').catch(() => null);
+      await api.startSetup({ gentle: gentle ?? pass.gentle });
+      const setup = await api.setupStatus().catch(() => null);
       if (setup) set({ setup }, 'setup');
       return true;
     } catch (e) {
@@ -194,7 +195,7 @@ export const store = {
   /** Pause: finished work is kept, startSetup continues it. */
   async pauseSetup() {
     try {
-      await api('cancel_setup');
+      await api.cancelSetup();
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -204,7 +205,7 @@ export const store = {
     if (store.state.starting) return;
     set({ starting: true }, 'task');
     try {
-      await api('play');
+      await api.play();
     } catch (e) {
       toast(errText(e), 'error');
       store.refresh();
@@ -218,9 +219,9 @@ export const store = {
     if (!canUpdate(store.state)) return;
     set({ update: { phase: 'download', done: 0, total: 0 }, updateError: null }, 'update');
     try {
-      await api('install_update');
+      await api.installUpdate();
     } catch (e) {
-      const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
+      const updateError = errCode(e) === UPDATE_CANCELLED ? null : errText(e);
       set({ update: null, updateError }, 'update');
       if (updateError) toast(updateError, 'error');
     }
@@ -231,9 +232,9 @@ export const store = {
     if (!canInstall(store.state)) return;
     set({ update: { phase: 'download', done: 0, total: 0 }, updateError: null }, 'update');
     try {
-      await api('install_version', { tag, channel, accepted });
+      await api.installVersion({ tag, channel, accepted });
     } catch (e) {
-      const updateError = errText(e) === UPDATE_CANCELLED ? null : errText(e);
+      const updateError = errCode(e) === UPDATE_CANCELLED ? null : errText(e);
       set({ update: null, updateError }, 'update');
       if (updateError) toast(updateError, 'error');
     }
@@ -241,7 +242,7 @@ export const store = {
 
   async cancelUpdate() {
     try {
-      await api('cancel_update');
+      await api.cancelUpdate();
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -251,19 +252,19 @@ export const store = {
   async importNup(path) {
     set({ nup: { done: 0, total: 0, file: '' } }, 'task');
     try {
-      return await api('import_nup', { path });
+      return await api.importNup({ path });
     } finally {
       set({ nup: null }, 'task');
     }
   },
 
-  cancelNup: () => api('cancel_nup'),
+  cancelNup: () => api.cancelNup(),
 
   /** Downloads NVIDIA's DLSS file through the sidebar task; rejects like the command. */
   async fetchDlss() {
     set({ dlss: { done: 0, total: 0, message: '' } }, 'task');
     try {
-      await api('fetch_dlss');
+      await api.fetchDlss();
     } finally {
       set({ dlss: null }, 'task');
     }

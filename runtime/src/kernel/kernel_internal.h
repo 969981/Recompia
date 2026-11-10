@@ -21,5 +21,7 @@ void (*blocked_hook_here())();
 // The sleep of the yield back-off: always the high-resolution timer, never the yield loop sleep_ns uses for spans up to
 // 200 us (time.cpp). Windows wakes it ~0.5 ms late at the shortest; Wine/Proton sleeps about the span asked for.
 void sleep_timer_ns(int64_t ns);
+const ProcessHooks& process_hooks();     // what set_process_hooks gave (svc_info.cpp)
+std::string state_report();              // process_hooks().state_report(), or a note that there is none
 
 }  // namespace nxrt::kernel::detail

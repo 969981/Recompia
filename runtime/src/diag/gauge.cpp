@@ -19,6 +19,7 @@
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 namespace nxrt {
 namespace {
@@ -37,15 +38,7 @@ constexpr size_t kRing = 1 << 16;           // frames kept between two samples (
 std::atomic<uint64_t> g_ring_n{0};
 std::atomic<uint64_t> g_ring[kRing];        // QueryPerformanceCounter ticks of each presented frame
 
-uint64_t qpc() {
-    LARGE_INTEGER v;
-    QueryPerformanceCounter(&v);
-    return (uint64_t)v.QuadPart;
-}
-double qpc_freq() {
-    static double f = [] { LARGE_INTEGER v; QueryPerformanceFrequency(&v); return (double)v.QuadPart; }();
-    return f;
-}
+double qpc_freq() { return static_cast<double>(qpc::freq()); }
 
 // ---- hitch log -------------------------------------------------------------------------------------------------------------
 constexpr size_t kMaxSources = 32;
@@ -294,7 +287,7 @@ void run(double interval_s, double t0) {
             std::unique_lock<std::mutex> lk(s.m);
             if (s.cv.wait_for(lk, std::chrono::duration<double>(interval_s), [&] { return s.stop; })) return;
         }
-        const double now = (double)qpc() / qpc_freq();
+        const double now = (double)qpc::ticks() / qpc_freq();
         const uint64_t n = g_ring_n.load(std::memory_order_acquire);
         std::vector<double> dt;
         const uint64_t first = (n > last_n + kRing) ? n - kRing : last_n;
@@ -370,14 +363,14 @@ GaugeCounter::~GaugeCounter() { gauge_unregister(name_.c_str()); }
 
 void soak_note_frame() {
     const uint64_t n = g_ring_n.load(std::memory_order_relaxed);
-    const uint64_t t = qpc();
+    const uint64_t t = qpc::ticks();
     const uint64_t prev_t = n > 0 ? g_ring[(n - 1) % kRing].load(std::memory_order_relaxed) : 0;
     g_ring[n % kRing].store(t, std::memory_order_relaxed);
     g_ring_n.store(n + 1, std::memory_order_release);
     hitch_on_frame(t, prev_t, n + 1);
 }
 
-uint64_t hitch_ticks() { return qpc(); }
+uint64_t hitch_ticks() { return qpc::ticks(); }
 void hitch_phase_add(int phase, uint64_t ticks) {
     if (phase >= 0 && phase < kHpCount) g_phase[phase].fetch_add(ticks, std::memory_order_relaxed);
 }
@@ -386,7 +379,7 @@ bool hitch_on_render_thread() { return t_render_thread; }
 bool hitch_on_game_present_thread() { return t_game_present_thread; }
 void hitch_note_game_present() {
     t_game_present_thread = true;
-    const uint64_t t = qpc();
+    const uint64_t t = qpc::ticks();
     const uint64_t prev = g_game_present_last.exchange(t, std::memory_order_relaxed);
     if (!prev || t <= prev) return;
     const uint64_t d = t - prev;
@@ -415,7 +408,7 @@ void hitch_start() {
     if (s.th.joinable()) return;
     const double summary_s = config_get_double("diag", "hitch_summary_s", 10.0);
     const double hitch_ms = config_get_double("diag", "hitch_ms", 50.0);
-    g_t0_ticks.store(qpc());
+    g_t0_ticks.store(qpc::ticks());
     g_hitch_ticks.store(hitch_ms > 0 ? (uint64_t)(hitch_ms / 1000.0 * qpc_freq()) : 0);
     {
         std::lock_guard<std::mutex> lk(g_ev_mu);
@@ -449,7 +442,7 @@ void hitch_stop() {
 
 std::string frame_times_summary(double window_s) {
     if (!(window_s > 0)) window_s = 30.0;
-    const uint64_t now = qpc();
+    const uint64_t now = qpc::ticks();
     const uint64_t n = g_ring_n.load(std::memory_order_acquire);
     if (n == 0) return "frame times: no frame was presented yet\n";
     std::vector<uint64_t> ts;       // ticks of the frames inside the window, newest first
@@ -512,7 +505,7 @@ void soak_start() {
     }
     const double iv = std::max(0.5, config_get_double("diag", "soak_interval_s", 10.0));
     s.stop = false;
-    const double t0 = (double)qpc() / qpc_freq();
+    const double t0 = (double)qpc::ticks() / qpc_freq();
     s.th = std::thread(run, iv, t0);
     NXLOG_I("diag", "soak sampler: %s every %.1f s", path.c_str(), iv);
 }

@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The adapter between the test tooling and the hid service's input source (S3c: include/nxrt/input_source.h, on the `services` branch).
-// Compiled to no-ops when that header is not in the tree. The wrapping source:
+// The adapter between the test tooling and the hid service's input source (include/nxrt/input_source.h). The wrapping source:
 //   - passes the live source through untouched (record-only or no pad override), and remembers it for sampling the live pad at frame boundaries;
 //   - or replaces player 1's pad with the replayed / scripted pad (everything else from the live source).
 // It installs itself lazily at every frame boundary (install_input), after whoever set the live source, and re-wraps if the live source changed.
 #include "tt_internal.h"
 
-#if __has_include("nxrt/input_source.h")
 #include <memory>
 #include <mutex>
 
@@ -91,10 +89,3 @@ void publish_pad(const PadFrame& p, bool override_live, bool merge_live) {
 }
 
 }  // namespace nxrt::tt::detail
-#else
-namespace nxrt::tt::detail {
-void install_input() {}
-bool sample_live(PadFrame*) { return false; }
-void publish_pad(const PadFrame&, bool, bool) {}
-}  // namespace nxrt::tt::detail
-#endif

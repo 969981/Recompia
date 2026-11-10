@@ -1,6 +1,7 @@
 // Save backups: the question and the actions behind Settings > Saves > Backups (savebackup.rs). The list of copies and the restore are
 // shown here; the on/off setting and the interval are plain pkp.ini keys ([backup] interval_minutes, keep) drawn by the settings schema.
-import { api, confirm, errText, esc, toast } from '../ui.js';
+import { api } from '../api.js';
+import { confirm, errText, esc, toast } from '../ui.js';
 
 const KIND = { auto: 'Automatic', exit: 'When the game closed', manual: 'Back up now', 'before-restore': 'Before a restore' };
 
@@ -66,7 +67,7 @@ function pick(list) {
 /** Back up now. Resolves true when something was copied. */
 export async function backupNow() {
   try {
-    const r = await api('backup_now');
+    const r = await api.backupNow();
     if (r.result === 'made') toast('Backup made', 'ok');
     else if (r.result === 'unchanged') toast('Nothing has changed since the last backup', 'ok');
     else toast('There is no save to back up yet', 'ok');
@@ -81,7 +82,7 @@ export async function backupNow() {
 export async function runRestore() {
   let list;
   try {
-    list = await api('backup_list');
+    list = await api.backupList();
   } catch (e) {
     toast(errText(e), 'error');
     return false;
@@ -101,7 +102,7 @@ export async function runRestore() {
   });
   if (!yes) return false;
   try {
-    await api('backup_restore', { name });
+    await api.backupRestore({ name });
     toast('Save restored', 'ok');
     return true;
   } catch (err) {

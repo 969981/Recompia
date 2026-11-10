@@ -17,8 +17,6 @@
 //     +0x18 ReadAt(handle, offset, buf, n) -> bytes, +0x20 Close(handle), +0x28 GetSize(handle, int64*)
 // Results: 0 ok, 0x2000 end of data (GetTrackIndexForAvailableData / GetSampleTime / Read), 0x1011 no input buffer, 0x100e no output
 // buffer, 0x100b bad argument, 0x1000 failure.
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mfapi.h>
 #include <mferror.h>
@@ -97,8 +95,6 @@ inline uint64_t rd64(uint64_t a) { uint64_t v; std::memcpy(&v, reinterpret_cast<
 inline uint32_t rd32(uint64_t a) { uint32_t v; std::memcpy(&v, reinterpret_cast<const void*>(a), 4); return v; }
 inline void wr64(uint64_t a, uint64_t v) { std::memcpy(reinterpret_cast<void*>(a), &v, 8); }
 inline void wr32(uint64_t a, uint32_t v) { std::memcpy(reinterpret_cast<void*>(a), &v, 4); }
-inline void wr8(uint64_t a, uint8_t v) { *reinterpret_cast<uint8_t*>(a) = v; }
-inline uint8_t rd8(uint64_t a) { return *reinterpret_cast<const uint8_t*>(a); }
 
 // Calls a guest function with up to five arguments from inside a handler; returns x0. The handler's own argument registers are the
 // caller's business (they are saved here only so a handler may keep using them after the call).
@@ -193,7 +189,7 @@ void mdata_find_str(::Ctx* c) {
 }
 
 // ---- movie::Buffer -------------------------------------------------------------------------------------------------------------
-constexpr uint64_t B_OFFSET = 0x00, B_SIZE = 0x04, B_FLAGS = 0x0c, B_OWNS = 0x10, B_CAP = 0x18, B_I64 = 0x20, B_BASE = 0x28;
+constexpr uint64_t B_OFFSET = 0x00, B_SIZE = 0x04, B_FLAGS = 0x0c, B_CAP = 0x18, B_I64 = 0x20, B_BASE = 0x28;
 void buf_ctor(::Ctx* c) { std::memset(reinterpret_cast<void*>(A0), 0, 0x40); }
 void buf_ctor_mem(::Ctx* c) {            // Buffer(void* base, size_t capacity): memory the game owns
     std::memset(reinterpret_cast<void*>(A0), 0, 0x40);
@@ -1064,12 +1060,6 @@ int64_t decoder_queue() {
     }
     return n;
 }
-// Removes its gauge when this file's statics are torn down (declared after the registries, so it goes first).
-struct GaugeHook {
-    const char* name;
-    GaugeHook(const char* n, std::function<int64_t()> f) : name(n) { nxrt::gauge_register(n, std::move(f)); }
-    ~GaugeHook() { nxrt::gauge_unregister(name); }
-};
 GaugeHook gauge_queued_video("media.queued_video", [] { return queued_samples(0); });
 GaugeHook gauge_queued_audio("media.queued_audio", [] { return queued_samples(1); });
 GaugeHook gauge_decoder_queue("media.decoder_queue", [] { return decoder_queue(); });
@@ -1480,15 +1470,7 @@ const Import kImports[] = {
 };
 constexpr size_t kImportCount = sizeof(kImports) / sizeof(kImports[0]);
 
-const char* g_names[kImportCount];
-
 }  // namespace
-
-const char* const* movie_import_names(size_t* count) {
-    for (size_t i = 0; i < kImportCount; i++) g_names[i] = kImports[i].name;
-    if (count) *count = kImportCount;
-    return g_names;
-}
 
 bool install_movie_hle() {
     static std::once_flag once;

@@ -4,6 +4,7 @@
 #include "nxrt/frame_limiter.h"
 
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 #include <windows.h>
 #include <emmintrin.h>  // _mm_pause
@@ -280,18 +281,7 @@ uint64_t FrameLimiter::last_late_ns() const {
     return impl_->last_late;
 }
 
-uint64_t FrameLimiter::now_ns() {
-    static const uint64_t freq = [] {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        return static_cast<uint64_t>(f.QuadPart);
-    }();
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    const uint64_t q = static_cast<uint64_t>(c.QuadPart);
-    // Split so the multiplication cannot overflow: (q % freq) < freq, so the product stays below 1e9 * freq.
-    return (q / freq) * 1000000000ull + ((q % freq) * 1000000000ull) / freq;
-}
+uint64_t FrameLimiter::now_ns() { return qpc::now_ns(); }
 
 double suggest_vrr_cap(double refresh_hz) {
     if (refresh_hz < 100.0) return refresh_hz;     // see the header: under 100 Hz the lower cap costs more than VRR gives

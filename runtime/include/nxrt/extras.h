@@ -43,16 +43,19 @@ inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
 // upscalers run at the input size (native anti-aliasing).
+// Anti-aliasing of the 3D scene ([upscale] aa): SMAA on the HDR scene before the tone map, so the HUD and the menus drawn after it stay untouched.
+// SmaaLow, SmaaMedium, SmaaHigh, SmaaUltra: the SMAA presets of those names, all with luma edges (Ultra: the finest, the most costly).
+// Not hardware multisampling: the game's render targets are single-sample.
+enum class AaMode : uint8_t { Off = 0, SmaaLow, SmaaMedium, SmaaHigh, SmaaUltra };
 enum class UpscaleQuality : uint8_t { Native = 0, Quality, Balanced, Performance, UltraPerformance, Custom };
 struct UpscaleSettings {
     UpscaleMode mode = UpscaleMode::Off;
     UpscaleQuality quality = UpscaleQuality::Quality;
+    AaMode aa = AaMode::Off;         // anti-aliasing of the 3D scene (see AaMode)
     double sharpness = 0.8;          // 0 .. 1 (FSR 1 RCAS or the NIS sharpening; 1 = sharpest)
     int scene_scale = 100;           // 25 .. 100: percent of the output size the 3D scene is rendered at (the game's own dynamic-resolution path; HUD and post stay native)
     std::string fsr_dll;             // FidelityFX API DLL for FSR 3 (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; empty: next to the exe)
     std::string dlss_dll;            // folder (or sl.interposer.dll path) of the Streamline + DLSS DLLs (empty: next to the exe)
-    std::string xess_dll;            // libxess.dll the player supplies (empty: not used)
-    bool frame_generation = false;   // FSR 3 frame interpolation (needs the FSR 3 mode)
 };
 
 enum class LatencyMode : uint8_t { Off = 0, Auto, On, Boost };   // Auto: whichever of Reflex / Anti-Lag 2 the GPU has; Boost: Reflex boost
@@ -103,6 +106,7 @@ void set_settings(const Settings& s);
 // Lock-free reads of the live upscale fields (the render thread asks every frame).
 UpscaleMode upscale_mode();
 float upscale_sharpness();
+AaMode aa_mode();                   // [upscale] aa as set now (live)
 int upscale_scene_scale();          // percent, 100 = off (a temporal mode with a quality preset other than Custom: the preset's percent)
 UpscaleQuality upscale_quality();
 bool upscale_temporal();            // the mode is FSR 3, DLSS or DLAA

@@ -108,7 +108,7 @@ sl::float4x4 mat(const float* cm) {   // column-major column-vector matrix -> St
 
 class Dlss final : public TemporalBackend {
 public:
-    explicit Dlss(gfx::Device& dev) : dev_(&dev) {}
+    explicit Dlss(gfx::Device&) {}
     const char* name() const override { return dlaa_ ? "DLAA" : "DLSS"; }
     void set_dlaa(bool on) { dlaa_ = on; }
 
@@ -177,7 +177,6 @@ private:
         failed_ = true;
         return false;
     }
-    gfx::Device* dev_;
     bool dlaa_ = false, failed_ = false;
     sl::DLSSMode last_mode_ = sl::DLSSMode::eCount;
     VkExtent2D last_out_ = {};

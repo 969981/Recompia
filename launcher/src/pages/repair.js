@@ -1,6 +1,7 @@
 // Repair and reset: the dialogs for repair.rs. Step 1 picks what to fix, step 2 shows exactly which files change (nothing is touched
 // before that), step 3 does it. The Rust side keeps a copy of the changed settings files, so Undo is one button in Settings > About.
-import { api, confirm, errText, esc, icon, toast } from '../ui.js';
+import { api } from '../api.js';
+import { confirm, errText, esc, icon, toast } from '../ui.js';
 import { GAME_GROUPS, canReview, groupLabels, groupsPayload } from '../repair-model.js';
 
 const CHOICES = [
@@ -113,7 +114,7 @@ export async function runRepair() {
   }
   let plan;
   try {
-    plan = await api('repair_plan', { actions, groups });
+    plan = await api.repairPlan({ actions, groups });
   } catch (e) {
     toast(errText(e), 'error');
     return null;
@@ -125,7 +126,7 @@ export async function runRepair() {
   const yes = await confirm({ title: 'Check before changing', html: reviewHtml(plan), ok: 'Repair now', danger: true });
   if (!yes) return null;
   try {
-    const report = await api('repair_apply', { actions, groups });
+    const report = await api.repairApply({ actions, groups });
     toast(report.done.length > 1 ? `Repaired: ${report.done.length} changes` : report.done[0] || 'Repaired', 'ok');
     return { changed: report.done.length > 0, launcher: actions.includes('launcher_prefs') };
   } catch (e) {
@@ -140,7 +141,7 @@ export async function runUndo(info) {
   const yes = await confirm({ title: 'Undo last repair', body: `This puts back ${files || 'the files'} as ${(info?.files ?? []).length > 1 ? 'they were' : 'it was'} before the repair.`, ok: 'Undo' });
   if (!yes) return false;
   try {
-    const report = await api('repair_undo');
+    const report = await api.repairUndo();
     toast(`Put back: ${report.done.length} file${report.done.length === 1 ? '' : 's'}`, 'ok');
     return true;
   } catch (e) {

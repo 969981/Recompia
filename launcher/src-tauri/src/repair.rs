@@ -273,6 +273,7 @@ fn steps(game: &Path, cfg: &Path, actions: &[String], groups: Option<&[String]>)
     Ok(out)
 }
 
+#[cfg(test)]
 pub fn plan(game: &Path, cfg: &Path, actions: &[String]) -> Result<Plan, String> {
     plan_with(game, cfg, actions, None)
 }
@@ -313,7 +314,7 @@ pub fn last_backup(game: &Path) -> Option<BackupInfo> {
 }
 
 fn stamp(game: &Path) -> String {
-    let base = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let base = crate::fsutil::file_stamp();
     let taken = |n: &str| game.join(BACKUP_DIR).join(n).exists();
     if !taken(&base) {
         return base;
@@ -344,6 +345,7 @@ fn describe(step: &Step) -> String {
     }
 }
 
+#[cfg(test)]
 pub fn apply(game: &Path, cfg: &Path, actions: &[String]) -> Result<Report, String> {
     apply_with(game, cfg, actions, None)
 }

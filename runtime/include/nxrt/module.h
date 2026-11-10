@@ -130,14 +130,8 @@ bool module_protect_all();
 // Lifted code: registers each entry in the call_indirect table. Entries outside the module's image are rejected (counted, logged).
 size_t module_register_functions(Module* m, const FuncEntry* table, size_t count);
 size_t module_register_functions(Module* m, const ::FnEntry* table, size_t count);   // the lifter's FnEntry (same layout)
-// Registers a lifted module's tables (NxModule from nxrecomp/ctx.h, ABI 2) with the ABI version this runtime implements: its functions
-// go to the call table and its tables to the registry (nxmodule.h: import resolution, unwinder). Returns the number of functions
-// registered, 0 when the module is refused. `m` is the mapped image (null: the NxModule's own base/text_end range is trusted).
-// nxmodule_register() reports why a module was refused.
-size_t module_register_nxmodule(Module* m, const NxModule* nx);
 // Runs DT_INIT then every init_array entry on `ctx` through dispatch_call (entries must be registered functions or HLE thunks).
 bool module_run_init(Module* m, ::Ctx* ctx);
-bool module_run_fini(Module* m, ::Ctx* ctx);       // fini_array in reverse order, then DT_FINI
 
 // Lookup across modules.
 Module* module_at(uint64_t addr);

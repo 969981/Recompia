@@ -38,6 +38,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
 #include "nvn_gpu_internal.h"
+#include "nvn_fnv.h"
 #include "nvn_pipeline.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -106,8 +107,8 @@ std::string hex16(uint64_t h) {
 }
 
 uint64_t digest_of(const uint64_t h[3], const uint8_t* rest) {
-    uint64_t d = 1469598103934665603ull;
-    auto mix = [&d](uint8_t b) { d = (d ^ b) * 1099511628211ull; };
+    uint64_t d = kFnvBasisShort;
+    auto mix = [&d](uint8_t b) { d = fnv_step(d, b); };
     for (int i = 0; i < 3; ++i)
         for (int k = 0; k < 8; ++k) mix(static_cast<uint8_t>(h[i] >> (8 * k)));
     for (size_t i = 0; i < kRestBytes; ++i) mix(rest[i]);

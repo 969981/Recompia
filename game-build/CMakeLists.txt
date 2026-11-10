@@ -28,9 +28,9 @@ if(PKP_RELEASE)
     add_compile_options("-clang:-ffile-prefix-map=${PKP_ROOT}=.")
 endif()
 
-# The release version ("0.1.0"; "dev" for local builds). The game log, --version and the exe's file properties show it, and the
-# launcher (built from the runtime with the same cache value) shows it in its window. game-build/scripts/build.ps1 -Version sets it.
-set(PKP_VERSION "dev" CACHE STRING "release version shown by pkp.exe and the launcher")
+# The release version ("0.1.0"; "dev" for local builds). The game log, --version and the exe's file properties show it.
+# game-build/scripts/build.ps1 -Version sets it.
+set(PKP_VERSION "dev" CACHE STRING "release version shown by pkp.exe")
 set(PKP_VER_MAJOR 0)
 set(PKP_VER_MINOR 0)
 set(PKP_VER_PATCH 0)
@@ -42,11 +42,21 @@ endif()
 # PKP_RUNTIME_DIR: which runtime checkout compiles in (default the main one; a worktree such as runtime-wt/boot2 for branch work)
 set(PKP_RUNTIME_DIR "${PKP_ROOT}/runtime" CACHE PATH "runtime source tree compiled into pkp.exe")
 set(NXRT_GAMES "pkp" CACHE STRING "" FORCE)            # runtime/games/pkp only
-set(NXRT_LAUNCHER_GAME "pkp" CACHE STRING "" FORCE)
 set(NXRT_RECOMP_INCLUDE "${PKP_ROOT}/recomp/include" CACHE PATH "")
+if(PKP_RELEASE)
+    set(NXRT_TESTTOOLS OFF)                             # release packages carry no test tooling (runtime option, default on)
+endif()
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
-foreach(m main sdk subsdk0 rtld)
+# The module list (names, bases, load order) is recomp/games/pkp/config.py: the imported libraries below and the header
+# src/pkp_main.cpp includes come from it (the player build writes the same header for src/pkp_stub.cpp).
+include("${PKP_ROOT}/recomp/cmake/NxRecomp.cmake")
+nxrecomp_build_info(pkp PKP_MOD)
+nxrecomp_module_header(pkp "${CMAKE_CURRENT_BINARY_DIR}/gen/nx_modules.gen.h")
+set(PKP_GEN_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/gen")
+set(PKP_MODULE_LIBS "")
+foreach(m ${PKP_MOD_MODULES})
+    list(APPEND PKP_MODULE_LIBS pkp_${m})
     add_library(pkp_${m} STATIC IMPORTED GLOBAL)
     set_target_properties(pkp_${m} PROPERTIES IMPORTED_LOCATION "${PKP_LIB_DIR}/pkp_${m}.lib")
 endforeach()
@@ -59,6 +69,7 @@ if(PKP_RT_DLL)
     add_library(pkp_rt SHARED src/pkp_main.cpp src/pkp_rt.def)
     set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\"")
     target_compile_definitions(pkp_rt PRIVATE PKP_RT_DLL=1 PKP_GUI_SUBSYSTEM=1 PKP_EXEFS_DEFAULT="exefs")
+    target_include_directories(pkp_rt PRIVATE "${PKP_GEN_INCLUDE}")
     target_link_libraries(pkp_rt PRIVATE nxrt_game_pkp nxrt_gfx nxrt)
     # /DEBUG off: no .pdb path in the DLL. Low host allocations as for pkp.exe (guest ranges at 0x71_0000_0000 stay free).
     target_link_options(pkp_rt PRIVATE /HIGHENTROPYVA:NO /DEBUG:NONE /Brepro)
@@ -77,7 +88,12 @@ set_source_files_properties(src/pkp_main.cpp PROPERTIES COMPILE_DEFINITIONS "PKP
 set_source_files_properties(res/pkp.rc PROPERTIES COMPILE_DEFINITIONS "PKP_VER_MAJOR=${PKP_VER_MAJOR};PKP_VER_MINOR=${PKP_VER_MINOR};PKP_VER_PATCH=${PKP_VER_PATCH};PKP_VER_TEXT=\"${PKP_VERSION}\""
                             OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/pkp.manifest")
 target_compile_definitions(pkp PRIVATE PKP_EXEFS_DEFAULT="${PKP_EXEFS_DEFAULT}")
-target_link_libraries(pkp PRIVATE pkp_main pkp_sdk pkp_subsdk0 pkp_rtld nxrt_game_pkp nxrt_gfx nxrt)   # nxrt_game_pkp: runtime/games/pkp
+target_include_directories(pkp PRIVATE "${PKP_GEN_INCLUDE}")
+target_link_libraries(pkp PRIVATE ${PKP_MODULE_LIBS} nxrt_game_pkp nxrt_gfx nxrt)   # nxrt_game_pkp: runtime/games/pkp
+# the imported libraries must be lifted with this tree's site lists (a lift from another checkout or an older main.sites links fine but
+# its missing hooks never run): checked on every build
+nxrecomp_check_lift(pkp_lift_check PKP_MOD "${PKP_LIB_DIR}" pkp_)
+add_dependencies(pkp pkp_lift_check)
 # A linker map next to the exe (host frames get names), a big main stack (lifted
 # code nests deeply), low host allocations so the guest ranges at 0x71_0000_0000 and up stay free.
 if(PKP_RELEASE)
@@ -92,7 +108,7 @@ target_link_options(pkp PRIVATE /MAP /STACK:134217728 /HIGHENTROPYVA:NO /DEBUG /
 add_custom_command(TARGET pkp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${PKP_RUNTIME_DIR}/assets/fonts/DejaVuSans.ttf" "$<TARGET_FILE_DIR:pkp>/fonts/DejaVuSans.ttf")
 
-# Keyboard and mouse prompt icons (runtime games/pkp/pkp_kbm.cpp reads assets\kbm_icons\<name>.png next to the exe): Kenney's Input Prompts
+# Keyboard and mouse prompt icons (runtime games/pkp/input/pkp_kbm.cpp reads assets\kbm_icons\<name>.png next to the exe): Kenney's Input Prompts
 # (CC0), the "Keyboard & Mouse/Default" PNGs, kept in the work folder (not in any repository). Without them the prompts show key names as text.
 set(PKP_KBM_ICONS_DIR "${PKP_ROOT}/work/assets/kenney_input_prompts/Keyboard & Mouse/Default" CACHE PATH "Kenney Input Prompts PNG folder for assets/kbm_icons")
 if(EXISTS "${PKP_KBM_ICONS_DIR}")

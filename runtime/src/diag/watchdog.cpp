@@ -21,7 +21,6 @@
 #include "nxrt/diag.h"
 #include "nxrt/gauge.h"
 #include "nxrt/dispatch.h"
-#include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/symbols.h"
 #include "stackwalk.h"
@@ -233,8 +232,7 @@ std::string emit_dump(const std::string& report_path, const std::string& header)
     std::string text = header;
     text += '\n';
     text += dump_text();
-    text += kernel::sync_wait_report();
-    text += extra_reports();
+    text += extra_reports();     // the kernel's guest waits first (registered by svc_init), then the GPU, the pools, the frame times
     log_lines(text);
     write_report(report_path, text);
     return text;
@@ -379,8 +377,6 @@ void watchdog_stop() {
     g_running.store(false);
 }
 
-bool watchdog_running() { return g_running.load(); }
-
 namespace {
 std::atomic<void (*)()> g_frame_listener{nullptr};
 }
@@ -394,8 +390,6 @@ void diag_frame_tick() {
 }
 
 uint64_t diag_frame_count() { return g_frames.load(std::memory_order_relaxed); }
-
-uint32_t watchdog_fire_count() { return g_fires.load(std::memory_order_relaxed); }
 
 std::string diag_thread_dump() { return dump_text(); }
 

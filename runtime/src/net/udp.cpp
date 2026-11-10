@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Winsock implementation of net/udp.h.
 #include "udp.h"
+#include "win_sock.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -15,14 +16,12 @@
 namespace nxrt::udp {
 
 Handle open(uint32_t ip, uint16_t port, int recv_timeout_ms, std::string* err) {
-    WSADATA wd;   // one WSAStartup per socket, undone in close() (Winsock counts them, so this sits fine next to tcp.cpp's)
-    if (WSAStartup(MAKEWORD(2, 2), &wd) != 0) {
+    if (!vnet::ensure_winsock()) {
         *err = "Winsock unavailable";
         return kBad;
     }
     SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) {
-        WSACleanup();
         *err = "no socket";
         return kBad;
     }
@@ -36,7 +35,6 @@ Handle open(uint32_t ip, uint16_t port, int recv_timeout_ms, std::string* err) {
     a.sin_addr.s_addr = htonl(ip);
     if (::connect(s, reinterpret_cast<const sockaddr*>(&a), sizeof a) != 0) {
         closesocket(s);
-        WSACleanup();
         *err = "cannot reach the relay's UDP port";
         return kBad;
     }
@@ -64,7 +62,6 @@ int recv(Handle h, void* p, size_t cap) {
 void close(Handle h) {
     if (h != kBad) {
         closesocket(static_cast<SOCKET>(h));
-        WSACleanup();
     }
 }
 

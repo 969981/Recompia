@@ -27,6 +27,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/lowlat.h"
 #include "vk_gauges.h"
@@ -1428,8 +1429,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     gp->rend = rend;
     gp->limiter = limiter;
     gp->keep_aspect = keep_aspect;
-    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-    const bool wine = nt && GetProcAddress(nt, "wine_get_version");
+    const bool wine = host_is_wine();
     {   // [nvn] submit_batch: auto = frame under Wine (each kernel submission walks the imported pools again, flush_batch), 1 elsewhere.
         // frame: one kernel submission per frame, the present's; N: flush every N submissions and whenever the render thread idles.
         std::string b = nxrt::config_get_str("nvn", "submit_batch", "auto");

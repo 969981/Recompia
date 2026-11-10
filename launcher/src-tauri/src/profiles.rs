@@ -10,9 +10,7 @@
 //! its save: removing it only drops the entry, the save folder stays on disk.
 
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::RandomState;
 use std::fs;
-use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
 
 use crate::ini::Ini;
@@ -60,7 +58,7 @@ fn load_ini(dir: &Path) -> Ini {
 /// The profile that stands for what pkp.ini holds now: the existing save.
 fn default_profile(ini: &Ini) -> Profile {
     let get = |s: &str, k: &str| ini.get(s, k).unwrap_or_default().trim().to_string();
-    // the runtime's own default nickname is "Player" (games/pkp/pkp_core.cpp); an empty key would give the game an empty name
+    // the runtime's own default nickname is "Player" (games/pkp/core/pkp_core.cpp); an empty key would give the game an empty name
     let nickname = Some(get("account", "nickname")).filter(|n| !n.is_empty()).unwrap_or_else(|| "Player".into());
     Profile {
         id: DEFAULT_ID.into(),
@@ -98,7 +96,7 @@ fn keep_damaged(dir: &Path) -> Result<(), String> {
     if !is_damaged(&path) {
         return Ok(());
     }
-    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let stamp = crate::fsutil::file_stamp();
     let target = (0..1000)
         .map(|i| dir.join(if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) }))
         .find(|p| !p.exists())
@@ -114,23 +112,19 @@ fn save(dir: &Path, s: &Store) -> Result<(), String> {
     write_atomic(&dir.join(FILE), &text)
 }
 
-fn random_hex() -> String {
-    let mut out = String::new();
-    for _ in 0..2 {
-        let mut h = RandomState::new().build_hasher();
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-        h.write_u32(std::process::id());
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+/// 32 hex digits from the OS random source (the one room codes use).
+fn random_hex() -> std::io::Result<String> {
+    let mut bytes = [0u8; 16];
+    crate::relay::room_code::os_random(&mut bytes)?;
+    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-fn new_uid(taken: &[&str]) -> String {
+fn new_uid(taken: &[&str]) -> Result<String, String> {
     loop {
-        let u = random_hex();
+        let u = random_hex().map_err(|e| format!("Cannot make an id for the profile: {}", e))?;
         // a zero half is not a valid account uid for the game, and the built-in user belongs to the default
         if u[..16] != *"0000000000000000" && u[16..] != *"0000000000000000" && u != BUILT_IN_UID && !taken.iter().any(|t| t.eq_ignore_ascii_case(&u)) {
-            return u;
+            return Ok(u);
         }
     }
 }
@@ -172,7 +166,7 @@ pub fn add(dir: &Path, name: &str) -> Result<Store, String> {
         return Err(format!("There is already a profile called {}.", name));
     }
     let uids: Vec<&str> = s.profiles.iter().flat_map(|p| [p.uid.as_str(), p.net_uid.as_str()]).collect();
-    let (uid, net_uid) = (new_uid(&uids), new_uid(&uids));
+    let (uid, net_uid) = (new_uid(&uids)?, new_uid(&uids)?);
     let id = format!("p{}", &uid[..8]);
     s.profiles.push(Profile { id, name: name.clone(), uid, nickname: nickname_of(&name), net_uid });
     save(dir, &s)?;
@@ -417,11 +411,16 @@ mod tests {
     fn a_save_is_refused_when_the_damaged_file_cannot_be_copied() {
         let d = tmp("refuse", "[account]\nuid = aaaa\n");
         fs::write(d.join(FILE), "broken").unwrap();
-        // every candidate name is taken, so no copy can be made
-        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-        for i in 0..1000 {
-            let name = if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) };
-            fs::write(d.join(name), "x").unwrap();
+        // every candidate name is taken, so no copy can be made. The stamp has a resolution of one second, so start at the top of a second
+        // and take the names of this second and the next: the 1000 writes and add() may straddle the change.
+        let ms = chrono::Utc::now().timestamp_subsec_millis() as u64;
+        std::thread::sleep(std::time::Duration::from_millis(1000 - ms));
+        let now = chrono::Utc::now();
+        for stamp in [now, now + chrono::Duration::seconds(1)].map(|t| t.format("%Y%m%d-%H%M%S").to_string()) {
+            for i in 0..1000 {
+                let name = if i == 0 { format!("{}.damaged-{}", FILE, stamp) } else { format!("{}.damaged-{}-{}", FILE, stamp, i + 1) };
+                fs::write(d.join(name), "x").unwrap();
+            }
         }
         let err = add(&d, "Sam").unwrap_err();
         assert!(err.contains("damaged"), "{}", err);

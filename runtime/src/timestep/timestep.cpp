@@ -3,7 +3,7 @@
 //
 // Threads: the Update hook, the mid hooks of Update, the friction hook, the render-timing hook and the movie hook all run on the guest main
 // thread; the two streaming mid hooks run on the render thread and only read the published step (an atomic). Statistics are guarded by a lock.
-#include "nxrt/kernel.h"
+#include "nxrt/clock.h"
 #include "nxrt/timestep.h"
 
 #include <windows.h>
@@ -22,7 +22,8 @@
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/movie.h"
-#include "nxrt/tt.h"
+#include "nxrt/qpc.h"
+#include "nxrt/text.h"
 
 namespace nxrt::timestep {
 
@@ -42,7 +43,7 @@ const char* mode_name(Mode m) {
 Config load_config() {
     Config c;
     std::string m = config_get_str("time", "mode", "real");
-    for (char& ch : m) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    m = nxrt::text::lower(std::move(m));
     if (m == "off" || m == "0" || m == "retail") c.mode = Mode::Off;
     else if (m == "fixed" || m == "lock") c.mode = Mode::Fixed;
     else c.mode = Mode::Real;
@@ -119,16 +120,7 @@ namespace {
 
 constexpr const char* kTag = "timestep";
 
-double qpc_seconds() {
-    static const double inv = [] {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        return 1.0 / static_cast<double>(f.QuadPart);
-    }();
-    LARGE_INTEGER t;
-    QueryPerformanceCounter(&t);
-    return static_cast<double>(t.QuadPart) * inv;
-}
+double qpc_seconds() { return qpc::seconds(); }
 
 struct G {
     std::mutex mu;                      // statistics and the csv
@@ -137,8 +129,6 @@ struct G {
     bool installed = false;
     std::vector<uint32_t> hooks;
 
-    ClockFn test_clock = nullptr;
-    double det_step_test = 0;           // set_deterministic_for_tests
     bool det = false;                   // this run is deterministic
     double det_step = 1.0 / 60.0;
     double det_now = 0;                 // virtual time: frames * det_step
@@ -181,10 +171,7 @@ uint32_t f2u(float f) {
     return u;
 }
 
-double clock_now() {
-    G& s = g();
-    return s.test_clock ? s.test_clock() : qpc_seconds();
-}
+double clock_now() { return qpc_seconds(); }
 
 // Waits until the clock reaches target (seconds): a high-resolution timer for the bulk, a spin for the last part.
 void wait_until(double target) {
@@ -244,8 +231,8 @@ void begin_frame() {
         if (c.pace && s.have_last && period > 0.0) {
             const double target = grid ? s.next_target : s.last_start + period;
             if (now < target) {
-                if (!s.test_clock) wait_until(target);
-                now = s.test_clock ? target : clock_now();
+                wait_until(target);
+                now = clock_now();
                 std::lock_guard<std::mutex> lk(s.mu);
                 s.st.waits++;
             }
@@ -428,12 +415,10 @@ void install(const Config& cfg) {
     s.st = Stats{};
     s.sum_elapsed = 0;
     s.n_elapsed = 0;
-    s.det = tt::deterministic() || s.det_step_test > 0;
+    s.det = clock::is_virtual();
     if (s.det) {
-        const double hz = static_cast<double>(kernel::tick_hz());
-        const double ticks = s.det_step_test > 0 ? s.det_step_test * hz
-                                                 : static_cast<double>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
-        s.det_step = ticks / hz;
+        const double hz = static_cast<double>(clock::tick_hz());
+        s.det_step = static_cast<double>(clock::virtual_frame_step_ticks()) / hz;
         s.det_now = 0;
     }
     publish_dt(kGameStep);
@@ -498,17 +483,13 @@ void reset_stats() {
     s.n_elapsed = 0;
 }
 
-void set_clock_for_tests(ClockFn fn) { g().test_clock = fn; }
-void set_deterministic_for_tests(double step_seconds) { g().det_step_test = step_seconds; }
-
 void set_run_rate(double hz) {
     G& s = g();
     if (hz > 0) {
         s.det_step = 1.0 / hz;
         s.det = true;
     } else {
-        s.det = tt::deterministic() || s.det_step_test > 0;     // back to what the run was configured with
-        if (s.det_step_test > 0) s.det_step = s.det_step_test;
+        s.det = clock::is_virtual();     // back to what the run was configured with
         s.have_last = false;                                     // no frame time across the switch
     }
 }

@@ -11,6 +11,7 @@
 // from the harness's results.tsv (apply_harness).
 #include "nvn_shaders.h"
 #include "nvn_driver_bank.h"
+#include "nvn_fnv.h"
 
 #include <windows.h>
 
@@ -1001,11 +1002,8 @@ bool pack_enabled() {
 }
 
 uint64_t fnv1a64(std::string_view s) {
-    uint64_t h = 0xcbf29ce484222325ull;
-    for (unsigned char c : s) {
-        h ^= c;
-        h *= 0x100000001b3ull;
-    }
+    uint64_t h = kFnvBasis;
+    for (unsigned char c : s) h = fnv_step(h, c);
     return h;
 }
 

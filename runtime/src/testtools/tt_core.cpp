@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -14,25 +15,22 @@
 #include <optional>
 #include <thread>
 
-#include "nxrt/kernel.h"
+#include "nxrt/clock.h"
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
+#include "nxrt/entropy.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/game.h"
 #include "nxrt/log.h"
 #include "nxrt/runtime.h"
 #include "nxrt/module.h"
+#include "nxrt/svc.h"
 #include "nxrt/timestep.h"
 #include "nxrt/tt.h"
 #include "tt_internal.h"
 
-namespace nxrt::gfx { void wait_screenshot_writes(); }
 
 namespace nxrt::tt {
-namespace detail {
-std::atomic<uint32_t> svc_every{0};
-}  // namespace detail
-
 namespace {
 
 enum class Source { Hook, Tick, Svc, Manual };
@@ -45,7 +43,7 @@ struct State {
     int exit_code = -1;
     std::string out, script, regions_file, trace_path, record_path, replay_path;
     uint64_t seed = 0x5EED5EEDull;
-    uint64_t step_ticks = 320000;            // 1/60 s at 19.2 MHz
+    uint64_t step_ticks = 0;                 // virtual ticks per frame ([test] clock_step_ticks, default 1/60 s)
     Source src = Source::Hook;
     uint32_t svc_n = 0;
     std::vector<Region> hash_regions;
@@ -56,10 +54,10 @@ struct State {
 
     std::atomic<uint64_t> frames{0};
     bool started = false;
-    std::atomic<uint64_t> vticks{0};         // virtual clock (19.2 MHz ticks)
+    std::atomic<uint64_t> vticks{0};         // virtual clock (guest ticks at clock::tick_hz())
     std::atomic<DWORD> frame_tid{0};         // the host thread that runs the frame boundary (the one whose sleeps move the clock)
     std::atomic<uint64_t> rng_ctr{0};
-    uint64_t vbase = 19200000ull * 100;      // the virtual clock starts at "100 seconds"
+    uint64_t vbase = 0;                      // the virtual clock starts at "100 seconds" (init)
     uint64_t chain = 0xcbf29ce484222325ull;
     uint64_t last_hash = 0;
     GameState gs;
@@ -73,7 +71,6 @@ struct State {
     InputTrace play;                         // what is replayed
     bool replaying = false, recording = false;
     PadFrame pad;                            // pad of the current frame
-    PadFrame live_pad;
     std::vector<Checkpoint> cps;
     std::vector<std::string> shots, missing_shots;
     detail::Runner runner;
@@ -84,8 +81,8 @@ struct State {
     std::string verdict;
 
     ScreenshotFn shot_fn = nullptr;
+    void (*shot_flush)() = nullptr;
     void* shot_user = nullptr;
-    ExitFn exit_fn = nullptr;
     MouseSinkFn mouse_sink = nullptr;
     KeySinkFn key_sink = nullptr;
     std::vector<std::string> keys_down;      // names the key steps pressed and not yet released (released when the run ends)
@@ -259,26 +256,34 @@ double now_ms(State& s) {
     return static_cast<double>(c.QuadPart - s.t_start.QuadPart) * 1000.0 / static_cast<double>(s.qpf.QuadPart);
 }
 
+// Appends one printf-formatted fragment to the trace line in b; the compiler checks the format against the arguments.
+__attribute__((format(printf, 3, 4)))
+void trace_add(char (&b)[1024], int& n, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    n += std::vsnprintf(b + n, sizeof b - n, fmt, ap);
+    va_end(ap);
+}
+
 void write_trace_line(State& s, uint64_t k, uint64_t h, const GameState& g, bool valid, double ms, double mem) {
     if (!s.trace) return;
     char b[1024];
     int n = std::snprintf(b, sizeof b, "{\"f\":%llu,\"h\":\"%016llx\"", static_cast<unsigned long long>(k), static_cast<unsigned long long>(h));
-    auto add = [&](const char* fmt, auto... a) { n += std::snprintf(b + n, sizeof b - n, fmt, a...); };
     if (valid) {
-        if (g.have_world) add(",\"world\":\"%s\",\"area\":\"%s\"", tt_guid_hex(g.world).c_str(), tt_guid_hex(g.area).c_str());
-        if (g.have_player) add(",\"pos\":[%.9g,%.9g,%.9g],\"vel\":[%.9g,%.9g,%.9g],\"yaw\":%.9g,\"state\":%u", g.pos[0], g.pos[1], g.pos[2], g.vel[0], g.vel[1], g.vel[2], g.yaw, g.move_state);
-        if (g.have_player && g.have_phys) add(",\"phys\":1,\"spd\":%.9g", g.speed);
-        if (g.have_aim) add(",\"pitch\":%.9g,\"cam\":%d,\"morph\":%d,\"orbit\":%d", g.pitch, g.cam_state, g.morph_state, g.orbit_state);
-        if (g.have_cam) add(",\"camyaw\":%.9g,\"campitch\":%.9g", g.cam_yaw, g.cam_pitch);
-        if (g.have_ps) add(",\"beam\":%d,\"visor\":%d,\"msl\":%d", g.beam, g.visor, g.missiles);
-        if (g.have_hp) add(",\"hp\":%.9g", g.hp);
-        if (g.have_igt) add(",\"igt\":%.9g", g.igt);
-        if (g.have_tod) add(",\"tod\":%.6g", g.tod);
-        if (g.have_prog) add(",\"prog\":%d", g.prog);
+        if (g.have_world) trace_add(b, n, ",\"world\":\"%s\",\"area\":\"%s\"", tt_guid_hex(g.world).c_str(), tt_guid_hex(g.area).c_str());
+        if (g.have_player) trace_add(b, n, ",\"pos\":[%.9g,%.9g,%.9g],\"vel\":[%.9g,%.9g,%.9g],\"yaw\":%.9g,\"state\":%u", g.pos[0], g.pos[1], g.pos[2], g.vel[0], g.vel[1], g.vel[2], g.yaw, g.move_state);
+        if (g.have_player && g.have_phys) trace_add(b, n, ",\"phys\":1,\"spd\":%.9g", g.speed);
+        if (g.have_aim) trace_add(b, n, ",\"pitch\":%.9g,\"cam\":%d,\"morph\":%d,\"orbit\":%d", g.pitch, g.cam_state, g.morph_state, g.orbit_state);
+        if (g.have_cam) trace_add(b, n, ",\"camyaw\":%.9g,\"campitch\":%.9g", g.cam_yaw, g.cam_pitch);
+        if (g.have_ps) trace_add(b, n, ",\"beam\":%d,\"visor\":%d,\"msl\":%d", g.beam, g.visor, g.missiles);
+        if (g.have_hp) trace_add(b, n, ",\"hp\":%.9g", g.hp);
+        if (g.have_igt) trace_add(b, n, ",\"igt\":%.9g", g.igt);
+        if (g.have_tod) trace_add(b, n, ",\"tod\":%.6g", g.tod);
+        if (g.have_prog) trace_add(b, n, ",\"prog\":%d", g.prog);
     }
-    add(",\"t\":%llu,\"ms\":%.3f", static_cast<unsigned long long>(s.vticks.load()), ms);
-    if (mem > 0) add(",\"mem\":%.1f", mem);
-    add("}\n");
+    trace_add(b, n, ",\"t\":%llu,\"ms\":%.3f", static_cast<unsigned long long>(s.vticks.load()), ms);
+    if (mem > 0) trace_add(b, n, ",\"mem\":%.1f", mem);
+    trace_add(b, n, "}\n");
     std::fwrite(b, 1, static_cast<size_t>(n), s.trace);
     if (k % 64 == 0) std::fflush(s.trace);
 }
@@ -356,6 +361,70 @@ void wall_loop(State* s, double secs) {
     if (!s->finished) end_run(124, "timeout", "wall-clock timeout of " + std::to_string(static_cast<int64_t>(secs)) + " s reached after " + std::to_string(s->frames.load()) + " frames");
 }
 
+// ---- deterministic mode: the virtual clock (nxrt/clock.h) and the seeded stream (nxrt/entropy.h), installed by init ----------------
+uint64_t virtual_ticks() {
+    return S().vticks.fetch_add(1, std::memory_order_relaxed) + 1;     // every read moves time forward by one tick
+}
+
+// A sleep of the frame thread moves the clock by its length and only yields (the frame's own pacing waits must end). Any other thread waits for
+// the clock to reach its wake time, which the frames move, and for at most the sleep's length of host time; it does not move the clock. When
+// every sleep moved it, a thread that polls in a sleep loop (a pad vibration thread, for one) pushed the
+// shared clock as fast as the host ran the loop: 150 to 2000 virtual seconds per 60 frames, and the New Game load waited forever on the
+// planet loading screen (docs/GAME_BOUNDARY.md, "Deterministic mode and the New Game stall").
+bool virtual_sleep(int64_t ns) {
+    State& s = S();
+    const uint64_t add = ns > 0 ? clock::ns_to_ticks(static_cast<uint64_t>(ns)) : 0;
+    const DWORD ft = s.frame_tid.load(std::memory_order_relaxed);
+    if (add == 0 || ft == 0 || ft == GetCurrentThreadId()) {
+        if (add) s.vticks.fetch_add(add, std::memory_order_relaxed);
+        SwitchToThread();
+        return true;
+    }
+    const uint64_t target = s.vticks.load(std::memory_order_relaxed) + add;
+    LARGE_INTEGER f, t0, t;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t0);
+    const double limit_s = static_cast<double>(ns) * 1e-9;
+    for (;;) {
+        if (s.vticks.load(std::memory_order_relaxed) >= target || !s.on) return true;
+        QueryPerformanceCounter(&t);
+        const double left = limit_s - static_cast<double>(t.QuadPart - t0.QuadPart) / static_cast<double>(f.QuadPart);
+        if (left <= 0) return true;
+        if (left >= 0.002) Sleep(1);
+        else SwitchToThread();
+    }
+}
+
+uint64_t virtual_wall_filetime() {
+    State& s = S();
+    return 133000000000000000ull + clock::ticks_to_ns(s.vticks.load() - s.vbase) / 100;     // 100 ns units, fixed epoch
+}
+
+void seeded_fill(void* p, size_t n) {
+    State& s = S();
+    uint8_t* b = static_cast<uint8_t*>(p);
+    for (size_t i = 0; i < n;) {
+        const uint64_t v = splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
+        const size_t m = std::min<size_t>(8, n - i);
+        std::memcpy(b + i, &v, m);
+        i += m;
+    }
+}
+
+uint64_t virtual_frame_step_ticks() { return S().step_ticks; }
+const clock::Source kVirtualClock{&virtual_ticks, &virtual_sleep, &virtual_wall_filetime, &virtual_frame_step_ticks};
+const entropy::Source kSeededEntropy{&seeded_fill};
+
+// frame_source = svc:N (svc_set_observer): the first guest thread to make an SVC is the frame thread; every Nth of its SVCs is a frame.
+void on_svc(::Ctx* c) {
+    State& s = S();
+    ::Ctx* expect = nullptr;
+    s.svc_ctx.compare_exchange_strong(expect, c);
+    if (s.svc_ctx.load() != c) return;
+    const uint64_t n = s.svc_count.fetch_add(1) + 1;
+    if (n % s.svc_n == 0) frame_boundary(c);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -376,7 +445,7 @@ bool init() {
     s.script_mode = !s.script.empty();
     s.out = config_get_str("test", "out", "testout");
     s.seed = static_cast<uint64_t>(config_get_int("test", "seed", 0x5EED5EED));
-    s.step_ticks = static_cast<uint64_t>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(kernel::tick_hz() / 60)));
+    s.step_ticks = static_cast<uint64_t>(config_get_int("test", "clock_step_ticks", static_cast<int64_t>(clock::tick_hz() / 60)));
     s.max_frames = static_cast<uint64_t>(config_get_int("test", "max_frames", 0));
     s.wall_timeout_s = config_get_double("test", "wall_timeout_s", s.script_mode ? 900.0 : 0.0);
     s.freeze_exit = config_get_bool("test", "freeze_exit", s.script_mode);
@@ -393,8 +462,13 @@ bool init() {
     QueryPerformanceFrequency(&s.qpf);
     QueryPerformanceCounter(&s.t_start);
     s.t_last = s.t_start;
+    s.vbase = clock::tick_hz() * 100;
     s.vticks = s.vbase;
     s.rng_ctr = 0;
+    if (s.det) {                                // guest time and random numbers come from here until shutdown
+        clock::set_source(&kVirtualClock);
+        entropy::set_source(&kSeededEntropy);
+    }
 
     make_dirs(s.out);
     make_dirs(s.shot_dir);
@@ -447,7 +521,7 @@ bool init() {
         }
     }
     diag_set_frame_listener(tick_listener);
-    if (s.src == Source::Svc) detail::svc_every.store(s.svc_n);
+    if (s.src == Source::Svc) svc_set_observer(&on_svc);
     if (s.src == Source::Hook) install_game_hooks();
     if (s.wall_timeout_s > 0) s.wall_thread = std::thread(wall_loop, &s, s.wall_timeout_s);
     return true;
@@ -459,7 +533,11 @@ void shutdown() {
     if (!s.on) return;
     s.stop_wall = true;
     if (s.wall_thread.joinable()) s.wall_thread.join();
-    detail::svc_every.store(0);
+    if (s.src == Source::Svc) svc_set_observer(nullptr);
+    if (s.det) {
+        clock::set_source(nullptr);
+        entropy::set_source(nullptr);
+    }
     release_held_keys(s);
     if (!s.finished) {
         s.finished = true;
@@ -481,116 +559,15 @@ bool finished() { return S().finished; }
 int exit_code() { return S().exit_code; }
 const std::vector<Checkpoint>& checkpoints() { return S().cps; }
 uint64_t last_hash() { return S().last_hash; }
-uint64_t chain_hash() { return S().chain; }
-const GameState& last_state() { return S().gs; }
-PadFrame current_pad() { return S().pad; }
-void set_live_pad(const PadFrame& p) { S().live_pad = p; }
 void set_screenshot_provider(ScreenshotFn fn, void* user) { S().shot_fn = fn; S().shot_user = user; }
-void set_exit_handler(ExitFn fn) { S().exit_fn = fn; }
+void set_screenshot_flush(void (*fn)()) { S().shot_flush = fn; }
 void set_mouse_sink(MouseSinkFn fn) { S().mouse_sink = fn; }
 void set_key_sink(KeySinkFn fn) { S().key_sink = fn; }
-
-void reset_for_tests() {
-    State& s = S();
-    s.stop_wall = true;
-    if (s.wall_thread.joinable()) s.wall_thread.join();
-    s.stop_wall = false;
-    s.frame_tid.store(0, std::memory_order_relaxed);   // a recycled thread id must not move the next run's clock
-    if (s.trace) { std::fclose(s.trace); s.trace = nullptr; }
-    detail::svc_every.store(0);
-    ExitFn keep = s.exit_fn;
-    MouseSinkFn keep_m = s.mouse_sink;
-    KeySinkFn keep_k = s.key_sink;
-    ScreenshotFn sf = s.shot_fn;
-    void* su = s.shot_user;
-    s.~State();
-    new (&s) State;
-    s.exit_fn = keep;
-    s.mouse_sink = keep_m;
-    s.key_sink = keep_k;
-    s.shot_fn = sf;
-    s.shot_user = su;
-    detail::set_game_base(game::info().main_base);
-    set_probe_layout(ProbeLayout{});
-}
 
 void set_clock_rate(double hz) {
     if (!S().on) return;
     timestep::set_run_rate(hz);
     NXLOG_I("tt", "game step: %s (frame %llu)", hz > 0 ? ("exactly 1/" + std::to_string(hz) + " s").c_str() : "the configured mode", static_cast<unsigned long long>(S().frames.load()));
-}
-
-bool virtual_tick(uint64_t* ticks) {
-    State& s = S();
-    if (!s.on || !s.det) return false;
-    *ticks = s.vticks.fetch_add(1, std::memory_order_relaxed) + 1;     // every read moves time forward by one tick (52 ns)
-    return true;
-}
-
-// A sleep of the frame thread moves the clock by its length and only yields (the frame's own pacing waits must end). Any other thread waits for
-// the clock to reach its wake time, which the frames move, and for at most the sleep's length of host time; it does not move the clock. When
-// every sleep moved it, a thread that polls in a sleep loop (a pad vibration thread, for one) pushed the
-// shared clock as fast as the host ran the loop: 150 to 2000 virtual seconds per 60 frames, and the New Game load waited forever on the
-// planet loading screen (docs/GAME_BOUNDARY.md, "Deterministic mode and the New Game stall").
-bool virtual_sleep(int64_t ns) {
-    State& s = S();
-    if (!s.on || !s.det) return false;
-    const uint64_t add = ns > 0 ? static_cast<uint64_t>(ns) * 192 / 10000 : 0;
-    const DWORD ft = s.frame_tid.load(std::memory_order_relaxed);
-    if (add == 0 || ft == 0 || ft == GetCurrentThreadId()) {
-        if (add) s.vticks.fetch_add(add, std::memory_order_relaxed);
-        SwitchToThread();
-        return true;
-    }
-    const uint64_t target = s.vticks.load(std::memory_order_relaxed) + add;
-    LARGE_INTEGER f, t0, t;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&t0);
-    const double limit_s = static_cast<double>(ns) * 1e-9;
-    for (;;) {
-        if (s.vticks.load(std::memory_order_relaxed) >= target || !s.on) return true;
-        QueryPerformanceCounter(&t);
-        const double left = limit_s - static_cast<double>(t.QuadPart - t0.QuadPart) / static_cast<double>(f.QuadPart);
-        if (left <= 0) return true;
-        if (left >= 0.002) Sleep(1);
-        else SwitchToThread();
-    }
-}
-
-uint64_t rng_next() {
-    State& s = S();
-    if (s.on && s.det) return splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
-    uint64_t v = 0;
-    rng_fill(&v, 8);
-    return v;
-}
-
-void rng_fill(void* p, size_t n) {
-    State& s = S();
-    uint8_t* b = static_cast<uint8_t*>(p);
-    if (s.on && s.det) {
-        size_t i = 0;
-        while (i < n) {
-            const uint64_t v = splitmix(s.seed + 0x9E3779B97F4A7C15ull * (s.rng_ctr.fetch_add(1) + 1));
-            const size_t m = std::min<size_t>(8, n - i);
-            std::memcpy(b + i, &v, m);
-            i += m;
-        }
-        return;
-    }
-    // host entropy: RtlGenRandom
-    using Fn = BOOLEAN(WINAPI*)(PVOID, ULONG);
-    static Fn fn = reinterpret_cast<Fn>(GetProcAddress(LoadLibraryA("advapi32.dll"), "SystemFunction036"));
-    if (fn) fn(p, static_cast<ULONG>(n));
-    else for (size_t i = 0; i < n; i++) b[i] = static_cast<uint8_t>(rand());
-}
-
-uint64_t wall_filetime() {
-    State& s = S();
-    if (s.on && s.det) return 133000000000000000ull + (s.vticks.load() - s.vbase) * 10000ull / 192ull;     // 100 ns units, fixed epoch
-    FILETIME ft;
-    GetSystemTimePreciseAsFileTime(&ft);
-    return (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -665,9 +642,8 @@ void end_run(int code, const char* verdict, const std::string& message) {
         flush_files(s);
         if (s.trace) std::fflush(s.trace);
     }
-    nxrt::gfx::wait_screenshot_writes();   // shots are written on a worker
-    ExitFn fn = s.exit_fn ? s.exit_fn : default_exit;
-    fn(code);
+    if (void (*flush)() = S().shot_flush) flush();   // shots are written on a worker
+    default_exit(code);
 }
 
 void frame_boundary(::Ctx* c) {
@@ -719,7 +695,7 @@ void frame_boundary(::Ctx* c) {
     // 3. the pad of frame k
     PadFrame live;
     const bool have_live = detail::sample_live(&live);
-    if (!have_live) live = s.live_pad;
+    if (!have_live) live = PadFrame{};
     if (s.replaying) {
         s.pad = s.play.at(k);
         if (s.replay_exit && s.play.end_frame && k >= s.play.end_frame && !s.runner_on) {
@@ -739,17 +715,5 @@ void frame_boundary(::Ctx* c) {
     if ((s.pad.mouse_dx != 0 || s.pad.mouse_dy != 0) && s.mouse_sink && (s.replaying || s.runner_on)) s.mouse_sink(s.pad.mouse_dx, s.pad.mouse_dy);
     if (s.max_frames && k + 1 >= s.max_frames && !s.finished) end_run(1, "fail", "frame budget (max_frames) exhausted");
 }
-
-namespace detail {
-void on_svc(::Ctx* c) {
-    State& s = S();
-    ::Ctx* expect = nullptr;
-    s.svc_ctx.compare_exchange_strong(expect, c);          // the first guest thread to make an SVC is the frame thread
-    if (s.svc_ctx.load() != c) return;
-    const uint64_t n = s.svc_count.fetch_add(1) + 1;
-    const uint32_t every = svc_every.load();
-    if (every && n % every == 0) frame_boundary(c);
-}
-}  // namespace detail
 
 }  // namespace nxrt::tt

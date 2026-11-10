@@ -3,13 +3,14 @@
 // control, an open details block or a half typed path stays as it is.
 import './setup.css';
 import logoUrl from '../art/logo.png';
-import { api, errText, esc, field, icon, row, toast, toggle } from '../ui.js';
+import { api } from '../api.js';
+import { errCode, errText, esc, field, icon, row, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { needsFinish, primaryAction } from '../action.js';
 
 const GB = 2 ** 30;   // preflight.rs GB
 const SLOW_CHECK_MS = 200;   // a faster check never shows the "Checking" panel
-const NUP_CANCELLED = 'Unpacking was cancelled.';   // nup.rs CANCELLED: not a failure
+const NUP_CANCELLED = 'nup_cancelled';   // error.rs: the player stopped it, not a failure
 const SETUP_BUSY = 'Setup is running. Pause it first.';
 
 const STEPS = ['Build game', 'Translate shaders', 'First run'];
@@ -107,12 +108,12 @@ async function check(path) {
     paint?.();
   }, SLOW_CHECK_MS);
   try {
-    const report = await api('validate_dump', { path });
+    const report = await api.validateDump({ path });
     if (id !== flow.checkId) return;
     flow.report = report;
     if (report.chosen) {
       if (setupRunning(store.state)) throw SETUP_BUSY;   // started while the check ran
-      await api('save_dump', { path: report.path });
+      await api.saveDump({ path: report.path });
       flow.saved = report.path;
       await store.refresh();
     }
@@ -135,7 +136,7 @@ async function unpack(path) {
     dir = await store.importNup(path);
   } catch (e) {
     flow.checking = null;
-    if (errText(e) !== NUP_CANCELLED) {
+    if (errCode(e) !== NUP_CANCELLED) {
       flow.error = errText(e);
       flow.report = null;
       flow.changing = false;
@@ -148,7 +149,7 @@ async function unpack(path) {
 /** Unpacks the add-on (DLC) of a decrypted .nsp next to the game; the game lists it at its next start. */
 async function addDlc(path) {
   try {
-    const ids = await api('import_dlc', { path });
+    const ids = await api.importDlc({ path });
     toast(`DLC added (${ids.join(', ')}). It shows in the game at its next start.`);
   } catch (e) {
     toast(errText(e), 'error');
@@ -167,11 +168,11 @@ function take(path) {
   return /\.nup$/i.test(p) ? unpack(p) : check(p);
 }
 
-async function pick(cmd, args) {
+async function pick(command, args) {
   if (flow.picking) return;
   flow.picking = true;
   try {
-    const path = await api(cmd, args);
+    const path = await command(args);
     if (path) await take(path);
   } catch (e) {
     toast(errText(e), 'error');
@@ -183,7 +184,7 @@ async function pick(cmd, args) {
 async function loadSaved() {
   flow.loaded = false;
   try {
-    const cfg = await api('get_config');
+    const cfg = await api.getConfig();
     flow.saved = cfg.dump_dir || '';
     flow.gentle = !!cfg.gentle_build;
     flow.small = !cfg.loose_shaders;
@@ -191,7 +192,7 @@ async function loadSaved() {
     // a .nup is no folder: readiness read it, app.dump has what there is to say
     if (flow.saved && !/\.nup$/i.test(flow.saved) && !flow.checking && !store.state.nup) {
       const id = flow.checkId;
-      const report = await api('validate_dump', { path: flow.saved });
+      const report = await api.validateDump({ path: flow.saved });
       if (id === flow.checkId) flow.report = report;
     }
   } catch (e) {
@@ -205,14 +206,14 @@ function saveGentle(on) {
   flow.gentle = on;
   flow.touched = true;
   savingConfig = savingConfig
-    .then(async () => api('save_config', { config: { ...(await api('get_config')), gentle_build: on } }))
+    .then(async () => api.saveConfig({ config: { ...(await api.getConfig()), gentle_build: on } }))
     .catch((e) => toast(errText(e), 'error'));
 }
 
 function saveSmall(on) {
   flow.small = on;
   savingConfig = savingConfig
-    .then(async () => api('save_config', { config: { ...(await api('get_config')), loose_shaders: !on } }))
+    .then(async () => api.saveConfig({ config: { ...(await api.getConfig()), loose_shaders: !on } }))
     .then(() => {
       flow.need = undefined;   // packed shaders need far less free space: ask preflight again
       wantNeed();
@@ -223,7 +224,7 @@ function saveSmall(on) {
 function wantNeed() {
   if (flow.need !== undefined) return;
   flow.need = null;
-  api('preflight').then((r) => {
+  api.preflight().then((r) => {
     flow.need = r.need_bytes;
     paint?.();
   }).catch((e) => console.warn(e));
@@ -533,9 +534,9 @@ export function render(el, ctx) {
   panel.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     switch (act) {
-      case 'folder': return pick('pick_folder', { title: 'Choose your Pokopia game files folder', start: flow.saved || null });
-      case 'nup': return pick('pick_nup', { start: null });
-      case 'dlc': return pick('pick_nsp');
+      case 'folder': return pick(api.pickFolder, { title: 'Choose your Pokopia game files folder', start: flow.saved || null });
+      case 'nup': return pick(api.pickNup, { start: null });
+      case 'dlc': return pick(api.pickNsp);
       case 'type':
         flow.typing = true;
         draw();
@@ -550,7 +551,7 @@ export function render(el, ctx) {
       case 'home': return ctx.go('home');
       case 'cancel-nup': return store.cancelNup().catch((err) => toast(errText(err), 'error'));
       case 'pause': flow.pausing = true; draw(); return store.pauseSetup();
-      case 'log': return api('open_setup_log').catch((err) => toast(errText(err), 'error'));
+      case 'log': return api.openSetupLog().catch((err) => toast(errText(err), 'error'));
       case 'primary': {
         const run = actionOf(store.state, shown).run;
         // the toggle is saved already; passing a choice the player made keeps preflight's suggestion from overruling it

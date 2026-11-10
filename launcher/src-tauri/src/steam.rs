@@ -12,6 +12,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::fsutil::{self, AtomicFail};
+
 use serde::Serialize;
 
 // ---- the artwork, embedded (the grids and hero are Koi's illustration with the wordmark; the icons are the launcher's: the R on a leaf, and the hammer R on Testing) ----
@@ -334,9 +336,10 @@ fn art_bytes(kind: &str, testing: bool) -> &'static [u8] {
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("recompia-tmp");
-    fs::write(&tmp, data).map_err(|e| format!("could not write {}: {e}", path.display()))?;
-    fs::rename(&tmp, path).map_err(|e| format!("could not replace {}: {e}", path.display()))
+    fsutil::write_atomic(path, data).map_err(|fail| match fail {
+        AtomicFail::Write { error, .. } => format!("could not write {}: {error}", path.display()),
+        AtomicFail::Replace { error } => format!("could not replace {}: {error}", path.display()),
+    })
 }
 
 fn load_root(file: &Path) -> Result<Vec<(String, Val)>, String> {

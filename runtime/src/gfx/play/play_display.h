@@ -25,15 +25,10 @@ void internal_size(const DisplaySettings& d, int window_w, int window_h, int* ou
 // The aspect the 3D view and the HUD use: the forced ratio when `aspect` > 0 (clamped to kMinAspect..kMaxAspect), else w / h.
 double display_aspect(const DisplaySettings& d, int w, int h);
 
-// A GUI perspective camera's aspect: returns true and sets *aspect when it was the authored 16:9 (or already the display aspect).
-bool hud_perspective(float* aspect, double display_aspect, float* fov_degrees = nullptr);
 // A GUI orthographic camera's extents (left, right, bottom, top as the game stores them: either order of each pair; the retail ball HUD has
 // left 8, right -8): widens the width around its centre so |width| / |height| = display aspect, keeping the order. Only cameras whose own
 // ratio is 16:9 (or already the display aspect) are touched.
 bool hud_ortho(float* left, float* right, float* bottom, float* top, double display_aspect);
-
-// Vertical field of view in radians plus an offset in degrees, kept between 10 and 170 degrees.
-float fov_with_offset(float base_radians, double offset_degrees);
 
 // ---- what the game's display hooks use (play_game.h GamePlay::display_live) -------------------------------------------------------
 struct DisplayLive {

@@ -1,5 +1,11 @@
 # Contributing
 
+## How we build
+
+Always build code cleanly, modularly, and with proper architecture and separation of concerns. Never simply bolt on a feature because someone asked for it. If you can't find an easy way to build it naturally, and you'd recommend a refactor to make the whole thing cleanly, stop your work ahead of time and say so.
+
+## Pull requests
+
 - Open pull requests against `main` and say what they change.
 - Release notes are the version's section of [CHANGELOG.md](CHANGELOG.md); write it from [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md).
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.

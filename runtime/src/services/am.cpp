@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -528,7 +529,8 @@ ServicePtr make_window_controller() {
 
 // ---- library applets -------------------------------------------------------------------------------------------------------------
 // Every applet Pokopia's main (and the SDK functions it imports) can create gets its own answer; the list and the reasons are in
-// docs/IPC_ANSWERS.md. The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form answers a text, the player select
+// docs/IPC_ANSWERS.md. The answers are an offline console's (no eShop, Nintendo Account, friends or GameShare guests), so they hold for
+// any game: Pokopia's call sites below are where they were checked, not what they are tuned to. The software keyboard (LibraryAppletId 0x11) in its normal, full-screen form answers a text, the player select
 // (0x10) answers the one user or, for its network-account modes, that the player backed out; the error applet (0x0E) logs the error it
 // was given; the shop, friends, data management, network connection and GameShare matchmaking applets end as cancelled by the player
 // (offline: nothing to buy, invite, free or connect to). An applet id nothing here knows ends at once with no output. Command ids
@@ -976,7 +978,9 @@ ServicePtr make_library_applet_accessor(uint32_t full_id, uint32_t mode) {
                 NXLOG_I("am", "library applet 0x%x started (%s): it ends as cancelled by the player", a->full_id, why);
                 applet_finish(*a);
             } else {
-                NXLOG_W("am", "library applet 0x%x started (not one Pokopia was seen to launch): it ends at once with no output", a->full_id);
+                const game::Info& gi = game::info();
+                NXLOG_W("am", "library applet 0x%x started (not one %s was seen to launch): it ends at once with no output", a->full_id,
+                        *gi.short_title ? gi.short_title : (*gi.title ? gi.title : "the game"));
                 applet_finish(*a);
             }
             return 0;

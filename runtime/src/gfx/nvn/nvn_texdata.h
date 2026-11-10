@@ -72,23 +72,6 @@ VkFormat cache_entry_format(const Texture& t);
 bool texture_override_active();
 bool texture_override_apply(const Texture& t, uint32_t w, uint32_t h, std::vector<uint8_t>& bc7);
 
-// Texture pixel edit (nxrt/tex_edit.h; nvn_tex_edit.cpp). prepare_texture asks match for 2D ASTC textures it transcodes or decodes; for a
-// non-zero id it serves the kept data of (id, generation, format) or makes it (decode, the host's edit per level, encode at tex_edit_quality)
-// and keeps it; edited data never reaches the BC7 disk cache.
-struct TexEditKey {
-    uint64_t id = 0, gen = 0;
-};
-bool tex_edit_active();
-TexEditKey tex_edit_match(const Texture& t, const uint8_t* src);
-// true: data holds the kept data. false: this thread makes it and must call tex_edit_store or tex_edit_abandon (another thread making the same
-// data is waited for first).
-bool tex_edit_lookup(const TexEditKey& k, VkFormat f, std::vector<uint8_t>& data);
-void tex_edit_store(const TexEditKey& k, VkFormat f, const std::vector<uint8_t>& data, double ms);
-void tex_edit_abandon(const TexEditKey& k, VkFormat f);
-void tex_edit_level(uint64_t id, uint32_t level, uint32_t w, uint32_t h, uint8_t* rgba);
-void tex_edit_note(const Texture& t);   // the texture was given edited data (uploaded again when the answers change)
-int tex_edit_quality();                 // [nvn] tex_edit_quality, bc7e preset 0..6 (default 1)
-
 // [gfx] astc_quality (env NXRT_GFX_ASTC_QUALITY), read at every call so a test can change it; the GPU layer reads it once per run (it applies on restart):
 //   fast         ASTC -> BC7 at the preset [nvn] bc7_quality (default 3), written to the disk cache, as before.
 //   high         (default) the same on the first use of a texture, and a background thread re-encodes it with the slow preset (kHighPreset, or

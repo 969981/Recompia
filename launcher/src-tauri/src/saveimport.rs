@@ -19,10 +19,10 @@ use serde::Serialize;
 /// Program id of the game (little-endian in the save attribute).
 const PROGRAM_ID: u64 = 0x0400_A3A0_1EE4_C000;
 const TITLE_DIR: &str = "0400A3A01EE4C000";
-/// The runtime's built-in local user (games/pkp/pkp_core.cpp): [account] uid is hi then lo; the save folder is each u64 little-endian.
+/// The runtime's built-in local user (games/pkp/core/pkp_core.cpp): [account] uid is hi then lo; the save folder is each u64 little-endian.
 const DEFAULT_UID: &str = "000000000000000141434e4852656370";
 const SAVE_PARTS: [&str; 3] = ["B00", "G00", "S00"];
-/// Size and journal size the runtime gives the account save (games/pkp/pkp_core.cpp account_save_size).
+/// Size and journal size the runtime gives the account save (games/pkp/core/pkp_core.cpp account_save_size).
 const ACCOUNT_SAVE_SIZE: u64 = 0x400_0000;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -152,6 +152,15 @@ pub fn find_sources_here() -> Vec<Source> {
 
 // ---- where the runtime keeps the save ------------------------------------------------------------------------------------------------
 
+/// NXRT_FS_SAVE_DIR, which overrides [fs] save_dir in the runtime and so here too; empty when unset. The tests never see it: they
+/// work in folders of their own, and following the variable would point them at the real save of the PC they run on.
+pub fn env_save_dir() -> String {
+    if cfg!(test) {
+        return String::new();
+    }
+    std::env::var("NXRT_FS_SAVE_DIR").unwrap_or_default()
+}
+
 /// The runtime's [fs] save_dir: relative to the game folder; empty is the launcher's default `save`.
 pub fn save_dir_of(game_dir: &Path, ini_value: &str) -> PathBuf {
     let v = ini_value.trim();
@@ -187,7 +196,19 @@ fn meta_attr_matches(meta: &Path) -> bool {
     let Ok(text) = fs::read_to_string(meta) else { return false };
     let Some(attr) = text.lines().find_map(|l| l.strip_prefix("attr=")) else { return false };
     // attr: application id (8 bytes), uid (16), system id (8), type (1 byte at 32; 1 = account)
-    attr.len() >= 66 && attr[..16].eq_ignore_ascii_case(&app_hex()) && &attr[64..66] == "01"
+    attr.len() >= 66 && attr.get(..16).is_some_and(|a| a.eq_ignore_ascii_case(&app_hex())) && attr.get(64..66) == Some("01")   // get(): a non-ASCII byte there is no match, not a panic
+}
+
+/// The runtime's save folder and the account folder the game uses for the active profile, from pkp.ini (settings::read_pkp, the
+/// runtime's own rule for repeated keys). Import, backup, restore and rollback all ask here.
+pub fn locate(game_dir: &Path) -> (PathBuf, String) {
+    let pkp = crate::settings::read_pkp(game_dir);
+    let get = |k: &str| pkp.get(k).cloned().unwrap_or_default();
+    let env = env_save_dir();
+    let sd = save_dir_of(game_dir, &if env.trim().is_empty() { get("fs.save_dir") } else { env });
+    // with profiles, a profile other than the first plays its own account folder, not the newest one
+    let key = crate::profiles::strict_save_key(game_dir).unwrap_or_else(|| target_key(&sd, &get("account.uid")));
+    (sd, key)
 }
 
 /// The account save folder name to import into: the game's existing one (its .meta names the game and the account type), else the
@@ -228,23 +249,6 @@ fn copy_tree(src: &Path, dst: &Path, n: &mut u64) -> io::Result<()> {
     Ok(())
 }
 
-/// UTC time as yyyymmdd-hhmmss (no time-zone crate needed).
-fn stamp() -> String {
-    let secs = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let (days, rem) = (secs / 86400, secs % 86400);
-    // civil-from-days (H. Hinnant)
-    let z = days as i64 + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z.rem_euclid(146097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("{:04}{:02}{:02}-{:02}{:02}{:02}", y, m, d, rem / 3600, rem % 3600 / 60, rem % 60)
-}
-
 fn put_back(old: &[PathBuf], bacc: &Path) {
     for p in old {
         let back = bacc.join(p.file_name().unwrap());
@@ -267,7 +271,7 @@ pub fn import(save_dir: &Path, key: &str, src: &Path) -> Result<Report, String> 
         return Err(format!("{} is inside the save folder the game plays. Pick a copy outside it.", fwd(src)));
     }
     fs::create_dir_all(&acc).map_err(|e| format!("Cannot create {}: {}", fwd(&acc), e))?;
-    let t = stamp();
+    let t = crate::fsutil::file_stamp();
 
     // 1. stage the copy beside the root; a failure here changes nothing
     let stage = acc.join(format!("{}.import-{}", key, t));
@@ -371,4 +375,50 @@ pub fn game_running() -> bool {
     fs::read_dir("/proc")
         .map(|rd| rd.flatten().any(|e| fs::read_to_string(e.path().join("comm")).map(|c| c.trim() == "pkp.exe").unwrap_or(false)))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_with(attr: &str) -> bool {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let p = std::env::temp_dir().join(format!("pkp-meta-{}-{}.meta", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+        fs::write(&p, format!("size=1\nattr={}\n", attr)).unwrap();
+        let r = meta_attr_matches(&p);
+        let _ = fs::remove_file(&p);
+        r
+    }
+
+    #[test]
+    fn a_repeated_save_dir_key_takes_the_last_value_like_the_runtime() {
+        let dir = std::env::temp_dir().join(format!("pkp-locate-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("pkp.ini"), "[fs]
+save_dir = first
+save_dir = second
+").unwrap();
+        let (sd, _) = locate(&dir);
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(sd, dir.join("second"));
+    }
+
+    #[test]
+    fn an_account_meta_of_the_game_matches() {
+        let attr = format!("{}{}{}01{}", app_hex(), "ab".repeat(16), "00".repeat(8), "00".repeat(31));
+        assert!(meta_with(&attr));
+        assert!(!meta_with(&attr.replace("01", "00")));
+    }
+
+    #[test]
+    fn a_non_ascii_attr_is_no_match_and_no_panic() {
+        // a multi-byte character straddling offsets 16 and 64
+        let mut attr = "é".repeat(8);
+        attr.push_str(&"0".repeat(60));
+        assert!(attr.len() >= 66);
+        assert!(!meta_with(&attr));
+        let mut late = "0".repeat(63);
+        late.push_str("éé");
+        assert!(late.len() >= 66 && !meta_with(&late));
+    }
 }

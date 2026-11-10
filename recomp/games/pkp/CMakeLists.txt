@@ -31,26 +31,23 @@ endif()
 set(PKP_EXEFS "${PKP_EXEFS_DEFAULT}" CACHE PATH "folder with the NSOs main, sdk, subsdk0, rtld")
 message(STATUS "pkp: lifting the NSOs in ${PKP_EXEFS}")
 set(PKP_GEN "${PKP_ROOT}/work/lift" CACHE PATH "where the generated sources go")
-# translation units per module: about 45k instructions each (docs/S1b.md); main has 10.3 M instruction words
-set(PKP_SHARDS_MAIN 230 CACHE STRING "translation units of main")
-set(PKP_SHARDS_SDK 45 CACHE STRING "translation units of sdk")
-set(PKP_SHARDS_SUBSDK0 4 CACHE STRING "translation units of subsdk0")
-set(PKP_SITES "${CMAKE_CURRENT_LIST_DIR}/main.sites" CACHE FILEPATH "hook sites of main for this build (resolved from sites.sig)")
+# the module table (names, exefs files, bases, NxModule.index, translation units, site lists) is recomp/games/pkp/config.py,
+# shared with the player build (game-build/release_b/pkp_build.py)
+nxrecomp_build_info(pkp PKP_MOD)
+set(PKP_SITES "${PKP_MOD_main_SITES}" CACHE FILEPATH "hook sites of main")
 
-nxrecomp_add_module(pkp_main INPUT "${PKP_EXEFS}/main" NAME main INDEX 0 BASE 0x7100000000 GAME pkp SHARDS ${PKP_SHARDS_MAIN}
-                    SITES "${PKP_SITES}" OUTDIR "${PKP_GEN}/main")
-nxrecomp_add_module(pkp_sdk INPUT "${PKP_EXEFS}/sdk" NAME sdk INDEX 1 BASE 0x7500000000 GAME pkp SHARDS ${PKP_SHARDS_SDK}
-                    OUTDIR "${PKP_GEN}/sdk")
-nxrecomp_add_module(pkp_subsdk0 INPUT "${PKP_EXEFS}/subsdk0" NAME subsdk0 INDEX 2 BASE 0x7600000000 GAME pkp SHARDS ${PKP_SHARDS_SUBSDK0}
-                    OUTDIR "${PKP_GEN}/subsdk0")
-nxrecomp_add_module(pkp_rtld INPUT "${PKP_EXEFS}/rtld" NAME rtld INDEX 3 BASE 0x7700000000 GAME pkp SHARDS 1
-                    OUTDIR "${PKP_GEN}/rtld")
-add_custom_target(pkp_modules DEPENDS pkp_main pkp_sdk pkp_subsdk0 pkp_rtld)
-
-# Link check (target pkp_link_check): the four libraries plus stubs for what the runtime provides. Proves every symbol resolves.
-# The stubs live with the mpr game folder, which this repository does not carry: no target then (configure must not fail on it).
-if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../mpr/link_check.cpp")
-    add_executable(pkp_link_check EXCLUDE_FROM_ALL ../mpr/link_check.cpp)
-    target_link_libraries(pkp_link_check PRIVATE pkp_main pkp_sdk pkp_subsdk0 pkp_rtld)
-    target_compile_options(pkp_link_check PRIVATE /w /EHs-c- /GR-)
-endif()
+set(_pkp_targets "")
+foreach(m IN LISTS PKP_MOD_MODULES)
+    set(_sites "${PKP_MOD_${m}_SITES}")
+    if(m STREQUAL "main")
+        set(_sites "${PKP_SITES}")
+    endif()
+    set(_sites_arg "")
+    if(_sites)
+        set(_sites_arg SITES "${_sites}")
+    endif()
+    nxrecomp_add_module(pkp_${m} INPUT "${PKP_EXEFS}/${PKP_MOD_${m}_FILE}" NAME ${m} INDEX ${PKP_MOD_${m}_INDEX}
+                        BASE ${PKP_MOD_${m}_BASE} GAME pkp SHARDS ${PKP_MOD_${m}_SHARDS} ${_sites_arg} OUTDIR "${PKP_GEN}/${m}")
+    list(APPEND _pkp_targets pkp_${m})
+endforeach()
+add_custom_target(pkp_modules DEPENDS ${_pkp_targets})

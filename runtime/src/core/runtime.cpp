@@ -41,6 +41,7 @@ bool init(const InitOptions& opt) {
     const char* ini = opt.ini_path ? opt.ini_path : std::getenv("NXRT_INI");
     config_load_file(ini && *ini ? ini : "nxrt.ini");
     if (opt.cache_env) config_cache_env(true);
+    hle_trace_init();
     LogOptions lo;
     lo.path = opt.log_path;
     log_init(lo);
@@ -56,6 +57,13 @@ bool init(const InitOptions& opt) {
         ok = false;
     }
     svc_init();
+    {   // what the kernel asks of the layers above it: the title's facts (services) and the state summary (here)
+        kernel::ProcessHooks h;
+        h.program_id = &services::program_id_now;
+        h.system_resource_size = []() -> uint64_t { return services::profile().system_resource_size; };
+        h.state_report = &summary;
+        kernel::set_process_hooks(h);
+    }
     kernel::install_spin_hint();
     kernel::starvation_guard_start();
     if (opt.services) {

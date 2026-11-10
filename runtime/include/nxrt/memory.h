@@ -73,11 +73,8 @@ bool heap_alias_unmap(uint64_t view_addr);      // unmap a view returned by heap
 // contains the imported range, so importing 64 KB of the multi-gigabyte primary view cost tens of milliseconds, a small view costs 0.05 ms (S18).
 void* heap_private_view(uint64_t offset, uint64_t size);
 bool heap_private_view_unmap(void* view);
-size_t heap_alias_count();
 // (section offset, size) of every alias view made by heap_alias (the write tracker bans those pages, nxrt/write_watch.h).
 void heap_alias_ranges(std::vector<std::pair<uint64_t, uint64_t>>& out);
-// Section offset of an address inside the primary view or an alias view made by heap_alias; false when it is neither.
-bool heap_offset_of(uint64_t addr, uint64_t* offset);
 
 // ---- Horizon-style memory map for svcQueryMemory --------------------------------------------------------------------
 enum MemState : uint32_t {

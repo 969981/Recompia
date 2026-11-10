@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Relay protocol v3 wire codec, shared by the client (lobby.cpp) and the embedded server (relay_server.cpp). Internal to net/.
-// Reference: launcher/src-tauri/src/relay/mod.rs. Frame = u32 len (bytes after it, 1..8192) + u8 type + payload, little-endian;
+// This file is the definition of the v3 wire format (the launcher's old reference, relay/codec.rs, is gone). Frame = u32 len (bytes after it, 1..8192) + u8 type + payload, little-endian;
 // str = u8 len + UTF-8; blob = u16 len + bytes. UDP packets: u8 type + u64 token (+ the datagram header and payload), no length prefix.
 #pragma once
 #include <array>
@@ -9,6 +9,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include "nxrt/text.h"
 
 #include "lobby.h"
 
@@ -49,7 +51,7 @@ struct Out {
     Out& raw(const void* p, size_t n) { b.insert(b.end(), static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + n); return *this; }
     Out& str(const std::string& s, size_t cap = 255) {
         size_t n = s.size() < cap ? s.size() : cap;
-        while (n && n < s.size() && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;   // never cut inside a UTF-8 sequence
+        n = text::utf8_cut(s, n);   // never cut inside a UTF-8 sequence
         return u8(static_cast<uint8_t>(n)).raw(s.data(), n);
     }
     Out& blob(const std::vector<uint8_t>& v) { return u16(static_cast<uint16_t>(v.size())).raw(v.data(), v.size()); }
@@ -98,6 +100,8 @@ struct In {
 
 // ROOM_INFO = u32 room_id, u64 local_comm_id, u16 scene_id, s16 comm_version, u8 node_count_max, u8 security_mode, u8 node_count,
 // node_count x {u8 node_id, u32 vip, 6 B mac, str nickname}, u16 adv_len + adv.
+// A relay is not trusted with the game's player limit: more than kMaxNodes nodes, or a node id past kMaxNodes or listed twice, clears in.ok
+// (the caller drops the room); node_count_max is clamped to kMaxNodes.
 inline Room read_room(In& in) {
     Room r;
     r.room_id = in.u32();
@@ -105,11 +109,16 @@ inline Room read_room(In& in) {
     r.scene_id = in.u16();
     r.comm_version = static_cast<int16_t>(in.u16());
     r.node_count_max = in.u8();
+    if (r.node_count_max > kMaxNodes) r.node_count_max = kMaxNodes;
     r.security_mode = in.u8();
     const uint8_t count = in.u8();
+    if (count > kMaxNodes) in.ok = false;
+    uint32_t ids = 0;   // node ids seen
     for (uint8_t i = 0; i < count && in.ok; ++i) {
         RoomNode nd;
         nd.node_id = in.u8();
+        if (nd.node_id >= kMaxNodes || (ids & (1u << nd.node_id))) in.ok = false;
+        else ids |= 1u << nd.node_id;
         nd.vip = in.u32();
         if (in.need(6)) {
             std::memcpy(nd.mac.data(), in.p + in.o, 6);

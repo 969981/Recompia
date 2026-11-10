@@ -1,7 +1,9 @@
 // Every row of the Settings page, and the pure mapping between the files and the controls. No DOM, no Tauri: `node --test` runs it.
 // A new setting is one entry in SECTIONS; pages/settings.js draws and saves it without being touched.
-// Keys and defaults: runtime/src/gfx/play/play_config.cpp, play_types.h, runtime/docs/CONFIG.md. A missing key reads as the default in
-// play_types.h, which is what the game does with it.
+// Keys, defaults and ranges come from the runtime's schemas (runtime/docs/controls_schema.json for controls.ini, pkp_ini_schema.json for
+// pkp.ini's [pkp] section), which runtime/scripts/gen_settings_doc.ps1 generates from the runtime's settings tables: a row takes them
+// through fromSchema(at), so a missing key reads as the default the game itself uses. Labels, grouping, option lists and help text stay
+// here. scripts/test-settings-schema.mjs checks every key shown is in the schema, live and writable, and every option is a value it takes.
 //
 // A source is { pkp, controls, config, controls_exists }: read_settings' `section.key` maps plus get_config.
 // An edit is { file, section, key, value }. file 'pkp' and 'controls' go to write_settings, 'config' to save_config.
@@ -19,6 +21,9 @@
 //   quality  'value' | 'frame': a value quality presets set, so changing it by hand makes the preset Custom (see markCustom)
 // A choice is a list of presets plus Custom with a number field (custom: { min, max, suffix, start, label }), a size likewise with two.
 // Rows that are not fields: info (label, value, actions), keycap (label, key), note (a line of text), and { expand } for rows made from env.
+
+import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
+import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
 
 const controls = (section, key) => ({ file: 'controls', section, key });
 const pkp = (section, key) => ({ file: 'pkp', section, key });
@@ -38,6 +43,24 @@ const truthy = (v) => ['1', 'true', 'yes', 'on'].includes(String(v).trim().toLow
 const fwd = (s) => String(s).trim().replace(/\\/g, '/');
 /** The runtime's name_key(): case and `-` are forgiven in the words of the file. */
 const word = (v) => String(v).trim().toLowerCase().replace(/-/g, '_');
+
+// ---- the runtime's schema -----------------------------------------------------------------------------------------------------------
+
+/** The generated schema of each file a row can live in. pkp.ini sections other than [pkp] ([fs], [backup], [time]) have no table yet. */
+export const SCHEMAS = { controls: controlsSchema, pkp: gameIniSchema };
+
+/** The runtime's entry for a key ({ key, type, default, min, max, choices, auto, read_only, ... }), or undefined. */
+export const schemaKey = (at) => SCHEMAS[at.file]?.sections.find((s) => s.name === at.section)?.keys.find((k) => k.key === at.key);
+
+/** A retired key: read and ignored by the runtime, never written. */
+export const isRetired = (at) => !!SCHEMAS[at.file]?.retired.some((r) => r.section === at.section && r.key === at.key);
+
+/** { at, def, min, max } of a key from the runtime's schema (min / max only when it has a range). A key it lacks is a bug: throws. */
+export function fromSchema(at) {
+  const k = schemaKey(at);
+  if (!k) throw new Error(`settings-schema: [${at.section}] ${at.key} is not in the runtime's ${at.file} schema`);
+  return { at, def: k.default, ...(k.min !== undefined && { min: k.min }), ...(k.max !== undefined && { max: k.max }) };
+}
 
 // ---- shader files -------------------------------------------------------------------------------------------------------------------
 // env.storage: shader_storage (shader_archive.rs Storage, plus complete and running). env.repack: the running job, or null.
@@ -87,7 +110,7 @@ export function storageNote(env) {
 // ---- quality presets --------------------------------------------------------------------------------------------------------------
 
 // Ids, labels and which ones set the frame values: kQualityPresets in runtime/src/gfx/play/play_types.cpp (labels without its bracket).
-// The values: kPresets in runtime/games/pkp/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
+// The values: kPresets in runtime/games/pkp/render/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
 // render_scale 0 and fps_limit -1 are written as auto.
 export const QUALITY_PRESETS = [
   { id: 'switch2', label: 'Switch 2', lod_bias: 0, anisotropy: 0 },
@@ -99,17 +122,22 @@ export const QUALITY_PRESETS = [
   { id: 'desktop', label: 'Desktop PC', lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
 ];
 
-const AT_PRESET = controls('display', 'quality_preset');
-const AT_RENDER_SCALE = controls('display', 'render_scale');
-const AT_FPS_LIMIT = controls('display', 'fps_limit');
+const PRESET = fromSchema(controls('display', 'quality_preset'));
+const AT_PRESET = PRESET.at;
+const RENDER_SCALE = fromSchema(controls('display', 'render_scale'));
+const AT_RENDER_SCALE = RENDER_SCALE.at;
+const FPS_LIMIT = fromSchema(controls('display', 'fps_limit'));
+const AT_FPS_LIMIT = FPS_LIMIT.at;
+const AT_LOD_BIAS = fromSchema(controls('display', 'lod_bias')).at;
+const AT_ANISOTROPY = fromSchema(controls('display', 'anisotropy')).at;
 
 function presetEdits(id) {
   const p = QUALITY_PRESETS.find((q) => q.id === id);
   if (!p) return [];   // Custom is what a preset becomes, never something picked: the F1 list does not offer it either
   const edits = [
     edit(AT_PRESET, id),
-    edit(controls('display', 'lod_bias'), String(p.lod_bias)),
-    edit(controls('display', 'anisotropy'), String(p.anisotropy)),
+    edit(AT_LOD_BIAS, String(p.lod_bias)),
+    edit(AT_ANISOTROPY, String(p.anisotropy)),
   ];
   if (p.render_scale !== undefined) edits.push(edit(AT_RENDER_SCALE, p.render_scale > 0 ? String(p.render_scale) : 'auto'));
   if (p.fps_limit !== undefined) edits.push(edit(AT_FPS_LIMIT, p.fps_limit >= 0 ? String(p.fps_limit) : 'auto'));
@@ -118,7 +146,7 @@ function presetEdits(id) {
 
 /** quality_preset_edited() of play_types.cpp: the render scale and the frame limit only belong to the device presets. */
 function markCustom(kind, src) {
-  const cur = word(has(src, AT_PRESET) ? rawOf(src, AT_PRESET) : 'switch2');
+  const cur = word(has(src, AT_PRESET) ? rawOf(src, AT_PRESET) : PRESET.def);
   if (cur === 'custom') return [];
   const setsFrame = QUALITY_PRESETS.find((q) => q.id === cur)?.render_scale !== undefined;
   return kind === 'frame' && !setsFrame ? [] : [edit(AT_PRESET, 'custom')];
@@ -126,14 +154,16 @@ function markCustom(kind, src) {
 
 // ---- volume and mouse ---------------------------------------------------------------------------------------------------------------
 
-const AT_VOLUME = controls('audio', 'volume');
+const VOLUME = fromSchema(controls('audio', 'volume'));
+const AT_VOLUME = VOLUME.at;
 const AT_VOLUME_PKP = pkp('audio', 'volume');
 
 /** [audio] volume in pkp.ini beats controls.ini and undoes the F1 slider, so what it says is what plays. Shown as 0 to 100. */
 function readVolume(src) {
   const at = [AT_VOLUME_PKP, AT_VOLUME].find((a) => has(src, a));
-  const v = at ? parseFloat(rawOf(src, at)) : 1;
-  return Math.round(clamp(Number.isFinite(v) ? v : 1, 0, 1) * 100);
+  const def = parseFloat(VOLUME.def);
+  const v = at ? parseFloat(rawOf(src, at)) : def;
+  return Math.round(clamp(Number.isFinite(v) ? v : def, VOLUME.min, VOLUME.max) * 100);
 }
 
 function writeVolume(value, src) {
@@ -142,11 +172,13 @@ function writeVolume(value, src) {
 }
 
 export const SOURCE_RAD = (0.022 * Math.PI) / 180;   // kSourceRadPerCount: radians per mouse count at sensitivity 1
-const AT_YAW = controls('mouse', 'yaw');
-const AT_PITCH = controls('mouse', 'pitch');
+const YAW = fromSchema(controls('mouse', 'yaw'));
+const AT_YAW = YAW.at;
+const AT_PITCH = fromSchema(controls('mouse', 'pitch')).at;
+// The slider's own range on the Source scale (the file takes any number); the default is the runtime's, 2 at 0.000767945 rad.
 const SENS_MIN = 0.1;
 const SENS_MAX = 20;
-const SENS_DEFAULT = 2;   // 0.000767945 rad in play_types.h
+const SENS_DEFAULT = Math.round((parseFloat(YAW.def) / SOURCE_RAD) * 10) / 10;
 
 function readSensitivity(src) {
   const rad = parseFloat(rawOf(src, AT_YAW));
@@ -227,6 +259,13 @@ const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
 const open = (url, label = 'Open') => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
+const WIDTH = fromSchema(controls('display', 'width'));
+const HEIGHT = fromSchema(controls('display', 'height'));
+const WINDOW_SIZE = {
+  at: [WIDTH.at, HEIGHT.at], def: `${WIDTH.def}x${HEIGHT.def}`, min: Math.max(WIDTH.min, HEIGHT.min), max: Math.min(WIDTH.max, HEIGHT.max),
+};
+const AIM_REACH = fromSchema(pkp('pkp', 'camera_aim_reach'));
+
 export const DLSS_DOWNLOAD = {
   title: 'Download DLSS?',
   html: `<p>NVIDIA licenses this file separately, so it does not come with the launcher. It comes from NVIDIA's DLSS repository on GitHub, and its version and hash are checked.</p>
@@ -238,15 +277,14 @@ export const IMPORT_FACTS = 'Your current save moves to a backup folder first, a
 
 // The options that are off until a player turns them on: in Game > Gameplay, but on the Testing channel they live in the Testing tab (same fields, one place at a time).
 const GAMEPLAY_ROWS = [
-          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
-          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
-          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
-  { id: 'inventory_sort', label: 'Sort button (bag and boxes)', type: 'toggle', at: pkp('pkp', 'inventory_sort'), def: '0' },
-  { id: 'craft_search', label: 'Search button (crafting)', type: 'toggle', at: pkp('pkp', 'craft_search'), def: '0' },
-  { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', at: pkp('pkp', 'title_quit'), def: '0' },
-  { id: 'menu_in_game', label: 'Mouse in the game\'s menus', type: 'toggle', at: pkp('pkp', 'menu_in_game'), def: '0' },
-  { id: 'taller_fov', label: 'Taller view on 16:10 screens', type: 'toggle', at: pkp('pkp', 'taller_fov'), def: '0' },
-  { id: 'compile_note', label: '"Preparing shaders" note', type: 'toggle', at: pkp('nvn', 'compile_note'), def: '0' },
+  { id: 'camera_aim', label: 'Camera aim', type: 'toggle', ...fromSchema(pkp('pkp', 'camera_aim')) },
+        { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: `Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach ${AIM_REACH.def} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).` }) },
+  { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', ...fromSchema(pkp('pkp', 'jump_momentum')) },
+  { id: 'inventory_sort', label: 'Sort button (bag and boxes)', type: 'toggle', ...fromSchema(pkp('pkp', 'inventory_sort')) },
+  { id: 'craft_search', label: 'Search button (crafting)', type: 'toggle', ...fromSchema(pkp('pkp', 'craft_search')) },
+  { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', ...fromSchema(pkp('pkp', 'title_quit')) },
+  { id: 'menu_in_game', label: 'Mouse in the game\'s menus', type: 'toggle', ...fromSchema(pkp('pkp', 'menu_in_game')) },
+  { id: 'taller_fov', label: 'Taller view on 16:10 screens', type: 'toggle', ...fromSchema(pkp('pkp', 'taller_fov')) },
 ];
 const isTesting = (v) => v.channel === 'testing';
 const showWhen = (on) => (rows) => rows.map((r) => ({ ...r, when: (v, e) => on(v) && (r.when ? r.when(v, e) : true) }));
@@ -262,12 +300,11 @@ export const SECTIONS = [
         title: 'Picture',
         rows: [
           {
-            id: 'window_mode', label: 'Window', type: 'segmented', at: controls('display', 'window_mode'), def: 'windowed',
+            id: 'window_mode', label: 'Window', type: 'segmented', ...fromSchema(controls('display', 'window_mode')),
             options: [{ value: 'windowed', label: 'Windowed' }, { value: 'borderless', label: 'Borderless' }, { value: 'exclusive', label: 'Fullscreen' }],
           },
           {
-            id: 'window_size', label: 'Window size', type: 'size', at: [controls('display', 'width'), controls('display', 'height')], def: '1280x720',
-            min: 320, max: 16384, when: (v) => v.window_mode === 'windowed',
+            id: 'window_size', label: 'Window size', type: 'size', ...WINDOW_SIZE, when: (v) => v.window_mode === 'windowed',
             options: [
               { value: '1280x720', label: '1280 x 720' }, { value: '1600x900', label: '1600 x 900' }, { value: '1920x1080', label: '1920 x 1080' },
               { value: '2560x1440', label: '2560 x 1440' }, { value: '3840x2160', label: '3840 x 2160' },
@@ -275,29 +312,29 @@ export const SECTIONS = [
           },
           {
             // 100 is 1920 x 1080: the percentages are the game's own size, see render_scale in play_types.h
-            id: 'render_scale', label: 'Render resolution', type: 'choice', at: AT_RENDER_SCALE, def: '100', quality: 'frame',
-            custom: { min: 25, max: 400, suffix: '%', start: 100, label: 'Custom render resolution in percent' },
+            id: 'render_scale', label: 'Render resolution', type: 'choice', at: AT_RENDER_SCALE, def: RENDER_SCALE.def, quality: 'frame',
+            custom: { min: RENDER_SCALE.min, max: RENDER_SCALE.max, suffix: '%', start: 100, label: 'Custom render resolution in percent' },
             options: [
               { value: 'auto', label: 'Match window' }, { value: '67', label: '720p' }, { value: '100', label: '1080p' },
               { value: '133', label: '1440p' }, { value: '200', label: '2160p' },
             ],
           },
-          { id: 'keep_aspect', label: 'Keep 16:9 picture', type: 'toggle', at: controls('display', 'keep_aspect'), def: '1' },
+          { id: 'keep_aspect', label: 'Keep 16:9 picture', type: 'toggle', ...fromSchema(controls('display', 'keep_aspect')) },
         ],
       },
       {
         title: 'Frame rate',
         rows: [
           {
-            id: 'fps_limit', label: 'Frame rate limit', type: 'choice', at: AT_FPS_LIMIT, def: '60', quality: 'frame',
-            custom: { min: 0, max: 1000, suffix: 'fps', start: 60, label: 'Custom frame rate limit' },
+            id: 'fps_limit', label: 'Frame rate limit', type: 'choice', at: AT_FPS_LIMIT, def: FPS_LIMIT.def, quality: 'frame',
+            custom: { min: FPS_LIMIT.min, max: FPS_LIMIT.max, suffix: 'fps', start: 60, label: 'Custom frame rate limit' },
             options: [
               { value: 'auto', label: 'Match display' }, { value: '30', label: '30' }, { value: '60', label: '60' },
               { value: '120', label: '120' }, { value: '144', label: '144' }, { value: '0', label: 'Unlimited' },
             ],
           },
-          { id: 'vsync', label: 'VSync', type: 'toggle', at: controls('display', 'vsync'), def: '0' },
-          { id: 'fps_show', label: 'Frame rate counter', type: 'toggle', at: controls('fps', 'show'), def: '0' },
+          { id: 'vsync', label: 'VSync', type: 'toggle', ...fromSchema(controls('display', 'vsync')) },
+          { id: 'fps_show', label: 'Frame rate counter', type: 'toggle', ...fromSchema(controls('fps', 'show')) },
         ],
       },
     ],
@@ -310,7 +347,7 @@ export const SECTIONS = [
         title: 'Quality',
         rows: [
           {
-            id: 'quality_preset', label: 'Quality preset', type: 'select', at: AT_PRESET, def: 'switch2',
+            id: 'quality_preset', label: 'Quality preset', type: 'select', ...PRESET,
             options: QUALITY_PRESETS.map((q) => ({ value: q.id, label: q.label })),
             write: (value) => presetEdits(value), replaces: true,
           },
@@ -322,12 +359,12 @@ export const SECTIONS = [
           {
             // spatial is the runtime's other word for fsr1. ponytail: fsr3 / nis / dlss / dlaa / xess are switched off in the runtime until
             // they are reworked (#232) and run as off; add their options back here (and the dlss guard) when they return.
-            id: 'upscale_mode', label: 'Upscaler', type: 'select', at: controls('upscale', 'mode'), def: 'off',
+            id: 'upscale_mode', label: 'Upscaler', type: 'select', ...fromSchema(controls('upscale', 'mode')),
             aliases: { spatial: 'fsr1', xess: 'off', fsr3: 'off', nis: 'off', dlss: 'off', dlaa: 'off' }, lock: (env) => env.dlssBusy,
             options: [{ value: 'off', label: 'Off' }, { value: 'fsr1', label: 'FSR 1' }, { value: 'nearest', label: 'Nearest (sharp pixels)' }],
           },
           {
-            id: 'upscale_quality', label: 'Upscaling quality', type: 'select', at: controls('upscale', 'quality'), def: 'quality',
+            id: 'upscale_quality', label: 'Upscaling quality', type: 'select', ...fromSchema(controls('upscale', 'quality')),
             when: (v) => ['fsr3', 'dlss'].includes(v.upscale_mode),
             options: [
               { value: 'native', label: 'Native' }, { value: 'quality', label: 'Quality' }, { value: 'balanced', label: 'Balanced' },
@@ -352,10 +389,10 @@ export const SECTIONS = [
         title: '',
         rows: [
           {
-            id: 'volume', label: 'Volume', type: 'slider', at: AT_VOLUME, min: 0, max: 100, step: 1, suffix: '%',
+            id: 'volume', label: 'Volume', type: 'slider', at: AT_VOLUME, min: VOLUME.min * 100, max: VOLUME.max * 100, step: 1, suffix: '%',
             read: readVolume, write: writeVolume, enabled: (src) => hasControls(src) || has(src, AT_VOLUME_PKP),
           },
-          { id: 'mute_unfocused', label: 'Mute when not focused', type: 'toggle', at: controls('audio', 'mute_unfocused'), def: '0' },
+          { id: 'mute_unfocused', label: 'Mute when not focused', type: 'toggle', ...fromSchema(controls('audio', 'mute_unfocused')) },
         ],
       },
     ],
@@ -368,15 +405,15 @@ export const SECTIONS = [
         title: 'Mouse',
         rows: [
           { id: 'sensitivity', label: 'Mouse sensitivity', type: 'slider', at: AT_YAW, min: SENS_MIN, max: SENS_MAX, step: 0.1, read: readSensitivity, write: writeSensitivity },
-          { id: 'invert_x', label: 'Invert horizontal', type: 'toggle', at: controls('mouse', 'invert_x'), def: '0' },
-          { id: 'invert_y', label: 'Invert vertical', type: 'toggle', at: controls('mouse', 'invert_y'), def: '0' },
+          { id: 'invert_x', label: 'Invert horizontal', type: 'toggle', ...fromSchema(controls('mouse', 'invert_x')) },
+          { id: 'invert_y', label: 'Invert vertical', type: 'toggle', ...fromSchema(controls('mouse', 'invert_y')) },
         ],
       },
       {
         title: 'Buttons',
         rows: [
           {
-            id: 'prompt_style', label: 'Button icons', type: 'select', at: controls('prompts', 'style'), def: 'auto',
+            id: 'prompt_style', label: 'Button icons', type: 'select', ...fromSchema(controls('prompts', 'style')),
             aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
             options: [
               { value: 'auto', label: 'Automatic' }, { value: 'switch', label: 'Switch' }, { value: 'xbox', label: 'Xbox' },

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collapse a shader corpus (tools/survey/extract_shaders.py layout) to one block per distinct Maxwell CODE block.
+"""Collapse a shader corpus (one directory per shader block) to one block per distinct Maxwell CODE block.
 
 The survey keys a block by sha1(code + control section) (67,506 distinct blocks for Metroid Prime Remastered). The runtime
 only has the code block and its control pointer (no control length), and the translated SPIR-V depends on the code block

@@ -274,7 +274,7 @@ function runUpdate() {
     }, 250);
     updateStop = () => {
       clearInterval(timer);
-      reject('Update cancelled.');
+      reject({ code: 'update_cancelled', message: 'Update cancelled.' });
     };
   });
 }
@@ -341,7 +341,7 @@ function handle(cmd, args) {
     case 'import_nup':
       nupStop = false;
       return runTicks('nup-progress', (i, n) => {
-        if (nupStop) throw 'Unpacking was cancelled.';
+        if (nupStop) throw { code: 'nup_cancelled', message: 'Unpacking was cancelled.' };
         return { done: i, total: n, file: `romfs/data/pack_${i}.bin` };
       }).then(() => `${GAME_DIR}/nup_dump`);
     case 'cancel_nup': nupStop = true; return null;

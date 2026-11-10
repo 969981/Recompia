@@ -17,6 +17,7 @@
 #include "nxrt/log.h"
 #include "nxrt/lowlat.h"
 #include "nxrt/platform.h"
+#include "nxrt/text.h"
 #include "extras/hdr_capture.h"
 #include "extras/hdr_math.h"
 #include "extras/win_display.h"
@@ -70,8 +71,7 @@ const char* present_mode_name(PresentMode m) {
 
 bool parse_present_mode(const char* s, PresentMode* out) {
     if (!s) return false;
-    std::string v;
-    for (const char* p = s; *p; ++p) v += static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
+    const std::string v = nxrt::text::lower(s);
     for (PresentMode m : {PresentMode::Fifo, PresentMode::FifoRelaxed, PresentMode::Mailbox, PresentMode::Immediate})
         if (v == present_mode_name(m)) { *out = m; return true; }
     return false;
