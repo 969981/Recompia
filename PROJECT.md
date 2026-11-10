@@ -284,6 +284,23 @@ launcher). A feature that overrides a setting the player chose (frame cap, resol
   version of the files you touch, not an old clone, a cached copy or a pasted excerpt.
 - Fetch again before every commit, push and PR. If the rules or your files changed in the meantime, re-read them and adapt your work.
 
+### 6.5 A patch that doesn't need a shader rebuild never makes one mandatory.
+
+Translating the game's ~99,000 shaders again, or preparing them again at start, costs players a long wait. An update asks for it only
+when the patch really changes what a shader becomes on the player's PC.
+
+- Raise `TRANSLATOR_REV` (`launcher/src-tauri/src/shaders.rs`) only when a translator fix changes shaders that are already
+  translated, and then translate only those again (`stale_blocks`, `shader_cache/runtime/retranslate.txt`), never the whole cache
+  when a subset will do.
+- Don't change what a finished cache is checked against unless the shaders really change: the prepare key (`kPrepareScheme`,
+  `prepare_key` in `runtime/src/gfx/nvn/nvn_gpl.cpp`), the `[nvn] spirv_salt` default, `setup.json`, the cache folders, file names or
+  the shader archive format.
+- A change that would throw a valid cache away for another reason (a moved folder, a new file format) migrates the existing cache
+  instead. If it can't, bring it to the repo owner before merging.
+- Relinking pkp.exe (**Set up again** after a runtime or hook change) is not a shader rebuild: saves and shaders are kept, and the
+  CHANGELOG Update line says so. A patch that needs neither says **Update** only.
+- The PR's "For players" box and the CHANGELOG Update line say whether shaders are rebuilt, and why when they are.
+
 ---
 
 ## 7. Guard rails: signs you are about to break the structure
