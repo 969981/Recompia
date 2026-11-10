@@ -432,6 +432,8 @@ export default {
   'Setup log': 'Registro de configuración',
   'Gameplay': 'Jugabilidad',
   'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).': 'Nuevas formas de jugar, activadas por defecto (desactívalas aquí). Se aplican la próxima vez que se inicie el juego y requieren el juego compilado con esta versión (configura de nuevo una vez tras una actualización).',
+  'Fast loading screens': 'Pantallas de carga rápidas',
+  'Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.': 'Deja que las pantallas de carga superen tu límite de fotogramas para que la carga termine un poco antes. Sus animaciones van entonces demasiado rápido por encima de 60 fps. Se aplica la próxima vez que se inicie el juego.',
   'Steam': 'Steam',
   'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.': 'No se encontró Steam en esta PC, o nadie ha iniciado sesión todavía. Abre Steam una vez, inicia sesión, ciérralo y vuelve.',
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': 'Añade un acceso directo con la ilustración de Recompia a tu biblioteca de Steam, para que aparezca en el Modo Juego y en Big Picture. Cierra Steam antes y ábrelo de nuevo después. Añade el juego para empezar a jugar de inmediato, o el launcher para abrir primero esta ventana.',

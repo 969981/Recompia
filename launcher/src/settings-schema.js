@@ -571,6 +571,14 @@ export const SECTIONS = [
         ],
       },
       {
+        title: t('Experimental'),
+        rows: [
+          // pkp.ini [display] unpaced_loading, read by runtime/src/gfx/nvn/nvn_replay.cpp; that section has no generated schema yet
+          { id: 'unpaced_loading', label: t('Fast loading screens'), type: 'toggle', at: pkp('display', 'unpaced_loading'), def: '0' },
+          { id: 'unpaced_loading_note', type: 'note', note: () => ({ text: t('Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.') }) },
+        ],
+      },
+      {
         title: t('Steam'),
         rows: [
           {

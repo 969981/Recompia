@@ -12,6 +12,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
 
 ### Game
+- Fixed the boot screen and some loading screens fast-forwarding above 60 fps
+  - Before: while the game loaded, the frame limit was dropped, so the loading animations ran as fast as the PC could draw (300 fps or more on a fast PC) and the game's 60 fps hold for loading and events was skipped
+  - Now: loading screens keep the frame limit and the 60 fps hold, so they play at normal speed. A world load takes under a second longer. To bring the old behaviour back, turn on **Fast loading screens** in the launcher (Settings > Game > Experimental), or set `[display] unpaced_loading = 1` in `pkp.ini`
 - Added six **Button Icons** themes: **Nintendo Switch**, **Nintendo Switch 2**, **Wii U**, **Steam Frame**, **Valve Index** and **Touch**, and the **Steam Deck** theme now uses real Steam Deck art
   - Before: the prompts could show the game's own icons, Xbox, PlayStation, Steam Controller, Steam Deck (the Steam Controller's art with Xbox View and Menu symbols) or keyboard and mouse
   - Now: pick any of them in the game's Settings (Button Icons), on the F1 Controller tab, in the launcher's Controls tab or with `[prompts] style` in `controls.ini` (`switch1`, `switch2`, `wiiu`, `steamframe`, `index`, `touch`). All are the white Kenney icons and follow your button remapping. Steam Deck shows the Deck's own L1/R1, L4/L5/R4/R5 back buttons and trackpads. Valve Index shows A, B, the triggers and the trackpad (its left stick stands for the d-pad); Touch shows gestures (tap, two-finger tap, swipes, pinch)

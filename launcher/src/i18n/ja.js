@@ -432,6 +432,8 @@ export default {
   'Setup log': 'セットアップログ',
   'Gameplay': 'ゲームプレイ',
   'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).': '新しい遊び方です。既定でオンです（ここでオフにできます）。次回のゲーム起動時に有効になり、このバージョンでビルドされたゲームが必要です（アップデート後に一度「もう一度セットアップ」を実行してください）。',
+  'Fast loading screens': '高速ロード画面',
+  'Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.': 'ロード画面をフレームレート上限を超えて動かし、ロードを少し早く終わらせます。60 fps を超えるとロード画面のアニメーションが速く再生されます。次回ゲーム起動時に反映されます。',
   'Steam': 'Steam',
   'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.': 'このPCでSteamが見つからないか、まだ誰もサインインしていません。Steamを一度起動してサインインし、閉じてから戻ってきてください。',
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': 'Recompiaのアートワーク付きのショートカットをSteamライブラリに追加し、ゲームモードとBig Pictureに表示されるようにします。先にSteamを閉じ、追加後にもう一度起動してください。すぐにプレイするにはゲームを、先にこのウィンドウを開くにはランチャーを追加してください。',
