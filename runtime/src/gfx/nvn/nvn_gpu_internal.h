@@ -443,9 +443,12 @@ struct PoolChunk {
     uint64_t off = 0;                 // pool offset (from PoolGpu::base) of byte 0 of the import
     VkDeviceSize size = 0;
     bool tried = false;               // import attempted
-    bool failed = false;
-    uint32_t used_at = 0;             // lazy pools: present count of the last bind that resolved to it
-    uint64_t used_serial = 0;         // lazy pools: the submission being recorded at that bind (dropped only once it has completed)
+    bool failed = false;              // the last attempt failed: tried again after a backoff (nvn_gpu_pool.cpp retry_due), never for good
+    uint16_t fails = 0;               // failed attempts in a row
+    uint32_t failed_at = 0;           // present count of the last failed attempt
+    uint32_t fail_since = 0;          // present count of the first failed attempt of the run (the recovery log line)
+    uint32_t used_at = 0;             // present count of the last bind that resolved to it (lazy_drop_idle, oom_drop_idle)
+    uint64_t used_serial = 0;         // the submission being recorded at that bind (dropped only once it has completed)
     // [nvn] pool_copy: buffer = shadow.buffer, mem = VK_NULL_HANDLE. page_copied[k] = serial of the last guest -> shadow copy of page k of
     // the chunk (0: never). land_refs: GPU writes recorded into it that have not landed in guest memory yet (under the landing mutex).
     // cov_*: chunk pages [cov_lo, cov_hi) were all copied in submission cov_serial (the touch's fast path). Render thread except land_refs.
@@ -465,7 +468,7 @@ struct PoolChunk {
 struct PoolGpu {
     uint8_t* base = nullptr;          // aligned start of the pool's imports
     VkDeviceSize size = 0;            // aligned size
-    bool failed = false;
+    bool failed = false;              // cannot be imported at all (no VK_EXT_external_memory_host, no storage): final; a failed chunk is retried
     bool viewed = false;              // imports go through private views of the heap section (the mirror needs that)
     int flags = 0;
     uint64_t stride = 0;              // chunk k starts at k * stride (whole import: stride = size)

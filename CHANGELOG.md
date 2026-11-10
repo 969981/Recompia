@@ -44,6 +44,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
   - Still not: bloom and other soft glow effects stay smooth on purpose
+- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+  - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
+  - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
 
 ### Controls
 - Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
