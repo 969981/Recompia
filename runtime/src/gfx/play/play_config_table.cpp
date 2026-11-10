@@ -111,7 +111,7 @@ std::string write_quit_key(const Settings& s) { return s.quit.key.kind == InKind
 
 bool read_overlay_pad(const std::string&, const std::string& v, Settings* s, std::string* msg) {
     if (parse_pad_combo(v, &s->overlay.pad)) return true;
-    *msg = "pad must be none or pad buttons joined by '+' (left_shoulder+right_shoulder, back+start ...), got '" + v + "'";
+    *msg = "pad must be none or pad buttons joined by '+' (left_stick+right_stick, back+start ...), got '" + v + "'";
     return false;
 }
 std::string write_overlay_pad(const Settings& s) { return pad_combo_text(s.overlay.pad); }
