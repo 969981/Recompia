@@ -4,9 +4,11 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.10.2 (build N: Numbat Hotfix a2)
 
 **Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
+
+The Numbat hotfix brings back the colourful logo, translates the launcher into nine languages, fixes an AMD start-up crash and BetterJoy input loss, and adds Time and Events tabs to the game's Settings.
 
 ### Launcher
 - Set up now says why the shader translator stopped on Steam Deck and other Linux PCs (#366)
@@ -43,6 +45,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the game sent the controller a new rumble value on almost every frame while it rumbled, about 100 times a second at 100 fps. BetterJoy passes each one to the controller over Bluetooth and stopped reading the stick and buttons while it caught up
   - Now: rumble goes to the controller at most 30 times a second at any frame rate, the rate that already worked at a 30 fps cap
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
+
+### Docs
+- The README and the Linux readme are now also in Brazilian Portuguese and European Portuguese, and the README's F1 controller example uses L3 + R3 instead of the Dive chord (L + R)
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
 
