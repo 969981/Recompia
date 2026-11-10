@@ -23,6 +23,11 @@ constexpr Spec unset_by_default(Spec sp) {
     sp.optional = true;
     return sp;
 }
+// A gameplay mod (Spec::gameplay): on by default, the player opts out.
+constexpr Spec gameplay(Spec sp) {
+    sp.gameplay = true;
+    return sp;
+}
 
 // In Key order (checked below). Every key is read once, when its feature installs.
 constexpr Spec kSpecs[] = {
@@ -52,14 +57,14 @@ constexpr Spec kSpecs[] = {
     b(LinkInteractEverywhere, "link_interact_everywhere", false, "Experimental: Link Play visitors can interact outside Palette Town."),
     b(LinkStoryCoop, "link_story_coop", false, "Experimental: Link Play visitors can take part in the host's story."),
     b(UuidRepair, "uuid_repair", true, "At start, give a save with the player UUID earlier builds shared a UUID of its own."),
-    b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air."),
+    gameplay(b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air.")),
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
-    b(CameraAim, "camera_aim", true, "Abilities and tools aim where the camera looks instead of where the character faces."),
+    gameplay(b(CameraAim, "camera_aim", true, "Abilities and tools aim where the camera looks instead of where the character faces.")),
     i(CameraAimReach, "camera_aim_reach", 2, 0, 4, "With camera_aim: extra cells of reach."),
-    b(InventorySort, "inventory_sort", true, "A Sort button in the bag's and the container screens' key guide."),
+    gameplay(b(InventorySort, "inventory_sort", true, "A Sort button in the bag's and the container screens' key guide.")),
     b(InventoryAutosort, "inventory_autosort", false, "Sort the bag each time the bag or a container screen opens."),
-    b(CraftSearch, "craft_search", true, "A Search button in the crafting screen's key guide."),
-    b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen."),
+    gameplay(b(CraftSearch, "craft_search", true, "A Search button in the crafting screen's key guide.")),
+    gameplay(b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
@@ -70,6 +75,18 @@ constexpr bool in_key_order() {
     return true;
 }
 static_assert(in_key_order(), "kSpecs in Key order");
+
+// A gameplay mod is a bool switch; in a release build (PKP_GAMEPLAY_DEFAULTS_CHECK, set by game-build with PKP_RELEASE: every build on
+// GitHub, stable and testing) it must also default on, so a default turned off for a test build cannot ship.
+constexpr bool gameplay_ok(bool release) {
+    for (const Spec& sp : kSpecs)
+        if (sp.gameplay && (sp.type != Bool || (release && sp.def == 0))) return false;
+    return true;
+}
+static_assert(gameplay_ok(false), "a gameplay mod is a bool");
+#if PKP_GAMEPLAY_DEFAULTS_CHECK
+static_assert(gameplay_ok(true), "release build: a gameplay mod ([pkp] key marked gameplay()) defaults off; turn it back on");
+#endif
 
 }  // namespace
 
@@ -110,6 +127,7 @@ std::vector<setting_doc::Row> doc_rows() {
             }
         }
         if (r.optional) r.def.clear();
+        if (sp.gameplay) r.group = "gameplay";
         r.doc = sp.doc;
         if (sp.applies == Applies::AtStart) r.doc += " Next start.";
         rows.push_back(std::move(r));

@@ -14,6 +14,9 @@ add_library(nxrt_game_pkp_data STATIC
     "${_pkp}/core/pkp_data.cpp"
     "${_pkp}/core/pkp_settings_table.cpp")
 target_include_directories(nxrt_game_pkp_data PUBLIC ${NXRT_GAME_PKP_INCLUDES})
+# release builds: every gameplay mod of the [pkp] table defaults on, or the table does not compile (pkp_settings_table.cpp)
+option(PKP_GAMEPLAY_DEFAULTS_CHECK "refuse a [pkp] gameplay mod that defaults off (game-build sets it with PKP_RELEASE)" OFF)
+target_compile_definitions(nxrt_game_pkp_data PRIVATE PKP_GAMEPLAY_DEFAULTS_CHECK=$<BOOL:${PKP_GAMEPLAY_DEFAULTS_CHECK}>)
 target_compile_features(nxrt_game_pkp_data PUBLIC cxx_std_20)
 
 add_library(nxrt_game_pkp_core STATIC "${_pkp}/core/pkp_core.cpp")

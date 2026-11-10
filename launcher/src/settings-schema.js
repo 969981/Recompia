@@ -266,6 +266,35 @@ const WINDOW_SIZE = {
 };
 const AIM_REACH = fromSchema(pkp('pkp', 'camera_aim_reach'));
 
+// ---- gameplay mods ------------------------------------------------------------------------------------------------------------------
+// The runtime marks its gameplay mods ([pkp] keys in the schema's "gameplay" group: on by default, the player opts out). Every one is a
+// toggle of Settings > Gameplay, in the runtime's order; the launcher only names it here (label, and rows that follow it). A gameplay
+// key without an entry here throws, so a new mod cannot ship without its switch (scripts/test-settings-schema.mjs runs this).
+const isOn = (id) => (v) => v[id] === true || v[id] === '1';
+const GAMEPLAY = {
+  jump_momentum: { label: 'Running jump keeps speed' },
+  camera_aim: {
+    label: 'Camera aim',
+    after: [{ id: 'camera_aim_note', type: 'note', when: isOn('camera_aim'), note: () => ({ text: `Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach ${AIM_REACH.def} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).` }) }],
+  },
+  inventory_sort: {
+    label: 'Sort button in the bag and containers',
+    after: [{ id: 'inventory_autosort', label: 'Sort each time the bag opens', type: 'toggle', when: isOn('inventory_sort'), ...fromSchema(pkp('pkp', 'inventory_autosort')) }],
+  },
+  craft_search: { label: 'Search in the crafting screen' },
+  title_quit: { label: 'Quit Game on the title screen' },
+};
+
+export const gameplayKeys = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay').map((k) => k.key);
+
+function gameplayRows() {
+  return gameplayKeys().flatMap((key) => {
+    const g = GAMEPLAY[key];
+    if (!g) throw new Error(`settings-schema: gameplay mod [pkp] ${key} has no row in GAMEPLAY`);
+    return [{ id: key, label: g.label, type: 'toggle', ...fromSchema(pkp('pkp', key)) }, ...(g.after ?? [])];
+  });
+}
+
 export const DLSS_DOWNLOAD = {
   title: 'Download DLSS?',
   html: `<p>NVIDIA licenses this file separately, so it does not come with the launcher. It comes from NVIDIA's DLSS repository on GitHub, and its version and hash are checked.</p>
@@ -509,9 +538,7 @@ export const SECTIONS = [
         title: 'Gameplay',
         rows: [
           { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
-          { id: 'camera_aim', label: 'Camera aim', type: 'toggle', ...fromSchema(pkp('pkp', 'camera_aim')) },
-          { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: `Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach ${AIM_REACH.def} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).` }) },
-          { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', ...fromSchema(pkp('pkp', 'jump_momentum')) },
+          ...gameplayRows(),
         ],
       },
       {

@@ -78,6 +78,10 @@ struct Spec {
     Applies applies;
     const char* doc;              // one line, for a log or a Settings row's description
     bool optional = false;        // unset means "leave another value in force" (is_set), not the default: documented as unset
+    // A gameplay mod: a new way of playing, a bool that is on by default and switched off by the player (opt out). Its doc row is in the
+    // "gameplay" group, from which the launcher's Gameplay settings are built. A release build refuses one that defaults off
+    // (PKP_GAMEPLAY_DEFAULTS_CHECK, pkp_settings_table.cpp): a test build may turn one off, a release never ships it off.
+    bool gameplay = false;
 };
 
 // The table (pkp_settings_table.cpp, in the pure-data library nxrt_game_pkp_data).

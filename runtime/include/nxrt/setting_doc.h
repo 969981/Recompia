@@ -28,7 +28,8 @@ struct Row {
     std::string fallback;                // a key of the same section whose value this one takes when the file has that one and not this one
     std::string nxrt_key;                // "nvn.pool_mirror": the nxrt.ini key (or its NXRT_ variable) that wins over this one when set
     std::string doc;                     // one line: what it does
-    bool read_only = false;              // read, never written (an alternative spelling of other keys)
+    std::string group;                   // a set of keys the settings pages show together ("gameplay": a gameplay mod); empty = none
+    bool read_only = false;             // read, never written (an alternative spelling of other keys)
     bool retired = false;                // read and ignored without a warning; never written
 };
 
