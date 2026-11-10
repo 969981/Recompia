@@ -10,6 +10,8 @@ of the game (version 2.0.1a): the download contains no game files.
 
 The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing and sharper shadows, no more hitch once a second at a frame cap, a Search button for crafting, and DLC added in one click.
 
+This release is also, in part, a compliance update: the launcher's logo and icons, the Steam shortcut pictures and the README pictures are neutral placeholders, and the code no longer carries the earlier game's name. The launcher will get a new look soon.
+
 ### Highlights
 - Added a **Search** button to the crafting menu: type part of an item name and only those recipes are listed (#324)
 - Added **Anti-aliasing** (SMAA) and **Shadow quality** (up to 8x sharper shadow maps), both picked by the Quality preset too
@@ -64,6 +66,10 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
 ### Launcher
+- Changed the logo, icons and Steam shortcut pictures to neutral placeholders, and took the earlier game's name and a personal folder path out of comments and scripts
+  - Before: the logo and icons were multi-colour bubble letters like the game's, and the Steam shortcut pictures carried that lettering
+  - Now: the logo is plain "Recompia" text, the icons are an R on a rounded square (Testing: with a T badge), and the Steam shortcut pictures are a plain meadow with the same wordmark; the README pictures are plain placeholders too
+  - Still not: the **Koi's Camp** colours keep Koi's hand-drawn picture for now (credited in Settings > About); the whole look is due a refresh
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
   - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
