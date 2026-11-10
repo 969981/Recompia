@@ -1,4 +1,4 @@
-<!-- source-sha256: f5d59a236e7f5005dbff615c3f27adff27573487a6699942417240900a76fa3d -->
+<!-- source-sha256: c634f3c7ee8ae03825b35d79f4ee7e47a222a83971d3505d3bebb09e0b52218d -->
 > 这是 [英文 README](../../README.md) 的机器翻译，可能包含错误；英文 README 是权威版本。
 
 <h1 align="center">
@@ -91,7 +91,7 @@
 - **屏幕上的按钮图标会匹配你正在使用的设备：** 键盘、Xbox、PlayStation 或 Switch。
 - **输入名字**时可使用手柄、鼠标或键盘。
 - **无需 Alt+F4 即可退出：** 按住 Select 和 Start（Xbox 手柄上的 View 和 Menu），或使用 F1 中的 **Quit game**。
-- **用手柄打开 F1 菜单：** 默认关闭；在 `controls.ini` 中设置 `[overlay] pad`，例如 `left_shoulder+right_shoulder`。它不能与退出组合键相同。
+- **用手柄打开 F1 菜单：** 默认关闭；在 `controls.ini` 中设置 `[overlay] pad`，例如 `left_stick+right_stick`。它不能与退出组合键相同。
 
 ### Steam Deck 和掌机
 - 可识别 Steam Deck、Legion Go S 和其他掌机：屏幕上保留手柄图标，画面尺寸适配屏幕。
