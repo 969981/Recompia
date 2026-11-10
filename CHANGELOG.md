@@ -6,7 +6,7 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
-**Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept).
+**Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
 
 ### Launcher
 - The colourful **Recompia** logo and the green **R** icon are back in the launcher, the README, the window and taskbar icon and the Steam shortcut (the plain placeholder logo and icons from 0.10.1 are gone)
@@ -19,7 +19,11 @@ of the game (version 2.0.1a): the download contains no game files.
 - Added a **Time** tab and an **Events** tab to the game's own Settings screen, for moving the game's clock without restarting (#385)
   - Before: the game's date and time came from the PC, and the launcher's event preset or `clock_offset` only applied at the next start
   - Now: **Time** has Time Travel (Off follows the real time) and Year, Month, Day, Hour and Minute rows; the clock changes when you leave the screen. **Events** lists the events of `pokopia_events.tsv` (one line each: start date, end date and name, separated by tabs); pressing one sets the clock to noon on its first day, marks it **Chosen** (one at a time) and fills the Time tab. Nothing is written to your save or to Settings
-  - Still not: a 12-hour or 24-hour clock choice, tab icons of their own (both tabs use the Game tab's), and a launcher button that fetches the event list
+  - Still not: tab icons of their own (both tabs use the Game tab's), and a launcher button that fetches the event list
+- Added **Clock Notation** to the Time tab: Game, 12 hour or 24 hour for the time of day the game shows
+  - Before: the game's language chose the notation (English showed 12 hours with AM/PM whatever the PC's region), and nothing in the settings changed it
+  - Now: pick 12 hour or 24 hour (`[tweaks] clock_format` in `controls.ini`: `auto`, `12h` or `24h`); Game keeps the language's own. A screen that is already open shows the new notation after you close it and open it again
+  - Still not: a launcher row for it
 - Button prompts: the face buttons are plain white, like the rest of the prompt icons
   - Before: Xbox, PlayStation, Steam Controller and Steam Deck prompts drew A/B/X/Y and cross/circle/square/triangle as coloured buttons
   - Now: they use Kenney's monotone white buttons, matching the bumpers, triggers, d-pad and keyboard icons. Switch prompts are unchanged

@@ -438,6 +438,7 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 | `mouse` | `menu_cursor` | `1` | `1` `0` |  | In menus the mouse is a pointer: a visible cursor, left click activates, right click goes back, the wheel scrolls. |
 | `mouse` | `wheel_cycles` | `1` | `1` `0` |  | Kept in the file; no action reads it since the cycle actions went. A game may rename the key. |
 | `tweaks` | `language` | `auto` | `auto`, text | `[system] language`, `NXRT_SYSTEM_LANGUAGE` | The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start. |
+| `tweaks` | `clock_format` | `auto` | `auto` `12h` `24h` |  | How the game shows the time of day: auto (the game's language decides: 12 hours with AM/PM for English, 24 hours for German), 12h or 24h. |
 | `pad` | `label_abxy` | `0` | `1` `0` |  | 0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter. |
 | `pad` | `deadzone` | `0.1` | `0` to `0.5` |  | Radial dead zone of the left stick (movement), applied before the game's own. |
 | `pad` | `right_deadzone` | `0.1` | `0` to `0.5` |  | Radial dead zone of the right stick (looking). A file with `deadzone` and without this key gives it the value of `deadzone`. |

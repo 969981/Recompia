@@ -276,3 +276,5 @@ entryhook 0x7100ec54a0
 entryhook 0x7100eec660
 entryhook 0x7100eeae14
 inline 0x7100ef0c38
+# the time of day as text (hour w0, minute w1, out x2): [tweaks] clock_format (pkp_options.cpp)
+entryhook 0x7100ead978
