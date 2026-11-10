@@ -67,6 +67,12 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
   - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
 
+### Performance
+- Fixed the long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
+  - Before: about once a second the game reads a tiny 30x16 picture of the scene back from the graphics card to work out the scene's average colour. Its main thread waited for that read (about 21 ms on a Legion Go S at 40 fps), so one capped frame in every forty missed its slot and took twice as long: a visible hitch while walking or turning the camera. The 0.8.0 change had only helped without a frame limit
+  - Now: that read gets the previous second's picture at once and the new one is fetched in the background, so the main thread never waits. On the console the game reads that picture straight from memory without waiting for the graphics card either, so this is what it did there. Legion Go S at a 40 fps cap: frames over twice the median per 10 s 8.8 -> 0.2, 1% low 18-20 -> 21-34 fps. `[nvn] readback_defer = false` in `pkp.ini` brings the waiting read back
+  - Still not: the scene's average colour, which tints the picture slowly, now follows a change of scene about a second later than before; the frame rate itself is as before
+
 ## 0.9.0 (build M: Monkey)
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for Quit Game, Sort, the mouse mode key and the longer camera aim reach; your saves and shaders are kept).
