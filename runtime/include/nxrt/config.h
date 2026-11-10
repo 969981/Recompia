@@ -18,6 +18,10 @@ bool config_load_file(const char* path);
 void config_clear();
 // Programmatic override, as if it were in the ini (tests, command-line options). Env still wins over it.
 void config_set(const char* section, const char* key, const char* value);
+// Writes [section] key = value into the ini file at `path` (nxrt/ini_edit.h: the rest of the file is kept) and sets it here too, so a change
+// made while the game runs is seen at once and survives the next start. An NXRT_ environment variable still wins over it. False with the
+// reason in *err when the file cannot be written; the value is then not set either.
+bool config_save_key(const char* path, const char* section, const char* key, const char* value, std::string* err = nullptr);
 
 std::string config_get_str(const char* section, const char* key, const char* def = "");
 int64_t config_get_int(const char* section, const char* key, int64_t def = 0);      // decimal, 0x hex, optional k/m/g suffix not supported

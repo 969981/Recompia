@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "nxrt/config.h"
 
+#include "nxrt/ini_edit.h"
+
 #include "nxrt/log.h"
 #include "nxrt/text.h"
 
@@ -286,6 +288,12 @@ void config_set(const char* section, const char* key, const char* value) {
         g_ini[canon_id(S(section), S(key))] = S(value);
     }
     bump_gen();
+}
+
+bool config_save_key(const char* path, const char* section, const char* key, const char* value, std::string* err) {
+    if (!ini_save_key(path, section, key, value, err)) return false;
+    config_set(section, key, value);
+    return true;
 }
 
 bool config_cache_env(bool on) {
