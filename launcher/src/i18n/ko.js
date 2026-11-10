@@ -432,6 +432,8 @@ export default {
   'Setup log': '설정 로그',
   'Gameplay': '게임플레이',
   'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).': '새로운 플레이 방식이며 기본으로 켜져 있습니다(여기서 끌 수 있습니다). 다음에 게임을 시작할 때 적용되며, 이 버전으로 빌드된 게임이 필요합니다(업데이트 후 한 번 다시 설정하세요).',
+  'Fast loading screens': '빠른 로딩 화면',
+  'Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.': '로딩 화면이 프레임 제한을 넘어 실행되어 로딩이 조금 더 빨리 끝납니다. 60 fps를 넘으면 로딩 화면 애니메이션이 너무 빠르게 재생됩니다. 다음에 게임을 시작할 때 적용됩니다.',
   'Steam': 'Steam',
   'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.': '이 PC에서 Steam을 찾을 수 없거나 아직 아무도 로그인하지 않았습니다. Steam을 한 번 실행해 로그인한 뒤 닫고 다시 오세요.',
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': 'Recompia 아트워크가 있는 바로가기를 Steam 라이브러리에 추가하여 게임 모드와 Big Picture에 표시되게 합니다. 먼저 Steam을 닫고, 추가한 뒤 다시 실행하세요. 바로 플레이하려면 게임을, 이 창을 먼저 열려면 런처를 추가하세요.',

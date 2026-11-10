@@ -432,6 +432,8 @@ export default {
   'Setup log': '設定記錄',
   'Gameplay': '遊戲玩法',
   'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).': '新的玩法，預設開啟（可在此處關閉）。它們在下次啟動遊戲時生效，並且需要以此版本建置的遊戲（更新後請重新設定一次）。',
+  'Fast loading screens': '快速載入畫面',
+  'Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.': '讓載入畫面不受幀率上限限制，載入會稍早結束。高於 60 fps 時載入畫面的動畫會播放得過快。下次啟動遊戲時生效。',
   'Steam': 'Steam',
   'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.': '在這台電腦上找不到 Steam，或是還沒有人登入。請啟動一次 Steam，登入後關閉，再回來。',
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': '在你的 Steam 資料庫中新增一個帶有 Recompia 插圖的捷徑，使其顯示在遊戲模式和 Big Picture 中。請先關閉 Steam，之後再重新啟動。新增遊戲可立即開始遊玩，新增啟動器則會先開啟此視窗。',
