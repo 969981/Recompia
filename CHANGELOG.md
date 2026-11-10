@@ -27,6 +27,9 @@ of the game (version 2.0.1a): the download contains no game files.
 - Button prompts: the face buttons are plain white, like the rest of the prompt icons
   - Before: Xbox, PlayStation, Steam Controller and Steam Deck prompts drew A/B/X/Y and cross/circle/square/triangle as coloured buttons
   - Now: they use Kenney's monotone white buttons, matching the bumpers, triggers, d-pad and keyboard icons. Switch prompts are unchanged
+- Fixed the inventory **Sort** prompt showing **L** on some screens, where L also turns the page to the tab on the left
+  - Before: where Y and R both had an action, the Sort prompt took L; pressing it sorted the panel and switched the tab at the same time
+  - Now: Sort is Y in the bag and R in container screens; where both are taken the prompt is click only (left click or the menu pointer), and L only turns the page
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)

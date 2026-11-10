@@ -33,7 +33,8 @@
 //    The widget lays out at most six entries (six part slots at +0xa4), so before its layout pass places them the "Hold to Sort" entry (126, X held, the second X prompt next to "Swap"; in every browsing set, in
 //    no holding set) becomes key guide 92 ("Sort", the game's own text in every language). When its part is filled the icon is set to the
 //    sort button and the part's layout is handed to the menu pointer (the key guide's click routing, pkp_menu.cpp): a left click on it
-//    sorts. The sort button is the first of Y, R, L that no other prompt of the shown set uses
+//    sorts. The sort button is the first of Y, R that no other prompt of the shown set uses (never L: it pages the screen's tabs
+//    without being in the set or the action list, so a Sort on L also turned the page; with Y and R taken the prompt is click only)
 //    (input manager table, below): Y in the bag, R in the container screens (set 186: Add (A), Swap (X), Add Stack (Y), Store All (+),
 //    Info (-); registered there also B, ZL Transfer Half). Its button sorts only while no registered action of the screen is on it.
 //  * m_currentUseItemSlot (save common + 0xc070, u16) holds a bag slot index: after a bag sort it is moved to the new slot of the
@@ -86,9 +87,10 @@ constexpr uint32_t kIdMask = 0x1fff;
 using layout::kInputMgr;
 using layout::kActionButtons;
 // The sort button: the first of these whose button no prompt of the shown key guide set and no registered action of the screen uses.
-// Y in the bag; R in the container screens (Y is Add Stack / Remove All, (+) Store All / Retrieve All, ZL Transfer Half there); then L.
+// Y in the bag; R in the container screens (Y is Add Stack / Remove All, (+) Store All / Retrieve All, ZL Transfer Half there). Never L: the screen pages
+// its tabs with L outside the shown set and the action list, so L would sort and page at once.
 struct SortButton { uint16_t act; uint8_t button; hid::NpadButtonBit pad; const char* name; };   // an action shown as that button (the icon), the pad bit
-constexpr SortButton kSortButtons[] = {{0x97, 4, hid::kBtnY, "Y"}, {0x03, 0xb, hid::kBtnR, "R"}, {0x0e, 0xa, hid::kBtnL, "L"}};
+constexpr SortButton kSortButtons[] = {{0x97, 4, hid::kBtnY, "Y"}, {0x03, 0xb, hid::kBtnR, "R"}};
 constexpr int kNoButton = -1;   // click only
 constexpr auto kReopenGap = std::chrono::milliseconds(300);   // no screen frame for this long = the screen was closed
 // the key guide button
