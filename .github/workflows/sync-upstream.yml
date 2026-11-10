@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/release.yml'
   schedule:
     - cron: '31 */4 * * *'
   workflow_dispatch:
