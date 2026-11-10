@@ -81,3 +81,9 @@ if(NXRT_BUILD_GFX AND NXRT_BUILD_GAMES)
         endif()
     endforeach()
 endif()
+
+# Developer test, in no package: changing one ini value (include/nxrt/ini_edit.h, config_save_key). It links config.cpp and the editor alone
+# (the test supplies a silent nxrt::logf), so it builds and runs anywhere: cmake --build <build> --target nxrt_ini_edit_test
+add_executable(nxrt_ini_edit_test EXCLUDE_FROM_ALL tests/ini_edit_test.cpp src/diag/ini_edit.cpp src/diag/config.cpp)
+target_include_directories(nxrt_ini_edit_test PRIVATE include)
+target_compile_features(nxrt_ini_edit_test PRIVATE cxx_std_20)
