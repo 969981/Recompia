@@ -1,0 +1,22 @@
+# Paths only the repo owner can approve (PROJECT.md section 6). Enforced by the main-branch ruleset's "Require review from Code Owners".
+# Every other path has no code owner, so ordinary PRs are not held up.
+
+# Owner rules and AI instruction files (6.3)
+/PROJECT.md                                       @featureJosh
+/AGENTS.md                                        @featureJosh
+/GEMINI.md                                        @featureJosh
+/.claude/CLAUDE.md                                @featureJosh
+
+# GitHub checks, templates and this file (6.2)
+/.github/                                         @featureJosh
+
+# Scripts and build switches the checks rely on (6.2)
+/launcher/scripts/check-api.mjs                   @featureJosh
+/launcher/scripts/test-settings-schema.mjs        @featureJosh
+/runtime/scripts/gen_settings_doc.ps1             @featureJosh
+/runtime/games/pkp/CMakeLists.txt                 @featureJosh
+/game-build/CMakeLists.txt                        @featureJosh
+
+# Extras' defaults and the release check on them (6.1)
+/runtime/games/pkp/core/pkp_settings_table.cpp    @featureJosh
+/runtime/games/pkp/core/pkp_settings.h            @featureJosh
