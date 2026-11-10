@@ -57,6 +57,16 @@ uint64_t pending(Request* r);
 void answer(uint64_t id, bool ok, const std::string& text);
 }  // namespace swkbdui
 
+// ---- time (time.cpp) ------------------------------------------------------------------------------------------------------------
+// The game clock moved at run time ([time] clock_offset is the same offset at start-up).
+namespace timetravel {
+int64_t offset();                                                        // seconds the game clock is from the host clock (0 = real time)
+int64_t real_now();                                                      // the host's UTC time, unix seconds
+bool local_calendar(int64_t posix, int v[6]);                            // year, month, day, hour, minute, second under the device zone
+bool posix_of_local(int y, int mo, int d, int h, int mi, int64_t* out);  // the inverse; false for a time that does not exist
+void set_offset(int64_t seconds);                                        // moves the game clock and tells the game the clocks changed
+}  // namespace timetravel
+
 // ---- vi (vi_nv.cpp)----------------------------------------------------------------------------------------------------------------
 namespace viapi {
 // A new readable handle of the display's 60 Hz vsync event (starts the vsync thread on first use); 0 when no handle is left. For the

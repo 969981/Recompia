@@ -20,11 +20,15 @@
 #include "core/pkp_text.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "nxrt/audio_sink.h"
@@ -35,8 +39,10 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/platform.h"
+#include "nxrt/services_api.h"
 #include "play_game.h"
 #include "play_types.h"
+#include "pkp_time.h"
 
 namespace nxrt::games::pkp {
 namespace {
@@ -317,6 +323,51 @@ const Row kController[] = {
     number("Motion Strength", "Scales the gyro.", 0, 78, "%.2fx", 0.1, 0.05, ROW_STEP(pad.gyro_scale, 0.1, 0.05)),
     number("Rumble Strength", "Scales the vibration.", 0, 200, "%.0f%%", 0, 1, ROW_PCT(pad.rumble_scale)),
 };
+// ---- Time and Events tabs ------------------------------------------------------------------------------------------------------
+// Time: the game clock moved to a date and time (nxrt::services::timetravel, time.cpp). The date rows show the game's clock; "Time Travel"
+// On sets the game to them when the screen commits, Off puts the clock back on the real time. Nothing reaches Settings or the save file.
+// Events: one button row per line of [pkp] events_file (pokopia_events.tsv, read every time the screen opens); pressing one sets the game
+// clock to noon on the day the event starts, at once, fills the Time tab with it and marks that row "Chosen" (only one at a time).
+constexpr int kMaxEvents = 13;                 // a tab has kDirtySlot rows
+constexpr int kEventHour = 12;                 // the hour of the day the clock is set to
+
+struct Shown { int v[6]; };                    // year, month, day, hour, minute, second of the game's clock now
+Shown shown_clock() {
+    Shown s{};
+    namespace tt = services::timetravel;
+    if (!tt::local_calendar(tt::real_now() + tt::offset(), s.v)) s.v[0] = kFirstYear, s.v[1] = s.v[2] = 1;
+    return s;
+}
+#define TIME_ROW(k, off, hi) [](const S&) { return clamp_pos(shown_clock().v[k] - (off), (hi) + 1); }, [](S&, int) {}
+
+const Row kTime[] = {
+    choice("Time Travel", "Off: the game follows the real date and time. On: the game is set to the date and time below when you leave this screen.",
+           kOffOn, 2, [](const S&) { return services::timetravel::offset() != 0 ? 1 : 0; }, [](S&, int) {}),
+    number("Year", "The year the game clock is set to. Time Travel must be On.", 0, kYearCount - 1, "%.0f", kFirstYear, 1, TIME_ROW(0, kFirstYear, kYearCount - 1)),
+    number("Month", "The month the game clock is set to.", 0, 11, "%.0f", 1, 1, TIME_ROW(1, 1, 11)),
+    number("Day", "The day of the month (a day past the end of the month becomes its last day).", 0, 30, "%.0f", 1, 1, TIME_ROW(2, 1, 30)),
+    number("Hour", "The hour of the day, 0 to 23.", 0, 23, "%.0f", 0, 1, TIME_ROW(3, 0, 23)),
+    number("Minute", "The minute.", 0, 59, "%.0f", 0, 1, TIME_ROW(4, 0, 59)),
+};
+
+std::vector<TimeEvent> g_events;               // what the Events tab shows, in row order (the labels point into it)
+std::string g_event_dates[kMaxEvents];         // each row's description
+std::string g_none_desc;
+
+// An event row is a two-state button: "Chosen" while the game clock is on the day the event starts (Time Travel on), else "Choose".
+template <int I> int event_chosen(const S&) {
+    namespace tt = services::timetravel;
+    if (I >= static_cast<int>(g_events.size()) || tt::offset() == 0) return 0;
+    const Shown c = shown_clock();
+    return c.v[0] * 10000 + c.v[1] * 100 + c.v[2] == g_events[I].start ? 1 : 0;
+}
+template <int... I> constexpr std::array<int (*)(const S&), sizeof...(I)> event_getters(std::integer_sequence<int, I...>) {
+    return {&event_chosen<I>...};
+}
+constexpr auto kEventChosen = event_getters(std::make_integer_sequence<int, kMaxEvents>());
+constexpr const char* kChoose[4] = {"Choose", "Chosen"};
+Row g_event_rows[kMaxEvents];
+
 // clang-format on
 
 struct Tab {
@@ -332,7 +383,7 @@ constexpr Tab tab(const char* title, uint8_t group, const Row (&r)[N]) {
     return Tab{title, group, r, static_cast<int>(N)};
 }
 
-const Tab kTabs[] = {
+Tab kTabs[] = {
     {nullptr, 1, nullptr, 0},   // Game
     {nullptr, 2, nullptr, 0},   // Camera
     tab(nullptr, 3, kSound),
@@ -342,9 +393,12 @@ const Tab kTabs[] = {
     tab("Picture", 7, kPicture),
     tab("Mouse", 8, kMouse),
     tab("Controller", 9, kController),
+    tab("Time", 10, kTime),
+    {"Events", 11, g_event_rows, 1},   // the count follows the event file (load_events)
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;
+constexpr int kTimeTab = kTabCount - 2, kEventsTab = kTabCount - 1;
 
 // ---- state -------------------------------------------------------------------------------------------------------------------------
 
@@ -443,6 +497,69 @@ bool build_settings(S& s) {
     return changed;
 }
 
+// ---- Time and Events: loading and applying -------------------------------------------------------------------------------------------
+
+int real_today() {
+    int v[6] = {kFirstYear, 1, 1, 0, 0, 0};
+    services::timetravel::local_calendar(services::timetravel::real_now(), v);
+    return v[0] * 10000 + v[1] * 100 + v[2];
+}
+
+// Reads the event file again (the launcher or a script may have changed it) and fills the Events tab's rows.
+void load_events() {
+    std::stringstream text;
+    std::ifstream file(settings::get_str(settings::Key::EventsFile));
+    if (file) text << file.rdbuf();
+    const int today = real_today();
+    g_events = parse_events(text.str(), today, kMaxEvents);
+    for (size_t i = 0; i < g_events.size(); ++i) {
+        g_event_dates[i] = event_dates(g_events[i], today) + ". Press to set the game clock to this day, at noon.";
+        g_event_rows[i] = Row{g_events[i].name.c_str(), g_event_dates[i].c_str(), {kChoose[0], kChoose[1]}, 2, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr,
+                              nullptr, kEventChosen[i], [](S&, int) {}, false, false};
+    }
+    if (g_events.empty()) {
+        g_none_desc = std::string("No events in ") + settings::get_str(settings::Key::EventsFile) +
+                      ". The file has one event per line: start date, end date and name, separated by tabs (2026-11-16 2026-12-01 Name).";
+        g_event_rows[0] = Row{"No events found", g_none_desc.c_str(), {kChoose[0], kChoose[1]}, 2, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr,
+                              nullptr, [](const S&) { return 0; }, [](S&, int) {}, false, false};
+    }
+    kTabs[kEventsTab].count = g_events.empty() ? 1 : static_cast<int>(g_events.size());
+    NXLOG_I(kTag, "options: %zu events from %s", g_events.size(), settings::get_str(settings::Key::EventsFile).c_str());
+}
+
+// The Time tab's rows, as the game clock: Travel Off puts the real time back, On sets the date and time of the rows.
+void apply_time_tab() {
+    namespace tt = services::timetravel;
+    const int* c = g.cur[kTimeTab];
+    if (c[0] == 0) {
+        tt::set_offset(0);
+        return;
+    }
+    const int year = year_of(c[1]), month = 1 + c[2];
+    int64_t at = 0;
+    if (!tt::posix_of_local(year, month, std::min(1 + c[3], days_in_month(year, month)), c[4], c[5], &at)) {
+        NXLOG_W(kTag, "options: %04d-%02d-%02d %02d:%02d does not exist in this time zone: the clock stays as it is", year, month, 1 + c[3], c[4], c[5]);
+        return;
+    }
+    tt::set_offset(at - tt::real_now());
+}
+
+// An Events row was pressed: the game clock goes to noon on the event's first day now, and the Time tab shows it.
+void go_to_event(int row) {
+    namespace tt = services::timetravel;
+    if (row < 0 || row >= static_cast<int>(g_events.size())) return;
+    const int start = g_events[row].start, year = start / 10000, month = start / 100 % 100, day = start % 100;
+    int64_t at = 0;
+    if (!tt::posix_of_local(year, month, day, kEventHour, 0, &at)) {
+        NXLOG_W(kTag, "options: %s starts on a date that does not exist in this time zone", g_events[row].name.c_str());
+        return;
+    }
+    tt::set_offset(at - tt::real_now());
+    const int rows[6] = {1, clamp_pos(year - kFirstYear, kYearCount), month - 1, day - 1, kEventHour, 0};
+    for (int i = 0; i < 6; ++i) g.cur[kTimeTab][i] = g.orig[kTimeTab][i] = rows[i];
+    NXLOG_I(kTag, "options: game clock set to %04d-%02d-%02d %02d:00 (%s)", year, month, day, kEventHour, g_events[row].name.c_str());
+}
+
 // ---- hooks -------------------------------------------------------------------------------------------------------------------------
 
 bool find_records(::Ctx* c) {
@@ -477,6 +594,7 @@ int hook_open(::Ctx* c, uint64_t, void*) {
     g.tab = std::clamp(rd<int>(child + kTabIndex), 0, kTabCount - 1);
     if (g.tab >= kGameTabs) wr<uint8_t>(child + kGroup, kTabs[g.tab].group);   // the game's table only knows its own three tabs
     if (!returning) {
+        load_events();
         g_devices.clear();
         for (const audio::OutputDevice& d : audio::list_output_devices())
             if (!d.name.empty()) g_devices.push_back(d.name);
@@ -500,6 +618,7 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
     if (!g.active || c->x[0] != g.child) return 0;
     vector_to_store();
     if (c->x[1] & 1) {
+        if (std::memcmp(g.cur[kTimeTab], g.orig[kTimeTab], sizeof g.cur[kTimeTab]) != 0) apply_time_tab();
         S s = play::current_settings();
         if (build_settings(s)) play::apply_settings(s);   // main thread, next frame; also writes controls.ini
         std::memcpy(g.orig, g.cur, sizeof g.orig);
@@ -513,6 +632,13 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
 
 int hook_store(::Ctx* c, uint64_t, void*) {
     const Row* r = c->x[0] == g.child ? shown_row(c->x[1] & 0xff) : nullptr;
+    if (r && g.tab == kEventsTab) {                  // an event was picked: go there now, and keep the row where it was (nothing to save)
+        const int slot = static_cast<int>(c->x[1] & 0xff) - kFirstId;
+        go_to_event(slot);
+        for (int i = 0; i < kSlots; ++i) g.cur[g.tab][i] = g.orig[g.tab][i] = i == slot ? 1 : 0;   // exactly one event is chosen
+        each_slot_element([slot](int s, uint64_t e) { wr<int>(e + 4, s == slot ? 1 : 0); wr<int>(e + 8, s == slot ? 1 : 0); });
+        return 1;
+    }
     if (r && r->text == &mouse_mode_text) {          // the Mouse Mode Key row moved: wait for the new key
         if (g_host && !g_mm_capture) {
             g_host->begin_capture();
