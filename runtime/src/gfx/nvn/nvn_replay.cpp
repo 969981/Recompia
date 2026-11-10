@@ -4596,7 +4596,7 @@ static bool g_loading = true;      // the detector's current `want`; loading unt
 bool replay_loading() { return g_loading; }
 
 void note_frame_for_pacing() {
-    static const bool on = nxrt::config_get_bool("display", "unpaced_loading", false);
+    static const bool on = nxrt::config_get_bool("display", "unpaced_loading", true);
     using clk = std::chrono::steady_clock;
     static uint64_t last_p = 0, last_d = 0;
     static int low = 0;

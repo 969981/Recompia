@@ -356,7 +356,7 @@ void apply_frame_cap(const Settings& s) {
         // under it (S21, [latency] vsync_cap): the game otherwise renders as fast as the swapchain takes frames, the queue behind the display
         // fills (three images) and every picture is shown one to two frames after it was simulated; just under the refresh rate the queue stays empty.
         const float hz = st.window ? platform::display_refresh_hz() : 0.f;
-        static const bool vsync_cap = config_get_bool("latency", "vsync_cap", false);
+        static const bool vsync_cap = config_get_bool("latency", "vsync_cap", true);
         const double req = cap;
         double snapped = cap;
         const char* reason = "";

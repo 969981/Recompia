@@ -11,7 +11,7 @@ assert.equal(sectionsFor('stable').length, SECTIONS.length - 1);
 // the experimental toggles are in the tab, off by default, and no field id is used twice for different keys
 const sec = SECTIONS.find((s) => s.id === 'testing');
 const ids = sec.groups.flatMap((g) => g.rows).map((r) => r.id);
-const EXTRAS = ['camera_aim', 'jump_momentum', 'inventory_sort', 'craft_search', 'title_quit', 'menu_in_game', 'taller_fov', 'compile_note', 'vsync_cap', 'unpaced_loading'];
+const EXTRAS = ['camera_aim', 'jump_momentum', 'inventory_sort', 'craft_search', 'title_quit', 'menu_in_game', 'taller_fov', 'touch_button', 'compile_note'];
 for (const id of EXTRAS) {
   assert.ok(ids.includes(id), id);
   assert.equal(FIELDS[id].def, '0', `${id} defaults off`);
