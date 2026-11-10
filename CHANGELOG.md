@@ -4,6 +4,18 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
+## Unreleased
+
+**Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept).
+
+### Launcher
+- Fixed Set up finishing at once while the game still refused to start with "pkp.exe and pkp_rt.dll come from different releases", after an update that replaced only some files
+  - Before: the launcher compared pkp.exe only with the build tools in the tools folder. A new pkp_rt.dll next to old tools (files copied by hand, or a zip extracted without its tools folder) looked current, so Set up did nothing and the game refused the exe
+  - Now: pkp.exe and pkp_rt.dll both carry the runtime API they were built for, and the launcher reads it before Play and Set up. An exe from another release than the dll is relinked by Set up; a dll from another release than the tools is named on the main page, with what to do (extract the whole release over the folder)
+
+### Game
+- The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
+
 ## 0.10.1 (build N: Narwhal Hotfix a1)
 
 **Update:** press **Update**. No **Set up again** is needed (your saves and shaders are kept).

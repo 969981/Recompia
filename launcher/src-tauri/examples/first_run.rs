@@ -10,6 +10,9 @@ mod gamebuild;
 #[path = "../src/host.rs"]
 mod host;
 #[allow(dead_code)]
+#[path = "../src/runtime_api.rs"]
+mod runtime_api;
+#[allow(dead_code)]
 #[path = "../src/shader_archive.rs"]
 mod shader_archive;
 #[path = "../src/shaders.rs"]

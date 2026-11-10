@@ -7,6 +7,9 @@
 #include <stdint.h>
 
 #define PKP_RT_API 2u     // bump when this struct or the exported set changes
+// Both sides export this number as the data symbol pkp_rt_api (pkp_stub.cpp; pkp_main.cpp through pkp_rt.def), so the launcher
+// reads from each file's export table which API it was built for, before the game starts (launcher/src-tauri/src/runtime_api.rs,
+// which also reads the define above as text from the shipped copy of this header).
 
 #ifdef __cplusplus
 extern "C" {

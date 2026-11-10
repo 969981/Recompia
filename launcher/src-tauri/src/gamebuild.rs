@@ -8,8 +8,11 @@
 //! only if `pkp_build.py --check` says done.json matches the tools this release ships (lifter, main.sites, pkp_rt.lib, ...).
 //! An update extracted over an install leaves the old pkp.exe and done.json behind: the check calls that stale, so Play
 //! asks for Set up again and Set up rebuilds (the old pkp.exe stays until the new one is linked over it).
+//! The stamp cannot see pkp_rt.dll. Before it, runtime_api.rs reads the runtime API number from pkp.exe, pkp_rt.dll and the
+//! tools' header: an exe from another release than the dll is Stale however current its stamp, and a dll from another release
+//! than the tools is `Built::Mixed` (an update with only some files put in place), which no build fixes.
 //! On Linux the script runs with the Linux Python and Zig that host.rs fetches into `tools/linux`.
-//! Its only crate-local import is host.rs, which has none, so `examples/first_run.rs` can build the two files alone.
+//! Its crate-local imports are host.rs and runtime_api.rs, which have none, so `examples/first_run.rs` can build the files alone.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -56,10 +59,24 @@ pub const REBUILD_MESSAGE: &str = "This update changes the game code. Press Fini
 pub enum Built {
     /// no finished build (no pkp.exe or no done.json)
     No,
-    /// a finished build from other tools: an older release, or one whose tools could not be checked
+    /// a finished build from other tools: an older release, or one whose tools could not be checked; or an exe built for another
+    /// runtime API than the pkp_rt.dll beside the launcher (runtime_api.rs)
     Stale,
     /// built with this release's tools
     Current,
+    /// pkp_rt.dll beside the launcher and the tools come from different releases (their runtime API numbers; None is a release
+    /// before the number was readable): no build with these tools runs with this dll
+    Mixed { dll: Option<u32>, sdk: Option<u32> },
+}
+
+/// What Play and Set up say for Built::Mixed: the player has to put the whole release in place.
+pub fn mixed_message(dll: Option<u32>, sdk: Option<u32>) -> String {
+    let api = |a: Option<u32>| a.map_or("an API before 2".to_string(), |n| format!("API {}", n));
+    format!(
+        "pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({} and {}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.",
+        api(dll),
+        api(sdk)
+    )
 }
 
 /// The last check: (done.json path, its mtime and size, pkp.exe's mtime) -> result. The tools do not change while the
@@ -69,6 +86,11 @@ static CHECKED: std::sync::Mutex<Option<(CheckKey, Built)>> = std::sync::Mutex::
 
 /// Whether pkp.exe was built by this release's tools (`pkp_build.py --check`, the stamp's only implementation).
 pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
+    // before the stamp: a dll from another release than the tools makes every build useless, whatever pkp.exe is
+    let api = crate::runtime_api::check(game_dir, tools_dir);
+    if let crate::runtime_api::Agreement::Mixed { dll, sdk } = api {
+        return Built::Mixed { dll, sdk };
+    }
     let exe = game_dir.join("pkp.exe");
     let done = game_dir.join("build").join("done.json");
     let (Ok(em), Ok(dm)) = (fs::metadata(&exe), fs::metadata(&done)) else {
@@ -76,6 +98,9 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     };
     if !em.is_file() || !dm.is_file() {
         return Built::No;
+    }
+    if api == crate::runtime_api::Agreement::ExeStale {
+        return Built::Stale; // built for another API than the dll, however current its stamp: the link gives the dll's
     }
     let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok());
     if let Some((k, b)) = CHECKED.lock().unwrap().as_ref() {

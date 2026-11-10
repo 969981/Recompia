@@ -305,9 +305,15 @@ int prepare_shaders_main(bool if_needed, int threads, const std::string& program
 }  // namespace
 
 #ifdef PKP_RT_DLL
+extern "C" const uint32_t pkp_rt_api = PKP_RT_API;     // exported by pkp_rt.def: the launcher reads it from the file (pkp_rt_api.h)
 extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
     if (!mods || mods->size != sizeof(PkpRtModules) || mods->api != PKP_RT_API) {
-        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll come from different releases. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
+        // size and api lead the struct in every API, so an older pkp.exe's number can still be read. Set up alone cannot always
+        // help (the build tools may be as old as the exe), so the launcher's main page says what to do (launcher runtime_api.rs)
+        char text[256];
+        std::snprintf(text, sizeof text, "pkp.exe was built for runtime API %u, but this pkp_rt.dll is API %u: they come from different releases. Open the launcher and press Play: it says what to do.",
+                      mods ? mods->api : 0u, PKP_RT_API);
+        MessageBoxA(nullptr, text, "Pokopia", MB_OK | MB_ICONERROR);
         return 3;
     }
     if (mods->count != sizeof kModules / sizeof kModules[0]) {
