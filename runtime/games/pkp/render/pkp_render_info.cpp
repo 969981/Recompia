@@ -30,7 +30,19 @@ constexpr game::ToneMapMatch kToneMaps[] = {
     {game::ToneMapKind::LutShaper, 0, 5.55555582f, 0.0479959995f},
 };
 
-constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0]};
+// The loop guards, pokopia-native's (1.4.0) in this translator's shaders. Their 634565ab (D-1's hang on an RTX 3050 Laptop) is two shaders
+// here, 3a718dcc49952e74 and dc36e3636f3c2221: a loop to c3 word 0 over 5-texel items of cp_t_cb0_10. Their 560a0262 (D-11) is
+// 0f9696499923d6d3: loops to c3 words 12 and 13 over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. Their third (2cb5df5c, a loop
+// bound held in a variable) has no match found here yet.
+constexpr game::LoopGuard kLoopGuards[] = {
+    {"3a718dcc49952e74", "cp_c3", 0, "cp_t_cb0_10", 5},
+    {"dc36e3636f3c2221", "cp_c3", 0, "cp_t_cb0_10", 5},
+    {"0f9696499923d6d3", "cp_c3", 12, "cp_t_cb0_10", 1},
+    {"0f9696499923d6d3", "cp_c3", 13, "cp_t_cb0_12", 1},
+};
+
+constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
+                                  kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0]};
 
 }  // namespace
 
