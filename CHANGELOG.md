@@ -10,10 +10,10 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ### Defaults and the Testing tab
 - Changed every extra that is not in the original game to **off by default**, so you switch on only what you want (a feature can work on one PC and not on another)
-  - Off: **Camera aim**, **Running jump keeps speed**, the bag/box **Sort** button, the crafting **Search** button, the title screen **Quit Game** prompt, **Mouse in the game's menus**, the **Taller view** on 16:10 screens, the **Menu button** for touch screens and the **Preparing shaders** note
-  - To try one: **Settings > Testing** (Testing channel) or **Settings > Game > Gameplay**, or the keys `[pkp] camera_aim`, `jump_momentum`, `inventory_sort`, `craft_search`, `title_quit`, `menu_in_game`, `taller_fov`, `[overlay] touch_button`, `[nvn] compile_note` set to `1` in `pkp.ini`. A value you already set stays as it is
+  - Off: **Camera aim**, **Running jump keeps speed**, the bag/box **Sort** button, the crafting **Search** button, the title screen **Quit Game** prompt, **Mouse in the game's menus**, the **Taller view** on 16:10 screens, the **Preparing shaders** note, **Lower input delay with vsync** (the frame limiter holds just under the refresh rate) and **Faster loading screens** (no frame pacing while loading)
+  - To try one: **Settings > Testing** (Testing channel) or **Settings > Game > Gameplay**, or the keys `[pkp] camera_aim`, `jump_momentum`, `inventory_sort`, `craft_search`, `title_quit`, `menu_in_game`, `taller_fov`, `[nvn] compile_note` set to `1` in `pkp.ini`, or `[latency] vsync_cap`, `[display] unpaced_loading` in `controls.ini`. A value you already set stays as it is
   - The in-game Options screen stays **on** (`[pkp] options_menu`). Fixes the game needs to run well (shader, timing and memory handling) stay on
-  - Still not: a touch-screen handheld now has no Menu button until you switch it on (the in-game Options screen is reachable from the game's own Settings)
+  - The touch screen **Menu button** stays automatic: on when the machine has a touch screen, so a handheld keeps its way into the menu
 - Added a **Testing** tab to Settings, shown only on the Testing channel: send logs, read them, and switch the experimental features on
   - **Export and report** makes one zip of `pkp.log`, `pkp.log.prev`, the crash files, `setup.log` and `pkp.ini`, opens its folder (`testing-logs` next to `pkp.exe`) and the bug report form. Drag the zip into the form: the launcher has no GitHub login, so nothing is uploaded for you
   - Names in paths, your account and server settings and IP addresses are removed before anything is written. Long logs keep their end, so the zip stays under GitHub's 25 MB limit
