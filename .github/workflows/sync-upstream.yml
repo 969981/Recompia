@@ -1,0 +1,122 @@
+# Sync Dittobyte/Recompia main into this mirror, then build a snapshot prerelease.
+# Workflow edits in the upstream are deliberately excluded: GITHUB_TOKEN cannot push workflow changes.
+name: Sync upstream and publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-upstream.yml'
+  schedule:
+    - cron: '31 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: recompia-sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out local mirror and tags
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync latest upstream main (preserve local workflows)
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/Dittobyte/Recompia.git
+          git fetch --no-recurse-submodules --tags upstream main
+          upstream_sha=$(git rev-parse refs/remotes/upstream/main)
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo "Already contains upstream/main ($upstream_sha)"
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            before=$(git rev-parse HEAD)
+            git merge --no-ff --no-commit upstream/main
+            # Never overwrite local CI or import upstream workflow changes without workflow permission.
+            git restore --source="$before" --staged --worktree -- .github/workflows
+            git commit -m "chore(sync): merge upstream/main $upstream_sha"
+            git diff --quiet "$before" HEAD -- .github/workflows || {
+              echo "::error::Local workflow changed unexpectedly during merge"
+              exit 1
+            }
+            git push origin HEAD:main
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            echo "Merged upstream/main ($upstream_sha)"
+          fi
+
+      - name: Create unique prerelease tag for upstream commit
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_sha='${{ steps.source.outputs.upstream_sha }}'
+          # Use the latest upstream stable version as base, never overwrite upstream's tag.
+          base=$(git tag --merged upstream/main --list 'v[0-9]*' --sort=-version:refname |
+                 grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          if [[ ! "$base" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::No stable upstream vX.Y.Z tag exists"
+            exit 1
+          fi
+          # Upstream commit count is stable for its history and increases for new commits.
+          count=$(git rev-list --count "$upstream_sha")
+          tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((10#${BASH_REMATCH[3]} + 1))-rc.$count"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            existing=$(git rev-parse "$tag^{commit}")
+            if ! git merge-base --is-ancestor "$existing" HEAD; then
+              echo "::error::Existing snapshot tag $tag does not belong to mirror history"
+              exit 1
+            fi
+            echo 'created=false' >> "$GITHUB_OUTPUT"
+            echo "Already tagged: $tag"
+          else
+            git tag -a "$tag" -m "Recompia mirror snapshot of upstream/main $upstream_sha"
+            git push origin "refs/tags/$tag"
+            echo 'created=true' >> "$GITHUB_OUTPUT"
+            echo "Created mirror snapshot tag: $tag"
+          fi
+
+      - name: Dispatch Windows/Linux release workflow
+        if: steps.tag.outputs.created == 'true' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.tag.outputs.tag }}'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag exists already; skip duplicate publish"
+            exit 0
+          fi
+          gh workflow run release.yml --ref main -f release_tag="$tag" -f sync_snapshot=true
+          echo "Triggered Release workflow for $tag"
+
+      - name: Report
+        if: always() && steps.source.outcome == 'success'
+        shell: bash
+        run: |
+          {
+            echo '## Recompia upstream sync'
+            echo ''
+            echo "- Upstream commit: ${{ steps.source.outputs.upstream_sha }}"
+            echo "- New upstream source merged: ${{ steps.source.outputs.changed }}"
+            echo "- Snapshot: ${{ steps.tag.outputs.tag }}"
+            echo '- Release build: Actions > Release (Windows ZIP + Linux AppImage)'
+          } >> "$GITHUB_STEP_SUMMARY"
