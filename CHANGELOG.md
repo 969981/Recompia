@@ -18,6 +18,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: the game's date and time came from the PC, and the launcher's event preset or `clock_offset` only applied at the next start
   - Now: **Time** has Time Travel (Off follows the real time) and Year, Month, Day, Hour and Minute rows; the clock changes when you leave the screen. **Events** lists the events of `pokopia_events.tsv` (one line each: start date, end date and name, separated by tabs); pressing one sets the clock to noon on its first day, marks it **Chosen** (one at a time) and fills the Time tab. Nothing is written to your save or to Settings
   - Still not: a 12-hour or 24-hour clock choice, tab icons of their own (both tabs use the Game tab's), and a launcher button that fetches the event list
+- Button prompts: the face buttons are plain white, like the rest of the prompt icons
+  - Before: Xbox, PlayStation, Steam Controller and Steam Deck prompts drew A/B/X/Y and cross/circle/square/triangle as coloured buttons
+  - Now: they use Kenney's monotone white buttons, matching the bumpers, triggers, d-pad and keyboard icons. Switch prompts are unchanged
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
