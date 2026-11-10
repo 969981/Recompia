@@ -59,6 +59,17 @@ function applyTheme(t) {
 }
 applyTheme(readTheme());
 
+// Hide sidebar: a per-PC preference kept in localStorage like the theme. When hidden the nav collapses so the art is
+// unobstructed; the floating #show-sidebar button (index.html) is the only way back. data-sidebar="hide" on <html> drives the CSS.
+function readSidebar() {
+  try { return localStorage.getItem('sidebar') === 'hide'; } catch { return false; }
+}
+function applySidebar(hidden) {
+  if (hidden) document.documentElement.setAttribute('data-sidebar', 'hide');
+  else document.documentElement.removeAttribute('data-sidebar');
+}
+applySidebar(readSidebar());
+
 function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
@@ -67,6 +78,7 @@ function drawNav() {
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="nav-item" id="theme-btn" aria-label="Change colours">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
+    <button class="nav-item" id="ui-hide-btn" aria-label="Hide sidebar">${icon('eye-off')}<span class="nav-label">Hide sidebar</span><span class="nav-tip" aria-hidden="true">Hide sidebar</span></button>
     <button class="task-pill" id="task-pill" hidden>
       ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
       <span class="task-track"><span class="task-fill"></span></span>
@@ -77,6 +89,11 @@ function drawNav() {
       const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
       try { localStorage.setItem('theme', next); } catch { /* the choice lasts until the launcher closes */ }
       applyTheme(next);
+    }
+    if (e.target.closest('#ui-hide-btn')) {
+      const hide = !readSidebar();
+      try { localStorage.setItem('sidebar', hide ? 'hide' : 'show'); } catch { /* the choice lasts until the launcher closes */ }
+      applySidebar(hide);
     }
     const page = e.target.closest('[data-page]')?.dataset.page;
     if (page && page !== current) go(page);
@@ -193,6 +210,12 @@ function start() {
   startGamepadNav();
   drawNav();
   drawWindowButtons();
+  const showSidebar = document.getElementById('show-sidebar');
+  showSidebar.innerHTML = `${icon('eye')}<span>Show sidebar</span>`;
+  showSidebar.addEventListener('click', () => {
+    try { localStorage.setItem('sidebar', 'show'); } catch { /* the choice lasts until the launcher closes */ }
+    applySidebar(false);
+  });
   store.subscribe(drawChrome);
   store.subscribe((_s, why) => { if (why === 'news') syncChannel(); });
   syncChannel();

@@ -12,6 +12,7 @@ of the game (version 2.0.1a): the download contains no game files.
 - **Joy-Con 2 mouse mode** is switched off for now: it aimed at the wrong blocks on PC. The middle mouse button no longer turns it on and the **Mouse Mode Key** row is gone from **Settings > Mouse**. Camera aim is not affected
 
 ### Launcher
+- The sidebar can now be hidden so the artwork is unobstructed: a **Hide sidebar** button next to the theme switcher collapses it, and a **Show sidebar** button in the corner brings it back. The choice is remembered per PC
 - Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
