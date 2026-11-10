@@ -5,7 +5,8 @@
 // plus the page's element, ctx and state. A module keeps nothing of its own: everything it shares goes through h.st.
 import './settings.css';
 import { api } from '../api.js';
-import { errText, segmented, toast } from '../ui.js';
+import { setLanguage, t } from '../i18n.js';
+import { errText, esc, segmented, toast } from '../ui.js';
 import { store } from '../store.js';
 import { SECTIONS } from '../settings-schema.js';
 import { createState, env, rememberSection } from './settings/state.js';
@@ -31,10 +32,10 @@ export async function render(el, ctx) {
 
   el.innerHTML = `<div class="page set">
     <div class="set-head">
-      <h1>Settings</h1>
+      <h1>${esc(t('Settings'))}</h1>
       <span class="set-saved" id="set-saved" role="status"></span>
     </div>
-    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label })), st.section, { label: 'Settings section' })}</div>
+    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label })), st.section, { label: t('Settings section') })}</div>
     <div class="set-body" id="set-body"></div>
   </div>`;
 
@@ -67,6 +68,7 @@ export async function render(el, ctx) {
       el.closest('#view')?.scrollTo(0, 0);
       return;
     }
+    if (t.id === 'language') return setLanguage(t.value);   // reloads: every string is read once at start
     controls.onChange(t);
   });
   el.addEventListener('input', (e) => controls.onInput(e.target));

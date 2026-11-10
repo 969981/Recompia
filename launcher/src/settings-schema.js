@@ -22,6 +22,7 @@
 // A choice is a list of presets plus Custom with a number field (custom: { min, max, suffix, start, label }), a size likewise with two.
 // Rows that are not fields: info (label, value, actions), keycap (label, key), note (a line of text), and { expand } for rows made from env.
 
+import { num, t } from './i18n.js';
 import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
 import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
 
@@ -67,30 +68,30 @@ export function fromSchema(at) {
 
 const GB = 2 ** 30;
 const gb = (b) => `${(b / GB).toFixed(b >= 10 * GB ? 0 : 1)} GB`;
-const count = (n) => Number(n).toLocaleString('en');
+const count = (n) => num(n);
 
 export function storageText(env) {
   const st = env.storage;
   const r = env.repack;
   if (r) {
-    const what = r.kind === 'expand' ? 'Unpacking' : 'Packing';
+    const what = r.kind === 'expand' ? t('Unpacking') : t('Packing');
     return r.total ? `${what}: ${Math.floor((100 * r.done) / r.total)}%` : `${what}...`;
   }
-  if (!st) return 'Checking';
+  if (!st) return t('Checking');
   switch (st.mode) {
-    case 'none': return 'Not set up yet';
-    case 'loose': return `Loose files, ${gb(st.loose_bytes)}`;
-    case 'compact': return `Packed, ${gb(st.archive_bytes + st.loose_bytes)}`;
-    default: return `Partly packed, ${gb(st.archive_bytes + st.loose_bytes)}`;
+    case 'none': return t('Not set up yet');
+    case 'loose': return t('Loose files, {size}', { size: gb(st.loose_bytes) });
+    case 'compact': return t('Packed, {size}', { size: gb(st.archive_bytes + st.loose_bytes) });
+    default: return t('Partly packed, {size}', { size: gb(st.archive_bytes + st.loose_bytes) });
   }
 }
 
 export function storageActions(env) {
-  if (env.repack) return [{ act: 'stop-repack', label: 'Stop', icon: 'square' }];
+  if (env.repack) return [{ act: 'stop-repack', label: t('Stop'), icon: 'square' }];
   const st = env.storage;
   const off = !st?.complete || env.gameBusy || env.taskBusy;
-  if (st?.mode === 'loose' || st?.mode === 'mixed') return [{ act: 'compact-shaders', label: 'Free up space', icon: 'hard-drive', primary: true, disabled: off }];
-  if (st?.mode === 'compact') return [{ act: 'expand-shaders', label: 'Use loose files', icon: 'rotate-ccw', disabled: off }];
+  if (st?.mode === 'loose' || st?.mode === 'mixed') return [{ act: 'compact-shaders', label: t('Free up space'), icon: 'hard-drive', primary: true, disabled: off }];
+  if (st?.mode === 'compact') return [{ act: 'expand-shaders', label: t('Use loose files'), icon: 'rotate-ccw', disabled: off }];
   return [];
 }
 
@@ -98,11 +99,11 @@ export function storageNote(env) {
   const st = env.storage;
   if (!st || env.repack) return null;
   if (st.mode === 'loose' || st.mode === 'mixed') {
-    return { text: `Packing frees about ${gb(st.free_estimate)}. Nothing is translated again and the game runs the same. A later update stops reading loose shader files.` };
+    return { text: t('Packing frees about {size}. Nothing is translated again and the game runs the same. A later update stops reading loose shader files.', { size: gb(st.free_estimate) }) };
   }
   if (st.mode === 'compact' && st.archive_raw_bytes > 0) {
     const ratio = st.archive_raw_bytes / Math.max(1, st.archive_bytes);
-    return { text: `${count(st.archive_shaders)} shaders in ${gb(st.archive_bytes)}, ${ratio.toFixed(1)}x smaller than loose files (${gb(st.archive_raw_bytes)}).` };
+    return { text: t('{count} shaders in {size}, {ratio}x smaller than loose files ({raw}).', { count: count(st.archive_shaders), size: gb(st.archive_bytes), ratio: ratio.toFixed(1), raw: gb(st.archive_raw_bytes) }) };
   }
   return null;
 }
@@ -113,13 +114,13 @@ export function storageNote(env) {
 // The values: kPresets in runtime/games/pkp/render/pkp_quality.cpp, which the F1 page applies. The tests parse both files.
 // render_scale 0 and fps_limit -1 are written as auto.
 export const QUALITY_PRESETS = [
-  { id: 'switch2', label: 'Switch 2', lod_bias: 0, anisotropy: 0 },
-  { id: 'high', label: 'High', lod_bias: -0.5, anisotropy: 8 },
-  { id: 'ultra', label: 'Ultra', lod_bias: -1, anisotropy: 16 },
-  { id: 'steamdeck', label: 'Steam Deck', lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 40 },
-  { id: 'legion_go_s', label: 'Legion Go S', lod_bias: 0, anisotropy: 8, render_scale: 80, fps_limit: 60 },
-  { id: 'laptop', label: 'Laptop', lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 60 },
-  { id: 'desktop', label: 'Desktop PC', lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
+  { id: 'switch2', label: t('Switch 2'), lod_bias: 0, anisotropy: 0 },
+  { id: 'high', label: t('High'), lod_bias: -0.5, anisotropy: 8 },
+  { id: 'ultra', label: t('Ultra'), lod_bias: -1, anisotropy: 16 },
+  { id: 'steamdeck', label: t('Steam Deck'), lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 40 },
+  { id: 'legion_go_s', label: t('Legion Go S'), lod_bias: 0, anisotropy: 8, render_scale: 80, fps_limit: 60 },
+  { id: 'laptop', label: t('Laptop'), lod_bias: 0, anisotropy: 4, render_scale: 75, fps_limit: 60 },
+  { id: 'desktop', label: t('Desktop PC'), lod_bias: -0.5, anisotropy: 16, render_scale: 0, fps_limit: -1 },
 ];
 
 const PRESET = fromSchema(controls('display', 'quality_preset'));
@@ -202,10 +203,10 @@ const AT_CLOCK_OFFSET = pkp('time', 'clock_offset');
 const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
 const AT_EVENT_PRESET = pkp('time', 'event_preset');
 const TIMED_EVENTS = [
-  { id: 'copycat', label: 'Copycat Challenge (April 2, 2026)' },
-  { id: 'hoppip', label: 'More Spores for Hoppip (March 12, 2026)' },
-  { id: 'bulbasaur', label: "Bulbasaur's Jump Rope Contest (April 21, 2026)" },
-  { id: 'sableye', label: "Sableye's Gem Hunt (May 1, 2026)" },
+  { id: 'copycat', label: t('Copycat Challenge (April 2, 2026)') },
+  { id: 'hoppip', label: t('More Spores for Hoppip (March 12, 2026)') },
+  { id: 'bulbasaur', label: t("Bulbasaur's Jump Rope Contest (April 21, 2026)") },
+  { id: 'sableye', label: t("Sableye's Gem Hunt (May 1, 2026)") },
 ];
 const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
 const scopeNeedsReset = (src) => clockScope(src) === 'all';
@@ -256,7 +257,7 @@ const WRITE = {
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
 const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
-const open = (url, label = 'Open') => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
+const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
 const WIDTH = fromSchema(controls('display', 'width'));
@@ -272,17 +273,17 @@ const AIM_REACH = fromSchema(pkp('pkp', 'camera_aim_reach'));
 // key without an entry here throws, so a new mod cannot ship without its switch (scripts/test-settings-schema.mjs runs this).
 const isOn = (id) => (v) => v[id] === true || v[id] === '1';
 const GAMEPLAY = {
-  jump_momentum: { label: 'Running jump keeps speed' },
+  jump_momentum: { label: t('Running jump keeps speed') },
   camera_aim: {
-    label: 'Camera aim',
-    after: [{ id: 'camera_aim_note', type: 'note', when: isOn('camera_aim'), note: () => ({ text: `Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach ${AIM_REACH.def} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).` }) }],
+    label: t('Camera aim'),
+    after: [{ id: 'camera_aim_note', type: 'note', when: isOn('camera_aim'), note: () => ({ text: t("Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach {reach} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).", { reach: AIM_REACH.def }) }) }],
   },
   inventory_sort: {
-    label: 'Sort button in the bag and containers',
-    after: [{ id: 'inventory_autosort', label: 'Sort each time the bag opens', type: 'toggle', when: isOn('inventory_sort'), ...fromSchema(pkp('pkp', 'inventory_autosort')) }],
+    label: t('Sort button in the bag and containers'),
+    after: [{ id: 'inventory_autosort', label: t('Sort each time the bag opens'), type: 'toggle', when: isOn('inventory_sort'), ...fromSchema(pkp('pkp', 'inventory_autosort')) }],
   },
-  craft_search: { label: 'Search in the crafting screen' },
-  title_quit: { label: 'Quit Game on the title screen' },
+  craft_search: { label: t('Search in the crafting screen') },
+  title_quit: { label: t('Quit Game on the title screen') },
 };
 
 export const gameplayKeys = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay').map((k) => k.key);
@@ -296,220 +297,220 @@ function gameplayRows() {
 }
 
 export const DLSS_DOWNLOAD = {
-  title: 'Download DLSS?',
+  title: t('Download DLSS?'),
   html: `<p>NVIDIA licenses this file separately, so it does not come with the launcher. It comes from NVIDIA's DLSS repository on GitHub, and its version and hash are checked.</p>
     <p>By downloading it you accept the NVIDIA RTX SDKs licence: <code class="selectable">licenses/LICENSE.NVIDIA-RTX-SDKs.txt</code></p>`,
-  ok: 'Download',
+  ok: t('Download'),
 };
 
-export const IMPORT_FACTS = 'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.';
+export const IMPORT_FACTS = t('Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.');
 
 export const SECTIONS = [
   {
     id: 'display',
-    label: 'Display',
+    label: t('Display'),
     groups: [
       {
-        title: 'Picture',
+        title: t('Picture'),
         rows: [
           {
-            id: 'window_mode', label: 'Window', type: 'segmented', ...fromSchema(controls('display', 'window_mode')),
-            options: [{ value: 'windowed', label: 'Windowed' }, { value: 'borderless', label: 'Borderless' }, { value: 'exclusive', label: 'Fullscreen' }],
+            id: 'window_mode', label: t('Window'), type: 'segmented', ...fromSchema(controls('display', 'window_mode')),
+            options: [{ value: 'windowed', label: t('Windowed') }, { value: 'borderless', label: t('Borderless') }, { value: 'exclusive', label: t('Fullscreen') }],
           },
           {
-            id: 'window_size', label: 'Window size', type: 'size', ...WINDOW_SIZE, when: (v) => v.window_mode === 'windowed',
+            id: 'window_size', label: t('Window size'), type: 'size', ...WINDOW_SIZE, when: (v) => v.window_mode === 'windowed',
             options: [
-              { value: '1280x720', label: '1280 x 720' }, { value: '1600x900', label: '1600 x 900' }, { value: '1920x1080', label: '1920 x 1080' },
-              { value: '2560x1440', label: '2560 x 1440' }, { value: '3840x2160', label: '3840 x 2160' },
+              { value: '1280x720', label: t('1280 x 720') }, { value: '1600x900', label: t('1600 x 900') }, { value: '1920x1080', label: t('1920 x 1080') },
+              { value: '2560x1440', label: t('2560 x 1440') }, { value: '3840x2160', label: t('3840 x 2160') },
             ],
           },
           {
             // 100 is 1920 x 1080: the percentages are the game's own size, see render_scale in play_types.h
-            id: 'render_scale', label: 'Render resolution', type: 'choice', at: AT_RENDER_SCALE, def: RENDER_SCALE.def, quality: 'frame',
-            custom: { min: RENDER_SCALE.min, max: RENDER_SCALE.max, suffix: '%', start: 100, label: 'Custom render resolution in percent' },
+            id: 'render_scale', label: t('Render resolution'), type: 'choice', at: AT_RENDER_SCALE, def: RENDER_SCALE.def, quality: 'frame',
+            custom: { min: RENDER_SCALE.min, max: RENDER_SCALE.max, suffix: '%', start: 100, label: t('Custom render resolution in percent') },
             options: [
-              { value: 'auto', label: 'Match window' }, { value: '67', label: '720p' }, { value: '100', label: '1080p' },
-              { value: '133', label: '1440p' }, { value: '200', label: '2160p' },
+              { value: 'auto', label: t('Match window') }, { value: '67', label: t('720p') }, { value: '100', label: t('1080p') },
+              { value: '133', label: t('1440p') }, { value: '200', label: t('2160p') },
             ],
           },
-          { id: 'keep_aspect', label: 'Keep 16:9 picture', type: 'toggle', ...fromSchema(controls('display', 'keep_aspect')) },
+          { id: 'keep_aspect', label: t('Keep 16:9 picture'), type: 'toggle', ...fromSchema(controls('display', 'keep_aspect')) },
         ],
       },
       {
-        title: 'Frame rate',
+        title: t('Frame rate'),
         rows: [
           {
-            id: 'fps_limit', label: 'Frame rate limit', type: 'choice', at: AT_FPS_LIMIT, def: FPS_LIMIT.def, quality: 'frame',
-            custom: { min: FPS_LIMIT.min, max: FPS_LIMIT.max, suffix: 'fps', start: 60, label: 'Custom frame rate limit' },
+            id: 'fps_limit', label: t('Frame rate limit'), type: 'choice', at: AT_FPS_LIMIT, def: FPS_LIMIT.def, quality: 'frame',
+            custom: { min: FPS_LIMIT.min, max: FPS_LIMIT.max, suffix: 'fps', start: 60, label: t('Custom frame rate limit') },
             options: [
-              { value: 'auto', label: 'Match display' }, { value: '30', label: '30' }, { value: '60', label: '60' },
-              { value: '120', label: '120' }, { value: '144', label: '144' }, { value: '0', label: 'Unlimited' },
+              { value: 'auto', label: t('Match display') }, { value: '30', label: t('30') }, { value: '60', label: t('60') },
+              { value: '120', label: t('120') }, { value: '144', label: t('144') }, { value: '0', label: t('Unlimited') },
             ],
           },
-          { id: 'vsync', label: 'VSync', type: 'toggle', ...fromSchema(controls('display', 'vsync')) },
-          { id: 'fps_show', label: 'Frame rate counter', type: 'toggle', ...fromSchema(controls('fps', 'show')) },
+          { id: 'vsync', label: t('VSync'), type: 'toggle', ...fromSchema(controls('display', 'vsync')) },
+          { id: 'fps_show', label: t('Frame rate counter'), type: 'toggle', ...fromSchema(controls('fps', 'show')) },
         ],
       },
     ],
   },
   {
     id: 'graphics',
-    label: 'Graphics',
+    label: t('Graphics'),
     groups: [
       {
-        title: 'Quality',
+        title: t('Quality'),
         rows: [
           {
-            id: 'quality_preset', label: 'Quality preset', type: 'select', ...PRESET,
+            id: 'quality_preset', label: t('Quality preset'), type: 'select', ...PRESET,
             options: QUALITY_PRESETS.map((q) => ({ value: q.id, label: q.label })),
             write: (value) => presetEdits(value), replaces: true,
           },
         ],
       },
       {
-        title: 'Upscaling',
+        title: t('Upscaling'),
         rows: [
           {
             // spatial is the runtime's other word for fsr1. ponytail: fsr3 / nis / dlss / dlaa / xess are switched off in the runtime until
             // they are reworked (#232) and run as off; add their options back here (and the dlss guard) when they return.
-            id: 'upscale_mode', label: 'Upscaler', type: 'select', ...fromSchema(controls('upscale', 'mode')),
+            id: 'upscale_mode', label: t('Upscaler'), type: 'select', ...fromSchema(controls('upscale', 'mode')),
             aliases: { spatial: 'fsr1', xess: 'off', fsr3: 'off', nis: 'off', dlss: 'off', dlaa: 'off' }, lock: (env) => env.dlssBusy,
-            options: [{ value: 'off', label: 'Off' }, { value: 'fsr1', label: 'FSR 1' }, { value: 'nearest', label: 'Nearest (sharp pixels)' }],
+            options: [{ value: 'off', label: t('Off') }, { value: 'fsr1', label: t('FSR 1') }, { value: 'nearest', label: t('Nearest (sharp pixels)') }],
           },
           {
-            id: 'upscale_quality', label: 'Upscaling quality', type: 'select', ...fromSchema(controls('upscale', 'quality')),
+            id: 'upscale_quality', label: t('Upscaling quality'), type: 'select', ...fromSchema(controls('upscale', 'quality')),
             when: (v) => ['fsr3', 'dlss'].includes(v.upscale_mode),
             options: [
-              { value: 'native', label: 'Native' }, { value: 'quality', label: 'Quality' }, { value: 'balanced', label: 'Balanced' },
-              { value: 'performance', label: 'Performance' }, { value: 'ultra_performance', label: 'Ultra performance' },
+              { value: 'native', label: t('Native') }, { value: 'quality', label: t('Quality') }, { value: 'balanced', label: t('Balanced') },
+              { value: 'performance', label: t('Performance') }, { value: 'ultra_performance', label: t('Ultra performance') },
             ],
           },
           {
-            id: 'dlss_file', label: 'DLSS file', type: 'info', value: (env) => (env.dlssPresent ? 'Downloaded' : 'Missing'),
+            id: 'dlss_file', label: t('DLSS file'), type: 'info', value: (env) => (env.dlssPresent ? t('Downloaded') : t('Missing')),
             when: (v, env) => ['dlss', 'dlaa'].includes(v.upscale_mode) && env.dlssCanFetch,
-            actions: (env) => [{ act: 'dlss-get', label: env.dlssPresent ? 'Download again' : 'Download', icon: 'download', disabled: env.dlssBusy }],
+            actions: (env) => [{ act: 'dlss-get', label: env.dlssPresent ? t('Download again') : t('Download'), icon: 'download', disabled: env.dlssBusy }],
           },
         ],
       },
-      { title: '', rows: [{ id: 'f1_graphics', label: 'More options in game', type: 'keycap', key: 'F1' }] },
+      { title: '', rows: [{ id: 'f1_graphics', label: t('More options in game'), type: 'keycap', key: 'F1' }] },
     ],
   },
   {
     id: 'audio',
-    label: 'Audio',
+    label: t('Audio'),
     groups: [
       {
         title: '',
         rows: [
           {
-            id: 'volume', label: 'Volume', type: 'slider', at: AT_VOLUME, min: VOLUME.min * 100, max: VOLUME.max * 100, step: 1, suffix: '%',
+            id: 'volume', label: t('Volume'), type: 'slider', at: AT_VOLUME, min: VOLUME.min * 100, max: VOLUME.max * 100, step: 1, suffix: '%',
             read: readVolume, write: writeVolume, enabled: (src) => hasControls(src) || has(src, AT_VOLUME_PKP),
           },
-          { id: 'mute_unfocused', label: 'Mute when not focused', type: 'toggle', ...fromSchema(controls('audio', 'mute_unfocused')) },
+          { id: 'mute_unfocused', label: t('Mute when not focused'), type: 'toggle', ...fromSchema(controls('audio', 'mute_unfocused')) },
         ],
       },
     ],
   },
   {
     id: 'controls',
-    label: 'Controls',
+    label: t('Controls'),
     groups: [
       {
-        title: 'Mouse',
+        title: t('Mouse'),
         rows: [
-          { id: 'sensitivity', label: 'Mouse sensitivity', type: 'slider', at: AT_YAW, min: SENS_MIN, max: SENS_MAX, step: 0.1, read: readSensitivity, write: writeSensitivity },
-          { id: 'invert_x', label: 'Invert horizontal', type: 'toggle', ...fromSchema(controls('mouse', 'invert_x')) },
-          { id: 'invert_y', label: 'Invert vertical', type: 'toggle', ...fromSchema(controls('mouse', 'invert_y')) },
+          { id: 'sensitivity', label: t('Mouse sensitivity'), type: 'slider', at: AT_YAW, min: SENS_MIN, max: SENS_MAX, step: 0.1, read: readSensitivity, write: writeSensitivity },
+          { id: 'invert_x', label: t('Invert horizontal'), type: 'toggle', ...fromSchema(controls('mouse', 'invert_x')) },
+          { id: 'invert_y', label: t('Invert vertical'), type: 'toggle', ...fromSchema(controls('mouse', 'invert_y')) },
         ],
       },
       {
-        title: 'Buttons',
+        title: t('Buttons'),
         rows: [
           {
-            id: 'prompt_style', label: 'Button icons', type: 'select', ...fromSchema(controls('prompts', 'style')),
+            id: 'prompt_style', label: t('Button icons'), type: 'select', ...fromSchema(controls('prompts', 'style')),
             aliases: { ps: 'playstation', ps4: 'playstation', ps5: 'playstation', dualsense: 'playstation', steamcontroller: 'steam', steam_controller: 'steam', deck: 'steamdeck', steam_deck: 'steamdeck', kbm: 'keyboard', keyboard_mouse: 'keyboard', mouse: 'keyboard' },
             options: [
-              { value: 'auto', label: 'Automatic' }, { value: 'switch', label: 'Switch' }, { value: 'xbox', label: 'Xbox' },
-              { value: 'playstation', label: 'PlayStation' }, { value: 'steam', label: 'Steam Controller' }, { value: 'steamdeck', label: 'Steam Deck' }, { value: 'keyboard', label: 'Keyboard and mouse' },
+              { value: 'auto', label: t('Automatic') }, { value: 'switch', label: t('Switch') }, { value: 'xbox', label: t('Xbox') },
+              { value: 'playstation', label: t('PlayStation') }, { value: 'steam', label: t('Steam Controller') }, { value: 'steamdeck', label: t('Steam Deck') }, { value: 'keyboard', label: t('Keyboard and mouse') },
             ],
           },
-          { id: 'f1_bindings', label: 'Change bindings in game', type: 'keycap', key: 'F1' },
+          { id: 'f1_bindings', label: t('Change bindings in game'), type: 'keycap', key: 'F1' },
         ],
       },
     ],
   },
   {
     id: 'saves',
-    label: 'Saves',
+    label: t('Saves'),
     groups: [
       {
-        title: 'Profiles',
+        title: t('Profiles'),
         rows: [
-          { id: 'profiles_note', type: 'note', note: () => ({ text: 'Each profile has its own save, so two people can share one install. They share the game files and the shaders. Switch profiles with the game closed.' }) },
+          { id: 'profiles_note', type: 'note', note: () => ({ text: t('Each profile has its own save, so two people can share one install. They share the game files and the shaders. Switch profiles with the game closed.') }) },
           {
             expand: (env) => (env.profiles?.profiles ?? []).map((p) => {
               const on = p.id === env.profiles.active;
               return {
-                id: `profile_${p.id}`, label: p.name, type: 'info', value: on ? 'Playing' : '',
+                id: `profile_${p.id}`, label: p.name, type: 'info', value: on ? t('Playing') : '',
                 actions: [
-                  ...(on ? [] : [{ act: 'profile-use', arg: p.id, name: p.name, label: 'Use', icon: 'user-check', disabled: env.gameBusy }]),
-                  { act: 'profile-rename', arg: p.id, name: p.name, label: 'Rename', icon: 'pencil', disabled: env.gameBusy },
-                  ...(p.id === 'default' ? [] : [{ act: 'profile-remove', arg: p.id, name: p.name, label: 'Remove', icon: 'trash-2', disabled: env.gameBusy || on }]),
+                  ...(on ? [] : [{ act: 'profile-use', arg: p.id, name: p.name, label: t('Use'), icon: 'user-check', disabled: env.gameBusy }]),
+                  { act: 'profile-rename', arg: p.id, name: p.name, label: t('Rename'), icon: 'pencil', disabled: env.gameBusy },
+                  ...(p.id === 'default' ? [] : [{ act: 'profile-remove', arg: p.id, name: p.name, label: t('Remove'), icon: 'trash-2', disabled: env.gameBusy || on }]),
                 ],
               };
             }),
           },
           {
-            id: 'profile_new', label: 'New profile', type: 'info',
-            actions: (env) => [{ act: 'profile-new', label: 'Add', icon: 'plus', disabled: env.gameBusy }],
+            id: 'profile_new', label: t('New profile'), type: 'info',
+            actions: (env) => [{ act: 'profile-new', label: t('Add'), icon: 'plus', disabled: env.gameBusy }],
           },
         ],
       },
       {
         title: '',
         rows: [{
-          id: 'save_dir', label: 'Save folder', type: 'path', at: pkp('fs', 'save_dir'), pick: 'Choose the save folder', open: 'save',
+          id: 'save_dir', label: t('Save folder'), type: 'path', at: pkp('fs', 'save_dir'), pick: t('Choose the save folder'), open: 'save',
           placeholder: (env) => `${env.gameDir}/save`,
         }],
       },
       {
-        title: 'Backups',
+        title: t('Backups'),
         rows: [
           {
             id: 'backup_note', type: 'note',
-            note: () => ({ text: 'Copies your save every few minutes while you play, so you can go back if a bug stops your progress. It is off until you pick a time. A copy is also made when the game closes. Restoring needs the game closed, and your current save is copied first.' }),
+            note: () => ({ text: t('Copies your save every few minutes while you play, so you can go back if a bug stops your progress. It is off until you pick a time. A copy is also made when the game closes. Restoring needs the game closed, and your current save is copied first.') }),
           },
           {
-            id: 'backup_minutes', label: 'Back up automatically', type: 'select', at: pkp('backup', 'interval_minutes'), def: '0',
-            options: [{ value: '0', label: 'Off' }, { value: '5', label: 'Every 5 minutes' }, { value: '10', label: 'Every 10 minutes' }, { value: '15', label: 'Every 15 minutes' }],
+            id: 'backup_minutes', label: t('Back up automatically'), type: 'select', at: pkp('backup', 'interval_minutes'), def: '0',
+            options: [{ value: '0', label: t('Off') }, { value: '5', label: t('Every 5 minutes') }, { value: '10', label: t('Every 10 minutes') }, { value: '15', label: t('Every 15 minutes') }],
           },
           {
-            id: 'backup_keep', label: 'Backups to keep', type: 'select', at: pkp('backup', 'keep'), def: '10', when: (v) => v.backup_minutes !== '0',
-            options: [{ value: '5', label: '5' }, { value: '10', label: '10' }, { value: '20', label: '20' }, { value: '30', label: '30' }],
+            id: 'backup_keep', label: t('Backups to keep'), type: 'select', at: pkp('backup', 'keep'), def: '10', when: (v) => v.backup_minutes !== '0',
+            options: [{ value: '5', label: t('5') }, { value: '10', label: t('10') }, { value: '20', label: t('20') }, { value: '30', label: t('30') }],
           },
           {
-            id: 'backup_state', label: 'Backups', type: 'info', value: (env) => env.backupLine,
+            id: 'backup_state', label: t('Backups'), type: 'info', value: (env) => env.backupLine,
             actions: (env) => [
-              { act: 'backup-now', label: 'Back up now', icon: 'save' },
-              { act: 'backup-restore', label: 'Restore', icon: 'rotate-ccw', disabled: env.gameBusy || !env.backups?.count },
-              { act: 'backup-open', label: 'Open folder', icon: 'folder-open' },
+              { act: 'backup-now', label: t('Back up now'), icon: 'save' },
+              { act: 'backup-restore', label: t('Restore'), icon: 'rotate-ccw', disabled: env.gameBusy || !env.backups?.count },
+              { act: 'backup-open', label: t('Open folder'), icon: 'folder-open' },
             ],
           },
           { id: 'backup_detail', type: 'note', when: (v, env) => !!env.backupDetail, note: (env) => ({ text: env.backupDetail }) },
         ],
       },
       {
-        title: 'Import a save',
+        title: t('Import a save'),
         rows: [
           {
             expand: (env) => env.saveSources.map((s, i) => ({
               id: `source_${i}`, label: s.label, type: 'info', value: s.path, mono: true,
-              actions: [{ act: 'import', arg: s.path, name: s.label, label: 'Import', icon: 'upload', disabled: env.gameBusy || env.importing }],
+              actions: [{ act: 'import', arg: s.path, name: s.label, label: t('Import'), icon: 'upload', disabled: env.gameBusy || env.importing }],
             })),
           },
           {
-            id: 'import_folder', label: 'From a folder', type: 'info',
-            actions: (env) => [{ act: 'import-folder', label: 'Choose a folder', icon: 'folder-open', disabled: env.gameBusy || env.importing }],
+            id: 'import_folder', label: t('From a folder'), type: 'info',
+            actions: (env) => [{ act: 'import-folder', label: t('Choose a folder'), icon: 'folder-open', disabled: env.gameBusy || env.importing }],
           },
           { id: 'import_result', type: 'note', when: (v, env) => !!env.importResult, note: (env) => env.importResult },
         ],
@@ -518,59 +519,59 @@ export const SECTIONS = [
   },
   {
     id: 'game',
-    label: 'Game',
+    label: t('Game'),
     groups: [
       {
         title: '',
         rows: [
           {
-            id: 'game_files', label: 'Game files', type: 'info', value: (env) => env.gameFiles, mono: true,
-            actions: [{ act: 'change-files', label: 'Change', icon: 'folder-open' }],
+            id: 'game_files', label: t('Game files'), type: 'info', value: (env) => env.gameFiles, mono: true,
+            actions: [{ act: 'change-files', label: t('Change'), icon: 'folder-open' }],
           },
           {
-            id: 'setup_again', label: 'Set up again', type: 'info',
-            actions: (env) => [{ act: 'setup-again', label: 'Set up', icon: 'wrench', disabled: !env.canSetUp }],
+            id: 'setup_again', label: t('Set up again'), type: 'info',
+            actions: (env) => [{ act: 'setup-again', label: t('Set up'), icon: 'wrench', disabled: !env.canSetUp }],
           },
-          { id: 'setup_log', label: 'Setup log', type: 'info', actions: [{ act: 'setup-log', label: 'Open', icon: 'file-text' }] },
+          { id: 'setup_log', label: t('Setup log'), type: 'info', actions: [{ act: 'setup-log', label: t('Open'), icon: 'file-text' }] },
         ],
       },
       {
-        title: 'Gameplay',
+        title: t('Gameplay'),
         rows: [
-          { id: 'gameplay_note', type: 'note', note: () => ({ text: 'New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          { id: 'gameplay_note', type: 'note', note: () => ({ text: t('New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).') }) },
           ...gameplayRows(),
         ],
       },
       {
-        title: 'Steam',
+        title: t('Steam'),
         rows: [
           {
             id: 'steam_note', type: 'note',
             note: (env) => ({ text: env.steam && !env.steam.found
-              ? 'Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.'
-              : 'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.' }),
+              ? t('Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.')
+              : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.') }),
           },
           {
-            id: 'steam_game', label: 'Game in Steam', type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.game_added ? `In Steam as ${env.steam.game_name}` : `Not in Steam. Starts the game at once.`),
+            id: 'steam_game', label: t('Game in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
+            value: (env) => (env.steam?.game_added ? t('In Steam as {name}', { name: env.steam.game_name }) : t('Not in Steam. Starts the game at once.')),
             actions: (env) => [env.steam?.game_added
-              ? { act: 'steam-remove-game', label: 'Remove', icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-game', label: 'Add to Steam', icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
+              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
           },
           {
-            id: 'steam_launcher', label: 'Launcher in Steam', type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.launcher_added ? `In Steam as ${env.steam.launcher_name}` : `Not in Steam. Opens this window.`),
+            id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
+            value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
             actions: (env) => [env.steam?.launcher_added
-              ? { act: 'steam-remove-launcher', label: 'Remove', icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-launcher', label: 'Add to Steam', icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
+              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
           },
-          { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: 'Steam is running. Close it (Steam, Exit) to add or remove a shortcut.' }) },
+          { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: t('Steam is running. Close it (Steam, Exit) to add or remove a shortcut.') }) },
         ],
       },
       {
-        title: 'Shader files',
+        title: t('Shader files'),
         rows: [
-          { id: 'shader_storage', label: 'Storage', type: 'info', value: storageText, actions: storageActions },
+          { id: 'shader_storage', label: t('Storage'), type: 'info', value: storageText, actions: storageActions },
           { id: 'shader_storage_note', type: 'note', when: (v, env) => !!storageNote(env), note: storageNote },
         ],
       },
@@ -579,22 +580,22 @@ export const SECTIONS = [
         rows: [
           {
             // saved on leaving the field, not while typing: half a path would make the whole launcher think the game is gone
-            id: 'game_dir', label: 'Install folder', type: 'path', at: config('game_dir'), pick: 'Choose the install folder', open: 'game',
+            id: 'game_dir', label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
           {
-            id: 'romfs_mod', label: 'Mods', type: 'path', at: pkp('fs', 'romfs_mod'), pick: 'Choose the mods folder',
+            id: 'romfs_mod', label: t('Mods'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
             placeholder: () => '',
           },
           {
             id: 'romfs_mod_note', type: 'note',
-            note: () => ({ text: "Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path." }),
+            note: () => ({ text: t("Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path.") }),
           },
-          { id: 'minimize_on_play', label: 'Minimise while playing', type: 'toggle', at: config('minimize_on_play'), def: false },
+          { id: 'minimize_on_play', label: t('Minimise while playing'), type: 'toggle', at: config('minimize_on_play'), def: false },
         ],
       },
       {
-        title: 'Game clock',
+        title: t('Game clock'),
         rows: [
           ...TIMED_EVENTS.map((event) => ({
             id: `event_${event.id}`, label: event.label, type: 'toggle', at: AT_EVENT_PRESET, def: false,
@@ -602,12 +603,12 @@ export const SECTIONS = [
             write: (on) => [edit(AT_EVENT_PRESET, on ? event.id : 'off')], replaces: true,
           })),
           {
-            id: 'game_clock', label: 'Date and time in the game', type: 'clock', at: AT_CLOCK_OFFSET, def: '0', commit: 'blur',
+            id: 'game_clock', label: t('Date and time in the game'), type: 'clock', at: AT_CLOCK_OFFSET, def: '0', commit: 'blur',
             write: (value, src) => clockEdits(value, src), writeSame: scopeNeedsReset, enabled: (src) => activeEvent(src) === 'off',
           },
           {
             id: 'game_clock_note', type: 'note',
-            note: () => ({ text: 'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.' }),
+            note: () => ({ text: t('Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.') }),
           },
         ],
       },
@@ -615,61 +616,63 @@ export const SECTIONS = [
   },
   {
     id: 'about',
-    label: 'About',
+    label: t('About'),
     groups: [
       {
         title: '',
         rows: [
-          { id: 'version', label: 'Version', type: 'info', value: (env) => env.version, selectable: true },
+          { id: 'version', label: t('Version'), type: 'info', value: (env) => env.version, selectable: true },
           {
-            id: 'channel', label: 'Update channel', type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
+            id: 'channel', label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
             lock: (env) => env.updating || env.gameBusy,
-            options: [{ value: 'stable', label: 'Stable' }, { value: 'testing', label: 'Testing' }],
+            options: [{ value: 'stable', label: t('Stable') }, { value: 'testing', label: t('Testing') }],
           },
           {
             id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: 'Testing builds come first and may have bugs. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.' }),
+            note: () => ({ text: t('Testing builds come first and may have bugs. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
           },
           {
-            id: 'testing_help', label: 'Testing help', type: 'info', when: (v) => v.channel === 'testing',
-            value: 'What to test is listed with each Testing build in What\'s New.',
+            id: 'testing_help', label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
+            value: t('What to test is listed with each Testing build in What\'s New.'),
             actions: () => [
-              { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: 'Report a problem', icon: 'external-link' },
-              { act: 'open-log', label: 'Show pkp.log', icon: 'file-text' },
+              { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: t('Report a problem'), icon: 'external-link' },
+              { act: 'open-log', label: t('Show pkp.log'), icon: 'file-text' },
             ],
           },
           {
-            id: 'builds', label: 'Versions', type: 'info', value: (env) => `You have ${env.version}`,
-            actions: (env) => [{ act: 'builds-open', label: 'Choose a version', icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
+            id: 'builds', label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
+            actions: (env) => [{ act: 'builds-open', label: t('Choose a version'), icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
-            id: 'updates', label: 'Updates', type: 'info', value: (env) => env.updateText,
+            id: 'updates', label: t('Updates'), type: 'info', value: (env) => env.updateText,
             actions: (env) => [
-              ...(env.canUpdate ? [{ act: 'update', label: 'Update', icon: 'download', primary: true }] : []),
-              { act: 'check-updates', label: 'Check for updates', icon: 'refresh-cw', disabled: env.checking },
+              ...(env.canUpdate ? [{ act: 'update', label: t('Update'), icon: 'download', primary: true }] : []),
+              { act: 'check-updates', label: t('Check for updates'), icon: 'refresh-cw', disabled: env.checking },
             ],
           },
-          { id: 'licence', label: 'Licence', type: 'info', value: 'GPL-3.0-or-later' },
-          { id: 'built_with', label: 'Built with', type: 'info', value: 'Tauri 2, Lucide (ISC), Inter (OFL)' },
-          { id: 'repo', label: 'Source code', type: 'info', actions: [open(REPO_URL, 'GitHub')] },
-          { id: 'community', label: 'Community', type: 'info', value: 'Recompia Discord: help, testing and chat', actions: [open(DISCORD_URL, 'Join Discord')] },
-          { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: 'Artwork by Koi, hand drawn' },
-          { id: 'meadow-credit', label: 'Meadow', type: 'info', value: 'Original artwork made for the project' },
-          { id: 'bug', label: 'Report a bug', type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
+          // not a file setting: the language is per PC like the colours (i18n.js), so the row has no `at` and pages/settings.js hands the pick to setLanguage
+          { id: 'language', label: t('Language'), type: 'language' },
+          { id: 'licence', label: t('Licence'), type: 'info', value: 'GPL-3.0-or-later' },
+          { id: 'built_with', label: t('Built with'), type: 'info', value: t('Tauri 2, Lucide (ISC), Inter (OFL)') },
+          { id: 'repo', label: t('Source code'), type: 'info', actions: [open(REPO_URL, 'GitHub')] },
+          { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
+          { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: t('Artwork by Koi, hand drawn') },
+          { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },
+          { id: 'bug', label: t('Report a bug'), type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],
       },
       {
-        title: 'Troubleshooting',
+        title: t('Troubleshooting'),
         rows: [
           {
-            id: 'repair', label: 'Repair and reset', type: 'info',
-            value: 'Settings, caches and old copies. You see what changes first.',
-            actions: (env) => [{ act: 'repair-open', label: 'Repair and reset', icon: 'wrench', disabled: env.gameBusy || env.updating || env.taskBusy }],
+            id: 'repair', label: t('Repair and reset'), type: 'info',
+            value: t('Settings, caches and old copies. You see what changes first.'),
+            actions: (env) => [{ act: 'repair-open', label: t('Repair and reset'), icon: 'wrench', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
-            id: 'repair_undo', label: 'Undo last repair', type: 'info', when: (v, env) => !!env.repairBackup,
-            value: (env) => (env.repairBackup ? `Puts back ${env.repairBackup.files.join(', ')}` : ''),
-            actions: (env) => [{ act: 'repair-undo', label: 'Undo', icon: 'rotate-ccw', disabled: env.gameBusy || env.updating || env.taskBusy }],
+            id: 'repair_undo', label: t('Undo last repair'), type: 'info', when: (v, env) => !!env.repairBackup,
+            value: (env) => (env.repairBackup ? t('Puts back {files}', { files: env.repairBackup.files.join(', ') }) : ''),
+            actions: (env) => [{ act: 'repair-undo', label: t('Undo'), icon: 'rotate-ccw', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
         ],
       },
@@ -677,7 +680,7 @@ export const SECTIONS = [
         title: '',
         rows: [{
           id: 'legal', type: 'note',
-          note: () => ({ text: 'No game files are included. You need your own copy of the game, from a console you own. This project is not affiliated with or endorsed by Nintendo, The Pokemon Company or Koei Tecmo.' }),
+          note: () => ({ text: t('No game files are included. You need your own copy of the game, from a console you own. This project is not affiliated with or endorsed by Nintendo, The Pokemon Company or Koei Tecmo.') }),
         }],
       },
     ],
@@ -730,8 +733,8 @@ export function shownChoice(f, value) {
 /** The options to offer. Custom is a real choice on a number control, and on a plain list only the name of a value it cannot show. */
 export function optionsFor(f, value, env = {}) {
   const list = f.options.filter((o) => !o.offer || o.offer(env) || o.value === value).map(({ value: v, label }) => ({ value: v, label }));
-  if (f.type === 'choice' || f.type === 'size') return [...list, { value: 'custom', label: 'Custom' }];
-  return list.some((o) => o.value === value) ? list : [...list, { value: 'custom', label: 'Custom', disabled: true }];
+  if (f.type === 'choice' || f.type === 'size') return [...list, { value: 'custom', label: t('Custom') }];
+  return list.some((o) => o.value === value) ? list : [...list, { value: 'custom', label: t('Custom'), disabled: true }];
 }
 
 /** What a number field starts from when Custom is picked: the value when it is a number, else the control's starting point. */

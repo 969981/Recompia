@@ -7,6 +7,7 @@ import markUrl from './art/mark.svg';
 import markTestingUrl from './art/mark-testing.png';
 import logoUrl from './art/logo.png';
 import { api } from './api.js';
+import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
@@ -19,10 +20,10 @@ import * as setup from './pages/setup.js';
 
 // nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy.
 const PAGES = {
-  home: { mod: home, nav: 'Home', icon: 'house', art: 'sharp' },
-  linkplay: { mod: linkplay, nav: 'Link Play', icon: 'users' },
-  news: { mod: news, nav: "What's New", icon: 'newspaper' },
-  settings: { mod: settings, nav: 'Settings', icon: 'settings' },
+  home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
+  linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
+  news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
+  settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
   setup: { mod: setup },
 };
 
@@ -48,14 +49,15 @@ let leaving = [];        // run when the page goes
 // Launcher colours: 'sunrise' (amber to red, the default; reads well with red-green colour blindness), 'dusk' (the old violet) 'koi' (Koi's Camp: a bright daytime picture) or 'meadow' (a bright daytime scene made for the project).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
 const THEMES = ['sunrise', 'dusk', 'koi', 'meadow'];
+// theme names are proper names: they stay in English in every language
 const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', koi: "Koi's Camp", meadow: 'Meadow' };
 function readTheme() {
   try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'sunrise'; } catch { return 'sunrise'; }
 }
-function applyTheme(t) {
-  document.documentElement.dataset.theme = t;
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
   const b = document.getElementById('theme-btn');
-  if (b) b.querySelector('.nav-label').textContent = b.querySelector('.nav-tip').textContent = `Colours: ${THEME_NAME[t]}`;
+  if (b) b.querySelector('.nav-label').textContent = b.querySelector('.nav-tip').textContent = t('Colours: {name}', { name: THEME_NAME[theme] });
 }
 applyTheme(readTheme());
 
@@ -74,11 +76,11 @@ function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><img class="brand-mark-testing" src="${markTestingUrl}" alt="Testing" /><img class="brand-name brand-logo" src="${logoUrl}" alt="Pokopia" /><span class="brand-tag">Testing</span></div>
+    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><img class="brand-mark-testing" src="${markTestingUrl}" alt="${esc(t('Testing'))}" /><img class="brand-name brand-logo" src="${logoUrl}" alt="Pokopia" /><span class="brand-tag">${esc(t('Testing'))}</span></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
-    <button class="nav-item" id="theme-btn" aria-label="Change colours">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
-    <button class="nav-item" id="ui-hide-btn" aria-label="Hide sidebar">${icon('eye-off')}<span class="nav-label">Hide sidebar</span><span class="nav-tip" aria-hidden="true">Hide sidebar</span></button>
+    <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
+    <button class="nav-item" id="ui-hide-btn" aria-label="${esc(t('Hide sidebar'))}">${icon('eye-off')}<span class="nav-label">${esc(t('Hide sidebar'))}</span><span class="nav-tip" aria-hidden="true">${esc(t('Hide sidebar'))}</span></button>
     <button class="task-pill" id="task-pill" hidden>
       ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
       <span class="task-track"><span class="task-fill"></span></span>
@@ -187,7 +189,7 @@ function drawWindowButtons() {
   const win = getCurrentWindow();
   const button = (id, name, label, cls = '') => `<button class="win-btn ${cls}" id="${id}" aria-label="${label}" title="${label}">${icon(name)}</button>`;
   const quiet = (p) => p.catch((e) => console.warn(e));
-  host.innerHTML = button('win-min', 'minus', 'Minimise') + button('win-max', 'square', 'Maximise') + button('win-close', 'x', 'Close', 'close');
+  host.innerHTML = button('win-min', 'minus', t('Minimise')) + button('win-max', 'square', t('Maximise')) + button('win-close', 'x', t('Close'), 'close');
   document.getElementById('win-min').addEventListener('click', () => quiet(win.minimize()));
   document.getElementById('win-max').addEventListener('click', () => quiet(win.toggleMaximize()));
   document.getElementById('win-close').addEventListener('click', () => quiet(win.close()));
@@ -199,7 +201,7 @@ function drawWindowButtons() {
   const max = document.getElementById('win-max');
   const syncMax = () => quiet(win.isMaximized().then((on) => {
     max.innerHTML = icon(on ? 'copy' : 'square');
-    max.title = on ? 'Restore' : 'Maximise';
+    max.title = on ? t('Restore') : t('Maximise');
     max.setAttribute('aria-label', max.title);
   }));
   quiet(win.onResized(syncMax));
@@ -207,11 +209,15 @@ function drawWindowButtons() {
 }
 
 function start() {
+  // the static shell of index.html is English; the language of the player goes on here
+  nav.setAttribute('aria-label', t('Main'));
+  document.getElementById('winbtns').setAttribute('aria-label', t('Window'));
   startGamepadNav();
   drawNav();
   drawWindowButtons();
   const showSidebar = document.getElementById('show-sidebar');
-  showSidebar.innerHTML = `${icon('eye')}<span>Show sidebar</span>`;
+  showSidebar.innerHTML = `${icon('eye')}<span>${esc(t('Show sidebar'))}</span>`;
+  showSidebar.setAttribute('aria-label', t('Show sidebar'));
   showSidebar.addEventListener('click', () => {
     try { localStorage.setItem('sidebar', 'show'); } catch { /* the choice lasts until the launcher closes */ }
     applySidebar(false);
