@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate the launcher art (sharp and blurred, for the Dusk and Sunrise themes) using the build container's cairo/rsvg/webp libraries.
+# Regenerate the launcher art (sharp and blurred, for the Dusk, Sunrise and Meadow themes) using the build container's cairo/rsvg/webp libraries.
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -13,3 +13,4 @@ cc -O3 -std=c11 "$root/scripts/render-art.c" -o "$tmp/render-art" \
   $(pkg-config --cflags --libs librsvg-2.0 cairo) $webp_flags -lm
 "$tmp/render-art" "$art/island.svg" "$art/island-sharp.webp" "$art/island-soft.webp" \
   "$art/island-sharp-sunrise.webp" "$art/island-soft-sunrise.webp"
+"$tmp/render-art" "$art/meadow.svg" "$art/meadow-sharp.webp" "$art/meadow-soft.webp"

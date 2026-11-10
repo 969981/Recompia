@@ -1,6 +1,8 @@
 // Which warning a build needs and whether it can be confirmed: pure, no DOM, so a plain node check runs it (pages/builds.js draws it).
 // A build is what the launcher's list_builds returns: { tag, name, date, notes, url, prerelease, installable, relation, risk, reasons }.
 
+import { t } from './i18n.js';
+
 /** The version of a tag or a build name: "v0.8.1-beta.6" gives "0.8.1-beta.6". */
 export const versionOf = (b) => String(b?.tag ?? '').replace(/^v/i, '');
 
@@ -14,7 +16,7 @@ export const forChannel = (builds, channel) => (Array.isArray(builds) ? builds :
  */
 export function warningFor(build) {
   const kind = build?.relation === 'older' ? (build.risk === 'high' ? 'high' : 'low') : build?.risk === 'high' ? 'high' : 'none';
-  return { kind, needsTick: kind === 'high', ok: kind === 'high' ? 'Go back anyway' : kind === 'low' ? 'Go back' : 'Install' };
+  return { kind, needsTick: kind === 'high', ok: kind === 'high' ? t('Go back anyway') : kind === 'low' ? t('Go back') : t('Install') };
 }
 
 /** The confirm button is on when no tick is needed, or the box is ticked. */
@@ -22,7 +24,7 @@ export const canConfirm = (warning, ticked) => !warning.needsTick || !!ticked;
 
 /** The label on a build's button. */
 export function actionLabel(build) {
-  if (build.relation === 'installed') return 'Installed';
-  if (!build.installable) return 'Not available yet';
-  return build.relation === 'older' ? 'Go back to this' : 'Install this build';
+  if (build.relation === 'installed') return t('Installed');
+  if (!build.installable) return t('Not available yet');
+  return build.relation === 'older' ? t('Go back to this') : t('Install this build');
 }

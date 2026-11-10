@@ -4,7 +4,7 @@
 English sources and their translations:
   README.md                              -> docs/i18n/README.<lang>.md
   game-build/release_b/README.linux.txt  -> game-build/release_b/README.linux.<lang>.txt
-Languages: zh-CN es ar hi
+Languages: zh-CN es ar hi pt-BR pt-PT
 
 The language bar (the block between <!-- i18n-bar:start --> and <!-- i18n-bar:end --> in README.md) is ignored by the hash and the checks.
 Every translation carries a line with the SHA-256 of the English file it was made from (an HTML comment in .md, a '#' line in .txt),
@@ -22,7 +22,7 @@ Standard library only. Exit status 1 if there is any error.
 """
 import argparse, hashlib, os, re, sys
 
-LANGS = ["zh-CN", "es", "ar", "hi"]
+LANGS = ["zh-CN", "es", "ar", "hi", "pt-BR", "pt-PT"]
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PAIRS = [
     ("README.md", "docs/i18n/README.{lang}.md", "md"),

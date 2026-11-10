@@ -21,6 +21,7 @@ constexpr const char* kUpscaleQualityWords[] = {"native", "quality", "balanced",
 constexpr const char* kShadowWords[] = {"default", "high", "very_high", "ultra", "extreme"};   // [display] shadow_quality, indexed by gfx::ShadowQuality
 constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"};   // [upscale] aa, indexed by extras::AaMode
 constexpr const char* kLatencyWords[] = {"off", "auto", "on", "boost"};
+constexpr const char* kClockFormatWords[] = {"auto", "12h", "24h"};
 constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive"};
 constexpr const char* kAstcWords[] = {"fast", "high", "uncompressed"};
 constexpr const char* kFpsSnapWords[] = {"auto", "true", "false"};
@@ -111,7 +112,7 @@ std::string write_quit_key(const Settings& s) { return s.quit.key.kind == InKind
 
 bool read_overlay_pad(const std::string&, const std::string& v, Settings* s, std::string* msg) {
     if (parse_pad_combo(v, &s->overlay.pad)) return true;
-    *msg = "pad must be none or pad buttons joined by '+' (left_shoulder+right_shoulder, back+start ...), got '" + v + "'";
+    *msg = "pad must be none or pad buttons joined by '+' (left_stick+right_stick, back+start ...), got '" + v + "'";
     return false;
 }
 std::string write_overlay_pad(const Settings& s) { return pad_combo_text(s.overlay.pad); }
@@ -214,6 +215,9 @@ const SettingDef kTable[] = {
 
     {ROW("tweaks", "language", Text), TEXT(language), .auto_word = "auto", .nxrt_key = "system.language",
      .doc = "The game's language: auto (the Windows display language when the game has it, else English) or a name such as French. Applies at the next start."},
+
+    {ROW("tweaks", "clock_format", Choice), TEXT(clock_format), .words = kClockFormatWords,
+     .doc = "How the game shows the time of day: auto (the game's language decides: 12 hours with AM/PM for English, 24 hours for German), 12h or 24h."},
 
     {ROW("pad", "label_abxy", Bool), FLAG(pad.label_abxy),
      .doc = "0: Switch layout, by position (the right face button is Switch A). 1: Xbox layout, by the printed letter."},
@@ -356,7 +360,7 @@ const SettingDef kTable[] = {
      .doc = "A keyboard key that opens the Close the game prompt; none = off."},
 
     {ROW("overlay", "pad", Custom), CUSTOM(read_overlay_pad, write_overlay_pad), .syntax = "pad_combo",
-     .doc = "Pad buttons held together that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."},
+     .doc = "Pad buttons held together (left_stick+right_stick) that open and close the F1 menu; none = off. One equal to [quit] pad is ignored."},
 
     // Keys older builds wrote that nothing reads any more.
     {ROW("tweaks", "glow_color", Retired)}, {ROW("tweaks", "suit_glow", Retired)}, {ROW("tweaks", "ball_glow", Retired)},

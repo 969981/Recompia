@@ -1,6 +1,6 @@
 """Run pkp.exe in a window for a fixed time with the frame trace on, then print the report.
 
-  python prof_run.py --exe game-build\\build\\display\\mpr.exe --cap 120 --seconds 40 --tag base120 [--vsync] [--env K=V ...] [--ini-extra "[sec]\\nkey=v"]
+  python prof_run.py --exe game-build\\build\\display\\pkp.exe --cap 120 --seconds 40 --tag base120 [--vsync] [--env K=V ...] [--ini-extra "[sec]\\nkey=v"]
 
 Runs in work\\run_prof_<tag> (its own controls.ini with the requested cap), shares work\\run\\bc7_cache. Output: work\\prof\\<tag>.trace,
 <tag>.json (the numbers) and the report on stdout. Needs the game folder at <project root>\\game (romfs).

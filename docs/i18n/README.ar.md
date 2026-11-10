@@ -1,4 +1,4 @@
-<!-- source-sha256: f5d59a236e7f5005dbff615c3f27adff27573487a6699942417240900a76fa3d -->
+<!-- source-sha256: c634f3c7ee8ae03825b35d79f4ee7e47a222a83971d3505d3bebb09e0b52218d -->
 
 <div dir="rtl">
 
@@ -55,12 +55,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>شاشة العنوان</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>بناء جزيرتك</sub></td>
+    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>شاشة العنوان</sub></td>
+    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>بناء جزيرتك</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>العب بنسب عرض إلى ارتفاع جديدة</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play مع صديق</sub></td>
+    <td width="50%"><img src="../assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>العب بنسب عرض إلى ارتفاع جديدة</sub></td>
+    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play مع صديق</sub></td>
   </tr>
 </table>
 
@@ -94,7 +94,7 @@
 - **أيقونات الأزرار على الشاشة تطابق ما تحمله:** لوحة مفاتيح، أو Xbox، أو PlayStation، أو Switch.
 - **كتابة اسمك** تعمل بذراع التحكم أو الفأرة أو لوحة المفاتيح.
 - **الخروج دون Alt+F4:** اضغط باستمرار Select وStart (View وMenu على ذراع Xbox)، أو استخدم **Quit game** في F1.
-- **افتح قائمة F1 من ذراع التحكم:** معطّل افتراضياً؛ اضبط `[overlay] pad` في `controls.ini` (مثلاً `left_shoulder+right_shoulder`). لا يمكن أن يكون مزيج الخروج.
+- **افتح قائمة F1 من ذراع التحكم:** اضغط على العصاتين معاً (L3 + R3)؛ غيّره أو عطّله عبر `[overlay] pad` في `controls.ini` (`none` = معطّل). لا يمكن أن يكون مزيج الخروج.
 
 ### Steam Deck والأجهزة المحمولة
 - يتم التعرف على Steam Deck وLegion Go S والأجهزة المحمولة الأخرى: تبقى أيقونات ذراع التحكم على الشاشة ويناسب حجم الصورة الشاشة.

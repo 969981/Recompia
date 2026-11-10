@@ -108,4 +108,4 @@ DebugMode retry); smo 135 valid (87 not translated, 72 of them texture handles, 
 - `scripts/gap_corpus.py <romfs> --cache <spirv dir> --out <dir> [--programs programs.bin] [--all]`: scans the game files the way the
   setup tool does (MaterialArchive.arc and every pak MTRL asset, read from the paks, not from retrotool output) and writes the blocks
   the cache lacks as a `--batch` corpus plus `gap_report.json`. The survey corpus had missed 85 gun fragment blocks (328 programs)
-  because retrotool stopped part way through `SamusGunMP1.pak`.
+  because retrotool stopped part way through one of the paks.

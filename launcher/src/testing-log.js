@@ -1,6 +1,7 @@
 // The Testing changelog: which entries make up the Testing branch's history, and the one note that sums them up. Pure functions on the
 // release list the launcher already has (cached, so no network): the page in pages/news.js only draws what they return.
 // A Stable player's list has no prereleases, so for them every function here returns nothing and What's New is as it always was.
+import { t } from './i18n.js';
 import { formatDate, isNewer, parseReleaseName, section } from './markdown.js';
 
 /** The tag of the overview entry. Not a real release: news.js lists it first among the Testing builds. */
@@ -41,7 +42,7 @@ export function overviewEntry(releases) {
   return {
     tag: OVERVIEW_TAG,
     virtual: true,
-    name: 'All Testing changes',
+    name: t('All Testing changes'),
     date: builds[0].date,
     prerelease: true,
     body: overviewNote(builds),
@@ -59,7 +60,7 @@ export function groups(releases) {
   if (!builds.length) return [{ id: 'releases', label: '', items: list }];
   const tags = new Set(builds.map((r) => r.tag));
   return [
-    { id: 'testing', label: 'Testing', items: [overviewEntry(list), ...builds] },
-    { id: 'releases', label: 'Releases', items: list.filter((r) => !tags.has(r.tag)) },
+    { id: 'testing', label: t('Testing'), items: [overviewEntry(list), ...builds] },
+    { id: 'releases', label: t('Releases'), items: list.filter((r) => !tags.has(r.tag)) },
   ];
 }

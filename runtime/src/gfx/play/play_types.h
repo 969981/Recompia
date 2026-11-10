@@ -26,7 +26,7 @@ namespace nxrt::play {
 // Play: the game in play.
 enum class Ctx : uint8_t { All = 0, Play, Map, Menu, kCount };
 constexpr int kCtxCount = static_cast<int>(Ctx::kCount);
-const char* ctx_name(Ctx c);                           // the game's names (mpr: "all" "gameplay" "map" "menu"); generic: "all" "play" "map" "menu"
+const char* ctx_name(Ctx c);                           // the game's names (a game may use others); generic: "all" "play" "map" "menu"
 bool parse_ctx(const std::string& s, Ctx* out);        // case-insensitive
 inline bool ctx_in_play(Ctx c) { return c == Ctx::Play; }
 
@@ -187,7 +187,7 @@ struct DisplaySettings {
     // Games with quality hooks (play_game.h kDisplayOptQuality, live): the preset names the set of values last picked on the F1 page
     // (switch2, high, ultra, steamdeck, legion_go_s, laptop, desktop; custom after a single change, quality_presets() below).
     std::string quality_preset = "switch2";
-    // ---- S38 GPU paths, at the next start; [nvn] pool_mirror and pass_barriers in mpr.ini or the environment win over these.
+    // ---- S38 GPU paths, at the next start; [nvn] pool_mirror and pass_barriers in the game's ini or the environment win over these.
     bool fast_gpu_memory = true;   // device-local copies of the pools draws read ([nvn] pool_mirror = on); costs up to 2 GiB of video memory
     bool fewer_gpu_waits = true;   // no full barrier after passes that only wrote their attachments ([nvn] pass_barriers = tracked)
     bool shader_prewarm = true;    // build the pipelines recorded by earlier runs ahead of the draws ([nvn] prewarm); at the next start, [nvn] prewarm in the ini wins
@@ -256,7 +256,7 @@ struct QuitSettings {
 // A pad combination that opens or closes the F1 overlay menu, like the F1 key. Based on pokopia-native (MIT) windows/src/nxrt/front/menu.c @e5d9ac6
 // (Minus + Plus there; here it is off by default, since Minus + Plus is this project's quit combination). Same rules as QuitSettings::pad.
 struct OverlaySettings {
-    uint32_t pad = 0;   // [overlay] pad: bits of PadSrc, 0 = off; one equal to [quit] pad is ignored with a warning
+    uint32_t pad = pad_src_bit(PadSrc::LeftStick) | pad_src_bit(PadSrc::RightStick);   // [overlay] pad: bits of PadSrc, 0 = off (L3 + R3: L + R is the game's Dive chord, #364); one equal to [quit] pad is ignored with a warning
 };
 
 struct Settings {
@@ -272,6 +272,7 @@ struct Settings {
     OverlaySettings overlay;
     std::string language;          // [tweaks] language: a language name (AmericanEnglish, French ...) or "" = auto (the Windows language). Read by the
                                    // settings service at start-up (services/common.cpp); kept here so a save writes it back. Applies at the next start.
+    std::string clock_format = "auto";   // [tweaks] clock_format: "auto" (the game's language decides), "12h" or "24h". The game's clock text hook reads it.
     Output out[kActCount];         // the [switch] table; defaulted from ActInfo::default_out
     std::vector<Binding> bindings;
     // [meta] defaults_rev: the factory-defaults revision the file was written with (0 when the file has no [meta]). When a file with
@@ -283,8 +284,7 @@ struct Settings {
 };
 
 // The factory settings: the table above and the default bindings (default_settings_text(), which is the same text the settings file would
-// contain). The text, its revision and the bindings later revisions add are the registered game's (nxrt/game.h Info::play_defaults;
-// Metroid Prime Remastered: games/mpr/mpr_defaults.cpp); without one the text is empty and the revision 0.
+// contain). The text, its revision and the bindings later revisions add are the registered game's (nxrt/game.h Info::play_defaults); without one the text is empty and the revision 0.
 Settings default_settings();
 const char* default_settings_text();
 
@@ -329,8 +329,8 @@ struct GameVocabulary {
     const GameActLabel* labels = nullptr;            // the launcher's Keyboard rows, in display order
     unsigned label_count = 0;
     // settings-file key and launcher label of the wheel setting (nullptr: the generic key)
-    const char* key_wheel_cycles = nullptr;          // [mouse] (mpr: "wheel_beams"; generic "wheel_cycles")
-    const char* label_wheel_cycles = nullptr;        // launcher check box (mpr: "Mouse wheel changes the beam")
+    const char* key_wheel_cycles = nullptr;          // [mouse] (a game may name it differently; generic "wheel_cycles")
+    const char* label_wheel_cycles = nullptr;        // launcher check box (the game's own wording)
 };
 const GameVocabulary* game_vocabulary();             // the registered game's, or nullptr
 // The settings-file key of the wheel setting: the game's, else the generic one.
@@ -358,7 +358,7 @@ const char* key_wheel_cycles();
 //   [tweaks]   language (auto or a language name such as French; next start)
 //   [fps]      show (1/0) key (a keyboard key, F2) corner (top_left top_right bottom_left bottom_right) detail (0..2) in_screenshots (1/0)
 //   [quit]     pad (pad buttons held together, e.g. back+start; none = off) key (a keyboard key; none = off)   (open the "Close the game?" prompt)
-//   [overlay]  pad (pad buttons held together; none = off, the default; not the [quit] pad)   (open and close the F1 menu)
+//   [overlay]  pad (pad buttons held together, left_stick+right_stick by default; none = off; not the [quit] pad)   (open and close the F1 menu)
 //   [padmap]   <south east west north left_shoulder right_shoulder left_trigger right_trigger start back left_stick right_stick dpad_up dpad_down
 //              dpad_left dpad_right> = default | none | <Switch buttons joined by '+', e.g. A or ZL+L>   (the pad button presses those Switch buttons)
 //   [switch]   <action> = <output>      e.g.  btn_zr = ZR    dpad_up = UP    (missing actions keep the default)

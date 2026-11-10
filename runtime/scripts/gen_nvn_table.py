@@ -19,7 +19,7 @@ import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
-# Relative to the script's own folder: scripts -> repo -> runtime-wt -> Metroid-Prime, then refs.
+# Relative to the script's own folder: scripts -> repo -> the folder that holds the checkouts, then refs.
 # (a checkout at <root>/runtime finds <root>/refs one level up from the repo; a worktree under runtime-wt/<name> two levels up).
 DEFAULT_REFS = next((c for c in (os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", "refs")),
                                  os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", "..", "refs"))) if os.path.isdir(c)),

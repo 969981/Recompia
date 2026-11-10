@@ -1,4 +1,4 @@
-<!-- source-sha256: f5d59a236e7f5005dbff615c3f27adff27573487a6699942417240900a76fa3d -->
+<!-- source-sha256: c634f3c7ee8ae03825b35d79f4ee7e47a222a83971d3505d3bebb09e0b52218d -->
 > 这是 [英文 README](../../README.md) 的机器翻译，可能包含错误；英文 README 是权威版本。
 
 <h1 align="center">
@@ -52,12 +52,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>标题画面</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>建设你的岛屿</sub></td>
+    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>标题画面</sub></td>
+    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>建设你的岛屿</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>支持新的画面比例</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>与朋友一起 Link Play</sub></td>
+    <td width="50%"><img src="../assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>支持新的画面比例</sub></td>
+    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>与朋友一起 Link Play</sub></td>
   </tr>
 </table>
 
@@ -91,7 +91,7 @@
 - **屏幕上的按钮图标会匹配你正在使用的设备：** 键盘、Xbox、PlayStation 或 Switch。
 - **输入名字**时可使用手柄、鼠标或键盘。
 - **无需 Alt+F4 即可退出：** 按住 Select 和 Start（Xbox 手柄上的 View 和 Menu），或使用 F1 中的 **Quit game**。
-- **用手柄打开 F1 菜单：** 默认关闭；在 `controls.ini` 中设置 `[overlay] pad`，例如 `left_shoulder+right_shoulder`。它不能与退出组合键相同。
+- **用手柄打开 F1 菜单：** 同时按下两个摇杆（L3 + R3）；可在 `controls.ini` 的 `[overlay] pad` 中更改或关闭（`none` = 关闭）。它不能与退出组合键相同。
 
 ### Steam Deck 和掌机
 - 可识别 Steam Deck、Legion Go S 和其他掌机：屏幕上保留手柄图标，画面尺寸适配屏幕。

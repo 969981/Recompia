@@ -1,6 +1,8 @@
 // Pure state logic: the hero's one button and the background task. No Tauri import, so `node --test` runs it.
 // Only these keys of the store state are read: app, setup, game, news, update, nup, dlss, repack, starting, loadError.
 
+import { t } from './i18n.js';
+
 const FINISH_UPDATE = new Set(['rebuild', 'retranslate', 'rebase']);
 
 /** The installed update needs setup to run again before Play. */
@@ -32,21 +34,21 @@ export function isFirstRun(s) {
 const pctOf = (p) => (p?.total ? Math.min(100, Math.floor((100 * p.done) / p.total)) : null);
 
 const UPDATE_LABEL = {
-  download: 'Downloading update',
-  verify: 'Checking update',
-  extract: 'Unpacking update',
-  apply: 'Installing update',
-  restart: 'Restarting',
+  download: t('Downloading update'),
+  verify: t('Checking update'),
+  extract: t('Unpacking update'),
+  apply: t('Installing update'),
+  restart: t('Restarting'),
 };
 
 /** The one background task shown in the sidebar pill, or null. An update outranks the rest: it restarts the launcher.
  *  ponytail: one pill, one task; a second task running at once waits behind it until the first ends. */
 export function taskOf(s) {
-  if (s.update) return { kind: 'update', label: UPDATE_LABEL[s.update.phase] || 'Updating', pct: s.update.phase === 'restart' ? null : pctOf(s.update) };
-  if (setupRunning(s)) return { kind: 'setup', label: 'Setting up', pct: pctOf(s.setup.progress) };
-  if (s.nup) return { kind: 'nup', label: 'Unpacking game files', pct: pctOf(s.nup) };
-  if (s.dlss) return { kind: 'dlss', label: 'Downloading DLSS', pct: pctOf(s.dlss) };
-  if (s.repack) return { kind: 'repack', label: s.repack.kind === 'expand' ? 'Unpacking shaders' : 'Packing shaders', pct: pctOf(s.repack) };
+  if (s.update) return { kind: 'update', label: UPDATE_LABEL[s.update.phase] || t('Updating'), pct: s.update.phase === 'restart' ? null : pctOf(s.update) };
+  if (setupRunning(s)) return { kind: 'setup', label: t('Setting up'), pct: pctOf(s.setup.progress) };
+  if (s.nup) return { kind: 'nup', label: t('Unpacking game files'), pct: pctOf(s.nup) };
+  if (s.dlss) return { kind: 'dlss', label: t('Downloading DLSS'), pct: pctOf(s.dlss) };
+  if (s.repack) return { kind: 'repack', label: s.repack.kind === 'expand' ? t('Unpacking shaders') : t('Packing shaders'), pct: pctOf(s.repack) };
   return null;
 }
 
@@ -71,25 +73,26 @@ const on = (label, icon, run) => ({ label, icon, run, disabled: false, busy: fal
  * 'refresh', or null when disabled. Anything running wins over readiness; Play is only ever offered for "ready".
  */
 export function primaryAction(s) {
-  if (!s.app) return s.loadError ? on('Try again', 'refresh-cw', 'refresh') : off('Loading', 'loader-circle');
-  if (s.starting) return off('One moment', 'loader-circle');
-  if (setupRunning(s)) return off('Setting up', 'loader-circle');
+  if (!s.app) return s.loadError ? on(t('Try again'), 'refresh-cw', 'refresh') : off(t('Loading'), 'loader-circle');
+  if (s.starting) return off(t('One moment'), 'loader-circle');
+  if (setupRunning(s)) return off(t('Setting up'), 'loader-circle');
   switch (gamePhase(s.game)) {
-    case 'starting': return off('Starting', 'loader-circle');
-    case 'running': return off('Running', 'gamepad-2', false);
-    case 'finishing': return off('Finishing up', 'loader-circle');
+    case 'starting': return off(t('Starting'), 'loader-circle');
+    case 'running': return off(t('Running'), 'gamepad-2', false);
+    case 'finishing': return off(t('Finishing up'), 'loader-circle');
   }
-  if (s.update) return off('Updating', 'loader-circle');
-  if (s.nup) return off('Unpacking', 'loader-circle');
-  if (s.repack) return off(s.repack.kind === 'expand' ? 'Unpacking shaders' : 'Packing shaders', 'loader-circle');
+  if (s.update) return off(t('Updating'), 'loader-circle');
+  if (s.nup) return off(t('Unpacking'), 'loader-circle');
+  if (s.repack) return off(s.repack.kind === 'expand' ? t('Unpacking shaders') : t('Packing shaders'), 'loader-circle');
 
   const kind = s.app.readiness?.kind;
   const stopped = ['cancelled', 'error'].includes(s.setup?.progress?.state);
-  if (kind === 'no_files' || kind === 'bad_files') return on('Choose game files', 'folder-open', 'choose');
-  if (kind === 'no_exe' || kind === 'no_runtime') return on('Choose game folder', 'folder-open', 'game-folder');
-  if (kind === 'setup') return on(stopped ? 'Continue setup' : 'Set up', 'wrench', 'setup');
-  if (kind === 'resume') return on('Continue setup', 'wrench', 'setup');
-  if (needsFinish(kind)) return on('Finish update', 'wrench', 'setup');
-  if (kind === 'ready') return on('Play', 'play', 'play');
-  return off('Not ready', 'circle-alert', false);   // a kind this build does not know must not fall through to Play
+  if (kind === 'no_files' || kind === 'bad_files') return on(t('Choose game files'), 'folder-open', 'choose');
+  if (kind === 'no_exe' || kind === 'no_runtime') return on(t('Choose game folder'), 'folder-open', 'game-folder');
+  if (kind === 'mixed_release') return off(t('Not ready'), 'circle-alert', false);   // nothing to click: the detail says to put the whole release in place
+  if (kind === 'setup') return on(stopped ? t('Continue setup') : t('Set up'), 'wrench', 'setup');
+  if (kind === 'resume') return on(t('Continue setup'), 'wrench', 'setup');
+  if (needsFinish(kind)) return on(t('Finish update'), 'wrench', 'setup');
+  if (kind === 'ready') return on(t('Play'), 'play', 'play');
+  return off(t('Not ready'), 'circle-alert', false);   // a kind this build does not know must not fall through to Play
 }

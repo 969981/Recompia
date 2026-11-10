@@ -92,6 +92,14 @@ body[data-shell="full"] #titlebar { left: 0; }
   pointer-events: none;
 }
 
+/* Hide sidebar: a player preference (main.js sets data-sidebar="hide" on <html>). The nav collapses so the art is unobstructed;
+   the floating #show-sidebar button is the only thing left to bring it back. */
+:root[data-sidebar="hide"] #app { grid-template-columns: minmax(0, 1fr); padding-left: 0; }
+:root[data-sidebar="hide"] #nav { display: none; }
+:root[data-sidebar="hide"] #titlebar { left: 0; }
+#show-sidebar { position: fixed; left: var(--space-5); bottom: var(--space-5); z-index: 5; display: none; }
+:root[data-sidebar="hide"] #show-sidebar { display: inline-flex; }
+
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .split { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }

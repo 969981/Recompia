@@ -1,4 +1,4 @@
-<!-- source-sha256: f5d59a236e7f5005dbff615c3f27adff27573487a6699942417240900a76fa3d -->
+<!-- source-sha256: c634f3c7ee8ae03825b35d79f4ee7e47a222a83971d3505d3bebb09e0b52218d -->
 > Esta es una traducción automática del [README en inglés](../../README.md); puede contener errores. El README en inglés es la versión definitiva.
 
 <h1 align="center">
@@ -52,12 +52,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Pantalla de título</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Construye tu isla</sub></td>
+    <td width="50%"><img src="../assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>Pantalla de título</sub></td>
+    <td width="50%"><img src="../assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>Construye tu isla</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>Juega con nuevas relaciones de aspecto</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play con un amigo</sub></td>
+    <td width="50%"><img src="../assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>Juega con nuevas relaciones de aspecto</sub></td>
+    <td width="50%"><img src="../assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play con un amigo</sub></td>
   </tr>
 </table>
 
@@ -91,7 +91,7 @@
 - **Los iconos de los botones en pantalla corresponden al dispositivo que estás usando:** teclado, Xbox, PlayStation o Switch.
 - **Escribir tu nombre** funciona con mando, ratón o teclado.
 - **Sal sin Alt+F4:** mantén pulsados Select y Start (View y Menu en un mando de Xbox), o usa **Quit game** en F1.
-- **Abre el menú F1 desde un mando:** está desactivado de forma predeterminada; configura `[overlay] pad` en `controls.ini`, por ejemplo `left_shoulder+right_shoulder`. No puede ser la misma combinación usada para salir.
+- **Abre el menú F1 desde un mando:** pulsa los dos sticks a la vez (L3 + R3); cámbialo o desactívalo con `[overlay] pad` en `controls.ini` (`none` = desactivado). No puede ser la misma combinación usada para salir.
 
 ### Steam Deck y dispositivos portátiles
 - Se reconocen Steam Deck, Legion Go S y otros dispositivos portátiles: los iconos del mando permanecen en pantalla y el tamaño de la imagen se adapta a la pantalla.

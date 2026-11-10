@@ -4,6 +4,8 @@
 import './setup.css';
 import logoUrl from '../art/logo.png';
 import { api } from '../api.js';
+import { t } from '../i18n.js';
+import { fromBackend } from '../backend-text.js';
 import { errCode, errText, esc, field, icon, row, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { needsFinish, primaryAction } from '../action.js';
@@ -11,9 +13,9 @@ import { needsFinish, primaryAction } from '../action.js';
 const GB = 2 ** 30;   // preflight.rs GB
 const SLOW_CHECK_MS = 200;   // a faster check never shows the "Checking" panel
 const NUP_CANCELLED = 'nup_cancelled';   // error.rs: the player stopped it, not a failure
-const SETUP_BUSY = 'Setup is running. Pause it first.';
+const SETUP_BUSY = t('Setup is running. Pause it first.');
 
-const STEPS = ['Build game', 'Translate shaders', 'First run'];
+const STEPS = [t('Build game'), t('Translate shaders'), t('First run')];
 
 // phase -> [step, the step's percent at the phase's start, at its end]. The two phases that take the time get the room.
 // Phases: main.rs check, tools, warmup; pkp_build.py verify, lift, compile, link, finish; shaders.rs extract, recheck, translate.
@@ -44,12 +46,12 @@ function etaReset(phase = '') {
 
 function roughly(ms) {
   const min = ms / 60_000;
-  if (min < 1) return 'Less than a minute';
-  if (min < 10) return `About ${Math.ceil(min)} min`;
-  if (min < 55) return `About ${Math.round(min / 5) * 5} min`;
+  if (min < 1) return t('Less than a minute');
+  if (min < 10) return t('About {n} min', { n: Math.ceil(min) });
+  if (min < 55) return t('About {n} min', { n: Math.round(min / 5) * 5 });
   const total = Math.round(min / 10) * 10;
   const m = total % 60;
-  return `About ${Math.floor(total / 60)} h${m ? ` ${m} min` : ''}`;
+  return m ? t('About {h} h {m} min', { h: Math.floor(total / 60), m }) : t('About {h} h', { h: Math.floor(total / 60) });
 }
 
 function etaOf(p, now = Date.now()) {
@@ -66,7 +68,7 @@ function etaOf(p, now = Date.now()) {
   const span = now - first.t;
   const moved = p.done - first.done;
   if (span < ETA_MIN_SPAN_MS || eta.samples.length < ETA_MIN_SAMPLES || moved <= 0) return eta.text;
-  eta.text = `${roughly(((p.total - p.done) * span) / moved)} left in this step`;
+  eta.text = t('{time} left in this step', { time: roughly(((p.total - p.done) * span) / moved) });
   eta.shown = now;
   return eta.text;
 }
@@ -95,7 +97,7 @@ let savingConfig = Promise.resolve();
 
 const setupRunning = (s) => s.setup?.progress?.state === 'running';
 
-const nameOf = (kind, version) => (kind === 'base' ? 'Base game' : kind === 'update' ? `Update ${version}` : kind === 'nup' ? '.nup package' : 'Game files');
+const nameOf = (kind, version) => (kind === 'base' ? t('Base game') : kind === 'update' ? t('Update {version}', { version }) : kind === 'nup' ? t('.nup package') : t('Game files'));
 
 /** Validates, and saves at once if the files are usable. */
 async function check(path) {
@@ -150,7 +152,7 @@ async function unpack(path) {
 async function addDlc(path) {
   try {
     const ids = await api.importDlc({ path });
-    toast(`DLC added (${ids.join(', ')}). It shows in the game at its next start.`);
+    toast(t('DLC added ({ids}). It shows in the game at its next start.', { ids: ids.join(', ') }));
   } catch (e) {
     toast(errText(e), 'error');
   }
@@ -162,8 +164,8 @@ function take(path) {
   const p = path.trim();
   if (!p) return;
   if (setupRunning(s)) return toast(SETUP_BUSY, 'error');
-  if (s.update) return toast('The launcher is updating.', 'error');
-  if (s.nup) return toast('Game files are being unpacked.', 'error');
+  if (s.update) return toast(t('The launcher is updating.'), 'error');
+  if (s.nup) return toast(t('Game files are being unpacked.'), 'error');
   if (/\.nsp$/i.test(p)) return addDlc(p);
   return /\.nup$/i.test(p) ? unpack(p) : check(p);
 }
@@ -250,22 +252,22 @@ function viewOf(s) {
 /** The big button: primaryAction, except where this page has its own word for it. */
 function actionOf(s, view) {
   const a = primaryAction(s);
-  if (view === 'error' && !a.disabled) return { ...a, label: 'Try again', icon: 'rotate-ccw', run: 'setup' };
-  if (a.run === 'play') return { ...a, label: 'Set up again', icon: 'wrench', run: 'setup' };
+  if (view === 'error' && !a.disabled) return { ...a, label: t('Try again'), icon: 'rotate-ccw', run: 'setup' };
+  if (a.run === 'play') return { ...a, label: t('Set up again'), icon: 'wrench', run: 'setup' };
   return a;
 }
 
 function factOf(s, view) {
   const parts = [];
   // README: about 7 minutes of build and 1 to 2 hours of shaders. Gentle uses a quarter of the threads.
-  if (view === 'setup' && s.app.readiness?.kind === 'setup') parts.push(flow.gentle ? 'Several hours.' : 'About 2 hours.');
-  if (flow.need > 0) parts.push(`Needs ${Math.ceil(flow.need / GB)} GB free.`);
+  if (view === 'setup' && s.app.readiness?.kind === 'setup') parts.push(flow.gentle ? t('Several hours.') : t('About 2 hours.'));
+  if (flow.need > 0) parts.push(t('Needs {size} GB free.', { size: Math.ceil(flow.need / GB) }));
   return parts.join(' ');
 }
 
 const chooseButtons = () => `<div class="setup-choices">
-    <button class="btn primary big" data-act="folder" data-focus>${icon('folder-open')}Choose a folder</button>
-    <button class="btn big" data-act="nup">${icon('file-archive')}Choose a .nup file</button>
+    <button class="btn primary big" data-act="folder" data-focus>${icon('folder-open')}${esc(t('Choose a folder'))}</button>
+    <button class="btn big" data-act="nup">${icon('file-archive')}${esc(t('Choose a .nup file'))}</button>
   </div>`;
 
 const LAYOUT = `Pokopia/
@@ -281,11 +283,11 @@ function candidateHtml(c, chosen) {
   const used = chosen?.path === c.path;
   // an incomplete folder that another one makes unnecessary (an empty base/ next to a full update) is not an error
   const unneeded = chosen && !used && !c.ok;
-  const chip = used ? `<span class="chip ok">${icon('circle-check')}Will be used</span>`
-    : c.ok ? '<span class="chip">Valid, older</span>'
-    : unneeded ? '<span class="chip">Not needed</span>'
-    : `<span class="chip danger">${icon('circle-x')}Incomplete</span>`;
-  const checks = c.checks.map((k) => `<li class="${k.ok ? 'ok' : 'bad'}">${icon(k.ok ? 'circle-check' : 'circle-x')}${esc(k.label)}</li>`);
+  const chip = used ? `<span class="chip ok">${icon('circle-check')}${esc(t('Will be used'))}</span>`
+    : c.ok ? `<span class="chip">${esc(t('Valid, older'))}</span>`
+    : unneeded ? `<span class="chip">${esc(t('Not needed'))}</span>`
+    : `<span class="chip danger">${icon('circle-x')}${esc(t('Incomplete'))}</span>`;
+  const checks = c.checks.map((k) => `<li class="${k.ok ? 'ok' : 'bad'}">${icon(k.ok ? 'circle-check' : 'circle-x')}${esc(fromBackend(k.label))}</li>`);
   return `<div class="setup-candidate">
     <div class="split"><h3>${esc(nameOf(c.kind, c.version))}</h3>${chip}</div>
     <div class="path">${esc(c.path)}</div>
@@ -297,15 +299,15 @@ function detailsHtml() {
   const r = flow.report;
   const aoc = r?.aoc ?? [];
   return `<details class="setup-details">
-    <summary>${icon('chevron-right')}Show details</summary>
+    <summary>${icon('chevron-right')}${esc(t('Show details'))}</summary>
     <div class="setup-details-body">
       ${(r?.candidates ?? []).map((c) => candidateHtml(c, r.chosen)).join('')}
-      ${aoc.length ? `<p>Add-on content: ${aoc.length} found (<span class="selectable">${aoc.map(esc).join(', ')}</span>)</p>` : ''}
+      ${aoc.length ? `<p>${esc(t('Add-on content: {count} found', { count: aoc.length }))} (<span class="selectable">${aoc.map(esc).join(', ')}</span>)</p>` : ''}
       <pre class="path setup-tree">${esc(LAYOUT)}</pre>
-      <p>The files must already be decrypted. The highest valid update is used, otherwise the base game.</p>
-      <p>A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game. Add-ons (DLC) in it are unpacked to nup_dump/aoc and found on their own.</p>
-      <p>The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).</p>
-      <p>DLC comes as a decrypted .nsp: press Add DLC (or drop the file here) and its add-on is unpacked into the folder pkp.ini's aoc_dir names, aoc next to the game when it names none.</p>
+      <p>${esc(t('The files must already be decrypted. The highest valid update is used, otherwise the base game.'))}</p>
+      <p>${esc(t('A .nup is unpacked once into nup_dump next to the game and needs the free space of the full game. Add-ons (DLC) in it are unpacked to nup_dump/aoc and found on their own.'))}</p>
+      <p>${esc(t('The launcher only reads this folder and never writes to it (a .nup is unpacked into its own copy).'))}</p>
+      <p>${esc(t("DLC comes as a decrypted .nsp: press Add DLC (or drop the file here) and its add-on is unpacked into the folder pkp.ini's aoc_dir names, aoc next to the game when it names none."))}</p>
     </div>
   </details>`;
 }
@@ -319,19 +321,19 @@ function filesHtml(s) {
   return `<div class="setup-files">
     ${icon('circle-check')}
     <div class="grow">
-      <div>${esc(name)}${aoc ? `, ${aoc} add-on${aoc > 1 ? 's' : ''}` : ''}</div>
+      <div>${esc(name)}${aoc ? esc(`, ${aoc > 1 ? t('{count} add-ons', { count: aoc }) : t('1 add-on')}`) : ''}</div>
       <div class="path">${esc(path)}</div>
     </div>
-    <button class="btn sm" data-act="dlc">Add DLC</button>
-    <button class="btn sm" data-act="change">Change</button>
+    <button class="btn sm" data-act="dlc">${esc(t('Add DLC'))}</button>
+    <button class="btn sm" data-act="change">${esc(t('Change'))}</button>
   </div>`;
 }
 
 const primaryHtml = () => `<button class="btn primary big setup-go" id="primary" data-act="primary" data-focus><span class="setup-go-icon"></span><span class="setup-go-label"></span></button>`;
-const GENTLE_ROW = row('Slower, keeps the PC usable', toggle('gentle', false));   // row() numbers its ids: built once, or every draw differs
+const GENTLE_ROW = row(t('Slower, keeps the PC usable'), toggle('gentle', false));   // row() numbers its ids: built once, or every draw differs
 // Only before the first setup: an existing cache keeps the storage it has (shaders.rs Job::compact).
-const SMALL_ROW = row('Packed shader files (about 20 GB smaller)', toggle('small', true));
-const logButton = () => `<button class="btn quiet" data-act="log">${icon('file-text')}Open setup log</button>`;
+const SMALL_ROW = row(t('Packed shader files (about 20 GB smaller)'), toggle('small', true));
+const logButton = () => `<button class="btn quiet" data-act="log">${icon('file-text')}${esc(t('Open setup log'))}</button>`;
 
 const stepsHtml = () => `<ol class="setup-steps">${STEPS.map((name, i) => `<li>
     <span class="setup-step-mark"><span class="num">${i + 1}</span>${icon('check')}</span>
@@ -345,90 +347,90 @@ const meterHtml = (label) => `<div class="setup-meter">
   <progress max="100" id="bar" aria-label="${esc(label)}"></progress>`;
 
 const VIEWS = {
-  loading: () => '<h1>Loading</h1>',
+  loading: () => `<h1>${esc(t('Loading'))}</h1>`,
 
-  down: (s) => `<h1>The launcher is not answering</h1>
+  down: (s) => `<h1>${esc(t('The launcher is not answering'))}</h1>
     <div class="banner danger">${icon('circle-x')}<div class="selectable">${esc(s.loadError)}</div></div>
     ${primaryHtml()}`,
 
-  choose: (s) => `<h1>Choose your game files</h1>
+  choose: (s) => `<h1>${esc(t('Choose your game files'))}</h1>
     ${chooseButtons()}
     ${flow.typing
       ? `<form class="setup-path" data-form="path">
-          ${field('path', flow.saved, 'C:/path/to/Pokopia', { mono: true, label: 'Game files path' })}
-          <button class="btn" type="submit">Use this path</button>
+          ${field('path', flow.saved, 'C:/path/to/Pokopia', { mono: true, label: t('Game files path') })}
+          <button class="btn" type="submit">${esc(t('Use this path'))}</button>
         </form>`
-      : '<button class="btn quiet sm setup-link" data-act="type">Enter a path</button>'}
-    ${flow.changing && (s.app.dump || flow.saved) ? '<button class="btn quiet sm setup-link" data-act="cancel">Cancel</button>' : ''}
+      : `<button class="btn quiet sm setup-link" data-act="type">${esc(t('Enter a path'))}</button>`}
+    ${flow.changing && (s.app.dump || flow.saved) ? `<button class="btn quiet sm setup-link" data-act="cancel">${esc(t('Cancel'))}</button>` : ''}
     ${detailsHtml()}
-    <p class="faint setup-legal">You need your own copy of the game. None is included.</p>`,
+    <p class="faint setup-legal">${esc(t('You need your own copy of the game. None is included.'))}</p>`,
 
-  checking: () => `<h1>Checking your game files</h1>
+  checking: () => `<h1>${esc(t('Checking your game files'))}</h1>
     <div class="setup-files">${icon('loader-circle', 'spin')}<div class="grow path">${esc(typeof flow.checking === 'string' ? flow.checking : flow.saved)}</div></div>`,
 
   bad: (s) => {
-    const errors = flow.error ? [flow.error] : flow.report?.errors?.length ? flow.report.errors : [s.app.readiness?.detail || 'These files cannot be used.'];
-    return `<h1>These game files will not work</h1>
-      <div class="banner danger">${icon('circle-x')}<div class="selectable">${errors.map((t) => `<p>${esc(t)}</p>`).join('')}</div></div>
+    const errors = flow.error ? [flow.error] : flow.report?.errors?.length ? flow.report.errors.map(fromBackend) : [fromBackend(s.app.readiness?.detail) || t('These files cannot be used.')];
+    return `<h1>${esc(t('These game files will not work'))}</h1>
+      <div class="banner danger">${icon('circle-x')}<div class="selectable">${errors.map((m) => `<p>${esc(m)}</p>`).join('')}</div></div>
       ${flow.report?.path ? `<div class="path">${esc(flow.report.path)}</div>` : ''}
       ${chooseButtons()}
-      ${s.app.dump ? '<button class="btn quiet sm setup-link" data-act="cancel">Cancel</button>' : ''}
+      ${s.app.dump ? `<button class="btn quiet sm setup-link" data-act="cancel">${esc(t('Cancel'))}</button>` : ''}
       ${detailsHtml()}`;
   },
 
-  nup: () => `<h1>Unpacking your game files</h1>
-    ${meterHtml('Unpacking progress')}
+  nup: () => `<h1>${esc(t('Unpacking your game files'))}</h1>
+    ${meterHtml(t('Unpacking progress'))}
     <div class="setup-foot">
       <div class="path clip grow" id="nup-file"></div>
-      <button class="btn sm" data-act="cancel-nup" data-focus>Cancel</button>
+      <button class="btn sm" data-act="cancel-nup" data-focus>${esc(t('Cancel'))}</button>
     </div>`,
 
-  noexe: (s) => `<h1>The game is missing</h1>
-    <p class="setup-line">${esc(s.app.readiness.detail)}</p>
+  noexe: (s) => `<h1>${esc(t('The game is missing'))}</h1>
+    <p class="setup-line">${esc(fromBackend(s.app.readiness.detail))}</p>
     ${primaryHtml()}`,
 
   setup: (s) => {
     const kind = s.app.readiness?.kind;
     const finish = needsFinish(kind);
-    return `<h1>${flow.again ? 'Set up again' : finish ? 'Finish the update' : kind === 'resume' ? 'Continue setup' : 'Set up the game'}</h1>
+    return `<h1>${esc(flow.again ? t('Set up again') : finish ? t('Finish the update') : kind === 'resume' ? t('Continue setup') : t('Set up the game'))}</h1>
       ${filesHtml(s)}
-      ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(s.app.readiness.detail)}</p>` : ''}
+      ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(fromBackend(s.app.readiness.detail))}</p>` : ''}
       <div class="setup-options">${kind === 'setup' ? SMALL_ROW : ''}${GENTLE_ROW}</div>
       ${primaryHtml()}
       <p class="faint num setup-fact" id="fact"></p>
-      ${flow.again ? '<button class="btn quiet sm setup-link" data-act="not-again">Cancel</button>' : ''}
+      ${flow.again ? `<button class="btn quiet sm setup-link" data-act="not-again">${esc(t('Cancel'))}</button>` : ''}
       ${detailsHtml()}`;
   },
 
-  paused: (s) => `<h1>Setup paused</h1>
+  paused: (s) => `<h1>${esc(t('Setup paused'))}</h1>
     ${filesHtml(s)}
-    <p class="setup-line">Finished work is kept.</p>
+    <p class="setup-line">${esc(t('Finished work is kept.'))}</p>
     <div class="setup-options">${GENTLE_ROW}</div>
     ${primaryHtml()}
     <p class="faint num setup-fact" id="fact"></p>
     <div class="setup-link">${logButton()}</div>`,
 
-  running: () => `<h1>Setting up</h1>
+  running: () => `<h1>${esc(t('Setting up'))}</h1>
     ${stepsHtml()}
-    ${meterHtml('Setup progress')}
+    ${meterHtml(t('Setup progress'))}
     <div class="setup-foot">
       <p class="setup-msg grow num" id="msg"></p>
-      <button class="btn sm" id="pause" data-act="pause" data-focus>${icon('pause')}<span>Pause</span></button>
+      <button class="btn sm" id="pause" data-act="pause" data-focus>${icon('pause')}<span>${esc(t('Pause'))}</span></button>
     </div>`,
 
-  error: (s) => `<h1>Setup stopped</h1>
-    <pre class="setup-error selectable">${esc(s.setup.progress.message)}</pre>
+  error: (s) => `<h1>${esc(t('Setup stopped'))}</h1>
+    <pre class="setup-error selectable">${esc(fromBackend(s.setup.progress.message))}</pre>
     ${primaryHtml()}
     <div class="setup-link">
       ${logButton()}
-      <button class="btn quiet" data-act="change">${icon('folder-open')}Change game files</button>
-      ${s.app.readiness?.kind === 'ready' ? `<button class="btn quiet" data-act="home">${icon('play')}Play</button>` : ''}
+      <button class="btn quiet" data-act="change">${icon('folder-open')}${esc(t('Change game files'))}</button>
+      ${s.app.readiness?.kind === 'ready' ? `<button class="btn quiet" data-act="home">${icon('play')}${esc(t('Play'))}</button>` : ''}
     </div>`,
 
-  done: (s) => `<h1>${s.setup?.progress?.state === 'done' ? 'Setup finished' : 'Ready to play'}</h1>
+  done: (s) => `<h1>${esc(s.setup?.progress?.state === 'done' ? t('Setup finished') : t('Ready to play'))}</h1>
     ${filesHtml(s)}
-    <button class="btn primary big setup-go" data-act="home" data-focus>${icon('play')}Play</button>
-    <button class="btn quiet sm setup-link" data-act="again">Set up again</button>
+    <button class="btn primary big setup-go" data-act="home" data-focus>${icon('play')}${esc(t('Play'))}</button>
+    <button class="btn quiet sm setup-link" data-act="again">${esc(t('Set up again'))}</button>
     ${detailsHtml()}`,
 };
 
@@ -479,10 +481,11 @@ export function render(el, ctx) {
     if (view === 'running') {
       const p = s.setup.progress;
       const { step, pct } = stepOf(p);
-      meter(pct, 'Working');
+      meter(pct, t('Working'));
       part('eta').textContent = etaOf(p);
-      part('msg').textContent = p.message;
-      part('msg').title = p.message;
+      const say = fromBackend(p.message);
+      part('msg').textContent = say;
+      part('msg').title = say;
       for (const [i, li] of panel.querySelectorAll('.setup-steps li').entries()) {
         li.dataset.state = i < step ? 'done' : i === step ? 'now' : '';
         if (i === step) li.setAttribute('aria-current', 'step');
@@ -490,11 +493,11 @@ export function render(el, ctx) {
       }
       const pause = part('pause');
       pause.disabled = flow.pausing;
-      pause.querySelector('span').textContent = flow.pausing ? 'Pausing' : 'Pause';
+      pause.querySelector('span').textContent = flow.pausing ? t('Pausing') : t('Pause');
     }
     if (view === 'nup') {
       const n = s.nup;
-      meter(n.total ? Math.min(100, Math.floor((100 * n.done) / n.total)) : null, 'Reading');
+      meter(n.total ? Math.min(100, Math.floor((100 * n.done) / n.total)) : null, t('Reading'));
       part('nup-file').textContent = n.file;
       part('nup-file').title = n.file;
     }
@@ -534,7 +537,7 @@ export function render(el, ctx) {
   panel.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     switch (act) {
-      case 'folder': return pick(api.pickFolder, { title: 'Choose your Pokopia game files folder', start: flow.saved || null });
+      case 'folder': return pick(api.pickFolder, { title: t('Choose your Pokopia game files folder'), start: flow.saved || null });
       case 'nup': return pick(api.pickNup, { start: null });
       case 'dlc': return pick(api.pickNsp);
       case 'type':

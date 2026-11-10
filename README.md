@@ -43,7 +43,9 @@
   <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
   <a href="docs/i18n/README.es.md">Español</a> ·
   <a href="docs/i18n/README.ar.md">العربية</a> ·
-  <a href="docs/i18n/README.hi.md">हिन्दी</a>
+  <a href="docs/i18n/README.hi.md">हिन्दी</a> ·
+  <a href="docs/i18n/README.pt-BR.md">Português (Brasil)</a> ·
+  <a href="docs/i18n/README.pt-PT.md">Português (Portugal)</a>
 </p>
 <!-- i18n-bar:end -->
 
@@ -57,12 +59,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="https://preview.redd.it/my-pokopia-title-screen-everybody-v0-etybucwfo4og1.jpeg?width=1080&crop=smart&auto=webp&s=c8c81f237e117baa364848b26d31364e734e566a" alt="Title screen"><br><sub>Title screen</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/jlee_260302_1001_pokopia_beach_mountain.jpg" alt="Island gameplay"><br><sub>Building your island</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>Title screen</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>Building your island</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://oyster.ignimgs.com/mediawiki/apis.ign.com/pokemon-pokopia/7/76/Ign_dev_island_guide_%287%29.jpg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
-    <td width="50%"><img src="https://static0.polygonimages.com/wordpress/wp-content/uploads/2026/03/pokemon-pokopia-gameshare.jpg?w=1600&h=900&fit=crop" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
   </tr>
 </table>
 
@@ -95,7 +97,7 @@
 - **On-screen button icons match what you're holding:** keyboard, Xbox, PlayStation, Steam Controller or Switch.
 - **Typing your name** works with a controller, mouse or keyboard.
 - **Quit without Alt+F4:** hold Select and Start (View and Menu on an Xbox pad), or use **Quit game** in F1.
-- **Open the F1 menu from a controller:** off by default; set `[overlay] pad` in `controls.ini` (for example `left_shoulder+right_shoulder`). It cannot be the quit combination.
+- **Open the F1 menu from a controller:** click both sticks (L3 + R3); change or turn it off with `[overlay] pad` in `controls.ini` (`none` = off). It cannot be the quit combination.
 
 ### Steam Deck and handhelds
 - Steam Deck, Legion Go S and other handhelds are recognised: controller icons stay on screen and the picture size suits the screen.

@@ -1,6 +1,7 @@
 // Steam shortcuts: 'game' starts the game at once, 'launcher' opens this window. Adds or removes one and says what happened.
 import { api } from '../../api.js';
 import { errText, toast } from '../../ui.js';
+import { fromBackend } from '../../backend-text.js';
 
 export function createSteamActions(h) {
   const { st } = h;
@@ -19,7 +20,7 @@ export function createSteamActions(h) {
     st.steamBusy = true;
     h.draw();
     try {
-      toast(await command({ target }), 'ok');
+      toast(fromBackend(await command({ target })), 'ok');
     } catch (e) {
       toast(errText(e), 'error');
     }

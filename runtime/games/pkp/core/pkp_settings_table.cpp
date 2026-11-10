@@ -66,6 +66,7 @@ constexpr Spec kSpecs[] = {
     gameplay(b(CraftSearch, "craft_search", true, "A Search button in the crafting screen's key guide.")),
     gameplay(b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
+    s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 

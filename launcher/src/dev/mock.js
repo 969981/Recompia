@@ -98,6 +98,7 @@ const SCENARIOS = {
   updating: { update: NEXT, updating: true },
   'setup-running': { readiness: { kind: 'resume', detail: 'Setup has not finished. Press Continue setup: it picks up where it stopped.' }, setup: sstatus({ complete: false, started: true }), autoSetup: true },
   rebuild: { readiness: { kind: 'rebuild', detail: 'This update changes the game code, so the game has to be built again (about 7 minutes). Your shaders and saves are kept.' }, setup: sstatus({ complete: false, rebuild: true }) },
+  'mixed-release': { readiness: { kind: 'mixed_release', detail: 'pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder (API 2 and an API before 2), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.' }, setup: sstatus({ complete: false }) },
   running: { game: { ...idle, state: 'running', message: 'pkp.exe started (process 18244)' } },
   crash: { game: { state: 'exited', code: -1073741819, crashed: true, message: 'pkp.exe exited with code -1073741819 (0xC0000005).', files: [{ name: 'pkp_crash.txt', fresh: true }, { name: 'pkp.log', fresh: true }] } },
   'no-controls': { noControls: true },

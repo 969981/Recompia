@@ -1,5 +1,6 @@
 // Repair and its Undo: the dialogs are in pages/repair.js; this keeps the last backup (st.repairBackup) and reloads what changed.
 import { api } from '../../api.js';
+import { num, t } from '../../i18n.js';
 import { toast } from '../../ui.js';
 import { runRepair, runUndo } from '../repair.js';
 
@@ -19,7 +20,7 @@ export function createRepairActions(h) {
         const r = await runRepair();
         if (!r) return;
         if (r.launcher) {
-          try { localStorage.removeItem('theme'); localStorage.removeItem('pkp.linkplay'); } catch { /* nothing to clear */ }
+          try { localStorage.removeItem('theme'); localStorage.removeItem('pkp.linkplay'); localStorage.removeItem('language'); } catch { /* nothing to clear */ }
           location.reload();
           return;
         }
@@ -32,7 +33,7 @@ export function createRepairActions(h) {
         if (await runUndo(st.repairBackup)) {
           st.repairBackup = await api.repairLast().catch(() => null);
           await h.reload().catch((e) => console.error(e));
-          toast('Reload the launcher (close and open it) to use the restored launcher settings', 'ok');
+          toast(t('Reload the launcher (close and open it) to use the restored launcher settings'), 'ok');
         }
         h.draw();
       },

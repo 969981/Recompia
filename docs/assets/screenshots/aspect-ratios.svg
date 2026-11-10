@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" role="img" aria-label="New aspect ratios screenshot placeholder">
+  <rect width="800" height="450" fill="#1b2740"/>
+  <rect x="14" y="14" width="772" height="422" rx="14" fill="none" stroke="#d8b46a" stroke-width="2" stroke-dasharray="12 10"/>
+  <text x="400" y="212" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="30" font-weight="600" fill="#d8b46a">Screenshot coming soon</text>
+  <text x="400" y="256" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" fill="#8b949e">Play on new aspect ratios</text>
+</svg>
