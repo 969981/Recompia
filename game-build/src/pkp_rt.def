@@ -3,6 +3,7 @@
 LIBRARY pkp_rt
 EXPORTS
     pkp_rt_main
+    pkp_rt_api DATA
     call_indirect
     host_import
     guest_trap

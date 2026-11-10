@@ -37,8 +37,8 @@ pub fn get_overview(app: AppHandle) -> Overview {
     overview_of(&load_config(&app))
 }
 
-/// Whether Play can run, and if not, what the main button does about it. `kind`: no_files, bad_files, no_exe, setup, resume, rebuild,
-/// retranslate, rebase, ready. `detail`: the sentence for the player (empty when ready).
+/// Whether Play can run, and if not, what the main button does about it. `kind`: no_files, bad_files, no_exe, no_runtime,
+/// mixed_release, setup, resume, rebuild, retranslate, rebase, ready. `detail`: the sentence for the player (empty when ready).
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Readiness {
     pub kind: &'static str,
@@ -86,6 +86,7 @@ pub fn readiness_of(f: &ReadyFacts) -> Readiness {
     match f.built {
         gamebuild::Built::Current => {}
         gamebuild::Built::Stale => return Readiness::of("rebuild", gamebuild::REBUILD_MESSAGE),
+        gamebuild::Built::Mixed { dll, sdk } => return Readiness::of("mixed_release", gamebuild::mixed_message(dll, sdk)),
         gamebuild::Built::No => return unfinished(),
     }
     if f.needs_retranslation {

@@ -87,6 +87,7 @@ export function primaryAction(s) {
   const stopped = ['cancelled', 'error'].includes(s.setup?.progress?.state);
   if (kind === 'no_files' || kind === 'bad_files') return on('Choose game files', 'folder-open', 'choose');
   if (kind === 'no_exe' || kind === 'no_runtime') return on('Choose game folder', 'folder-open', 'game-folder');
+  if (kind === 'mixed_release') return off('Not ready', 'circle-alert', false);   // nothing to click: the detail says to put the whole release in place
   if (kind === 'setup') return on(stopped ? 'Continue setup' : 'Set up', 'wrench', 'setup');
   if (kind === 'resume') return on('Continue setup', 'wrench', 'setup');
   if (needsFinish(kind)) return on('Finish update', 'wrench', 'setup');
