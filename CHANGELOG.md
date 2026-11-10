@@ -4,24 +4,23 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); e
 (last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
 of the game (version 2.0.1a): the download contains no game files.
 
-## Unreleased
+## 0.10.0 (build N: Narwhal)
 
 **Update:** press **Update**, then **Set up again** once (new game hooks for the crafting Search button; your saves and shaders are kept).
 
-### Game
-- **Joy-Con 2 mouse mode** is switched off for now: it aimed at the wrong blocks on PC. The middle mouse button no longer turns it on and the **Mouse Mode Key** row is gone from **Settings > Mouse**. Camera aim is not affected
+The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing and sharper shadows, no more hitch once a second at a frame cap, a Search button for crafting, and DLC added in one click.
 
-### Launcher
-- The sidebar can now be hidden so the artwork is unobstructed: a **Hide sidebar** button next to the theme switcher collapses it, and a **Show sidebar** button in the corner brings it back. The choice is remembered per PC
-- Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
-- Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
-  - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
-  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
-  - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
-- Settings > **Gameplay** now lists every gameplay option, each on by default
-  - Before: only Camera aim and Running jump were there; the Sort button, crafting Search and Quit Game could only be switched off in `pkp.ini`
-  - Now: one switch each for Running jump, Camera aim, Sort button (plus **Sort each time the bag opens**, off by default), crafting Search and Quit Game on the title screen. A gameplay option added later shows up here by itself
-- **Set up again** after an update that changes only the runtime now just relinks the game (seconds instead of translating and compiling it again); it keeps the compiled game libraries (a few hundred MB) in `build/lib`
+### Highlights
+- Added a **Search** button to the crafting menu: type part of an item name and only those recipes are listed (#324)
+- Added **Anti-aliasing** (SMAA) and **Shadow quality** (up to 8x sharper shadow maps), both picked by the Quality preset too
+- Fixed the **hitch about once a second** with a frame cap on the Legion Go S and Steam Deck (#276)
+- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+- Added **Add DLC** to the launcher and a **Steam Deck** button icon style
+
+### Known issues
+- The **Joy-Con 2 mouse mode** is switched off for now (it aimed at the wrong blocks on PC); camera aim is not affected
+- Crafting Search does nothing during Link Play
+- Shadow quality Ultra and Extreme need a lot of video memory
 
 ### Game
 - Added a **Search** button to the crafting menu (#324)
@@ -30,20 +29,19 @@ of the game (version 2.0.1a): the download contains no game files.
   - The search stays on when you change tabs or use the game's Sort, and the button shows the word (for example "Search: log"). Cancel on the keyboard shows every recipe again; closing the crafting screen (or crafting something) clears the search
   - Want it gone? `[pkp] craft_search = 0` in `pkp.ini`
   - Still not: no search during Link Play, and only the item name is searched (not materials or descriptions)
-
-### Gameplay
-- Fixed **camera aim** staying off after you used the Joy-Con 2 mouse mode once (#367)
-  - Before: turning mouse mode off left the game stuck half in it, so camera aim never came back until a restart
-  - Now: pressing the mouse mode key again fully leaves mouse mode and camera aim works again right away
-- Fixed the Joy-Con 2 mouse mode hitting the wrong block (#367)
-  - Before: clicking broke or placed a block off to the side of the one under the pointer
-  - Now: your character turns to the block under the pointer before swinging, so the click lands on it
+- **Joy-Con 2 mouse mode** is switched off for now: it aimed at the wrong blocks on PC. The middle mouse button no longer turns it on and the **Mouse Mode Key** row is gone from **Settings > Mouse**. Camera aim is not affected
 
 ### Graphics
 - Added **Anti-aliasing** (SMAA) for the 3D scene: the game's Settings > Performance > **Anti-Aliasing**, or Settings (F1) > Display > Upscaling > **Anti-aliasing**
   - Before: the game had no anti-aliasing here, so edges looked jagged
   - Now: pick **SMAA Low**, **Medium**, **High** or **Ultra** and press **Apply and save** (no restart). Only the 3D scene is filtered; the menus and HUD stay sharp. Default (none) is as before. Also `[upscale] aa = off | smaa_low | smaa_medium | smaa_high | smaa_ultra`
   - Still not: not hardware multisampling (MSAA); not applied together with a Scene Resolution below 100% and an upscaler
+- Added **Shadow quality**: sharper shadows (Settings (F1) > Graphics > **Shadow quality**, right under Texture anisotropy, or the game's Settings > **Shadow Quality**)
+  - Before: shadows were drawn from a 2048 x 2048 map, so their edges looked blocky up close
+  - Now: pick **High (2x)**, **Very High (3x)**, **Ultra (4x)** or **Extreme (8x)** to make the shadow maps that many times larger per side. It applies at once, no restart. Default is as the game draws them. Also `[display] shadow_quality = default | high | very_high | ultra | extreme`
+  - The game's soft shadow edge is made of 16 samples a texel of the original map apart; on a larger map the gaps between them showed as bands. With any option above Default each of those samples is now the average of 3 x 3 samples, which keeps the edge smooth. `[nvn] shadow_blur = false` turns that off
+  - **Quality preset** now sets it with the anti-aliasing: High gives High (2x) and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the others give Default and no anti-aliasing. Changing either by hand makes the preset Custom
+  - Still not: Ultra and Extreme use a lot of video memory (a 4x map is 128 MiB, an 8x one 512 MiB, and the game makes several); a size the GPU can't make leaves that map as the game made it
 - Fixed the **Nearest** upscaler with **Scene Resolution** (#232)
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
@@ -52,27 +50,29 @@ of the game (version 2.0.1a): the download contains no game files.
   - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
   - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
 
-- Added **Shadow quality**: sharper shadows (Settings (F1) > Graphics > **Shadow quality**, right under Texture anisotropy, or the game's Settings > **Shadow Quality**)
-  - Before: shadows were drawn from a 2048 x 2048 map, so their edges looked blocky up close
-  - Now: pick **High (2x)**, **Very High (3x)**, **Ultra (4x)** or **Extreme (8x)** to make the shadow maps that many times larger per side. It applies at once, no restart. Default is as the game draws them. Also `[display] shadow_quality = default | high | very_high | ultra | extreme`
-  - The game's soft shadow edge is made of 16 samples a texel of the original map apart; on a larger map the gaps between them showed as bands. With any option above Default each of those samples is now the average of 3 x 3 samples, which keeps the edge smooth. `[nvn] shadow_blur = false` turns that off
-  - **Quality preset** now sets it with the anti-aliasing: High gives High (2x) and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the others give Default and no anti-aliasing. Changing either by hand makes the preset Custom
-  - Still not: Ultra and Extreme use a lot of video memory (a 4x map is 128 MiB, an 8x one 512 MiB, and the game makes several); a size the GPU can't make leaves that map as the game made it
-
-### Controls
-- Fixed the **Mouse Mode Key** row in **Settings > Mouse** (#367)
-  - Before: pressing a key on the row did nothing, and after one change the row got stuck at the end of its bar
-  - Now: press left or right on the row (or click it), the row says "Press the new key", then press any key, mouse button or wheel notch. Esc cancels. It works every time, and F1 can't be picked by mistake
-- Added a **Steam Deck** button icon style, and Automatic now picks it on a Steam Deck
-  - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
-  - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
-  - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
-
 ### Performance
 - Fixed the long frame about once a second with a frame limit, on handhelds such as the Legion Go S and Steam Deck (#276)
   - Before: about once a second the game reads a tiny 30x16 picture of the scene back from the graphics card to work out the scene's average colour. Its main thread waited for that read (about 21 ms on a Legion Go S at 40 fps), so one capped frame in every forty missed its slot and took twice as long: a visible hitch while walking or turning the camera. The 0.8.0 change had only helped without a frame limit
   - Now: that read gets the previous second's picture at once and the new one is fetched in the background, so the main thread never waits. On the console the game reads that picture straight from memory without waiting for the graphics card either, so this is what it did there. Legion Go S at a 40 fps cap: frames over twice the median per 10 s 8.8 -> 0.2, 1% low 18-20 -> 21-34 fps. `[nvn] readback_defer = false` in `pkp.ini` brings the waiting read back
   - Still not: the scene's average colour, which tints the picture slowly, now follows a change of scene about a second later than before; the frame rate itself is as before
+
+### Controls
+- Added a **Steam Deck** button icon style, and Automatic now picks it on a Steam Deck
+  - Before: on a Deck, Automatic showed the Steam Controller icons, so Select and Start were the small `<` and `>` arrows; the Deck's buttons are View and Menu
+  - Now: **Steam Deck** (F1 > Controller, the launcher's Controls tab, or `[prompts] style = steamdeck` in `controls.ini`) shows the Steam icons with the Xbox-style View and Menu symbols. Automatic uses it for a Steam pad on a handheld; **Steam Controller** stays for a real Steam Controller
+  - Still not: only View and Menu differ from the Steam Controller set; the grips and trackpads keep the Steam icons. It needs the new `prompt_icons.pak` that comes with the build
+
+### Launcher
+- Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
+  - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
+  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
+  - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
+- Settings > **Gameplay** now lists every gameplay option, each on by default
+  - Before: only Camera aim and Running jump were there; the Sort button, crafting Search and Quit Game could only be switched off in `pkp.ini`
+  - Now: one switch each for Running jump, Camera aim, Sort button (plus **Sort each time the bag opens**, off by default), crafting Search and Quit Game on the title screen. A gameplay option added later shows up here by itself
+- The sidebar can now be hidden so the artwork is unobstructed: a **Hide sidebar** button next to the theme switcher collapses it, and a **Show sidebar** button in the corner brings it back. The choice is remembered per PC
+- **Set up again** after an update that changes only the runtime now just relinks the game (seconds instead of translating and compiling it again); it keeps the compiled game libraries (a few hundred MB) in `build/lib`
+- Backups, restore and downgrade now find the save folder the same way as Import and the game: when `pkp.ini` lists `[fs] save_dir` (or `[account] uid`) twice, the last one counts
 
 ## 0.9.0 (build M: Monkey)
 
