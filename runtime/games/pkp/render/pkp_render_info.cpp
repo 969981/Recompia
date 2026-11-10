@@ -31,14 +31,22 @@ constexpr game::ToneMapMatch kToneMaps[] = {
 };
 
 // The loop guards, pokopia-native's (1.4.0) in this translator's shaders. Their 634565ab (D-1's hang on an RTX 3050 Laptop) is two shaders
-// here, 3a718dcc49952e74 and dc36e3636f3c2221: a loop to c3 word 0 over 5-texel items of cp_t_cb0_10. Their 560a0262 (D-11) is
-// 0f9696499923d6d3: loops to c3 words 12 and 13 over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. Their third (2cb5df5c, a loop
-// bound held in a variable) has no match found here yet.
+// here, 3a718dcc49952e74 and dc36e3636f3c2221: a loop to c3 word 0 over 5-texel items of cp_t_cb0_10. Their 560a0262 (D-11), the
+// clustered light lists, is four variants here: 0f9696499923d6d3, 95a73c014ee1eb95, 99a5312bd3dbfc27 and b81c48ff486acef4, each with
+// loops to c3 words 12 and 13 (compared as unsigned) over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. An RTX 3060 log that fell to
+// 3 fps after 8 minutes (#309) loads 95a73c01 and b81c48ff. Their third (2cb5df5c, a loop bound held in a variable) has no match found
+// here yet.
 constexpr game::LoopGuard kLoopGuards[] = {
     {"3a718dcc49952e74", "cp_c3", 0, "cp_t_cb0_10", 5},
     {"dc36e3636f3c2221", "cp_c3", 0, "cp_t_cb0_10", 5},
     {"0f9696499923d6d3", "cp_c3", 12, "cp_t_cb0_10", 1},
     {"0f9696499923d6d3", "cp_c3", 13, "cp_t_cb0_12", 1},
+    {"95a73c014ee1eb95", "cp_c3", 12, "cp_t_cb0_10", 1},
+    {"95a73c014ee1eb95", "cp_c3", 13, "cp_t_cb0_12", 1},
+    {"99a5312bd3dbfc27", "cp_c3", 12, "cp_t_cb0_10", 1},
+    {"99a5312bd3dbfc27", "cp_c3", 13, "cp_t_cb0_12", 1},
+    {"b81c48ff486acef4", "cp_c3", 12, "cp_t_cb0_10", 1},
+    {"b81c48ff486acef4", "cp_c3", 13, "cp_t_cb0_12", 1},
 };
 
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
