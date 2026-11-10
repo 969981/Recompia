@@ -9,6 +9,9 @@ of the game (version 2.0.1a): the download contains no game files.
 **Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
 
 ### Launcher
+- Set up now says why the shader translator stopped on Steam Deck and other Linux PCs (#366)
+  - Before: under Proton the translator's error text never reached setup.log, so a failed "Translating shaders" step showed only an exit status and an empty "Last output"
+  - Now: the translator writes its error to `shader_cache/stage/harness_error.txt` and Set up copies it into setup.log; if the translator never started at all, the log says Proton or Wine failed before it. Set up also checks that the translator's main files are present and not empty before it starts
 - The colourful **Recompia** logo and the green **R** icon are back in the launcher, the README, the window and taskbar icon and the Steam shortcut (the plain placeholder logo and icons from 0.10.1 are gone)
 - The launcher is now translated into Spanish, English, Japanese, French, Italian, German, Korean, Simplified Chinese and Traditional Chinese. It follows the system language by default (English when it cannot tell), and Settings > About > Language changes it
 - Fixed Set up finishing at once while the game still refused to start with "pkp.exe and pkp_rt.dll come from different releases", after an update that replaced only some files

@@ -59,18 +59,46 @@ namespace SpirvHarness
             NoRetry = args.Contains("--no-retry");
             StaticGpuAccessor.DesktopHost = Opt(args, "--host", "desktop") != "moltenvk";
             Debug = args.Contains("--debug-mode");
+            // --out first: the launcher reads ErrorFile there when this run fails (under Proton stdout and stderr never reach it)
+            string outDir = Opt(args, "--out", null);
             try
             {
+                if (outDir != null) Directory.CreateDirectory(outDir);
                 if (args.Length >= 2 && args[0] == "--batch") return Batch(args);
                 if (args.Length >= 2 && !args[0].StartsWith("-")) return Single(args);
             }
             catch (ArgumentException e)
             {
-                Console.Error.WriteLine(e.Message);
+                Fail(outDir, $"{e.GetType().Name}: {e.Message}\n{e.StackTrace}");
             }
-            Console.Error.WriteLine("usage: spirv_harness <code.bin> <ctrl.bin> [-o out.spv] [--glsl] [--glslc <GLSLC output, NVN2>]\n" +
-                                    "       spirv_harness --batch <extracted dir> --out <dir> [--jobs N] [--limit N] [--no-val] [--no-retry] [--debug-mode] [--target-env E] [--host desktop|moltenvk] [--spirv-val PATH] [--reflect <Ampere corpus>]");
+            catch (Exception e)
+            {
+                Fail(outDir, e.ToString());
+                return 3;
+            }
+            Fail(outDir, $"arguments: {string.Join(' ', args)}\n" +
+                         "usage: spirv_harness <code.bin> <ctrl.bin> [-o out.spv] [--glsl] [--glslc <GLSLC output, NVN2>]\n" +
+                         "       spirv_harness --batch <extracted dir> --out <dir> [--jobs N] [--limit N] [--no-val] [--no-retry] [--debug-mode] [--target-env E] [--host desktop|moltenvk] [--spirv-val PATH] [--reflect <Ampere corpus>]");
             return 2;
+        }
+
+        /// Written to --out when a run fails; the launcher puts it in setup.log.
+        public const string ErrorFile = "harness_error.txt";
+
+        // A failure to stderr, and (appended) to <out>/ErrorFile when there is an --out.
+        static void Fail(string outDir, string text)
+        {
+            Console.Error.WriteLine(text);
+            if (outDir == null) return;
+            try
+            {
+                Directory.CreateDirectory(outDir);
+                File.AppendAllText(Path.Combine(outDir, ErrorFile), text + "\n");
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine($"cannot write {ErrorFile} in {outDir}: {e.Message}");
+            }
         }
 
         // spirv-val: $VULKAN_SDK\Bin, else the PATH.
