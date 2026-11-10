@@ -3,6 +3,7 @@ import './home.css';
 import logoUrl from '../art/logo.png';
 import { api } from '../api.js';
 import { num, t } from '../i18n.js';
+import { fromBackend } from '../backend-text.js';
 import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction } from '../action.js';
@@ -44,7 +45,7 @@ function crashCard(game) {
       ${icon('circle-alert')}<h2>${esc(t('The game stopped unexpectedly'))}</h2>
       <button class="btn quiet sm icon-only" data-act="dismiss" aria-label="${esc(t('Dismiss'))}" title="${esc(t('Dismiss'))}">${icon('x')}</button>
     </div>
-    <p class="selectable">${esc(game.message)}</p>
+    <p class="selectable">${esc(fromBackend(game.message))}</p>
     ${files.length ? `<div class="cluster">${files.map((f) => `<button class="btn sm" data-open="${esc(f.name)}" title="${esc(f.name)}">${icon('file-text')}${esc(REPORT_LABEL[f.name] ?? f.name)}</button>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -102,7 +103,7 @@ export function render(el, ctx) {
     const update = kind === 'update';
     const msg = update ? s.task.label
       : kind === 'repack' ? repackMessage(s.repack)
-      : s.setup.progress.message || s.task.label;
+      : fromBackend(s.setup.progress.message) || s.task.label;
     const stop = part('task-stop');
     part('task-msg').textContent = msg;
     part('task-msg').title = msg;
@@ -129,7 +130,7 @@ export function render(el, ctx) {
     // the button already says what no_files/setup/resume need; the detail only explains a problem
     const showDetail = ready && !QUIET.has(ready.kind) && !a.busy && gamePhase(s.game) !== 'running';
     const detail = part('detail');
-    detail.textContent = showDetail ? ready.detail : s.app ? '' : s.loadError ?? '';
+    detail.textContent = showDetail ? fromBackend(ready.detail) : s.app ? '' : s.loadError ?? '';
     detail.title = detail.textContent;
     detail.hidden = !detail.textContent;
 

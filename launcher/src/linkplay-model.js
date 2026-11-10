@@ -198,15 +198,6 @@ export function internetShare(ui, { publicIp, relayOn }) {
   return { addr: publicIp ? `${publicIp}:${port}` : '', through: !!relay, port, own: true };
 }
 
-/**
- * The texts lan.rs (src-tauri) puts in lan_report, in the player's language. They are matched by their English text, which must stay equal to
- * PUBLIC_WARNING and FIREWALL_HINT there; any other text passes through as it is.
- */
-export const lanNotice = (text) => ({
-  'Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.': t('Windows treats this network as Public, so other PCs may not reach you. Set it to Private in Settings > Network.'),
-  'If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.': t('If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.'),
-}[text] ?? text);
-
 /** Where to go in the game (the game's own menu names, translated like the rest of the launcher). */
 export function pathParts(ui) {
   const invite = t('Invite Others to Visit');

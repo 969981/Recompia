@@ -2,7 +2,7 @@
 // catalog, an entry keeps the {placeholders} of its English text, and no catalog holds an entry the code no longer asks for.
 //   node scripts/check-i18n.mjs          lists what is missing or stale, exit 1 when anything is
 //   node scripts/check-i18n.mjs --keys   prints the English texts the code asks for, one JSON string per line
-// Texts are found by reading t('...') / t("...") calls with a string first argument, so a text built from pieces cannot be translated:
+// Texts are found by reading t('...') / t("...") and msg('...') calls (msg marks a text translated later, see backend-text.js) with a string first argument, so a text built from pieces cannot be translated:
 // write the whole sentence with {placeholders} instead.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -19,7 +19,7 @@ function files(dir) {
   });
 }
 
-const CALL = /(?<![\w.$])t\(\s*('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*")/g;
+const CALL = /(?<![\w.$])(?:t|msg)\(\s*('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*")/g;
 const keys = new Map();   // English text -> first file asking for it
 for (const file of files(SRC)) {
   if (file.endsWith('i18n.js')) continue;

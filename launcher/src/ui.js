@@ -12,9 +12,11 @@ const ICONS = {
   Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
 };
 
+import { fromBackend } from './backend-text.js';
 import { t } from './i18n.js';
 
-export const errText = (e) => (typeof e === 'string' ? e : e?.message ?? String(e));
+/** The words of an error, in the player's language when the backend's sentence is a known one (backend-text.js). */
+export const errText = (e) => fromBackend(typeof e === 'string' ? e : e?.message ?? String(e));
 
 /** The code of an error a command tagged (error.rs CmdError), else null. Branch on this, never on errText. */
 export const errCode = (e) => (typeof e === 'object' && e !== null ? e.code ?? null : null);

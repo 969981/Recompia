@@ -2,6 +2,7 @@
 // before that), step 3 does it. The Rust side keeps a copy of the changed settings files, so Undo is one button in Settings > About.
 import { api } from '../api.js';
 import { t } from '../i18n.js';
+import { fromBackend } from '../backend-text.js';
 import { confirm, errText, esc, icon, toast } from '../ui.js';
 import { GAME_GROUPS, canReview, groupLabels, groupsPayload } from '../repair-model.js';
 
@@ -128,7 +129,7 @@ export async function runRepair() {
   if (!yes) return null;
   try {
     const report = await api.repairApply({ actions, groups });
-    toast(report.done.length > 1 ? t('Repaired: {count} changes', { count: report.done.length }) : report.done[0] || t('Repaired'), 'ok');
+    toast(report.done.length > 1 ? t('Repaired: {count} changes', { count: report.done.length }) : fromBackend(report.done[0]) || t('Repaired'), 'ok');
     return { changed: report.done.length > 0, launcher: actions.includes('launcher_prefs') };
   } catch (e) {
     toast(errText(e), 'error');

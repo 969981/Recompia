@@ -5,6 +5,7 @@ import './setup.css';
 import logoUrl from '../art/logo.png';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
+import { fromBackend } from '../backend-text.js';
 import { errCode, errText, esc, field, icon, row, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { needsFinish, primaryAction } from '../action.js';
@@ -286,7 +287,7 @@ function candidateHtml(c, chosen) {
     : c.ok ? `<span class="chip">${esc(t('Valid, older'))}</span>`
     : unneeded ? `<span class="chip">${esc(t('Not needed'))}</span>`
     : `<span class="chip danger">${icon('circle-x')}${esc(t('Incomplete'))}</span>`;
-  const checks = c.checks.map((k) => `<li class="${k.ok ? 'ok' : 'bad'}">${icon(k.ok ? 'circle-check' : 'circle-x')}${esc(k.label)}</li>`);
+  const checks = c.checks.map((k) => `<li class="${k.ok ? 'ok' : 'bad'}">${icon(k.ok ? 'circle-check' : 'circle-x')}${esc(fromBackend(k.label))}</li>`);
   return `<div class="setup-candidate">
     <div class="split"><h3>${esc(nameOf(c.kind, c.version))}</h3>${chip}</div>
     <div class="path">${esc(c.path)}</div>
@@ -368,7 +369,7 @@ const VIEWS = {
     <div class="setup-files">${icon('loader-circle', 'spin')}<div class="grow path">${esc(typeof flow.checking === 'string' ? flow.checking : flow.saved)}</div></div>`,
 
   bad: (s) => {
-    const errors = flow.error ? [flow.error] : flow.report?.errors?.length ? flow.report.errors : [s.app.readiness?.detail || t('These files cannot be used.')];
+    const errors = flow.error ? [flow.error] : flow.report?.errors?.length ? flow.report.errors.map(fromBackend) : [fromBackend(s.app.readiness?.detail) || t('These files cannot be used.')];
     return `<h1>${esc(t('These game files will not work'))}</h1>
       <div class="banner danger">${icon('circle-x')}<div class="selectable">${errors.map((m) => `<p>${esc(m)}</p>`).join('')}</div></div>
       ${flow.report?.path ? `<div class="path">${esc(flow.report.path)}</div>` : ''}
@@ -385,7 +386,7 @@ const VIEWS = {
     </div>`,
 
   noexe: (s) => `<h1>${esc(t('The game is missing'))}</h1>
-    <p class="setup-line">${esc(s.app.readiness.detail)}</p>
+    <p class="setup-line">${esc(fromBackend(s.app.readiness.detail))}</p>
     ${primaryHtml()}`,
 
   setup: (s) => {
@@ -393,7 +394,7 @@ const VIEWS = {
     const finish = needsFinish(kind);
     return `<h1>${esc(flow.again ? t('Set up again') : finish ? t('Finish the update') : kind === 'resume' ? t('Continue setup') : t('Set up the game'))}</h1>
       ${filesHtml(s)}
-      ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(s.app.readiness.detail)}</p>` : ''}
+      ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(fromBackend(s.app.readiness.detail))}</p>` : ''}
       <div class="setup-options">${kind === 'setup' ? SMALL_ROW : ''}${GENTLE_ROW}</div>
       ${primaryHtml()}
       <p class="faint num setup-fact" id="fact"></p>
@@ -418,7 +419,7 @@ const VIEWS = {
     </div>`,
 
   error: (s) => `<h1>${esc(t('Setup stopped'))}</h1>
-    <pre class="setup-error selectable">${esc(s.setup.progress.message)}</pre>
+    <pre class="setup-error selectable">${esc(fromBackend(s.setup.progress.message))}</pre>
     ${primaryHtml()}
     <div class="setup-link">
       ${logButton()}
@@ -482,8 +483,9 @@ export function render(el, ctx) {
       const { step, pct } = stepOf(p);
       meter(pct, t('Working'));
       part('eta').textContent = etaOf(p);
-      part('msg').textContent = p.message;
-      part('msg').title = p.message;
+      const say = fromBackend(p.message);
+      part('msg').textContent = say;
+      part('msg').title = say;
       for (const [i, li] of panel.querySelectorAll('.setup-steps li').entries()) {
         li.dataset.state = i < step ? 'done' : i === step ? 'now' : '';
         if (i === step) li.setAttribute('aria-current', 'step');

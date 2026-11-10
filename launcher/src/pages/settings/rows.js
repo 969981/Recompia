@@ -3,6 +3,7 @@
 import { esc, field, group, icon, row, segmented, select, slider, toggle } from '../../ui.js';
 import { store } from '../../store.js';
 import { AUTO, LANGUAGES, savedLanguage, t } from '../../i18n.js';
+import { fromBackend } from '../../backend-text.js';
 import { SECTIONS, customStart, isAvailable, isEnabled, optionsFor, readAll, rowsOf, shownChoice } from '../../settings-schema.js';
 
 const numberField = (id, value, min, max, label, disabled) =>
@@ -85,7 +86,7 @@ function bannerHtml(st, sec, values, e) {
   const waiting = sec.groups.some((g) => rowsOf(g, values, e).some((r) => r.at && !isAvailable(r, st.src)));
   const noExe = sec.id === 'game' && ['no_exe', 'no_runtime'].includes(store.state.app?.readiness?.kind);
   const text = waiting ? t('Available after the first start of the game')
-    : noExe ? store.state.app.readiness.detail
+    : noExe ? fromBackend(store.state.app.readiness.detail)
     : e.gameBusy && sec.id !== 'about' ? t('Changes apply next time the game starts')
     : '';
   return text ? `<div class="banner ${noExe && !waiting ? 'warn' : 'info'}" data-banner="${esc(text)}">${icon(noExe && !waiting ? 'triangle-alert' : 'info')}<div>${esc(text)}</div></div>` : '';

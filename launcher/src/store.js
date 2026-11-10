@@ -3,6 +3,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { api } from './api.js';
 import { num, t } from './i18n.js';
+import { fromBackend } from './backend-text.js';
 import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
@@ -28,7 +29,7 @@ function set(patch, why) {
 function preflightList(pre) {
   const rows = pre.checks.filter((c) => c.level !== 'ok').map((c) => {
     const bad = c.level === 'fail';
-    return `<li class="${bad ? 'bad' : 'warn'}">${icon(bad ? 'circle-x' : 'triangle-alert')}<div><strong>${esc(c.title)}</strong><span>${esc(c.detail)}</span></div></li>`;
+    return `<li class="${bad ? 'bad' : 'warn'}">${icon(bad ? 'circle-x' : 'triangle-alert')}<div><strong>${esc(fromBackend(c.title))}</strong><span>${esc(fromBackend(c.detail))}</span></div></li>`;
   });
   return `<ul class="modal-list">${rows.join('')}</ul>`;
 }

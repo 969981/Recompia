@@ -4,11 +4,12 @@
 import './linkplay.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
+import { fromBackend } from '../backend-text.js';
 import { errText, esc, field, group, icon, row, segmented, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
-  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, lanNotice, pathParts,
+  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, pathParts,
   protocolEdits, readIni, relayPort, shownCode, storyEdits, uiFrom,
 } from '../linkplay-model.js';
 
@@ -106,7 +107,7 @@ export async function render(el, ctx) {
   function lanHtml() {
     if (!lan) return '';
     const notice = [lan.warning, lan.firewall_hint].filter(Boolean);
-    const note = notice.length ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(lanNotice(notice[0]))}${notice[1] ? `<div>${esc(lanNotice(notice[1]))}</div>` : ''}</div></div>` : '';
+    const note = notice.length ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(fromBackend(notice[0]))}${notice[1] ? `<div>${esc(fromBackend(notice[1]))}</div>` : ''}</div></div>` : '';
     const rows = addressRows(lan, HOST_PORT).map(addressRow);
     return note + group(t('This PC'), rows.length ? rows : [row(t('No address found'), '')]);
   }

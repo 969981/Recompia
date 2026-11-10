@@ -92,6 +92,9 @@ export function t(text, params) {
   return params ? out.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m)) : out;
 }
 
+/** Marks a text that is translated later with t() (a table of texts, see backend-text.js): the text itself, so check-i18n.mjs finds it. */
+export const msg = (text) => text;
+
 /** A whole number written the way the language does (1,234 or 1.234). */
 export const num = (n) => Number(n).toLocaleString(language);
 
