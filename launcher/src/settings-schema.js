@@ -236,11 +236,18 @@ export const DLSS_DOWNLOAD = {
 
 export const IMPORT_FACTS = 'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.';
 
-// Camera aim and the running jump: in Game > Gameplay, but on the Testing channel they live in the Testing tab (same fields, one place at a time).
-const AIM_ROWS = [
+// The options that are off until a player turns them on: in Game > Gameplay, but on the Testing channel they live in the Testing tab (same fields, one place at a time).
+const GAMEPLAY_ROWS = [
           { id: 'camera_aim', label: 'Camera aim', type: 'toggle', at: pkp('pkp', 'camera_aim'), def: '0' },
           { id: 'camera_aim_note', type: 'note', when: (v) => v.camera_aim === true || v.camera_aim === '1', note: () => ({ text: 'Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach 2 blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game\'s own range).' }) },
           { id: 'jump_momentum', label: 'Running jump keeps speed', type: 'toggle', at: pkp('pkp', 'jump_momentum'), def: '0' },
+  { id: 'inventory_sort', label: 'Sort button (bag and boxes)', type: 'toggle', at: pkp('pkp', 'inventory_sort'), def: '0' },
+  { id: 'craft_search', label: 'Search button (crafting)', type: 'toggle', at: pkp('pkp', 'craft_search'), def: '0' },
+  { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', at: pkp('pkp', 'title_quit'), def: '0' },
+  { id: 'menu_in_game', label: 'Mouse in the game\'s menus', type: 'toggle', at: pkp('pkp', 'menu_in_game'), def: '0' },
+  { id: 'taller_fov', label: 'Taller view on 16:10 screens', type: 'toggle', at: pkp('pkp', 'taller_fov'), def: '0' },
+  { id: 'touch_button', label: 'Menu button for touch screens', type: 'toggle', at: pkp('overlay', 'touch_button'), def: '0' },
+  { id: 'compile_note', label: '"Preparing shaders" note', type: 'toggle', at: pkp('nvn', 'compile_note'), def: '0' },
 ];
 const isTesting = (v) => v.channel === 'testing';
 const showWhen = (on) => (rows) => rows.map((r) => ({ ...r, when: (v, e) => on(v) && (r.when ? r.when(v, e) : true) }));
@@ -481,8 +488,8 @@ export const SECTIONS = [
       {
         title: 'Gameplay',
         rows: [
-          { id: 'gameplay_note', type: 'note', when: (v) => v.channel !== 'testing', note: () => ({ text: 'New ways of playing, off by default in Testing builds (switch them on here to try them). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
-          ...elsewhere(AIM_ROWS),
+          { id: 'gameplay_note', type: 'note', when: (v) => v.channel !== 'testing', note: () => ({ text: 'Extras that are not in the original game. They are off until you switch them on here. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).' }) },
+          ...elsewhere(GAMEPLAY_ROWS),
         ],
       },
       {
@@ -647,11 +654,8 @@ export const SECTIONS = [
       {
         title: 'Experimental features',
         rows: [
-          { id: 'experimental_note', type: 'note', note: () => ({ text: 'Testing builds ship these off, so you choose what to try. They take effect the next time the game starts, and need the game built with this version (Set up again once after an update). Tell us what you find.' }) },
-          ...onTesting(AIM_ROWS),
-          { id: 'inventory_sort', label: 'Sort button (bag and boxes)', type: 'toggle', at: pkp('pkp', 'inventory_sort'), def: '0' },
-          { id: 'craft_search', label: 'Search button (crafting)', type: 'toggle', at: pkp('pkp', 'craft_search'), def: '0' },
-          { id: 'title_quit', label: 'Quit Game on the title screen', type: 'toggle', at: pkp('pkp', 'title_quit'), def: '0' },
+          { id: 'experimental_note', type: 'note', note: () => ({ text: 'These are off until you switch them on, so you choose what to try. They take effect the next time the game starts, and need the game built with this version (Set up again once after an update). Tell us what you find.' }) },
+          ...onTesting(GAMEPLAY_ROWS),
         ],
       },
     ],

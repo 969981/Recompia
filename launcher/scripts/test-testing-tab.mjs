@@ -8,10 +8,11 @@ assert.ok(sectionsFor('testing').some((s) => s.id === 'testing'));
 assert.ok(!sectionsFor('stable').some((s) => s.id === 'testing'));
 assert.equal(sectionsFor('stable').length, SECTIONS.length - 1);
 
-// the five experimental toggles are in the tab, off by default, and no field id is used twice for different keys
+// the experimental toggles are in the tab, off by default, and no field id is used twice for different keys
 const sec = SECTIONS.find((s) => s.id === 'testing');
 const ids = sec.groups.flatMap((g) => g.rows).map((r) => r.id);
-for (const id of ['camera_aim', 'jump_momentum', 'inventory_sort', 'craft_search', 'title_quit']) {
+const EXTRAS = ['camera_aim', 'jump_momentum', 'inventory_sort', 'craft_search', 'title_quit', 'menu_in_game', 'taller_fov', 'touch_button', 'compile_note'];
+for (const id of EXTRAS) {
   assert.ok(ids.includes(id), id);
   assert.equal(FIELDS[id].def, '0', `${id} defaults off`);
 }
@@ -20,15 +21,14 @@ const testing = readAll(empty);
 assert.equal(testing.camera_aim, false);
 assert.equal(readAll({ ...empty, pkp: { 'pkp.camera_aim': '1' } }).camera_aim, true);
 
-// camera aim and the running jump show in the Testing tab on Testing and in Game > Gameplay otherwise, never in both
+// each extra shows in the Testing tab on Testing and in Game > Gameplay otherwise, never in both
 const shown = (secId, values) => SECTIONS.find((s) => s.id === secId).groups.flatMap((g) => rowsOf(g, values, {})).map((r) => r.id);
 const onTesting = { ...testing, channel: 'testing' };
 const onStable = { ...testing, channel: 'stable' };
-for (const id of ['camera_aim', 'jump_momentum']) {
+for (const id of EXTRAS) {
   assert.ok(shown('testing', onTesting).includes(id) && !shown('game', onTesting).includes(id), `${id} on testing`);
   assert.ok(!shown('testing', onStable).includes(id) && shown('game', onStable).includes(id), `${id} on stable`);
 }
-assert.ok(shown('testing', onTesting).includes('inventory_sort'));
 
 // the model
 assert.match(REPORT_URL, /^https:\/\/github\.com\/.+\/issues\/new\?template=bug_report\.yml$/);
