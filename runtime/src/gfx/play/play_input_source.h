@@ -78,7 +78,7 @@ public:
     bool pad_look(bool gyro_enabled) const {
         return std::abs(right_y_.load(std::memory_order_relaxed)) > 650 || (gyro_enabled && gyro_pitch_.load(std::memory_order_relaxed) > 0.02f);
     }
-    // The right stick as the game gets it (dead zone, invert and sensitivity applied), -1..1, + = right and up: the alternate body's camera (mpr: the morph ball camera) orbits with it.
+    // The right stick as the game gets it (dead zone, invert and sensitivity applied), -1..1, + = right and up: the alternate body's camera orbits with it.
     void right_stick(float* x, float* y) const {
         *x = right_x_f_.load(std::memory_order_relaxed);
         *y = right_y_f_.load(std::memory_order_relaxed);

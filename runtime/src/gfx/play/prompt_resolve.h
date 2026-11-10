@@ -4,8 +4,6 @@
 //
 // A game draws its prompts ("PRESS (A) TO START", the footer of the menus, tutorial texts) with small textures, one per Switch button glyph
 // (Icon below). Which textures those are, and how to find them in the game's files, is the game's (PromptGame, nxrt/game.h Info::prompts).
-// Metroid Prime Remastered: 19 small BC7 textures TXTR_ButtonA ... TXTR_DPadIdle and the two stick icons in GuiSysMP1.pak and
-// PreloadFrontEndMPT.pak (games/mpr/mpr_prompts.cpp).
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -31,8 +29,8 @@ struct PromptIcon {
     bool pressed;
     const char* asset;          // the texture's name in the game's files (logs): "TXTR_ButtonA"
     const char* uuid;           // its asset id there, canonical lower-case text
-    const char* pak;            // the archive under the RomFS folder: "Preload/MPR1/GuiSysMP1.pak"
-    const char* front_uuid;     // a second copy of the icon (Metroid: the front end's own, in front_pak), or nullptr
+    const char* pak;            // the archive under the RomFS folder: "Preload/Gui/Gui.pak"
+    const char* front_uuid;     // a second copy of the icon (for example the front end's own copy, in front_pak), or nullptr
 };
 struct PromptGame {
     const PromptIcon* icons = nullptr;   // kIconCount entries in Icon order

@@ -16,7 +16,7 @@ use crate::fsutil::{self, AtomicFail};
 
 use serde::Serialize;
 
-// ---- the artwork, embedded (the grids and hero are Koi's illustration with the wordmark; the icons are the launcher's: the R on a leaf, and the hammer R on Testing) ----
+// ---- the artwork, embedded (the grids and hero are a plain meadow placeholder with the wordmark; the icons are the launcher's: the R, and the R with a T badge on Testing) ----
 const WIDE: &[u8] = include_bytes!("../assets/steam/grid_wide.png");
 const PORTRAIT: &[u8] = include_bytes!("../assets/steam/grid_portrait.png");
 const HERO: &[u8] = include_bytes!("../assets/steam/hero.png");

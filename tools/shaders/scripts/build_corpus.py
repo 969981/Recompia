@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 STAGES = {".vert": "vert", ".frag": "frag", ".comp": "comp", ".geom": "geom"}
-UAM_DEFAULT = "/mnt/d/AI/Active/Metroid-Prime/work/corpus/uam/bin/uam"
+UAM_DEFAULT = "uam"
 WSL_DISTRO = "Ubuntu-22.04"
 
 # Placeholder written for push_constant blocks; resolved to binding 15 in renumber().
@@ -256,7 +256,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--src", required=True, help="GLSL root (walked recursively)")
     ap.add_argument("--out", required=True, help="output folder for .dksh files (created fresh)")
-    ap.add_argument("--uam", default=UAM_DEFAULT, help="uam binary as a WSL path")
+    ap.add_argument("--uam", default=UAM_DEFAULT, help="uam binary as a WSL path (default: uam on the WSL PATH)")
     ap.add_argument("--jobs", type=int, default=16, help="parallel uam processes")
     args = ap.parse_args()
 

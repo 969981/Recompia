@@ -24,7 +24,7 @@ constexpr game::CameraBlock kCamera = {0, 0, 4, 0, 52, 20.0, 3.0};
 
 // The tone map. The composite pass is a LUT tone map (KTGL's cbComposite): coordinate = 0.0735 * log2(5.5556 * x + 0.048) + 0.386 into a
 // 32^3 grading volume; its shader is about 24.5k SPIR-V words, so that entry has no size limit. The curve tone map (two 3D grading
-// volumes, small shaders) is tried first, as it always was; it is the Metroid Prime Remastered shape.
+// volumes, small shaders) is tried first, as it always was.
 constexpr game::ToneMapMatch kToneMaps[] = {
     {game::ToneMapKind::Curve, 16384, 0.0f, 0.0f},
     {game::ToneMapKind::LutShaper, 0, 5.55555582f, 0.0479959995f},
