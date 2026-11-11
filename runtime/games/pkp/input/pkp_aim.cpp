@@ -31,13 +31,27 @@
 // Reach, [pkp] camera_aim_reach (extra cells, default 0 = the game's own range). The game targets the forward cell next to the
 // character: the query 0x71002e19a0 starts from the character's cell plus one cardinal step (kept at [x29 - 0xb8] x, y and
 // [x29 - 0xb4] z) and the swing shapes sit about one cell ahead. With extra reach the ray accepts solid cells up to 1 + extra cells
-// from the character's column (cells past the old two-cell box only in front of the character). When the first solid cell is two or
-// more cells out and in a row the row hook can select, three more mid hooks move only the column to it: the query's start cell at
+// from the character's column (cells past the old two-cell box only in front of the character). When the first solid cell is outside
+// the character's column, within 1 + extra cells (so one cell out without extra reach: the game's own cardinal step missed diagonal hits)
+// and in a row the row hook can select, three more mid hooks move only the column to it: the query's start cell at
 // 0x71002e1de8 (right after the game's own mouse-mode start cell, the only other writer; not for the nearby-object interaction
 // 0x71002f7340, whose A-button target keeps the forward cell), the swing preview's shape position at 0x71007226bc (right before
 // 0x710009db4c, x29 - 0x60) and the live hit's at 0x71006da610 (x29 - 0x80, tool path only: w22 set, x27 = the character). The shape
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
-// With no such hit, everything stays as without the reach.
+// The range holds up and down too (the owner's call: camera aim overrides the game's row limit): a hit past the bands the game can
+// select, within 1 + extra rows (never fewer than the game's own), gets band 0 and its row moved in: the query's start row
+// ([x29 - 0xb6]) and the swing shape's height (rows_down / rows_up / past_bands).
+// With no such hit, the query's start cell stays the game's (already a step along the camera's yaw, above). The swing shapes' position
+// does not come from that heading: the live hit takes the character's stored attack position (+0x35c0), which lies in front of where the
+// character faces, i.e. where it walks. So the two position hooks, with or without extra reach, turn that position around the character
+// to the camera's yaw, keeping its distance (turn_shape): the selection follows the camera, never the walking direction.
+//
+// With the over-the-shoulder camera (pkp_shoulder_camera.cpp) the view is moved off the follow camera by an offset (pkp_view_offset.h): the
+// ray of the row and reach hooks starts at the eye plus that offset, parallel to the camera's own, so it still goes through the crosshair.
+// The yaw uses only the direction, which the offset does not change.
+//
+// [pkp] camera_aim_debug draws the ray, its cells and these hooks' choices over the picture (pkp_aim_debug.h); the hooks report to it only
+// while it is on.
 //
 // The game's own Joy-Con 2 mouse mode (character + 0xaa81, the Mouse mode key: pkp_play.cpp) aims with its pointer: while it is on, the
 // camera targeting here leaves the game alone (follow_camera answers 0). In that mode the game places the swing tools' shape at the block
@@ -45,9 +59,11 @@
 // which needs Joy-Con 2 sensor data the PC does not have. So in mouse mode the swing heading hooks and the action start turn the shape and
 // the character toward that block instead (mouse_yaw). Those three hooks are installed with camera aim off too.
 #include "input/pkp_aim.h"
+#include "input/pkp_aim_debug.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
+#include "core/pkp_view_offset.h"
 
 #include <algorithm>
 #include <cmath>
@@ -66,7 +82,7 @@ constexpr uint64_t kHeadingRead = 0x2e1a14;      // mid: in the target query aft
 constexpr uint64_t kSwingPreview = 0x7220dc;     // mid: in the swing preview shape after the heading load (s9 = heading, x22 = character)
 constexpr uint64_t kSwingLive = 0x6d9d70;        // mid: in the live hit shape after the heading load (s8 = heading, x19 = character)
 constexpr uint64_t kPitchRead = 0x6f7918;        // mid: in the row helper after the pitch wrap (s5 = pitch, x22 = character, w21 = extremes allowed)
-constexpr uint64_t kWorld = 0x34efc98;           // qword: the world; +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
+using layout::kWorld;
 constexpr uint64_t kCollisionMeta = 0x355d3c6;   // u16[block id]: bit 0 = solid for the tool rays
 constexpr uint64_t kActionStart = 0x27e5d8;      // mid: StartAction, the action really starts (w28 = action id, x19 = action component)
 constexpr uint64_t kActionOwner = 0x978;         // action component: the character
@@ -145,13 +161,18 @@ bool solid_cell(int x, int y, int z) {
 
 int feet_row(uint64_t ch) { return static_cast<int>(std::floor((rd<float>(ch + kPosition + 4) + 0.2f) / 100.f)); }
 
-struct RayHit { int x, y, z, h; };  // h: cells from the character's column
+struct RayHit { int x = 0, y = 0, z = 0, h = 0; };  // h: cells from the character's column
 
 // Walk the cell grid along the camera ray from the eye; the first solid cell within reach cells of the character's column is the hit.
-// Cells before the ray gets near the character are skipped; past the kReach box only cells in front of the character count.
-bool camera_ray(uint64_t cam, uint64_t ch, RayHit& r, int reach) {
-    const float ex = rd<float>(cam + kEye), ey = rd<float>(cam + kEye + 4), ez = rd<float>(cam + kEye + 8);
-    const float dx = rd<float>(cam + kLook) - ex, dy = rd<float>(cam + kLook + 4) - ey, dz = rd<float>(cam + kLook + 8) - ez;
+// Cells before the ray gets near the character are skipped; past the kReach box only cells in front of the character count. record: the
+// walk is reported to the debug view (not for the nearby-object interaction).
+bool camera_ray(uint64_t cam, uint64_t ch, RayHit& r, int reach, bool record = true) {
+    // The crosshair is the view's centre: with the over-the-shoulder camera (pkp_view_offset.h) the view is moved off the follow camera's
+    // eye and look-at by an offset, so the ray starts there and runs parallel (zero offset: the follow camera's own eye).
+    const view_offset::Offset vo = view_offset::get(0);   // the follow camera is the first player's
+    const float fx = rd<float>(cam + kEye), fy = rd<float>(cam + kEye + 4), fz = rd<float>(cam + kEye + 8);
+    const float ex = fx + vo.x, ey = fy + vo.y, ez = fz + vo.z;
+    const float dx = rd<float>(cam + kLook) - fx, dy = rd<float>(cam + kLook + 4) - fy, dz = rd<float>(cam + kLook + 8) - fz;   // the direction is the camera's own
     const float px = rd<float>(ch + kPosition), pz = rd<float>(ch + kPosition + 8);
     if (!(dx * dx + dz * dz > 1e-6f) || !std::isfinite(ey) || !std::isfinite(px) || !std::isfinite(pz)) return false;
     const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
@@ -164,30 +185,48 @@ bool camera_ray(uint64_t cam, uint64_t ch, RayHit& r, int reach) {
     float tx = tdx < inf ? ((dx > 0.f ? static_cast<float>(x + 1) * 100.f - 102400.f - ex : ex - (static_cast<float>(x) * 100.f - 102400.f)) / std::fabs(dx)) : inf;
     float ty = tdy < inf ? ((dy > 0.f ? static_cast<float>(y + 1) * 100.f - ey : ey - static_cast<float>(y) * 100.f) / std::fabs(dy)) : inf;
     float tz = tdz < inf ? ((dz > 0.f ? static_cast<float>(z + 1) * 100.f - 102400.f - ez : ez - (static_cast<float>(z) * 100.f - 102400.f)) / std::fabs(dz)) : inf;
+    const bool dbg = record && aim_debug::on();
+    if (dbg) {
+        const float o[3] = {ex, ey, ez}, d[3] = {dx, dy, dz}, p[3] = {px, rd<float>(ch + kPosition + 4), pz};
+        aim_debug::ray_begin(o, d, p, feet_row(ch), reach);
+    }
+    using aim_debug::Step;
     bool near = false;
     for (int n = 0; n < 128; n++) {
         if (tx <= ty && tx <= tz) { x += sx; tx += tdx; }
         else if (ty <= tz) { y += sy; ty += tdy; }
         else { z += sz; tz += tdz; }
         const int h = std::max(std::abs(x - cx), std::abs(z - cz));
-        if (h > reach) { if (near) break; continue; }
+        if (h > reach) {
+            if (near) break;
+            if (dbg) aim_debug::ray_step(x, y, z, Step::Far);
+            continue;
+        }
         near = true;
-        if (h > kReach && (static_cast<float>(x) * 100.f - 102350.f - px) * dx + (static_cast<float>(z) * 100.f - 102350.f - pz) * dz <= 0.f) continue;
-        if (solid_cell(x, y, z)) { r = {x, y, z, h}; return true; }
+        if (h > kReach && (static_cast<float>(x) * 100.f - 102350.f - px) * dx + (static_cast<float>(z) * 100.f - 102350.f - pz) * dz <= 0.f) {
+            if (dbg) aim_debug::ray_step(x, y, z, Step::Behind);
+            continue;
+        }
+        if (solid_cell(x, y, z)) {
+            r = {x, y, z, h};
+            if (dbg) aim_debug::ray_hit(x, y, z, h);
+            return true;
+        }
+        if (dbg) aim_debug::ray_step(x, y, z, Step::Tested);
     }
     return false;
 }
 
 // The follow camera's yaw for the local player's character ch, or false when ch is not the local player or the follow camera is not
 // the active one.
-bool camera_yaw(uint64_t ch, float& yaw, int reach) {
+bool camera_yaw(uint64_t ch, float& yaw, int reach, bool record = true) {
     const uint64_t cam = follow_camera(ch);
     if (!cam) return false;
     const float dx = rd<float>(cam + kLook) - rd<float>(cam + kEye), dz = rd<float>(cam + kLook + 8) - rd<float>(cam + kEye + 8);
     if (!(dx * dx + dz * dz > 1e-6f)) return false;
     yaw = std::atan2(dx, dz);
     RayHit r;
-    if (camera_ray(cam, ch, r, reach) && r.h > 0 && r.y < feet_row(ch)) {
+    if (camera_ray(cam, ch, r, reach, record) && r.h > 0 && r.y < feet_row(ch)) {
         yaw = std::atan2(static_cast<float>(r.x) * 100.f - 102350.f - rd<float>(ch + kPosition),
                          static_cast<float>(r.z) * 100.f - 102350.f - rd<float>(ch + kPosition + 8));
     }
@@ -208,7 +247,7 @@ bool mouse_yaw(uint64_t ch, float& yaw) {
     return true;
 }
 
-void replace(::Ctx* c, unsigned reg, uint64_t ch, const char* what, int reach) {
+void replace(::Ctx* c, unsigned reg, uint64_t ch, const char* what, int reach, bool record = true) {
     float yaw;
     if (mouse_yaw(ch, yaw)) {
         if (g.logged_mouse < 8) {
@@ -218,7 +257,7 @@ void replace(::Ctx* c, unsigned reg, uint64_t ch, const char* what, int reach) {
         c->v[reg].f[0] = yaw;
         return;
     }
-    if (!g.camera || !camera_yaw(ch, yaw, reach)) return;
+    if (!g.camera || !camera_yaw(ch, yaw, reach, record)) return;
     if (g.logged < 8) {
         g.logged++;
         NXLOG_I(kTag, "camera aim: %s heading %.3f -> camera yaw %.3f", what, static_cast<double>(c->v[reg].f[0]), static_cast<double>(yaw));
@@ -226,10 +265,14 @@ void replace(::Ctx* c, unsigned reg, uint64_t ch, const char* what, int reach) {
     c->v[reg].f[0] = yaw;
 }
 
-// The ray reach for a target query whose frame pointer is fp: the nearby-object interaction keeps the old box.
-int query_reach(uint64_t fp) { return rd<uint64_t>(fp + 8) - g.base == kInteractReturn ? kReach : g.reach; }
+// The target query whose frame pointer is fp was called by the nearby-object interaction: it keeps the old box (kReach).
+bool interaction(uint64_t fp) { return rd<uint64_t>(fp + 8) - g.base == kInteractReturn; }
 
-int hook_heading(::Ctx* c, uint64_t, void*) { replace(c, 0, c->x[28], "query", query_reach(c->x[29])); return 0; }
+int hook_heading(::Ctx* c, uint64_t, void*) {
+    const bool ia = interaction(c->x[29]);
+    replace(c, 0, c->x[28], "query", ia ? kReach : g.reach, !ia);
+    return 0;
+}
 int hook_swing_preview(::Ctx* c, uint64_t, void*) { replace(c, 9, c->x[22], "swing preview", g.reach); return 0; }
 int hook_swing_live(::Ctx* c, uint64_t, void*) { replace(c, 8, c->x[19], "swing hit", g.reach); return 0; }
 
@@ -239,14 +282,29 @@ int swing_base_row(uint64_t ch) {
     return feet_row(ch) + (steps >= -8 && steps <= 8 ? steps : 0);
 }
 
-// The camera ray's first solid cell when it is past the forward cell (two or more cells out, within the extra reach) and in a row the
-// row hook selects (lo..hi rows from base).
-bool far_hit(uint64_t ch, int base, int lo, int hi, RayHit& r) {
+// The camera ray's first solid cell outside the character's own column and within its range (1 + extra reach cells), in a row the row
+// hook selects (lo..hi rows from base). One cell out counts too: the game's own pick is the character's cell plus a cardinal step of the
+// heading, so a hit diagonal to the character (or at an angle that rounds to another side) was not the cell selected.
+bool aim_hit(uint64_t ch, int base, int lo, int hi, RayHit& r, aim_debug::Use use) {
     const uint64_t cam = follow_camera(ch);
-    if (!cam || !camera_ray(cam, ch, r, g.reach) || r.h < 2) return false;
+    const bool hit = cam && camera_ray(cam, ch, r, g.reach);
     const int d = r.y - base;
-    return d >= lo && d <= hi;
+    const char* reject = !cam                ? "follow camera not active"
+                         : !hit              ? "no hit"
+                         : r.h < 1           ? "own column"
+                         : r.h > 1 + g.extra ? "out of reach (1 + extra cells)"
+                         : d < lo || d > hi  ? "row outside the hook's range"
+                                             : nullptr;
+    if (aim_debug::on()) aim_debug::pick(use, hit, r.x, r.y, r.z, r.h, d, reject);
+    return !reject;
 }
+
+// Vertical reach: camera aim's range is the same up and down as sideways (1 + extra cells), never less than the game's own rows (the
+// query's bands reach -1..+2 rows from the feet, a swing's shape -1..+3 from its base). A hit past the bands (and inside that range)
+// gets band 0 (hook_pitch) and its row moved in by whole cells: the query's start row, the swing shape's height.
+int rows_down() { return -(1 + g.extra); }
+int rows_up(bool swing) { return std::max(swing ? 3 : 2, 1 + g.extra); }
+bool past_bands(int d, bool swing) { return swing ? d < -1 || d > 3 : d < -1 || d > 2; }
 
 // A column move, logged when it differs from the last one logged.
 void log_reach(const char* what, int ox, int oz, const RayHit& r) {
@@ -258,40 +316,85 @@ void log_reach(const char* what, int ox, int oz, const RayHit& r) {
     NXLOG_I(kTag, "camera aim: reach %s column %d,%d -> %d,%d (hit %d,%d,%d, %d cells out)", what, ox, oz, r.x, r.z, r.x, r.y, r.z, r.h);
 }
 
-// Target query: its start cell (the forward cell) moves to the column of a farther ray hit; the row is still chosen after this.
+// Target query: its start cell (the forward cell) moves to the column of the ray hit; the row is still chosen after this (a hit past the
+// bands: band 0 and the start row is the hit's). The nearby-object interaction keeps the game's forward cell.
 int hook_query_base(::Ctx* c, uint64_t, void*) {
     const uint64_t ch = c->x[28], fp = c->x[29];
-    if (query_reach(fp) == kReach) return 0;
-    RayHit r;
-    if (!far_hit(ch, feet_row(ch), -1, 2, r)) return 0;
+    if (interaction(fp)) return 0;
     const int ox = rd<int16_t>(fp - 0xb8), oz = rd<int16_t>(fp - 0xb4);
+    RayHit r;
+    const int feet = feet_row(ch);
+    const bool move = aim_hit(ch, feet, rows_down(), rows_up(false), r, aim_debug::Use::Query);
+    const int oy = rd<int16_t>(fp - 0xb6);
+    const int ny = move && past_bands(r.y - feet, false) ? r.y : oy;
+    if (aim_debug::on()) aim_debug::query_start(ox, oy, oz, move ? r.x : ox, ny, move ? r.z : oz);
+    if (!move) return 0;
+    if (ny != oy) wr<int16_t>(fp - 0xb6, static_cast<int16_t>(ny));
     wr<int16_t>(fp - 0xb8, static_cast<int16_t>(r.x));
     wr<int16_t>(fp - 0xb4, static_cast<int16_t>(r.z));
     log_reach("query", ox, oz, r);
     return 0;
 }
 
-// Swing shape position (vec4 at pos): moved by whole cells into the column of a farther ray hit.
-void shift_shape(uint64_t ch, uint64_t pos, const char* what) {
-    RayHit r;
-    // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
-    if (!far_hit(ch, swing_base_row(ch), -1, 3, r)) return;
-    const float px = rd<float>(pos), pz = rd<float>(pos + 8);
-    if (!std::isfinite(px) || !std::isfinite(pz)) return;
-    const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
-    if (cx == r.x && cz == r.z) return;
-    wr<float>(pos, px + static_cast<float>(r.x - cx) * 100.f);
-    wr<float>(pos + 8, pz + static_cast<float>(r.z - cz) * 100.f);
-    log_reach(what, cx, cz, r);
+// No ray hit to move to: the game's position (the character's stored one, +0x35c0, is placed in front of where the character faces, so
+// while walking it is where the character walks) turned around the character to the camera's yaw, its distance kept. Without this the
+// shape flipped between the aimed column and the walking direction each time a far hit came in and out of reach.
+void turn_shape(uint64_t ch, uint64_t pos, float px, float pz) {
+    const uint64_t cam = follow_camera(ch);
+    if (!cam) return;
+    const float dx = rd<float>(cam + kLook) - rd<float>(cam + kEye), dz = rd<float>(cam + kLook + 8) - rd<float>(cam + kEye + 8);
+    const float len = std::sqrt(dx * dx + dz * dz);
+    const float cx = rd<float>(ch + kPosition), cz = rd<float>(ch + kPosition + 8);
+    const float ox = px - cx, oz = pz - cz, dist = std::sqrt(ox * ox + oz * oz);
+    if (!(len > 1e-3f) || !std::isfinite(cx) || !std::isfinite(cz) || !(dist > 1.f) || dist > 400.f) return;   // at the character, or not near it
+    wr<float>(pos, cx + dx / len * dist);
+    wr<float>(pos + 8, cz + dz / len * dist);
 }
 
-int hook_swing_preview_pos(::Ctx* c, uint64_t, void*) { shift_shape(c->x[22], c->x[29] - 0x60, "swing preview"); return 0; }
+// Swing shape position (vec4 at pos): moved by whole cells into the column of the ray hit (and, past the bands, its height: the shape
+// spans the band-0 row and the one above, moved to the hit's row and the one below), else turned to the camera.
+void shift_shape(uint64_t ch, uint64_t pos, const char* what, aim_debug::Use use) {
+    const float px = rd<float>(pos), pz = rd<float>(pos + 8);
+    if (!std::isfinite(px) || !std::isfinite(pz)) return;
+    const float before[3] = {px, rd<float>(pos + 4), pz};
+    const char* how = "moved to the hit column";
+    RayHit r;
+    // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
+    const int base = swing_base_row(ch);
+    if (!aim_hit(ch, base, rows_down(), rows_up(true), r, use)) {
+        turn_shape(ch, pos, px, pz);
+        how = "turned to the camera";
+    } else if (past_bands(r.y - base, true)) {
+        const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
+        wr<float>(pos, px + static_cast<float>(r.x - cx) * 100.f);
+        wr<float>(pos + 4, rd<float>(pos + 4) + static_cast<float>(r.y - 1 - base) * 100.f);
+        wr<float>(pos + 8, pz + static_cast<float>(r.z - cz) * 100.f);
+        how = "moved to the hit column and row";
+        log_reach(what, cx, cz, r);
+    } else if (const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
+               cx == r.x && cz == r.z) {
+        how = "already in the hit column";
+    } else {
+        wr<float>(pos, px + static_cast<float>(r.x - cx) * 100.f);
+        wr<float>(pos + 8, pz + static_cast<float>(r.z - cz) * 100.f);
+        log_reach(what, cx, cz, r);
+    }
+    if (aim_debug::on()) {
+        const float after[3] = {rd<float>(pos), rd<float>(pos + 4), rd<float>(pos + 8)};
+        aim_debug::swing_pos(use, before, after, how);
+    }
+}
+
+int hook_swing_preview_pos(::Ctx* c, uint64_t, void*) {
+    shift_shape(c->x[22], c->x[29] - 0x60, "swing preview", aim_debug::Use::SwingPreview);
+    return 0;
+}
 
 int hook_swing_live_pos(::Ctx* c, uint64_t, void*) {
     const uint64_t ch = c->x[27];
     if ((c->x[22] & 0xff) == 0 || !ch) return 0;
     // the position is the character's stored one (+0x35c0, w = 1) or the transform's; the move to the hit column is the same for both
-    shift_shape(ch, c->x[29] - 0x80, "swing hit");
+    shift_shape(ch, c->x[29] - 0x80, "swing hit", aim_debug::Use::SwingHit);
     return 0;
 }
 
@@ -306,22 +409,28 @@ int hook_pitch(::Ctx* c, uint64_t, void*) {
     const uint64_t ret = rd<uint64_t>(c->x[29] + 8) - g.base;
     const bool swing = ret == kSwingPreviewReturn || ret == kSwingLiveReturn;
     const int base = swing ? swing_base_row(ch) : row;
-    const int reach = ret == kQueryRowReturn ? query_reach(rd<uint64_t>(c->x[29])) : g.reach;
+    const bool ia = ret == kQueryRowReturn && interaction(rd<uint64_t>(c->x[29]));
+    const aim_debug::Use use = ret == kQueryRowReturn ? aim_debug::Use::Query : ret == kSwingPreviewReturn ? aim_debug::Use::SwingPreview
+                               : ret == kSwingLiveReturn ? aim_debug::Use::SwingHit : aim_debug::Use::Other;
     RayHit r;
-    if (!camera_ray(cam, ch, r, reach)) return 0;    // nothing near: the game's own band
+    const bool hit = camera_ray(cam, ch, r, ia ? kReach : g.reach, !ia);
     const int d = r.y - base;
     // A swing's shape spans the band's row and the one above, and the game keeps only the upper one when it holds a block (0x7100409160):
     // ask for the row below the hit. The band of the lowest row keeps the floor in front when the row above it is empty.
-    const int band = swing ? std::max(d - 1, -1) : d;
+    int band = swing ? std::max(d - 1, -1) : d;
     const float t0 = c->v[0].f[0], t1 = c->v[3].f[0], t2 = c->v[1].f[0], t3 = c->v[2].f[0], t4 = c->v[4].f[0];
-    float pitch;
-    if (r.h == 0 && r.y != row - 1) return 0;        // the character's own column above the floor: leave it alone
-    if (r.h == 0) pitch = t0 - 0.01f;                // the down extreme: the cell under the character
-    else if (band == -1) pitch = (t0 + t1) * 0.5f;
-    else if (band == 0) pitch = (t1 + t2) * 0.5f;
-    else if (band == 1) pitch = (t2 + t3) * 0.5f;
-    else if (band == 2) pitch = t4 > t3 ? (t3 + t4) * 0.5f : t3;
-    else return 0;                                   // outside the band range: the game's own band
+    float pitch = NAN;                               // not finite: the game's own band stays
+    const char* why = "row outside the bands: the game's band";
+    if (!hit) why = "nothing near: the game's band";
+    else if (r.h == 0 && r.y != row - 1) why = "own column above the floor: the game's band";
+    else if (r.h == 0) pitch = t0 - 0.01f, band = aim_debug::kUnder, why = "down extreme: the cell under the character";
+    else if (!ia && r.h <= 1 + g.extra && past_bands(d, swing) && d >= rows_down() && d <= rows_up(swing))
+        pitch = (t1 + t2) * 0.5f, band = 0, why = "past the bands: band 0, the row moved to the hit";
+    else if (band == -1) pitch = (t0 + t1) * 0.5f, why = "band -1";
+    else if (band == 0) pitch = (t1 + t2) * 0.5f, why = "band 0";
+    else if (band == 1) pitch = (t2 + t3) * 0.5f, why = "band +1";
+    else if (band == 2) pitch = t4 > t3 ? (t3 + t4) * 0.5f : t3, why = "band +2";
+    if (!ia && aim_debug::on()) aim_debug::row(use, hit, base, d, band, why, c->v[5].f[0], pitch);
     if (!std::isfinite(pitch)) return 0;
     if (g.logged_pitch < 8) {
         g.logged_pitch++;
@@ -368,11 +477,10 @@ void install(const FeatureInstall& in) {
     g.reach = std::max(kReach, 1 + g.extra);
     in.hooks.add_mid(base + kHeadingRead, &hook_heading);
     in.hooks.add_mid(base + kPitchRead, &hook_pitch);
-    if (g.extra > 0) {
-        in.hooks.add_mid(base + kQueryBase, &hook_query_base);
-        in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
-        in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
-    }
+    // the swing positions: the reach's column move, else turned to the camera (turn_shape), with or without extra reach
+    in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
+    in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
+    in.hooks.add_mid(base + kQueryBase, &hook_query_base);
     NXLOG_I(kTag, "camera aim: on (hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx), reach +%d cells",
             static_cast<unsigned long long>(kHeadingRead), static_cast<unsigned long long>(kSwingPreview),
             static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kPitchRead),

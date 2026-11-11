@@ -17,6 +17,7 @@ of the game (version 2.0.1a): the download contains no game files.
   - **Camera aim** has a new **Extra reach in blocks** setting under it (Off, 1 to 4). Extra reach is now off by default, so abilities and tools use the game's own range; pick a number to reach farther, as 0.10.x did with 2
   - **Sort each time the bag opens** stays under the Sort button, off by default
   - **Quit Game on the title screen** stays on, without a launcher switch (`title_quit` in pkp.ini still turns it off)
+- Settings: a **Gameplay** tab in the game's own Settings screen, with the same switches as the launcher's Settings > Gameplay (and how much speed a running jump keeps); a change is saved to `pkp.ini` and applies at the next start
 
 ### Launcher
 - Fixed **Quality preset** in the launcher leaving Shadow quality and Anti-aliasing as they were
@@ -24,6 +25,14 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
 
 ### Game
+- Added an **over-the-shoulder camera**: move the view to the side and up so your character no longer blocks it
+  - Two distances in blocks in the game's Settings > **Gameplay** tab: **Shoulder camera: side** (right is positive, left negative, -2 to 2) and **Shoulder camera: height** (-1 to 2), saved as `camera_shoulder_side` / `camera_shoulder_height` in `pkp.ini`; both are 0 by default, which is the game's own camera. A change takes effect as soon as you leave the Settings screen, no restart. The view stops short of walls and eases back out, and camera aim still hits what the crosshair points at. Needs **Set up again** once (new game hook)
+- Fixed camera aim's selection jumping between the block you aim at and the way you walk, with Rock Smash, Cut and the other swing tools, when the aimed block went in and out of reach while moving
+  - Now: without a block in reach the selection stays in front of you in the camera's direction, at the game's own distance
+- Camera aim reaches up and down as far as it reaches sideways: a block above or below you under the crosshair is selected within the same range (1 block plus the extra reach), also past the two rows up and one row down the game itself allows
+- Fixed camera aim sometimes selecting a block next to the one under the crosshair, at some camera angles and heights
+  - Before: for a block right next to you the game still picked the cell one straight step ahead, so a block diagonal to you (or at an angle that rounded the other way) wasn't the one selected
+  - Now: the selection is the block the crosshair's ray hits, next to you or farther with extra reach
 - Fixed the game closing at start ("pkp.exe exited with code -1073740791 (0xC0000409)") on some AMD graphics (#487)
   - Before: every compute shader asked the driver to run 32 wide, even one with a workgroup too big for that on AMD; Vulkan doesn't allow the request then, and AMD's driver could close the game while preparing it
   - Now: a compute shader whose workgroup doesn't fit at 32 wide runs at the driver's own width; the others still run 32 wide

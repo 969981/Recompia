@@ -14,6 +14,7 @@ constexpr uint64_t kInputMgr = 0x3561718;        // the input manager
 constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the sprite sheet lookups read it too)
 constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource manager: holds the loaded sprite sheets and the layout pools)
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
+constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here); +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
 
 // ---- the data-table manager: table i at +0x10 + its offset (pkp_tables.h looks a row up) ----
 // u32: how many tables it holds (8-byte slots from +0x10; a table at off is there while this is above off / 8, pkp_tables.h).

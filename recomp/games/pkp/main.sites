@@ -127,6 +127,12 @@ midhook 0x710027e5d8
 midhook 0x71002e1de8
 midhook 0x71007226bc
 midhook 0x71006da610
+# over-the-shoulder camera (runtime games/pkp/render/pkp_shoulder_camera.cpp, [pkp] camera_shoulder_side / camera_shoulder_height): the
+#   follow camera's per-frame update 0x7100088aac writes its player's view block ([[main+0x3561758] + player * 0x260 + 0x49b0]: eye vec4 at
+#   +0x10, look-at at +0x20, up at +0x30); both of its branches (the normal copy and the strafe-style 0x27abc8 -> 0x8a6b4 branch) join at
+#   0x7100088e04, right before `bl 0x10f9270`, the view matrix update (x19 = follow camera, its player index = s8 at +8; x20 = the view block):
+#   the eye and look-at get the side / height offset
+midhook 0x7100088e04
 # PC features (runtime games/pkp/pkp_play.cpp)
 #   Joy-Con 2 mouse mode (#367): the game's "mouse mode allowed" check 0x71002fa6ac right after it asked the pad style (w0 = style,
 #   1 = two Joy-Cons; x19 = character), its last step (w0 = the save's mouse option bit) and mouse mode turning on at the option test

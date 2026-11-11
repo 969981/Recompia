@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "nxrt/overlay_canvas.h"
+
 #include "menu_mouse.h"
 #include "play_display.h"
 #include "play_types.h"
@@ -98,6 +100,9 @@ struct GamePlay {
     // F1 page, Graphics tab (kDisplayOptQuality): writes a quality preset's values into s (the ids of quality_presets(), play_types.h: the display
     // options and the anti-aliasing; a device preset also writes render_scale and fps_cap). False: unknown name.
     bool (*quality_preset)(const char* name, Settings& s) = nullptr;
+    // A layer over the game's picture (nxrt/overlay_canvas.h: debug views). The overlay's presenting thread, not the main thread: active() once per
+    // presented frame, draw() when it said true. Null: nothing drawn.
+    gfx::GameLayer overlay_layer;
 };
 
 const GamePlay* game_play();         // the registered game's table, or nullptr
