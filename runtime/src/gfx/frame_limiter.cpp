@@ -117,51 +117,62 @@ struct FrameLimiter::Impl {
         return p;
     }
 
-    // How long before the target the timer stops and the spin takes over.
-    uint64_t margin_ns() const {
-        const double m = std::min(std::max(kMinMarginNs, 2.0 * overshoot_ema_ns), kMaxMarginNs);
-        return static_cast<uint64_t>(m);
-    }
-
-    // Sleeps on the timer for coarse_ns (relative), then updates the overshoot average. False if the timer call failed.
-    // The timer is per thread: the main and render threads can both pace on one limiter, and a shared auto-reset timer wakes only one
-    // waiter, leaving the other blocked for good (the window-play hang at frame 4). The wait is also bounded so a lost signal can't hang.
-    bool coarse_wait_timer(uint64_t coarse_ns) {
-        thread_local HANDLE tl_timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-        if (!tl_timer) return false;
-        LARGE_INTEGER due;
-        const LONGLONG units = static_cast<LONGLONG>(coarse_ns / 100);  // 100 ns units; negative = relative
-        due.QuadPart = -(units > 0 ? units : 1);
-        const uint64_t set_at = FrameLimiter::now_ns();
-        if (!SetWaitableTimerEx(tl_timer, &due, 0, nullptr, nullptr, nullptr, 0)) return false;
-        WaitForSingleObject(tl_timer, static_cast<DWORD>(coarse_ns / 1000000ull) + 50);
-        const uint64_t woke = FrameLimiter::now_ns();
-        const uint64_t requested = set_at + coarse_ns;
-        const double over = woke > requested ? static_cast<double>(woke - requested) : 0.0;
-        overshoot_ema_ns = overshoot_ema_ns * 0.875 + over * 0.125;
-        return true;
-    }
-
-    // Returns once the monotonic clock has reached target (absolute ns).
-    void wait_until(uint64_t target) {
-        for (;;) {
-            const uint64_t t = FrameLimiter::now_ns();
-            if (t >= target) return;
-            const uint64_t remaining = target - t;
-            if (remaining > margin_ns()) {
-                if (timer) {
-                    if (coarse_wait_timer(remaining - margin_ns())) continue;
-                    // The timer call failed: spin the rest.
-                } else {
-                    Sleep(1);  // fallback when no high-resolution timer exists; no timeBeginPeriod
-                    continue;
-                }
-            }
-            while (FrameLimiter::now_ns() < target) _mm_pause();
-            return;
-        }
-    }
+    void wait_until(uint64_t target);
 };
+
+namespace {
+// How long before the target the timer stops and the spin takes over.
+uint64_t margin_ns(double overshoot_ema_ns) {
+    return static_cast<uint64_t>(std::min(std::max(kMinMarginNs, 2.0 * overshoot_ema_ns), kMaxMarginNs));
+}
+
+// Sleeps on the timer for coarse_ns (relative), then updates the overshoot average. False if the timer call failed.
+// The timer is per thread: the main and render threads can both pace on one limiter, and a shared auto-reset timer wakes only one
+// waiter, leaving the other blocked for good (the window-play hang at frame 4). The wait is also bounded so a lost signal can't hang.
+bool coarse_wait_timer(uint64_t coarse_ns, double* overshoot_ema_ns) {
+    thread_local HANDLE tl_timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!tl_timer) return false;
+    LARGE_INTEGER due;
+    const LONGLONG units = static_cast<LONGLONG>(coarse_ns / 100);  // 100 ns units; negative = relative
+    due.QuadPart = -(units > 0 ? units : 1);
+    const uint64_t set_at = FrameLimiter::now_ns();
+    if (!SetWaitableTimerEx(tl_timer, &due, 0, nullptr, nullptr, nullptr, 0)) return false;
+    WaitForSingleObject(tl_timer, static_cast<DWORD>(coarse_ns / 1000000ull) + 50);
+    const uint64_t woke = FrameLimiter::now_ns();
+    const uint64_t requested = set_at + coarse_ns;
+    const double over = woke > requested ? static_cast<double>(woke - requested) : 0.0;
+    *overshoot_ema_ns = *overshoot_ema_ns * 0.875 + over * 0.125;
+    return true;
+}
+
+// Returns once the monotonic clock has reached target (absolute ns). have_timer: high-resolution timers exist (else Sleep(1) steps).
+void wait_until_ns(uint64_t target, bool have_timer, double* overshoot_ema_ns) {
+    for (;;) {
+        const uint64_t t = FrameLimiter::now_ns();
+        if (t >= target) return;
+        const uint64_t remaining = target - t;
+        const uint64_t margin = margin_ns(*overshoot_ema_ns);
+        if (remaining > margin) {
+            if (have_timer) {
+                if (coarse_wait_timer(remaining - margin, overshoot_ema_ns)) continue;
+                // The timer call failed: spin the rest.
+            } else {
+                Sleep(1);  // fallback when no high-resolution timer exists; no timeBeginPeriod
+                continue;
+            }
+        }
+        while (FrameLimiter::now_ns() < target) _mm_pause();
+        return;
+    }
+}
+}  // namespace
+
+void FrameLimiter::Impl::wait_until(uint64_t target) { wait_until_ns(target, timer != nullptr, &overshoot_ema_ns); }
+
+void FrameLimiter::sleep_until(uint64_t target_ns) {
+    thread_local double overshoot = 0.0;
+    wait_until_ns(target_ns, true, &overshoot);    // coarse_wait_timer falls back to the spin when the thread has no timer
+}
 
 FrameLimiter::FrameLimiter() : impl_(new Impl) {
     impl_->timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -194,6 +205,11 @@ double FrameLimiter::refresh_hz() const { return impl_->sync_hz.load(); }
 int FrameLimiter::grid_refreshes() const {
     std::lock_guard<std::mutex> lk(impl_->mu);
     return impl_->has_sched ? impl_->grid_k : 0;
+}
+
+void FrameLimiter::shift_grid(double ns) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    if (impl_->grid_hz > 0.0) impl_->grid_t0 += ns;
 }
 
 void FrameLimiter::set_pre_frame_hook(PreFrameFn fn, void* user) {

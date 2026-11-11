@@ -910,7 +910,7 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
     // Off (no queue): the job runs right here, as before.
     auto job = [&s, cbs = std::move(cbs), si, wait, sigs = std::vector<VkSemaphoreSubmitInfo>(signals, signals + si.signalSemaphoreInfoCount),
                 fence = slot.fence, render_done = t.render_done, swapchain = s.swapchain, image = s.cur_image, present_id, probe_value, split_n, pre_sig,
-                pt_frame, pw_wait, after = prefix ? prefix->after_submit : std::function<void(bool)>{}, prefix_sync = s.submit_queue ? nullptr : prefix]() mutable {
+                pt_frame, pw_wait, fifo = s.active == PresentMode::Fifo, after = prefix ? prefix->after_submit : std::function<void(bool)>{}, prefix_sync = s.submit_queue ? nullptr : prefix]() mutable {
         VkSubmitInfo2 subs[2] = {};
         uint32_t nsub = 0;
         if (split_n) {
@@ -928,12 +928,44 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
         sub.pWaitSemaphoreInfos = sub.waitSemaphoreInfoCount ? &wait : nullptr;
         sub.pSignalSemaphoreInfos = sigs.data();
         bool ok = false;
-        uint64_t q0 = 0, q1 = 0;                  // present_timing.h (d): the vkQueuePresentKHR call
+        uint64_t q0 = 0, q1 = 0, held = 0;        // present_timing.h (d): the vkQueuePresentKHR call, and how long it was held
         bool presented = false;
+        // [latency] vblank_lock: an early frame's present waits until just after the vblank before its slot (FIFO cannot show it before the
+        // slot then); the submit goes first, the queue lock is not held while waiting
+        const uint64_t hold_until = pt_frame && !s.headless ? extras::present_timing_hold_until(pt_frame, fifo) : 0;
+        auto queue_present = [&] {      // under the queue lock
+            static const uint16_t z_vpres = ft::zone_id("present.vk_present");
+            VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+            pi.waitSemaphoreCount = 1;
+            pi.pWaitSemaphores = &render_done;
+            pi.swapchainCount = 1;
+            pi.pSwapchains = &swapchain;
+            pi.pImageIndices = &image;
+            VkPresentIdKHR pid = {VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+            if (present_id) {
+                pid.swapchainCount = 1;
+                pid.pPresentIds = &present_id;
+                pi.pNext = &pid;
+            }
+            const uint64_t ft0 = ft::on() ? ft::now_ns() : 0;
+            if (pt_frame) q0 = FrameLimiter::now_ns();
+            const VkResult r = vkQueuePresentKHR(s.dev->queue(), &pi);
+            if (pt_frame) q1 = FrameLimiter::now_ns();
+            if (ft0) ft::event(z_vpres, ft0, ft::now_ns());
+            s.dev->note_result(r, "vkQueuePresentKHR");
+            s.st.presents++;
+            presented = r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR;
+            if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
+                s.dirty = true;
+                s.st.out_of_date++;
+            } else if (r != VK_SUCCESS && !s.dev->device_lost()) {
+                NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
+            }
+        };
         {
             std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
-            static const uint16_t z_vsub = ft::zone_id("present.vk_submit"), z_vpres = ft::zone_id("present.vk_present");
-            uint64_t ft0 = ft::on() ? ft::now_ns() : 0;
+            static const uint16_t z_vsub = ft::zone_id("present.vk_submit");
+            const uint64_t ft0 = ft::on() ? ft::now_ns() : 0;
             VkResult r = vkQueueSubmit2(s.dev->queue(), nsub, subs, fence);
             // arg = command buffers in the call (the NVN batch and, with [nvn] one_submit, the parked flushes ride in it)
             if (ft0) ft::event(z_vsub, ft0, ft::now_ns(), static_cast<uint32_t>(cbs.size()));
@@ -947,37 +979,20 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             ok = r == VK_SUCCESS;
             if (prefix_sync) prefix_sync->submitted = ok;
             if (after) after(ok);
-            if (r == VK_SUCCESS && !s.headless) {
-                VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-                pi.waitSemaphoreCount = 1;
-                pi.pWaitSemaphores = &render_done;
-                pi.swapchainCount = 1;
-                pi.pSwapchains = &swapchain;
-                pi.pImageIndices = &image;
-                VkPresentIdKHR pid = {VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
-                if (present_id) {
-                    pid.swapchainCount = 1;
-                    pid.pPresentIds = &present_id;
-                    pi.pNext = &pid;
-                }
-                ft0 = ft::on() ? ft::now_ns() : 0;
-                if (pt_frame) q0 = FrameLimiter::now_ns();
-                r = vkQueuePresentKHR(s.dev->queue(), &pi);
-                if (pt_frame) q1 = FrameLimiter::now_ns();
-                if (ft0) ft::event(z_vpres, ft0, ft::now_ns());
-                s.dev->note_result(r, "vkQueuePresentKHR");
-                s.st.presents++;
-                presented = r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR;
-                if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
-                    s.dirty = true;
-                    s.st.out_of_date++;
-                } else if (r != VK_SUCCESS && !s.dev->device_lost()) {
-                    NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
-                }
+            if (ok && !s.headless && !hold_until) queue_present();
+        }
+        if (ok && !s.headless && hold_until) {
+            const uint64_t h0 = FrameLimiter::now_ns();
+            {
+                NXFT("present.hold");
+                FrameLimiter::sleep_until(hold_until);
             }
+            held = FrameLimiter::now_ns() - h0;
+            std::lock_guard<std::mutex> lk(s.dev->queue_mutex());
+            queue_present();
         }
         if (presented && pt_frame) {
-            extras::present_timing_queue_present(pt_frame, 0, q0, q1);
+            extras::present_timing_queue_present(pt_frame, held, q0, q1);
             if (pw_wait) s.pw_push(swapchain, present_id, pt_frame);
         }
         if (!s.headless && s.latency) s.latency->present_end();
