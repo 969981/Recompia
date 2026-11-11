@@ -33,6 +33,11 @@
 //                       returned (device lost). Each such ballot becomes the lane's own bit: every lane leads itself and adds 1.
 //                       Approach from pokopia-native (MIT) windows/docs/ballot-hang.md, vk_shader.c @4a72d23; the matcher is ours.
 //
+//   spirv_limit_count   a compute shader whose loop runs to a count read from a constant buffer word and walks the items of a texel buffer
+//                       table. A count that is not the game's (a stale or garbage word) runs the loop for seconds and NVIDIA's driver
+//                       drops the device (pokopia-native D-1, D-11). The count, where it is compared, becomes min(count, the items the
+//                       table holds), or min(count, 16384). Ported from pokopia-native (MIT) vk_shader.c vkspv_limit_count @9cb7f07.
+//
 // The idea (pattern-matching on the module's declarations, new ids from the bound) follows SuperMarioWonderRecomp's
 // nvn_spirv_patch.cpp (MIT); the code is new.
 #pragma once
@@ -133,5 +138,18 @@ struct BallotRewrite {
 // range, as before; only which lane takes which within a warp changes). Assumes 32-lane subgroups. Other ballots (REDUX / MATCH masks,
 // first-lane broadcasts) are left alone. False (out untouched) when nothing is rewritten; stats filled either way when given.
 bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, BallotRewrite* stats = nullptr);
+
+// The count: word `word` of the uniform block named count_var (an access chain count_var[0][word / 4][word % 4], loaded and bitcast to a
+// 32-bit int or uint). The table: the UniformConstant variable named table_var, a sampled image of a Dim Buffer image, stride texels an item.
+struct SpvCountLimit {
+    const char* count_var = nullptr;
+    uint32_t word = 0;
+    const char* table_var = nullptr;
+    uint32_t stride = 1;
+};
+// Every integer comparison that takes the count read gets min(count, (table texels + stride - 1) / stride) instead (by_table and a
+// table_var), or min(count, 16384): a signed minimum for a count read as int, an unsigned one for uint. Adds ImageQuery when the module
+// lacks it. Returns the comparisons changed; 0 (out untouched) when nothing matches.
+int spirv_limit_count(const std::vector<uint32_t>& in, const SpvCountLimit& limit, bool by_table, std::vector<uint32_t>& out);
 
 }  // namespace nxrt::nvn::be::gpu

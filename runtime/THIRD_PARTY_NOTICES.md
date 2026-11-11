@@ -58,7 +58,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code.
+Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code. `spirv_limit_count` in `src/gfx/nvn/nvn_spirv_loop_guard.cpp` is ported from `vkspv_limit_count` in `windows/src/nxrt/vk/vk_shader.c` @9cb7f07 (texel buffer tables only); its shader list is in `games/pkp/render/pkp_render_info.cpp`.
 
 The GPU-made indirect quad arguments (`src/gfx/nvn/nvn_replay.cpp` quad_args_gpu, `src/gfx/nvn/nvn_quad_args_shader.inc`) are based on pokopia-native @27a6df0 (1.2.6), `windows/src/nxrt/vk/vk_replay.c` quad_args and `windows/src/nxrt/vk/shaders/quad_args.comp`, under the same MIT licence; those files carry a `Based on pokopia-native (MIT) ... @27a6df0` header comment.
 

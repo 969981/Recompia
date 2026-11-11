@@ -5,6 +5,7 @@
 //   readback_defer   none: [nvn] readback_defer never defers a read
 //   camera           none: no temporal upscaling (FSR 3 / DLSS / DLAA find no camera, nothing is jittered)
 //   tonemaps         none: no shader is the tone map (no HDR variant, no scene upscaler, no temporal pass)
+//   loop_guards      none: no compute loop gets its count limited ([nvn] loop_guard has nothing to do)
 // Header-only and free of Vulkan, so game.h users that do not link the graphics back end can include it.
 #pragma once
 #include <cstdint>
@@ -46,11 +47,23 @@ struct ToneMapMatch {
     float shaper_scale = 0, shaper_bias = 0;   // LutShaper: the shaper's Fma constants, compared bit for bit
 };
 
+// [nvn] loop_guard: a compute shader whose loop count is a constant buffer word and that walks a texel buffer table (spirv_limit_count in
+// src/gfx/nvn/nvn_spirv_patch.h). Names are the shader translator's variable names; one entry per count (a shader may have several).
+struct LoopGuard {
+    const char* shader = nullptr;           // the shader's cache hash, as the back end names it ("0f9696499923d6d3")
+    const char* count_var = nullptr;        // the uniform block that holds the count ("cp_c3")
+    uint32_t word = 0;                      // the count's 32-bit word in that block
+    const char* table_var = nullptr;        // the texel buffer the loop walks ("cp_t_cb0_10")
+    uint32_t stride = 1;                    // texels an item
+};
+
 struct Render {
     const ReadbackShape* readback_defer = nullptr;
     const CameraBlock* camera = nullptr;
     const ToneMapMatch* tonemaps = nullptr;
     uint32_t tonemap_count = 0;
+    const LoopGuard* loop_guards = nullptr;
+    uint32_t loop_guard_count = 0;
 };
 
 }  // namespace nxrt::game
