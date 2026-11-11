@@ -7,6 +7,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nxrt/file_write.h"
 #include "play_types.h"
 
 namespace nxrt::play {
@@ -47,40 +48,7 @@ bool load_settings(const std::string& path, Settings* out, std::string* err, std
 }
 
 bool save_settings(const std::string& path, const Settings& s, std::string* err) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const fs::path target(path);
-    if (target.has_parent_path()) {
-        fs::create_directories(target.parent_path(), ec);
-        if (ec) {
-            if (err) *err = "cannot create folder for " + path + ": " + ec.message();
-            return false;
-        }
-    }
-    // Write the whole file to a temp name first, then rename it over the target, so a crash never leaves half a file.
-    const std::string tmp = path + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) {
-            if (err) *err = "cannot write " + tmp;
-            return false;
-        }
-        out << format_settings(s);
-        out.flush();
-        if (!out) {
-            if (err) *err = "cannot write " + tmp;
-            fs::remove(tmp, ec);
-            return false;
-        }
-    }
-    fs::rename(tmp, target, ec);   // replaces an existing file on Windows
-    if (ec) {
-        std::error_code rm_ec;
-        fs::remove(tmp, rm_ec);
-        if (err) *err = "cannot replace " + path + ": " + ec.message();
-        return false;
-    }
-    return true;
+    return write_file_atomic(path, format_settings(s), err);
 }
 
 }  // namespace nxrt::play
