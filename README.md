@@ -184,7 +184,7 @@ Link Play puts several players on one island. Cross-play works with pokopia-nati
 | Choice | Use it for |
 |---|---|
 | Off | No Link Play. |
-| Same network | The default. Same Wi-Fi or network: the host is found by itself. If not, type the host's address (under **This PC** on the host's page) in **Join directly**. |
+| Same network | The default. Same Wi-Fi or network: the host is found by itself. If not, type the host's address, for example `192.0.2.10` (under **This PC** on the host's page), in **Join directly**. |
 | Internet | **Host** or **Visit** over the internet with a room code, through a relay or a forwarded port. |
 
 Changes apply the next time the game starts.
