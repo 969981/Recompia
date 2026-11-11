@@ -197,12 +197,9 @@ void reg_remove(PoolChunk* c) {
     g_reg.erase(std::remove(g_reg.begin(), g_reg.end(), c), g_reg.end());
 }
 
-VkBufferUsageFlags shadow_usage() {      // what import_range gives an import's buffer
-    return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
-           (device().features().transform_feedback ? VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT : 0u);
-}
+// pcopy_evict_for is making room for a shadow of this size (0: not running): pcopy_free tells the stock, which keeps only a buffer of
+// that size then. Render thread.
+uint64_t g_evict_want = 0;
 
 bool covers(const PoolChunk* c, uint64_t off) { return c && c->is_shadow && c->buffer && off >= c->off && off < c->off + c->size; }
 
@@ -281,6 +278,7 @@ void pcopy_pool_init(PoolGpu* g) {
     });
     g_any.store(true, std::memory_order_relaxed);
     pcopy::land_start();
+    pcopy::stock_start(cfg().cell, cfg().cap);
 }
 
 void pcopy_pool_destroy(PoolGpu* g) {
@@ -296,18 +294,17 @@ void pcopy_track_stop(PoolGpu* g) {
 bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, bool cells) {
     NXFT("pool.copy.alloc");
     const uint64_t cap = cfg().cap;
-    if (cap && static_cast<uint64_t>(std::max<int64_t>(0, g_live.load())) + size > cap) {
+    if (cap && pcopy::stock_over(size, cap)) {
         pcopy_evict_for(size);
         static bool logged = false;
-        if (static_cast<uint64_t>(std::max<int64_t>(0, g_live.load())) + size > cap && !logged) {
+        if (pcopy::stock_over(size, cap) && !logged) {
             logged = true;
             NXLOG_I(kTag, "pool_copy: %llu MiB of shadows live, over the cap of %llu MiB, and none idle enough to drop: allocated anyway (logged once)",
                     static_cast<unsigned long long>(g_live.load() >> 20), static_cast<unsigned long long>(cap >> 20));
         }
     }
     gfx::Buffer b;
-    if (device().create_buffer(size, shadow_usage(), gfx::MemoryUse::Shadow, &b, "nvn pool shadow") != VK_SUCCESS || !b.mapped) {
-        if (b.buffer) device().destroy_buffer(b);
+    if (!pcopy::stock_get(size, &b)) {
         g_fallback.fetch_add(1, std::memory_order_relaxed);
         static bool warned = false;
         if (!warned) {
@@ -385,7 +382,7 @@ void pcopy_free(PoolChunk& c) {
     if (t_last.chunk == &c) t_last = LastResolve{};
     g_live.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
     g_chunks.fetch_sub(1, std::memory_order_relaxed);
-    device().destroy_buffer(c.shadow);
+    pcopy::stock_give(c.shadow, g_evict_want);
 }
 
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
@@ -537,6 +534,7 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
 
 void pcopy_shutdown() {
     pcopy::land_stop();               // the device is idle and the pools go next
+    pcopy::stock_stop();              // ... and their shadows' buffers are destroyed, not kept, from here on
     t_last = LastResolve{};
 }
 
@@ -553,14 +551,16 @@ void pcopy_evict_for(uint64_t bytes) {
     }
     std::sort(cand.begin(), cand.end(), [now](const PoolChunk* a, const PoolChunk* b) { return now - a->used_at > now - b->used_at; });
     uint64_t freed = 0;
+    g_evict_want = bytes;      // a dropped shadow of that size hands its buffer on through the stock; the others are destroyed
     for (PoolChunk* c : cand) {
-        if (static_cast<uint64_t>(std::max<int64_t>(0, g_live.load())) + bytes <= cap) break;
+        if (!pcopy::stock_over(bytes, cap)) break;
         if (pcopy_busy(*c)) continue;
         const uint64_t sz = c->size;
         if (!pool_drop_chunk_if_live(c->owner, c)) continue;     // under g_live_mu, like lazy_drop_idle
         freed += sz;
         g_evicted.fetch_add(1, std::memory_order_relaxed);
     }
+    g_evict_want = 0;
     if (freed)
         NXLOG_I(kTag, "pool_copy: over the cap of %llu MiB: dropped %llu MiB of the least recently used shadows", static_cast<unsigned long long>(cap >> 20),
                 static_cast<unsigned long long>(freed >> 20));
@@ -600,6 +600,13 @@ void pcopy_log_summary(uint32_t presents) {
                 rate[kWhyFirst], rate[kWhyAgain], rate[kWhyLanded], rate[kWhyWritten], rate[kWhyHot], rate[kWhyUntracked],
                 (unsized - p_unsized) / 1048576.0 / secs, static_cast<unsigned long long>(filled * kPage >> 20));
         p_unsized = unsized;
+    }
+    {
+        const pcopy::StockStats st = pcopy::stock_stats();
+        NXLOG_I(kTag, "pool_copy: shadow buffers so far: %llu made at a bind (%.1f ms in all), %llu made ahead by the stock thread, %llu shadows got a "
+                      "spare; %llu MiB spare now",
+                static_cast<unsigned long long>(st.made_here), st.made_here_ms, static_cast<unsigned long long>(st.made_ahead),
+                static_cast<unsigned long long>(st.reused), static_cast<unsigned long long>(st.spare_bytes >> 20));
     }
     if (pool_track_on()) {
         const PoolTrackStats t = ptrack_stats();
