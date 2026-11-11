@@ -2,6 +2,7 @@
 // Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "core/pkp_game.h"
 #include "input/pkp_aim.h"
+#include "input/pkp_aim_debug.h"
 #include "ui/pkp_craft.h"
 #include "core/pkp_feature.h"
 #include "input/pkp_jump.h"
@@ -23,6 +24,7 @@
 #include "render/pkp_taa.h"
 #include "ui/pkp_title.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <iterator>
@@ -50,6 +52,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   kbm, movie_test     game-frame callbacks, kbm's first (movie_test and taa_probe are test tools: in the table only with NXRT_TESTTOOLS, which
 //                       a release package builds without; the registry has no stub for them)
 //   shoulder_camera    a port() row on purpose: the repo owner chose no on/off switch, since its two distances at 0 are the game's own camera
+//   aim_debug           camera aim's debug view: a port() row (a debugging key, not a mod); aim reports to it through its calls
 //   title, sort, craft  key guide clients (pkp_key_guide.h): they add themselves at install, and the key guide's callbacks run in that
 //                       order
 //   key_guide           after its clients: its install registers the hooks they need
@@ -79,7 +82,7 @@ constexpr Entry kEntries[] = {
     port(&kTaaProbeFeature),
 #endif
     port(&kShoulderCameraFeature),
-    mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
+    mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
     mod(&kCraftFeature, CraftSearch), port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
 };
@@ -157,6 +160,13 @@ void remove_all() {
     }
     r.installed = r.render_installed = false;
 }
+// The overlay's presenting thread: the features' layers over the picture, in table order.
+bool layer_on(const Feature* f) { return f->overlay_active && f->overlay_draw && f->overlay_active(); }
+bool overlay_active_all() { return std::any_of(kFeatures.begin(), kFeatures.end(), layer_on); }
+void overlay_draw_all(gfx::OverlayCanvas& c) {
+    for (const Feature* f : kFeatures)
+        if (layer_on(f)) f->overlay_draw(c);
+}
 void status_all(char* buf, size_t n) {
     if (!n) return;
     buf[0] = 0;
@@ -185,6 +195,7 @@ const play::GamePlay& game_play() {
         p.menu_over_value = &menu_over_value;
         p.menu_active = &menu_active;
         p.menu_in_game = &menu_in_game;
+        p.overlay_layer = {&overlay_active_all, &overlay_draw_all};
         return p;
     }();
     return t;

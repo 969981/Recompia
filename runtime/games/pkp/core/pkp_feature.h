@@ -30,6 +30,9 @@ struct Feature {
     void (*game_frame)(::Ctx* c) = nullptr;                                      // the game thread, once a frame (layout::kFrameStep)
     void (*settings_changed)(const play::Settings& s) = nullptr;                 // new settings are in force
     void (*status_text)(char* buf, size_t n) = nullptr;                          // its part of the [play] log_status line
+    // A layer over the picture (debug views, nxrt/overlay_canvas.h): the overlay's presenting thread, draw only after active said true.
+    bool (*overlay_active)() = nullptr;
+    void (*overlay_draw)(gfx::OverlayCanvas& c) = nullptr;
 };
 
 }  // namespace nxrt::games::pkp
