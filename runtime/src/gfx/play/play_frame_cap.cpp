@@ -63,12 +63,16 @@ void apply_frame_cap(const Settings& s) {
     const float panel_hz = st.window ? platform::display_refresh_hz() : 0.f;
     const char* why_not_fixed = "";
     const bool fixed = panel_hz > 0 && snap_wanted(s.display, &why_not_fixed);
-    {   // there the limiter keeps frames on the display's refresh grid; [latency] grid = false: every pace stays on its free schedule
+    {   // there the limiter keeps frames on the display's refresh grid; [latency] grid = false: every pace stays on its free schedule.
+        // The game's ceiling follows the snap too ([latency] snap_ceiling), with any cap and with mailbox presents: the snapped cap may be
+        // above it (a 90 Hz panel at its refresh rate, the ceiling 60).
         static const bool grid = config_get_bool("latency", "grid", true);
+        static const bool snap_ceiling = config_get_bool("latency", "snap_ceiling", true);
         FrameLimiter::RefreshSync sync;
         if (fixed) {
             sync.hz = static_cast<double>(panel_hz);
             sync.grid = grid;
+            sync.snap_ceiling = snap_ceiling;
         }
         st.limiter.set_refresh_sync(sync);
     }

@@ -25,7 +25,7 @@ public:
 
     // The game's own ceiling (0 = none): frames never start closer together than 1 / max, whatever the target (unlimited included). Pokopia sets
     // it to 60 while an area transition plays (#144: a part of it breaks on frames shorter than 1/60 s). Loading frames (frame_limiter_unpaced)
-    // stay unpaced.
+    // stay unpaced. With RefreshSync::snap_ceiling the ceiling in force is the next divisor of the refresh rate at or under it.
     // Safe to call from any thread.
     void set_max_fps(double fps);
     double max_fps() const;
@@ -41,6 +41,10 @@ public:
         // told when the display refreshes); it holds until reset_schedule() or another hz. A pace that is not hz / k, and k = 1, stay
         // on the free schedule.
         bool grid = false;
+        // The game's ceiling (set_max_fps), while it is what lowers the pace, is itself lowered to a divisor of the refresh rate
+        // (snap_frame_cap: 60 on 90 Hz -> 45; 60 on 60 Hz stays 60): a ceiling between two divisors shows frames for uneven numbers of
+        // refreshes, exactly what the snapped frame cap avoids. Never raised, so the ceiling's promise holds.
+        bool snap_ceiling = false;
     };
     void set_refresh_sync(const RefreshSync& sync);     // safe to call from any thread
 

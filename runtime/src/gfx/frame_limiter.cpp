@@ -42,7 +42,8 @@ struct FrameLimiter::Impl {
     std::atomic<FrameLimiter::PreFrameFn> pre_fn{nullptr};
     std::atomic<void*> pre_user{nullptr};
     std::atomic<double> sync_hz{0.0};        // RefreshSync: 0 = no fixed-refresh display
-    std::atomic<bool> sync_grid{false};
+    std::atomic<bool> sync_grid{false}, sync_ceiling{false};
+    std::atomic<double> ceiling_logged{0.0}; // the ceiling whose snap was last logged
     HANDLE timer = nullptr;  // high-resolution waitable timer; null means the Sleep(1) coarse wait
 
     // Guards the state below. begin_frame holds it only for bookkeeping, never during the wait.
@@ -79,13 +80,15 @@ struct FrameLimiter::Impl {
         prev_start = t;
     }
 
-    // What begin_frame paces to. fps: the target lowered to the game's ceiling (0 = no pacing). k >= 2: fps is hz / k and the frame goes
-    // on the refresh grid. k = 1 never uses the grid: a limiter on its own clock at the display's rate drifts against the display, and
+    // What begin_frame paces to. fps: the target lowered to the game's ceiling (0 = no pacing); with RefreshSync::snap_ceiling a ceiling
+    // that governs is first lowered to a divisor of the refresh rate (ceiling: the ceiling it came from, 0 = not snapped). k >= 2: fps is
+    // hz / k and the frame goes on the refresh grid. k = 1 never uses the grid: a limiter on its own clock at the display's rate drifts against the display, and
     // avoiding that is the caller's policy.
     struct Pace {
         double fps = 0.0;
         int k = 0;
         double hz = 0.0;
+        double ceiling = 0.0;
     };
     Pace pace() const {
         Pace p;
@@ -93,6 +96,13 @@ struct FrameLimiter::Impl {
         const bool ceiling = m > 0.0 && (!(t > 0.0) || m < t);
         p.fps = ceiling ? m : t;
         if (!(hz > 0.0) || !(p.fps > 0.0)) return p;
+        if (ceiling && sync_ceiling.load()) {
+            const FrameSnap sn = snap_frame_cap(m, hz);
+            if (sn.k >= 2) {
+                p.fps = sn.cap;
+                p.ceiling = m;
+            }
+        }
         if (sync_grid.load()) {
             const double n = hz / p.fps;
             if (n < 1e6) {
@@ -176,6 +186,7 @@ void FrameLimiter::set_refresh_sync(const RefreshSync& sync) {
     const bool on = sync.hz > 0.0;
     impl_->sync_hz.store(on ? sync.hz : 0.0);
     impl_->sync_grid.store(on && sync.grid);
+    impl_->sync_ceiling.store(on && sync.snap_ceiling);
 }
 
 void FrameLimiter::set_pre_frame_hook(PreFrameFn fn, void* user) {
@@ -213,6 +224,8 @@ uint64_t FrameLimiter::begin_frame_nohook() {
         return entry;
     }
 
+    if (pace.ceiling > 0.0 && s.ceiling_logged.exchange(pace.ceiling) != pace.ceiling)
+        NXLOG_I("limiter", "game ceiling %g fps paced at %.3f fps (%.3f Hz display: a divisor of the refresh rate)", pace.ceiling, fps, s.sync_hz.load());
     const double period = 1e9 / fps;
     double next;
     int log_k = -1;                    // >= 0: the grid went on, off or to another k; logged after the lock
