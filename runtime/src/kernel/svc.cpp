@@ -24,6 +24,7 @@
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "poll_wait.h"
+#include "../diag/hle_census.h"
 
 namespace nxrt {
 namespace {
@@ -173,6 +174,7 @@ void svc_init() {
         svc_register_info_group();
         svc_register_thread_group();
         svc_register_ipc_group();
+        diag::census::init();                                // [diag] hle_census: before any guest code runs
         diag_add_report(&kernel::sync_wait_report, false);   // the freeze dump: the guest threads blocked in kernel waits, after the thread dump
         size_t n = 0;
         for (auto* h : g_handlers) n += h != nullptr;
@@ -233,7 +235,8 @@ void svc_set_busy_hook(uint32_t host_tid, void (*fn)()) {
 }
 void svc_set_observer(void (*fn)(::Ctx*)) { g_observer.store(fn, std::memory_order_release); }
 
-void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
+namespace {
+inline void svc_run(::Ctx* c, uint32_t number, uint64_t pc) {
     GameSvcTimer game_timer(number);
     if (kernel::KThread* self = kernel::current_thread()) {
         // the starvation line's "last ran on processor": sampled at every 16th SVC of the thread (and its first)
@@ -267,6 +270,15 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
         return;
     }
     h(c);
+}
+}  // namespace
+
+void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
+    if (diag::census::on()) [[unlikely]] {   // [diag] hle_census: the dispatcher's own work included
+        diag::census::Scope scope(diag::census::key(diag::census::kSvc, number < kSvcCount ? number : kSvcCount - 1));
+        return svc_run(c, number, pc);
+    }
+    svc_run(c, number, pc);
 }
 
 std::string svc_summary() {
