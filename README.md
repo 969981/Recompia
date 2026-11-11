@@ -175,7 +175,7 @@ Copy the `save` folder somewhere first if you want a backup. A save that a newer
 
 Link Play puts several players on one island. Cross-play works with pokopia-native players on game version **2.0.1**. Players on game 1.0.5 cannot join.
 
-**What changed.** Link Play now speaks pokopia-native's co-op protocol. It does not work with earlier Link Play builds of this port, so everyone updates to this release. (The launcher keeps the old protocol under **Advanced**, for a session where everyone still has an old build.)
+**What changed.** Link Play now speaks pokopia-native's co-op protocol. It does not work with earlier Link Play builds of this port, so everyone updates to this release.
 
 **Each player needs their own save.** A copy of someone else's save cannot join its original.
 
@@ -183,23 +183,17 @@ Link Play puts several players on one island. Cross-play works with pokopia-nati
 
 | Choice | Use it for |
 |---|---|
-| Alone | No Link Play. |
-| Automatic (LAN) | The default. Same Wi-Fi or network: the host is found by itself. |
-| Visit by address | Join one host by its address, for example `192.0.2.10`. The host's Link Play page shows it. |
-| Internet | Play through a relay with a room code. |
+| Off | No Link Play. |
+| Same network | The default. Same Wi-Fi or network: the host is found by itself. If not, type the host's address (under **This PC** on the host's page) in **Join directly**. |
+| Internet | **Host** or **Visit** over the internet with a room code, through a relay or a forwarded port. |
 
 Changes apply the next time the game starts.
 
 **In the game**, open the PC in your first house, then **Link Play** (it unlocks after Environment Level 2 in the Withered Wasteland) and pick **Local connection**. (**Online connection** is Nintendo's own service and does not work here.) The host picks **Invite Others to Visit**, the others **Visit a Friend**.
 
-**Same network.** Everyone picks **Automatic (LAN)**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. If the host does not show up, the visitor picks **Visit by address** and types the host's LAN address. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
+**Same network.** Everyone picks **Same network**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
 
-**Over the internet.** Everyone picks **Internet** and goes through a relay:
-- The host picks **I host**. The page shows a room code. Give the visitors the relay address and the code. **Copy** and **New code** are on the page.
-- A visitor picks **I visit** and types the relay address and the code.
-- To run a relay yourself, press **Run a relay here** on the host's Link Play page (it works while the launcher stays open), or run `PokopiaLauncher --host` on a server. Any pokopia-native co-op relay works too.
-- Without a relay, leave the relay address empty on the host and forward TCP and UDP **47600** on the router. Visitors use **Visit by address** with the host's public address.
-- The relay checks the room code but does not encrypt the game's traffic.
+**Over the internet.** The host's router has to forward one port; there is no public relay. The easy way: the host picks **Internet** -> **Host**, turns on **Run a relay on this PC**, forwards TCP and UDP **47610** to their PC, presses **New code** and sends the address under **Share with visitors** and the code. The visitor picks **Internet** -> **Visit**, types both and turns on **Through a relay**. **[Step by step, with the other way and what to check when it does not connect](docs/multiplayer/README.md#step-by-step-over-the-internet).** Any pokopia-native co-op relay works too, and `PokopiaLauncher --host` runs one on a server. The relay checks the room code but does not encrypt the game's traffic.
 
 **Ports and firewall.** The first time you host, Windows Firewall asks about `pkp.exe`: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**).
 
