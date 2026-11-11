@@ -5,6 +5,8 @@
 // the average rate does not drift for small hiccups; a frame that starts late is made up for by at most 10 % of a period (so
 // the next interval is never shorter than 0.9 period: no catch-up bursts) and after a stall of more than 4 periods the
 // schedule restarts from now.
+// On a fixed-refresh display with vsync (set_refresh_sync) a pace of refresh / k runs on the refresh grid instead: frame starts sit on
+// anchor + n refresh intervals, k intervals apart; a late frame takes the next refresh and the anchor never moves.
 #pragma once
 #include <cstdint>
 
@@ -28,6 +30,19 @@ public:
     void set_max_fps(double fps);
     double max_fps() const;
     double effective_fps() const;       // what begin_frame paces to: the target, lowered to the ceiling (0 = no pacing)
+
+    // The display shows whole frames at a fixed refresh rate (vsync on a panel without VRR). hz = 0 (the default) turns all of it off.
+    struct RefreshSync {
+        double hz = 0;                  // the display's refresh rate
+        // Refresh grid: while the pace is hz / k (k >= 2, within 0.5 %), frame starts sit on anchor + n / hz, k grid points apart. A frame
+        // that comes more than 0.1 refresh interval after its point starts on the first point not yet past, so the display shows it one
+        // refresh longer and the frames after it keep their spacing and their phase against the display; the free schedule starts it at
+        // once and moves the whole schedule to an arbitrary phase. The anchor is the start of the first grid frame (the limiter is not
+        // told when the display refreshes); it holds until reset_schedule() or another hz. A pace that is not hz / k, and k = 1, stay
+        // on the free schedule.
+        bool grid = false;
+    };
+    void set_refresh_sync(const RefreshSync& sync);     // safe to call from any thread
 
     // A function that runs at the very start of every begin_frame(), on the thread that calls it (the presenting thread). Play mode uses it to
     // apply present-mode changes at a point where nothing else touches the swapchain. nullptr removes it. Safe to call from any thread.
