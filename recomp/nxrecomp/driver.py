@@ -23,6 +23,7 @@ import os
 import time
 
 from .image import Image
+from . import locals as localsmod
 from . import spin as spinmod
 from .env import Env
 from .sites import load_patches, load_sites
@@ -53,7 +54,15 @@ def make_env(spec):
     env.full = True
     env.spin = True
     env.spin_yield = bool(spec.get('spin_yield') or cfg.spin_yield)
+    env.locals = locals_mode(cfg, spec)
     return env
+
+
+def locals_mode(cfg, spec):
+    """How the lifted functions keep registers and flags (locals.py): None (in the Ctx), 'exact' or 'aapcs'."""
+    from .config import reg_locals_mode
+    mode = reg_locals_mode(cfg, spec.get('locals'))
+    return None if mode == 'off' else mode
 
 
 def module_index_of(cfg, spec):
@@ -89,13 +98,14 @@ def _worker_scan(entries):
     env.wanted = collections.OrderedDict()
     total = bad = 0
     keep, env.spin = env.spin, False                 # discovery needs only the branch targets
+    keep_locals, env.locals = env.locals, None
     for a, end in entries:
         if end is not None:
             env.ends[a] = end
         _, n, b, _ = lift_function(env, a)
         total += n
         bad += len(b)
-    env.spin = keep
+    env.spin, env.locals = keep, keep_locals
     return total, bad, list(env.wanted)
 
 
@@ -104,12 +114,13 @@ def _worker_text(entries):
     env.wanted = collections.OrderedDict()
     texts, resume, insns = [], [], 0
     env.spin_stats = spinmod.Stats()
+    env.locals_stats = localsmod.Stats()
     for a in entries:
         t, n, _, r = lift_function(env, a)
         texts.append(t)
         resume += r
         insns += n
-    return '\n\n'.join(texts), resume, insns, env.spin_stats
+    return '\n\n'.join(texts), resume, insns, env.spin_stats, env.locals_stats
 
 
 def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
@@ -204,11 +215,12 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
             names = {k: 'c_%04x.cpp' % k for k in groups}
         jobs_list = [(k, v) for k, v in groups.items()]
         resume, files, changed, insns = [], [], 0, 0
-        sst = spinmod.Stats()
-        for (k, entries), (text, res, n, ss) in zip(jobs_list, map_ordered(pool, _worker_text, [v for _, v in jobs_list])):
+        sst, lst = spinmod.Stats(), localsmod.Stats()
+        for (k, entries), (text, res, n, ss, ls) in zip(jobs_list, map_ordered(pool, _worker_text, [v for _, v in jobs_list])):
             resume += res
             insns += n
             sst.add(ss)
+            lst.add(ls)
             content = GEN_HEADER + text + '\n'
             files.append(names[k])
             changed += write_if_changed(os.path.join(outdir, names[k]), content)
@@ -230,6 +242,10 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
     log(sst.line(img.name))
     if sst.unprotected:
         log('  spin-loop loads left plain (no rd*/ld<> in their text): ' + ' '.join('%x' % a for a in sorted(sst.unprotected)[:40]))
+    mode = locals_mode(cfg, spec)
+    if mode:
+        for line in lst.lines(img.name, mode):
+            log(line)
     return {'functions': len(all_funcs), 'files': files, 'instructions': insns, 'not_translated': bad, 'spin_loops': sst.loops}
 
 

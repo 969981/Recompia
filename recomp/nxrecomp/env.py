@@ -5,6 +5,7 @@ import collections
 
 from .lift import bits, sext
 from . import eh as ehmod
+from . import locals as localsmod
 from . import spin as spinmod
 from .sites import SITE_KINDS
 
@@ -38,6 +39,8 @@ class Env:
         self.spin = False             # find spin loops and lift their loads as poll loads (spin.py; off while discovering)
         self.spin_yield = False       # ... and call nx_spin_hint(2) at their heads
         self.spin_stats = spinmod.Stats()
+        self.locals = None            # None, 'exact' or 'aapcs': registers and NZCV in C locals (locals.py; off while discovering)
+        self.locals_stats = localsmod.Stats()
         self._syms = None
 
     # ---- words
