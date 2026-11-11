@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
+
 ## 0.10.3 (build N: Newt Hotfix a3)
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code for the shoulder camera's new hook, a few minutes. Your shaders and saves are kept; no shader is translated again.

@@ -88,11 +88,12 @@ constexpr uint64_t kRebuildList = 0x10070e0;  // (screen) row list for the curre
 constexpr uint64_t kRedraw = 0x1007380;       // (screen, 1, 1, 0) as the game's tab change calls it
 constexpr uint64_t kCursor = 0x1008728;       // (screen, 1) as the game's tab change calls it
 constexpr uint64_t kListCap = 0x1012a60;      // inline at the bl that sizes the tab list (w1 = capacity)
-constexpr uint64_t kBarList = 0x10132a4;      // inline in the tab bar build: the three tabs are in the list (x0/x22 = list, x19 = parent, x21 = bar, w24 = mode)
+constexpr uint64_t kBarList = 0x10132a4;      // inline in the tab bar build: the three tabs are in the list (x0/x22 = list, w24 = mode)
 constexpr uint64_t kBarState = 0x10132d0;     // inline at the bl that picks the bar's layout for its tab count (x21 = bar, x9 = the table, w1 = the entry)
 constexpr uint64_t kBarIcons = 0x101334c;     // inline before the bar's icons are set (x21 = bar)
 constexpr uint64_t kClockText = 0xead978;     // (hour, minute, out): the time of day as text, in the layout of the game language (out holds 0x1000 bytes)
 constexpr uint64_t kBarTitle = 0xeb1b40;      // (bar, title byte): the title under the bar
+constexpr uint64_t kBarTitleBuild = 0x10134e8, kBarTitleChange = 0x1013f54, kBarTitleChangeAlt = 0x1014004;   // its return addresses in the Options bar (x19 = the bar's holder)
 using layout::kChildOf;
 constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 0)
 using layout::kTables;
@@ -148,7 +149,7 @@ static_assert(kTabCount <= 16, "the tab bar has 16 cells");
 
 struct State {
     uint64_t base = 0;
-    uint64_t child = 0, parent = 0, bar = 0;
+    uint64_t child = 0;
     bool active = false, bar_extended = false;
     int tab = 0;
     int cur[kTabCount][kSlots] = {}, orig[kTabCount][kSlots] = {};
@@ -405,8 +406,6 @@ void hook_list_cap(::Ctx* c, uint64_t, void*) { c->x[1] = kTabCount; }
 
 void hook_bar_list(::Ctx* c, uint64_t, void*) {
     g.bar_extended = static_cast<uint32_t>(c->x[24]) != 9;
-    g.parent = c->x[19];
-    g.bar = c->x[21];
     wr<int>(c->x[0] + 0x78, g.bar_extended ? kTabCount : kGameTabs);   // the list's columns: L and R only move within a row of the grid
     if (!g.bar_extended) return;
     const uint64_t list = rd<uint64_t>(c->x[0] + 8);
@@ -440,11 +439,14 @@ void hook_bar_icons(::Ctx* c, uint64_t, void*) {
     }
 }
 
+// The title function is shared by every screen with a tab bar, and the Pokédex reuses the bar's address after Options closed (#494):
+// only the Options bar's own calls are ours. Each of them has just stored the tab at x19 + 0xac.
 int hook_bar_title(::Ctx* c, uint64_t, void*) {
-    if (!g.bar_extended || c->x[0] != g.bar) return 0;
-    const int tab = rd<int>(g.parent + 0xac);
+    const uint64_t ret = c->x[30] - g.base;
+    if (!g.bar_extended || (ret != kBarTitleBuild && ret != kBarTitleChange && ret != kBarTitleChangeAlt)) return 0;
+    const int tab = rd<int>(c->x[19] + 0xac);
     if (tab < kGameTabs || tab >= kTabCount) return 0;
-    set_text(c, g.bar, kTitleSlot, kTabs[tab].title);
+    set_text(c, c->x[0], kTitleSlot, kTabs[tab].title);
     return 1;
 }
 
