@@ -14,6 +14,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/gfx.h"
 #include "nxrt/input.h"
+#include "nxrt/overlay_canvas.h"
 
 namespace nxrt::gfx {
 
@@ -94,6 +95,12 @@ public:
 
     // A drawn arrow at a window pixel (test aid, S28: a screenshot of the game's own frame does not contain the OS cursor). Any thread.
     void set_pointer(bool show, float x, float y, bool in_screenshots);
+
+    // The game's layer over its picture (overlay_canvas.h). Set once before the first frame; a layer with a null function draws nothing.
+    void set_game_layer(const GameLayer& layer);
+    // Where the game's picture is in the frame, as fractions of the frame (x, y, w, h; 0, 0, 1, 1 until set): the layer's canvas covers it.
+    // The owner of the window sets it whenever the picture's place may change (the present pass's letterbox). Any thread.
+    void set_picture_rect(float x, float y, float w, float h);
 
     // The Renderer overlay hook: builds and draws the menu on top of the frame (no-op while hidden, unless the counter is on).
     void draw(const FrameInfo& f);

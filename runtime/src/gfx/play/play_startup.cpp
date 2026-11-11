@@ -223,6 +223,7 @@ bool start(const StartOptions& opt) {
             } else {
                 st.overlay->add_panel("Settings", [] { draw_settings_page(ui_host()); });
                 st.overlay->install_on_renderer();
+                if (const GamePlay* gp = game_play()) st.overlay->set_game_layer(gp->overlay_layer);   // its place: play_frame.cpp (picture rect)
                 apply_fps_counter(st.settings.fps);
                 {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
                     std::string tb = config_get_str("overlay", "touch_button", "auto");
