@@ -28,8 +28,9 @@ inline void note_call(uint64_t ticks) {
 enum Count : int {
     kTexReg, kTexRegSame,         // nvnTexturePoolRegisterTexture/Image calls; those that found the same texture and view in the slot
     kSmpReg, kSmpRegSame,         // nvnSamplerPoolRegisterSampler(Builder) calls; those that found the same sampler in the slot
-    kFlush, kFlushHit, kFlushScan,// FlushMappedRange calls (pool and buffer, the textures_cpu_wrote path); textures they marked written;
-                                  // registry entries they looked at (storage map and sparse textures)
+    kFlush, kFlushHit, kFlushScan,// the game's FlushMappedRange calls (pool and buffer); textures every textures_cpu_wrote marked written and
+                                  // the registry entries it looked at (storage map and sparse textures), from those flushes and from the
+                                  // render thread's callers (write watch, texture patches)
     kLists, kRecords, kRecordBytes, kCopyBytes,   // lists ended (EndRecording), their records and bytes; bytes copied by CopyCommands
     kCounts
 };
