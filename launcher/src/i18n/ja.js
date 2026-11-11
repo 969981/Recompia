@@ -725,9 +725,9 @@ export default {
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'セットアップはこのフォルダー（{1}）に書き込めません。フォルダーが読み取り専用でないか確認するか、ゲームフォルダーを C:\\Games のような場所に移動してください。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '「{1}」をSteamの1アカウントに追加しました。Steamを再起動すると、アートワーク付きで表示されます。',
   'Frame generation': 'フレーム生成',
-  'Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.': 'ゲームのフレームの間に、HUD を含まない 3D 映像だけから作った追加フレームを表示します。フレームレート表示は FPS（ゲームの）| FG（画面上の）になります。レンダリング解像度は「ウィンドウに合わせる」か、ウィンドウと同じ形である必要があります。次回のゲーム起動時から有効になります。',
   'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'AMD の amd_fidelityfx_framegeneration_vk.dll が必要です。オンにすると、ゲームの upscalers\\fsr3 フォルダーへのダウンロードを確認します。',
   'Download the frame generation file?': 'フレーム生成のファイルをダウンロードしますか？',
   'Downloading frame generation': 'フレーム生成をダウンロード中',
   'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'フレーム生成には AMD の amd_fidelityfx_framegeneration_vk.dll が必要ですが、ランチャーには含まれていません。AMD の FidelityFX SDK の GitHub リポジトリ（バージョン 2.4.0、MIT ライセンス）から取得し、ハッシュを確認して、ゲームの upscalers\\fsr3 フォルダーに保存します。',
+  'The file is not in the game folder after the download.': 'ダウンロード後も、ファイルがゲームのフォルダーにありません。',
 };

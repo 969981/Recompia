@@ -396,10 +396,9 @@ export const SECTIONS = [
           { id: 'fps_show', label: t('Frame rate counter'), type: 'toggle', ...fromSchema(controls('fps', 'show')) },
           // AMD FSR 3.1: an extra frame between the game's, the 3D picture only. It needs AMD's DLL (the release does not carry it), so a switch-on without it
           // is refused with a message (controls.js, guard) and the note says what to do.
-          { id: 'framegen', label: t('Frame generation'), type: 'toggle', guard: 'framegen', ...fromSchema(controls('framegen', 'enabled')) },
-          { id: 'framegen_note', type: 'note', note: (env) => ({ text: env.framegenDll
-              ? t('Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.')
-              : t('Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.') }) },
+          { id: 'framegen', label: t('Frame generation'), type: 'toggle', guard: 'framegen', lock: (env) => env.dlssBusy, ...fromSchema(controls('framegen', 'enabled')) },
+          { id: 'framegen_note', type: 'note', when: (v, env) => !env.framegenDll,
+            note: () => ({ text: t('Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.') }) },
         ],
       },
     ],

@@ -2,24 +2,25 @@
 import { api } from '../../api.js';
 import { confirm, errText, toast } from '../../ui.js';
 import { store } from '../../store.js';
+import { t } from '../../i18n.js';
 import { FRAMEGEN_DOWNLOAD } from '../../settings-schema.js';
 
 export function createFramegen(h) {
   const { st } = h;
 
   return {
-    /** The player switched frame generation on without the DLL: ask, save the pick, fetch; undo the pick if the fetch fails. */
+    /** The player switched frame generation on without the DLL: ask, fetch, and save the pick only once the file is in place. */
     async pick(f) {
       if (!(await confirm(FRAMEGEN_DOWNLOAD))) return h.draw(true);
-      h.commit(f, true);
+      h.draw(true);         // off while the file comes (the row is locked meanwhile)
       try {
         await store.fetchFramegen();
         st.framegen = await api.framegenStatus();
-        h.saved();
-        h.draw();
+        if (!st.framegen) throw new Error(t('The file is not in the game folder after the download.'));
+        await h.commit(f, true);
       } catch (e) {
         toast(errText(e), 'error');
-        h.commit(f, false);   // it would only run as off without the file
+        h.draw(true);
       }
     },
   };
