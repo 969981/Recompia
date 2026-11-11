@@ -193,7 +193,7 @@ Changes apply the next time the game starts.
 
 **Same network.** Everyone picks **Same network**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
 
-**Over the internet.** Nothing to forward: the launcher uses the project's public relay. The host picks **Internet** -> **Host** and sends the room code; the visitor picks **Internet** -> **Visit** and types it. Your own relay or a forwarded port are under **Advanced**. **[Step by step, and what to check when it does not connect](docs/multiplayer/README.md#step-by-step-over-the-internet).** The relay checks the room code but does not encrypt the game's traffic.
+**Over the internet.** Nothing to forward: the launcher uses the project's public relay. The host picks **Internet** -> **Host** and sends the room code; the visitor picks **Internet** -> **Visit** and types it. Your own relay or a forwarded port are under **Advanced**; any pokopia-native co-op relay works there too, and `PokopiaLauncher --host` runs one on a server. **[Step by step, and what to check when it does not connect](docs/multiplayer/README.md#step-by-step-over-the-internet).** The relay checks the room code but does not encrypt the game's traffic.
 
 **Ports and firewall.** The first time you host, Windows Firewall asks about `pkp.exe`: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**).
 
