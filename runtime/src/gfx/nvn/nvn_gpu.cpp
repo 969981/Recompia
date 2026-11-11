@@ -231,6 +231,8 @@ bool timeline_wait(uint64_t serial, uint64_t timeout_ns) {
 
 // [nvn] pool_copy: the serial being recorded, 0 outside a recording (current_serial() gives the last submitted one there). Render thread.
 uint64_t recording_serial() { return g ? g->recording : 0; }
+// ... and the serial of the last submission queued (queue_submit reserves it on the queueing thread, in queue order). Any thread.
+uint64_t queued_serial() { return g ? g->reserved.load() : 0; }
 
 namespace {
 

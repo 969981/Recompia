@@ -8,7 +8,7 @@
 //
 // The rules that keep the shadow right:
 //  * touch (resolve_in_pool, render thread): every resolve copies the pages of the range it binds from guest memory into the shadow, unless
-//    the page was copied already in the submission being recorded (page_copied), a GPU write into it is still in flight (page_gpu above
+//    a copy that serves the submission being recorded exists (page_copied), a GPU write into it is still in flight (page_gpu above
 //    the completed serial: the shadow holds newer bytes than guest memory then), or the CPU has not written it since this shadow copied
 //    it (the write tracker, nvn_pool_track.h; [nvn] pool_copy_track). A bind of unknown size touches to the end of its chunk. Without
 //    the tracker every bind copied its pages again in every submission: ~49 MiB a frame on a Steam Deck, of which ~1.6 MiB had changed.
@@ -50,7 +50,6 @@ namespace {
 using pcopy::kPage;
 using pcopy::kTag;
 constexpr uint64_t kSpanGrain = 64 * 1024;  // a span's start and end are multiples of it
-constexpr uint64_t kOutside = ~0ull;     // page_copied of a copy made outside a recording: equal to no serial, and not "never" (0)
 
 // Native Windows keeps ordinary pool imports forever. On an integrated GPU with a small device-local heap those imports share RAM with
 // everything else and eventually make queue submissions fail with VK_ERROR_OUT_OF_DEVICE_MEMORY. Use the bounded shadow cache there too.
@@ -88,6 +87,7 @@ struct Cfg {
     uint64_t cell = 16ull << 20;
     uint32_t idle = 600;
     uint64_t cap = 1536ull << 20;
+    bool once_queued = true;
 };
 
 const Cfg& cfg() {
@@ -99,6 +99,7 @@ const Cfg& cfg() {
         r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 16), 1, 1024)) << 20;
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
         r.cap = static_cast<uint64_t>(std::max<int64_t>(0, config_get_int("nvn", "pool_copy_mb", 1536))) << 20;
+        r.once_queued = config_get_bool("nvn", "pool_copy_once_queued", true);
         return r;
     }();
     return c;
@@ -113,6 +114,9 @@ void log_cfg(const Cfg& c, bool on) {
             NXLOG_I(kTag, "pool_copy: shadows in cells of %llu MiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
                           "pool_lazy_idle, pool_lazy_cpu_untile and compute_out_lazy are ignored",
                     static_cast<unsigned long long>(c.cell >> 20), c.idle, static_cast<unsigned long long>(c.cap >> 20));
+        if (on)
+            NXLOG_I(kTag, "pool_copy: a copy of a page serves %s", c.once_queued ? "every submission the game had queued when it was made (pool_copy_once_queued)"
+                                                                               : "the submission being recorded only (pool_copy_once_queued off)");
     });
 }
 
@@ -193,6 +197,24 @@ VkBufferUsageFlags shadow_usage() {      // what import_range gives an import's 
 }
 
 bool covers(const PoolChunk* c, uint64_t off) { return c && c->is_shadow && c->buffer && off >= c->off && off < c->off + c->size; }
+
+// Submission `serial` writes pool bytes [off, end) through `writer`. Another shadow over those pages (a span beside the cell's chunk) does
+// not get that write, so its copies stop serving at that submission: a later one copies the landed bytes from guest memory, exactly as
+// when a copy served one submission only ([nvn] pool_copy_once_queued). Render thread.
+void stop_serving(PoolGpu* pg, const PoolChunk* writer, uint64_t off, uint64_t end, uint64_t serial) {
+    const auto clamp = [&](PoolChunk& x) {
+        if (&x == writer || !x.is_shadow || !x.buffer) return;
+        const uint64_t lo = std::max<uint64_t>(off, x.off), hi = std::min<uint64_t>(end, x.off + x.size);
+        if (lo >= hi) return;
+        for (uint64_t p = (lo - x.off) / kPage; p <= (hi - 1 - x.off) / kPage; ++p) {
+            uint64_t& pc = x.page_copied[static_cast<size_t>(p)];
+            if (pc > serial + 1) pc = serial + 1;
+        }
+    };
+    for (size_t k = static_cast<size_t>(off / pg->stride); k < pg->cell_ext.size() && k * pg->stride < end; ++k)
+        if (const int32_t e = pg->cell_ext[k]; e >= 0) clamp(pg->ext[static_cast<size_t>(e)]);
+    for (PoolChunk& x : pg->spans) clamp(x);
+}
 
 }  // namespace
 
@@ -359,15 +381,22 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     if (rt) t_last = LastResolve{g, c, g_free_gen.load(std::memory_order_acquire)};
     const uint64_t cur = rt ? recording_serial() : 0;     // 0 outside a recording: always copied
     if (cur && c->cov_serial == cur && p0 >= c->cov_lo && p1 <= c->cov_hi) return;   // all copied in this submission already
+    // The last submission a copy made from here on serves (page_copied holds it + 1). The game's data for a submission is in its memory
+    // when the game queues it, and it leaves those bytes alone until the GPU is done with them, so a copy made now holds what every
+    // submission queued so far reads ([nvn] pool_copy_once_queued; read before the copy reads a byte). The render thread is usually
+    // several submissions behind the game: a page that is copied at every use (hot, untracked) is then copied once per group of queued
+    // submissions instead of once per submission. Off: the submission being recorded only.
+    const uint64_t through = rt ? std::max(cur, cfg().once_queued ? queued_serial() : uint64_t{0}) : 0;
     const uint64_t done = completed_serial();
     const uint64_t pbase = c->off / kPage;
-    // 0: copied in this submission; 1: copy; 2: a GPU write is in flight there (the shadow is newer), unless nothing was ever copied into
-    // the page of this chunk (a new span over a page another chunk writes): then guest memory is the better source.
+    // 0: a copy that serves this submission exists; 1: copy; 2: a GPU write is in flight there (the shadow is newer), unless nothing was
+    // ever copied into the page of this chunk (a new span over a page another chunk writes): then guest memory is the better source.
     // ... or (0 too) the CPU has not written the page since this chunk copied it (the write tracker; render thread only).
     PoolTrack* const trk = rt ? g->track : nullptr;
     const auto need = [&](uint64_t p) -> int {
-        if (cur && c->page_copied[static_cast<size_t>(p)] == cur) return 0;
-        if (g->page_gpu[static_cast<size_t>(pbase + p)].load(std::memory_order_acquire) > done && (!rt || c->page_copied[static_cast<size_t>(p)] != 0)) return 2;
+        const uint64_t pc = c->page_copied[static_cast<size_t>(p)];
+        if (cur && pc > cur) return 0;
+        if (g->page_gpu[static_cast<size_t>(pbase + p)].load(std::memory_order_acquire) > done && (!rt || pc != 0)) return 2;
         if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) return 0;
         return 1;
     };
@@ -400,7 +429,7 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
         const uint64_t bad = pcopy::guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
         if (bad) pcopy::shared().unreadable.fetch_add(bad, std::memory_order_relaxed);
         if (rt)
-            for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = cur ? cur : kOutside;
+            for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = through + 1;   // never 0: a copy exists
         bytes += (q - p) * kPage;
         p = q;
     }
@@ -472,7 +501,8 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
         std::atomic<uint64_t>& w = pg->page_gpu[static_cast<size_t>(p)];
         if (w.load(std::memory_order_relaxed) < serial) w.store(serial, std::memory_order_release);
     }
-    pcopy::land_record(pg, c, off, end - off, serial);
+    if (!pcopy::land_record(pg, c, off, end - off, serial)) return;
+    if (cfg().once_queued && on_render_thread()) stop_serving(pg, c, off, end, serial);
 }
 
 void pcopy_shutdown() {

@@ -109,7 +109,7 @@ void land_stop() {
     drop_all_records();               // the device is idle and the pools go next
 }
 
-void land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial) {
+bool land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial) {
     bool first = false;
     {
         std::lock_guard<std::mutex> lk(g_land_mu);
@@ -118,7 +118,7 @@ void land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_
         for (size_t i = n; i-- > 0 && i + 8 >= n;) {
             const LandRec& r = g_land[i];
             if (r.serial != serial) break;
-            if (r.chunk == c && r.pool_off <= off && off + size <= r.pool_off + r.size) return;
+            if (r.chunk == c && r.pool_off <= off && off + size <= r.pool_off + r.size) return false;
         }
         first = g_land.empty();
         g_land.push_back(LandRec{pg, c, off, size, serial});
@@ -130,6 +130,7 @@ void land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_
         std::lock_guard<std::mutex> lk(g_th_mu);     // under the mutex the lander waits on: no wake-up lost between its test and its wait
         g_th_cv.notify_one();
     }
+    return true;
 }
 
 // Records of a chunk that goes (its pool is destroyed) do not land; an idle drop or an eviction happens only with none left. A landing

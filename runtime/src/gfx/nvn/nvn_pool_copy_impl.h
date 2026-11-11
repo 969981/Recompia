@@ -28,8 +28,9 @@ uint64_t guarded_copy(uint8_t* d, const uint8_t* s, uint64_t n, bool in);
 // ---- nvn_pool_land.cpp ----------------------------------------------------------------------------------------------------------
 void land_start();                 // the landing thread, once a copy pool exists
 void land_stop();                  // pcopy_shutdown: the thread stops and every record goes
-// Render thread: submission `serial` may write pool bytes [off, off + size) of pg through chunk c; they land when it completes.
-void land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial);
+// Render thread: submission `serial` may write pool bytes [off, off + size) of pg through chunk c; they land when it completes. False:
+// a record of this submission holds the range already.
+bool land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial);
 void land_forget(PoolChunk& c);    // the chunk is destroyed: its records go, and no landing reads its shadow after this returns
 size_t land_pending();             // records waiting for their serial
 

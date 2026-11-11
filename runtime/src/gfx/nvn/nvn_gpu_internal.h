@@ -451,8 +451,8 @@ struct PoolChunk {
     uint32_t fail_since = 0;          // present count of the first failed attempt of the run (the recovery log line)
     uint32_t used_at = 0;             // present count of the last bind that resolved to it (lazy_drop_idle, oom_drop_idle)
     uint64_t used_serial = 0;         // the submission being recorded at that bind (dropped only once it has completed)
-    // [nvn] pool_copy: buffer = shadow.buffer, mem = VK_NULL_HANDLE. page_copied[k] = serial of the last guest -> shadow copy of page k of
-    // the chunk (0: never). land_refs: GPU writes recorded into it that have not landed in guest memory yet (under the landing mutex).
+    // [nvn] pool_copy: buffer = shadow.buffer, mem = VK_NULL_HANDLE. page_copied[k] = 1 + the last submission the guest -> shadow copy of
+    // page k of the chunk serves (0: no copy yet). land_refs: GPU writes recorded into it that have not landed in guest memory yet (under the landing mutex).
     // cov_*: chunk pages [cov_lo, cov_hi) were all copied in submission cov_serial (the touch's fast path). Render thread except land_refs.
     gfx::Buffer shadow;
     bool is_shadow = false;
@@ -539,6 +539,7 @@ bool pool_drop_chunk_if_live(PoolGpu* g, PoolChunk* c);   // pcopy_evict_for: un
 // nvn_gpu.cpp: waits up to timeout_ns for the timeline to reach serial (the landing thread). False: timed out, device lost or no back end.
 bool timeline_wait(uint64_t serial, uint64_t timeout_ns);
 uint64_t recording_serial();                          // the serial being recorded, 0 outside a recording (render thread)
+uint64_t queued_serial();                             // the serial of the last submission queued (any thread)
 struct PoolCopyStats {
     bool on = false;
     int64_t live_bytes = 0;
