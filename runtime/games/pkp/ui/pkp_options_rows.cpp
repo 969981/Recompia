@@ -202,13 +202,15 @@ const Row kController[] = {
 
 // The gameplay mods (the gameplay() rows of pkp_settings_table.h), labelled as in the launcher's Settings > Gameplay (settings-schema.js
 // GAMEPLAY). title_quit has no row (hidden by the repo owner). Every mod reads its keys when it installs, so these rows apply after a restart;
-// the shoulder camera's two distances are live keys (no switch: 0 / 0 is the game's own camera), in force when the screen commits.
+// the shoulder camera's two distances are live keys (no switch: 0 / 0 is the game's own camera), in force when the screen commits, and so
+// is camera aim's debug view (a plain key, not a mod).
 using settings::Key;
 constexpr Row kGameplay[] = {
     key_row("Running jump keeps speed", "A running jump keeps the running speed in the air.", Key::JumpMomentum),
     key_row("Running jump speed kept", "With the running jump on: how much of the extra running speed is kept.", Key::JumpMomentumStrength, 0.01, "%.0f%%", 100),
     key_row("Camera aim", "Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.", Key::CameraAim),
     key_row("Extra reach in blocks", "With camera aim: extra blocks of reach. Off is the game's own range.", Key::CameraAimReach, 1, "%.0f", 1, "Off"),
+    key_row("Camera aim: show the ray", "Draws camera aim's ray over the picture: the blocks it tested, the block it hit and the block it selected, with the reason in a panel at the top left. For finding aiming bugs.", Key::CameraAimDebug),
     key_row("Sort button in the bag and containers", "A Sort button in the key guide of the bag and of the container screens.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),

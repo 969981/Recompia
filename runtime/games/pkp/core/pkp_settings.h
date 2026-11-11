@@ -55,6 +55,7 @@ enum class Key : uint8_t {
     JumpMomentumStrength,
     CameraAim,
     CameraAimReach,
+    CameraAimDebug,
     InventorySort,
     InventoryAutosort,
     CraftSearch,
