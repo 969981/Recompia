@@ -2,7 +2,7 @@
 // In-game Options (pkp_options.cpp and the files it is split into): what a row is, the row lists each tab shows, and the functions one of
 // those files calls in another. Internal to those files.
 //   pkp_options.cpp        the tabs, the slot state machine and the hooks into the game's Settings screen
-//   pkp_options_rows.cpp   the rows of the PC settings tabs (Sound, Display, ... Controller)
+//   pkp_options_rows.cpp   the rows of the PC settings tabs (Sound, Display, ... Controller) and of the Gameplay tab
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
 #pragma once
 #include <cstddef>
@@ -102,7 +102,7 @@ constexpr RowList rows_of(const Row (&r)[N]) {
 }
 
 // ---- pkp_options_rows.cpp ----
-extern const RowList kSoundRows, kDisplayRows, kPerformanceRows, kGraphicsRows, kPictureRows, kMouseRows, kControllerRows;
+extern const RowList kSoundRows, kDisplayRows, kPerformanceRows, kGraphicsRows, kPictureRows, kMouseRows, kControllerRows, kGameplayRows;
 void refresh_audio_devices();                 // the Output Device row's list, read again when the screen opens
 
 // ---- pkp_options.cpp: the Mouse Mode Key row (parked with the Joy-Con 2 mouse mode, see kMouseRows) ----

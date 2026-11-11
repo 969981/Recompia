@@ -134,12 +134,15 @@ Tab kTabs[] = {
     tab("Picture", 7, kPictureRows),
     tab("Mouse", 8, kMouseRows),
     tab("Controller", 9, kControllerRows),
-    tab("Time", 10, kTimeRows),
-    {"Events", 11, g_event_rows, 1},   // the count follows the event file (load_events)
+    tab("Gameplay", 10, kGameplayRows),
+    tab("Time", 11, kTimeRows),
+    {"Events", 12, g_event_rows, 1},   // the count follows the event file (load_events)
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;
 constexpr int kTimeTab = kTabCount - 2, kEventsTab = kTabCount - 1;
+// The bar has 16 cells (kFirstCell) and its layout table (hook_bar_state) has 16 entries: one more tab needs nothing else.
+static_assert(kTabCount <= 16, "the tab bar has 16 cells");
 
 // ---- state -------------------------------------------------------------------------------------------------------------------------
 
@@ -421,7 +424,7 @@ void hook_bar_list(::Ctx* c, uint64_t, void*) {
 void hook_bar_state(::Ctx* c, uint64_t, void*) {
     if (!g.bar_extended) return;
     wr<uint8_t>(c->x[21] + 0xa4, kTabCount);
-    c->x[1] = rd<uint32_t>(c->x[9] + (kTabCount - 1) * 4);   // the game masks this index to its three tabs
+    c->x[1] = rd<uint32_t>(c->x[9] + (kTabCount - 1) * 4);   // the game masks this index to its three tabs; its 16 entries are 17 - the tab count
 }
 
 void hook_bar_icons(::Ctx* c, uint64_t, void*) {

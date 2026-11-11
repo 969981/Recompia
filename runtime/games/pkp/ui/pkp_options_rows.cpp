@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // In-game Options, the rows of the PC settings tabs (pkp_options_internal.h): each binds to a field of the play-mode Settings behind
-// controls.ini, the same store as the F1 page. Nothing reaches the save file.
+// controls.ini, the same store as the F1 page, except the Gameplay tab's, which bind to the gameplay mods' [pkp] keys of the game ini.
+// Nothing reaches the save file.
 #include "ui/pkp_options_internal.h"
 
 #include <algorithm>
@@ -198,13 +199,26 @@ const Row kController[] = {
     number("Motion Strength", "Scales the gyro.", 0, 78, "%.2fx", 0.1, 0.05, ROW_STEP(pad.gyro_scale, 0.1, 0.05)),
     number("Rumble Strength", "Scales the vibration.", 0, 200, "%.0f%%", 0, 1, ROW_PCT(pad.rumble_scale)),
 };
+
+// The gameplay mods (the gameplay() rows of pkp_settings_table.h), labelled as in the launcher's Settings > Gameplay (settings-schema.js
+// GAMEPLAY). title_quit has no row (hidden by the repo owner). Every mod reads its keys when it installs, so these rows apply after a restart.
+using settings::Key;
+constexpr Row kGameplay[] = {
+    key_row("Running jump keeps speed", "A running jump keeps the running speed in the air.", Key::JumpMomentum),
+    key_row("Running jump speed kept", "With the running jump on: how much of the extra running speed is kept.", Key::JumpMomentumStrength, 0.01, "%.0f%%", 100),
+    key_row("Camera aim", "Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.", Key::CameraAim),
+    key_row("Extra reach in blocks", "With camera aim: extra blocks of reach. Off is the game's own range.", Key::CameraAimReach, 1, "%.0f", 1, "Off"),
+    key_row("Sort button in the bag and containers", "A Sort button in the key guide of the bag and of the container screens.", Key::InventorySort),
+    key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
+    key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
+};
 // clang-format on
 
 }  // namespace
 
 constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows = rows_of(kDisplay), kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),
-                        kControllerRows = rows_of(kController);
+                        kControllerRows = rows_of(kController), kGameplayRows = rows_of(kGameplay);
 
 void refresh_audio_devices() {
     g_devices.clear();
