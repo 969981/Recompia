@@ -166,6 +166,12 @@ struct Device::Impl {
     VkCommandPool once_pool = VK_NULL_HANDLE;
     VkFence once_fence = VK_NULL_HANDLE;
 
+    // MemoryUse::Shadow buffers: blocks of their own ([gfx] shadow_block_mb, create_buffer)
+    std::mutex shadow_mu;
+    VmaPool shadow_pool = VK_NULL_HANDLE;
+    VkDeviceSize shadow_block = 0;
+    bool shadow_tried = false;
+
     // GPU checkpoints (record_checkpoint, report_lost): what checkpoint number s was is in ck[s % kCkRing]. Each entry is a seqlock: seq
     // is 0 while a writer fills it, then s; the report keeps a copy only when seq read s before and after. Allocated only with the extension.
     // 16384 entries keep a few frames of dispatches and draws (`all` records thousands a frame; frames in flight and the submit batch add up).
@@ -828,6 +834,7 @@ Device::~Device() {
         if (impl_->once_fence) { vkDestroyFence(device_, impl_->once_fence, nullptr); vk_gauge_fences().sub(1); }
         if (impl_->once_pool) { vkDestroyCommandPool(device_, impl_->once_pool, nullptr); vk_gauge_command_pools().sub(1); }
     }
+    if (impl_ && impl_->shadow_pool) vmaDestroyPool(vma_, impl_->shadow_pool);   // its buffers went with the NVN back end's pools
     unregister_vma_gauges();   // before the allocator goes: the gauges read it (the registry lock makes this wait for a running read)
     if (vma_) vmaDestroyAllocator(vma_);
     if (device_) vkDestroyDevice(device_, nullptr);
@@ -1126,7 +1133,43 @@ VkResult Device::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, Memo
     }
     VmaAllocationInfo info = {};
     Buffer b;
-    VkResult r = vmaCreateBuffer(vma_, &bi, &ai, &b.buffer, &b.allocation, &info);
+    VkResult r = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    if (use == MemoryUse::Shadow) {
+        // [gfx] shadow_block_mb (default 64; 0: VMA's shared blocks of the memory type, as before): shadows come out of blocks of their
+        // own, a VMA pool of the memory type they would get anyway. The shared blocks are 256 MiB and VMA holds the memory type's lock
+        // while it allocates one, which under Proton takes tens of ms (the kernel driver clears the pages): a thread making shadows
+        // ahead of use ([nvn] pool_copy_spare_mb) would stall every other host-visible allocation of the render thread meanwhile.
+        // A buffer larger than a block, or one the pool cannot give, takes the shared path below.
+        VmaPool pool = VK_NULL_HANDLE;
+        {
+            std::lock_guard<std::mutex> lk(impl_->shadow_mu);
+            if (!impl_->shadow_tried) {
+                impl_->shadow_tried = true;
+                const VkDeviceSize block = static_cast<VkDeviceSize>(std::clamp<int64_t>(config_get_int("gfx", "shadow_block_mb", 64), 0, 1024)) << 20;
+                uint32_t type = 0;
+                VmaPoolCreateInfo pci = {};
+                if (block && vmaFindMemoryTypeIndexForBufferInfo(vma_, &bi, &ai, &type) == VK_SUCCESS) {
+                    pci.memoryTypeIndex = type;
+                    pci.blockSize = block;
+                    if (vmaCreatePool(vma_, &pci, &impl_->shadow_pool) != VK_SUCCESS) impl_->shadow_pool = VK_NULL_HANDLE;
+                }
+                impl_->shadow_block = impl_->shadow_pool ? block : 0;
+                if (impl_->shadow_pool)
+                    NXLOG_I("vk", "shadow buffers (pool_copy): blocks of %llu MiB of their own, memory type %u (shadow_block_mb)",
+                            static_cast<unsigned long long>(block >> 20), static_cast<unsigned>(type));
+                else
+                    NXLOG_I("vk", "shadow buffers (pool_copy): in the allocator's shared blocks (%s)", block ? "no pool could be made" : "shadow_block_mb = 0");
+            }
+            if (size <= impl_->shadow_block) pool = impl_->shadow_pool;
+        }
+        if (pool) {
+            VmaAllocationCreateInfo pa = ai;
+            pa.pool = pool;
+            r = vmaCreateBuffer(vma_, &bi, &pa, &b.buffer, &b.allocation, &info);
+            if (r != VK_SUCCESS) b = Buffer{};
+        }
+    }
+    if (r != VK_SUCCESS) r = vmaCreateBuffer(vma_, &bi, &ai, &b.buffer, &b.allocation, &info);
     if (r != VK_SUCCESS) return r;
     vk_gauge_buffers().add(1);
     if (use == MemoryUse::Shadow) {     // the memory the shadows got, once (which heap and whether cached decides their CPU and GPU cost)
