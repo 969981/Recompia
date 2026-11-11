@@ -121,6 +121,18 @@ std::atomic<bool> g_any{false};
 std::atomic<int64_t> g_live{0};
 std::atomic<uint64_t> g_chunks{0}, g_allocs{0}, g_copied{0}, g_unmatched{0}, g_fallback{0}, g_span_writes{0}, g_evicted{0}, g_spans{0};
 uint64_t g_sub_serial = 0, g_sub_bytes = 0;     // render thread: bytes copied in by the submission being recorded
+// Why a page was copied into a shadow (the summary's split of "copied in"), in the order the touch tests them:
+enum Why : int {
+    kWhyFirst,       // the shadow had no copy of it yet
+    kWhyAgain,       // the same, in a shadow made again after a drop (idle, or the cap)
+    kWhyLanded,      // a GPU write landed in it since the last copy (the bytes came from this or another shadow)
+    kWhyUntracked,   // its pool has no write tracker, or the copy is not the render thread's: every use copies
+    kWhyHot,         // the tracker left it writable (hot, or it cannot be armed): every use copies
+    kWhyWritten,     // the tracker saw a CPU write since the last copy
+    kWhyCount
+};
+std::atomic<uint64_t> g_why[kWhyCount];
+std::atomic<uint64_t> g_unsized{0};             // bytes copied for binds of unknown size (they copy to the end of their chunk)
 std::atomic<int64_t> g_last_sub_kb{0};          // ... and by the last one (gauge)
 
 // The last resolve of the render thread: the chunk a following gpu_wrote of the same range writes, and pool_copy_touch's chunk.
@@ -222,6 +234,9 @@ void pcopy_pool_init(PoolGpu* g) {
     const size_t pages = static_cast<size_t>((g->size + kPage - 1) / kPage);
     g->page_gpu.reset(new std::atomic<uint64_t>[pages]);
     for (size_t i = 0; i < pages; ++i) g->page_gpu[i].store(0, std::memory_order_relaxed);
+    g->page_landed.reset(new std::atomic<uint8_t>[pages]);
+    for (size_t i = 0; i < pages; ++i) g->page_landed[i].store(0, std::memory_order_relaxed);
+    g->cell_had.assign(g->cell_ext.size(), 0);
     g->track = ptrack_create(g->base, g->size);
     static std::once_flag once;
     std::call_once(once, [&] {
@@ -240,7 +255,7 @@ void pcopy_pool_destroy(PoolGpu* g) {
 
 void pcopy_track_stop(PoolGpu* g) { ptrack_stop(g->track); }
 
-bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what) {
+bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, bool cells) {
     NXFT("pool.copy.alloc");
     const uint64_t cap = cfg().cap;
     if (cap && static_cast<uint64_t>(std::max<int64_t>(0, g_live.load())) + size > cap) {
@@ -279,6 +294,13 @@ bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const ch
     c.page_gen.assign(c.page_copied.size(), 0);
     c.land_refs = 0;
     c.cov_serial = c.cov_lo = c.cov_hi = 0;
+    c.again = false;
+    c.filled = 0;
+    if (cells && g->stride)
+        for (size_t k = static_cast<size_t>(off / g->stride); k < g->cell_had.size() && k * g->stride < off + size; ++k) {
+            c.again = c.again || g->cell_had[k];
+            g->cell_had[k] = 1;
+        }
     {
         std::lock_guard<std::mutex> lk(g_reg_mu);
         g_reg.push_back(&c);
@@ -306,7 +328,7 @@ PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made) {
         if (!s.buffer && !s.failed && !s.size) { slot = &s; break; }
     const bool appended = !slot;
     if (appended) { g->spans.emplace_back(); slot = &g->spans.back(); }
-    if (!pcopy_alloc(g, *slot, s0, s1 - s0, "span")) {
+    if (!pcopy_alloc(g, *slot, s0, s1 - s0, "span", false)) {
         if (appended) g->spans.pop_back();
         return nullptr;
     }
@@ -353,7 +375,7 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     uint8_t* dst = static_cast<uint8_t*>(c->shadow.mapped);
     const uint8_t* src = g->base + c->off;
     const uint64_t t0 = ft::on() ? ft::now_ns() : 0;
-    uint64_t bytes = 0;
+    uint64_t bytes = 0, why[kWhyCount] = {};
     bool all = true;
     for (uint64_t p = p0; p < p1;) {
         const int n = need(p);
@@ -364,6 +386,15 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
         }
         uint64_t q = p + 1;
         while (q < p1 && need(q) == 1) ++q;
+        for (uint64_t i = p; i < q; ++i) {      // why, before the copy changes what that is read from
+            std::atomic<uint8_t>& ld = g->page_landed[static_cast<size_t>(pbase + i)];
+            const bool landed = ld.load(std::memory_order_relaxed) != 0;
+            if (landed) ld.store(0, std::memory_order_relaxed);
+            const bool first = c->page_copied[static_cast<size_t>(i)] == 0;
+            if (first) ++c->filled;
+            ++why[first ? (c->again ? kWhyAgain : kWhyFirst) : landed ? kWhyLanded : !trk ? kWhyUntracked
+                        : !c->page_gen[static_cast<size_t>(i)] ? kWhyHot : kWhyWritten];
+        }
         // armed before the copy reads them: a write that lands during the copy faults, and the page is copied again at its next use
         if (trk) ptrack_before_copy(trk, pbase + p, q - p, frame, &c->page_gen[static_cast<size_t>(p)]);
         const uint64_t bad = pcopy::guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
@@ -385,6 +416,9 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     }
     if (!bytes) return;
     g_copied.fetch_add(bytes, std::memory_order_relaxed);
+    for (int i = 0; i < kWhyCount; ++i)
+        if (why[i]) g_why[i].fetch_add(why[i] * kPage, std::memory_order_relaxed);
+    if (!size) g_unsized.fetch_add(bytes, std::memory_order_relaxed);
     if (rt) {
         if (cur != g_sub_serial) {
             g_last_sub_kb.store(static_cast<int64_t>(g_sub_bytes >> 10), std::memory_order_relaxed);
@@ -475,7 +509,7 @@ void pcopy_evict_for(uint64_t bytes) {
 void pcopy_log_summary(uint32_t presents) {
     (void)presents;
     static auto last = std::chrono::steady_clock::now();
-    static uint64_t p_copied = 0, p_landed = 0;
+    static uint64_t p_copied = 0, p_landed = 0, p_why[kWhyCount] = {}, p_unsized = 0;
     const auto now = std::chrono::steady_clock::now();
     const double secs = std::max(1e-3, std::chrono::duration<double>(now - last).count());
     last = now;
@@ -488,6 +522,25 @@ void pcopy_log_summary(uint32_t presents) {
             static_cast<unsigned long long>(pcopy::shared().records.load()), pending, static_cast<unsigned long long>(g_fallback.load()),
             static_cast<unsigned long long>(pcopy::shared().unreadable.load()), static_cast<unsigned long long>(g_unmatched.load()),
             static_cast<unsigned long long>(g_span_writes.load()));
+    {   // the split of "copied in", and how much of the live shadows holds a copy at all
+        double rate[kWhyCount];
+        for (int i = 0; i < kWhyCount; ++i) {
+            const uint64_t v = g_why[i].load(std::memory_order_relaxed);
+            rate[i] = (v - p_why[i]) / 1048576.0 / secs;
+            p_why[i] = v;
+        }
+        const uint64_t unsized = g_unsized.load(std::memory_order_relaxed);
+        uint64_t filled = 0;
+        {
+            std::lock_guard<std::mutex> lk(g_reg_mu);
+            for (const PoolChunk* c : g_reg) filled += c->filled;
+        }
+        NXLOG_I(kTag, "pool_copy: copied in, by reason, MiB/s: first copy %.1f, first copy after a drop %.1f, after a landing %.1f, written %.1f, hot %.1f, "
+                      "untracked %.1f; %.1f of it for binds of unknown size; %llu MiB of the live shadows hold a copy",
+                rate[kWhyFirst], rate[kWhyAgain], rate[kWhyLanded], rate[kWhyWritten], rate[kWhyHot], rate[kWhyUntracked],
+                (unsized - p_unsized) / 1048576.0 / secs, static_cast<unsigned long long>(filled * kPage >> 20));
+        p_unsized = unsized;
+    }
     if (pool_track_on()) {
         const PoolTrackStats t = ptrack_stats();
         NXLOG_I(kTag, "pool_copy: write tracking: %llu pages armed in %llu runs so far, %llu copied pages found written again, %llu hot now, %llu not armable; "

@@ -459,7 +459,7 @@ bool lazy_import_cells(PoolGpu* g, PoolChunk& x, uint64_t xo, uint64_t xs) {
     const uint16_t fails = x.fails;
     const uint32_t since = x.fail_since;
     const size_t c0 = static_cast<size_t>(xo / g->stride);
-    bool ok = g->copy && pcopy_alloc(g, x, xo, xs, "copy cell");
+    bool ok = g->copy && pcopy_alloc(g, x, xo, xs, "copy cell", true);
     if (ok && retry) import_recovered(g, x, fails, since, "copy cell", c0, g->cell_ext.size());
     if (!ok) {
         if (g->copy) pcopy_track_stop(g);                          // an import must not see pages the copy tracker made read-only

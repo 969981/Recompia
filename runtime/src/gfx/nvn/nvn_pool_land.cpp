@@ -184,6 +184,7 @@ uint64_t pcopy_land(uint64_t reached) {
         // pass 2: page_gpu back to 0 where no later write was recorded: after every copy, so a touch that sees 0 copies the landed bytes
         for (const LandRec& r : batch)
             for (uint64_t p = r.pool_off / kPage; p <= (r.pool_off + r.size - 1) / kPage; ++p) {
+                r.pool->page_landed[static_cast<size_t>(p)].store(1, std::memory_order_relaxed);
                 uint64_t e = r.serial;
                 r.pool->page_gpu[static_cast<size_t>(p)].compare_exchange_strong(e, 0, std::memory_order_release, std::memory_order_relaxed);
             }

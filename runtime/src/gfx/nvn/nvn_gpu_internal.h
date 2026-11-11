@@ -460,6 +460,8 @@ struct PoolChunk {
     std::vector<uint32_t> page_gen;   // the write tracker's generation of page k when it was copied (nvn_pool_track.h); 0: copy at every use
     uint32_t land_refs = 0;
     uint64_t cov_serial = 0, cov_lo = 0, cov_hi = 0;
+    bool again = false;               // its cells had a shadow before, dropped since (statistics: copies that fill it again)
+    uint32_t filled = 0;              // pages with a copy (statistics: how much of the shadow is in use)
     struct PoolGpu* owner = nullptr;  // shadow chunks: the pool (eviction)
 };
 
@@ -491,9 +493,12 @@ struct PoolGpu {
     std::vector<int32_t> ext_free;    // indices of dropped imports in ext, reused
     // [nvn] pool_copy: the pool's cells (and spans) are shadows, never imports (lazy is set too: same cell structure). page_gpu[p] = the
     // highest serial with a GPU write recorded into page p of the pool (any chunk or span), 0 once that write has landed. Copy-mode spans
-    // are destroyed in place, never erased (land records point at them).
+    // are destroyed in place, never erased (land records point at them). page_landed[p]: a GPU write landed in page p since a shadow
+    // last copied it (statistics: the copy that follows fetches bytes a shadow gave). cell_had[k]: cell k had a shadow before.
     bool copy = false;
     std::unique_ptr<std::atomic<uint64_t>[]> page_gpu;
+    std::unique_ptr<std::atomic<uint8_t>[]> page_landed;
+    std::vector<uint8_t> cell_had;
     gpu::PoolTrack* track = nullptr;  // which pages the CPU wrote since they were copied (nvn_pool_track.h); null: every bind copies
 };
 
@@ -511,7 +516,8 @@ void pcopy_pool_init(PoolGpu* g);                     // import_pool: page_gpu, 
 void pcopy_pool_destroy(PoolGpu* g);                  // pool_gpu_destroy, after its chunks: the write tracker goes
 void pcopy_track_stop(PoolGpu* g);                    // a cell of the pool is imported instead: no page of it stays read-only
 // A shadow over pool bytes [off, off + size) into c (what import_range does for an import). False: the caller imports it instead.
-bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what);
+// cells: the range is whole cells of the pool (an ext entry), not a span.
+bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, bool cells);
 // A shadow span over the cells [off, off + size) touches: an existing one or a new one (*made). Null: none could be made.
 PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made);
 void pcopy_free(PoolChunk& c);                        // destroy_chunk of a shadow (its land records are dropped)
