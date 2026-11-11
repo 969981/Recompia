@@ -3,10 +3,10 @@
 //! has the protocol). Every byte from the network is untrusted: a link's first message must be exactly the 32-byte hello within hello_ms; a
 //! host's control link may only send 16-byte messages (pings answered, the rest ignored); paired links are copied as they are, within a byte
 //! rate, a buffer bound and the room's byte budget, and never parsed. One thread, one poll() over every socket.
-//! pokopia-recomp extension: relay UDP (mod.rs "Relay UDP"): a UDP socket on the same port forwards datagrams between the two links of a pair
+//! pokopia-recomp extension: relay UDP (lib.rs "Relay UDP"): a UDP socket on the same port forwards datagrams between the two links of a pair
 //! when both asked for it in their hello; the payload is the players' own tagged datagram, never parsed either.
 
-use super::poll::{self, Fd};
+use crate::poll::{self, Fd};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::time::Instant;
@@ -218,12 +218,12 @@ fn roomstr(id: &[u8]) -> String {
 }
 fn rand32() -> u32 {
     let mut b = [0u8; 4];
-    let _ = super::room_code::os_random(&mut b); // a cookie only stops blind attaches; the players' own handshake is what protects a link
+    let _ = crate::room_code::os_random(&mut b); // a cookie only stops blind attaches; the players' own handshake is what protects a link
     u32::from_le_bytes(b)
 }
 fn rand64() -> u64 {
     let mut b = [0u8; 8];
-    let _ = super::room_code::os_random(&mut b);
+    let _ = crate::room_code::os_random(&mut b);
     u64::from_le_bytes(b)
 }
 fn blocked(e: &io::Error) -> bool {
