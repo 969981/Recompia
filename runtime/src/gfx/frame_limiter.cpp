@@ -189,6 +189,13 @@ void FrameLimiter::set_refresh_sync(const RefreshSync& sync) {
     impl_->sync_ceiling.store(on && sync.snap_ceiling);
 }
 
+double FrameLimiter::refresh_hz() const { return impl_->sync_hz.load(); }
+
+int FrameLimiter::grid_refreshes() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->has_sched ? impl_->grid_k : 0;
+}
+
 void FrameLimiter::set_pre_frame_hook(PreFrameFn fn, void* user) {
     impl_->pre_user.store(user, std::memory_order_relaxed);
     impl_->pre_fn.store(fn, std::memory_order_release);

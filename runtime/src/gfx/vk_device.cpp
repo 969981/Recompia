@@ -21,6 +21,7 @@
 #include "nxrt/gfx.h"
 #include "nxrt/log.h"
 #include "nxrt/platform.h"
+#include "nxrt/present_timing.h"
 #include "nxrt/text.h"
 #include "vk_gauges.h"
 #include "extras/temporal.h"
@@ -636,7 +637,12 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool x_ll2 = x_pid && has_dext(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     if (x_ll2) dev_exts.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     const bool x_aal = !headless && add_ext(VK_AMD_ANTI_LAG_EXTENSION_NAME, &aal);
-    const bool pw_exposed = has_dext("VK_KHR_present_wait"), pid_exposed = has_dext(VK_KHR_PRESENT_ID_EXTENSION_NAME);   // offered by the device (log line only)
+    // present_timing.h ([latency] present_stats, vblank_lock): when a frame reaches the screen. Enabled only when one of them is on.
+    VkPhysicalDevicePresentWaitFeaturesKHR apw = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    const bool x_pw = x_pid && extras::present_wait_wanted() && add_ext(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, &apw);
+    const bool pw_exposed = has_dext(VK_KHR_PRESENT_WAIT_EXTENSION_NAME), pid_exposed = has_dext(VK_KHR_PRESENT_ID_EXTENSION_NAME);   // offered by the device (log line only)
+    // the other presentation-timing extensions, for the log line: which of them this driver stack offers
+    const bool pw2_exposed = has_dext("VK_KHR_present_wait2"), ptim_exposed = has_dext("VK_EXT_present_timing"), gdt_exposed = has_dext("VK_GOOGLE_display_timing");
     features_.external_memory_host = has_dext(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (features_.external_memory_host) dev_exts.push_back(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (has_dext(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) { dev_exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME); features_.push_descriptor = true; }
@@ -719,6 +725,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     }
     features_.hdr_metadata = x_hdrmd;
     features_.present_id = x_pid && apid.presentId;
+    features_.present_wait = x_pw && apw.presentWait && features_.present_id;
     features_.low_latency2 = x_ll2 && features_.present_id;
     features_.anti_lag = x_aal && aal.antiLag;
     afault.deviceFaultVendorBinary = VK_FALSE;   // the report reads the description, addresses and vendor codes, never the binary dump
@@ -812,8 +819,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
             std::snprintf(b, sizeof b, "%s%u:heap%u/0x%x", i ? " " : "", i, mp->memoryTypes[i].heapIndex, static_cast<unsigned>(mp->memoryTypes[i].propertyFlags));
             types += b;
         }
-        NXLOG_I(kTag, "vk: memory heaps %s; types %s; maxBufferSize %llu; VK_KHR_present_wait %s; VK_KHR_present_id %s", heaps.c_str(), types.c_str(),
-                static_cast<unsigned long long>(limits_.max_buffer_size), pw_exposed ? "yes" : "no", pid_exposed ? "yes" : "no");
+        NXLOG_I(kTag, "vk: memory heaps %s; types %s; maxBufferSize %llu; VK_KHR_present_wait %s%s; VK_KHR_present_id %s; VK_KHR_present_wait2 %s; VK_EXT_present_timing %s; VK_GOOGLE_display_timing %s",
+                heaps.c_str(), types.c_str(), static_cast<unsigned long long>(limits_.max_buffer_size), pw_exposed ? "yes" : "no", features_.present_wait ? " (enabled)" : "",
+                pid_exposed ? "yes" : "no", pw2_exposed ? "yes" : "no", ptim_exposed ? "yes" : "no", gdt_exposed ? "yes" : "no");
     }
 
     VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};

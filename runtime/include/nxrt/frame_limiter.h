@@ -47,6 +47,8 @@ public:
         bool snap_ceiling = false;
     };
     void set_refresh_sync(const RefreshSync& sync);     // safe to call from any thread
+    double refresh_hz() const;          // RefreshSync::hz (0: no fixed-refresh display)
+    int grid_refreshes() const;         // refresh intervals per frame of the last frame paced on the refresh grid; 0 = free schedule or unpaced
 
     // A function that runs at the very start of every begin_frame(), on the thread that calls it (the presenting thread). Play mode uses it to
     // apply present-mode changes at a point where nothing else touches the swapchain. nullptr removes it. Safe to call from any thread.

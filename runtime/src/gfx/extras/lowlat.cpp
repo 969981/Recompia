@@ -14,6 +14,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/log.h"
+#include "nxrt/present_timing.h"
 
 namespace nxrt::extras {
 namespace {
@@ -172,6 +173,7 @@ void pace_boundary_done() {
     const uint64_t t = FrameLimiter::now_ns();
     g_boundary_paced_ns.store(t, std::memory_order_relaxed);
     g_boundary_waits.fetch_add(1, std::memory_order_relaxed);
+    present_timing_release(t);
 }
 bool pace_boundary_consume() {
     // A recent boundary wait, not a count: presents and boundaries need not pair up (loading screens present without a boundary, the main loop
