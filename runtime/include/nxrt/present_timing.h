@@ -24,9 +24,10 @@
 //   early frame no longer reaches the screen a refresh before its slot (shown 1 refresh, then 3 for the one before it); a late frame costs one
 //   refresh once and the next frames keep k refreshes. The hold sleeps on the submit thread after the frame's submission went to the GPU
 //   (submissions queued behind it wait too: in the steady state the next frame's first ones come after the hold has ended);
-// - the limiter's refresh grid is moved (FrameLimiter::shift_grid, at most 0.5 ms a frame) so the release sits a budget before the vblank
-//   its frame is shown on: the budget is the 99th percentile of release -> GPU done over the last 128 frames plus a guard that grows when
-//   more than 1.5 % of the frames miss their slot. Without the shift the hold would add a refresh of latency after every late frame.
+// - the limiter's refresh grid is moved (FrameLimiter::shift_grid) so release -> shown stays at a target that a share of the frames
+//   ([latency] vblank_lock_late, 1 %) is allowed to miss: the target rises with each late frame and sinks slowly with each on-time one.
+//   The phase is held with a filtered, dead-banded step; the refresh a late frame or a hitch adds to every frame after it (the hold keeps
+//   the spacing) is walked off within a few frames. Without the shift the hold would add a refresh of latency after every late frame.
 #pragma once
 #include <cstdint>
 
