@@ -41,8 +41,8 @@ void row(Use u, bool hit, int base, int d, int band, const char* why, float pitc
 // accepted).
 void pick(Use u, bool hit, int x, int y, int z, int h, int d, const char* reject);
 
-// The target query's start cell: the game's (x, y, z) and the column written (the same: kept).
-void query_start(int x, int y, int z, int new_x, int new_z);
+// The target query's start cell: the game's (x, y, z) and the cell written (the same: kept).
+void query_start(int x, int y, int z, int new_x, int new_y, int new_z);
 
 // A swing shape's position (world x, y, z) before and after the position hook, and what it did.
 void swing_pos(Use u, const float before[3], const float after[3], const char* how);

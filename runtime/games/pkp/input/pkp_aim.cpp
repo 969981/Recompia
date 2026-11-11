@@ -325,9 +325,11 @@ int hook_query_base(::Ctx* c, uint64_t, void*) {
     RayHit r;
     const int feet = feet_row(ch);
     const bool move = aim_hit(ch, feet, rows_down(), rows_up(false), r, aim_debug::Use::Query);
-    if (aim_debug::on()) aim_debug::query_start(ox, rd<int16_t>(fp - 0xb6), oz, move ? r.x : ox, move ? r.z : oz);
+    const int oy = rd<int16_t>(fp - 0xb6);
+    const int ny = move && past_bands(r.y - feet, false) ? r.y : oy;
+    if (aim_debug::on()) aim_debug::query_start(ox, oy, oz, move ? r.x : ox, ny, move ? r.z : oz);
     if (!move) return 0;
-    if (past_bands(r.y - feet, false)) wr<int16_t>(fp - 0xb6, static_cast<int16_t>(r.y));
+    if (ny != oy) wr<int16_t>(fp - 0xb6, static_cast<int16_t>(ny));
     wr<int16_t>(fp - 0xb8, static_cast<int16_t>(r.x));
     wr<int16_t>(fp - 0xb4, static_cast<int16_t>(r.z));
     log_reach("query", ox, oz, r);

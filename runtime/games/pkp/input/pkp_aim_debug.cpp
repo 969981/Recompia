@@ -69,7 +69,7 @@ struct Pick {
 struct Start {
     uint64_t frame = 0;
     bool valid = false;
-    int x = 0, y = 0, z = 0, nx = 0, nz = 0;
+    int x = 0, y = 0, z = 0, nx = 0, ny = 0, nz = 0;
 };
 struct Swing {
     uint64_t frame = 0;
@@ -197,9 +197,9 @@ void draw_world(const Painter& p, const Record& r) {
             p.cube(static_cast<int>(std::floor((ray.character[0] + kOrigin) / kCell)), ray.feet - 1,
                    static_cast<int>(std::floor((ray.character[2] + kOrigin) / kCell)), 0xffe040ffu, 2.f, 6.f);
         } else if (row_known && q.band != kUnder) {
-            p.cube(s.nx, q.base + q.band, s.nz, 0xffe040ffu, 2.f, 6.f);
+            p.cube(s.nx, s.ny + q.band, s.nz, 0xffe040ffu, 2.f, 6.f);
         } else {
-            p.floor_square(s.nx, s.y, s.nz, 0xffe040ffu, 2.f);
+            p.floor_square(s.nx, s.ny, s.nz, 0xffe040ffu, 2.f);
         }
     }
     for (Use u : {Use::SwingPreview, Use::SwingHit}) {
@@ -265,7 +265,8 @@ void draw_panel(gfx::OverlayCanvas& c, const Record& r) {
     }
     if (r.start.valid) {
         const Start& s = r.start;
-        add(0xffe880ffu, s.frame, "query start cell %d,%d,%d -> %d,%d  (%s)", s.x, s.y, s.z, s.nx, s.nz, s.x == s.nx && s.z == s.nz ? "kept" : "moved to the hit column");
+        add(0xffe880ffu, s.frame, "query start cell %d,%d,%d -> %d,%d,%d  (%s)", s.x, s.y, s.z, s.nx, s.ny, s.nz,
+            s.x == s.nx && s.y == s.ny && s.z == s.nz ? "kept" : "moved to the hit cell");
     }
     for (int u = 0; u < kUses; ++u) {
         const Swing& w = r.swings[u];
@@ -365,9 +366,9 @@ void pick(Use u, bool hit, int x, int y, int z, int h, int d, const char* reject
     g.rec.picks[static_cast<int>(u)] = {g.rec.frame, true, hit, x, y, z, h, d, reject};
 }
 
-void query_start(int x, int y, int z, int new_x, int new_z) {
+void query_start(int x, int y, int z, int new_x, int new_y, int new_z) {
     std::lock_guard<std::mutex> lk(g.mu);
-    g.rec.start = {g.rec.frame, true, x, y, z, new_x, new_z};
+    g.rec.start = {g.rec.frame, true, x, y, z, new_x, new_y, new_z};
 }
 
 void swing_pos(Use u, const float before[3], const float after[3], const char* how) {
