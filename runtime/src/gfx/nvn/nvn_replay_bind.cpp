@@ -51,6 +51,24 @@ struct SetMemo {
     VkDescriptorSet ds = VK_NULL_HANDLE;
 };
 static SetMemo g_set_memo[4];
+// The handle a sampled texture binding names: S.tex of its stage, or the word in a uniform block's memory. False for other sources.
+static bool sampler_handle(const BindingDesc& d, const DescriptorBinding& b, uint64_t* handle) {
+    if (b.nvn.source == NvnSource::SamplerBinding) {
+        *handle = b.nvn.index >= 0 && b.nvn.index < 64 ? S.tex[d.nvn_stage][b.nvn.index] : 0;
+        return true;
+    }
+    if (b.nvn.source == NvnSource::HandleInUniform) {
+        *handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
+        return true;
+    }
+    return false;
+}
+// The Nearest part of the scene upscaler's override as one word (count and textures).
+static uint64_t su_near_key() {
+    uint64_t k = g_su.near_n;
+    for (uint32_t i = 0; i < g_su.near_n; ++i) k = fnv_step(k, reinterpret_cast<uint64_t>(g_su.near[i]));
+    return k;
+}
 // Fills m with the current inputs of set set of pl; false when the set cannot be reused (a binding of another kind, too many bindings).
 static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.pl = &pl;
@@ -60,21 +78,16 @@ static bool set_memo_inputs(const ProgLayout& pl, uint32_t set, SetMemo& m) {
     m.spool = S.spool.get();
     m.su_tex = g_su.tex;
     m.su_view = g_su.view;
-    m.su_near = g_su.near_n;
-    for (uint32_t i = 0; i < g_su.near_n; ++i) m.su_near = fnv_step(m.su_near, reinterpret_cast<uint64_t>(g_su.near[i]));
+    m.su_near = su_near_key();
     m.n = 0;
     for (const BindingDesc& d : pl.bindings) {
         if (d.set != set) continue;
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || m.n >= 32) return false;
         const DescriptorBinding& b = d.shader->refl.bindings[d.index];
         uint64_t handle = 0;
-        if (b.nvn.source == NvnSource::SamplerBinding) {
-            if (b.nvn.index >= 0 && b.nvn.index < 64) handle = S.tex[d.nvn_stage][b.nvn.index];
-        } else if (b.nvn.source == NvnSource::HandleInUniform) {
-            handle = read_handle_word(d.nvn_stage, b.nvn.bank, b.nvn.word);
-        } else if (b.nvn.source == NvnSource::ImageBinding) {
+        if (b.nvn.source == NvnSource::ImageBinding) {
             if (b.nvn.index >= 0 && b.nvn.index < 16) handle = S.img[d.nvn_stage][b.nvn.index];
-        } else {
+        } else if (!sampler_handle(d, b, &handle)) {
             return false;
         }
         m.h[m.n++] = handle;
@@ -120,7 +133,11 @@ static VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
 
 // The descriptor of a sampled texture binding (a combined image sampler) from the current state: the view, layout and sampler of the
 // texture its handle names, after the feedback copy, the 3D copy and the scene upscaler's override; the dummy where it has none.
-static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const DescriptorBinding& b) {
+// *plain: it is the texture's own view in its sampled layout (no copy stands in, the texture is no attachment of the pass, no depth
+// stand-in, no dummy): the case TexDescCache keeps.
+static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const DescriptorBinding& b, bool* plain) {
+    *plain = false;
+    bool own = true;                                       // r.tex is the texture the handle names
     VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     TexResolved r = resolve_texture(d);
     if (b.nvn.source == NvnSource::ImageBinding) {
@@ -129,9 +146,13 @@ static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const Desc
     }
     if (r.tex) {
         const auto fb = g_copies.fb_use.find(r.tex);
-        if (fb != g_copies.fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
+        if (fb != g_copies.fb_use.end()) {                 // a feedback draw samples the copy made before it
+            r.tex = fb->second;
+            own = false;
+        }
     }
     if (r.tex && wants_vol3d(b, r)) {                      // a sampler3D over 2D storage samples the 3D copy (vol3d_prepare)
+        own = false;
         const auto vc = g_copies.vol3d_use.find(r.tex);
         if (vc != g_copies.vol3d_use.end()) {
             r.tex = vc->second;
@@ -168,6 +189,7 @@ static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const Desc
             } else if (g_su.nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
                 ii.sampler = dummy_sampler();
             }
+            *plain = own && !feedback;
         } else if (first_time_key(kFirstDummyView, r.tex->id, d.shader->hash, b.name)) {
             NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
                     r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
@@ -187,6 +209,63 @@ static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const Desc
                     r.has_view && r.view.has_layers ? r.view.min_layer : -1, r.has_view && r.view.has_layers ? r.view.num_layers : -1);
         }
     }
+    return ii;
+}
+
+// [nvn] set_reuse, per binding: the descriptor of a plain sampled texture, by handle and binding shape. sampled_descriptor is a function
+// of the handle, the binding's shape (view type, depth comparison, component type, compute stage or not) and the inputs of the SetMemo
+// above: the pools and their entries and the texture images (be::g_bind_gen), the render targets, the open pass and the feedback and 3D
+// copies (g_sets.epoch), the scene upscaler's override. While those stand, a binding whose handle and shape were resolved before takes
+// that descriptor without resolving the texture, its view and its sampler again: a material that comes back after another one (the
+// SetMemo only knows the set before), and the textures many materials share. Only the plain case is kept (sampled_descriptor), so a
+// slot never depends on which copies a draw uses; a slot is written only when the state and the handle are still what they were before
+// the resolve (making an image inside it raises g_bind_gen).
+struct TexDescSlot {
+    uint64_t stamp = 0, handle = 0;
+    uint32_t shape = 0;
+    VkDescriptorImageInfo ii = {};
+};
+struct TexDescCache {
+    static constexpr size_t kSlots = 512;                  // direct mapped
+    TexDescSlot slot[kSlots];
+    uint64_t stamp = 1;                                    // slots of another stamp are empty
+    uint64_t epoch = 0, gen = 0, su_near = 0;              // the state the slots of `stamp` were filled under
+    const void* tpool = nullptr;
+    const void* spool = nullptr;
+    const void* su_tex = nullptr;
+    VkImageView su_view = VK_NULL_HANDLE;
+};
+static TexDescCache g_tdc;
+// The stamp of the slots that hold for the current state (a new one when it changed).
+static uint64_t tdc_stamp() {
+    TexDescCache& c = g_tdc;
+    const uint64_t gen = be::g_bind_gen.load(std::memory_order_acquire), su_near = su_near_key();
+    if (c.epoch != g_sets.epoch || c.gen != gen || c.tpool != S.tpool.get() || c.spool != S.spool.get() || c.su_tex != g_su.tex || c.su_view != g_su.view ||
+        c.su_near != su_near) {
+        c.epoch = g_sets.epoch;
+        c.gen = gen;
+        c.tpool = S.tpool.get();
+        c.spool = S.spool.get();
+        c.su_tex = g_su.tex;
+        c.su_view = g_su.view;
+        c.su_near = su_near;
+        ++c.stamp;
+    }
+    return c.stamp;
+}
+static VkDescriptorImageInfo sampled_descriptor_cached(const BindingDesc& d, const DescriptorBinding& b) {
+    static const bool reuse_on = set_reuse_on();
+    bool plain = false;
+    uint64_t handle = 0;
+    if (!reuse_on || g_trace || !sampler_handle(d, b, &handle)) return sampled_descriptor(d, b, &plain);
+    const uint32_t shape = static_cast<uint32_t>(view_type_for(b)) | (b.image.depth ? 8u : 0u) | (d.nvn_stage == kCompute ? 16u : 0u) |
+                           static_cast<uint32_t>(b.image.component) << 8;
+    const uint64_t stamp = tdc_stamp();
+    TexDescSlot& sl = g_tdc.slot[((handle ^ static_cast<uint64_t>(shape) << 40) * 0x9e3779b97f4a7c15ull) >> 55];
+    if (sl.stamp == stamp && sl.handle == handle && sl.shape == shape) return sl.ii;
+    const VkDescriptorImageInfo ii = sampled_descriptor(d, b, &plain);
+    uint64_t again = 0;
+    if (plain && tdc_stamp() == stamp && sampler_handle(d, b, &again) && again == handle) sl = {stamp, handle, shape, ii};
     return ii;
 }
 
@@ -344,7 +423,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             mix(reinterpret_cast<uint64_t>(bi.buffer)); mix(bi.offset); mix(bi.range);
         } else if (d.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             RpScope rpt_(kRpTex, g_rp.fine);
-            const VkDescriptorImageInfo ii = sampled_descriptor(d, b);
+            const VkDescriptorImageInfo ii = sampled_descriptor_cached(d, b);
             iinfo.push_back(ii);
             w.pImageInfo = &iinfo.back();
             mix(reinterpret_cast<uint64_t>(ii.imageView));
