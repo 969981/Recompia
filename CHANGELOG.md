@@ -6,6 +6,17 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+## 0.10.3 (build N: Newt Hotfix a3)
+
+**Update:** press **Update**, then **Set up again** once. It rebuilds the game code for the shoulder camera's new hook, a few minutes. Your shaders and saves are kept; no shader is translated again.
+
+The Newt hotfix fixes a start-up crash on some AMD graphics, loading screens fast-forwarding, camera aim picking the wrong block and the launcher's Quality preset. And since you were only expecting fixes tonight, it also slips in a few surprises: an over-the-shoulder camera, AMD FSR 3.1 frame generation, six new button icon themes and a Gameplay tab in the game's own Settings.
+
+### Highlights
+- Fixed the game closing at start with 0xC0000409 on some AMD graphics (#487)
+- Fixed loading screens and the boot screen fast-forwarding above 60 fps
+- Surprise: an **over-the-shoulder camera** and **AMD FSR 3.1 frame generation**
+
 ### Display
 - New **Frame generation** (AMD FSR 3.1): an extra frame between the game's own, made from the 3D picture only, so the HUD is not touched. Off by default: switch it on in Settings > Display (the launcher offers to download AMD's `amd_fidelityfx_framegeneration_vk.dll`), in the game's own Settings, or on the F1 Display page. It takes effect the next time the game starts
   - The frame-rate counter then reads `FPS 60 | FG 120`: the frames the game renders, and the frames on the screen
