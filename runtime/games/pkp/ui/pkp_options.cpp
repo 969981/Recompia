@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // In-game Options: the PC settings of the F1 page, as tabs and rows of the game's own Settings screen. [pkp] options_menu, on by default.
-// Nothing reaches the save file: the rows read and write the Settings behind controls.ini, the same store as the F1 page.
+// Nothing reaches the save file: the rows read and write the Settings behind controls.ini, the same store as the F1 page, or a [pkp] key
+// of the game ini (Row::key, settings::set_*).
 //
 // How the game's Options screen works (main 2.0.1a, static reading):
 //  * Rows come from a data table of 51 records of 24 bytes (ids 0x25..0x32 are empty). A record names its tab, type, value count and text.
@@ -10,7 +11,8 @@
 //  * Text ids above 800 are skipped by the game's guards; text 0xa8 is a bare "show this string" entry in every language.
 //
 // 14 free ids for about 60 rows, so the ids are slots: only one tab shows at a time, and a tab change rewrites the slot records and swaps
-// the slot values in the vector. g.cur / g.orig hold every tab's values; they reach Settings only when the screen commits (0x10092a0).
+// the slot values in the vector. g.cur / g.orig hold every tab's values; they reach Settings and the game ini only when the screen commits
+// (0x10092a0), and a discard drops them.
 // Long lists and decimals are sliders whose numeric text is replaced by the row's own (hook after 0x710100f0a0's text call).
 // Hooks are the sites listed in recomp/games/pkp/main.sites.
 // The files it is split into: pkp_options_internal.h.
@@ -22,6 +24,7 @@
 #include "core/pkp_text.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -170,6 +173,41 @@ const char* value_text(const Row& r, int v, char* out, size_t n) {
     return out;
 }
 
+// ---- a row's value: a play-mode setting (Row::get, Row::set) or a [pkp] key (Row::key) -------------------------------------------------
+
+bool is_key_row(const Row& r) { return r.key != settings::Key::Count; }
+int key_position(const Row& r, double v) { return static_cast<int>(std::lround((v - settings::spec(r.key).lo) / r.unit)); }
+
+// The position of the value in force.
+int row_get(const Row& r, const S& s) {
+    if (!is_key_row(r)) return r.get(s);
+    switch (settings::spec(r.key).type) {
+        case settings::Type::Bool: return settings::get_bool(r.key) ? 1 : 0;
+        case settings::Type::Int: return key_position(r, static_cast<double>(settings::get_int(r.key)));
+        case settings::Type::Double: return key_position(r, settings::get_double(r.key));
+        case settings::Type::String: break;   // no row kind (key_row)
+    }
+    return 0;
+}
+
+// The position of the default (the record's default value).
+int row_default(const Row& r, const S& defaults) {
+    if (!is_key_row(r)) return r.get(defaults);
+    const settings::Spec& sp = settings::spec(r.key);
+    return sp.type == settings::Type::Bool ? (sp.def != 0 ? 1 : 0) : key_position(r, sp.def);
+}
+
+// A [pkp] row's position, saved: the game ini, and the getters at once.
+void save_key(const Row& r, int pos) {
+    const settings::Spec& sp = settings::spec(r.key);
+    switch (sp.type) {
+        case settings::Type::Bool: settings::set_bool(r.key, pos != 0); break;
+        case settings::Type::Int: settings::set_int(r.key, std::llround(sp.lo + pos * r.unit)); break;
+        case settings::Type::Double: settings::set_double(r.key, sp.lo + pos * r.unit); break;
+        case settings::Type::String: break;
+    }
+}
+
 bool has_changes(int skip_tab) {
     for (int t = 0; t < kTabCount; ++t)
         if (t != skip_tab)
@@ -196,7 +234,7 @@ void write_records(int tab) {
         r[6] = 1;                                    // the dirty scan skips rows with 0 here
         r[5] = r[7] = 0;
         if (!row) continue;
-        r[5] = static_cast<uint8_t>(std::clamp(row->get(defaults), static_cast<int>(row->lo), row_hi(*row)));
+        r[5] = static_cast<uint8_t>(std::clamp(row_default(*row, defaults), static_cast<int>(row->lo), row_hi(*row)));
         r[6] = static_cast<uint8_t>(row->choices ? row->choices - 1 : row_hi(*row));
         r[7] = row->lo;
     }
@@ -224,15 +262,23 @@ void store_to_vector() {
     if (other_tabs) wr<uint8_t>(g.child + kDirty, 1);
 }
 
+// The changed rows of play-mode settings into s; true when there is one.
 bool build_settings(S& s) {
     bool changed = false;
     for (int t = 0; t < kTabCount; ++t)
         for (int i = 0; i < kTabs[t].count; ++i)
-            if (g.cur[t][i] != g.orig[t][i]) {
+            if (g.cur[t][i] != g.orig[t][i] && !is_key_row(kTabs[t].rows[i])) {
                 kTabs[t].rows[i].set(s, g.cur[t][i]);
                 changed = true;
             }
     return changed;
+}
+
+// The changed rows of [pkp] keys, saved.
+void save_key_rows() {
+    for (int t = 0; t < kTabCount; ++t)
+        for (int i = 0; i < kTabs[t].count; ++i)
+            if (g.cur[t][i] != g.orig[t][i] && is_key_row(kTabs[t].rows[i])) save_key(kTabs[t].rows[i], g.cur[t][i]);
 }
 
 // ---- hooks -------------------------------------------------------------------------------------------------------------------------
@@ -274,7 +320,7 @@ int hook_open(::Ctx* c, uint64_t, void*) {
         const S s = play::current_settings();
         for (int t = 0; t < kTabCount; ++t)
             for (int i = 0; i < kTabs[t].count; ++i)
-                g.cur[t][i] = g.orig[t][i] = std::clamp(kTabs[t].rows[i].get(s), static_cast<int>(kTabs[t].rows[i].lo), row_hi(kTabs[t].rows[i]));
+                g.cur[t][i] = g.orig[t][i] = std::clamp(row_get(kTabs[t].rows[i], s), static_cast<int>(kTabs[t].rows[i].lo), row_hi(kTabs[t].rows[i]));
     }
     write_records(g.tab);
     return 0;
@@ -294,6 +340,7 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
         if (std::memcmp(g.cur[kTimeTab], g.orig[kTimeTab], 6 * sizeof(int)) != 0) apply_time_tab(g.cur[kTimeTab]);
         S s = play::current_settings();
         if (build_settings(s)) play::apply_settings(s);   // main thread, next frame; also writes controls.ini
+        save_key_rows();                             // the game ini, now
         std::memcpy(g.orig, g.cur, sizeof g.orig);
     } else if (rd<int>(g.child + 0x354) != 0) {      // "discard" (the game's other call with 0 only redraws)
         std::memcpy(g.cur, g.orig, sizeof g.cur);

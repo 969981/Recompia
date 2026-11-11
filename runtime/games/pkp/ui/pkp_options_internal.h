@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/pkp_settings.h"
+#include "core/pkp_settings_table.h"
 #include "nxrt/abi.h"
 #include "play_types.h"
 
@@ -32,9 +34,13 @@ struct Row {
     const char* zero;                     // ... and this at position lo, when set
     const char* (*text)(int, char*, size_t);   // ... or this
     int (*max)();                         // a slider whose last position is known at run time
-    int (*get)(const S&);
+    int (*get)(const S&);                 // a row of a play-mode setting: its position from S, and S changed to a position
     void (*set)(S&, int);
-    bool restart, live;
+    bool restart, live;                   // restart: "Applies after a restart." in the description; live: previewed while it moves
+    // A row of a [pkp] key instead (key_row below; get and set are null): Bool is Off/On, Int and Double are positions from the key's lo
+    // in steps of `unit`. The screen saves it with settings::set_* when it commits (pkp_options.cpp).
+    settings::Key key = settings::Key::Count;
+    double unit = 0;
 };
 
 // clang-format off
@@ -56,6 +62,33 @@ constexpr Row dynamic(const char* label, const char* desc, const char* (*text)(i
 // clang-format on
 
 constexpr const char* kOffOn[4] = {"Off", "On"};
+
+// A row of a [pkp] key (Row::key): its kind, range and restart marker come from the key's Spec (pkp_settings_table.h). Bool keys are an
+// Off/On choice. Int and Double keys are a slider over the key's whole range, one position per `unit` (at most 255 positions); its text is
+// fmt of value * scale, and `zero` at the key's lowest value when set. An Applies::AtStart key carries the restart marker; a Live key is in
+// force as soon as the screen commits (features read it again every frame). String keys have no row kind yet. Used in constexpr row
+// tables, so a key that does not fit fails to compile.
+constexpr Row key_row(const char* label, const char* desc, settings::Key k, double unit = 1, const char* fmt = nullptr, double scale = 1, const char* zero = nullptr) {
+    const settings::Spec& sp = settings::table::at(k);
+    Row r{label, desc, {}, 0, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, sp.applies == settings::Applies::AtStart, false};
+    r.key = k;
+    if (sp.type == settings::Type::Bool) {
+        r.names[0] = kOffOn[0];
+        r.names[1] = kOffOn[1];
+        r.choices = 2;
+        return r;
+    }
+    if (sp.type == settings::Type::String || !(sp.lo < sp.hi) || !(unit > 0) || !fmt) throw "key_row: an Int or Double key with a range, a unit and a format";
+    const double positions = (sp.hi - sp.lo) / unit;
+    if (positions > 255) throw "key_row: more than 255 positions";
+    r.hi = static_cast<uint8_t>(positions + 0.5);
+    r.unit = unit;
+    r.fmt = fmt;
+    r.base = sp.lo * scale;
+    r.step = unit * scale;
+    r.zero = zero;
+    return r;
+}
 
 // The rows of one tab.
 struct RowList {
