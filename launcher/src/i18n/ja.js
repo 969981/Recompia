@@ -724,4 +724,9 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'ドライブがいっぱいです（{1}）。空き容量を作るか、ゲームフォルダーをより大きなドライブに移動してください。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'セットアップはこのフォルダー（{1}）に書き込めません。フォルダーが読み取り専用でないか確認するか、ゲームフォルダーを C:\\Games のような場所に移動してください。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '「{1}」をSteamの1アカウントに追加しました。Steamを再起動すると、アートワーク付きで表示されます。',
+  'Frame generation': 'フレーム生成',
+  'Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.': 'ゲームのフレームの間に、HUD を含まない 3D 映像だけから作った追加フレームを表示します。フレームレート表示は FPS（ゲームの）| FG（画面上の）になります。レンダリング解像度は「ウィンドウに合わせる」か、ウィンドウと同じ形である必要があります。次回のゲーム起動時から有効になります。',
+  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'AMD の amd_fidelityfx_framegeneration_vk.dll が必要です。オンにすると、ゲームの upscalers\\fsr3 フォルダーへのダウンロードを確認します。',
+  'Download the frame generation file?': 'フレーム生成のファイルをダウンロードしますか？',
+  'Downloading frame generation': 'フレーム生成をダウンロード中',
 };

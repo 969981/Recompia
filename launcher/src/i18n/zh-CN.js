@@ -724,4 +724,9 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '驱动器已满（{1}）。请释放一些空间，或将游戏文件夹移到更大的驱动器。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '设置无法写入此文件夹（{1}）。请检查该文件夹不是只读的，或将游戏文件夹移到类似 C:\\Games 的位置。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '已为 1 个账户将“{1}”添加到 Steam。重新启动 Steam 即可看到它及其插图。',
+  'Frame generation': '帧生成',
+  'Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.': '在游戏自身的帧之间显示额外的一帧，仅由 3D 画面生成，不含 HUD。帧率计数器显示 FPS（游戏的）| FG（屏幕上的）。渲染分辨率需为“匹配窗口”，或与窗口形状相同。下次启动游戏时生效。',
+  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': '需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll。开启时会提示下载到游戏的 upscalers\\fsr3 文件夹。',
+  'Download the frame generation file?': '下载帧生成所需的文件？',
+  'Downloading frame generation': '正在下载帧生成',
 };

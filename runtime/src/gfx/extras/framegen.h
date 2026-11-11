@@ -7,13 +7,10 @@
 // loader the upscaler uses.
 #pragma once
 #include "swapchain_fns.h"
+#include "nxrt/extras.h"
 #include "extras/temporal.h"
 
 namespace nxrt::extras {
-
-// True when amd_fidelityfx_framegeneration_vk.dll is in the folder of the FidelityFX loader (ffx_dll.h). Needed before the device is made: the
-// queues are reserved with it.
-bool framegen_dll_found();
 
 // The swapchain calls of the frame-generation swapchain, for the renderer to use in place of Vulkan's (swapchain_fns.h). Null when [framegen]
 // enabled is off, the DLL or the queues are missing, or the first swapchain could not be made by AMD's code (that case falls back to a Vulkan
@@ -34,8 +31,5 @@ bool framegen_present_count(uint64_t* count);
 // After that draw, outside a render pass: copies the picture (src of size e, in src_layout, which is left as it was) before the HUD is drawn on it,
 // converted to the swapchain's format and size. False: not copied (no prepare this frame, a shape that is not the window's).
 bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkExtent2D e);
-
-// What the F1 page and the launcher tell a player who tries to switch frame generation on without the DLL.
-const char* framegen_missing_text();
 
 }  // namespace nxrt::extras

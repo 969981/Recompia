@@ -54,6 +54,8 @@ export const api = {
   cancelShaderStorage: () => invoke('cancel_shader_storage'),
   dlssStatus: () => invoke('dlss_status'),
   fetchDlss: () => invoke('fetch_dlss'),
+  framegenStatus: () => invoke('framegen_status'),
+  fetchFramegen: () => invoke('fetch_framegen'),
 
   // Saves, backups, repair and profiles
   saveSources: () => invoke('save_sources'),

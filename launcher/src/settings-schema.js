@@ -334,6 +334,13 @@ function gameplayRows() {
   ]);
 }
 
+// Asked when frame generation is switched on without AMD's DLL (pages/settings/dlss.js): the download is the only way, and it is a file of AMD's.
+export const FRAMEGEN_DOWNLOAD = {
+  title: t('Download the frame generation file?'),
+  html: `<p>Frame generation needs AMD's <code>amd_fidelityfx_framegeneration_vk.dll</code>, which does not come with the launcher. It comes from AMD's FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the <code>upscalers\\fsr3</code> folder of the game.</p>`,
+  ok: t('Download'),
+};
+
 export const DLSS_DOWNLOAD = {
   title: t('Download DLSS?'),
   html: `<p>NVIDIA licenses this file separately, so it does not come with the launcher. It comes from NVIDIA's DLSS repository on GitHub, and its version and hash are checked.</p>
@@ -387,6 +394,12 @@ export const SECTIONS = [
           },
           { id: 'vsync', label: t('VSync'), type: 'toggle', ...fromSchema(controls('display', 'vsync')) },
           { id: 'fps_show', label: t('Frame rate counter'), type: 'toggle', ...fromSchema(controls('fps', 'show')) },
+          // AMD FSR 3.1: an extra frame between the game's, the 3D picture only. It needs AMD's DLL (the release does not carry it), so a switch-on without it
+          // is refused with a message (controls.js, guard) and the note says what to do.
+          { id: 'framegen', label: t('Frame generation'), type: 'toggle', guard: 'framegen', ...fromSchema(controls('framegen', 'enabled')) },
+          { id: 'framegen_note', type: 'note', note: (env) => ({ text: env.framegenDll
+              ? t('Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.')
+              : t('Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.') }) },
         ],
       },
     ],

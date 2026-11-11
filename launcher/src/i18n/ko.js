@@ -724,4 +724,9 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '드라이브가 가득 찼습니다({1}). 공간을 확보하거나 게임 폴더를 더 큰 드라이브로 옮기세요.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '설정이 이 폴더({1})에 쓸 수 없습니다. 폴더가 읽기 전용이 아닌지 확인하거나 게임 폴더를 C:\\Games 같은 곳으로 옮기세요.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '"{1}"을(를) Steam의 계정 1개에 추가했습니다. Steam을 다시 시작하면 아트워크와 함께 표시됩니다.',
+  'Frame generation': '프레임 생성',
+  'Shows an extra frame between the game\'s, made from the 3D picture only, not the HUD. The frame counter reads FPS (the game\'s) | FG (on the screen). It needs the render resolution to be Match window, or the window\'s shape. Takes effect the next time the game starts.': '게임의 프레임 사이에 HUD 없이 3D 화면만으로 만든 프레임을 추가로 보여 줍니다. 프레임 표시는 FPS(게임의) | FG(화면의)로 나옵니다. 렌더링 해상도는 \'창에 맞춤\'이거나 창과 같은 비율이어야 합니다. 다음에 게임을 시작할 때 적용됩니다.',
+  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'AMD의 amd_fidelityfx_framegeneration_vk.dll이 필요합니다. 켜면 게임의 upscalers\\fsr3 폴더로 내려받을지 묻습니다.',
+  'Download the frame generation file?': '프레임 생성 파일을 내려받을까요?',
+  'Downloading frame generation': '프레임 생성 내려받는 중',
 };

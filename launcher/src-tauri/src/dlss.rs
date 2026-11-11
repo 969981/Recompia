@@ -41,21 +41,26 @@ pub fn status(game_dir: &Path, tools_dir: &Path) -> Status {
 }
 
 /// Runs the download. Progress lines are `@progress download <done> <total> <text>`, a failure is `@error <text>`.
-pub fn fetch(game_dir: &Path, tools_dir: &Path, mut report: impl FnMut(Progress)) -> Result<(), String> {
+pub fn fetch(game_dir: &Path, tools_dir: &Path, report: impl FnMut(Progress)) -> Result<(), String> {
+    fetch_file("dlss", &target_dir(game_dir), tools_dir, report)
+}
+
+/// Runs the script for `file` ("dlss", or "framegen": AMD's frame generation DLL, framegen.rs) into `dir`.
+pub fn fetch_file(file: &str, dir: &Path, tools_dir: &Path, mut report: impl FnMut(Progress)) -> Result<(), String> {
     let (py, script) = tools(tools_dir);
     if !script.is_file() {
-        return Err("This package has no DLSS download tool. Extract the release zip again so tools/ is complete.".into());
+        return Err("This package has no download tool. Extract the release zip again so tools/ is complete.".into());
     }
     if !py.is_file() {
         return Err(if cfg!(windows) {
-            "This package has no DLSS download tool. Extract the release zip again so tools/ is complete."
+            "This package has no download tool. Extract the release zip again so tools/ is complete."
         } else {
             "The download needs the Linux build tools that Set up fetches: run Set up first."
         }
         .into());
     }
     let mut cmd = crate::host::command(&py);
-    cmd.arg("-I").arg(&script).arg("--dir").arg(target_dir(game_dir));
+    cmd.arg("-I").arg(&script).arg("--file").arg(file).arg("--dir").arg(dir);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -81,5 +86,5 @@ pub fn fetch(game_dir: &Path, tools_dir: &Path, mut report: impl FnMut(Progress)
         return Ok(());
     }
     let tail = err_tail.join().unwrap_or_default();
-    Err(error.unwrap_or_else(|| format!("The DLSS download failed ({}). {}", st, tail.trim())))
+    Err(error.unwrap_or_else(|| format!("The download failed ({}). {}", st, tail.trim())))
 }
