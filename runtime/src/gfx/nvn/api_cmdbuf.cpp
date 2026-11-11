@@ -361,6 +361,9 @@ void nvnCommandBufferBeginRecording(NVNcommandBuffer* c) {
     if (!cb) return;
     std::lock_guard<std::mutex> lk(cb->lock);
     cb->rec = Ref<CmdList>(new CmdList());
+    // a buffer records lists of about the same size frame after frame: one allocation instead of growing by doubling from nothing (each
+    // step a new block and a copy of everything so far)
+    cb->rec->bytes.reserve(cb->last_list_bytes);
     cb->rec->meter = cb;
     cb->recording = true;
     cb->tpool = nullptr;
@@ -384,6 +387,9 @@ NVNcommandHandle nvnCommandBufferEndRecording(NVNcommandBuffer* c) {
         cb->recording = false;
         cb->tpool = nullptr;
         list->meter = nullptr;
+        cb->last_list_bytes = list->bytes.size();
+        // a list far smaller than the last one gives the rest back (a list can live for many frames); copying a small list is cheap
+        if (list->bytes.capacity() > 2 * list->bytes.size() + (64u << 10)) list->bytes.shrink_to_fit();
         flush_segment(cb);
         ctl_need(cb, 8);
         cb->ctl_group = false;
