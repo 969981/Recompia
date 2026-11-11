@@ -118,6 +118,78 @@ static VkDescriptorBufferInfo driver_bank_for(const BindingDesc& d) {
     return {it->second.buffer, it->second.offset, kDriverBankBytes};
 }
 
+// The descriptor of a sampled texture binding (a combined image sampler) from the current state: the view, layout and sampler of the
+// texture its handle names, after the feedback copy, the 3D copy and the scene upscaler's override; the dummy where it has none.
+static VkDescriptorImageInfo sampled_descriptor(const BindingDesc& d, const DescriptorBinding& b) {
+    VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    TexResolved r = resolve_texture(d);
+    if (b.nvn.source == NvnSource::ImageBinding) {
+        image_as_texture(d, b, r, ii);
+        r.tex = nullptr;                                   // none of the texture paths below apply
+    }
+    if (r.tex) {
+        const auto fb = g_copies.fb_use.find(r.tex);
+        if (fb != g_copies.fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
+    }
+    if (r.tex && wants_vol3d(b, r)) {                      // a sampler3D over 2D storage samples the 3D copy (vol3d_prepare)
+        const auto vc = g_copies.vol3d_use.find(r.tex);
+        if (vc != g_copies.vol3d_use.end()) {
+            r.tex = vc->second;
+            r.view.has_layers = false;                     // the copy is the chosen layer, one slice deep
+        }
+    }
+    // [nvn] debug_null_format = "BPTC_UFLOAT" or "RGBA8:256x64": every sampled texture of that NVN format (and size) gets the dummy view
+    // (term isolation, debugging only)
+    static const std::string null_fmt = nxrt::config_get_str("nvn", "debug_null_format", "");
+    if (r.tex && !null_fmt.empty() && r.tex->fmt) {
+        const std::string sized = std::string(r.tex->fmt->name) + ":" + std::to_string(r.tex->b.width) + "x" + std::to_string(r.tex->b.height);
+        if (null_fmt == r.tex->fmt->name || null_fmt == sized) r.tex = nullptr;
+    }
+    // a compute dispatch is never inside the graphics pass: a colour attachment of the last pass is an ordinary texture to it
+    const bool feedback = r.tex && d.nvn_stage != kCompute && is_color_feedback(r.tex);
+    const bool loop = feedback && fbl_sampled(r.tex);      // sampled in the feedback loop layout of the open pass (feedback_prepare)
+    // a shader that samples with depth comparison (sampler2DShadow) needs a depth-format image: the game leaves colour textures in some
+    // of those slots, which Vulkan does not allow (VUID-vkCmdDrawIndexed-None-06479). They get the depth dummy instead.
+    const bool shadow_mismatch = r.tex && b.image.depth && !tex_is_depth(r.tex);
+    if (shadow_mismatch) {   // the stand-in holds the texture's red value (dcmp_view), the console compares against it
+        log_once(kOnceShadowColour, "a depth-comparison sampler is bound to a colour texture: a depth stand-in with its red value is bound");
+        if (VkImageView sv = dcmp_view(r.tex, view_type_for(b))) ii.imageView = sv;
+        if (r.has_sampler) ii.sampler = sampler_for(r.smp);
+    }
+    if (r.tex && tex_gpu(r.tex) && (!feedback || loop) && !shadow_mismatch) {
+        VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
+        if (v) {
+            ii.imageView = v;
+            ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
+            if (r.has_sampler) ii.sampler = sampler_for(r.smp, r.tex);
+            if (r.tex == g_su.tex && g_su.view) {            // the upscaled scene replaces the small one for this draw (S14)
+                ii.imageView = g_su.view;
+                ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            } else if (g_su.nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
+                ii.sampler = dummy_sampler();
+            }
+        } else if (first_time_key(kFirstDummyView, r.tex->id, d.shader->hash, b.name)) {
+            NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
+                    r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
+                    static_cast<int>(view_type_for(b)), d.shader->hash.c_str(), b.name.c_str(), b.nvn.index, d.set, d.binding);
+        }
+    } else if (feedback) {
+        log_once(kOnceColorFeedback, "a texture is sampled while it is a colour attachment of the pass: the dummy texture is bound");
+        static int reported = 0;
+        if (reported < 40) {   // which draw: the texture, the attachment's subresource, the sampled view, the shaders (S4g)
+            ++reported;
+            char tb[96];
+            uint32_t lvl = 0, lay = 0, nlay = 0;
+            for (uint32_t i = 0; i < S.ncolor; ++i) if (S.color_tex[i].get() == r.tex) { lvl = S.color_level[i]; lay = S.color_layer[i]; nlay = S.color_layers[i]; }
+            NXLOG_I("nvn.replay", "feedback: %s binding %s vs %s fs %s | attachment level %u layer %u layers %u | sampled view levels %d+%d layers %d+%d", tex_desc(r.tex, tb, sizeof tb),
+                    b.name.c_str(), S.stage[kVertex] ? S.stage[kVertex]->hash.c_str() : "-", S.stage[kFragment] ? S.stage[kFragment]->hash.c_str() : "-", lvl, lay, nlay,
+                    r.has_view && r.view.has_levels ? r.view.min_level : -1, r.has_view && r.view.has_levels ? r.view.num_levels : -1,
+                    r.has_view && r.view.has_layers ? r.view.min_layer : -1, r.has_view && r.view.has_layers ? r.view.num_layers : -1);
+        }
+    }
+    return ii;
+}
+
 static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     static const bool reuse_on = set_reuse_on();
@@ -272,72 +344,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
             mix(reinterpret_cast<uint64_t>(bi.buffer)); mix(bi.offset); mix(bi.range);
         } else if (d.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             RpScope rpt_(kRpTex, g_rp.fine);
-            VkDescriptorImageInfo ii = {dummy_sampler(), dummy_view(view_type_for(b), b.image.depth), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            TexResolved r = resolve_texture(d);
-            if (b.nvn.source == NvnSource::ImageBinding) {
-                image_as_texture(d, b, r, ii);
-                r.tex = nullptr;                                   // none of the texture paths below apply
-            }
-            if (r.tex) {
-                const auto fb = g_copies.fb_use.find(r.tex);
-                if (fb != g_copies.fb_use.end()) r.tex = fb->second;      // a feedback draw samples the copy made before it
-            }
-            if (r.tex && wants_vol3d(b, r)) {                      // a sampler3D over 2D storage samples the 3D copy (vol3d_prepare)
-                const auto vc = g_copies.vol3d_use.find(r.tex);
-                if (vc != g_copies.vol3d_use.end()) {
-                    r.tex = vc->second;
-                    r.view.has_layers = false;                     // the copy is the chosen layer, one slice deep
-                }
-            }
-            // [nvn] debug_null_format = "BPTC_UFLOAT" or "RGBA8:256x64": every sampled texture of that NVN format (and size) gets the dummy view
-            // (term isolation, debugging only)
-            static const std::string null_fmt = nxrt::config_get_str("nvn", "debug_null_format", "");
-            if (r.tex && !null_fmt.empty() && r.tex->fmt) {
-                const std::string sized = std::string(r.tex->fmt->name) + ":" + std::to_string(r.tex->b.width) + "x" + std::to_string(r.tex->b.height);
-                if (null_fmt == r.tex->fmt->name || null_fmt == sized) r.tex = nullptr;
-            }
-            // a compute dispatch is never inside the graphics pass: a colour attachment of the last pass is an ordinary texture to it
-            const bool feedback = r.tex && d.nvn_stage != kCompute && is_color_feedback(r.tex);
-            const bool loop = feedback && fbl_sampled(r.tex);      // sampled in the feedback loop layout of the open pass (feedback_prepare)
-            // a shader that samples with depth comparison (sampler2DShadow) needs a depth-format image: the game leaves colour textures in some
-            // of those slots, which Vulkan does not allow (VUID-vkCmdDrawIndexed-None-06479). They get the depth dummy instead.
-            const bool shadow_mismatch = r.tex && b.image.depth && !tex_is_depth(r.tex);
-            if (shadow_mismatch) {   // the stand-in holds the texture's red value (dcmp_view), the console compares against it
-                log_once(kOnceShadowColour, "a depth-comparison sampler is bound to a colour texture: a depth stand-in with its red value is bound");
-                if (VkImageView sv = dcmp_view(r.tex, view_type_for(b))) ii.imageView = sv;
-                if (r.has_sampler) ii.sampler = sampler_for(r.smp);
-            }
-            if (r.tex && tex_gpu(r.tex) && (!feedback || loop) && !shadow_mismatch) {
-                VkImageView v = tex_sampled_view(r.tex, make_request(b, r));
-                if (v) {
-                    ii.imageView = v;
-                    ii.imageLayout = loop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : tex_sampled_layout(r.tex);
-                    if (r.has_sampler) ii.sampler = sampler_for(r.smp, r.tex);
-                    if (r.tex == g_su.tex && g_su.view) {            // the upscaled scene replaces the small one for this draw (S14)
-                        ii.imageView = g_su.view;
-                        ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                    } else if (g_su.nearest(r.tex)) {                 // Nearest: the small scene is enlarged unfiltered (nearest, clamp to edge)
-                        ii.sampler = dummy_sampler();
-                    }
-                } else if (first_time_key(kFirstDummyView, r.tex->id, d.shader->hash, b.name)) {
-                    NXLOG_W(kTag, "sampled texture %u (%s, target %d, %dx%dx%d) has no view of the shader's type %d: shader %s binding %s (NVN slot %d, set %u binding %u) gets the dummy view",
-                            r.tex->id, r.tex->fmt ? r.tex->fmt->name : "?", r.tex->b.target, r.tex->b.width, r.tex->b.height, r.tex->b.depth,
-                            static_cast<int>(view_type_for(b)), d.shader->hash.c_str(), b.name.c_str(), b.nvn.index, d.set, d.binding);
-                }
-            } else if (feedback) {
-                log_once(kOnceColorFeedback, "a texture is sampled while it is a colour attachment of the pass: the dummy texture is bound");
-                static int reported = 0;
-                if (reported < 40) {   // which draw: the texture, the attachment's subresource, the sampled view, the shaders (S4g)
-                    ++reported;
-                    char tb[96];
-                    uint32_t lvl = 0, lay = 0, nlay = 0;
-                    for (uint32_t i = 0; i < S.ncolor; ++i) if (S.color_tex[i].get() == r.tex) { lvl = S.color_level[i]; lay = S.color_layer[i]; nlay = S.color_layers[i]; }
-                    NXLOG_I("nvn.replay", "feedback: %s binding %s vs %s fs %s | attachment level %u layer %u layers %u | sampled view levels %d+%d layers %d+%d", tex_desc(r.tex, tb, sizeof tb),
-                            b.name.c_str(), S.stage[kVertex] ? S.stage[kVertex]->hash.c_str() : "-", S.stage[kFragment] ? S.stage[kFragment]->hash.c_str() : "-", lvl, lay, nlay,
-                            r.has_view && r.view.has_levels ? r.view.min_level : -1, r.has_view && r.view.has_levels ? r.view.num_levels : -1,
-                            r.has_view && r.view.has_layers ? r.view.min_layer : -1, r.has_view && r.view.has_layers ? r.view.num_layers : -1);
-                }
-            }
+            const VkDescriptorImageInfo ii = sampled_descriptor(d, b);
             iinfo.push_back(ii);
             w.pImageInfo = &iinfo.back();
             mix(reinterpret_cast<uint64_t>(ii.imageView));
