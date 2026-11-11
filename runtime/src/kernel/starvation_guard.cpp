@@ -237,9 +237,8 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
             if (!p->next_entry_offset) break;
             off += p->next_entry_offset;
         }
-        if (!mine) continue;
-        if (probe_polls > 0) {
-            const ThreadRec* own = own_record(mine, nthreads, self);
+        if (probe_polls > 0) {                          // before the test for our process: a list without it proves nothing either
+            const ThreadRec* own = mine ? own_record(mine, nthreads, self) : nullptr;
             if (own && own->thread_state == kStateRunning && own->context_switches) {
                 probe_polls = 0;
                 NXLOG_I("sched", "starvation guard: this host reports thread states and context switches, the guard keeps polling");
@@ -250,6 +249,7 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
                 return;
             }
         }
+        if (!mine) continue;
         bool snapped = false;
         const auto snap_once = [&] {
             if (snapped) return;
