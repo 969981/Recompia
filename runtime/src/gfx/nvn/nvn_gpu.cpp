@@ -24,6 +24,7 @@
 
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
+#include "nxrt/early_wake.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
@@ -204,6 +205,7 @@ std::mutex g_install_mu;
 void complete_serial(uint64_t serial) {
     uint64_t done = g->completed.load();
     while (done < serial && !g->completed.compare_exchange_weak(done, serial)) {}
+    if (done < serial) kernel::early_wake_fire();   // this call advanced it: game threads sleeping between sync polls go on (nvn_sync_wake.cpp)
 }
 
 uint64_t read_completed() {
@@ -1534,6 +1536,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
                        v == 2 ? "split" : "on", o.c_str(), v == 2 ? "own VkSubmitInfo2" : "one VkSubmitInfo2", static_cast<long long>(hold));
         else NXLOG_I(kTag, "one_submit off (%s%s)", o.c_str(), o == "auto" ? (can ? ", not Wine" : ", no frame batch or no submit thread") : "");
     }
+    sync_wake_start();
     gp->th = std::thread(render_loop);
     // wait for the thread id to be published
     for (int i = 0; i < 1000 && gp->tid == std::thread::id(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1614,6 +1617,7 @@ void tear_down() {
         gp->sw->stop();
         if (gp->rend) gp->rend->set_submit_queue({}, {});
     }
+    sync_wake_stop();   // its timeline wait ends before the semaphore goes
     gfx::Device& d = *gp->dev;
     vkDeviceWaitIdle(d.device());
     for (Slot& s : gp->slots) {
