@@ -135,6 +135,7 @@ struct GState {
     Ref<Texture> depth_tex;
     TextureViewInfo depth_view;
     bool depth_has_view = false;
+    uint64_t targets_gen = 1;   // raised by every SetRenderTargets: the same count means the same targets and views
     int window_origin = NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
     int depth_mode = NVN_DEPTH_MODE_NEAR_IS_MINUS_W;
 };
@@ -160,6 +161,7 @@ struct Pass {
     uint32_t samples = 1;
     float scale = 1.0f;         // resolution scale of the attachments ([gfx] render_scale): viewports and scissors are multiplied by it
     uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)
+    uint64_t targets_gen = 0;   // S.targets_gen the pass's targets were last found to be (ensure_pass)
     uint32_t draws = 0;         // draws recorded in the pass (GPU pass profiler)
     uint64_t verts = 0;         // vertices (indices for indexed draws) times instances of those draws
 };

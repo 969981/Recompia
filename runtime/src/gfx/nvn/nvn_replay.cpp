@@ -264,6 +264,7 @@ static void run_list(const CmdList& list, int depth) {
             case Op::SetCoverageModulationTable: case Op::SetConservativeRaster: break;
             case Op::SetRenderTargets: {
                 const auto& p = r.payload<P_RenderTargets>();
+                ++S.targets_gen;
                 S.ncolor = p.count;
                 for (uint32_t i = 0; i < 8; ++i) {
                     S.color_tex[i] = i < p.count ? Ref<Texture>::share(p.color[i].tex) : Ref<Texture>();
