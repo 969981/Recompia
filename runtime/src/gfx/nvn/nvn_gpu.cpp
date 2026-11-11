@@ -31,6 +31,7 @@
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/lowlat.h"
+#include "nxrt/present_timing.h"
 #include "vk_gauges.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_impl.h"
@@ -1430,6 +1431,8 @@ void present(Window* window, int index) {
     if (!g || !window || g->dev->device_lost()) return;
     NXFT("present.call");
     nxrt::hitch_note_game_present();
+    // the frame boundary's limiter wait for the next frame is due from here (lowlat.h); the frame's presentation record starts (present_timing.h)
+    const uint64_t frame = extras::present_timing_game_present(extras::pace_note_game_present());
     {
         std::lock_guard<std::mutex> lk(g->pmu);
         g->last_window = Ref<Window>::share(window);
@@ -1444,7 +1447,10 @@ void present(Window* window, int index) {
     static const int ahead = static_cast<int>(std::clamp<int64_t>(nxrt::config_get_int("nvn", "present_ahead", 1), 0, 3));
     if (ahead == 0 || on_render_thread()) {
         Ref<Window> keep = Ref<Window>::share(window);
-        run_on_render_thread([&] { present_on_render_thread(window, index); });
+        run_on_render_thread([&] {
+            extras::present_timing_render_begin(frame);
+            present_on_render_thread(window, index);
+        });
         return;
     }
     {
@@ -1457,7 +1463,8 @@ void present(Window* window, int index) {
     Ref<Window> keep = Ref<Window>::share(window);
     {
         std::lock_guard<std::mutex> lk(g->qmu);
-        g->queue.push_back([keep, index] {
+        g->queue.push_back([keep, index, frame] {
+            extras::present_timing_render_begin(frame);
             present_on_render_thread(keep.get(), index);
             std::lock_guard<std::mutex> l2(g->pmu);
             --g->presents_pending;
@@ -1485,6 +1492,7 @@ void present_again() {
     {
         std::lock_guard<std::mutex> lk(g->qmu);
         g->queue.push_back([keep, index] {
+            extras::present_timing_render_begin(0);    // a repeated frame has no record
             present_on_render_thread(keep.get(), index, true);
             std::lock_guard<std::mutex> l2(g->pmu);
             --g->presents_pending;
@@ -1563,6 +1571,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     gp->dev = &dev;
     gp->rend = rend;
     gp->limiter = limiter;
+    extras::present_timing_set_limiter(limiter);
     gp->keep_aspect = keep_aspect;
     const bool wine = host_is_wine();
     {   // [nvn] submit_batch: auto = frame under Wine (each kernel submission walks the imported pools again, flush_batch), 1 elsewhere.
@@ -1765,6 +1774,7 @@ void tear_down() {
         if (gp->rend) gp->rend->set_submit_queue({}, {});
     }
     sync_wake_stop();   // its timeline wait ends before the semaphore goes
+    extras::present_timing_set_limiter(nullptr);
     gfx::Device& d = *gp->dev;
     vkDeviceWaitIdle(d.device());
     for (Slot& s : gp->slots) {

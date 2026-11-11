@@ -47,6 +47,11 @@ public:
         bool snap_ceiling = false;
     };
     void set_refresh_sync(const RefreshSync& sync);     // safe to call from any thread
+    double refresh_hz() const;          // RefreshSync::hz (0: no fixed-refresh display)
+    int grid_refreshes() const;         // refresh intervals per frame of the last frame paced on the refresh grid; 0 = free schedule or unpaced
+    // Moves the refresh grid's anchor by ns (positive: later), so later frame starts keep their spacing at another phase against the display.
+    // For a caller that measures when frames reach the screen (present_timing.h, [latency] vblank_lock); a no-op without an anchor. Any thread.
+    void shift_grid(double ns);
 
     // A function that runs at the very start of every begin_frame(), on the thread that calls it (the presenting thread). Play mode uses it to
     // apply present-mode changes at a point where nothing else touches the swapchain. nullptr removes it. Safe to call from any thread.
@@ -88,6 +93,8 @@ public:
     uint64_t last_late_ns() const;
 
     static uint64_t now_ns();           // QueryPerformanceCounter in nanoseconds
+    // The limiter's wait (high-resolution timer for the bulk, spin for the last stretch) for any thread: returns once now_ns() >= target_ns.
+    static void sleep_until(uint64_t target_ns);
 
 private:
     struct Impl;
