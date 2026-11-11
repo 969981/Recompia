@@ -8,7 +8,7 @@
 
 ## 0.10.4-alpha.1 (Deck Rehaul)
 
-**Experimental build.** It is not offered as an update: download the zip from this release, or pick this version in the launcher on the Testing channel. It holds the performance work for the Steam Deck on top of 0.10.3. Update only: no shader rebuild, no Set up again. Please report anything that looks or plays differently from 0.10.3, with `pkp.log`
+**Experimental build.** It is not offered as an update: download the zip from this release, or pick this version in the launcher on the Testing channel. It holds the performance work for the Steam Deck on top of 0.10.3. After installing it, press **Set up again** once: it rebuilds the game code with the new translation, several minutes. Your shaders and saves are kept; no shader is translated again. Please report anything that looks or plays differently from 0.10.3, with `pkp.log`
 
 ### Performance (measured on a Steam Deck OLED, in the world, vsync off)
 - Higher and steadier frame rate: about 52 fps where the build before this work gave about 44, and the slowest frames are shorter (the slowest 1 % took about 26 ms, before about 38 ms)
@@ -16,6 +16,7 @@
 - Less processor time spent by the game's helper threads while you play: fewer wake-ups, the driver's shader cache is written at most every 30 seconds, and a guard that could do nothing under Proton no longer runs there
 - Shorter waits between the game's own threads on Linux handhelds: short sleeps end on time, and a wait ends as soon as what it waits for has happened
 - Fewer redundant copies of graphics memory and less repeated work for each draw
+- The game's own code is translated to leaner machine code: the game's registers and condition flags now live in processor registers instead of memory wherever no other code can look at them. This is the change that needs **Set up again**
 
 ### Frame pacing
 - Fixed uneven frames with a frame limit: now and then one frame waited twice for the limiter and the next one not at all
@@ -23,6 +24,7 @@
 - On a Windows PC the frame rate is the same as in 0.10.3
 
 ### For testers
+- The new translation of the game code cannot be switched off in `pkp.ini`. To compare, set the environment variable `PKP_LOCALS=off` and press Set up again: that builds the game code the way 0.10.3 does
 - New lines in `pkp.log` every 10 seconds: `tcpu` (processor time by thread) and, with `present_stats = 1` under `[latency]`, `pacing: present timing` (how many refreshes each frame was shown for)
 - If something breaks, these switches in `pkp.ini` bring back the earlier behaviour one at a time, which helps to find the cause: `gpu_split_ms = 0` and `pool_reg_skip_same = false` under `[nvn]`, `poll_wait = false`, `short_sleep = sleep` and `early_wake = off` under `[kernel]`, `boundary_count = render` under `[latency]`
 
