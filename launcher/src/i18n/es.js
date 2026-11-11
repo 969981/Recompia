@@ -452,6 +452,7 @@ export default {
   'Choose the mods folder': 'Elige la carpeta de mods',
   'Choose the folder that holds the same files and folders as the game\'s romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game\'s files with the same path.': 'Elige la carpeta que contiene los mismos archivos y carpetas que el romfs del juego (por ejemplo LD_C0_R.BIN en su nivel superior), no la carpeta que lo rodea. Sus archivos sustituyen a los del juego con la misma ruta.',
   'Minimise while playing': 'Minimizar mientras se juega',
+  'Show on Discord while playing': 'Mostrar en Discord al jugar',
   'Game clock': 'Reloj del juego',
   'Date and time in the game': 'Fecha y hora en el juego',
   'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.': 'Por ahora, úsalo solo en un jugador. Jugar aplica automáticamente la fecha de inicio del evento activado. Tu reloj normal del juego se conserva y se vuelve a usar cuando todos los eventos están desactivados.',
@@ -724,4 +725,10 @@ export default {
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'La configuración no puede escribir en esta carpeta ({1}). Comprueba que la carpeta no sea de solo lectura o mueve la carpeta del juego a algún sitio como C:\\Games.',
   'Added "{1}" to Steam for {2} accounts. Start Steam again to see it, with its artwork.': 'Se añadió «{1}» a Steam para {2} cuentas. Vuelve a abrir Steam para verlo, con su ilustración.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': 'Se añadió «{1}» a Steam para 1 cuenta. Vuelve a abrir Steam para verlo, con su ilustración.',
+  'Frame generation': 'Generación de fotogramas',
+  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'Necesita amd_fidelityfx_framegeneration_vk.dll de AMD. Al activarlo se ofrece descargarla en la carpeta upscalers\\fsr3 del juego.',
+  'Download the frame generation file?': '¿Descargar el archivo de generación de fotogramas?',
+  'Downloading frame generation': 'Descargando generación de fotogramas',
+  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'La generación de fotogramas necesita el archivo amd_fidelityfx_framegeneration_vk.dll de AMD, que no viene con el launcher. Se descarga del repositorio del SDK FidelityFX de AMD en GitHub (versión 2.4.0, licencia MIT), se comprueba su hash y se guarda en la carpeta upscalers\\fsr3 del juego.',
+  'The file is not in the game folder after the download.': 'El archivo no está en la carpeta del juego después de la descarga.',
 };

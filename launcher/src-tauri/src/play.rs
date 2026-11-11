@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::config::Config;
 use crate::states::States;
 
 /// Files the launcher may open for the user, by name, inside the game folder.
@@ -62,7 +63,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), String> {
+pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config) -> Result<(), String> {
+    let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     {
         let st = app.play();
         if st.0.lock().unwrap().state == GameState::Running {
@@ -115,7 +117,9 @@ pub fn start(app: &AppHandle, game_dir: &Path, minimize: bool) -> Result<(), Str
         }
         // the player's save backups: a timer while the game runs (when switched on), one more copy once it has ended
         let backups = crate::savebackup::Watch::start(&dir);
+        let presence = crate::presence::Watch::start(discord);
         let result = child.wait();
+        presence.finish();
         backups.finish();
         let (code, wait_err) = match result {
             Ok(s) => (s.code(), None),

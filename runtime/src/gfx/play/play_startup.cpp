@@ -50,6 +50,7 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("upscale", "dlss_dll")) r.upscale.dlss_dll = env.upscale.dlss_dll;
     if (config_has("latency", "mode")) r.latency.mode = env.latency.mode;
     if (config_has("latency", "log_timings")) r.latency.log_timings = env.latency.log_timings;
+    if (config_has("framegen", "enabled")) r.framegen.enabled = env.framegen.enabled;
     // [picture]: a preset or any of the four keys in the game's ini / the environment replaces the file's picture controls as a whole
     if (config_has("picture", "preset") || config_has("picture", "contrast") || config_has("picture", "saturation") || config_has("picture", "black") ||
         config_has("picture", "gamma"))
@@ -222,6 +223,7 @@ bool start(const StartOptions& opt) {
             } else {
                 st.overlay->add_panel("Settings", [] { draw_settings_page(ui_host()); });
                 st.overlay->install_on_renderer();
+                if (const GamePlay* gp = game_play()) st.overlay->set_game_layer(gp->overlay_layer);   // its place: play_frame.cpp (picture rect)
                 apply_fps_counter(st.settings.fps);
                 {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
                     std::string tb = config_get_str("overlay", "touch_button", "auto");

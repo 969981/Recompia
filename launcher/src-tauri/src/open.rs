@@ -15,9 +15,9 @@ pub fn open_release_url(url: String) -> Result<(), String> {
     play::open_url(&url)
 }
 
-/// The links the launcher opens in the browser: GitHub (releases, issues) and the project's Discord invite. No spaces, quotes or `&`.
+/// The links the launcher opens in the browser: GitHub (releases, issues) and the project's Discord invite (exact host: a look-alike such as discord.recompia.com.evil.example fails). No spaces, quotes or `&`.
 pub fn openable_link(url: &str) -> bool {
-    (url.starts_with("https://github.com/") || url.starts_with("https://discord.gg/")) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&')
+    (url.starts_with("https://github.com/") || url == "https://discord.recompia.com" || url.starts_with("https://discord.recompia.com/")) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&')
 }
 
 #[cfg(test)]
@@ -27,8 +27,8 @@ mod link_tests {
     #[test]
     fn only_github_and_the_discord_invite_open() {
         assert!(openable_link("https://github.com/featureJosh/Recompia/releases/tag/v0.8.0"));
-        assert!(openable_link("https://discord.gg/gN5g4MtWHr"));
-        for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/ab cd", "https://discord.gg/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
+        assert!(openable_link("https://discord.recompia.com"));
+        for bad in ["http://github.com/x", "https://github.com.evil.example/x", "https://discord.com/invite/x", "https://discord.gg/x", "https://discord.recompia.com.evil.example/x", "https://discord.recompia.com/ab cd", "https://discord.recompia.com/a&b", "file:///etc/passwd", "javascript:alert(1)", ""] {
             assert!(!openable_link(bad), "{bad:?}");
         }
     }

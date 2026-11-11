@@ -323,7 +323,7 @@ function handle(cmd, args) {
     case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_release_url':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel };
     case 'save_config': looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; return null;
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';
@@ -351,6 +351,8 @@ function handle(cmd, args) {
     case 'compact_shaders': return runRepack('compact');
     case 'expand_shaders': return runRepack('expand').then((r) => r.finished);
     case 'cancel_shader_storage': repackStop = true; return null;
+    case 'framegen_status': return false;
+    case 'fetch_framegen': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading amd_fidelityfx_framegeneration_vk.dll' })).then(() => null);
     case 'dlss_status': return { available: true, present: false, dir: `${GAME_DIR}/upscalers/streamline` };
     case 'fetch_dlss': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading nvngx_dlss.dll' })).then(() => null);
     case 'repair_plan': return { changes: [

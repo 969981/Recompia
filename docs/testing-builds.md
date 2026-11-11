@@ -1,6 +1,6 @@
 # Testing builds
 
-Recompia has two update channels. Questions and reports are welcome on the Recompia Discord: https://discord.gg/gN5g4MtWHr (also under Settings > About > Community in the launcher). You pick one in the launcher under **Settings > About > Update channel**.
+Recompia has two update channels. Questions and reports are welcome on the Recompia Discord: https://discord.recompia.com (also under Settings > About > Community in the launcher). You pick one in the launcher under **Settings > About > Update channel**.
 
 - **Stable** (the default): the releases everyone gets. This is what the launcher has always offered.
 - **Testing**: builds that are newer and less tested, published as GitHub prereleases (for example `0.8.1-beta.1`). They come from the `testing` branch. Pick this if you want to try changes early and help find problems before they reach Stable.

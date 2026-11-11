@@ -23,6 +23,11 @@ constexpr Spec i(Key k, const char* name, int64_t def, int64_t lo, int64_t hi, c
 }
 constexpr Spec d(Key k, const char* name, double def, double lo, double hi, const char* doc) { return {k, name, Double, def, "", lo, hi, "", AtStart, doc}; }
 constexpr Spec s(Key k, const char* name, const char* def, const char* choices, const char* doc) { return {k, name, String, 0, def, 0, 0, choices, AtStart, doc}; }
+// A setting read again while the game runs: a change takes effect at once (Applies::Live).
+constexpr Spec live(Spec sp) {
+    sp.applies = Live;
+    return sp;
+}
 // Unset leaves another value in force (the getter's default is then never used): see Spec::optional.
 constexpr Spec unset_by_default(Spec sp) {
     sp.optional = true;
@@ -63,6 +68,10 @@ inline constexpr Spec kSpecs[] = {
     b(GameFrameLimit, "game_frame_limit", false, "Keep the game's own 60 Hz frame wait."),
     b(CameraEveryFrame, "camera_every_frame", true, "Place the camera every rendered frame instead of on the game's 120 Hz tick."),
     i(CameraGraceMs, "camera_grace_ms", 250, 0, 5000, "How long after the camera's turn branch last ran the mouse still turns the camera, in ms."),
+    live(d(CameraShoulderSide, "camera_shoulder_side", 0.0, -2.0, 2.0,
+           "Over-the-shoulder camera: how far the view is moved to the side of the character, in blocks (positive: to the right, 0: the game's own camera).")),
+    live(d(CameraShoulderHeight, "camera_shoulder_height", 0.0, -1.0, 2.0,
+           "Over-the-shoulder camera: how far the view is moved up, in blocks (positive: up, 0: the game's own camera).")),
     b(MenuMouse, "menu_mouse", true, "The mouse pointer in the game's menus."),
     i(MenuLog, "menu_log", 1, 0, 0, "Menu logging: 0 off, 1 what the pointer does (and the sort's and search's lists), 2 more detail, 3 the layout chain once a second."),
     b(MenuInGame, "menu_in_game", true, "The mouse pointer also works in menus opened during play."),
@@ -82,6 +91,7 @@ inline constexpr Spec kSpecs[] = {
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
     gameplay(b(CameraAim, "camera_aim", true, "Abilities and tools aim where the camera looks instead of where the character faces.")),
     under(CameraAim, i(CameraAimReach, "camera_aim_reach", 0, 0, 4, "With camera_aim: extra cells of reach (0: the game's own range).")),
+    live(b(CameraAimDebug, "camera_aim_debug", false, "Draw camera aim's ray, the cells it tested and the cell it picked (debugging).")),
     gameplay(b(InventorySort, "inventory_sort", true, "A Sort button in the bag's and the container screens' key guide.")),
     under(InventorySort, b(InventoryAutosort, "inventory_autosort", false, "Sort the bag each time the bag or a container screen opens.")),
     opt_in(gameplay(b(CraftSearch, "craft_search", false, "A Search button in the crafting screen's key guide."))),
