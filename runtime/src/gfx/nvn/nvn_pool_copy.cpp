@@ -14,9 +14,9 @@
 //    the tracker every bind copied its pages again in every submission: ~49 MiB a frame on a Steam Deck, of which ~1.6 MiB had changed.
 //  * record (note_gpu_write, render thread): every range a command may write in pool memory is recorded with the submission's serial
 //    (LandRec), and its pages' page_gpu set to that serial.
-//  * land (read_completed, any thread; and the nvn-pool-land thread): once the timeline reaches a record's serial, the recorded range is
-//    copied from the shadow back into guest memory, before that serial is published as complete (complete_serial). So a game thread that
-//    waits for a sync, polls one, or reads an event word the GPU wrote, finds the GPU's bytes in its memory, as with an import.
+//  * land (nvn_pool_land.cpp; read_completed, any thread; and the nvn-pool-land thread): once the timeline reaches a record's serial, the
+//    recorded range is copied from the shadow back into guest memory, before that serial is published as complete (complete_serial). So a
+//    game thread that waits for a sync, polls one, or reads an event word the GPU wrote, finds the GPU's bytes in its memory, as with an import.
 // Known limits: a CPU write to bytes of a range the GPU may write, made while that submission is in flight, is overwritten at
 // landing (the whole recorded range lands, not only what a shader stored: landed_kb); a GPU write through a span and a read of the same bytes
 // through another chunk (or the reverse) while that write is in flight sees the other buffer's bytes (span_writes counts such writes).
@@ -29,12 +29,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
-#include <deque>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "nxrt/config.h"
@@ -44,16 +41,16 @@
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
 #include "nvn_gpu_internal.h"
+#include "nvn_pool_copy_impl.h"
 #include "nvn_pool_track.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace {
 
-constexpr const char* kTag = "nvn.pool";
-constexpr uint64_t kPage = 4096;
+using pcopy::kPage;
+using pcopy::kTag;
 constexpr uint64_t kSpanGrain = 64 * 1024;  // a span's start and end are multiples of it
 constexpr uint64_t kOutside = ~0ull;     // page_copied of a copy made outside a recording: equal to no serial, and not "never" (0)
-constexpr uint64_t kNone = ~0ull;         // g_land_min with no record
 
 // Native Windows keeps ordinary pool imports forever. On an integrated GPU with a small device-local heap those imports share RAM with
 // everything else and eventually make queue submissions fail with VK_ERROR_OUT_OF_DEVICE_MEMORY. Use the bounded shadow cache there too.
@@ -122,25 +119,9 @@ void log_cfg(const Cfg& c, bool on) {
 // statistics
 std::atomic<bool> g_any{false};
 std::atomic<int64_t> g_live{0};
-std::atomic<uint64_t> g_chunks{0}, g_allocs{0}, g_copied{0}, g_landed{0}, g_records{0}, g_unmatched{0}, g_fallback{0}, g_unreadable{0},
-    g_span_writes{0}, g_evicted{0}, g_spans{0};
+std::atomic<uint64_t> g_chunks{0}, g_allocs{0}, g_copied{0}, g_unmatched{0}, g_fallback{0}, g_span_writes{0}, g_evicted{0}, g_spans{0};
 uint64_t g_sub_serial = 0, g_sub_bytes = 0;     // render thread: bytes copied in by the submission being recorded
 std::atomic<int64_t> g_last_sub_kb{0};          // ... and by the last one (gauge)
-
-// GPU writes waiting for their serial, in serial order (recorded by the render thread as it records). Lock order:
-// g_live_mu -> g_reg_mu -> g_landing_mu -> g_land_mu. g_land_mu guards only the queue, land_refs and g_land_min and is held for short sections
-// (the render thread takes it per recorded write and in pcopy_busy); it is a leaf. g_landing_mu serialises landers and is held across a whole
-// landing (pop, memcpy, before_os_write, page bits); before_os_write could call the compute-out guard handler, which copy pools never arm.
-struct LandRec {
-    PoolGpu* pool;
-    PoolChunk* chunk;
-    uint64_t pool_off, size, serial;
-};
-std::mutex g_land_mu;
-std::mutex g_landing_mu;
-std::deque<LandRec> g_land;
-std::atomic<uint64_t> g_land_min{kNone};        // serial of g_land.front() (kNone: empty), the lock-free test of pcopy_land
-thread_local bool t_landing = false;            // a landing on this thread (a nested read_completed returns at once)
 
 // The last resolve of the render thread: the chunk a following gpu_wrote of the same range writes, and pool_copy_touch's chunk.
 struct LastResolve {
@@ -153,27 +134,21 @@ thread_local LastResolve t_last;
 std::atomic<uint64_t> g_free_gen{0};
 inline bool last_valid() { return t_last.chunk && t_last.gen == g_free_gen.load(std::memory_order_acquire); }
 
-// live shadows, for the cap's least-recently-used eviction
+// live shadows, for the cap's least-recently-used eviction (lock order: g_live_mu of nvn_gpu_pool.cpp -> g_reg_mu -> the landing's mutexes)
 std::mutex g_reg_mu;
 std::vector<PoolChunk*> g_reg;
-
-// the landing thread
-std::mutex g_th_mu;
-std::condition_variable g_th_cv;
-std::thread g_th;
-bool g_th_stop = false;
 
 struct CopyGauges {
     CopyGauges() {
         nxrt::gauge_register("nvn.pool.copy.live_mb", [] { return g_live.load(std::memory_order_relaxed) >> 20; });
         nxrt::gauge_register("nvn.pool.copy.copied_kb", [] { return g_last_sub_kb.load(std::memory_order_relaxed); });
-        nxrt::gauge_register("nvn.pool.copy.landed_kb", [] { return static_cast<int64_t>(g_landed.load(std::memory_order_relaxed) >> 10); });
+        nxrt::gauge_register("nvn.pool.copy.landed_kb", [] { return static_cast<int64_t>(pcopy::shared().landed.load(std::memory_order_relaxed) >> 10); });
         nxrt::gauge_register("nvn.pool.copy.write_unmatched", [] { return static_cast<int64_t>(g_unmatched.load(std::memory_order_relaxed)); });
         nxrt::gauge_register("nvn.pool.copy.import_fallback", [] { return static_cast<int64_t>(g_fallback.load(std::memory_order_relaxed)); });
-        nxrt::gauge_register("nvn.pool.copy.unreadable", [] { return static_cast<int64_t>(g_unreadable.load(std::memory_order_relaxed)); });
+        nxrt::gauge_register("nvn.pool.copy.unreadable", [] { return static_cast<int64_t>(pcopy::shared().unreadable.load(std::memory_order_relaxed)); });
         nxrt::gauge_register("nvn.pool.copy.span_writes", [] { return static_cast<int64_t>(g_span_writes.load(std::memory_order_relaxed)); });
         nxrt::hitch_add_counter("pool_copy_copied_kb", []() -> uint64_t { return g_copied.load(std::memory_order_relaxed) >> 10; });
-        nxrt::hitch_add_counter("pool_copy_landed_kb", []() -> uint64_t { return g_landed.load(std::memory_order_relaxed) >> 10; });
+        nxrt::hitch_add_counter("pool_copy_landed_kb", []() -> uint64_t { return pcopy::shared().landed.load(std::memory_order_relaxed) >> 10; });
     }
     ~CopyGauges() {
         for (const char* n : {"nvn.pool.copy.live_mb", "nvn.pool.copy.copied_kb", "nvn.pool.copy.landed_kb", "nvn.pool.copy.write_unmatched",
@@ -193,63 +168,6 @@ bool seh_copy(void* d, const void* s, size_t n) {
     return true;
 }
 
-// [d, d + n) <- [s, s + n); on a fault, page by page of `s` (in) or `d` (out): a part that cannot be copied is zero-filled when it is the
-// shadow side (in) or left alone (out). Returns the parts that could not be copied.
-uint64_t guarded_copy(uint8_t* d, const uint8_t* s, uint64_t n, bool in) {
-    if (seh_copy(d, s, static_cast<size_t>(n))) return 0;
-    uint64_t bad = 0;
-    const uint64_t a = reinterpret_cast<uint64_t>(in ? s : d);
-    for (uint64_t o = 0; o < n;) {
-        const uint64_t k = std::min<uint64_t>(n - o, kPage - ((a + o) & (kPage - 1)));
-        if (!seh_copy(d + o, s + o, static_cast<size_t>(k))) {
-            if (in) std::memset(d + o, 0, static_cast<size_t>(k));
-            ++bad;
-        }
-        o += k;
-    }
-    return bad;
-}
-
-void land_min_update() { g_land_min.store(g_land.empty() ? kNone : g_land.front().serial, std::memory_order_release); }
-
-void drop_all_records() {
-    std::lock_guard<std::mutex> lk(g_land_mu);
-    for (const LandRec& r : g_land)
-        if (r.chunk->land_refs) --r.chunk->land_refs;
-    g_land.clear();
-    land_min_update();
-}
-
-void land_loop() {
-    log_set_thread_name("nvn-pool-land");
-    std::unique_lock<std::mutex> lk(g_th_mu);
-    while (!g_th_stop) {
-        const uint64_t s = g_land_min.load(std::memory_order_acquire);
-        if (s == kNone) {
-            g_th_cv.wait_for(lk, std::chrono::milliseconds(50));
-            continue;
-        }
-        lk.unlock();
-        // A word the game polls in memory with no API call (an event the GPU signals, a report) lands within a few ms of its serial.
-        if (timeline_wait(s, 5ull * 1000 * 1000)) {
-            poll_completed();
-        } else if (device().device_lost()) {   // nothing lands after a device loss: the records go
-            drop_all_records();
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (a timeout took 5 ms; an error returns at once)
-        }
-        lk.lock();
-    }
-}
-
-void start_lander() {
-    std::lock_guard<std::mutex> lk(g_th_mu);
-    if (g_th.joinable()) return;
-    g_th_stop = false;
-    g_th = std::thread(land_loop);
-}
-
 void reg_remove(PoolChunk* c) {
     std::lock_guard<std::mutex> lk(g_reg_mu);
     g_reg.erase(std::remove(g_reg.begin(), g_reg.end(), c), g_reg.end());
@@ -265,6 +183,30 @@ VkBufferUsageFlags shadow_usage() {      // what import_range gives an import's 
 bool covers(const PoolChunk* c, uint64_t off) { return c && c->is_shadow && c->buffer && off >= c->off && off < c->off + c->size; }
 
 }  // namespace
+
+namespace pcopy {
+
+Shared& shared() {
+    static Shared s;
+    return s;
+}
+
+uint64_t guarded_copy(uint8_t* d, const uint8_t* s, uint64_t n, bool in) {
+    if (seh_copy(d, s, static_cast<size_t>(n))) return 0;
+    uint64_t bad = 0;
+    const uint64_t a = reinterpret_cast<uint64_t>(in ? s : d);
+    for (uint64_t o = 0; o < n;) {
+        const uint64_t k = std::min<uint64_t>(n - o, kPage - ((a + o) & (kPage - 1)));
+        if (!seh_copy(d + o, s + o, static_cast<size_t>(k))) {
+            if (in) std::memset(d + o, 0, static_cast<size_t>(k));
+            ++bad;
+        }
+        o += k;
+    }
+    return bad;
+}
+
+}  // namespace pcopy
 
 bool pool_copy_on() {
     const Cfg& c = cfg();
@@ -288,7 +230,7 @@ void pcopy_pool_init(PoolGpu* g) {
                                                                   : "pool_copy_track off: every bind copies its pages");
     });
     g_any.store(true, std::memory_order_relaxed);
-    start_lander();
+    pcopy::land_start();
 }
 
 void pcopy_pool_destroy(PoolGpu* g) {
@@ -379,21 +321,11 @@ PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made) {
 void pcopy_free(PoolChunk& c) {
     reg_remove(&c);
     g_free_gen.fetch_add(1, std::memory_order_acq_rel);
-    std::lock_guard<std::mutex> landing(g_landing_mu);     // no landing copies into this chunk's shadow while it is destroyed
-    {   // records of a chunk that goes (its pool is destroyed) do not land; an idle drop or an eviction happens only with none left
-        std::lock_guard<std::mutex> lk(g_land_mu);
-        g_land.erase(std::remove_if(g_land.begin(), g_land.end(), [&c](const LandRec& r) { return r.chunk == &c; }), g_land.end());
-        land_min_update();
-    }
+    pcopy::land_forget(c);     // no landing reads this chunk's shadow from here on
     if (t_last.chunk == &c) t_last = LastResolve{};
     g_live.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
     g_chunks.fetch_sub(1, std::memory_order_relaxed);
     device().destroy_buffer(c.shadow);
-}
-
-bool pcopy_busy(const PoolChunk& c) {
-    std::lock_guard<std::mutex> lk(g_land_mu);
-    return c.land_refs != 0;
 }
 
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
@@ -434,8 +366,8 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
         while (q < p1 && need(q) == 1) ++q;
         // armed before the copy reads them: a write that lands during the copy faults, and the page is copied again at its next use
         if (trk) ptrack_before_copy(trk, pbase + p, q - p, frame, &c->page_gen[static_cast<size_t>(p)]);
-        const uint64_t bad = guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
-        if (bad) g_unreadable.fetch_add(bad, std::memory_order_relaxed);
+        const uint64_t bad = pcopy::guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
+        if (bad) pcopy::shared().unreadable.fetch_add(bad, std::memory_order_relaxed);
         if (rt)
             for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = cur ? cur : kOutside;
         bytes += (q - p) * kPage;
@@ -506,92 +438,11 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
         std::atomic<uint64_t>& w = pg->page_gpu[static_cast<size_t>(p)];
         if (w.load(std::memory_order_relaxed) < serial) w.store(serial, std::memory_order_release);
     }
-    bool first = false;
-    {
-        std::lock_guard<std::mutex> lk(g_land_mu);
-        // the same range bound again in this submission (a storage buffer of every draw): one record
-        const size_t n = g_land.size();
-        for (size_t i = n; i-- > 0 && i + 8 >= n;) {
-            const LandRec& r = g_land[i];
-            if (r.serial != serial) break;
-            if (r.chunk == c && r.pool_off <= off && end <= r.pool_off + r.size) return;
-        }
-        first = g_land.empty();
-        g_land.push_back(LandRec{pg, c, off, end - off, serial});
-        ++c->land_refs;
-        if (first) land_min_update();
-    }
-    g_records.fetch_add(1, std::memory_order_relaxed);
-    if (first) {
-        std::lock_guard<std::mutex> lk(g_th_mu);     // under the mutex the lander waits on: no wake-up lost between its test and its wait
-        g_th_cv.notify_one();
-    }
-}
-
-uint64_t pcopy_land(uint64_t reached) {
-    if (t_landing || g_land_min.load(std::memory_order_acquire) > reached) return reached;
-    t_landing = true;
-    const uint64_t t0 = ft::on() ? ft::now_ns() : 0;
-    uint64_t bytes = 0, bad = 0;
-    {
-        std::lock_guard<std::mutex> landing(g_landing_mu);
-        // The records leave the queue now, but g_land_min and land_refs stay as they were until the copy is done: a second caller that tests
-        // g_land_min still waits on g_landing_mu, so no serial is published before its bytes landed, and pcopy_busy holds the chunks.
-        std::vector<LandRec> batch;
-        {
-            std::lock_guard<std::mutex> lk(g_land_mu);
-            while (!g_land.empty() && g_land.front().serial <= reached) {
-                batch.push_back(g_land.front());
-                g_land.pop_front();
-            }
-        }
-        // pass 1: every copy. Two records of a serial can share a page: its page_gpu must stay set until both have landed, or a touch between
-        // them sees 0 and copies guest -> shadow over the page while the second record still lands stale bytes.
-        for (const LandRec& r : batch) {
-            const PoolChunk* c = r.chunk;
-            uint8_t* dst = r.pool->base + r.pool_off;
-            const uint8_t* src = static_cast<const uint8_t*>(c->shadow.mapped) + (r.pool_off - c->off);
-            mem::ww::before_os_write(dst, r.size);     // pages a write watch made read-only become writable (and count as written)
-            bad += guarded_copy(dst, src, r.size, false);
-            bytes += r.size;
-        }
-        // pass 2: page_gpu back to 0 where no later write was recorded: after every copy, so a touch that sees 0 copies the landed bytes
-        for (const LandRec& r : batch)
-            for (uint64_t p = r.pool_off / kPage; p <= (r.pool_off + r.size - 1) / kPage; ++p) {
-                uint64_t e = r.serial;
-                r.pool->page_gpu[static_cast<size_t>(p)].compare_exchange_strong(e, 0, std::memory_order_release, std::memory_order_relaxed);
-            }
-        {
-            std::lock_guard<std::mutex> lk(g_land_mu);
-            for (const LandRec& r : batch)
-                if (r.chunk->land_refs) --r.chunk->land_refs;
-            land_min_update();
-        }
-    }
-    t_landing = false;
-    if (bad) g_unreadable.fetch_add(bad, std::memory_order_relaxed);
-    if (bytes) {
-        g_landed.fetch_add(bytes, std::memory_order_relaxed);
-        if (t0) {
-            static const uint16_t z = ft::zone_id("pool.copy.land");
-            ft::event(z, t0, ft::now_ns(), static_cast<uint32_t>(std::min<uint64_t>(bytes >> 10, 0xffffffffu)));
-        }
-    }
-    return reached;
+    pcopy::land_record(pg, c, off, end - off, serial);
 }
 
 void pcopy_shutdown() {
-    {
-        std::lock_guard<std::mutex> lk(g_th_mu);
-        g_th_stop = true;
-    }
-    g_th_cv.notify_all();
-    if (g_th.joinable()) g_th.join();
-    {
-        std::lock_guard<std::mutex> lk(g_th_mu);
-        g_th_stop = false;            // a later back end (tests bring it up and down) starts its own
-    }
-    drop_all_records();               // the device is idle and the pools go next
+    pcopy::land_stop();               // the device is idle and the pools go next
     t_last = LastResolve{};
 }
 
@@ -628,18 +479,14 @@ void pcopy_log_summary(uint32_t presents) {
     const auto now = std::chrono::steady_clock::now();
     const double secs = std::max(1e-3, std::chrono::duration<double>(now - last).count());
     last = now;
-    const uint64_t copied = g_copied.load(), landed = g_landed.load();
-    size_t pending = 0;
-    {
-        std::lock_guard<std::mutex> lk(g_land_mu);
-        pending = g_land.size();
-    }
+    const uint64_t copied = g_copied.load(), landed = pcopy::shared().landed.load();
+    const size_t pending = pcopy::land_pending();
     NXLOG_I(kTag, "pool_copy: %lld MiB of shadows live in %llu chunks (%llu spans made, %llu dropped by the cap); copied in %.1f MiB/s, landed %.1f MiB/s; "
                   "%llu writes recorded, %zu waiting; %llu import fallbacks, %llu unreadable pages, %llu writes matched by cell, %llu span writes",
             static_cast<long long>(g_live.load() >> 20), static_cast<unsigned long long>(g_chunks.load()), static_cast<unsigned long long>(g_spans.load()),
             static_cast<unsigned long long>(g_evicted.load()), (copied - p_copied) / 1048576.0 / secs, (landed - p_landed) / 1048576.0 / secs,
-            static_cast<unsigned long long>(g_records.load()), pending, static_cast<unsigned long long>(g_fallback.load()),
-            static_cast<unsigned long long>(g_unreadable.load()), static_cast<unsigned long long>(g_unmatched.load()),
+            static_cast<unsigned long long>(pcopy::shared().records.load()), pending, static_cast<unsigned long long>(g_fallback.load()),
+            static_cast<unsigned long long>(pcopy::shared().unreadable.load()), static_cast<unsigned long long>(g_unmatched.load()),
             static_cast<unsigned long long>(g_span_writes.load()));
     if (pool_track_on()) {
         const PoolTrackStats t = ptrack_stats();
@@ -659,15 +506,12 @@ PoolCopyStats pool_copy_stats() {
     s.chunks = g_chunks.load();
     s.allocs = g_allocs.load();
     s.copied_bytes = g_copied.load();
-    s.landed_bytes = g_landed.load();
-    s.records = g_records.load();
-    {
-        std::lock_guard<std::mutex> lk(g_land_mu);
-        s.pending = g_land.size();
-    }
+    s.landed_bytes = pcopy::shared().landed.load();
+    s.records = pcopy::shared().records.load();
+    s.pending = pcopy::land_pending();
     s.write_unmatched = g_unmatched.load();
     s.import_fallback = g_fallback.load();
-    s.unreadable = g_unreadable.load();
+    s.unreadable = pcopy::shared().unreadable.load();
     s.span_writes = g_span_writes.load();
     s.evicted = g_evicted.load();
     return s;

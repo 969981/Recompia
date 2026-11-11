@@ -498,7 +498,7 @@ struct PoolGpu {
 };
 
 namespace gpu {
-// ---- [nvn] pool_copy = auto | on | off (nvn_pool_copy.cpp) ----------------------------------------------------------------------
+// ---- [nvn] pool_copy = auto | on | off (nvn_pool_copy.cpp, nvn_pool_land.cpp) ---------------------------------------------------
 // Copy (shadow) mode: pool cells live in host-visible Vulkan buffers of their own instead of userptr imports of guest memory. Every resolve
 // copies the pages of the range it touches that the CPU wrote since their last copy (nvn_pool_track.h; at most once per submission, never
 // over a page with a GPU write in flight); GPU writes are recorded at record time and copied back into guest memory when their serial
