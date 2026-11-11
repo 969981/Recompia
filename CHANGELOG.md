@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Link Play over the internet now works with just a room code.** The launcher's Internet choice uses the project's public relay by default: the host shares the room code, visitors pick Visit and type it, and nobody types an address or forwards a port. Your own relay, this PC's relay and a direct address are under **Advanced**. Update only: no shader rebuild, no Set up again
+- **Joy-Con 2 mouse mode** is back: press the middle mouse button in play to point and click, and placing and breaking now land on the block under the pointer (left click is the Joy-Con's R, right click its ZR, as in Pikantine). Press it again to go back to camera aim. The **Mouse Mode Key** row is back in **Settings > Mouse**. Update only: no shader rebuild, no Set up again
 - New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
 - The Discord links in the launcher, the READMEs and the website now use the new invite, discord.recompia.com. Update only: no shader rebuild, no Set up again
@@ -10,17 +12,12 @@
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code for the shoulder camera's new hook, a few minutes. Your shaders and saves are kept; no shader is translated again.
 
-The Newt hotfix fixes a start-up crash on some AMD graphics, loading screens fast-forwarding, camera aim picking the wrong block and the launcher's Quality preset, and adds an over-the-shoulder camera, AMD FSR 3.1 frame generation, six button icon themes and a Gameplay tab in the game's own Settings.
+The Newt hotfix fixes a start-up crash on some AMD graphics, loading screens fast-forwarding, camera aim picking the wrong block and the launcher's Quality preset, and adds an over-the-shoulder camera, six button icon themes and a Gameplay tab in the game's own Settings.
 
 ### Highlights
 - Fixed the game closing at start with 0xC0000409 on some AMD graphics (#487)
 - Fixed loading screens and the boot screen fast-forwarding above 60 fps
-- Added an **over-the-shoulder camera** and **AMD FSR 3.1 frame generation**
-
-### Display
-- New **Frame generation** (AMD FSR 3.1): an extra frame between the game's own, made from the 3D picture only, so the HUD is not touched. Off by default: switch it on in Settings > Display (the launcher offers to download AMD's `amd_fidelityfx_framegeneration_vk.dll`), in the game's own Settings, or on the F1 Display page. It takes effect the next time the game starts
-  - The frame-rate counter then reads `FPS 60 | FG 120`: the frames the game renders, and the frames on the screen
-  - Needs the render resolution to be Match window, or to have the window's shape. Update only: no shader rebuild
+- Added an **over-the-shoulder camera**
 
 ### Gameplay mods
 - Every gameplay mod now has its switch in the launcher's **Settings > Gameplay**, built from the game's own list of mods, so a new mod shows up there by itself
