@@ -106,6 +106,30 @@ struct CpuSnap {
     std::unordered_map<uint64_t, std::wstring> names;         // pid -> image name
 };
 
+// The snapshot of one poll, from the system's process list in `list`. Our process is the record whose threads are `mine`.
+// UniqueProcessId sits at offset 0x50 of SYSTEM_PROCESS_INFORMATION on x64; UserTime 0x28, KernelTime 0x30, ImageName 0x38 (buffer at 0x40).
+constexpr size_t kProcIdOff = 0x50;
+CpuSnap take_snap(const uint8_t* list, uint32_t pid, const ThreadRec* mine, ULONG nthreads) {
+    CpuSnap snap;
+    for (size_t off = 0;;) {
+        const ProcRec* p = reinterpret_cast<const ProcRec*>(list + off);
+        const uint8_t* rec = list + off;
+        const uint64_t ppid = *reinterpret_cast<const uint64_t*>(rec + kProcIdOff);
+        if (ppid != pid) {
+            snap.procs[ppid] = *reinterpret_cast<const uint64_t*>(rec + 0x28) + *reinterpret_cast<const uint64_t*>(rec + 0x30);
+            const USHORT len = *reinterpret_cast<const USHORT*>(rec + 0x38);
+            const wchar_t* nm = *reinterpret_cast<const wchar_t* const*>(rec + 0x40);
+            if (nm && len) snap.names[ppid].assign(nm, len / sizeof(wchar_t));
+        }
+        if (!p->next_entry_offset) break;
+        off += p->next_entry_offset;
+    }
+    for (ULONG i = 0; i < nthreads; i++)
+        snap.mine[static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mine[i].unique_thread))] =
+            static_cast<uint64_t>(mine[i].kernel_time.QuadPart) + static_cast<uint64_t>(mine[i].user_time.QuadPart);
+    return snap;
+}
+
 const char* band_name(int host_prio) {
     switch (host_prio) {
         case THREAD_PRIORITY_TIME_CRITICAL: return "time critical";
@@ -182,7 +206,11 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
     const uint32_t pid = GetCurrentProcessId();
     const uint32_t self = GetCurrentThreadId();
     const int boost_polls = std::max(1, (kBoostMs + poll_ms - 1) / poll_ms);
-    std::deque<CpuSnap> hist;                      // the last need_polls snapshots, oldest first
+    std::unordered_map<uint32_t, const ThreadRec*> by_tid;
+    // The snapshots of the last polls in a row at which a guest thread was ready (need_polls at most, oldest first). Only a boost reads
+    // them, and the thread it boosts was ready at each of the last need_polls polls, so the list is whole whenever it is read; a poll
+    // with no ready guest thread takes none and empties it.
+    std::deque<CpuSnap> hist;
     ULONGLONG last_line = 0;
     uint64_t quiet = 0;                            // boosts not logged since the last line (at most one line per second)
     for (;;) {
@@ -198,20 +226,13 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
         }
         const ThreadRec* mine = nullptr;
         ULONG nthreads = 0;
-        CpuSnap snap;
         for (size_t off = 0;;) {
             const ProcRec* p = reinterpret_cast<const ProcRec*>(buf.data() + off);
-            // UniqueProcessId sits at offset 0x50 of SYSTEM_PROCESS_INFORMATION on x64; UserTime 0x28, KernelTime 0x30, ImageName 0x38 (buffer at 0x40)
             const uint8_t* rec = buf.data() + off;
-            const uint64_t ppid = *reinterpret_cast<const uint64_t*>(rec + 0x50);
-            if (ppid == pid) {
+            if (*reinterpret_cast<const uint64_t*>(rec + kProcIdOff) == pid) {
                 mine = reinterpret_cast<const ThreadRec*>(rec + sizeof(ProcRec));
                 nthreads = p->number_of_threads;
-            } else {
-                snap.procs[ppid] = *reinterpret_cast<const uint64_t*>(rec + 0x28) + *reinterpret_cast<const uint64_t*>(rec + 0x30);
-                const USHORT len = *reinterpret_cast<const USHORT*>(rec + 0x38);
-                const wchar_t* nm = *reinterpret_cast<const wchar_t* const*>(rec + 0x40);
-                if (nm && len) snap.names[ppid].assign(nm, len / sizeof(wchar_t));
+                break;
             }
             if (!p->next_entry_offset) break;
             off += p->next_entry_offset;
@@ -229,12 +250,14 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
                 return;
             }
         }
-        for (ULONG i = 0; i < nthreads; i++)
-            snap.mine[static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mine[i].unique_thread))] =
-                static_cast<uint64_t>(mine[i].kernel_time.QuadPart) + static_cast<uint64_t>(mine[i].user_time.QuadPart);
-        hist.push_back(std::move(snap));
-        while (hist.size() > static_cast<size_t>(need_polls)) hist.pop_front();
-        std::unordered_map<uint32_t, const ThreadRec*> by_tid;
+        bool snapped = false;
+        const auto snap_once = [&] {
+            if (snapped) return;
+            snapped = true;
+            hist.push_back(take_snap(buf.data(), pid, mine, nthreads));
+            while (hist.size() > static_cast<size_t>(need_polls)) hist.pop_front();
+        };
+        by_tid.clear();
         for (ULONG i = 0; i < nthreads; i++) by_tid[static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mine[i].unique_thread))] = &mine[i];
         for (const std::shared_ptr<KThread>& t : threads()) {
             if (!t->started || t->exited || !t->host_handle || !t->host_tid) continue;
@@ -249,6 +272,7 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
             if (ready && r.context_switches == s.switches) s.ready_polls++;
             else s.ready_polls = ready ? 1 : 0;
             s.switches = r.context_switches;
+            if (s.ready_polls && !s.boosted) snap_once();
             HANDLE h = static_cast<HANDLE>(t->host_handle);
             if (s.boosted) {                                    // boosted: keep it for boost_polls polls, then back to its band
                 if (++s.boost_polls >= boost_polls) {
@@ -280,6 +304,7 @@ void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
                 }
             }
         }
+        if (!snapped) hist.clear();
     }
 }
 
