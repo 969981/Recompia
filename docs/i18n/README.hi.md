@@ -40,7 +40,7 @@
   <a href="../../SECURITY.md">सुरक्षा</a> ·
   <a href="../../LEGAL.md">कानूनी</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">समस्याएँ</a> ·
-  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
+  <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -246,7 +246,7 @@ Link Play अभी परीक्षण में है: जुड़ना �
 
 ## समुदाय
 
-सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.gg/gN5g4MtWHr) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) पर रिपोर्ट करें।
+सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.recompia.com) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) पर रिपोर्ट करें।
 
 ## समस्याएँ रिपोर्ट करना
 

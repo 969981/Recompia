@@ -34,7 +34,7 @@
   <a href="SECURITY.md">Security</a> ·
   <a href="LEGAL.md">Legal</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a> ·
-  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
+  <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 <!-- i18n-bar:start -->
@@ -245,7 +245,7 @@ Never attach game files, the `build` or `shader_cache` folders, or saves to an i
 
 ## Community
 
-Questions, bug help, testing and chat: join the [Recompia Discord](https://discord.gg/gN5g4MtWHr). The launcher also has a **Join Discord** button under Settings > About > Community. Bugs that need a fix are still reported on [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
+Questions, bug help, testing and chat: join the [Recompia Discord](https://discord.recompia.com). The launcher also has a **Join Discord** button under Settings > About > Community. Bugs that need a fix are still reported on [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
 
 ## Reporting problems
 

@@ -13,6 +13,6 @@ Pokopia PC @VERSION@ لنظام Linux وSteamOS وSteam Deck
 
 التحديث: استخرج الإصدار الجديد فوق تثبيتك. إذا غيّر التحديث شيفرة اللعبة، يخبرك المشغّل: اضغط Set up مرة أخرى وسيعيد بناء pkp.exe. تبقى شيدراتك وملفات حفظك.
 
-المجتمع والمساعدة: https://discord.gg/gN5g4MtWHr
+المجتمع والمساعدة: https://discord.recompia.com
 
 التراخيص: LICENSE.txt و licenses/.
