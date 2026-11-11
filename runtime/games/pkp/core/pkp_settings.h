@@ -104,4 +104,14 @@ std::string get_str(Key k);
 // Set by the env or the ini (a key whose absence means "leave the game's / another page's value": quality_preset, lod_distance).
 bool is_set(Key k);
 
+// Saving a value (the game's own Settings screen, pkp_options.cpp): the [pkp] line of the game ini (game::Info::game_ini, in the game
+// folder) is changed in place (nxrt/ini_edit.h) and the value is in force for the getters at once (config_set), so an Applies::Live key
+// takes effect without a restart. Int and Double are clamped to the key's range; a String with choices takes only one of them. An
+// NXRT_PKP_<KEY> environment variable still wins on read. False when the setter does not match the key's type, the string is not one
+// of the choices, or the file could not be written (the value is then in force until the game closes; the reason is logged).
+bool set_bool(Key k, bool v);
+bool set_int(Key k, int64_t v);
+bool set_double(Key k, double v);
+bool set_str(Key k, const std::string& v);
+
 }  // namespace nxrt::games::pkp::settings
