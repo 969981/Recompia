@@ -13,6 +13,6 @@ Pelo Steam (Modo Jogo no Deck): adicione o PokopiaLauncher.AppImage como um jogo
 
 Atualizando: extraia a nova versão por cima da sua instalação. Se a atualização mudar o código do jogo, o launcher avisa: aperte Set up again e ele recompila o pkp.exe. Os seus shaders e saves são mantidos.
 
-Comunidade e ajuda: https://discord.gg/gN5g4MtWHr
+Comunidade e ajuda: https://discord.recompia.com
 
 Licenças: LICENSE.txt e licenses/.

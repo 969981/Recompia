@@ -13,6 +13,6 @@ Para iniciarlo desde Steam (modo Juego en Deck): añade PokopiaLauncher.AppImage
 
 Para actualizar, extrae los archivos de la nueva versión sobre los de tu instalación. Si la actualización cambia el código del juego, el launcher te avisa: pulsa Set up otra vez para que vuelva a compilar pkp.exe. Tus sombreadores y partidas guardadas se conservan.
 
-Comunidad y ayuda: https://discord.gg/gN5g4MtWHr
+Comunidad y ayuda: https://discord.recompia.com
 
 Licencias: consulta LICENSE.txt y la carpeta licenses/.

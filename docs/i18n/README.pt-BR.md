@@ -37,7 +37,7 @@
   <a href="../../SECURITY.md">Segurança</a> ·
   <a href="../../LEGAL.md">Aviso legal</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Problemas</a> ·
-  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
+  <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -242,7 +242,7 @@ Nunca anexe arquivos do jogo, as pastas `build` ou `shader_cache`, nem saves a u
 
 ## Comunidade
 
-Dúvidas, ajuda com bugs, testes e bate-papo: entre no [Discord do Recompia](https://discord.gg/gN5g4MtWHr). O launcher também tem um botão **Join Discord** em Settings > About > Community. Bugs que precisam de correção continuam sendo reportados no [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
+Dúvidas, ajuda com bugs, testes e bate-papo: entre no [Discord do Recompia](https://discord.recompia.com). O launcher também tem um botão **Join Discord** em Settings > About > Community. Bugs que precisam de correção continuam sendo reportados no [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
 
 ## Reportando problemas
 

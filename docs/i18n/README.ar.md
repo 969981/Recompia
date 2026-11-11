@@ -42,7 +42,7 @@
   <a href="../../SECURITY.md">الأمان</a> ·
   <a href="../../LEGAL.md">الشؤون القانونية</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">المشكلات</a> ·
-  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
+  <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -248,7 +248,7 @@ Link Play يضع عدة لاعبين على جزيرة واحدة. يعمل ال
 
 ## المجتمع
 
-للأسئلة والمساعدة في الأخطاء والاختبار والدردشة: انضم إلى [Recompia Discord](https://discord.gg/gN5g4MtWHr). يحتوي المشغّل أيضاً على زر **Join Discord** ضمن **Settings > About > Community**. الأخطاء التي تحتاج إلى إصلاح يتم الإبلاغ عنها على [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
+للأسئلة والمساعدة في الأخطاء والاختبار والدردشة: انضم إلى [Recompia Discord](https://discord.recompia.com). يحتوي المشغّل أيضاً على زر **Join Discord** ضمن **Settings > About > Community**. الأخطاء التي تحتاج إلى إصلاح يتم الإبلاغ عنها على [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
 
 ## الإبلاغ عن المشكلات
 

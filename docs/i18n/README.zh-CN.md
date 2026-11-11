@@ -39,7 +39,7 @@
   <a href="../../SECURITY.md">安全</a> ·
   <a href="../../LEGAL.md">法律信息</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">问题反馈</a> ·
-  <a href="https://discord.gg/gN5g4MtWHr">Discord</a>
+  <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -245,7 +245,7 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 
 ## 社区
 
-问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.gg/gN5g4MtWHr)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
+问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.recompia.com)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
 
 ## 报告问题
 
