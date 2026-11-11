@@ -89,7 +89,8 @@ void short_sleep_note(int64_t asked_ns, int64_t took_ns) {
             static_cast<double>(g_short_worst_ns.load()) / 1e3);
 }
 
-// One sleep on the timed address wait, from t0 for ns; token set: an early wake ends it (true then). The wait is asked for the time left
+// One sleep on the timed address wait, from t0 for ns; token set: an early wake ends it (true then); word set too: the sleep is on that
+// word instead and ends when it no longer holds *token (true then). The wait is asked for the time left
 // less its learned lateness (start 60 us: the Linux timer slack of 50 us plus the wake-up; precise_late_update's average), never for
 // less than kWaitMinNs, so a host whose wait is far later than the span sleeps late instead of spinning the span through. What is left
 // after the wait is spun when it is kWaitSpinMaxNs or less, else waited again.
@@ -99,21 +100,21 @@ constexpr int64_t kWaitSpinMaxNs = 30000;
 std::atomic<int64_t> g_wait_late{kWaitLateStartNs};
 GaugeHook gauge_wait_late("kernel.short_wait_late_us", [] { return g_wait_late.load(std::memory_order_relaxed) / 1000; });
 
-bool wait_sleep(int64_t t0, int64_t ns, const uint32_t* token) {
+bool wait_sleep(int64_t t0, int64_t ns, const uint32_t* token, const std::atomic<uint32_t>* word = nullptr) {
     const int64_t deadline = t0 + ns;
     for (int64_t now = t0;;) {
         const int64_t rem = deadline - now;
         if (rem <= 0) return false;
         if (rem <= kWaitSpinMaxNs) {
             while (qpc_ns() < deadline) {
-                if (token && detail::early_wake_passed(*token)) return true;
+                if (word ? word->load(std::memory_order_relaxed) != *token : token && detail::early_wake_passed(*token)) return true;
                 YieldProcessor();
             }
             return false;
         }
         const int64_t late = g_wait_late.load(std::memory_order_relaxed);
         const int64_t ask = std::max(rem - late, kWaitMinNs);
-        if (detail::address_wait_ns(token, ask)) return true;
+        if (word ? detail::address_wait_word_ns(*word, *token, ask) : detail::address_wait_ns(token, ask)) return true;
         const int64_t after = qpc_ns();
         const int64_t next = precise_late_update(late, ask, after - now);   // a wait that came back early (a stale wake) is no sample
         if (next != late) g_wait_late.store(next, std::memory_order_relaxed);
@@ -187,6 +188,13 @@ void sleep_once(int64_t ns) {
 }  // namespace
 
 detail::ShortSleep detail::short_sleep_mode() { return short_cfg().mode; }
+
+bool detail::sleep_on_word(int64_t ns, const std::atomic<uint32_t>& word, uint32_t seen) {
+    const int64_t t0 = qpc_ns();
+    const bool early = wait_sleep(t0, ns, &seen, &word);
+    if (!early && ns <= short_cfg().max_ns) short_sleep_note(ns, qpc_ns() - t0);
+    return early;
+}
 
 void detail::sleep_timer_ns(int64_t ns) {
     if (ns <= 0 || clock::virtual_sleep(ns)) return;

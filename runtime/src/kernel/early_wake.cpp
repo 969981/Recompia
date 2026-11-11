@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Early wake for short guest sleeps (nxrt/early_wake.h): the wake generation, the per-thread arm, and the host's timed wait on an
-// address that both the early wake and [kernel] short_sleep = wait sleep on.
+// address that the early wake, [kernel] short_sleep = wait and the poll wait (poll_wait.cpp) sleep on.
 #include <windows.h>
 
 #include <atomic>
@@ -78,6 +78,15 @@ bool detail::address_wait_word(const std::atomic<uint32_t>* word, uint32_t seen,
 }
 
 void detail::address_wake_word(const std::atomic<uint32_t>* word) { address_wait().wake_all(word); }
+
+bool detail::address_wait_word_ns(const std::atomic<uint32_t>& word, uint32_t seen, int64_t ns) {
+    LARGE_INTEGER span;
+    span.QuadPart = -((ns + 99) / 100);   // relative, in 100 ns units
+    address_wait().wait(&word, &seen, sizeof seen, &span);
+    return word.load() != seen;
+}
+
+void detail::address_wake_all(const std::atomic<uint32_t>& word) { address_wait().wake_all(&word); }
 
 bool early_wake_enabled() {
     static const bool on = [] {

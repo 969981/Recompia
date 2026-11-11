@@ -23,6 +23,7 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
+#include "poll_wait.h"
 
 namespace nxrt {
 namespace {
@@ -241,6 +242,7 @@ void svc_dispatch(::Ctx* c, uint32_t number, uint64_t pc) {
     }
     if (auto fn = g_busy_hook.load(std::memory_order_acquire); fn && GetCurrentThreadId() == g_busy_tid.load(std::memory_order_relaxed)) fn();
     if (auto fn = g_observer.load(std::memory_order_relaxed)) fn(c);
+    kernel::poll_wait_check();   // a guest thread is in the kernel: has a value a polling loop sleeps on changed? (poll_wait.h)
     SvcHandler h = svc_handler(number);
     if (number < kSvcCount) count_svc(number);
     if (!h) {

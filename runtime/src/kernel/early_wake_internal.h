@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Internal to src/kernel: what SleepThread (time.cpp) and the early wake (early_wake.cpp) need from each other.
+// Internal to src/kernel: what SleepThread (time.cpp), the early wake (early_wake.cpp) and the poll wait (poll_wait.cpp) need from
+// each other.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -20,6 +21,14 @@ bool address_wait_available();
 // Blocks for ns at most. token null: a plain sleep on a word nobody wakes. token set: ends when the wake generation is no longer *token
 // (checked before blocking too); true then. May return early without that (a stale wake): the caller checks its deadline.
 bool address_wait_ns(const uint32_t* token, int64_t ns);
+// The same wait on a word of the caller's: blocks for ns at most while word holds `seen` (checked before blocking too); true when it no
+// longer does. May return early with the word unchanged, as above. Whoever changes the word calls address_wake_all on it.
+bool address_wait_word_ns(const std::atomic<uint32_t>& word, uint32_t seen, int64_t ns);
+void address_wake_all(const std::atomic<uint32_t>& word);
+// One sleep of ns on that wait, as SleepThread's short sleep runs it (the wait's learned lateness taken off, the remainder spun; counted
+// with the short sleeps when it ran its time and ns is a short span): true when it ended because word left `seen`. Only with
+// short_sleep_mode() == Wait.
+bool sleep_on_word(int64_t ns, const std::atomic<uint32_t>& word, uint32_t seen);
 
 // The same wait on any word, for a waiter that has its own (kernel_sync.cpp: a guest thread's park word). Blocks while *word == seen, for
 // ns at most (ns < 0: no timeout). False when the timeout ended it. May return true with the word unchanged (a stale wake): the caller
