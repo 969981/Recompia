@@ -27,8 +27,9 @@ bool address_wait_word_ns(const std::atomic<uint32_t>& word, uint32_t seen, int6
 void address_wake_all(const std::atomic<uint32_t>& word);
 // One sleep of ns on that wait, as SleepThread's short sleep runs it (the wait's learned lateness taken off, the remainder spun; counted
 // with the short sleeps when it ran its time and ns is a short span): true when it ended because word left `seen`. Only with
-// short_sleep_mode() == Wait.
-bool sleep_on_word(int64_t ns, const std::atomic<uint32_t>& word, uint32_t seen);
+// short_sleep_mode() == Wait. t0: the start, as qpc::now_ns gives it; *end: the sleep's last clock reading (0 when the word ended it with
+// none after the wait), so the caller reads the clock neither before nor after it.
+bool sleep_on_word(int64_t t0, int64_t ns, const std::atomic<uint32_t>& word, uint32_t seen, int64_t* end);
 
 // The same wait on any word, for a waiter that has its own (kernel_sync.cpp: a guest thread's park word). Blocks while *word == seen, for
 // ns at most (ns < 0: no timeout). False when the timeout ended it. May return true with the word unchanged (a stale wake): the caller
