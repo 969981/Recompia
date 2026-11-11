@@ -6,6 +6,11 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Display
+- New **Frame generation** (AMD FSR 3.1): an extra frame between the game's own, made from the 3D picture only, so the HUD is not touched. Off by default: switch it on in Settings > Display (the launcher offers to download AMD's `amd_fidelityfx_framegeneration_vk.dll`), in the game's own Settings, or on the F1 Display page. It takes effect the next time the game starts
+  - The frame-rate counter then reads `FPS 60 | FG 120`: the frames the game renders, and the frames on the screen
+  - Needs the render resolution to be Match window, or to have the window's shape. Update only: no shader rebuild
+
 ### Gameplay mods
 - Every gameplay mod now has its switch in the launcher's **Settings > Gameplay**, built from the game's own list of mods, so a new mod shows up there by itself
   - **Search in the crafting screen** is now optional: off by default, switch it on in Settings > Gameplay. If you already set it yourself, your choice is kept

@@ -15,8 +15,9 @@ export const fieldOf = (t) => {
   return { f: FIELDS[id], part };
 };
 
-/** dlss: the DLSS module (pick(f, value) asks for the download before an upscaler that needs the file is saved). */
-export function createControls(h, dlss) {
+/** dlss: the DLSS module (pick(f, value) asks for the download before an upscaler that needs the file is saved); framegen: the same for frame
+ *  generation's DLL (pick(f)). */
+export function createControls(h, dlss, framegen) {
   const { el, st } = h;
 
   function commitNumber(f, t, part, final) {
@@ -40,6 +41,7 @@ export function createControls(h, dlss) {
       if (!t.value || !Number.isFinite(picked.getTime())) return h.draw(true);
       return h.commit(f, Math.round((picked.getTime() - Date.now()) / 60000));
     }
+    if (f.type === 'toggle' && f.guard === 'framegen' && t.checked && !st.framegen) return framegen.pick(f);   // AMD's DLL first
     if (f.type === 'toggle') return h.commit(f, t.checked);
     if (f.type === 'slider') return h.commit(f, Number(t.value));
     return h.commit(f, t.value);

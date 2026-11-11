@@ -172,6 +172,13 @@ const char* preset_text(int v, char*, size_t) {
 }
 int preset_max() { int n = 0; play::quality_presets(&n); return n - 1; }
 
+// Frame generation needs AMD's DLL: without it the row has no "On" and says what is missing.
+const char* framegen_text(int v, char*, size_t) {
+    if (v > 0) return "On";
+    return extras::framegen_dll_found() ? "Off" : "Off (needs amd_fidelityfx_framegeneration_vk.dll)";
+}
+int framegen_max() { return extras::framegen_dll_found() ? 1 : 0; }
+
 const char* monitor_text(int v, char* out, size_t n) {
     if (v <= 0) return "Automatic";
     if (!platform::display_name(v, out, static_cast<int>(n))) std::snprintf(out, n, "Display %d", v);
@@ -207,6 +214,8 @@ const Row kDisplay[] = {
     choice("Even Frame Pacing", "With VSync, run at an even divisor of the refresh rate (Steam Deck: 30 instead of 40).", kOffOn, 2,
            [](const S& s) { return static_cast<int>(s.display.fps_snap == "true" || (s.display.fps_snap == "auto" && nxrt::host_is_steam_deck())); },
            [](S& s, int v) { s.display.fps_snap = v ? "true" : "false"; }),
+    dynamic("Frame Generation", "AMD FSR 3.1: an extra frame between the game's, from the 3D picture only (not the HUD). Needs amd_fidelityfx_framegeneration_vk.dll "
+            "in upscalers\\fsr3, and the picture of the window's shape.", framegen_text, framegen_max, ROW_BOOL(extras.framegen.enabled), true),
     autonum("Render Scale", "The game's resolution; 100% is 1920 x 1080. Auto follows the window.", 76, "%.0f%%", 20, 5,
             [](const S& s) { return s.display.render_scale <= 0 ? 0 : std::clamp((s.display.render_scale - 20) / 5, 1, 76); },
             [](S& s, int v) { s.display.render_scale = v <= 0 ? 0 : 20 + v * 5; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }, true),
