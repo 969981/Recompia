@@ -145,6 +145,8 @@ struct DeviceLimitsExt {
     // VK_EXT_subgroup_size_control (Vulkan 1.3): the range a pipeline stage may ask for, and the stages that may ask
     uint32_t min_subgroup_size = 0, max_subgroup_size = 0, required_subgroup_stages = 0;
     bool subgroup_size_control = false;
+    // most subgroups one compute workgroup may hold: a stage asking for 32 runs at most 32 x this invocations per workgroup
+    uint32_t max_compute_workgroup_subgroups = 0;
     uint32_t max_memory_allocation_count = 0;
 };
 
@@ -162,6 +164,18 @@ public:
     VkDevice device() const { return device_; }
     VkQueue queue() const { return queue_; }
     uint32_t queue_family() const { return queue_family_; }
+    // The three more queues AMD's frame-generation swapchain asks for (extras/framegen.h), each a queue of its own: one that computes, one that
+    // presents, one that only acquires images. Made with the device when the FidelityFX frame-generation DLL is found, otherwise `ok` is false
+    // and the device has the one queue above.
+    struct ExtraQueue {
+        VkQueue queue = VK_NULL_HANDLE;
+        uint32_t family = 0;
+    };
+    struct FrameGenQueues {
+        ExtraQueue async_compute, present, acquire;
+        bool ok = false;
+    };
+    const FrameGenQueues& framegen_queues() const { return framegen_queues_; }
     std::mutex& queue_mutex() { return queue_mutex_; }              // hold while calling vkQueueSubmit / vkQueuePresentKHR
     VmaAllocator allocator() const { return vma_; }
     VkSurfaceKHR surface() const { return surface_; }              // null when headless
@@ -238,6 +252,7 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queue_family_ = 0;
+    FrameGenQueues framegen_queues_;
     uint32_t timestamp_valid_bits_ = 0;
     std::mutex queue_mutex_;
     VmaAllocator vma_ = nullptr;

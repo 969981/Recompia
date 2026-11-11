@@ -342,7 +342,8 @@ void Overlay::draw(const FrameInfo& f) {
     const bool kb_on = !quit_on && s.kb_poll();
     const bool save_on = s.save_notice_visible(now_s);
     const bool touch_on = s.touch_btn.load(std::memory_order_relaxed) && !kb_on && !quit_on;   // the corner button (menu closed: "Menu", open: "Close")
-    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on) {
+    const bool layer_on = s.layer_wanted();   // the game's layer (overlay_layer.cpp)
+    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
         s.last_frame = now;
         s.counter_was_on = false;
         return;
@@ -365,7 +366,7 @@ void Overlay::draw(const FrameInfo& f) {
     }
     // a screenshot leaves the counter out unless asked for; with the menu hidden there is then nothing to draw
     const bool show_counter = counter_on && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on) {
+    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
         s.last_frame = now;
         return;
     }
@@ -385,6 +386,7 @@ void Overlay::draw(const FrameInfo& f) {
     s.update_scale(f.extent);
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
+    if (layer_on) s.draw_game_layer(f);   // the background list: under everything below
     // the keyboard and the quit prompt are modal: the menu (and a keyboard under the prompt) comes back once they are answered
     if (s.visible && !kb_on && !quit_on) s.build_ui();
     if (kb_on) s.draw_keyboard(now_s);

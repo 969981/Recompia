@@ -23,6 +23,7 @@
 #include "nxrt/platform.h"
 #include "nxrt/text.h"
 #include "vk_gauges.h"
+#include "extras/framegen.h"
 #include "extras/temporal.h"
 
 #include <vk_mem_alloc.h>
@@ -50,6 +51,57 @@ nxrt::GaugeCounter& vk_gauge_memory_allocs() { static nxrt::GaugeCounter g("vk.m
 nxrt::GaugeCounter& vk_gauge_memory_bytes() { static nxrt::GaugeCounter g("vk.memory_bytes"); return g; }
 
 }  // namespace nxrt
+
+namespace {
+
+// The queues AMD's frame-generation swapchain asks for besides the game's (extras/framegen.h, gfx.h Device::framegen_queues). The game's queue is
+// queue 0 of its family; each of the other three is a queue nobody else uses: async compute on a family that computes (one that does not draw when
+// the GPU has it), present on a family that presents (the game's first), acquire on any queue left. ok is false when the GPU has too few queues.
+struct FrameGenPlan {
+    struct Slot {
+        uint32_t family = 0, index = 0;
+    };
+    bool ok = false;
+    std::vector<uint32_t> counts;   // the queues to make in each family, the game's included
+    Slot async_compute, present, acquire;
+};
+
+FrameGenPlan plan_framegen_queues(VkPhysicalDevice pd, VkSurfaceKHR surface, uint32_t game_family) {
+    FrameGenPlan p;
+    uint32_t nq = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, nullptr);
+    std::vector<VkQueueFamilyProperties> qf(nq);
+    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, qf.data());
+    p.counts.assign(nq, 0);
+    p.counts[game_family] = 1;
+    auto take = [&](uint32_t f, FrameGenPlan::Slot* out) {
+        if (p.counts[f] >= qf[f].queueCount) return false;
+        out->family = f;
+        out->index = p.counts[f]++;
+        return true;
+    };
+    auto presents = [&](uint32_t f) {
+        VkBool32 ok = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(pd, f, surface, &ok);
+        return ok == VK_TRUE;
+    };
+    bool got = false;
+    for (uint32_t f = 0; f < nq && !got; ++f)
+        if ((qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) got = take(f, &p.async_compute);
+    for (uint32_t f = 0; f < nq && !got; ++f)
+        if (qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) got = take(f, &p.async_compute);
+    if (!got) return p;
+    got = presents(game_family) && take(game_family, &p.present);
+    for (uint32_t f = 0; f < nq && !got; ++f)
+        if (presents(f)) got = take(f, &p.present);
+    if (!got) return p;
+    got = take(game_family, &p.acquire);
+    for (uint32_t f = 0; f < nq && !got; ++f) got = take(f, &p.acquire);
+    p.ok = got;
+    return p;
+}
+
+}  // namespace
 
 namespace nxrt::gfx {
 
@@ -452,11 +504,17 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     std::vector<VkPhysicalDevice> devs(ndev);
     vkEnumeratePhysicalDevices(instance_, &ndev, devs.data());
 
-    struct Cand { VkPhysicalDevice pd; uint32_t qfam; bool eligible; std::string why; };
+    // luid/uuid: the adapter's identity, used to find one GPU listed twice by two installed drivers (below).
+    struct Cand {
+        VkPhysicalDevice pd; uint32_t qfam; bool eligible; std::string why;
+        bool luid_valid = false; uint8_t luid[VK_LUID_SIZE] = {}; uint8_t uuid[VK_UUID_SIZE] = {};
+    };
     std::vector<Cand> cands;
     for (uint32_t i = 0; i < ndev; ++i) {
-        VkPhysicalDeviceProperties p;
-        vkGetPhysicalDeviceProperties(devs[i], &p);
+        VkPhysicalDeviceIDProperties idp = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+        VkPhysicalDeviceProperties2 p2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &idp};
+        vkGetPhysicalDeviceProperties2(devs[i], &p2);
+        const VkPhysicalDeviceProperties& p = p2.properties;
         GpuInfo gi;
         gi.index = i;
         gi.name = p.deviceName;
@@ -471,6 +529,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
             if (mp.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) gi.vram_bytes = std::max<uint64_t>(gi.vram_bytes, mp.memoryHeaps[h].size);
 
         Cand c{devs[i], UINT32_MAX, true, ""};
+        c.luid_valid = idp.deviceLUIDValid == VK_TRUE;
+        std::memcpy(c.luid, idp.deviceLUID, VK_LUID_SIZE);
+        std::memcpy(c.uuid, idp.deviceUUID, VK_UUID_SIZE);
         if (p.apiVersion < VK_API_VERSION_1_3) { c.eligible = false; c.why = "Vulkan 1.3 not supported"; }
         if (c.eligible) {
             VkPhysicalDeviceVulkan13Features f13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -508,6 +569,29 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
                 VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
                 p.driverVersion, static_cast<double>(gi.vram_bytes) / (1024.0 * 1024.0 * 1024.0),
                 c.eligible ? "" : " NOT USABLE: ", c.eligible ? "" : c.why.c_str());
+    }
+
+    // One GPU, two drivers: a leftover driver package (often an APU's older Radeon driver, whose Vulkan driver also lists
+    // the discrete card) shows the same adapter a second time. The old user-mode driver against the new kernel driver
+    // crashes inside the driver on the first frames, and the default rule cannot tell the two apart (same type, same
+    // memory), so the copy with the older Vulkan / driver version is dropped before the rule runs.
+    auto same_adapter = [](const Cand& a, const Cand& b) {
+        if (a.luid_valid && b.luid_valid) return std::memcmp(a.luid, b.luid, VK_LUID_SIZE) == 0;
+        static const uint8_t zero[VK_UUID_SIZE] = {};
+        return std::memcmp(a.uuid, zero, VK_UUID_SIZE) != 0 && std::memcmp(a.uuid, b.uuid, VK_UUID_SIZE) == 0;
+    };
+    for (size_t i = 0; i < cands.size(); ++i) {
+        for (size_t j = 0; j < cands.size() && cands[i].eligible; ++j) {
+            if (i == j || !cands[j].eligible || !same_adapter(cands[i], cands[j])) continue;
+            const auto vi = std::make_tuple(gpus_[i].api_version, gpus_[i].driver_version, i < j);
+            const auto vj = std::make_tuple(gpus_[j].api_version, gpus_[j].driver_version, j < i);
+            if (vi > vj) continue;   // i is the newer copy (equal versions: the first one listed stays)
+            cands[i].eligible = false;
+            cands[i].why = "older driver for the same GPU as GPU " + std::to_string(j);
+            gpus_[i].can_present = false;
+            NXLOG_W(kTag, "GPU %zu NOT USABLE: %s (two graphics drivers are installed for this GPU; reinstalling the "
+                    "graphics driver removes the old one)", i, cands[i].why.c_str());
+        }
     }
 
     // The rule runs over the usable devices only; a numeric override is an index into the list logged above.
@@ -708,25 +792,54 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
         limits_.max_subgroup_size = p13.maxSubgroupSize;
         limits_.required_subgroup_stages = p13.requiredSubgroupSizeStages;
         limits_.subgroup_size_control = a13.subgroupSizeControl == VK_TRUE;
-        NXLOG_I(kTag, "subgroups: %u wide (%u..%u), size control %d, a size can be required for stages 0x%x", p11.subgroupSize,
-                p13.minSubgroupSize, p13.maxSubgroupSize, limits_.subgroup_size_control ? 1 : 0, static_cast<unsigned>(p13.requiredSubgroupSizeStages));
+        limits_.max_compute_workgroup_subgroups = p13.maxComputeWorkgroupSubgroups;
+        NXLOG_I(kTag, "subgroups: %u wide (%u..%u), size control %d, a size can be required for stages 0x%x, at most %u per compute workgroup",
+                p11.subgroupSize, p13.minSubgroupSize, p13.maxSubgroupSize, limits_.subgroup_size_control ? 1 : 0,
+                static_cast<unsigned>(p13.requiredSubgroupSizeStages), p13.maxComputeWorkgroupSubgroups);
         limits_.max_memory_allocation_count = props_.limits.maxMemoryAllocationCount;
     }
     if (!headless) dev_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    float prio = 1.0f;
-    VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    qci.queueFamilyIndex = queue_family_;
-    qci.queueCount = 1;
-    qci.pQueuePriorities = &prio;
+    // One queue, unless the FidelityFX frame-generation DLL is there: then the three more its swapchain asks for (framegen.h), when the GPU has them.
+    FrameGenPlan fg;
+    if (!headless && extras::framegen_dll_found()) {
+        fg = plan_framegen_queues(physical_, surface_, queue_family_);
+        if (!fg.ok) NXLOG_W(kTag, "frame generation: the FidelityFX DLL is there but the GPU does not have the queues it needs: it stays off");
+    }
+    if (!fg.ok) {
+        fg.counts.assign(queue_family_ + 1, 0);
+        fg.counts[queue_family_] = 1;
+    }
+    const float prios[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<VkDeviceQueueCreateInfo> qcis;
+    for (uint32_t f = 0; f < fg.counts.size(); ++f) {
+        if (!fg.counts[f]) continue;
+        VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        qci.queueFamilyIndex = f;
+        qci.queueCount = fg.counts[f];
+        qci.pQueuePriorities = prios;
+        qcis.push_back(qci);
+    }
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &en};
-    dci.queueCreateInfoCount = 1;
-    dci.pQueueCreateInfos = &qci;
+    dci.queueCreateInfoCount = static_cast<uint32_t>(qcis.size());
+    dci.pQueueCreateInfos = qcis.data();
     dci.enabledExtensionCount = static_cast<uint32_t>(dev_exts.size());
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
     volkLoadDevice(device_);
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
+    if (fg.ok) {
+        auto get = [&](const FrameGenPlan::Slot& s, ExtraQueue* q) {
+            vkGetDeviceQueue(device_, s.family, s.index, &q->queue);
+            q->family = s.family;
+        };
+        get(fg.async_compute, &framegen_queues_.async_compute);
+        get(fg.present, &framegen_queues_.present);
+        get(fg.acquire, &framegen_queues_.acquire);
+        framegen_queues_.ok = true;
+        NXLOG_I(kTag, "frame generation queues: async compute %u/%u, present %u/%u, acquire %u/%u (the game's: %u/0)", fg.async_compute.family,
+                fg.async_compute.index, fg.present.family, fg.present.index, fg.acquire.family, fg.acquire.index, queue_family_);
+    }
 
     uint32_t nq = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, nullptr);

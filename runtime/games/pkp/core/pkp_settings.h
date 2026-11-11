@@ -4,9 +4,9 @@
 // runtime/docs/CONFIG.md's [pkp] table is generated from the table (doc_rows below); the long notes on each key sit under it there.
 // NXRT_PKP_<KEY> environment variables win over the ini (nxrt/config.h).
 //
-// The table is also what a row of the game's own Settings screen (pkp_options.cpp) would be built from: the type and range pick the row
-// kind (switch, list, number), `choices` names a string key's values and `applies` says whether a change takes effect at once or after
-// a restart. No [pkp] key has a row yet.
+// The table is also what a row of the game's own Settings screen is built from (key_row, ui/pkp_options_internal.h): the type and range
+// pick the row kind (Off/On or a slider) and `applies` whether the row carries the restart marker. The gameplay mods' keys have rows in its
+// Gameplay tab (ui/pkp_options_rows.cpp), saved through the setters below.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -31,6 +31,9 @@ enum class Key : uint8_t {
     GameFrameLimit,
     CameraEveryFrame,
     CameraGraceMs,
+    // the over-the-shoulder camera (pkp_shoulder_camera.cpp)
+    CameraShoulderSide,
+    CameraShoulderHeight,
     // the menu pointer (pkp_menu.cpp) and the prompt icons (pkp_kbm.cpp)
     MenuMouse,
     MenuLog,
@@ -52,6 +55,7 @@ enum class Key : uint8_t {
     JumpMomentumStrength,
     CameraAim,
     CameraAimReach,
+    CameraAimDebug,
     InventorySort,
     InventoryAutosort,
     CraftSearch,
@@ -79,10 +83,14 @@ struct Spec {
     Applies applies;
     const char* doc;              // one line, for a log or a Settings row's description
     bool optional = false;        // unset means "leave another value in force" (is_set), not the default: documented as unset
-    // A gameplay mod: a new way of playing, a bool that is on by default and switched off by the player (opt out). Its doc row is in the
-    // "gameplay" group, from which the launcher's Gameplay settings are built. A release build refuses one that defaults off
-    // (PKP_GAMEPLAY_DEFAULTS_CHECK, pkp_settings_table.cpp): a test build may turn one off, a release never ships it off.
+    // A gameplay mod: a new way of playing. Its doc row is in the "gameplay" group, from which the launcher's Gameplay settings are built
+    // (every row of the group is a launcher row unless `hidden`). A mod's switch is a bool, on by default (the player opts out) unless
+    // the repo owner made it `opt_in` (off by default); a release build refuses a switch whose default is not that
+    // (PKP_GAMEPLAY_DEFAULTS_CHECK, pkp_settings_table.h). Every switch belongs to one feature of the registry (pkp_game.cpp).
     bool gameplay = false;
+    bool opt_in = false;          // a mod switch that is off by default on purpose
+    bool hidden = false;          // a mod switch with no launcher row (the ini still takes it)
+    Key parent = Key::Count;      // a setting of the mod whose switch this is: the launcher shows it under that switch
 };
 
 // The table (pkp_settings_table.cpp, in the pure-data library nxrt_game_pkp_data).
@@ -99,5 +107,15 @@ double get_double(Key k);
 std::string get_str(Key k);
 // Set by the env or the ini (a key whose absence means "leave the game's / another page's value": quality_preset, lod_distance).
 bool is_set(Key k);
+
+// Saving a value (the game's own Settings screen, pkp_options.cpp): the [pkp] line of the game ini (game::Info::game_ini, in the game
+// folder) is changed in place (nxrt/ini_edit.h) and the value is in force for the getters at once (config_set), so an Applies::Live key
+// takes effect without a restart. Int and Double are clamped to the key's range; a String with choices takes only one of them. An
+// NXRT_PKP_<KEY> environment variable still wins on read. False when the setter does not match the key's type, the string is not one
+// of the choices, or the file could not be written (the value is then in force until the game closes; the reason is logged).
+bool set_bool(Key k, bool v);
+bool set_int(Key k, int64_t v);
+bool set_double(Key k, double v);
+bool set_str(Key k, const std::string& v);
 
 }  // namespace nxrt::games::pkp::settings

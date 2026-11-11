@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Dear ImGui overlay (overlay*.cpp): Overlay::Impl, the state of its features (menu panels, touch button, frame rate counter, on-screen keyboard,
-// quit prompt, diagnostics window) in one struct, and what the files share. Not for use outside overlay*.cpp.
+// quit prompt, diagnostics window, the game's layer) in one struct, and what the files share. Not for use outside overlay*.cpp.
 #pragma once
 #include <functional>
 
@@ -92,6 +92,12 @@ struct Overlay::Impl {
     // Corner frame-rate counter. set_counter() stores the settings from any thread; the rest is used by the presenting thread only.
     std::atomic<bool> ptr_show{false}, ptr_in_shots{true};
     std::atomic<float> ptr_x{0}, ptr_y{0};
+    // The game's layer (overlay_layer.cpp): its functions (set before the first frame) and the picture rectangle, fractions of the frame.
+    std::atomic<bool (*)()> layer_active{nullptr};
+    std::atomic<void (*)(OverlayCanvas&)> layer_draw{nullptr};
+    std::atomic<float> pic_x{0.f}, pic_y{0.f}, pic_w{1.f}, pic_h{1.f};
+    bool layer_wanted() const;            // the layer is set and has something to draw this frame
+    void draw_game_layer(const FrameInfo& f);   // mu held, inside an ImGui frame
     std::atomic<bool> counter_show{false};
     std::atomic<int> counter_corner{0};
     std::atomic<int> counter_detail{1};
@@ -103,6 +109,8 @@ struct Overlay::Impl {
     double text_s = -1e9;                 // time of the last text refresh, seconds (far past: refresh at once)
     FpsStats::Snapshot snap;              // the snapshot taken at text_s
     std::string counter_lines[4];
+    uint64_t shown_count = 0;             // frame generation: the presents counted at shown_s, to give the frames shown per second
+    double shown_s = -1, shown_fps = 0;
     int counter_n = 0;
 
     void build_ui();

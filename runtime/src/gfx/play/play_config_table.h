@@ -43,6 +43,8 @@ struct SettingDef {
     // what the value may be
     std::span<const char* const> words = {};          // Choice: the file's words, in enum order
     std::vector<std::string> (*word_fn)() = nullptr;  // Custom: the words, when another table owns them (docs and launcher only)
+    // Custom choice: per word, what the settings pages show with it, from the factory settings (setting_doc::Row::choice_details)
+    std::vector<std::pair<std::string, std::vector<std::string>>> (*details_fn)(const Settings& defaults) = nullptr;
     std::span<const int> allowed = {};                // Int: the only values accepted
     double lo = 0, hi = 0;
     bool ranged = false;                              // Real: lo..hi applies (Int always has one, unless `allowed`)

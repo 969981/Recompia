@@ -8,6 +8,7 @@ Fixes #
 
 - [ ] `CHANGELOG.md` `## Unreleased` has an entry (Before / Now / Still not), or this change is not player-facing
 - [ ] Needs **Set up again** / **Finish update**: <!-- say which and why, or "no" -->
+- [ ] Rebuilds shaders: <!-- "no", or which shaders and why (PROJECT.md 6.5: never mandatory unless shaders really change) -->
 
 ## Source
 

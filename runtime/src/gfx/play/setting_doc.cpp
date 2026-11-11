@@ -165,6 +165,12 @@ std::string schema_json(const std::string& file, const std::vector<Row>& rows, S
             if (r.clamped) k += ", \"clamped\": true";
             if (r.zero_ok) k += ", \"zero_ok\": true";
             if (!r.choices.empty()) k += ", \"choices\": " + json_list(r.choices);
+            if (!r.choice_details.empty()) {
+                k += ", \"choice_details\": {";
+                for (size_t i = 0; i < r.choice_details.size(); ++i)
+                    k += (i ? ", " : "") + json_text(r.choice_details[i].first) + ": " + json_list(r.choice_details[i].second);
+                k += "}";
+            }
             if (!r.auto_word.empty()) k += ", \"auto\": " + json_text(r.auto_word);
             if (!r.aliases.empty()) k += ", \"aliases\": " + json_list(r.aliases);
             if (!r.fallback.empty()) k += ", \"fallback\": " + json_text(r.fallback);
@@ -177,6 +183,9 @@ std::string schema_json(const std::string& file, const std::vector<Row>& rows, S
             }
             if (r.read_only) k += ", \"read_only\": true";
             if (!r.group.empty()) k += ", \"group\": " + json_text(r.group);
+            if (!r.parent.empty()) k += ", \"parent\": " + json_text(r.parent);
+            if (r.opt_in) k += ", \"opt_in\": true";
+            if (r.hidden) k += ", \"hidden\": true";
             k += ", \"doc\": " + json_text(r.doc) + "}";
             keys += (first_key ? "\n" : ",\n") + k;
             first_key = false;

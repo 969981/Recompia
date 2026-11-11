@@ -1,14 +1,70 @@
 # Changelog
 
-Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
-(last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
-of the game (version 2.0.1a): the download contains no game files.
-
 ## Unreleased
 
-**Update:** press **Update**, then **Set up again** once (it relinks pkp.exe in seconds; your saves and shaders are kept). Clock Notation needs it: it adds a hook site.
+- New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
+- Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
+
+## 0.10.3 (build N: Newt Hotfix a3)
+
+**Update:** press **Update**, then **Set up again** once. It rebuilds the game code for the shoulder camera's new hook, a few minutes. Your shaders and saves are kept; no shader is translated again.
+
+The Newt hotfix fixes a start-up crash on some AMD graphics, loading screens fast-forwarding, camera aim picking the wrong block and the launcher's Quality preset, and adds an over-the-shoulder camera, AMD FSR 3.1 frame generation, six button icon themes and a Gameplay tab in the game's own Settings.
+
+### Highlights
+- Fixed the game closing at start with 0xC0000409 on some AMD graphics (#487)
+- Fixed loading screens and the boot screen fast-forwarding above 60 fps
+- Added an **over-the-shoulder camera** and **AMD FSR 3.1 frame generation**
+
+### Display
+- New **Frame generation** (AMD FSR 3.1): an extra frame between the game's own, made from the 3D picture only, so the HUD is not touched. Off by default: switch it on in Settings > Display (the launcher offers to download AMD's `amd_fidelityfx_framegeneration_vk.dll`), in the game's own Settings, or on the F1 Display page. It takes effect the next time the game starts
+  - The frame-rate counter then reads `FPS 60 | FG 120`: the frames the game renders, and the frames on the screen
+  - Needs the render resolution to be Match window, or to have the window's shape. Update only: no shader rebuild
+
+### Gameplay mods
+- Every gameplay mod now has its switch in the launcher's **Settings > Gameplay**, built from the game's own list of mods, so a new mod shows up there by itself
+  - **Search in the crafting screen** is now optional: off by default, switch it on in Settings > Gameplay. If you already set it yourself, your choice is kept
+  - **Camera aim** has a new **Extra reach in blocks** setting under it (Off, 1 to 4). Extra reach is now off by default, so abilities and tools use the game's own range; pick a number to reach farther, as 0.10.x did with 2
+  - **Sort each time the bag opens** stays under the Sort button, off by default
+  - **Quit Game on the title screen** stays on, without a launcher switch (`title_quit` in pkp.ini still turns it off)
+- Settings: a **Gameplay** tab in the game's own Settings screen, with the same switches as the launcher's Settings > Gameplay (and how much speed a running jump keeps); a change is saved to `pkp.ini` and applies at the next start
 
 ### Launcher
+- Fixed **Quality preset** in the launcher leaving Shadow quality and Anti-aliasing as they were
+  - Before: picking High, Ultra or Desktop PC in Settings > Graphics set only the texture settings (and the render resolution and frame limit for the device presets), so the game kept the old shadows and anti-aliasing
+  - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
+
+### Game
+- Added an **over-the-shoulder camera**: move the view to the side and up so your character no longer blocks it
+  - Two distances in blocks in the game's Settings > **Gameplay** tab: **Shoulder camera: side** (right is positive, left negative, -2 to 2) and **Shoulder camera: height** (-1 to 2), saved as `camera_shoulder_side` / `camera_shoulder_height` in `pkp.ini`; both are 0 by default, which is the game's own camera. A change takes effect as soon as you leave the Settings screen, no restart. The view stops short of walls and eases back out, and camera aim still hits what the crosshair points at. Needs **Set up again** once (new game hook)
+- Fixed camera aim's selection jumping between the block you aim at and the way you walk, with Rock Smash, Cut and the other swing tools, when the aimed block went in and out of reach while moving
+  - Now: without a block in reach the selection stays in front of you in the camera's direction, at the game's own distance
+- Camera aim reaches up and down as far as it reaches sideways: a block above or below you under the crosshair is selected within the same range (1 block plus the extra reach), also past the two rows up and one row down the game itself allows
+- Fixed camera aim sometimes selecting a block next to the one under the crosshair, at some camera angles and heights
+  - Before: for a block right next to you the game still picked the cell one straight step ahead, so a block diagonal to you (or at an angle that rounded the other way) wasn't the one selected
+  - Now: the selection is the block the crosshair's ray hits, next to you or farther with extra reach
+- Fixed the game closing at start ("pkp.exe exited with code -1073740791 (0xC0000409)") on some AMD graphics (#487)
+  - Before: every compute shader asked the driver to run 32 wide, even one with a workgroup too big for that on AMD; Vulkan doesn't allow the request then, and AMD's driver could close the game while preparing it
+  - Now: a compute shader whose workgroup doesn't fit at 32 wide runs at the driver's own width; the others still run 32 wide
+- Fixed the boot screen and some loading screens fast-forwarding above 60 fps
+  - Before: while the game loaded, the frame limit was dropped, so the loading animations ran as fast as the PC could draw (300 fps or more on a fast PC) and the game's 60 fps hold for loading and events was skipped
+  - Now: loading screens keep the frame limit and the 60 fps hold, so they play at normal speed. A world load takes under a second longer. To bring the old behaviour back, turn on **Fast loading screens** in the launcher (Settings > Game > Experimental), or set `[display] unpaced_loading = 1` in `pkp.ini`
+- Added six **Button Icons** themes: **Nintendo Switch**, **Nintendo Switch 2**, **Wii U**, **Steam Frame**, **Valve Index** and **Touch**, and the **Steam Deck** theme now uses real Steam Deck art
+  - Before: the prompts could show the game's own icons, Xbox, PlayStation, Steam Controller, Steam Deck (the Steam Controller's art with Xbox View and Menu symbols) or keyboard and mouse
+  - Now: pick any of them in the game's Settings (Button Icons), on the F1 Controller tab, in the launcher's Controls tab or with `[prompts] style` in `controls.ini` (`switch1`, `switch2`, `wiiu`, `steamframe`, `index`, `touch`). All are the white Kenney icons and follow your button remapping. Steam Deck shows the Deck's own L1/R1, L4/L5/R4/R5 back buttons and trackpads. Valve Index shows A, B, the triggers and the trackpad (its left stick stands for the d-pad); Touch shows gestures (tap, two-finger tap, swipes, pinch)
+  - Also: the launcher's Controls tab (under Button icons) and the F1 Controller tab now show a preview of the chosen theme: each Switch button with the icon it gets. F1 follows your current remapping and key bindings; the launcher shows the default ones
+  - Still not: Automatic never picks the new themes on its own (a Switch pad still shows the game's own icons); buttons a controller doesn't have keep the game's icon
+
+## 0.10.2 (build N: Numbat Hotfix a2)
+
+**Update:** press **Update**, then **Set up again** once. It rebuilds the game code for Clock Notation's new hook: a few minutes coming from 0.10.1, longer if you skipped 0.10.0's Set up. Your shaders and saves are kept; no shader is translated again.
+
+The Numbat hotfix brings back the colourful logo, translates the launcher into nine languages, fixes an AMD start-up crash and BetterJoy input loss, and adds Time and Events tabs to the game's Settings.
+
+### Launcher
+- Set up now says why the shader translator stopped on Steam Deck and other Linux PCs (#366)
+  - Before: under Proton the translator's error text never reached setup.log, so a failed "Translating shaders" step showed only an exit status and an empty "Last output"
+  - Now: the translator writes its error to `shader_cache/stage/harness_error.txt` and Set up copies it into setup.log; if the translator never started at all, the log says Proton or Wine failed before it. Set up also checks that the translator's main files are present and not empty before it starts
 - The colourful **Recompia** logo and the green **R** icon are back in the launcher, the README, the window and taskbar icon and the Steam shortcut (the plain placeholder logo and icons from 0.10.1 are gone)
 - The launcher is now translated into Spanish, English, Japanese, French, Italian, German, Korean, Simplified Chinese and Traditional Chinese. It follows the system language by default (English when it cannot tell), and Settings > About > Language changes it
 - Fixed Set up finishing at once while the game still refused to start with "pkp.exe and pkp_rt.dll come from different releases", after an update that replaced only some files
@@ -16,6 +72,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: pkp.exe and pkp_rt.dll both carry the runtime API they were built for, and the launcher reads it before Play and Set up. An exe from another release than the dll is relinked by Set up; a dll from another release than the tools is named on the main page, with what to do (extract the whole release over the folder)
 
 ### Game
+- Fixed the game closing right at start ("pkp.exe exited with code 4") on some PCs with an AMD graphics card
+  - Before: when an older AMD driver was still installed next to the current one (common with a Ryzen processor's own graphics), the card was listed twice and the game could pick the old driver's copy, which crashed inside the driver on the first frames
+  - Now: the copy with the older driver is skipped and the log says so; reinstalling the graphics driver removes the leftover
 - Added a **Time** tab and an **Events** tab to the game's own Settings screen, for moving the game's clock without restarting (#385)
   - Before: the game's date and time came from the PC, and the launcher's event preset or `clock_offset` only applied at the next start
   - Now: **Time** has Time Travel (Off follows the real time) and Year, Month, Day, Hour and Minute rows; the clock changes when you leave the screen. **Events** lists the events of `pokopia_events.tsv` (one line each: start date, end date and name, separated by tabs); pressing one sets the clock to noon on its first day, marks it **Chosen** (one at a time) and fills the Time tab. Nothing is written to your save or to Settings
@@ -33,7 +92,13 @@ of the game (version 2.0.1a): the download contains no game files.
 - The F1 menu opens from a controller by clicking both sticks (L3 + R3) (#364)
   - Before: no controller shortcut was set, and the README's example (L + R) is the game's Dive chord, so holding R and L to dive opened the menu instead
   - Now: `[overlay] pad` defaults to `left_stick+right_stick`. A `controls.ini` from an earlier release keeps the value it already has (`none` = off); set the key to `left_stick+right_stick` there, or delete the line, to get the shortcut
+- Fixed a controller dropping stick and button input during vacuuming, breaking and Rollout above 30 fps when it goes through BetterJoy (#374)
+  - Before: the game sent the controller a new rumble value on almost every frame while it rumbled, about 100 times a second at 100 fps. BetterJoy passes each one to the controller over Bluetooth and stopped reading the stick and buttons while it caught up
+  - Now: rumble goes to the controller at most 30 times a second at any frame rate, the rate that already worked at a 30 fps cap
 - The "different releases" message names the runtime API of pkp.exe and of pkp_rt.dll and points to the launcher's main page, since Set up alone cannot always help
+
+### Docs
+- The README and the Linux readme are now also in Brazilian Portuguese and European Portuguese, and the README's F1 controller example uses L3 + R3 instead of the Dive chord (L + R)
 
 ## 0.10.1 (build N: Narwhal Hotfix a1)
 

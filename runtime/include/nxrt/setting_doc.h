@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nxrt::setting_doc {
@@ -23,12 +24,17 @@ struct Row {
     bool clamped = false;                // a number outside min..max is clamped into it (else it is refused and the default kept)
     bool zero_ok = false;                // 0 is accepted as well (outside min..max)
     std::vector<std::string> choices;    // the accepted words (the first spelling of each), in order
+    // per choice word, what the settings pages show with it (the prompts style: "A=xbox/a", the icon of each Switch button); schema only
+    std::vector<std::pair<std::string, std::vector<std::string>>> choice_details;
     std::string auto_word;               // a word accepted instead of a number ("auto")
     std::vector<std::string> aliases;    // older key names that are read too
     std::string fallback;                // a key of the same section whose value this one takes when the file has that one and not this one
     std::string nxrt_key;                // "nvn.pool_mirror": the nxrt.ini key (or its NXRT_ variable) that wins over this one when set
     std::string doc;                     // one line: what it does
     std::string group;                   // a set of keys the settings pages show together ("gameplay": a gameplay mod); empty = none
+    std::string parent;                  // a key of the same group this one belongs to: the settings pages show it under that key
+    bool opt_in = false;                 // a group member that is off by default on purpose (a "gameplay" mod the player switches on)
+    bool hidden = false;                 // a group member the settings pages show no row for (the ini still takes it)
     bool read_only = false;             // read, never written (an alternative spelling of other keys)
     bool retired = false;                // read and ignored without a warning; never written
 };
@@ -55,6 +61,7 @@ std::string env_name(const std::string& section, const std::string& key);
 // retired ones.
 std::string markdown(const std::vector<Row>& rows, Store store = Store::OwnFile);
 // A JSON document: {"file": file, "sections": [{"name", "keys": [...]}], "retired": [...]}, sections in the order of their first row.
+// A key with choice_details carries "choice_details": {word: [...], ...}.
 // A GameIni key carries "env" (its own variable); an OwnFile key "overridden_by" when it has an nxrt_key.
 std::string schema_json(const std::string& file, const std::vector<Row>& rows, Store store = Store::OwnFile);
 

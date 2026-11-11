@@ -21,7 +21,7 @@ pub fn play(app: AppHandle) -> Result<(), String> {
     let dir = game_dir_of(&cfg);
     settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)?;
     profiles::apply_active(&dir)?;
-    play::start(&app, &dir, cfg.minimize_on_play)
+    play::start(&app, &dir, &cfg)
 }
 
 #[tauri::command]

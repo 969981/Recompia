@@ -57,13 +57,23 @@ struct ResolveIn {
     const Settings* settings = nullptr;        // bindings (keyboard style) and the pad remap (pad styles); null: the built-in mapping
 };
 
-// The name of the prompt pack entry that replaces the game's icon: "xbox/a", "ps/cross", "steam/a", "kbm/space", with "_pressed" appended for a
+// The name of the prompt pack entry that replaces the game's icon: "xbox/a", "ps/cross", "ns2/b", "kbm/space", with "_pressed" appended for a
 // pressed icon. Pad styles show the physical button that presses the Switch button, following settings->pad.remap. Empty: keep the
 // game's own icon (Switch style, a keyboard style button no input is bound to, or a pad style where nothing presses the button or the
 // pad source is a stick click or the d-pad).
 // The stick icons (LStick, RStick) are the map's controls: keyboard style on the map shows the mouse buttons that drive it (left button
 // rotates, middle button moves; kbm/mouse1 and kbm/mouse2). Every other style and context keeps the game's own stick icon.
 std::string resolve_icon(const ResolveIn& in, Icon icon);
+
+// One entry of a button icon preview (the F1 Controller tab, the launcher through the docs' choice_details): a Switch button and the
+// pack entry the style shows for it ("" = the game's own icon).
+struct PromptPreviewItem {
+    const char* button;   // "A" "B" "X" "Y" "L" "R" "ZL" "ZR" "Plus" "Minus" "D-pad"
+    std::string icon;
+};
+// What a style shows for each Switch button, with the pad remap, label_abxy and bindings (menu context) of `s`. Empty for Switch (the game's
+// own icons) and Auto (the caller resolves it first).
+std::vector<PromptPreviewItem> prompt_preview(PromptStyle style, const Settings& s);
 
 // Keyboard and mouse: the input that presses this Switch button in the given context, following the bindings of the settings.
 // Looks at actions whose [switch] output is exactly that button (confirm and back before the raw btn_ actions), in the bindings that
@@ -78,6 +88,9 @@ std::string kbm_pack_name(const InputId& id);
 // ("xbox/dpad_up": the cross with the up arm lit); a bit no pad button has (a stick click) gives "". For games whose prompts are
 // their own glyph slots in an atlas rather than the small icon textures of a PromptGame (Pokopia).
 std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_abxy, uint64_t switch_bit);
+
+// True for the styles that show a controller's icon set (every style but Switch, Keyboard and Auto).
+bool prompt_style_is_pad(PromptStyle style);
 
 // The entry to show when a pack lacks a pad_pack_name() entry: the whole d-pad for a d-pad direction ("xbox/dpad_up" -> "xbox/dpad"),
 // "" for any other name.
