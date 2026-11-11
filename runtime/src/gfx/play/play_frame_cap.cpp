@@ -59,14 +59,15 @@ void apply_frame_cap(const Settings& s) {
         const float hz = st.window ? platform::display_refresh_hz() : 0.f;
         cap = hz > 0 ? static_cast<double>(hz) : 0;
     }
-    {   // A fixed-refresh panel with vsync (what fps_snap decides, whatever the cap): the limiter keeps frames on the display's refresh grid.
-        // [latency] grid = false: every pace stays on the limiter's free schedule.
+    // A fixed-refresh panel with vsync (what fps_snap decides, whatever the cap)
+    const float panel_hz = st.window ? platform::display_refresh_hz() : 0.f;
+    const char* why_not_fixed = "";
+    const bool fixed = panel_hz > 0 && snap_wanted(s.display, &why_not_fixed);
+    {   // there the limiter keeps frames on the display's refresh grid; [latency] grid = false: every pace stays on its free schedule
         static const bool grid = config_get_bool("latency", "grid", true);
-        const float hz = st.window ? platform::display_refresh_hz() : 0.f;
-        const char* why = "";
         FrameLimiter::RefreshSync sync;
-        if (hz > 0 && snap_wanted(s.display, &why)) {
-            sync.hz = static_cast<double>(hz);
+        if (fixed) {
+            sync.hz = static_cast<double>(panel_hz);
             sync.grid = grid;
         }
         st.limiter.set_refresh_sync(sync);
@@ -77,14 +78,23 @@ void apply_frame_cap(const Settings& s) {
         // The display paces; a cap only matters when it is below the refresh rate. With no cap below the refresh rate, the frame limiter still keeps just
         // under it (S21, [latency] vsync_cap): the game otherwise renders as fast as the swapchain takes frames, the queue behind the display
         // fills (three images) and every picture is shown one to two frames after it was simulated; just under the refresh rate the queue stays empty.
-        const float hz = st.window ? platform::display_refresh_hz() : 0.f;
+        // On a fixed-refresh panel that cap beats against the display: the limiter's clock is not the display's, so at 0.05 % under the
+        // reported rate a frame is shown twice about every 2000 refreshes (22 s at 90 Hz), and more often or never when the real rate
+        // differs from the reported one. There the FIFO queue alone paces a rate at the refresh rate ([latency] fifo_pace): no limiter
+        // wait, every refresh gets the next frame, and the frames queued behind the display are bounded by the waits for frames in
+        // flight ([latency] frames_ahead, gpu_frames_ahead) instead of by a clock. The price is up to that queue of latency.
+        const float hz = panel_hz;
         static const bool vsync_cap = config_get_bool("latency", "vsync_cap", true);
+        static const bool fifo_pace = config_get_bool("latency", "fifo_pace", true);
         const double req = cap;
         double snapped = cap;
         const char* reason = "";
         const int k = frame_snap_k(s.display, cap, hz, &snapped, &reason);
-        log_frame_cap(req, snapped, hz, k, reason);
+        // k < 2 on a fixed panel: the cap is the refresh rate, above it, or within the snap's 0.5 % under it
+        const bool display_paces = fixed && fifo_pace && k < 2;
+        log_frame_cap(req, snapped, hz, k, display_paces ? "at the refresh rate: vsync alone paces, the limiter does not wait" : reason);
         if (k >= 2) cap = snapped;      // hz / k: the limiter period is exactly k refresh intervals
+        else if (display_paces) cap = 0;
         else if (cap <= 0 || (hz > 0 && cap >= hz)) cap = (vsync_cap && hz > 0) ? static_cast<double>(hz) * 0.9995 : 0;
     } else {
         log_frame_cap(cap, cap, 0.f, 0, "vsync off");
