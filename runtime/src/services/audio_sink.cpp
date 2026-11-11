@@ -151,6 +151,7 @@ public:
 
 private:
     void run() {
+        nxrt::log_set_thread_name("audio-stats");
         using Clock = std::chrono::steady_clock;
         constexpr auto kSample = std::chrono::milliseconds(10);
         SinkStats last{};
