@@ -31,8 +31,9 @@
 // Reach, [pkp] camera_aim_reach (extra cells, default 0 = the game's own range). The game targets the forward cell next to the
 // character: the query 0x71002e19a0 starts from the character's cell plus one cardinal step (kept at [x29 - 0xb8] x, y and
 // [x29 - 0xb4] z) and the swing shapes sit about one cell ahead. With extra reach the ray accepts solid cells up to 1 + extra cells
-// from the character's column (cells past the old two-cell box only in front of the character). When the first solid cell is two or
-// more cells out and in a row the row hook can select, three more mid hooks move only the column to it: the query's start cell at
+// from the character's column (cells past the old two-cell box only in front of the character). When the first solid cell is outside
+// the character's column, within 1 + extra cells (so one cell out without extra reach: the game's own cardinal step missed diagonal hits)
+// and in a row the row hook can select, three more mid hooks move only the column to it: the query's start cell at
 // 0x71002e1de8 (right after the game's own mouse-mode start cell, the only other writer; not for the nearby-object interaction
 // 0x71002f7340, whose A-button target keeps the forward cell), the swing preview's shape position at 0x71007226bc (right before
 // 0x710009db4c, x29 - 0x60) and the live hit's at 0x71006da610 (x29 - 0x80, tool path only: w22 set, x27 = the character). The shape
@@ -251,11 +252,12 @@ int swing_base_row(uint64_t ch) {
     return feet_row(ch) + (steps >= -8 && steps <= 8 ? steps : 0);
 }
 
-// The camera ray's first solid cell when it is past the forward cell (two or more cells out, within the extra reach) and in a row the
-// row hook selects (lo..hi rows from base).
-bool far_hit(uint64_t ch, int base, int lo, int hi, RayHit& r) {
+// The camera ray's first solid cell outside the character's own column and within its range (1 + extra reach cells), in a row the row
+// hook selects (lo..hi rows from base). One cell out counts too: the game's own pick is the character's cell plus a cardinal step of the
+// heading, so a hit diagonal to the character (or at an angle that rounds to another side) was not the cell selected.
+bool aim_hit(uint64_t ch, int base, int lo, int hi, RayHit& r) {
     const uint64_t cam = follow_camera(ch);
-    if (!cam || !camera_ray(cam, ch, r, g.reach) || r.h < 2) return false;
+    if (!cam || !camera_ray(cam, ch, r, g.reach) || r.h < 1 || r.h > 1 + g.extra) return false;
     const int d = r.y - base;
     return d >= lo && d <= hi;
 }
@@ -270,12 +272,13 @@ void log_reach(const char* what, int ox, int oz, const RayHit& r) {
     NXLOG_I(kTag, "camera aim: reach %s column %d,%d -> %d,%d (hit %d,%d,%d, %d cells out)", what, ox, oz, r.x, r.z, r.x, r.y, r.z, r.h);
 }
 
-// Target query: its start cell (the forward cell) moves to the column of a farther ray hit; the row is still chosen after this.
+// Target query: its start cell (the forward cell) moves to the column of the ray hit; the row is still chosen after this. The nearby-object
+// interaction keeps the game's forward cell.
 int hook_query_base(::Ctx* c, uint64_t, void*) {
     const uint64_t ch = c->x[28], fp = c->x[29];
-    if (query_reach(fp) == kReach) return 0;
+    if (rd<uint64_t>(fp + 8) - g.base == kInteractReturn) return 0;
     RayHit r;
-    if (!far_hit(ch, feet_row(ch), -1, 2, r)) return 0;
+    if (!aim_hit(ch, feet_row(ch), -1, 2, r)) return 0;
     const int ox = rd<int16_t>(fp - 0xb8), oz = rd<int16_t>(fp - 0xb4);
     wr<int16_t>(fp - 0xb8, static_cast<int16_t>(r.x));
     wr<int16_t>(fp - 0xb4, static_cast<int16_t>(r.z));
@@ -298,13 +301,13 @@ void turn_shape(uint64_t ch, uint64_t pos, float px, float pz) {
     wr<float>(pos + 8, cz + dz / len * dist);
 }
 
-// Swing shape position (vec4 at pos): moved by whole cells into the column of a farther ray hit, else turned to the camera.
+// Swing shape position (vec4 at pos): moved by whole cells into the column of the ray hit, else turned to the camera.
 void shift_shape(uint64_t ch, uint64_t pos, const char* what) {
     const float px = rd<float>(pos), pz = rd<float>(pos + 8);
     if (!std::isfinite(px) || !std::isfinite(pz)) return;
     RayHit r;
     // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
-    if (g.extra <= 0 || !far_hit(ch, swing_base_row(ch), -1, 3, r)) {
+    if (!aim_hit(ch, swing_base_row(ch), -1, 3, r)) {
         turn_shape(ch, pos, px, pz);
         return;
     }
@@ -401,7 +404,7 @@ void install(const FeatureInstall& in) {
     // the swing positions: the reach's column move, else turned to the camera (turn_shape), with or without extra reach
     in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
     in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
-    if (g.extra > 0) in.hooks.add_mid(base + kQueryBase, &hook_query_base);
+    in.hooks.add_mid(base + kQueryBase, &hook_query_base);
     NXLOG_I(kTag, "camera aim: on (hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx), reach +%d cells",
             static_cast<unsigned long long>(kHeadingRead), static_cast<unsigned long long>(kSwingPreview),
             static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kPitchRead),
