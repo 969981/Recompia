@@ -1,9 +1,5 @@
 # Changelog
 
-Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native); each of its releases is reviewed and what applies is brought over
-(last reviewed: pokopia-native 1.3.3, `035bd9c`). This fork builds on [the original Pokopia Recomp](https://github.com/drakolordx7/pokopia-recomp) 0.1.1. You still need your own copy
-of the game (version 2.0.1a): the download contains no game files.
-
 ## Unreleased
 
 ## 0.10.3 (build N: Newt Hotfix a3)
