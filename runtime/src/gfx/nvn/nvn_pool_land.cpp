@@ -123,8 +123,19 @@ uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size
     return bad;
 }
 
+// [nvn] pool_land_slice_ms: the longest single wait for the serial of the oldest record. The wait ends the moment the timeline reaches
+// the serial, so its length adds nothing to a landing; it only bounds how long the thread takes to see a stop or a lost device. The
+// queue is in serial order and a record is only ever added behind the oldest, so the serial waited for is never too late a one. A wait
+// that ran its whole length is followed by the next one at once: only a wait that came back early without the serial (an error) is
+// followed by a 1 ms pause. 0: the earlier loop, 5 ms waits with a 1 ms pause after each one that did not reach the serial.
 void land_loop() {
     log_set_thread_name("nvn-pool-land");
+    const int64_t slice_ms = std::clamp<int64_t>(config_get_int("nvn", "pool_land_slice_ms", 50), 0, 1000);
+    const bool pause_always = slice_ms == 0;
+    const uint64_t slice_ns = static_cast<uint64_t>(pause_always ? 5 : slice_ms) * 1000 * 1000;
+    if (!pause_always)
+        NXLOG_I("nvn", "pool landing: waits for a serial up to %lld ms at a time, no pause after a wait that ran out ([nvn] pool_land_slice_ms)",
+                static_cast<long long>(slice_ms));
     std::unique_lock<std::mutex> lk(g_th_mu);
     while (!g_th_stop) {
         const uint64_t s = g_land_min.load(std::memory_order_acquire);
@@ -134,13 +145,14 @@ void land_loop() {
         }
         lk.unlock();
         // A word the game polls in memory with no API call (an event the GPU signals, a report) lands within a few ms of its serial.
-        if (timeline_wait(s, 5ull * 1000 * 1000)) {
+        const auto t0 = std::chrono::steady_clock::now();
+        if (timeline_wait(s, slice_ns)) {
             poll_completed();
         } else if (device().device_lost()) {   // nothing lands after a device loss: the records go
             drop_all_records();
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (a timeout took 5 ms; an error returns at once)
+        } else if (pause_always || std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(1)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));   // not a timeout (an error returns at once): no busy loop
         }
         lk.lock();
     }
