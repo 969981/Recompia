@@ -4,9 +4,9 @@
 // runtime/docs/CONFIG.md's [pkp] table is generated from the table (doc_rows below); the long notes on each key sit under it there.
 // NXRT_PKP_<KEY> environment variables win over the ini (nxrt/config.h).
 //
-// The table is also what a row of the game's own Settings screen (pkp_options.cpp) would be built from: the type and range pick the row
-// kind (switch, list, number), `choices` names a string key's values and `applies` says whether a change takes effect at once or after
-// a restart. No [pkp] key has a row yet.
+// The table is also what a row of the game's own Settings screen is built from (key_row, ui/pkp_options_internal.h): the type and range
+// pick the row kind (Off/On or a slider) and `applies` whether the row carries the restart marker. The gameplay mods' keys have rows in its
+// Gameplay tab (ui/pkp_options_rows.cpp), saved through the setters below.
 #pragma once
 #include <cstdint>
 #include <string>
