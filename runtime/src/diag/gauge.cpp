@@ -282,6 +282,7 @@ uint32_t thread_count() {
 }
 
 void run(double interval_s, double t0) {
+    log_set_thread_name("soak");
     Sampler& s = smp();
     uint64_t last_n = 0;
     for (;;) {

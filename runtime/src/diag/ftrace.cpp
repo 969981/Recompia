@@ -95,6 +95,7 @@ void flush_locked() {
 }
 
 void writer_main() {
+    log_set_thread_name("ftrace-writer");
     while (!g_stop.load()) {
         for (int i = 0; i < 10 && !g_stop.load(); ++i) Sleep(100);
         {
@@ -253,6 +254,7 @@ double tsc_per_ns() {
 }
 
 void sampler_main(std::string path) {
+    log_set_thread_name("ftrace-stall");
     FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return;
     const double tpn = tsc_per_ns();
