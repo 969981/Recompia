@@ -6,7 +6,7 @@
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
 - The Discord links in the launcher, the READMEs and the website now use the new invite, discord.recompia.com. Update only: no shader rebuild, no Set up again
 
-## 0.10.4-alpha.1 (Experimental: Steam Deck performance)
+## 0.10.4-alpha.1 (Deck Rehaul)
 
 **Experimental build.** It is not offered as an update: download the zip from this release, or pick this version in the launcher on the Testing channel. It holds the performance work for the Steam Deck on top of 0.10.3. Update only: no shader rebuild, no Set up again. Please report anything that looks or plays differently from 0.10.3, with `pkp.log`
 
