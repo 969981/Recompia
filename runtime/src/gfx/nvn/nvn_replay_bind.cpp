@@ -269,6 +269,20 @@ static VkDescriptorImageInfo sampled_descriptor_cached(const BindingDesc& d, con
     return ii;
 }
 
+// [nvn] storage_ro (default on): a storage buffer bound to a block that no instruction of its shader can write
+// (DescriptorBinding::may_write, proved on the SPIR-V by reflect_spirv) is bound as before but not treated as a GPU write: no
+// gpu_wrote (the record a copy pool lands in guest memory at completion, the replay epoch, the stale pool copy pages), and a compute
+// shadow of it is not copied back. false: every storage buffer binding counts as written, as before.
+static bool storage_ro_on() {
+    static const bool on = [] {
+        const bool v = nxrt::config_get_bool("nvn", "storage_ro", true);
+        NXLOG_I(kTag, "storage buffers: %s ([nvn] storage_ro)", v ? "a block its shader never writes is not recorded as a GPU write" : "every binding is recorded as a GPU write");
+        return v;
+    }();
+    return on;
+}
+static nxrt::GaugeCounter g_gauge_storage_ro("nvn.cnt.storage_ro_binds");   // storage buffer bindings not recorded as writes (cumulative)
+
 static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set);
 static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     static const bool reuse_on = set_reuse_on();
@@ -383,22 +397,26 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         const GState::Bind& bind = S.ssbo[d.nvn_stage][slot];
                         BufRef br = resolve_buffer(bind.addr, bind.size);
                         bi = {br.buffer, br.offset, std::min<VkDeviceSize>(bind.size ? bind.size : br.avail, br.avail)};
+                        const bool writes = b.may_write || !storage_ro_on();        // false: no instruction of the shader can write the block
+                        if (!writes && br.ok) g_gauge_storage_ro.add(1);
                         if (!g_shadowing && br.ok && out_lazy() && out_overlaps(bind.addr, bi.range)) {   // a draw over a held compute result: the copy
                             const BufRef hb = held_or_pool(bind.addr, bi.range, kOutStorageXfb, false);
                             if (hb.buffer != br.buffer) {
                                 bi.buffer = hb.buffer;
                                 bi.offset = hb.offset;
-                                gpu_wrote(bind.addr, bi.range, kWriteStorage);
-                                out_add(bind.addr, bi.range, hb.buffer, hb.offset, br);   // what the draw writes there is held like a dispatch's
+                                if (writes) {
+                                    gpu_wrote(bind.addr, bi.range, kWriteStorage);
+                                    out_add(bind.addr, bi.range, hb.buffer, hb.offset, br);   // what the draw writes there is held like a dispatch's
+                                }
                                 break;
                             }
                         }
                         if (g_shadowing && br.ok) {                                  // before gpu_wrote: the shadow reads the pool copy while valid
-                            const BufRef sh = shadow_of(bind.addr, bi.range, br, true);
+                            const BufRef sh = shadow_of(bind.addr, bi.range, br, writes);
                             bi.buffer = sh.buffer;
                             bi.offset = sh.offset;
                         }
-                        if (br.ok) gpu_wrote(bind.addr, bi.range, kWriteStorage);      // a storage buffer may be written by the shader
+                        if (br.ok && writes) gpu_wrote(bind.addr, bi.range, kWriteStorage);   // the shader may write the block
                     }
                     break;
                 }
