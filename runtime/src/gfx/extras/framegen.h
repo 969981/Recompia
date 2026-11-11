@@ -24,12 +24,12 @@ const gfx::SwapchainFns* framegen_swapchain(gfx::Device& dev);
 bool framegen_active();
 
 // At the tone-map draw of a frame with a camera, from the temporal pass: records the prepare dispatch (depth, motion vectors, camera) into cb.
-// TemporalFrame::out / out_format are the size and format of the tone-map's target, which must be the window's size.
+// TemporalFrame::out is the size of the tone-map's target, which must have the window's shape.
 void framegen_prepare(VkCommandBuffer cb, const TemporalFrame& f);
 
-// After that draw, outside a render pass: copies the picture (src, in src_layout, which is left as it was) before the HUD is drawn on it. False: not
-// copied (no prepare this frame, a size that is not the window's).
-bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkFormat format, VkExtent2D e);
+// After that draw, outside a render pass: copies the picture (src of size e, in src_layout, which is left as it was) before the HUD is drawn on it,
+// converted to the swapchain's format and size. False: not copied (no prepare this frame, a shape that is not the window's).
+bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkExtent2D e);
 
 // What the F1 page and the launcher tell a player who tries to switch frame generation on without the DLL.
 const char* framegen_missing_text();

@@ -9,6 +9,7 @@
 #include "extras/framegen.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <string>
 
 #include "extras/ffx_resource.h"
@@ -74,7 +75,11 @@ void destroy_context() {
     g.ctx = nullptr;
 }
 
-bool make_context(VkExtent2D render, bool inverted, VkFormat hudless_format) {
+bool make_context(VkExtent2D render, bool inverted) {
+    if (ffx_surface_format(g.format) == FFX_API_SURFACE_FORMAT_UNKNOWN) {
+        NXLOG_E(kTag, "the swapchain's format %d has no name in FidelityFX: frames are presented as they are", static_cast<int>(g.format));
+        return false;
+    }
     ffxCreateBackendVKDesc be = {};
     be.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
     be.deviceContext.vkDevice = g.dev->device();
@@ -84,13 +89,9 @@ bool make_context(VkExtent2D render, bool inverted, VkFormat hudless_format) {
     ver.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION;
     ver.header.pNext = &be.header;
     ver.version = FFX_FRAMEGENERATION_VERSION;
-    ffxCreateContextDescFrameGenerationHudless hl = {};
-    hl.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS;
-    hl.header.pNext = &ver.header;
-    hl.hudlessBackBufferFormat = ffx_surface_format(hudless_format);
     ffxCreateContextDescFrameGeneration cd = {};
     cd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
-    cd.header.pNext = &hl.header;
+    cd.header.pNext = &ver.header;
     cd.flags = FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT | (inverted ? FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED : 0);
     cd.displaySize = {g.extent.width, g.extent.height};
     cd.maxRenderSize = {render.width, render.height};
@@ -108,25 +109,32 @@ bool make_context(VkExtent2D render, bool inverted, VkFormat hudless_format) {
     return true;
 }
 
+// The picture and the window have the same shape (the present pass scales one into the other without bars): within 1 % of the width.
+bool same_shape(VkExtent2D e) {
+    const int64_t d = static_cast<int64_t>(e.width) * g.extent.height - static_cast<int64_t>(e.height) * g.extent.width;
+    return std::llabs(d) * 100 <= static_cast<int64_t>(e.width) * g.extent.height;
+}
+
 }  // namespace
 
 bool framegen_active() { return g.live && !g.native && !g.failed; }
 
 void framegen_prepare(VkCommandBuffer cb, const TemporalFrame& f) {
     if (!framegen_active()) return;
-    // the HUD is taken from the difference to the HUD-less copy, which is made at the size of the picture: both are the display's size
-    if (f.out.width != g.extent.width || f.out.height != g.extent.height) {
+    // the HUD is taken from the difference to the HUD-less copy, which is made at the window's size: the picture must have the window's shape
+    // (a letterboxed picture, [display] keep_aspect on a window that is not 16:9, would need the bars as well)
+    if (!same_shape(f.out)) {
         static bool told = false;
         if (!told) {
             told = true;
-            NXLOG_W(kTag, "the game's picture is %ux%u and the window %ux%u: frame generation needs them equal (Render resolution: Match window)", f.out.width,
-                    f.out.height, g.extent.width, g.extent.height);
+            NXLOG_W(kTag, "the game's picture is %ux%u and the window %ux%u: not the same shape, frames are presented as they are", f.out.width, f.out.height,
+                    g.extent.width, g.extent.height);
         }
         return;
     }
     if (g.ctx && (f.render.width > g.render.width || f.render.height > g.render.height || f.depth_inverted != g.depth_inverted)) destroy_context();
     if (!g.ctx) {
-        if (!make_context(f.render, f.depth_inverted, f.out_format)) {
+        if (!make_context(f.render, f.depth_inverted)) {
             g.failed = true;
             return;
         }
@@ -162,17 +170,17 @@ void framegen_prepare(VkCommandBuffer cb, const TemporalFrame& f) {
     g.prepared = true;
 }
 
-bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkFormat format, VkExtent2D e) {
-    if (!framegen_active() || !g.prepared || e.width != g.extent.width || e.height != g.extent.height) return false;
+bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkExtent2D e) {
+    if (!framegen_active() || !g.prepared || !same_shape(e)) return false;
     const uint32_t slot = g.hudless_next;
     gfx::Image& h = g.hudless[slot];
-    if (!h || h.format != format || h.extent.width != e.width || h.extent.height != e.height) {
+    if (!h || h.extent.width != g.extent.width || h.extent.height != g.extent.height) {
         g.dev->wait_idle();
         g.dev->destroy_image(h);
         gfx::ImageDesc id;
-        id.format = format;
-        id.width = e.width;
-        id.height = e.height;
+        id.format = g.format;                  // the swapchain's: the blit converts to it, as the present pass does
+        id.width = g.extent.width;
+        id.height = g.extent.height;
         id.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         id.create_view = false;
         id.name = "frame generation hudless";
@@ -185,10 +193,11 @@ bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src
     }
     barrier(cb, src, src_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     barrier(cb, h.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    VkImageCopy c = {};
-    c.srcSubresource = c.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    c.extent = {e.width, e.height, 1};
-    vkCmdCopyImage(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, h.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+    VkImageBlit bl = {};      // scaled to the window's size and made the swapchain's format, as the present pass will do to the whole picture
+    bl.srcSubresource = bl.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    bl.srcOffsets[1] = {static_cast<int32_t>(e.width), static_cast<int32_t>(e.height), 1};
+    bl.dstOffsets[1] = {static_cast<int32_t>(g.extent.width), static_cast<int32_t>(g.extent.height), 1};
+    vkCmdBlitImage(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, h.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_LINEAR);
     barrier(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, src_layout);
     barrier(cb, h.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     g.hudless_current = static_cast<int>(slot);

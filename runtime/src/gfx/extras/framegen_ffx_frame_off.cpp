@@ -8,6 +8,6 @@ bool framegen_active() { return false; }
 
 void framegen_prepare(VkCommandBuffer, const TemporalFrame&) {}
 
-bool framegen_hudless_capture(VkCommandBuffer, VkImage, VkImageLayout, VkFormat, VkExtent2D) { return false; }
+bool framegen_hudless_capture(VkCommandBuffer, VkImage, VkImageLayout, VkExtent2D) { return false; }
 
 }  // namespace nxrt::extras

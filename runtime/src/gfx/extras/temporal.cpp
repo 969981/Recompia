@@ -390,7 +390,7 @@ bool temporal_camera_ready() {
 }
 
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
-                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex, VkFormat out_format) {
+                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex) {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     const UpscaleMode mode = upscale_mode();
@@ -534,7 +534,6 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     f.depth = as_input(s.depth);
     f.motion = as_input(s.motion);
     if (be) f.output = as_input(s.output);
-    f.out_format = out_format;
     f.render = render;
     f.out = out;
     f.jitter_px[0] = sdk_jx;

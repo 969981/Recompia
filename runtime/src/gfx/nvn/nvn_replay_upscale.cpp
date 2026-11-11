@@ -130,7 +130,7 @@ static void temporal_for_draw(const ProgLayout& pl) {
     VkImageView dv = tex_sampled_view(depth, dr);
     if (!src || !dv) return;
     VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
-                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex, tex_vk_format(target));
+                                                S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex);
     if (extras::framegen_active()) g_hudless_tex = S.color_tex[0];            // the HUD is drawn on this target next: copy it first (hudless_capture_pending)
     g_cmd.dirty = kAllDirty;                                                  // the SDKs bind their own compute state
     shadow_invalidate();
@@ -151,7 +151,7 @@ void hudless_capture_pending() {
     end_pass();                                                           // copies cannot run inside a render pass
     tex_ensure_current(t.get(), *F);
     tex_transition(t.get(), *F, tex_sampled_layout(t.get()));
-    extras::framegen_hudless_capture(F->cb, tex_image(t.get()), tex_sampled_layout(t.get()), tex_vk_format(t.get()), VkExtent2D{e.width, e.height});
+    extras::framegen_hudless_capture(F->cb, tex_image(t.get()), tex_sampled_layout(t.get()), VkExtent2D{e.width, e.height});
     g_cmd.dirty = kAllDirty;
     shadow_invalidate();
 }

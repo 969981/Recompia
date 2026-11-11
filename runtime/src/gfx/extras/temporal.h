@@ -31,7 +31,6 @@ struct TemporalImage {
 struct TemporalFrame {
     TemporalImage color, depth, motion, output;
     VkExtent2D render = {}, out = {};
-    VkFormat out_format = VK_FORMAT_UNDEFINED;   // the tone-map target's format (frame generation's HUD-less copy has it)
     float jitter_px[2] = {};         // the projection's sub-pixel offset in pixels (FSR convention: +x right, +y down in the picture)
     float mv_scale[2] = {};          // motion vectors are in UV units: times the render size gives pixels
     bool reset = false;              // no usable history (first frame, camera cut, output size or backend capacity change)
@@ -71,7 +70,7 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
 // (`out` large, in the top-left of an image of out_tex when that is larger; GENERAL layout, readable by fragment shaders after the recorded
 // barrier) or null (nothing recorded: the draw keeps its own input).
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
-                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {}, VkFormat out_format = VK_FORMAT_UNDEFINED);
+                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {});
 
 // ---- backends --------------------------------------------------------------------------------------------------------------------
 // gfx_device: the gfx::Device. Null when the SDK cannot be loaded or the GPU does not support it (logged once).
