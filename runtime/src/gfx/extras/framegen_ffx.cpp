@@ -5,6 +5,8 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 #include "extras/ffx_dll.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx.h"
@@ -72,48 +74,87 @@ bool make_first(const VkSwapchainCreateInfoKHR* ci, VkSwapchainKHR* out) {
         g.ctx = nullptr;
         return false;
     }
-    g.fns.header.type = FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK;
-    if (g.query(nullptr, &g.fns.header) != FFX_API_RETURN_OK || !g.fns.pOutCreateSwapchainFFXAPI || !g.fns.pOutDestroySwapchainFFXAPI ||
-        !g.fns.pOutGetSwapchainImagesKHR || !g.fns.pOutAcquireNextImageKHR || !g.fns.pOutQueuePresentKHR) {
+    // The replacement functions: asked of the new context, and of the global state when that gives nothing
+    const auto have = [] {
+        return g.fns.pOutCreateSwapchainFFXAPI && g.fns.pOutDestroySwapchainFFXAPI && g.fns.pOutGetSwapchainImagesKHR && g.fns.pOutAcquireNextImageKHR &&
+               g.fns.pOutQueuePresentKHR;
+    };
+    ffxContext* asks[2] = {&g.ctx, nullptr};
+    for (ffxContext* c : asks) {
+        g.fns = {};
+        g.fns.header.type = FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK;
+        const ffxReturnCode_t qr = g.query(c, &g.fns.header);
+        NXLOG_I(kTag, "swapchain functions asked of the %s: code %u, create %d destroy %d images %d acquire %d present %d", c ? "context" : "global state", qr,
+                g.fns.pOutCreateSwapchainFFXAPI != nullptr, g.fns.pOutDestroySwapchainFFXAPI != nullptr, g.fns.pOutGetSwapchainImagesKHR != nullptr,
+                g.fns.pOutAcquireNextImageKHR != nullptr, g.fns.pOutQueuePresentKHR != nullptr);
+        if (qr == FFX_API_RETURN_OK && have()) break;
+    }
+    if (!have()) {
         NXLOG_E(kTag, "the frame generation DLL gave no swapchain functions: no frame generation");
-        g.destroy_ctx(&g.ctx, nullptr);
+        g.destroy_ctx(&g.ctx, nullptr);     // the context does not take its swapchain with it: the window stays in use until that is destroyed
         g.ctx = nullptr;
+        if (sc) vkDestroySwapchainKHR(g.dev->device(), sc, nullptr);
         return false;
     }
     *out = sc;
     return true;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL fg_create(VkDevice device, const VkSwapchainCreateInfoKHR* ci, const VkAllocationCallbacks* alloc, VkSwapchainKHR* out) {
-    if (!g.native && !g.ctx) {
-        if (make_first(ci, out)) {
-            NXLOG_I(kTag, "frame generation swapchain made (%ux%u)", ci->imageExtent.width, ci->imageExtent.height);
+// The swapchain AMD's code made and has not been told to destroy; stale handles the renderer passes later are not ours to destroy.
+VkSwapchainKHR g_live = VK_NULL_HANDLE;
+
+// Destroys the context, then its swapchain (the context does not take the swapchain with it).
+void destroy_live(VkDevice device, const VkAllocationCallbacks* alloc) {
+    const VkSwapchainKHR sc = g_live;
+    g_live = VK_NULL_HANDLE;
+    ffxContext gone = g.ctx;
+    g.ctx = nullptr;
+    g.destroy_ctx(&gone, nullptr);
+    g.fns.pOutDestroySwapchainFFXAPI(device, sc, alloc, reinterpret_cast<void*>(sc));   // pContext: the swapchain being destroyed
+}
+
+// A swapchain made again (a resize, a present mode) is made from scratch: the in-place call of AMD's code hands the old handle, which is not
+// a Vulkan swapchain, to vkCreateSwapchainKHR, and a layer on the way (RivaTuner's) crashes on it.
+VKAPI_ATTR VkResult VKAPI_CALL fg_create(VkDevice device, const VkSwapchainCreateInfoKHR* ci_in, const VkAllocationCallbacks* alloc, VkSwapchainKHR* out) {
+    VkSwapchainCreateInfoKHR ci = *ci_in;
+    if (!g.native && g.ctx) {
+        g.dev->wait_idle();
+        destroy_live(device, alloc);
+    }
+    if (!g.native) {
+        ci.oldSwapchain = VK_NULL_HANDLE;
+        if (make_first(&ci, out)) {
+            g_live = *out;
+            NXLOG_I(kTag, "frame generation swapchain made (%ux%u)", ci.imageExtent.width, ci.imageExtent.height);
             return VK_SUCCESS;
         }
         g.native = true;
     }
-    if (g.native) return vkCreateSwapchainKHR(device, ci, alloc, out);
-    return g.fns.pOutCreateSwapchainFFXAPI(device, ci, alloc, out, g.ctx);
+    ci.oldSwapchain = VK_NULL_HANDLE;
+    return vkCreateSwapchainKHR(device, &ci, alloc, out);
 }
 
 VKAPI_ATTR void VKAPI_CALL fg_destroy(VkDevice device, VkSwapchainKHR sc, const VkAllocationCallbacks* alloc) {
-    if (g.native || !g.ctx) {
-        vkDestroySwapchainKHR(device, sc, alloc);
-        return;
-    }
-    ffxContext ctx = g.ctx;
-    g.ctx = nullptr;
-    g.destroy_ctx(&ctx, nullptr);
-    g.fns.pOutDestroySwapchainFFXAPI(device, sc, alloc, ctx);
+    if (g.native) vkDestroySwapchainKHR(device, sc, alloc);
+    else if (g.ctx && sc == g_live) destroy_live(device, alloc);
+}
+
+// The first calls of each kind are logged before they run: a crash inside the DLL shows which call it was.
+void trace_first(const char* what) {
+    static std::atomic<int> n{0};
+    if (n.fetch_add(1) < 12) NXLOG_I(kTag, "call: %s", what);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL fg_images(VkDevice d, VkSwapchainKHR sc, uint32_t* n, VkImage* imgs) {
+    trace_first(imgs ? "get images" : "count images");
     return g.native ? vkGetSwapchainImagesKHR(d, sc, n, imgs) : g.fns.pOutGetSwapchainImagesKHR(d, sc, n, imgs);
 }
 VKAPI_ATTR VkResult VKAPI_CALL fg_acquire(VkDevice d, VkSwapchainKHR sc, uint64_t timeout, VkSemaphore s, VkFence f, uint32_t* idx) {
+    trace_first("acquire");
     return g.native ? vkAcquireNextImageKHR(d, sc, timeout, s, f, idx) : g.fns.pOutAcquireNextImageKHR(d, sc, timeout, s, f, idx);
 }
 VKAPI_ATTR VkResult VKAPI_CALL fg_present(VkQueue q, const VkPresentInfoKHR* pi) {
+    trace_first("present");
     return g.native ? vkQueuePresentKHR(q, pi) : g.fns.pOutQueuePresentKHR(q, pi);
 }
 VKAPI_ATTR void VKAPI_CALL fg_hdr_metadata(VkDevice d, uint32_t n, const VkSwapchainKHR* scs, const VkHdrMetadataEXT* md) {
