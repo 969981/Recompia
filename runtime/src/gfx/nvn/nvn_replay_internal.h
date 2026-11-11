@@ -286,6 +286,7 @@ struct CmdState {   // owner: nvn_replay_draw.cpp (begin_draw); the other ops se
     bool want_depth_ro = false;      // some texture this draw samples is the current depth attachment
     bool vb_bound_in_cb = false;     // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
     bool prog_writes = false;        // the bound program has storage buffer or storage image bindings
+    int8_t fs_tonemap = -1;          // the bound fragment shader is the tone-map shader (extras::hdr_is_tonemap); -1: not asked since kPipe
     DynShadow dsh;                   // bind_coalesce: the dynamic state, vertex and index buffers last sent in this command buffer
     VbShadow vbsh[16];
     IbShadow ibsh;
