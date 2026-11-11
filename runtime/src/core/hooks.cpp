@@ -40,6 +40,17 @@ std::vector<std::shared_ptr<Hook>> g_all;                        // by registrat
 uint32_t g_next_id = 1;
 std::atomic<uint64_t> g_site_calls[3];
 
+// Site calls per thread, added to the shared count every 1024 (as host_import's count): every thread passes the sites, and a locked add per
+// call moves the counters' cache line between the cores. The summary count is short by under 1024 per thread and kind.
+inline void count_site(HookKind kind) {
+    static thread_local uint32_t n[3] = {};
+    const int k = static_cast<int>(kind);
+    if (++n[k] == 1024) {
+        g_site_calls[k].fetch_add(1024, std::memory_order_relaxed);
+        n[k] = 0;
+    }
+}
+
 std::vector<std::shared_ptr<Hook>>& chain_of(Chain& c, HookKind k) {
     return k == HookKind::Inline ? c.inl : k == HookKind::Mid ? c.mid : c.entry;
 }
@@ -146,7 +157,7 @@ inline int call_site(const nxrt::Hook& h, Ctx* c, uint64_t addr) {
 
 template <bool kCensus>
 void site_inline(Ctx* c, uint64_t addr) {
-    nxrt::g_site_calls[0].fetch_add(1, std::memory_order_relaxed);
+    nxrt::count_site(nxrt::HookKind::Inline);
     const nxrt::Snapshot* s = nxrt::g_snap.load(std::memory_order_acquire);
     if (!s) return;
     auto it = s->find(addr);
@@ -159,7 +170,7 @@ void site_inline(Ctx* c, uint64_t addr) {
 
 template <bool kCensus>
 int run_chain(Ctx* c, uint64_t addr, nxrt::HookKind kind) {
-    nxrt::g_site_calls[static_cast<int>(kind)].fetch_add(1, std::memory_order_relaxed);
+    nxrt::count_site(kind);
     const nxrt::Snapshot* s = nxrt::g_snap.load(std::memory_order_acquire);
     if (!s) return 0;
     auto it = s->find(addr);
