@@ -383,7 +383,6 @@ static const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl
 static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
     RpScope rp_all(kRpDraw);
     PoolReasonScope pr_(kReasonVertex);
-    ResolveScope rs_;
     const ShaderInfo* vs = S.stage[kVertex];
     if (!vs) { log_once(kOnceDrawNoVs, "draw without a vertex shader skipped"); return false; }
     if (!S.render_enable) return false;
@@ -413,7 +412,6 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     const ProgLayout* pl = g_cmd.pl;
     if (!pl) return false;
     if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_cmd.dirty |= kDesc;   // c[0] + 0x644 changed: new sets
-    rs_.arm(pl);
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_cmd.dirty & (kDesc | kPipe)) {
         RpScope rp_(kRpPrep);
