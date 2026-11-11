@@ -21,7 +21,7 @@
 
 namespace nxrt::kernel {
 
-std::atomic<int32_t> detail::g_poll_waiting{0};
+detail::PollWaiting detail::g_poll_waiting;
 
 namespace {
 constexpr uint32_t kMaxRows = 8;   // listed call sites served (a thread keeps one bit per row)
@@ -106,14 +106,14 @@ Slot* claim(const game::PollWatch& w, uint32_t* waiting) {
         s.size.store(w.size, std::memory_order_relaxed);
         *waiting = gen | kWaiting;
         s.word.store(*waiting);
-        detail::g_poll_waiting.fetch_add(1);
+        detail::g_poll_waiting.n.fetch_add(1);
         return &s;
     }
     return nullptr;
 }
 
 void release(Slot& s) {
-    detail::g_poll_waiting.fetch_sub(1);
+    detail::g_poll_waiting.n.fetch_sub(1);
     s.word.store(0);
 }
 
