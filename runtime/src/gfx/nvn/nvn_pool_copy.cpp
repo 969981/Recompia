@@ -3,8 +3,8 @@
 // instead of imports. Under Proton every vkQueueSubmit costs more the more userptr memory is imported (amdgpu revalidates every userptr BO of the
 // submission's BO list): with whole pools imported (3.8 GiB) the game froze inside vkQueueSubmit, and the lazy pool's ~2 GiB of live imports
 // still cost ~17.8 ms per batch submission on the Deck. Here a pool keeps the lazy pool's cell structure (nvn_gpu_pool.cpp: cells, ext,
-// cell_ext, spans, idle drop), but each cell holds a host-visible Vulkan buffer of its own (MemoryUse::Shadow) instead of an import of the
-// guest pages, so no submission carries a userptr BO.
+// cell_ext, spans, idle drop), but each cell holds a host-visible Vulkan buffer of its own (MemoryUse::Shadow, handed out by
+// nvn_pool_stock.cpp) instead of an import of the guest pages, so no submission carries a userptr BO.
 //
 // The rules that keep the shadow right:
 //  * touch (resolve_in_pool, render thread): every resolve copies the pages of the range it binds from guest memory into the shadow, unless
