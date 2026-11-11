@@ -66,7 +66,7 @@ constexpr uint64_t kHeadingRead = 0x2e1a14;      // mid: in the target query aft
 constexpr uint64_t kSwingPreview = 0x7220dc;     // mid: in the swing preview shape after the heading load (s9 = heading, x22 = character)
 constexpr uint64_t kSwingLive = 0x6d9d70;        // mid: in the live hit shape after the heading load (s8 = heading, x19 = character)
 constexpr uint64_t kPitchRead = 0x6f7918;        // mid: in the row helper after the pitch wrap (s5 = pitch, x22 = character, w21 = extremes allowed)
-constexpr uint64_t kWorld = 0x34efc98;           // qword: the world; +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
+using layout::kWorld;
 constexpr uint64_t kCollisionMeta = 0x355d3c6;   // u16[block id]: bit 0 = solid for the tool rays
 constexpr uint64_t kActionStart = 0x27e5d8;      // mid: StartAction, the action really starts (w28 = action id, x19 = action component)
 constexpr uint64_t kActionOwner = 0x978;         // action component: the character

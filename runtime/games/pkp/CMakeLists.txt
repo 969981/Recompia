@@ -32,6 +32,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_linkplay.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
+        "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
         "${_pkp}/render/pkp_render_targets.cpp"
@@ -41,6 +42,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/render/pkp_gfx_heap.cpp"
         "${_pkp}/render/pkp_quality.cpp"
         "${_pkp}/render/pkp_taa.cpp"
+        "${_pkp}/render/pkp_shoulder_camera.cpp"
         # input
         "${_pkp}/input/pkp_play.cpp"
         "${_pkp}/input/pkp_mouse_camera.cpp"

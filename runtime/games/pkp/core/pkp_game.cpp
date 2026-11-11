@@ -18,6 +18,7 @@
 #include "input/pkp_play.h"
 #include "render/pkp_quality.h"
 #include "core/pkp_save_uuid.h"
+#include "render/pkp_shoulder_camera.h"
 #include "ui/pkp_sort.h"
 #include "render/pkp_taa.h"
 #include "ui/pkp_title.h"
@@ -48,6 +49,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
 //   kbm, movie_test     game-frame callbacks, kbm's first (movie_test and taa_probe are test tools: in the table only with NXRT_TESTTOOLS, which
 //                       a release package builds without; the registry has no stub for them)
+//   shoulder_camera    a port() row on purpose: the repo owner chose no on/off switch, since its two distances at 0 are the game's own camera
 //   title, sort, craft  key guide clients (pkp_key_guide.h): they add themselves at install, and the key guide's callbacks run in that
 //                       order
 //   key_guide           after its clients: its install registers the hooks they need
@@ -76,6 +78,7 @@ constexpr Entry kEntries[] = {
 #if NXRT_TESTTOOLS
     port(&kTaaProbeFeature),
 #endif
+    port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
     mod(&kCraftFeature, CraftSearch), port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),

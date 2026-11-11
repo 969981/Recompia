@@ -362,6 +362,8 @@ Pokopia's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.ini
 | `pkp` | `game_frame_limit` | `0` | `1` `0` | `NXRT_PKP_GAME_FRAME_LIMIT` | Keep the game's own 60 Hz frame wait. Next start. |
 | `pkp` | `camera_every_frame` | `1` | `1` `0` | `NXRT_PKP_CAMERA_EVERY_FRAME` | Place the camera every rendered frame instead of on the game's 120 Hz tick. Next start. |
 | `pkp` | `camera_grace_ms` | `250` | `0` to `5000` (clamped into it) | `NXRT_PKP_CAMERA_GRACE_MS` | How long after the camera's turn branch last ran the mouse still turns the camera, in ms. Next start. |
+| `pkp` | `camera_shoulder_side` | `0` | `-2` to `2` (clamped into it) | `NXRT_PKP_CAMERA_SHOULDER_SIDE` | Over-the-shoulder camera: how far the view is moved to the side of the character, in blocks (positive: to the right, 0: the game's own camera). |
+| `pkp` | `camera_shoulder_height` | `0` | `-1` to `2` (clamped into it) | `NXRT_PKP_CAMERA_SHOULDER_HEIGHT` | Over-the-shoulder camera: how far the view is moved up, in blocks (positive: up, 0: the game's own camera). |
 | `pkp` | `menu_mouse` | `1` | `1` `0` | `NXRT_PKP_MENU_MOUSE` | The mouse pointer in the game's menus. Next start. |
 | `pkp` | `menu_log` | `1` | a whole number | `NXRT_PKP_MENU_LOG` | Menu logging: 0 off, 1 what the pointer does (and the sort's and search's lists), 2 more detail, 3 the layout chain once a second. Next start. |
 | `pkp` | `menu_in_game` | `1` | `1` `0` | `NXRT_PKP_MENU_IN_GAME` | The mouse pointer also works in menus opened during play. Next start. |
