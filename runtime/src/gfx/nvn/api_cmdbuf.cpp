@@ -412,6 +412,9 @@ NVNcommandHandle nvnCommandBufferEndRecording(NVNcommandBuffer* c) {
             cb->overflow_pos += size;
         }
     }
+    api_stats::count(api_stats::kLists);
+    api_stats::count(api_stats::kRecords, list->record_count);
+    api_stats::count(api_stats::kRecordBytes, list->bytes.size());
     const uint64_t h = handle_register(list);
     std::lock_guard<std::mutex> lk(cb->lock);
     cb->handles.push_back(h);
@@ -439,6 +442,7 @@ void nvnCommandBufferCopyCommands(NVNcommandBuffer* c, int count, const NVNcomma
         if (!src) continue;
         cmd_need(cb, src->hw_bytes);   // the console copies the command words
         cb->rec->hw_bytes += src->hw_bytes;
+        api_stats::count(api_stats::kCopyBytes, src->bytes.size());
         cb->rec->bytes.insert(cb->rec->bytes.end(), src->bytes.begin(), src->bytes.end());
         cb->rec->record_count += src->record_count;
         cb->rec->draw_count += src->draw_count;

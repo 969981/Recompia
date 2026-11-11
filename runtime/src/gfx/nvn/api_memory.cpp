@@ -192,6 +192,7 @@ void nvnMemoryPoolFlushMappedRange(const NVNmemoryPool* pool, ptrdiff_t offset, 
     if (!p || !p->base) return;
     uint64_t start = 0;
     const uint64_t n = clip_range(offset, size, p->size, start);
+    api_stats::count(api_stats::kFlush);
     if (n) textures_cpu_wrote(p->base + start, n);
 }
 
@@ -324,6 +325,7 @@ void nvnBufferFlushMappedRange(const NVNbuffer* buffer, ptrdiff_t offset, size_t
     if (!map) return;
     uint64_t start = 0;
     const uint64_t n = clip_range(offset, size, d.size, start);
+    api_stats::count(api_stats::kFlush);
     if (n) textures_cpu_wrote(map + start, n);
 }
 
@@ -404,6 +406,7 @@ void texture_pool_register(const NVNtexturePool* pool, int id, const NVNtexture*
     }
     Texture* t = host_of<Texture>(texture);
     const TextureViewInfo info = view ? decode(view) : TextureViewInfo{};
+    api_stats::count(api_stats::kTexReg);
     std::unique_lock<std::shared_mutex> lk(tp->lock, std::defer_lock);
     { NXFT("tex.pool_register.lock"); lk.lock(); }      // the wait for readers of the pool's entries (a draw resolving texture ids)
     TexturePool::Entry& e = tp->entries[static_cast<size_t>(id)];
@@ -484,6 +487,7 @@ void sampler_pool_store(const NVNsamplerPool* pool, int id, const SamplerInfo& i
         NVN_WARN_ONCE("nvnSamplerPoolRegister: a sampler id outside the pool is ignored");
         return;
     }
+    api_stats::count(api_stats::kSmpReg);
     std::unique_lock<std::shared_mutex> lk(sp->lock);
     sp->entries[static_cast<size_t>(id)] = info;
     be::g_bind_gen.fetch_add(1, std::memory_order_relaxed);
