@@ -193,8 +193,18 @@ static void run_list(const CmdList& list, int depth) {
             case Op::BindDepthStencil: { NVNdepthStencilState st; std::memcpy(&st, r.payload<P_RawState>().bytes, sizeof st); S.ds = decode(&st); break; }
             case Op::BindPolygon: { NVNpolygonState st; std::memcpy(&st, r.payload<P_RawState>().bytes, sizeof st); S.poly = decode(&st); break; }
             case Op::BindMultisample: { NVNmultisampleState st; std::memcpy(&st, r.payload<P_RawState>().bytes, sizeof st); S.ms = decode(&st); break; }
-            case Op::SetTexturePool: S.tpool = Ref<TexturePool>::share(static_cast<TexturePool*>(r.payload<P_Pool>().pool)); break;
-            case Op::SetSamplerPool: S.spool = Ref<SamplerPool>::share(static_cast<SamplerPool*>(r.payload<P_Pool>().pool)); break;
+            case Op::SetTexturePool: {
+                TexturePool* tp = static_cast<TexturePool*>(r.payload<P_Pool>().pool);
+                if (tp != S.tpool.get()) ++g_rc.pools;   // resolve_texture: handles name other entries now
+                S.tpool = Ref<TexturePool>::share(tp);
+                break;
+            }
+            case Op::SetSamplerPool: {
+                SamplerPool* sp = static_cast<SamplerPool*>(r.payload<P_Pool>().pool);
+                if (sp != S.spool.get()) ++g_rc.pools;
+                S.spool = Ref<SamplerPool>::share(sp);
+                break;
+            }
             case Op::SetViewports: {
                 const auto& p = r.payload<P_Rects>();
                 const float* v = reinterpret_cast<const float*>(r.blob<P_Rects>());
@@ -254,6 +264,7 @@ static void run_list(const CmdList& list, int depth) {
             case Op::SetCoverageModulationTable: case Op::SetConservativeRaster: break;
             case Op::SetRenderTargets: {
                 const auto& p = r.payload<P_RenderTargets>();
+                ++S.targets_gen;
                 S.ncolor = p.count;
                 for (uint32_t i = 0; i < 8; ++i) {
                     S.color_tex[i] = i < p.count ? Ref<Texture>::share(p.color[i].tex) : Ref<Texture>();
@@ -633,6 +644,7 @@ void replay_shutdown() {
     g_qa = QuadArgs();
     pipeline_shutdown();
     S = GState();
+    ++g_rc.pools;   // the pools are no longer held: their addresses may come back as other pools
     P = Pass();
     g_bar.pending.clear();
     out_reset();
