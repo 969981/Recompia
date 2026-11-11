@@ -38,6 +38,9 @@
 // 0x71002f7340, whose A-button target keeps the forward cell), the swing preview's shape position at 0x71007226bc (right before
 // 0x710009db4c, x29 - 0x60) and the live hit's at 0x71006da610 (x29 - 0x80, tool path only: w22 set, x27 = the character). The shape
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
+// The range holds up and down too (the owner's call: camera aim overrides the game's row limit): a hit past the bands the game can
+// select, within 1 + extra rows (never fewer than the game's own), gets band 0 and its row moved in: the query's start row
+// ([x29 - 0xb6]) and the swing shape's height (rows_down / rows_up / past_bands).
 // With no such hit, the query's start cell stays the game's (already a step along the camera's yaw, above). The swing shapes' position
 // does not come from that heading: the live hit takes the character's stored attack position (+0x35c0), which lies in front of where the
 // character faces, i.e. where it walks. So the two position hooks, with or without extra reach, turn that position around the character
@@ -296,6 +299,13 @@ bool aim_hit(uint64_t ch, int base, int lo, int hi, RayHit& r, aim_debug::Use us
     return !reject;
 }
 
+// Vertical reach: camera aim's range is the same up and down as sideways (1 + extra cells), never less than the game's own rows (the
+// query's bands reach -1..+2 rows from the feet, a swing's shape -1..+3 from its base). A hit past the bands (and inside that range)
+// gets band 0 (hook_pitch) and its row moved in by whole cells: the query's start row, the swing shape's height.
+int rows_down() { return -(1 + g.extra); }
+int rows_up(bool swing) { return std::max(swing ? 3 : 2, 1 + g.extra); }
+bool past_bands(int d, bool swing) { return swing ? d < -1 || d > 3 : d < -1 || d > 2; }
+
 // A column move, logged when it differs from the last one logged.
 void log_reach(const char* what, int ox, int oz, const RayHit& r) {
     static const char* last_what = nullptr;
@@ -306,16 +316,18 @@ void log_reach(const char* what, int ox, int oz, const RayHit& r) {
     NXLOG_I(kTag, "camera aim: reach %s column %d,%d -> %d,%d (hit %d,%d,%d, %d cells out)", what, ox, oz, r.x, r.z, r.x, r.y, r.z, r.h);
 }
 
-// Target query: its start cell (the forward cell) moves to the column of the ray hit; the row is still chosen after this. The nearby-object
-// interaction keeps the game's forward cell.
+// Target query: its start cell (the forward cell) moves to the column of the ray hit; the row is still chosen after this (a hit past the
+// bands: band 0 and the start row is the hit's). The nearby-object interaction keeps the game's forward cell.
 int hook_query_base(::Ctx* c, uint64_t, void*) {
     const uint64_t ch = c->x[28], fp = c->x[29];
     if (interaction(fp)) return 0;
     const int ox = rd<int16_t>(fp - 0xb8), oz = rd<int16_t>(fp - 0xb4);
     RayHit r;
-    const bool move = aim_hit(ch, feet_row(ch), -1, 2, r, aim_debug::Use::Query);
+    const int feet = feet_row(ch);
+    const bool move = aim_hit(ch, feet, rows_down(), rows_up(false), r, aim_debug::Use::Query);
     if (aim_debug::on()) aim_debug::query_start(ox, rd<int16_t>(fp - 0xb6), oz, move ? r.x : ox, move ? r.z : oz);
     if (!move) return 0;
+    if (past_bands(r.y - feet, false)) wr<int16_t>(fp - 0xb6, static_cast<int16_t>(r.y));
     wr<int16_t>(fp - 0xb8, static_cast<int16_t>(r.x));
     wr<int16_t>(fp - 0xb4, static_cast<int16_t>(r.z));
     log_reach("query", ox, oz, r);
@@ -337,7 +349,8 @@ void turn_shape(uint64_t ch, uint64_t pos, float px, float pz) {
     wr<float>(pos + 8, cz + dz / len * dist);
 }
 
-// Swing shape position (vec4 at pos): moved by whole cells into the column of the ray hit, else turned to the camera.
+// Swing shape position (vec4 at pos): moved by whole cells into the column of the ray hit (and, past the bands, its height: the shape
+// spans the band-0 row and the one above, moved to the hit's row and the one below), else turned to the camera.
 void shift_shape(uint64_t ch, uint64_t pos, const char* what, aim_debug::Use use) {
     const float px = rd<float>(pos), pz = rd<float>(pos + 8);
     if (!std::isfinite(px) || !std::isfinite(pz)) return;
@@ -345,9 +358,17 @@ void shift_shape(uint64_t ch, uint64_t pos, const char* what, aim_debug::Use use
     const char* how = "moved to the hit column";
     RayHit r;
     // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
-    if (!aim_hit(ch, swing_base_row(ch), -1, 3, r, use)) {
+    const int base = swing_base_row(ch);
+    if (!aim_hit(ch, base, rows_down(), rows_up(true), r, use)) {
         turn_shape(ch, pos, px, pz);
         how = "turned to the camera";
+    } else if (past_bands(r.y - base, true)) {
+        const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
+        wr<float>(pos, px + static_cast<float>(r.x - cx) * 100.f);
+        wr<float>(pos + 4, rd<float>(pos + 4) + static_cast<float>(r.y - 1 - base) * 100.f);
+        wr<float>(pos + 8, pz + static_cast<float>(r.z - cz) * 100.f);
+        how = "moved to the hit column and row";
+        log_reach(what, cx, cz, r);
     } else if (const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
                cx == r.x && cz == r.z) {
         how = "already in the hit column";
@@ -401,6 +422,8 @@ int hook_pitch(::Ctx* c, uint64_t, void*) {
     if (!hit) why = "nothing near: the game's band";
     else if (r.h == 0 && r.y != row - 1) why = "own column above the floor: the game's band";
     else if (r.h == 0) pitch = t0 - 0.01f, band = aim_debug::kUnder, why = "down extreme: the cell under the character";
+    else if (!ia && r.h <= 1 + g.extra && past_bands(d, swing) && d >= rows_down() && d <= rows_up(swing))
+        pitch = (t1 + t2) * 0.5f, band = 0, why = "past the bands: band 0, the row moved to the hit";
     else if (band == -1) pitch = (t0 + t1) * 0.5f, why = "band -1";
     else if (band == 0) pitch = (t1 + t2) * 0.5f, why = "band 0";
     else if (band == 1) pitch = (t2 + t3) * 0.5f, why = "band +1";
