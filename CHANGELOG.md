@@ -19,6 +19,9 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
 
 ### Game
+- Fixed the game closing at start ("pkp.exe exited with code -1073740791 (0xC0000409)") on some AMD graphics (#487)
+  - Before: every compute shader asked the driver to run 32 wide, even one with a workgroup too big for that on AMD; Vulkan doesn't allow the request then, and AMD's driver could close the game while preparing it
+  - Now: a compute shader whose workgroup doesn't fit at 32 wide runs at the driver's own width; the others still run 32 wide
 - Fixed the boot screen and some loading screens fast-forwarding above 60 fps
   - Before: while the game loaded, the frame limit was dropped, so the loading animations ran as fast as the PC could draw (300 fps or more on a fast PC) and the game's 60 fps hold for loading and events was skipped
   - Now: loading screens keep the frame limit and the 60 fps hold, so they play at normal speed. A world load takes under a second longer. To bring the old behaviour back, turn on **Fast loading screens** in the launcher (Settings > Game > Experimental), or set `[display] unpaced_loading = 1` in `pkp.ini`

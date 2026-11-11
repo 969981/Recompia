@@ -740,8 +740,10 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
         limits_.max_subgroup_size = p13.maxSubgroupSize;
         limits_.required_subgroup_stages = p13.requiredSubgroupSizeStages;
         limits_.subgroup_size_control = a13.subgroupSizeControl == VK_TRUE;
-        NXLOG_I(kTag, "subgroups: %u wide (%u..%u), size control %d, a size can be required for stages 0x%x", p11.subgroupSize,
-                p13.minSubgroupSize, p13.maxSubgroupSize, limits_.subgroup_size_control ? 1 : 0, static_cast<unsigned>(p13.requiredSubgroupSizeStages));
+        limits_.max_compute_workgroup_subgroups = p13.maxComputeWorkgroupSubgroups;
+        NXLOG_I(kTag, "subgroups: %u wide (%u..%u), size control %d, a size can be required for stages 0x%x, at most %u per compute workgroup",
+                p11.subgroupSize, p13.minSubgroupSize, p13.maxSubgroupSize, limits_.subgroup_size_control ? 1 : 0,
+                static_cast<unsigned>(p13.requiredSubgroupSizeStages), p13.maxComputeWorkgroupSubgroups);
         limits_.max_memory_allocation_count = props_.limits.maxMemoryAllocationCount;
     }
     if (!headless) dev_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
