@@ -23,7 +23,7 @@ constexpr uint32_t kHotCool = 1800;
 constexpr uint32_t kHotMaxShift = 5;
 uint32_t hot_presents(uint8_t level) { return kHotCool << std::min<uint32_t>(level ? level - 1u : 0u, kHotMaxShift); }
 
-std::atomic<uint64_t> g_arms{0}, g_armed_pages{0}, g_rewrites{0}, g_unarmable{0};
+std::atomic<uint64_t> g_arms{0}, g_armed_pages{0}, g_rewrites{0}, g_unarmable{0}, g_land_kept{0}, g_land_differ{0};
 std::atomic<int64_t> g_hot_now{0};
 
 }  // namespace
@@ -146,6 +146,30 @@ void ptrack_before_copy(PoolTrack* t, uint64_t first, uint64_t count, uint32_t f
     arm_run(count);
 }
 
+void ptrack_gpu_write(PoolTrack* t, uint64_t page, uint32_t* gen) {
+    if (t->stopped || page >= t->npages || t->hot[page] || !t->gen[page] || !mem::ww::page_valid(t->region, page)) return;   // nobody is current
+    const bool current = *gen == t->gen[page];
+    if (++t->gen[page] == 0) t->gen[page] = 1;
+    if (current) *gen = t->gen[page];
+}
+
+uint64_t ptrack_land_begin(PoolTrack* t, uint64_t first, uint64_t count) {
+    if (!t || t->stopped || !mem::ww::page_valid(t->region, first)) return 0;
+    return mem::ww::owner_write_begin(t->region, first, count);
+}
+
+bool ptrack_land_end(PoolTrack* t, uint64_t first, uint64_t count) {
+    const bool ok = mem::ww::owner_write_end(t->region, first, count);
+    if (ok) g_land_kept.fetch_add(count, std::memory_order_relaxed);
+    else g_unarmable.fetch_add(count, std::memory_order_relaxed);
+    return ok;
+}
+
+void ptrack_land_differs(PoolTrack* t, uint64_t first, uint64_t count) {
+    mem::ww::invalidate(t->region, first, count);
+    g_land_differ.fetch_add(count, std::memory_order_relaxed);
+}
+
 PoolTrackStats ptrack_stats() {
     PoolTrackStats s;
     s.arms = g_arms.load(std::memory_order_relaxed);
@@ -153,6 +177,8 @@ PoolTrackStats ptrack_stats() {
     s.rewrites = g_rewrites.load(std::memory_order_relaxed);
     s.hot_now = static_cast<uint64_t>(std::max<int64_t>(0, g_hot_now.load(std::memory_order_relaxed)));
     s.unarmable = g_unarmable.load(std::memory_order_relaxed);
+    s.land_kept = g_land_kept.load(std::memory_order_relaxed);
+    s.land_differ = g_land_differ.load(std::memory_order_relaxed);
     return s;
 }
 

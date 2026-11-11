@@ -21,14 +21,19 @@
 #include "nxrt/ftrace.h"
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
+#include "nxrt/config.h"
 #include "nvn_gpu_internal.h"
 #include "nvn_pool_copy_impl.h"
+#include "nvn_pool_track.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace {
 
 using pcopy::kPage;
 constexpr uint64_t kNone = ~0ull;         // g_land_min with no record
+// [nvn] pool_copy_land_keep: a record of at most this many bytes has every page it kept compared after the copy; a larger one only the
+// bytes of its first and last page that lie outside the record (see land_one).
+constexpr uint64_t kCompareAll = 64 * 1024;
 
 // GPU writes waiting for their serial, in serial order (recorded by the render thread as it records). Lock order:
 // g_live_mu -> g_reg_mu -> g_landing_mu -> g_land_mu. g_land_mu guards only the queue, land_refs and g_land_min and is held for short sections
@@ -59,6 +64,63 @@ void drop_all_records() {
         if (r.chunk->land_refs) --r.chunk->land_refs;
     g_land.clear();
     land_min_update();
+}
+
+// One record goes from its shadow into guest memory. Returns the parts that could not be written.
+//
+// [nvn] pool_copy_land_keep: the bytes come from the shadow, so a page that was current before (armed by the write tracker, unwritten)
+// is current after, and no bind copies it back. Such runs of pages are made writable through the tracker (ptrack_land_begin), which
+// keeps them out of the written record, and armed again after the copy. The tracker sees no CPU write made in between, so afterwards
+// the CPU's bytes are compared with the shadow's where a game may write while this runs: the bytes of the record's first and last page
+// outside the record, which are no part of the GPU's write and may hold other data; and for a small record (an event word, a report,
+// a counter the game polls in memory and may answer at once) all of its kept pages. A page that differs counts as written. Inside a
+// large record the game does not write before the serial is published, which happens after this returns; a write made there while the
+// GPU's write was in flight was lost before too (the limits at the top of nvn_pool_copy.cpp).
+// Without it every page of the record is written as an operating-system write: it counts as written, the next bind copies it into the
+// shadow again, and a page that happens to twice turns hot.
+struct KeptRun { PoolGpu* pool; uint64_t first, count; };
+uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size, std::vector<KeptRun>& kept) {
+    uint8_t* const base = pool->base;
+    const auto shadow = [c](uint64_t pool_off) { return static_cast<const uint8_t*>(c->shadow.mapped) + (pool_off - c->off); };
+    const uint64_t p0 = off / kPage, p1 = (off + size - 1) / kPage;
+    const size_t k0 = kept.size();
+    if (PoolTrack* trk = pcopy::land_keep() ? pool->track : nullptr)
+        for (uint64_t p = p0; p <= p1;) {
+            const uint64_t n = ptrack_land_begin(trk, p, p1 - p + 1);
+            if (n) kept.push_back(KeptRun{pool, p, n});
+            p += n ? n : 1;
+        }
+    mem::ww::before_os_write(base + off, size);     // pages a write watch made read-only become writable (and count as written)
+    const uint64_t bad = pcopy::guarded_copy(base + off, shadow(off), size, false);
+    const uint64_t lo = c->off, hi = c->off + c->size;     // what the shadow holds
+    const auto same = [&](uint64_t a, uint64_t b) {
+        a = std::max(a, lo);
+        b = std::min(b, hi);
+        return a >= b || pcopy::guarded_same(base + a, shadow(a), b - a);
+    };
+    for (size_t k = k0; k < kept.size();) {
+        KeptRun& r = kept[k];
+        bool ok = ptrack_land_end(pool->track, r.first, r.count);
+        if (ok && size <= kCompareAll && !same(r.first * kPage, (r.first + r.count) * kPage)) {
+            ptrack_land_differs(pool->track, r.first, r.count);
+            ok = false;
+        }
+        if (ok && size > kCompareAll) {      // more than one page (p0 < p1): the run loses an end page that differs
+            if (r.first == p0 && !same(p0 * kPage, off)) {
+                ptrack_land_differs(pool->track, p0, 1);
+                ++r.first;
+                --r.count;
+            }
+            if (r.count && r.first + r.count - 1 == p1 && !same(off + size, (p1 + 1) * kPage)) {
+                ptrack_land_differs(pool->track, p1, 1);
+                --r.count;
+            }
+            ok = r.count != 0;
+        }
+        if (ok) ++k;
+        else kept.erase(kept.begin() + static_cast<std::ptrdiff_t>(k));
+    }
+    return bad;
 }
 
 void land_loop() {
@@ -143,6 +205,14 @@ void land_forget(PoolChunk& c) {
     land_min_update();
 }
 
+bool land_keep() {
+    static const bool on = config_get_bool("nvn", "pool_copy_land_keep", true);
+    return on;
+}
+
+LandingPause::LandingPause() { g_landing_mu.lock(); }
+LandingPause::~LandingPause() { g_landing_mu.unlock(); }
+
 size_t land_pending() {
     std::lock_guard<std::mutex> lk(g_land_mu);
     return g_land.size();
@@ -165,6 +235,7 @@ uint64_t pcopy_land(uint64_t reached) {
         // The records leave the queue now, but g_land_min and land_refs stay as they were until the copy is done: a second caller that tests
         // g_land_min still waits on g_landing_mu, so no serial is published before its bytes landed, and pcopy_busy holds the chunks.
         std::vector<LandRec> batch;
+        std::vector<KeptRun> kept;
         {
             std::lock_guard<std::mutex> lk(g_land_mu);
             while (!g_land.empty() && g_land.front().serial <= reached) {
@@ -175,11 +246,7 @@ uint64_t pcopy_land(uint64_t reached) {
         // pass 1: every copy. Two records of a serial can share a page: its page_gpu must stay set until both have landed, or a touch between
         // them sees 0 and copies guest -> shadow over the page while the second record still lands stale bytes.
         for (const LandRec& r : batch) {
-            const PoolChunk* c = r.chunk;
-            uint8_t* dst = r.pool->base + r.pool_off;
-            const uint8_t* src = static_cast<const uint8_t*>(c->shadow.mapped) + (r.pool_off - c->off);
-            mem::ww::before_os_write(dst, r.size);     // pages a write watch made read-only become writable (and count as written)
-            bad += pcopy::guarded_copy(dst, src, r.size, false);
+            bad += land_one(r.pool, r.chunk, r.pool_off, r.size, kept);
             bytes += r.size;
         }
         // pass 2: page_gpu back to 0 where no later write was recorded: after every copy, so a touch that sees 0 copies the landed bytes
@@ -189,6 +256,8 @@ uint64_t pcopy_land(uint64_t reached) {
                 uint64_t e = r.serial;
                 r.pool->page_gpu[static_cast<size_t>(p)].compare_exchange_strong(e, 0, std::memory_order_release, std::memory_order_relaxed);
             }
+        for (const KeptRun& r : kept)      // no copy follows these
+            for (uint64_t p = r.first; p < r.first + r.count; ++p) r.pool->page_landed[static_cast<size_t>(p)].store(0, std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> lk(g_land_mu);
             for (const LandRec& r : batch)

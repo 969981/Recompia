@@ -24,6 +24,8 @@ Shared& shared();
 // [d, d + n) <- [s, s + n); on a fault, page by page of `s` (in) or `d` (out): a part that cannot be copied is zero-filled when it is the
 // shadow side (in) or left alone (out). Returns the parts that could not be copied.
 uint64_t guarded_copy(uint8_t* d, const uint8_t* s, uint64_t n, bool in);
+// True when [a, a + n) and [b, b + n) hold the same bytes; false when they differ or one of them cannot be read.
+bool guarded_same(const uint8_t* a, const uint8_t* b, uint64_t n);
 
 // ---- nvn_pool_land.cpp ----------------------------------------------------------------------------------------------------------
 void land_start();                 // the landing thread, once a copy pool exists
@@ -33,5 +35,14 @@ void land_stop();                  // pcopy_shutdown: the thread stops and every
 bool land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial);
 void land_forget(PoolChunk& c);    // the chunk is destroyed: its records go, and no landing reads its shadow after this returns
 size_t land_pending();             // records waiting for their serial
+bool land_keep();                  // [nvn] pool_copy_land_keep: a landing leaves the pages it copies into current (read once)
+// No landing runs while one of these lives (the write tracker of a pool with records is stopped under it).
+class LandingPause {
+public:
+    LandingPause();
+    ~LandingPause();
+    LandingPause(const LandingPause&) = delete;
+    LandingPause& operator=(const LandingPause&) = delete;
+};
 
 }  // namespace nxrt::nvn::be::gpu::pcopy

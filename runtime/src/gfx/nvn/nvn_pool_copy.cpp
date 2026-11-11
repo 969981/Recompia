@@ -184,6 +184,14 @@ bool seh_copy(void* d, const void* s, size_t n) {
     return true;
 }
 
+bool seh_same(const void* a, const void* b, size_t n) {      // as seh_copy; false on a fault
+    __try {
+        return std::memcmp(a, b, n) == 0;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
 void reg_remove(PoolChunk* c) {
     std::lock_guard<std::mutex> lk(g_reg_mu);
     g_reg.erase(std::remove(g_reg.begin(), g_reg.end(), c), g_reg.end());
@@ -225,6 +233,8 @@ Shared& shared() {
     return s;
 }
 
+bool guarded_same(const uint8_t* a, const uint8_t* b, uint64_t n) { return seh_same(a, b, static_cast<size_t>(n)); }
+
 uint64_t guarded_copy(uint8_t* d, const uint8_t* s, uint64_t n, bool in) {
     if (seh_copy(d, s, static_cast<size_t>(n))) return 0;
     uint64_t bad = 0;
@@ -265,6 +275,9 @@ void pcopy_pool_init(PoolGpu* g) {
         NXLOG_I(kTag, "pool_copy: %s", g->track ? "a page is copied again only after the CPU wrote it (write tracking)"
                                                 : pool_track_on() ? "this pool cannot be write-tracked: every bind copies its pages"
                                                                   : "pool_copy_track off: every bind copies its pages");
+        if (g->track)
+            NXLOG_I(kTag, "pool_copy: a GPU write that lands in a page %s", pcopy::land_keep() ? "leaves it current: no bind copies it back (pool_copy_land_keep)"
+                                                                                               : "counts as a CPU write (pool_copy_land_keep off)");
     });
     g_any.store(true, std::memory_order_relaxed);
     pcopy::land_start();
@@ -275,7 +288,10 @@ void pcopy_pool_destroy(PoolGpu* g) {
     g->track = nullptr;
 }
 
-void pcopy_track_stop(PoolGpu* g) { ptrack_stop(g->track); }
+void pcopy_track_stop(PoolGpu* g) {
+    pcopy::LandingPause pause;     // a landing asks the tracker about pages of this pool ([nvn] pool_copy_land_keep)
+    ptrack_stop(g->track);
+}
 
 bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, bool cells) {
     NXFT("pool.copy.alloc");
@@ -424,12 +440,21 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
             ++why[first ? (c->again ? kWhyAgain : kWhyFirst) : landed ? kWhyLanded : !trk ? kWhyUntracked
                         : !c->page_gen[static_cast<size_t>(i)] ? kWhyHot : kWhyWritten];
         }
+        // A copy made while a GPU write into one of the pages is in flight (through another shadow: this one had no copy yet) misses
+        // that write. It serves the submission being recorded only, and the tracker does not count it as current (the landing may
+        // leave the page current, [nvn] pool_copy_land_keep): the first bind after the landing copies the pages again. A page_gpu of 0
+        // read here means the landing is over, so the copy below reads the landed bytes.
+        bool flight = false;
+        for (uint64_t i = p; i < q && !flight; ++i) flight = g->page_gpu[static_cast<size_t>(pbase + i)].load(std::memory_order_acquire) != 0;
         // armed before the copy reads them: a write that lands during the copy faults, and the page is copied again at its next use
-        if (trk) ptrack_before_copy(trk, pbase + p, q - p, frame, &c->page_gen[static_cast<size_t>(p)]);
+        if (trk) {
+            ptrack_before_copy(trk, pbase + p, q - p, frame, &c->page_gen[static_cast<size_t>(p)]);
+            if (flight) std::fill(c->page_gen.begin() + static_cast<std::ptrdiff_t>(p), c->page_gen.begin() + static_cast<std::ptrdiff_t>(q), 0u);
+        }
         const uint64_t bad = pcopy::guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
         if (bad) pcopy::shared().unreadable.fetch_add(bad, std::memory_order_relaxed);
         if (rt)
-            for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = through + 1;   // never 0: a copy exists
+            for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = (flight ? cur : through) + 1;   // never 0: a copy exists
         bytes += (q - p) * kPage;
         p = q;
     }
@@ -502,7 +527,12 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint) {
         if (w.load(std::memory_order_relaxed) < serial) w.store(serial, std::memory_order_release);
     }
     if (!pcopy::land_record(pg, c, off, end - off, serial)) return;
-    if (cfg().once_queued && on_render_thread()) stop_serving(pg, c, off, end, serial);
+    if (!on_render_thread()) return;
+    if (cfg().once_queued) stop_serving(pg, c, off, end, serial);
+    if (pg->track && pcopy::land_keep()) {     // only this shadow stays current through the landing (nvn_pool_track.h)
+        const uint64_t cbase = c->off / kPage;
+        for (uint64_t p = off / kPage; p <= (end - 1) / kPage; ++p) ptrack_gpu_write(pg->track, p, &c->page_gen[static_cast<size_t>(p - cbase)]);
+    }
 }
 
 void pcopy_shutdown() {
@@ -574,9 +604,10 @@ void pcopy_log_summary(uint32_t presents) {
     if (pool_track_on()) {
         const PoolTrackStats t = ptrack_stats();
         NXLOG_I(kTag, "pool_copy: write tracking: %llu pages armed in %llu runs so far, %llu copied pages found written again, %llu hot now, %llu not armable; "
-                      "%llu write faults",
+                      "%llu write faults; landings left %llu pages current and found %llu written meanwhile",
                 static_cast<unsigned long long>(t.armed_pages), static_cast<unsigned long long>(t.arms), static_cast<unsigned long long>(t.rewrites),
-                static_cast<unsigned long long>(t.hot_now), static_cast<unsigned long long>(t.unarmable), static_cast<unsigned long long>(mem::ww::faults()));
+                static_cast<unsigned long long>(t.hot_now), static_cast<unsigned long long>(t.unarmable), static_cast<unsigned long long>(mem::ww::faults()),
+                static_cast<unsigned long long>(t.land_kept), static_cast<unsigned long long>(t.land_differ));
     }
     p_copied = copied;
     p_landed = landed;
