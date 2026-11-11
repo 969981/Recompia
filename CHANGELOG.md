@@ -25,6 +25,8 @@ of the game (version 2.0.1a): the download contains no game files.
   - Now: the preset sets them too, as it does in the game: High gives High (2x) shadows and SMAA High, Ultra gives Very High (3x) and SMAA Ultra, Desktop PC gives Very High (3x) and SMAA High; the other presets give the game's own shadows and no anti-aliasing
 
 ### Game
+- Added an **over-the-shoulder camera**: move the view to the side and up so your character no longer blocks it
+  - Two distances in blocks, `camera_shoulder_side` (right is positive, left negative, -2 to 2) and `camera_shoulder_height` (up is positive, -1 to 2) in the `[pkp]` section of `pkp.ini`; both are 0 by default, which is the game's own camera. They take effect while you play. The view stops short of walls and eases back out, and camera aim still hits what the crosshair points at. Needs **Set up again** once (new game hook)
 - Fixed the game closing at start ("pkp.exe exited with code -1073740791 (0xC0000409)") on some AMD graphics (#487)
   - Before: every compute shader asked the driver to run 32 wide, even one with a workgroup too big for that on AMD; Vulkan doesn't allow the request then, and AMD's driver could close the game while preparing it
   - Now: a compute shader whose workgroup doesn't fit at 32 wide runs at the driver's own width; the others still run 32 wide

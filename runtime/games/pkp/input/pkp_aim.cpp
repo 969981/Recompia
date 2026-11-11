@@ -39,6 +39,10 @@
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
 // With no such hit, everything stays as without the reach.
 //
+// With the over-the-shoulder camera (pkp_shoulder_camera.cpp) the view is moved off the follow camera by an offset (pkp_view_offset.h): the
+// ray of the row and reach hooks starts at the eye plus that offset, parallel to the camera's own, so it still goes through the crosshair.
+// The yaw uses only the direction, which the offset does not change.
+//
 // The game's own Joy-Con 2 mouse mode (character + 0xaa81, the Mouse mode key: pkp_play.cpp) aims with its pointer: while it is on, the
 // camera targeting here leaves the game alone (follow_camera answers 0). In that mode the game places the swing tools' shape at the block
 // under the pointer (character + 0xaa50) but still turns it by the character's heading; on a Switch 2 the character turns to the pointer,
@@ -48,6 +52,7 @@
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
+#include "core/pkp_view_offset.h"
 
 #include <algorithm>
 #include <cmath>
@@ -150,8 +155,12 @@ struct RayHit { int x, y, z, h; };  // h: cells from the character's column
 // Walk the cell grid along the camera ray from the eye; the first solid cell within reach cells of the character's column is the hit.
 // Cells before the ray gets near the character are skipped; past the kReach box only cells in front of the character count.
 bool camera_ray(uint64_t cam, uint64_t ch, RayHit& r, int reach) {
-    const float ex = rd<float>(cam + kEye), ey = rd<float>(cam + kEye + 4), ez = rd<float>(cam + kEye + 8);
-    const float dx = rd<float>(cam + kLook) - ex, dy = rd<float>(cam + kLook + 4) - ey, dz = rd<float>(cam + kLook + 8) - ez;
+    // The crosshair is the view's centre: with the over-the-shoulder camera (pkp_view_offset.h) the view is moved off the follow camera's
+    // eye and look-at by an offset, so the ray starts there and runs parallel (zero offset: the follow camera's own eye).
+    const view_offset::Offset vo = view_offset::get(0);   // the follow camera is the first player's
+    const float fx = rd<float>(cam + kEye), fy = rd<float>(cam + kEye + 4), fz = rd<float>(cam + kEye + 8);
+    const float ex = fx + vo.x, ey = fy + vo.y, ez = fz + vo.z;
+    const float dx = rd<float>(cam + kLook) - fx, dy = rd<float>(cam + kLook + 4) - fy, dz = rd<float>(cam + kLook + 8) - fz;   // the direction is the camera's own
     const float px = rd<float>(ch + kPosition), pz = rd<float>(ch + kPosition + 8);
     if (!(dx * dx + dz * dz > 1e-6f) || !std::isfinite(ey) || !std::isfinite(px) || !std::isfinite(pz)) return false;
     const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
