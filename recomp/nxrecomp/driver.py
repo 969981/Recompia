@@ -173,10 +173,12 @@ def flag_table(pool, env, cfg, img, groups, all_funcs, log):
         sums.update(part)
     entry, entered = entered_from_outside(env, cfg, img, all_funcs, sums)
     table, (bad_in, demands) = localsmod.solve(sums, entry, entered)
-    log('%s: lean flag table over %d functions (%d imports): entry flags read %d, flags read after them %d; entered from '
+    log('%s: lean flag table over %d functions (%d imports): entry flags read %d, flags read after them %d, never leaving their entry flags %d; '
+        'entered from '
         'outside the direct calls %d, of them reading their entry flags %d%s; demands on code entered from outside %d%s'
         % (img.name, len(sums), sum(1 for v in sums.values() if v == localsmod.IMPORT),
-           sum(1 for v in table.values() if v[0]), sum(1 for v in table.values() if v[1]), len(entered), len(bad_in),
+           sum(1 for v in table.values() if v[0]), sum(1 for v in table.values() if v[1]),
+           sum(1 for v in table.values() if v[2]), len(entered), len(bad_in),
            ' (flags stored in front of every call_indirect)' if bad_in else '', len(demands),
            ' (every function entered from outside stores its flags at returns)' if demands else ''))
     if bad_in:
@@ -281,11 +283,11 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                 mapper = pool.imap_unordered
             else:
                 _worker_init(spec)
-            # the table next to the sources (ind_in, ind_out, then entry NEEDS_IN NEEDS_OUT), for checks of the generated code
+            # the table next to the sources (ind_in, ind_out, then entry NEEDS_IN NEEDS_OUT KILLS), for checks of the generated code
             ft = spec['flags_table']
             write_if_changed(os.path.join(outdir, 'flags_%s.txt' % img.name),
                              'ind_in %d ind_out %d\n' % (ft.ind_in, ft.ind_out)
-                             + ''.join('%x %d %d\n' % (a, i, o) for a, (i, o) in sorted(ft.items())))
+                             + ''.join('%x %d %d %d\n' % (a, i, o, k) for a, (i, o, k) in sorted(ft.items())))
         # shard assignment
         sizes = {a: max(1, (spec['ends'][a] - a) // 4) for a in all_funcs}
         groups = collections.OrderedDict()

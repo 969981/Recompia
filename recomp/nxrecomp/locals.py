@@ -245,16 +245,17 @@ def plan(stmts, pads=(), flags='exact', entry=None, table=None):
     lean = [None] * n
     if flags == LEAN:                              # what each call, return and tail exit does with F (flag_flow, solve)
         obs, sites, isites, _, _ = flag_flow(texts, succ, roots, falls, index)
-        nin = lambda g: table.get(g, (True, True))[0]
-        out_self = table.get(entry, (True, True))[1]
-        lean = [LeanStmt(out_self, nin) for _ in range(n)]
+        nin, kills = table.nin, table.kills
+        out_self = table.nout(entry)
+        lean = [LeanStmt(out_self, table) for _ in range(n)]
         for i, j, g in sites:
             # take F back from the Ctx after the call when something looks at what the call leaves before a definition;
-            # store it in front when the callee may read it, or may leave it as it found it and F is taken back after
-            ra = holds(obs.get(('c', i, j), ()), nin, out_self, table.ind_in)
-            lean[i].calls.append((nin(g) or ra, ra))
+            # store it in front when the callee may read it, or may leave it as it found it (not KILLS) and F is taken
+            # back after
+            ra = holds(obs.get(('c', i, j), ()), nin, out_self, table.ind_in, kills)
+            lean[i].calls.append((nin(g) or (ra and not kills(g)), ra))
         for i, j in isites:
-            ra = holds(obs.get(('i', i, j), ()), nin, out_self, table.ind_in)
+            ra = holds(obs.get(('i', i, j), ()), nin, out_self, table.ind_in, kills)
             lean[i].icalls.append((table.ind_in or ra, ra))
     # what each statement's syncs leave (rewrite's `after`): None, or ('all' | 'eager', registers written after them);
     # reload_f: its rewrite reloads F from the Ctx (an escape other than a tail exit; in 'aapcs' also not a lifted call),
@@ -550,7 +551,8 @@ def rewrite(text, regs, dirty, eager, mode, escape, publish=True, flags='exact',
         lifted = bool(TAILCALL_NAMES.match(name))
         direct = DIRECT.match(name)
         if tail and lifted:                        # tail exit: spill, publish the flags, leave
-            p = pub if not (lean and direct) or lean.nin(int(direct.group(1), 16)) or lean.ret else ''
+            h = int(direct.group(1), 16) if direct else None
+            p = pub if not (lean and direct) or lean.table.nin(h) or (lean.ret and not lean.table.kills(h)) else ''
             out.append('{ %s%s%s; return; }' % (sp, p, call))
             pos = end + tail.end()
             continue
@@ -640,8 +642,17 @@ def _stmt_start(text, i):
 #   NEEDS_IN(f)   the entry flags of f are observed in f
 #   NEEDS_OUT(g)  f calls g and the flags g leaves are observed in f; f tail-exits (or falls) to g and NEEDS_OUT(f);
 #                 g's caller is outside the lifted code (the module's entry point: the host reads the flags it leaves)
-# plan() then stores F in front of a call of g only if NEEDS_IN(g), loads it after the call only if what the call leaves
-# is observed, stores it at a return only if NEEDS_OUT(self) and at a tail exit to g only if NEEDS_IN(g). An indirect
+# Passing through a callee. The flags in front of a direct call of g are still there after it unless g defines them, so
+# flag_flow() tags each value with the set of direct callees it went through (its "via") and an observation of it holds
+# only if no callee in its via KILLS. KILLS(g) is the greatest fixpoint of: every way from g's entry (or a landing pad)
+# to a return or a tail exit defines the flags, or goes through a call of / tail exit to a function that KILLS (via of
+# the E/P 'out' observations, summarize()). Taken as not KILLS: a function of another module, an import, anything(). A
+# call of a KILLS function is a definition (what it leaves is its own); one that does not KILLS passes the caller's
+# flags on. Vias are kept small (_norm): a smaller via is a weaker condition, so dropping callees from one only adds
+# observations.
+# plan() then stores F in front of a call of g only if NEEDS_IN(g), or if what the call leaves is observed and g does not
+# KILLS (the flags may come back through g); loads it after the call only if what the call leaves is observed; stores it at a return
+# only if NEEDS_OUT(self) and at a tail exit to g only if NEEDS_IN(g) or NEEDS_OUT(self) and g does not KILLS. An indirect
 # tail exit and the runtime calls keep the 'exact' syncs. A function the rewrite leaves as it is (unresolved br, optnone)
 # gets its summary from its own text all the same (the eager code keeps the flags in the Ctx: the same flow; an
 # unresolved br may go to any statement); one whose text flag_flow cannot follow (an escape under control flow) gets
@@ -661,26 +672,63 @@ def _stmt_start(text, i):
 # that reads flags left by an import reports a demand).
 
 class FlagTable(dict):
-    """{entry: (NEEDS_IN, NEEDS_OUT)} of a module ('lean'), and ind_in: code entered from outside the direct calls may
-    read its entry flags; ind_out: every function entered that way stores its flags at returns (a demand, solve()). A
-    function not in the table (another module's) is taken as reading them."""
+    """{entry: (NEEDS_IN, NEEDS_OUT, KILLS)} of a module ('lean'), and ind_in: code entered from outside the direct calls
+    may read its entry flags; ind_out: every function entered that way stores its flags at returns (a demand, solve()).
+    A function not in the table (another module's) is taken as reading them, and as not KILLS."""
     ind_in = ind_out = True
+
+    def nin(self, g):
+        return self.get(g, (True, True, False))[0]
+
+    def nout(self, g):
+        return self.get(g, (True, True, False))[1]
+
+    def kills(self, g):
+        return self.get(g, (True, True, False))[2]
 
 
 class LeanStmt:
     """The 'lean' syncs of one statement: calls / icalls [(store F in front, load F after)] per call of a lifted
-    function of this module / per call_indirect, in text order; ret: store F at a return; nin(g): g reads its entry flags
-    (store F at a tail exit to g)."""
-    def __init__(self, ret, nin):
-        self.calls, self.icalls, self.ret, self.nin = [], [], ret, nin
+    function of this module / per call_indirect, in text order; ret: store F at a return; table: the FlagTable (a tail
+    exit to g stores F if NEEDS_IN(g), or if ret and g may leave the flags it was entered with)."""
+    def __init__(self, ret, table):
+        self.calls, self.icalls, self.ret, self.table = [], [], ret, table
 
 
-def holds(conds, nin, out, ind_in):
-    """Whether one of the observations in conds happens (see above)."""
-    for c in conds:
+def holds(conds, nin, out, ind_in, kills=lambda g: False):
+    """Whether one of the observations in conds happens (see above): conds holds (what, via) pairs; via: the direct
+    callees the flags passed through on the way, any of which KILLS means they cannot get there."""
+    for c, via in conds:
+        if via and any(kills(g) for g in via):
+            continue
         if c == 'R' or (c == 'out' and out) or (c == 'X' and ind_in) or (c not in ('out', 'X') and nin(c)):
             return True
     return False
+
+
+VIA_MAX = 8     # callees remembered per way through calls (fewer conditions: the flags are taken to get through more)
+
+
+def _norm(items):
+    """The (source, via) pairs of a state, reduced: per source only the smallest vias (a larger one gets through only
+    where a smaller one does), at most VIA_MAX of them (else their intersection: it gets through wherever one does).
+    The result does not depend on the order of items."""
+    by = {}
+    for b, v in items:
+        by.setdefault(b, set()).add(v)
+    out = []
+    for b, vs in by.items():
+        if len(vs) > 1:
+            if frozenset() in vs:
+                vs = [frozenset()]
+            else:
+                keep = []
+                for v in sorted(vs, key=len):
+                    if not any(u <= v for u in keep):
+                        keep.append(v)
+                vs = [frozenset.intersection(*keep)] if len(keep) > VIA_MAX else keep
+        out.extend((b, v) for v in vs)
+    return frozenset(out)
 
 
 def _flag_events(t):
@@ -733,47 +781,71 @@ def _flag_events(t):
 def flag_flow(texts, succ, roots, falls, index):
     """-> (obs, sites, isites, tails, itail). Sources of the value in F: 'E' the entry flags, 'P' a landing pad's,
     ('c', i, j) what the j-th direct call of statement i leaves, ('i', i, j) what its j-th call_indirect leaves, 'I' what
-    a runtime call that may run guest code leaves. obs: source -> the observations that can see it before a definition
-    replaces it (a definition under control flow replaces nothing). sites: [(i, j, g)] every direct non-tail call;
-    isites: [(i, j)] every non-tail call_indirect; tails: the direct tail exit targets; itail: an indirect tail exit."""
+    a runtime call that may run guest code leaves. The state is a set of (source, via): via is the set of direct callees
+    the value went through (each may leave the flags it was entered with, unless it KILLS). obs: source -> {(what, via)}:
+    the observations that can see it before a definition replaces it (a definition under control flow replaces
+    nothing). sites: [(i, j, g)] every direct non-tail call; isites: [(i, j)] every non-tail call_indirect; tails: the
+    direct tail exit targets; itail: an indirect tail exit."""
     n = len(texts)
     evs = [_flag_events(t) for t in texts]
     state = [None] * n
     obs = {}
     work = []
+    none = frozenset()
 
-    def join(i, s):
-        if state[i] is None or not s <= state[i]:
-            state[i] = s if state[i] is None else (state[i] | s)
+    queued = [False] * n
+
+    def push(i):
+        if not queued[i]:
+            queued[i] = True
             work.append(i)
 
-    def see(s, what):
-        for src in s:
-            obs.setdefault(src, set()).add(what)
-    join(roots[0], frozenset(['E']))
+    def join(i, s):
+        if state[i] is None:
+            state[i] = s
+            push(i)
+        elif not s <= state[i]:
+            new = _norm(state[i] | s)
+            if new != state[i]:
+                state[i] = new
+                push(i)
+
+    def see(s, what, extra=None):
+        for src, via in s:
+            if extra is not None and len(via) < VIA_MAX:
+                via = via | {extra}
+            obs.setdefault(src, set()).add((what, via))
+    join(roots[0], frozenset([('E', none)]))
     for r in roots[1:]:
-        join(r, frozenset(['P']))
+        join(r, frozenset([('P', none)]))
+    disp = none                                    # what an unresolved br brings to every statement
     while work:
         i = work.pop()
+        queued[i] = False
         s, j, k = state[i], 0, 0
+        if disp:
+            s = _norm(s | disp) if s is not None else disp
+        if s is None:
+            continue
         for _, _, kind, arg in evs[i]:
             if kind == 'read':
                 see(s, 'R')
             elif kind == 'def':
                 if arg:
-                    s = frozenset()
+                    s = none
             elif kind == 'call':                   # the callee may leave the flags it was entered with
                 see(s, arg)
-                s, j = s | {('c', i, j)}, j + 1
+                s = _norm([(b, v | {arg} if len(v) < VIA_MAX else v) for b, v in s] + [(('c', i, j), none)])
+                j += 1
             elif kind == 'icall':
                 see(s, 'X')
-                s, k = s | {('i', i, k)}, k + 1
+                s, k = s | {(('i', i, k), none)}, k + 1
             elif kind == 'ind':
                 see(s, 'X')
-                s = s | {'I'}
+                s = s | {('I', none)}
             elif kind == 'tail':                   # the target may leave them for this function's caller
                 see(s, 'X' if arg is None else arg)
-                see(s, 'out')
+                see(s, 'out', arg)
             elif kind == 'ret':
                 see(s, 'out')
             elif kind == 'goto':
@@ -782,8 +854,11 @@ def flag_flow(texts, succ, roots, falls, index):
             elif kind == 'dispatch':               # any statement, or call_indirect and leave
                 see(s, 'X')
                 see(s, 'out')
-                for x in range(n):
-                    join(x, s)
+                if not s <= disp:
+                    disp = _norm(disp | s)
+                    for x in range(n):
+                        if x != i:
+                            push(x)
         if falls[i]:
             join(i + 1, s)
     sites, isites, tails, itail = [], [], [], False
@@ -803,7 +878,12 @@ def flag_flow(texts, succ, roots, falls, index):
                     tails.append(arg)
             elif kind == 'dispatch':
                 itail = True
-    return obs, sites, isites, tails, itail
+    return dict((src, _norm_obs(o)) for src, o in obs.items()), sites, isites, tails, itail
+
+
+def _norm_obs(o):
+    """(what, via) pairs reduced as _norm does, per what"""
+    return frozenset((w, v) for (w, v) in _norm(((w, v) for w, v in o)))
 
 
 LITERAL = re.compile(r'\b0x([0-9a-f]{6,16})ULL\b')
@@ -815,22 +895,25 @@ SITE_ARG = re.compile(r'(?:\bc->fn = |\b(?:%s)\(c, )0x[0-9a-f]+ULL' % '|'.join(s
 def summarize(stmts, pads=()):
     """The flag summary of one function from its statements before the rewrite: (entry observations, ((g, observations
     of what that call leaves) per direct call), direct tail exit targets, observations of what code entered from outside
-    the direct calls leaves, indirect tail exit, the address literals in its text (FlagTable taken))."""
+    the direct calls leaves, indirect tail exit, the address literals in its text (FlagTable taken), the vias by which
+    the entry or a landing pad's flags reach an exit (KILLS))."""
     texts, index, succ, falls, roots = _cfg(stmts, pads)
     lits = frozenset(int(m.group(1), 16) for t in texts for m in LITERAL.finditer(SITE_ARG.sub('', t)))
     if any(escapes(t) and conditional_escape(t) for t in texts):
         return anything(texts, lits)
     obs, sites, isites, tails, itail = flag_flow(texts, succ, roots, falls, index)
-    outside = set(obs.get('I', ())) | obs.get('P', set())
+    outside = set(obs.get('I', ())) | set(obs.get('P', ()))
     for i, k in isites:
         outside |= obs.get(('i', i, k), set())
-    return (frozenset(obs.get('E', ())), tuple((g, frozenset(obs.get(('c', i, j), ()))) for i, j, g in sites),
-            tuple(sorted(set(tails))), frozenset(outside), itail, lits)
+    through = frozenset(v for src in ('E', 'P') for w, v in obs.get(src, ()) if w == 'out')
+    return (obs.get('E', frozenset()), tuple((g, obs.get(('c', i, j), frozenset())) for i, j, g in sites),
+            tuple(sorted(set(tails))), _norm_obs(outside), itail, lits, through)
 
 
 def anything(texts, lits=frozenset()):
     """The summary of a function whose flag flow is not followed: it reads its entry flags and what everything it calls
-    leaves (every lifted function it names gets NEEDS_OUT), and what code reached from outside leaves if it calls any."""
+    leaves (every lifted function it names gets NEEDS_OUT), may return its entry flags, and reads what code reached from
+    outside leaves if it calls any."""
     named, other = set(), False
     for t in texts:
         for m in CALL_C.finditer(t):
@@ -840,12 +923,16 @@ def anything(texts, lits=frozenset()):
                 named.add(int(d.group(1), 16))
             elif not (name in SAFE or name in FLAT_RUNTIME or name in FLAG_DEF_NAMES or name in ('cond', 'get_nzcv')):
                 other = True
-    R = frozenset(['R'])
-    return (R, tuple((g, R) for g in sorted(named)), (), R if other else frozenset(), other, lits)
+    none = frozenset()
+    R = frozenset([('R', none)])
+    return (R | {('out', none)}, tuple((g, R) for g in sorted(named)), (), R if other else frozenset(), other, lits,
+            frozenset([none]))
 
 
 STUB = re.compile(r'^void f_[0-9a-f]+\(Ctx \*__restrict c\) \{ (?:f_([0-9a-f]+)\(c\)|(host_import)\(c, [^;]*\)); \}$')
 IMPORT = 'import'
+IMPORT_SUMMARY = (frozenset([('X', frozenset()), ('out', frozenset())]), (), (), frozenset(), False, frozenset(),
+                  frozenset([frozenset()]))
 
 
 def stub_summary(text):
@@ -857,24 +944,42 @@ def stub_summary(text):
     if m.group(2):
         return IMPORT
     g = int(m.group(1), 16)
-    return (frozenset([g]), (), (g,), frozenset(), False, frozenset())
+    return (frozenset([(g, frozenset()), ('out', frozenset([g]))]), (), (g,), frozenset(), False, frozenset(),
+            frozenset([frozenset([g])]))
 
 
-def _fixpoint(sums, nout0, ind_in):
+def _kills(sums):
+    """KILLS(f): every way from f's entry (or a landing pad) to a return or tail exit defines the flags or goes through
+    a callee that KILLS, so f never leaves the flags it was entered with. The greatest fixpoint: a way that goes through
+    f itself again ends only through a way that does not."""
+    kill = dict.fromkeys(sums, True)
+    known = lambda g: kill.get(g, False)
+    changed = True
+    while changed:
+        changed = False
+        for f in sorted(sums):
+            if kill[f] and any(not any(known(g) for g in via) for via in sums[f][6]):
+                kill[f] = False
+                changed = True
+    return kill
+
+
+def _fixpoint(sums, nout0, ind_in, kill):
     """NEEDS_IN, NEEDS_OUT: the least fixpoint (see above); nout0: the functions with NEEDS_OUT from the start."""
     nin = dict.fromkeys(sums, False)
     nout = {f: f in nout0 for f in sums}
     known_in = lambda g: nin.get(g, True)
+    known_kill = lambda g: kill.get(g, False)
     order = sorted(sums)
     changed = True
     while changed:
         changed = False
         for f in order:
             entry, calls, tails = sums[f][:3]
-            if not nin[f] and holds(entry, known_in, False, ind_in):   # (entry flags at a return: the caller's)
+            if not nin[f] and holds(entry, known_in, False, ind_in, known_kill):   # (at a return: the caller's flags)
                 nin[f] = changed = True
             for g, cs in calls:
-                if g in nout and not nout[g] and holds(cs, known_in, nout[f], ind_in):
+                if g in nout and not nout[g] and holds(cs, known_in, nout[f], ind_in, known_kill):
                     nout[g] = changed = True
             if nout[f]:
                 for g in tails:
@@ -888,35 +993,36 @@ def solve(sums, external=(), entered=()):
     code reads their flags (NEEDS_OUT); entered: functions code outside the direct calls may enter (the ind_in check, the
     demand fallback). report: (entered functions reading their entry flags (first pass), demands [(entry, what)])."""
     imports = {f for f, s in sums.items() if s == IMPORT}
-    sums = dict((f, (frozenset(['X']), (), (), frozenset(), False, frozenset()) if s == IMPORT else s)
-                for f, s in sums.items())
+    sums = dict((f, IMPORT_SUMMARY if s == IMPORT else s) for f, s in sums.items())
     entered = set(entered) & set(sums)
+    kill = _kills(sums)
+    known_kill = lambda g: kill.get(g, False)
     ind_in = False
-    nin, nout = _fixpoint(sums, set(external), ind_in)
+    nin, nout = _fixpoint(sums, set(external), ind_in, kill)
     bad_in = sorted(f for f in entered if nin[f] and f not in imports)
     if bad_in:                                     # code entered from outside reads its entry flags: publish for it
         ind_in = True
-        nin, nout = _fixpoint(sums, set(external), ind_in)
+        nin, nout = _fixpoint(sums, set(external), ind_in, kill)
     known_in = lambda g: nin.get(g, True)
     demands = []
     for f in sorted(sums):
         entry, calls, tails, outside, itail = sums[f][:5]
-        if holds(outside, known_in, nout[f], ind_in):
+        if holds(outside, known_in, nout[f], ind_in, known_kill):
             demands.append((f, 'reads flags left by code entered from outside'))
         if itail and nout[f]:
             demands.append((f, 'indirect tail exit, and a caller reads its flags'))
         if f in imports and nout[f]:
             demands.append((f, 'the flags an import leaves are read'))
         for g, cs in calls:
-            if g not in sums and holds(cs, known_in, nout[f], ind_in):
+            if g not in sums and holds(cs, known_in, nout[f], ind_in, known_kill):
                 demands.append((f, 'reads the flags of %x (not lifted here)' % g))
         if nout[f]:
             for g in tails:
                 if g not in sums:
                     demands.append((f, 'tail exit to %x (not lifted here), and a caller reads its flags' % g))
     if demands:                                    # every function entered from outside stores its flags at returns
-        nin, nout = _fixpoint(sums, set(external) | entered, ind_in)
-    table = FlagTable((f, (nin[f], nout[f])) for f in sorted(sums))
+        nin, nout = _fixpoint(sums, set(external) | entered, ind_in, kill)
+    table = FlagTable((f, (nin[f], nout[f], kill[f])) for f in sorted(sums))
     table.ind_in, table.ind_out = ind_in, bool(demands)
     return table, (bad_in, demands)
 
