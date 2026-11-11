@@ -22,13 +22,18 @@ constexpr int64_t kPollWaitMaxNs = 2000000;   // the longest SleepThread a liste
 bool poll_wait_sleep(const ::Ctx& c, int64_t ns);
 
 namespace detail {
-extern std::atomic<int32_t> g_poll_waiting;   // sleeps registered right now
+// Sleeps registered right now. Every SVC of every thread reads it, so it fills a cache line of its own: the slots and the generation,
+// written at every poll wait, do not take the line away from the readers; only a registration or a release does.
+struct alignas(64) PollWaiting {
+    std::atomic<int32_t> n{0};
+};
+extern PollWaiting g_poll_waiting;
 void poll_wait_scan();
 }  // namespace detail
 
 // Every SVC of every guest thread, before its handler: one load while no poll wait is registered.
 inline void poll_wait_check() {
-    if (detail::g_poll_waiting.load(std::memory_order_relaxed) > 0) detail::poll_wait_scan();
+    if (detail::g_poll_waiting.n.load(std::memory_order_relaxed) > 0) detail::poll_wait_scan();
 }
 
 }  // namespace nxrt::kernel

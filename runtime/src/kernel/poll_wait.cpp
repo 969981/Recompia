@@ -21,7 +21,7 @@
 
 namespace nxrt::kernel {
 
-std::atomic<int32_t> detail::g_poll_waiting{0};
+detail::PollWaiting detail::g_poll_waiting;
 
 namespace {
 constexpr uint32_t kMaxRows = 8;   // listed call sites served (a thread keeps one bit per row)
@@ -106,14 +106,14 @@ Slot* claim(const game::PollWatch& w, uint32_t* waiting) {
         s.size.store(w.size, std::memory_order_relaxed);
         *waiting = gen | kWaiting;
         s.word.store(*waiting);
-        detail::g_poll_waiting.fetch_add(1);
+        detail::g_poll_waiting.n.fetch_add(1);
         return &s;
     }
     return nullptr;
 }
 
 void release(Slot& s) {
-    detail::g_poll_waiting.fetch_sub(1);
+    detail::g_poll_waiting.n.fetch_sub(1);
     s.word.store(0);
 }
 
@@ -188,7 +188,8 @@ bool poll_wait_sleep(const ::Ctx& c, int64_t ns) {
 
     Stats& st = g_stats[row];
     const uint32_t bit = 1u << row;
-    const uint64_t t0 = qpc::now_ns();
+    // The clock is read once before the sleep and once after only when the sleep did not end on a reading of its own (sleep_on_word).
+    int64_t t0 = 0, end = 0;
     bool early = false, slept = false;
     if (changed(w.addr, w.idle, w.size)) {
         if (t_after_early & bit) {
@@ -205,18 +206,23 @@ bool poll_wait_sleep(const ::Ctx& c, int64_t ns) {
             return false;
         }
         // The value may have changed while the slot was taken, with no scan since: looked at once more before sleeping.
-        early = changed(w.addr, w.idle, w.size) || detail::sleep_on_word(ns, s->word, waiting);
+        early = changed(w.addr, w.idle, w.size);
+        if (!early) {
+            t0 = static_cast<int64_t>(qpc::now_ns());
+            early = detail::sleep_on_word(t0, ns, s->word, waiting, &end);
+        }
         release(*s);
         slept = true;
     }
     uint32_t arm = 0;
     detail::early_wake_take(&arm);   // an early-wake arm of this thread was for this sleep: used up, as SleepThread does
-    const uint64_t t1 = qpc::now_ns();
+    const uint64_t t1 = end ? static_cast<uint64_t>(end) : qpc::now_ns();
+    if (!t0) t0 = static_cast<int64_t>(t1);   // ended at once: none of its time was slept
     if (early) {
         t_after_early |= bit;
         (slept ? st.early : st.at_once).fetch_add(1, std::memory_order_relaxed);
-        const uint64_t end = t0 + static_cast<uint64_t>(ns);
-        if (end > t1) st.saved_ns.fetch_add(end - t1, std::memory_order_relaxed);
+        const uint64_t due = static_cast<uint64_t>(t0 + ns);
+        if (due > t1) st.saved_ns.fetch_add(due - t1, std::memory_order_relaxed);
     } else {
         st.ran.fetch_add(1, std::memory_order_relaxed);
     }
