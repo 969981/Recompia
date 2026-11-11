@@ -55,11 +55,12 @@ def make_env(spec):
     env.spin = True
     env.spin_yield = bool(spec.get('spin_yield') or cfg.spin_yield)
     env.locals = locals_mode(cfg, spec)
+    env.flags_table = spec.get('flags_table')
     return env
 
 
 def locals_mode(cfg, spec):
-    """How the lifted functions keep registers and flags (locals.py): None (in the Ctx), 'exact' or 'aapcs'."""
+    """How the lifted functions keep registers and flags (locals.py): None (in the Ctx), 'exact', 'aapcs' or 'lean'."""
     from .config import reg_locals_mode
     mode = reg_locals_mode(cfg, spec.get('locals'))
     return None if mode == 'off' else mode
@@ -107,6 +108,82 @@ def _worker_scan(entries):
         bad += len(b)
     env.spin, env.locals = keep, keep_locals
     return total, bad, list(env.wanted)
+
+
+def _worker_summary(entries):
+    """'lean' summary pass: {entry: locals.summarize()} of the given functions (their text is not kept)."""
+    env = _worker_env
+    env.wanted = collections.OrderedDict()
+    env.locals_summaries = {}
+    for a in entries:
+        t = lift_function(env, a)[0]
+        if a not in env.locals_summaries:                  # a PLT stub: lift_function returned before the locals pass
+            s = localsmod.stub_summary(t)
+            if s:
+                env.locals_summaries[a] = s
+    return env.locals_summaries
+
+
+def entered_from_outside(env, cfg, img, funcs, sums):
+    """('lean') (external, entered). external: the functions whose caller outside the module may read the flags they
+    leave: the entry point (its caller is the host) and the exported symbols (another module's lift does not see what
+    its callers read). entered: every function code outside the direct calls may enter: those, the game config's extra
+    entries, and every function whose address the module may hold: a function entry stored as a 64-bit word anywhere
+    outside .text (absolute, or module-relative as an NSO's unrelocated pointers and RELATIVE addends are), a literal of a lifted
+    function's text (adr, a return address, ...), or in a 4 KiB page that a page-aligned literal (adrp) names."""
+    import array
+    fs = set(funcs)
+    entry = {env.text_lo if img.meta.get('entry') is None else img.meta['entry']}
+    out = {env.base + off for off in cfg.extra_entries.get(img.name, ())} & fs
+    if img.symtab_is_dynamic:
+        for _, typ, _, shndx, value, _ in img.symbols():
+            if shndx and typ != 6 and shndx != 0xfff1:
+                entry.add(img.base + img.sym_value(value))
+    entry &= fs
+    out |= entry
+    lo, hi = img.text[0], img.text[0] + img.text[1]
+    mem = bytes(img.mem)
+    for a, b in ((0, lo), (hi, len(mem))):
+        a += -a % 8
+        words = array.array('Q')
+        words.frombytes(mem[a:a + (b - a) // 8 * 8])
+        w = set(words)
+        out |= w & fs
+        out |= {f for f in fs if f - env.base in w}
+    out |= {env.base + addend for _, _, addend in img.relocs() if env.base + addend in fs}
+    order = sorted(fs)
+    for s in sums.values():
+        if s == localsmod.IMPORT:
+            continue
+        for lit in s[5]:
+            if lit in fs:
+                out.add(lit)
+            if lit % 4096 == 0 and env.text_lo <= lit < env.text_hi:
+                k = bisect.bisect_left(order, lit)
+                while k < len(order) and order[k] < lit + 4096:
+                    out.add(order[k])
+                    k += 1
+    return entry, out & fs
+
+
+def flag_table(pool, env, cfg, img, groups, all_funcs, log):
+    """'lean': the summary pass over every function and locals.solve() -> the flag table the text pass consults."""
+    sums = {}
+    for part in map_ordered(pool, _worker_summary, groups):
+        sums.update(part)
+    entry, entered = entered_from_outside(env, cfg, img, all_funcs, sums)
+    table, (bad_in, demands) = localsmod.solve(sums, entry, entered)
+    log('%s: lean flag table over %d functions (%d imports): entry flags read %d, flags read after them %d; entered from '
+        'outside the direct calls %d, of them reading their entry flags %d%s; demands on code entered from outside %d%s'
+        % (img.name, len(sums), sum(1 for v in sums.values() if v == localsmod.IMPORT),
+           sum(1 for v in table.values() if v[0]), sum(1 for v in table.values() if v[1]), len(entered), len(bad_in),
+           ' (flags stored in front of every call_indirect)' if bad_in else '', len(demands),
+           ' (every function entered from outside stores its flags at returns)' if demands else ''))
+    if bad_in:
+        log('  entered from outside, reading entry flags: ' + ' '.join('%x' % f for f in bad_in[:40]))
+    if demands:
+        log('  demands: ' + ' '.join('%x(%s)' % d for d in demands[:40]))
+    return table
 
 
 def _worker_text(entries):
@@ -195,6 +272,20 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                 mapper = pool.imap_unordered
             else:
                 _worker_init(spec)
+        if locals_mode(cfg, spec) == localsmod.LEAN:     # the flag table, before any function is rewritten
+            parts = [all_funcs[i:i + 400] for i in range(0, len(all_funcs), 400)]
+            spec['flags_table'] = flag_table(pool, env, cfg, img, parts, all_funcs, log)
+            if pool:
+                pool.close()
+                pool = multiprocessing.Pool(jobs, _worker_init, (spec,))
+                mapper = pool.imap_unordered
+            else:
+                _worker_init(spec)
+            # the table next to the sources (ind_in, ind_out, then entry NEEDS_IN NEEDS_OUT), for checks of the generated code
+            ft = spec['flags_table']
+            write_if_changed(os.path.join(outdir, 'flags_%s.txt' % img.name),
+                             'ind_in %d ind_out %d\n' % (ft.ind_in, ft.ind_out)
+                             + ''.join('%x %d %d\n' % (a, i, o) for a, (i, o) in sorted(ft.items())))
         # shard assignment
         sizes = {a: max(1, (spec['ends'][a] - a) // 4) for a in all_funcs}
         groups = collections.OrderedDict()

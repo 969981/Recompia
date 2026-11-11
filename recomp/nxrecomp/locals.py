@@ -6,7 +6,7 @@ each guest instruction is a load and a store of Ctx memory, four stores per flag
 such a store only where it proves that nothing reads the Ctx before the next one, and it keeps no register in a host
 register across a branch join. This pass moves them into locals that clang keeps in host registers and syncs with the Ctx
 only where something else can see it. Modes (GameConfig.reg_locals, `nxrecomp lift --locals`): 'off' (this pass is not
-run: the eager code), 'exact' and 'aapcs' (below).
+run: the eager code), 'exact', 'aapcs' and 'lean' (below).
 
 Registers. Every X register the function names (x0..x30, SP = x[31]) becomes a local `xN`. Before a statement part that
 hands the Ctx to other code (a call of a lifted function, call_indirect, an SVC, MRS/MSR to the runtime, a site callout or
@@ -31,7 +31,11 @@ lifted call and at every return and loads it after the call, so the Ctx's NZCV i
 and return. 'aapcs' does neither: AAPCS64 neither passes NZCV to a callee nor returns it, so compiled code never reads
 flags across a call or a return. A read that can see flags from before its function's entry or from a callee is counted
 (Stats entry_reads, after_call; the lift log lists them with their addresses): such reads are where 'aapcs' differs from
-'exact'.
+'exact'. 'lean' gives the result of 'exact' with the syncs only where the whole module can look at them: it stores F in
+front of a call only if the callee may read its entry flags or the caller reads the flags after it (the callee may leave
+them as they were), loads it after a call only if the caller looks at the flags after it, and stores it at a return
+only if a caller looks at them (the flag table: the 'lean' section below). It also loads after a call only the eager
+registers that are read before being written again.
 
 What still sees a stale Ctx. Between two sync points the Ctx's x[] and NZCV are behind the locals. Code that runs there
 without being called by the lifted function reads old values: another thread that looks at this thread's Ctx (the
@@ -83,7 +87,16 @@ TAILCALL_NAMES = re.compile(r'^(?:[fhu]_\w+|call_indirect)$')
 
 # the same calls inside a tail exit (`<call>; return;`): what is left of a statement without them has only escapes that come back
 TAIL_EXIT = re.compile(r'(?:[fhu]_\w+\(c(?:, 0)?\)|call_indirect\(c, [^;{}]*\));\s*return;')
-MODES = ('exact', 'aapcs')
+LEAN = 'lean'
+MODES = ('exact', 'aapcs', LEAN)
+
+# a call of a lifted function of this module whose address the lifter knows (f_<addr>, or u_<addr> of a two-entry one)
+DIRECT = re.compile(r'^[fu]_([0-9a-f]+)$')
+# runtime calls that run no lifted code on this thread and leave the Ctx's NZCV as they found it (lean: the flags after
+# them are the ones published in front of them). The site hooks run guest code only through the game layer's call helper,
+# which restores the whole Ctx; no runtime or game-layer code writes c->N/Z/C/V (see the 'lean' section below).
+FLAT_RUNTIME = frozenset(['guest_svc', 'guest_mrs', 'guest_msr', 'guest_trap', 'guest_unimpl', 'nx_site_midhook',
+                          'nx_site_inline', 'nx_hook_entry'])
 
 KINDS = ('add64', 'sub64', 'add32', 'sub32', 'logic64', 'logic32')
 P = 'p'           # packed flags only (CCMP, FCMP, MSR NZCV, ADCS / SBCS)
@@ -182,24 +195,38 @@ class Odd(Exception):
     """A statement form the rewrite does not handle: the function stays as it is (the text is the reason)."""
 
 
-def plan(stmts, pads=(), flags='exact'):
+def _cfg(stmts, pads):
+    """(texts, index, succ, falls, roots) of a function's statements: gotos and fall-throughs (falls[i]: statement i can
+    fall into i + 1). An unresolved br (`goto L_dispatch`) may go to any statement."""
+    texts = [t for _, t in stmts]
+    n = len(texts)
+    index = {pc: i for i, (pc, _) in enumerate(stmts) if pc is not None}
+    succ, falls = [], []
+    for i, t in enumerate(texts):
+        s = [index[int(m.group(1), 16)] for m in GOTO.finditer(t) if int(m.group(1), 16) in index]
+        if 'goto ' + LABEL_DISPATCH in t:
+            s = list(range(n))
+        f = i + 1 < n and not TERMINAL.match(t.strip())
+        if f:
+            s.append(i + 1)
+        succ.append(s)
+        falls.append(f)
+    roots = [0] + [index[p] for p in pads if p in index]
+    return texts, index, succ, falls, roots
+
+
+def plan(stmts, pads=(), flags='exact', entry=None, table=None):
     """-> (texts, decl, Stats) with the locals rewrite applied; raises Odd when the function must stay as it is.
-    stmts: [(pc or None, text)] in order; pads: landing pad addresses (entered from the resume switch)."""
+    stmts: [(pc or None, text)] in order; pads: landing pad addresses (entered from the resume switch).
+    'lean': entry is the function's address, table the program's flag table (solve())."""
     texts = [t for _, t in stmts]
     for t in texts:
         if LABEL_DISPATCH in t:
             raise Odd('unresolved br')
         if ODD_REG.search(t):
             raise Odd('register by address or computed index')
+    texts, index, succ, falls, roots = _cfg(stmts, pads)
     n = len(texts)
-    index = {pc: i for i, (pc, _) in enumerate(stmts) if pc is not None}
-    succ = []
-    for i, t in enumerate(texts):
-        s = [index[int(m.group(1), 16)] for m in GOTO.finditer(t) if int(m.group(1), 16) in index]
-        if i + 1 < n and not TERMINAL.match(t.strip()):
-            s.append(i + 1)
-        succ.append(s)
-    roots = [0] + [index[p] for p in pads if p in index]
 
     regs = sorted({int(m.group(1)) for t in texts for m in REG.finditer(t)})
     writes = [{int(m.group(1)) for m in WRITE.finditer(t)} for t in texts]
@@ -215,10 +242,24 @@ def plan(stmts, pads=(), flags='exact'):
     for t, e in zip(texts, esc):
         if e and conditional_escape(t):
             raise Odd('escape under control flow')
+    lean = [None] * n
+    if flags == LEAN:                              # what each call, return and tail exit does with F (flag_flow, solve)
+        obs, sites, isites, _, _ = flag_flow(texts, succ, roots, falls, index)
+        nin = lambda g: table.get(g, (True, True))[0]
+        out_self = table.get(entry, (True, True))[1]
+        lean = [LeanStmt(out_self, nin) for _ in range(n)]
+        for i, j, g in sites:
+            # take F back from the Ctx after the call when something looks at what the call leaves before a definition;
+            # store it in front when the callee may read it, or may leave it as it found it and F is taken back after
+            ra = holds(obs.get(('c', i, j), ()), nin, out_self, table.ind_in)
+            lean[i].calls.append((nin(g) or ra, ra))
+        for i, j in isites:
+            ra = holds(obs.get(('i', i, j), ()), nin, out_self, table.ind_in)
+            lean[i].icalls.append((table.ind_in or ra, ra))
     # what each statement's syncs leave (rewrite's `after`): None, or ('all' | 'eager', registers written after them);
     # reload_f: its rewrite reloads F from the Ctx (an escape other than a tail exit; in 'aapcs' also not a lifted call),
     # def_last: ... and a flag definition follows the last such reload in its text
-    probe = [rewrite(t, regs, (), (), P, True, True, flags) if e else ('', None) for t, e in zip(texts, esc)]
+    probe = [rewrite(t, regs, (), (), P, True, True, flags, lean[i]) if e else ('', None) for i, (t, e) in enumerate(zip(texts, esc))]
     reload_f = [RELOAD_F in p for p, _ in probe]
     def_last = [bool(FX_DEF.search(p[p.rfind(RELOAD_F):])) for p, _ in probe]
     info = [a for _, a in probe]
@@ -250,6 +291,14 @@ def plan(stmts, pads=(), flags='exact'):
             preds[j].append(i)
     allr = set(regs)
     eager = set()
+    rel = lambda j: eager                          # the registers loaded again after the lifted call(s) of statement j
+    if flags == LEAN:
+        # only those an instruction may read before writing them, or a spill may store, after the call: the others'
+        # locals are never looked at before they are written again (liveness, below). A statement with two lifted
+        # calls reloads them all (the first call's reload would have to cover the second's spill).
+        live = live_after(succ, reads, writes, [dirty[i] if esc[i] else set() for i in range(n)])
+        many = [sum(1 for m in CALL_C.finditer(t) if TAILCALL_NAMES.match(m.group(1).split('::')[-1])) > 1 for t in texts]
+        rel = lambda j: eager if many[j] else (eager & live[j])
     while True:
         valid = [set(allr) for _ in range(n)]
         for r in roots:
@@ -262,7 +311,7 @@ def plan(stmts, pads=(), flags='exact'):
                 if i in roots:
                     vin = set(eager)
                 elif preds[i]:
-                    vin = set.intersection(*[vout(j, valid, loads, writes, info, eager, allr) for j in preds[i]])
+                    vin = set.intersection(*[vout(j, valid, loads, writes, info, rel(j), allr) for j in preds[i]])
                 else:
                     vin = set(eager)                   # not reached in the flow
                 if vin != valid[i]:
@@ -323,7 +372,7 @@ def plan(stmts, pads=(), flags='exact'):
         # F differs from the Ctx's flags only after a definition: publish at an exit only then
         publish = bool(kind) or bool(reach[i] - {CTX, ENTRY, 'call'})
         pre = ''.join('x%d = c->x[%d]; ' % (r, r) for r in sorted(loads[i]))
-        out_texts.append(pre + rewrite(t, regs, dirty[i], sorted(eager), mode, esc[i], publish, flags)[0])
+        out_texts.append(pre + rewrite(t, regs, dirty[i], sorted(rel(i)), mode, esc[i], publish, flags, lean[i], st)[0])
     decl = ''
     if eager:
         decl += 'uint64_t ' + ', '.join('x%d = c->x[%d]' % (r, r) for r in sorted(eager)) + '; '
@@ -343,6 +392,9 @@ class Stats:
         self.where = []               # (pc, 'entry' | 'call') of those reads
         self.eager = self.lazy = 0     # registers loaded at the entry / on first use
         self.left = {}                # functions left as they were: reason -> count
+        # lifted calls that come back / of them with F stored in front, F loaded after; returns / with F stored;
+        # registers loaded again after those calls (sum)
+        self.calls = self.call_pub = self.call_reload = self.rets = self.ret_pub = self.reloads = 0
 
     def leave(self, reason):
         self.left[reason] = self.left.get(reason, 0) + 1
@@ -356,6 +408,12 @@ class Stats:
         self.where += o.where
         self.eager += o.eager
         self.lazy += o.lazy
+        self.calls += o.calls
+        self.call_pub += o.call_pub
+        self.call_reload += o.call_reload
+        self.rets += o.rets
+        self.ret_pub += o.ret_pub
+        self.reloads += o.reloads
         for k, v in o.left.items():
             self.left[k] = self.left.get(k, 0) + v
 
@@ -364,6 +422,8 @@ class Stats:
         out = ['%s: locals (%s) in %d functions; flag reads %d: from operands %d, may see the entry flags %d, may see a callee flags %d'
                % (name, mode, self.funcs, self.reads, self.operand, self.entry_reads, self.after_call),
                '  registers in locals: %d loaded at the entry, %d on first use' % (self.eager, self.lazy),
+               '  lifted calls %d: flags stored in front %d, loaded after %d, registers loaded after %.2f on average; returns %d: flags stored %d'
+               % (self.calls, self.call_pub, self.call_reload, self.reloads / float(self.calls or 1), self.rets, self.ret_pub),
                '  left as they were: %d functions (%s)' % (sum(self.left.values()),
                                                            ', '.join('%s %d' % kv for kv in sorted(self.left.items())) or 'none')]
         if self.where:
@@ -371,14 +431,19 @@ class Stats:
         return out
 
 
-def apply(lines, trailer, pads, mode, stats, skip=None):
+def apply(lines, trailer, pads, mode, stats, skip=None, entry=None, table=None, summaries=None):
     """The statements [(pc, text)] of one function and its closing statement on the locals: (lines, trailer, declarations),
-    or None when the function stays as it is (`skip`: the caller's reason, else plan's). stats: Stats, updated."""
+    or None when the function stays as it is (`skip`: the caller's reason, else plan's). stats: Stats, updated.
+    'lean' needs the program's flag table (solve()); without one this is the summary pass: the function's summary goes
+    into `summaries` (entry -> summarize()) and its text stays as it is."""
+    if mode == LEAN and table is None:
+        summaries[entry] = summarize(lines + [(None, trailer)], pads)
+        return None
     if skip:
         stats.leave(skip)
         return None
     try:
-        texts, decl, st = plan(lines + [(None, trailer)], pads, mode)
+        texts, decl, st = plan(lines + [(None, trailer)], pads, mode, entry, table)
     except Odd as e:
         stats.leave(str(e))
         return None
@@ -419,11 +484,11 @@ def vout(j, valid, loads, writes, info, eager, allr):
     return (allr if kind == 'all' else eager) | wr
 
 
-def rewrite(text, regs, dirty, eager, mode, escape, publish=True, flags='exact'):
+def rewrite(text, regs, dirty, eager, mode, escape, publish=True, flags='exact', lean=None, count=None):
     """-> (text, after): the statement on the locals (registers and flags renamed, syncs around every escaping call and
     return) and what its last non-tail sync leaves: None (no sync), or ('all' | 'eager', registers written after it).
     dirty: registers that may differ from the Ctx on entry; eager: the registers reloaded after a lifted call (every
-    register is reloaded after other escapes)."""
+    register is reloaded after other escapes). lean: LeanStmt ('lean' mode); count: Stats to count the syncs in."""
     # 1. flags: helper calls take F; reads use the chosen mode
     def flag_sub(m):
         name, targs = m.group(1), m.group(2) or ''
@@ -459,6 +524,7 @@ def rewrite(text, regs, dirty, eager, mode, escape, publish=True, flags='exact')
     d = set(dirty)
     after = None
     out, pos = [], 0
+    k = ki = 0                                     # lean: index of the next direct call / call_indirect
     for start, is_site, name in sites:
         if not is_site:
             d.add(name)
@@ -470,21 +536,36 @@ def rewrite(text, regs, dirty, eager, mode, escape, publish=True, flags='exact')
         sp = ''.join('c->x[%d] = x%d; ' % (r, r) for r in sorted(d))
         out.append(text[pos:start])
         if name == 'return':
-            out.append('{ %s%sreturn; }' % (sp, '' if flags == 'aapcs' else pub))
+            p = pub if (lean.ret if lean else flags != 'aapcs') else ''
+            out.append('{ %s%sreturn; }' % (sp, p))
             pos = start + len('return;')
+            if count is not None:
+                count.rets += 1
+                count.ret_pub += bool(p)
             continue
         end = _close(text, text.index('(', start))
         call = text[start:end]
         tail = re.match(r'\s*;\s*return;', text[end:])
         stmt = re.match(r'\s*;', text[end:]) and _stmt_start(text, start)
         lifted = bool(TAILCALL_NAMES.match(name))
+        direct = DIRECT.match(name)
         if tail and lifted:                        # tail exit: spill, publish the flags, leave
-            out.append('{ %s%s%s; return; }' % (sp, pub, call))
+            p = pub if not (lean and direct) or lean.nin(int(direct.group(1), 16)) or lean.ret else ''
+            out.append('{ %s%s%s; return; }' % (sp, p, call))
             pos = end + tail.end()
             continue
         if stmt and lifted:                        # a call of a lifted function: only it can change registers
-            exact = flags != 'aapcs'               # AAPCS64: a callee neither reads nor leaves flags
-            out.append('{ %s%s%s;%s%s }' % (sp, pub if exact else '', call, rl_eager, RELOAD_F if exact else ''))
+            if lean:                               # flag_flow: per known callee; through call_indirect as 'exact'
+                pb, rf = lean.calls[k] if direct else lean.icalls[ki]
+                k, ki = k + bool(direct), ki + (not direct)
+            else:
+                pb = rf = flags != 'aapcs'         # AAPCS64: a callee neither reads nor leaves flags
+            out.append('{ %s%s%s;%s%s }' % (sp, pub if pb else '', call, rl_eager, RELOAD_F if rf else ''))
+            if count is not None:
+                count.calls += 1
+                count.call_pub += bool(pub and pb)
+                count.call_reload += rf
+                count.reloads += len(eager)
             after = ('eager', set())
         elif stmt:                                 # the runtime: it may read or change anything
             out.append('{ %s%s%s;%s%s }' % (sp, pub, call, rl_all, RELOAD_F))
@@ -537,3 +618,323 @@ def _stmt_start(text, i):
             if depth == 0:
                 return text[max(0, k - 3):k].rstrip().endswith('if')
     return False
+
+
+# ---- 'lean': flags across calls, from a summary of the whole module -------------------------------------------------
+#
+# 'exact' stores F into the Ctx in front of every lifted call and at every return and loads it after every call, because
+# the callee may read the flags it is entered with and the caller may read the flags the callee leaves. Compiled code
+# almost never does either, but the lifter makes it happen (a function split at a branch target or a hook site is
+# entered with live flags). flag_flow() follows, inside one function, where the flags present at its entry and the flags
+# each call leaves can be looked at before a definition replaces them ("observed"), and by what:
+#   'R'    a flag read
+#   g      a call of / tail exit to the lifted function g of this module: observed if g reads its entry flags (NEEDS_IN g)
+#   'X'    a call or tail exit into code reached from outside the direct calls (call_indirect, an import, a runtime call
+#          that runs guest code): observed if such code may read its entry flags (FlagTable.ind_in, below)
+#   'out'  a return or a tail exit (the target may leave them as they are): observed if a caller reads this function's
+#          flags after calling it (NEEDS_OUT self)
+# A runtime call that runs no guest code and leaves NZCV alone (FLAT_RUNTIME) observes nothing and changes nothing: the
+# rewrite stores F in front of it where a definition reaches and loads it back after, so F keeps its value and sources.
+# summarize() keeps that per function; solve() runs over every function of the module (the driver's summary pass, before
+# any function is rewritten) to the least fixpoint of
+#   NEEDS_IN(f)   the entry flags of f are observed in f
+#   NEEDS_OUT(g)  f calls g and the flags g leaves are observed in f; f tail-exits (or falls) to g and NEEDS_OUT(f);
+#                 g's caller is outside the lifted code (the module's entry point: the host reads the flags it leaves)
+# plan() then stores F in front of a call of g only if NEEDS_IN(g), loads it after the call only if what the call leaves
+# is observed, stores it at a return only if NEEDS_OUT(self) and at a tail exit to g only if NEEDS_IN(g). An indirect
+# tail exit and the runtime calls keep the 'exact' syncs. A function the rewrite leaves as it is (unresolved br, optnone)
+# gets its summary from its own text all the same (the eager code keeps the flags in the Ctx: the same flow; an
+# unresolved br may go to any statement); one whose text flag_flow cannot follow (an escape under control flow) gets
+# anything(): it reads its entry flags and what everything it calls leaves.
+#
+# Code reached from outside the direct calls. Its entry flags: solve() first takes ind_in = False and then checks it:
+# no function that may be entered that way (the module's entry point, exported symbols, the game config's extra entries,
+# and every function whose address the module's code or data may hold: FlagTable "taken", from the driver) may have
+# NEEDS_IN; if one does, ind_in = True and the fixpoint is taken again. The flags it leaves: wherever they are observed
+# (after call_indirect, an import or such a runtime call, at a landing pad (the unwinder's cleanups ran there), an
+# indirect tail exit of a NEEDS_OUT function, a call of an import whose flags are read) solve() reports a demand, and then
+# every function that may be entered from outside gets NEEDS_OUT. Across modules: an import is a runtime call, so the
+# flags are stored in front of it and loaded after it as in 'exact', and the exported symbols always have NEEDS_OUT
+# (the driver passes them as external: the importing module's lift does not see this one's table). A guest function
+# that the runtime calls back from inside an import (dispatch_call) is entered from outside in its own module; when it
+# is another module's than the import's caller, the caller's demand does not reach it (see the lift log: a module
+# that reads flags left by an import reports a demand).
+
+class FlagTable(dict):
+    """{entry: (NEEDS_IN, NEEDS_OUT)} of a module ('lean'), and ind_in: code entered from outside the direct calls may
+    read its entry flags; ind_out: every function entered that way stores its flags at returns (a demand, solve()). A
+    function not in the table (another module's) is taken as reading them."""
+    ind_in = ind_out = True
+
+
+class LeanStmt:
+    """The 'lean' syncs of one statement: calls / icalls [(store F in front, load F after)] per call of a lifted
+    function of this module / per call_indirect, in text order; ret: store F at a return; nin(g): g reads its entry flags
+    (store F at a tail exit to g)."""
+    def __init__(self, ret, nin):
+        self.calls, self.icalls, self.ret, self.nin = [], [], ret, nin
+
+
+def holds(conds, nin, out, ind_in):
+    """Whether one of the observations in conds happens (see above)."""
+    for c in conds:
+        if c == 'R' or (c == 'out' and out) or (c == 'X' and ind_in) or (c not in ('out', 'X') and nin(c)):
+            return True
+    return False
+
+
+def _flag_events(t):
+    """[(pos, order, kind, arg)] of one statement's original text in text order: flag reads and definitions (arg: the
+    definition is on every path), calls ('call' g, 'icall' call_indirect, 'ind' a runtime call that may run guest code,
+    'flat' one that does not), tail exits ('tail' g or None), returns, gotos and the jump of an unresolved br."""
+    ev = []
+    for m in FLAG_RAW.finditer(t):
+        ev.append((m.start(), 0, 'read', None))
+    always = flag_effect(t)[2]
+    for m in FLAG_CALL.finditer(t):
+        name = m.group(1)
+        if name in ('cond', 'get_nzcv'):
+            ev.append((m.start(), 0, 'read', None))
+            continue
+        if name in ('adds64', 'adds32'):
+            args, _ = _args(t, m.end() - 2)
+            if (args[3] if len(args) == 4 else '') not in ('0', '1'):
+                ev.append((m.start(), 0, 'read', None))      # ADCS / SBCS: carry in
+        ev.append((_close(t, m.end() - 2), 1, 'def', always))
+    consumed = set()
+    for pos in calls_out(t):
+        m = NO_CTX_ESCAPE.match(t, pos)
+        name = m.group(1) if m else CALL_C.match(t, pos).group(1).split('::')[-1]
+        end = _close(t, t.index('(', pos))
+        tail = re.match(r'\s*;\s*return;', t[end:])
+        d = DIRECT.match(name)
+        if tail and TAILCALL_NAMES.match(name):
+            consumed.add(end + tail.end() - len('return;'))
+            ev.append((pos, 2, 'tail', int(d.group(1), 16) if d else None))
+        elif d:
+            ev.append((pos, 2, 'call', int(d.group(1), 16)))
+        elif TAILCALL_NAMES.match(name):
+            ev.append((pos, 2, 'icall', None))
+        elif name in FLAT_RUNTIME:
+            ev.append((pos, 2, 'flat', None))
+        else:
+            ev.append((pos, 2, 'ind', None))
+    for m in re.finditer(r'\breturn;', t):
+        if m.start() not in consumed:
+            ev.append((m.start(), 2, 'ret', None))
+    for m in GOTO.finditer(t):
+        ev.append((m.start(), 2, 'goto', int(m.group(1), 16)))
+    for m in re.finditer(r'goto ' + LABEL_DISPATCH + ';', t):
+        ev.append((m.start(), 2, 'dispatch', None))
+    ev.sort(key=lambda e: (e[0], e[1]))
+    return ev
+
+
+def flag_flow(texts, succ, roots, falls, index):
+    """-> (obs, sites, isites, tails, itail). Sources of the value in F: 'E' the entry flags, 'P' a landing pad's,
+    ('c', i, j) what the j-th direct call of statement i leaves, ('i', i, j) what its j-th call_indirect leaves, 'I' what
+    a runtime call that may run guest code leaves. obs: source -> the observations that can see it before a definition
+    replaces it (a definition under control flow replaces nothing). sites: [(i, j, g)] every direct non-tail call;
+    isites: [(i, j)] every non-tail call_indirect; tails: the direct tail exit targets; itail: an indirect tail exit."""
+    n = len(texts)
+    evs = [_flag_events(t) for t in texts]
+    state = [None] * n
+    obs = {}
+    work = []
+
+    def join(i, s):
+        if state[i] is None or not s <= state[i]:
+            state[i] = s if state[i] is None else (state[i] | s)
+            work.append(i)
+
+    def see(s, what):
+        for src in s:
+            obs.setdefault(src, set()).add(what)
+    join(roots[0], frozenset(['E']))
+    for r in roots[1:]:
+        join(r, frozenset(['P']))
+    while work:
+        i = work.pop()
+        s, j, k = state[i], 0, 0
+        for _, _, kind, arg in evs[i]:
+            if kind == 'read':
+                see(s, 'R')
+            elif kind == 'def':
+                if arg:
+                    s = frozenset()
+            elif kind == 'call':                   # the callee may leave the flags it was entered with
+                see(s, arg)
+                s, j = s | {('c', i, j)}, j + 1
+            elif kind == 'icall':
+                see(s, 'X')
+                s, k = s | {('i', i, k)}, k + 1
+            elif kind == 'ind':
+                see(s, 'X')
+                s = s | {'I'}
+            elif kind == 'tail':                   # the target may leave them for this function's caller
+                see(s, 'X' if arg is None else arg)
+                see(s, 'out')
+            elif kind == 'ret':
+                see(s, 'out')
+            elif kind == 'goto':
+                if arg in index:
+                    join(index[arg], s)
+            elif kind == 'dispatch':               # any statement, or call_indirect and leave
+                see(s, 'X')
+                see(s, 'out')
+                for x in range(n):
+                    join(x, s)
+        if falls[i]:
+            join(i + 1, s)
+    sites, isites, tails, itail = [], [], [], False
+    for i, ev in enumerate(evs):
+        j = k = 0
+        for _, _, kind, arg in ev:
+            if kind == 'call':
+                sites.append((i, j, arg))
+                j += 1
+            elif kind == 'icall':
+                isites.append((i, k))
+                k += 1
+            elif kind == 'tail':
+                if arg is None:
+                    itail = True
+                else:
+                    tails.append(arg)
+            elif kind == 'dispatch':
+                itail = True
+    return obs, sites, isites, tails, itail
+
+
+LITERAL = re.compile(r'\b0x([0-9a-f]{6,16})ULL\b')
+# Not an address the code holds: the pc a function records (c->fn) and the site address a hook call passes (the hooks
+# look it up; a hook runs guest code only on a saved and restored Ctx, see FLAT_RUNTIME).
+SITE_ARG = re.compile(r'(?:\bc->fn = |\b(?:%s)\(c, )0x[0-9a-f]+ULL' % '|'.join(sorted(FLAT_RUNTIME)))
+
+
+def summarize(stmts, pads=()):
+    """The flag summary of one function from its statements before the rewrite: (entry observations, ((g, observations
+    of what that call leaves) per direct call), direct tail exit targets, observations of what code entered from outside
+    the direct calls leaves, indirect tail exit, the address literals in its text (FlagTable taken))."""
+    texts, index, succ, falls, roots = _cfg(stmts, pads)
+    lits = frozenset(int(m.group(1), 16) for t in texts for m in LITERAL.finditer(SITE_ARG.sub('', t)))
+    if any(escapes(t) and conditional_escape(t) for t in texts):
+        return anything(texts, lits)
+    obs, sites, isites, tails, itail = flag_flow(texts, succ, roots, falls, index)
+    outside = set(obs.get('I', ())) | obs.get('P', set())
+    for i, k in isites:
+        outside |= obs.get(('i', i, k), set())
+    return (frozenset(obs.get('E', ())), tuple((g, frozenset(obs.get(('c', i, j), ()))) for i, j, g in sites),
+            tuple(sorted(set(tails))), frozenset(outside), itail, lits)
+
+
+def anything(texts, lits=frozenset()):
+    """The summary of a function whose flag flow is not followed: it reads its entry flags and what everything it calls
+    leaves (every lifted function it names gets NEEDS_OUT), and what code reached from outside leaves if it calls any."""
+    named, other = set(), False
+    for t in texts:
+        for m in CALL_C.finditer(t):
+            name = m.group(1).split('::')[-1]
+            d = DIRECT.match(name)
+            if d:
+                named.add(int(d.group(1), 16))
+            elif not (name in SAFE or name in FLAT_RUNTIME or name in FLAG_DEF_NAMES or name in ('cond', 'get_nzcv')):
+                other = True
+    R = frozenset(['R'])
+    return (R, tuple((g, R) for g in sorted(named)), (), R if other else frozenset(), other, lits)
+
+
+STUB = re.compile(r'^void f_[0-9a-f]+\(Ctx \*__restrict c\) \{ (?:f_([0-9a-f]+)\(c\)|(host_import)\(c, [^;]*\)); \}$')
+IMPORT = 'import'
+
+
+def stub_summary(text):
+    """The summary of a PLT stub: a tail call into this module, or IMPORT (a call into another module or the runtime:
+    code entered from outside the direct calls); None for any other text."""
+    m = STUB.match(text)
+    if not m:
+        return None
+    if m.group(2):
+        return IMPORT
+    g = int(m.group(1), 16)
+    return (frozenset([g]), (), (g,), frozenset(), False, frozenset())
+
+
+def _fixpoint(sums, nout0, ind_in):
+    """NEEDS_IN, NEEDS_OUT: the least fixpoint (see above); nout0: the functions with NEEDS_OUT from the start."""
+    nin = dict.fromkeys(sums, False)
+    nout = {f: f in nout0 for f in sums}
+    known_in = lambda g: nin.get(g, True)
+    order = sorted(sums)
+    changed = True
+    while changed:
+        changed = False
+        for f in order:
+            entry, calls, tails = sums[f][:3]
+            if not nin[f] and holds(entry, known_in, False, ind_in):   # (entry flags at a return: the caller's)
+                nin[f] = changed = True
+            for g, cs in calls:
+                if g in nout and not nout[g] and holds(cs, known_in, nout[f], ind_in):
+                    nout[g] = changed = True
+            if nout[f]:
+                for g in tails:
+                    if g in nout and not nout[g]:
+                        nout[g] = changed = True
+    return nin, nout
+
+
+def solve(sums, external=(), entered=()):
+    """-> (FlagTable, report). sums: {entry: summarize() | IMPORT}; external: functions whose caller outside the lifted
+    code reads their flags (NEEDS_OUT); entered: functions code outside the direct calls may enter (the ind_in check, the
+    demand fallback). report: (entered functions reading their entry flags (first pass), demands [(entry, what)])."""
+    imports = {f for f, s in sums.items() if s == IMPORT}
+    sums = dict((f, (frozenset(['X']), (), (), frozenset(), False, frozenset()) if s == IMPORT else s)
+                for f, s in sums.items())
+    entered = set(entered) & set(sums)
+    ind_in = False
+    nin, nout = _fixpoint(sums, set(external), ind_in)
+    bad_in = sorted(f for f in entered if nin[f] and f not in imports)
+    if bad_in:                                     # code entered from outside reads its entry flags: publish for it
+        ind_in = True
+        nin, nout = _fixpoint(sums, set(external), ind_in)
+    known_in = lambda g: nin.get(g, True)
+    demands = []
+    for f in sorted(sums):
+        entry, calls, tails, outside, itail = sums[f][:5]
+        if holds(outside, known_in, nout[f], ind_in):
+            demands.append((f, 'reads flags left by code entered from outside'))
+        if itail and nout[f]:
+            demands.append((f, 'indirect tail exit, and a caller reads its flags'))
+        if f in imports and nout[f]:
+            demands.append((f, 'the flags an import leaves are read'))
+        for g, cs in calls:
+            if g not in sums and holds(cs, known_in, nout[f], ind_in):
+                demands.append((f, 'reads the flags of %x (not lifted here)' % g))
+        if nout[f]:
+            for g in tails:
+                if g not in sums:
+                    demands.append((f, 'tail exit to %x (not lifted here), and a caller reads its flags' % g))
+    if demands:                                    # every function entered from outside stores its flags at returns
+        nin, nout = _fixpoint(sums, set(external) | entered, ind_in)
+    table = FlagTable((f, (nin[f], nout[f])) for f in sorted(sums))
+    table.ind_in, table.ind_out = ind_in, bool(demands)
+    return table, (bad_in, demands)
+
+
+def live_after(succ, reads, writes, spills):
+    """Per statement, the registers that may be read (or stored by a spill: spills[i]) after it before being written."""
+    n = len(succ)
+    preds = [[] for _ in range(n)]
+    for i, s in enumerate(succ):
+        for j in s:
+            preds[j].append(i)
+    live_in = [set() for _ in range(n)]
+    work = list(range(n))
+    while work:
+        i = work.pop()
+        lo = set().union(*[live_in[s] for s in succ[i]])
+        li = reads[i] | spills[i] | (lo - writes[i])
+        if li != live_in[i]:
+            live_in[i] = li
+            work.extend(preds[i])
+    return [set().union(*[live_in[s] for s in succ[i]]) for i in range(n)]

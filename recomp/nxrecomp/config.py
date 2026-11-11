@@ -49,6 +49,9 @@ class GameConfig:
     #   'aapcs'  the same for registers; NZCV is not stored at calls and returns nor loaded after a call (AAPCS64 passes
     #            no flags either way). Differs from 'exact' only where code reads flags across a call or a return, which
     #            the lifter counts per module ("may see the entry flags", "may see a callee flags")
+    #   'lean'   the Ctx as 'exact' leaves it wherever code can look at it: NZCV is stored in front of a call / at a return
+    #            / at a tail exit and loaded after a call only where a summary of the whole module says that the callee
+    #            or a caller can read it; after a call only the registers that may be read again are loaded
     reg_locals = 'off'
 
     # spin loops (spin.py): their head also calls nx_spin_hint(2), the runtime's spin hook (`lift --spin-yield` turns it on too).
@@ -56,7 +59,7 @@ class GameConfig:
     spin_yield = False
 
 
-REG_LOCALS = ('off', 'exact', 'aapcs')
+REG_LOCALS = ('off', 'exact', 'aapcs', 'lean')
 
 
 def reg_locals_mode(cfg, override=None):

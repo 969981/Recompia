@@ -39,8 +39,10 @@ class Env:
         self.spin = False             # find spin loops and lift their loads as poll loads (spin.py; off while discovering)
         self.spin_yield = False       # ... and call nx_spin_hint(2) at their heads
         self.spin_stats = spinmod.Stats()
-        self.locals = None            # None, 'exact' or 'aapcs': registers and NZCV in C locals (locals.py; off while discovering)
+        self.locals = None            # None, 'exact', 'aapcs' or 'lean': registers and NZCV in C locals (locals.py; off while discovering)
         self.locals_stats = localsmod.Stats()
+        self.flags_table = None       # 'lean': {entry: (NEEDS_IN, NEEDS_OUT)} (locals.solve); None in the summary pass,
+        self.locals_summaries = {}    # ... which fills this: {entry: locals.summarize()}
         self._syms = None
 
     # ---- words

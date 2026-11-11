@@ -2,7 +2,7 @@
 """python -m nxrecomp <command> ...   (see README.md)
 
   lift   <input> <outdir> [--game NAME] [--kind nso|nx_elf|static_elf] [--base 0x..] [--name N] [--jobs J] [--shards S]
-         [--patches FILE] [--spin-yield] [--locals off|exact|aapcs]   lift every function of one module
+         [--patches FILE] [--spin-yield] [--locals off|exact|aapcs|lean]   lift every function of one module
   cover  <input> [--game NAME] ...   per-instruction-word translation coverage of .text
   build-info [--game NAME]   one JSON line: the game's module table and the compile flags of the lifted code (for CMake)
   module-header --game NAME --out FILE   the C++ header of the module list (modheader.py), for the builds of the lifted game

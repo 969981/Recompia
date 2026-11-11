@@ -44,7 +44,7 @@ endif()
 set(NX_PYTHON "${_nx_default_python}" CACHE FILEPATH "Python with the nxrecomp requirements")
 set(NX_OPT "" CACHE STRING "optimisation flag of the lifted code (clang-cl syntax); empty: nxrecomp/compile_flags.py CLANG_CL_OPT")
 option(NX_SPIN_YIELD "spin-loop heads of the lifted code call nx_spin_hint(2) (nxrecomp/spin.py; lift --spin-yield)" OFF)
-set(NX_LOCALS "$ENV{NX_LOCALS}" CACHE STRING "guest registers and flags in C locals: off / exact / aapcs (nxrecomp/locals.py; lift --locals); empty: the game config's reg_locals")
+set(NX_LOCALS "$ENV{NX_LOCALS}" CACHE STRING "guest registers and flags in C locals: off / exact / aapcs / lean (nxrecomp/locals.py; lift --locals); empty: the game config's reg_locals")
 option(NX_USE_LAUNCHER "wrap lifted-code compiles in cmake/nx_cc_launcher.py (time-limit fallback to optnone / -O0)" OFF)
 
 file(GLOB NX_LIFTER_SOURCES CONFIGURE_DEPENDS
