@@ -16,6 +16,11 @@
 // for its length: a higher priority alone does not help a thread pinned to a processor that another thread at the top normal priority (the
 // highest band is 15 in the high priority class, the same as the boost) or DPC work holds; any idle processor does. Config: [sched] starvation_guard (default on), [sched] starvation_ms (default 100, time a thread must
 // have been ready and unscheduled before it is boosted), [sched] starvation_poll_ms (default 50).
+//
+// The guard can only work on a host that fills in the thread state and the context-switch count. Its own thread proves it: the thread that
+// asks is Running, and has been switched in at least once, in its own record. A host whose records say otherwise can never show the guard
+// a starved thread, and the query is not free (under Proton on the Steam Deck the 50 ms poll took 7% of one core in play), so after
+// kProbePolls polls without that proof the guard thread ends ([sched] starvation_guard_probe, default on; off: it polls regardless).
 #include <windows.h>
 
 #include <atomic>
@@ -58,6 +63,7 @@ struct ProcRec {
 };
 static_assert(sizeof(ProcRec) == 0x100, "SYSTEM_PROCESS_INFORMATION");
 constexpr ULONG kStateReady = 1;
+constexpr ULONG kStateRunning = 2;
 constexpr ULONG kStateStandby = 3;
 constexpr int kSystemProcessInformation = 5;
 
@@ -83,6 +89,14 @@ struct Seen {
     bool boosted = false;
 };
 constexpr int kBoostMs = 450;      // a boost lasts this long (rounded up to whole polls)
+constexpr int kProbePolls = 3;     // polls the host gets to show the polling thread as Running ([sched] starvation_guard_probe)
+
+// The polling thread's own record: Running, with a context-switch count, on a host that reports the two fields the guard reads.
+const ThreadRec* own_record(const ThreadRec* recs, ULONG n, uint32_t self) {
+    for (ULONG i = 0; i < n; i++)
+        if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(recs[i].unique_thread)) == self) return &recs[i];
+    return nullptr;
+}
 
 // CPU time (100 ns units) of every thread of this process and of every other process at one poll: the starvation diagnosis compares the
 // poll at which the starved thread was first seen ready with the poll that boosts it, which names who had the processor meanwhile.
@@ -158,7 +172,7 @@ void log_starvation(const KThread& t, const std::string& where, int ready_ms, co
             static_cast<unsigned long long>(boost_no), busy.empty() ? "none" : busy.c_str(), other.empty() ? "none" : other.c_str());
 }
 
-void loop(Guard* g, int poll_ms, int need_polls) {
+void loop(Guard* g, int poll_ms, int need_polls, int probe_polls) {
     log_set_thread_name("starve-guard");
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);        // it must run when everything else is starved
     NtQuery nt_query = reinterpret_cast<NtQuery>(GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQuerySystemInformation"));
@@ -166,6 +180,7 @@ void loop(Guard* g, int poll_ms, int need_polls) {
     std::vector<uint8_t> buf(1 << 20);
     std::unordered_map<uint32_t, Seen> seen;       // by host thread id
     const uint32_t pid = GetCurrentProcessId();
+    const uint32_t self = GetCurrentThreadId();
     const int boost_polls = std::max(1, (kBoostMs + poll_ms - 1) / poll_ms);
     std::deque<CpuSnap> hist;                      // the last need_polls snapshots, oldest first
     ULONGLONG last_line = 0;
@@ -202,6 +217,18 @@ void loop(Guard* g, int poll_ms, int need_polls) {
             off += p->next_entry_offset;
         }
         if (!mine) continue;
+        if (probe_polls > 0) {
+            const ThreadRec* own = own_record(mine, nthreads, self);
+            if (own && own->thread_state == kStateRunning && own->context_switches) {
+                probe_polls = 0;
+                NXLOG_I("sched", "starvation guard: this host reports thread states and context switches, the guard keeps polling");
+            } else if (--probe_polls == 0) {
+                NXLOG_I("sched", "starvation guard off: this host does not report thread states and context switches (the polling thread's own record: %s, state %lu, "
+                        "%lu context switches), so no starved thread could ever be seen; the guard thread ends. [sched] starvation_guard_probe = 0 keeps it polling",
+                        own ? "found" : "missing", own ? own->thread_state : 0ul, own ? own->context_switches : 0ul);
+                return;
+            }
+        }
         for (ULONG i = 0; i < nthreads; i++)
             snap.mine[static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mine[i].unique_thread))] =
                 static_cast<uint64_t>(mine[i].kernel_time.QuadPart) + static_cast<uint64_t>(mine[i].user_time.QuadPart);
@@ -273,7 +300,9 @@ void starvation_guard_start() {
     const int poll = static_cast<int>(std::clamp<int64_t>(config_get_int("sched", "starvation_poll_ms", 50), 10, 1000));
     const int need = (ms + poll - 1) / poll + 1;
     g.stop = false;
-    g.th = std::thread(loop, &g, poll, need);
+    // [sched] starvation_guard_probe: the guard ends itself on a host that cannot show it a starved thread (see the top of the file)
+    const int probe = config_get_bool("sched", "starvation_guard_probe", true) ? kProbePolls : 0;
+    g.th = std::thread(loop, &g, poll, need, probe);
     NXLOG_I("sched", "starvation guard on: a guest thread ready for %d ms without running (polled every %d ms) is boosted to top priority on the whole processor pool for %d ms (debug note 422)",
             (need - 1) * poll, poll, kBoostMs);
 }
