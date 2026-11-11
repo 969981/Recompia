@@ -532,6 +532,9 @@ void pool_drop_span(PoolGpu* g, PoolChunk& c);
 bool pool_drop_chunk_if_live(PoolGpu* g, PoolChunk* c);   // pcopy_evict_for: under g_live_mu, only if g is still live and owns c
 // nvn_gpu.cpp: waits up to timeout_ns for the timeline to reach serial (the landing thread). False: timed out, device lost or no back end.
 bool timeline_wait(uint64_t serial, uint64_t timeout_ns);
+// nvn_sync_wake.cpp: the thread that sees completions for polling game threads; with the back end (install / tear_down).
+void sync_wake_start();
+void sync_wake_stop();
 uint64_t recording_serial();                          // the serial being recorded, 0 outside a recording (render thread)
 struct PoolCopyStats {
     bool on = false;
