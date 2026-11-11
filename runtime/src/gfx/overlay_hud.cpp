@@ -30,7 +30,7 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
     const int detail = counter_detail.load(std::memory_order_relaxed);
     char buf[64];
     counter_n = 0;
-    // With frame generation the game renders `snap.fps` frames and the screen shows more: both are given
+    // With frame generation the game renders `snap.fps` frames and the screen shows more: "FPS 60 | FG 120"
     uint64_t count = 0;
     const bool generating = extras::framegen_present_count(&count);
     if (generating) {
@@ -42,10 +42,8 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
         shown_fps = 0;
     }
     if (generating && shown_fps > 0) {
-        std::snprintf(buf, sizeof buf, "%.0f FPS shown", shown_fps);
-        counter_lines[counter_n++] = buf;
-        if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS real", snap.fps);
-        else std::snprintf(buf, sizeof buf, "-- FPS real");
+        if (snap.valid) std::snprintf(buf, sizeof buf, "FPS %.0f | FG %.0f", snap.fps, shown_fps);
+        else std::snprintf(buf, sizeof buf, "FPS -- | FG %.0f", shown_fps);
         counter_lines[counter_n++] = buf;
     } else {
         if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
@@ -76,7 +74,7 @@ void Overlay::Impl::draw_counter(const FrameInfo& f, double now_s) {
     const float gap = size * 0.15f;
     const float margin = size * 0.8f;
     const int n = counter_n;
-    float lines_w[6] = {};
+    float lines_w[4] = {};
     float line_h = 0, text_w = 0;
     for (int i = 0; i < n; ++i) {
         const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, counter_lines[i].c_str());
