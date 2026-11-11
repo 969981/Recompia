@@ -79,6 +79,8 @@ GaugeHook gauge_short_over("kernel.short_sleep_over_us", [] { return g_short_ove
 void short_sleep_note(int64_t asked_ns, int64_t took_ns) {
     const int64_t over = took_ns - asked_ns, avg = g_short_over.load(std::memory_order_relaxed);
     g_short_over.store(avg + (over - avg) / 16, std::memory_order_relaxed);   // racing threads may drop a sample: harmless for an average
+    // The sums only make the one line below: once it is written, a short sleep updates the average alone (no locked add per sleep).
+    if (g_short_n.load(std::memory_order_relaxed) >= kShortLogAt) return;
     g_short_asked_ns.fetch_add(static_cast<uint64_t>(asked_ns), std::memory_order_relaxed);
     g_short_took_ns.fetch_add(static_cast<uint64_t>(took_ns), std::memory_order_relaxed);
     uint64_t worst = g_short_worst_ns.load(std::memory_order_relaxed);
