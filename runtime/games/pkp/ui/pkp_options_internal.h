@@ -118,4 +118,10 @@ void apply_time_tab(const int (&cur)[kSlots]);                           // the 
 void go_to_event(int row, int (&time_cur)[kSlots], int (&time_orig)[kSlots]);   // an Events row was pressed; the Time tab's rows follow
 int hook_clock_text(::Ctx* c, uint64_t, void*);   // [tweaks] clock_format in the game's time-of-day text
 
+// ---- pkp_options_items.cpp ----
+constexpr int kItemRows = 2;
+extern Row g_item_rows[kItemRows];            // the Items tab's rows, filled by load_items
+int load_items(::Ctx* c);                     // reads the bag again and fills g_item_rows; the number of rows the tab shows
+void apply_items_tab(::Ctx* c, int (&cur)[kSlots]);   // the Items tab's rows as the picked stack's count (the screen commits)
+
 }  // namespace nxrt::games::pkp::options_detail

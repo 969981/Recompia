@@ -95,6 +95,7 @@ inline constexpr Spec kSpecs[] = {
     gameplay(b(InventorySort, "inventory_sort", true, "A Sort button in the bag's and the container screens' key guide.")),
     under(InventorySort, b(InventoryAutosort, "inventory_autosort", false, "Sort the bag each time the bag or a container screen opens.")),
     opt_in(gameplay(b(CraftSearch, "craft_search", false, "A Search button in the crafting screen's key guide."))),
+    opt_in(gameplay(b(ItemEditor, "item_editor", false, "Experimental: an Items tab in the game's Settings screen that changes the count of a stack in the bag."))),
     hidden(gameplay(b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen."))),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),

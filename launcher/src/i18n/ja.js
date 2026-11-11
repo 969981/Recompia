@@ -731,4 +731,6 @@ export default {
   'Downloading frame generation': 'フレーム生成をダウンロード中',
   'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'フレーム生成には AMD の amd_fidelityfx_framegeneration_vk.dll が必要ですが、ランチャーには含まれていません。AMD の FidelityFX SDK の GitHub リポジトリ（バージョン 2.4.0、MIT ライセンス）から取得し、ハッシュを確認して、ゲームの upscalers\\fsr3 フォルダーに保存します。',
   'The file is not in the game folder after the download.': 'ダウンロード後も、ファイルがゲームのフォルダーにありません。',
+  'Item editor (experimental)': 'アイテムエディター（実験的）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'ゲームの設定画面に「Items」タブを追加し、バッグ内のアイテムの所持数を変更できます。Link Play 中は無効です。先にセーブデータをバックアップしてください。',
 };

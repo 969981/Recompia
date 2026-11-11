@@ -731,4 +731,6 @@ export default {
   'Downloading frame generation': 'Download della generazione di fotogrammi',
   'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'La generazione di fotogrammi richiede il file amd_fidelityfx_framegeneration_vk.dll di AMD, che non è incluso nel launcher. Proviene dal repository GitHub dell’SDK FidelityFX di AMD (versione 2.4.0, licenza MIT), ne viene verificato l’hash e viene messo nella cartella upscalers\\fsr3 del gioco.',
   'The file is not in the game folder after the download.': 'Dopo il download il file non è nella cartella del gioco.',
+  'Item editor (experimental)': 'Editor degli oggetti (sperimentale)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Aggiunge una scheda «Items» alla schermata delle impostazioni del gioco, dove cambi quante unità hai di un oggetto nella borsa. Disattivato durante Link Play. Fai prima un backup del salvataggio.',
 };

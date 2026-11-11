@@ -214,6 +214,7 @@ constexpr Row kGameplay[] = {
     key_row("Sort button in the bag and containers", "A Sort button in the key guide of the bag and of the container screens.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
+    key_row("Item editor (experimental)", "Adds an Items tab to this screen that changes how many of an item you hold. Not during Link Play.", Key::ItemEditor),
     key_row("Shoulder camera: side", "Moves the camera to the side so your character no longer blocks the view, in blocks. Right is positive, left negative; 0 is the game's own camera.", Key::CameraShoulderSide, 0.1, "%+.1f"),
     key_row("Shoulder camera: height", "Moves the camera up, in blocks. 0 is the game's own camera.", Key::CameraShoulderHeight, 0.1, "%+.1f"),
 };

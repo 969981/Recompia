@@ -138,10 +138,11 @@ Tab kTabs[] = {
     tab("Gameplay", 10, kGameplayRows),
     tab("Time", 11, kTimeRows),
     {"Events", 12, g_event_rows, 1},   // the count follows the event file (load_events)
+    {"Items", 13, g_item_rows, 1},     // the count follows the bag (load_items)
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;
-constexpr int kTimeTab = kTabCount - 2, kEventsTab = kTabCount - 1;
+constexpr int kTimeTab = kTabCount - 3, kEventsTab = kTabCount - 2, kItemsTab = kTabCount - 1;
 // The bar has 16 cells (kFirstCell) and its layout table (hook_bar_state) has 16 entries: one more tab needs nothing else.
 static_assert(kTabCount <= 16, "the tab bar has 16 cells");
 
@@ -320,6 +321,7 @@ int hook_open(::Ctx* c, uint64_t, void*) {
     if (g.tab >= kGameTabs) wr<uint8_t>(child + kGroup, kTabs[g.tab].group);   // the game's table only knows its own three tabs
     if (!returning) {
         kTabs[kEventsTab].count = load_events();
+        kTabs[kItemsTab].count = load_items(c);
         refresh_audio_devices();
         const S s = play::current_settings();
         for (int t = 0; t < kTabCount; ++t)
@@ -345,6 +347,7 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
         S s = play::current_settings();
         if (build_settings(s)) play::apply_settings(s);   // main thread, next frame; also writes controls.ini
         save_key_rows();                             // the game ini, now
+        apply_items_tab(c, g.cur[kItemsTab]);        // the bag, now
         std::memcpy(g.orig, g.cur, sizeof g.orig);
     } else if (rd<int>(g.child + 0x354) != 0) {      // "discard" (the game's other call with 0 only redraws)
         std::memcpy(g.cur, g.orig, sizeof g.cur);

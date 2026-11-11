@@ -731,4 +731,6 @@ export default {
   'Downloading frame generation': '正在下载帧生成',
   'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': '帧生成需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll，启动器不附带该文件。它来自 AMD 在 GitHub 上的 FidelityFX SDK 仓库（2.4.0 版，MIT 许可），会校验其哈希，并放入游戏的 upscalers\\fsr3 文件夹。',
   'The file is not in the game folder after the download.': '下载后，游戏文件夹中仍没有该文件。',
+  'Item editor (experimental)': '物品编辑器（实验性）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': '在游戏的设置界面中添加“Items”标签页，可更改背包中某个物品的持有数量。Link Play 期间不可用。请先备份存档。',
 };

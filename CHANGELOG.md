@@ -4,6 +4,7 @@
 
 - New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
+- New **Item editor (experimental)** in Settings > Gameplay, off by default: it adds an **Items** tab to the game's Settings screen where you change how many of an item in your bag you hold (up to the game's stack limit). It does not add new items and is off during Link Play. Back up your save first. Update only: no shader rebuild, no Set up again
 
 ## 0.10.3 (build N: Newt Hotfix a3)
 

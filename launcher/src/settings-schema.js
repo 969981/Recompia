@@ -306,6 +306,10 @@ const GAMEPLAY = {
   inventory_sort: { label: t('Sort button in the bag and containers') },
   inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
+  item_editor: {
+    label: t('Item editor (experimental)'),
+    after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
+  },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
