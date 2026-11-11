@@ -86,7 +86,13 @@ def lift_function(env, entry):
     decl = None
     if env.locals:                                           # registers and NZCV in C locals (locals.py)
         skip = 'optnone' if cold.startswith('NX_OPTNONE') else 'unresolved br' if fn.has_br_fallback else None
-        res = localsmod.apply(lines, trailer, pads, env.locals, env.locals_stats, skip, entry, env.flags_table, env.locals_summaries)
+        held = None
+        if env.locals == localsmod.LEAN and env.flags_table is None and fn.has_br_fallback:
+            brs = [pc for pc, t in lines if 'goto ' + localsmod.LABEL_DISPATCH in t]
+            if brs and all(b in env.br_plain for b in brs):
+                held = env.lean_held                         # the dispatch reaches only addresses the program holds
+        res = localsmod.apply(lines, trailer, pads, env.locals, env.locals_stats, skip, entry, env.flags_table,
+                              env.locals_summaries, held)
         if res:
             lines, trailer, decl = res
     out = ['%svoid %s_%x(Ctx *__restrict c%s) {' % (cold, 'u' if two else 'f', entry, ', uint64_t rp' if two else ''),

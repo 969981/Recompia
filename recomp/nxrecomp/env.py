@@ -41,8 +41,10 @@ class Env:
         self.spin_stats = spinmod.Stats()
         self.locals = None            # None, 'exact', 'aapcs' or 'lean': registers and NZCV in C locals (locals.py; off while discovering)
         self.locals_stats = localsmod.Stats()
-        self.flags_table = None       # 'lean': {entry: (NEEDS_IN, NEEDS_OUT)} (locals.solve); None in the summary pass,
+        self.flags_table = None       # 'lean': {entry: (NEEDS_IN, NEEDS_OUT, KILLS)} (locals.solve); None in the summary pass,
         self.locals_summaries = {}    # ... which fills this: {entry: locals.summarize()}
+        self.br_plain = set()         # 'lean': unresolved `br`s whose target takes no table arithmetic (jumptables.bound_dispatch)
+        self.lean_held = frozenset()  # 'lean': the code addresses the module's data and relocations hold (driver.held_code)
         self._syms = None
 
     # ---- words

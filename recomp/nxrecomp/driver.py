@@ -56,6 +56,8 @@ def make_env(spec):
     env.spin_yield = bool(spec.get('spin_yield') or cfg.spin_yield)
     env.locals = locals_mode(cfg, spec)
     env.flags_table = spec.get('flags_table')
+    env.br_plain = set(spec.get('br_plain', ()))
+    env.lean_held = spec.get('lean_held', frozenset())
     return env
 
 
@@ -124,6 +126,28 @@ def _worker_summary(entries):
     return env.locals_summaries
 
 
+def held_code(env, img):
+    """('lean') The code addresses the module holds outside .text: every 64-bit word of the other segments that is an
+    address in .text (absolute, or module-relative as an NSO's unrelocated pointers and RELATIVE addends are), and the
+    relocation addends that are."""
+    import array
+    lo, hi = img.text[0], img.text[0] + img.text[1]
+    tlo, thi = env.text_lo, env.text_hi
+    mem = bytes(img.mem)
+    out = set()
+    for a, b in ((0, lo), (hi, len(mem))):
+        a += -a % 8
+        words = array.array('Q')
+        words.frombytes(mem[a:a + (b - a) // 8 * 8])
+        for w in set(words):
+            if tlo <= w < thi:
+                out.add(w)
+            if tlo <= env.base + w < thi:
+                out.add(env.base + w)
+    out |= {env.base + addend for _, _, addend in img.relocs() if tlo <= env.base + addend < thi}
+    return frozenset(out)
+
+
 def entered_from_outside(env, cfg, img, funcs, sums):
     """('lean') (external, entered). external: the functions whose caller outside the module may read the flags they
     leave: the entry point (its caller is the host) and the exported symbols (another module's lift does not see what
@@ -131,8 +155,8 @@ def entered_from_outside(env, cfg, img, funcs, sums):
     entries, and every function whose address the module may hold: a function entry stored as a 64-bit word anywhere
     outside .text (absolute, or module-relative as an NSO's unrelocated pointers and RELATIVE addends are), a literal of a lifted
     function's text (adr, a return address, ...), or in a 4 KiB page that a page-aligned literal (adrp) names."""
-    import array
     fs = set(funcs)
+    held = env.lean_held or held_code(env, img)
     entry = {env.text_lo if img.meta.get('entry') is None else img.meta['entry']}
     out = {env.base + off for off in cfg.extra_entries.get(img.name, ())} & fs
     if img.symtab_is_dynamic:
@@ -141,16 +165,7 @@ def entered_from_outside(env, cfg, img, funcs, sums):
                 entry.add(img.base + img.sym_value(value))
     entry &= fs
     out |= entry
-    lo, hi = img.text[0], img.text[0] + img.text[1]
-    mem = bytes(img.mem)
-    for a, b in ((0, lo), (hi, len(mem))):
-        a += -a % 8
-        words = array.array('Q')
-        words.frombytes(mem[a:a + (b - a) // 8 * 8])
-        w = set(words)
-        out |= w & fs
-        out |= {f for f in fs if f - env.base in w}
-    out |= {env.base + addend for _, _, addend in img.relocs() if env.base + addend in fs}
+    out |= held & fs
     order = sorted(fs)
     for s in sums.values():
         if s == localsmod.IMPORT:
@@ -171,20 +186,21 @@ def flag_table(pool, env, cfg, img, groups, all_funcs, log):
     sums = {}
     for part in map_ordered(pool, _worker_summary, groups):
         sums.update(part)
+    kept = localsmod.check_held(sums)
+    log('%s: unresolved br limited to held addresses in %d functions' % (img.name, len(kept)))
     entry, entered = entered_from_outside(env, cfg, img, all_funcs, sums)
-    table, (bad_in, demands) = localsmod.solve(sums, entry, entered)
+    table, (bad_in, foreign) = localsmod.solve(sums, entry, entered)
     log('%s: lean flag table over %d functions (%d imports): entry flags read %d, flags read after them %d, never leaving their entry flags %d; '
-        'entered from '
-        'outside the direct calls %d, of them reading their entry flags %d%s; demands on code entered from outside %d%s'
+        'entered from outside the direct calls %d (they store their flags at returns), of them reading their entry flags %d%s'
         % (img.name, len(sums), sum(1 for v in sums.values() if v == localsmod.IMPORT),
            sum(1 for v in table.values() if v[0]), sum(1 for v in table.values() if v[1]),
            sum(1 for v in table.values() if v[2]), len(entered), len(bad_in),
-           ' (flags stored in front of every call_indirect)' if bad_in else '', len(demands),
-           ' (every function entered from outside stores its flags at returns)' if demands else ''))
+           ' (flags stored in front of every call_indirect)' if bad_in else ''))
     if bad_in:
         log('  entered from outside, reading entry flags: ' + ' '.join('%x' % f for f in bad_in[:40]))
-    if demands:
-        log('  demands: ' + ' '.join('%x(%s)' % d for d in demands[:40]))
+    if foreign:
+        log('  WARNING: flags only a function not lifted here can leave are read: '
+            + ' '.join('%x(%s)' % d for d in foreign[:40]))
     return table
 
 
@@ -224,9 +240,14 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
     env.load_eh()
     from . import jumptables
     jumptables.resolve(env)
+    if locals_mode(cfg, spec) == localsmod.LEAN:
+        jumptables.bound_dispatch(env)
+        env.lean_held = held_code(env, img)
     starts = env.starts
     log('%s: %d function entries, %d landing pads, %d jump tables  (%.1fs)' % (img.name, len(starts), len(env.pads), len(env.jt), time.time() - t0))
     spec = dict(spec, ends=env.ends, jt={str(k): v for k, v in env.jt.items()}, tailbr=sorted(env.tailbr), pads=env.pads, catchers=sorted(env.catchers))
+    if locals_mode(cfg, spec) == localsmod.LEAN:
+        spec.update(br_plain=sorted(env.br_plain), lean_held=env.lean_held)
     os.makedirs(outdir, exist_ok=True)
     known = set(starts)
     pending = list(starts)
@@ -265,8 +286,13 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                     env.ends[a] = end
             pending = sorted(new | set(again))
         all_funcs.sort()
+        cut = {}
+        if locals_mode(cfg, spec) == localsmod.LEAN:     # jump tables read without a bound, cut to what they hold
+            cut = jumptables.lean_tables(env)
+            spec['jt'] = dict(spec['jt'], **{str(b): t for b, t in cut.items()})
+            log('%s: %d jump tables without a bound cut to their end' % (img.name, len(cut)))
         # workers must know the new entries too (their extents are by the next start): rebuild the spec
-        if len(all_funcs) != len(starts):
+        if len(all_funcs) != len(starts) or cut:
             spec['ends'] = {a: env.ends.get(a, env.extent(a)) for a in all_funcs}
             if pool:
                 pool.close()
