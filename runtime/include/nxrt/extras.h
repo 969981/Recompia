@@ -65,6 +65,11 @@ struct LatencySettings {
     bool log_timings = false;        // log one line of timings per second
 };
 
+// AMD FSR 3.1 frame generation (extras/framegen.h). It needs a swapchain of its own, so it is decided when the renderer is made.
+struct FrameGenSettings {
+    bool enabled = false;            // [framegen] enabled
+};
+
 // Picture controls applied in the present step (the output pass), on the display-encoded picture: black level, contrast, saturation, then gamma.
 // All neutral (1, 1, 0, 1): the present step is left exactly as it is (the pass is skipped).
 struct PictureSettings {
@@ -95,6 +100,7 @@ struct Settings {
     HdrSettings hdr;
     UpscaleSettings upscale;
     LatencySettings latency;
+    FrameGenSettings framegen;
     PictureSettings picture;
 };
 

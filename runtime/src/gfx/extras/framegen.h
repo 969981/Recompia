@@ -6,12 +6,18 @@
 // makes them, gfx.h Device::framegen_queues) and the FidelityFX frame-generation DLL, which the game does not ship: the player puts it next to the
 // loader the upscaler uses.
 #pragma once
+#include "swapchain_fns.h"
 
 namespace nxrt::extras {
 
 // True when amd_fidelityfx_framegeneration_vk.dll is in the folder of the FidelityFX loader (ffx_dll.h). Needed before the device is made: the
 // queues are reserved with it.
 bool framegen_dll_found();
+
+// The swapchain calls of the frame-generation swapchain, for the renderer to use in place of Vulkan's (swapchain_fns.h). Null when [framegen]
+// enabled is off, the DLL or the queues are missing, or the first swapchain could not be made by AMD's code (that case falls back to a Vulkan
+// swapchain: the table's functions forward to Vulkan from then on, and the game runs without frame generation). One per process.
+const gfx::SwapchainFns* framegen_swapchain(gfx::Device& dev);
 
 // What the F1 page and the launcher tell a player who tries to switch frame generation on without the DLL.
 const char* framegen_missing_text();

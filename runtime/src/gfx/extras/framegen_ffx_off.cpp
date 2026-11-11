@@ -6,6 +6,8 @@ namespace nxrt::extras {
 
 bool framegen_dll_found() { return false; }
 
+const gfx::SwapchainFns* framegen_swapchain(gfx::Device&) { return nullptr; }
+
 const char* framegen_missing_text() { return "Frame generation is not part of this build."; }
 
 }  // namespace nxrt::extras

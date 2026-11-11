@@ -18,6 +18,7 @@
 #include "nxrt/lowlat.h"
 #include "nxrt/platform.h"
 #include "nxrt/text.h"
+#include "extras/framegen.h"
 #include "extras/hdr_capture.h"
 #include "extras/hdr_math.h"
 #include "extras/win_display.h"
@@ -495,7 +496,7 @@ struct Renderer::Impl {
         dev->note_result(r, "vkCreateSwapchainKHR");
         if (r == VK_SUCCESS) vk_gauge_swapchains().add(1);
         destroy_targets();
-        if (old) {
+        if (old && old != fresh) {      // a swapchain made again in place (frame generation's) keeps its handle
             if (latency) latency->swapchain_destroyed(old);
             sc.destroy(vk(), old, nullptr);
             vk_gauge_swapchains().sub(1);
@@ -612,6 +613,8 @@ std::unique_ptr<Renderer> Renderer::create(Device& dev, const RendererDesc& desc
     s.headless_w = desc_in.headless_width;
     s.headless_h = desc_in.headless_height;
     s.decide_output();
+    if (!s.headless)
+        if (const SwapchainFns* fg = extras::framegen_swapchain(dev)) s.sc = *fg;
     s.latency = std::make_unique<extras::LowLatency>(dev);
     extras::lowlat_set(s.latency.get());
     if (!s.create_slots()) {
