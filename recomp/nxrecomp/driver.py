@@ -20,6 +20,8 @@ import bisect
 import collections
 import multiprocessing
 import os
+import pickle
+import shutil
 import time
 
 from .image import Image
@@ -58,6 +60,8 @@ def make_env(spec):
     env.flags_table = spec.get('flags_table')
     env.br_plain = set(spec.get('br_plain', ()))
     env.lean_held = spec.get('lean_held', frozenset())
+    env.lean_cache = spec.get('lean_cache')
+    env.lean_chunks = spec.get('lean_chunks', [])
     return env
 
 
@@ -113,17 +117,37 @@ def _worker_scan(entries):
 
 
 def _worker_summary(entries):
-    """'lean' summary pass: {entry: locals.summarize()} of the given functions (their text is not kept)."""
+    """'lean' summary pass: {entry: locals.summarize()} of the given functions (their text is not kept). The flag flow
+    the text pass's rewrite needs again is kept on disk, one file per group (_flows_file)."""
     env = _worker_env
     env.wanted = collections.OrderedDict()
     env.locals_summaries = {}
+    env.lean_flows = {}
     for a in entries:
         t = lift_function(env, a)[0]
         if a not in env.locals_summaries:                  # a PLT stub: lift_function returned before the locals pass
             s = localsmod.stub_summary(t)
             if s:
                 env.locals_summaries[a] = s
+    if entries:
+        with open(_flows_file(env, entries[0]), 'wb') as f:
+            pickle.dump(env.lean_flows, f, pickle.HIGHEST_PROTOCOL)
+    env.lean_flows = {}
     return env.locals_summaries
+
+
+def _flows_file(env, first):
+    return os.path.join(env.lean_cache, '%x.pkl' % first)
+
+
+def _load_flows(env, entries):
+    """The summary pass's flag flows of the given functions (the files of the groups that hold them)."""
+    out = {}
+    for k in sorted({bisect.bisect_right(env.lean_chunks, a) - 1 for a in entries}):
+        if k >= 0:
+            with open(_flows_file(env, env.lean_chunks[k]), 'rb') as f:
+                out.update(pickle.load(f))
+    return out
 
 
 def held_code(env, img):
@@ -210,6 +234,8 @@ def _worker_text(entries):
     texts, resume, insns = [], [], 0
     env.spin_stats = spinmod.Stats()
     env.locals_stats = localsmod.Stats()
+    if env.lean_cache and env.flags_table is not None:
+        env.lean_flows = _load_flows(env, entries)
     for a in entries:
         t, n, _, r = lift_function(env, a)
         texts.append(t)
@@ -286,13 +312,18 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                     env.ends[a] = end
             pending = sorted(new | set(again))
         all_funcs.sort()
-        cut = {}
-        if locals_mode(cfg, spec) == localsmod.LEAN:     # jump tables read without a bound, cut to what they hold
-            cut = jumptables.lean_tables(env)
+        lean = locals_mode(cfg, spec) == localsmod.LEAN
+        if lean:
+            cut = jumptables.lean_tables(env)            # jump tables read without a bound, cut to what they hold
             spec['jt'] = dict(spec['jt'], **{str(b): t for b, t in cut.items()})
             log('%s: %d jump tables without a bound cut to their end' % (img.name, len(cut)))
+            parts = [all_funcs[i:i + 400] for i in range(0, len(all_funcs), 400)]
+            cache = os.path.join(outdir, '.lean-flows')   # the summary pass's flag flows, for the text pass
+            shutil.rmtree(cache, ignore_errors=True)
+            os.makedirs(cache)
+            spec.update(lean_cache=cache, lean_chunks=[p[0] for p in parts])
         # workers must know the new entries too (their extents are by the next start): rebuild the spec
-        if len(all_funcs) != len(starts) or cut:
+        if len(all_funcs) != len(starts) or lean:
             spec['ends'] = {a: env.ends.get(a, env.extent(a)) for a in all_funcs}
             if pool:
                 pool.close()
@@ -300,8 +331,7 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                 mapper = pool.imap_unordered
             else:
                 _worker_init(spec)
-        if locals_mode(cfg, spec) == localsmod.LEAN:     # the flag table, before any function is rewritten
-            parts = [all_funcs[i:i + 400] for i in range(0, len(all_funcs), 400)]
+        if lean:                                         # the flag table, before any function is rewritten
             spec['flags_table'] = flag_table(pool, env, cfg, img, parts, all_funcs, log)
             if pool:
                 pool.close()
@@ -346,6 +376,8 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
     finally:
         if pool:
             pool.close()
+        if spec.get('lean_cache'):
+            shutil.rmtree(spec['lean_cache'], ignore_errors=True)
     first = {}
     for lp, e in sorted(resume):
         first.setdefault(lp, e)

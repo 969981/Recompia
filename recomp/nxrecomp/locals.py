@@ -215,10 +215,11 @@ def _cfg(stmts, pads):
     return texts, index, succ, falls, roots
 
 
-def plan(stmts, pads=(), flags='exact', entry=None, table=None):
+def plan(stmts, pads=(), flags='exact', entry=None, table=None, flow=None):
     """-> (texts, decl, Stats) with the locals rewrite applied; raises Odd when the function must stay as it is.
     stmts: [(pc or None, text)] in order; pads: landing pad addresses (entered from the resume switch).
-    'lean': entry is the function's address, table the program's flag table (solve())."""
+    'lean': entry is the function's address, table the program's flag table (solve()), flow: what summarize() kept of
+    flag_flow() for these statements (None: follow it here)."""
     texts = [t for _, t in stmts]
     for t in texts:
         if LABEL_DISPATCH in t:
@@ -244,7 +245,7 @@ def plan(stmts, pads=(), flags='exact', entry=None, table=None):
             raise Odd('escape under control flow')
     lean = [None] * n
     if flags == LEAN:                              # what each call, return and tail exit does with F (flag_flow, solve)
-        obs, sites, isites, _, _ = flag_flow(texts, succ, roots, falls, index)
+        obs, sites, isites = flow or flag_flow(texts, succ, roots, falls, index)[:3]
         nin, kills = table.nin, table.kills
         out_self = table.nout(entry)
         lean = [LeanStmt(out_self, table) for _ in range(n)]
@@ -432,7 +433,7 @@ class Stats:
         return out
 
 
-def apply(lines, trailer, pads, mode, stats, skip=None, entry=None, table=None, summaries=None, held=None):
+def apply(lines, trailer, pads, mode, stats, skip=None, entry=None, table=None, summaries=None, held=None, flows=None):
     """The statements [(pc, text)] of one function and its closing statement on the locals: (lines, trailer, declarations),
     or None when the function stays as it is (`skip`: the caller's reason, else plan's). stats: Stats, updated.
     'lean' needs the program's flag table (solve()); without one this is the summary pass: the function's summary goes
@@ -440,11 +441,12 @@ def apply(lines, trailer, pads, mode, stats, skip=None, entry=None, table=None, 
     take no table arithmetic (jumptables.bound_dispatch), the code addresses the module holds in its data (the driver's
     held_code()): the summary is then the one with the dispatch limited by held_targets(), and summaries[HELD, entry]
     = (the other statements' addresses, the summary without the limit) lets the driver check the limit against every
-    function's literals (check_held())."""
+    function's literals (check_held()). flows: {entry: the flag flow of the summary pass} ('lean'), filled by the
+    summary pass and read by the rewrite (the same statements give the same flow: it is not followed twice)."""
     if mode == LEAN and table is None:
         stmts = lines + [(None, trailer)]
         if held is None:
-            summaries[entry] = summarize(stmts, pads)
+            summaries[entry] = summarize(stmts, pads, keep=flows, entry=entry)
         else:
             reach = held_targets(stmts, held)
             summaries[entry] = summarize(stmts, pads, reach)
@@ -455,7 +457,7 @@ def apply(lines, trailer, pads, mode, stats, skip=None, entry=None, table=None, 
         stats.leave(skip)
         return None
     try:
-        texts, decl, st = plan(lines + [(None, trailer)], pads, mode, entry, table)
+        texts, decl, st = plan(lines + [(None, trailer)], pads, mode, entry, table, (flows or {}).get(entry))
     except Odd as e:
         stats.leave(str(e))
         return None
@@ -687,6 +689,9 @@ def _stmt_start(text, i):
 # stored in front of it and loaded after it as in 'exact'. Their entry flags: solve() first takes ind_in = False and
 # checks it: no entered function may have NEEDS_IN; if one does, ind_in = True (F is stored in front of every
 # call_indirect) and the fixpoint is taken again (the lift log names them).
+#
+# The rewrite needs the same flow the summary pass followed (the same statements): summarize() keeps the part plan()
+# uses, and the driver keeps it on disk between the passes.
 
 class FlagTable(dict):
     """{entry: (NEEDS_IN, NEEDS_OUT, KILLS)} of a module ('lean'), and ind_in: code entered from outside the direct calls
@@ -912,18 +917,21 @@ LITERAL = re.compile(r'\b0x([0-9a-f]{6,16})ULL\b')
 SITE_ARG = re.compile(r'(?:\bc->fn = |\b(?:%s)\(c, )0x[0-9a-f]+ULL' % '|'.join(sorted(FLAT_RUNTIME)))
 
 
-def summarize(stmts, pads=(), reach=None):
+def summarize(stmts, pads=(), reach=None, keep=None, entry=None):
     """The flag summary of one function from its statements before the rewrite: (entry observations, ((g, observations
     of what that call leaves) per direct call), direct tail exit targets, observations of what code entered from outside
     the direct calls leaves, indirect tail exit, the address literals in its text (FlagTable taken), the vias by which
     the entry or a landing pad's flags reach an exit (KILLS)). reach: None, or the addresses an unresolved br of this
-    function may go to inside it (held_targets()); None: any statement."""
+    function may go to inside it (held_targets()); None: any statement. keep: a dict that gets keep[entry] = what
+    plan() needs of the flow (the observations of what each call leaves, the call sites)."""
     texts, index, succ, falls, roots = _cfg(stmts, pads)
     lits = frozenset(int(m.group(1), 16) for t in texts for m in LITERAL.finditer(SITE_ARG.sub('', t)))
     if any(escapes(t) and conditional_escape(t) for t in texts):
         return anything(texts, lits)
     dispatch = None if reach is None else frozenset(index[pc] for pc in reach if pc in index)
     obs, sites, isites, tails, itail = flag_flow(texts, succ, roots, falls, index, dispatch)
+    if keep is not None:
+        keep[entry] = (dict((k, v) for k, v in obs.items() if isinstance(k, tuple)), sites, isites)
     outside = set(obs.get('I', ())) | set(obs.get('P', ()))
     for i, k in isites:
         outside |= obs.get(('i', i, k), set())

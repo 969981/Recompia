@@ -92,7 +92,7 @@ def lift_function(env, entry):
             if brs and all(b in env.br_plain for b in brs):
                 held = env.lean_held                         # the dispatch reaches only addresses the program holds
         res = localsmod.apply(lines, trailer, pads, env.locals, env.locals_stats, skip, entry, env.flags_table,
-                              env.locals_summaries, held)
+                              env.locals_summaries, held, env.lean_flows)
         if res:
             lines, trailer, decl = res
     out = ['%svoid %s_%x(Ctx *__restrict c%s) {' % (cold, 'u' if two else 'f', entry, ', uint64_t rp' if two else ''),

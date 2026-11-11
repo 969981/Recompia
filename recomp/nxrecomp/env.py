@@ -45,6 +45,9 @@ class Env:
         self.locals_summaries = {}    # ... which fills this: {entry: locals.summarize()}
         self.br_plain = set()         # 'lean': unresolved `br`s whose target takes no table arithmetic (jumptables.bound_dispatch)
         self.lean_held = frozenset()  # 'lean': the code addresses the module's data and relocations hold (driver.held_code)
+        self.lean_flows = {}          # 'lean': {entry: flag flow} the summary pass keeps for the rewrite (locals.apply)
+        self.lean_cache = None        # ... in files in this folder, one per group of entries starting at lean_chunks
+        self.lean_chunks = []
         self._syms = None
 
     # ---- words
