@@ -452,6 +452,7 @@ export default {
   'Choose the mods folder': '모드 폴더 선택',
   'Choose the folder that holds the same files and folders as the game\'s romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game\'s files with the same path.': '게임의 romfs와 같은 파일과 폴더를 담고 있는 폴더(예: 최상위에 LD_C0_R.BIN)를 선택하세요. 그것을 감싸는 폴더가 아닙니다. 그 파일은 같은 경로의 게임 파일을 대체합니다.',
   'Minimise while playing': '플레이 중 최소화',
+  'Show on Discord while playing': '플레이 중 Discord에 표시',
   'Game clock': '게임 시계',
   'Date and time in the game': '게임 내 날짜와 시간',
   'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.': '지금은 싱글 플레이에서만 사용하세요. 플레이하면 활성화된 이벤트의 시작 날짜가 자동으로 적용됩니다. 평소 게임 시계는 보관되어 모든 이벤트가 꺼지면 다시 사용됩니다.',

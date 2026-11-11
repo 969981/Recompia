@@ -452,6 +452,7 @@ export default {
   'Choose the mods folder': 'Modフォルダーを選択',
   'Choose the folder that holds the same files and folders as the game\'s romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game\'s files with the same path.': 'ゲームのromfsと同じファイルとフォルダーを含むフォルダー（例: 最上位にLD_C0_R.BIN）を選んでください。その外側のフォルダーではありません。そのファイルは、同じパスのゲームのファイルを置き換えます。',
   'Minimise while playing': 'プレイ中は最小化',
+  'Show on Discord while playing': 'プレイ中にDiscordに表示',
   'Game clock': 'ゲーム内時計',
   'Date and time in the game': 'ゲーム内の日付と時刻',
   'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.': '今のところ一人用でのみ使ってください。プレイ時は、有効なイベントの開始日が自動で適用されます。通常のゲーム内時計は保持され、すべてのイベントがオフのときに再び使われます。',

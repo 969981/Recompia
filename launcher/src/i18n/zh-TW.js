@@ -452,6 +452,7 @@ export default {
   'Choose the mods folder': '選擇 Mod 資料夾',
   'Choose the folder that holds the same files and folders as the game\'s romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game\'s files with the same path.': '請選擇包含與遊戲 romfs 相同檔案和資料夾的資料夾（例如最上層的 LD_C0_R.BIN），而不是它外面的資料夾。其中的檔案會取代遊戲中路徑相同的檔案。',
   'Minimise while playing': '遊玩時最小化',
+  'Show on Discord while playing': '遊玩時在 Discord 上顯示',
   'Game clock': '遊戲時鐘',
   'Date and time in the game': '遊戲中的日期和時間',
   'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.': '目前僅在單人遊戲中使用。遊玩時會自動套用已啟用活動的開始日期。你平時的遊戲時鐘會保留，並在所有活動都關閉後重新使用。',

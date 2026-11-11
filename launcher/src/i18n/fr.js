@@ -452,6 +452,7 @@ export default {
   'Choose the mods folder': 'Choisissez le dossier des mods',
   'Choose the folder that holds the same files and folders as the game\'s romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game\'s files with the same path.': 'Choisissez le dossier qui contient les mêmes fichiers et dossiers que le romfs du jeu (par exemple LD_C0_R.BIN à sa racine), pas le dossier qui l\'entoure. Ses fichiers remplacent ceux du jeu ayant le même chemin.',
   'Minimise while playing': 'Réduire pendant le jeu',
+  'Show on Discord while playing': 'Afficher sur Discord en jouant',
   'Game clock': 'Horloge du jeu',
   'Date and time in the game': 'Date et heure dans le jeu',
   'Use this in single player only for now. Play applies the enabled event\'s start date automatically. Your ordinary Game clock is kept and used again when all events are off.': 'À utiliser uniquement en solo pour l\'instant. Jouer applique automatiquement la date de début de l\'événement activé. Votre horloge de jeu ordinaire est conservée et réutilisée quand tous les événements sont désactivés.',

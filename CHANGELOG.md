@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
 
 ## 0.10.3 (build N: Newt Hotfix a3)

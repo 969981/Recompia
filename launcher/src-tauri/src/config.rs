@@ -17,6 +17,8 @@ pub struct Config {
     /// Folder with pkp.exe. Empty: the folder the launcher is in.
     pub game_dir: String,
     pub minimize_on_play: bool,
+    /// Show "Playing Recompia" on the player's Discord profile while the game runs (presence.rs). Off unless the player switches it on.
+    pub discord_presence: bool,
     /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
     pub gentle_build: bool,
     /// A new setup keeps its translated shaders as ~99,000 loose files (the old storage) instead of the shader archive. Only read when
