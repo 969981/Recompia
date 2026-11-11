@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Joy-Con 2 mouse mode** is back: press the middle mouse button in play to point and click, and placing and breaking now land on the block under the pointer (left click is the Joy-Con's R, right click its ZR, as in Pikantine). Press it again to go back to camera aim. The **Mouse Mode Key** row is back in **Settings > Mouse**. Update only: no shader rebuild, no Set up again
 - New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
 - The Discord links in the launcher, the READMEs and the website now use the new invite, discord.recompia.com. Update only: no shader rebuild, no Set up again
