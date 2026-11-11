@@ -37,7 +37,10 @@
 // 0x71002f7340, whose A-button target keeps the forward cell), the swing preview's shape position at 0x71007226bc (right before
 // 0x710009db4c, x29 - 0x60) and the live hit's at 0x71006da610 (x29 - 0x80, tool path only: w22 set, x27 = the character). The shape
 // moves by whole cells, so its size, rotation, row and in-cell offset stay the game's; the row, validity, breaking and placing too.
-// With no such hit, everything stays as without the reach.
+// With no such hit, the query's start cell stays the game's (already a step along the camera's yaw, above). The swing shapes' position
+// does not come from that heading: the live hit takes the character's stored attack position (+0x35c0), which lies in front of where the
+// character faces, i.e. where it walks. So the two position hooks, with or without extra reach, turn that position around the character
+// to the camera's yaw, keeping its distance (turn_shape): the selection follows the camera, never the walking direction.
 //
 // With the over-the-shoulder camera (pkp_shoulder_camera.cpp) the view is moved off the follow camera by an offset (pkp_view_offset.h): the
 // ray of the row and reach hooks starts at the eye plus that offset, parallel to the camera's own, so it still goes through the crosshair.
@@ -280,13 +283,31 @@ int hook_query_base(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-// Swing shape position (vec4 at pos): moved by whole cells into the column of a farther ray hit.
+// No ray hit to move to: the game's position (the character's stored one, +0x35c0, is placed in front of where the character faces, so
+// while walking it is where the character walks) turned around the character to the camera's yaw, its distance kept. Without this the
+// shape flipped between the aimed column and the walking direction each time a far hit came in and out of reach.
+void turn_shape(uint64_t ch, uint64_t pos, float px, float pz) {
+    const uint64_t cam = follow_camera(ch);
+    if (!cam) return;
+    const float dx = rd<float>(cam + kLook) - rd<float>(cam + kEye), dz = rd<float>(cam + kLook + 8) - rd<float>(cam + kEye + 8);
+    const float len = std::sqrt(dx * dx + dz * dz);
+    const float cx = rd<float>(ch + kPosition), cz = rd<float>(ch + kPosition + 8);
+    const float ox = px - cx, oz = pz - cz, dist = std::sqrt(ox * ox + oz * oz);
+    if (!(len > 1e-3f) || !std::isfinite(cx) || !std::isfinite(cz) || !(dist > 1.f) || dist > 400.f) return;   // at the character, or not near it
+    wr<float>(pos, cx + dx / len * dist);
+    wr<float>(pos + 8, cz + dz / len * dist);
+}
+
+// Swing shape position (vec4 at pos): moved by whole cells into the column of a farther ray hit, else turned to the camera.
 void shift_shape(uint64_t ch, uint64_t pos, const char* what) {
-    RayHit r;
-    // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
-    if (!far_hit(ch, swing_base_row(ch), -1, 3, r)) return;
     const float px = rd<float>(pos), pz = rd<float>(pos + 8);
     if (!std::isfinite(px) || !std::isfinite(pz)) return;
+    RayHit r;
+    // the swing asks for the band below the hit row (hook_pitch), bands -1..+2
+    if (g.extra <= 0 || !far_hit(ch, swing_base_row(ch), -1, 3, r)) {
+        turn_shape(ch, pos, px, pz);
+        return;
+    }
     const int cx = static_cast<int>(std::floor((px + 102400.f) / 100.f)), cz = static_cast<int>(std::floor((pz + 102400.f) / 100.f));
     if (cx == r.x && cz == r.z) return;
     wr<float>(pos, px + static_cast<float>(r.x - cx) * 100.f);
@@ -377,11 +398,10 @@ void install(const FeatureInstall& in) {
     g.reach = std::max(kReach, 1 + g.extra);
     in.hooks.add_mid(base + kHeadingRead, &hook_heading);
     in.hooks.add_mid(base + kPitchRead, &hook_pitch);
-    if (g.extra > 0) {
-        in.hooks.add_mid(base + kQueryBase, &hook_query_base);
-        in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
-        in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
-    }
+    // the swing positions: the reach's column move, else turned to the camera (turn_shape), with or without extra reach
+    in.hooks.add_mid(base + kSwingPreviewPos, &hook_swing_preview_pos);
+    in.hooks.add_mid(base + kSwingLivePos, &hook_swing_live_pos);
+    if (g.extra > 0) in.hooks.add_mid(base + kQueryBase, &hook_query_base);
     NXLOG_I(kTag, "camera aim: on (hooks main+0x%llx, +0x%llx, +0x%llx, +0x%llx, +0x%llx), reach +%d cells",
             static_cast<unsigned long long>(kHeadingRead), static_cast<unsigned long long>(kSwingPreview),
             static_cast<unsigned long long>(kSwingLive), static_cast<unsigned long long>(kPitchRead),
