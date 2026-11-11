@@ -434,7 +434,7 @@ void present_give_back();
 #include <deque>
 #include <memory>
 namespace nxrt::nvn::be {
-namespace gpu { struct Mirror; }
+namespace gpu { struct Mirror; struct PoolTrack; }
 
 // One Vulkan buffer over a byte range of a pool: an import (its own private view, VkDeviceMemory and VkBuffer), or with [nvn] pool_copy a
 // host-visible buffer of its own (shadow) that holds a copy of the range (nvn_pool_copy.cpp).
@@ -457,6 +457,7 @@ struct PoolChunk {
     gfx::Buffer shadow;
     bool is_shadow = false;
     std::vector<uint64_t> page_copied;
+    std::vector<uint32_t> page_gen;   // the write tracker's generation of page k when it was copied (nvn_pool_track.h); 0: copy at every use
     uint32_t land_refs = 0;
     uint64_t cov_serial = 0, cov_lo = 0, cov_hi = 0;
     struct PoolGpu* owner = nullptr;  // shadow chunks: the pool (eviction)
@@ -493,19 +494,22 @@ struct PoolGpu {
     // are destroyed in place, never erased (land records point at them).
     bool copy = false;
     std::unique_ptr<std::atomic<uint64_t>[]> page_gpu;
+    gpu::PoolTrack* track = nullptr;  // which pages the CPU wrote since they were copied (nvn_pool_track.h); null: every bind copies
 };
 
 namespace gpu {
 // ---- [nvn] pool_copy = auto | on | off (nvn_pool_copy.cpp) ----------------------------------------------------------------------
 // Copy (shadow) mode: pool cells live in host-visible Vulkan buffers of their own instead of userptr imports of guest memory. Every resolve
-// copies the page-rounded range it touches from guest memory into the shadow (once per submission per page, never over a page with a GPU
-// write in flight); GPU writes are recorded at record time and copied back into guest memory when their serial completes, before any
-// caller sees it complete (read_completed). Phase 1: no write tracking.
+// copies the pages of the range it touches that the CPU wrote since their last copy (nvn_pool_track.h; at most once per submission, never
+// over a page with a GPU write in flight); GPU writes are recorded at record time and copied back into guest memory when their serial
+// completes, before any caller sees it complete (read_completed).
 bool pool_copy_on();                                  // read once (auto: Wine, or an integrated GPU with <=8 GiB of device-local memory); logged
 uint64_t pool_copy_cell();                            // [nvn] pool_copy_cell_mb in bytes
 uint32_t pool_copy_idle();                            // [nvn] pool_copy_idle presents
 bool pool_copy_any();                                 // any thread: a copy pool exists (cheap)
-void pcopy_pool_init(PoolGpu* g);                     // import_pool: page_gpu, the landing thread
+void pcopy_pool_init(PoolGpu* g);                     // import_pool: page_gpu, the write tracker, the landing thread
+void pcopy_pool_destroy(PoolGpu* g);                  // pool_gpu_destroy, after its chunks: the write tracker goes
+void pcopy_track_stop(PoolGpu* g);                    // a cell of the pool is imported instead: no page of it stays read-only
 // A shadow over pool bytes [off, off + size) into c (what import_range does for an import). False: the caller imports it instead.
 bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what);
 // A shadow span over the cells [off, off + size) touches: an existing one or a new one (*made). Null: none could be made.

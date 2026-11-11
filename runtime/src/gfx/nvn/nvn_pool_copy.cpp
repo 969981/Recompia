@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// [nvn] pool_copy = auto (default: Wine, or an integrated GPU with <=8 GiB of device-local memory) | on | off: memory pools as copies (shadows) instead of imports, phase 1 (no write
-// tracking). Under Proton every vkQueueSubmit costs more the more userptr memory is imported (amdgpu revalidates every userptr BO of the
+// [nvn] pool_copy = auto (default: Wine, or an integrated GPU with <=8 GiB of device-local memory) | on | off: memory pools as copies (shadows)
+// instead of imports. Under Proton every vkQueueSubmit costs more the more userptr memory is imported (amdgpu revalidates every userptr BO of the
 // submission's BO list): with whole pools imported (3.8 GiB) the game froze inside vkQueueSubmit, and the lazy pool's ~2 GiB of live imports
 // still cost ~17.8 ms per batch submission on the Deck. Here a pool keeps the lazy pool's cell structure (nvn_gpu_pool.cpp: cells, ext,
 // cell_ext, spans, idle drop), but each cell holds a host-visible Vulkan buffer of its own (MemoryUse::Shadow) instead of an import of the
 // guest pages, so no submission carries a userptr BO.
 //
-// The rule that keeps the shadow right without knowing what the CPU writes:
-//  * touch (resolve_in_pool, render thread): every resolve copies the page-rounded range it binds from guest memory into the shadow, unless
-//    that page was copied already in the submission being recorded (page_copied) or a GPU write into it is still in flight (page_gpu above
-//    the completed serial: the shadow holds newer bytes than guest memory then). A bind of unknown size touches to the end of its chunk.
+// The rules that keep the shadow right:
+//  * touch (resolve_in_pool, render thread): every resolve copies the pages of the range it binds from guest memory into the shadow, unless
+//    the page was copied already in the submission being recorded (page_copied), a GPU write into it is still in flight (page_gpu above
+//    the completed serial: the shadow holds newer bytes than guest memory then), or the CPU has not written it since this shadow copied
+//    it (the write tracker, nvn_pool_track.h; [nvn] pool_copy_track). A bind of unknown size touches to the end of its chunk. Without
+//    the tracker every bind copied its pages again in every submission: ~49 MiB a frame on a Steam Deck, of which ~1.6 MiB had changed.
 //  * record (note_gpu_write, render thread): every range a command may write in pool memory is recorded with the submission's serial
 //    (LandRec), and its pages' page_gpu set to that serial.
 //  * land (read_completed, any thread; and the nvn-pool-land thread): once the timeline reaches a record's serial, the recorded range is
 //    copied from the shadow back into guest memory, before that serial is published as complete (complete_serial). So a game thread that
 //    waits for a sync, polls one, or reads an event word the GPU wrote, finds the GPU's bytes in its memory, as with an import.
-// Known phase-1 limits: a CPU write to bytes of a range the GPU may write, made while that submission is in flight, is overwritten at
+// Known limits: a CPU write to bytes of a range the GPU may write, made while that submission is in flight, is overwritten at
 // landing (the whole recorded range lands, not only what a shader stored: landed_kb); a GPU write through a span and a read of the same bytes
 // through another chunk (or the reverse) while that write is in flight sees the other buffer's bytes (span_writes counts such writes).
 // Design after totk-pc-recomp runtime/vk_memory.c (shadow storage) and ultratears src/gfx/backend_vk.c (pool copies); the code is new.
@@ -42,13 +44,15 @@
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
 #include "nvn_gpu_internal.h"
+#include "nvn_pool_track.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace {
 
 constexpr const char* kTag = "nvn.pool";
 constexpr uint64_t kPage = 4096;
-constexpr uint64_t kOutside = ~0ull;      // page_copied of a copy made outside a recording: equal to no serial, and not "never" (0)
+constexpr uint64_t kSpanGrain = 64 * 1024;  // a span's start and end are multiples of it
+constexpr uint64_t kOutside = ~0ull;     // page_copied of a copy made outside a recording: equal to no serial, and not "never" (0)
 constexpr uint64_t kNone = ~0ull;         // g_land_min with no record
 
 // Native Windows keeps ordinary pool imports forever. On an integrated GPU with a small device-local heap those imports share RAM with
@@ -276,9 +280,23 @@ void pcopy_pool_init(PoolGpu* g) {
     const size_t pages = static_cast<size_t>((g->size + kPage - 1) / kPage);
     g->page_gpu.reset(new std::atomic<uint64_t>[pages]);
     for (size_t i = 0; i < pages; ++i) g->page_gpu[i].store(0, std::memory_order_relaxed);
+    g->track = ptrack_create(g->base, g->size);
+    static std::once_flag once;
+    std::call_once(once, [&] {
+        NXLOG_I(kTag, "pool_copy: %s", g->track ? "a page is copied again only after the CPU wrote it (write tracking)"
+                                                : pool_track_on() ? "this pool cannot be write-tracked: every bind copies its pages"
+                                                                  : "pool_copy_track off: every bind copies its pages");
+    });
     g_any.store(true, std::memory_order_relaxed);
     start_lander();
 }
+
+void pcopy_pool_destroy(PoolGpu* g) {
+    ptrack_destroy(g->track);
+    g->track = nullptr;
+}
+
+void pcopy_track_stop(PoolGpu* g) { ptrack_stop(g->track); }
 
 bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what) {
     NXFT("pool.copy.alloc");
@@ -316,6 +334,7 @@ bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const ch
     c.size = size;
     c.owner = g;
     c.page_copied.assign(static_cast<size_t>((size + kPage - 1) / kPage), 0);   // nothing is copied until a bind touches it
+    c.page_gen.assign(c.page_copied.size(), 0);
     c.land_refs = 0;
     c.cov_serial = c.cov_lo = c.cov_hi = 0;
     {
@@ -333,8 +352,11 @@ bool pcopy_alloc(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const ch
 PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made) {
     for (PoolChunk& s : g->spans)
         if (s.is_shadow && s.buffer && off >= s.off && off + size <= s.off + s.size) return &s;
-    const uint64_t s0 = off / g->stride * g->stride;
-    const uint64_t s1 = std::min<uint64_t>((off + size + g->stride - 1) / g->stride * g->stride, g->size);
+    // The span holds the range itself, rounded out to kSpanGrain (binds at nearby offsets of one object share it), not the whole cells it
+    // touches: those cells have shadows of their own, and a span the size of two cells for every object on a cell boundary held more
+    // memory than [nvn] pool_copy_mb allows (84 spans of 32 MiB in a 200 s Steam Deck run, mostly for ranges of a few KiB).
+    const uint64_t s0 = off / kSpanGrain * kSpanGrain;
+    const uint64_t s1 = std::min<uint64_t>((off + size + kSpanGrain - 1) / kSpanGrain * kSpanGrain, g->size);
     const uint64_t maxb = device().limits_ext().max_buffer_size;
     if (s1 <= s0 || (maxb && s1 - s0 > maxb)) return nullptr;
     PoolChunk* slot = nullptr;
@@ -346,9 +368,9 @@ PoolChunk* pcopy_span(PoolGpu* g, uint64_t off, uint64_t size, bool* made) {
         if (appended) g->spans.pop_back();
         return nullptr;
     }
-    NXLOG_I(kTag, "pool %p: a range of %llu KiB at offset 0x%llx crosses a cell boundary: shadow span of %llu MiB at offset 0x%llx",
+    NXLOG_D(kTag, "pool %p: a range of %llu KiB at offset 0x%llx crosses a cell boundary: shadow span of %llu KiB at offset 0x%llx",
             static_cast<void*>(g->base), static_cast<unsigned long long>(size >> 10), static_cast<unsigned long long>(off),
-            static_cast<unsigned long long>((s1 - s0) >> 20), static_cast<unsigned long long>(s0));
+            static_cast<unsigned long long>((s1 - s0) >> 10), static_cast<unsigned long long>(s0));
     g_spans.fetch_add(1, std::memory_order_relaxed);
     if (made) *made = true;
     return slot;
@@ -387,11 +409,15 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t pbase = c->off / kPage;
     // 0: copied in this submission; 1: copy; 2: a GPU write is in flight there (the shadow is newer), unless nothing was ever copied into
     // the page of this chunk (a new span over a page another chunk writes): then guest memory is the better source.
+    // ... or (0 too) the CPU has not written the page since this chunk copied it (the write tracker; render thread only).
+    PoolTrack* const trk = rt ? g->track : nullptr;
     const auto need = [&](uint64_t p) -> int {
         if (cur && c->page_copied[static_cast<size_t>(p)] == cur) return 0;
         if (g->page_gpu[static_cast<size_t>(pbase + p)].load(std::memory_order_acquire) > done && (!rt || c->page_copied[static_cast<size_t>(p)] != 0)) return 2;
+        if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) return 0;
         return 1;
     };
+    const uint32_t frame = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));
     uint8_t* dst = static_cast<uint8_t*>(c->shadow.mapped);
     const uint8_t* src = g->base + c->off;
     const uint64_t t0 = ft::on() ? ft::now_ns() : 0;
@@ -406,6 +432,8 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
         }
         uint64_t q = p + 1;
         while (q < p1 && need(q) == 1) ++q;
+        // armed before the copy reads them: a write that lands during the copy faults, and the page is copied again at its next use
+        if (trk) ptrack_before_copy(trk, pbase + p, q - p, frame, &c->page_gen[static_cast<size_t>(p)]);
         const uint64_t bad = guarded_copy(dst + p * kPage, src + p * kPage, (q - p) * kPage, true);
         if (bad) g_unreadable.fetch_add(bad, std::memory_order_relaxed);
         if (rt)
@@ -613,6 +641,13 @@ void pcopy_log_summary(uint32_t presents) {
             static_cast<unsigned long long>(g_records.load()), pending, static_cast<unsigned long long>(g_fallback.load()),
             static_cast<unsigned long long>(g_unreadable.load()), static_cast<unsigned long long>(g_unmatched.load()),
             static_cast<unsigned long long>(g_span_writes.load()));
+    if (pool_track_on()) {
+        const PoolTrackStats t = ptrack_stats();
+        NXLOG_I(kTag, "pool_copy: write tracking: %llu pages armed in %llu runs so far, %llu copied pages found written again, %llu hot now, %llu not armable; "
+                      "%llu write faults",
+                static_cast<unsigned long long>(t.armed_pages), static_cast<unsigned long long>(t.arms), static_cast<unsigned long long>(t.rewrites),
+                static_cast<unsigned long long>(t.hot_now), static_cast<unsigned long long>(t.unarmable), static_cast<unsigned long long>(mem::ww::faults()));
+    }
     p_copied = copied;
     p_landed = landed;
 }
