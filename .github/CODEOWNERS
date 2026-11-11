@@ -18,5 +18,6 @@
 /game-build/CMakeLists.txt                        @featureJosh
 
 # Extras' defaults and the release check on them (6.1)
+/runtime/games/pkp/core/pkp_settings_table.h      @featureJosh
 /runtime/games/pkp/core/pkp_settings_table.cpp    @featureJosh
 /runtime/games/pkp/core/pkp_settings.h            @featureJosh

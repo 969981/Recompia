@@ -32,6 +32,9 @@ struct Row {
     std::string nxrt_key;                // "nvn.pool_mirror": the nxrt.ini key (or its NXRT_ variable) that wins over this one when set
     std::string doc;                     // one line: what it does
     std::string group;                   // a set of keys the settings pages show together ("gameplay": a gameplay mod); empty = none
+    std::string parent;                  // a key of the same group this one belongs to: the settings pages show it under that key
+    bool opt_in = false;                 // a group member that is off by default on purpose (a "gameplay" mod the player switches on)
+    bool hidden = false;                 // a group member the settings pages show no row for (the ini still takes it)
     bool read_only = false;             // read, never written (an alternative spelling of other keys)
     bool retired = false;                // read and ignored without a warning; never written
 };

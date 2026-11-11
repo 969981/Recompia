@@ -183,6 +183,9 @@ std::string schema_json(const std::string& file, const std::vector<Row>& rows, S
             }
             if (r.read_only) k += ", \"read_only\": true";
             if (!r.group.empty()) k += ", \"group\": " + json_text(r.group);
+            if (!r.parent.empty()) k += ", \"parent\": " + json_text(r.parent);
+            if (r.opt_in) k += ", \"opt_in\": true";
+            if (r.hidden) k += ", \"hidden\": true";
             k += ", \"doc\": " + json_text(r.doc) + "}";
             keys += (first_key ? "\n" : ",\n") + k;
             first_key = false;

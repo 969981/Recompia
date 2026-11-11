@@ -289,35 +289,49 @@ const HEIGHT = fromSchema(controls('display', 'height'));
 const WINDOW_SIZE = {
   at: [WIDTH.at, HEIGHT.at], def: `${WIDTH.def}x${HEIGHT.def}`, min: Math.max(WIDTH.min, HEIGHT.min), max: Math.min(WIDTH.max, HEIGHT.max),
 };
-const AIM_REACH = fromSchema(pkp('pkp', 'camera_aim_reach'));
-
 // ---- gameplay mods ------------------------------------------------------------------------------------------------------------------
-// The runtime marks its gameplay mods ([pkp] keys in the schema's "gameplay" group: on by default, the player opts out). Every one is a
-// toggle of Settings > Gameplay, in the runtime's order; the launcher only names it here (label, and rows that follow it). A gameplay
-// key without an entry here throws, so a new mod cannot ship without its switch (scripts/test-settings-schema.mjs runs this).
+// The runtime marks its gameplay mods: [pkp] keys in the schema's "gameplay" group (runtime/games/pkp/core/pkp_settings_table.h). A mod's
+// switch is a bool, on by default unless the schema says opt_in; a key with a "parent" is a setting of that mod, shown under its switch
+// while the switch is on; "hidden" keys get no row. Every row of Settings > Gameplay comes from that list, in the runtime's order; the
+// launcher only names them here (label, the options of a number, notes that follow a row). A gameplay key without an entry here throws,
+// so a new mod cannot ship without its row (scripts/test-settings-schema.mjs runs this).
 const isOn = (id) => (v) => v[id] === true || v[id] === '1';
 const GAMEPLAY = {
   jump_momentum: { label: t('Running jump keeps speed') },
   camera_aim: {
     label: t('Camera aim'),
-    after: [{ id: 'camera_aim_note', type: 'note', when: isOn('camera_aim'), note: () => ({ text: t("Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts. They reach {reach} blocks farther than the cell next to you (camera_aim_reach in pkp.ini; 0 = the game's own range).", { reach: AIM_REACH.def }) }) }],
+    after: [{ id: 'camera_aim_note', type: 'note', when: isOn('camera_aim'), note: () => ({ text: t('Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.') }) }],
   },
-  inventory_sort: {
-    label: t('Sort button in the bag and containers'),
-    after: [{ id: 'inventory_autosort', label: t('Sort each time the bag opens'), type: 'toggle', when: isOn('inventory_sort'), ...fromSchema(pkp('pkp', 'inventory_autosort')) }],
-  },
+  camera_aim_reach: { label: t('Extra reach in blocks'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: n === 0 ? t('Off') : num(n) })) },
+  inventory_sort: { label: t('Sort button in the bag and containers') },
+  inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
-  title_quit: { label: t('Quit Game on the title screen') },
 };
 
-export const gameplayKeys = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay').map((k) => k.key);
+const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
+/** Every gameplay key of the runtime: switches and their settings, shown or hidden. */
+export const gameplayKeys = () => gameplaySchema().map((k) => k.key);
+/** A mod's switch (not the setting of another switch). */
+export const isGameplaySwitch = (k) => k.group === 'gameplay' && !k.parent;
+
+function gameplayRow(k) {
+  const g = GAMEPLAY[k.key];
+  if (!g) throw new Error(`settings-schema: gameplay mod [pkp] ${k.key} has no row in GAMEPLAY`);
+  const at = fromSchema(pkp('pkp', k.key));
+  const row = { id: k.key, label: g.label, ...at };
+  if (k.type === 'bool') row.type = 'toggle';
+  else if (g.options) Object.assign(row, { type: 'select', options: g.options(k) });
+  else throw new Error(`settings-schema: gameplay setting [pkp] ${k.key} (${k.type}) needs options in GAMEPLAY`);
+  if (k.parent) row.when = isOn(k.parent);
+  return [row, ...(g.after ?? [])];
+}
 
 function gameplayRows() {
-  return gameplayKeys().flatMap((key) => {
-    const g = GAMEPLAY[key];
-    if (!g) throw new Error(`settings-schema: gameplay mod [pkp] ${key} has no row in GAMEPLAY`);
-    return [{ id: key, label: g.label, type: 'toggle', ...fromSchema(pkp('pkp', key)) }, ...(g.after ?? [])];
-  });
+  const keys = gameplaySchema().filter((k) => !k.hidden);
+  return keys.filter(isGameplaySwitch).flatMap((sw) => [
+    ...gameplayRow(sw),
+    ...keys.filter((k) => k.parent === sw.key).flatMap(gameplayRow),
+  ]);
 }
 
 export const DLSS_DOWNLOAD = {
@@ -566,7 +580,7 @@ export const SECTIONS = [
       {
         title: t('Gameplay'),
         rows: [
-          { id: 'gameplay_note', type: 'note', note: () => ({ text: t('New ways of playing, on by default (switch them off here). They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).') }) },
+          { id: 'gameplay_note', type: 'note', note: () => ({ text: t('New ways of playing: switch each one on or off here. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).') }) },
           ...gameplayRows(),
         ],
       },

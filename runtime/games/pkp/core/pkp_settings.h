@@ -79,10 +79,14 @@ struct Spec {
     Applies applies;
     const char* doc;              // one line, for a log or a Settings row's description
     bool optional = false;        // unset means "leave another value in force" (is_set), not the default: documented as unset
-    // A gameplay mod: a new way of playing, a bool that is on by default and switched off by the player (opt out). Its doc row is in the
-    // "gameplay" group, from which the launcher's Gameplay settings are built. A release build refuses one that defaults off
-    // (PKP_GAMEPLAY_DEFAULTS_CHECK, pkp_settings_table.cpp): a test build may turn one off, a release never ships it off.
+    // A gameplay mod: a new way of playing. Its doc row is in the "gameplay" group, from which the launcher's Gameplay settings are built
+    // (every row of the group is a launcher row unless `hidden`). A mod's switch is a bool, on by default (the player opts out) unless
+    // the repo owner made it `opt_in` (off by default); a release build refuses a switch whose default is not that
+    // (PKP_GAMEPLAY_DEFAULTS_CHECK, pkp_settings_table.h). Every switch belongs to one feature of the registry (pkp_game.cpp).
     bool gameplay = false;
+    bool opt_in = false;          // a mod switch that is off by default on purpose
+    bool hidden = false;          // a mod switch with no launcher row (the ini still takes it)
+    Key parent = Key::Count;      // a setting of the mod whose switch this is: the launcher shows it under that switch
 };
 
 // The table (pkp_settings_table.cpp, in the pure-data library nxrt_game_pkp_data).

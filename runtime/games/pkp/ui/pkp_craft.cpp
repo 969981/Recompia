@@ -2,7 +2,7 @@
 // Crafting search (#324): in the crafting screen a "(Y) Search" key guide sits in the screen's own key guide; Y (keyboard F through the default
 // btn_y binding) or a left click on it asks for a word on the game's own keyboard (the one of name entry, filled with the current word), and the
 // recipe list then keeps only the recipes whose item name holds that word (any case), on every tab and after the game's own Sort, until Cancel
-// (the game's text check refuses an empty field) or until the screen closes. [pkp] craft_search (on by default). Nothing is shown or done
+// (the game's text check refuses an empty field) or until the screen closes. [pkp] craft_search (off by default). Nothing is shown or done
 // during Link Play.
 //
 // How the game builds the list (main 2.0.1a, measured with snapshot diffs and page traps in scripted runs):

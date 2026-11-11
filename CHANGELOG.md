@@ -6,6 +6,13 @@ of the game (version 2.0.1a): the download contains no game files.
 
 ## Unreleased
 
+### Gameplay mods
+- Every gameplay mod now has its switch in the launcher's **Settings > Gameplay**, built from the game's own list of mods, so a new mod shows up there by itself
+  - **Search in the crafting screen** is now optional: off by default, switch it on in Settings > Gameplay. If you already set it yourself, your choice is kept
+  - **Camera aim** has a new **Extra reach in blocks** setting under it (Off, 1 to 4). Extra reach is now off by default, so abilities and tools use the game's own range; pick a number to reach farther, as 0.10.x did with 2
+  - **Sort each time the bag opens** stays under the Sort button, off by default
+  - **Quit Game on the title screen** stays on, without a launcher switch (`title_quit` in pkp.ini still turns it off)
+
 ### Launcher
 - Fixed **Quality preset** in the launcher leaving Shadow quality and Anti-aliasing as they were
   - Before: picking High, Ultra or Desktop PC in Settings > Graphics set only the texture settings (and the render resolution and frame limit for the device presets), so the game kept the old shadows and anti-aliasing
