@@ -71,6 +71,14 @@ bool detail::address_wait_ns(const uint32_t* token, int64_t ns) {
     return g_gen.load() != *token;
 }
 
+bool detail::address_wait_word(const std::atomic<uint32_t>* word, uint32_t seen, int64_t ns) {
+    LARGE_INTEGER span;
+    span.QuadPart = -((ns + 99) / 100);   // relative, in 100 ns units
+    return address_wait().wait(word, &seen, sizeof seen, ns < 0 ? nullptr : &span) != 0x102;   // STATUS_TIMEOUT
+}
+
+void detail::address_wake_word(const std::atomic<uint32_t>* word) { address_wait().wake_all(word); }
+
 bool early_wake_enabled() {
     static const bool on = [] {
         const std::string m = config_get_str("kernel", "early_wake", "auto");
