@@ -1430,6 +1430,7 @@ void present(Window* window, int index) {
     if (!g || !window || g->dev->device_lost()) return;
     NXFT("present.call");
     nxrt::hitch_note_game_present();
+    (void)extras::pace_note_game_present();    // the frame boundary's limiter wait for the next frame is due from here (lowlat.h)
     {
         std::lock_guard<std::mutex> lk(g->pmu);
         g->last_window = Ref<Window>::share(window);
