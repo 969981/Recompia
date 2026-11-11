@@ -9,7 +9,7 @@
 //
 // Time. A scope's time is TSC ticks from its enter to its leave, less the time of the scopes nested in it (exclusive time). Ticks become
 // nanoseconds through ft::tsc_to_ns (calibrated against QueryPerformanceCounter). Cost when on: two rdtsc and a few loads and stores per
-// scope, about 20-30 ns; a scope's own time includes about one rdtsc of that.
+// scope, a few tens of ns; a scope's own time includes about one rdtsc of that.
 //
 // Blocking. SVCs that wait (SleepThread, WaitSynchronization, ArbitrateLock, WaitProcessWideKeyAtomic, WaitForAddress, ReplyAndReceive) are
 // wall time, not processor time: they are listed apart ("waits") and are not in the "in runtime" sum. Host waits inside an HLE function or
