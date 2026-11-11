@@ -55,6 +55,8 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_menu_pick.cpp"
         "${_pkp}/ui/pkp_menu_in_game.cpp"
         "${_pkp}/ui/pkp_options.cpp"
+        "${_pkp}/ui/pkp_options_rows.cpp"
+        "${_pkp}/ui/pkp_options_time.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"
         "${_pkp}/ui/pkp_sort.cpp"
