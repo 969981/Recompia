@@ -247,7 +247,7 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
     const ShaderInfo* fs = S.stage[kFragment];
     if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
         temporal_for_draw(pl);
-        return;
+        if (extras::upscale_temporal()) return;     // a temporal upscaler's picture is the scene: no SMAA on top of it. Frame generation alone leaves the scene as it is
     }
     const extras::AaMode aa = extras::aa_mode();
     const bool tonemap = fs && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash);
