@@ -60,6 +60,42 @@ void gpu_wrote(uint64_t addr, uint64_t size, int use) {
 static int g_dbg_depth = 0;                  // debug labels open in this submission (PushDebugGroup / PopDebugGroup)
 nxrt::GaugeCounter g_gauge_pipeline_binds("nvn.cnt.pipeline_binds");   // graphics pipeline binds (cumulative)
 
+// [nvn] gpu_split: a submission that has been recorded for split_budget_ticks is cut at the next safe point between two ops and the part
+// so far goes to the GPU (split_piece, nvn_gpu.cpp). Safe points, so that nothing has to live on in the next command buffer:
+// - no render pass open (after a copy, dispatch, barrier, query op...), or the op is SetRenderTargets: the open pass is ended there instead
+//   of at the next draw, as ensure_pass would end it then (end_pass(true): the tracked-barrier bookkeeping carries over; a pass on the same
+//   targets begins again with LOAD, after the barrier pending_conflict asks for);
+// - no query active (occlusion and primitive counter windows begin and end in one command buffer, and their counts must not be cut);
+// - no debug label open (labels do not outlive their command buffer here).
+// Between ops no draw or dispatch is half set up; after the split g_cmd starts over as for a new command buffer (pipeline, dynamic state,
+// vertex / index buffers, descriptor sets are bound again; compute and the helper passes bind their own state on every use). Off for traced
+// submissions (the trace records submissions of its own inside a replay).
+struct PieceState {
+    bool armed = false;      // this submission may still be split
+    bool blocked = false;    // a due split met a query or label (counted once per piece)
+    uint32_t left = 0;       // splits still allowed
+    uint64_t t0 = 0;         // TSC ticks (ft::tsc): start of the piece being recorded
+    uint64_t budget = 0;
+};
+static PieceState g_piece;
+
+static void piece_point(Op op) {
+    if (ft::tsc() - g_piece.t0 < g_piece.budget) return;
+    if (g_q.occ_active >= 0 || g_q.cw[0].active >= 0 || g_q.cw[1].active >= 0 || g_dbg_depth > 0) {
+        if (!g_piece.blocked) { g_piece.blocked = true; split_note_blocked(); }
+        return;
+    }
+    if (P.open) {
+        if (op != Op::SetRenderTargets) return;
+        end_pass(true);
+    }
+    if (!split_piece(*F)) { g_piece.armed = false; return; }
+    g_cmd.begin_submit();
+    g_piece.t0 = ft::tsc();
+    g_piece.blocked = false;
+    if (--g_piece.left == 0) g_piece.armed = false;
+}
+
 void log_once(LogOnce key, const char* msg) {   // render thread only
     static bool seen[kOnceCount] = {};
     if (!seen[key]) {
@@ -134,6 +170,7 @@ static void run_list(const CmdList& list, int depth) {
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
     const bool rt = ft::on() && g_rp.t0;
     for (RecordReader r(list); r.next();) {
+        if (g_piece.armed && (!P.open || r.op() == Op::SetRenderTargets)) piece_point(r.op());
         RpOpScope rpo(rt, r.op());
         mark_dirty(r);
         if (out_lazy()) out_before_op(r);                                                   // compute shadows: results back to the pool first
@@ -604,6 +641,13 @@ void replay_begin_submit(Frame& f) {
     g_cmd.begin_submit();
     g_copies.begin_submit();
     g_sets.begin_submit(f);
+    g_piece = PieceState();
+    g_piece.budget = split_budget_ticks();
+    if (g_piece.budget && !g_trace && !g_trace_hooks) {
+        g_piece.armed = true;
+        g_piece.left = split_max_pieces() - 1;
+        g_piece.t0 = ft::tsc();
+    }
 }
 
 void replay_lists(Frame& f, const std::vector<Ref<CmdList>>& lists) {

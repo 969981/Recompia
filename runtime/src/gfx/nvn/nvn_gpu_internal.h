@@ -364,6 +364,16 @@ void replay_end_submit(Frame& f);
 void replay_request_trace();      // trace the next whole presented frame (any thread)
 void replay_shutdown();           // destroys pipelines and layouts (render thread, device idle)
 
+// ---- [nvn] gpu_split (nvn_gpu.cpp) -----------------------------------------------------------------------------------------
+// The recording time of one piece in TSC ticks (ft::tsc; 0: off) and the most pieces one submission is cut into.
+uint64_t split_budget_ticks();
+uint32_t split_max_pieces();
+// Ends f's command buffer and sends it to the queue now (after the submissions recorded before it), signalling nothing; f.cb is then a fresh
+// command buffer of the same slot. The caller splits only where nothing has to carry over from one command buffer to the next (no render pass,
+// query or debug label open) and treats f.cb as new (no bound state). false: not split (no command buffer left, device lost), f unchanged.
+bool split_piece(Frame& f);
+void split_note_blocked();        // a due split met an open query or debug label (the summary line counts them)
+
 // ---- shared facts (nvn_gpu.cpp) ----------------------------------------------------------------------------------------
 int window_origin_mode();
 int depth_mode();
