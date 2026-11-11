@@ -729,4 +729,5 @@ export default {
   'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'AMD の amd_fidelityfx_framegeneration_vk.dll が必要です。オンにすると、ゲームの upscalers\\fsr3 フォルダーへのダウンロードを確認します。',
   'Download the frame generation file?': 'フレーム生成のファイルをダウンロードしますか？',
   'Downloading frame generation': 'フレーム生成をダウンロード中',
+  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'フレーム生成には AMD の amd_fidelityfx_framegeneration_vk.dll が必要ですが、ランチャーには含まれていません。AMD の FidelityFX SDK の GitHub リポジトリ（バージョン 2.4.0、MIT ライセンス）から取得し、ハッシュを確認して、ゲームの upscalers\\fsr3 フォルダーに保存します。',
 };

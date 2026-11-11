@@ -337,7 +337,7 @@ function gameplayRows() {
 // Asked when frame generation is switched on without AMD's DLL (pages/settings/dlss.js): the download is the only way, and it is a file of AMD's.
 export const FRAMEGEN_DOWNLOAD = {
   title: t('Download the frame generation file?'),
-  html: `<p>Frame generation needs AMD's <code>amd_fidelityfx_framegeneration_vk.dll</code>, which does not come with the launcher. It comes from AMD's FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the <code>upscalers\\fsr3</code> folder of the game.</p>`,
+  html: `<p>${t('Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.')}</p>`,
   ok: t('Download'),
 };
 

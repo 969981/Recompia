@@ -729,4 +729,5 @@ export default {
   'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'Benötigt amd_fidelityfx_framegeneration_vk.dll von AMD. Beim Einschalten wird angeboten, sie in den Ordner upscalers\\fsr3 des Spiels herunterzuladen.',
   'Download the frame generation file?': 'Datei für die Bildgenerierung herunterladen?',
   'Downloading frame generation': 'Bildgenerierung wird heruntergeladen',
+  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'Die Bildgenerierung benötigt die Datei amd_fidelityfx_framegeneration_vk.dll von AMD, die nicht im Launcher enthalten ist. Sie stammt aus dem FidelityFX-SDK-Repository von AMD auf GitHub (Version 2.4.0, MIT-Lizenz), ihr Hash wird geprüft, und sie kommt in den Ordner upscalers\\fsr3 des Spiels.',
 };

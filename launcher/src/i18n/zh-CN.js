@@ -729,4 +729,5 @@ export default {
   'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': '需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll。开启时会提示下载到游戏的 upscalers\\fsr3 文件夹。',
   'Download the frame generation file?': '下载帧生成所需的文件？',
   'Downloading frame generation': '正在下载帧生成',
+  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': '帧生成需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll，启动器不附带该文件。它来自 AMD 在 GitHub 上的 FidelityFX SDK 仓库（2.4.0 版，MIT 许可），会校验其哈希，并放入游戏的 upscalers\\fsr3 文件夹。',
 };
