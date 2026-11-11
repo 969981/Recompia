@@ -7,6 +7,7 @@
 // loader the upscaler uses.
 #pragma once
 #include "swapchain_fns.h"
+#include "extras/temporal.h"
 
 namespace nxrt::extras {
 
@@ -18,6 +19,17 @@ bool framegen_dll_found();
 // enabled is off, the DLL or the queues are missing, or the first swapchain could not be made by AMD's code (that case falls back to a Vulkan
 // swapchain: the table's functions forward to Vulkan from then on, and the game runs without frame generation). One per process.
 const gfx::SwapchainFns* framegen_swapchain(gfx::Device& dev);
+
+// True when the swapchain in use is AMD's and nothing has failed: the temporal pass (temporal.h) then runs for it every frame with a camera.
+bool framegen_active();
+
+// At the tone-map draw of a frame with a camera, from the temporal pass: records the prepare dispatch (depth, motion vectors, camera) into cb.
+// TemporalFrame::out / out_format are the size and format of the tone-map's target, which must be the window's size.
+void framegen_prepare(VkCommandBuffer cb, const TemporalFrame& f);
+
+// After that draw, outside a render pass: copies the picture (src, in src_layout, which is left as it was) before the HUD is drawn on it. False: not
+// copied (no prepare this frame, a size that is not the window's).
+bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkFormat format, VkExtent2D e);
 
 // What the F1 page and the launcher tell a player who tries to switch frame generation on without the DLL.
 const char* framegen_missing_text();

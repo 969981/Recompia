@@ -8,6 +8,7 @@
 #include <string>
 
 #include "extras/ffx_dll.h"
+#include "extras/ffx_resource.h"
 #include "extras/temporal.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx.h"
@@ -31,21 +32,7 @@ void on_message(uint32_t type, const wchar_t* msg) {
 }
 
 FfxApiResource resource(const TemporalImage& t, uint32_t state, uint32_t usage) {
-    FfxApiResource r = {};
-    r.resource = reinterpret_cast<void*>(t.image);
-    r.state = state;
-    r.description.type = FFX_API_RESOURCE_TYPE_TEXTURE2D;
-    r.description.format = t.format == VK_FORMAT_R16G16B16A16_SFLOAT ? FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT
-                         : t.format == VK_FORMAT_R16G16_SFLOAT     ? FFX_API_SURFACE_FORMAT_R16G16_FLOAT
-                         : t.format == VK_FORMAT_R32_SFLOAT        ? FFX_API_SURFACE_FORMAT_R32_FLOAT
-                                                                   : FFX_API_SURFACE_FORMAT_UNKNOWN;
-    r.description.width = t.width;
-    r.description.height = t.height;
-    r.description.depth = 1;
-    r.description.mipCount = 1;
-    r.description.flags = FFX_API_RESOURCE_FLAGS_NONE;
-    r.description.usage = usage;
-    return r;
+    return ffx_resource(t.image, t.format, t.width, t.height, state, usage);
 }
 
 class Ffx final : public TemporalBackend {

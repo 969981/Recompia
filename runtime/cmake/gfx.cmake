@@ -36,7 +36,7 @@ option(NXRT_UPSCALER_FSR3 "AMD FSR 3.1 through the FidelityFX API: upscaling (ex
 option(NXRT_UPSCALER_NIS "NVIDIA Image Scaling (extras/nis_spatial.cpp)" ON)
 list(FILTER NXRT_GFX_SOURCES EXCLUDE REGEX "_off\\.cpp$")
 set(_nxrt_up_src_DLSS temporal_dlss)
-set(_nxrt_up_src_FSR3 temporal_ffx framegen_ffx)
+set(_nxrt_up_src_FSR3 temporal_ffx framegen_ffx framegen_ffx_frame)
 set(_nxrt_up_src_NIS nis_spatial)
 foreach(_nxrt_up_opt IN ITEMS DLSS FSR3 NIS)
     if(NOT NXRT_UPSCALER_${_nxrt_up_opt})
