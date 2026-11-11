@@ -322,13 +322,20 @@ void dispatch_call(::Ctx* c, uint64_t addr) {
         }
         if (t.fn) {
             if (ft::on()) {
-                const uint64_t t0 = ft::now_ns();
+                // frame trace: HLE calls (services, NVN entry points) of at least 100 us. Timed with the TSC: a frame makes thousands of
+                // these calls (most of them NVN, on one game thread) and two QueryPerformanceCounter reads with their conversion to ns
+                // cost several times more. 100 us is at least 100,000 ticks of any TSC of 1 GHz or more, so a shorter call (nearly all)
+                // costs two TSC reads and nothing else; a longer one gets the event in the trace's clock, ending now.
+                const uint64_t c0 = ft::tsc();
                 t.fn(c);
-                const uint64_t t1 = ft::now_ns();
-                if (t1 - t0 >= 100000) {       // frame trace: HLE calls (services, NVN entry points) of at least 100 us
-                    int z = t.ft_zone.load(std::memory_order_relaxed);
-                    if (z < 0) { z = ft::zone_id(("hle:" + t.name).c_str()); t.ft_zone.store(z, std::memory_order_relaxed); }
-                    ft::event(static_cast<uint16_t>(z), t0, t1, 0);
+                const uint64_t dc = ft::tsc() - c0;
+                if (dc >= 100000) {
+                    const uint64_t d = ft::tsc_to_ns(dc), t1 = ft::now_ns();
+                    if (d >= 100000) {
+                        int z = t.ft_zone.load(std::memory_order_relaxed);
+                        if (z < 0) { z = ft::zone_id(("hle:" + t.name).c_str()); t.ft_zone.store(z, std::memory_order_relaxed); }
+                        ft::event(static_cast<uint16_t>(z), t1 - d, t1, 0);
+                    }
                 }
             } else {
                 t.fn(c);

@@ -288,6 +288,7 @@ void nvnQueuePresentTexture(NVNqueue* queue, NVNwindow* window, int index) {
         NXLOG_W(kTag, "nvnQueuePresentTexture: index %d is not one of the %zu window textures; not presented", index, w->textures.size());
         return;
     }
+    api_stats::frame();
     be::gpu::present(w, index);
 }
 
