@@ -96,10 +96,8 @@ struct WaitSite { uint64_t n = 0, ns = 0, req_ns = 0; };
 std::mutex g_ws_lock;
 std::map<std::tuple<std::string, uint32_t, uint64_t, uint64_t>, WaitSite> g_ws;
 uint64_t g_ws_dump_ns = 0;
-bool wait_sites_on() {
-    static const bool on = config_get_bool("diag", "wait_sites", false);
-    return on;
-}
+bool g_wait_sites = false;   // read once by svc_init, before any guest code runs: one load per SVC, no guard of a function-local static
+inline bool wait_sites_on() { return g_wait_sites; }
 void wait_site_record(::Ctx* c, uint32_t number, uint64_t req, uint64_t t0, uint64_t t1) {
     static Module* main_mod = module_by_name("main");
     uint64_t site[2] = {0, 0};
@@ -174,6 +172,7 @@ void svc_init() {
         svc_register_info_group();
         svc_register_thread_group();
         svc_register_ipc_group();
+        g_wait_sites = config_get_bool("diag", "wait_sites", false);
         diag::census::init();                                // [diag] hle_census: before any guest code runs
         diag_add_report(&kernel::sync_wait_report, false);   // the freeze dump: the guest threads blocked in kernel waits, after the thread dump
         size_t n = 0;
