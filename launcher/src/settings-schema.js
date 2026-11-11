@@ -654,6 +654,7 @@ export const SECTIONS = [
             note: () => ({ text: t("Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path.") }),
           },
           { id: 'minimize_on_play', label: t('Minimise while playing'), type: 'toggle', at: config('minimize_on_play'), def: false },
+          { id: 'discord_presence', label: t('Show on Discord while playing'), type: 'toggle', at: config('discord_presence'), def: false },
         ],
       },
       {

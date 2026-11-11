@@ -25,6 +25,7 @@ mod nup;
 mod open;
 mod paths;
 mod play;
+mod presence;
 mod preflight;
 mod prompts;
 mod profile_cmds;
