@@ -8,6 +8,8 @@ bool framegen_dll_found() { return false; }
 
 const gfx::SwapchainFns* framegen_swapchain(gfx::Device&) { return nullptr; }
 
+bool framegen_present_count(uint64_t*) { return false; }
+
 const char* framegen_missing_text() { return "Frame generation is not part of this build."; }
 
 }  // namespace nxrt::extras

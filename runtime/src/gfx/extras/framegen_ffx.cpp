@@ -159,6 +159,12 @@ bool framegen_dll_found() {
     return !loader.empty() && ffx_effect_dll_exists(loader, L"amd_fidelityfx_framegeneration_vk.dll");
 }
 
+bool framegen_present_count(uint64_t* count) {
+    if (!g.live || g.native || !g.fns.pOutGetLastPresentCountFFXAPI) return false;
+    *count = g.fns.pOutGetLastPresentCountFFXAPI(g.live);
+    return true;
+}
+
 const gfx::SwapchainFns* framegen_swapchain(gfx::Device& dev) {
     if (!settings().framegen.enabled) return nullptr;
     if (!dev.framegen_queues().ok || !framegen_dll_found() || !load_api()) {

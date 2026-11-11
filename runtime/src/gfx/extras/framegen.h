@@ -27,6 +27,10 @@ bool framegen_active();
 // TemporalFrame::out is the size of the tone-map's target, which must have the window's shape.
 void framegen_prepare(VkCommandBuffer cb, const TemporalFrame& f);
 
+// The presents since the swapchain was made, generated frames included (the frames shown on the screen); false: not frame generation, or the DLL
+// does not count them. For the frame-rate counter, which shows these next to the frames the game renders.
+bool framegen_present_count(uint64_t* count);
+
 // After that draw, outside a render pass: copies the picture (src of size e, in src_layout, which is left as it was) before the HUD is drawn on it,
 // converted to the swapchain's format and size. False: not copied (no prepare this frame, a shape that is not the window's).
 bool framegen_hudless_capture(VkCommandBuffer cb, VkImage src, VkImageLayout src_layout, VkExtent2D e);

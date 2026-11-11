@@ -2,6 +2,8 @@
 // Dear ImGui overlay: the frame rate counter, the pointer arrow, the "Preparing shaders" note and the save-failure notice.
 #include "overlay_impl.h"
 
+#include "extras/framegen.h"
+
 namespace nxrt::gfx {
 using namespace overlay_detail;
 
@@ -28,9 +30,28 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
     const int detail = counter_detail.load(std::memory_order_relaxed);
     char buf[64];
     counter_n = 0;
-    if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
-    else std::snprintf(buf, sizeof buf, "-- FPS");
-    counter_lines[counter_n++] = buf;
+    // With frame generation the game renders `snap.fps` frames and the screen shows more: both are given
+    uint64_t count = 0;
+    const bool generating = extras::framegen_present_count(&count);
+    if (generating) {
+        if (shown_s >= 0 && count >= shown_count && now_s > shown_s) shown_fps = static_cast<double>(count - shown_count) / (now_s - shown_s);
+        shown_count = count;
+        shown_s = now_s;
+    } else {
+        shown_s = -1;
+        shown_fps = 0;
+    }
+    if (generating && shown_fps > 0) {
+        std::snprintf(buf, sizeof buf, "%.0f FPS shown", shown_fps);
+        counter_lines[counter_n++] = buf;
+        if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS real", snap.fps);
+        else std::snprintf(buf, sizeof buf, "-- FPS real");
+        counter_lines[counter_n++] = buf;
+    } else {
+        if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
+        else std::snprintf(buf, sizeof buf, "-- FPS");
+        counter_lines[counter_n++] = buf;
+    }
     if (detail >= 1) {
         if (snap.valid) std::snprintf(buf, sizeof buf, "%.1f ms", snap.avg_ms);
         else std::snprintf(buf, sizeof buf, "-- ms");
@@ -55,7 +76,7 @@ void Overlay::Impl::draw_counter(const FrameInfo& f, double now_s) {
     const float gap = size * 0.15f;
     const float margin = size * 0.8f;
     const int n = counter_n;
-    float lines_w[4] = {};
+    float lines_w[6] = {};
     float line_h = 0, text_w = 0;
     for (int i = 0; i < n; ++i) {
         const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, counter_lines[i].c_str());
