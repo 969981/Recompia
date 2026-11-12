@@ -554,6 +554,7 @@ export default {
   'Unknown timed event \'{1}\' in pkp.ini. Choose a valid event or turn all event toggles off.': 'pkp.ini 中有未知的限时活动“{1}”。请选择有效的活动，或关闭所有活动开关。',
   'The local start time for timed event \'{1}\' is not available in this time zone.': '限时活动“{1}”的本地开始时间在此时区不可用。',
   'This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.': '此更新更改了游戏代码。请点击“完成更新”重新构建（约 7 分钟）。你的着色器和存档会保留。',
+  'This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.': '此更新仅更改运行时。请点击“完成更新”重新链接游戏（约 1 分钟）。你的着色器和存档会保留。',
   'pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({1} and {2}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.': '启动器旁边的 pkp_rt.dll 与 tools 文件夹中的构建工具（{1} 和 {2}）不是同一个版本，因此“设置”会构建出无法与其配合运行的 pkp.exe。目前只放置了更新的一部分：请将整个版本 zip 的所有文件解压到此文件夹，然后再次点击“设置”。',
   'The game build cannot run, missing: {1}. Extract the release zip again so tools/ is complete.': '无法运行游戏构建，缺少：{1}。请重新解压版本 zip，使 tools/ 完整。',
   'The game build failed ({1}). {2}': '游戏构建失败（{1}）。{2}',

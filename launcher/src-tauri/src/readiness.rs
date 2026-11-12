@@ -90,6 +90,7 @@ pub fn readiness_of(f: &ReadyFacts) -> Readiness {
         // the same Set up as after an update, said in the mods' words when they are what changed
         gamebuild::Built::Stale if f.mod_plan_changed => return Readiness::of("mods", gamebuild::MOD_REBUILD_MESSAGE),
         gamebuild::Built::Stale => return Readiness::of("rebuild", gamebuild::REBUILD_MESSAGE),
+        gamebuild::Built::Relink => return Readiness::of("rebuild", gamebuild::RELINK_MESSAGE),
         gamebuild::Built::Mixed { dll, sdk } => return Readiness::of("mixed_release", gamebuild::mixed_message(dll, sdk)),
         gamebuild::Built::No => return unfinished(),
     }

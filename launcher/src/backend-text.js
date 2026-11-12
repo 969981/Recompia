@@ -62,6 +62,7 @@ const TEXTS = [
 
   // gamebuild.rs, readiness.rs, setup_job.rs
   msg('This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.'),
+  msg('This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.'),
   msg('pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({1} and {2}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.'),
   msg('The game build cannot run, missing: {1}. Extract the release zip again so tools/ is complete.'),
   msg('The game build failed ({1}). {2}'),

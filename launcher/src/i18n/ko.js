@@ -554,6 +554,7 @@ export default {
   'Unknown timed event \'{1}\' in pkp.ini. Choose a valid event or turn all event toggles off.': 'pkp.ini에 알 수 없는 시간 한정 이벤트 \'{1}\'이(가) 있습니다. 유효한 이벤트를 선택하거나 모든 이벤트를 끄세요.',
   'The local start time for timed event \'{1}\' is not available in this time zone.': '시간 한정 이벤트 \'{1}\'의 현지 시작 시각은 이 시간대에서 사용할 수 없습니다.',
   'This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.': '이 업데이트는 게임 코드를 변경합니다. 업데이트 마무리를 눌러 다시 빌드하세요(약 7분). 셰이더와 세이브는 유지됩니다.',
+  'This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.': '이 업데이트는 런타임만 변경합니다. 업데이트 마무리를 눌러 게임을 다시 링크하세요(약 1분). 셰이더와 세이브는 유지됩니다.',
   'pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({1} and {2}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.': '런처 옆의 pkp_rt.dll이 tools 폴더의 빌드 도구({1} 및 {2})와 다른 릴리스의 것이므로, 설정을 하면 그것과 함께 실행되지 않는 pkp.exe가 빌드됩니다. 업데이트의 일부만 적용되어 있습니다. 릴리스 zip 전체를 이 폴더에 모든 파일을 압축 해제한 다음 설정을 다시 누르세요.',
   'The game build cannot run, missing: {1}. Extract the release zip again so tools/ is complete.': '게임 빌드를 실행할 수 없습니다. 없는 항목: {1}. tools/가 완전해지도록 릴리스 zip을 다시 압축 해제하세요.',
   'The game build failed ({1}). {2}': '게임 빌드에 실패했습니다({1}). {2}',
