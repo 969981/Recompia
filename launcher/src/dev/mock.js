@@ -305,6 +305,27 @@ async function runTicks(event, make, count = 40) {
   }
 }
 
+// ?page=mods: two installed mods (one with code not allowed yet) and a short hub list
+const mockMods = {
+  dir: `${GAME_DIR}/mods`, gameplay: [], points: 2,
+  mods: [
+    { id: 'field_of_view', name: 'Field of View', version: '1.1.0', authors: 'The Modtopia contributors', license: 'MIT', description: 'A wider or narrower view.', source: 'field-of-view', gameplay: false, guessed: false, code: true, needs_yes: false, network: '', enabled: true, state: 'ok', message: '', hook_points: 2,
+      settings: [
+        { key: 'on', label: 'Change the field of view', description: '', kind: 'bool', restart: false, min: 0, max: 0, step: 0, choices: [], text: 'On', number: 1 },
+        { key: 'scale', label: 'Field of view', description: '', kind: 'number', restart: false, min: 0.5, max: 1.6, step: 0.05, choices: [], text: '1.25', number: 1.25 },
+      ] },
+    { id: 'bigger_stacks', name: 'Bigger Stacks', version: '1.0.0', authors: 'The Modtopia contributors', license: 'MIT', description: '', source: 'bigger_stacks-1.0.0.pkmod', gameplay: true, guessed: false, code: true, needs_yes: true, network: '', enabled: false, state: 'off', message: 'switched off', hook_points: 1, settings: [] },
+  ],
+};
+const mockCatalog = {
+  offline: false, preview: false, hub: 'https://pokopia-native.vercel.app/mods', submit: 'https://pokopia-native.vercel.app/mods/submit',
+  mods: [
+    { id: 'auto_run', name: 'Auto-Run', version: '1.0.0', summary: 'Tap once to keep running.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: false, page: 'https://pokopia-native.vercel.app/mods/auto-run', available: true, installed: '', newer: false },
+    { id: 'bigger_stacks', name: 'Bigger Stacks', version: '1.1.0', summary: 'More of an item in one slot.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: true, network: false, page: '', available: true, installed: '1.0.0', newer: true },
+    { id: 'community_achievements', name: 'Community Achievements', version: '1.0.0', summary: 'Achievements counted with the community.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: true, page: '', available: false, installed: '', newer: false },
+  ],
+};
+
 function handle(cmd, args) {
   if (cmd.startsWith('plugin:window|') || cmd.startsWith('plugin:')) return null;
   if (sc.down && cmd !== 'get_releases') throw 'The launcher backend did not answer.';
@@ -402,6 +423,22 @@ function handle(cmd, args) {
       return c.match(/.{4}/g).join('-');
     }
     case 'room_code_host': return params.get('gamecode');
+    case 'mods_list': return structuredClone(mockMods);
+    case 'mods_set_enabled': mockMods.mods.find((m) => m.id === args.id).enabled = args.on; return structuredClone(mockMods);
+    case 'mods_move': {
+      const i = mockMods.mods.findIndex((m) => m.id === args.id), j = i + args.delta;
+      if (j >= 0 && j < mockMods.mods.length) [mockMods.mods[i], mockMods.mods[j]] = [mockMods.mods[j], mockMods.mods[i]];
+      return structuredClone(mockMods);
+    }
+    case 'mods_set_setting': {
+      const s = mockMods.mods.find((m) => m.id === args.id).settings.find((x) => x.key === args.key);
+      if (args.number !== undefined) { s.number = args.number; s.text = String(args.number); } else s.text = args.text;
+      return structuredClone(mockMods);
+    }
+    case 'mods_remove': mockMods.mods = mockMods.mods.filter((m) => m.id !== args.id); return structuredClone(mockMods);
+    case 'mods_catalog': return structuredClone(mockCatalog);
+    case 'mods_install': return structuredClone(mockMods);
+    case 'open_mods_dir': return null;
     default:
       console.warn('[mock] unknown command', cmd, args);
       throw `The mock has no command ${cmd}`;

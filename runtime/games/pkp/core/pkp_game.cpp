@@ -10,6 +10,7 @@
 #include "ui/pkp_key_guide.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_linkplay.h"
+#include "core/pkp_mods.h"
 #include "ui/pkp_menu.h"
 #if NXRT_TESTTOOLS
 #include "test/pkp_movie_test.h"
@@ -18,6 +19,7 @@
 #include "ui/pkp_options.h"
 #include "input/pkp_play.h"
 #include "render/pkp_quality.h"
+#include "core/pkp_pokemon_cap.h"
 #include "core/pkp_save_uuid.h"
 #include "render/pkp_shoulder_camera.h"
 #include "ui/pkp_sort.h"
@@ -48,6 +50,8 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 // frame-rate hook at that site, as they did when that hook called them. Where the order matters:
 //   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
+//   mods                the Modtopia mods' frame tick (pkp_mods.h): first of the game-frame callbacks, so mods see each frame before our
+//                       features change anything in it
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
 //   kbm, movie_test     game-frame callbacks, kbm's first (movie_test and taa_probe are test tools: in the table only with NXRT_TESTTOOLS, which
 //                       a release package builds without; the registry has no stub for them)
@@ -72,7 +76,7 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kPlayFeature), port(&kKbmFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif
@@ -83,7 +87,7 @@ constexpr Entry kEntries[] = {
 #endif
     port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
-    mod(&kCraftFeature, CraftSearch), port(&key_guide::kKeyGuideFeature),
+    mod(&kCraftFeature, CraftSearch), mod(&kPokemonCapFeature, PokemonCap), port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
 };
 constexpr size_t kFeatureCount = std::size(kEntries);

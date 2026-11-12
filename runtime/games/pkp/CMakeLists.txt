@@ -30,6 +30,9 @@ if(TARGET nxrt_gfx)
         # core
         "${_pkp}/core/pkp_game.cpp"
         "${_pkp}/core/pkp_linkplay.cpp"
+        "${_pkp}/core/pkp_mods.cpp"
+        "${_pkp}/core/pkp_pokemon_cap.cpp"
+        "${_pkp}/core/pkp_resident_census.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
         "${_pkp}/core/pkp_view_offset.cpp"

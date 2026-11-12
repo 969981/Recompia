@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Dear ImGui overlay: the frame rate counter, the pointer arrow, the "Preparing shaders" note and the save-failure notice.
+// Dear ImGui overlay: the frame rate counter, the pointer arrow, the "Preparing shaders" note, the save-failure notice and the short
+// messages of nxrt/notices.h.
 #include "overlay_impl.h"
+
+#include "nxrt/notices.h"
 
 namespace nxrt::gfx {
 using namespace overlay_detail;
@@ -137,6 +140,26 @@ void Overlay::Impl::draw_save_notice(const FrameInfo& f) {
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + sz.x + 2.f * pad, y0 + sz.y + 2.f * pad), IM_COL32(120, 0, 0, 200), size * 0.3f);
     dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 255), text);
+}
+
+void Overlay::Impl::draw_notices(const FrameInfo& f, double now_s) {
+    const std::vector<notices::Notice> list = notices::shown(now_s);
+    if (list.empty()) return;
+    ImFont* font = ImGui::GetFont();
+    const float size = std::clamp(std::round(static_cast<float>(f.extent.height) / 50.f), 13.f, 32.f);
+    const float pad = size * 0.45f, gap = size * 0.3f;
+    const float W = static_cast<float>(f.extent.width), H = static_cast<float>(f.extent.height);
+    const float wrap = W * 0.45f;   // long messages wrap at a little under half the picture's width
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    float y = H - size * 1.5f;      // from the bottom up: the newest lowest
+    for (auto it = list.rbegin(); it != list.rend(); ++it) {
+        const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, wrap, it->text.c_str());
+        const float x0 = size, y0 = y - sz.y - 2.f * pad;
+        if (y0 < 0) break;
+        dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + sz.x + 2.f * pad, y), IM_COL32(0, 0, 0, 170), size * 0.3f);
+        dl->AddText(font, size, ImVec2(x0 + pad, y0 + pad), IM_COL32(255, 255, 255, 240), it->text.c_str(), nullptr, wrap);
+        y = y0 - gap;
+    }
 }
 
 

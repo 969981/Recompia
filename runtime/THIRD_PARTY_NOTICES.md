@@ -58,7 +58,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code.
+Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code. `spirv_limit_count` in `src/gfx/nvn/nvn_spirv_loop_guard.cpp` is ported from `vkspv_limit_count` in `windows/src/nxrt/vk/vk_shader.c` @9cb7f07 (texel buffer tables only); its shader list is in `games/pkp/render/pkp_render_info.cpp`.
 
 The GPU-made indirect quad arguments (`src/gfx/nvn/nvn_replay.cpp` quad_args_gpu, `src/gfx/nvn/nvn_quad_args_shader.inc`) are based on pokopia-native @27a6df0 (1.2.6), `windows/src/nxrt/vk/vk_replay.c` quad_args and `windows/src/nxrt/vk/shaders/quad_args.comp`, under the same MIT licence; those files carry a `Based on pokopia-native (MIT) ... @27a6df0` header comment.
 
@@ -282,6 +282,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+## Modtopia 0.6.1 (MIT)
+
+`third_party/modtopia/` is the Modtopia mod loader 0.6.1: its core (`core/src/*.c`, `*.h`), its SDK headers (`sdk/include/modtopia/`) and
+its function-name mappings (`mappings/*.toml`), copied unchanged from the Modtopia 0.6.1 package. The runtime's mods host
+(`src/mods/`) links the core to run Modtopia mods. `LICENSE`, reproduced verbatim:
+
+```text
+MIT License
+
+Copyright (c) 2026 The Modtopia contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## Ryujinx and ryubing (MIT)

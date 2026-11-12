@@ -8,7 +8,7 @@ use tauri::AppHandle;
 
 use crate::config::{load_config, Config};
 use crate::paths::{exe_dir, game_dir_of};
-use crate::{dump, gamebuild, shaders};
+use crate::{dump, gamebuild, mods, shaders};
 
 /// This run was started by a self-update (--updated). launcher_state tells the page once.
 pub static UPDATED: AtomicBool = AtomicBool::new(false);
@@ -38,7 +38,7 @@ pub fn get_overview(app: AppHandle) -> Overview {
 }
 
 /// Whether Play can run, and if not, what the main button does about it. `kind`: no_files, bad_files, no_exe, no_runtime,
-/// mixed_release, setup, resume, rebuild, retranslate, rebase, ready. `detail`: the sentence for the player (empty when ready).
+/// mixed_release, setup, resume, rebuild, mods, retranslate, rebase, ready. `detail`: the sentence for the player (empty when ready).
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Readiness {
     pub kind: &'static str,
@@ -61,6 +61,8 @@ pub struct ReadyFacts {
     pub builds_exe: bool,
     /// Current when the release does not build it
     pub built: gamebuild::Built,
+    /// the mods' hook plan differs from the one pkp.exe was built with (gamebuild::mod_plan_changed)
+    pub mod_plan_changed: bool,
     pub needs_retranslation: bool,
     pub shaders_complete: bool,
     /// an earlier setup started
@@ -85,7 +87,10 @@ pub fn readiness_of(f: &ReadyFacts) -> Readiness {
     };
     match f.built {
         gamebuild::Built::Current => {}
+        // the same Set up as after an update, said in the mods' words when they are what changed
+        gamebuild::Built::Stale if f.mod_plan_changed => return Readiness::of("mods", gamebuild::MOD_REBUILD_MESSAGE),
         gamebuild::Built::Stale => return Readiness::of("rebuild", gamebuild::REBUILD_MESSAGE),
+        gamebuild::Built::Relink => return Readiness::of("rebuild", gamebuild::RELINK_MESSAGE),
         gamebuild::Built::Mixed { dll, sdk } => return Readiness::of("mixed_release", gamebuild::mixed_message(dll, sdk)),
         gamebuild::Built::No => return unfinished(),
     }
@@ -151,6 +156,12 @@ pub fn readiness(cfg: &Config) -> Probe {
     let dir = game_dir_of(cfg);
     let tools_dir = exe_dir().join("tools");
     let builds_exe = gamebuild::is_package_b(&tools_dir);
+    // the mods' hook plan is part of what the build is checked against: written from the mods folder as it is now
+    if builds_exe {
+        if let Err(e) = mods::refresh_plan(&dir) {
+            eprintln!("mods plan: {e}");
+        }
+    }
     // the base game's files now fill in an update that lacks them (#128): its shaders were never extracted, so Set up runs once more
     let base_changed = !paths.romfs_base.is_empty() && {
         let job = shaders::Job { game_dir: dir.clone(), romfs: PathBuf::from(&paths.romfs), romfs_base: Some(PathBuf::from(&paths.romfs_base)), main: PathBuf::new(), jobs: 1, idle: false, log: None, limit: 0, compact: false };
@@ -162,6 +173,7 @@ pub fn readiness(cfg: &Config) -> Probe {
         runtime_missing: !dir.join("pkp_rt.dll").is_file() && !exe_dir().join("pkp_rt.dll").is_file(),
         builds_exe,
         built: if builds_exe { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current },
+        mod_plan_changed: gamebuild::mod_plan_changed(&dir),
         needs_retranslation: shaders::needs_retranslation(&dir),
         shaders_complete: shaders::is_complete(&dir),
         started: setup_started(&dir),

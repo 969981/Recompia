@@ -38,6 +38,7 @@ export async function render(el, ctx) {
   let gameCode = null;     // room-code.txt: the game's own
   let dropped = null;      // the game's code the player replaced with New code
   let problems = {};       // field id -> what is wrong with it
+  let gameplayMods = [];   // "id@version" of the Modtopia mods that change gameplay and are on (Mods page): every player needs them
 
   // commits run one at a time, in the order the player made them: a blur, then the click that caused it
   let tail = Promise.resolve();
@@ -100,10 +101,13 @@ export async function render(el, ctx) {
   function sharedHtml() {
     if (!live()) return '';
     const exp = `<span class="chip lp-exp">${esc(t('Experimental'))}</span>`;
+    const mods = gameplayMods.length
+      ? `<div class="banner info">${icon('puzzle')}<div class="grow">${esc(t('Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.', { mods: gameplayMods.join(', ') }))}</div></div>`
+      : '';
     return group(t('Same for everyone'), [
       row(t('Visitors can build everywhere'), exp + toggle('lp-interact', ui.interact || ui.story, { disabled: ui.story })),
       row(t('Visitors can talk to story characters'), exp + toggle('lp-story', ui.story)),
-    ]);
+    ]) + mods;
   }
 
   function lanHtml() {
@@ -455,5 +459,6 @@ export async function render(el, ctx) {
   checkFormat();
   draw();
   enter();
+  api.modsList().then((v) => { gameplayMods = v.gameplay; patch(part('lp-shared'), sharedHtml()); }).catch(() => {});
   return () => clearInterval(timer);
 }

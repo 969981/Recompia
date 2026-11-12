@@ -14,7 +14,7 @@ use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, game_dir_of};
 use crate::readiness::setup_started;
 use crate::shaders::RunState;
-use crate::{dump, gamebuild, host, play, preflight, settings, setuplog, shaders, writecheck};
+use crate::{dump, gamebuild, host, mods, play, preflight, settings, setuplog, shaders, writecheck};
 
 /// Shader setup: the running job's progress and its cancel flag.
 #[derive(Default)]
@@ -53,7 +53,7 @@ pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
         progress,
         complete: state == gamebuild::Built::Current && shaders::is_complete(&dir),
         started,
-        rebuild: state == gamebuild::Built::Stale,
+        rebuild: matches!(state, gamebuild::Built::Stale | gamebuild::Built::Relink),
     }
 }
 
@@ -80,6 +80,10 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
     }
     // the build, the shader tools and pkp.ini all write in the game folder: a blocked one fails here, in words (writecheck.rs)
     writecheck::check(&dir).map_err(|e| e.message())?;
+    // the build puts in the hook points of the mods as they are now (Modtopia's hooks.tsv)
+    if package_b {
+        mods::refresh_plan(&dir)?;
+    }
     {
         let mut p = state.progress.lock().unwrap();
         if p.state == RunState::Running {
