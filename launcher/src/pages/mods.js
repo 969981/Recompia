@@ -11,6 +11,9 @@ import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import { allowQuestion, badges, byLine, canMove, cardAction, installQuestion, isSlider, settingValue } from '../mods-model.js';
 
+// The Browse tab (the Modtopia mod hub's list and installs) is off for 0.11.1 by the repo owner's call; true brings it back.
+const BROWSE = false;
+
 const gameActive = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
 
 const chip = (b) => `<span class="chip ${b.kind}">${esc(b.text)}</span>`;
@@ -28,7 +31,7 @@ export async function render(el, ctx) {
   el.innerHTML = `<div class="page mods">
     <div class="mods-head">
       <h1>${esc(t('Mods'))}</h1>
-      ${segmented('mods-tab', [['installed', t('Installed')], ['browse', t('Browse')]], tab, { label: t('Mods') })}
+      ${BROWSE ? segmented('mods-tab', [['installed', t('Installed')], ['browse', t('Browse')]], tab, { label: t('Mods') }) : ''}
     </div>
     <div class="mods-part" id="mods-banners"></div>
     <div class="mods-part" id="mods-body"></div>
@@ -94,7 +97,7 @@ export async function render(el, ctx) {
     if (!view) return `<div class="empty">${icon('loader-circle', 'spin')}</div>`;
     if (!view.mods.length) {
       return `<div class="empty glass">${icon('puzzle')}<strong>${esc(t('No mods yet'))}</strong>
-        <span>${esc(t('Find mods under Browse, or put them into the mods folder.'))}</span></div>${folder}`;
+        <span>${esc(BROWSE ? t('Find mods under Browse, or put them into the mods folder.') : t('Put mods into the mods folder.'))}</span></div>${folder}`;
     }
     const order = view.mods.length > 1 ? `<p class="faint mods-note">${esc(t('Mods load from the top down: on the same game file, the one further down wins.'))}</p>` : '';
     return `${order}${view.mods.map((m, i) => modHtml(m, i, view.mods)).join('')}${folder}`;

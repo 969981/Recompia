@@ -783,6 +783,7 @@ export default {
   'Open mods folder': '모드 폴더 열기',
   'No mods yet': '아직 모드가 없습니다',
   'Find mods under Browse, or put them into the mods folder.': '둘러보기에서 모드를 찾거나 모드 폴더에 넣으세요.',
+  'Put mods into the mods folder.': '모드를 모드 폴더에 넣으세요.',
   'Mods load from the top down: on the same game file, the one further down wins.': '모드는 위에서 아래로 불러옵니다: 같은 게임 파일이면 아래쪽 모드가 우선합니다.',
   'Coming soon': '곧 출시',
   '{version} installed': '{version} 설치됨',

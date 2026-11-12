@@ -2,20 +2,29 @@
 
 ## Unreleased
 
+## 0.11.1 (build O: Ocelot Hotfix a1)
+
 **Update:** press **Update**, then **Set up again** once (the game code is translated again for the mods' hook points, several minutes). Your shaders and saves are kept; no shader is translated again.
 
-### Set up
-- Faster **Set up again** after an update. Before: an update that added one hook point compiled all of the game code again (231 of 231 main parts). Now: only the parts whose code changed compile again (9 of 231 for one new hook point); the rest come from the compile cache. When an update only changes the runtime, Play now says it is a quick relink (about a minute) instead of a 7-minute rebuild. Still not: the game code is still translated in full before compiling (a few minutes), and the first rebuild after this version compiles everything once to refill the cache. Update only: no Set up again for this change, no shader rebuild
+### Highlights
+- Fixed internet Link Play: 0.11.0 sent hosts and visitors to an old address of the official relay, so no room could be opened or joined
+- Added **Modtopia mods**: Recompia now runs mods made for Modtopia, the mod loader shared with Pokopia Native
 
 ### Link Play
-- Internet Link Play through the official relay works again. Before: 0.11.0 sent hosts and visitors to the relay's old address, which no longer answers, so no one could open or join a room (the game log repeats "the relay does not answer"). Now: the launcher uses the relay's permanent address. Still not: players on 0.11.0 need this update, or can type `204.216.111.91:47610` under Link Play > Advanced > Use my own relay or address until then. Update only: no Set up again, no shader rebuild
+- Fixed the **Internet** choice reaching the official relay: the launcher now uses the relay's permanent address (the game log said "the relay does not answer")
+  - Still on 0.11.0? Type `204.216.111.91:47610` under Link Play > Advanced > Use my own relay or address
 
 ### Mods
-- **Modtopia mods:** Recompia now runs mods made for Modtopia, the mod loader shared with Pokopia Native: the same `.pkmod` files work on both
-- New **Mods** page in the launcher: switch your mods on and off, change their order and settings, and remove them. **Browse** lists the mods on the Modtopia mod hub with their authors and licence; **Install** asks once, downloads from the hub's own server and checks the file before it goes in
-- A mod's code runs only after you allow it on the Mods page; a new or changed mod asks again. Mods with only files need no permission
-- When your mods need new hook points, the launcher asks for **Set up again** (a few minutes; shaders and saves are kept)
+- Added Modtopia mods: the same `.pkmod` files work in Recompia and Pokopia Native
+- Added a **Mods** page in the launcher: switch your mods on and off, change their order and settings, and remove them. Put mods into the mods folder to install them
+- Added a permission step: a mod's code runs only after you allow it on the Mods page; a new or changed mod asks again. Mods with only files need no permission
+- Added a **Set up again** prompt when your mods need new hook points (a few minutes; shaders and saves are kept)
 - Link Play: everyone in a session needs the same gameplay mods; the Link Play page lists the ones you have on
+
+### Launcher
+- Faster **Set up again** after an update: only the parts of the game code that changed compile again (one new hook point: 231 ⇒ 9 of 231 parts); the rest come from the compile cache
+  - When an update only changes the runtime, Play says it is a quick relink (about a minute) instead of a 7-minute rebuild
+  - The first rebuild after this version still compiles everything once, to fill the cache
 
 ## 0.11.0 (build O: Ocelot)
 
