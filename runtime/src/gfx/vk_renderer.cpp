@@ -200,6 +200,7 @@ struct Renderer::Impl {
     // set by the thread that asks for a screenshot, read by end_frame and by capture_pending() (overlay, presenting thread)
     std::atomic<bool> cap_pending{false};
     std::string cap_path;
+    std::atomic<bool> cap_bare{false};   // the pending screenshot leaves the runtime's own menus out (overlay_bare_capture)
     std::vector<uint8_t>* cap_out = nullptr;
     uint32_t* cap_w = nullptr;
     uint32_t* cap_h = nullptr;
@@ -1065,6 +1066,7 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
         if (s.cap_w) *s.cap_w = w;
         if (s.cap_h) *s.cap_h = h;
         s.cap_pending.store(false, std::memory_order_relaxed);
+        s.cap_bare.store(false, std::memory_order_relaxed);
         s.cap_path.clear();
         s.cap_out = nullptr;
         s.cap_w = s.cap_h = nullptr;
@@ -1119,9 +1121,10 @@ uint32_t Renderer::image_count() const { return static_cast<uint32_t>(impl_->tar
 uint32_t Renderer::frames_in_flight() const { return impl_->desc.frames_in_flight; }
 bool Renderer::headless() const { return impl_->headless; }
 
-void Renderer::request_screenshot(const std::string& png_path) {
+void Renderer::request_screenshot(const std::string& png_path, bool bare) {
     g_png_writes.fetch_add(1);   // until the worker has written the file (wait_screenshot_writes)
     impl_->cap_path = png_path;
+    impl_->cap_bare.store(bare, std::memory_order_relaxed);
     impl_->cap_pending.store(true, std::memory_order_release);   // after the path is set: end_frame reads the path once it sees the flag
 }
 
@@ -1133,6 +1136,7 @@ void Renderer::capture_next_frame(std::vector<uint8_t>* rgba, uint32_t* width, u
 }
 
 bool Renderer::capture_pending() const { return impl_->cap_pending.load(std::memory_order_relaxed); }
+bool Renderer::capture_bare() const { return impl_->cap_pending.load(std::memory_order_relaxed) && impl_->cap_bare.load(std::memory_order_relaxed); }
 
 RendererStats Renderer::stats() const { return impl_->st; }
 void Renderer::wait_idle() { impl_->dev->wait_idle(); }

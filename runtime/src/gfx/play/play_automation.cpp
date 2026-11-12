@@ -52,8 +52,8 @@ bool key_sink(const char* name, bool down) {
     return true;
 }
 
-// @shot in a script: the renderer writes the next presented frame as a PNG; the call returns when the file exists (or after 5 s).
-bool screenshot_provider(const char* path, void*) {
+// The screenshot provider (nxrt/screenshot.h; @shot in a script, a mod's screenshot): the renderer writes the next presented frame as a PNG.
+bool screenshot_provider(const char* path, bool bare, void*) {
     G& st = g();
     if (!st.renderer || !path) return false;
     DeleteFileA(path);
@@ -62,7 +62,7 @@ bool screenshot_provider(const char* path, void*) {
     // needs the game's next frame: waiting here for the file held every shot for the 5 s timeout. Wait only for an earlier request to
     // be taken (one capture path at a time), then return; the file is written on a worker and the test runner waits for it at exit.
     for (int i = 0; i < 200 && st.renderer->capture_pending(); ++i) Sleep(5);
-    st.renderer->request_screenshot(path);
+    st.renderer->request_screenshot(path, bare);
     return true;
 }
 

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
-// over the picture (notify), the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound under the game's (audio_*).
-// Every other callback (notify_image, screenshot, key_down, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// over the picture (notify), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
+// under the game's (audio_*).
+// Every other callback (notify_image, key_down, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
@@ -16,6 +17,7 @@
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/notices.h"
+#include "nxrt/screenshot.h"
 #include "nxrt/services_api.h"
 
 namespace nxrt::mods::detail {
@@ -183,6 +185,13 @@ int be_notify(void*, const char* mod_id, const char* text, double seconds) {
     return MT_OK;
 }
 
+// The next presented picture as a PNG at path, without our menus. The request is taken now and the file is written when that frame ends
+// (nxrt/screenshot.h), so MT_OK means requested, as the host API says. No renderer (a headless run): MT_ERR_STATE.
+int be_screenshot(void*, const char* path) {
+    if (!path || !*path) return MT_ERR_UNKNOWN;
+    return screenshot::request(path, true) ? MT_OK : MT_ERR_STATE;
+}
+
 }  // namespace
 
 bool take_skip(uint64_t site) {
@@ -215,6 +224,7 @@ MtBackend make_backend() {
     be.game_read = &be_game_read;
     be.save_dir = &be_save_dir;
     be.notify = &be_notify;
+    be.screenshot = &be_screenshot;
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;
     be.pad_block = &be_pad_block;
