@@ -1,0 +1,20 @@
+/* Mods: one glass card a mod, under the Installed / Browse switch. */
+
+.mods-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); }
+
+.mods-part { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.mods-part:empty { display: none; }
+.mods-part .banner { align-items: center; }
+.mods-note { padding-inline: var(--space-2); font-size: var(--text-sm); }
+.mods-links { margin-top: var(--space-2); }
+
+.mod { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5); }
+.mod-head { display: flex; align-items: flex-start; gap: var(--space-4); }
+.mod-name { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; font-size: var(--text-lg); font-weight: var(--weight-semi); }
+.mod-by { color: var(--color-text-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.mod-desc { color: var(--color-text-2); font-size: var(--text-sm); }
+.mod-msg { align-items: flex-start; }
+.mod-settings { border-top: 1px solid var(--line); }
+.mod-settings .row-item { padding-inline: 0; }
+.mod-settings .row-label { overflow-wrap: anywhere; }
+.mod-actions .chip .icon { width: 14px; height: 14px; }

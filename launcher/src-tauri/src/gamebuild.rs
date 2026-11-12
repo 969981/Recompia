@@ -12,7 +12,7 @@
 //! tools' header: an exe from another release than the dll is Stale however current its stamp, and a dll from another release
 //! than the tools is `Built::Mixed` (an update with only some files put in place), which no build fixes.
 //! On Linux the script runs with the Linux Python and Zig that host.rs fetches into `tools/linux`.
-//! Its crate-local imports are host.rs and runtime_api.rs, which have none, so `examples/first_run.rs` can build the files alone.
+//! Its crate-local imports are host.rs (with download.rs) and runtime_api.rs, so `examples/first_run.rs` can build the files alone.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -79,9 +79,31 @@ pub fn mixed_message(dll: Option<u32>, sdk: Option<u32>) -> String {
     )
 }
 
-/// The last check: (done.json path, its mtime and size, pkp.exe's mtime) -> result. The tools do not change while the
-/// launcher runs, and a finished build rewrites done.json, so one python run per finished build is enough.
-type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>);
+/// The mods' hook plan the launcher writes for Set up (mods.rs; Modtopia contract 2): the script builds a stop at each point and its
+/// `--check` compares the plan's hash with the one it built from.
+pub const MOD_PLAN: &str = "mods/.modtopia/hooks.tsv";
+/// What Set up built from that plan: the same format, with the `# hash` of the plan it was built from.
+pub const MOD_HOOKS_BUILT: &str = "build/mod-hooks-built.tsv";
+
+/// What Play says when the build is stale because the mods' hook points changed (mod_plan_changed): only the game code is built again.
+pub const MOD_REBUILD_MESSAGE: &str = "Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).";
+
+/// The `# hash <hex>` line of a hooks file; "" when the file or the line is missing (no points).
+fn plan_hash_of(path: &Path) -> String {
+    let Ok(body) = fs::read_to_string(path) else {
+        return String::new();
+    };
+    body.lines().find_map(|l| l.strip_prefix("# hash ")).map(|h| h.trim().to_string()).unwrap_or_default()
+}
+
+/// The mods' plan differs from the one pkp.exe was built with: a stale build is then (at least) the mods' doing.
+pub fn mod_plan_changed(game_dir: &Path) -> bool {
+    plan_hash_of(&game_dir.join(MOD_PLAN)) != plan_hash_of(&game_dir.join(MOD_HOOKS_BUILT))
+}
+
+/// The last check: (done.json path, its mtime and size, pkp.exe's mtime, the mods' plan's mtime and size) -> result. The tools do not
+/// change while the launcher runs, and a finished build rewrites done.json, so one python run per finished build and plan is enough.
+type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>, Option<(Option<std::time::SystemTime>, u64)>);
 static CHECKED: std::sync::Mutex<Option<(CheckKey, Built)>> = std::sync::Mutex::new(None);
 
 /// Whether pkp.exe was built by this release's tools (`pkp_build.py --check`, the stamp's only implementation).
@@ -102,7 +124,8 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     if api == crate::runtime_api::Agreement::ExeStale {
         return Built::Stale; // built for another API than the dll, however current its stamp: the link gives the dll's
     }
-    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok());
+    let plan = fs::metadata(game_dir.join(MOD_PLAN)).ok().map(|m| (m.modified().ok(), m.len()));
+    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok(), plan);
     if let Some((k, b)) = CHECKED.lock().unwrap().as_ref() {
         if *k == key {
             return *b;

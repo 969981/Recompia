@@ -86,4 +86,14 @@ export const api = {
   roomCodeNew: () => invoke('room_code_new'),
   roomCodeCheck: (args) => invoke('room_code_check', args),   // { code }
   roomCodeHost: () => invoke('room_code_host'),
+
+  // Mods (Modtopia)
+  modsList: () => invoke('mods_list'),
+  modsSetEnabled: (args) => invoke('mods_set_enabled', args),   // { id, on, allow }
+  modsMove: (args) => invoke('mods_move', args),   // { id, delta }
+  modsSetSetting: (args) => invoke('mods_set_setting', args),   // { id, key, number | text }
+  modsRemove: (args) => invoke('mods_remove', args),   // { id }
+  modsCatalog: (args) => invoke('mods_catalog', args),   // { refresh }
+  modsInstall: (args) => invoke('mods_install', args),   // { id }
+  openModsDir: () => invoke('open_mods_dir'),
 };

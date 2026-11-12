@@ -9,12 +9,14 @@
 //! the Steam Linux Runtime, as Steam starts a game (PKP_PROTON picks another Proton folder), else umu-run, else Wine. There
 //! the Linux root is drive Z:, so paths handed to them go through `win_path`.
 //! Steam's Proton is found as tinfoil-chewer/pokopia-recomp-linux (GPL-3.0) linux/pkp_linux.py `find_proton` finds it.
-//! No crate-local imports, so the examples can build this file alone next to gamebuild.rs and shaders.rs.
+//! Its one crate-local import is download.rs, which has none, so the examples can build the two next to gamebuild.rs and shaders.rs.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::atomic::AtomicBool;
+
+use crate::download::{self, Pinned};
 
 /// The Python that runs the release's scripts (pkp_build.py, extract_corpus.py, fetch_dlss.py).
 pub fn python(tools_dir: &Path) -> PathBuf {
@@ -309,23 +311,15 @@ fn steam_proton() -> Option<Runner> {
     Some(Runner { argv, env: vec![("STEAM_COMPAT_DATA_PATH", data.into()), ("STEAM_COMPAT_CLIENT_INSTALL_PATH", root.into())], label })
 }
 
-/// One download of `prepare_tools`, checked against the size and SHA-256 its publisher lists for it.
-struct Pinned {
-    file: &'static str,
-    url: &'static str,
-    size: u64,
-    sha256: &'static str,
-}
-
 // python-build-standalone 20261013 (its SHA256SUMS), the PyPI wheels the Windows release bundles, Zig 0.17.0 (ziglang.org
 // download index). Bump together with the Windows release's tools/python and tools/build/zig.
-const PYTHON: Pinned = Pinned {
+const PYTHON: Pinned<'static> = Pinned {
     file: "cpython-3.13.16+20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
     url: "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.13.16%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
     size: 35_099_487,
     sha256: "d0080766b6b74aeb81e1949ef0d9a20e6c17f7b160fb295a69b936ccb17660be",
 };
-const WHEELS: [Pinned; 2] = [
+const WHEELS: [Pinned<'static>; 2] = [
     Pinned {
         file: "lz4-4.4.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
         url: "https://files.pythonhosted.org/packages/d2/fb/ba9256c48266a09012ed1d9b0253b9aa4fe9cdff094f8febf5b26a4aa2a2/lz4-4.4.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
@@ -339,7 +333,7 @@ const WHEELS: [Pinned; 2] = [
         sha256: "273fd8d747d2e35c88f91450be51a603ecfaafb00d96d9f315dcb8689c86193e",
     },
 ];
-const ZIG: Pinned = Pinned {
+const ZIG: Pinned<'static> = Pinned {
     file: "zig-x86_64-linux-0.17.0.tar.xz",
     url: "https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz",
     size: 57_332_648,
@@ -376,10 +370,10 @@ pub fn prepare_tools(tools_dir: &Path, cancel: &AtomicBool, report: &mut dyn FnM
         need.push(&ZIG);
     }
     let total: u64 = need.iter().map(|p| p.size).sum();
-    let mut done = 0u64;
+    let (agent, mut done) = (download::agent(true), 0u64);
     for p in &need {
         let mb = |b: u64| b as f64 / (1u64 << 20) as f64;
-        let ok = fetch(p, &dl, cancel, &mut |n| {
+        let ok = download::fetch(&agent, p, &dl, cancel, &mut |n| {
             report(done + n, total, format!("Downloading the Linux build tools: {:.0} of {:.0} MB", mb(done + n), mb(total)))
         })?;
         if !ok {
@@ -403,51 +397,6 @@ pub fn prepare_tools(tools_dir: &Path, cancel: &AtomicBool, report: &mut dyn FnM
         unpack(&dl.join(ZIG.file), &linux, "zig")?;
     }
     let _ = std::fs::remove_dir_all(&dl);
-    Ok(true)
-}
-
-/// Downloads `p` into `dir` unless it is there. Ok(false) = cancelled. A file that does not match its pin is never kept.
-fn fetch(p: &Pinned, dir: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> Result<bool, String> {
-    use sha2::{Digest, Sha256};
-    use std::io::{Read, Write};
-    let dst = dir.join(p.file);
-    let hex = |h: &[u8]| h.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-    if std::fs::read(&dst).map(|b| b.len() as u64 == p.size && hex(&Sha256::digest(&b)) == p.sha256).unwrap_or(false) {
-        progress(p.size);
-        return Ok(true);
-    }
-    let part = dir.join(format!("{}.part", p.file));
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(20))
-        .timeout_read(std::time::Duration::from_secs(60))
-        .user_agent(&format!("PokopiaRecomp-Launcher/{}", env!("CARGO_PKG_VERSION")))
-        .build();
-    let resp = agent.get(p.url).call().map_err(|e| format!("Could not download {}: {}", p.url, e))?;
-    let mut body = resp.into_reader().take(p.size + 1);
-    let mut f = std::fs::File::create(&part).map_err(|e| format!("cannot write {}: {}", part.display(), e))?;
-    let (mut h, mut n, mut buf) = (Sha256::new(), 0u64, vec![0u8; 1 << 16]);
-    loop {
-        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-            drop(f);
-            let _ = std::fs::remove_file(&part);
-            return Ok(false);
-        }
-        let k = body.read(&mut buf).map_err(|e| format!("Downloading {} failed: {}", p.url, e))?;
-        if k == 0 {
-            break;
-        }
-        h.update(&buf[..k]);
-        f.write_all(&buf[..k]).map_err(|e| format!("cannot write {}: {}", part.display(), e))?;
-        n += k as u64;
-        progress(n);
-    }
-    drop(f);
-    let got = hex(&h.finalize());
-    if n != p.size || got != p.sha256 {
-        let _ = std::fs::remove_file(&part);
-        return Err(format!("{} does not match its pinned size and SHA-256 ({} bytes, {}): not used. Try Set up again.", p.file, n, got));
-    }
-    std::fs::rename(&part, &dst).map_err(|e| format!("cannot move {}: {}", dst.display(), e))?;
     Ok(true)
 }
 
