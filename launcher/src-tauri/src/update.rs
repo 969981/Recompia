@@ -19,11 +19,11 @@
 //! update alone: `.update/lock` is held for the whole update.
 //! The pure parts take plain paths and no AppHandle: the tests below build a fake install and run them.
 
+use crate::download;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -502,26 +502,6 @@ impl Throttle {
     }
 }
 
-/// Copies at most `size` + 1 bytes (one more shows an oversized file) to `to`, hashing them: (bytes, lower-case SHA-256).
-fn hash_copy(from: &mut dyn Read, to: &mut dyn Write, size: u64, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> Result<(u64, String), String> {
-    let (mut hash, mut n, mut buf) = (Sha256::new(), 0u64, vec![0u8; 1 << 16]);
-    let mut from = from.take(size.saturating_add(1));
-    loop {
-        if cancel.load(SeqCst) {
-            return Err(CANCELLED.into());
-        }
-        let k = from.read(&mut buf).map_err(|e| format!("The download failed: {}. Nothing was changed. Try again.", e))?;
-        if k == 0 {
-            break;
-        }
-        hash.update(&buf[..k]);
-        to.write_all(&buf[..k]).map_err(|e| format!("Could not save the update: {}. Nothing was changed.", e))?;
-        n += k as u64;
-        progress(n.min(size));
-    }
-    Ok((n, format!("{:x}", hash.finalize())))
-}
-
 /// The system's tar: bsdtar in System32 on Windows, which reads the zip too (never one found on PATH).
 fn tar() -> Command {
     #[cfg(windows)]
@@ -974,7 +954,8 @@ fn stages(t: &Target, p: &Paths, st: &UpdateState, work: &Path, report: &mut dyn
     let resp = agent.get(&t.asset_url).call().map_err(|e| failed(e.to_string()))?;
     let save_failed = |e: io::Error| format!("Could not save the update: {}. Nothing was changed.", e);
     let mut out = File::create(&archive).map_err(save_failed)?;
-    let (n, got) = hash_copy(&mut resp.into_reader(), &mut out, t.size, &st.cancel, &mut |n| send("download", n, t.size))?;
+    let say = download::Said { read: &|e| format!("The download failed: {}. Nothing was changed. Try again.", e), write: &|e| format!("Could not save the update: {}. Nothing was changed.", e) };
+    let (n, got) = download::copy_checked(&mut resp.into_reader(), &mut out, t.size, &st.cancel, &mut |n| send("download", n, t.size), &say)?.ok_or(CANCELLED)?;
     out.sync_all().map_err(save_failed)?;
     drop(out);
     send("verify", 0, 1);
