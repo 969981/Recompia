@@ -8,7 +8,8 @@
 //                      mods, applies the mods' patches to the game's files and checks the data mods. Without a mods folder it does nothing
 //                      but log one line, and the game runs exactly as without the host. Code the player has not allowed in the launcher
 //                      (MT_MOD_NEW_CODE on a mod that is on) never runs: then no code mod runs this time and code mods' files wait too;
-//                      the player's saved switches stay, and each such mod's MtModInfo.message says why.
+//                      the player's saved switches stay; each such mod's MtModInfo.message says why, and a message over the picture
+//                      (nxrt/notices.h) names each new one.
 //   frame()            once a game frame, on the game's thread (the core's FrameStart, AreaEntered, SaveLoaded).
 //   SaveWritten        posted by the host itself after each save data commit (services fsapi::set_save_commit_listener).
 //   gameplay_mods()    for Link Play: the mods that change gameplay, "id@version", sorted. A game appends them after its own features in

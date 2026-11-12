@@ -19,6 +19,7 @@
 #include "nxrt/game.h"
 #include "nxrt/log.h"
 #include "nxrt/module.h"
+#include "nxrt/notices.h"
 #include "nxrt/services.h"
 #include "nxrt/services_api.h"
 #include "nxrt/text.h"
@@ -188,6 +189,8 @@ void report_held(MtLoader* L, const std::vector<std::string>& waiting) {
         const MtModInfo* m = mt_loader_info(L, mt_loader_find(L, id.c_str()));
         NXLOG_W(kTag, "mods: %s %s has new or changed code: allow it in the launcher's Mods page", id.c_str(), m ? m->version : "?");
         mt_loader_note(L, id.c_str(), "new or changed code: allow it in the launcher's Mods page");
+        notices::post("mods:" + id, std::string("Mod ") + (m && m->name && *m->name ? m->name : id.c_str()) +
+                      " has new or changed code and did not run: allow it in the launcher's Mods page", 12);
     }
     for (const std::string& id : waiting)
         mt_loader_note(L, id.c_str(), "waits until the new code of another mod is allowed in the launcher's Mods page");

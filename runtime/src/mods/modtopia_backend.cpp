@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
-// of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files and the save folder.
-// Every other callback (notify, screenshot, pad and key input, colour matrix, HUD, network, audio, file notes) stays NULL: the core then
-// tells a mod that asks for it that this host has none (MT_ERR_VERSION).
+// of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
+// over the picture (notify). Every other callback (notify_image, screenshot, pad and key input, colour matrix, HUD, network, audio, file
+// notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
+#include <string>
 
 #include "mods_internal.h"
 #include "nxrt/dispatch.h"
@@ -13,6 +14,7 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
+#include "nxrt/notices.h"
 #include "nxrt/services_api.h"
 
 namespace nxrt::mods::detail {
@@ -158,6 +160,13 @@ int64_t be_game_read(void*, const char* path, uint64_t offset, void* buf, uint64
 
 const char* be_save_dir(void*) { return host().save_dir.c_str(); }
 
+// A mod's message over the picture (nxrt/notices.h); its newer one replaces its earlier one.
+int be_notify(void*, const char* mod_id, const char* text, double seconds) {
+    if (!mod_id || !text) return MT_ERR_UNKNOWN;
+    notices::post(std::string("mod:") + mod_id, text, seconds);
+    return MT_OK;
+}
+
 }  // namespace
 
 bool take_skip(uint64_t site) {
@@ -189,6 +198,7 @@ MtBackend make_backend() {
     be.game_file_size = &be_game_file_size;
     be.game_read = &be_game_read;
     be.save_dir = &be_save_dir;
+    be.notify = &be_notify;
     return be;
 }
 
