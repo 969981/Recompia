@@ -18,7 +18,11 @@ the module libraries are made from.
 state.json holds it for the lift and obj folders of a build in progress, lib/stamp.json for the finished libraries.
 A release that changes none of it (only the runtime or the SDK files) links again from the kept libraries: steps 2-4 are
 skipped. Any other change, a missing or unreadable stamp, or a stamp from an older release (another FORMAT or shape)
-lifts, compiles and links again from scratch (the old pkp.exe stays until the new one is linked over it).
+lifts, compiles and links again (the old pkp.exe stays until the new one is linked over it).
+Per module: module_stamp() is what one module's lift, objects and library are made from (its NSO, its site lists and the mod
+hook sites generated for it, besides the lifter, flags and compiler). lib/modules.json keeps it with the libraries and
+state.json with the lift and obj folders, so a changed library stamp lifts and compiles only the modules whose own stamp
+changed (a plan with main-only points leaves sdk, subsdk0 and rtld alone); the others keep their library.
 done.json is the full stamp (the dump plus tool_stamp(): everything in this package that goes into pkp.exe). --check
 compares it with this package's tools only (no dump check, about a second) and prints one JSON line
 {"current": bool, "reason": text, "relink": bool}; exit 0 current, 4 not but the kept libraries match (Set up only links), 3 not.
@@ -80,6 +84,7 @@ MODULES = [(m.name, m.source, m.base, i, m.shards) for i, m in enumerate(GAME.mo
 SITES = {m.name: 'games/pkp/' + m.sites for m in GAME.modules if m.sites}
 CXXFLAGS = compile_flags.ZIG_MINGW
 MOD_PLAN = os.path.join('mods', '.modtopia', 'hooks.tsv')     # under <game>: the mods' hook plan (Modtopia "hooks 1")
+MODULE_STAMPS = 'modules.json'          # in lib/: {module: module_stamp()} of the kept libraries
 MOD_BUILT = 'mod-hooks-built.tsv'       # the points built in: in <game>/build/ for the runtime, in lib/ with the libraries
 # guest registers and flags in C locals (recomp/nxrecomp/locals.py): the game config's reg_locals; PKP_LOCALS=off|exact|aapcs
 # overrides it for a test build. In the stamps, so another mode lifts and compiles again
@@ -162,6 +167,19 @@ def lib_stamp(want, tools, compiler, mod_hooks):
              'mod_hooks': mod_hooks}
     stamp.update((k, tools[k]) for k in ('lifter', 'sites', 'cxxflags', 'locals', 'modules'))
     return stamp
+
+
+def module_stamp(name, nso, want, tools, compiler, site_text):
+    """Everything one module's lift, objects and library are made from: its own stamp, so a change that leaves a module's
+    inputs alone keeps its lift and its library. The dump's build ID and this module's NSO hash, the lifter, the compile
+    flags, the locals mode, the module table, the compiler and the lifter's include/ tree (the object cache key reads it),
+    its own site list from the game and the text of the mod hook sites generated for it ('' for none). When unsure whether an
+    input reaches a module, it belongs here: a stale lift is silently wrong code, an extra one only costs time."""
+    return {'format': FORMAT, 'main_build_id': want['main_build_id'], 'nso': want['sha256'][nso], 'compiler': compiler,
+            'lifter': tools['lifter'], 'include': tree_hash(RECOMP, ['include']), 'cxxflags': tools['cxxflags'],
+            'locals': tools['locals'], 'modules': tools['modules'],
+            'sites': tree_hash(RECOMP, [SITES[name]]) if name in SITES else '',
+            'mod_sites': hashlib.sha256(site_text.encode('utf-8')).hexdigest() if site_text else ''}
 
 
 def libs_current(lib, stamp):
@@ -335,11 +353,13 @@ def mod_sites(plan, exefs, gen):
     return {m[0]: os.path.join(out, m[0] + '.sites') for m in MODULES if os.path.isfile(os.path.join(out, m[0] + '.sites'))}
 
 
-def lift(runner, exefs, gen, jobs, extra_sites):
+def lift(runner, exefs, gen, jobs, extra_sites, skip=()):
     """One lifter process per module (the lifter itself runs `jobs` worker processes). extra_sites: {module: site list} to lift
-    with besides the game's own (mod_sites())."""
+    with besides the game's own (mod_sites()). skip: modules whose kept library is current (module_stamp()): not lifted."""
     for k, (name, nso, base, index, shards) in enumerate(MODULES):
         out = os.path.join(gen, name)
+        if name in skip:
+            continue
         marker = os.path.join(out, '.lifted')
         if os.path.isfile(marker):
             continue
@@ -525,9 +545,11 @@ def make_cache(folder, cap_mb, compiler):
         return None
 
 
-def compile_all(runner, gen, obj, jobs, env, cache=None):
+def compile_all(runner, gen, obj, jobs, env, cache=None, skip=()):
     units = []
     for name, _, _, _, shards in MODULES:
+        if name in skip:
+            continue
         d = os.path.join(gen, name)
         for f in sorted(os.listdir(d)):
             if f.endswith('.cpp'):
@@ -540,7 +562,8 @@ def compile_all(runner, gen, obj, jobs, env, cache=None):
             todo.append((name, src, o))
     done = total - len(todo)
     for name, _, _, _, _ in MODULES:
-        os.makedirs(os.path.join(obj, name), exist_ok=True)
+        if name not in skip:
+            os.makedirs(os.path.join(obj, name), exist_ok=True)
     keys = {}
     if cache:
         rest = []
@@ -616,15 +639,18 @@ def clear_high_entropy_va(exe):
         f.write(dc.to_bytes(2, 'little'))
 
 
-def archive(runner, obj, lib, stamp, env, record):
-    """One library per module (lib/pkp_<name>.a) from the objects and the record of their mod hook points (record, copied to
-    lib/MOD_BUILT), then lib/stamp.json. The old stamp goes first and the new one is written last, so a stop or failure in
+def archive(runner, obj, lib, stamp, env, record, mod_stamps, skip=()):
+    """One library per module (lib/pkp_<name>.a) from the objects, except the modules in skip (their kept library is current),
+    and the record of their mod hook points (record, copied to lib/MOD_BUILT), then lib/MODULE_STAMPS (each module's
+    module_stamp()) and lib/stamp.json. The old stamps go first and the new ones are written last, so a stop or failure in
     between leaves libraries that are never taken as current."""
     os.makedirs(lib, exist_ok=True)
-    stamp_p = os.path.join(lib, 'stamp.json')
-    if os.path.isfile(stamp_p):
-        os.remove(stamp_p)
+    for f in ('stamp.json', MODULE_STAMPS):
+        if os.path.isfile(os.path.join(lib, f)):
+            os.remove(os.path.join(lib, f))
     for name, _, _, _, _ in MODULES:
+        if name in skip:
+            continue
         a = os.path.join(lib, 'pkp_%s.a' % name)
         if os.path.isfile(a):
             os.remove(a)
@@ -638,7 +664,8 @@ def archive(runner, obj, lib, stamp, env, record):
         if rc != 0:
             raise Fail('Archiving %s failed (exit %d):\n%s' % (name, rc, tail))
     shutil.copyfile(record, os.path.join(lib, MOD_BUILT))
-    write_json(stamp_p, stamp)
+    write_json(os.path.join(lib, MODULE_STAMPS), mod_stamps)
+    write_json(os.path.join(lib, 'stamp.json'), stamp)
 
 
 def link(runner, lib, game, env):
@@ -704,14 +731,6 @@ def main():
                  'mod_hooks': mod_hooks}
         compiler = compiler_id()
         libstamp = lib_stamp(want, tools, compiler, mod_hooks)
-        state_p = os.path.join(build, 'state.json')
-        # the lift and obj folders belong to the library stamp in state.json: another dump, lifter, flags or compiler (or no
-        # readable state, or one from an older release) starts them over. Removing lift/ drops the modules' .lifted markers
-        # too, so a changed lifter, main.sites or mod hook plan lifts everything again, not only recompiles
-        if read_json(state_p) != libstamp:
-            for d in ('lift', 'obj'):
-                shutil.rmtree(os.path.join(build, d), ignore_errors=True)
-            write_json(state_p, libstamp)
         times['verify'] = round(time.time() - t0, 1)
         runner = Runner(cancel_file)
         env = dict(os.environ)
@@ -723,16 +742,43 @@ def main():
             progress('lift', len(MODULES), len(MODULES), 'Game code unchanged')
             progress('compile', 1, 1, 'Game code unchanged')
         else:
+            # the lift and obj folders belong to the modules' stamps in state.json: a module whose stamp changed (or with no
+            # readable state, or one from an older release) starts over, the others keep their lift and objects. A module
+            # whose kept library has its current stamp is not lifted or compiled at all
+            state_p = os.path.join(build, 'state.json')
+            state = read_json(state_p)
+            state = state if isinstance(state, dict) else {}
+            if state.get('mods') != libstamp:           # the generated mod-hooks folder is made from the whole library stamp
+                shutil.rmtree(os.path.join(gen, 'mod-hooks'), ignore_errors=True)
+            extra = mod_sites(plan, a.exefs, gen)
+            mod_stamps = {}
+            for name, nso, _, _, _ in MODULES:
+                text = ''
+                if name in extra:
+                    with open(extra[name], encoding='utf-8', newline='') as f:
+                        text = f.read()
+                mod_stamps[name] = module_stamp(name, nso, want, tools, compiler, text)
+            old = state.get('modules') if isinstance(state.get('modules'), dict) else {}
+            for name in mod_stamps:
+                if old.get(name) != mod_stamps[name]:
+                    for d in (gen, obj):
+                        shutil.rmtree(os.path.join(d, name), ignore_errors=True)
+            write_json(state_p, {'mods': libstamp, 'modules': mod_stamps})
+            kept = read_json(os.path.join(lib, MODULE_STAMPS))
+            kept = kept if isinstance(kept, dict) else {}
+            skip = {n for n in mod_stamps if kept.get(n) == mod_stamps[n] and os.path.isfile(os.path.join(lib, 'pkp_%s.a' % n))}
+            for n in sorted(skip):
+                print('Game code of %s unchanged: its kept library is used' % n, flush=True)
             t = time.time()
-            lift(runner, a.exefs, gen, a.jobs, mod_sites(plan, a.exefs, gen))
+            lift(runner, a.exefs, gen, a.jobs, extra, skip)
             times['lift'] = round(time.time() - t, 1)
             t = time.time()
-            compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(build, 'objcache'), a.cache_mb, compiler))
+            compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(build, 'objcache'), a.cache_mb, compiler), skip)
             times['compile'] = round(time.time() - t, 1)
         t = time.time()
         progress('link', 0, 1, 'Linking pkp.exe')
         if not reuse:
-            archive(runner, obj, lib, libstamp, env, os.path.join(gen, 'mod-hooks', MOD_BUILT))
+            archive(runner, obj, lib, libstamp, env, os.path.join(gen, 'mod-hooks', MOD_BUILT), mod_stamps, skip)
         try:
             exe = link(runner, lib, game, env)
         except Fail:
