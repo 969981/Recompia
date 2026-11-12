@@ -21,9 +21,9 @@
 #include "nxrt/gfx.h"
 #include "nxrt/log.h"
 #include "nxrt/platform.h"
+#include "nxrt/present_timing.h"
 #include "nxrt/text.h"
 #include "vk_gauges.h"
-#include "extras/framegen.h"
 #include "extras/temporal.h"
 
 #include <vk_mem_alloc.h>
@@ -51,57 +51,6 @@ nxrt::GaugeCounter& vk_gauge_memory_allocs() { static nxrt::GaugeCounter g("vk.m
 nxrt::GaugeCounter& vk_gauge_memory_bytes() { static nxrt::GaugeCounter g("vk.memory_bytes"); return g; }
 
 }  // namespace nxrt
-
-namespace {
-
-// The queues AMD's frame-generation swapchain asks for besides the game's (extras/framegen.h, gfx.h Device::framegen_queues). The game's queue is
-// queue 0 of its family; each of the other three is a queue nobody else uses: async compute on a family that computes (one that does not draw when
-// the GPU has it), present on a family that presents (the game's first), acquire on any queue left. ok is false when the GPU has too few queues.
-struct FrameGenPlan {
-    struct Slot {
-        uint32_t family = 0, index = 0;
-    };
-    bool ok = false;
-    std::vector<uint32_t> counts;   // the queues to make in each family, the game's included
-    Slot async_compute, present, acquire;
-};
-
-FrameGenPlan plan_framegen_queues(VkPhysicalDevice pd, VkSurfaceKHR surface, uint32_t game_family) {
-    FrameGenPlan p;
-    uint32_t nq = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, nullptr);
-    std::vector<VkQueueFamilyProperties> qf(nq);
-    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, qf.data());
-    p.counts.assign(nq, 0);
-    p.counts[game_family] = 1;
-    auto take = [&](uint32_t f, FrameGenPlan::Slot* out) {
-        if (p.counts[f] >= qf[f].queueCount) return false;
-        out->family = f;
-        out->index = p.counts[f]++;
-        return true;
-    };
-    auto presents = [&](uint32_t f) {
-        VkBool32 ok = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(pd, f, surface, &ok);
-        return ok == VK_TRUE;
-    };
-    bool got = false;
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if ((qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) got = take(f, &p.async_compute);
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if (qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) got = take(f, &p.async_compute);
-    if (!got) return p;
-    got = presents(game_family) && take(game_family, &p.present);
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if (presents(f)) got = take(f, &p.present);
-    if (!got) return p;
-    got = take(game_family, &p.acquire);
-    for (uint32_t f = 0; f < nq && !got; ++f) got = take(f, &p.acquire);
-    p.ok = got;
-    return p;
-}
-
-}  // namespace
 
 namespace nxrt::gfx {
 
@@ -217,6 +166,12 @@ struct Device::Impl {
     std::mutex once_mu;
     VkCommandPool once_pool = VK_NULL_HANDLE;
     VkFence once_fence = VK_NULL_HANDLE;
+
+    // MemoryUse::Shadow buffers: blocks of their own ([gfx] shadow_block_mb, create_buffer)
+    std::mutex shadow_mu;
+    VmaPool shadow_pool = VK_NULL_HANDLE;
+    VkDeviceSize shadow_block = 0;
+    bool shadow_tried = false;
 
     // GPU checkpoints (record_checkpoint, report_lost): what checkpoint number s was is in ck[s % kCkRing]. Each entry is a seqlock: seq
     // is 0 while a writer fills it, then s; the report keeps a copy only when seq read s before and after. Allocated only with the extension.
@@ -682,7 +637,12 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool x_ll2 = x_pid && has_dext(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     if (x_ll2) dev_exts.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
     const bool x_aal = !headless && add_ext(VK_AMD_ANTI_LAG_EXTENSION_NAME, &aal);
-    const bool pw_exposed = has_dext("VK_KHR_present_wait"), pid_exposed = has_dext(VK_KHR_PRESENT_ID_EXTENSION_NAME);   // offered by the device (log line only)
+    // present_timing.h ([latency] present_stats, vblank_lock): when a frame reaches the screen. Enabled only when one of them is on.
+    VkPhysicalDevicePresentWaitFeaturesKHR apw = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    const bool x_pw = x_pid && extras::present_wait_wanted() && add_ext(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, &apw);
+    const bool pw_exposed = has_dext(VK_KHR_PRESENT_WAIT_EXTENSION_NAME), pid_exposed = has_dext(VK_KHR_PRESENT_ID_EXTENSION_NAME);   // offered by the device (log line only)
+    // the other presentation-timing extensions, for the log line: which of them this driver stack offers
+    const bool pw2_exposed = has_dext("VK_KHR_present_wait2"), ptim_exposed = has_dext("VK_EXT_present_timing"), gdt_exposed = has_dext("VK_GOOGLE_display_timing");
     features_.external_memory_host = has_dext(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (features_.external_memory_host) dev_exts.push_back(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (has_dext(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) { dev_exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME); features_.push_descriptor = true; }
@@ -765,6 +725,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     }
     features_.hdr_metadata = x_hdrmd;
     features_.present_id = x_pid && apid.presentId;
+    features_.present_wait = x_pw && apw.presentWait && features_.present_id;
     features_.low_latency2 = x_ll2 && features_.present_id;
     features_.anti_lag = x_aal && aal.antiLag;
     afault.deviceFaultVendorBinary = VK_FALSE;   // the report reads the description, addresses and vendor codes, never the binary dump
@@ -799,47 +760,20 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
         limits_.max_memory_allocation_count = props_.limits.maxMemoryAllocationCount;
     }
     if (!headless) dev_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    // One queue, unless the FidelityFX frame-generation DLL is there: then the three more its swapchain asks for (framegen.h), when the GPU has them.
-    FrameGenPlan fg;
-    if (!headless && extras::framegen_dll_found()) {
-        fg = plan_framegen_queues(physical_, surface_, queue_family_);
-        if (!fg.ok) NXLOG_W(kTag, "frame generation: the FidelityFX DLL is there but the GPU does not have the queues it needs: it stays off");
-    }
-    if (!fg.ok) {
-        fg.counts.assign(queue_family_ + 1, 0);
-        fg.counts[queue_family_] = 1;
-    }
-    const float prios[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-    std::vector<VkDeviceQueueCreateInfo> qcis;
-    for (uint32_t f = 0; f < fg.counts.size(); ++f) {
-        if (!fg.counts[f]) continue;
-        VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        qci.queueFamilyIndex = f;
-        qci.queueCount = fg.counts[f];
-        qci.pQueuePriorities = prios;
-        qcis.push_back(qci);
-    }
+    float prio = 1.0f;
+    VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    qci.queueFamilyIndex = queue_family_;
+    qci.queueCount = 1;
+    qci.pQueuePriorities = &prio;
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &en};
-    dci.queueCreateInfoCount = static_cast<uint32_t>(qcis.size());
-    dci.pQueueCreateInfos = qcis.data();
+    dci.queueCreateInfoCount = 1;
+    dci.pQueueCreateInfos = &qci;
     dci.enabledExtensionCount = static_cast<uint32_t>(dev_exts.size());
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
     volkLoadDevice(device_);
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
-    if (fg.ok) {
-        auto get = [&](const FrameGenPlan::Slot& s, ExtraQueue* q) {
-            vkGetDeviceQueue(device_, s.family, s.index, &q->queue);
-            q->family = s.family;
-        };
-        get(fg.async_compute, &framegen_queues_.async_compute);
-        get(fg.present, &framegen_queues_.present);
-        get(fg.acquire, &framegen_queues_.acquire);
-        framegen_queues_.ok = true;
-        NXLOG_I(kTag, "frame generation queues: async compute %u/%u, present %u/%u, acquire %u/%u (the game's: %u/0)", fg.async_compute.family,
-                fg.async_compute.index, fg.present.family, fg.present.index, fg.acquire.family, fg.acquire.index, queue_family_);
-    }
 
     uint32_t nq = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, nullptr);
@@ -887,8 +821,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
             std::snprintf(b, sizeof b, "%s%u:heap%u/0x%x", i ? " " : "", i, mp->memoryTypes[i].heapIndex, static_cast<unsigned>(mp->memoryTypes[i].propertyFlags));
             types += b;
         }
-        NXLOG_I(kTag, "vk: memory heaps %s; types %s; maxBufferSize %llu; VK_KHR_present_wait %s; VK_KHR_present_id %s", heaps.c_str(), types.c_str(),
-                static_cast<unsigned long long>(limits_.max_buffer_size), pw_exposed ? "yes" : "no", pid_exposed ? "yes" : "no");
+        NXLOG_I(kTag, "vk: memory heaps %s; types %s; maxBufferSize %llu; VK_KHR_present_wait %s%s; VK_KHR_present_id %s; VK_KHR_present_wait2 %s; VK_EXT_present_timing %s; VK_GOOGLE_display_timing %s",
+                heaps.c_str(), types.c_str(), static_cast<unsigned long long>(limits_.max_buffer_size), pw_exposed ? "yes" : "no", features_.present_wait ? " (enabled)" : "",
+                pid_exposed ? "yes" : "no", pw2_exposed ? "yes" : "no", ptim_exposed ? "yes" : "no", gdt_exposed ? "yes" : "no");
     }
 
     VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -909,6 +844,7 @@ Device::~Device() {
         if (impl_->once_fence) { vkDestroyFence(device_, impl_->once_fence, nullptr); vk_gauge_fences().sub(1); }
         if (impl_->once_pool) { vkDestroyCommandPool(device_, impl_->once_pool, nullptr); vk_gauge_command_pools().sub(1); }
     }
+    if (impl_ && impl_->shadow_pool) vmaDestroyPool(vma_, impl_->shadow_pool);   // its buffers went with the NVN back end's pools
     unregister_vma_gauges();   // before the allocator goes: the gauges read it (the registry lock makes this wait for a running read)
     if (vma_) vmaDestroyAllocator(vma_);
     if (device_) vkDestroyDevice(device_, nullptr);
@@ -1207,7 +1143,43 @@ VkResult Device::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, Memo
     }
     VmaAllocationInfo info = {};
     Buffer b;
-    VkResult r = vmaCreateBuffer(vma_, &bi, &ai, &b.buffer, &b.allocation, &info);
+    VkResult r = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    if (use == MemoryUse::Shadow) {
+        // [gfx] shadow_block_mb (default 64; 0: VMA's shared blocks of the memory type, as before): shadows come out of blocks of their
+        // own, a VMA pool of the memory type they would get anyway. The shared blocks are 256 MiB and VMA holds the memory type's lock
+        // while it allocates one, which under Proton takes tens of ms (the kernel driver clears the pages): a thread making shadows
+        // ahead of use ([nvn] pool_copy_spare_mb) would stall every other host-visible allocation of the render thread meanwhile.
+        // A buffer larger than a block, or one the pool cannot give, takes the shared path below.
+        VmaPool pool = VK_NULL_HANDLE;
+        {
+            std::lock_guard<std::mutex> lk(impl_->shadow_mu);
+            if (!impl_->shadow_tried) {
+                impl_->shadow_tried = true;
+                const VkDeviceSize block = static_cast<VkDeviceSize>(std::clamp<int64_t>(config_get_int("gfx", "shadow_block_mb", 64), 0, 1024)) << 20;
+                uint32_t type = 0;
+                VmaPoolCreateInfo pci = {};
+                if (block && vmaFindMemoryTypeIndexForBufferInfo(vma_, &bi, &ai, &type) == VK_SUCCESS) {
+                    pci.memoryTypeIndex = type;
+                    pci.blockSize = block;
+                    if (vmaCreatePool(vma_, &pci, &impl_->shadow_pool) != VK_SUCCESS) impl_->shadow_pool = VK_NULL_HANDLE;
+                }
+                impl_->shadow_block = impl_->shadow_pool ? block : 0;
+                if (impl_->shadow_pool)
+                    NXLOG_I("vk", "shadow buffers (pool_copy): blocks of %llu MiB of their own, memory type %u (shadow_block_mb)",
+                            static_cast<unsigned long long>(block >> 20), static_cast<unsigned>(type));
+                else
+                    NXLOG_I("vk", "shadow buffers (pool_copy): in the allocator's shared blocks (%s)", block ? "no pool could be made" : "shadow_block_mb = 0");
+            }
+            if (size <= impl_->shadow_block) pool = impl_->shadow_pool;
+        }
+        if (pool) {
+            VmaAllocationCreateInfo pa = ai;
+            pa.pool = pool;
+            r = vmaCreateBuffer(vma_, &bi, &pa, &b.buffer, &b.allocation, &info);
+            if (r != VK_SUCCESS) b = Buffer{};
+        }
+    }
+    if (r != VK_SUCCESS) r = vmaCreateBuffer(vma_, &bi, &ai, &b.buffer, &b.allocation, &info);
     if (r != VK_SUCCESS) return r;
     vk_gauge_buffers().add(1);
     if (use == MemoryUse::Shadow) {     // the memory the shadows got, once (which heap and whether cached decides their CPU and GPU cost)

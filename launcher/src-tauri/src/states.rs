@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use tauri::{App, AppHandle, Builder, Manager, Runtime, State, Window};
 
-use crate::{play, relay_cmds, setup_job, storage, update};
+use crate::{mods_catalog, play, relay_cmds, setup_job, storage, update};
 
 pub type PlayHandle = play::PlayState;
 pub type SetupHandle = Arc<setup_job::SetupState>;
@@ -15,6 +15,7 @@ pub type StorageHandle = Arc<storage::StorageState>;
 pub type RelayHandle = relay_cmds::RelayState;
 pub type UpdateHandle = Arc<update::UpdateState>;
 pub type ReleasesHandle = update::ReleaseStore;
+pub type CatalogHandle = mods_catalog::CatalogStore;
 
 /// Command parameter types: `play: PlayArg`, `setup: SetupArg<'_>` in an async command.
 pub type PlayArg<'a> = State<'a, PlayHandle>;
@@ -32,6 +33,7 @@ pub fn install<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(RelayHandle::default())
         .manage(UpdateHandle::default())
         .manage(ReleasesHandle::default())
+        .manage(CatalogHandle::default())
 }
 
 /// `app.play()`, `app.setup()` ... on an `AppHandle` or a window.
@@ -42,6 +44,7 @@ pub trait States {
     fn relay(&self) -> RelayArg<'_>;
     fn updates(&self) -> UpdateArg<'_>;
     fn releases(&self) -> State<'_, ReleasesHandle>;
+    fn mod_catalog(&self) -> State<'_, CatalogHandle>;
 }
 
 macro_rules! states_of {
@@ -64,6 +67,9 @@ macro_rules! states_of {
             }
             fn releases(&self) -> State<'_, ReleasesHandle> {
                 self.state::<ReleasesHandle>()
+            }
+            fn mod_catalog(&self) -> State<'_, CatalogHandle> {
+                self.state::<CatalogHandle>()
             }
         }
     };

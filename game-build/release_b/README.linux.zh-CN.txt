@@ -13,6 +13,6 @@ Pokopia PC @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
 
 更新：将新版本解压到现有安装中覆盖。如果更新更改了游戏代码，启动器会提示你：再次按 Set up，它会重新构建 pkp.exe。你的着色器和存档会保留。
 
-社区与帮助：https://discord.gg/gN5g4MtWHr
+社区与帮助：https://discord.recompia.com
 
 许可证：LICENSE.txt 和 licenses/。

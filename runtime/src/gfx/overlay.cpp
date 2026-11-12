@@ -2,6 +2,8 @@
 // Dear ImGui overlay (declarations in include/nxrt/overlay.h). ImGui and its Vulkan backend are pinned in cmake/gfx_deps.cmake.
 #include "overlay_impl.h"
 
+#include "nxrt/notices.h"
+
 namespace nxrt::gfx {
 using namespace overlay_detail;
 namespace {
@@ -341,9 +343,10 @@ void Overlay::draw(const FrameInfo& f) {
     const bool quit_on = s.quit_open;
     const bool kb_on = !quit_on && s.kb_poll();
     const bool save_on = s.save_notice_visible(now_s);
+    const bool notices_on = notices::any() && !s.ctx.renderer->capture_pending();   // mods' messages: never in a screenshot
     const bool touch_on = s.touch_btn.load(std::memory_order_relaxed) && !kb_on && !quit_on;   // the corner button (menu closed: "Menu", open: "Close")
     const bool layer_on = s.layer_wanted();   // the game's layer (overlay_layer.cpp)
-    if (!s.visible && !counter_on && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
+    if (!s.visible && !counter_on && !note_on && !save_on && !notices_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
         s.last_frame = now;
         s.counter_was_on = false;
         return;
@@ -366,7 +369,7 @@ void Overlay::draw(const FrameInfo& f) {
     }
     // a screenshot leaves the counter out unless asked for; with the menu hidden there is then nothing to draw
     const bool show_counter = counter_on && (s.counter_in_shots.load(std::memory_order_relaxed) || !s.ctx.renderer->capture_pending());
-    if (!s.visible && !show_counter && !note_on && !save_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
+    if (!s.visible && !show_counter && !note_on && !save_on && !notices_on && !ptr_on && !kb_on && !quit_on && !touch_on && !layer_on) {
         s.last_frame = now;
         return;
     }
@@ -395,6 +398,7 @@ void Overlay::draw(const FrameInfo& f) {
     if (show_counter) s.draw_counter(f, now_s);
     if (note_on) s.draw_note(f);
     if (save_on) s.draw_save_notice(f);
+    if (notices_on) s.draw_notices(f, now_s);
     if (ptr_on) {   // a plain arrow, white with a dark outline, sized with the frame height
         const float k = std::max(1.f, static_cast<float>(f.extent.height) / 720.f);
         const float x = s.ptr_x.load(std::memory_order_relaxed), y = s.ptr_y.load(std::memory_order_relaxed);

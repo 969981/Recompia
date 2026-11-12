@@ -61,6 +61,8 @@ enum class Key : uint8_t {
     CraftSearch,
     ItemEditor,
     TitleQuit,
+    PokemonCap,
+    PokemonCapLimit,
     OptionsMenu,
     EventsFile,
     Count

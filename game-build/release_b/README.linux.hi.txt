@@ -13,6 +13,6 @@ Steam से (Deck पर Game Mode): PokopiaLauncher.AppImage को non-Steam 
 
 अपडेट: नई रिलीज़ को अपने इंस्टॉल पर एक्सट्रैक्ट करें। अगर अपडेट गेम का कोड बदलता है, तो लॉन्चर बताता है: फिर Set up दबाएँ और यह pkp.exe दोबारा बनाता है। आपके शेडर और सेव बचे रहते हैं।
 
-समुदाय और सहायता: https://discord.gg/gN5g4MtWHr
+समुदाय और सहायता: https://discord.recompia.com
 
 लाइसेंस: LICENSE.txt और licenses/.

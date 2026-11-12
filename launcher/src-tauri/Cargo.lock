@@ -2263,8 +2263,10 @@ dependencies = [
 name = "pokopia-launcher"
 version = "0.1.1"
 dependencies = [
+ "cc",
  "chrono",
  "libc",
+ "pokopia-relay",
  "serde",
  "serde_json",
  "sha2",
@@ -2274,6 +2276,14 @@ dependencies = [
  "ureq",
  "windows",
  "zstd",
+]
+
+[[package]]
+name = "pokopia-relay"
+version = "0.1.1"
+dependencies = [
+ "libc",
+ "serde",
 ]
 
 [[package]]

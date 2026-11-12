@@ -4,8 +4,14 @@
 //! Builds pkp.exe from the dump (gamebuild.rs) and then the shader cache (shaders.rs), the same code Set up runs; on Linux
 //! it fetches the Linux build tools first (host.rs). Prints each phase's time.
 
+#[allow(dead_code)]
 #[path = "../src/gamebuild.rs"]
 mod gamebuild;
+#[path = "../src/harness.rs"]
+mod harness;
+#[allow(dead_code)]
+#[path = "../src/download.rs"]
+mod download;
 #[allow(dead_code)]
 #[path = "../src/host.rs"]
 mod host;

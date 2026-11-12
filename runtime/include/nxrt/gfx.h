@@ -131,6 +131,7 @@ struct DeviceFeatures {
     bool swapchain_colorspace = false;    // VK_EXT_swapchain_colorspace (instance): HDR10 and scRGB colour spaces in the surface format list
     bool hdr_metadata = false;            // VK_EXT_hdr_metadata
     bool present_id = false;              // VK_KHR_present_id (feature presentId)
+    bool present_wait = false;            // VK_KHR_present_wait (feature presentWait); enabled only for present_timing.h (present_wait_wanted)
     bool low_latency2 = false;            // VK_NV_low_latency2 (NVIDIA Reflex)
     bool anti_lag = false;                // VK_AMD_anti_lag (AMD Anti-Lag 2)
     // Device-lost diagnostics: enabled whenever offered ([gfx] gpu_checkpoints = off leaves the checkpoints off)
@@ -164,18 +165,6 @@ public:
     VkDevice device() const { return device_; }
     VkQueue queue() const { return queue_; }
     uint32_t queue_family() const { return queue_family_; }
-    // The three more queues AMD's frame-generation swapchain asks for (extras/framegen.h), each a queue of its own: one that computes, one that
-    // presents, one that only acquires images. Made with the device when the FidelityFX frame-generation DLL is found, otherwise `ok` is false
-    // and the device has the one queue above.
-    struct ExtraQueue {
-        VkQueue queue = VK_NULL_HANDLE;
-        uint32_t family = 0;
-    };
-    struct FrameGenQueues {
-        ExtraQueue async_compute, present, acquire;
-        bool ok = false;
-    };
-    const FrameGenQueues& framegen_queues() const { return framegen_queues_; }
     std::mutex& queue_mutex() { return queue_mutex_; }              // hold while calling vkQueueSubmit / vkQueuePresentKHR
     VmaAllocator allocator() const { return vma_; }
     VkSurfaceKHR surface() const { return surface_; }              // null when headless
@@ -252,7 +241,6 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queue_family_ = 0;
-    FrameGenQueues framegen_queues_;
     uint32_t timestamp_valid_bits_ = 0;
     std::mutex queue_mutex_;
     VmaAllocator vma_ = nullptr;

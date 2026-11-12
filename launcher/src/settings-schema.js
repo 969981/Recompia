@@ -280,7 +280,7 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
-const DISCORD_URL = 'https://discord.gg/gN5g4MtWHr';
+const DISCORD_URL = 'https://discord.recompia.com';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
@@ -310,6 +310,11 @@ const GAMEPLAY = {
     label: t('Item editor (experimental)'),
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
   },
+  pokemon_cap_50: {
+    label: t('More Pokémon in town'),
+    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.') }) }],
+  },
+  pokemon_cap_limit: { label: t('Pokémon in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
@@ -337,13 +342,6 @@ function gameplayRows() {
     ...keys.filter((k) => k.parent === sw.key).flatMap(gameplayRow),
   ]);
 }
-
-// Asked when frame generation is switched on without AMD's DLL (pages/settings/dlss.js): the download is the only way, and it is a file of AMD's.
-export const FRAMEGEN_DOWNLOAD = {
-  title: t('Download the frame generation file?'),
-  html: `<p>${t('Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.')}</p>`,
-  ok: t('Download'),
-};
 
 export const DLSS_DOWNLOAD = {
   title: t('Download DLSS?'),
@@ -398,11 +396,6 @@ export const SECTIONS = [
           },
           { id: 'vsync', label: t('VSync'), type: 'toggle', ...fromSchema(controls('display', 'vsync')) },
           { id: 'fps_show', label: t('Frame rate counter'), type: 'toggle', ...fromSchema(controls('fps', 'show')) },
-          // AMD FSR 3.1: an extra frame between the game's, the 3D picture only. It needs AMD's DLL (the release does not carry it), so a switch-on without it
-          // is refused with a message (controls.js, guard) and the note says what to do.
-          { id: 'framegen', label: t('Frame generation'), type: 'toggle', guard: 'framegen', lock: (env) => env.dlssBusy, ...fromSchema(controls('framegen', 'enabled')) },
-          { id: 'framegen_note', type: 'note', when: (v, env) => !env.framegenDll,
-            note: () => ({ text: t('Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.') }) },
         ],
       },
     ],

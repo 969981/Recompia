@@ -58,11 +58,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code.
+Code taken from that project carries a `// From pokopia-native (MIT), <path> @7c3655d` header comment. Later ports name their own commit in that comment; `spirv_ballot_per_lane` in `src/gfx/nvn/nvn_spirv_patch.cpp` takes its approach (each counter's ballot made the lane's own bit, NVIDIA only by default) from `windows/docs/ballot-hang.md` and `windows/src/nxrt/vk/vk_shader.c` @4a72d23; its matcher is new code. `spirv_limit_count` in `src/gfx/nvn/nvn_spirv_loop_guard.cpp` is ported from `vkspv_limit_count` in `windows/src/nxrt/vk/vk_shader.c` @9cb7f07 (texel buffer tables only); its shader list is in `games/pkp/render/pkp_render_info.cpp`.
 
 The GPU-made indirect quad arguments (`src/gfx/nvn/nvn_replay.cpp` quad_args_gpu, `src/gfx/nvn/nvn_quad_args_shader.inc`) are based on pokopia-native @27a6df0 (1.2.6), `windows/src/nxrt/vk/vk_replay.c` quad_args and `windows/src/nxrt/vk/shaders/quad_args.comp`, under the same MIT licence; those files carry a `Based on pokopia-native (MIT) ... @27a6df0` header comment.
 
-`third_party/pokopia-coop/` is pokopia-native's co-op module, `windows/src/coop/{coop.h,coop_int.h,*.c}` pinned at commit 035bd9c2905f29eba5b58231bfe97304508a3369 (035bd9c), under the same MIT licence (above). The files are unchanged except for a first line `// From pokopia-native (MIT) windows/src/coop/<file> @4a72d23` and two modifications: `coop_int.h` and `coop_mpnet.c` carry the relay UDP extension (game datagrams over UDP through a relay that supports it, only between our builds; every change is marked `// pokopia-recomp extension: relay UDP`, the protocol is in `launcher/src-tauri/src/relay/mod.rs`), and `coop.h`, `coop_int.h`, `coop_ldn.c`, `coop_plat.c` and `coop_disc.c` carry the LAN sweep and mDNS responder (only on Windows without DNS-SD, Wine and Proton: scanning sweeps the LAN for hosts, hosting answers mDNS with its DNS-SD records, and the network-profile hint is skipped under Wine; marked `// pokopia-recomp extension: LAN sweep` or `mDNS responder`, `[net] lan_sweep`); its tests and `nxnative/` glue are not included. The launcher's relay (`launcher/src-tauri/src/relay/engine.rs`, `--host`) is a Rust port of its `windows/tools/coop-relay` at the same commit, with the same extension. The ldn and bsd services call it for `[net] protocol = native` (Link Play with pokopia-native builds).
+`third_party/pokopia-coop/` is pokopia-native's co-op module, `windows/src/coop/{coop.h,coop_int.h,*.c}` pinned at commit 035bd9c2905f29eba5b58231bfe97304508a3369 (035bd9c), under the same MIT licence (above). The files are unchanged except for a first line `// From pokopia-native (MIT) windows/src/coop/<file> @4a72d23` and two modifications: `coop_int.h` and `coop_mpnet.c` carry the relay UDP extension (game datagrams over UDP through a relay that supports it, only between our builds; every change is marked `// pokopia-recomp extension: relay UDP`, the protocol is in `launcher/relay/src/lib.rs`), and `coop.h`, `coop_int.h`, `coop_ldn.c`, `coop_plat.c` and `coop_disc.c` carry the LAN sweep and mDNS responder (only on Windows without DNS-SD, Wine and Proton: scanning sweeps the LAN for hosts, hosting answers mDNS with its DNS-SD records, and the network-profile hint is skipped under Wine; marked `// pokopia-recomp extension: LAN sweep` or `mDNS responder`, `[net] lan_sweep`); its tests and `nxnative/` glue are not included. The launcher's relay (`launcher/relay/src/engine.rs`, `--host`) is a Rust port of its `windows/tools/coop-relay` at the same commit, with the same extension. The ldn and bsd services call it for `[net] protocol = native` (Link Play with pokopia-native builds).
 
 Its `ampere-lower/` folder is separate: it is GPL-3.0-or-later, not MIT. Per its `NOTICE.md` it is a cut-down build of the `ampere-spirv` tool from the Eden-NS2 emulator fork (https://github.com/0x2593/Eden-NS2, GPL-3.0-or-later): the Switch 2 (Ampere) shader capture and the Ampere-to-Maxwell lowering headers from `src/shader_recompiler/frontend/ampere/`, with `main.cpp` reduced to the lowering stage. The headers are unchanged except for four Pokopia fixes (FSEL operand modifiers, HFMA2 `.H0_NH1` lane swap). Its `LICENSE` is the GPL-3.0 text, the same as the `LICENSE` file at the repository root.
 
@@ -282,6 +282,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+## Modtopia 0.6.1 (MIT)
+
+`third_party/modtopia/` is the Modtopia mod loader 0.6.1: its core (`core/src/*.c`, `*.h`), its SDK headers (`sdk/include/modtopia/`) and
+its function-name mappings (`mappings/*.toml`), copied unchanged from the Modtopia 0.6.1 package. The runtime's mods host
+(`src/mods/`) links the core to run Modtopia mods. `LICENSE`, reproduced verbatim:
+
+```text
+MIT License
+
+Copyright (c) 2026 The Modtopia contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## Ryujinx and ryubing (MIT)

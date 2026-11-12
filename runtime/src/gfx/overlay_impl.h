@@ -109,8 +109,6 @@ struct Overlay::Impl {
     double text_s = -1e9;                 // time of the last text refresh, seconds (far past: refresh at once)
     FpsStats::Snapshot snap;              // the snapshot taken at text_s
     std::string counter_lines[4];
-    uint64_t shown_count = 0;             // frame generation: the presents counted at shown_s, to give the frames shown per second
-    double shown_s = -1, shown_fps = 0;
     int counter_n = 0;
 
     void build_ui();
@@ -130,6 +128,8 @@ struct Overlay::Impl {
     double save_until_s = -1.0;
     bool save_notice_visible(double now_s);
     void draw_save_notice(const FrameInfo& f);
+    // The short messages of nxrt/notices.h (mods' notify): stacked at the bottom left, oldest on top. Left out of screenshots.
+    void draw_notices(const FrameInfo& f, double now_s);
 
     // The on-screen keyboard (services_api.h swkbdui). kb_mu guards the question and its text: key events edit it on the game's main thread,
     // the pad and the mouse in draw() on the presenting thread. Lock order: mu (ImGui), then kb_mu, then the swkbdui question's own lock.

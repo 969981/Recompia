@@ -7,18 +7,23 @@ mod config;
 mod dialogs;
 mod dlss;
 mod dlss_cmds;
+mod download;
 mod dump;
 mod dump_cmds;
 mod error;
 mod events;
-mod framegen;
-mod framegen_cmds;
 mod fsutil;
 mod gamebuild;
 mod guard;
+mod harness;
 mod host;
 mod ini;
 mod lan;
+mod modtopia_ffi;
+mod mods;
+mod mods_catalog;
+mod mods_cmds;
+mod mods_install;
 mod nsp;
 mod launch;
 mod nup;
@@ -32,7 +37,7 @@ mod profile_cmds;
 mod profiles;
 mod public_ip;
 mod readiness;
-mod relay;
+use pokopia_relay as relay;
 mod relay_cmds;
 mod repair;
 mod repair_cmds;
@@ -142,8 +147,6 @@ fn main() {
             storage::cancel_shader_storage,
             dlss_cmds::dlss_status,
             dlss_cmds::fetch_dlss,
-            framegen_cmds::framegen_status,
-            framegen_cmds::fetch_framegen,
             launch::game_status,
             saves::save_sources,
             saves::import_save,
@@ -175,6 +178,14 @@ fn main() {
             relay_cmds::room_code_new,
             relay_cmds::room_code_check,
             relay_cmds::room_code_host,
+            mods_cmds::mods_list,
+            mods_cmds::mods_set_enabled,
+            mods_cmds::mods_move,
+            mods_cmds::mods_set_setting,
+            mods_cmds::mods_remove,
+            mods_cmds::mods_catalog,
+            mods_cmds::mods_install,
+            mods_cmds::open_mods_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");

@@ -158,7 +158,12 @@ int update_hook(::Ctx*, uint64_t, void*) {
     const bool playing = in_game && !game_menu;
     GameFrame gf;
     if (gp && gp->frame) {
-        const double step = timestep::active() ? static_cast<double>(timestep::current_dt()) : static_cast<double>(timestep::kGameStep);
+        // Without a [time] step the step is the time since the previous frame update, i.e. what the frame limiter's wait above let pass
+        // (1/60 s for the first one; held to 1 ms .. 100 ms so a stall or a burst is not taken for a step).
+        static uint64_t last_update_ns = 0;
+        const double measured = last_update_ns ? std::clamp(static_cast<double>(now - last_update_ns) * 1e-9, 0.001, 0.1) : static_cast<double>(timestep::kGameStep);
+        last_update_ns = now;
+        const double step = timestep::active() ? static_cast<double>(timestep::current_dt()) : measured;
         gp->frame(playing, step, &gf);
     }
     if (st.source_owner) st.source_owner->set_look_scale(gf.look_scale);
@@ -259,7 +264,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
             hid::HostMouse hm;
             bool inside = false;
             mm::window_to_picture(geo, st.mouse_x, st.mouse_y, &hm.u, &hm.v, &inside);
-            hm.buttons = overlay_visible ? 0u : st.jc2_buttons;
+            hm.buttons = !overlay_visible && jc2_owns_clicks() ? st.jc2_buttons : 0u;   // npad buttons only while they are the device's
             hm.wheel_x = st.jc2_wheel_x;
             hm.wheel_y = st.jc2_wheel_y;
             hm.focused = (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;
