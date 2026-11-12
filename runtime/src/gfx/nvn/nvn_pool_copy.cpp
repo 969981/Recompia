@@ -8,10 +8,11 @@
 //
 // The rules that keep the shadow right:
 //  * touch (resolve_in_pool, render thread): every resolve copies the pages of the range it binds from guest memory into the shadow, unless
-//    a copy that serves the submission being recorded exists (page_copied), a GPU write into it is still in flight (page_gpu above
-//    the completed serial: the shadow holds newer bytes than guest memory then), or the CPU has not written it since this shadow copied
+//    a copy that serves the submission being recorded exists (page_copied), or the CPU has not written it since this shadow copied
 //    it (the write tracker, nvn_pool_track.h; [nvn] pool_copy_track). A bind of unknown size touches to the end of its chunk. Without
 //    the tracker every bind copied its pages again in every submission: ~49 MiB a frame on a Steam Deck, of which ~1.6 MiB had changed.
+//    On a page with a GPU write still in flight (page_gpu above the completed serial) the shadow holds newer bytes inside the recorded
+//    write ranges only: the rest of the page is copied around them (copy_around, #531).
 //  * record (note_gpu_write, render thread): every range a command may write in pool memory is recorded with the submission's serial
 //    (LandRec), and its pages' page_gpu set to that serial.
 //  * land (nvn_pool_land.cpp; read_completed, any thread; and the nvn-pool-land thread): once the timeline reaches a record's serial, the
@@ -133,6 +134,7 @@ enum Why : int {
     kWhyUntracked,   // its pool has no write tracker, or the copy is not the render thread's: every use copies
     kWhyHot,         // the tracker left it writable (hot, or it cannot be armed): every use copies
     kWhyWritten,     // the tracker saw a CPU write since the last copy
+    kWhyAround,      // a GPU write into the page is in flight: the bytes around it (copy_around)
     kWhyCount
 };
 std::atomic<uint64_t> g_why[kWhyCount];
@@ -385,6 +387,35 @@ void pcopy_free(PoolChunk& c) {
     pcopy::stock_give(c.shadow, g_evict_want);
 }
 
+// Pages [p0, p1) of chunk c hold a GPU write in flight (touch's state 2). The shadow is newer than guest memory only inside the recorded
+// write ranges; every other byte of those pages is the CPU's, and copying none of the page left the GPU reading stale bytes there. A
+// constant buffer the CPU writes can share a 4 KiB page with an UpdateUniformBuffer target or a storage buffer, so a loop count read there
+// could be an older word and run a compute loop for seconds (device lost on AMD, a frozen GPU on NVIDIA: #531, #533). Copies guest ->
+// shadow around every unlanded record of the pool (pcopy::land_busy). A record added after that is a later command's (its GPU write
+// replaces these bytes).
+static uint64_t copy_around(PoolGpu* g, PoolChunk* c, uint64_t p0, uint64_t p1) {
+    const uint64_t lo = c->off + p0 * kPage, hi = c->off + p1 * kPage;   // pool offsets
+    std::vector<std::pair<uint64_t, uint64_t>> busy;
+    pcopy::land_busy(g, lo, hi, busy);
+    std::sort(busy.begin(), busy.end());
+    uint8_t* dst = static_cast<uint8_t*>(c->shadow.mapped) - c->off;
+    const uint8_t* src = g->base;
+    uint64_t at = lo, bytes = 0, bad = 0;
+    const auto copy_to = [&](uint64_t end) {
+        if (end > at) {
+            bad += pcopy::guarded_copy(dst + at, src + at, end - at, true);
+            bytes += end - at;
+        }
+    };
+    for (const auto& [a, b] : busy) {
+        copy_to(a);
+        at = std::max(at, b);
+    }
+    copy_to(hi);
+    if (bad) pcopy::shared().unreadable.fetch_add(bad, std::memory_order_relaxed);
+    return bytes;
+}
+
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t cend = c->off + c->size;
     if (off < c->off || off >= cend) return;
@@ -402,8 +433,9 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t through = rt ? std::max(cur, cfg().once_queued ? queued_serial() : uint64_t{0}) : 0;
     const uint64_t done = completed_serial();
     const uint64_t pbase = c->off / kPage;
-    // 0: a copy that serves this submission exists; 1: copy; 2: a GPU write is in flight there (the shadow is newer), unless nothing was
-    // ever copied into the page of this chunk (a new span over a page another chunk writes): then guest memory is the better source.
+    // 0: a copy that serves this submission exists; 1: copy; 2: a GPU write is in flight there (the shadow is newer inside its range: copy
+    // around it), unless nothing was ever copied into the page of this chunk (a new span over a page another chunk writes): then guest
+    // memory is the better source.
     // ... or (0 too) the CPU has not written the page since this chunk copied it (the write tracker; render thread only).
     PoolTrack* const trk = rt ? g->track : nullptr;
     const auto need = [&](uint64_t p) -> int {
@@ -418,16 +450,26 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint8_t* src = g->base + c->off;
     const uint64_t t0 = ft::on() ? ft::now_ns() : 0;
     uint64_t bytes = 0, why[kWhyCount] = {};
-    bool all = true;
     for (uint64_t p = p0; p < p1;) {
         const int n = need(p);
-        if (n != 1) {
-            if (n == 2) all = false;
+        if (n == 0) {
             ++p;
             continue;
         }
         uint64_t q = p + 1;
-        while (q < p1 && need(q) == 1) ++q;
+        while (q < p1 && need(q) == n) ++q;
+        if (n == 2) {
+            // serves the submission being recorded only, and the tracker does not count it as current: once the write has landed, the
+            // first bind copies the whole page again
+            const uint64_t got = copy_around(g, c, p, q);
+            bytes += got;
+            why[kWhyAround] += (got + kPage - 1) / kPage;
+            if (trk) std::fill(c->page_gen.begin() + static_cast<std::ptrdiff_t>(p), c->page_gen.begin() + static_cast<std::ptrdiff_t>(q), 0u);
+            if (rt)
+                for (uint64_t i = p; i < q; ++i) c->page_copied[static_cast<size_t>(i)] = cur + 1;
+            p = q;
+            continue;
+        }
         for (uint64_t i = p; i < q; ++i) {      // why, before the copy changes what that is read from
             std::atomic<uint8_t>& ld = g->page_landed[static_cast<size_t>(pbase + i)];
             const bool landed = ld.load(std::memory_order_relaxed) != 0;
@@ -455,7 +497,7 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
         bytes += (q - p) * kPage;
         p = q;
     }
-    if (cur && all) {      // [p0, p1) is current for this submission: widen the fast path's interval
+    if (cur) {      // [p0, p1) is current for this submission: widen the fast path's interval
         if (c->cov_serial == cur && p0 <= c->cov_hi && p1 >= c->cov_lo) {
             c->cov_lo = std::min(c->cov_lo, p0);
             c->cov_hi = std::max(c->cov_hi, p1);
@@ -596,8 +638,8 @@ void pcopy_log_summary(uint32_t presents) {
             for (const PoolChunk* c : g_reg) filled += c->filled;
         }
         NXLOG_I(kTag, "pool_copy: copied in, by reason, MiB/s: first copy %.1f, first copy after a drop %.1f, after a landing %.1f, written %.1f, hot %.1f, "
-                      "untracked %.1f; %.1f of it for binds of unknown size; %llu MiB of the live shadows hold a copy",
-                rate[kWhyFirst], rate[kWhyAgain], rate[kWhyLanded], rate[kWhyWritten], rate[kWhyHot], rate[kWhyUntracked],
+                      "untracked %.1f, around a GPU write %.1f; %.1f of it for binds of unknown size; %llu MiB of the live shadows hold a copy",
+                rate[kWhyFirst], rate[kWhyAgain], rate[kWhyLanded], rate[kWhyWritten], rate[kWhyHot], rate[kWhyUntracked], rate[kWhyAround],
                 (unsized - p_unsized) / 1048576.0 / secs, static_cast<unsigned long long>(filled * kPage >> 20));
         p_unsized = unsized;
     }

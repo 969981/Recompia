@@ -414,7 +414,6 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     const ProgLayout* pl = g_cmd.pl;
     if (!pl) return false;
     if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_cmd.dirty |= kDesc;   // c[0] + 0x644 changed: new sets
-    hudless_capture_pending();
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_cmd.dirty & (kDesc | kPipe)) {
         RpScope rp_(kRpPrep);

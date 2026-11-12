@@ -47,6 +47,7 @@ struct LandRec {
 std::mutex g_land_mu;
 std::mutex g_landing_mu;
 std::deque<LandRec> g_land;
+std::vector<LandRec> g_landing;                 // the batch a lander took out of g_land and is copying (under g_land_mu; one lander at a time)
 std::atomic<uint64_t> g_land_min{kNone};        // serial of g_land.front() (kNone: empty), the lock-free test of pcopy_land
 thread_local bool t_landing = false;            // a landing on this thread (a nested read_completed returns at once)
 
@@ -230,6 +231,15 @@ size_t land_pending() {
     return g_land.size();
 }
 
+void land_busy(const PoolGpu* pg, uint64_t lo, uint64_t hi, std::vector<std::pair<uint64_t, uint64_t>>& out) {
+    std::lock_guard<std::mutex> lk(g_land_mu);
+    const auto add = [&](const LandRec& r) {
+        if (r.pool == pg && r.pool_off < hi && r.pool_off + r.size > lo) out.emplace_back(std::max(r.pool_off, lo), std::min(r.pool_off + r.size, hi));
+    };
+    for (const LandRec& r : g_land) add(r);
+    for (const LandRec& r : g_landing) add(r);
+}
+
 }  // namespace pcopy
 
 bool pcopy_busy(const PoolChunk& c) {
@@ -246,7 +256,8 @@ uint64_t pcopy_land(uint64_t reached) {
         std::lock_guard<std::mutex> landing(g_landing_mu);
         // The records leave the queue now, but g_land_min and land_refs stay as they were until the copy is done: a second caller that tests
         // g_land_min still waits on g_landing_mu, so no serial is published before its bytes landed, and pcopy_busy holds the chunks.
-        std::vector<LandRec> batch;
+        // g_landing shows the batch to land_busy from the moment it leaves the queue until its bytes are in guest memory (#531).
+        std::vector<LandRec>& batch = g_landing;
         std::vector<KeptRun> kept;
         {
             std::lock_guard<std::mutex> lk(g_land_mu);
@@ -274,6 +285,7 @@ uint64_t pcopy_land(uint64_t reached) {
             std::lock_guard<std::mutex> lk(g_land_mu);
             for (const LandRec& r : batch)
                 if (r.chunk->land_refs) --r.chunk->land_refs;
+            batch.clear();
             land_min_update();
         }
     }

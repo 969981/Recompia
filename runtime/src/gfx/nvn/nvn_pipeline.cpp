@@ -38,6 +38,8 @@
 
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
+#include "nxrt/game.h"
+#include "nxrt/game_render.h"
 #include "nxrt/gauge.h"
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
@@ -400,6 +402,33 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
                 NXLOG_I(kTag, "ballot_fix: shader %s: %d ballot%s of %d counter%s made per lane", what ? what : "?", br.ballots,
                         br.ballots == 1 ? "" : "s", br.groups, br.groups == 1 ? "" : "s");
         }
+    }
+    // [nvn] loop_guard: the game's compute loops whose count is a constant buffer word get it limited (game::Render::loop_guards,
+    // spirv_limit_count). auto (default): by the table's size on NVIDIA and under Wine (Mesa's drivers: RADV on the Deck and other AMD
+    // handhelds, #531); a plain cap of 16384 elsewhere (AMD's Windows driver crashed making pokopia-native's size-query version). A loop of
+    // up to 16384 items a lane can still pass the Deck's 5 s GPU timeout, so the table size is used wherever it builds. table / cap: that on
+    // any GPU. off: never.
+    static const int loop_guard = [] {   // 0 off, 1 table, 2 cap
+        const game::Render* gr = game::info().render;
+        if (!gr || !gr->loop_guard_count) return 0;
+        const std::string v = config_get_str("nvn", "loop_guard", "auto");
+        const uint32_t vendor = device().properties().vendorID;
+        const int m = v == "off" || v == "false" || v == "0" ? 0 : v == "table" ? 1 : v == "cap" ? 2 : vendor == 0x10de || host_is_wine() ? 1 : 2;
+        NXLOG_I(kTag, "loop_guard = %s (%s, vendor 0x%04x%s)", v.c_str(), m == 0 ? "off" : m == 1 ? "table size" : "cap 16384", vendor,
+                host_is_wine() ? ", Wine" : "");
+        return m;
+    }();
+    std::vector<uint32_t> guarded[2];
+    if (loop_guard && what) {
+        const game::Render& gr = *game::info().render;
+        int n = 0, k = 0;
+        for (uint32_t g = 0; g < gr.loop_guard_count; g++) {
+            const game::LoopGuard& lg = gr.loop_guards[g];
+            if (std::strcmp(lg.shader, what) != 0) continue;
+            const int c = spirv_limit_count(*code, {lg.count_var, lg.word, lg.table_var, lg.stride}, loop_guard == 1, guarded[k]);
+            if (c) code = &guarded[k], k ^= 1, n += c;
+        }
+        if (n) NXLOG_I(kTag, "loop_guard: shader %s: %d count comparison%s limited", what, n, n == 1 ? "" : "s");
     }
     // Every Location output of a vertex / tessellation evaluation / geometry shader starts at (0,0,0,1) as on the console: a component the
     // shader never writes is undefined in Vulkan, and RADV hands NaN where AMD's Windows driver hands 0 (spirv_init_outputs). Every

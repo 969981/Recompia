@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 #include "nvn_gpu_internal.h"
 
@@ -36,6 +38,9 @@ void land_stop();                  // pcopy_shutdown: the thread stops and every
 bool land_record(PoolGpu* pg, PoolChunk* c, uint64_t off, uint64_t size, uint64_t serial);
 void land_forget(PoolChunk& c);    // the chunk is destroyed: its records go, and no landing reads its shadow after this returns
 size_t land_pending();             // records waiting for their serial
+// Pool byte ranges in [lo, hi) of pg that a GPU write recorded and not landed yet may hold (the queue and the batch being landed), clipped to
+// [lo, hi), appended to out unsorted. The shadow's bytes there are newer than guest memory until they land.
+void land_busy(const PoolGpu* pg, uint64_t lo, uint64_t hi, std::vector<std::pair<uint64_t, uint64_t>>& out);
 bool land_keep();                  // [nvn] pool_copy_land_keep: a landing leaves the pages it copies into current (read once)
 // No landing runs while one of these lives (the write tracker of a pool with records is stopped under it).
 class LandingPause {
