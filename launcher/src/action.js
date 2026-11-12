@@ -93,6 +93,7 @@ export function primaryAction(s) {
   if (kind === 'setup') return on(stopped ? t('Continue setup') : t('Set up'), 'wrench', 'setup');
   if (kind === 'resume') return on(t('Continue setup'), 'wrench', 'setup');
   if (needsFinish(kind)) return on(t('Finish update'), 'wrench', 'setup');
+  if (kind === 'mods') return on(t('Set up again'), 'wrench', 'setup');   // the mods' hook points changed (Mods page)
   if (kind === 'ready') return on(t('Play'), 'play', 'play');
   return off(t('Not ready'), 'circle-alert', false);   // a kind this build does not know must not fall through to Play
 }

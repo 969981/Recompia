@@ -7,6 +7,7 @@ mod config;
 mod dialogs;
 mod dlss;
 mod dlss_cmds;
+mod download;
 mod dump;
 mod dump_cmds;
 mod error;
@@ -18,6 +19,11 @@ mod harness;
 mod host;
 mod ini;
 mod lan;
+mod modtopia_ffi;
+mod mods;
+mod mods_catalog;
+mod mods_cmds;
+mod mods_install;
 mod nsp;
 mod launch;
 mod nup;
@@ -172,6 +178,14 @@ fn main() {
             relay_cmds::room_code_new,
             relay_cmds::room_code_check,
             relay_cmds::room_code_host,
+            mods_cmds::mods_list,
+            mods_cmds::mods_set_enabled,
+            mods_cmds::mods_move,
+            mods_cmds::mods_set_setting,
+            mods_cmds::mods_remove,
+            mods_cmds::mods_catalog,
+            mods_cmds::mods_install,
+            mods_cmds::open_mods_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");

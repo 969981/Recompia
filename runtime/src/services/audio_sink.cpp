@@ -92,6 +92,7 @@ std::shared_ptr<AudioSink> sink() {
         if (!chosen) chosen = std::make_shared<NullSink>();
         const std::string wav = config_get_str("audio", "wav_dump", "");
         if (!wav.empty()) chosen = make_wav_tee(chosen, wav);
+        chosen = make_voice_mixer(chosen);   // extra voices (mods' sound) under the game's output; also in the WAV dump
         g_sink = chosen;
         NXLOG_I("audio", "host audio sink: %s", g_sink->name());
     }

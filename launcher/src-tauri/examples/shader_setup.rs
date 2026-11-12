@@ -6,6 +6,9 @@
 #[path = "../src/harness.rs"]
 mod harness;
 #[allow(dead_code)]
+#[path = "../src/download.rs"]
+mod download;
+#[allow(dead_code)]
 #[path = "../src/host.rs"]
 mod host;
 #[allow(dead_code)]

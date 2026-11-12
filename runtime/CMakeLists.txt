@@ -58,6 +58,8 @@ target_link_libraries(nxrt PUBLIC psapi)
 add_subdirectory(third_party/pokopia-coop)   # [net] protocol = native: pokopia-native's Link Play (MIT, C11)
 target_link_libraries(nxrt PRIVATE pokopia_coop)
 add_subdirectory(third_party/miniz)   # zlib streams (MIT): the Pokopia save repair, games/pkp/core/pkp_save_uuid.cpp
+add_subdirectory(third_party/modtopia)   # the Modtopia mod loader core (MIT, C11): the mods host, src/mods/ (nxrt/mods.h)
+target_link_libraries(nxrt PUBLIC nxrt_modtopia PRIVATE nxrt_modtopia_mappings)
 include(cmake/media_deps.cmake)   # libvpx for the Switch 2 video decoders (optional)
 
 if(NXRT_BUILD_GFX)
