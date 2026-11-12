@@ -47,13 +47,14 @@ void save_key(const Row& r, int pos) {
 
 Shape StaticTab::shape(int i) const {
     const Row& r = rows_[i];
-    const Use use = r.text == &mouse_mode_text ? Use::Capture : r.live ? Use::Live : Use::Value;
+    const Use use = r.capture ? Use::Capture : r.live ? Use::Live : Use::Value;
     return Shape{r.choices, r.lo, row_hi(r), use};
 }
 
 const char* StaticTab::value_text(int i, int pos, char* out, size_t n) const {
     const Row& r = rows_[i];
     if (r.choices) return r.names[std::clamp(pos, 0, r.choices - 1)];
+    if (r.capture) return capture::text(*r.capture, out, n);
     if (r.text) return r.text(pos, out, n);
     if (r.list) return r.list[std::clamp(pos - r.lo, 0, r.hi - r.lo)];
     if (r.zero && pos == r.lo) return r.zero;

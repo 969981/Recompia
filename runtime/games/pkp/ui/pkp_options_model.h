@@ -15,7 +15,7 @@ namespace nxrt::games::pkp::options_detail {
 enum class Use : uint8_t {
     Value,      // the game stores it; it takes effect when the screen commits
     Live,       // the same, and preview() shows it at once
-    Capture,    // moving it starts a key capture (the Mouse Mode Key)
+    Capture,    // moving it starts a key capture for capture() (pkp_options_capture.h); the client saves the key at once
     Press,      // a button: press() acts at once and sets the tab's values; the game's store is skipped
     ReadOnly,   // shows a value; the game's store is skipped, nothing changes
     Rows,       // moving it changes the tab's own rows (pick()): the screen rebuilds the list
@@ -48,6 +48,7 @@ public:
     // (valid until its rows change).
     virtual const char* value_text(int i, int pos, char* out, size_t n) const = 0;
     virtual int def(int i) const = 0;   // the record's default position
+    virtual CaptureClient* capture(int) const { return nullptr; }   // Use::Capture: who takes the key
 
     virtual void open() = 0;                                      // the screen opened: cur = orig = the values in force
     virtual void commit(Apply& a) = 0;                            // the screen commits: the changed rows take effect
@@ -78,6 +79,7 @@ public:
     bool restart(int i) const override { return rows_[i].restart; }
     const char* value_text(int i, int pos, char* out, size_t n) const override;
     int def(int i) const override;
+    CaptureClient* capture(int i) const override { return rows_[i].capture; }
     void open() override;
     void commit(Apply& a) override;
     void revert() override;
