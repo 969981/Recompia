@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
-// over the picture (notify), the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp). Every other callback (notify_image,
-// screenshot, key_down, colour matrix, HUD, network, audio, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// over the picture (notify), the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound under the game's (audio_*).
+// Every other callback (notify_image, screenshot, key_down, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
 #include <string>
 
 #include "mods_internal.h"
+#include "nxrt/audio_sink.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
@@ -164,6 +165,17 @@ int be_pad_read(void*, int p, MtPad* out) { return pad_read(p, out); }
 int be_pad_hold(void*, int p, const MtPad* add) { return pad_hold(p, add); }
 int be_pad_block(void*, int p, const MtPad* mask) { return pad_block(p, mask); }
 
+// A mod's sound: the core gives each mod that plays a voice (0..MT_AUDIO_VOICES - 1), mixed under the game's output (nxrt/audio_sink.h).
+static_assert(MT_AUDIO_VOICES <= audio::kExtraVoices, "a voice for every voice the core gives out");
+int be_audio_write(void*, int voice, const int16_t* stereo, int frames) {
+    return frames > 0 ? static_cast<int>(audio::extra_voice_write(voice, stereo, static_cast<uint32_t>(frames))) : 0;
+}
+int be_audio_queued(void*, int voice) { return static_cast<int>(audio::extra_voice_queued(voice)); }
+int be_audio_clear(void*, int voice) {
+    audio::extra_voice_clear(voice);
+    return MT_OK;
+}
+
 // A mod's message over the picture (nxrt/notices.h); its newer one replaces its earlier one.
 int be_notify(void*, const char* mod_id, const char* text, double seconds) {
     if (!mod_id || !text) return MT_ERR_UNKNOWN;
@@ -206,6 +218,9 @@ MtBackend make_backend() {
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;
     be.pad_block = &be_pad_block;
+    be.audio_write = &be_audio_write;
+    be.audio_queued = &be_audio_queued;
+    be.audio_clear = &be_audio_clear;
     return be;
 }
 

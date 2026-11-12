@@ -81,6 +81,16 @@ std::shared_ptr<AudioSink> make_paced_sink(double skew_ppm = 0.0);
 // src/services/audio_wav.cpp.
 std::shared_ptr<AudioSink> make_wav_tee(std::shared_ptr<AudioSink> inner, const std::string& path);
 
+// Extra voices mixed under the game's own output (a mod's sound): kExtraVoices of them, each PCM16 stereo at 48000 Hz with a one-second
+// buffer. Any thread. The sink sink() picks is wrapped in make_voice_mixer, which adds the queued frames of every voice to each write of
+// the audio services, as many as the game writes, while the output runs at 48000 Hz in stereo or 5.1 (front left and right); at another
+// rate they are left out. The output's volume and mute apply to them too. src/services/audio_voices.cpp.
+constexpr int kExtraVoices = 8;
+uint32_t extra_voice_write(int voice, const int16_t* stereo, uint32_t frames);   // frames taken (0: its buffer is full)
+uint32_t extra_voice_queued(int voice);                                          // frames not played yet
+void extra_voice_clear(int voice);                                               // drops them
+std::shared_ptr<AudioSink> make_voice_mixer(std::shared_ptr<AudioSink> inner);
+
 // Writes 16-bit PCM WAV files. Stereo is WAVE_FORMAT_PCM; 6 channels is WAVE_FORMAT_EXTENSIBLE with channel mask 0x3F.
 // The header sizes are kept valid while the file is open, so a process that dies without close() still leaves a readable file.
 class WavWriter {
