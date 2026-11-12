@@ -283,7 +283,7 @@ export async function render(el, ctx) {
       case 'remove': return remove(id);
       case 'install': return install(id);
       case 'folder': return api.openModsDir().catch((err) => toast(errText(err), 'error'));
-      case 'link': return api.openReleaseUrl({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error'));
+      case 'link': return api.openLink({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error'));
       case 'refresh': return loadCatalog(true);
       case 'reload': return loadList();
       case 'setup': return store.perform('setup', ctx.go);

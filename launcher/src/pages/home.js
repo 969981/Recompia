@@ -148,7 +148,7 @@ export function render(el, ctx) {
     if (!t || t.disabled) return;
     if (t.id === 'primary') store.perform(primaryAction(store.state).run, ctx.go);
     if (t.id === 'link-chip') ctx.go('linkplay');
-    if (t.id === 'discord-chip') api.openReleaseUrl({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
+    if (t.id === 'discord-chip') api.openLink({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
