@@ -2,8 +2,8 @@
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
 // over the picture (notify), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
-// under the game's (audio_*) and which keyboard keys are held (key_down).
-// Every other callback (notify_image, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// under the game's (audio_*), which keyboard keys are held (key_down) and a colour matrix over the final picture (color_matrix).
+// Every other callback (notify_image, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
@@ -11,6 +11,7 @@
 
 #include "mods_internal.h"
 #include "nxrt/audio_sink.h"
+#include "nxrt/color_matrix.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/kernel.h"
 #include "nxrt/key_state.h"
@@ -198,6 +199,13 @@ int be_screenshot(void*, const char* path) {
 // focus (cleared on focus loss), so an unfocused window or an unknown name reads 0.
 int be_key_down(void*, const char* key) { return key && key_state::down_by_name(key) ? 1 : 0; }
 
+// The final picture's colour matrix: the core passes the last loaded mod's (null when no mod has one); the host keeps the latest and the
+// output pass applies it from the next presented frame (nxrt/color_matrix.h).
+int be_color_matrix(void*, const float* m12) {
+    color_matrix::set(m12);
+    return MT_OK;
+}
+
 }  // namespace
 
 bool take_skip(uint64_t site) {
@@ -232,6 +240,7 @@ MtBackend make_backend() {
     be.notify = &be_notify;
     be.screenshot = &be_screenshot;
     be.key_down = &be_key_down;
+    be.color_matrix = &be_color_matrix;
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;
     be.pad_block = &be_pad_block;
