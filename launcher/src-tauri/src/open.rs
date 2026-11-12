@@ -6,9 +6,9 @@ use tauri::AppHandle;
 use crate::config::game_dir;
 use crate::play;
 
-/// Opens a release page in the default browser.
+/// Opens an allow-listed link (release pages, issues, Discord invite, mod hub pages) in the default browser.
 #[tauri::command]
-pub fn open_release_url(url: String) -> Result<(), String> {
+pub fn open_link(url: String) -> Result<(), String> {
     if !openable_link(&url) {
         return Err("That link cannot be opened from here.".into());
     }

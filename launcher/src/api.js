@@ -22,7 +22,7 @@ export const api = {
   cancelUpdate: () => invoke('cancel_update'),
 
   // Opening links, files and folders
-  openReleaseUrl: (args) => invoke('open_release_url', args),   // { url }
+  openLink: (args) => invoke('open_link', args),   // { url }
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),
   openSaveDir: () => invoke('open_save_dir'),
