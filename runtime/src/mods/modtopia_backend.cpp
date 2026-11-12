@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
-// over the picture (notify, notify_image), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
-// under the game's (audio_*), which keyboard keys are held (key_down) and a colour matrix over the final picture (color_matrix).
-// Every other callback (HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// over the picture (notify, notify_image), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block:
+// modtopia_input.cpp), sound under the game's (audio_*), which keyboard keys are held (key_down), a colour matrix over the final picture
+// (color_matrix) and HTTP(S) requests (net_request). Every other callback (HUD, file notes) stays NULL: the core then tells a mod that asks
+// for it that this host has none (MT_ERR_VERSION).
 #include <windows.h>
 
 #include <cstring>
 #include <string>
 
+#include "../net/http_client.h"
 #include "mods_internal.h"
 #include "nxrt/audio_sink.h"
 #include "nxrt/color_matrix.h"
@@ -214,6 +216,26 @@ int be_color_matrix(void*, const float* m12) {
     return MT_OK;
 }
 
+// One HTTP(S) request off the calling thread (src/net/http_client.h: https only but for localhost, no redirects, no cookies or sign-in). The
+// core has checked the URL against the mod's hosts and keeps at most 4 of a mod's waiting; the client caps the whole process. The sizes are
+// modtopia.h's: a body of at most 64 KiB, an answer of at most 256 KiB (longer: no answer, status 0). done runs once, on the request's worker.
+constexpr size_t kNetBodyMax = size_t{64} << 10, kNetAnswerMax = size_t{256} << 10;
+int be_net_request(void*, const char* method, const char* url, const char* body, size_t n, void (*done)(void*, int, const char*, size_t),
+                   void* token) {
+    if (!method || !url || !done) return MT_ERR_UNKNOWN;
+    if (n > kNetBodyMax || (n && !body)) return MT_ERR;
+    http::Request r;
+    r.method = method;
+    r.url = url;
+    if (n) r.body.assign(body, n);
+    r.user_agent = host().host_name;
+    r.max_answer = kNetAnswerMax;
+    const bool started = http::start(std::move(r), [done, token](int status, std::string answer) {
+        done(token, status, answer.data(), answer.size());
+    });
+    return started ? MT_OK : MT_ERR_STATE;
+}
+
 }  // namespace
 
 bool take_skip(uint64_t site) {
@@ -250,6 +272,7 @@ MtBackend make_backend() {
     be.screenshot = &be_screenshot;
     be.key_down = &be_key_down;
     be.color_matrix = &be_color_matrix;
+    be.net_request = &be_net_request;
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;
     be.pad_block = &be_pad_block;
