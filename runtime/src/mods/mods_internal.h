@@ -40,6 +40,12 @@ struct Host {
 Host& host();
 
 MtBackend make_backend();   // modtopia_backend.cpp: every callback the host provides; the rest NULL
+// modtopia_input.cpp: the players' pads for mods, through the hid service's input filter (installed once, when a code mod started).
+void install_input();
+int pad_read(int p, MtPad* out);
+int pad_hold(int p, const MtPad* add);
+int pad_block(int p, const MtPad* mask);
+
 // call_original's thread-local "skip this site once": true (and the flag cleared) when the entry stop at site is to be skipped now.
 bool take_skip(uint64_t site);
 

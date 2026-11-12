@@ -245,6 +245,7 @@ void start(const StartOptions& opt) {
     lay_overlay(L);
     const std::vector<std::string> waiting = h.code_held ? code_mods(L, false) : std::vector<std::string>();
     const int code = mt_loader_start(L);
+    if (code > 0) detail::install_input();   // the pads mods read and hold, only once a code mod runs
     if (h.code_held) report_held(L, waiting);
     if (mt_loader_apply_patches(L) > 0) lay_overlay(L);
     mt_loader_check_data(L);
