@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'L\'unità è piena ({1}). Libera spazio oppure sposta la cartella del gioco su un\'unità più grande.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'La configurazione non può scrivere in questa cartella ({1}). Controlla che la cartella non sia di sola lettura oppure sposta la cartella del gioco in un posto come C:\\Games.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '«{1}» è stato aggiunto a Steam per 1 account. Riavvia Steam per vederlo, con la sua illustrazione.',
+  'Item editor (experimental)': 'Editor degli oggetti (sperimentale)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Aggiunge una scheda «Items» alla schermata delle impostazioni del gioco, dove cambi quante unità hai di un oggetto nella borsa. Disattivato durante Link Play. Fai prima un backup del salvataggio.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Le tue mod richiedono nuovi punti di aggancio: Configura di nuovo (pochi minuti; shader e salvataggi restano).',
@@ -774,6 +776,9 @@ export default {
   'Allow and switch on': 'Consenti e attiva',
   'Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.': 'Le tue mod che cambiano il gameplay: {mods}. Tutti nella sessione hanno bisogno delle stesse.',
   'Close the game to change your mods.': 'Chiudi il gioco per modificare le tue mod.',
+  'Updated by itself: {list}': 'Aggiornato automaticamente: {list}',
+  'Update mods by themselves': 'Aggiorna le mod automaticamente',
+  'Once each time the launcher starts, from the mod hub. Mods you switched off stay off.': 'Una volta a ogni avvio del launcher, dall’hub delle mod. Le mod che hai disattivato restano disattivate.',
   '(after a restart of the game)': '(dopo un riavvio del gioco)',
   '{name} on': '{name} attiva',
   'Load {name} earlier': 'Carica {name} prima',

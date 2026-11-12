@@ -6,12 +6,13 @@
 use std::path::PathBuf;
 use tauri::AppHandle;
 
-use crate::config::{config_path, game_dir};
+use crate::config::{config_path, game_dir, load_config};
 use crate::guard::{ensure_idle, Need};
 use crate::mods::{self, ModsView};
 use crate::mods_catalog::{self, CatalogView};
+use crate::mods_update::Updated;
 use crate::states::States;
-use crate::{mods_install, play};
+use crate::{mods_install, mods_update, play};
 
 async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
@@ -80,6 +81,26 @@ pub async fn mods_catalog(app: AppHandle, refresh: Option<bool>) -> Result<Catal
 pub async fn mods_install(app: AppHandle, id: String) -> Result<ModsView, String> {
     let dir = idle_game_dir(&app)?;
     off_thread(move || mods_install::install(&dir, &app.mod_catalog(), &catalog_cache(&app), &id)).await
+}
+
+/// The update by itself: when the player's preference is on, once per launcher session, installed mods get the hub's newer versions.
+/// Returns what was updated (the page says it once). Quietly nothing while the game, Set up or an update runs.
+#[tauri::command]
+pub async fn mods_auto_update(app: AppHandle) -> Result<Vec<Updated>, String> {
+    if !load_config(&app).mods_auto_update {
+        return Ok(Vec::new());
+    }
+    let dir = match idle_game_dir(&app) {
+        Ok(dir) => dir,
+        Err(why) => {
+            eprintln!("mods: update by itself skipped: {why}");
+            return Ok(Vec::new());
+        }
+    };
+    if !app.mods_update().claim() {
+        return Ok(Vec::new());
+    }
+    off_thread(move || mods_update::run(&dir, &app.mod_catalog(), &catalog_cache(&app))).await
 }
 
 /// Opens the mods folder (made when missing, so the player can drop mods into it).
