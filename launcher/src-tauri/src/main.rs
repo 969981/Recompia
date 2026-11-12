@@ -19,6 +19,8 @@ mod harness;
 mod host;
 mod ini;
 mod lan;
+mod modtopia_ffi;
+mod mods;
 mod nsp;
 mod launch;
 mod nup;
