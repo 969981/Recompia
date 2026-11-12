@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- When the shader translator closes without a word during Set up under Proton ("Translating shaders: 0 of 99012", #530), Set up now runs that batch again with lighter settings (workstation memory management, 2 jobs) and keeps them for the rest of the shaders. setup.log also shows the translator's last steps when it fails. Update only: no shader rebuild, no Set up again
-
 ## 0.11.0 (build O: Ocelot)
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
@@ -44,6 +42,7 @@ Ocelot brings Recompia's own **official relay server**, so friends anywhere in t
 - New **Show on Discord while playing** in Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Thanks to darkxex (#511)
 - The launcher shows **Recompia** branding by default (#532)
 - The Discord links in the launcher, the READMEs and the website use the new invite, discord.recompia.com
+- When the shader translator closes without a word during Set up under Proton ("Translating shaders: 0 of 99012", #530), Set up now runs that batch again with lighter settings (workstation memory management, 2 jobs) and keeps them for the rest of the shaders. setup.log also shows the translator's last steps when it fails
 
 ### Game
 - Fixed the random **"The graphics device was lost"** crash on Steam Deck and other Linux PCs (Proton), and the matching full freeze on NVIDIA under Linux (#531, #533)
