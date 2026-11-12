@@ -4,6 +4,7 @@
 #include "input/pkp_aim.h"
 #include "input/pkp_aim_debug.h"
 #include "ui/pkp_craft.h"
+#include "ui/pkp_item_edit.h"
 #include "core/pkp_feature.h"
 #include "input/pkp_jump.h"
 #include "input/pkp_kbm.h"
@@ -61,6 +62,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //                       order
 //   key_guide           after its clients: its install registers the hooks they need
 //   options             after title: title's frame callback runs first
+//   item_edit           no hooks and no callbacks: the Options screen's Items tab calls it when it opens and commits (pkp_item_edit.h)
 // No other two features hook the same address.
 //
 // Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]
@@ -87,7 +89,8 @@ constexpr Entry kEntries[] = {
 #endif
     port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
-    mod(&kCraftFeature, CraftSearch), mod(&kPokemonCapFeature, PokemonCap), port(&key_guide::kKeyGuideFeature),
+    mod(&kCraftFeature, CraftSearch), mod(&kItemEditFeature, ItemEditor), mod(&kPokemonCapFeature, PokemonCap),
+    port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
 };
 constexpr size_t kFeatureCount = std::size(kEntries);

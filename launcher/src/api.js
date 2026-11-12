@@ -22,7 +22,7 @@ export const api = {
   cancelUpdate: () => invoke('cancel_update'),
 
   // Opening links, files and folders
-  openReleaseUrl: (args) => invoke('open_release_url', args),   // { url }
+  openLink: (args) => invoke('open_link', args),   // { url }
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),
   openSaveDir: () => invoke('open_save_dir'),
@@ -95,5 +95,6 @@ export const api = {
   modsRemove: (args) => invoke('mods_remove', args),   // { id }
   modsCatalog: (args) => invoke('mods_catalog', args),   // { refresh }
   modsInstall: (args) => invoke('mods_install', args),   // { id }
+  modsAutoUpdate: () => invoke('mods_auto_update'),   // [{ name, from, to }] updated, once per session, only with the launcher preference on
   openModsDir: () => invoke('open_mods_dir'),
 };

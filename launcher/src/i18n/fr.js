@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'Le lecteur est plein ({1}). Libérez de l\'espace, ou déplacez le dossier du jeu vers un plus grand lecteur.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'L\'installation ne peut pas écrire dans ce dossier ({1}). Vérifiez que le dossier n\'est pas en lecture seule, ou déplacez le dossier du jeu vers un endroit comme C:\\Games.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '« {1} » a été ajouté à Steam pour 1 compte. Relancez Steam pour le voir, avec son illustration.',
+  'Item editor (experimental)': 'Éditeur d\'objets (expérimental)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Ajoute un onglet « Items » à l\'écran des paramètres du jeu, où vous changez le nombre d\'exemplaires d\'un objet de votre sac. Désactivé pendant Link Play. Sauvegardez d\'abord votre partie.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Vos mods ont besoin de nouveaux points d\'accroche : Relancer l\'installation (quelques minutes ; shaders et sauvegardes sont conservés).',
@@ -774,6 +776,9 @@ export default {
   'Allow and switch on': 'Autoriser et activer',
   'Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.': 'Vos mods qui changent le gameplay : {mods}. Tout le monde dans la session a besoin des mêmes.',
   'Close the game to change your mods.': 'Fermez le jeu pour modifier vos mods.',
+  'Updated by itself: {list}': 'Mis à jour automatiquement : {list}',
+  'Update mods by themselves': 'Mettre à jour les mods automatiquement',
+  'Once each time the launcher starts, from the mod hub. Mods you switched off stay off.': 'Une fois à chaque démarrage du lanceur, depuis le hub de mods. Les mods que vous avez désactivés restent désactivés.',
   '(after a restart of the game)': '(après un redémarrage du jeu)',
   '{name} on': '{name} activé',
   'Load {name} earlier': 'Charger {name} plus tôt',

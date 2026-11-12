@@ -285,6 +285,7 @@ const LOOSE = { mode: 'loose', loose_files: 99_012, loose_bytes: 26.3 * 2 ** 30,
 const PACKED = { mode: 'compact', loose_files: 3, loose_bytes: 0.001 * 2 ** 30, archive_shaders: 99_012, archive_bytes: 5.2 * 2 ** 30, archive_raw_bytes: 26.3 * 2 ** 30, free_estimate: 0, complete: true, running: false };
 let storage = structuredClone(sc.storage === 'packed' ? PACKED : sc.storage === 'none' ? { ...LOOSE, mode: 'none', loose_files: 0, loose_bytes: 0, complete: false } : LOOSE);
 let repackStop = false;
+let modsAutoUpdate = false;   // config mods_auto_update
 let looseShaders = false;   // config loose_shaders
 async function runRepack(kind) {
   repackStop = false;
@@ -341,11 +342,11 @@ function handle(cmd, args) {
     case 'preflight': return sleep(500).then(() => ({ ...PREFLIGHT[sc.preflight || 'ok'], need_bytes: (looseShaders ? 31 : 14) * 2 ** 30 }));
     case 'start_setup': return runSetup();
     case 'cancel_setup': return pauseSetup();
-    case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_release_url':
+    case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_link':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel };
-    case 'save_config': looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; return null;
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate };
+    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; return null;
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';
     case 'pick_nup': return 'D:/Downloads/pokopia-2.0.1a.nup';
@@ -438,6 +439,7 @@ function handle(cmd, args) {
     case 'mods_remove': mockMods.mods = mockMods.mods.filter((m) => m.id !== args.id); return structuredClone(mockMods);
     case 'mods_catalog': return structuredClone(mockCatalog);
     case 'mods_install': return structuredClone(mockMods);
+    case 'mods_auto_update': return [];
     case 'open_mods_dir': return null;
     default:
       console.warn('[mock] unknown command', cmd, args);

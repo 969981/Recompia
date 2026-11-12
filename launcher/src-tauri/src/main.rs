@@ -24,6 +24,7 @@ mod mods;
 mod mods_catalog;
 mod mods_cmds;
 mod mods_install;
+mod mods_update;
 mod nsp;
 mod launch;
 mod nup;
@@ -121,7 +122,7 @@ fn main() {
             update_cmds::list_builds,
             update_cmds::install_version,
             update_cmds::cancel_update,
-            open::open_release_url,
+            open::open_link,
             config::save_config,
             readiness::get_overview,
             dialogs::pick_folder,
@@ -185,6 +186,7 @@ fn main() {
             mods_cmds::mods_remove,
             mods_cmds::mods_catalog,
             mods_cmds::mods_install,
+            mods_cmds::mods_auto_update,
             mods_cmds::open_mods_dir,
         ])
         .run(tauri::generate_context!())

@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'Das Laufwerk ist voll ({1}). Schaffe Platz oder verschiebe den Spielordner auf ein größeres Laufwerk.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'Die Einrichtung kann in diesem Ordner nicht schreiben ({1}). Prüfe, ob der Ordner nicht schreibgeschützt ist, oder verschiebe den Spielordner an einen Ort wie C:\\Games.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '„{1}“ wurde zu Steam für 1 Konto hinzugefügt. Starte Steam erneut, um es mit seinem Artwork zu sehen.',
+  'Item editor (experimental)': 'Item-Editor (experimentell)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Fügt dem Einstellungsbildschirm des Spiels einen Tab „Items“ hinzu, in dem du änderst, wie viele Stück eines Items in deiner Tasche du hast. Aus während Link Play. Sichere vorher deinen Spielstand.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Deine Mods brauchen neue Einhängepunkte: Erneut einrichten (ein paar Minuten; Shader und Spielstände bleiben erhalten).',
@@ -774,6 +776,9 @@ export default {
   'Allow and switch on': 'Erlauben und einschalten',
   'Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.': 'Deine Mods, die das Gameplay ändern: {mods}. Alle in der Sitzung brauchen dieselben.',
   'Close the game to change your mods.': 'Schließe das Spiel, um deine Mods zu ändern.',
+  'Updated by itself: {list}': 'Automatisch aktualisiert: {list}',
+  'Update mods by themselves': 'Mods automatisch aktualisieren',
+  'Once each time the launcher starts, from the mod hub. Mods you switched off stay off.': 'Einmal bei jedem Start des Launchers, über den Mod-Hub. Ausgeschaltete Mods bleiben ausgeschaltet.',
   '(after a restart of the game)': '(nach einem Neustart des Spiels)',
   '{name} on': '{name} an',
   'Load {name} earlier': '{name} früher laden',

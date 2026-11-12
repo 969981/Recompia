@@ -162,6 +162,27 @@ const Row kPicture[] = {
     number("Gamma", "Mid-tone brightness. 1.00 is the game's own.", 0, 150, "%.2f", 0.5, 0.01, ROW_STEP(extras.picture.gamma, 0.5, 0.01), true),
 };
 
+// The Mouse mode key (the Joy-Con 2 mouse mode, pkp_play.cpp): its binding in play, any key, mouse button or wheel notch, saved at once. The
+// new key replaces any other play binding of that input; an all-context binding of it still works elsewhere.
+class MouseModeKey final : public CaptureClient {
+public:
+    const char* name() const override { return "Mouse Mode Key"; }
+    std::string bound() const override {
+        std::string out;
+        for (const play::Binding& b : play::current_settings().bindings)
+            if (b.act == play::Act::MouseMode && (b.ctx == play::Ctx::Play || b.ctx == play::Ctx::All))
+                out += (out.empty() ? "" : ", ") + play::input_name(b.in);
+        return out.empty() ? "None" : out;
+    }
+    bool take(const play::InputId& in) override {
+        S s = play::current_settings();
+        std::erase_if(s.bindings, [&](const play::Binding& b) { return b.act == play::Act::MouseMode || (b.in == in && b.ctx == play::Ctx::Play); });
+        s.bindings.push_back(play::Binding{in, play::Ctx::Play, play::Act::MouseMode, play::Trig::Press, 0});
+        play::apply_settings(s);   // main thread, next frame; also writes controls.ini
+        return true;
+    }
+} g_mouse_mode_key;
+
 #define SENS(p) [](const S& s) { return static_cast<int>(std::lround(play::source_sens(s.mouse.p) * 10.0)); }, [](S& s, int v) { s.mouse.p = play::rad_per_count(v / 10.0); }
 const Row kMouse[] = {
     number("Horizontal Sensitivity", "How fast the mouse turns the camera sideways.", 1, 200, "%.1f", 0, 0.1, SENS(yaw_rad)),
@@ -170,8 +191,8 @@ const Row kMouse[] = {
     choice("Invert Horizontal", "Moving the mouse left looks right.", kOffOn, 2, ROW_BOOL(mouse.invert_x)),
     choice("Mouse Pointer in Menus", "Use the mouse as a pointer: hover, click, right click, wheel.", kOffOn, 2, ROW_BOOL(mouse.menu_cursor)),
     names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, static_cast<uint8_t>(std::size(kPromptNames)), ROW_ENUM(prompts.style, play::PromptStyle)),
-    dynamic("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). To change it, press left or right on this row (or click it), then press the new key or mouse button. Esc cancels.",
-            mouse_mode_text, mouse_mode_max, [](const S&) { return kMmMid; }, [](S&, int) {}),
+    capture_row("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). To change it, press left or right on this row (or click it), then press the new key or mouse button. Esc cancels.",
+                g_mouse_mode_key),
 };
 
 const Row kController[] = {
@@ -202,6 +223,7 @@ constexpr Row kGameplay[] = {
     key_row("Sort button in the bag and containers", "A Sort button in the key guide of the bag and of the container screens.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
+    key_row("Item editor (experimental)", "Adds an Items tab to this screen that changes how many of an item you hold. Not during Link Play.", Key::ItemEditor),
     key_row("More Pokémon in town", "Experimental: more Pokémon can live in your town than the game's 25.", Key::PokemonCap),
     key_row("Pokémon in town", "With More Pokémon in town: how many can live there, 25 to 64. Visitors and spawns share the game's 64 slots, so a high number leaves them less room.", Key::PokemonCapLimit, 1, "%.0f"),
     key_row("Shoulder camera: side", "Moves the camera to the side so your character no longer blocks the view, in blocks. Right is positive, left negative; 0 is the game's own camera.", Key::CameraShoulderSide, 0.1, "%+.1f"),

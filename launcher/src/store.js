@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { num, t } from './i18n.js';
 import { fromBackend } from './backend-text.js';
 import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
+import { updatedLine } from './mods-model.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 
 const subs = new Set();
@@ -106,6 +107,19 @@ export const store = {
     store.refreshNews(false).then(() => store.refreshNews(true));
     afterUpdate();
     store.refreshStorage().then(offerCompact);
+    store.updateMods();
+  },
+
+  /** Mods by themselves (launcher preference, off by default; once per session in Rust): says once which were updated. Silent otherwise. */
+  async updateMods() {
+    try {
+      const done = await api.modsAutoUpdate();
+      if (!done.length) return;
+      toast(updatedLine(done), 'ok');
+      await store.refresh();   // a new version may need other hook points: readiness says Set up again
+    } catch (e) {
+      console.warn('mods_auto_update', e);
+    }
   },
 
   /** Reloads shader_storage (it lists the cache folder: a second or two on a hard drive, so it is not part of refresh()). */

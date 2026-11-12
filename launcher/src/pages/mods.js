@@ -27,6 +27,7 @@ export async function render(el, ctx) {
   let catalog = null;     // mods_catalog
   let catalogError = '';
   let busy = false;       // a change or an install is on its way: every control waits
+  let autoUpdate = false; // launcher.json mods_auto_update (the hub feature is off with BROWSE, so is its switch)
 
   el.innerHTML = `<div class="page mods">
     <div class="mods-head">
@@ -34,6 +35,7 @@ export async function render(el, ctx) {
       ${BROWSE ? segmented('mods-tab', [['installed', t('Installed')], ['browse', t('Browse')]], tab, { label: t('Mods') }) : ''}
     </div>
     <div class="mods-part" id="mods-banners"></div>
+    <div class="mods-part" id="mods-prefs"></div>
     <div class="mods-part" id="mods-body"></div>
   </div>`;
   const part = (id) => el.querySelector(`#${id}`);
@@ -49,6 +51,13 @@ export async function render(el, ctx) {
     }
     if (gameActive(s)) out.push(`<div class="banner info">${icon('info')}<div class="grow">${esc(t('Close the game to change your mods.'))}</div></div>`);
     return out.join('');
+  }
+
+  /** The launcher's own preference for the hub's mods (the update itself runs at launcher start, mods_update.rs). */
+  function prefsHtml() {
+    if (!BROWSE || tab !== 'installed') return '';
+    return `<div class="mods-pref glass">${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
+      <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p></div>`;
   }
 
   function settingControl(m, s, i, mi) {
@@ -153,6 +162,7 @@ export async function render(el, ctx) {
 
   function draw(key = focusKey()) {
     part('mods-banners').innerHTML = bannersHtml();
+    part('mods-prefs').innerHTML = prefsHtml();
     part('mods-body').innerHTML = tab === 'installed' ? installedHtml() : browseHtml();
     if (key) el.querySelector(key)?.focus({ preventScroll: true });
   }
@@ -200,6 +210,17 @@ export async function render(el, ctx) {
     }
   }
 
+  async function saveAutoUpdate(on) {
+    autoUpdate = on;
+    try {
+      await api.saveConfig({ config: { ...(await api.getConfig()), mods_auto_update: on } });
+    } catch (e) {
+      autoUpdate = !on;
+      toast(errText(e), 'error');
+    }
+    draw();
+  }
+
   async function switchMod(input) {
     const m = view?.mods.find((x) => x.id === input.dataset.on);
     if (!m) return;
@@ -244,6 +265,7 @@ export async function render(el, ctx) {
       if (tab === 'browse' && !catalog && !catalogError) loadCatalog();
       return;
     }
+    if (c.id === 'mods-auto-update') return saveAutoUpdate(c.checked);
     if (c.dataset.on) return switchMod(c);
     if (c.dataset.key) {
       const m = view?.mods.find((x) => x.id === c.dataset.mod);
@@ -261,7 +283,7 @@ export async function render(el, ctx) {
       case 'remove': return remove(id);
       case 'install': return install(id);
       case 'folder': return api.openModsDir().catch((err) => toast(errText(err), 'error'));
-      case 'link': return api.openReleaseUrl({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error'));
+      case 'link': return api.openLink({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error'));
       case 'refresh': return loadCatalog(true);
       case 'reload': return loadList();
       case 'setup': return store.perform('setup', ctx.go);
@@ -272,6 +294,7 @@ export async function render(el, ctx) {
     if (['app', 'game', 'task', 'setup'].includes(why)) part('mods-banners').innerHTML = bannersHtml();
   });
 
+  if (BROWSE) api.getConfig().then((c) => { autoUpdate = !!c?.mods_auto_update; draw(); }).catch((e) => console.warn('get_config', e));
   draw();
   await loadList();
 }

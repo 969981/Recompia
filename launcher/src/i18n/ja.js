@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'ドライブがいっぱいです（{1}）。空き容量を作るか、ゲームフォルダーをより大きなドライブに移動してください。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'セットアップはこのフォルダー（{1}）に書き込めません。フォルダーが読み取り専用でないか確認するか、ゲームフォルダーを C:\\Games のような場所に移動してください。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '「{1}」をSteamの1アカウントに追加しました。Steamを再起動すると、アートワーク付きで表示されます。',
+  'Item editor (experimental)': 'アイテムエディター（実験的）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'ゲームの設定画面に「Items」タブを追加し、バッグ内のアイテムの所持数を変更できます。Link Play 中は無効です。先にセーブデータをバックアップしてください。',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Mod に新しいフックポイントが必要です: もう一度セットアップしてください (数分。シェーダーとセーブデータはそのまま残ります)。',
@@ -774,6 +776,9 @@ export default {
   'Allow and switch on': '許可してオンにする',
   'Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.': 'ゲームプレイを変える Mod: {mods}。セッションの全員に同じものが必要です。',
   'Close the game to change your mods.': 'Mod を変更するにはゲームを閉じてください。',
+  'Updated by itself: {list}': '自動で更新しました: {list}',
+  'Update mods by themselves': 'Mod を自動で更新する',
+  'Once each time the launcher starts, from the mod hub. Mods you switched off stay off.': 'ランチャーを起動するたびに 1 回、Mod ハブから更新します。オフにした Mod はオフのままです。',
   '(after a restart of the game)': '(ゲームの再起動後)',
   '{name} on': '{name} オン',
   'Load {name} earlier': '{name} を先に読み込む',

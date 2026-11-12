@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '드라이브가 가득 찼습니다({1}). 공간을 확보하거나 게임 폴더를 더 큰 드라이브로 옮기세요.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '설정이 이 폴더({1})에 쓸 수 없습니다. 폴더가 읽기 전용이 아닌지 확인하거나 게임 폴더를 C:\\Games 같은 곳으로 옮기세요.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '"{1}"을(를) Steam의 계정 1개에 추가했습니다. Steam을 다시 시작하면 아트워크와 함께 표시됩니다.',
+  'Item editor (experimental)': '아이템 편집기 (실험적)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': '게임 설정 화면에 "Items" 탭을 추가하여 가방에 있는 아이템의 보유 개수를 바꿀 수 있습니다. Link Play 중에는 꺼집니다. 먼저 저장 데이터를 백업하세요.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': '모드에 새 후크 지점이 필요합니다: 다시 설정하세요 (몇 분 소요, 셰이더와 저장 데이터는 유지됩니다).',
@@ -774,6 +776,9 @@ export default {
   'Allow and switch on': '허용하고 켜기',
   'Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.': '게임플레이를 바꾸는 모드: {mods}. 세션의 모두에게 같은 모드가 필요합니다.',
   'Close the game to change your mods.': '모드를 변경하려면 게임을 닫으세요.',
+  'Updated by itself: {list}': '자동으로 업데이트됨: {list}',
+  'Update mods by themselves': '모드 자동 업데이트',
+  'Once each time the launcher starts, from the mod hub. Mods you switched off stay off.': '런처를 시작할 때마다 한 번, 모드 허브에서 업데이트합니다. 꺼 둔 모드는 꺼진 상태로 유지됩니다.',
   '(after a restart of the game)': '(게임 재시작 후)',
   '{name} on': '{name} 켜기',
   'Load {name} earlier': '{name}을(를) 먼저 불러오기',
