@@ -53,6 +53,8 @@ pub fn is_package_b(tools_dir: &Path) -> bool {
 
 /// What Play says when pkp.exe is from an older release (Built::Stale). The time is the compile's, as in the README.
 pub const REBUILD_MESSAGE: &str = "This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.";
+/// What Play says for Built::Relink: the game code is kept, only the link runs again.
+pub const RELINK_MESSAGE: &str = "This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.";
 
 /// How far the pkp.exe in a game folder is from this release.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,6 +64,8 @@ pub enum Built {
     /// a finished build from other tools: an older release, or one whose tools could not be checked; or an exe built for another
     /// runtime API than the pkp_rt.dll beside the launcher (runtime_api.rs)
     Stale,
+    /// Stale, but the module libraries kept in `<game>/build/lib` match this release (`--check` exit 4): Set up only links again
+    Relink,
     /// built with this release's tools
     Current,
     /// pkp_rt.dll beside the launcher and the tools come from different releases (their runtime API numbers; None is a release
@@ -79,9 +83,9 @@ pub fn mixed_message(dll: Option<u32>, sdk: Option<u32>) -> String {
     )
 }
 
-/// The last check: (done.json path, its mtime and size, pkp.exe's mtime) -> result. The tools do not change while the
+/// The last check: (done.json path, its mtime and size, pkp.exe's mtime, exe and dll APIs differ) -> result. The tools do not change while the
 /// launcher runs, and a finished build rewrites done.json, so one python run per finished build is enough.
-type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>);
+type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>, bool);
 static CHECKED: std::sync::Mutex<Option<(CheckKey, Built)>> = std::sync::Mutex::new(None);
 
 /// Whether pkp.exe was built by this release's tools (`pkp_build.py --check`, the stamp's only implementation).
@@ -99,10 +103,9 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     if !em.is_file() || !dm.is_file() {
         return Built::No;
     }
-    if api == crate::runtime_api::Agreement::ExeStale {
-        return Built::Stale; // built for another API than the dll, however current its stamp: the link gives the dll's
-    }
-    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok());
+    // built for another API than the dll, however current its stamp: the link gives the dll's, so it is at least Stale
+    let exe_stale = api == crate::runtime_api::Agreement::ExeStale;
+    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok(), exe_stale);
     if let Some((k, b)) = CHECKED.lock().unwrap().as_ref() {
         if *k == key {
             return *b;
@@ -118,7 +121,12 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     let Ok(out) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() else {
         return Built::Stale; // not cached: the next look tries again
     };
-    let b = if out.success() { Built::Current } else { Built::Stale };
+    // exit 0 current, 4 only the link is out of date, anything else (3) a full build
+    let b = match out.code() {
+        Some(4) => Built::Relink,
+        Some(0) if !exe_stale => Built::Current,
+        _ => Built::Stale,
+    };
     *CHECKED.lock().unwrap() = Some((key, b));
     b
 }

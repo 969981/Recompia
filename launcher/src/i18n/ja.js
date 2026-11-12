@@ -554,6 +554,7 @@ export default {
   'Unknown timed event \'{1}\' in pkp.ini. Choose a valid event or turn all event toggles off.': 'pkp.ini に不明な時間限定イベント「{1}」があります。有効なイベントを選ぶか、すべてのイベントをオフにしてください。',
   'The local start time for timed event \'{1}\' is not available in this time zone.': '時間限定イベント「{1}」のローカル開始時刻は、このタイムゾーンでは利用できません。',
   'This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.': 'このアップデートはゲームのコードを変更します。「アップデートを完了」を押して再ビルドしてください（約7分）。シェーダーとセーブは保持されます。',
+  'This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.': 'このアップデートはランタイムのみを変更します。「アップデートを完了」を押してゲームを再リンクしてください（約1分）。シェーダーとセーブは保持されます。',
   'pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({1} and {2}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.': 'ランチャーの隣にある pkp_rt.dll は、tools フォルダーのビルドツール（{1} と {2}）とは別のリリースのものなので、セットアップでは動作しない pkp.exe がビルドされます。アップデートの一部しか配置されていません。リリースのzip全体をこのフォルダーにすべてのファイルを展開してから、もう一度セットアップを押してください。',
   'The game build cannot run, missing: {1}. Extract the release zip again so tools/ is complete.': 'ゲームのビルドを実行できません。不足: {1}。tools/ が揃うように、リリースのzipをもう一度展開してください。',
   'The game build failed ({1}). {2}': 'ゲームのビルドに失敗しました（{1}）。{2}',

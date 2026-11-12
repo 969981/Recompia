@@ -53,7 +53,7 @@ pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
         progress,
         complete: state == gamebuild::Built::Current && shaders::is_complete(&dir),
         started,
-        rebuild: state == gamebuild::Built::Stale,
+        rebuild: matches!(state, gamebuild::Built::Stale | gamebuild::Built::Relink),
     }
 }
 

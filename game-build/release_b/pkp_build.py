@@ -20,13 +20,14 @@ A release that changes none of it (only the runtime or the SDK files) links agai
 skipped. Any other change, a missing or unreadable stamp, or a stamp from an older release (another FORMAT or shape)
 lifts, compiles and links again from scratch (the old pkp.exe stays until the new one is linked over it).
 done.json is the full stamp (the dump plus tool_stamp(): everything in this package that goes into pkp.exe). --check
-compares it with this package's tools only (no dump check, well under a second) and prints one JSON line
-{"current": bool, "reason": text}; exit 0 current, 3 not.
+compares it with this package's tools only (no dump check, about a second) and prints one JSON line
+{"current": bool, "reason": text, "relink": bool}; exit 0 current, 4 not but the kept libraries match (Set up only links), 3 not.
 
-Object cache: every compiled object is also kept in <game>/build/objcache under a key of its source text, the generated headers,
-the lifter's include/ tree, the compiler and the flags (class ObjCache), so Set up again after a release that changes only some
-translation units compiles only those. It survives the stamp reset and the cleanup after linking, is trimmed to --cache-mb
-(default 3072, 0 = off) and never serves a partial or damaged entry.
+Object cache: every compiled object is also kept in <game>/build/objcache under a key of its source text, the generated headers
+less the declarations it never names, the lifter's include/ tree, the compiler and the flags (class ObjCache), so Set up again
+after a release that changes only some translation units compiles only those (a new hook site rewrites a few of main's units
+and adds a declaration to funcs.h, which the other units do not name). It survives the stamp reset and the cleanup after
+linking, is trimmed to --cache-mb (default 3072, 0 = off) and never serves a partial or damaged entry.
 
 Resumable: a module's lift counts once its marker file is written, an object once it is renamed into place, so a stopped
 build continues where it stopped. A file named <game>/build/cancel stops it (the launcher's Pause).
@@ -37,6 +38,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -78,6 +80,9 @@ except ValueError as e:
     sys.exit('PKP_LOCALS: %s' % e)
 COMPILER = [ZIG, 'c++']                 # the compile command before the flags (tests put a fake one here)
 CACHE_MB = 3072                         # default size cap of <game>/build/objcache
+# ObjCache: a one-line function declaration in a generated header ('void f_7100001000(Ctx *__restrict c);') and a C identifier
+DECL_RE = re.compile(r'void\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;\s*$')
+NAME_RE = re.compile(r'[A-Za-z_]\w*')
 CREATE_NO_WINDOW = 0x08000000
 BELOW_NORMAL = 0x00004000
 
@@ -156,19 +161,22 @@ def libs_current(lib, stamp):
 
 
 def check(game):
-    """Whether pkp.exe and <game>/build/done.json were built with this package's tools: (current, reason)."""
+    """Whether pkp.exe and <game>/build/done.json were built with this package's tools: (current, reason, relink).
+    relink: not current, but the kept libraries match this package (the dump done.json names, lib_stamp()), so Set up only
+    links again (minutes become seconds, and the launcher says so)."""
     if not os.path.isfile(os.path.join(game, 'pkp.exe')):
-        return False, 'pkp.exe is not built yet'
+        return False, 'pkp.exe is not built yet', False
     done = read_json(os.path.join(game, 'build', 'done.json'))
     if not isinstance(done, dict):
-        return False, 'pkp.exe has no finished build record'
+        return False, 'pkp.exe has no finished build record', False
     if done.get('format') != FORMAT or not isinstance(done.get('tools'), dict):
-        return False, 'pkp.exe was built by an older release'
+        return False, 'pkp.exe was built by an older release', False
     want = tool_stamp()
     changed = [k for k in want if done['tools'].get(k) != want[k]]
     if changed:
-        return False, 'this release changes ' + ', '.join(changed)
-    return True, 'pkp.exe matches this release'
+        relink = libs_current(os.path.join(game, 'build', 'lib'), lib_stamp(done, want, compiler_id()))
+        return False, 'this release changes ' + ', '.join(changed), relink
+    return True, 'pkp.exe matches this release', False
 
 
 def read_json(path):
@@ -338,36 +346,64 @@ def free_memory():
 class ObjCache:
     """Compiled objects kept by content, so a lifter or main.sites change recompiles only the translation units whose text changed.
 
-    An entry is <key>-<size>.o in the cache folder. key = sha256 of the unit's source bytes, the generated headers next to it,
-    the lifter's include/ tree, the compiler (its file hash) and the flags. The compiler or the flags changing gives other keys,
-    so nothing stale is ever hit. An entry is written to a .tmp file and renamed, and a hit must have exactly the size in its
-    name, so a cut-off write or a damaged file is a miss (and is deleted). Hits are copied out, never linked. The folder is
-    trimmed to the size cap, least recently used first (a hit refreshes the entry's time). Any cache error is a miss."""
+    An entry is <key>-<size>.o in the cache folder. key = sha256 of the unit's source bytes, the part of the generated headers
+    next to it that the unit can see (_header_view), the lifter's include/ tree, the compiler (its file hash) and the flags. The
+    compiler or the flags changing gives other keys, so nothing stale is ever hit. An entry is written to a .tmp file and
+    renamed, and a hit must have exactly the size in its name, so a cut-off write or a damaged file is a miss (and is deleted).
+    Hits are copied out, never linked. The folder is trimmed to the size cap, least recently used first (a hit refreshes the
+    entry's time). Any cache error is a miss."""
 
     def __init__(self, folder, cap_bytes, compiler_id, flags_text, include_hash):
         self.folder = folder
         self.cap = cap_bytes
         self.base = '\0'.join([compiler_id, flags_text, include_hash])
-        self.headers = {}                 # folder of the sources -> hash of the .h files in it
+        self.headers = {}                 # folder of the sources -> [(file name, other lines, {declared name: line})]
         self.lock = threading.Lock()
         self.hits = self.misses = 0
         os.makedirs(folder, exist_ok=True)
 
     def _headers(self, d):
+        """The generated headers of a source folder, split into their function declarations (by name) and every other line."""
         with self.lock:
             if d not in self.headers:
-                h = hashlib.sha256()
+                out = []
                 for n in sorted(os.listdir(d)):
                     if n.endswith(('.h', '.hpp', '.inc')):
-                        h.update(('%s\0%s\0' % (n, sha256(os.path.join(d, n)))).encode())
-                self.headers[d] = h.hexdigest()
+                        rest, decls = [], {}
+                        with open(os.path.join(d, n), encoding='utf-8', newline='') as f:
+                            for line in f:
+                                m = DECL_RE.match(line)
+                                if m:
+                                    decls[m.group(1)] = line
+                                else:
+                                    rest.append(line)
+                        out.append((n, ''.join(rest), decls))
+                self.headers[d] = out
             return self.headers[d]
 
+    def _header_view(self, src, text):
+        """The headers as far as this unit is concerned: every line except the function declarations it never names.
+        funcs.h declares every function of the module and every unit includes it, so one new function (a new midhook) would
+        otherwise change the key of every unit of the module. A declaration the unit does not name cannot change its object:
+        the lifter writes each guest call as the plain name (f_<addr>, u_<addr>, h_<name>), never pasted together in a macro."""
+        headers = self._headers(os.path.dirname(src))
+        named = set(NAME_RE.findall(text))
+        for _, rest, _ in headers:      # a name the headers' other lines use (a macro, an inline) counts as named too
+            named.update(NAME_RE.findall(rest))
+        h = hashlib.sha256()
+        for n, rest, decls in headers:
+            h.update(('%s\0%s\0' % (n, rest)).encode())
+            for name in sorted(named.intersection(decls)):
+                h.update(decls[name].encode())
+        return h.hexdigest()
+
     def key(self, src):
+        with open(src, 'rb') as f:
+            data = f.read()
         h = hashlib.sha256()
         h.update(self.base.encode())
-        h.update(b'\0' + self._headers(os.path.dirname(src)).encode() + b'\0')
-        h.update(sha256(src).encode())
+        h.update(b'\0' + self._header_view(src, data.decode('utf-8', 'replace')).encode() + b'\0')
+        h.update(hashlib.sha256(data).hexdigest().encode())
         return h.hexdigest()
 
     def _find(self, key):
@@ -596,11 +632,11 @@ def main():
         if not a.game:
             ap.error('--check needs --game')
         try:
-            current, reason = check(os.path.abspath(a.game))
+            current, reason, relink = check(os.path.abspath(a.game))
         except OSError as e:                 # a tool file that cannot be read: Set up then runs and names it
-            current, reason = False, 'cannot read the build tools: %s' % e
-        print(json.dumps({'current': current, 'reason': reason}), flush=True)
-        return 0 if current else 3
+            current, reason, relink = False, 'cannot read the build tools: %s' % e, False
+        print(json.dumps({'current': current, 'reason': reason, 'relink': relink}), flush=True)
+        return 0 if current else 4 if relink else 3
     if not a.exefs or not a.game:
         ap.error('--exefs and --game are required')
     game = os.path.abspath(a.game)

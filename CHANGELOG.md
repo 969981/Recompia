@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Faster **Set up again** after an update. Before: an update that added one hook point compiled all of the game code again (231 of 231 main parts). Now: only the parts whose code changed compile again (9 of 231 for one new hook point); the rest come from the compile cache. When an update only changes the runtime, Play now says it is a quick relink (about a minute) instead of a 7-minute rebuild. Still not: the game code is still translated in full before compiling (a few minutes), and the first rebuild after this version compiles everything once to refill the cache. Update only: no Set up again for this change, no shader rebuild
+
 ## 0.11.0 (build O: Ocelot)
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
