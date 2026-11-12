@@ -114,6 +114,10 @@ const game::Info& data_info() {
         g.romfs_min_bytes = 7246052773ull;
         g.play_defaults = &game_defaults();
         g.settings_doc = &settings::doc_rows;
+        // Modtopia mods (nxrt/mods.h): the default folders of game::ModHost (the launcher and Set up use the same ones), shown to mods as
+        // "Recompia <version>".
+        static const game::ModHost kModHost{.host = "Recompia"};
+        g.mods = &kModHost;
         return g;
     }();
     return info;

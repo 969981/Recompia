@@ -40,6 +40,7 @@
 #include "nxrt/game.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
+#include "nxrt/mods.h"
 #include "nxrt/gfx.h"
 #include "nxrt/input_source.h"
 #include "nxrt/nvn.h"
@@ -515,6 +516,9 @@ int main(int argc, char** argv) {
     } else {
         nxrt::module_protect_all();
     }
+
+    // Modtopia mods (<game>/mods): found, laid over the RomFS and started now, with the code mapped and before its first instruction.
+    nxrt::mods::start({PKP_VERSION});
 
     if (const std::string spec = nxrt::config_get_str("boot", "press", ""); !spec.empty()) {
         parse_presses(spec);
