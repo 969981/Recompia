@@ -7,6 +7,9 @@
 ### Set up
 - Faster **Set up again** after an update. Before: an update that added one hook point compiled all of the game code again (231 of 231 main parts). Now: only the parts whose code changed compile again (9 of 231 for one new hook point); the rest come from the compile cache. When an update only changes the runtime, Play now says it is a quick relink (about a minute) instead of a 7-minute rebuild. Still not: the game code is still translated in full before compiling (a few minutes), and the first rebuild after this version compiles everything once to refill the cache. Update only: no Set up again for this change, no shader rebuild
 
+### Link Play
+- Internet Link Play through the official relay works again. Before: 0.11.0 sent hosts and visitors to the relay's old address, which no longer answers, so no one could open or join a room (the game log repeats "the relay does not answer"). Now: the launcher uses the relay's permanent address. Still not: players on 0.11.0 need this update, or can type `204.216.111.91:47610` under Link Play > Advanced > Use my own relay or address until then. Update only: no Set up again, no shader rebuild
+
 ### Mods
 - **Modtopia mods:** Recompia now runs mods made for Modtopia, the mod loader shared with Pokopia Native: the same `.pkmod` files work on both
 - New **Mods** page in the launcher: switch your mods on and off, change their order and settings, and remove them. **Browse** lists the mods on the Modtopia mod hub with their authors and licence; **Install** asks once, downloads from the hub's own server and checks the file before it goes in
