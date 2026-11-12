@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <mutex>
 
 namespace nxrt::notices {
@@ -28,17 +29,45 @@ List& list() {
 
 constexpr size_t kMaxShown = 6;   // more sources at once: the oldest go first
 
+// The picture as Image keeps it: a side over kMaxImageSide is scaled down (aspect kept) by averaging each output pixel's source box.
+std::shared_ptr<const Image> make_image(const uint8_t* rgba, int w, int h) {
+    if (!rgba || w <= 0 || h <= 0) return nullptr;
+    auto img = std::make_shared<Image>();
+    const double k = std::min(1.0, static_cast<double>(kMaxImageSide) / std::max(w, h));
+    img->w = std::max(1, static_cast<int>(w * k));
+    img->h = std::max(1, static_cast<int>(h * k));
+    img->rgba.resize(static_cast<size_t>(img->w) * img->h * 4);
+    if (img->w == w && img->h == h) {
+        std::memcpy(img->rgba.data(), rgba, img->rgba.size());
+        return img;
+    }
+    for (int y = 0; y < img->h; ++y) {
+        const int y0 = y * h / img->h, y1 = std::max(y0 + 1, (y + 1) * h / img->h);
+        for (int x = 0; x < img->w; ++x) {
+            const int x0 = x * w / img->w, x1 = std::max(x0 + 1, (x + 1) * w / img->w);
+            uint32_t sum[4] = {};
+            for (int sy = y0; sy < y1; ++sy)
+                for (int sx = x0; sx < x1; ++sx)
+                    for (int c = 0; c < 4; ++c) sum[c] += rgba[(static_cast<size_t>(sy) * w + sx) * 4 + c];
+            const uint32_t n = static_cast<uint32_t>((y1 - y0) * (x1 - x0));
+            for (int c = 0; c < 4; ++c) img->rgba[(static_cast<size_t>(y) * img->w + x) * 4 + c] = static_cast<uint8_t>(sum[c] / n);
+        }
+    }
+    return img;
+}
+
 }  // namespace
 
-void post(const std::string& source, const std::string& text, double seconds) {
+void post(const std::string& source, const std::string& text, double seconds, const uint8_t* rgba, int w, int h) {
+    std::shared_ptr<const Image> img = make_image(rgba, w, h);   // outside the lock: the overlay reads the list every frame
     List& l = list();
     std::lock_guard<std::mutex> lk(l.mu);
     std::erase_if(l.items, [&](const Entry& e) { return e.n.source == source; });
-    if (text.empty() || !(seconds > 0)) {
+    if ((text.empty() && !img) || !(seconds > 0)) {
         l.any.store(!l.items.empty(), std::memory_order_relaxed);
         return;
     }
-    l.items.push_back(Entry{Notice{source, text}, std::min(seconds, 60.0), -1});
+    l.items.push_back(Entry{Notice{source, text, std::move(img)}, std::min(seconds, 60.0), -1});
     if (l.items.size() > kMaxShown) l.items.erase(l.items.begin());
     l.any.store(true, std::memory_order_relaxed);
 }

@@ -6,6 +6,8 @@
 
 ### Mods
 - Added a **Mods** tab to the game's own Settings: pick a mod, switch it on or off (applies at the next start), see its state and change its settings, which reach the mod at once
+- Mods can now take screenshots (without the game's overlay menus in them) and react to keyboard keys
+- Mods can tint the final picture (colour presets, colorblind filters), show a picture beside their messages, and make HTTPS requests to the sites their own description names (no redirects, cookies or sign-in)
 
 ## 0.11.1 (build O: Ocelot Hotfix a1)
 
