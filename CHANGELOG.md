@@ -2,12 +2,57 @@
 
 ## Unreleased
 
-- **Link Play over the internet now works with just a room code.** The launcher's Internet choice uses the project's public relay by default: the host shares the room code, visitors pick Visit and type it, and nobody types an address or forwards a port. Your own relay, this PC's relay and a direct address are under **Advanced**. Update only: no shader rebuild, no Set up again
-- **Joy-Con 2 mouse mode** is back: press the middle mouse button in play to point and click, and placing and breaking now land on the block under the pointer (left click is the Joy-Con's R, right click its ZR, as in Pikantine). Press it again to go back to camera aim. The **Mouse Mode Key** row is back in **Settings > Mouse**. Update only: no shader rebuild, no Set up again
-- New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again
-- Fixed the random **"The graphics device was lost"** crash on Steam Deck and other Linux PCs (Proton), and the matching full freeze on NVIDIA under Linux (#531, #533). The game's copy of graphics memory could keep an old value next to a block the graphics card was still writing, and a compute shader then looped for seconds on it. That memory is now kept up to date, and the game's light-list and two other compute loops can no longer run past the table they walk. `[nvn] loop_guard = off` turns the second part off. Update only: no shader rebuild, no Set up again
+## 0.11.0 (build O: Ocelot)
+
+**Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
+
+Ocelot brings Recompia's own **official relay server**, so friends anywhere in the world join with just a room code, and a big step up in **Steam Deck performance**. It also fixes the random "graphics device was lost" crash on Steam Deck and Linux, brings Joy-Con 2 mouse mode back and lets more Pokémon live in your town.
+
+### Highlights
+- **Official Recompia relay server:** internet Link Play now needs only a room code. The host shares the code, visitors pick Visit and type it, from anywhere in the world: no addresses, no port forwarding
+- **Steam Deck performance, elevated:** about 52 fps where 0.10.3 gave about 44, and much shorter slow frames (the slowest 1 % now take about 26 ms, before about 38 ms). Measured on a Steam Deck OLED, in the world, vsync off
+- Fixed the random **"The graphics device was lost"** crash on Steam Deck and other Linux PCs, and the full freeze on NVIDIA under Linux (#531, #533)
+
+### Link Play
+- The launcher's **Internet** choice now uses the official Recompia relay by default. Your own relay, this PC's relay and a direct address are still there under **Advanced**
+- The docs have a step-by-step Link Play guide with the launcher's current names
+
+### Performance
+- The graphics work of a frame reaches the GPU in pieces while the rest is still being prepared, so the GPU starts several milliseconds earlier in each frame (Steam Deck and other Linux handhelds)
+- Less processor time spent by the game's helper threads: fewer wake-ups, the driver's shader cache is written at most every 30 seconds, and a guard that could do nothing under Proton no longer runs there
+- Shorter waits between the game's own threads on Linux handhelds: short sleeps end on time, and a wait ends as soon as what it waits for has happened
+- Fewer redundant copies of graphics memory and less repeated work for each draw
+- The game's own code is translated to leaner machine code: the game's registers and condition flags live in processor registers instead of memory wherever no other code can look at them. This is the change that needs **Set up again**
+- On a Windows PC the frame rate is the same as in 0.10.3
+
+### Frame pacing
+- Fixed uneven frames with a frame limit: now and then one frame waited twice for the limiter and the next one not at all
+- New, off by default: **vblank lock** for a frame limit of half the screen's refresh rate with vsync on, for example 45 fps on the Steam Deck OLED's 90 Hz screen. Every frame is then shown for the same number of refreshes instead of an occasional long frame followed by a short one. To try it: vsync on, frame limit 45, then `vblank_lock = 1` under `[latency]` in `pkp.ini`
+
+### Display
+- **Frame generation** (AMD FSR 3.1), added in 0.10.3, is removed for now: it has a bug that can't be fixed yet (#529)
+
+### Gameplay mods
+- New, experimental: a **Pokémon resident cap** up to 64. On by default at 31 residents (the game's own limit is 25); set it from 25 to 64 in the launcher's Settings > Gameplay, or with `pokemon_cap_limit` in `pkp.ini`. The game has 64 actor slots in all, so a high cap leaves less room for visitors and temporary spawns, and not every resident is sure to be out at once. Thanks to SpiderNic96 for the research and first implementation (#524)
+
+### Controls
+- **Joy-Con 2 mouse mode** is back: press the middle mouse button in play to point and click; placing and breaking land on the block under the pointer (left click is the Joy-Con's R, right click its ZR). Press it again to go back to camera aim. The **Mouse Mode Key** row is back in **Settings > Mouse**
+
+### Launcher
+- New **Show on Discord while playing** in Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Thanks to darkxex (#511)
+- The launcher shows **Recompia** branding by default (#532)
+- The Discord links in the launcher, the READMEs and the website use the new invite, discord.recompia.com
+
+### Game
+- Fixed the random **"The graphics device was lost"** crash on Steam Deck and other Linux PCs (Proton), and the matching full freeze on NVIDIA under Linux (#531, #533)
+  - Before: the game's copy of graphics memory could keep an old value next to a block the graphics card was still writing, and a compute shader then looped for seconds on it
+  - Now: that memory is kept up to date, and the game's light-list and two other compute loops can no longer run past the table they walk. `[nvn] loop_guard = off` turns the second part off
 - Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
-- The Discord links in the launcher, the READMEs and the website now use the new invite, discord.recompia.com. Update only: no shader rebuild, no Set up again
+
+### For bug reports
+- New lines in `pkp.log` every 10 seconds: `tcpu` (processor time by thread) and, with `present_stats = 1` under `[latency]`, `pacing: present timing` (how many refreshes each frame was shown for)
+- If something breaks, these switches in `pkp.ini` bring back the earlier behaviour one at a time, which helps to find the cause: `gpu_split_ms = 0` and `pool_reg_skip_same = false` under `[nvn]`, `poll_wait = false`, `short_sleep = sleep` and `early_wake = off` under `[kernel]`, `boundary_count = render` under `[latency]`
+- To compare against the old translation of the game code: set the environment variable `PKP_LOCALS=off` and press Set up again
 
 ## 0.10.4-alpha.1 (Deck Rehaul)
 
