@@ -362,8 +362,9 @@ public:
     // The frame waits for the copy, so the file exists when end_frame returns. capture_next_frame returns the pixels instead
     // (tightly packed RGBA8 rows) into *out, filled when end_frame of that frame returns.
     // bare: the overlay leaves its own menus out of this capture (capture_bare).
-    void request_screenshot(const std::string& png_path, bool bare = false);
-    void capture_next_frame(std::vector<uint8_t>* rgba, uint32_t* width, uint32_t* height);
+    // One capture at a time, any thread: false (nothing changed) while an earlier request has not been taken yet.
+    bool request_screenshot(const std::string& png_path, bool bare = false);
+    bool capture_next_frame(std::vector<uint8_t>* rgba, uint32_t* width, uint32_t* height);
     // True while a screenshot or a frame capture is requested and has not been taken yet (safe from any thread).
     bool capture_pending() const;
     // True while the pending capture is a bare screenshot: the overlay draws none of its menus, prompts and notices into it.

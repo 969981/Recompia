@@ -187,7 +187,8 @@ int be_notify(void*, const char* mod_id, const char* text, double seconds) {
 }
 
 // The next presented picture as a PNG at path, without our menus. The request is taken now and the file is written when that frame ends
-// (nxrt/screenshot.h), so MT_OK means requested, as the host API says. No renderer (a headless run): MT_ERR_STATE.
+// (nxrt/screenshot.h), so MT_OK means requested, as the host API says. No renderer (a headless run), or another capture not taken yet
+// (one at a time; the mod may ask again next frame): MT_ERR_STATE.
 int be_screenshot(void*, const char* path) {
     if (!path || !*path) return MT_ERR_UNKNOWN;
     return screenshot::request(path, true) ? MT_OK : MT_ERR_STATE;
