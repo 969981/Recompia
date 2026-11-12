@@ -2,7 +2,7 @@
 """python -m nxrecomp <command> ...   (see README.md)
 
   lift   <input> <outdir> [--game NAME] [--kind nso|nx_elf|static_elf] [--base 0x..] [--name N] [--jobs J] [--shards S]
-         [--patches FILE] [--spin-yield] [--locals off|exact|aapcs|lean]   lift every function of one module
+         [--patches FILE] [--sites FILE]... [--spin-yield] [--locals off|exact|aapcs|lean]   lift every function of one module
   cover  <input> [--game NAME] ...   per-instruction-word translation coverage of .text
   build-info [--game NAME]   one JSON line: the game's module table and the compile flags of the lifted code (for CMake)
   module-header --game NAME --out FILE   the C++ header of the module list (modheader.py), for the builds of the lifted game
@@ -56,7 +56,8 @@ def main(argv=None):
         p.add_argument('--name', default='main')
         p.add_argument('--patches')
         p.add_argument('--index', type=int, help='module index (NxModule.index, import ids); default: position in the game config')
-        p.add_argument('--sites', help='site list: patches, inline callouts, hooks (see sites.load_sites)')
+        p.add_argument('--sites', action='append',
+                       help='site list: patches, inline callouts, hooks (see sites.load_sites); repeat to merge several by address')
     a = ap.parse_args(argv)
     if a.cmd == 'build-info':
         print(json.dumps(build_info(a.game)))
