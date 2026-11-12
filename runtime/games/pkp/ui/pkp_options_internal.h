@@ -2,6 +2,7 @@
 // In-game Options (pkp_options.cpp and the files it is split into): what a row is, the row lists each tab shows, and the functions one of
 // those files calls in another. Internal to those files.
 //   pkp_options.cpp        the tabs, the slot state machine and the hooks into the game's Settings screen
+//   pkp_options_model.h    what a tab is to the screen (TabModel); pkp_options_model.cpp: StaticTab, the tabs of Row tables
 //   pkp_options_rows.cpp   the rows of the PC settings tabs (Sound, Display, ... Controller) and of the Gameplay tab
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
 #pragma once
@@ -110,12 +111,7 @@ constexpr int kMmMid = 100;
 const char* mouse_mode_text(int, char* out, size_t n);
 int mouse_mode_max();
 
-// ---- pkp_options_time.cpp ----
-extern const RowList kTimeRows;
-extern Row g_event_rows[kMaxEvents];          // the Events tab's rows, filled by load_events
-int load_events();                            // reads the event file again and fills g_event_rows; the number of rows the tab shows
-void apply_time_tab(const int (&cur)[kSlots]);                           // the Time tab's rows as the game clock (the screen commits)
-void go_to_event(int row, int (&time_cur)[kSlots], int (&time_orig)[kSlots]);   // an Events row was pressed; the Time tab's rows follow
+// ---- pkp_options_time.cpp (its tabs: pkp_options_model.h) ----
 int hook_clock_text(::Ctx* c, uint64_t, void*);   // [tweaks] clock_format in the game's time-of-day text
 
 }  // namespace nxrt::games::pkp::options_detail
