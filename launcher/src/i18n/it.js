@@ -783,6 +783,7 @@ export default {
   'Open mods folder': 'Apri cartella mod',
   'No mods yet': 'Ancora nessuna mod',
   'Find mods under Browse, or put them into the mods folder.': 'Trova mod in Sfoglia, oppure mettile nella cartella delle mod.',
+  'Put mods into the mods folder.': 'Metti le mod nella cartella delle mod.',
   'Mods load from the top down: on the same game file, the one further down wins.': 'Le mod si caricano dall\'alto in basso: sullo stesso file del gioco vince quella più in basso.',
   'Coming soon': 'In arrivo',
   '{version} installed': '{version} installata',

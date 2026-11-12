@@ -783,6 +783,7 @@ export default {
   'Open mods folder': 'mods フォルダーを開く',
   'No mods yet': 'Mod はまだありません',
   'Find mods under Browse, or put them into the mods folder.': '「参照」で Mod を探すか、mods フォルダーに入れてください。',
+  'Put mods into the mods folder.': 'Mod を mods フォルダーに入れてください。',
   'Mods load from the top down: on the same game file, the one further down wins.': 'Mod は上から順に読み込まれます。同じゲームファイルでは、下にあるものが優先されます。',
   'Coming soon': '近日公開',
   '{version} installed': '{version} をインストール済み',

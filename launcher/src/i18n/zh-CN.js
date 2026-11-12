@@ -783,6 +783,7 @@ export default {
   'Open mods folder': '打开 Mod 文件夹',
   'No mods yet': '还没有 Mod',
   'Find mods under Browse, or put them into the mods folder.': '在“浏览”中查找 Mod，或把它们放进 Mod 文件夹。',
+  'Put mods into the mods folder.': '把 Mod 放进 Mod 文件夹。',
   'Mods load from the top down: on the same game file, the one further down wins.': 'Mod 从上到下加载：对同一个游戏文件，靠下的那个生效。',
   'Coming soon': '即将推出',
   '{version} installed': '已安装 {version}',
