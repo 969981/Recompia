@@ -325,6 +325,38 @@ pub fn installed_versions(game_dir: &Path) -> Vec<(String, String)> {
     open(game_dir).mods().into_iter().map(|m| (m.id, m.version)).collect()
 }
 
+/// One installed mod as the hub update looks at it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Installed {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    /// no code to run, or code the player has said yes to (its file is the one that was allowed)
+    pub allowed: bool,
+    /// the installed file has code (with `allowed`: the player said yes to code for this mod)
+    pub code: bool,
+}
+
+/// Every installed mod with its version and whether its file is allowed.
+pub fn installed_all(game_dir: &Path) -> Vec<Installed> {
+    open(game_dir)
+        .mods()
+        .into_iter()
+        .map(|m| Installed { allowed: !needs_yes(&m), code: m.flags & ffi::FLAG_CODE != 0, id: m.id, name: m.name, version: m.version })
+        .collect()
+}
+
+/// Records the player's yes for the file now in mods/ under this id, when it has code that is not allowed yet (an install or update that
+/// came through the hub's checked download). Opens the folder without `open`'s hold-back, which would switch the mod off first.
+pub fn trust_file(game_dir: &Path, id: &str) -> Result<(), String> {
+    let core = Core::open(&mods_dir(game_dir), &mappings_dir(game_dir), &host_name());
+    let m = core.mods().into_iter().find(|m| m.id == id).ok_or_else(|| format!("There is no mod {} in the mods folder.", id))?;
+    if !needs_yes(&m) {
+        return Ok(());
+    }
+    core.trust_mod(id).map_err(|_| format!("Could not record your yes for {}.", m.name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

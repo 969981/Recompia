@@ -28,6 +28,8 @@ pub struct Config {
     pub window: Option<WindowPlace>,
     /// Which releases the launcher offers: "stable" (the default) or "testing" (prereleases built from the testing branch). update.rs Channel.
     pub channel: String,
+    /// Once per launcher start, update the installed mods from the mod hub (mods_update.rs). Off unless the player switches it on.
+    pub mods_auto_update: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

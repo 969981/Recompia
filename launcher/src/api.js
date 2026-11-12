@@ -95,5 +95,6 @@ export const api = {
   modsRemove: (args) => invoke('mods_remove', args),   // { id }
   modsCatalog: (args) => invoke('mods_catalog', args),   // { refresh }
   modsInstall: (args) => invoke('mods_install', args),   // { id }
+  modsAutoUpdate: () => invoke('mods_auto_update'),   // [{ name, from, to }] updated, once per session, only with the launcher preference on
   openModsDir: () => invoke('open_mods_dir'),
 };
