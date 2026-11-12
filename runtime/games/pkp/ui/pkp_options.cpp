@@ -105,6 +105,7 @@ const Tab kTabs[] = {
     {"Gameplay", 10, &g_gameplay},
     {"Time", 11, &time_tab()},
     {"Events", 12, &events_tab()},
+    {"Mods", 14, &mods_tab()},   // group 13 is the game's own (Notes), so 14
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;

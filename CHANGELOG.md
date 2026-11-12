@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Mods
+- Added a **Mods** tab to the game's own Settings: pick a mod, switch it on or off (applies at the next start), see its state and change its settings, which reach the mod at once
+
 ## 0.11.1 (build O: Ocelot Hotfix a1)
 
 **Update:** press **Update**, then **Set up again** once (the game code is translated again for the mods' hook points, several minutes). Your shaders and saves are kept; no shader is translated again.
