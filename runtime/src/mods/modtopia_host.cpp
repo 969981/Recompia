@@ -132,12 +132,65 @@ void register_hooks(MtLoader* L) {
     }
 }
 
-// The data mods' folders over the game's RomFS (index 0 highest), under the player's own [fs] romfs_mod.
+// The data mods' folders over the game's RomFS (index 0 highest), under the player's own [fs] romfs_mod. While code is held, a code mod's
+// folders wait with its code: the core lists them at scan although its code is off this time (no_code), and drops them only when the
+// patches step builds the list again, so without this a code mod's files would be served or not depending on whether any patch applied.
 void lay_overlay(MtLoader* L) {
     std::vector<std::string> roots;
-    for (int i = 0, n = mt_loader_overlay_count(L); i < n; ++i)
-        if (const char* r = mt_loader_overlay_root(L, i)) roots.emplace_back(r);
+    for (int i = 0, n = mt_loader_overlay_count(L); i < n; ++i) {
+        const char* r = mt_loader_overlay_root(L, i);
+        if (!r) continue;
+        if (host().code_held) {
+            const char* id = mt_loader_overlay_mod(L, i);
+            const MtModInfo* m = id ? mt_loader_info(L, mt_loader_find(L, id)) : nullptr;
+            if (m && (m->flags & MT_MOD_HAS_CODE)) continue;
+        }
+        roots.emplace_back(r);
+    }
     services::fsapi::set_romfs_overlays(roots);
+}
+
+// A new loader on the host's folders, the mods found and resolved. no_code: no code mod is loaded this time (data mods still are).
+MtLoader* open_loader(const MtBackend& be, bool no_code) {
+    detail::Host& h = host();
+    MtOptions o{};
+    o.mods_dir = h.mods_dir.c_str();
+    o.mappings_dir = h.mappings_dir.c_str();
+    o.no_code = no_code ? 1 : 0;
+    MtLoader* L = mt_loader_new(&o, &be);
+    if (!L) {
+        NXLOG_E(kTag, "mods: the mod loader could not start");
+        return nullptr;
+    }
+    if (mt_loader_scan(L) < 0) {
+        NXLOG_E(kTag, "mods: %s cannot be read, none loaded", h.mods_dir.c_str());
+        mt_loader_free(L);
+        return nullptr;
+    }
+    return L;
+}
+
+// The code mods that are on after the scan, those with code the player has not allowed (new, or changed since the launcher recorded the
+// player's yes) when fresh, the others otherwise.
+std::vector<std::string> code_mods(MtLoader* L, bool fresh) {
+    std::vector<std::string> out;
+    for (int i = 0, n = mt_loader_count(L); i < n; ++i) {
+        const MtModInfo* m = mt_loader_info(L, i);
+        if (m && m->state == MT_STATE_OK && (m->flags & MT_MOD_HAS_CODE) && !(m->flags & MT_MOD_NEW_CODE) == !fresh) out.emplace_back(m->id);
+    }
+    return out;
+}
+
+// After a start with code held: one line a new mod, and the reason in each held code mod's message (the in-game Mods list shows it). The
+// note goes in after mt_loader_start, which sets the message of each code mod it leaves off.
+void report_held(MtLoader* L, const std::vector<std::string>& waiting) {
+    for (const std::string& id : host().new_code) {
+        const MtModInfo* m = mt_loader_info(L, mt_loader_find(L, id.c_str()));
+        NXLOG_W(kTag, "mods: %s %s has new or changed code: allow it in the launcher's Mods page", id.c_str(), m ? m->version : "?");
+        mt_loader_note(L, id.c_str(), "new or changed code: allow it in the launcher's Mods page");
+    }
+    for (const std::string& id : waiting)
+        mt_loader_note(L, id.c_str(), "waits until the new code of another mod is allowed in the launcher's Mods page");
 }
 
 void on_save_committed() {
@@ -169,25 +222,27 @@ void start(const StartOptions& opt) {
 
     // HOST.md section 3, before the game's first instruction: find and resolve the mods, lay the data over the RomFS, start the code. The
     // game's files are read from its folders, so the patches and the data check run now too (step 4), before the game opens its RomFS.
+    //
+    // Code the player has not allowed never runs, also when the game is started without the launcher (which asks and records the yes with
+    // mt_loader_trust_mod). The core only flags it (MT_MOD_NEW_CODE) and would load it, and it has no per-mod switch for one run that is
+    // not saved to the player's list. So when a mod that is on has new code, the loader is made again with no_code: no code mod runs this
+    // time, the player's saved switches stay as they are, data-only mods still load.
     const MtBackend be = detail::make_backend();
-    MtOptions o{};
-    o.mods_dir = h.mods_dir.c_str();
-    o.mappings_dir = h.mappings_dir.c_str();
-    MtLoader* L = mt_loader_new(&o, &be);
-    if (!L) {
-        NXLOG_E(kTag, "mods: the mod loader could not start");
-        return;
-    }
-    if (mt_loader_scan(L) < 0) {
-        NXLOG_E(kTag, "mods: %s cannot be read, none loaded", h.mods_dir.c_str());
-        mt_loader_free(L);
-        return;
+    MtLoader* L = open_loader(be, false);
+    if (!L) return;
+    h.new_code = code_mods(L, true);
+    if (!h.new_code.empty()) {
+        mt_loader_free(L);   // nothing was started: it unloads nothing
+        h.code_held = true;
+        if (!(L = open_loader(be, true))) return;
     }
     h.L = L;
     const size_t built = read_built(gi.mods->hooks_built, be);
-    register_hooks(L);
+    if (!h.code_held) register_hooks(L);   // held: no code runs, so no handler could be at any point
     lay_overlay(L);
+    const std::vector<std::string> waiting = h.code_held ? code_mods(L, false) : std::vector<std::string>();
     const int code = mt_loader_start(L);
+    if (h.code_held) report_held(L, waiting);
     if (mt_loader_apply_patches(L) > 0) lay_overlay(L);
     mt_loader_check_data(L);
     services::fsapi::romfs_game_release();

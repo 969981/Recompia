@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "modtopia/modtopia_host.h"
 #include "nxrt/abi.h"
@@ -31,6 +32,10 @@ struct Host {
     std::string mods_dir, mappings_dir, host_name, game_version, build_id, save_dir;
     std::unordered_map<uint64_t, Built> built;   // guest address -> the point built there
     std::mutex events_mu;                        // mt_loader_save_written: one thread at a time
+    // Code the player has not allowed (MT_MOD_NEW_CODE on a mod that is on): no code mod runs this time (the core's no_code), and a code
+    // mod's data waits with its code. The ids of the new ones, for the log, the mod list's message and a notice.
+    bool code_held = false;
+    std::vector<std::string> new_code;
 };
 Host& host();
 
