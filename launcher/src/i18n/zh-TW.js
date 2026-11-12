@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '磁碟機已滿（{1}）。請釋放一些空間，或將遊戲資料夾移到更大的磁碟機。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '設定無法寫入此資料夾（{1}）。請檢查該資料夾不是唯讀的，或將遊戲資料夾移到類似 C:\\Games 的位置。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '已為 1 個帳號將「{1}」新增到 Steam。重新啟動 Steam 即可看到它及其插圖。',
+  'Item editor (experimental)': '物品編輯器（實驗性）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': '在遊戲的設定畫面中新增「Items」分頁，可變更背包中某個物品的持有數量。Link Play 期間無法使用。請先備份存檔。',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': '你的 Mod 需要新的掛鉤點：請重新設定（幾分鐘；著色器和存檔會保留）。',

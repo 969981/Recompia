@@ -2,7 +2,7 @@
 // In-game Options: what a tab is to the screen (pkp_options.cpp). A tab is a TabModel: its rows (label, description, widget, value texts),
 // their values while the screen is open (cur / orig, one per slot) and what happens when a row moves, the screen commits or it discards.
 // pkp_options.cpp keeps only the slot state machine and the game's hooks and asks the model. StaticTab serves the constexpr Row tables
-// (pkp_options_internal.h); the Time, Events and Mods tabs are their own models.
+// (pkp_options_internal.h); the Time, Events, Mods and Items tabs are their own models.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -95,5 +95,6 @@ protected:
 TabModel& time_tab();     // pkp_options_time.cpp: the game clock, applied when the screen commits
 TabModel& events_tab();   // pkp_options_time.cpp: one button per event; pressing one moves the clock and the Time tab's rows at once
 TabModel& mods_tab();     // pkp_options_mods.cpp: the Modtopia mods, one at a time: switch, state and settings
+TabModel& items_tab();    // pkp_options_items.cpp: a stack of the bag and its new count, written to the bag when the screen commits
 
 }  // namespace nxrt::games::pkp::options_detail

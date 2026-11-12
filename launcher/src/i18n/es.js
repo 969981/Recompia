@@ -732,6 +732,8 @@ export default {
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'La configuración no puede escribir en esta carpeta ({1}). Comprueba que la carpeta no sea de solo lectura o mueve la carpeta del juego a algún sitio como C:\\Games.',
   'Added "{1}" to Steam for {2} accounts. Start Steam again to see it, with its artwork.': 'Se añadió «{1}» a Steam para {2} cuentas. Vuelve a abrir Steam para verlo, con su ilustración.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': 'Se añadió «{1}» a Steam para 1 cuenta. Vuelve a abrir Steam para verlo, con su ilustración.',
+  'Item editor (experimental)': 'Editor de objetos (experimental)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Añade una pestaña «Items» a la pantalla de ajustes del juego donde cambias cuántas unidades tienes de un objeto de tu bolsa. Desactivado durante Link Play. Haz antes una copia de seguridad de tu partida.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Tus mods necesitan nuevos puntos de enganche: Configurar de nuevo (unos minutos; se conservan los shaders y las partidas).',

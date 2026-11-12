@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'ドライブがいっぱいです（{1}）。空き容量を作るか、ゲームフォルダーをより大きなドライブに移動してください。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'セットアップはこのフォルダー（{1}）に書き込めません。フォルダーが読み取り専用でないか確認するか、ゲームフォルダーを C:\\Games のような場所に移動してください。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '「{1}」をSteamの1アカウントに追加しました。Steamを再起動すると、アートワーク付きで表示されます。',
+  'Item editor (experimental)': 'アイテムエディター（実験的）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'ゲームの設定画面に「Items」タブを追加し、バッグ内のアイテムの所持数を変更できます。Link Play 中は無効です。先にセーブデータをバックアップしてください。',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Mod に新しいフックポイントが必要です: もう一度セットアップしてください (数分。シェーダーとセーブデータはそのまま残ります)。',

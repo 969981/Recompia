@@ -306,6 +306,10 @@ const GAMEPLAY = {
   inventory_sort: { label: t('Sort button in the bag and containers') },
   inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
+  item_editor: {
+    label: t('Item editor (experimental)'),
+    after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
+  },
   pokemon_cap_50: {
     label: t('More Pokémon in town'),
     after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.') }) }],

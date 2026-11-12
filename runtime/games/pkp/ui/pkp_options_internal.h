@@ -7,6 +7,7 @@
 //   pkp_options_rows.cpp   the rows of the PC settings tabs (Sound, Display, ... Controller) and of the Gameplay tab
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
 //   pkp_options_mods.cpp   the Mods tab: the Modtopia mods of the mods host (nxrt/mods.h)
+//   pkp_options_items.cpp  the Items tab: the item editor's screen (pkp_item_edit.h)
 #pragma once
 #include <cstddef>
 #include <cstdint>

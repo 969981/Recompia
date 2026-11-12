@@ -67,10 +67,12 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_options_mods.cpp"
         "${_pkp}/ui/pkp_options_rows.cpp"
         "${_pkp}/ui/pkp_options_time.cpp"
+        "${_pkp}/ui/pkp_options_items.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"
         "${_pkp}/ui/pkp_sort.cpp"
         "${_pkp}/ui/pkp_craft.cpp"
+        "${_pkp}/ui/pkp_item_edit.cpp"
         "${_pkp}/ui/pkp_time.cpp")
     if(NXRT_TESTTOOLS)
         target_sources(nxrt_game_pkp PRIVATE

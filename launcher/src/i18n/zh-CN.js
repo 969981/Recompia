@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '驱动器已满（{1}）。请释放一些空间，或将游戏文件夹移到更大的驱动器。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '设置无法写入此文件夹（{1}）。请检查该文件夹不是只读的，或将游戏文件夹移到类似 C:\\Games 的位置。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '已为 1 个账户将“{1}”添加到 Steam。重新启动 Steam 即可看到它及其插图。',
+  'Item editor (experimental)': '物品编辑器（实验性）',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': '在游戏的设置界面中添加“Items”标签页，可更改背包中某个物品的持有数量。Link Play 期间不可用。请先备份存档。',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': '你的 Mod 需要新的挂钩点：请重新设置（几分钟；着色器和存档会保留）。',

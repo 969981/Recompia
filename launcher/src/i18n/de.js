@@ -732,6 +732,8 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'Das Laufwerk ist voll ({1}). Schaffe Platz oder verschiebe den Spielordner auf ein größeres Laufwerk.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'Die Einrichtung kann in diesem Ordner nicht schreiben ({1}). Prüfe, ob der Ordner nicht schreibgeschützt ist, oder verschiebe den Spielordner an einen Ort wie C:\\Games.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '„{1}“ wurde zu Steam für 1 Konto hinzugefügt. Starte Steam erneut, um es mit seinem Artwork zu sehen.',
+  'Item editor (experimental)': 'Item-Editor (experimentell)',
+  'Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.': 'Fügt dem Einstellungsbildschirm des Spiels einen Tab „Items“ hinzu, in dem du änderst, wie viele Stück eines Items in deiner Tasche du hast. Aus während Link Play. Sichere vorher deinen Spielstand.',
 
   // Mods page (Modtopia)
   'Your mods need new hook points: Set up again (a few minutes; shaders and saves are kept).': 'Deine Mods brauchen neue Einhängepunkte: Erneut einrichten (ein paar Minuten; Shader und Spielstände bleiben erhalten).',
