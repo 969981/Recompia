@@ -7,6 +7,7 @@ mod config;
 mod dialogs;
 mod dlss;
 mod dlss_cmds;
+mod download;
 mod dump;
 mod dump_cmds;
 mod error;

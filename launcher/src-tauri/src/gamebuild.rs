@@ -12,7 +12,7 @@
 //! tools' header: an exe from another release than the dll is Stale however current its stamp, and a dll from another release
 //! than the tools is `Built::Mixed` (an update with only some files put in place), which no build fixes.
 //! On Linux the script runs with the Linux Python and Zig that host.rs fetches into `tools/linux`.
-//! Its crate-local imports are host.rs and runtime_api.rs, which have none, so `examples/first_run.rs` can build the files alone.
+//! Its crate-local imports are host.rs (with download.rs) and runtime_api.rs, so `examples/first_run.rs` can build the files alone.
 
 use std::fs;
 use std::io::{BufRead, BufReader};

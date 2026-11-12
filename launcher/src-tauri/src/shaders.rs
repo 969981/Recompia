@@ -16,7 +16,7 @@
 //! Compact storage (shader_archive.rs): when the cache has a shader archive, or a new setup asks for one (`Job::compact`), every chunk is
 //! moved into the archive as soon as it is committed, so the loose files never pile up. A cache of loose files stays loose until the
 //! player makes it smaller (main.rs compact_shaders).
-//! Its only crate-local imports are host.rs and shader_archive.rs, which have none, so `examples/shader_setup.rs` can build them alone.
+//! Its only crate-local imports are host.rs (with download.rs) and shader_archive.rs, so `examples/shader_setup.rs` can build them alone.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
