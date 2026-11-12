@@ -6,6 +6,7 @@
 //   pkp_options_capture.h  the key capture of capture rows (the Mouse Mode Key)
 //   pkp_options_rows.cpp   the rows of the PC settings tabs (Sound, Display, ... Controller) and of the Gameplay tab
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
+//   pkp_options_mods.cpp   the Mods tab: the Modtopia mods of the mods host (nxrt/mods.h)
 #pragma once
 #include <cstddef>
 #include <cstdint>

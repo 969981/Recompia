@@ -64,6 +64,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_options.cpp"
         "${_pkp}/ui/pkp_options_model.cpp"
         "${_pkp}/ui/pkp_options_capture.cpp"
+        "${_pkp}/ui/pkp_options_mods.cpp"
         "${_pkp}/ui/pkp_options_rows.cpp"
         "${_pkp}/ui/pkp_options_time.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"

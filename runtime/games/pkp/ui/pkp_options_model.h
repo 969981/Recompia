@@ -94,5 +94,6 @@ protected:
 // ---- the tabs that are their own models ----
 TabModel& time_tab();     // pkp_options_time.cpp: the game clock, applied when the screen commits
 TabModel& events_tab();   // pkp_options_time.cpp: one button per event; pressing one moves the clock and the Time tab's rows at once
+TabModel& mods_tab();     // pkp_options_mods.cpp: the Modtopia mods, one at a time: switch, state and settings
 
 }  // namespace nxrt::games::pkp::options_detail
