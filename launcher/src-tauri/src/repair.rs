@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn the_launcher_reset_keeps_the_places_and_survives_a_damaged_file() {
-        let kept: serde_json::Value = serde_json::from_str(&reset_launcher_text(r#"{"dump_dir":"D:/d","game_dir":"C:/g","channel":"testing","gentle_build":true,"window":{"x":1}}"#)).unwrap();
+        let kept: serde_json::Value = serde_json::from_str(&reset_launcher_text(r#"{"dump_dir":"D:/d","game_dir":"C:/g","channel":"testing","gentle_build":true,"mods_auto_update":true,"window":{"x":1}}"#)).unwrap();
         assert_eq!(kept, serde_json::json!({"dump_dir":"D:/d","game_dir":"C:/g","channel":"testing"}));
         let bad: serde_json::Value = serde_json::from_str(&reset_launcher_text("{ this is not json")).unwrap();
         assert_eq!(bad, serde_json::json!({}));

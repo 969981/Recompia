@@ -5,6 +5,7 @@
 .mods-part { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .mods-part:empty { display: none; }
 .mods-part .banner { align-items: center; }
+.mods-pref { padding: var(--space-3) var(--space-4); }
 .mods-note { padding-inline: var(--space-2); font-size: var(--text-sm); }
 .mods-links { margin-top: var(--space-2); }
 
