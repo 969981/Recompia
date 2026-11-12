@@ -14,6 +14,7 @@ mod events;
 mod fsutil;
 mod gamebuild;
 mod guard;
+mod harness;
 mod host;
 mod ini;
 mod lan;

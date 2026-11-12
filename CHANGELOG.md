@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- When the shader translator closes without a word during Set up under Proton ("Translating shaders: 0 of 99012", #530), Set up now runs that batch again with lighter settings (workstation memory management, 2 jobs) and keeps them for the rest of the shaders. setup.log also shows the translator's last steps when it fails. Update only: no shader rebuild, no Set up again
+
 ## 0.11.0 (build O: Ocelot)
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
