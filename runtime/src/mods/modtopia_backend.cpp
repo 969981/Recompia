@@ -2,8 +2,8 @@
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
 // over the picture (notify), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
-// under the game's (audio_*).
-// Every other callback (notify_image, key_down, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// under the game's (audio_*) and which keyboard keys are held (key_down).
+// Every other callback (notify_image, colour matrix, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
@@ -13,6 +13,7 @@
 #include "nxrt/audio_sink.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/kernel.h"
+#include "nxrt/key_state.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
@@ -192,6 +193,10 @@ int be_screenshot(void*, const char* path) {
     return screenshot::request(path, true) ? MT_OK : MT_ERR_STATE;
 }
 
+// 1 while the keyboard key is held, by the name key settings store. The state only holds keys that reached the game's window while it had
+// focus (cleared on focus loss), so an unfocused window or an unknown name reads 0.
+int be_key_down(void*, const char* key) { return key && key_state::down_by_name(key) ? 1 : 0; }
+
 }  // namespace
 
 bool take_skip(uint64_t site) {
@@ -225,6 +230,7 @@ MtBackend make_backend() {
     be.save_dir = &be_save_dir;
     be.notify = &be_notify;
     be.screenshot = &be_screenshot;
+    be.key_down = &be_key_down;
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;
     be.pad_block = &be_pad_block;

@@ -182,6 +182,7 @@ int update_hook(::Ctx*, uint64_t, void*);
 
 // play_automation.cpp
 bool key_sink(const char* name, bool down);
+int key_scancode_by_name(const char* name);   // play_events.cpp: for nxrt/key_state.h
 bool screenshot_provider(const char* path, bool bare, void*);   // nxrt/screenshot.h: registered at start whenever there is a renderer
 
 // play_hosts.cpp
