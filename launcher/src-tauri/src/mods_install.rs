@@ -14,9 +14,9 @@ use crate::mods::{self, ModsView};
 use crate::mods_catalog::{self, CatalogStore, Entry};
 
 /// The one install path: downloads the entry's package (the hub's server only, size and SHA-256 checked, never half a file in mods/),
-/// removes an older version's file, and records the yes for the new file when it has code. The mod's switch and place are the core's
-/// (by id), so they stay as they were. Nothing is switched on here.
-pub fn put_in_place(game_dir: &Path, entry: &Entry) -> Result<(), String> {
+/// removes an older version's file, and, when `trust` (the player said yes to this mod's code), records the yes for the new file when it
+/// has code. The mod's switch and place are the core's (by id), so they stay as they were. Nothing is switched on here.
+pub fn put_in_place(game_dir: &Path, entry: &Entry, trust: bool) -> Result<(), String> {
     let dl = entry.download.as_ref().ok_or_else(|| format!("{} is not out yet.", entry.name))?;
     if !mods_catalog::download_ok(dl) {
         return Err(format!("{} cannot be installed: its download is not on the mod hub's server.", entry.name));
@@ -30,7 +30,10 @@ pub fn put_in_place(game_dir: &Path, entry: &Entry) -> Result<(), String> {
     if let Some((_, source)) = before.filter(|(_, source)| *source != dl.file) {
         mods::delete_source(game_dir, &source)?;
     }
-    mods::trust_file(game_dir, &entry.id)
+    if trust {
+        mods::trust_file(game_dir, &entry.id)?;
+    }
+    Ok(())
 }
 
 pub fn install(game_dir: &Path, store: &CatalogStore, cache: &Path, id: &str) -> Result<ModsView, String> {
@@ -42,6 +45,7 @@ pub fn install(game_dir: &Path, store: &CatalogStore, cache: &Path, id: &str) ->
         return Err("The mod hub is not open for installs yet.".into());
     }
     let entry = catalog.mods.iter().find(|e| e.id == id && mods_catalog::fits(e)).ok_or_else(|| format!("{} is not in the mod list for this game.", id))?;
-    put_in_place(game_dir, entry)?;
+    // the page asked the install question (code runs with the player's rights) before this call
+    put_in_place(game_dir, entry, true)?;
     mods::set_enabled(game_dir, id, true, true)
 }

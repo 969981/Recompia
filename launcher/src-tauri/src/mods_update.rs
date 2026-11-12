@@ -3,8 +3,10 @@
 //! installed mods that the mod hub's list has a newer version of are replaced by it, with no question. The hub's list is the session copy
 //! Browse uses (mods_catalog.rs `load`, the kept copy offline); a download is taken only from the hub's server with the size and SHA-256
 //! the list gives (mods_install.rs `put_in_place`, the same path as the page's Install). The player's earlier yes carries over: only a mod
-//! whose installed file is allowed (or has no code) is updated, and its new file is allowed after the checks. A mod whose file was
-//! dropped in by hand or changed since is left alone. The mod's switch and place stay as they were (the core keeps both by id).
+//! whose installed file is allowed (or has no code) is updated, and its new file is allowed after the checks only when the old file had
+//! code the player allowed. A data-only mod whose new version brings code was never a yes to code: that code waits for the player (the
+//! hold-back of mods.rs `open`, the page asks when it is switched on). A mod whose file was dropped in by hand or changed since is left
+//! alone. The mod's switch and place stay as they were (the core keeps both by id).
 //! Each mod is its own step: one that fails is logged and the others go on.
 
 use serde::Serialize;
@@ -59,7 +61,7 @@ pub fn run(game_dir: &Path, store: &CatalogStore, cache: &Path) -> Result<Vec<Up
     let installed = mods::installed_all(game_dir);
     let mut done = Vec::new();
     for (entry, have) in plan(&catalog, offline, &installed) {
-        match mods_install::put_in_place(game_dir, entry) {
+        match mods_install::put_in_place(game_dir, entry, have.code) {
             Ok(()) => done.push(Updated { name: have.name.clone(), from: have.version.clone(), to: entry.version.clone() }),
             Err(e) => eprintln!("mods: update of {} to {} failed: {e}", entry.id, entry.version),
         }
@@ -88,7 +90,7 @@ mod tests {
     }
 
     fn have(id: &str, version: &str, allowed: bool) -> Installed {
-        Installed { id: id.into(), name: id.into(), version: version.into(), allowed }
+        Installed { id: id.into(), name: id.into(), version: version.into(), allowed, code: true }
     }
 
     fn ids(c: &Catalog, offline: bool, installed: &[Installed]) -> Vec<String> {

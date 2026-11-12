@@ -333,11 +333,17 @@ pub struct Installed {
     pub version: String,
     /// no code to run, or code the player has said yes to (its file is the one that was allowed)
     pub allowed: bool,
+    /// the installed file has code (with `allowed`: the player said yes to code for this mod)
+    pub code: bool,
 }
 
 /// Every installed mod with its version and whether its file is allowed.
 pub fn installed_all(game_dir: &Path) -> Vec<Installed> {
-    open(game_dir).mods().into_iter().map(|m| Installed { allowed: !needs_yes(&m), id: m.id, name: m.name, version: m.version }).collect()
+    open(game_dir)
+        .mods()
+        .into_iter()
+        .map(|m| Installed { allowed: !needs_yes(&m), code: m.flags & ffi::FLAG_CODE != 0, id: m.id, name: m.name, version: m.version })
+        .collect()
 }
 
 /// Records the player's yes for the file now in mods/ under this id, when it has code that is not allowed yet (an install or update that
