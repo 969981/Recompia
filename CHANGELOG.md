@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Mods
+- Mods can now take screenshots (without the game's overlay menus in them) and react to keyboard keys
+
 ## 0.11.1 (build O: Ocelot Hotfix a1)
 
 **Update:** press **Update**, then **Set up again** once (the game code is translated again for the mods' hook points, several minutes). Your shaders and saves are kept; no shader is translated again.
