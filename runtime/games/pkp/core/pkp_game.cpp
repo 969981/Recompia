@@ -18,6 +18,7 @@
 #include "ui/pkp_options.h"
 #include "input/pkp_play.h"
 #include "render/pkp_quality.h"
+#include "core/pkp_pokemon_cap.h"
 #include "core/pkp_save_uuid.h"
 #include "render/pkp_shoulder_camera.h"
 #include "ui/pkp_sort.h"
@@ -83,7 +84,7 @@ constexpr Entry kEntries[] = {
 #endif
     port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
-    mod(&kCraftFeature, CraftSearch), port(&key_guide::kKeyGuideFeature),
+    mod(&kCraftFeature, CraftSearch), mod(&kPokemonCapFeature, PokemonCap), port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
 };
 constexpr size_t kFeatureCount = std::size(kEntries);
