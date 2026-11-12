@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Update:** press **Update**, then **Set up again** once (the game code is translated again for the mods' hook points, several minutes). Your shaders and saves are kept; no shader is translated again.
+
+### Mods
+- **Modtopia mods:** Recompia now runs mods made for Modtopia, the mod loader shared with Pokopia Native: the same `.pkmod` files work on both
+- New **Mods** page in the launcher: switch your mods on and off, change their order and settings, and remove them. **Browse** lists the mods on the Modtopia mod hub with their authors and licence; **Install** asks once, downloads from the hub's own server and checks the file before it goes in
+- A mod's code runs only after you allow it on the Mods page; a new or changed mod asks again. Mods with only files need no permission
+- When your mods need new hook points, the launcher asks for **Set up again** (a few minutes; shaders and saves are kept)
+- Link Play: everyone in a session needs the same gameplay mods; the Link Play page lists the ones you have on
+
 ## 0.11.0 (build O: Ocelot)
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
