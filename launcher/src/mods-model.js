@@ -20,6 +20,11 @@ export function byLine(m) {
   return authors ? t('By {authors}. Licence: {licence}.', { authors, licence }) : t('Licence: {licence}.', { licence });
 }
 
+/** The one line that tells the player which mods were updated by themselves: [{ name, from, to }] from the launcher. */
+export function updatedLine(done) {
+  return t('Updated by itself: {list}', { list: done.map((u) => `${u.name} ${u.from} → ${u.to}`).join(', ') });
+}
+
 /** What a Browse card's button is: 'install', 'update' (a newer version than the installed one), 'installed', 'soon' (no download
  *  yet) or 'closed' (the hub says nothing is installable yet). */
 export function cardAction(card, preview) {

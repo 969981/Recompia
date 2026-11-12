@@ -1,5 +1,5 @@
 // Tests for the pure part of the Mods page (src/mods-model.js). Run: node launcher/scripts/test-mods-model.mjs
-import { allowQuestion, badges, byLine, canMove, cardAction, installQuestion, isSlider, settingValue } from '../src/mods-model.js';
+import { allowQuestion, badges, byLine, canMove, cardAction, installQuestion, isSlider, settingValue, updatedLine } from '../src/mods-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -35,6 +35,8 @@ check(settingValue({ kind: 'number' }, { value: '1.25' }).number === 1.25, 'numb
 check(settingValue({ kind: 'key' }, { value: 'F2' }).text === 'F2', 'key as text');
 check(isSlider({ kind: 'number', min: 0.5, max: 1.6 }) && !isSlider({ kind: 'number', min: 0, max: 0 }), 'slider only with a range');
 check(!canMove([1, 2], 0, -1) && canMove([1, 2], 0, 1) && !canMove([1, 2], 1, 1), 'move at the ends');
+
+check(updatedLine([{ name: 'A', from: '1.0.0', to: '1.1.0' }, { name: 'B', from: '0.1.0', to: '0.2.0' }]) === 'Updated by itself: A 1.0.0 → 1.1.0, B 0.1.0 → 0.2.0', 'the update line names each mod and its versions');
 
 console.log(bad ? `TEST FAILED (${bad})` : 'mods model tests passed');
 process.exit(bad ? 1 : 0);
