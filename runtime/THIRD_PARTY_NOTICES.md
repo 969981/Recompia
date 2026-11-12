@@ -284,6 +284,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+## Modtopia 0.6.1 (MIT)
+
+`third_party/modtopia/` is the Modtopia mod loader 0.6.1: its core (`core/src/*.c`, `*.h`), its SDK headers (`sdk/include/modtopia/`) and
+its function-name mappings (`mappings/*.toml`), copied unchanged from the Modtopia 0.6.1 package. The runtime's mods host
+(`src/mods/`) links the core to run Modtopia mods. `LICENSE`, reproduced verbatim:
+
+```text
+MIT License
+
+Copyright (c) 2026 The Modtopia contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Ryujinx and ryubing (MIT)
 
 The service files below adapt code, tables or layouts from Ryujinx and its fork ryubing, both under the MIT licence (their headers name the source files): `src/services/acc.cpp`, `am.cpp`, `audio_out.cpp`, `hid.cpp`, `hid_jc2_mouse.cpp`, `ldn_types.h`, `ldn_linkplay.h`, `ldn_linkplay.cpp`, `logfault.cpp`, `misc*.cpp` (`misc_internal.h`), `network*.cpp` (`network_internal.h`), `pl.cpp`, `power.cpp`, `settings.cpp`, `time.cpp`, `timezone.cpp`, `vi_nv.cpp`, `vi_display.cpp` and `vi_nvdrv.cpp`. The audio renderer in `src/services/audren/**` (135 files) is a file-by-file port of Ryujinx.Audio from ryubing (`src/Ryujinx.Audio/Renderer/**`, `Constants.cs`, `Integration`); each of its headers names the C# file it ports, and its files are covered by the same notice. Licence text, from `refs/ryubing/LICENSE.txt`:
