@@ -106,8 +106,8 @@ constexpr uint16_t kVariantMask = 0x7000;
 void set_session_variant(uint8_t variant, const char* what);
 uint8_t session_variant();
 // Co-op mods: more opt-in mods a game module has on, by name, for [net] protocol = native only. The co-op module's mods fingerprint, which
-// peers compare before a join, is the session variant's name followed by these names in this order (none counted while no variant is
-// set); a name must be byte for byte what the other builds use. Empty: none. Set it like the variant; any thread.
+// peers compare before a join, is the session variant's name (while a variant is set) followed by these names in this order; nothing
+// (0) when both are empty. A name must be byte for byte what the other builds use. Empty: none. Set it like the variant; any thread.
 void set_coop_mods(const std::vector<std::string>& names);
 std::vector<std::string> coop_mods();
 // Whether ldn:u speaks [net] protocol = native (the default).
