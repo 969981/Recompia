@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
 // of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
-// over the picture (notify), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
+// over the picture (notify, notify_image), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block: modtopia_input.cpp) and sound
 // under the game's (audio_*), which keyboard keys are held (key_down) and a colour matrix over the final picture (color_matrix).
-// Every other callback (notify_image, HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
+// Every other callback (HUD, network, file notes) stays NULL: the core then tells a mod that asks for it that this host has none (MT_ERR_VERSION), or sends the text alone.
 #include <windows.h>
 
 #include <cstring>
@@ -186,6 +186,14 @@ int be_notify(void*, const char* mod_id, const char* text, double seconds) {
     notices::post(std::string("mod:") + mod_id, text, seconds);
     return MT_OK;
 }
+// The same with a picture beside the text: the core has already read the mod's PNG and fitted it to MT_NOTIFY_IMAGE x MT_NOTIFY_IMAGE
+// straight RGBA (modtopia_host.h), valid during the call only, so the notice keeps its own copy.
+static_assert(MT_NOTIFY_IMAGE <= notices::kMaxImageSide, "the core's picture is shown at its own size");
+int be_notify_image(void*, const char* mod_id, const char* text, double seconds, const uint8_t* rgba) {
+    if (!mod_id || !text) return MT_ERR_UNKNOWN;
+    notices::post(std::string("mod:") + mod_id, text, seconds, rgba, MT_NOTIFY_IMAGE, MT_NOTIFY_IMAGE);
+    return MT_OK;
+}
 
 // The next presented picture as a PNG at path, without our menus. The request is taken now and the file is written when that frame ends
 // (nxrt/screenshot.h), so MT_OK means requested, as the host API says. No renderer (a headless run), or another capture not taken yet
@@ -238,6 +246,7 @@ MtBackend make_backend() {
     be.game_read = &be_game_read;
     be.save_dir = &be_save_dir;
     be.notify = &be_notify;
+    be.notify_image = &be_notify_image;
     be.screenshot = &be_screenshot;
     be.key_down = &be_key_down;
     be.color_matrix = &be_color_matrix;
