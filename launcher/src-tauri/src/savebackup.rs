@@ -313,15 +313,10 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
     if !src.join(DATA).is_dir() {
         return Err("That backup is incomplete.".into());
     }
-    let safety = match snapshot_impl(game_dir, KIND_SAFETY, Duration::from_millis(200), true).map_err(|e| format!("Your current progress could not be saved first, so nothing was changed: {}", e))? {
-        Outcome::Made { entry } => Some(entry),
-        _ => None,
-    };
+    let safety = safety_copy(game_dir, KIND_SAFETY)?;
     let acc = sd.join("account");
     fs::create_dir_all(&acc).map_err(|e| e.to_string())?;
-    let live = acc.join(&key);
-    let st = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
-    let (incoming, replaced) = (acc.join(format!("{}.restore-{}", key, st)), acc.join(format!("{}.replaced-{}", key, st)));
+    let incoming = acc.join(format!("{}.restore-{}", key, swap_stamp()));
     let _ = fs::remove_dir_all(&incoming);
     copy_tree(&src.join(DATA), &incoming).map_err(|e| {
         let _ = fs::remove_dir_all(&incoming);
@@ -331,23 +326,49 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
         let _ = fs::remove_dir_all(&incoming);
         return Err("The copy of the backup is not complete. Your save was not changed.".into());
     }
+    let meta_from = src.join(META);
+    swap_in(&sd, &key, &incoming, Some(&meta_from).filter(|m| m.is_file()).map(|m| m.as_path()))?;
+    Ok(Restored { restored: entry, safety })
+}
+
+/// A copy of the active profile's save as it is now, made with the game closed and kept as a safety copy (`kind`). None when there is
+/// no save yet. An error says nothing was changed, so the caller can stop.
+pub fn safety_copy(game_dir: &Path, kind: &str) -> Result<Option<Entry>, String> {
+    match snapshot_impl(game_dir, kind, Duration::from_millis(200), true).map_err(|e| format!("Your current progress could not be saved first, so nothing was changed: {}", e))? {
+        Outcome::Made { entry } => Ok(Some(entry)),
+        _ => Ok(None),
+    }
+}
+
+/// The time part of the folder names swap_in's callers stage beside the live save.
+pub fn swap_stamp() -> String {
+    chrono::Utc::now().format("%Y%m%d%H%M%S").to_string()
+}
+
+/// Puts `incoming` (a complete save folder the caller filled in `<sd>/account/`) in place as the account `key`'s save. The game must be
+/// closed. The live folder is replaced by renaming, so a failure part way puts the old one back; `meta`, when given, is copied over the
+/// .meta; leftovers of the runtime's commit (`.commit`, `.journal.*`, `.work.*`) are removed so an old unfinished commit cannot be applied
+/// over the new save. On an error `incoming` is removed and the save is as it was.
+pub fn swap_in(sd: &Path, key: &str, incoming: &Path, meta: Option<&Path>) -> Result<(), String> {
+    let acc = sd.join("account");
+    let live = acc.join(key);
+    let replaced = acc.join(format!("{}.replaced-{}", key, swap_stamp()));
     let had = live.exists();
     if had {
         fs::rename(&live, &replaced).map_err(|e| {
-            let _ = fs::remove_dir_all(&incoming);
+            let _ = fs::remove_dir_all(incoming);
             format!("Cannot replace the save: {}. Your save was not changed.", e)
         })?;
     }
-    if let Err(e) = fs::rename(&incoming, &live) {
+    if let Err(e) = fs::rename(incoming, &live) {
         if had {
             let _ = fs::rename(&replaced, &live);
         }
-        let _ = fs::remove_dir_all(&incoming);
+        let _ = fs::remove_dir_all(incoming);
         return Err(format!("Cannot put the backup in place: {}. Your save was not changed.", e));
     }
-    let meta_from = src.join(META);
-    if meta_from.is_file() {
-        let _ = fs::copy(&meta_from, acc.join(format!("{}.meta", key)));
+    if let Some(m) = meta {
+        let _ = fs::copy(m, acc.join(format!("{}.meta", key)));
     }
     let _ = fs::remove_dir_all(&replaced);
     if let Ok(rd) = fs::read_dir(&acc) {
@@ -359,7 +380,7 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
             }
         }
     }
-    Ok(Restored { restored: entry, safety })
+    Ok(())
 }
 
 // ---- while the game runs --------------------------------------------------------------------------------------------------------
