@@ -132,6 +132,7 @@ let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
 let mockLook = { logo: '', icon: '' };
+let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
 const BACK = ['The game code may have to be built again for the older version, before it is installed or with Set up again after it: from a few minutes to an hour, depending on your PC.', 'Files that only the newer version has stay in the folder; they are not removed.'];
@@ -430,8 +431,10 @@ function handle(cmd, args) {
     case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_link':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockLook };
-    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockLook = { logo: args.config.logo ?? '', icon: args.config.icon ?? '' }; return null;
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockLook, ...mockOnline };
+    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockLook = { logo: args.config.logo ?? '', icon: args.config.icon ?? '' };
+      mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
+      return null;
     case 'apply_branding': return null;
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';

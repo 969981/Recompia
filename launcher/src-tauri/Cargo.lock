@@ -2295,6 +2295,7 @@ dependencies = [
  "base64 0.22.1",
  "cc",
  "chrono",
+ "flate2",
  "libc",
  "pokopia-relay",
  "serde",

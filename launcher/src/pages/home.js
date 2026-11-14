@@ -8,6 +8,7 @@ import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction, updatePlayable } from '../action.js';
 import { readIni, viewOf } from '../linkplay-model.js';
+import { onlineOn, setOnline } from '../online.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 import { playTimeLine } from '../play-time-model.js';
 
@@ -159,6 +160,7 @@ export function render(el, ctx) {
     if (t.id === 'primary') store.perform(primaryAction(store.state).run, ctx.go);
     if (t.id === 'link-chip') ctx.go('linkplay');
     if (t.id === 'discord-chip') api.openLink({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
+    if (t.id === 'online-chip') toggleOnline();
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
@@ -177,12 +179,32 @@ export function render(el, ctx) {
   let linkChip = '';
   let profileChip = '';
   let timeChip = '';
+  let onlineChip = '';
   const discordChip = `<button class="chip on-art" id="discord-chip">${icon('globe')}Discord</button>`;
-  const drawChips = () => { part('link').innerHTML = profileChip + timeChip + linkChip + discordChip; };
+  const drawChips = () => { part('link').innerHTML = onlineChip + profileChip + timeChip + linkChip + discordChip; };
+  // online presence (online.js): first among the chips so it is seen; one click switches it, the same key as Settings > Game and the
+  // game's own Settings (Online tab), so a change made in the game shows here the next time Home is drawn
+  const drawOnline = (on) => {
+    onlineChip = `<button class="chip on-art ${on ? 'ok' : ''}" id="online-chip" aria-pressed="${on}" title="${esc(t('Share that I am online'))}">${
+      icon(on ? 'user-check' : 'eye-off')}${esc(on ? t('Online: shown') : t('Online: hidden'))}</button>`;
+    drawChips();
+  };
+  let online = false;
+  async function toggleOnline() {
+    try {
+      await setOnline(!online);
+      online = !online;
+      drawOnline(online);
+      toast(online ? t('You will show as online while you play') : t('You no longer show as online'), 'ok');
+    } catch (err) {
+      toast(errText(err), 'error');
+    }
+  }
   drawChips();
   api.readSettings().then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
-    drawChips();
+    online = onlineOn(data.pkp);
+    drawOnline(online);
   }).catch((e) => console.warn('read_settings', e));
   // with more than one profile the player picks who plays here; the choice is the Settings > Saves list
   const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="${esc(t('Profile'))}" ${busy ? 'disabled' : ''}>${

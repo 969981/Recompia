@@ -45,6 +45,7 @@ const CONTROL = {
       <button class="btn" data-act="browse" data-arg="${f.id}">${esc(t('Browse'))}</button>
       ${f.open ? `<button class="btn" data-act="open" data-arg="${f.open}">${icon('folder-open')}${esc(t('Open'))}</button>` : ''}`;
   },
+  text: (st, f, value, e, off) => field(f.id, value, f.placeholder?.(e) ?? '', { disabled: off }).replace('class="input', 'maxlength="32" class="input'),
   clock: (st, f, value, e, off) => `${field(f.id, clockInput(value), '', { type: 'datetime-local', disabled: off }).replace('class="input', 'step="60" class="input')}
     <button class="btn" data-act="clock-real" data-arg="${f.id}" ${off ? 'disabled' : ''}>${icon('rotate-ccw')}${esc(t('Real time'))}</button>
     <span class="set-value">${esc(clockReadout(value))}</span>`,
