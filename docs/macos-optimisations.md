@@ -28,7 +28,7 @@ section says what to run.
 | 10 | Real-time policy for the render thread | **already ours** — `kernel/sched.cpp:335` → `os_posix.cpp:733-741` |
 | 11 | Lazy barriers + sticky read-only depth | **half ours** — the lazy-barrier half already exists (`nvn_replay_pass.cpp:146-155`); sticky depth is open (§4.3) |
 | 12 | vsync on by default on macOS, once | **done** — `[meta] display_rev` (`play_config.cpp:189-205`, `play_config_table.cpp:216`) |
-| 13 | A frame limit holds through loading | **done** — `frame_limiter_set_player_cap` (`play_frame_cap.cpp:105-110`) |
+| 13 | A frame limit holds through loading | **done** — loading frames are always paced (#660) |
 | 14 | MetalFX temporal upscaling | **open** — large (§4.4) |
 | 15 | UDOT/SDOT, ZBIC-compressed NSOs | **open** — for games we do not ship (§4.5) |
 | 16 | KosmicKrisp as a second driver | **open** — needs a Mac (§4.6) |
@@ -97,9 +97,9 @@ flashed partly drawn pictures on a MacBook). `[meta] display_rev = 1` switches v
 factory text and for an existing `controls.ini`; a player who turns it off keeps it off. Only compiled in
 under `__APPLE__`.
 
-**13 — frame limit through loading.** Loading runs unpaced by design (the loading code advances once per
-frame). A *number* in `[display] fps_limit` now wins over that (`frame_limiter_set_player_cap`); `auto` and
-`unlimited` keep the faster unpaced loading.
+**13 — frame limit through loading.** The frame limiter paces loading frames like any other: the old
+`[display] unpaced_loading` option, which let them run unpaced, was removed (#660), so every frame limit holds
+through loading screens.
 
 ---
 

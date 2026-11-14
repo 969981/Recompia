@@ -12,6 +12,12 @@
   - The controller works in the editor as on the other pages: move onto it from the sidebar, the d-pad or left stick moves between its buttons, tabs and lists, A presses, the right stick scrolls, and B steps back out to the sidebar
   - Still not: typing a name or a number needs a keyboard (on the Steam Deck, Steam + X opens one)
 
+### Fixed
+- Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
+
+### Removed
+- Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
+
 ## 0.13.1 (build Q: Quokka Hotfix a1)
 
 **Update:** press **Update**, then **Finish update** once when it asks (two new hook points for the photo camera, so only a few parts of the game code compile again). Shaders and saves are kept; no shader is translated again.

@@ -12,7 +12,7 @@
 // Event hold (#297): the game's scripted events were built for a step of exactly 1.0. Above 60 fps DJ Rotom's mood 100 event never got past
 // "YOOOOOO!" and at a 60 fps limit it finishes; the consumer that breaks on fractional steps has not been found among the multiplier's readers.
 // So while the player cannot turn the camera (the follow camera's turn branch, hook_cam_stick, closed for 200 ms: an event, a dialogue, a
-// transition, a menu) or the NVN replay marks loading frames, and for [pkp] event_hold_ms (default 1500) after, the frame limiter's ceiling
+// transition, a menu), and for [pkp] event_hold_ms (default 1500) after, the frame limiter's ceiling
 // holds the game at 60 fps and the multiplier keeps the retail rule. In free play the frame limit and the fractional multiplier apply.
 // Where the frame cap snaps to the refresh rate (a Steam Deck with vsync) the limiter lowers that 60 to the next divisor of it (45 on a
 // 90 Hz panel: [latency] snap_ceiling); the retail rule covers it, a step above 1.0 being what the console does on a slow frame.
@@ -46,7 +46,6 @@ uint64_t mono_ns();
 bool event_hold(State& s) {
     if (!s.hold_on.load(std::memory_order_relaxed)) return false;
     const uint64_t now = mono_ns();
-    if (frame_limiter_unpaced()) s.seq_ns.store(now, std::memory_order_relaxed);
     const uint64_t turn = s.turn_ns.load(std::memory_order_relaxed);
     if (turn == 0 || now - turn > 200000000ull) s.seq_ns.store(now, std::memory_order_relaxed);
     const uint64_t last = s.seq_ns.load(std::memory_order_relaxed);
