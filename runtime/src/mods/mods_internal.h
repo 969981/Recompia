@@ -2,8 +2,8 @@
 // The mods host's shared state (nxrt/mods.h): for modtopia_host.cpp (start, hooks, events) and modtopia_backend.cpp (the MtBackend the
 // Modtopia core calls) only.
 #pragma once
+#include <atomic>
 #include <cstdint>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -34,7 +34,10 @@ struct Host {
     // Strings the core keeps pointers to (MtOptions, MtBackend): they live as long as the process.
     std::string mods_dir, mappings_dir, host_name, game_version, build_id, save_dir;
     std::unordered_map<uint64_t, Built> built;   // guest address -> the point built there
-    std::mutex events_mu;                        // mt_loader_save_written: one thread at a time
+    // Save data commits the fs service reported since the last frame (its listener runs on the committing thread): mt_loader_frame and
+    // mt_loader_save_written are called by one thread at a time (modtopia_host.h), so frame() posts SaveWritten for each on the game's
+    // thread, before that frame's FrameStart. A mod's handlers then never run on two threads at once.
+    std::atomic<uint32_t> saves_pending{0};
     // Code the player has not allowed (MT_MOD_NEW_CODE on a mod that is on): no code mod runs this time (the core's no_code), and a code
     // mod's data waits with its code. The ids of the new ones, for the log, the mod list's message and a notice.
     bool code_held = false;

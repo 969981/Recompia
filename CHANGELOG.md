@@ -7,6 +7,7 @@
 
 ### Fixed
 - Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
+- Mods: a save's SaveWritten event is posted on the game's thread at the next frame, not from the thread that committed the save, so a mod's handlers never run on two threads at once (#662)
 
 ### Changed
 - Camera aim picks the block under the crosshair for every tool and held item, the way the game's own Joy-Con 2 mouse mode aims (#663)

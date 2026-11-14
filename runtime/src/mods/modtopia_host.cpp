@@ -234,9 +234,10 @@ std::vector<std::string> ini_list(const char* key) {
 }
 
 void on_save_committed() {
-    detail::Host& h = host();
-    std::lock_guard<std::mutex> lk(h.events_mu);
-    mt_loader_save_written(h.L);
+    // The fs service calls this on the thread that committed the save, which need not be the game's frame thread: queue the event for
+    // frame() (the core calls mt_loader_frame and mt_loader_save_written one thread at a time, modtopia_host.h, so a mod's handlers must
+    // never run on two threads at once).
+    host().saves_pending.fetch_add(1, std::memory_order_release);
 }
 
 }  // namespace
@@ -308,7 +309,12 @@ void start(const StartOptions& opt) {
 }
 
 void frame() {
-    if (MtLoader* L = host().L) mt_loader_frame(L);
+    detail::Host& h = host();
+    if (MtLoader* L = h.L) {
+        // The saves committed since the last frame, on this thread, before this frame's FrameStart: the fs listener only queues them.
+        for (uint32_t n = h.saves_pending.exchange(0, std::memory_order_acq_rel); n; --n) mt_loader_save_written(L);
+        mt_loader_frame(L);
+    }
 }
 
 std::vector<std::string> gameplay_mods() {
