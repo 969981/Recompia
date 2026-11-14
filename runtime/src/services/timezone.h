@@ -28,9 +28,10 @@ static_assert(sizeof(CalendarAdditionalInfo) == 0x18);
 
 // UTC rule: no transitions, one type ("UTC", offset 0).
 void make_utc_rule(uint8_t* out /*kRuleSize bytes*/);
-// A rule for the host's Windows time zone with explicit transitions for the years 1970..2037 (falls back to the UTC rule and returns
-// false when the host zone cannot be read). *name_out receives a location name for GetDeviceLocationName ("Europe/Berlin" when the
-// Windows zone maps to one, else the Windows zone id; "UTC" for the fallback).
+// A rule for the host's time zone with explicit transitions for the years 1970..2037 (falls back to the UTC rule and returns false
+// when the host zone cannot be read). Windows reads the dynamic time zone; POSIX reads libc's local time ($TZ, /etc/localtime).
+// *name_out receives a location name for GetDeviceLocationName: on Windows "Europe/Berlin" when the zone maps to one, else the
+// Windows zone id; on POSIX the tz name of $TZ or /etc/localtime, else "Etc/Unknown"; "UTC" for the fallback.
 bool make_host_rule(uint8_t* out, std::string* name_out);
 
 // tzcode localtime for `posix` seconds under `rule`. False for an invalid rule.

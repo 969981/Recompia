@@ -14,6 +14,7 @@
 
 ### Fixed
 - Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
+- Fixed the game clock always running on UTC in the native Linux build: the game now follows your PC's time zone, as it does on Windows (#654)
 
 ### Removed
 - Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
