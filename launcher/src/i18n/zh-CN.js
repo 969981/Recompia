@@ -908,4 +908,9 @@ export default {
   'The game is running. Close it first, then edit the save.': '游戏正在运行。请先关闭游戏，再编辑存档。',
   'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '还没有可编辑的存档。请先玩一次游戏，或在设置中导入存档，然后重试。',
   'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '没有可写入的存档。请先玩一次游戏，或在设置中导入存档，然后重试。',
+  'Making the editor\'s names and pictures from your game files. This happens once.': '正在根据你的游戏文件生成编辑器的名称和图片。只需进行一次。',
+  'The save editor needs the game files: choose them on the Set up page first.': '存档编辑器需要游戏文件：请先在设置页面中选择。',
+  'The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.': '游戏文件不在 pkp.ini 指定的位置（{1}）。请在设置页面中重新选择。',
+  'This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.': '此软件包中没有存档编辑器的数据工具（tools/pokohex）。请重新解压版本 zip，使 tools/ 完整。',
+  'The save editor could not read the game files: {1}': '存档编辑器无法读取游戏文件：{1}',
 };

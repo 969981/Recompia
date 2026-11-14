@@ -1,0 +1,4506 @@
+diff --git a/PokoHex.Core/PokoHex.Core.csproj b/PokoHex.Core/PokoHex.Core.csproj
+index cfd451e..c8c8a00 100644
+--- a/PokoHex.Core/PokoHex.Core.csproj
++++ b/PokoHex.Core/PokoHex.Core.csproj
+@@ -2,7 +2,8 @@
+   <PropertyGroup>
+     <TargetFramework>net10.0</TargetFramework>
+   </PropertyGroup>
+-  <ItemGroup>
++  <!-- -p:PokoHexGameData=false builds without the game's names and tables; they are then loaded from a folder written by pokohex-extract. -->
++  <ItemGroup Condition="'$(PokoHexGameData)' != 'false'">
+     <None Remove="Resources\text\en\text_skill_en.txt" />
+     <EmbeddedResource Include="Resources\text\en\text_skill_en.txt" />
+     <None Remove="Resources\text\en\text_reaction_en.txt" />
+diff --git a/PokoHex.Core/Util/ResourceUtil.cs b/PokoHex.Core/Util/ResourceUtil.cs
+index 88b3f0c..e551cb0 100644
+--- a/PokoHex.Core/Util/ResourceUtil.cs
++++ b/PokoHex.Core/Util/ResourceUtil.cs
+@@ -1,8 +1,10 @@
+ ﻿using System;
++using System.Collections.Generic;
+ using System.IO;
+ using System.Reflection;
+ using System.Resources;
+ using System.Runtime.InteropServices;
++using System.Text;
+ using static System.Buffers.Binary.BinaryPrimitives;
+ 
+ namespace PokoHex.Core;
+@@ -11,9 +13,21 @@ public static class ResourceUtil
+ {
+     private static readonly Assembly ThisAssembly = typeof(ResourceUtil).Assembly;
+     private static readonly string[] ResourceNames = ThisAssembly.GetManifestResourceNames();
++    private static IReadOnlyDictionary<string, byte[]> GameData = new Dictionary<string, byte[]>();
++
++    /// <summary>True when this build carries the game's names and tables itself (built without -p:PokoHexGameData=false).</summary>
++    public static bool HasBundledGameData => Array.Exists(ResourceNames, z => z.StartsWith("PokoHex.Core.Resources.", StringComparison.Ordinal));
++
++    /// <summary>
++    /// Supplies the game data from a folder written by pokohex-extract, keyed by file name ("text_item_en.txt", "item_paint.bin").
++    /// It takes precedence over the bundled copy. Call it before anything reads game data.
++    /// </summary>
++    public static void SetGameData(IReadOnlyDictionary<string, byte[]> files) => GameData = files;
+ 
+     public static byte[] GetBinaryResource(string name)
+     {
++        if (GameData.TryGetValue(name, out var data))
++            return data;
+         using var stream = ThisAssembly.GetManifestResourceStream($"PokoHex.Core.Resources.byte.{name}")
+                            ?? throw new MissingManifestResourceException($"Resource not found: {name}");
+         var result = new byte[stream.Length];
+@@ -47,6 +61,8 @@ public static class ResourceUtil
+ 
+     public static string? GetStringResource(string name)
+     {
++        if (GameData.TryGetValue($"{name}.txt", out var data))
++            return new UTF8Encoding(false).GetString(data);
+         var resourceName = Array.Find(ResourceNames, z => z.StartsWith("PokoHex.Core.Resources.text.", StringComparison.Ordinal) &&
+             z.EndsWith($".{name}.txt", StringComparison.OrdinalIgnoreCase));
+         if (resourceName == null)
+diff --git a/PokoHex.Extract/PokoHex.Extract.csproj b/PokoHex.Extract/PokoHex.Extract.csproj
+new file mode 100644
+index 0000000..9412c8d
+--- /dev/null
++++ b/PokoHex.Extract/PokoHex.Extract.csproj
+@@ -0,0 +1,11 @@
++<Project Sdk="Microsoft.NET.Sdk">
++  <PropertyGroup>
++    <OutputType>Exe</OutputType>
++    <TargetFramework>net10.0</TargetFramework>
++    <AssemblyName>pokohex-extract</AssemblyName>
++    <InvariantGlobalization>true</InvariantGlobalization>
++  </PropertyGroup>
++  <ItemGroup>
++    <ProjectReference Include="..\PokoHex.Parsing\PokoHex.Parsing.csproj" />
++  </ItemGroup>
++</Project>
+diff --git a/PokoHex.Extract/Program.cs b/PokoHex.Extract/Program.cs
+new file mode 100644
+index 0000000..c95fbf4
+--- /dev/null
++++ b/PokoHex.Extract/Program.cs
+@@ -0,0 +1,46 @@
++using System;
++using System.IO;
++using PokoHex.Parsing;
++
++namespace PokoHex.Extract;
++
++/// <summary>
++/// pokohex-extract &lt;game dump or romfs&gt; &lt;output folder&gt;
++/// Writes PokoHex's game data (names, tables, pictures) from the player's own game files. Progress goes to stdout as
++/// "@progress &lt;done&gt; &lt;total&gt;", an error as "@error &lt;message&gt;" with exit code 1. "--check &lt;output folder&gt;" exits 0 when the folder is
++/// complete and current.
++/// </summary>
++public static class Program
++{
++    public static int Main(string[] args)
++    {
++        if (args is ["--check", var folder])
++            return GameDataExporter.ReadManifest(folder) != null ? 0 : 1;
++        if (args.Length != 2)
++        {
++            Console.Error.WriteLine("usage: pokohex-extract <game dump or romfs> <output folder>");
++            Console.Error.WriteLine("       pokohex-extract --check <output folder>");
++            return 2;
++        }
++        try
++        {
++            var last = -1;
++            GameDataExporter.Export(args[0], args[1], (done, total) =>
++            {
++                var percent = done * 100 / total;
++                if (percent == last)
++                    return;
++                last = percent;
++                Console.Out.WriteLine($"@progress {done} {total}");
++                Console.Out.Flush();
++            });
++            Console.Out.WriteLine("@done");
++            return 0;
++        }
++        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
++        {
++            Console.Out.WriteLine($"@error {e.Message.ReplaceLineEndings(" ")}");
++            return 1;
++        }
++    }
++}
+diff --git a/PokoHex.Parsing/AssetStore.cs b/PokoHex.Parsing/AssetStore.cs
+new file mode 100644
+index 0000000..4f2f54c
+--- /dev/null
++++ b/PokoHex.Parsing/AssetStore.cs
+@@ -0,0 +1,143 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using System.IO.Compression;
++using static System.Buffers.Binary.BinaryPrimitives;
++
++namespace PokoHex.Parsing;
++
++/// <summary>
++/// Read-only access to the game's asset store: <c>romfs/motor_asset_re/KIDS_PLATFORM_OUNCE/</c> with
++/// <c>root.rdb</c> (one IDRK record per asset), <c>root.rdx</c> (data file index to file name) and the <c>0x########.fdata</c> files.
++/// </summary>
++public sealed class AssetStore : IDisposable
++{
++    public const string Folder = "motor_asset_re/KIDS_PLATFORM_OUNCE";
++    public const uint TextureType = 0xAFBEC60C;
++    public const uint SpriteTableType = 0xF20DE437;
++    private const int MaxAssetSize = 256 * 1024 * 1024;
++
++    private readonly string Root;
++    private readonly Dictionary<ushort, uint> DataFiles = [];
++    private readonly Dictionary<uint, Asset> Assets = [];
++    private readonly Dictionary<ushort, FileStream?> Open = [];
++
++    private readonly record struct Asset(uint Type, long Offset, ushort File);
++
++    public AssetStore(string romfs)
++    {
++        Root = Path.Combine(romfs, Folder);
++        var index = File.ReadAllBytes(Path.Combine(Root, "root.rdx"));
++        for (int i = 0; i + 8 <= index.Length; i += 8)
++            DataFiles[ReadUInt16LittleEndian(index.AsSpan(i))] = ReadUInt32LittleEndian(index.AsSpan(i + 4));
++
++        var table = File.ReadAllBytes(Path.Combine(Root, "root.rdb"));
++        if (table.Length < 0x20 || !table.AsSpan(0, 8).SequenceEqual("_DRK0000"u8))
++            throw new InvalidDataException("The asset table is not supported.");
++        var count = ReadInt32LittleEndian(table.AsSpan(0x10));
++        var position = ReadInt32LittleEndian(table.AsSpan(8));
++        for (int i = 0; i < count; i++)
++        {
++            if (position < 0 || position + 0x30 > table.Length || !table.AsSpan(position, 8).SequenceEqual("IDRK0000"u8))
++                throw new InvalidDataException("The asset table is damaged.");
++            var size = (int)ReadInt64LittleEndian(table.AsSpan(position + 8));
++            var locationSize = (int)ReadInt64LittleEndian(table.AsSpan(position + 0x10));
++            if (size < 0x30 || locationSize < 12 || position + size > table.Length)
++                throw new InvalidDataException("The asset table is damaged.");
++            var id = ReadUInt32LittleEndian(table.AsSpan(position + 0x24));
++            var type = ReadUInt32LittleEndian(table.AsSpan(position + 0x28));
++            var location = table.AsSpan(position + size - locationSize, locationSize);
++            Assets[id] = new Asset(type, ReadUInt32LittleEndian(location[2..]), ReadUInt16LittleEndian(location[10..]));
++            position += (size + 3) & ~3;
++        }
++    }
++
++    public static bool IsPresent(string romfs) => File.Exists(Path.Combine(romfs, Folder, "root.rdb"));
++
++    public uint? GetType(uint id) => Assets.TryGetValue(id, out var asset) ? asset.Type : null;
++
++    /// <summary>The asset's bytes, unpacked; null when its data file is not in the romfs.</summary>
++    public byte[]? Read(uint id)
++    {
++        if (!Assets.TryGetValue(id, out var asset))
++            throw new KeyNotFoundException($"The game files have no asset 0x{id:X8}.");
++        var stream = GetFile(asset.File);
++        if (stream == null)
++            return null;
++        Span<byte> header = stackalloc byte[0x20];
++        stream.Position = asset.Offset;
++        stream.ReadExactly(header);
++        if (!header[..8].SequenceEqual("IDRK0000"u8))
++            throw new InvalidDataException($"Asset 0x{id:X8} is damaged.");
++        var size = ReadInt64LittleEndian(header[8..]);
++        var stored = ReadInt64LittleEndian(header[0x10..]);
++        var raw = ReadInt64LittleEndian(header[0x18..]);
++        if (stored <= 0 || stored > size || raw <= 0 || raw > MaxAssetSize || stored > MaxAssetSize)
++            throw new InvalidDataException($"Asset 0x{id:X8} is damaged.");
++        var payload = new byte[stored];
++        stream.Position = asset.Offset + size - stored;
++        stream.ReadExactly(payload);
++        return stored == raw ? payload : Unpack(payload, (int)raw, id);
++    }
++
++    // Chunks of: u16 length, 8 bytes (checksum), then length bytes of zlib (16 KiB when unpacked) or, when not zlib, stored as is.
++    private static byte[] Unpack(byte[] payload, int rawSize, uint id)
++    {
++        var result = new byte[rawSize];
++        int written = 0, position = 0;
++        while (written < rawSize && position + 10 <= payload.Length)
++        {
++            var length = ReadUInt16LittleEndian(payload.AsSpan(position));
++            var start = position + 10;
++            if (start + length > payload.Length)
++                break;
++            var chunk = payload.AsSpan(start, length);
++            var expected = Math.Min(0x4000, rawSize - written);
++            if (IsZlib(chunk))
++            {
++                using var input = new MemoryStream(payload, start, length, false);
++                using var zlib = new ZLibStream(input, CompressionMode.Decompress);
++                zlib.ReadAtLeast(result.AsSpan(written, expected), expected, false);
++            }
++            else
++            {
++                chunk[..Math.Min(length, expected)].CopyTo(result.AsSpan(written));
++            }
++            written += expected;
++            position = start + length;
++        }
++        if (written != rawSize)
++            throw new InvalidDataException($"Asset 0x{id:X8} is damaged.");
++        return result;
++    }
++
++    private static bool IsZlib(ReadOnlySpan<byte> data) => data.Length > 2 && (data[0] & 0x0F) == 8 && ((data[0] << 8) | data[1]) % 31 == 0;
++
++    private FileStream? GetFile(ushort index)
++    {
++        if (Open.TryGetValue(index, out var stream))
++            return stream;
++        stream = null;
++        if (DataFiles.TryGetValue(index, out var hash))
++        {
++            var name = $"0x{hash:x8}.fdata";
++            foreach (var folder in new[] { "", "MountPoint_1", "MountPoint_2" })
++            {
++                var path = Path.Combine(Root, folder, name);
++                if (File.Exists(path))
++                {
++                    stream = File.OpenRead(path);
++                    break;
++                }
++            }
++        }
++        return Open[index] = stream;
++    }
++
++    public void Dispose()
++    {
++        foreach (var stream in Open.Values)
++            stream?.Dispose();
++        Open.Clear();
++    }
++}
+diff --git a/PokoHex.Parsing/Data/pictures.tsv b/PokoHex.Parsing/Data/pictures.tsv
+new file mode 100644
+index 0000000..9a92eb1
+--- /dev/null
++++ b/PokoHex.Parsing/Data/pictures.tsv
+@@ -0,0 +1,2170 @@
++# Where PokoHex's pictures are in the game's asset store (game 2.0.1): set, file, sprite table id, texture id, sprite name.
++# Numbers and the game's internal sprite names only; the pixels are read from the player's own romfs.
++items	item_0006	E521F5D2	9EF1BD1D	item_0006_m
++items	item_0007	12FA9031	D8BC5EFC	item_0007_m
++items	item_0008	40D32A90	128700DB	item_0008_m
++items	item_0014	CCFBDED5	A0D69FA0	item_0014_m
++items	item_0020	5924931A	2F263E65	item_0020_m
++items	item_0021	86FD2D79	68F0E044	item_0021_m
++items	item_0022	B4D5C7D8	A2BB8223	item_0022_m
++items	item_0023	E2AE6237	DC862402	item_0023_m
++items	item_0024	1086FC96	1650C5E1	item_0024_m
++items	item_0025	3E5F96F5	501B67C0	item_0025_m
++items	item_0026	6C383154	89E6099F	item_0026_m
++items	item_0027	9A10CBB3	C3B0AB7E	item_0027_m
++items	item_0028	C7E96612	FD7B4D5D	item_0028_m
++items	item_0029	F5C20071	3745EF3C	item_0029_m
++items	item_0030	9CAFB0DB	A4A064A6	item_0030_m
++items	item_0031	CA884B3A	DE6B0685	item_0031_m
++items	item_0032	F860E599	1835A864	item_0032_m
++items	item_0033	26397FF8	52004A43	item_0033_m
++items	item_0034	54121A57	8BCAEC22	item_0034_m
++items	item_0035	81EAB4B6	C5958E01	item_0035_m
++items	item_0036	AFC34F15	FF602FE0	item_0036_m
++items	item_0037	DD9BE974	392AD1BF	item_0037_m
++items	item_0038	0B7483D3	72F5739E	item_0038_m
++items	item_0039	394D1E32	ACC0157D	item_0039_m
++items	item_0040	E03ACE9C	1A1A8AE7	item_0040_m
++items	item_0041	0E1368FB	53E52CC6	item_0041_m
++items	item_0042	3BEC035A	8DAFCEA5	item_0042_m
++items	item_0043	69C49DB9	C77A7084	item_0043_m
++items	item_0044	979D3818	01451263	item_0044_m
++items	item_0045	C575D277	3B0FB442	item_0045_m
++items	item_0046	F34E6CD6	74DA5621	item_0046_m
++items	item_0047	21270735	AEA4F800	item_0047_m
++items	item_0048	4EFFA194	E86F99DF	item_0048_m
++items	item_0061	9529A47D	3ED97948	item_0061_m
++items	item_0063	F0DAD93B	B26EBD06	item_0063_m
++items	item_0064	1EB3739A	EC395EE5	item_0064_m
++items	item_0065	4C8C0DF9	260400C4	item_0065_m
++items	item_0067	A83D42B7	99994482	item_0067_m
++items	item_0077	EBC86078	0F136AC3	item_0077_m
++items	item_0078	19A0FAD7	48DE0CA2	item_0078_m
++items	item_0079	47799536	82A8AE81	item_0079_m
++items	item_0080	EE6745A0	F00323EB	item_0080_m
++items	item_0090	31F26361	657D4A2C	item_0090_m
++items	item_0091	5FCAFDC0	9F47EC0B	item_0091_m
++items	item_0092	8DA3981F	D9128DEA	item_0092_m
++items	item_0094	E954CCDD	4CA7D1A8	item_0094_m
++items	item_0095	172D673C	86727387	item_0095_m
++items	item_0100	C3B7FDB7	FDA97F82	item_0100_m
++items	item_0101	F1909816	37742161	item_0101_m
++items	item_0102	1F693275	713EC340	item_0102_m
++items	item_0105	A8F30192	1E9EA8DD	item_0105_m
++items	item_0106	D6CB9BF1	58694ABC	item_0106_m
++items	item_0107	04A43650	9233EC9B	item_0107_m
++items	item_0108	327CD0AF	CBFE8E7A	item_0108_m
++items	item_0109	60556B0E	05C93059	item_0109_m
++items	item_0110	07431B78	7323A5C3	item_0110_m
++items	item_0111	351BB5D7	ACEE47A2	item_0111_m
++items	item_0112	62F45036	E6B8E981	item_0112_m
++items	item_0113	90CCEA95	20838B60	item_0113_m
++items	item_0114	BEA584F4	5A4E2D3F	item_0114_m
++items	item_0115	EC7E1F53	9418CF1E	item_0115_m
++items	item_0116	1A56B9B2	CDE370FD	item_0116_m
++items	item_0117	482F5411	07AE12DC	item_0117_m
++items	item_0118	7607EE70	4178B4BB	item_0118_m
++items	item_0119	A3E088CF	7B43569A	item_0119_m
++items	item_0120	4ACE3939	E89DCC04	item_0120_m
++items	item_0121	78A6D398	22686DE3	item_0121_m
++items	item_0122	A67F6DF7	5C330FC2	item_0122_m
++items	item_0123	D4580856	95FDB1A1	item_0123_m
++items	item_0125	30093D14	0992F55F	item_0125_m
++items	item_0126	5DE1D773	435D973E	item_0126_m
++items	item_0129	E76BA690	F0BD7CDB	item_0129_m
++items	item_0130	8E5956FA	5E17F245	item_0130_m
++items	item_0221	6A5079B7	DBDFFB82	item_0221_m
++items	item_0222	98291416	15AA9D61	item_0222_m
++items	item_0223	C601AE75	4F753F40	item_0223_m
++items	item_0224	F3DA48D4	893FE11F	item_0224_m
++items	item_0225	21B2E333	C30A82FE	item_0225_m
++items	item_0226	4F8B7D92	FCD524DD	item_0226_m
++items	item_0227	7D6417F1	369FC6BC	item_0227_m
++items	item_0228	AB3CB250	706A689B	item_0228_m
++items	item_0229	D9154CAF	AA350A7A	item_0229_m
++items	item_0230	8002FD19	178F7FE4	item_0230_m
++items	item_0231	ADDB9778	515A21C3	item_0231_m
++items	item_0232	DBB431D7	8B24C3A2	item_0232_m
++items	item_0233	098CCC36	C4EF6581	item_0233_m
++items	item_0234	37656695	FEBA0760	item_0234_m
++items	item_0235	653E00F4	3884A93F	item_0235_m
++items	item_0236	93169B53	724F4B1E	item_0236_m
++items	item_0237	C0EF35B2	AC19ECFD	item_0237_m
++items	item_0238	EEC7D011	E5E48EDC	item_0238_m
++items	item_0239	1CA06A70	1FAF30BB	item_0239_m
++items	item_0240	C38E1ADA	8D09A625	item_0240_m
++items	item_0241	F166B539	C6D44804	item_0241_m
++items	item_0242	1F3F4F98	009EE9E3	item_0242_m
++items	item_0243	4D17E9F7	3A698BC2	item_0243_m
++items	item_0244	7AF08456	74342DA1	item_0244_m
++items	item_0245	A8C91EB5	ADFECF80	item_0245_m
++items	item_0246	D6A1B914	E7C9715F	item_0246_m
++items	item_0250	0719389B	0283CC66	item_0250_m
++items	item_0291	431E49FE	12370749	item_0291_m
++items	item_0292	70F6E45D	4C01A928	item_0292_m
++items	item_0293	9ECF7EBC	85CC4B07	item_0293_m
++items	item_0294	CCA8191B	BF96ECE6	item_0294_m
++items	item_0295	FA80B37A	F9618EC5	item_0295_m
++items	item_0296	28594DD9	332C30A4	item_0296_m
++items	item_0297	5631E838	6CF6D283	item_0297_m
++items	item_0300	A70B49F5	70989AC0	item_0300_m
++items	item_0301	D4E3E454	AA633C9F	item_0301_m
++items	item_0302	02BC7EB3	E42DDE7E	item_0302_m
++items	item_0303	30951912	1DF8805D	item_0303_m
++items	item_0304	5E6DB371	57C3223C	item_0304_m
++items	item_0305	8C464DD0	918DC41B	item_0305_m
++items	item_0306	BA1EE82F	CB5865FA	item_0306_m
++items	item_0307	E7F7828E	052307D9	item_0307_m
++items	item_0309	43A8B74C	78B84B97	item_0309_m
++items	item_0310	EA9667B6	E612C101	item_0310_m
++items	item_0311	186F0215	1FDD62E0	item_0311_m
++items	item_0313	742036D3	9372A69E	item_0313_m
++items	item_0314	A1F8D132	CD3D487D	item_0314_m
++items	item_0315	CFD16B91	0707EA5C	item_0315_m
++items	item_0316	FDAA05F0	40D28C3B	item_0316_m
++items	item_0317	2B82A04F	7A9D2E1A	item_0317_m
++items	item_0318	595B3AAE	B467CFF9	item_0318_m
++items	item_0319	8733D50D	EE3271D8	item_0319_m
++items	item_0320	2E218577	5B8CE742	item_0320_m
++items	item_0321	5BFA1FD6	95578921	item_0321_m
++items	item_0322	89D2BA35	CF222B00	item_0322_m
++items	item_0323	B7AB5494	08ECCCDF	item_0323_m
++items	item_0377	C0C552D5	3B7A13A0	item_0377_m
++items	item_0378	EE9DED34	7544B57F	item_0378_m
++items	item_0379	1C768793	AF0F575E	item_0379_m
++items	item_0380	C36437FD	1C69CCC8	item_0380_m
++items	item_0392	62A08A7C	057936C7	item_0392_m
++items	item_0393	907924DB	3F43D8A6	item_0393_m
++items	item_0394	BE51BF3A	790E7A85	item_0394_m
++items	item_0395	EC2A5999	B2D91C64	item_0395_m
++items	item_0396	1A02F3F8	ECA3BE43	item_0396_m
++items	item_0397	47DB8E57	266E6022	item_0397_m
++items	item_0401	C68D8A73	63DACA3E	item_0401_m
++items	item_0404	50175990	113AAFDB	item_0404_m
++items	item_0407	D9A128AD	BE9A9578	item_0407_m
++items	item_0416	EF53AC0F	FA4A19DA	item_0416_m
++items	item_0417	1D2C466E	3414BBB9	item_0417_m
++items	item_0418	4B04E0CD	6DDF5D98	item_0418_m
++items	item_0419	78DD7B2C	A7A9FF77	item_0419_m
++items	item_0422	B7116144	ED34B18F	item_0422_m
++items	item_0423	BD152CA3	EE6B046E	item_0423_m
++items	item_0424	C318F802	EFA1574D	item_0424_m
++items	item_0425	C91CC361	F0D7AA2C	item_0425_m
++items	item_0426	CF208EC0	F20DFD0B	item_0426_m
++items	item_0427	D5245A1F	F3444FEA	item_0427_m
++items	item_0428	DB28257E	F47AA2C9	item_0428_m
++items	item_0429	E12BF0DD	F5B0F5A8	item_0429_m
++items	item_0430	BBBF9747	141C6112	item_0430_m
++items	item_0431	C1C362A6	1552B3F1	item_0431_m
++items	item_0432	C7C72E05	168906D0	item_0432_m
++items	item_0433	CDCAF964	17BF59AF	item_0433_m
++items	item_0435	6202D001	0AFD06CC	item_0435_m
++items	item_0436	68069B60	0C3359AB	item_0436_m
++items	item_0437	6E0A66BF	0D69AC8A	item_0437_m
++items	item_0438	740E321E	0E9FFF69	item_0438_m
++items	item_0439	7A11FD7D	0FD65248	item_0439_m
++items	item_0440	54A5A3E7	2E41BDB2	item_0440_m
++items	item_0441	5AA96F46	2F781091	item_0441_m
++items	item_0442	60AD3AA5	30AE6370	item_0442_m
++items	item_0443	66B10604	31E4B64F	item_0443_m
++items	item_0444	6CB4D163	331B092E	item_0444_m
++items	item_0445	72B89CC2	34515C0D	item_0445_m
++items	item_0446	78BC6821	3587AEEC	item_0446_m
++items	item_0447	7EC03380	36BE01CB	item_0447_m
++items	item_0448	84C3FEDF	37F454AA	item_0448_m
++items	item_0449	8AC7CA3E	392AA789	item_0449_m
++items	item_0450	655B70A8	579612F3	item_0450_m
++items	item_0451	6B5F3C07	58CC65D2	item_0451_m
++items	item_0452	71630766	5A02B8B1	item_0452_m
++items	item_0453	7766D2C5	5B390B90	item_0453_m
++items	item_0454	7D6A9E24	5C6F5E6F	item_0454_m
++items	item_0455	836E6983	5DA5B14E	item_0455_m
++items	item_0456	897234E2	5EDC042D	item_0456_m
++items	item_0457	8F760041	6012570C	item_0457_m
++items	item_0458	9579CBA0	6148A9EB	item_0458_m
++items	item_0459	9B7D96FF	627EFCCA	item_0459_m
++items	item_0460	76113D69	80EA6834	item_0460_m
++items	item_0461	7C1508C8	8220BB13	item_0461_m
++items	item_0462	8218D427	83570DF2	item_0462_m
++items	item_0463	881C9F86	848D60D1	item_0463_m
++items	item_0464	8E206AE5	85C3B3B0	item_0464_m
++items	item_0465	94243644	86FA068F	item_0465_m
++items	item_0466	9A2801A3	8830596E	item_0466_m
++items	item_0467	A02BCD02	8966AC4D	item_0467_m
++items	item_0468	A62F9861	8A9CFF2C	item_0468_m
++items	item_0469	AC3363C0	8BD3520B	item_0469_m
++items	item_0470	86C70A2A	AA3EBD75	item_0470_m
++items	item_0474	9ED637A6	AF1808F1	item_0474_m
++items	item_0475	A4DA0305	B04E5BD0	item_0475_m
++items	item_0476	AADDCE64	B184AEAF	item_0476_m
++items	item_0477	B0E199C3	B2BB018E	item_0477_m
++items	item_0478	B6E56522	B3F1546D	item_0478_m
++items	item_0479	BCE93081	B527A74C	item_0479_m
++items	item_0480	977CD6EB	D39312B6	item_0480_m
++items	item_0486	BB939B25	DAD903F0	item_0486_m
++items	item_0487	C1976684	DC0F56CF	item_0487_m
++items	item_0488	C79B31E3	DD45A9AE	item_0488_m
++items	item_0489	CD9EFD42	DE7BFC8D	item_0489_m
++items	item_0490	A832A3AC	FCE767F7	item_0490_m
++items	item_0491	AE366F0B	FE1DBAD6	item_0491_m
++items	item_0499	DE54CA03	07D051CE	item_0499_m
++items	item_0500	9EBB8802	A30BE74D	item_0500_m
++items	item_0501	A4BF5361	A4423A2C	item_0501_m
++items	item_0502	AAC31EC0	A5788D0B	item_0502_m
++items	item_0503	B0C6EA1F	A6AEDFEA	item_0503_m
++items	item_0504	B6CAB57E	A7E532C9	item_0504_m
++items	item_0505	BCCE80DD	A91B85A8	item_0505_m
++items	item_0506	C2D24C3C	AA51D887	item_0506_m
++items	item_0507	C8D6179B	AB882B66	item_0507_m
++items	item_0508	CED9E2FA	ACBE7E45	item_0508_m
++items	item_0511	B5752022	CD968F6D	item_0511_m
++items	item_0512	BB78EB81	CECCE24C	item_0512_m
++items	item_0514	C780823F	D139880A	item_0514_m
++items	item_0515	CD844D9E	D26FDAE9	item_0515_m
++items	item_0517	D98BE45C	D4DC80A7	item_0517_m
++items	item_0518	DF8FAFBB	D612D386	item_0518_m
++items	item_0519	E5937B1A	D7492665	item_0519_m
++items	item_0520	C0272184	F5B491CF	item_0520_m
++items	item_0521	C62AECE3	F6EAE4AE	item_0521_m
++items	item_0522	CC2EB842	F821378D	item_0522_m
++items	item_0524	D8364F00	FA8DDD4B	item_0524_m
++items	item_0525	DE3A1A5F	FBC4302A	item_0525_m
++items	item_0526	E43DE5BE	FCFA8309	item_0526_m
++items	item_0527	EA41B11D	FE30D5E8	item_0527_m
++items	item_0528	F0457C7C	FF6728C7	item_0528_m
++items	item_0529	F64947DB	009D7BA6	item_0529_m
++items	item_0530	D0DCEE45	1F08E710	item_0530_m
++items	item_0531	D6E0B9A4	203F39EF	item_0531_m
++items	item_0532	DCE48503	21758CCE	item_0532_m
++items	item_0533	E2E85062	22ABDFAD	item_0533_m
++items	item_0534	E8EC1BC1	23E2328C	item_0534_m
++items	item_0535	EEEFE720	2518856B	item_0535_m
++items	item_0536	F4F3B27F	264ED84A	item_0536_m
++items	item_0537	FAF77DDE	27852B29	item_0537_m
++items	item_0540	E192BB06	485D3C51	item_0540_m
++items	item_0541	E7968665	49938F30	item_0541_m
++items	item_0542	ED9A51C4	4AC9E20F	item_0542_m
++items	item_0543	F39E1D23	4C0034EE	item_0543_m
++items	item_0544	F9A1E882	4D3687CD	item_0544_m
++items	item_0545	FFA5B3E1	4E6CDAAC	item_0545_m
++items	item_0546	05A97F40	4FA32D8B	item_0546_m
++items	item_0547	0BAD4A9F	50D9806A	item_0547_m
++items	item_0548	11B115FE	520FD349	item_0548_m
++items	item_0549	17B4E15D	53462628	item_0549_m
++items	item_0550	F24887C7	71B19192	item_0550_m
++items	item_0551	F84C5326	72E7E471	item_0551_m
++items	item_0552	FE501E85	741E3750	item_0552_m
++items	item_0553	0453E9E4	75548A2F	item_0553_m
++items	item_0555	105B80A2	77C12FED	item_0555_m
++items	item_0556	165F4C01	78F782CC	item_0556_m
++items	item_0557	1C631760	7A2DD5AB	item_0557_m
++items	item_0558	2266E2BF	7B64288A	item_0558_m
++items	item_0559	286AAE1E	7C9A7B69	item_0559_m
++items	item_0560	02FE5488	9B05E6D3	item_0560_m
++items	item_0561	09021FE7	9C3C39B2	item_0561_m
++items	item_0562	0F05EB46	9D728C91	item_0562_m
++items	item_0563	1509B6A5	9EA8DF70	item_0563_m
++items	item_0564	1B0D8204	9FDF324F	item_0564_m
++items	item_0565	04DC4C94	C559C4DF	item_0565_m
++items	item_0566	271518C2	A24BD80D	item_0566_m
++items	item_0567	2D18E421	A3822AEC	item_0567_m
++items	item_0568	331CAF80	A4B87DCB	item_0568_m
++items	item_0569	39207ADF	A5EED0AA	item_0569_m
++items	item_0594	4D2EE847	1BDC3212	item_0594_m
++items	item_0595	5332B3A6	1D1284F1	item_0595_m
++items	item_0596	59367F05	1E48D7D0	item_0596_m
++items	item_0597	5F3A4A64	1F7F2AAF	item_0597_m
++items	item_0598	653E15C3	20B57D8E	item_0598_m
++items	item_0599	6B41E122	21EBD06D	item_0599_m
++items	item_0600	2BA89F21	BD2765EC	item_0600_m
++items	item_0601	31AC6A80	BE5DB8CB	item_0601_m
++items	item_0602	37B035DF	BF940BAA	item_0602_m
++items	item_0603	3DB4013E	C0CA5E89	item_0603_m
++items	item_0604	43B7CC9D	C200B168	item_0604_m
++items	item_0605	49BB97FC	C3370447	item_0605_m
++items	item_0609	61CAC578	C8104FC3	item_0609_m
++items	item_0610	3C5E6BE2	E67BBB2D	item_0610_m
++items	item_0611	42623741	E7B20E0C	item_0611_m
++items	item_0612	486602A0	E8E860EB	item_0612_m
++items	item_0613	4E69CDFF	EA1EB3CA	item_0613_m
++items	item_0614	546D995E	EB5506A9	item_0614_m
++items	item_0615	5A7164BD	EC8B5988	item_0615_m
++items	item_0616	D2A6F84D	6D393518	item_0616_m
++items	item_0617	6678FB7B	EEF7FF46	item_0617_m
++items	item_0618	6C7CC6DA	F02E5225	item_0618_m
++items	item_0619	72809239	F164A504	item_0619_m
++items	item_0620	4D1438A3	0FD0106E	item_0620_m
++items	item_0621	53180402	1106634D	item_0621_m
++items	item_0622	591BCF61	123CB62C	item_0622_m
++items	item_0623	5F1F9AC0	1373090B	item_0623_m
++items	item_0624	6523661F	14A95BEA	item_0624_m
++items	item_0625	6B27317E	15DFAEC9	item_0625_m
++items	item_0626	1632160E	E2B35B59	item_0626_m
++items	item_0627	772EC83C	184C5487	item_0627_m
++items	item_0628	7D32939B	1982A766	item_0628_m
++items	item_0629	83365EFA	1AB8FA45	item_0629_m
++items	item_0630	5DCA0564	392465AF	item_0630_m
++items	item_0631	63CDD0C3	3A5AB88E	item_0631_m
++items	item_0632	69D19C22	3B910B6D	item_0632_m
++items	item_0633	6FD56781	3CC75E4C	item_0633_m
++items	item_0634	75D932E0	3DFDB12B	item_0634_m
++items	item_0635	7BDCFE3F	3F34040A	item_0635_m
++items	item_0636	59BD33CF	582D819A	item_0636_m
++items	item_0637	87E494FD	41A0A9C8	item_0637_m
++items	item_0638	8DE8605C	42D6FCA7	item_0638_m
++items	item_0639	93EC2BBB	440D4F86	item_0639_m
++items	item_0640	6E7FD225	6278BAF0	item_0640_m
++items	item_0651	85396A45	8D036310	item_0651_m
++items	item_0652	8B3D35A4	8E39B5EF	item_0652_m
++items	item_0653	91410103	8F7008CE	item_0653_m
++items	item_0654	9744CC62	90A65BAD	item_0654_m
++items	item_0655	9D4897C1	91DCAE8C	item_0655_m
++items	item_0656	A34C6320	9313016B	item_0656_m
++items	item_0657	A9502E7F	9449544A	item_0657_m
++items	item_0658	AF53F9DE	957FA729	item_0658_m
++items	item_0659	B557C53D	96B5FA08	item_0659_m
++items	item_0660	8FEB6BA7	B5216572	item_0660_m
++items	item_0661	95EF3706	B657B851	item_0661_m
++items	item_0662	9BF30265	B78E0B30	item_0662_m
++items	item_0663	A1F6CDC4	B8C45E0F	item_0663_m
++items	item_0664	A7FA9923	B9FAB0EE	item_0664_m
++items	item_0665	ADFE6482	BB3103CD	item_0665_m
++items	item_0666	B4022FE1	BC6756AC	item_0666_m
++items	item_0667	BA05FB40	BD9DA98B	item_0667_m
++items	item_0668	C009C69F	BED3FC6A	item_0668_m
++items	item_0669	C60D91FE	C00A4F49	item_0669_m
++items	item_0670	A0A13868	DE75BAB3	item_0670_m
++items	item_0671	A6A503C7	DFAC0D92	item_0671_m
++items	item_0672	ACA8CF26	E0E26071	item_0672_m
++items	item_0673	B2AC9A85	E218B350	item_0673_m
++items	item_0674	B8B065E4	E34F062F	item_0674_m
++items	item_0675	BEB43143	E485590E	item_0675_m
++items	item_0676	C4B7FCA2	E5BBABED	item_0676_m
++items	item_0677	CABBC801	E6F1FECC	item_0677_m
++items	item_0678	D0BF9360	E82851AB	item_0678_m
++items	item_0679	F17379F0	DB76003B	item_0679_m
++items	item_0680	B1570529	07CA0FF4	item_0680_m
++items	item_0681	B75AD088	090062D3	item_0681_m
++items	item_0682	BD5E9BE7	0A36B5B2	item_0682_m
++items	item_0684	C96632A5	0CA35B70	item_0684_m
++items	item_0687	DB7194C2	1046540D	item_0687_m
++items	item_0688	E1756021	117CA6EC	item_0688_m
++items	item_0689	E7792B80	12B2F9CB	item_0689_m
++items	item_0690	C20CD1EA	311E6535	item_0690_m
++items	item_0691	C8109D49	3254B814	item_0691_m
++items	item_0692	CE1468A8	338B0AF3	item_0692_m
++items	item_0693	D4183407	34C15DD2	item_0693_m
++items	item_0694	DA1BFF66	35F7B0B1	item_0694_m
++items	item_0695	C1274BF6	DF3FC541	item_0695_m
++items	item_0696	E6239624	3864566F	item_0696_m
++items	item_0697	EC276183	399AA94E	item_0697_m
++items	item_0698	F22B2CE2	3AD0FC2D	item_0698_m
++items	item_0699	F82EF841	3C074F0C	item_0699_m
++items	item_0700	B895B640	D742E48B	item_0700_m
++items	item_0701	BE99819F	D879376A	item_0701_m
++items	item_0702	C49D4CFE	D9AF8A49	item_0702_m
++items	item_0705	D6A8AF1B	DD5282E6	item_0705_m
++items	item_0706	DCAC7A7A	DE88D5C5	item_0706_m
++items	item_0707	E2B045D9	DFBF28A4	item_0707_m
++items	item_0708	E8B41138	E0F57B83	item_0708_m
++items	item_0710	C94B8301	009739CC	item_0710_m
++items	item_0716	ED62473B	07DD2B06	item_0716_m
++items	item_0717	F366129A	09137DE5	item_0717_m
++items	item_0718	F969DDF9	0A49D0C4	item_0718_m
++items	item_0723	EC0CB1DF	2D8E87AA	item_0723_m
++items	item_0724	F2107D3E	2EC4DA89	item_0724_m
++items	item_0725	F814489D	2FFB2D68	item_0725_m
++items	item_0726	FE1813FC	31318047	item_0726_m
++items	item_0727	041BDF5B	3267D326	item_0727_m
++items	item_0728	0A1FAABA	339E2605	item_0728_m
++items	item_0729	10237619	34D478E4	item_0729_m
++items	item_0730	EAB71C83	533FE44E	item_0730_m
++items	item_0731	F0BAE7E2	5476372D	item_0731_m
++items	item_0732	F6BEB341	55AC8A0C	item_0732_m
++items	item_0733	FCC27EA0	56E2DCEB	item_0733_m
++items	item_0737	14D1AC1C	5BBC2867	item_0737_m
++items	item_0738	1AD5777B	5CF27B46	item_0738_m
++items	item_0740	FB6CE944	7C94398F	item_0740_m
++items	item_0741	0170B4A3	7DCA8C6E	item_0741_m
++items	item_0742	07748002	7F00DF4D	item_0742_m
++items	item_0743	0D784B61	8037322C	item_0743_m
++items	item_0744	137C16C0	816D850B	item_0744_m
++items	item_0745	197FE21F	82A3D7EA	item_0745_m
++items	item_0746	1F83AD7E	83DA2AC9	item_0746_m
++items	item_0747	258778DD	85107DA8	item_0747_m
++items	item_0752	1B1AABF4	156ED43F	item_0752_m
++items	item_0753	48F34653	4F39761E	item_0753_m
++items	item_0754	76CBE0B2	890417FD	item_0754_m
++items	item_0755	A4A47B11	C2CEB9DC	item_0755_m
++items	item_0756	D27D1570	FC995BBB	item_0756_m
++items	item_0757	0055AFCF	3663FD9A	item_0757_m
++items	item_0758	2E2E4A2E	702E9F79	item_0758_m
++items	item_0759	5C06E48D	A9F94158	item_0759_m
++items	item_0760	02F494F7	1753B6C2	item_0760_m
++items	item_0761	30CD2F56	511E58A1	item_0761_m
++items	item_0762	5EA5C9B5	8AE8FA80	item_0762_m
++items	item_0763	8C7E6414	C4B39C5F	item_0763_m
++items	item_0764	BA56FE73	FE7E3E3E	item_0764_m
++items	item_0765	E82F98D2	3848E01D	item_0765_m
++items	item_0766	16083331	721381FC	item_0766_m
++items	item_0767	43E0CD90	ABDE23DB	item_0767_m
++items	item_0768	71B967EF	E5A8C5BA	item_0768_m
++items	item_0769	9F92024E	1F736799	item_0769_m
++items	item_0770	467FB2B8	8CCDDD03	item_0770_m
++items	item_0771	74584D17	C6987EE2	item_0771_m
++items	item_0772	A230E776	006320C1	item_0772_m
++items	item_0773	D00981D5	3A2DC2A0	item_0773_m
++items	item_0774	FDE21C34	73F8647F	item_0774_m
++items	item_0775	2BBAB693	ADC3065E	item_0775_m
++items	item_0776	599350F2	E78DA83D	item_0776_m
++items	item_0777	876BEB51	21584A1C	item_0777_m
++items	item_0778	B54485B0	5B22EBFB	item_0778_m
++items	item_0780	8A0AD079	02480344	item_0780_m
++items	item_0781	B7E36AD8	3C12A523	item_0781_m
++items	item_0782	E5BC0537	75DD4702	item_0782_m
++items	item_0783	13949F96	AFA7E8E1	item_0783_m
++items	item_0784	416D39F5	E9728AC0	item_0784_m
++items	item_0785	6F45D454	233D2C9F	item_0785_m
++items	item_0786	9D1E6EB3	5D07CE7E	item_0786_m
++items	item_0787	CAF70912	96D2705D	item_0787_m
++items	item_0788	F8CFA371	D09D123C	item_0788_m
++items	item_0789	26A83DD0	0A67B41B	item_0789_m
++items	item_0790	CD95EE3A	77C22985	item_0790_m
++items	item_0791	FB6E8899	B18CCB64	item_0791_m
++items	item_0792	294722F8	EB576D43	item_0792_m
++items	item_0793	571FBD57	25220F22	item_0793_m
++items	item_0806	726F26CA	6AAE2A15	item_0806_m
++items	item_0808	CE205B88	DE436DD3	item_0808_m
++items	item_0810	A2E6A651	8568851C	item_0810_m
++items	item_0812	FE97DB0F	F8FDC8DA	item_0812_m
++items	item_0818	11AB7949	53BD9414	item_0818_m
++items	item_0821	6CF23240	453D608B	item_0821_m
++items	item_0822	72F5FD9F	4673B36A	item_0822_m
++items	item_0823	78F9C8FE	47AA0649	item_0823_m
++items	item_0824	7EFD945D	48E05928	item_0824_m
++items	item_0825	85015FBC	4A16AC07	item_0825_m
++items	item_0826	8B052B1B	4B4CFEE6	item_0826_m
++items	item_0827	9108F67A	4C8351C5	item_0827_m
++items	item_0828	970CC1D9	4DB9A4A4	item_0828_m
++items	item_0829	9D108D38	4EEFF783	item_0829_m
++items	item_0830	77A433A2	6D5B62ED	item_0830_m
++items	item_0831	7DA7FF01	6E91B5CC	item_0831_m
++items	item_0832	83ABCA60	6FC808AB	item_0832_m
++items	item_0833	89AF95BF	70FE5B8A	item_0833_m
++items	item_0834	8FB3611E	7234AE69	item_0834_m
++items	item_0835	95B72C7D	736B0148	item_0835_m
++items	item_0836	138AB7FD	83D04CC8	item_0836_m
++items	item_0837	A1BEC33B	75D7A706	item_0837_m
++items	item_0838	A7C28E9A	770DF9E5	item_0838_m
++items	item_0839	ADC659F9	78444CC4	item_0839_m
++items	item_0840	885A0063	96AFB82E	item_0840_m
++items	item_0843	9A656280	9A52B0CB	item_0843_m
++items	item_0844	A0692DDF	9B8903AA	item_0844_m
++items	item_0951	D0955DD3	4E934D9E	item_0951_m
++items	item_0952	FE6DF832	885DEF7D	item_0952_m
++items	item_0953	2C469291	C228915C	item_0953_m
++items	item_0954	5A1F2CF0	FBF3333B	item_0954_m
++items	item_0955	87F7C74F	35BDD51A	item_0955_m
++items	item_0956	B5D061AE	6F8876F9	item_0956_m
++items	item_0957	E3A8FC0D	A95318D8	item_0957_m
++items	item_0958	1181966C	E31DBAB7	item_0958_m
++items	item_0959	3F5A30CB	1CE85C96	item_0959_m
++items	item_0960	E647E135	8A42D200	item_0960_m
++items	item_0961	14207B94	C40D73DF	item_0961_m
++items	item_0962	41F915F3	FDD815BE	item_0962_m
++items	item_0963	6FD1B052	37A2B79D	item_0963_m
++items	item_0964	9DAA4AB1	716D597C	item_0964_m
++items	item_0965	CB82E510	AB37FB5B	item_0965_m
++items	item_0966	F95B7F6F	E5029D3A	item_0966_m
++items	item_0967	273419CE	1ECD3F19	item_0967_m
++items	item_0968	550CB42D	5897E0F8	item_0968_m
++items	item_0969	82E54E8C	926282D7	item_0969_m
++items	item_0970	47687DC5	2CC83690	item_0970_m
++items	item_0990	B0E93A78	EAB144C3	item_0990_m
++items	item_0991	DEC1D4D7	247BE6A2	item_0991_m
++items	item_0992	0C9A6F36	5E468881	item_0992_m
++items	item_0993	3A730995	98112A60	item_0993_m
++items	item_0994	684BA3F4	D1DBCC3F	item_0994_m
++items	item_0995	96243E53	0BA66E1E	item_0995_m
++items	item_1001	FF708BF8	189D5643	item_1001_m
++items	item_1002	2D492657	5267F822	item_1002_m
++items	item_1004	88FA5B15	C5FD3BE0	item_1004_m
++items	item_1005	B6D2F574	FFC7DDBF	item_1005_m
++items	item_1007	12842A32	735D217D	item_1007_m
++items	item_1009	6E355EF0	E6F2653B	item_1009_m
++items	item_1010	15230F5A	544CDAA5	item_1010_m
++items	item_1013	9EACDE77	01ACC042	item_1013_m
++items	item_1019	B1C07CB1	5C6C8B7C	item_1019_m
++items	item_1021	8686C77A	0391A2C5	item_1021_m
++items	item_1022	B45F61D9	3D5C44A4	item_1022_m
++items	item_1023	E237FC38	7726E683	item_1023_m
++items	item_1024	10109697	B0F18862	item_1024_m
++items	item_1025	3DE930F6	EABC2A41	item_1025_m
++items	item_1026	6BC1CB55	2486CC20	item_1026_m
++items	item_1027	999A65B4	5E516DFF	item_1027_m
++items	item_1029	F54B9A72	D1E6B1BD	item_1029_m
++items	item_1030	9C394ADC	3F412727	item_1030_m
++items	item_1031	CA11E53B	790BC906	item_1031_m
++items	item_1032	F7EA7F9A	B2D66AE5	item_1032_m
++items	item_1033	25C319F9	ECA10CC4	item_1033_m
++items	item_1034	539BB458	266BAEA3	item_1034_m
++items	item_1035	81744EB7	60365082	item_1035_m
++items	item_1036	AF4CE916	9A00F261	item_1036_m
++items	item_1037	DD258375	D3CB9440	item_1037_m
++items	item_1038	0AFE1DD4	0D96361F	item_1038_m
++items	item_1039	38D6B833	4760D7FE	item_1039_m
++items	item_1040	DFC4689D	B4BB4D68	item_1040_m
++items	item_1041	0D9D02FC	EE85EF47	item_1041_m
++items	item_1042	3B759D5B	28509126	item_1042_m
++items	item_1043	694E37BA	621B3305	item_1043_m
++items	item_1044	9726D219	9BE5D4E4	item_1044_m
++items	item_1046	F2D806D7	0F7B18A2	item_1046_m
++items	item_1050	234F865E	2A3573A9	item_1050_m
++items	item_1051	512820BD	64001588	item_1051_m
++items	item_1052	7F00BB1C	9DCAB767	item_1052_m
++items	item_1053	ACD9557B	D7955946	item_1053_m
++items	item_1054	DAB1EFDA	115FFB25	item_1054_m
++items	item_1055	088A8A39	4B2A9D04	item_1055_m
++items	item_1056	36632498	84F53EE3	item_1056_m
++items	item_1057	643BBEF7	BEBFE0C2	item_1057_m
++items	item_1058	92145956	F88A82A1	item_1058_m
++items	item_1059	BFECF3B5	32552480	item_1059_m
++items	item_1060	66DAA41F	9FAF99EA	item_1060_m
++items	item_1061	94B33E7E	D97A3BC9	item_1061_m
++items	item_1062	C28BD8DD	1344DDA8	item_1062_m
++items	item_1064	1E3D0D9B	86DA2166	item_1064_m
++items	item_1065	4C15A7FA	C0A4C345	item_1065_m
++items	item_1066	79EE4259	FA6F6524	item_1066_m
++items	item_1067	A7C6DCB8	343A0703	item_1067_m
++items	item_1069	03781176	A7CF4AC1	item_1069_m
++items	item_1070	AA65C1E0	1529C02B	item_1070_m
++items	item_1076	BD79601A	6FE98B65	item_1076_m
++items	item_1077	EB51FA79	A9B42D44	item_1077_m
++items	item_1078	192A94D8	E37ECF23	item_1078_m
++items	item_1079	47032F37	1D497102	item_1079_m
++items	item_1080	EDF0DFA1	8AA3E66C	item_1080_m
++items	item_1083	777AAEBE	3803CC09	item_1083_m
++items	item_1086	01047DDB	E563B1A6	item_1086_m
++items	item_1087	2EDD183A	1F2E5385	item_1087_m
++items	item_1088	5CB5B299	58F8F564	item_1088_m
++items	item_1089	8A8E4CF8	92C39743	item_1089_m
++items	item_1090	317BFD62	001E0CAD	item_1090_m
++items	item_1091	5F5497C1	39E8AE8C	item_1091_m
++items	item_1092	8D2D3220	73B3506B	item_1092_m
++items	item_1093	BB05CC7F	AD7DF24A	item_1093_m
++items	item_1094	E8DE66DE	E7489429	item_1094_m
++items	item_1095	16B7013D	21133608	item_1095_m
++items	item_1096	448F9B9C	5ADDD7E7	item_1096_m
++items	item_1097	726835FB	94A879C6	item_1097_m
++items	item_1100	C34197B8	984A4203	item_1100_m
++items	item_1101	F11A3217	D214E3E2	item_1101_m
++items	item_1102	1EF2CC76	0BDF85C1	item_1102_m
++items	item_1103	4CCB66D5	45AA27A0	item_1103_m
++items	item_1104	7AA40134	7F74C97F	item_1104_m
++items	item_1105	A87C9B93	B93F6B5E	item_1105_m
++items	item_1106	D65535F2	F30A0D3D	item_1106_m
++items	item_1107	042DD051	2CD4AF1C	item_1107_m
++items	item_1108	32066AB0	669F50FB	item_1108_m
++items	item_1109	5FDF050F	A069F2DA	item_1109_m
++items	item_1110	06CCB579	0DC46844	item_1110_m
++items	item_1111	34A54FD8	478F0A23	item_1111_m
++items	item_1112	627DEA37	8159AC02	item_1112_m
++items	item_1113	90568496	BB244DE1	item_1113_m
++items	item_1114	BE2F1EF5	F4EEEFC0	item_1114_m
++items	item_1115	EC07B954	2EB9919F	item_1115_m
++items	item_1116	19E053B3	6884337E	item_1116_m
++items	item_1117	47B8EE12	A24ED55D	item_1117_m
++items	item_1118	75918871	DC19773C	item_1118_m
++items	item_1119	A36A22D0	15E4191B	item_1119_m
++items	item_1120	4A57D33A	833E8E85	item_1120_m
++items	item_1121	78306D99	BD093064	item_1121_m
++items	item_1122	A60907F8	F6D3D243	item_1122_m
++items	item_1123	D3E1A257	309E7422	item_1123_m
++items	item_1124	01BA3CB6	6A691601	item_1124_m
++items	item_1126	5D6B7174	DDFE59BF	item_1126_m
++items	item_1127	8B440BD3	17C8FB9E	item_1127_m
++items	item_1128	B91CA632	51939D7D	item_1128_m
++items	item_1129	E6F54091	8B5E3F5C	item_1129_m
++items	item_1130	8DE2F0FB	F8B8B4C6	item_1130_m
++items	item_1131	BBBB8B5A	328356A5	item_1131_m
++items	item_1132	E99425B9	6C4DF884	item_1132_m
++items	item_1133	176CC018	A6189A63	item_1133_m
++items	item_1135	731DF4D6	19ADDE21	item_1135_m
++items	item_1136	A0F68F35	53788000	item_1136_m
++items	item_1137	CECF2994	8D4321DF	item_1137_m
++items	item_1138	FCA7C3F3	C70DC3BE	item_1138_m
++items	item_1139	2A805E52	00D8659D	item_1139_m
++items	item_1140	D16E0EBC	6E32DB07	item_1140_m
++items	item_1141	FF46A91B	A7FD7CE6	item_1141_m
++items	item_1147	125A4755	02BD4820	item_1147_m
++items	item_1148	4032E1B4	3C87E9FF	item_1148_m
++items	item_1149	6E0B7C13	76528BDE	item_1149_m
++items	item_1150	14F92C7D	E3AD0148	item_1150_m
++items	item_1151	42D1C6DC	1D77A327	item_1151_m
++items	item_1152	70AA613B	57424506	item_1152_m
++items	item_1153	9E82FB9A	910CE6E5	item_1153_m
++items	item_1154	CC5B95F9	CAD788C4	item_1154_m
++items	item_1155	FA343058	04A22AA3	item_1155_m
++items	item_1156	280CCAB7	3E6CCC82	item_1156_m
++items	item_1157	55E56516	78376E61	item_1157_m
++items	item_1158	83BDFF75	B2021040	item_1158_m
++items	item_1160	58844A3E	59272789	item_1160_m
++items	item_1161	865CE49D	92F1C968	item_1161_m
++items	item_1162	B4357EFC	CCBC6B47	item_1162_m
++items	item_1163	E20E195B	06870D26	item_1163_m
++items	item_1164	0FE6B3BA	4051AF05	item_1164_m
++items	item_1165	3DBF4E19	7A1C50E4	item_1165_m
++items	item_1166	6B97E878	B3E6F2C3	item_1166_m
++items	item_1167	997082D7	EDB194A2	item_1167_m
++items	item_1168	C7491D36	277C3681	item_1168_m
++items	item_1169	F521B795	6146D860	item_1169_m
++items	item_1170	9C0F67FF	CEA14DCA	item_1170_m
++items	item_1171	C9E8025E	086BEFA9	item_1171_m
++items	item_1172	F7C09CBD	42369188	item_1172_m
++items	item_1173	2599371C	7C013367	item_1173_m
++items	item_1174	5371D17B	B5CBD546	item_1174_m
++items	item_1175	814A6BDA	EF967725	item_1175_m
++items	item_1176	AF230639	29611904	item_1176_m
++items	item_1177	DCFBA098	632BBAE3	item_1177_m
++items	item_1178	0AD43AF7	9CF65CC2	item_1178_m
++items	item_1179	38ACD556	D6C0FEA1	item_1179_m
++items	item_1180	DF9A85C0	441B740B	item_1180_m
++items	item_1181	0D73201F	7DE615EA	item_1181_m
++items	item_1182	3B4BBA7E	B7B0B7C9	item_1182_m
++items	item_1184	96FCEF3C	2B45FB87	item_1184_m
++items	item_1185	C4D5899B	65109D66	item_1185_m
++items	item_1186	F2AE23FA	9EDB3F45	item_1186_m
++items	item_1187	2086BE59	D8A5E124	item_1187_m
++items	item_1188	4E5F58B8	12708303	item_1188_m
++items	item_1189	7C37F317	4C3B24E2	item_1189_m
++items	item_1190	2325A381	B9959A4C	item_1190_m
++items	item_1191	50FE3DE0	F3603C2B	item_1191_m
++items	item_1192	7ED6D83F	2D2ADE0A	item_1192_m
++items	item_1193	ACAF729E	66F57FE9	item_1193_m
++items	item_1194	DA880CFD	A0C021C8	item_1194_m
++items	item_1195	0860A75C	DA8AC3A7	item_1195_m
++items	item_1196	363941BB	14556586	item_1196_m
++items	item_1197	6411DC1A	4E200765	item_1197_m
++items	item_1198	91EA7679	87EAA944	item_1198_m
++items	item_1199	BFC310D8	C1B54B23	item_1199_m
++items	item_1201	E2C3D836	8B8C7181	item_1201_m
++items	item_1202	109C7295	C5571360	item_1202_m
++items	item_1203	3E750CF4	FF21B53F	item_1203_m
++items	item_1204	6C4DA753	38EC571E	item_1204_m
++items	item_1206	C7FEDC11	AC819ADC	item_1206_m
++items	item_1207	F5D77670	E64C3CBB	item_1207_m
++items	item_1208	23B010CF	2016DE9A	item_1208_m
++items	item_1209	5188AB2E	59E18079	item_1209_m
++items	item_1210	F8765B98	C73BF5E3	item_1210_m
++items	item_1211	264EF5F7	010697C2	item_1211_m
++items	item_1214	AFD8C514	AE667D5F	item_1214_m
++items	item_1215	DDB15F73	E8311F3E	item_1215_m
++items	item_1216	0B89F9D2	21FBC11D	item_1216_m
++items	item_1219	9513C8EF	CF5BA6BA	item_1219_m
++items	item_1220	3C017959	3CB61C24	item_1220_m
++items	item_1221	69DA13B8	7680BE03	item_1221_m
++items	item_1222	97B2AE17	B04B5FE2	item_1222_m
++items	item_1229	D89EE6B0	44D5CCFB	item_1229_m
++items	item_1231	AD653179	EBFAE444	item_1231_m
++items	item_1232	DB3DCBD8	25C58623	item_1232_m
++items	item_1235	64C79AF5	D3256BC0	item_1235_m
++items	item_1237	C078CFB3	46BAAF7E	item_1237_m
++items	item_1238	EE516A12	8085515D	item_1238_m
++items	item_1240	C317B4DB	27AA68A6	item_1240_m
++items	item_1242	1EC8E999	9B3FAC64	item_1242_m
++items	item_1243	4CA183F8	D50A4E43	item_1243_m
++items	item_1244	7A7A1E57	0ED4F022	item_1244_m
++items	item_1245	A852B8B6	489F9201	item_1245_m
++items	item_1249	5FB52232	2FCA197D	item_1249_m
++items	item_1250	06A2D29C	9D248EE7	item_1250_m
++items	item_1257	478F0B35	31AEFC00	item_1257_m
++items	item_1258	7567A594	6B799DDF	item_1258_m
++items	item_1259	A3403FF3	A5443FBE	item_1259_m
++items	item_1261	78068ABC	4C695707	item_1261_m
++items	item_1262	A5DF251B	8633F8E6	item_1262_m
++items	item_1263	D3B7BF7A	BFFE9AC5	item_1263_m
++items	item_1270	8DB90E1E	8818DB69	item_1270_m
++items	item_1271	BB91A87D	C1E37D48	item_1271_m
++items	item_1272	E96A42DC	FBAE1F27	item_1272_m
++items	item_1274	451B779A	6F4362E5	item_1274_m
++items	item_1276	A0CCAC58	E2D8A6A3	item_1276_m
++items	item_1278	FC7DE116	566DEA61	item_1278_m
++items	item_1280	D1442BDF	FD9301AA	item_1280_m
++items	item_1282	2CF5609D	71284568	item_1282_m
++items	item_1285	B67F2FBA	1E882B05	item_1285_m
++items	item_1289	6DE19936	05B2B281	item_1289_m
++items	item_1290	14CF49A0	730D27EB	item_1290_m
++items	item_1291	42A7E3FF	ACD7C9CA	item_1291_m
++items	item_1292	70807E5E	E6A26BA9	item_1292_m
++items	item_1293	9E5918BD	206D0D88	item_1293_m
++items	item_1294	CC31B31C	5A37AF67	item_1294_m
++items	item_1295	FA0A4D7B	94025146	item_1295_m
++items	item_1296	27E2E7DA	CDCCF325	item_1296_m
++items	item_1297	55BB8239	07979504	item_1297_m
++items	item_1298	83941C98	416236E3	item_1298_m
++items	item_1299	B16CB6F7	7B2CD8C2	item_1299_m
++items	item_1300	A694E3F6	0B395D41	item_1300_m
++items	item_1301	D46D7E55	4503FF20	item_1301_m
++items	item_1302	024618B4	7ECEA0FF	item_1302_m
++items	item_1303	301EB313	B89942DE	item_1303_m
++items	item_1304	5DF74D72	F263E4BD	item_1304_m
++items	item_1320	2DAB1F78	F62DA9C3	item_1320_m
++items	item_1321	5B83B9D7	2FF84BA2	item_1321_m
++items	item_1322	895C5436	69C2ED81	item_1322_m
++items	item_1323	B734EE95	A38D8F60	item_1323_m
++items	item_1324	E50D88F4	DD58313F	item_1324_m
++items	item_1325	12E62353	1722D31E	item_1325_m
++items	item_1326	40BEBDB2	50ED74FD	item_1326_m
++items	item_1327	6E975811	8AB816DC	item_1327_m
++items	item_1328	9C6FF270	C482B8BB	item_1328_m
++items	item_1329	CA488CCF	FE4D5A9A	item_1329_m
++items	item_1330	71363D39	6BA7D004	item_1330_m
++items	item_1331	9F0ED798	A57271E3	item_1331_m
++items	item_1332	CCE771F7	DF3D13C2	item_1332_m
++items	item_1333	FAC00C56	1907B5A1	item_1333_m
++items	item_1334	2898A6B5	52D25780	item_1334_m
++items	item_1335	56714114	8C9CF95F	item_1335_m
++items	item_1336	8449DB73	C6679B3E	item_1336_m
++items	item_1337	B22275D2	00323D1D	item_1337_m
++items	item_1338	DFFB1031	39FCDEFC	item_1338_m
++items	item_1339	0DD3AA90	73C780DB	item_1339_m
++items	item_1340	B4C15AFA	E121F645	item_1340_m
++items	item_1341	E299F559	1AEC9824	item_1341_m
++items	item_1342	10728FB8	54B73A03	item_1342_m
++items	item_1343	3E4B2A17	8E81DBE2	item_1343_m
++items	item_1344	6C23C476	C84C7DC1	item_1344_m
++items	item_1345	99FC5ED5	02171FA0	item_1345_m
++items	item_1346	C7D4F934	3BE1C17F	item_1346_m
++items	item_1347	F5AD9393	75AC635E	item_1347_m
++items	item_1349	515EC851	E941A71C	item_1349_m
++items	item_1350	F84C78BB	569C1C86	item_1350_m
++items	item_1351	2625131A	9066BE65	item_1351_m
++items	item_1352	53FDAD79	CA316044	item_1352_m
++items	item_1353	81D647D8	03FC0223	item_1353_m
++items	item_1354	AFAEE237	3DC6A402	item_1354_m
++items	item_1355	DD877C96	779145E1	item_1355_m
++items	item_1356	0B6016F5	B15BE7C0	item_1356_m
++items	item_1357	3938B154	EB26899F	item_1357_m
++items	item_1358	67114BB3	24F12B7E	item_1358_m
++items	item_1359	94E9E612	5EBBCD5D	item_1359_m
++items	item_1360	3BD7967C	CC1642C7	item_1360_m
++items	item_1361	69B030DB	05E0E4A6	item_1361_m
++items	item_1362	9788CB3A	3FAB8685	item_1362_m
++items	item_1363	C5616599	79762864	item_1363_m
++items	item_1364	F339FFF8	B340CA43	item_1364_m
++items	item_1365	21129A57	ED0B6C22	item_1365_m
++items	item_1366	4EEB34B6	26D60E01	item_1366_m
++items	item_1367	7CC3CF15	60A0AFE0	item_1367_m
++items	item_1368	AA9C6974	9A6B51BF	item_1368_m
++items	item_1369	D87503D3	D435F39E	item_1369_m
++items	item_1370	7F62B43D	41906908	item_1370_m
++items	item_1371	AD3B4E9C	7B5B0AE7	item_1371_m
++items	item_1372	DB13E8FB	B525ACC6	item_1372_m
++items	item_1373	08EC835A	EEF04EA5	item_1373_m
++items	item_1374	36C51DB9	28BAF084	item_1374_m
++items	item_1375	649DB818	62859263	item_1375_m
++items	item_1377	C04EECD6	D61AD621	item_1377_m
++items	item_1378	EE278735	0FE57800	item_1378_m
++items	item_1379	1C002194	49B019DF	item_1379_m
++items	item_1380	C2EDD1FE	B70A8F49	item_1380_m
++items	item_1381	F0C66C5D	F0D53128	item_1381_m
++items	item_1382	1E9F06BC	2A9FD307	item_1382_m
++items	item_1383	4C77A11B	646A74E6	item_1383_m
++items	item_1384	7A503B7A	9E3516C5	item_1384_m
++items	item_1385	A828D5D9	D7FFB8A4	item_1385_m
++items	item_1386	D6017038	11CA5A83	item_1386_m
++items	item_1388	31B2A4F6	855F9E41	item_1388_m
++items	item_1390	0678EFBF	2C84B58A	item_1390_m
++items	item_1391	34518A1E	664F5769	item_1391_m
++items	item_1392	622A247D	A019F948	item_1392_m
++items	item_1393	9002BEDC	D9E49B27	item_1393_m
++items	item_1394	BDDB593B	13AF3D06	item_1394_m
++items	item_1395	EBB3F39A	4D79DEE5	item_1395_m
++items	item_1396	198C8DF9	874480C4	item_1396_m
++items	item_1397	47652858	C10F22A3	item_1397_m
++items	item_1398	753DC2B7	FAD9C482	item_1398_m
++items	item_1399	A3165D16	34A46661	item_1399_m
++items	item_1400	983E8A15	C4B0EAE0	item_1400_m
++items	item_1401	C6172474	FE7B8CBF	item_1401_m
++items	item_1402	F3EFBED3	38462E9E	item_1402_m
++items	item_1403	21C85932	7210D07D	item_1403_m
++items	item_1404	4FA0F391	ABDB725C	item_1404_m
++items	item_1405	7D798DF0	E5A6143B	item_1405_m
++items	item_1406	AB52284F	1F70B61A	item_1406_m
++items	item_1407	D92AC2AE	593B57F9	item_1407_m
++items	item_1408	07035D0D	9305F9D8	item_1408_m
++items	item_1409	34DBF76C	CCD09BB7	item_1409_m
++items	item_1410	DBC9A7D6	3A2B1121	item_1410_m
++items	item_1413	655376F3	E78AF6BE	item_1413_m
++items	item_1414	932C1152	2155989D	item_1414_m
++items	item_1415	C104ABB1	5B203A7C	item_1415_m
++items	item_1416	EEDD4610	94EADC5B	item_1416_m
++items	item_1417	1CB5E06F	CEB57E3A	item_1417_m
++items	item_1419	7867152D	424AC1F8	item_1419_m
++items	item_1420	1F54C597	AFA53762	item_1420_m
++items	item_1421	4D2D5FF6	E96FD941	item_1421_m
++items	item_1423	A8DE94B4	5D051CFF	item_1423_m
++items	item_1425	048FC972	D09A60BD	item_1425_m
++items	item_1434	1A424CD4	0C49E51F	item_1434_m
++items	item_1435	481AE733	461486FE	item_1435_m
++items	item_1438	D1A4B650	F3746C9B	item_1438_m
++items	item_1439	FF7D50AF	2D3F0E7A	item_1439_m
++items	item_1440	A66B0119	9A9983E4	item_1440_m
++items	item_1442	021C35D7	0E2EC7A2	item_1442_m
++items	item_1443	2FF4D036	47F96981	item_1443_m
++items	item_1444	5DCD6A95	81C40B60	item_1444_m
++items	item_1446	B97E9F53	F5594F1E	item_1446_m
++items	item_1457	2AE25773	A49E173E	item_1457_m
++items	item_1458	58BAF1D2	DE68B91D	item_1458_m
++items	item_1459	86938C31	18335AFC	item_1459_m
++items	item_1460	2D813C9B	858DD066	item_1460_m
++items	item_1461	5B59D6FA	BF587245	item_1461_m
++items	item_1463	B70B0BB8	32EDB603	item_1463_m
++items	item_1466	4094DAD5	E04D9BA0	item_1466_m
++items	item_1467	6E6D7534	1A183D7F	item_1467_m
++items	item_1469	CA1EA9F2	8DAD813D	item_1469_m
++items	item_1471	9EE4F4BB	34D29886	item_1471_m
++items	item_1472	CCBD8F1A	6E9D3A65	item_1472_m
++items	item_1473	FA962979	A867DC44	item_1473_m
++items	item_1474	286EC3D8	E2327E23	item_1474_m
++items	item_1475	56475E37	1BFD2002	item_1475_m
++items	item_1476	841FF896	55C7C1E1	item_1476_m
++items	item_1478	DFD12D54	C95D059F	item_1478_m
++items	item_1481	E270127C	AA4CBEC7	item_1481_m
++items	item_1482	1048ACDB	E41760A6	item_1482_m
++items	item_1483	3E21473A	1DE20285	item_1483_m
++items	item_1489	5134E574	78A1CDBF	item_1489_m
++items	item_1490	F82295DE	E5FC4329	item_1490_m
++items	item_1493	81AC64FB	935C28C6	item_1493_m
++items	item_1500	89E83034	7E28787F	item_1500_m
++items	item_1501	B7C0CA93	B7F31A5E	item_1501_m
++items	item_1506	9CFBCE6E	D8E843B9	item_1506_m
++items	item_1507	CAD468CD	12B2E598	item_1507_m
++items	item_1508	F8AD032C	4C7D8777	item_1508_m
++items	item_1510	CD734DF5	F3A29EC0	item_1510_m
++items	item_1511	FB4BE854	2D6D409F	item_1511_m
++items	item_1512	292482B3	6737E27E	item_1512_m
++items	item_1513	56FD1D12	A102845D	item_1513_m
++items	item_1514	84D5B771	DACD263C	item_1514_m
++items	item_1515	B2AE51D0	1497C81B	item_1515_m
++items	item_1516	E086EC2F	4E6269FA	item_1516_m
++items	item_1517	0E5F868E	882D0BD9	item_1517_m
++items	item_1518	3C3820ED	C1F7ADB8	item_1518_m
++items	item_1519	6A10BB4C	FBC24F97	item_1519_m
++items	item_1520	10FE6BB6	691CC501	item_1520_m
++items	item_1521	3ED70615	A2E766E0	item_1521_m
++items	item_1522	6CAFA074	DCB208BF	item_1522_m
++items	item_1523	9A883AD3	167CAA9E	item_1523_m
++items	item_1524	C860D532	50474C7D	item_1524_m
++items	item_1525	F6396F91	8A11EE5C	item_1525_m
++items	item_1526	241209F0	C3DC903B	item_1526_m
++items	item_1527	51EAA44F	FDA7321A	item_1527_m
++items	item_1528	7FC33EAE	3771D3F9	item_1528_m
++items	item_1529	AD9BD90D	713C75D8	item_1529_m
++items	item_1530	54898977	DE96EB42	item_1530_m
++items	item_1531	826223D6	18618D21	item_1531_m
++items	item_1532	B03ABE35	522C2F00	item_1532_m
++items	item_1533	DE135894	8BF6D0DF	item_1533_m
++items	item_1534	0BEBF2F3	C5C172BE	item_1534_m
++items	item_1535	39C48D52	FF8C149D	item_1535_m
++items	item_1536	679D27B1	3956B67C	item_1536_m
++items	item_1537	9575C210	7321585B	item_1537_m
++items	item_1538	C34E5C6F	ACEBFA3A	item_1538_m
++items	item_1539	F126F6CE	E6B69C19	item_1539_m
++items	item_1540	9814A738	54111183	item_1540_m
++items	item_1541	C5ED4197	8DDBB362	item_1541_m
++items	item_1542	F3C5DBF6	C7A65541	item_1542_m
++items	item_1543	219E7655	0170F720	item_1543_m
++items	item_1544	4F7710B4	3B3B98FF	item_1544_m
++items	item_1545	7D4FAB13	75063ADE	item_1545_m
++items	item_1546	AB284572	AED0DCBD	item_1546_m
++items	item_1547	D900DFD1	E89B7E9C	item_1547_m
++items	item_1548	06D97A30	2266207B	item_1548_m
++items	item_1549	34B2148F	5C30C25A	item_1549_m
++items	item_1550	DB9FC4F9	C98B37C4	item_1550_m
++items	item_1551	09785F58	0355D9A3	item_1551_m
++items	item_1552	3750F9B7	3D207B82	item_1552_m
++items	item_1553	65299416	76EB1D61	item_1553_m
++items	item_1554	93022E75	B0B5BF40	item_1554_m
++items	item_1557	1C8BFD92	5E15A4DD	item_1557_m
++items	item_1558	4A6497F1	97E046BC	item_1558_m
++items	item_1559	783D3250	D1AAE89B	item_1559_m
++items	item_1560	1F2AE2BA	3F055E05	item_1560_m
++items	item_1561	4D037D19	78CFFFE4	item_1561_m
++items	item_1562	7ADC1778	B29AA1C3	item_1562_m
++items	item_1563	A8B4B1D7	EC6543A2	item_1563_m
++items	item_1564	D68D4C36	262FE581	item_1564_m
++items	item_1565	0465E695	5FFA8760	item_1565_m
++items	item_1566	323E80F4	99C5293F	item_1566_m
++items	item_1567	60171B53	D38FCB1E	item_1567_m
++items	item_1569	BBC85011	47250EDC	item_1569_m
++items	item_1570	62B6007B	B47F8446	item_1570_m
++items	item_1574	1A1869F7	9BAA0BC2	item_1574_m
++items	item_1575	47F10456	D574ADA1	item_1575_m
++items	item_1576	75C99EB5	0F3F4F80	item_1576_m
++items	item_1577	A3A23914	4909F15F	item_1577_m
++items	item_1578	D17AD373	82D4933E	item_1578_m
++items	item_1579	FF536DD2	BC9F351D	item_1579_m
++items	item_1580	A6411E3C	29F9AA87	item_1580_m
++items	item_1581	D419B89B	63C44C66	item_1581_m
++items	item_1582	01F252FA	9D8EEE45	item_1582_m
++items	item_1583	2FCAED59	D7599024	item_1583_m
++items	item_1584	5DA387B8	11243203	item_1584_m
++items	item_1585	8B7C2217	4AEED3E2	item_1585_m
++items	item_1586	B954BC76	84B975C1	item_1586_m
++items	item_1587	E72D56D5	BE8417A0	item_1587_m
++items	item_1588	1505F134	F84EB97F	item_1588_m
++items	item_1589	42DE8B93	32195B5E	item_1589_m
++items	item_1590	E9CC3BFD	9F73D0C8	item_1590_m
++items	item_1599	8669A954	A793819F	item_1599_m
++items	item_1618	2DE1C70C	7B6F3B57	item_1618_m
++items	item_1619	5BBA616B	B539DD36	item_1619_m
++items	item_1621	3080AC34	5C5EF47F	item_1621_m
++items	item_1622	5E594693	9629965E	item_1622_m
++items	item_1623	8C31E0F2	CFF4383D	item_1623_m
++items	item_1624	BA0A7B51	09BEDA1C	item_1624_m
++items	item_1625	E7E315B0	43897BFB	item_1625_m
++items	item_1626	15BBB00F	7D541DDA	item_1626_m
++items	item_1627	43944A6E	B71EBFB9	item_1627_m
++items	item_1628	716CE4CD	F0E96198	item_1628_m
++items	item_1629	9F457F2C	2AB40377	item_1629_m
++items	item_1630	46332F96	980E78E1	item_1630_m
++items	item_1631	740BC9F5	D1D91AC0	item_1631_m
++items	item_1632	A1E46454	0BA3BC9F	item_1632_m
++items	item_1633	CFBCFEB3	456E5E7E	item_1633_m
++items	item_1634	FD959912	7F39005D	item_1634_m
++items	item_1635	2B6E3371	B903A23C	item_1635_m
++items	item_1636	5946CDD0	F2CE441B	item_1636_m
++items	item_1637	871F682F	2C98E5FA	item_1637_m
++items	item_1638	B4F8028E	666387D9	item_1638_m
++items	item_1639	E2D09CED	A02E29B8	item_1639_m
++items	item_1640	89BE4D57	0D889F22	item_1640_m
++items	item_1641	B796E7B6	47534101	item_1641_m
++items	item_1642	E56F8215	811DE2E0	item_1642_m
++items	item_1643	13481C74	BAE884BF	item_1643_m
++items	item_1644	4120B6D3	F4B3269E	item_1644_m
++items	item_1647	CAAA85F0	A2130C3B	item_1647_m
++items	item_1648	F883204F	DBDDAE1A	item_1648_m
++items	item_1649	265BBAAE	15A84FF9	item_1649_m
++items	item_1650	CD496B18	8302C563	item_1650_m
++items	item_1651	FB220577	BCCD6742	item_1651_m
++items	item_1652	28FA9FD6	F6980921	item_1652_m
++items	item_1653	56D33A35	3062AB00	item_1653_m
++items	item_1654	84ABD494	6A2D4CDF	item_1654_m
++items	item_1655	B2846EF3	A3F7EEBE	item_1655_m
++items	item_1656	E05D0952	DDC2909D	item_1656_m
++items	item_1657	0E35A3B1	178D327C	item_1657_m
++items	item_1658	3C0E3E10	5157D45B	item_1658_m
++items	item_1659	69E6D86F	8B22763A	item_1659_m
++items	item_1660	10D488D9	F87CEBA4	item_1660_m
++items	item_1663	9A5E57F6	A5DCD141	item_1663_m
++items	item_1664	C836F255	DFA77320	item_1664_m
++items	item_1666	23E82713	533CB6DE	item_1666_m
++items	item_1667	51C0C172	8D0758BD	item_1667_m
++items	item_1668	7F995BD1	C6D1FA9C	item_1668_m
++items	item_1669	AD71F630	009C9C7B	item_1669_m
++items	item_1670	545FA69A	6DF711E5	item_1670_m
++items	item_1674	0BC21016	55219961	item_1674_m
++items	item_1675	399AAA75	8EEC3B40	item_1675_m
++items	item_1676	677344D4	C8B6DD1F	item_1676_m
++items	item_1677	954BDF33	02817EFE	item_1677_m
++items	item_1678	C3247992	3C4C20DD	item_1678_m
++items	item_1679	F0FD13F1	7616C2BC	item_1679_m
++items	item_1680	97EAC45B	E3713826	item_1680_m
++items	item_1681	C5C35EBA	1D3BDA05	item_1681_m
++items	item_1682	F39BF919	57067BE4	item_1682_m
++items	item_1683	21749378	90D11DC3	item_1683_m
++items	item_1684	4F4D2DD7	CA9BBFA2	item_1684_m
++items	item_1685	7D25C836	04666181	item_1685_m
++items	item_1686	AAFE6295	3E310360	item_1686_m
++items	item_1687	D8D6FCF4	77FBA53F	item_1687_m
++items	item_1688	06AF9753	B1C6471E	item_1688_m
++items	item_1689	348831B2	EB90E8FD	item_1689_m
++items	item_1690	DB75E21C	58EB5E67	item_1690_m
++items	item_1691	094E7C7B	92B60046	item_1691_m
++items	item_1692	372716DA	CC80A225	item_1692_m
++items	item_1693	64FFB139	064B4404	item_1693_m
++items	item_1694	92D84B98	4015E5E3	item_1694_m
++items	item_1695	C0B0E5F7	79E087C2	item_1695_m
++items	item_1696	EE898056	B3AB29A1	item_1696_m
++items	item_1697	1C621AB5	ED75CB80	item_1697_m
++items	item_1698	4A3AB514	27406D5F	item_1698_m
++items	item_1699	78134F73	610B0F3E	item_1699_m
++items	item_1700	6D3B7C72	F11793BD	item_1700_m
++items	item_1701	9B1416D1	2AE2359C	item_1701_m
++items	item_1702	C8ECB130	64ACD77B	item_1702_m
++items	item_1703	F6C54B8F	9E77795A	item_1703_m
++items	item_1704	249DE5EE	D8421B39	item_1704_m
++items	item_1708	DC004F6A	BF6CA2B5	item_1708_m
++items	item_1709	09D8E9C9	F9374494	item_1709_m
++items	item_1710	B0C69A33	6691B9FE	item_1710_m
++items	item_1711	DE9F3492	A05C5BDD	item_1711_m
++items	item_1712	0C77CEF1	DA26FDBC	item_1712_m
++items	item_1713	3A506950	13F19F9B	item_1713_m
++items	item_1714	682903AF	4DBC417A	item_1714_m
++items	item_1715	96019E0E	8786E359	item_1715_m
++items	item_1716	C3DA386D	C1518538	item_1716_m
++items	item_1717	F1B2D2CC	FB1C2717	item_1717_m
++items	item_1718	1F8B6D2B	34E6C8F6	item_1718_m
++items	item_1719	4D64078A	6EB16AD5	item_1719_m
++items	item_1721	222A5253	15D6821E	item_1721_m
++items	item_1722	5002ECB2	4FA123FD	item_1722_m
++items	item_1723	7DDB8711	896BC5DC	item_1723_m
++items	item_1726	0765562E	36CBAB79	item_1726_m
++items	item_1728	63168AEC	AA60EF37	item_1728_m
++items	item_1729	90EF254B	E42B9116	item_1729_m
++items	item_1730	37DCD5B5	51860680	item_1730_m
++items	item_1731	65B57014	8B50A85F	item_1731_m
++items	item_1732	938E0A73	C51B4A3E	item_1732_m
++items	item_1733	C166A4D2	FEE5EC1D	item_1733_m
++items	item_1734	EF3F3F31	38B08DFC	item_1734_m
++items	item_1735	1D17D990	727B2FDB	item_1735_m
++items	item_1736	4AF073EF	AC45D1BA	item_1736_m
++items	item_1739	D47A430C	59A5B757	item_1739_m
++items	item_1740	7B67F376	C7002CC1	item_1740_m
++items	item_1741	A9408DD5	00CACEA0	item_1741_m
++items	item_1742	D7192834	3A95707F	item_1742_m
++items	item_1743	04F1C293	7460125E	item_1743_m
++items	item_1744	32CA5CF2	AE2AB43D	item_1744_m
++items	item_1747	BC542C0F	5B8A99DA	item_1747_m
++items	item_1748	EA2CC66E	95553BB9	item_1748_m
++items	item_1749	180560CD	CF1FDD98	item_1749_m
++items	item_1750	BEF31137	3C7A5302	item_1750_m
++items	item_1751	ECCBAB96	7644F4E1	item_1751_m
++items	item_1752	1AA445F5	B00F96C0	item_1752_m
++items	item_1753	487CE054	E9DA389F	item_1753_m
++items	item_1754	76557AB3	23A4DA7E	item_1754_m
++items	item_1755	A42E1512	5D6F7C5D	item_1755_m
++items	item_1756	D206AF71	973A1E3C	item_1756_m
++items	item_1757	FFDF49D0	D104C01B	item_1757_m
++items	item_1758	2DB7E42F	0ACF61FA	item_1758_m
++items	item_1760	027E2EF8	B1F47943	item_1760_m
++items	item_1761	3056C957	EBBF1B22	item_1761_m
++items	item_1762	5E2F63B6	2589BD01	item_1762_m
++items	item_1763	8C07FE15	5F545EE0	item_1763_m
++items	item_1764	5A7BB943	6150E10E	item_1764_m
++items	item_1765	607F84A2	628733ED	item_1765_m
++items	item_1767	436A6791	467EE65C	item_1767_m
++items	item_1768	714301F0	8049883B	item_1768_m
++items	item_1769	9F1B9C4F	BA142A1A	item_1769_m
++items	item_1770	46094CB9	276E9F84	item_1770_m
++items	item_1772	A1BA8177	9B03E342	item_1772_m
++items	item_1773	CF931BD6	D4CE8521	item_1773_m
++items	item_1774	FD6BB635	0E992700	item_1774_m
++items	item_1776	591CEAF3	822E6ABE	item_1776_m
++items	item_1778	B4CE1FB1	F5C3AE7C	item_1778_m
++items	item_1779	E2A6BA10	2F8E505B	item_1779_m
++items	item_1780	89946A7A	9CE8C5C5	item_1780_m
++items	item_1782	E5459F38	107E0983	item_1782_m
++items	item_1783	131E3997	4A48AB62	item_1783_m
++items	item_1785	6ECF6E55	BDDDEF20	item_1785_m
++items	item_1786	9CA808B4	F7A890FF	item_1786_m
++items	item_1787	CA80A313	317332DE	item_1787_m
++items	item_1788	F8593D72	6B3DD4BD	item_1788_m
++items	item_1789	2631D7D1	A508769C	item_1789_m
++items	item_1790	CD1F883B	1262EC06	item_1790_m
++items	item_1791	FAF8229A	4C2D8DE5	item_1791_m
++items	item_1792	28D0BCF9	85F82FC4	item_1792_m
++items	item_1794	8481F1B7	F98D7382	item_1794_m
++items	item_1795	B25A8C16	33581561	item_1795_m
++items	item_1796	E0332675	6D22B740	item_1796_m
++items	item_1797	0E0BC0D4	A6ED591F	item_1797_m
++items	item_1798	3BE45B33	E0B7FAFE	item_1798_m
++items	item_1799	69BCF592	1A829CDD	item_1799_m
++items	item_1800	5EE52291	AA8F215C	item_1800_m
++items	item_1801	8CBDBCF0	E459C33B	item_1801_m
++items	item_1802	BA96574F	1E24651A	item_1802_m
++items	item_1804	16478C0D	91B9A8D8	item_1804_m
++items	item_1805	4420266C	CB844AB7	item_1805_m
++items	item_1806	71F8C0CB	054EEC96	item_1806_m
++items	item_1807	9FD15B2A	3F198E75	item_1807_m
++items	item_1808	CDA9F589	78E43054	item_1808_m
++items	item_1809	FB828FE8	B2AED233	item_1809_m
++items	item_1810	A2704052	2009479D	item_1810_m
++items	item_1811	D048DAB1	59D3E97C	item_1811_m
++items	item_1812	FE217510	939E8B5B	item_1812_m
++items	item_1813	2BFA0F6F	CD692D3A	item_1813_m
++items	item_1814	59D2A9CE	0733CF19	item_1814_m
++items	item_1815	87AB442D	40FE70F8	item_1815_m
++items	item_1816	B583DE8C	7AC912D7	item_1816_m
++items	item_1817	E35C78EB	B493B4B6	item_1817_m
++items	item_1819	3F0DADA9	2828F874	item_1819_m
++items	item_1820	E5FB5E13	95836DDE	item_1820_m
++items	item_1825	CB3661EE	B6789739	item_1825_m
++items	item_1826	F90EFC4D	F0433918	item_1826_m
++items	item_1827	26E796AC	2A0DDAF7	item_1827_m
++items	item_1828	54C0310B	63D87CD6	item_1828_m
++items	item_1829	8298CB6A	9DA31EB5	item_1829_m
++items	item_1830	29867BD4	0AFD941F	item_1830_m
++items	item_1831	575F1633	44C835FE	item_1831_m
++items	item_1832	8537B092	7E92D7DD	item_1832_m
++items	item_1833	B3104AF1	B85D79BC	item_1833_m
++items	item_1834	E0E8E550	F2281B9B	item_1834_m
++items	item_1835	0EC17FAF	2BF2BD7A	item_1835_m
++items	item_1836	3C9A1A0E	65BD5F59	item_1836_m
++items	item_1837	6A72B46D	9F880138	item_1837_m
++items	item_1838	984B4ECC	D952A317	item_1838_m
++items	item_1839	C623E92B	131D44F6	item_1839_m
++items	item_1840	6D119995	8077BA60	item_1840_m
++items	item_1841	9AEA33F4	BA425C3F	item_1841_m
++items	item_1842	C8C2CE53	F40CFE1E	item_1842_m
++items	item_1843	F69B68B2	2DD79FFD	item_1843_m
++items	item_1844	24740311	67A241DC	item_1844_m
++items	item_1845	524C9D70	A16CE3BB	item_1845_m
++items	item_1846	802537CF	DB37859A	item_1846_m
++items	item_1848	DBD66C8D	4ECCC958	item_1848_m
++items	item_1849	09AF06EC	88976B37	item_1849_m
++items	item_1850	B09CB756	F5F1E0A1	item_1850_m
++items	item_1851	DE7551B5	2FBC8280	item_1851_m
++items	item_1852	0C4DEC14	6987245F	item_1852_m
++items	item_1853	3A268673	A351C63E	item_1853_m
++items	item_1854	67FF20D2	DD1C681D	item_1854_m
++items	item_1855	95D7BB31	16E709FC	item_1855_m
++items	item_1856	C3B05590	50B1ABDB	item_1856_m
++items	item_1857	F188EFEF	8A7C4DBA	item_1857_m
++items	item_1858	1F618A4E	C446EF99	item_1858_m
++items	item_1859	4D3A24AD	FE119178	item_1859_m
++items	item_1860	F427D517	6B6C06E2	item_1860_m
++items	item_1861	22006F76	A536A8C1	item_1861_m
++items	item_1862	4FD909D5	DF014AA0	item_1862_m
++items	item_1863	7DB1A434	18CBEC7F	item_1863_m
++items	item_1864	AB8A3E93	52968E5E	item_1864_m
++items	item_1865	D962D8F2	8C61303D	item_1865_m
++items	item_1866	073B7351	C62BD21C	item_1866_m
++items	item_1867	35140DB0	FFF673FB	item_1867_m
++items	item_1868	62ECA80F	39C115DA	item_1868_m
++items	item_1870	37B2F2D8	E0E62D23	item_1870_m
++items	item_1871	658B8D37	1AB0CF02	item_1871_m
++items	item_1872	93642796	547B70E1	item_1872_m
++items	item_1873	C13CC1F5	8E4612C0	item_1873_m
++items	item_1874	EF155C54	C810B49F	item_1874_m
++items	item_1875	1CEDF6B3	01DB567E	item_1875_m
++items	item_1876	4AC69112	3BA5F85D	item_1876_m
++items	item_1877	789F2B71	75709A3C	item_1877_m
++items	item_1878	A677C5D0	AF3B3C1B	item_1878_m
++items	item_1879	D450602F	E905DDFA	item_1879_m
++items	item_1880	7B3E1099	56605364	item_1880_m
++items	item_1881	A916AAF8	902AF543	item_1881_m
++items	item_1882	D6EF4557	C9F59722	item_1882_m
++items	item_1883	04C7DFB6	03C03901	item_1883_m
++items	item_1884	32A07A15	3D8ADAE0	item_1884_m
++items	item_1885	60791474	77557CBF	item_1885_m
++items	item_1886	8E51AED3	B1201E9E	item_1886_m
++items	item_1887	BC2A4932	EAEAC07D	item_1887_m
++items	item_1888	EA02E391	24B5625C	item_1888_m
++items	item_1889	17DB7DF0	5E80043B	item_1889_m
++items	item_1890	BEC92E5A	CBDA79A5	item_1890_m
++items	item_1891	ECA1C8B9	05A51B84	item_1891_m
++items	item_1898	2D8E0152	9A2F889D	item_1898_m
++items	item_1900	508EC8B0	6406AEFB	item_1900_m
++items	item_1901	7E67630F	9DD150DA	item_1901_m
++items	item_1902	AC3FFD6E	D79BF2B9	item_1902_m
++items	item_1903	DA1897CD	11669498	item_1903_m
++items	item_1904	07F1322C	4B313677	item_1904_m
++items	item_1905	35C9CC8B	84FBD856	item_1905_m
++items	item_1906	63A266EA	BEC67A35	item_1906_m
++items	item_1907	917B0149	F8911C14	item_1907_m
++items	item_1908	BF539BA8	325BBDF3	item_1908_m
++items	item_1910	9419E671	D980D53C	item_1910_m
++items	item_1911	C1F280D0	134B771B	item_1911_m
++items	item_1912	EFCB1B2F	4D1618FA	item_1912_m
++items	item_1913	1DA3B58E	86E0BAD9	item_1913_m
++items	item_1914	4B7C4FED	C0AB5CB8	item_1914_m
++items	item_1915	7954EA4C	FA75FE97	item_1915_m
++items	item_1916	A72D84AB	3440A076	item_1916_m
++items	item_1918	02DEB969	A7D5E434	item_1918_m
++items	item_1921	057D9E91	88C59D5C	item_1921_m
++items	item_1923	612ED34F	FC5AE11A	item_1923_m
++items	item_1924	8F076DAE	362582F9	item_1924_m
++items	item_1925	BCE0080D	6FF024D8	item_1925_m
++items	item_1926	EAB8A26C	A9BAC6B7	item_1926_m
++items	item_1927	18913CCB	E3856896	item_1927_m
++items	item_1928	4669D72A	1D500A75	item_1928_m
++items	item_1929	74427189	571AAC54	item_1929_m
++items	item_1930	1B3021F3	C47521BE	item_1930_m
++items	item_1931	4908BC52	FE3FC39D	item_1931_m
++items	item_1932	76E156B1	380A657C	item_1932_m
++items	item_1933	A4B9F110	71D5075B	item_1933_m
++items	item_1934	D2928B6F	AB9FA93A	item_1934_m
++items	item_1935	006B25CE	E56A4B19	item_1935_m
++items	item_1936	2E43C02D	1F34ECF8	item_1936_m
++items	item_1937	5C1C5A8C	58FF8ED7	item_1937_m
++items	item_1938	89F4F4EB	92CA30B6	item_1938_m
++items	item_1939	B7CD8F4A	CC94D295	item_1939_m
++items	item_1940	5EBB3FB4	39EF47FF	item_1940_m
++items	item_1941	8C93DA13	73B9E9DE	item_1941_m
++items	item_1942	BA6C7472	AD848BBD	item_1942_m
++items	item_1943	E8450ED1	E74F2D9C	item_1943_m
++items	item_1944	161DA930	2119CF7B	item_1944_m
++items	item_1945	43F6438F	5AE4715A	item_1945_m
++items	item_1946	71CEDDEE	94AF1339	item_1946_m
++items	item_1947	9FA7784D	CE79B518	item_1947_m
++items	item_1948	CD8012AC	084456F7	item_1948_m
++items	item_1949	FB58AD0B	420EF8D6	item_1949_m
++items	item_1950	A2465D75	AF696E40	item_1950_m
++items	item_1951	D01EF7D4	E934101F	item_1951_m
++items	item_1953	2BD02C92	5CC953DD	item_1953_m
++items	item_1954	59A8C6F1	9693F5BC	item_1954_m
++items	item_1955	87816150	D05E979B	item_1955_m
++items	item_1956	B559FBAF	0A29397A	item_1956_m
++items	item_1957	E332960E	43F3DB59	item_1957_m
++items	item_1958	110B306D	7DBE7D38	item_1958_m
++items	item_1959	3EE3CACC	B7891F17	item_1959_m
++items	item_1960	E5D17B36	24E39481	item_1960_m
++items	item_1961	13AA1595	5EAE3660	item_1961_m
++items	item_1962	4182AFF4	9878D83F	item_1962_m
++items	item_1963	6F5B4A53	D2437A1E	item_1963_m
++items	item_1968	54964E2E	F338A379	item_1968_m
++items	item_1969	826EE88D	2D034558	item_1969_m
++items	item_1970	295C98F7	9A5DBAC2	item_1970_m
++items	item_1971	57353356	D4285CA1	item_1971_m
++items	item_1972	850DCDB5	0DF2FE80	item_1972_m
++items	item_1973	B2E66814	47BDA05F	item_1973_m
++items	item_1974	E0BF0273	8188423E	item_1974_m
++items	item_1975	0E979CD2	BB52E41D	item_1975_m
++items	item_1976	3C703731	F51D85FC	item_1976_m
++items	item_1977	6A48D190	2EE827DB	item_1977_m
++items	item_1978	98216BEF	68B2C9BA	item_1978_m
++items	item_1979	C5FA064E	A27D6B99	item_1979_m
++items	item_1980	6CE7B6B8	0FD7E103	item_1980_m
++items	item_1981	9AC05117	49A282E2	item_1981_m
++items	item_1982	C898EB76	836D24C1	item_1982_m
++items	item_1983	F67185D5	BD37C6A0	item_1983_m
++items	item_1985	5222BA93	30CD0A5E	item_1985_m
++items	item_1986	7FFB54F2	6A97AC3D	item_1986_m
++items	item_1987	ADD3EF51	A4624E1C	item_1987_m
++items	item_1988	DBAC89B0	DE2CEFFB	item_1988_m
++items	item_1989	0985240F	17F791DA	item_1989_m
++items	item_1990	B072D479	85520744	item_1990_m
++items	item_1995	95ADD854	A647309F	item_1995_m
++items	item_1996	C38672B3	E011D27E	item_1996_m
++items	item_1997	F15F0D12	19DC745D	item_1997_m
++items	item_1998	1F37A771	53A7163C	item_1998_m
++items	item_1999	4D1041D0	8D71B81B	item_1999_m
++items	item_2000	D1218B9A	797376E5	item_2000_m
++items	item_2001	FEFA25F9	B33E18C4	item_2001_m
++items	item_2004	8883F516	609DFE61	item_2004_m
++items	item_2005	B65C8F75	9A68A040	item_2005_m
++items	item_2011	428543BA	28B83F05	item_2011_m
++items	item_2013	9E367878	9C4D82C3	item_2013_m
++items	item_2014	CC0F12D7	D61824A2	item_2014_m
++items	item_2015	F9E7AD36	0FE2C681	item_2015_m
++items	item_2016	27C04795	49AD6860	item_2016_m
++items	item_2017	5598E1F4	83780A3F	item_2017_m
++items	item_2018	83717C53	BD42AC1E	item_2018_m
++items	item_2031	C99B7F3C	13AC8B87	item_2031_m
++items	item_2035	80FDE8B8	FAD71303	item_2035_m
++items	item_2045	C4890679	70513944	item_2045_m
++items	item_2046	F261A0D8	AA1BDB23	item_2046_m
++items	item_2047	203A3B37	E3E67D02	item_2047_m
++items	item_2048	4E12D596	1DB11EE1	item_2048_m
++items	item_2049	7BEB6FF5	577BC0C0	item_2049_m
++items	item_2050	22D9205F	C4D6362A	item_2050_m
++items	item_2051	50B1BABE	FEA0D809	item_2051_m
++items	item_2052	7E8A551D	386B79E8	item_2052_m
++items	item_2053	AC62EF7C	72361BC7	item_2053_m
++items	item_2054	DA3B89DB	AC00BDA6	item_2054_m
++items	item_2055	0814243A	E5CB5F85	item_2055_m
++items	item_2056	35ECBE99	1F960164	item_2056_m
++items	item_2057	63C558F8	5960A343	item_2057_m
++items	item_2058	919DF357	932B4522	item_2058_m
++items	item_2059	BF768DB6	CCF5E701	item_2059_m
++items	item_2060	66643E20	3A505C6B	item_2060_m
++items	item_2061	943CD87F	741AFE4A	item_2061_m
++items	item_2062	C21572DE	ADE5A029	item_2062_m
++items	item_2063	EFEE0D3D	E7B04208	item_2063_m
++items	item_2064	1DC6A79C	217AE3E7	item_2064_m
++items	item_2065	4B9F41FB	5B4585C6	item_2065_m
++items	item_2066	7977DC5A	951027A5	item_2066_m
++items	item_2067	A75076B9	CEDAC984	item_2067_m
++items	item_2068	D5291118	08A56B63	item_2068_m
++items	item_2069	0301AB77	42700D42	item_2069_m
++items	item_2070	A9EF5BE1	AFCA82AC	item_2070_m
++items	item_2071	D7C7F640	E995248B	item_2071_m
++items	item_2072	05A0909F	235FC66A	item_2072_m
++items	item_2073	33792AFE	5D2A6849	item_2073_m
++items	item_2074	6151C55D	96F50A28	item_2074_m
++items	item_2075	8F2A5FBC	D0BFAC07	item_2075_m
++items	item_2076	BD02FA1B	0A8A4DE6	item_2076_m
++items	item_2077	EADB947A	4454EFC5	item_2077_m
++items	item_2078	18B42ED9	7E1F91A4	item_2078_m
++items	item_2079	468CC938	B7EA3383	item_2079_m
++items	item_2080	ED7A79A2	2544A8ED	item_2080_m
++items	item_2081	1B531401	5F0F4ACC	item_2081_m
++items	item_2082	492BAE60	98D9ECAB	item_2082_m
++items	item_2083	770448BF	D2A48E8A	item_2083_m
++items	item_2084	A4DCE31E	0C6F3069	item_2084_m
++items	item_2085	D2B57D7D	4639D248	item_2085_m
++items	item_2086	008E17DC	80047427	item_2086_m
++items	item_2087	2E66B23B	B9CF1606	item_2087_m
++items	item_2088	5C3F4C9A	F399B7E5	item_2088_m
++items	item_2089	8A17E6F9	2D6459C4	item_2089_m
++items	item_2090	31059763	9ABECF2E	item_2090_m
++items	item_2091	5EDE31C2	D489710D	item_2091_m
++items	item_2092	8CB6CC21	0E5412EC	item_2092_m
++items	item_2093	BA8F6680	481EB4CB	item_2093_m
++items	item_2094	E86800DF	81E956AA	item_2094_m
++items	item_2095	16409B3E	BBB3F889	item_2095_m
++items	item_2096	4419359D	F57E9A68	item_2096_m
++items	item_2097	71F1CFFC	2F493C47	item_2097_m
++items	item_2098	9FCA6A5B	6913DE26	item_2098_m
++items	item_2099	CDA304BA	A2DE8005	item_2099_m
++items	item_2100	C2CB31B9	32EB0484	item_2100_m
++items	item_2101	F0A3CC18	6CB5A663	item_2101_m
++items	item_2102	1E7C6677	A6804842	item_2102_m
++items	item_2103	4C5500D6	E04AEA21	item_2103_m
++items	item_2104	7A2D9B35	1A158C00	item_2104_m
++items	item_2105	A8063594	53E02DDF	item_2105_m
++items	item_2106	D5DECFF3	8DAACFBE	item_2106_m
++items	item_2107	03B76A52	C775719D	item_2107_m
++items	item_2108	319004B1	0140137C	item_2108_m
++items	item_2112	62078438	1BFA6E83	item_2112_m
++items	item_2113	8FE01E97	55C51062	item_2113_m
++items	item_2114	BDB8B8F6	8F8FB241	item_2114_m
++items	item_2115	EB915355	C95A5420	item_2115_m
++items	item_2116	1969EDB4	0324F5FF	item_2116_m
++items	item_2123	D36B3C58	CB3F36A3	item_2123_m
++items	item_2124	0143D6B7	0509D882	item_2124_m
++items	item_2125	2F1C7116	3ED47A61	item_2125_m
++items	item_2185	59F09C6B	A5C59836	item_2185_m
++items	item_2340	B44AF4FB	7BC2B8C6	item_2340_m
++items	item_2533	DD9CF295	26979360	item_2533_m
++items	item_2534	0B758CF4	6062353F	item_2534_m
++items	item_2535	394E2753	9A2CD71E	item_2535_m
++items	item_2536	6726C1B2	D3F778FD	item_2536_m
++items	item_2546	AAB1DF73	49719F3E	item_2546_m
++items	item_2551	0901F959	9DF69C24	item_2551_m
++items	item_2552	36DA93B8	D7C13E03	item_2552_m
++items	item_2553	64B32E17	118BDFE2	item_2553_m
++items	item_2554	928BC876	4B5681C1	item_2554_m
++items	item_2555	C06462D5	852123A0	item_2555_m
++items	item_2556	EE3CFD34	BEEBC57F	item_2556_m
++items	item_2557	1C159793	F8B6675E	item_2557_m
++items	item_2558	49EE31F2	3281093D	item_2558_m
++items	item_2559	77C6CC51	6C4BAB1C	item_2559_m
++items	item_2560	1EB47CBB	D9A62086	item_2560_m
++items	item_2561	4C8D171A	1370C265	item_2561_m
++items	item_2563	A83E4BD8	87060623	item_2563_m
++items	item_2564	D616E637	C0D0A802	item_2564_m
++items	item_2565	03EF8096	FA9B49E1	item_2565_m
++items	item_2566	31C81AF5	3465EBC0	item_2566_m
++items	item_2567	5FA0B554	6E308D9F	item_2567_m
++items	item_2568	8D794FB3	A7FB2F7E	item_2568_m
++items	item_2569	BB51EA12	E1C5D15D	item_2569_m
++items	item_2570	623F9A7C	4F2046C7	item_2570_m
++items	item_2571	901834DB	88EAE8A6	item_2571_m
++items	item_2572	BDF0CF3A	C2B58A85	item_2572_m
++items	item_2573	EBC96999	FC802C64	item_2573_m
++items	item_2574	19A203F8	364ACE43	item_2574_m
++items	item_2575	477A9E57	70157022	item_2575_m
++items	item_2576	755338B6	A9E01201	item_2576_m
++items	item_2577	A32BD315	E3AAB3E0	item_2577_m
++items	item_2580	6F92000C	0823F457	item_2580_m
++items	item_2581	7595CB6B	095A4736	item_2581_m
++items	item_2582	7B9996CA	0A909A15	item_2582_m
++items	item_2583	819D6229	0BC6ECF4	item_2583_m
++items	item_2584	87A12D88	0CFD3FD3	item_2584_m
++items	item_2585	8DA4F8E7	0E3392B2	item_2585_m
++items	item_2586	93A8C446	0F69E591	item_2586_m
++items	item_2587	99AC8FA5	10A03870	item_2587_m
++items	item_2588	9FB05B04	11D68B4F	item_2588_m
++items	item_2589	A5B42663	130CDE2E	item_2589_m
++items	item_2590	8047CCCD	31784998	item_2590_m
++items	item_2591	864B982C	32AE9C77	item_2591_m
++items	item_2592	8C4F638B	33E4EF56	item_2592_m
++items	item_2593	0A22EF0B	444A3AD6	item_2593_m
++items	item_2594	9856FA49	36519514	item_2594_m
++items	item_2600	7B1B7054	D240C89F	item_2600_m
++items	item_2601	A8F40AB3	0C0B6A7E	item_2601_m
++items	item_2602	D6CCA512	45D60C5D	item_2602_m
++items	item_2603	04A53F71	7FA0AE3C	item_2603_m
++items	item_2618	2D6B610D	160FFDD8	item_2618_m
++items	item_2619	5B43FB6C	4FDA9FB7	item_2619_m
++items	item_2620	0231ABD6	BD351521	item_2620_m
++items	item_2621	300A4635	F6FFB700	item_2621_m
++items	item_2622	5DE2E094	30CA58DF	item_2622_m
++items	item_2623	8BBB7AF3	6A94FABE	item_2623_m
++items	item_2624	B9941552	A45F9C9D	item_2624_m
++items	item_2625	E76CAFB1	DE2A3E7C	item_2625_m
++items	item_2626	15454A10	17F4E05B	item_2626_m
++items	item_2627	431DE46F	51BF823A	item_2627_m
++items	item_2628	70F67ECE	8B8A2419	item_2628_m
++items	item_2629	9ECF192D	C554C5F8	item_2629_m
++items	item_2630	45BCC997	32AF3B62	item_2630_m
++items	item_2631	739563F6	6C79DD41	item_2631_m
++items	item_2632	A16DFE55	A6447F20	item_2632_m
++items	item_2633	CF4698B4	E00F20FF	item_2633_m
++items	item_2634	FD1F3313	19D9C2DE	item_2634_m
++items	item_2660	105E22DA	931DAE25	item_2660_m
++items	item_2661	3E36BD39	CCE85004	item_2661_m
++items	item_2662	6C0F5798	06B2F1E3	item_2662_m
++items	item_2663	99E7F1F7	407D93C2	item_2663_m
++items	item_2664	C7C08C56	7A4835A1	item_2664_m
++items	item_2665	F59926B5	B412D780	item_2665_m
++items	item_2666	2371C114	EDDD795F	item_2666_m
++items	item_2667	514A5B73	27A81B3E	item_2667_m
++items	item_2668	7F22F5D2	6172BD1D	item_2668_m
++items	item_2669	ACFB9031	9B3D5EFC	item_2669_m
++items	item_2670	53E9409B	0897D466	item_2670_m
++items	item_2671	81C1DAFA	42627645	item_2671_m
++items	item_2672	AF9A7559	7C2D1824	item_2672_m
++items	item_2673	DD730FB8	B5F7BA03	item_2673_m
++items	item_2674	0B4BAA17	EFC25BE2	item_2674_m
++items	item_2675	39244476	298CFDC1	item_2675_m
++items	item_2676	66FCDED5	63579FA0	item_2676_m
++items	item_2677	94D57934	9D22417F	item_2677_m
++items	item_2678	C2AE1393	D6ECE35E	item_2678_m
++items	item_2679	F086ADF2	10B7853D	item_2679_m
++items	item_2680	97745E5C	7E11FAA7	item_2680_m
++items	item_2681	C54CF8BB	B7DC9C86	item_2681_m
++items	item_2682	F325931A	F1A73E65	item_2682_m
++items	item_2683	20FE2D79	2B71E044	item_2683_m
++items	item_2684	4ED6C7D8	653C8223	item_2684_m
++items	item_2685	7CAF6237	9F072402	item_2685_m
++items	item_2686	AA87FC96	D8D1C5E1	item_2686_m
++items	item_2687	D86096F5	129C67C0	item_2687_m
++items	item_2688	06393154	4C67099F	item_2688_m
++items	item_2689	3411CBB3	8631AB7E	item_2689_m
++items	item_2690	DAFF7C1D	F38C20E8	item_2690_m
++items	item_2691	08D8167C	2D56C2C7	item_2691_m
++items	item_2692	36B0B0DB	672164A6	item_2692_m
++items	item_2693	64894B3A	A0EC0685	item_2693_m
++items	item_2694	9261E599	DAB6A864	item_2694_m
++items	item_2695	C03A7FF8	14814A43	item_2695_m
++items	item_2696	EE131A57	4E4BEC22	item_2696_m
++items	item_2697	1BEBB4B6	88168E01	item_2697_m
++items	item_2698	49C44F15	C1E12FE0	item_2698_m
++items	item_2699	779CE974	FBABD1BF	item_2699_m
++items	item_2700	6CC51673	8BB8563E	item_2700_m
++items	item_2701	9A9DB0D2	C582F81D	item_2701_m
++items	item_2702	C8764B31	FF4D99FC	item_2702_m
++items	item_2703	F64EE590	39183BDB	item_2703_m
++items	item_2704	24277FEF	72E2DDBA	item_2704_m
++items	item_2705	52001A4E	ACAD7F99	item_2705_m
++items	item_2706	7FD8B4AD	E6782178	item_2706_m
++items	item_2707	ADB14F0C	2042C357	item_2707_m
++items	item_2708	DB89E96B	5A0D6536	item_2708_m
++items	item_2709	096283CA	93D80715	item_2709_m
++items	item_2710	B0503434	01327C7F	item_2710_m
++items	item_2711	DE28CE93	3AFD1E5E	item_2711_m
++items	item_2712	0C0168F2	74C7C03D	item_2712_m
++items	item_2713	39DA0351	AE92621C	item_2713_m
++items	item_2714	67B29DB0	E85D03FB	item_2714_m
++items	item_2715	958B380F	2227A5DA	item_2715_m
++items	item_2716	C363D26E	5BF247B9	item_2716_m
++items	item_2717	F13C6CCD	95BCE998	item_2717_m
++items	item_2718	1F15072C	CF878B77	item_2718_m
++items	item_2719	4CEDA18B	09522D56	item_2719_m
++items	item_2720	F3DB51F5	76ACA2C0	item_2720_m
++items	item_2721	21B3EC54	B077449F	item_2721_m
++items	item_2722	4F8C86B3	EA41E67E	item_2722_m
++items	item_2723	7D652112	240C885D	item_2723_m
++items	item_2724	AB3DBB71	5DD72A3C	item_2724_m
++items	item_2725	D91655D0	97A1CC1B	item_2725_m
++items	item_2726	06EEF02F	D16C6DFA	item_2726_m
++items	item_2727	34C78A8E	0B370FD9	item_2727_m
++items	item_2728	62A024ED	4501B1B8	item_2728_m
++items	item_2729	9078BF4C	7ECC5397	item_2729_m
++items	item_2730	37666FB6	EC26C901	item_2730_m
++items	item_2731	653F0A15	25F16AE0	item_2731_m
++items	item_2732	9317A474	5FBC0CBF	item_2732_m
++items	item_2733	C0F03ED3	9986AE9E	item_2733_m
++items	item_2734	EEC8D932	D351507D	item_2734_m
++items	item_2735	1CA17391	0D1BF25C	item_2735_m
++items	item_2736	4A7A0DF0	46E6943B	item_2736_m
++items	item_2737	7852A84F	80B1361A	item_2737_m
++items	item_2738	A62B42AE	BA7BD7F9	item_2738_m
++items	item_2739	D403DD0D	F44679D8	item_2739_m
++items	item_2740	7AF18D77	61A0EF42	item_2740_m
++items	item_2741	A8CA27D6	9B6B9121	item_2741_m
++items	item_2742	529C9204	9976424F	item_2742_m
++items	item_2780	891E047B	37898846	item_2780_m
++items	item_2781	B6F69EDA	71542A25	item_2781_m
++items	item_2782	E4CF3939	AB1ECC04	item_2782_m
++items	item_2783	12A7D398	E4E96DE3	item_2783_m
++items	item_2784	40806DF7	1EB40FC2	item_2784_m
++items	item_2870	373C8CD9	7B86EFA4	item_2870_m
++items	item_2872	92EDC197	EF1C3362	item_2872_m
++items	item_2892	1A03FD19	DA107FE4	item_2892_m
++items	item_2893	47DC9778	13DB21C3	item_2893_m
++items	item_2894	75B531D7	4DA5C3A2	item_2894_m
++items	item_2895	A38DCC36	87706581	item_2895_m
++items	item_2896	D1666695	C13B0760	item_2896_m
++items	item_2897	FF3F00F4	FB05A93F	item_2897_m
++items	item_2898	2D179B53	34D04B1E	item_2898_m
++items	item_2899	5AF035B2	6E9AECFD	item_2899_m
++items	item_2925	BC69A20E	0A90E759	item_2925_m
++items	item_2926	EA423C6D	445B8938	item_2926_m
++items	item_2929	73CC0B8A	F1BB6ED5	item_2929_m
++items	item_2930	1AB9BBF4	5F15E43F	item_2930_m
++items	item_2931	48925653	98E0861E	item_2931_m
++items	item_2933	A4438B11	0C75C9DC	item_2933_m
++items	item_2934	D21C2570	46406BBB	item_2934_m
++items	item_2935	FFF4BFCF	800B0D9A	item_2935_m
++items	item_2944	15A74331	BBBA91FC	item_2944_m
++items	item_3100	C254CBBA	CD8BC705	item_3100_m
++items	item_3381	EFD9A05F	2616B62A	item_3381_m
++items	item_3476	B4B1FE49	A0CE9914	item_3476
++items	item_3500	88FB6436	B369FD81	item_3500_m
++items	item_3501	B6D3FE95	ED349F60	item_3501_m
++items	item_3502	E4AC98F4	26FF413F	item_3502_m
++items	item_3503	12853353	60C9E31E	item_3503_m
++items	item_3590	E8DF6FFF	D4B555CA	item_3590_m
++items	item_3592	B4B1FE49	A0CE9914	item_3592
++items	item_3593	B4B1FE49	A0CE9914	item_3593
++items	item_3594	B4B1FE49	A0CE9914	item_3594
++items	item_3595	B4B1FE49	A0CE9914	item_3595
++items	item_3596	B4B1FE49	A0CE9914	item_3596
++items	item_3597	B4B1FE49	A0CE9914	item_3597
++items	item_3598	B4B1FE49	A0CE9914	item_3598
++items	item_3599	B4B1FE49	A0CE9914	item_3599
++items	item_3674	0AD54418	8A631E63	item_3674_m
++items	item_3675	38ADDE77	C42DC042	item_3675_m
++items	item_3676	668678D6	FDF86221	item_3676_m
++items	item_3677	945F1335	37C30400	item_3677_m
++items	item_3678	C237AD94	718DA5DF	item_3678_m
++items	item_3679	F01047F3	AB5847BE	item_3679_m
++items	item_3680	96FDF85D	18B2BD28	item_3680_m
++items	item_3681	C4D692BC	527D5F07	item_3681_m
++items	item_3682	F2AF2D1B	8C4800E6	item_3682_m
++items	item_3683	2087C77A	C612A2C5	item_3683_m
++items	item_3684	4E6061D9	FFDD44A4	item_3684_m
++items	item_3685	7C38FC38	39A7E683	item_3685_m
++items	item_3686	AA119697	73728862	item_3686_m
++items	item_3687	D7EA30F6	AD3D2A41	item_3687_m
++items	item_3688	05C2CB55	E707CC20	item_3688_m
++items	item_3689	339B65B4	20D26DFF	item_3689_m
++items	item_3690	DA89161E	8E2CE369	item_3690_m
++items	item_3691	0861B07D	C7F78548	item_3691_m
++items	item_3692	363A4ADC	01C22727	item_3692_m
++items	item_3693	6412E53B	3B8CC906	item_3693_m
++items	item_3694	91EB7F9A	75576AE5	item_3694_m
++items	item_3696	ED9CB458	E8ECAEA3	item_3696_m
++items	item_3698	494DE916	5C81F261	item_3698_m
++items	item_3699	77268375	964C9440	item_3699_m
++items	item_3700	6C4EB074	265918BF	item_3700_m
++items	item_3741	A853C1D7	360C53A2	item_3741_m
++items	item_3742	D62C5C36	6FD6F581	item_3742_m
++items	item_3743	0404F695	A9A19760	item_3743_m
++items	item_3744	31DD90F4	E36C393F	item_3744_m
++items	item_3745	5FB62B53	1D36DB1E	item_3745_m
++items	item_3746	8D8EC5B2	57017CFD	item_3746_m
++items	item_3748	9C475F3F	2DF6E50A	item_3748_m
++items	item_3749	A24B2A9E	2F2D37E9	item_3749_m
++items	item_3750	7CDED108	4D98A353	item_3750_m
++items	item_3751	EBDEDF98	AB8679E3	item_3751_m
++items	item_3900	4FA1FCB2	994833FD	item_3900_m
++items	item_3904	0704662E	8072BB79	item_3904_m
++items	item_3905	34DD008D	BA3D5D58	item_3905_m
++items	item_3906	62B59AEC	F407FF37	item_3906_m
++items	item_3907	908E354B	2DD2A116	item_3907_m
++items	item_3908	BE66CFAA	679D42F5	item_3908_m
++items	item_3909	EC3F6A09	A167E4D4	item_3909_m
++items	item_3910	932D1A73	0EC25A3E	item_3910_m
++items	item_3911	C105B4D2	488CFC1D	item_3911_m
++items	item_3912	EEDE4F31	82579DFC	item_3912_m
++items	item_3913	1CB6E990	BC223FDB	item_3913_m
++items	item_3914	4A8F83EF	F5ECE1BA	item_3914_m
++items	item_3915	78681E4E	2FB78399	item_3915_m
++items	item_3916	A640B8AD	69822578	item_3916_m
++items	item_3917	D419530C	A34CC757	item_3917_m
++items	item_3918	01F1ED6B	DD176936	item_3918_m
++items	item_3919	2FCA87CA	16E20B15	item_3919_m
++items	item_3920	D6B83834	843C807F	item_3920_m
++items	item_3921	0490D293	BE07225E	item_3921_m
++items	item_3922	32696CF2	F7D1C43D	item_3922_m
++items	item_3923	60420751	319C661C	item_3923_m
++items	item_3924	8E1AA1B0	6B6707FB	item_3924_m
++items	item_3925	BBF33C0F	A531A9DA	item_3925_m
++items	item_3926	E9CBD66E	DEFC4BB9	item_3926_m
++items	item_3927	17A470CD	18C6ED98	item_3927_m
++items	item_3928	457D0B2C	52918F77	item_3928_m
++items	item_3929	7355A58B	8C5C3156	item_3929_m
++items	item_3930	1A4355F5	F9B6A6C0	item_3930_m
++items	item_3931	481BF054	3381489F	item_3931_m
++items	item_3932	75F48AB3	6D4BEA7E	item_3932_m
++items	item_3933	A3CD2512	A7168C5D	item_3933_m
++items	item_3934	D1A5BF71	E0E12E3C	item_3934_m
++items	item_3935	FF7E59D0	1AABD01B	item_3935_m
++items	item_3936	2D56F42F	547671FA	item_3936_m
++items	item_3937	5B2F8E8E	8E4113D9	item_3937_m
++items	item_3938	890828ED	C80BB5B8	item_3938_m
++items	item_3940	5DCE73B6	6F30CD01	item_3940_m
++items	item_3941	8BA70E15	A8FB6EE0	item_3941_m
++items	item_3942	B97FA874	E2C610BF	item_3942_m
++items	item_3943	E75842D3	1C90B29E	item_3943_m
++items	item_3944	1530DD32	565B547D	item_3944_m
++items	item_3945	43097791	9025F65C	item_3945_m
++items	item_3946	70E211F0	C9F0983B	item_3946_m
++items	item_3947	9EBAAC4F	03BB3A1A	item_3947_m
++items	item_3948	CC9346AE	3D85DBF9	item_3948_m
++items	item_3949	FA6BE10D	77507DD8	item_3949_m
++items	item_3960	E4E4AF38	5A251983	item_3960_m
++items	item_3961	12BD4997	93EFBB62	item_3961_m
++items	item_3962	4095E3F6	CDBA5D41	item_3962_m
++items	item_3963	6E6E7E55	0784FF20	item_3963_m
++items	item_3964	9C4718B4	414FA0FF	item_3964_m
++items	item_3965	CA1FB313	7B1A42DE	item_3965_m
++items	item_3966	F7F84D72	B4E4E4BD	item_3966_m
++items	item_3967	25D0E7D1	EEAF869C	item_3967_m
++items	item_3976	3B836B33	2A5F0AFE	item_3976_m
++items	item_3984	235D5436	2C43ED81	item_3984_m
++items	item_3985	5135EE95	660E8F60	item_3985_m
++items	item_3994	66E871F7	A1BE13C2	item_3994_m
++items	item_3997	F0724114	4F1DF95F	item_3997_m
++items	item_3998	1E4ADB73	88E89B3E	item_3998_m
++items	item_3999	4C2375D2	C2B33D1D	item_3999_m
++items	item_4001	FE0D59FB	E87F9DC6	item_4001_m
++villagers	villager_0001	AC036AF3	4C54EABE	icon_poke_0000_00_00_00
++villagers	villager_0002	D19773F4	D98F9C3F	icon_poke_0001_00_00_00
++villagers	villager_0003	F72B7CF5	66CA4DC0	icon_poke_0002_00_00_00
++villagers	villager_0004	1CBF85F6	F404FF41	icon_poke_0003_00_00_00
++villagers	villager_0005	42538EF7	813FB0C2	icon_poke_0004_00_00_00
++villagers	villager_0006	67E797F8	0E7A6243	icon_poke_0005_00_00_00
++villagers	villager_0007	8D7BA0F9	9BB513C4	icon_poke_0006_00_00_00
++villagers	villager_0008	B30FA9FA	28EFC545	icon_poke_0007_00_00_00
++villagers	villager_0009	D8A3B2FB	B62A76C6	icon_poke_0008_00_00_00
++villagers	villager_0010	FE37BBFC	43652847	icon_poke_0009_00_00_00
++villagers	villager_0011	8EB1F3D8	C98DAE23	icon_poke_0016_00_00_00
++villagers	villager_0012	B445FCD9	56C85FA4	icon_poke_0017_00_00_00
++villagers	villager_0013	D9DA05DA	E4031125	icon_poke_0018_00_00_00
++villagers	villager_0014	1F2C2BB4	4FB633FF	icon_poke_0023_00_00_00
++villagers	villager_0015	44C034B5	DCF0E580	icon_poke_0024_00_00_00
++villagers	villager_0016	4CDF592F	69F956FA	icon_poke_0025_00_00_00_nh
++villagers	villager_0017	6A543DB6	6A2B9701	icon_poke_0025_00_00_00
++villagers	villager_0018	4CDF592F	69F956FA	icon_poke_0025_00_00_00_nh
++villagers	villager_0019	8FE846B7	F7664882	icon_poke_0026_00_00_00
++villagers	villager_0020	6B8A9095	98043160	icon_poke_0035_00_00_00
++villagers	villager_0021	911E9996	253EE2E1	icon_poke_0036_00_00_00
++villagers	villager_0022	B6B2A297	B2799462	icon_poke_0037_00_00_00
++villagers	villager_0023	DC46AB98	3FB445E3	icon_poke_0038_00_00_00
++villagers	villager_0024	01DAB499	CCEEF764	icon_poke_0039_00_00_00
++villagers	villager_0025	B0DCB66F	03B7543A	icon_poke_0040_00_00_00
++villagers	villager_0026	D670BF70	90F205BB	icon_poke_0041_00_00_00
++villagers	villager_0027	FC04C871	1E2CB73C	icon_poke_0042_00_00_00
++villagers	villager_0028	2198D172	AB6768BD	icon_poke_0043_00_00_00
++villagers	villager_0029	472CDA73	38A21A3E	icon_poke_0044_00_00_00
++villagers	villager_0030	6CC0E374	C5DCCBBF	icon_poke_0045_00_00_00
++villagers	villager_0031	9254EC75	53177D40	icon_poke_0046_00_00_00
++villagers	villager_0032	B7E8F576	E0522EC1	icon_poke_0047_00_00_00
++villagers	villager_0033	DD7CFE77	6D8CE042	icon_poke_0048_00_00_00
++villagers	villager_0034	03110778	FAC791C3	icon_poke_0049_00_00_00
++villagers	villager_0035	B213094E	318FEE99	icon_poke_0050_00_00_00
++villagers	villager_0036	D7A7124F	BECAA01A	icon_poke_0051_00_00_00
++villagers	villager_0037	FD3B1B50	4C05519B	icon_poke_0052_00_00_00
++villagers	villager_0038	22CF2451	D940031C	icon_poke_0053_00_00_00
++villagers	villager_0039	48632D52	667AB49D	icon_poke_0054_00_00_00
++villagers	villager_0040	6DF73653	F3B5661E	icon_poke_0055_00_00_00
++villagers	villager_0041	DEB35156	9B657AA1	icon_poke_0058_00_00_00
++villagers	villager_0042	04475A57	28A02C22	icon_poke_0059_00_00_00
++villagers	villager_0043	B3495C2D	5F6888F8	icon_poke_0060_00_00_00
++villagers	villager_0044	D8DD652E	ECA33A79	icon_poke_0061_00_00_00
++villagers	villager_0045	FE716E2F	79DDEBFA	icon_poke_0062_00_00_00
++villagers	villager_0046	24057730	07189D7B	icon_poke_0063_00_00_00
++villagers	villager_0047	49998031	94534EFC	icon_poke_0064_00_00_00
++villagers	villager_0048	6F2D8932	218E007D	icon_poke_0065_00_00_00
++villagers	villager_0049	94C19233	AEC8B1FE	icon_poke_0066_00_00_00
++villagers	villager_0050	BA559B34	3C03637F	icon_poke_0067_00_00_00
++villagers	villager_0051	DFE9A435	C93E1500	icon_poke_0068_00_00_00
++villagers	villager_0052	057DAD36	5678C681	icon_poke_0069_00_00_00
++villagers	villager_0053	B47FAF0C	8D412357	icon_poke_0070_00_00_00
++villagers	villager_0054	DA13B80D	1A7BD4D8	icon_poke_0071_00_00_00
++villagers	villager_0055	4ACFD310	C22BE95B	icon_poke_0074_00_00_00
++villagers	villager_0056	7063DC11	4F669ADC	icon_poke_0075_00_00_00
++villagers	villager_0057	95F7E512	DCA14C5D	icon_poke_0076_00_00_00
++villagers	villager_0058	06B40015	845160E0	icon_poke_0079_00_00_00
++villagers	villager_0059	B5B601EB	BB19BDB6	icon_poke_0080_00_00_00
++villagers	villager_0060	DB4A0AEC	48546F37	icon_poke_0081_00_00_00
++villagers	villager_0061	00DE13ED	D58F20B8	icon_poke_0082_00_00_00
++villagers	villager_0062	26721CEE	62C9D239	icon_poke_0083_00_00_00
++villagers	villager_0063	E25649F3	24EF49BE	icon_poke_0088_00_00_00
++villagers	villager_0064	07EA52F4	B229FB3F	icon_poke_0089_00_00_00
++villagers	villager_0065	021466CC	0367BB17	icon_poke_0092_00_00_00
++villagers	villager_0066	27A86FCD	90A26C98	icon_poke_0093_00_00_00
++villagers	villager_0067	4D3C78CE	1DDD1E19	icon_poke_0094_00_00_00
++villagers	villager_0068	72D081CF	AB17CF9A	icon_poke_0095_00_00_00
++villagers	villager_0069	D557C034	8FE0087F	icon_poke_0100_00_00_00
++villagers	villager_0070	FAEBC935	1D1ABA00	icon_poke_0101_00_00_00
++villagers	villager_0071	207FD236	AA556B81	icon_poke_0102_00_00_00
++villagers	villager_0072	4613DB37	37901D02	icon_poke_0103_00_00_00
++villagers	villager_0073	6BA7E438	C4CACE83	icon_poke_0104_00_00_00
++villagers	villager_0074	913BED39	52058004	icon_poke_0105_00_00_00
++villagers	villager_0075	B6CFF63A	DF403185	icon_poke_0106_00_00_00
++villagers	villager_0076	DC63FF3B	6C7AE306	icon_poke_0107_00_00_00
++villagers	villager_0077	278C113D	86F04608	icon_poke_0109_00_00_00
++villagers	villager_0078	D68E1313	BDB8A2DE	icon_poke_0110_00_00_00
++villagers	villager_0079	474A2E16	6568B761	icon_poke_0113_00_00_00
++villagers	villager_0080	6CDE3717	F2A368E2	icon_poke_0114_00_00_00
++villagers	villager_0081	22EC77F4	0606A03F	icon_poke_0122_00_00_00
++villagers	villager_0082	488080F5	934151C0	icon_poke_0123_00_00_00
++villagers	villager_0083	93A892F7	ADB6B4C2	icon_poke_0125_00_00_00
++villagers	villager_0084	B93C9BF8	3AF16643	icon_poke_0126_00_00_00
++villagers	villager_0085	DED0A4F9	C82C17C4	icon_poke_0127_00_00_00
++villagers	villager_0086	29F8B6FB	E2A17AC6	icon_poke_0129_00_00_00
++villagers	villager_0087	D8FAB8D1	1969D79C	icon_poke_0130_00_00_00
++villagers	villager_0088	FE8EC1D2	A6A4891D	icon_poke_0131_00_00_00
++villagers	villager_0089	2422CAD3	33DF3A9E	icon_poke_0132_00_00_00
++villagers	villager_0090	49B6D3D4	C119EC1F	icon_poke_0133_00_00_00
++villagers	villager_0091	6F4ADCD5	4E549DA0	icon_poke_0134_00_00_00
++villagers	villager_0092	94DEE5D6	DB8F4F21	icon_poke_0135_00_00_00
++villagers	villager_0093	BA72EED7	68CA00A2	icon_poke_0136_00_00_00
++villagers	villager_0094	E006F7D8	F604B223	icon_poke_0137_00_00_00
++villagers	villager_0095	25591DB2	61B7D4FD	icon_poke_0142_00_00_00
++villagers	villager_0096	2D78422C	EEC04677	icon_poke_0143_00_00_00_nh
++villagers	villager_0097	4AED26B3	EEF2867E	icon_poke_0143_00_00_00
++villagers	villager_0098	2D78422C	EEC04677	icon_poke_0143_00_00_00_nh
++villagers	villager_0099	70812FB4	7C2D37FF	icon_poke_0144_00_00_00
++villagers	villager_0100	961538B5	0967E980	icon_poke_0145_00_00_00
++villagers	villager_0101	BBA941B6	96A29B01	icon_poke_0146_00_00_00
++villagers	villager_0102	E13D4AB7	23DD4C82	icon_poke_0147_00_00_00
++villagers	villager_0103	06D153B8	B117FE03	icon_poke_0148_00_00_00
++villagers	villager_0104	2C655CB9	3E52AF84	icon_poke_0149_00_00_00
++villagers	villager_0105	DB675E8F	751B0C5A	icon_poke_0150_00_00_00
++villagers	villager_0106	00FB6790	0255BDDB	icon_poke_0151_00_00_00
++villagers	villager_0107	974B8B94	374083DF	icon_poke_0155_00_00_00
++villagers	villager_0108	BCDF9495	C47B3560	icon_poke_0156_00_00_00
++villagers	villager_0109	E2739D96	51B5E6E1	icon_poke_0157_00_00_00
++villagers	villager_0110	4D59CC71	4AA3BB3C	icon_poke_0163_00_00_00
++villagers	villager_0111	72EDD572	D7DE6CBD	icon_poke_0164_00_00_00
++villagers	villager_0112	E3A9F075	7F8E8140	icon_poke_0167_00_00_00
++villagers	villager_0113	093DF976	0CC932C1	icon_poke_0168_00_00_00
++villagers	villager_0114	2ED20277	9A03E442	icon_poke_0169_00_00_00
++villagers	villager_0115	28FC164F	EB41A41A	icon_poke_0172_00_00_00
++villagers	villager_0116	4E901F50	787C559B	icon_poke_0173_00_00_00
++villagers	villager_0117	74242851	05B7071C	icon_poke_0174_00_00_00
++villagers	villager_0118	30085556	C7DC7EA1	icon_poke_0179_00_00_00
++villagers	villager_0119	DF0A572C	FEA4DB77	icon_poke_0180_00_00_00
++villagers	villager_0120	049E602D	8BDF8CF8	icon_poke_0181_00_00_00
++villagers	villager_0121	2A32692E	191A3E79	icon_poke_0182_00_00_00
++villagers	villager_0122	4FC6722F	A654EFFA	icon_poke_0183_00_00_00
++villagers	villager_0123	755A7B30	338FA17B	icon_poke_0184_00_00_00
++villagers	villager_0124	9AEE8431	C0CA52FC	icon_poke_0185_00_00_00
++villagers	villager_0125	C0828D32	4E05047D	icon_poke_0186_00_00_00
++villagers	villager_0126	E6169633	DB3FB5FE	icon_poke_0187_00_00_00
++villagers	villager_0127	0BAA9F34	687A677F	icon_poke_0188_00_00_00
++villagers	villager_0128	313EA835	F5B51900	icon_poke_0189_00_00_00
++villagers	villager_0129	4F58806B	32BF7C36	icon_poke_0194_00_51_00
++villagers	villager_0130	C1B8E011	7BDD9EDC	icon_poke_0196_00_00_00
++villagers	villager_0131	E74CE912	0918505D	icon_poke_0197_00_00_00
++villagers	villager_0132	0CE0F213	965301DE	icon_poke_0198_00_00_00
++villagers	villager_0133	3274FB14	238DB35F	icon_poke_0199_00_00_00
++villagers	villager_0134	FEAC1575	D36B2640	icon_poke_0200_00_00_00
++villagers	villager_0135	6F683078	7B1B3AC3	icon_poke_0203_00_00_00
++villagers	villager_0136	2B4C5D7D	3D40B248	icon_poke_0208_00_00_00
++villagers	villager_0137	4B0A7A56	1BB923A1	icon_poke_0212_00_00_00
++villagers	villager_0138	96328C58	362E86A3	icon_poke_0214_00_00_00
++villagers	villager_0139	730B2915	04A509E0	icon_poke_0233_00_00_00
++villagers	villager_0140	A0BE5690	1EE82CDB	icon_poke_0235_00_00_00_nh
++villagers	villager_0141	E3C74418	AC551E63	icon_poke_0236_00_00_00
++villagers	villager_0142	095B4D19	398FCFE4	icon_poke_0237_00_00_00
++villagers	villager_0143	54835F1B	540532E6	icon_poke_0239_00_00_00
++villagers	villager_0144	038560F1	8ACD8FBC	icon_poke_0240_00_00_00
++villagers	villager_0145	4EAD72F3	A542F2BE	icon_poke_0242_00_00_00
++villagers	villager_0146	74417BF4	327DA43F	icon_poke_0243_00_00_00
++villagers	villager_0147	99D584F5	BFB855C0	icon_poke_0244_00_00_00
++villagers	villager_0148	BF698DF6	4CF30741	icon_poke_0245_00_00_00
++villagers	villager_0149	E4FD96F7	DA2DB8C2	icon_poke_0246_00_00_00
++villagers	villager_0150	0A919FF8	67686A43	icon_poke_0247_00_00_00
++villagers	villager_0151	3025A8F9	F4A31BC4	icon_poke_0248_00_00_00
++villagers	villager_0152	55B9B1FA	81DDCD45	icon_poke_0249_00_00_00
++villagers	villager_0153	04BBB3D0	B8A62A1B	icon_poke_0250_00_00_00
++villagers	villager_0154	C09FE0D5	7ACBA1A0	icon_poke_0255_00_00_00
++villagers	villager_0155	E633E9D6	08065321	icon_poke_0256_00_00_00
++villagers	villager_0156	0BC7F2D7	954104A2	icon_poke_0257_00_00_00
++villagers	villager_0157	0728598E	14575ED9	icon_poke_0270_00_00_00
++villagers	villager_0158	2CBC628F	A192105A	icon_poke_0271_00_00_00
++villagers	villager_0159	52506B90	2ECCC1DB	icon_poke_0272_00_00_00
++villagers	villager_0160	33C8A196	7E2CEAE1	icon_poke_0278_00_00_00
++villagers	villager_0161	595CAA97	0B679C62	icon_poke_0279_00_00_00
++villagers	villager_0162	085EAC6D	422FF938	icon_poke_0280_00_00_00
++villagers	villager_0163	2DF2B56E	CF6AAAB9	icon_poke_0281_00_00_00
++villagers	villager_0164	5386BE6F	5CA55C3A	icon_poke_0282_00_00_00
++villagers	villager_0165	EB0D3552	BF68BC9D	icon_poke_0296_00_00_00
++villagers	villager_0166	10A13E53	4CA36E1E	icon_poke_0297_00_00_00
++villagers	villager_0167	36354754	D9DE1F9F	icon_poke_0298_00_00_00
++villagers	villager_0168	73287CB8	316BA703	icon_poke_0302_00_00_00
++villagers	villager_0169	98BC85B9	BEA65884	icon_poke_0303_00_00_00
++villagers	villager_0170	4ECAC696	D2098FE1	icon_poke_0311_00_00_00
++villagers	villager_0171	745ECF97	5F444162	icon_poke_0312_00_00_00
++villagers	villager_0172	99F2D898	EC7EF2E3	icon_poke_0313_00_00_00
++villagers	villager_0173	BF86E199	79B9A464	icon_poke_0314_00_00_00
++villagers	villager_0174	0AAEF39B	942F0766	icon_poke_0316_00_00_00
++villagers	villager_0175	3042FC9C	2169B8E7	icon_poke_0317_00_00_00
++villagers	villager_0176	C0BD3478	A7923EC3	icon_poke_0324_00_00_00
++villagers	villager_0177	570D587C	DC7D04C7	icon_poke_0328_00_00_00
++villagers	villager_0178	7CA1617D	69B7B648	icon_poke_0329_00_00_00
++villagers	villager_0179	2BA36353	A080131E	icon_poke_0330_00_00_00
++villagers	villager_0180	51376C54	2DBAC49F	icon_poke_0331_00_00_00
++villagers	villager_0181	76CB7555	BAF57620	icon_poke_0332_00_00_00
++villagers	villager_0182	9C5F7E56	483027A1	icon_poke_0333_00_00_00
++villagers	villager_0183	C1F38757	D56AD922	icon_poke_0334_00_00_00
++villagers	villager_0184	E9F43616	BE56BF61	icon_poke_0355_00_00_00
++villagers	villager_0185	0F883F17	4B9170E2	icon_poke_0356_00_00_00
++villagers	villager_0186	80445A1A	F3418565	icon_poke_0359_00_00_00
++villagers	villager_0187	C6CCD2D3	8CCD429E	icon_poke_0374_00_00_00
++villagers	villager_0188	EC60DBD4	1A07F41F	icon_poke_0375_00_00_00
++villagers	villager_0189	11F4E4D5	A742A5A0	icon_poke_0376_00_00_00
++villagers	villager_0190	7CDB13B0	A03079FB	icon_poke_0382_00_00_00
++villagers	villager_0191	A3A56F90	5B43C5DB	icon_poke_0393_00_00_00
++villagers	villager_0192	C9397891	E87E775C	icon_poke_0394_00_00_00
++villagers	villager_0193	EECD8192	75B928DD	icon_poke_0395_00_00_00
++villagers	villager_0194	76E8C8F8	E7BC1343	icon_poke_0401_00_00_00
++villagers	villager_0195	9C7CD1F9	74F6C4C4	icon_poke_0402_00_00_00
++villagers	villager_0196	7DF507FF	C456EDCA	icon_poke_0408_00_00_00
++villagers	villager_0197	A3891100	51919F4B	icon_poke_0409_00_00_00
++villagers	villager_0198	528B12D6	8859FC21	icon_poke_0410_00_00_00
++villagers	villager_0199	781F1BD7	1594ADA2	icon_poke_0411_00_00_00
++villagers	villager_0200	0E6F3FDB	4A7F73A6	icon_poke_0415_00_00_00
++villagers	villager_0201	340348DC	D7BA2527	icon_poke_0416_00_00_00
++villagers	villager_0202	B5A30FD7	FB32A1A2	icon_poke_0422_11_00_00
++villagers	villager_0203	BBA6DB36	FC68F481	icon_poke_0422_12_00_00
++villagers	villager_0204	DB3718D8	886D5323	icon_poke_0423_11_00_00
++villagers	villager_0205	E13AE437	89A3A602	icon_poke_0423_12_00_00
++villagers	villager_0206	0FA592BA	78580E05	icon_poke_0425_00_00_00
++villagers	villager_0207	35399BBB	0592BF86	icon_poke_0426_00_00_00
++villagers	villager_0208	A5F5B6BE	AD42D409	icon_poke_0429_00_00_00
++villagers	villager_0209	54F7B894	E40B30DF	icon_poke_0430_00_00_00
++villagers	villager_0210	8198009C	4DE0BCE7	icon_poke_0438_00_00_00
++villagers	villager_0211	A72C099D	DB1B6E68	icon_poke_0439_00_00_00
++villagers	villager_0212	562E0B73	11E3CB3E	icon_poke_0440_00_00_00
++villagers	villager_0213	7BC21474	9F1E7CBF	icon_poke_0441_00_00_00
++villagers	villager_0214	37A64179	6143F444	icon_poke_0446_00_00_00
++villagers	villager_0215	5D3A4A7A	EE7EA5C5	icon_poke_0447_00_00_00
++villagers	villager_0216	82CE537B	7BB95746	icon_poke_0448_00_00_00
++villagers	villager_0217	A3C2C333	880A62FE	icon_poke_0462_00_00_00
++villagers	villager_0218	F709F9AF	2F88377A	icon_poke_0465_00_00_00_nh
++villagers	villager_0219	147EDE36	2FBA7781	icon_poke_0465_00_00_00
++villagers	villager_0220	F709F9AF	2F88377A	icon_poke_0465_00_00_00_nh
++villagers	villager_0221	3A12E737	BCF52902	icon_poke_0466_00_00_00
++villagers	villager_0222	5FA6F038	4A2FDA83	icon_poke_0467_00_00_00
++villagers	villager_0223	59D10410	9B6D9A5B	icon_poke_0470_00_00_00
++villagers	villager_0224	7F650D11	28A84BDC	icon_poke_0471_00_00_00
++villagers	villager_0225	F0212814	D058605F	icon_poke_0474_00_00_00
++villagers	villager_0226	15B53115	5D9311E0	icon_poke_0475_00_00_00
++villagers	villager_0227	60DD4317	780874E2	icon_poke_0477_00_00_00
++villagers	villager_0228	A54A08B2	BCD63FFD	icon_poke_0479_11_00_00_nh
++villagers	villager_0229	1821D6D3	B944469E	icon_poke_0495_00_00_00
++villagers	villager_0230	3DB5DFD4	467EF81F	icon_poke_0496_00_00_00
++villagers	villager_0231	6349E8D5	D3B9A9A0	icon_poke_0497_00_00_00
++villagers	villager_0232	CF4A0BFF	F0CDF1CA	icon_poke_0529_00_00_00
++villagers	villager_0233	7E4C0DD5	27964EA0	icon_poke_0530_00_00_00
++villagers	villager_0234	A3E016D6	B4D10021	icon_poke_0531_00_00_00
++villagers	villager_0235	C9741FD7	420BB1A2	icon_poke_0532_00_00_00
++villagers	villager_0236	EF0828D8	CF466323	icon_poke_0533_00_00_00
++villagers	villager_0237	149C31D9	5C8114A4	icon_poke_0534_00_00_00
++villagers	villager_0238	AE8F4E7A	1AF5A9C5	icon_poke_0568_00_00_00
++villagers	villager_0239	D423577B	A8305B46	icon_poke_0569_00_00_00
++villagers	villager_0240	83255951	DEF8B81C	icon_poke_0570_00_00_00
++villagers	villager_0241	A8B96252	6C33699D	icon_poke_0571_00_00_00
++villagers	villager_0242	CE4D6B53	F96E1B1E	icon_poke_0572_00_00_00
++villagers	villager_0243	F3E17454	86A8CC9F	icon_poke_0573_00_00_00
++villagers	villager_0244	AB09A980	BE3277CB	icon_poke_0607_00_00_00
++villagers	villager_0245	D09DB281	4B6D294C	icon_poke_0608_00_00_00
++villagers	villager_0246	F631BB82	D8A7DACD	icon_poke_0609_00_00_00
++villagers	villager_0247	A533BD58	0F7037A3	icon_poke_0610_00_00_00
++villagers	villager_0248	CAC7C659	9CAAE924	icon_poke_0611_00_00_00
++villagers	villager_0249	F05BCF5A	29E59AA5	icon_poke_0612_00_00_00
++villagers	villager_0250	8918991C	BA819567	icon_poke_0636_00_00_00
++villagers	villager_0251	AEACA21D	47BC46E8	icon_poke_0637_00_00_00
++villagers	villager_0252	B000489F	A25B7E6A	icon_poke_0716_00_00_00
++villagers	villager_0253	407A807B	28840446	icon_poke_0723_00_00_00
++villagers	villager_0254	660E897C	B5BEB5C7	icon_poke_0724_00_00_00
++villagers	villager_0255	A25C2A9D	6D840F68	icon_poke_0725_11_00_00
++villagers	villager_0256	D800F75E	8B4764A9	icon_poke_0737_00_00_00
++villagers	villager_0257	FD95005F	1882162A	icon_poke_0738_00_00_00
++villagers	villager_0258	23290960	A5BCC7AB	icon_poke_0739_00_00_00
++villagers	villager_0259	D22B0B36	DC852481	icon_poke_0740_00_00_00
++villagers	villager_0260	F7BF1437	69BFD602	icon_poke_0741_00_00_00
++villagers	villager_0261	1FBFC2F6	52ABBC41	icon_poke_0762_00_00_00
++villagers	villager_0262	4553CBF7	DFE66DC2	icon_poke_0763_00_00_00
++villagers	villager_0263	6AE7D4F8	6D211F43	icon_poke_0764_00_00_00
++villagers	villager_0264	907BDDF9	FA5BD0C4	icon_poke_0765_00_00_00
++villagers	villager_0265	DBA3EFFB	14D133C6	icon_poke_0767_00_00_00
++villagers	villager_0266	468A1ED6	0DBF0821	icon_poke_0773_00_00_00
++villagers	villager_0267	60CA5103	B82158CE	icon_poke_0819_11_00_00
++villagers	villager_0268	DBC1439E	4197D0E9	icon_poke_0836_00_00_00
++villagers	villager_0269	01554C9F	CED2826A	icon_poke_0837_00_00_00
++villagers	villager_0270	26E955A0	5C0D33EB	icon_poke_0838_00_00_00
++villagers	villager_0271	21136978	AD4AF3C3	icon_poke_0841_00_00_00
++villagers	villager_0272	46A77279	3A85A544	icon_poke_0842_00_00_00
++villagers	villager_0273	6C3B7B7A	C7C056C5	icon_poke_0843_00_00_00
++villagers	villager_0274	722EBB45	A3493410	icon_poke_0909_00_00_00
++villagers	villager_0275	03BBD894	D9DF50DF	icon_poke_0910_00_00_00_nh
++villagers	villager_0276	283CFC22	B6AC6B6D	icon_poke_0917_00_00_00
++villagers	villager_0277	4DD10523	43E71CEE	icon_poke_0918_00_00_00
++villagers	villager_0278	73650E24	D121CE6F	icon_poke_0919_00_00_00
++villagers	villager_0279	22670FFA	07EA2B45	icon_poke_0920_00_00_00
++villagers	villager_0280	47FB18FB	9524DCC6	icon_poke_0921_00_00_00
++villagers	villager_0281	8448BA1C	4CEA3667	icon_poke_0922_11_00_00
++villagers	villager_0282	8A4C857B	4E208946	icon_poke_0922_12_00_00
++villagers	villager_0283	94597DDC	DD72DA27	icon_poke_0933_00_00_00
++villagers	villager_0284	B9ED86DD	6AAD8BA8	icon_poke_0934_00_00_00
++villagers	villager_0285	DF818FDE	F7E83D29	icon_poke_0935_00_00_00
++villagers	villager_0286	BC5A2C9B	C65EC066	icon_poke_0954_00_00_00
++villagers	villager_0287	E1EE359C	539971E7	icon_poke_0955_00_00_00
++villagers	villager_0288	07823E9D	E0D42368	icon_poke_0956_00_00_00
++villagers	villager_0289	09EEE45B	3C855826	icon_poke_0976_00_00_00
++villagers	villager_0290	2F82ED5C	C9C009A7	icon_poke_0977_00_00_00
++villagers	villager_0291	5516F65D	56FABB28	icon_poke_0978_00_00_00
++villagers	villager_0292	C7553C71	6BD72B3C	icon_poke_1010_00_00_00
++villagers	villager_0293	ECE94572	F911DCBD	icon_poke_1011_00_00_00
++villagers	villager_0294	127D4E73	864C8E3E	icon_poke_1012_00_00_00
++villagers	villager_0295	14E9F431	E1FDC2FC	icon_poke_1032_00_00_00
++villagers	villager_0296	C4605613	9D2465DE	icon_poke_1056_11_00_00
++villagers	villager_0297	CA642172	9E5AB8BD	icon_poke_1056_12_00_00
++villagers	villager_0298	D067ECD1	9F910B9C	icon_poke_1056_13_00_00
++villagers	villager_0299	F8CECFF5	8D0F20C0	icon_poke_1058_00_00_00
++villagers	villager_0300	1E62D8F6	1A49D241	icon_poke_1059_00_00_00
++villagers	villager_0301	CD64DACC	51122F17	icon_poke_1060_00_00_00
++villagers	villager_0302	F2F8E3CD	DE4CE098	icon_poke_1061_00_00_00
++villagers	villager_0303	188CECCE	6B879219	icon_poke_1062_00_00_00
++villagers	villager_0304	CE9B2DAB	7EEAC976	icon_poke_1070_00_00_00
++villagers	villager_0305	F42F36AC	0C257AF7	icon_poke_1071_00_00_00
++villagers	villager_0306	64EB51AF	B3D58F7A	icon_poke_1074_00_00_00
++villagers	villager_0307	8A7F5AB0	411040FB	icon_poke_1075_00_00_00
++villagers	villager_0308	E68B18AA	D74E0BF5	icon_poke_1080_11_00_00
++villagers	villager_0309	F565898B	39FE1556	icon_poke_1081_00_00_00
++villagers	villager_0310	85C362D7	B67474A2	icon_poke_1104_00_00_00
++villagers	villager_0311	AB576BD8	43AF2623	icon_poke_1105_00_00_00
++villagers	villager_0312	B3769052	D0B7979D	icon_poke_1106_00_00_00_nh
++villagers	villager_0313	F67F7DDA	5E248925	icon_poke_1107_00_00_00
++villagers	villager_0314	1C1386DB	EB5F3AA6	icon_poke_1108_00_00_00
++villagers	villager_0315	41A78FDC	7899EC27	icon_poke_1109_00_00_00
++villagers	villager_0316	3A2D5F11	28699DDC	icon_poke_1113_00_51_00
++villagers	villager_0317	85E360A3	1E73386E	icon_poke_0385_00_00_00
++villagers	villager_0318	2D08BF99	3EDA8264	icon_poke_0090_00_00_00
++villagers	villager_0319	7AC8379A	F95022E5	icon_poke_0091_00_00_00
++villagers	villager_0320	000CF4E8	7E33B733	icon_poke_0116_00_00_00
++villagers	villager_0321	4DCC6CE9	38A957B4	icon_poke_0117_00_00_00
++villagers	villager_0322	ABF128C1	2575BF8C	icon_poke_0120_00_00_00
++villagers	villager_0323	F9B0A0C2	DFEB600D	icon_poke_0121_00_00_00
++villagers	villager_0324	950FF466	0B2E25B1	icon_poke_0158_00_00_00
++villagers	villager_0325	E2CF6C67	C5A3C632	icon_poke_0159_00_00_00
++villagers	villager_0326	A575383D	3D84ED08	icon_poke_0160_00_00_00
++villagers	villager_0327	23D63C1C	4388B867	icon_poke_0170_00_00_00
++villagers	villager_0328	7195B41D	FDFE58E8	icon_poke_0171_00_00_00
++villagers	villager_0329	3AFF9D04	AB16CD4F	icon_poke_0222_00_00_00
++villagers	villager_0330	1DE1B0E1	3C2F57AC	icon_poke_0230_00_00_00
++villagers	villager_0331	889F78A7	1BE3F272	icon_poke_0258_00_00_00
++villagers	villager_0332	D65EF0A8	D65992F3	icon_poke_0259_00_00_00
++villagers	villager_0333	9904BC7E	4E3AB9C9	icon_poke_0260_00_00_00
++villagers	villager_0334	82AAED6C	148A91B7	icon_poke_0318_00_00_00
++villagers	villager_0335	D06A656D	CF003238	icon_poke_0319_00_00_00
++villagers	villager_0336	CD2C6D2B	DB07C8F6	icon_poke_0339_00_00_00
++villagers	villager_0337	8FD23901	52E8EFCC	icon_poke_0340_00_00_00
++villagers	villager_0338	DD91B102	0D5E904D	icon_poke_0341_00_00_00
++villagers	villager_0339	2B512903	C7D430CE	icon_poke_0342_00_00_00
++villagers	villager_0340	4B8D710A	E10B9455	icon_poke_0349_00_00_00
++villagers	villager_0341	0E333CE0	58ECBB2B	icon_poke_0350_00_00_00
++villagers	villager_0342	0AF5449E	64F451E9	icon_poke_0370_00_00_00
++villagers	villager_0343	763A71AD	25405E78	icon_poke_0418_00_00_00
++villagers	villager_0344	C3F9E9AE	DFB5FEF9	icon_poke_0419_00_00_00
++villagers	villager_0345	D43F9127	C8644AF2	icon_poke_0456_00_00_00
++villagers	villager_0346	21FF0928	82D9EB73	icon_poke_0457_00_00_00
++villagers	villager_0347	38A104C7	09D08E92	icon_poke_0489_00_00_00
++villagers	villager_0348	FB46D09D	81B1B568	icon_poke_0490_00_00_00
++villagers	villager_0349	8A5544E0	0752C32B	icon_poke_0592_00_00_00
++villagers	villager_0350	26C3413F	85B3C70A	icon_poke_0592_01_00_00
++villagers	villager_0351	D814BCE1	C1C863AC	icon_poke_0593_00_00_00
++villagers	villager_0352	7482B940	4029678B	icon_poke_0593_01_00_00
++villagers	villager_0353	25D434E2	7C3E042D	icon_poke_0594_00_00_00
++villagers	villager_0354	5D597A2F	46ABF7FA	icon_poke_0618_00_00_00
++villagers	villager_0355	33CB124D	E87A4F18	icon_poke_0726_00_00_00
++villagers	villager_0356	818A8A4E	A2EFEF99	icon_poke_0727_00_00_00
++villagers	villager_0357	DC9C164B	A5F90216	icon_poke_0735_11_00_00
++villagers	villager_0358	2A5B8E4C	606EA297	icon_poke_0736_11_00_00
++villagers	villager_0359	A5DB36CB	48DC6296	icon_poke_0801_00_00_00
++villagers	villager_0360	F39AAECC	03520317	icon_poke_0802_00_00_00
++villagers	villager_0361	71DC164D	BFAD5318	icon_poke_0847_00_00_00
++villagers	villager_0362	BF9B8E4E	7A22F399	icon_poke_0848_00_00_00
++villagers	villager_0363	0D5B064F	3498941A	icon_poke_0849_00_00_00
++villagers	villager_0364	54BE2A2A	50C5DD75	icon_poke_0855_00_00_00
++villagers	villager_0365	F03D1A2C	C5B11E77	icon_poke_0857_00_00_00
++villagers	villager_0366	20DEA60A	113F4955	icon_poke_0866_00_00_00
++villagers	villager_0367	6E9E1E0B	CBB4E9D6	icon_poke_0867_00_00_00
++villagers	villager_0368	34E9AB0E	CE7D7059	icon_poke_0903_00_00_00
++villagers	villager_0369	82A9230F	88F310DA	icon_poke_0904_00_00_00
++villagers	villager_0370	7C2D328B	A1023E56	icon_poke_0944_00_00_00
++villagers	villager_0371	146E2A4B	21F51616	icon_poke_0966_00_00_00
++villagers	villager_0372	622DA24C	DC6AB697	icon_poke_0967_00_00_00
++villagers	villager_0373	AFED1A4D	96E05718	icon_poke_0968_00_00_00
++villagers	villager_0374	B43F8001	D711B6CC	icon_poke_1033_00_00_00
++villagers	villager_0375	01FEF802	9187574D	icon_poke_1034_00_00_00
++villagers	villager_0376	9D7DE804	0672984F	icon_poke_1036_00_00_00
++villagers	villager_0377	8DEF1061	6CD8772C	icon_poke_1121_00_00_00
++villagers	villager_0378	DBAE8862	274E17AD	icon_poke_1122_00_00_00
++reactions	reaction_0006	F552E8CF	24E5B69A	icon_emote_001
++reactions	reaction_0007	F552E8CF	24E5B69A	icon_emote_002
++reactions	reaction_0008	F552E8CF	24E5B69A	icon_emote_003
++reactions	reaction_0009	F552E8CF	24E5B69A	icon_emote_004
++reactions	reaction_0010	F552E8CF	24E5B69A	icon_emote_005
++reactions	reaction_0011	F552E8CF	24E5B69A	icon_emote_006
++reactions	reaction_0012	F552E8CF	24E5B69A	icon_emote_007
++reactions	reaction_0013	F552E8CF	24E5B69A	icon_emote_008
++reactions	reaction_0014	F552E8CF	24E5B69A	icon_emote_009
++reactions	reaction_0015	F552E8CF	24E5B69A	icon_emote_010
++reactions	reaction_0016	F552E8CF	24E5B69A	icon_emote_011
++reactions	reaction_0017	F552E8CF	24E5B69A	icon_emote_012
++reactions	reaction_0018	F552E8CF	24E5B69A	icon_emote_013
++reactions	reaction_0019	F552E8CF	24E5B69A	icon_emote_014
++reactions	reaction_0020	F552E8CF	24E5B69A	icon_emote_015
++reactions	reaction_0021	F552E8CF	24E5B69A	icon_emote_016
++reactions	reaction_0022	F552E8CF	24E5B69A	icon_emote_017
++reactions	reaction_0023	F552E8CF	24E5B69A	icon_emote_018
++reactions	reaction_0024	F552E8CF	24E5B69A	icon_emote_019
++reactions	reaction_0025	F552E8CF	24E5B69A	icon_emote_020
++reactions	reaction_0026	F552E8CF	24E5B69A	icon_emote_021
++reactions	reaction_0027	F552E8CF	24E5B69A	icon_emote_022
++reactions	reaction_0028	F552E8CF	24E5B69A	icon_emote_023
++reactions	reaction_0029	F552E8CF	24E5B69A	icon_emote_024
++reactions	reaction_0030	F552E8CF	24E5B69A	icon_emote_025
++reactions	reaction_0031	F552E8CF	24E5B69A	icon_emote_026
++reactions	reaction_0032	F552E8CF	24E5B69A	icon_emote_027
++reactions	reaction_0033	F552E8CF	24E5B69A	icon_emote_028
++reactions	reaction_0034	F552E8CF	24E5B69A	icon_emote_029
++reactions	reaction_0035	F552E8CF	24E5B69A	icon_emote_030
++reactions	reaction_0036	F552E8CF	24E5B69A	icon_emote_031
++reactions	reaction_0037	F552E8CF	24E5B69A	icon_emote_032
++reactions	reaction_0038	F552E8CF	24E5B69A	icon_emote_033
++reactions	reaction_0039	F552E8CF	24E5B69A	icon_emote_034
++reactions	reaction_0040	F552E8CF	24E5B69A	icon_emote_035
++reactions	reaction_0041	F552E8CF	24E5B69A	icon_emote_036
++reactions	reaction_0042	F552E8CF	24E5B69A	icon_emote_037
++reactions	reaction_0043	F552E8CF	24E5B69A	icon_emote_038
++reactions	reaction_0044	F552E8CF	24E5B69A	icon_emote_039
++reactions	reaction_0045	F552E8CF	24E5B69A	icon_emote_040
++reactions	reaction_0083	1AF17E9E	001D8BE9	icon_emote_041
++reactions	reaction_0084	1AF17E9E	001D8BE9	icon_emote_042
++reactions	reaction_0085	1AF17E9E	001D8BE9	icon_emote_043
++reactions	reaction_0086	1AF17E9E	001D8BE9	icon_emote_044
++reactions	reaction_0087	1AF17E9E	001D8BE9	icon_emote_045
++reactions	reaction_0093	1AF17E9E	001D8BE9	icon_emote_046
++reactions	reaction_0095	1AF17E9E	001D8BE9	icon_emote_047
++skills	skill_0001	F552E8CF	24E5B69A	icon_skill_001
++skills	skill_0002	F552E8CF	24E5B69A	icon_skill_002
++skills	skill_0003	F552E8CF	24E5B69A	icon_skill_003
++skills	skill_0004	F552E8CF	24E5B69A	icon_skill_004
++skills	skill_0005	F552E8CF	24E5B69A	icon_skill_007
++skills	skill_0006	F552E8CF	24E5B69A	icon_skill_006
++skills	skill_0010	F552E8CF	24E5B69A	icon_skill_008
++skills	skill_0011	F552E8CF	24E5B69A	icon_skill_011
++skills	skill_0012	F552E8CF	24E5B69A	icon_skill_012
++skills	skill_0013	F552E8CF	24E5B69A	icon_skill_013
++patterns	pattern_1	2E97575A	A32522A5	furniture_pattern_001
++patterns	pattern_2	2E97575A	A32522A5	furniture_pattern_002
++patterns	pattern_3	2E97575A	A32522A5	furniture_pattern_003
++patterns	pattern_4	2E97575A	A32522A5	furniture_pattern_004
++patterns	pattern_5	2E97575A	A32522A5	furniture_pattern_005
++patterns	pattern_6	2E97575A	A32522A5	furniture_pattern_006
++patterns	pattern_7	2E97575A	A32522A5	furniture_pattern_007
++patterns	pattern_8	2E97575A	A32522A5	furniture_pattern_008
++patterns	pattern_9	2E97575A	A32522A5	furniture_pattern_009
++patterns	pattern_10	2E97575A	A32522A5	furniture_pattern_010
++patterns	pattern_11	2E97575A	A32522A5	furniture_pattern_011
++patterns	pattern_12	2E97575A	A32522A5	furniture_pattern_012
++patterns	pattern_13	2E97575A	A32522A5	furniture_pattern_013
++patterns	pattern_14	2E97575A	A32522A5	furniture_pattern_014
++patterns	pattern_15	2E97575A	A32522A5	furniture_pattern_015
++patterns	pattern_16	2E97575A	A32522A5	furniture_pattern_016
++patterns	pattern_17	2E97575A	A32522A5	furniture_pattern_017
++patterns	pattern_18	2E97575A	A32522A5	furniture_pattern_018
++patterns	pattern_19	2E97575A	A32522A5	furniture_pattern_019
++patterns	pattern_20	2E97575A	A32522A5	furniture_pattern_020
++patterns	pattern_21	2E97575A	A32522A5	furniture_pattern_021
++patterns	pattern_22	2E97575A	A32522A5	furniture_pattern_022
++patterns	pattern_23	2E97575A	A32522A5	furniture_pattern_023
++patterns	pattern_24	2E97575A	A32522A5	furniture_pattern_024
++patterns	pattern_25	2E97575A	A32522A5	furniture_pattern_025
++patterns	pattern_26	2E97575A	A32522A5	furniture_pattern_026
++patterns	pattern_27	2E97575A	A32522A5	furniture_pattern_027
++patterns	pattern_28	2E97575A	A32522A5	furniture_pattern_028
++patterns	pattern_29	2E97575A	A32522A5	furniture_pattern_029
++patterns	pattern_30	2E97575A	A32522A5	furniture_pattern_030
++patterns	pattern_31	2E97575A	A32522A5	furniture_pattern_031
++patterns	pattern_32	2E97575A	A32522A5	furniture_pattern_032
++patterns	pattern_33	2E97575A	A32522A5	furniture_pattern_033
++patterns	pattern_34	2E97575A	A32522A5	furniture_pattern_034
++patterns	pattern_35	2E97575A	A32522A5	furniture_pattern_035
++patterns	pattern_36	2E97575A	A32522A5	furniture_pattern_036
++patterns	pattern_37	2E97575A	A32522A5	furniture_pattern_037
++patterns	pattern_38	2E97575A	A32522A5	furniture_pattern_038
++patterns	pattern_39	2E97575A	A32522A5	furniture_pattern_039
++patterns	pattern_40	2E97575A	A32522A5	furniture_pattern_040
++patterns	pattern_41	2E97575A	A32522A5	FurniturePattern_Pokemonshirts001
++patterns	pattern_42	2E97575A	A32522A5	FurniturePattern_Pokemonshirts006
++patterns	pattern_43	2E97575A	A32522A5	FurniturePattern_Pokemonshirts008
++patterns	pattern_44	2E97575A	A32522A5	FurniturePattern_Pokemonshirts015
++patterns	pattern_45	2E97575A	A32522A5	FurniturePattern_Pokemonshirts022
++patterns	pattern_46	2E97575A	A32522A5	FurniturePattern_Pokemonshirts036
++patterns	pattern_47	2E97575A	A32522A5	FurniturePattern_Pokemonshirts047
++patterns	pattern_48	2E97575A	A32522A5	FurniturePattern_Pokemonshirts051
++patterns	pattern_49	2E97575A	A32522A5	FurniturePattern_Pokemonshirts054
++patterns	pattern_50	2E97575A	A32522A5	FurniturePattern_Pokemonshirts062
++patterns	pattern_51	2E97575A	A32522A5	FurniturePattern_Pokemonshirts063
++patterns	pattern_52	2E97575A	A32522A5	FurniturePattern_Pokemonshirts069
++patterns	pattern_53	2E97575A	A32522A5	FurniturePattern_Pokemonshirts080
++patterns	pattern_54	2E97575A	A32522A5	FurniturePattern_Pokemonshirts093
++patterns	pattern_55	2E97575A	A32522A5	FurniturePattern_Pokemonshirts103
++patterns	pattern_56	2E97575A	A32522A5	FurniturePattern_Pokemonshirts113
++patterns	pattern_57	2E97575A	A32522A5	FurniturePattern_Pokemonshirts117
++patterns	pattern_58	2E97575A	A32522A5	FurniturePattern_Pokemonshirts123
++patterns	pattern_59	2E97575A	A32522A5	FurniturePattern_Pokemonshirts125
++patterns	pattern_60	2E97575A	A32522A5	FurniturePattern_Pokemonshirts128
++patterns	pattern_61	2E97575A	A32522A5	FurniturePattern_Pokemonshirts132
++patterns	pattern_62	2E97575A	A32522A5	FurniturePattern_Pokemonshirts141
++patterns	pattern_63	2E97575A	A32522A5	FurniturePattern_Pokemonshirts144
++patterns	pattern_64	2E97575A	A32522A5	FurniturePattern_Pokemonshirts145
++patterns	pattern_65	2E97575A	A32522A5	FurniturePattern_Pokemonshirts146
++patterns	pattern_66	2E97575A	A32522A5	FurniturePattern_Pokemonshirts150
++patterns	pattern_67	2E97575A	A32522A5	FurniturePattern_Pokemonshirts151
++patterns	pattern_68	2E97575A	A32522A5	FurniturePattern_Pokemonshirts153
++patterns	pattern_69	2E97575A	A32522A5	FurniturePattern_Pokemonshirts157
++patterns	pattern_70	2E97575A	A32522A5	FurniturePattern_Pokemonshirts160
++patterns	pattern_71	2E97575A	A32522A5	FurniturePattern_Pokemonshirts178
++patterns	pattern_72	2E97575A	A32522A5	FurniturePattern_Pokemonshirts182
++patterns	pattern_73	2E97575A	A32522A5	FurniturePattern_Pokemonshirts188
++patterns	pattern_74	2E97575A	A32522A5	FurniturePattern_Pokemonshirts190
++patterns	pattern_75	2E97575A	A32522A5	FurniturePattern_Pokemonshirts193
++patterns	pattern_76	2E97575A	A32522A5	FurniturePattern_Pokemonshirts208
++patterns	pattern_77	2E97575A	A32522A5	FurniturePattern_Pokemonshirts215
++patterns	pattern_78	2E97575A	A32522A5	FurniturePattern_Pokemonshirts272
++patterns	pattern_79	2E97575A	A32522A5	FurniturePattern_Pokemonshirts276
++patterns	pattern_80	2E97575A	A32522A5	FurniturePattern_Pokemonshirts278
++patterns	pattern_81	2E97575A	A32522A5	FurniturePattern_Pokemonshirts284
++patterns	pattern_82	2E97575A	A32522A5	FurniturePattern_Pokemonshirts294
++patterns	pattern_83	2E97575A	A32522A5	FurniturePattern_Pokemonshirts318
++patterns	pattern_84	2E97575A	A32522A5	FurniturePattern_Pokemonshirts316
++patterns	pattern_85	2E97575A	A32522A5	FurniturePattern_Pokemonshirts320
++patterns	pattern_86	2E97575A	A32522A5	FurniturePattern_Pokemonshirts331
++patterns	pattern_87	2E97575A	A32522A5	FurniturePattern_Pokemonshirts342
++patterns	pattern_88	2E97575A	A32522A5	FurniturePattern_Pokemonshirts349
++patterns	pattern_89	2E97575A	A32522A5	FurniturePattern_Pokemonshirts356
++patterns	pattern_90	2E97575A	A32522A5	FurniturePattern_Pokemonshirts357
++patterns	pattern_91	2E97575A	A32522A5	FurniturePattern_Pokemonshirts359
++patterns	pattern_92	2E97575A	A32522A5	FurniturePattern_Pokemonshirts401
++patterns	pattern_93	2E97575A	A32522A5	FurniturePattern_Pokemonshirts407
++patterns	pattern_94	2E97575A	A32522A5	FurniturePattern_Pokemonshirts419
++patterns	pattern_95	2E97575A	A32522A5	FurniturePattern_Pokemonshirts423
++patterns	pattern_96	2E97575A	A32522A5	FurniturePattern_Pokemonshirts435
++patterns	pattern_97	2E97575A	A32522A5	FurniturePattern_Pokemonshirts439
++patterns	pattern_98	2E97575A	A32522A5	FurniturePattern_Pokemonshirts476
++patterns	pattern_99	2E97575A	A32522A5	FurniturePattern_Pokemonshirts479
++patterns	pattern_100	2E97575A	A32522A5	FurniturePattern_Pokemonshirts488
++paint	paint_01	987344AA	BC2C37F5	0000_prt_chip_color	F6F5EE
++paint	paint_02	987344AA	BC2C37F5	0000_prt_chip_color	EE5639
++paint	paint_03	987344AA	BC2C37F5	0000_prt_chip_color	168ECC
++paint	paint_04	987344AA	BC2C37F5	0000_prt_chip_color	F4C501
++paint	paint_05	987344AA	BC2C37F5	0000_prt_chip_color	38AE30
++paint	paint_06	987344AA	BC2C37F5	0000_prt_chip_color	26AAA9
++paint	paint_07	987344AA	BC2C37F5	0000_prt_chip_color	F19B00
++paint	paint_08	987344AA	BC2C37F5	0000_prt_chip_color	9858BD
++paint	paint_09	987344AA	BC2C37F5	0000_prt_chip_color	AC762D
++paint	paint_10	987344AA	BC2C37F5	0000_prt_chip_color	72CAE8
++paint	paint_11	987344AA	BC2C37F5	0000_prt_chip_color	CA6B9B
++paint	paint_12	987344AA	BC2C37F5	0000_prt_chip_color	8ED22C
++paint	paint_13	987344AA	BC2C37F5	0000_prt_chip_color	D3BD8D
++paint	paint_14	987344AA	BC2C37F5	0000_prt_chip_color	673C91
++paint	paint_15	987344AA	BC2C37F5	0000_prt_chip_color	2A4F92
++paint	paint_16	987344AA	BC2C37F5	0000_prt_chip_color	292B31
++paint	paint_17	987344AA	BC2C37F5	0000_prt_chip_color	8A8D95
++paint	paint_18	987344AA	BC2C37F5	0000_prt_chip_color	F08FB4
+diff --git a/PokoHex.Parsing/Data/villager_portraits.txt b/PokoHex.Parsing/Data/villager_portraits.txt
+new file mode 100644
+index 0000000..9a97394
+--- /dev/null
++++ b/PokoHex.Parsing/Data/villager_portraits.txt
+@@ -0,0 +1,1051 @@
++# PokoHex's portrait number for each villager slot (villager_portrait.bin, one u16 per slot): its own numbering, not game data.
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++19
++49
++7
++8
++32
++42
++65
++68
++60
++17
++31
++80
++35
++90
++82
++55
++39
++24
++2
++48
++0
++63
++97
++34
++54
++219
++88
++58
++14
++69
++71
++86
++101
++0
++219
++3
++4
++5
++6
++9
++10
++15
++25
++33
++36
++40
++41
++46
++47
++50
++51
++52
++53
++56
++57
++59
++61
++64
++66
++67
++72
++79
++83
++84
++89
++91
++92
++93
++99
++100
++105
++106
++115
++117
++130
++131
++133
++136
++137
++143
++144
++145
++153
++212
++214
++215
++216
++217
++221
++222
++223
++224
++235
++236
++237
++265
++271
++272
++273
++277
++278
++279
++253
++254
++255
++112
++37
++38
++191
++192
++193
++16
++138
++206
++190
++95
++174
++175
++194
++195
++238
++239
++262
++263
++264
++268
++269
++270
++280
++281
++274
++299
++300
++301
++113
++28
++29
++30
++87
++102
++103
++104
++110
++111
++121
++244
++245
++246
++267
++146
++242
++118
++122
++78
++70
++0
++76
++162
++163
++164
++286
++287
++288
++157
++158
++159
++20
++21
++22
++23
++26
++27
++81
++116
++147
++148
++152
++168
++176
++207
++209
++211
++226
++232
++233
++240
++241
++0
++289
++290
++291
++292
++293
++294
++310
++311
++140
++132
++149
++150
++151
++43
++44
++45
++125
++312
++275
++0
++75
++77
++85
++114
++119
++120
++123
++129
++134
++141
++142
++154
++155
++156
++167
++169
++170
++171
++172
++173
++177
++178
++179
++180
++181
++187
++188
++189
++196
++197
++198
++199
++200
++201
++202
++203
++204
++205
++213
++229
++230
++231
++234
++243
++282
++296
++297
++298
++316
++308
++309
++11
++12
++13
++96
++0
++228
++266
++0
++94
++107
++108
++109
++139
++160
++161
++165
++166
++184
++185
++208
++225
++227
++256
++257
++258
++259
++260
++276
++313
++314
++315
++62
++73
++74
++0
++0
++124
++135
++210
++247
++248
++249
++250
++251
++252
++261
++306
++307
++304
++305
++295
++283
++284
++285
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++182
++183
++186
++0
++218
++302
++303
++0
++0
++0
++0
++0
++0
++0
++0
++16
++16
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++126
++127
++128
++340
++341
++317
++0
++0
++357
++358
++371
++372
++373
++377
++378
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++318
++319
++320
++321
++324
++325
++326
++327
++328
++330
++336
++337
++361
++362
++363
++322
++323
++329
++331
++332
++333
++334
++335
++338
++339
++347
++348
++359
++360
++365
++349
++350
++351
++352
++0
++0
++374
++375
++353
++355
++356
++342
++354
++376
++368
++369
++343
++344
++345
++346
++364
++366
++367
++370
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
++0
+diff --git a/PokoHex.Parsing/GameAbilityDumper.cs b/PokoHex.Parsing/GameAbilityDumper.cs
+index 1ad11b1..cb0de1c 100644
+--- a/PokoHex.Parsing/GameAbilityDumper.cs
++++ b/PokoHex.Parsing/GameAbilityDumper.cs
+@@ -15,10 +15,14 @@ public static class GameAbilityDumper
+         {"es", 5}, {"zht", 6}, {"ko", 7}, {"zhs", 8},
+     };
+ 
+-    public static string[] GetSkillList(string path, string language = GameLanguage.DefaultLanguage) => ReadNames(path, language, 4942, 61, PlayerAbilities.SkillCount);
+-    public static string[] GetReactionList(string path, string language = GameLanguage.DefaultLanguage) => ReadNames(path, language, 2332, 128, PlayerAbilities.ReactionCount);
++    /// <summary>The languages, in the order the game stores its text tables (one entry per language, from the first).</summary>
++    public static IEnumerable<string> LanguageCodes => Languages.Keys;
+ 
+-    private static string[] ReadNames(string path, string language, int first, int count, int capacity)
++    public static string[] GetSkillList(string path, string language = GameLanguage.DefaultLanguage) => ReadTextTable(path, language, 4942, 61, PlayerAbilities.SkillCount);
++    public static string[] GetReactionList(string path, string language = GameLanguage.DefaultLanguage) => ReadTextTable(path, language, 2332, 128, PlayerAbilities.ReactionCount);
++
++    /// <summary>Reads a text table (u32 count, u32 version 2, then one 8-byte field per string) for <paramref name="language"/>.</summary>
++    internal static string[] ReadTextTable(string path, string language, int first, int count, int capacity)
+     {
+         if (!Languages.TryGetValue(language, out var shift))
+             throw new ArgumentException("This language is not supported.", nameof(language));
+diff --git a/PokoHex.Parsing/GameDataExporter.cs b/PokoHex.Parsing/GameDataExporter.cs
+new file mode 100644
+index 0000000..969d065
+--- /dev/null
++++ b/PokoHex.Parsing/GameDataExporter.cs
+@@ -0,0 +1,99 @@
++using System;
++using System.Buffers.Binary;
++using System.Globalization;
++using System.IO;
++using System.Linq;
++using System.Reflection;
++using System.Text.Json;
++using System.Text.Json.Serialization;
++
++namespace PokoHex.Parsing;
++
++/// <summary>
++/// Writes everything PokoHex reads from the game (names, tables, pictures) to a folder, from the player's own game files:
++/// <c>text/&lt;language&gt;/*.txt</c>, <c>byte/*.bin</c>, <c>images/&lt;set&gt;/*.png</c> and <c>manifest.json</c> listing them.
++/// PokoHex built without its bundled game data loads this folder instead (see <c>ResourceUtil.SetGameData</c>).
++/// </summary>
++public static class GameDataExporter
++{
++    /// <summary>Raised when what the export writes changes, so a folder written by an older exporter is made again.</summary>
++    public const int Version = 1;
++
++    public const string ManifestName = "manifest.json";
++
++    public sealed record Manifest(int Version, string[] Text, string[] Byte, string[] Images);
++
++    /// <param name="path">The game dump folder holding romfs, or romfs itself.</param>
++    /// <param name="destination">The folder to write; written beside it first, so a stopped export never leaves a half folder.</param>
++    /// <param name="progress">Pictures written so far, and the total.</param>
++    public static void Export(string path, string destination, Action<int, int>? progress = null)
++    {
++        var romfs = GameItemDumper.GetArchiveFolder(path);
++        if (!AssetStore.IsPresent(romfs))
++            throw new FileNotFoundException("The romfs has no asset store (motor_asset_re). Select the complete game dump.");
++        destination = Path.GetFullPath(destination);
++        var work = destination + ".tmp";
++        if (Directory.Exists(work))
++            Directory.Delete(work, true);
++        Directory.CreateDirectory(work);
++
++        GameItemDumper.UpdateDumps(romfs, work);
++        GameAbilityDumper.UpdateDumps(romfs, work);
++        GameNameDumper.UpdateDumps(romfs, work);
++        GameMapDumper.UpdateDumps(romfs, work);
++        var bytes = Path.Combine(work, "byte");
++        File.WriteAllBytes(Path.Combine(bytes, "map_buildings.bin"), GameBuildingDumper.GetBuildingList(romfs));
++        File.WriteAllBytes(Path.Combine(bytes, "item_paint.bin"), GamePaintDumper.GetPaintList(romfs));
++        File.WriteAllBytes(Path.Combine(bytes, "item_menuicon.bin"), GamePictureDumper.GetItemMenuIcons());
++        File.WriteAllBytes(Path.Combine(bytes, "villager_portrait.bin"), GetVillagerPortraits());
++        GamePictureDumper.UpdateDumps(romfs, work, progress);
++
++        var manifest = new Manifest(Version, List(work, "text"), List(work, "byte"), List(work, "images"));
++        File.WriteAllText(Path.Combine(work, ManifestName), JsonSerializer.Serialize(manifest, ManifestJson.Default.Manifest));
++
++        if (Directory.Exists(destination))
++            Directory.Delete(destination, true);
++        Directory.Move(work, destination);
++    }
++
++    /// <summary>The manifest of an exported folder, or null when there is none or it was written by another exporter version.</summary>
++    public static Manifest? ReadManifest(string folder)
++    {
++        try
++        {
++            var manifest = JsonSerializer.Deserialize(File.ReadAllText(Path.Combine(folder, ManifestName)), ManifestJson.Default.Manifest);
++            return manifest?.Version == Version ? manifest : null;
++        }
++        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
++        {
++            return null;
++        }
++    }
++
++    private static string[] List(string root, string folder) => Directory.EnumerateFiles(Path.Combine(root, folder), "*", SearchOption.AllDirectories)
++        .Select(z => Path.GetRelativePath(root, z).Replace('\\', '/'))
++        .Order(StringComparer.Ordinal)
++        .ToArray();
++
++    // villager_portrait.bin from Data/villager_portraits.txt: PokoHex's own numbering of the portraits (one u16 per villager slot).
++    private static byte[] GetVillagerPortraits()
++    {
++        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PokoHex.Parsing.Data.villager_portraits.txt")
++                           ?? throw new InvalidOperationException("The villager portrait list is missing.");
++        using var reader = new StreamReader(stream);
++        using var result = new MemoryStream();
++        Span<byte> value = stackalloc byte[2];
++        while (reader.ReadLine() is { } line)
++        {
++            if (line.Length == 0 || line[0] == '#')
++                continue;
++            BinaryPrimitives.WriteUInt16LittleEndian(value, ushort.Parse(line, CultureInfo.InvariantCulture));
++            result.Write(value);
++        }
++        return result.ToArray();
++    }
++}
++
++// Source-generated, so the extractor can be published trimmed.
++[JsonSerializable(typeof(GameDataExporter.Manifest))]
++internal sealed partial class ManifestJson : JsonSerializerContext;
+diff --git a/PokoHex.Parsing/GameNameDumper.cs b/PokoHex.Parsing/GameNameDumper.cs
+new file mode 100644
+index 0000000..e945a94
+--- /dev/null
++++ b/PokoHex.Parsing/GameNameDumper.cs
+@@ -0,0 +1,46 @@
++using System.IO;
++using System.Text;
++using System.Text.RegularExpressions;
++using PokoHex.Core;
++
++namespace PokoHex.Parsing;
++
++/// <summary>Villager and area names, in the nine languages, from the game's text tables.</summary>
++public static partial class GameNameDumper
++{
++    // Villager n is entry n - 4 of the character name table (1,024 names); PokoHex keeps 1,050 villager slots.
++    private const int VillagerNames = 2260, VillagerNameCount = 1024, VillagerFirst = 4, VillagerSlots = 1050;
++    private const int AreaNames = 5086, AreaNameCount = 32;
++
++    public static string[] GetVillagerList(string path, string language = GameLanguage.DefaultLanguage)
++    {
++        var names = GameAbilityDumper.ReadTextTable(path, language, VillagerNames, VillagerNameCount, VillagerNameCount);
++        var result = new string[VillagerSlots];
++        System.Array.Fill(result, string.Empty);
++        for (int i = 0; i < names.Length && i + VillagerFirst < VillagerSlots; i++)
++            result[i + VillagerFirst] = names[i];
++        return result;
++    }
++
++    public static string[] GetAreaList(string path, string language = GameLanguage.DefaultLanguage)
++    {
++        var names = GameAbilityDumper.ReadTextTable(path, language, AreaNames, AreaNameCount, AreaNameCount);
++        for (int i = 0; i < names.Length; i++)
++            names[i] = Reading().Replace(names[i], "$1"); // "<街:まち>" (text with its reading) -> "街"
++        return names;
++    }
++
++    public static void UpdateDumps(string path, string destination)
++    {
++        foreach (var language in GameAbilityDumper.LanguageCodes)
++        {
++            var folder = Path.Combine(destination, "text", language);
++            Directory.CreateDirectory(folder);
++            File.WriteAllLines(Path.Combine(folder, $"text_villager_{language}.txt"), GetVillagerList(path, language), new UTF8Encoding(false));
++            File.WriteAllLines(Path.Combine(folder, $"text_area_{language}.txt"), GetAreaList(path, language), new UTF8Encoding(false));
++        }
++    }
++
++    [GeneratedRegex("<([^:<>]*):[^<>]*>")]
++    private static partial Regex Reading();
++}
+diff --git a/PokoHex.Parsing/GamePictureDumper.cs b/PokoHex.Parsing/GamePictureDumper.cs
+new file mode 100644
+index 0000000..f6e094f
+--- /dev/null
++++ b/PokoHex.Parsing/GamePictureDumper.cs
+@@ -0,0 +1,110 @@
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++using System.IO;
++using System.Linq;
++using System.Reflection;
++using static System.Buffers.Binary.BinaryPrimitives;
++
++namespace PokoHex.Parsing;
++
++/// <summary>
++/// Cuts PokoHex's pictures out of the game's own textures. <c>Data/pictures.tsv</c> says where each one is (sprite table, texture,
++/// sprite name); it holds no pixels.
++/// </summary>
++public static class GamePictureDumper
++{
++    /// <summary>One picture: the folder under images/, the file name, and where the game keeps it.</summary>
++    public sealed record Entry(string Set, string File, uint Table, uint Texture, string Sprite, uint? Color);
++
++    public static IReadOnlyList<Entry> Entries { get; } = ReadEntries();
++
++    public static int Count => Entries.Count;
++
++    /// <summary>Writes every picture to <c>destination/images/&lt;set&gt;/&lt;file&gt;.png</c>; returns how many were written.</summary>
++    public static int UpdateDumps(string path, string destination, Action<int, int>? progress = null)
++    {
++        var romfs = GameItemDumper.GetArchiveFolder(path);
++        using var store = new AssetStore(romfs);
++        var tables = new Dictionary<uint, Dictionary<string, Sprite>>();
++        int done = 0;
++        // Sorted by texture so each texture is decoded once and can be dropped when the next one starts.
++        foreach (var group in Entries.GroupBy(z => z.Texture))
++        {
++            var pages = GameTexture.ReadPages(store.Read(group.Key)
++                ?? throw new FileNotFoundException($"The game files are missing texture 0x{group.Key:X8}."));
++            foreach (var entry in group)
++            {
++                if (!tables.TryGetValue(entry.Table, out var table))
++                    tables[entry.Table] = table = SpriteTable.Read(store.Read(entry.Table)
++                        ?? throw new FileNotFoundException($"The game files are missing sprite table 0x{entry.Table:X8}."));
++                if (!table.TryGetValue(entry.Sprite, out var sprite))
++                    throw new InvalidDataException($"The game files have no sprite {entry.Sprite}.");
++                var image = sprite.Cut(pages);
++                if (entry.Color is { } color)
++                    image = Tint(Trim(image), color);
++                var folder = Path.Combine(destination, "images", entry.Set);
++                Directory.CreateDirectory(folder);
++                File.WriteAllBytes(Path.Combine(folder, entry.File + ".png"), PngWriter.Encode(image));
++                progress?.Invoke(++done, Entries.Count);
++            }
++        }
++        return done;
++    }
++
++    /// <summary><c>item_menuicon.bin</c>: for each item, the number of its menu icon (the item's own number), or 0 when it has none.</summary>
++    public static byte[] GetItemMenuIcons()
++    {
++        var result = new byte[4600 * 2];
++        foreach (var entry in Entries.Where(z => z.Set == "items"))
++        {
++            var item = ushort.Parse(entry.File.AsSpan(5), CultureInfo.InvariantCulture);
++            WriteUInt16LittleEndian(result.AsSpan(item * 2), item);
++        }
++        return result;
++    }
++
++    // A paint is the colour chip's brush stroke (white) filled with one colour.
++    private static Rgba Tint(Rgba image, uint color)
++    {
++        var pixels = (byte[])image.Pixels.Clone();
++        for (int i = 0; i < pixels.Length; i += 4)
++        {
++            pixels[i] = (byte)(color >> 16);
++            pixels[i + 1] = (byte)(color >> 8);
++            pixels[i + 2] = (byte)color;
++        }
++        return new Rgba(image.Width, image.Height, pixels);
++    }
++
++    private static Rgba Trim(Rgba image)
++    {
++        int x0 = image.Width, y0 = image.Height, x1 = -1, y1 = -1;
++        for (int y = 0; y < image.Height; y++)
++        for (int x = 0; x < image.Width; x++)
++        {
++            if (image.Pixels[(y * image.Width + x) * 4 + 3] <= 16)
++                continue;
++            x0 = Math.Min(x0, x); x1 = Math.Max(x1, x);
++            y0 = Math.Min(y0, y); y1 = Math.Max(y1, y);
++        }
++        return x1 < 0 ? image : image.Crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
++    }
++
++    private static Entry[] ReadEntries()
++    {
++        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PokoHex.Parsing.Data.pictures.tsv")
++                           ?? throw new InvalidOperationException("The picture list is missing.");
++        using var reader = new StreamReader(stream);
++        var result = new List<Entry>();
++        while (reader.ReadLine() is { } line)
++        {
++            if (line.Length == 0 || line[0] == '#')
++                continue;
++            var f = line.Split('\t');
++            result.Add(new Entry(f[0], f[1], uint.Parse(f[2], NumberStyles.HexNumber), uint.Parse(f[3], NumberStyles.HexNumber), f[4],
++                f.Length > 5 ? uint.Parse(f[5], NumberStyles.HexNumber) : null));
++        }
++        return result.OrderBy(z => z.Texture).ToArray();
++    }
++}
+diff --git a/PokoHex.Parsing/GameTexture.cs b/PokoHex.Parsing/GameTexture.cs
+new file mode 100644
+index 0000000..6ec2168
+--- /dev/null
++++ b/PokoHex.Parsing/GameTexture.cs
+@@ -0,0 +1,111 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using BCnEncoder.Decoder;
++using BCnEncoder.Shared;
++using static System.Buffers.Binary.BinaryPrimitives;
++
++namespace PokoHex.Parsing;
++
++/// <summary>An RGBA picture, 8 bits per channel, rows top to bottom.</summary>
++public sealed class Rgba(int width, int height, byte[] pixels)
++{
++    public int Width { get; } = width;
++    public int Height { get; } = height;
++    public byte[] Pixels { get; } = pixels;
++
++    public Rgba Crop(int x, int y, int width, int height)
++    {
++        x = Math.Clamp(x, 0, Width);
++        y = Math.Clamp(y, 0, Height);
++        width = Math.Clamp(width, 0, Width - x);
++        height = Math.Clamp(height, 0, Height - y);
++        var result = new byte[width * height * 4];
++        for (int row = 0; row < height; row++)
++            Pixels.AsSpan(((y + row) * Width + x) * 4, width * 4).CopyTo(result.AsSpan(row * width * 4));
++        return new Rgba(width, height, result);
++    }
++}
++
++/// <summary>
++/// The game's G1T textures (<c>GT1G0600</c>): one or more pages, each block compressed and stored in the Switch's block-linear layout.
++/// </summary>
++public static class GameTexture
++{
++    private static readonly BcDecoder Decoder = new();
++
++    /// <summary>Decodes every page of a G1T. Only the first mip level of each page is read.</summary>
++    public static IReadOnlyList<Rgba> ReadPages(byte[] g1t)
++    {
++        if (g1t.Length < 0x20 || !g1t.AsSpan(0, 4).SequenceEqual("GT1G"u8))
++            throw new InvalidDataException("The texture is not supported.");
++        var table = ReadInt32LittleEndian(g1t.AsSpan(12));
++        var count = ReadInt32LittleEndian(g1t.AsSpan(16));
++        if (table < 0 || count is <= 0 or > 256 || table + count * 4 > g1t.Length)
++            throw new InvalidDataException("The texture is damaged.");
++        var result = new Rgba[count];
++        for (int i = 0; i < count; i++)
++            result[i] = ReadPage(g1t, table + ReadInt32LittleEndian(g1t.AsSpan(table + i * 4)));
++        return result;
++    }
++
++    private static Rgba ReadPage(byte[] g1t, int header)
++    {
++        if (header < 0 || header + 12 > g1t.Length)
++            throw new InvalidDataException("The texture is damaged.");
++        var format = g1t[header + 1];
++        var width = 1 << (g1t[header + 2] & 15);
++        var height = 1 << (g1t[header + 2] >> 4);
++        var start = header + 8 + ReadInt32LittleEndian(g1t.AsSpan(header + 8));
++        var (blockSize, compression) = format switch
++        {
++            0x60 => (8, CompressionFormat.Bc1WithAlpha),
++            0x62 => (16, CompressionFormat.Bc3),
++            0x66 => (16, CompressionFormat.Bc7),
++            _ => throw new InvalidDataException($"Texture format 0x{format:X2} is not supported."),
++        };
++        int blocksWide = Math.Max(1, width / 4), blocksHigh = Math.Max(1, height / 4);
++        if (start < 0 || start > g1t.Length)
++            throw new InvalidDataException("The texture is damaged.");
++        var linear = Untile(g1t.AsSpan(start), blocksWide, blocksHigh, blockSize);
++        var colors = Decoder.DecodeRaw(linear, width, height, compression);
++        var pixels = new byte[width * height * 4];
++        for (int i = 0; i < colors.Length; i++)
++        {
++            pixels[i * 4] = colors[i].r;
++            pixels[i * 4 + 1] = colors[i].g;
++            pixels[i * 4 + 2] = colors[i].b;
++            pixels[i * 4 + 3] = colors[i].a;
++        }
++        return new Rgba(width, height, pixels);
++    }
++
++    /// <summary>
++    /// Block-linear to linear. A GOB is 512 bytes, 64 bytes wide and 8 block rows high; GOBs are stacked <c>gobHeight</c> high, then
++    /// across. Inside a GOB the address bits, low to high, are x0..x3, y0, y1, x4, y2, x5 (x in bytes along a block row, y in block rows):
++    /// this game's order, which differs from the usual Tegra one in where y1 and x4 sit.
++    /// </summary>
++    private static byte[] Untile(ReadOnlySpan<byte> tiled, int blocksWide, int blocksHigh, int blockSize)
++    {
++        var rowBytes = blocksWide * blockSize;
++        var gobsAcross = (rowBytes + 63) / 64;
++        var gobHeight = 1;
++        while (gobHeight < 16 && gobHeight * 8 < blocksHigh)
++            gobHeight *= 2;
++        var result = new byte[rowBytes * blocksHigh];
++        for (int y = 0; y < blocksHigh; y++)
++        {
++            var gobRow = y / 8;
++            var yBits = ((y & 1) << 4) | (((y >> 1) & 1) << 5) | (((y >> 2) & 1) << 7);
++            var gobBase = (gobRow / gobHeight) * gobsAcross * gobHeight + gobRow % gobHeight;
++            for (int x = 0; x < rowBytes; x++)
++            {
++                var inner = (x & 15) | yBits | (((x >> 4) & 1) << 6) | (((x >> 5) & 1) << 8);
++                var address = (gobBase + (x / 64) * gobHeight) * 512 + inner;
++                if (address < tiled.Length)
++                    result[y * rowBytes + x] = tiled[address];
++            }
++        }
++        return result;
++    }
++}
+diff --git a/PokoHex.Parsing/PngWriter.cs b/PokoHex.Parsing/PngWriter.cs
+new file mode 100644
+index 0000000..05b721b
+--- /dev/null
++++ b/PokoHex.Parsing/PngWriter.cs
+@@ -0,0 +1,73 @@
++using System;
++using System.IO;
++using System.IO.Compression;
++using static System.Buffers.Binary.BinaryPrimitives;
++
++namespace PokoHex.Parsing;
++
++/// <summary>Writes an <see cref="Rgba"/> picture as an 8-bit RGBA PNG.</summary>
++public static class PngWriter
++{
++    private static readonly uint[] CrcTable = MakeCrcTable();
++
++    public static byte[] Encode(Rgba image)
++    {
++        using var output = new MemoryStream();
++        output.Write([0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A]);
++
++        var header = new byte[13];
++        WriteInt32BigEndian(header, image.Width);
++        WriteInt32BigEndian(header.AsSpan(4), image.Height);
++        header[8] = 8; // bits per channel
++        header[9] = 6; // RGBA
++        WriteChunk(output, "IHDR"u8, header);
++
++        using (var data = new MemoryStream())
++        {
++            using (var zlib = new ZLibStream(data, CompressionLevel.SmallestSize, true))
++            {
++                var stride = image.Width * 4;
++                for (int y = 0; y < image.Height; y++)
++                {
++                    zlib.WriteByte(0); // no filter
++                    zlib.Write(image.Pixels, y * stride, stride);
++                }
++            }
++            WriteChunk(output, "IDAT"u8, data.ToArray());
++        }
++        WriteChunk(output, "IEND"u8, []);
++        return output.ToArray();
++    }
++
++    private static void WriteChunk(Stream output, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
++    {
++        Span<byte> number = stackalloc byte[4];
++        WriteInt32BigEndian(number, data.Length);
++        output.Write(number);
++        output.Write(type);
++        output.Write(data);
++        var crc = Update(Update(0xFFFFFFFF, type), data) ^ 0xFFFFFFFF;
++        WriteUInt32BigEndian(number, crc);
++        output.Write(number);
++    }
++
++    private static uint Update(uint crc, ReadOnlySpan<byte> data)
++    {
++        foreach (var value in data)
++            crc = CrcTable[(crc ^ value) & 0xFF] ^ (crc >> 8);
++        return crc;
++    }
++
++    private static uint[] MakeCrcTable()
++    {
++        var table = new uint[256];
++        for (uint n = 0; n < 256; n++)
++        {
++            var c = n;
++            for (int k = 0; k < 8; k++)
++                c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
++            table[n] = c;
++        }
++        return table;
++    }
++}
+diff --git a/PokoHex.Parsing/PokoHex.Parsing.csproj b/PokoHex.Parsing/PokoHex.Parsing.csproj
+index f733bea..77d76cc 100644
+--- a/PokoHex.Parsing/PokoHex.Parsing.csproj
++++ b/PokoHex.Parsing/PokoHex.Parsing.csproj
+@@ -5,4 +5,11 @@
+   <ItemGroup>
+     <ProjectReference Include="..\PokoHex.Core\PokoHex.Core.csproj" />
+   </ItemGroup>
++  <ItemGroup>
++    <PackageReference Include="BCnEncoder.Net" Version="2.3.0" />
++  </ItemGroup>
++  <ItemGroup>
++    <EmbeddedResource Include="Data\pictures.tsv" />
++    <EmbeddedResource Include="Data\villager_portraits.txt" />
++  </ItemGroup>
+ </Project>
+diff --git a/PokoHex.Parsing/SpriteTable.cs b/PokoHex.Parsing/SpriteTable.cs
+new file mode 100644
+index 0000000..c1c1136
+--- /dev/null
++++ b/PokoHex.Parsing/SpriteTable.cs
+@@ -0,0 +1,58 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using System.Text;
++using static System.Buffers.Binary.BinaryPrimitives;
++
++namespace PokoHex.Parsing;
++
++/// <summary>Where one named sprite sits: a page (texture inside the G1T) and a box in UV coordinates (0..1).</summary>
++public readonly record struct Sprite(int Page, float U0, float V0, float U1, float V1)
++{
++    public Rgba Cut(IReadOnlyList<Rgba> pages)
++    {
++        if ((uint)Page >= (uint)pages.Count)
++            throw new InvalidDataException("A sprite is on a page its texture does not have.");
++        var page = pages[Page];
++        var x0 = (int)Math.Round(U0 * page.Width, MidpointRounding.ToEven);
++        var y0 = (int)Math.Round(V0 * page.Height, MidpointRounding.ToEven);
++        var x1 = (int)Math.Round(U1 * page.Width, MidpointRounding.ToEven);
++        var y1 = (int)Math.Round(V1 * page.Height, MidpointRounding.ToEven);
++        return page.Crop(x0, y0, x1 - x0, y1 - y0);
++    }
++}
++
++/// <summary>
++/// The game's sprite tables (asset type <c>F20DE437</c>): u32 count, then 104-byte records of a 64-byte name, u32 page and the box's
++/// four corners as eight f32 (u, v), then u32 1.
++/// </summary>
++public static class SpriteTable
++{
++    private const int RecordSize = 104;
++
++    public static Dictionary<string, Sprite> Read(byte[] data)
++    {
++        if (data.Length < 4)
++            throw new InvalidDataException("The sprite table is damaged.");
++        var count = ReadInt32LittleEndian(data);
++        if (count < 0 || 4L + (long)count * RecordSize != data.Length)
++            throw new InvalidDataException("The sprite table is not supported.");
++        var result = new Dictionary<string, Sprite>(count, StringComparer.Ordinal);
++        for (int i = 0; i < count; i++)
++        {
++            var record = data.AsSpan(4 + i * RecordSize, RecordSize);
++            var end = record[..64].IndexOf((byte)0);
++            var name = Encoding.ASCII.GetString(record[..(end < 0 ? 64 : end)]);
++            float u0 = float.MaxValue, v0 = float.MaxValue, u1 = float.MinValue, v1 = float.MinValue;
++            for (int corner = 0; corner < 4; corner++)
++            {
++                var u = ReadSingleLittleEndian(record[(68 + corner * 8)..]);
++                var v = ReadSingleLittleEndian(record[(72 + corner * 8)..]);
++                u0 = Math.Min(u0, u); u1 = Math.Max(u1, u);
++                v0 = Math.Min(v0, v); v1 = Math.Max(v1, v);
++            }
++            result[name] = new Sprite(ReadInt32LittleEndian(record[64..]), u0, v0, u1, v1);
++        }
++        return result;
++    }
++}
+diff --git a/PokoHex.Tests/DumpTests.cs b/PokoHex.Tests/DumpTests.cs
+index 52f62df..c5061ed 100644
+--- a/PokoHex.Tests/DumpTests.cs
++++ b/PokoHex.Tests/DumpTests.cs
+@@ -96,6 +96,36 @@ public static class DumpTests
+         Assert.Equal(GameMapDumper.GetPartList(path!), File.ReadAllBytes(Path.Combine(destination!, "byte", "map_parts.bin")));
+     }
+ 
++    [Fact]
++    public static void ExportGameData()
++    {
++        var path = Environment.GetEnvironmentVariable("POKOHEX_GAME_PATH");
++        Assert.SkipUnless(Directory.Exists(path), "Set POKOHEX_GAME_PATH to the update game dump.");
++        Assert.SkipUnless(ResourceUtil.HasBundledGameData, "This build has no bundled game data to compare with.");
++        var destination = Path.Combine(Path.GetTempPath(), $"pokohex-export-{Guid.NewGuid():N}");
++        try
++        {
++            GameDataExporter.Export(path!, destination);
++            var manifest = GameDataExporter.ReadManifest(destination);
++            Assert.NotNull(manifest);
++            Assert.Equal(GamePictureDumper.Count, manifest.Images.Length);
++            Assert.Equal(GameLanguage.LanguageCount * 5, manifest.Text.Length);
++            foreach (var file in manifest.Text)
++            {
++                var name = Path.GetFileNameWithoutExtension(file);
++                Assert.Equal(ResourceUtil.GetStringList(name), File.ReadAllLines(Path.Combine(destination, file)));
++            }
++            foreach (var file in manifest.Byte)
++                Assert.Equal(ResourceUtil.GetBinaryResource(Path.GetFileName(file)), File.ReadAllBytes(Path.Combine(destination, file)));
++            Assert.All(manifest.Images, z => Assert.True(new FileInfo(Path.Combine(destination, z)).Length > 100));
++        }
++        finally
++        {
++            if (Directory.Exists(destination))
++                Directory.Delete(destination, true);
++        }
++    }
++
+     [Fact]
+     public static void ReadStageSave()
+     {
+diff --git a/PokoHex.Web/Controls/InventoryEditor.razor b/PokoHex.Web/Controls/InventoryEditor.razor
+index 8ef9675..4558a90 100644
+--- a/PokoHex.Web/Controls/InventoryEditor.razor
++++ b/PokoHex.Web/Controls/InventoryEditor.razor
+@@ -59,7 +59,7 @@
+                             }
+                             @if (Pattern > ItemPaintInfo.PatternCount || !AllowsPattern && Pattern != 0) { <option value="@Pattern">Unknown (@Pattern)</option> }
+                         </select>
+-                        @if (Pattern is > 0 and <= ItemPaintInfo.PatternCount) { <img class="pattern-preview" src="@($"images/patterns/pattern_{Pattern}.png")" alt="@($"Pattern {Pattern}")" /> }
++                        @if (Pattern is > 0 and <= ItemPaintInfo.PatternCount) { <img class="pattern-preview" src="@(SpriteUtil.GetPattern(Pattern))" alt="@($"Pattern {Pattern}")" /> }
+                         </label>
+                     }
+                 }
+@@ -82,7 +82,7 @@
+                                 <button type="button" class="@(SelectedSwatch == value ? "selected" : null)" aria-label="@name" aria-pressed="@(SelectedSwatch == value)" title="@name" @onclick="() => SelectSwatch(value)">
+                                     @if (value != 0)
+                                     {
+-                                        <img src="@(PaintArea == 3 ? $"images/patterns/pattern_{value}.png" : SpriteUtil.GetPaint(value))" alt="" loading="lazy" decoding="async" />
++                                        <img src="@(PaintArea == 3 ? SpriteUtil.GetPattern(value) : SpriteUtil.GetPaint(value))" alt="" loading="lazy" decoding="async" />
+                                     }
+                                     <span>@(PaintArea == 3 && value != 0 ? value.ToString() : name)</span>
+                                 </button>
+diff --git a/PokoHex.Web/Main.razor b/PokoHex.Web/Main.razor
+index dd13490..9c632a6 100644
+--- a/PokoHex.Web/Main.razor
++++ b/PokoHex.Web/Main.razor
+@@ -4,6 +4,11 @@
+ <main @ref="EditorWindow" class="application" aria-busy="@Busy">
+     <header class="titlebar"><strong>PokoHex</strong><span>Save Editor</span><a class="edition" href="https://github.com/berichan/PokoHex" target="_blank" rel="noopener noreferrer">Source</a></header>
+     <div class="menubar">
++        @if (HostAvailable)
++        {
++            <button class="host-button" @onclick="Host_Open_Click" disabled="@Busy">Load @HostName save</button>
++            <button class="host-button" @onclick="Host_Write_Click" disabled="@(SAV == null || Busy)">Write to @HostName</button>
++        }
+         <label class="file-button" aria-disabled="@Busy">Open save folder…
+             <InputFile id="open-folder" OnChange="OpenFolder" webkitdirectory="" multiple disabled="@Busy" />
+         </label>
+@@ -35,6 +40,10 @@
+         {
+             <div class="welcome">
+                 <h1>PokoHex Save Editor</h1>
++                @if (HostAvailable)
++                {
++                    <p>Press <strong>Load @HostName save</strong> to edit the save the game plays, then <strong>Write to @HostName</strong> when you are done. A backup is made before anything is written.</p>
++                }
+                 <p>Open or drag in the save folder containing <strong>G00</strong> and <strong>S00</strong>, or a ZIP of that folder.</p>
+                 <p class="muted">Everything happens locally. Your save files stay in your browser. Export downloads a ZIP; your original files are never overwritten but keep backups!</p>
+             </div>
+diff --git a/PokoHex.Web/Main.razor.cs b/PokoHex.Web/Main.razor.cs
+index 34161ee..4f376d4 100644
+--- a/PokoHex.Web/Main.razor.cs
++++ b/PokoHex.Web/Main.razor.cs
+@@ -31,20 +31,23 @@ public partial class Main : IAsyncDisposable
+     private string SelectedTab = "Player";
+     private string PlayerSection = "Skills";
+     private string Status = "Open or drop a save folder or ZIP to begin.";
+-    private string Error = string.Empty;
++    private string Error = GameDataLoader.Error ?? string.Empty;
+     private int Language;
+     private bool Busy;
+     private bool MapOpened;
+     private bool? BrowserDirty;
++    private bool HostAvailable;
++    private string HostName = "Game";
++    private sealed record HostFile(string Path, string Data);
+     private RenderState? LastRender;
+     private readonly record struct RenderState(SaveFolder? Save, string Name, string SaveName, string Tab, string PlayerSection,
+-        string Status, string Error, int Language, bool Busy, bool MapOpened, bool Dirty);
++        string Status, string Error, int Language, bool Busy, bool MapOpened, bool Dirty, bool Host);
+     private bool HasChanges => SAV != null && (PlayerName != SAV.Common.PlayerName ||
+         SAV.Common.LifeCoinsEditable && LifeCoins != SAV.Common.LifeCoins ||
+         Editor_Items?.HasChanges == true || Editor_Villagers?.HasChanges == true || Editor_Map?.HasChanges == true ||
+         Editor_Skills?.HasChanges == true || Editor_Reactions?.HasChanges == true || Editor_Flags?.HasChanges == true || SAV.IsEdited);
+ 
+-    private RenderState GetRenderState() => new(SAV, PlayerName, SaveName, SelectedTab, PlayerSection, Status, Error, Language, Busy, MapOpened, HasChanges);
++    private RenderState GetRenderState() => new(SAV, PlayerName, SaveName, SelectedTab, PlayerSection, Status, Error, Language, Busy, MapOpened, HasChanges, HostAvailable);
+     protected override bool ShouldRender() => LastRender != GetRenderState();
+ 
+     protected override async Task OnAfterRenderAsync(bool firstRender)
+@@ -53,6 +56,13 @@ public partial class Main : IAsyncDisposable
+         {
+             DropReference = DotNetObjectReference.Create(this);
+             await JS.InvokeVoidAsync("pokohexDrop.initialize", EditorWindow, DropReference, SaveArchive.MaximumFiles);
++            if (await JS.InvokeAsync<bool>("pokohex.host.available"))
++            {
++                HostName = await JS.InvokeAsync<string>("pokohex.host.name");
++                HostAvailable = true;
++                Status = $"Load the {HostName} save, or open a save folder or ZIP.";
++                StateHasChanged();
++            }
+         }
+         var state = GetRenderState();
+         LastRender = state;
+@@ -138,36 +148,75 @@ public partial class Main : IAsyncDisposable
+             return;
+         await RunBusy("Verifying and exporting save…", async () =>
+         {
+-            // Validate the name before applying any pending control values.
+-            if (PlayerName != SAV.Common.PlayerName)
+-            {
+-                var check = SaveFile.Read(SAV.Common.Write());
+-                check.PlayerName = PlayerName;
+-            }
+-            if (SAV.Common.LifeCoinsEditable && LifeCoins != SAV.Common.LifeCoins)
+-                SAV.Common.LifeCoins = LifeCoins;
+-            Editor_Map?.SaveChanges();
+-            Editor_Items?.SaveChanges();
+-            Editor_Villagers?.SaveChanges();
+-            Editor_Skills?.SaveChanges();
+-            Editor_Reactions?.SaveChanges();
+-            Editor_Flags?.SaveChanges();
+-            if (PlayerName != SAV.Common.PlayerName)
+-                SAV.Common.PlayerName = PlayerName;
+-            var files = SAV.ExportFiles();
++            var files = ApplyChanges();
+             using var output = SaveArchive.WriteZip(files);
+             using var reference = new DotNetStreamReference(output);
+             await JS.InvokeVoidAsync("pokohex.download", "PokoHex-edited.zip", reference);
+-            var tab = SelectedTab;
+-            var section = PlayerSection;
+-            LoadSave(SaveFolder.ReadFiles(files), SaveName);
+-            SelectedTab = tab;
+-            PlayerSection = section;
+-            MapOpened = tab == "Map";
++            ReloadKeepingView(files);
+             Status = "Exported and verified: PokoHex-edited.zip.";
+         });
+     }
+ 
++    private async Task Host_Open_Click()
++    {
++        if (!HostAvailable || Busy || !await ConfirmDiscard())
++            return;
++        await RunBusy($"Reading the {HostName} save…", async () =>
++        {
++            var files = await JS.InvokeAsync<HostFile[]>("pokohex.host.read");
++            LoadSave(SaveArchive.ReadFiles(files.Select(z => new KeyValuePair<string, byte[]>(z.Path, Convert.FromBase64String(z.Data)))), $"{HostName} save");
++        });
++    }
++
++    private async Task Host_Write_Click()
++    {
++        if (!HostAvailable || SAV == null || Busy)
++            return;
++        await RunBusy($"Verifying and writing to {HostName}…", async () =>
++        {
++            var files = ApplyChanges();
++            var hostFiles = files.Select(z => new HostFile(z.Key.Replace('\\', '/'), Convert.ToBase64String(z.Value))).ToArray();
++            // One argument: an array passed alone would be taken as the params argument list.
++            var message = await JS.InvokeAsync<string>("pokohex.host.write", new object[] { hostFiles });
++            ReloadKeepingView(files);
++            Status = message.Length != 0 ? message : $"Written to {HostName}.";
++        });
++    }
++
++    /// <summary>Applies every pending control value to the opened save and returns its verified files.</summary>
++    private Dictionary<string, byte[]> ApplyChanges()
++    {
++        if (SAV == null)
++            throw new InvalidOperationException("No save is open.");
++        // Validate the name before applying any pending control values.
++        if (PlayerName != SAV.Common.PlayerName)
++        {
++            var check = SaveFile.Read(SAV.Common.Write());
++            check.PlayerName = PlayerName;
++        }
++        if (SAV.Common.LifeCoinsEditable && LifeCoins != SAV.Common.LifeCoins)
++            SAV.Common.LifeCoins = LifeCoins;
++        Editor_Map?.SaveChanges();
++        Editor_Items?.SaveChanges();
++        Editor_Villagers?.SaveChanges();
++        Editor_Skills?.SaveChanges();
++        Editor_Reactions?.SaveChanges();
++        Editor_Flags?.SaveChanges();
++        if (PlayerName != SAV.Common.PlayerName)
++            SAV.Common.PlayerName = PlayerName;
++        return SAV.ExportFiles();
++    }
++
++    private void ReloadKeepingView(Dictionary<string, byte[]> files)
++    {
++        var tab = SelectedTab;
++        var section = PlayerSection;
++        LoadSave(SaveFolder.ReadFiles(files), SaveName);
++        SelectedTab = tab;
++        PlayerSection = section;
++        MapOpened = tab == "Map";
++    }
++
+     private void SelectTab(string tab)
+     {
+         try
+diff --git a/PokoHex.Web/PokoHex.Web.csproj b/PokoHex.Web/PokoHex.Web.csproj
+index 73ddde7..86fde4a 100644
+--- a/PokoHex.Web/PokoHex.Web.csproj
++++ b/PokoHex.Web/PokoHex.Web.csproj
+@@ -9,7 +9,12 @@
+     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.13" PrivateAssets="all" />
+     <ProjectReference Include="..\PokoHex.Core\PokoHex.Core.csproj" />
+   </ItemGroup>
+-  <Target Name="CopyWebSprites" BeforeTargets="PrepareForBuild">
++  <!-- -p:PokoHexGameData=false: no pictures from the game; the page loads them, with the names and tables, from a folder written by
++       pokohex-extract (the host's gameData, or gamedata/ next to the page). -->
++  <ItemGroup Condition="'$(PokoHexGameData)' == 'false'">
++    <Content Remove="wwwroot\images\**" />
++  </ItemGroup>
++  <Target Name="CopyWebSprites" BeforeTargets="PrepareForBuild" Condition="'$(PokoHexGameData)' != 'false'">
+     <ItemGroup>
+       <ItemSprite Include="..\PokoHex\Resources\MenuIcon\*.png" />
+       <VillagerSprite Include="..\PokoHex\Resources\Villager\*.png" />
+diff --git a/PokoHex.Web/Program.cs b/PokoHex.Web/Program.cs
+index e6ccd20..467acb3 100644
+--- a/PokoHex.Web/Program.cs
++++ b/PokoHex.Web/Program.cs
+@@ -1,6 +1,9 @@
++using System;
+ using System.Threading.Tasks;
+ using Microsoft.AspNetCore.Components.Web;
+ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.JSInterop;
+ 
+ namespace PokoHex.Web;
+ 
+@@ -11,6 +14,9 @@ public static class Program
+         var builder = WebAssemblyHostBuilder.CreateDefault(args);
+         builder.RootComponents.Add<Main>("#app");
+         builder.RootComponents.Add<HeadOutlet>("head::after");
+-        await builder.Build().RunAsync();
++        var host = builder.Build();
++        // Before anything reads the game's names or tables.
++        await GameDataLoader.LoadAsync(host.Services.GetRequiredService<IJSRuntime>(), new Uri(builder.HostEnvironment.BaseAddress));
++        await host.RunAsync();
+     }
+ }
+diff --git a/PokoHex.Web/Util/GameDataLoader.cs b/PokoHex.Web/Util/GameDataLoader.cs
+new file mode 100644
+index 0000000..eec2e30
+--- /dev/null
++++ b/PokoHex.Web/Util/GameDataLoader.cs
+@@ -0,0 +1,53 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Net.Http;
++using System.Net.Http.Json;
++using System.Threading.Tasks;
++using Microsoft.JSInterop;
++using PokoHex.Core;
++
++namespace PokoHex.Web;
++
++/// <summary>
++/// Loads the game's names, tables and pictures from a folder written by pokohex-extract, for a build made without its bundled game
++/// data (-p:PokoHexGameData=false). The folder is the host's gameData, or gamedata/ next to the page.
++/// </summary>
++public static class GameDataLoader
++{
++    private sealed record Manifest(int Version, string[] Text, string[] Byte, string[] Images);
++
++    /// <summary>Why the game data could not be loaded; null when it was, or when the build carries its own.</summary>
++    public static string? Error { get; private set; }
++
++    public static async Task LoadAsync(IJSRuntime js, Uri baseAddress)
++    {
++        string? root = null;
++        try
++        {
++            root = await js.InvokeAsync<string?>("pokohex.host.gameData");
++        }
++        catch (JSException)
++        {
++        }
++        if (root == null && ResourceUtil.HasBundledGameData)
++            return;
++        root ??= "gamedata/";
++        if (!root.EndsWith('/'))
++            root += '/';
++        try
++        {
++            using var http = new HttpClient { BaseAddress = baseAddress };
++            var manifest = await http.GetFromJsonAsync<Manifest>(root + "manifest.json")
++                           ?? throw new InvalidOperationException("The game data list is empty.");
++            var files = await Task.WhenAll(manifest.Text.Concat(manifest.Byte)
++                .Select(async path => (Name: path[(path.LastIndexOf('/') + 1)..], Data: await http.GetByteArrayAsync(root + path))));
++            ResourceUtil.SetGameData(files.ToDictionary(z => z.Name, z => z.Data, StringComparer.Ordinal));
++            SpriteUtil.ImageRoot = root + "images/";
++        }
++        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or System.Text.Json.JsonException or NotSupportedException)
++        {
++            Error = $"PokoHex could not load the game data ({e.Message}). Run pokohex-extract on your game dump into {root}.";
++        }
++    }
++}
+diff --git a/PokoHex.Web/Util/SpriteUtil.cs b/PokoHex.Web/Util/SpriteUtil.cs
+index 8289cc4..4705478 100644
+--- a/PokoHex.Web/Util/SpriteUtil.cs
++++ b/PokoHex.Web/Util/SpriteUtil.cs
+@@ -4,22 +4,26 @@ namespace PokoHex.Web;
+ 
+ public static class SpriteUtil
+ {
+-    public static string? GetPaint(int color) => color is > 0 and <= ItemPaintInfo.ColorCount ? $"images/paint/paint_{color:D2}.png" : null;
+-    public static string? GetSkill(int index) => Skill.IsPublic(index) ? $"images/skills/skill_{index:D4}.png" : null;
+-    public static string? GetReaction(int index) => Reaction.IsPublic(index) ? $"images/reactions/reaction_{index:D4}.png" : null;
++    /// <summary>Where the pictures are: images/ next to the page, or the images folder of the game data PokoHex loaded.</summary>
++    public static string ImageRoot { get; set; } = "images/";
++
++    public static string? GetPattern(int pattern) => pattern is > 0 and <= ItemPaintInfo.PatternCount ? $"{ImageRoot}patterns/pattern_{pattern}.png" : null;
++    public static string? GetPaint(int color) => color is > 0 and <= ItemPaintInfo.ColorCount ? $"{ImageRoot}paint/paint_{color:D2}.png" : null;
++    public static string? GetSkill(int index) => Skill.IsPublic(index) ? $"{ImageRoot}skills/skill_{index:D4}.png" : null;
++    public static string? GetReaction(int index) => Reaction.IsPublic(index) ? $"{ImageRoot}reactions/reaction_{index:D4}.png" : null;
+ 
+     public static string? GetItem(ushort id)
+     {
+         if (id == 0)
+             return null;
+         var icon = ItemInfo.GetMenuIcon(id);
+-        return $"images/items/item_{(icon == 0 ? 565 : icon):D4}.png";
++        return $"{ImageRoot}items/item_{(icon == 0 ? 565 : icon):D4}.png";
+     }
+ 
+     public static string? GetVillager(int index)
+     {
+         var portrait = VillagerInfo.GetPortrait(index);
+-        return portrait == 0 ? null : $"images/villagers/villager_{portrait:D4}.png";
++        return portrait == 0 ? null : $"{ImageRoot}villagers/villager_{portrait:D4}.png";
+     }
+ 
+     public static string GetItemName(ushort id)
+diff --git a/PokoHex.Web/wwwroot/editor.js b/PokoHex.Web/wwwroot/editor.js
+index b2ef688..daa05e0 100644
+--- a/PokoHex.Web/wwwroot/editor.js
++++ b/PokoHex.Web/wwwroot/editor.js
+@@ -25,6 +25,33 @@ window.pokohex = {
+         link.click();
+         link.remove();
+         setTimeout(() => URL.revokeObjectURL(url), 60000);
++    },
++    // Host mode: a page that embeds PokoHex in a same-origin frame (such as a game launcher) can offer
++    // window.pokohexHost = { read(), write(files) } on its own window. read() resolves the save as
++    // [{ path, data }] (data is base64, paths like "G00/CMNDAT.BIN"); write(files) takes the same shape
++    // and resolves a short message to show. Without a host, PokoHex works as before.
++    // The host may also offer gameData: the address of a folder written by pokohex-extract (names, tables
++    // and pictures from the player's own game files), for a PokoHex built without its bundled game data.
++    host: {
++        gameData() {
++            return window.pokohex.host.get()?.gameData ?? null;
++        },
++        get() {
++            try { return window.parent !== window ? window.parent.pokohexHost ?? null : null; }
++            catch { return null; }
++        },
++        available() {
++            return !!window.pokohex.host.get();
++        },
++        name() {
++            return window.pokohex.host.get()?.name ?? "Game";
++        },
++        read() {
++            return window.pokohex.host.get().read();
++        },
++        async write(files) {
++            return String(await window.pokohex.host.get().write(files) ?? "");
++        }
+     }
+ };
+ 
+diff --git a/PokoHex.slnx b/PokoHex.slnx
+index c2b352f..a23af73 100644
+--- a/PokoHex.slnx
++++ b/PokoHex.slnx
+@@ -1,7 +1,8 @@
+-﻿<Solution>
++<Solution>
+   <Project Path="PokoHex/PokoHex.csproj" />
+   <Project Path="PokoHex.Web/PokoHex.Web.csproj" />
+   <Project Path="PokoHex.Core/PokoHex.Core.csproj" />
++  <Project Path="PokoHex.Extract/PokoHex.Extract.csproj" />
+   <Project Path="PokoHex.Parsing/PokoHex.Parsing.csproj" />
+   <Project Path="PokoHex.Tests/PokoHex.Tests.csproj" />
+ </Solution>

@@ -908,4 +908,9 @@ export default {
   'The game is running. Close it first, then edit the save.': 'ゲームが実行中です。先にゲームを閉じてから、セーブを編集してください。',
   'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '編集できるセーブがまだありません。一度ゲームをプレイするか、設定でセーブをインポートしてから、もう一度お試しください。',
   'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '書き込み先のセーブがありません。一度ゲームをプレイするか、設定でセーブをインポートしてから、もう一度お試しください。',
+  'Making the editor\'s names and pictures from your game files. This happens once.': 'ゲームファイルからエディターの名前と画像を作成しています。これは一度だけ行われます。',
+  'The save editor needs the game files: choose them on the Set up page first.': 'セーブエディターにはゲームファイルが必要です。先にセットアップページで選んでください。',
+  'The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.': 'ゲームファイルが pkp.ini の示す場所 ({1}) にありません。セットアップページでもう一度選んでください。',
+  'This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.': 'このパッケージにはセーブエディターのデータツール (tools/pokohex) がありません。tools/ が揃うように、リリースのzipをもう一度展開してください。',
+  'The save editor could not read the game files: {1}': 'セーブエディターはゲームファイルを読み込めませんでした: {1}',
 };

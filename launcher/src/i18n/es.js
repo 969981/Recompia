@@ -908,4 +908,9 @@ export default {
   'The game is running. Close it first, then edit the save.': 'El juego se está ejecutando. Ciérralo primero y luego edita la partida.',
   'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': 'Todavía no hay ninguna partida que editar. Juega una vez o importa una partida en Ajustes y vuelve a intentarlo.',
   'There is no save to write to. Play the game once, or import a save in Settings, then try again.': 'No hay ninguna partida en la que escribir. Juega una vez o importa una partida en Ajustes y vuelve a intentarlo.',
+  'Making the editor\'s names and pictures from your game files. This happens once.': 'Creando los nombres y las imágenes del editor a partir de tus archivos del juego. Esto solo ocurre una vez.',
+  'The save editor needs the game files: choose them on the Set up page first.': 'El editor de partidas necesita los archivos del juego: elígelos primero en la página Configurar.',
+  'The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.': 'Los archivos del juego no están donde indica pkp.ini ({1}). Vuelve a elegirlos en la página Configurar.',
+  'This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.': 'Este paquete no incluye la herramienta de datos del editor de partidas (tools/pokohex). Vuelve a extraer el zip de la versión para que tools/ esté completa.',
+  'The save editor could not read the game files: {1}': 'El editor de partidas no pudo leer los archivos del juego: {1}',
 };

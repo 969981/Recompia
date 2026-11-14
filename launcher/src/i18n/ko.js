@@ -908,4 +908,9 @@ export default {
   'The game is running. Close it first, then edit the save.': '게임이 실행 중입니다. 먼저 게임을 닫은 다음 세이브를 편집하세요.',
   'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '아직 편집할 세이브가 없습니다. 게임을 한 번 플레이하거나 설정에서 세이브를 가져온 다음 다시 시도하세요.',
   'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '저장할 세이브가 없습니다. 게임을 한 번 플레이하거나 설정에서 세이브를 가져온 다음 다시 시도하세요.',
+  'Making the editor\'s names and pictures from your game files. This happens once.': '게임 파일에서 편집기의 이름과 그림을 만드는 중입니다. 한 번만 진행됩니다.',
+  'The save editor needs the game files: choose them on the Set up page first.': '세이브 편집기에는 게임 파일이 필요합니다. 먼저 설정 페이지에서 선택하세요.',
+  'The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.': '게임 파일이 pkp.ini에 적힌 위치({1})에 없습니다. 설정 페이지에서 다시 선택하세요.',
+  'This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.': '이 패키지에는 세이브 편집기 데이터 도구(tools/pokohex)가 없습니다. tools/가 완전해지도록 릴리스 zip을 다시 압축 해제하세요.',
+  'The save editor could not read the game files: {1}': '세이브 편집기가 게임 파일을 읽지 못했습니다: {1}',
 };

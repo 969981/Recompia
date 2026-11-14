@@ -4,3 +4,6 @@
 # the same script under another name.
 *.sh      text eol=lf
 *.command text eol=lf
+
+# A patch applies byte for byte (launcher/pokohex/launcher.patch): never converted, so a Windows checkout keeps its LF lines.
+*.patch -text

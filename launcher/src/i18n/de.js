@@ -908,4 +908,9 @@ export default {
   'The game is running. Close it first, then edit the save.': 'Das Spiel läuft. Schließe es zuerst und bearbeite dann den Spielstand.',
   'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': 'Es gibt noch keinen Spielstand zum Bearbeiten. Spiele einmal oder importiere einen Spielstand in den Einstellungen und versuche es dann erneut.',
   'There is no save to write to. Play the game once, or import a save in Settings, then try again.': 'Es gibt keinen Spielstand, in den geschrieben werden kann. Spiele einmal oder importiere einen Spielstand in den Einstellungen und versuche es dann erneut.',
+  'Making the editor\'s names and pictures from your game files. This happens once.': 'Die Namen und Bilder des Editors werden aus deinen Spieldateien erstellt. Das passiert nur einmal.',
+  'The save editor needs the game files: choose them on the Set up page first.': 'Der Spielstand-Editor braucht die Spieldateien: Wähle sie zuerst auf der Seite Einrichten.',
+  'The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.': 'Die Spieldateien sind nicht dort, wo pkp.ini sagt ({1}). Wähle sie auf der Seite Einrichten erneut.',
+  'This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.': 'Dieses Paket enthält kein Datenwerkzeug für den Spielstand-Editor (tools/pokohex). Entpacke die ZIP-Datei der Version erneut, damit tools/ vollständig ist.',
+  'The save editor could not read the game files: {1}': 'Der Spielstand-Editor konnte die Spieldateien nicht lesen: {1}',
 };
