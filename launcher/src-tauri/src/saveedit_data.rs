@@ -102,11 +102,12 @@ pub fn prepare(game_dir: &Path, mut report: impl FnMut(Progress)) -> Result<(), 
     Ok(())
 }
 
-/// A path the protocol may serve: relative, plain names only, inside the folder.
+/// A path the protocol may serve: relative, plain names only, inside the folder. No `\` or `:` on any system (a drive or a stream
+/// on Windows), so the rule is the same everywhere.
 fn safe_path(path: &str) -> Option<PathBuf> {
     let path = path.trim_start_matches('/');
     let p = Path::new(path);
-    (!path.is_empty() && !path.contains('\\') && p.components().all(|c| matches!(c, Component::Normal(_)))).then(|| p.to_path_buf())
+    (!path.is_empty() && !path.contains(['\\', ':', '\0']) && p.components().all(|c| matches!(c, Component::Normal(_)))).then(|| p.to_path_buf())
 }
 
 fn content_type(path: &Path) -> &'static str {
