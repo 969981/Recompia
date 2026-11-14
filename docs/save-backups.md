@@ -40,3 +40,6 @@ The runtime keeps the committed save in `account/<key>/` and only changes it in 
 
 ## Not touched on purpose
 The runtime (`runtime/`), the F1 pages, `controls.ini`, profiles and how a profile picks its save. The launcher's save import keeps its own `save.backup-<date>` folders.
+
+## Using more than one device
+The backup copies are finished snapshots, so a folder-sync tool can carry them to another device without ever seeing a half-written save. A player-friendly walkthrough with Syncthing is in [syncing-saves.md](syncing-saves.md).
