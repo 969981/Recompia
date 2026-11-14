@@ -129,7 +129,7 @@ index 0000000..c95fbf4
 +}
 diff --git a/PokoHex.Parsing/AssetStore.cs b/PokoHex.Parsing/AssetStore.cs
 new file mode 100644
-index 0000000..4f2f54c
+index 0000000..5128cee
 --- /dev/null
 +++ b/PokoHex.Parsing/AssetStore.cs
 @@ -0,0 +1,143 @@
@@ -195,7 +195,7 @@ index 0000000..4f2f54c
 +    public byte[]? Read(uint id)
 +    {
 +        if (!Assets.TryGetValue(id, out var asset))
-+            throw new KeyNotFoundException($"The game files have no asset 0x{id:X8}.");
++            throw new InvalidDataException($"The game files have no asset 0x{id:X8}; this game version is not supported.");
 +        var stream = GetFile(asset.File);
 +        if (stream == null)
 +            return null;
