@@ -49,6 +49,8 @@ button:hover:not(:disabled), .file-button:hover:not([aria-disabled="true"]) { ba
 button:active:not(:disabled) { background: var(--surface-3); transform: scale(var(--press)); }
 button:disabled, [aria-disabled="true"] { opacity: 1; color: var(--color-text-3); background: var(--surface-1); box-shadow: none; }
 button:focus-visible, input:focus-visible, select:focus-visible, .file-button:focus-within { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+/* a pad is moving the focus (the launcher's gamepad-nav.js sets pad-nav on this body too): the launcher's thicker ring */
+body.pad-nav :focus { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 .menubar > button, .menubar .file-button { background: transparent; border-color: transparent; box-shadow: none; color: var(--color-text-2); }
 .menubar > button:hover:not(:disabled), .menubar .file-button:hover:not([aria-disabled="true"]) { background: var(--surface-2); border-color: transparent; color: var(--color-text); }
 .menubar > button:disabled { background: transparent; color: var(--color-text-3); }

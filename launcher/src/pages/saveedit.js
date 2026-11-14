@@ -75,8 +75,9 @@ export async function render(el, ctx) {
   const showEditor = () => {
     host.gameData = gameDataUrl();
     window.pokohexHost = host;
+    // a pad moves through the editor as through the page (gamepad-nav.js, data-pad-frame)
     el.innerHTML = `<div class="page saveedit-page">
-      <div class="saveedit-sheet glass"><iframe class="saveedit-frame" src="${FRAME}" title="${esc(t('Save Editor'))}"></iframe></div>
+      <div class="saveedit-sheet glass"><iframe class="saveedit-frame" data-pad-frame src="${FRAME}" title="${esc(t('Save Editor'))}"></iframe></div>
     </div>`;
     const frame = el.querySelector('iframe');
     frame.addEventListener('load', () => dress(frame));
