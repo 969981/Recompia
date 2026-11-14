@@ -22,6 +22,8 @@ pkp.ini
 pipeline_keys.bin
 # tool output
 node_modules/
+# the save editor build (launcher/scripts/build-pokohex.sh)
+launcher/public/pokohex/
 target/
 bin/
 obj/

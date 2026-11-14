@@ -900,4 +900,12 @@ export default {
   '{h} h {m} min': '{h}시간 {m}분',
   '{h} h': '{h}시간',
   'Play time: {time}': '플레이 시간: {time}',
+  'Save Editor': '세이브 편집기',
+  'Before a save edit': '세이브 편집 전',
+  'The edited save is written. The save as it was is kept in Settings > Saves > Backups.': '편집한 세이브를 저장했습니다. 원래 세이브는 설정 > 세이브 > 백업에 보관됩니다.',
+  'Written to the game. A backup was made first.': '게임에 저장했습니다. 먼저 백업을 만들었습니다.',
+  'This launcher was built without the save editor. Build it with scripts/build-pokohex.sh, then build the launcher again.': '이 런처는 세이브 편집기 없이 빌드되었습니다. scripts/build-pokohex.sh로 빌드한 다음 런처를 다시 빌드하세요.',
+  'The game is running. Close it first, then edit the save.': '게임이 실행 중입니다. 먼저 게임을 닫은 다음 세이브를 편집하세요.',
+  'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '아직 편집할 세이브가 없습니다. 게임을 한 번 플레이하거나 설정에서 세이브를 가져온 다음 다시 시도하세요.',
+  'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '저장할 세이브가 없습니다. 게임을 한 번 플레이하거나 설정에서 세이브를 가져온 다음 다시 시도하세요.',
 };

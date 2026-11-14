@@ -900,4 +900,12 @@ export default {
   '{h} h {m} min': '{h}時間{m}分',
   '{h} h': '{h}時間',
   'Play time: {time}': 'プレイ時間: {time}',
+  'Save Editor': 'セーブエディター',
+  'Before a save edit': 'セーブ編集の前',
+  'The edited save is written. The save as it was is kept in Settings > Saves > Backups.': '編集したセーブを書き込みました。元のセーブは「設定 > セーブ > バックアップ」に保管されています。',
+  'Written to the game. A backup was made first.': 'ゲームに書き込みました。先にバックアップを作成しました。',
+  'This launcher was built without the save editor. Build it with scripts/build-pokohex.sh, then build the launcher again.': 'このランチャーはセーブエディターなしでビルドされています。scripts/build-pokohex.sh でビルドしてから、ランチャーをもう一度ビルドしてください。',
+  'The game is running. Close it first, then edit the save.': 'ゲームが実行中です。先にゲームを閉じてから、セーブを編集してください。',
+  'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '編集できるセーブがまだありません。一度ゲームをプレイするか、設定でセーブをインポートしてから、もう一度お試しください。',
+  'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '書き込み先のセーブがありません。一度ゲームをプレイするか、設定でセーブをインポートしてから、もう一度お試しください。',
 };

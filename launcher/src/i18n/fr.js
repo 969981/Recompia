@@ -900,4 +900,12 @@ export default {
   '{h} h {m} min': '{h} h {m} min',
   '{h} h': '{h} h',
   'Play time: {time}': 'Temps de jeu : {time}',
+  'Save Editor': 'Éditeur de sauvegarde',
+  'Before a save edit': 'Avant une modification de la sauvegarde',
+  'The edited save is written. The save as it was is kept in Settings > Saves > Backups.': 'La sauvegarde modifiée est écrite. La sauvegarde telle qu\'elle était est conservée dans Paramètres > Sauvegardes > Copies de sécurité.',
+  'Written to the game. A backup was made first.': 'Écrit dans le jeu. Une copie de sécurité a été faite avant.',
+  'This launcher was built without the save editor. Build it with scripts/build-pokohex.sh, then build the launcher again.': 'Ce launcher a été compilé sans l\'éditeur de sauvegarde. Compilez-le avec scripts/build-pokohex.sh, puis recompilez le launcher.',
+  'The game is running. Close it first, then edit the save.': 'Le jeu est en cours d\'exécution. Fermez-le d\'abord, puis modifiez la sauvegarde.',
+  'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': 'Il n\'y a pas encore de sauvegarde à modifier. Jouez une fois, ou importez une sauvegarde dans Paramètres, puis réessayez.',
+  'There is no save to write to. Play the game once, or import a save in Settings, then try again.': 'Il n\'y a pas de sauvegarde où écrire. Jouez une fois, ou importez une sauvegarde dans Paramètres, puis réessayez.',
 };

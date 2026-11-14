@@ -84,6 +84,23 @@ tools\
 If a file is missing, setup stops and names it. `pkp.exe` can live in another folder (Settings, game folder), but
 `tools\` always sits next to the launcher.
 
+## Save Editor (PokoHex)
+
+The Save Editor page (`src/pages/saveedit.js`) shows [PokoHex](https://github.com/berichan/PokoHex) (GPL-3.0), a Blazor
+WebAssembly save editor, in a frame. It is built into the launcher's own files, so it needs no internet and no extra file in
+the release folder. Before `npm run tauri build`, run (needs git and the .NET 10 SDK):
+
+```
+sh scripts/build-pokohex.sh
+```
+
+It clones PokoHex at the commit in `pokohex/PIN`, applies `pokohex/launcher-host.patch` (host mode: PokoHex offers **Load Game
+save** and **Write to Game** when the page that frames it provides `window.pokohexHost`) and publishes it to `public/pokohex/`
+(git-ignored), which Vite copies into the build. Without it the page says the editor was not built in. Load and Write go to
+`save_edit_read` / `save_edit_write` (`src-tauri/src/saveedit.rs`): only `G00/` and `S00/` travel; a write stages a copy of the
+live save with the edited files, makes a `before-edit` backup and swaps it in like a restore (`savebackup::swap_in`). Both need
+the game closed. To move to a newer PokoHex, change `pokohex/PIN` and refresh the patch against it.
+
 ## Linux (SteamOS, the Steam Deck, Bazzite, other distributions)
 
 The launcher also builds as a native Linux program (`npm run tauri build -- --no-bundle` on Linux, or an AppImage with

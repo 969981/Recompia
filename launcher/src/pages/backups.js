@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { confirm, errText, esc, toast } from '../ui.js';
 import { language, t } from '../i18n.js';
 
-const KIND = { auto: t('Automatic'), exit: t('When the game closed'), manual: t('Back up now'), 'before-restore': t('Before a restore') };
+const KIND = { auto: t('Automatic'), exit: t('When the game closed'), manual: t('Back up now'), 'before-restore': t('Before a restore'), 'before-edit': t('Before a save edit') };
 
 export const size = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
 export const when = (iso) => {

@@ -1,0 +1,24 @@
+/* Save Editor: PokoHex fills the page in one glass sheet; it scrolls inside its own frame. */
+
+.saveedit-page {
+  gap: 0;
+  height: 100vh;
+  max-width: none;
+  padding: var(--titlebar-h) var(--gutter) var(--gutter) 0;
+}
+
+.saveedit-sheet {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.saveedit-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: inherit;
+  background: #fff;
+}

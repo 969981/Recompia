@@ -900,4 +900,12 @@ export default {
   '{h} h {m} min': '{h} 小时 {m} 分钟',
   '{h} h': '{h} 小时',
   'Play time: {time}': '游戏时长：{time}',
+  'Save Editor': '存档编辑器',
+  'Before a save edit': '编辑存档前',
+  'The edited save is written. The save as it was is kept in Settings > Saves > Backups.': '已写入编辑后的存档。原来的存档保存在“设置 > 存档 > 备份”中。',
+  'Written to the game. A backup was made first.': '已写入游戏。写入前已创建备份。',
+  'This launcher was built without the save editor. Build it with scripts/build-pokohex.sh, then build the launcher again.': '此启动器构建时未包含存档编辑器。请用 scripts/build-pokohex.sh 构建它，然后重新构建启动器。',
+  'The game is running. Close it first, then edit the save.': '游戏正在运行。请先关闭游戏，再编辑存档。',
+  'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': '还没有可编辑的存档。请先玩一次游戏，或在设置中导入存档，然后重试。',
+  'There is no save to write to. Play the game once, or import a save in Settings, then try again.': '没有可写入的存档。请先玩一次游戏，或在设置中导入存档，然后重试。',
 };

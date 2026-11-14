@@ -900,4 +900,12 @@ export default {
   '{h} h {m} min': '{h} Std. {m} Min.',
   '{h} h': '{h} Std.',
   'Play time: {time}': 'Spielzeit: {time}',
+  'Save Editor': 'Spielstand-Editor',
+  'Before a save edit': 'Vor einer Spielstand-Bearbeitung',
+  'The edited save is written. The save as it was is kept in Settings > Saves > Backups.': 'Der bearbeitete Spielstand ist geschrieben. Der Spielstand, wie er vorher war, liegt unter Einstellungen > Spielstände > Sicherungen.',
+  'Written to the game. A backup was made first.': 'In das Spiel geschrieben. Vorher wurde eine Sicherung angelegt.',
+  'This launcher was built without the save editor. Build it with scripts/build-pokohex.sh, then build the launcher again.': 'Dieser Launcher wurde ohne den Spielstand-Editor gebaut. Baue ihn mit scripts/build-pokohex.sh und baue dann den Launcher neu.',
+  'The game is running. Close it first, then edit the save.': 'Das Spiel läuft. Schließe es zuerst und bearbeite dann den Spielstand.',
+  'There is no save to edit yet. Play the game once, or import a save in Settings, then try again.': 'Es gibt noch keinen Spielstand zum Bearbeiten. Spiele einmal oder importiere einen Spielstand in den Einstellungen und versuche es dann erneut.',
+  'There is no save to write to. Play the game once, or import a save in Settings, then try again.': 'Es gibt keinen Spielstand, in den geschrieben werden kann. Spiele einmal oder importiere einen Spielstand in den Einstellungen und versuche es dann erneut.',
 };

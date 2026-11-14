@@ -56,6 +56,8 @@ mod repair_cmds;
 mod rollback;
 mod runtime_api;
 mod savebackup;
+mod saveedit;
+mod saveedit_cmds;
 mod saveimport;
 mod saves;
 mod settings;
@@ -183,6 +185,8 @@ fn main() {
             backup_cmds::backup_now,
             backup_cmds::backup_restore,
             backup_cmds::open_backup_dir,
+            saveedit_cmds::save_edit_read,
+            saveedit_cmds::save_edit_write,
             branding_cmds::apply_branding,
             steam_cmds::steam_status,
             steam_cmds::steam_add,
