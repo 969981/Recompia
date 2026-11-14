@@ -558,6 +558,14 @@ float display_refresh_hz() {
     return m ? m->refresh_rate : 0.f;
 }
 
+bool window_hdr(WindowHdr* out) {
+    if (!g_window || !out) return false;
+    const SDL_PropertiesID props = SDL_GetWindowProperties(g_window);
+    out->enabled = SDL_GetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    out->headroom = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+    return true;
+}
+
 // ---- displays -----------------------------------------------------------------------------------------------------
 
 namespace {

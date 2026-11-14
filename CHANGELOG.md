@@ -28,6 +28,12 @@
 ### Removed
 - Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
 
+### Linux & Steam Deck
+- Fixed **HDR** on **Auto** never turning on in the native Linux build (#644)
+  - Before: on Linux, Auto always stayed in SDR, even on a display with HDR on. Only **On** gave HDR, with a fixed 203 nits for white and 1000 nits for highlights whatever the monitor could do
+  - Now: Auto uses HDR when a Wayland desktop has it on for the monitor, and in Steam's game mode (gamescope) when HDR output is on there. On a Wayland desktop white is as bright as the desktop's SDR content and highlights go up to the monitor's peak
+  - Still not: a game window opened through X11 on a desktop (the default when Steam starts the game there) gets no HDR, and a window moved to another monitor keeps the answer from its start
+
 ## 0.13.1 (build Q: Quokka Hotfix a1)
 
 **Update:** press **Update**, then **Finish update** once when it asks (two new hook points for the photo camera, so only a few parts of the game code compile again). Shaders and saves are kept; no shader is translated again.

@@ -1,21 +1,36 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// macOS display HDR query (win_display_posix.cpp), the counterpart of win_display.cpp. Same contract, same struct: the
+// Display HDR query off Windows (win_display_posix.cpp), the counterpart of win_display.cpp. Same contract, same struct: the
 // caller (src/gfx/vk_renderer.cpp) asks whether the monitor under the window has HDR on and what its luminance numbers
-// are, and only logs the answer.
+// are.
 //
 // Windows answers through the CCD database and DXGI_OUTPUT_DESC1. macOS has the same numbers through CoreGraphics:
 // a display's EDR headroom is what the OS allows the layer to exceed SDR white by, and CGDisplayMode gives the pixel
 // encoding. What is missing is the *user's* "SDR content brightness" slider, which Windows reports directly; on macOS
 // that is not exposed, so sdr_white_nits stays at its default and the caller's tone mapping uses the headroom ratio.
+//
+// Linux answers through the window system (platform::window_hdr, SDL's window HDR properties). On Wayland that is the
+// surface's preferred image description of the colour-management protocol: no absolute levels, only the headroom, the
+// display's peak as a multiple of its SDR white. The compositor shows an HDR10 surface's reference white (203 nits, the
+// protocol's level for ST 2084 content that declares none, as the Vulkan WSI's does not) at the brightness the user set
+// for SDR content, so paper white is those 203 nits and the peak is 203 times the headroom, in the signal's own nits.
+// X11 has no such answer: HDR reads as off there.
+//
+// gamescope (Steam's game mode on a handheld, or nested on a desktop) is asked first. Its Vulkan layer is active exactly when
+// GAMESCOPE_WAYLAND_DISPLAY is set, and it adds the HDR10 and scRGB formats to an X11 surface's list only while gamescope's
+// HDR output is on (a Wayland surface never gets them), so there the format list is the answer (formats_tell). gamescope
+// gives the application no luminance numbers: paper white is the 203 nits, the peak is left unknown.
 #include "extras/win_display.h"
 
 #if !defined(_WIN32)
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if defined(__APPLE__)
 #include <CoreGraphics/CoreGraphics.h>
+#else
+#include "nxrt/platform.h"
 #endif
 
 namespace nxrt::extras {
@@ -57,7 +72,29 @@ bool query_display_hdr(void* hwnd, DisplayHdrInfo* out) {
     return true;
 #else
     (void)hwnd;
-    return false;
+    constexpr float kReferenceWhiteNits = 203.0f;   // ITU-R BT.2408: reference white of ST 2084 content
+    if (const char* gs = getenv("GAMESCOPE_WAYLAND_DISPLAY"); gs && *gs) {
+        out->valid = true;
+        out->formats_tell = true;
+        out->sdr_white_nits = kReferenceWhiteNits;
+        snprintf(out->monitor, sizeof out->monitor, "of gamescope");
+        snprintf(out->how, sizeof out->how, "gamescope: the surface's HDR formats are the answer");
+        return true;
+    }
+    platform::WindowHdr wh;
+    if (!platform::window_hdr(&wh)) {
+        snprintf(out->how, sizeof out->how, "no window");
+        return false;
+    }
+    out->valid = true;
+    out->hdr_enabled = wh.enabled;
+    snprintf(out->monitor, sizeof out->monitor, "of the window");
+    if (wh.enabled) {
+        out->sdr_white_nits = kReferenceWhiteNits;
+        out->max_nits = kReferenceWhiteNits * wh.headroom;
+    }
+    snprintf(out->how, sizeof out->how, "window system: headroom %.2f", static_cast<double>(wh.headroom));
+    return true;
 #endif
 }
 

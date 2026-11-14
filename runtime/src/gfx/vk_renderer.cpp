@@ -409,12 +409,14 @@ struct Renderer::Impl {
                     if (f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT && f.format == VK_FORMAT_R16G16B16A16_SFLOAT) osc = true;
                 }
                 extras::query_display_hdr(platform::native_hwnd(), &di);
+                if (di.valid && di.formats_tell) di.hdr_enabled = o10 || osc;
                 NXLOG_I(kTag, "HDR: surface offers HDR10 %s, scRGB %s; display %s: hdr %s, peak %.0f nits, SDR white %.0f nits (%s)", o10 ? "yes" : "no", osc ? "yes" : "no",
                         di.monitor, di.hdr_enabled ? "on" : "off", di.max_nits, di.sdr_white_nits, di.how);
             }
             if (!headless && es.hdr.mode == extras::HdrMode::Auto && !(di.valid && di.hdr_enabled)) {
-                // the NVIDIA driver lists HDR10 and scRGB surface formats whether or not Windows HDR is on for the monitor, so "auto" needs Windows' own answer
-                if (o10 || osc) NXLOG_I(kTag, "HDR: the surface lists HDR formats but Windows does not report HDR on for this monitor (%s): SDR output (set [hdr] mode = on to force HDR)", di.how);
+                // the NVIDIA driver on Windows and Mesa on Wayland list HDR10 and scRGB surface formats whether or not HDR is on for the monitor, so
+                // "auto" needs the system's own answer
+                if (o10 || osc) NXLOG_I(kTag, "HDR: the surface lists HDR formats but the system does not report HDR on for this monitor (%s): SDR output (set [hdr] mode = on to force HDR)", di.how);
                 o10 = osc = false;
             }
             const bool pick10 = es.hdr.format == extras::HdrFormat::Hdr10 ? o10 : es.hdr.format == extras::HdrFormat::ScRgb ? false : o10;
@@ -523,7 +525,7 @@ struct Renderer::Impl {
             if (wanted == extras::OutputKind::Hdr10) got = hdr10() ? extras::OutputKind::Hdr10 : scrgb() ? extras::OutputKind::ScRgb : extras::OutputKind::Sdr8;
             else got = scrgb() ? extras::OutputKind::ScRgb : hdr10() ? extras::OutputKind::Hdr10 : extras::OutputKind::Sdr8;
             if (got == extras::OutputKind::Sdr8)
-                NXLOG_W(kTag, "HDR output was chosen but the surface does not offer it any more (Windows HDR off?): the picture is shown as SDR");
+                NXLOG_W(kTag, "HDR output was chosen but the surface does not offer it any more (HDR switched off?): the picture is shown as SDR");
         }
         if (got == extras::OutputKind::Sdr8) {
             for (VkFormat want : {VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM}) {
