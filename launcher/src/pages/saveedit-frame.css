@@ -1,0 +1,116 @@
+/* The launcher's look for PokoHex inside the Save Editor frame. saveedit.js adds this to the frame's document after PokoHex's own
+ * app.css and copies the launcher's tokens (every var(--...) below) onto the frame's root, so a theme change reaches the editor too.
+ * Only colours, type, radii and spacing change; PokoHex's layout (grids, list heights, the map) is kept. */
+
+:root {
+  color-scheme: dark;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-ui);
+  color: var(--color-text);
+  background: transparent;
+}
+body { background: transparent; }
+::selection { background: var(--color-selection); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-2); background-clip: padding-box; border: 3px solid transparent; border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--surface-3); background-clip: padding-box; border: 3px solid transparent; }
+a { color: var(--color-accent); }
+h1 { font-size: var(--text-2xl); font-weight: var(--weight-semi); letter-spacing: var(--tracking-title); }
+.muted, small, .list-status, .empty-state, .statusbar span:last-child, .titlebar span { color: var(--color-text-3); }
+
+/* the frame */
+.application { max-width: none; min-height: 100vh; margin: 0; border: 0; background: transparent; box-shadow: none; display: flex; flex-direction: column; }
+.titlebar { background: transparent; border-bottom: 1px solid var(--line); padding: var(--space-3) var(--space-5); }
+.titlebar strong { font-size: var(--text-lg); font-weight: var(--weight-semi); }
+.titlebar .edition { color: var(--color-text-2); }
+.menubar { gap: var(--space-2); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--line); }
+.tabs { gap: var(--space-1); padding: var(--space-3) var(--space-5) 0; border-bottom: 1px solid var(--line); }
+.workspace { flex: 1; min-height: 0; background: transparent; padding: var(--space-5); }
+.statusbar { padding: var(--space-2) var(--space-5); border-top: 1px solid var(--line); color: var(--color-text-2); }
+
+/* buttons: the launcher's pills */
+button, .file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-sm);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--color-text);
+  box-shadow: var(--glass-highlight);
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+button:hover:not(:disabled), .file-button:hover:not([aria-disabled="true"]) { background: var(--surface-3); border-color: var(--line); }
+button:active:not(:disabled) { background: var(--surface-3); transform: scale(var(--press)); }
+button:disabled, [aria-disabled="true"] { opacity: 1; color: var(--color-text-3); background: var(--surface-1); box-shadow: none; }
+button:focus-visible, input:focus-visible, select:focus-visible, .file-button:focus-within { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.menubar > button, .menubar .file-button { background: transparent; border-color: transparent; box-shadow: none; color: var(--color-text-2); }
+.menubar > button:hover:not(:disabled), .menubar .file-button:hover:not([aria-disabled="true"]) { background: var(--surface-2); border-color: transparent; color: var(--color-text); }
+.menubar > button:disabled { background: transparent; color: var(--color-text-3); }
+/* the two that reach the game: the page's main actions */
+.menubar > .host-button { background: var(--surface-2); border-color: var(--line); color: var(--color-text); box-shadow: var(--glass-highlight); }
+.menubar > .host-button:first-child { border-color: transparent; background: var(--color-accent); color: var(--color-on-accent); font-weight: var(--weight-semi); box-shadow: var(--shadow-accent); }
+.menubar > .host-button:first-child:hover:not(:disabled) { background: var(--color-accent-hover); color: var(--color-on-accent); }
+.menubar > .host-button:disabled { background: var(--surface-1); color: var(--color-text-3); box-shadow: none; border-color: var(--line); }
+.primary { border-color: transparent; background: var(--color-accent); color: var(--color-on-accent); font-weight: var(--weight-semi); }
+.primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+
+/* tabs: a quiet row with the open one raised */
+.tabs button { margin: 0; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-xs) var(--radius-xs) 0 0; background: transparent; box-shadow: none; color: var(--color-text-2); }
+.tabs button:hover:not(:disabled) { background: var(--surface-1); color: var(--color-text); }
+.tabs button.active { top: 0; background: var(--surface-2); color: var(--color-text); box-shadow: inset 0 -2px 0 var(--color-accent); }
+.player-sections { padding: 3px; gap: 0; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface-sunken); }
+.player-sections button, .player-sections button:first-child, .player-sections button:last-child { margin: 0; border: 0; border-radius: var(--radius-pill); background: transparent; box-shadow: none; color: var(--color-text-2); }
+.player-sections button[aria-pressed="true"] { background: var(--surface-3); border-color: transparent; color: var(--color-text); box-shadow: var(--glass-highlight), var(--shadow-sm); }
+
+/* fields */
+input, select {
+  min-height: var(--control-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--color-text);
+}
+input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--line-strong); }
+input:invalid { border-color: var(--color-danger); }
+select option { background: var(--color-menu); color: var(--color-text); }
+input[type="checkbox"] { accent-color: var(--color-accent); border-radius: 4px; }
+fieldset { border: 1px solid var(--line); border-radius: var(--radius-sm); }
+
+/* lists and tables: sunken panels */
+.table-scroll, .resident-list, .item-choices, .part-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.inventory th { background: var(--color-solid); border-bottom: 1px solid var(--line); color: var(--color-text-2); font-weight: var(--weight-medium); }
+.inventory td { border-bottom: 1px solid var(--line); }
+.inventory tr:hover, .item-choice:hover, .resident-row:hover, .part-row:hover { background: var(--surface-1); }
+.selected, .inventory tr.selected, .item-choice.selected, .resident-row.selected, .part-row.selected { background: var(--tint-accent); color: var(--color-text); }
+.row-button, .item-choice, .resident-row, .part-row, .sort-button { box-shadow: none; border-radius: 0; color: inherit; background: transparent; justify-content: flex-start; }
+.row-button:hover:not(:disabled), .sort-button:hover:not(:disabled) { background: transparent; }
+.paint-preview { background: var(--surface-2); border-color: var(--line); border-radius: var(--radius-xs); }
+.paint-swatches button { border-radius: var(--radius-xs); }
+.paint-swatches button[aria-pressed="true"] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+
+/* map */
+.map-view { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-sunken); }
+.map { border-color: var(--line-strong); border-radius: var(--radius-xs); }
+.selected-footprint { stroke: var(--color-accent); }
+
+/* messages and overlays */
+.error { background: var(--tint-danger); border-bottom: 1px solid var(--line); color: var(--color-danger); }
+.error button { background: transparent; border: 0; box-shadow: none; color: inherit; min-height: 0; }
+.busy { background: var(--backdrop); color: var(--color-text); }
+.drop-target { border: 2px dashed var(--color-accent); border-radius: var(--radius-md); background: var(--backdrop); }
+.drop-target span { color: var(--color-text); }
+.welcome { margin: var(--space-9) auto; color: var(--color-text-2); }
+.welcome strong { color: var(--color-text); }
+.loading { color: var(--color-text-2); }
+#blazor-error-ui { background: var(--color-solid-raised); color: var(--color-warn); }

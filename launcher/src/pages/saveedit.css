@@ -20,5 +20,6 @@
   min-height: 0;
   border: 0;
   border-radius: inherit;
-  background: #fff;
+  background: transparent;
+  color-scheme: dark;   /* with the frame's own dark scheme, its canvas stays transparent and the glass shows through */
 }

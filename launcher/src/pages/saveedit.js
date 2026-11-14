@@ -3,11 +3,32 @@
 // says so. Host mode: PokoHex looks for window.pokohexHost on this window and offers "Load Game save" and "Write to Game", which go
 // to the save editor commands (saveedit.rs): the active profile's save in, the edited save back with a before-edit backup first.
 import './saveedit.css';
+import frameCss from './saveedit-frame.css?inline';
+import fontCss from '@fontsource-variable/inter/opsz.css?url';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { errText, esc, icon, toast } from '../ui.js';
 
 const FRAME = 'pokohex/index.html';
+/** The launcher tokens the frame's stylesheet uses, copied onto the frame's root (a frame does not inherit custom properties). */
+const TOKENS = [...new Set([...frameCss.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))];
+
+/** Gives the editor in the frame the launcher's look: its stylesheet, its font and the current theme's tokens. */
+function dress(frame) {
+  const doc = frame.contentDocument;
+  if (!doc?.head) return;
+  if (!doc.getElementById('launcher-look')) {
+    const font = doc.createElement('link');
+    font.rel = 'stylesheet';
+    font.href = new URL(fontCss, location.href).href;
+    const style = doc.createElement('style');
+    style.id = 'launcher-look';
+    style.textContent = frameCss;
+    doc.head.append(font, style);
+  }
+  const from = getComputedStyle(document.documentElement);
+  for (const name of TOKENS) doc.documentElement.style.setProperty(name, from.getPropertyValue(name));
+}
 
 /** PokoHex shows a rejected promise's message in its own error bar, so the launcher's words go in an Error. */
 const asError = (e) => new Error(errText(e));
@@ -39,7 +60,13 @@ export async function render(el) {
   el.innerHTML = `<div class="page saveedit-page">
     <div class="saveedit-sheet glass"><iframe class="saveedit-frame" src="${FRAME}" title="${esc(t('Save Editor'))}"></iframe></div>
   </div>`;
+  const frame = el.querySelector('iframe');
+  frame.addEventListener('load', () => dress(frame));
+  // the colours button changes data-theme on the launcher's root: the frame follows
+  const themes = new MutationObserver(() => dress(frame));
+  themes.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   return () => {
+    themes.disconnect();
     if (window.pokohexHost === host) delete window.pokohexHost;
   };
 }
