@@ -5,6 +5,9 @@
 ### Added
 - Experimental: the game, the launcher and the release package build and run natively on AArch64 (Arm64) Linux (#606)
 
+### Fixed
+- Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
+
 ### Launcher
 - Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
   - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand
