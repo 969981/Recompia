@@ -5,15 +5,14 @@
 //                 picture): counted in the panel
 //   violet cubes  cells behind the character past the old two-cell box (not tested)
 //   blue cubes    cells tested and empty
-//   hit cube      green: the last reach check (query first, else a swing's) accepted it; red: rejected (the panel says why); white: no
-//                 reach check reported recently
-//   yellow cube   the cell the target query selects: its start column (moved or the game's) at the row the row hook chose; a yellow
-//                 square at the start cell's floor when the game's own band stayed (the row is then the game's)
+//   hit cube      the solid cell the ray met: green when it is the target, red when it is out of reach (the panel says why)
+//   yellow cube   the target query's start cell written at its join (the adjacent cell); a yellow square at the start cell's floor
+//                 when the game's own pick stayed (its row then comes from the game's band)
 //   cyan crosses  a swing shape's position before (dim) and after (bright) the position hook
 //   white line    the ray, from a block in front of its origin to where it enters the hit cell (or 15 blocks): it starts at the crosshair
 //                 and runs along the view, so it shows as a dot in the middle of the picture; a visible line means the ray and the picture
 //                 disagree (another view, a stale frame)
-// Cell (x, y, z) spans world x * 100 - 102400 .. + 100, y * 100 .. + 100, z * 100 - 102400 .. + 100 (pkp_aim.cpp solid_cell).
+// Cell (x, y, z) spans world x * 100 - 102400 .. + 100, y * 100 .. + 100, z * 100 - 102400 .. + 100 (pkp_aim_ray.cpp solid_cell).
 #include "input/pkp_aim_debug.h"
 
 #include <algorithm>
@@ -38,7 +37,7 @@ constexpr float kCell = 100.f, kOrigin = 102400.f;   // world units per cell; th
 constexpr uint64_t kFresh = 2;                        // a report at most this many frames old is this frame's
 constexpr uint64_t kStale = 120;                      // older than this: dimmed in the panel
 constexpr int kUses = static_cast<int>(Use::Count);
-constexpr const char* kUseName[kUses] = {"query", "swing preview", "swing hit", "other"};
+constexpr const char* kUseName[kUses] = {"swing preview", "swing hit"};
 
 struct Cell {
     int16_t x, y, z;
@@ -48,22 +47,12 @@ struct Ray {
     uint64_t frame = 0;
     bool valid = false, hit = false;
     float origin[3] = {}, dir[3] = {}, character[3] = {};
-    int feet = 0, reach = 0;
+    int feet = 0, box = 0;
     Cell cells[kMaxCells];
     int n = 0;
-    int hx = 0, hy = 0, hz = 0, hh = 0;
-};
-struct Row {
-    uint64_t frame = 0;
-    bool valid = false, hit = false;
-    int base = 0, d = 0, band = 0;
-    const char* why = "";
-    float before = 0, after = 0;
-};
-struct Pick {
-    uint64_t frame = 0;
-    bool valid = false, hit = false;
-    int x = 0, y = 0, z = 0, h = 0, d = 0;
+    int hx = 0, hy = 0, hz = 0, hh = 0, hd = 0;
+    bool adjacent = false;
+    int ax = 0, ay = 0, az = 0;
     const char* reject = nullptr;
 };
 struct Start {
@@ -81,8 +70,6 @@ struct Record {
     uint64_t frame = 0;   // game frames counted while the view is on
     vp::View view;
     Ray ray;
-    Row rows[kUses];
-    Pick picks[kUses];
     Start start;
     Swing swings[kUses];
 };
@@ -162,15 +149,6 @@ bool ray_entry(const Ray& r, float& t_out) {
 
 uint32_t step_color(Step s) { return s == Step::Behind ? 0xc080ff70u : 0x60c0ffa0u; }
 
-// The pick whose colour the hit takes: the query's when fresh, else a swing's.
-const Pick* hit_pick(const Record& r) {
-    for (Use u : {Use::Query, Use::SwingPreview, Use::SwingHit}) {
-        const Pick& p = r.picks[static_cast<int>(u)];
-        if (p.valid && r.frame - p.frame <= kFresh) return &p;
-    }
-    return nullptr;
-}
-
 void draw_world(const Painter& p, const Record& r) {
     const Ray& ray = r.ray;
     if (ray.valid && r.frame - ray.frame <= kStale) {
@@ -182,25 +160,16 @@ void draw_world(const Painter& p, const Record& r) {
         const float b[3] = {ray.origin[0] + ray.dir[0] * end_t, ray.origin[1] + ray.dir[1] * end_t, ray.origin[2] + ray.dir[2] * end_t};
         if (end_t > kCell) p.segment(a, b, 0xffffffc0u, 1.5f);
         if (ray.hit) {
-            const Pick* k = hit_pick(r);
-            const uint32_t col = !k ? 0xffffffffu : k->reject ? 0xff4040ffu : 0x40ff60ffu;
+            const uint32_t col = ray.reject ? 0xff4040ffu : 0x40ff60ffu;
             p.cube(ray.hx, ray.hy, ray.hz, col, 2.5f, 2.f);
             p.cross(b, col, 6.f);
         }
     }
-    // the query's selected cell: its start column at the chosen row
+    // the query's start cell: written at the join (the row is final), or the game's (its band still applies)
     const Start& s = r.start;
-    const Row& q = r.rows[static_cast<int>(Use::Query)];
     if (s.valid && r.frame - s.frame <= kFresh) {
-        const bool row_known = q.valid && r.frame - q.frame <= kFresh && std::isfinite(q.after);
-        if (row_known && q.band == kUnder && ray.valid) {   // the down extreme: the cell under the character
-            p.cube(static_cast<int>(std::floor((ray.character[0] + kOrigin) / kCell)), ray.feet - 1,
-                   static_cast<int>(std::floor((ray.character[2] + kOrigin) / kCell)), 0xffe040ffu, 2.f, 6.f);
-        } else if (row_known && q.band != kUnder) {
-            p.cube(s.nx, s.ny + q.band, s.nz, 0xffe040ffu, 2.f, 6.f);
-        } else {
-            p.floor_square(s.nx, s.ny, s.nz, 0xffe040ffu, 2.f);
-        }
+        if (s.x != s.nx || s.y != s.ny || s.z != s.nz) p.cube(s.nx, s.ny, s.nz, 0xffe040ffu, 2.f, 6.f);
+        else p.floor_square(s.nx, s.ny, s.nz, 0xffe040ffu, 2.f);
     }
     for (Use u : {Use::SwingPreview, Use::SwingHit}) {
         const Swing& w = r.swings[static_cast<int>(u)];
@@ -237,36 +206,24 @@ void draw_panel(gfx::OverlayCanvas& c, const Record& r) {
     if (!ray.valid) {
         add(kText, 0, "%s", "no ray reported (camera_aim off, or the follow camera is not the active one)");
     } else {
-        add(kText, ray.frame, "ray from %.0f %.0f %.0f  dir %.3f %.3f %.3f  reach %d  feet row %d  character %.0f %.0f %.0f", static_cast<double>(ray.origin[0]),
+        add(kText, ray.frame, "ray from %.0f %.0f %.0f  dir %.3f %.3f %.3f  box %d  feet row %d  character %.0f %.0f %.0f", static_cast<double>(ray.origin[0]),
             static_cast<double>(ray.origin[1]), static_cast<double>(ray.origin[2]), static_cast<double>(ray.dir[0]), static_cast<double>(ray.dir[1]),
-            static_cast<double>(ray.dir[2]), ray.reach, ray.feet, static_cast<double>(ray.character[0]), static_cast<double>(ray.character[1]),
+            static_cast<double>(ray.dir[2]), ray.box, ray.feet, static_cast<double>(ray.character[0]), static_cast<double>(ray.character[1]),
             static_cast<double>(ray.character[2]));
         int count[3] = {};
         for (int i = 0; i < ray.n; ++i) ++count[static_cast<int>(ray.cells[i].step)];
-        if (ray.hit) add(kText, ray.frame, "hit %d,%d,%d  h %d (cells from the character's column)", ray.hx, ray.hy, ray.hz, ray.hh);
-        else add(kText, ray.frame, "%s", "hit none (no solid cell near the character)");
+        if (!ray.hit) add(kText, ray.frame, "%s", "no solid cell near the character: the game's own pick, turned to the camera");
+        else if (ray.reject)
+            add(0xff9090ffu, ray.frame, "cell %d,%d,%d  h %d  d %+d: not the target, %s", ray.hx, ray.hy, ray.hz, ray.hh, ray.hd, ray.reject);
+        else
+            add(0x80ff90ffu, ray.frame, "target %d,%d,%d  h %d  d %+d   adjacent %d,%d,%d%s", ray.hx, ray.hy, ray.hz, ray.hh, ray.hd, ray.ax, ray.ay,
+                ray.az, ray.adjacent ? "" : " (solid or outside the world: none)");
         add(kText, ray.frame, "cells walked: %d before near, %d behind, %d tested empty%s", count[0], count[1], count[2], ray.n >= kMaxCells ? " (list full)" : "");
-    }
-    for (int u = 0; u < kUses; ++u) {
-        const Row& w = r.rows[u];
-        if (!w.valid) continue;
-        if (!w.hit) add(kText, w.frame, "row  %-13s base %d  no hit: %s", kUseName[u], w.base, w.why);
-        else if (std::isfinite(w.after))
-            add(kText, w.frame, "row  %-13s base %d  d %+d  -> %s  (pitch %.3f -> %.3f)", kUseName[u], w.base, w.d, w.why, static_cast<double>(w.before),
-                static_cast<double>(w.after));
-        else add(kText, w.frame, "row  %-13s base %d  d %+d  -> %s  (pitch %.3f kept)", kUseName[u], w.base, w.d, w.why, static_cast<double>(w.before));
-    }
-    for (int u = 0; u < kUses; ++u) {
-        const Pick& k = r.picks[u];
-        if (!k.valid) continue;
-        if (!k.reject) add(0x80ff90ffu, k.frame, "pick %-13s accepted %d,%d,%d  h %d  d %+d", kUseName[u], k.x, k.y, k.z, k.h, k.d);
-        else if (k.hit) add(0xff9090ffu, k.frame, "pick %-13s rejected: %s  (hit %d,%d,%d  h %d  d %+d)", kUseName[u], k.reject, k.x, k.y, k.z, k.h, k.d);
-        else add(0xff9090ffu, k.frame, "pick %-13s rejected: %s", kUseName[u], k.reject);
     }
     if (r.start.valid) {
         const Start& s = r.start;
         add(0xffe880ffu, s.frame, "query start cell %d,%d,%d -> %d,%d,%d  (%s)", s.x, s.y, s.z, s.nx, s.ny, s.nz,
-            s.x == s.nx && s.y == s.ny && s.z == s.nz ? "kept" : "moved to the hit cell");
+            s.x == s.nx && s.y == s.ny && s.z == s.nz ? "kept" : "the adjacent cell");
     }
     for (int u = 0; u < kUses; ++u) {
         const Swing& w = r.swings[u];
@@ -275,7 +232,7 @@ void draw_panel(gfx::OverlayCanvas& c, const Record& r) {
             static_cast<double>(w.before[1]), static_cast<double>(w.before[2]), static_cast<double>(w.after[0]), static_cast<double>(w.after[1]),
             static_cast<double>(w.after[2]), w.how);
     }
-    add(0xb0b0b0ffu, 0, "%s", "violet: behind  blue: tested  hit: green accepted, red rejected  yellow: query cell  cyan: swing position");
+    add(0xb0b0b0ffu, 0, "%s", "violet: behind  blue: tested  cell: green target, red out of reach  yellow: query cell  cyan: swing position");
 
     const float lh = c.line_height(), pad = lh * 0.4f;
     float wmax = 0.f;
@@ -327,7 +284,7 @@ void overlay_draw(gfx::OverlayCanvas& c) {
 
 bool on() { return g.on.load(std::memory_order_relaxed); }
 
-void ray_begin(const float origin[3], const float dir[3], const float character[3], int feet_row, int reach) {
+void ray_begin(const float origin[3], const float dir[3], const float character[3], int feet_row, int box) {
     std::lock_guard<std::mutex> lk(g.mu);
     Ray& r = g.rec.ray;
     r = Ray{};
@@ -340,7 +297,7 @@ void ray_begin(const float origin[3], const float dir[3], const float character[
         r.character[i] = character[i];
     }
     r.feet = feet_row;
-    r.reach = reach;
+    r.box = box;
 }
 
 void ray_step(int x, int y, int z, Step s) {
@@ -349,21 +306,14 @@ void ray_step(int x, int y, int z, Step s) {
     if (r.n < kMaxCells) r.cells[r.n++] = {static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), s};
 }
 
-void ray_hit(int x, int y, int z, int h) {
+void ray_result(bool ray, int x, int y, int z, int h, int d, bool adjacent, int ax, int ay, int az, const char* reject) {
     std::lock_guard<std::mutex> lk(g.mu);
     Ray& r = g.rec.ray;
-    r.hit = true;
-    r.hx = x, r.hy = y, r.hz = z, r.hh = h;
-}
-
-void row(Use u, bool hit, int base, int d, int band, const char* why, float pitch_before, float pitch_after) {
-    std::lock_guard<std::mutex> lk(g.mu);
-    g.rec.rows[static_cast<int>(u)] = {g.rec.frame, true, hit, base, d, band, why, pitch_before, pitch_after};
-}
-
-void pick(Use u, bool hit, int x, int y, int z, int h, int d, const char* reject) {
-    std::lock_guard<std::mutex> lk(g.mu);
-    g.rec.picks[static_cast<int>(u)] = {g.rec.frame, true, hit, x, y, z, h, d, reject};
+    r.hit = ray;
+    r.hx = x, r.hy = y, r.hz = z, r.hh = h, r.hd = d;
+    r.adjacent = adjacent;
+    r.ax = ax, r.ay = ay, r.az = az;
+    r.reject = reject;
 }
 
 void query_start(int x, int y, int z, int new_x, int new_y, int new_z) {
