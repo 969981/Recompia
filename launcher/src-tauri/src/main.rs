@@ -56,6 +56,9 @@ mod repair_cmds;
 mod rollback;
 mod runtime_api;
 mod savebackup;
+mod saveedit;
+mod saveedit_cmds;
+mod saveedit_data;
 mod saveimport;
 mod saves;
 mod settings;
@@ -102,6 +105,8 @@ fn main() {
     states::install(tauri::Builder::default().plugin(tauri_plugin_dialog::init()))
         // a swap cut off by closing the window would have to wait for the next start to be undone
         .on_window_event(window::on_event)
+        // the save editor's game data (saveedit_data.rs), read only, from the game folder's pokohex_data
+        .register_uri_scheme_protocol(saveedit_data::PROTOCOL, |ctx, request| saveedit_data::respond(&game_dir(ctx.app_handle()), &request))
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 // a failed screen query only means the window keeps its default size: it must never stop the launcher from starting
@@ -183,6 +188,10 @@ fn main() {
             backup_cmds::backup_now,
             backup_cmds::backup_restore,
             backup_cmds::open_backup_dir,
+            saveedit_cmds::save_edit_read,
+            saveedit_cmds::save_edit_write,
+            saveedit_cmds::save_edit_data_ready,
+            saveedit_cmds::save_edit_prepare,
             branding_cmds::apply_branding,
             steam_cmds::steam_status,
             steam_cmds::steam_add,

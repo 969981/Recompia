@@ -15,6 +15,7 @@ import * as linkplay from './pages/linkplay.js';
 import * as achievements from './pages/achievements.js';
 import * as mods from './pages/mods.js';
 import * as news from './pages/news.js';
+import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
 
@@ -24,6 +25,7 @@ const PAGES = {
   linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
   mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
   achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
+  saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },
   news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
   settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
   setup: { mod: setup },

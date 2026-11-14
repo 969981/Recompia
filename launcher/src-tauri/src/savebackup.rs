@@ -32,13 +32,20 @@ const VERSION: u32 = 1;
 const DEFAULT_KEEP: usize = 10;
 const MAX_KEEP: usize = 50;
 const MAX_MINUTES: u32 = 240;
-/// Safety copies made just before a restore are kept apart from the others, this many of them.
+/// Safety copies (made just before a restore or a save edit) are kept apart from the others, this many of them together.
 const KEEP_SAFETY: usize = 3;
 
 pub const KIND_AUTO: &str = "auto";
 pub const KIND_EXIT: &str = "exit";
 pub const KIND_MANUAL: &str = "manual";
 pub const KIND_SAFETY: &str = "before-restore";
+/// Safety copy made just before the save editor writes the save (saveedit.rs); kept like a before-restore copy.
+pub const KIND_EDIT: &str = "before-edit";
+
+/// Safety copies (made before the launcher replaces the save) are kept apart from the others and always made, even when unchanged.
+fn is_safety(kind: &str) -> bool {
+    kind == KIND_SAFETY || kind == KIND_EDIT
+}
 
 /// pkp.ini `[backup]`: `interval_minutes` (0 = off, the default; the launcher offers 5, 10 and 15), `keep` (how many automatic, exit and
 /// manual copies stay, default 10), `on_exit` (one more copy when the game ends, default on, only while backups are on).
@@ -203,7 +210,7 @@ pub fn status(game_dir: &Path) -> Status {
 fn prune(game_dir: &Path, key: &str, keep: usize) {
     let root = root_of(game_dir, key);
     let all = list_key(game_dir, key);
-    let (safety, normal): (Vec<&Entry>, Vec<&Entry>) = all.iter().partition(|e| e.kind == KIND_SAFETY);
+    let (safety, normal): (Vec<&Entry>, Vec<&Entry>) = all.iter().partition(|e| is_safety(&e.kind));
     for e in normal.iter().skip(keep).chain(safety.iter().skip(KEEP_SAFETY)) {
         if safe_name(&e.name) {
             let _ = fs::remove_dir_all(root.join(&e.name));
@@ -259,7 +266,7 @@ fn snapshot_impl(game_dir: &Path, kind: &str, retry_wait: Duration, game_closed:
             continue;
         }
         let (hash, files, bytes) = digest(&tmp.join(DATA), Some(&tmp.join(META))).map_err(|e| e.to_string())?;
-        if kind != KIND_SAFETY && list_key(game_dir, &key).first().map_or(false, |e| e.hash == hash) {
+        if !is_safety(kind) && list_key(game_dir, &key).first().map_or(false, |e| e.hash == hash) {
             let _ = fs::remove_dir_all(&tmp);
             return Ok(Outcome::Unchanged);
         }
@@ -313,15 +320,10 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
     if !src.join(DATA).is_dir() {
         return Err("That backup is incomplete.".into());
     }
-    let safety = match snapshot_impl(game_dir, KIND_SAFETY, Duration::from_millis(200), true).map_err(|e| format!("Your current progress could not be saved first, so nothing was changed: {}", e))? {
-        Outcome::Made { entry } => Some(entry),
-        _ => None,
-    };
+    let safety = safety_copy(game_dir, KIND_SAFETY)?;
     let acc = sd.join("account");
     fs::create_dir_all(&acc).map_err(|e| e.to_string())?;
-    let live = acc.join(&key);
-    let st = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
-    let (incoming, replaced) = (acc.join(format!("{}.restore-{}", key, st)), acc.join(format!("{}.replaced-{}", key, st)));
+    let incoming = acc.join(format!("{}.restore-{}", key, swap_stamp()));
     let _ = fs::remove_dir_all(&incoming);
     copy_tree(&src.join(DATA), &incoming).map_err(|e| {
         let _ = fs::remove_dir_all(&incoming);
@@ -331,23 +333,50 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
         let _ = fs::remove_dir_all(&incoming);
         return Err("The copy of the backup is not complete. Your save was not changed.".into());
     }
+    let meta_from = src.join(META);
+    swap_in(&sd, &key, &incoming, Some(&meta_from).filter(|m| m.is_file()).map(|m| m.as_path()))?;
+    Ok(Restored { restored: entry, safety })
+}
+
+/// A copy of the active profile's save as it is now, made with the game closed and kept as a safety copy (`kind` is KIND_SAFETY or
+/// KIND_EDIT). None when there is no save yet. An error says nothing was changed, so the caller can stop.
+pub fn safety_copy(game_dir: &Path, kind: &str) -> Result<Option<Entry>, String> {
+    debug_assert!(is_safety(kind));
+    match snapshot_impl(game_dir, kind, Duration::from_millis(200), true).map_err(|e| format!("Your current progress could not be saved first, so nothing was changed: {}", e))? {
+        Outcome::Made { entry } => Ok(Some(entry)),
+        _ => Ok(None),
+    }
+}
+
+/// The time part of the folder names swap_in's callers stage beside the live save.
+pub fn swap_stamp() -> String {
+    chrono::Utc::now().format("%Y%m%d%H%M%S").to_string()
+}
+
+/// Puts `incoming` (a complete save folder the caller filled in `<sd>/account/`) in place as the account `key`'s save. The game must be
+/// closed. The live folder is replaced by renaming, so a failure part way puts the old one back; `meta`, when given, is copied over the
+/// .meta; leftovers of the runtime's commit (`.commit`, `.journal.*`, `.work.*`) are removed so an old unfinished commit cannot be applied
+/// over the new save. On an error `incoming` is removed and the save is as it was.
+pub fn swap_in(sd: &Path, key: &str, incoming: &Path, meta: Option<&Path>) -> Result<(), String> {
+    let acc = sd.join("account");
+    let live = acc.join(key);
+    let replaced = acc.join(format!("{}.replaced-{}", key, swap_stamp()));
     let had = live.exists();
     if had {
         fs::rename(&live, &replaced).map_err(|e| {
-            let _ = fs::remove_dir_all(&incoming);
+            let _ = fs::remove_dir_all(incoming);
             format!("Cannot replace the save: {}. Your save was not changed.", e)
         })?;
     }
-    if let Err(e) = fs::rename(&incoming, &live) {
+    if let Err(e) = fs::rename(incoming, &live) {
         if had {
             let _ = fs::rename(&replaced, &live);
         }
-        let _ = fs::remove_dir_all(&incoming);
+        let _ = fs::remove_dir_all(incoming);
         return Err(format!("Cannot put the backup in place: {}. Your save was not changed.", e));
     }
-    let meta_from = src.join(META);
-    if meta_from.is_file() {
-        let _ = fs::copy(&meta_from, acc.join(format!("{}.meta", key)));
+    if let Some(m) = meta {
+        let _ = fs::copy(m, acc.join(format!("{}.meta", key)));
     }
     let _ = fs::remove_dir_all(&replaced);
     if let Ok(rd) = fs::read_dir(&acc) {
@@ -359,7 +388,7 @@ pub fn restore(game_dir: &Path, name: &str) -> Result<Restored, String> {
             }
         }
     }
-    Ok(Restored { restored: entry, safety })
+    Ok(())
 }
 
 // ---- while the game runs --------------------------------------------------------------------------------------------------------

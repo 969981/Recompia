@@ -75,6 +75,7 @@ export const store = {
     updateError: null,
     unpack: null,         // last unpack-progress while a game package (.nup or .nx) unpacks
     dlss: null,           // last dlss-progress while DLSS downloads
+    saveEditData: null,   // last save-edit-data-progress while the save editor's names and pictures are made from the game files
     storage: null,        // shader_storage: how the translated shaders are kept (loose files or the shader archive), null until asked
     repack: null,         // { kind: 'compact'|'expand', done, total } while the shader files are being repacked
     starting: false,      // a start click is on its way to Rust
@@ -97,6 +98,7 @@ export const store = {
       on('setup-status', onSetupEvent),
       on('update-progress', (p) => set({ update: p }, 'update')),
       on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
+      on('save-edit-data-progress', (p) => set({ saveEditData: p }, 'saveedit')),
       on('unpack-progress', (p) => store.state.unpack && set({ unpack: p }, 'task')),
       on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),

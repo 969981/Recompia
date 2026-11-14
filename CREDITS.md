@@ -6,6 +6,8 @@ The macOS port draws on [PokoMac](https://github.com/Chaos192/PokoMac) by Chaos1
 
 The Linux launcher (`launcher/src-tauri/src/host.rs`) runs Proton the way [pokopia-recomp-linux](https://github.com/tinfoil-chewer/pokopia-recomp-linux) (GPL-3.0) does, inside the Steam Linux Runtime, and follows it for an AppImage's environment and the pinned Linux Zig.
 
+The launcher's Save Editor page builds in [PokoHex](https://github.com/berichan/PokoHex) by berichan (GPL-3.0), the save editor, from source at the commit in `launcher/pokohex/PIN`; `launcher/pokohex/launcher.patch` adds its host mode (Load Game save, Write to Game), a build without the game's data and pokohex-extract, which makes the editor's names and pictures from the player's own game files. pokohex-extract decodes the game's textures with [BCnEncoder.Net](https://github.com/Nominom/BCnEncoder.NET) (MIT or Unlicense).
+
 The Joy-Con 2 mouse mode follows [Pikantine](https://github.com/SpiderNic96/Pikantine) (GPL-3.0), an emulator build of the same game version: its clicks are the Joy-Con's R and ZR on the npad.
 
 Licences are in `runtime/THIRD_PARTY_NOTICES.md`, `recomp/THIRD_PARTY.md` and `tools/shaders/licenses/`.

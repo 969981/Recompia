@@ -5,6 +5,13 @@
 ### Added
 - Experimental: the game, the launcher and the release package build and run natively on AArch64 (Arm64) Linux (#606)
 
+### Launcher
+- Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
+  - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand
+  - Now: **Load Game save** opens the active profile's save in the editor, **Write to Game** puts the edited save back. A **Before a save edit** copy is made first (Settings > Saves > Backups can restore it). Both need the game closed. It works offline, on Windows and Linux (Steam Deck). The first time the page opens it makes the item, villager, skill and reaction names and pictures from your own game files (a few seconds, once); the launcher carries none of them
+  - The controller works in the editor as on the other pages: move onto it from the sidebar, the d-pad or left stick moves between its buttons, tabs and lists, A presses, the right stick scrolls, and B steps back out to the sidebar
+  - Still not: typing a name or a number needs a keyboard (on the Steam Deck, Steam + X opens one)
+
 ## 0.13.1 (build Q: Quokka Hotfix a1)
 
 **Update:** press **Update**, then **Finish update** once when it asks (two new hook points for the photo camera, so only a few parts of the game code compile again). Shaders and saves are kept; no shader is translated again.

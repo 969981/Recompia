@@ -77,12 +77,46 @@ tools\
                                 --self-contained true -o <release>\tools\spirv_harness     (~84 MB)
                             (stage the Ryujinx sources first: tools\shaders\scripts\setup_ryujinx.ps1)
   shaders\extract_corpus.py nx tools/shaders/ampere/extract_corpus.py
+  pokohex\                  the Save Editor's data tool, pokohex-extract.exe (one self-contained file, ~15 MB):
+                              sh launcher/scripts/build-pokohex.sh --extractor win-x64 <release>\tools\pokohex
   python\python.exe         optional: Python 3 (for example the embeddable package) with the lz4 package installed.
                             Without it the first python.exe on PATH that can `import lz4.block` is used.
 ```
 
 If a file is missing, setup stops and names it. `pkp.exe` can live in another folder (Settings, game folder), but
 `tools\` always sits next to the launcher.
+
+## Save Editor (PokoHex)
+
+The Save Editor page (`src/pages/saveedit.js`) shows [PokoHex](https://github.com/berichan/PokoHex) (GPL-3.0), a Blazor
+WebAssembly save editor, in a frame. It is built into the launcher's own files and needs no internet. Before `npm run tauri build`,
+run (needs git and the .NET 10 SDK):
+
+```
+sh scripts/build-pokohex.sh                                   # the editor, into public/pokohex/ (git-ignored)
+sh scripts/build-pokohex.sh --extractor win-x64 <release>/tools/pokohex   # also its data tool for a release
+```
+
+It clones PokoHex at the commit in `pokohex/PIN` and applies `pokohex/launcher.patch`, which adds:
+
+- **host mode**: PokoHex offers **Load Game save** and **Write to Game** when the page that frames it provides
+  `window.pokohexHost`;
+- **a build without the game's data** (`-p:PokoHexGameData=false`): no names, tables or pictures from the game are built in; the
+  editor loads them from a folder instead;
+- **pokohex-extract**, which writes that folder from the player's own game files: the name lists in nine languages, five small
+  tables and about 2,200 pictures cut from the game's own textures (`PokoHex.Parsing/Data/pictures.tsv` says where each one is: a
+  sprite table, a texture and a sprite name, no pixels).
+
+So the launcher ships no game data. The first time the page opens, `save_edit_prepare` (`src-tauri/src/saveedit_data.rs`) runs
+`tools/pokohex/pokohex-extract` on the romfs of `[fs] romfs` into `<game>/pokohex_data/` (a few seconds, about 35 MB); it runs again
+when the game files change or a newer tool writes another manifest version. The page serves that folder to the editor through the
+`pokohex-data` protocol (read only, that folder only). Without the script the page says the editor was not built in; without the
+tool it says so.
+
+Load and Write go to `save_edit_read` / `save_edit_write` (`src-tauri/src/saveedit.rs`): only `G00/` and `S00/` travel; a write
+stages a copy of the live save with the edited files, makes a `before-edit` backup and swaps it in like a restore
+(`savebackup::swap_in`). Both need the game closed. To move to a newer PokoHex, change `pokohex/PIN` and refresh the patch against
+it.
 
 ## Linux (SteamOS, the Steam Deck, Bazzite, other distributions)
 
