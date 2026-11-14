@@ -112,16 +112,14 @@ midhook 0x71002e1a14
 #   live hit shape 0x71006d9b40 right after its load (s8 = heading, x19 = character); both replaced by the follow camera's yaw
 midhook 0x71007220dc
 midhook 0x71006d9d70
-#   the row helper 0x71006f77b0 (the query, the swing shapes and the placement collectors ask it for the row offset) right after it
-#   wrapped the camera pitch (s5 = pitch, x22 = character, w21 = extremes allowed, s4/s2/s1/s3/s0 = the row angle bands): the pitch is
-#   replaced by one in the band of the row the camera ray hits in the forward cell
-midhook 0x71006f7918
 #   StartAction 0x710027da60 right before it records the started action (w28 = action id, x19 = action component): the character turns to the aim
 midhook 0x710027e5d8
-#   reach ([pkp] camera_aim_reach): the target query once its start cell is final (x28 = character, cell x29 - 0xb8 / - 0xb4), the swing
-#   preview right before its shape constructor call (x22 = character, position x29 - 0x60) and the live hit once its position is chosen
-#   (w22 = tool path, x27 = character, position x29 - 0x80): moved to the column of a farther camera ray hit
+#   the joins after the game's own mouse-mode branches, where camera aim writes what those branches take from the pointer's ray, from its
+#   own camera ray: the target query (x28 = character, start cell x29 - 0xb8 / - 0xb4: the adjacent cell), the break collector 0x7100588694
+#   (x22 = character, cell x29 - 0x20: the hit), the swing preview right before its shape constructor call (x22 = character, position
+#   x29 - 0x60) and the live hit once its position is chosen (w22 = tool path, x27 = character, position x29 - 0x80): the hit's centre
 midhook 0x71002e1de8
+midhook 0x7100588778
 midhook 0x71007226bc
 midhook 0x71006da610
 # over-the-shoulder camera (runtime games/pkp/render/pkp_shoulder_camera.cpp, [pkp] camera_shoulder_side / camera_shoulder_height): the
