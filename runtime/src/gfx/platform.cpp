@@ -424,8 +424,9 @@ bool init(const InitOptions& opt) {
     g_quit = false;
     g_gamepads = opt.gamepads;
     const int v = SDL_GetVersion();
-    NXLOG_I(kTag, "SDL %d.%d.%d initialised (gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
-            SDL_VERSIONNUM_MICRO(v), opt.gamepads ? "on" : "off");
+    const char* video = SDL_GetCurrentVideoDriver();   // wayland or x11 decides what the window system can say about HDR
+    NXLOG_I(kTag, "SDL %d.%d.%d initialised (video %s, gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
+            SDL_VERSIONNUM_MICRO(v), video ? video : "none", opt.gamepads ? "on" : "off");
     return true;
 }
 
