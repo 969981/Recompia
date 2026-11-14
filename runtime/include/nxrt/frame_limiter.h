@@ -24,8 +24,8 @@ public:
     double target_fps() const;
 
     // The game's own ceiling (0 = none): frames never start closer together than 1 / max, whatever the target (unlimited included). Pokopia sets
-    // it to 60 while an area transition plays (#144: a part of it breaks on frames shorter than 1/60 s). Loading frames (frame_limiter_unpaced)
-    // stay unpaced. With RefreshSync::snap_ceiling the ceiling in force is the next divisor of the refresh rate at or under it.
+    // it to 60 while an area transition plays (#144: a part of it breaks on frames shorter than 1/60 s). With
+    // RefreshSync::snap_ceiling the ceiling in force is the next divisor of the refresh rate at or under it.
     // Safe to call from any thread.
     void set_max_fps(double fps);
     double max_fps() const;
@@ -117,12 +117,4 @@ struct FrameSnap {
     int k = 0;          // refresh intervals per frame when snapped (>= 2), else 0
 };
 FrameSnap snap_frame_cap(double cap, double hz);
-
-// While the game loads (a black boot screen, a loading screen: a presented frame with almost no draws) no limiter waits: the loading code
-// advances once per frame, so pacing it at 60 Hz stretches boot and loads. The NVN replay sets it ([display] unpaced_loading, default off).
-void frame_limiter_set_unpaced(bool on);
-bool frame_limiter_unpaced();   // true only while loading AND no frame limit of the player's own holds
-// A frame limit the player set ([display] fps_limit = a number) holds through loading screens too: on a Mac a 60 limit showed 110 fps for
-// the first 16 s of every start, because boot loading is unpaced. auto and unlimited keep the faster unpaced loading. Set by play mode.
-void frame_limiter_set_player_cap(bool set);
 }  // namespace nxrt
