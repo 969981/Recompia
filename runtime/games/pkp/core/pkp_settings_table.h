@@ -103,6 +103,8 @@ inline constexpr Spec kSpecs[] = {
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),
     gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
+    // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
+    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 

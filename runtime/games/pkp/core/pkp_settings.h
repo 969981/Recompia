@@ -66,6 +66,7 @@ enum class Key : uint8_t {
     OptionsMenu,
     EventsFile,
     SaveNow,
+    OnlinePresence,
     Count
 };
 
