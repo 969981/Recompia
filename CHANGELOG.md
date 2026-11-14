@@ -8,12 +8,6 @@
 ### Fixed
 - Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
 
-### Changed
-- Camera aim picks the block under the crosshair for every tool and held item, the way the game's own Joy-Con 2 mouse mode aims (#663)
-  - Before: each tool worked out its own target from the camera, and placing used a fixed list of the game's placement paths
-  - Now: one aim each frame, the block under the crosshair within reach; tools that break use that block, tools and items that place use the empty cell on the side you look at. Where the character faces does not matter: turn the camera, not the character
-  - Still not: a block out of reach falls back to the game's own pick in the camera's direction
-
 ### Launcher
 - Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
   - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand

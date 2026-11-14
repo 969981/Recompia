@@ -62,7 +62,6 @@ if(TARGET nxrt_gfx)
         "${_pkp}/input/pkp_mouse_mode.cpp"
         "${_pkp}/input/pkp_aim.cpp"
         "${_pkp}/input/pkp_aim_debug.cpp"
-        "${_pkp}/input/pkp_aim_ray.cpp"
         "${_pkp}/input/pkp_jump.cpp"
         "${_pkp}/input/pkp_kbm.cpp"
         # ui
