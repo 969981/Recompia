@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets new hook points and is linked again; saves and shaders are kept, no shader is translated again).
 
 ### Gameplay
 - Added an experimental **Play as Pokémon** mod: stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it. You turn into it and stay that way; ZL and Right on the D-pad turns you back, ZL and Left turns you into your chosen Pokémon again. Off during Link Play. Switch: Settings > Gameplay in the launcher (`[pkp] play_as_pokemon`)
