@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Graphics
+- Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
+  - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
+  - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
+  - Still not: the stars in the loading screen's sky end at the old 16:9 edges
+
+### For developers
+- `runtime/games/pkp/render/pkp_loading_backdrop.cpp`: the pane quad hook is also installed on a canvas wider than 1920 and grows the loading layout's sky and ground and the fade quad `000_prt_square_k` (authored 2112x1188) with the canvas; `play_ui_canvas_width()` in `input/pkp_play.h`
+
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed. Shaders and saves are kept; no shader is translated again.
