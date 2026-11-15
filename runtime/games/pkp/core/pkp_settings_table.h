@@ -104,7 +104,7 @@ inline constexpr Spec kSpecs[] = {
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),
     gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
     gameplay(b(PlayAsPokemon, "play_as_pokemon", true, "Experimental: ZL + D-pad Left turns the player into a Pokemon (play_as_pokemon_form) and keeps the form, ZL + D-pad Right turns back.")),
-    live(i(PlayAsPokemonForm, "play_as_pokemon_form", 70, 2, 403, "With play_as_pokemon: the character number of the form (70: Ditto), read at each press.")),
+    live(i(PlayAsPokemonForm, "play_as_pokemon_form", 70, 2, 1000, "With play_as_pokemon: the character number of the form (70: Ditto), read at each press. Copying a Pokemon sets it.")),
     // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
     live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
 };

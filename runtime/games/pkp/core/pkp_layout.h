@@ -60,10 +60,20 @@ constexpr uint64_t kAction = 0x18b8;             // the action component (pointe
 // change is asked for through the request block; its writer 0x71002f14e0 stores the form, the motion played for the change and the go flag.
 constexpr uint64_t kFormNow = 0x5a44;            // u16: the form the player is in
 constexpr uint64_t kFormWanted = 0x5a46;         // u16: the form asked for
-constexpr uint16_t kFormHuman = 1;
+constexpr uint16_t kFormHuman = 1, kFormMax = 1000;   // the writer takes forms 1..1000
 constexpr uint64_t kFormRequest = 0x3778;        // the form request block
 constexpr uint64_t kRequestForm = 0x10, kRequestMotion = 0x12, kRequestGo = 0x14;   // request block: u16 form, u16 motion, u8 go
 constexpr uint64_t kGroundState = 0x2ac0;        // a player's ground state block (0x71004050a4 and 0x710040a12c store its flag word at +0xbe2)
+
+// ---- the actor pool: the Pokemon in the world ----
+// [main + kActorPool] is a holder whose first pointer is the pool; its actors are kPoolSize pointers from +kPoolSlots (0: a free slot).
+// An actor is a character (kPosition, the virtuals below) and carries what it is: the id of its species name.
+constexpr uint64_t kActorPool = 0x3483bd0, kPoolSlots = 0x50;
+constexpr uint32_t kPoolSize = 64;
+constexpr uint64_t kActorSpecies = 0x39f0;       // u16: its id in the species name table (for kSpeciesName); the resident row - 4 where seen
+constexpr uint64_t kCharacterNumber = 0x1d0;     // character vtable: () -> its character number (a player's: the form it is in)
+constexpr uint64_t kSpeciesName = 0xa34cc8;      // (species id 1..kSpeciesMax) -> UTF-8 name in the game's language
+constexpr uint16_t kSpeciesMax = 1023;
 
 // ---- motion packs and motion sets ----
 // The motion packs are [main + kPackOwner] + kMotionPacks: a 6-byte record per pack id (1..1023) with its requests (u16 at +8) and

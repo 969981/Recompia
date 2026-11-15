@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Play as Pokemon: ZL + D-pad Left turns the player into a Pokemon and keeps the form, ZL + D-pad Right turns back; a Pokemon that flies
-// takes off and rises with ZR and sinks and lands with ZL. [pkp] play_as_pokemon
-// (on by default: the buttons work, and nothing changes until they are pressed), [pkp] play_as_pokemon_form (the form's character
-// number, Ditto by default; read at each press).
+// Play as Pokemon: ZL + D-pad Up copies the Pokemon in front of the player (turns into it and remembers it), ZL + D-pad Left turns the
+// player into the chosen Pokemon and keeps the form, ZL + D-pad Right turns back; a Pokemon that flies takes off and rises with ZR and
+// sinks and lands with ZL. [pkp] play_as_pokemon (on by default: the buttons work, and nothing changes until they are pressed),
+// [pkp] play_as_pokemon_form (the chosen form's character number, Ditto by default; read at each press, set by a copy and by the
+// Play as tab of the game's Settings screen, which lists the copied Pokemon: pkp_play_as_list.h).
 //
 // A port of the Play as Pokemon patch of cycalo/Pokopia-Editor (GPL-3.0, mods/play-as-pokemon) to site hooks. The patch keeps "the form
 // held" (0 = none) in a spare word of the game's bss, branches from eight instructions of main into code caves that read it, and has a
@@ -57,15 +58,23 @@
 // Turning into the form and back is asked for as the patch's cheat does it: the wanted form, then the request block's motion (0x3b2),
 // go flag and form, the three stores of the game's own writer.
 //
+// Copying is not in the patch. The Pokemon in the world are the actors of the pool (layout::kActorPool); each is a character, so it
+// has a position, says its character number through the virtual every character has (layout::kCharacterNumber: the number its table
+// row and its motions are looked up with, and a player's form) and carries the id of its species name (layout::kActorSpecies). The
+// copy takes the nearest one within kCopyReach of the player, one behind the player counting as twice as far, turns the player into
+// its number and remembers number and species.
+//
 // Link Play: the form is not turned on in a session, and a session that starts while it is held turns it back (layout::kOnline), so
 // no form is held in a session.
 #include "input/pkp_play_as.h"
+#include "input/pkp_play_as_list.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
 
 #include <atomic>
 #include <cmath>
+#include <string>
 
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
@@ -88,6 +97,7 @@ constexpr uint64_t kPlayerTick = 0x2face0;                         // the player
 constexpr uint64_t kPackRequest = 0x8d20a0, kPackRelease = 0x8d2420, kPackReady = 0x8d1130;   // (packs, id[, flush])
 constexpr uint64_t kSetUse = 0x8d11c0, kSetRelease = 0x8d1380;     // (-, number[, all])
 constexpr uint32_t kHoverMotion = 7, kRestMotion = 1;              // motion set: the hover motion's place, and the motion landing goes to
+constexpr float kCopyReach = 600.0f;                               // world units (6 blocks) to the Pokemon a copy takes
 constexpr int kHoverKind = 34;                                     // a motion's kind: hover
 constexpr float kRiseSpeed = 7.0f, kLandSpeed = 4.0f;              // controller rise: flying up (down: the negative), the calls after landing
 constexpr float kStill = 0.5f;                                     // sinking moved the height by less than this: on the ground
@@ -96,7 +106,7 @@ constexpr uint8_t kStillCalls = 4, kLandCalls = 3;
 using guest::rd;
 using guest::wr;
 
-enum Ask : int { kNone = 0, kTurn, kBack };
+enum Ask : int { kNone = 0, kTurn, kBack, kCopy };
 
 struct State {
     uint64_t base = 0;
@@ -320,6 +330,7 @@ void install(const FeatureInstall& in) {
     if (!settings::get_bool(settings::Key::PlayAsPokemon)) return;
     const uint64_t base = in.base;
     g.base = base;
+    play_as::start(base);
     in.hooks.add_entry(base + kFormGet, &hook_form_get);
     in.hooks.add_entry(base + kFormSet, &hook_form_set);
     in.hooks.add_inline(base + kGroundStore, &hook_ground_store);
@@ -328,12 +339,13 @@ void install(const FeatureInstall& in) {
     in.hooks.add_entry(base + kObstacleCheck, &hook_obstacle_check);
     in.hooks.add_inline(base + kMotionStore, &hook_motion_store);
     in.hooks.add_inline(base + kPlayerTick, &hook_player_tick);
-    NXLOG_I(kTag, "play as Pokemon: on (ZL + D-pad Left turns the player into form %lld, ZL + D-pad Right turns back; [pkp] play_as_pokemon, "
-                  "play_as_pokemon_form)",
+    NXLOG_I(kTag, "play as Pokemon: on (ZL + D-pad Up copies the Pokemon in front, ZL + D-pad Left turns the player into form %lld, ZL + D-pad Right "
+                  "turns back; [pkp] play_as_pokemon, play_as_pokemon_form)",
             static_cast<long long>(settings::get_int(settings::Key::PlayAsPokemonForm)));
 }
 
 void remove() {
+    play_as::stop();
     g.base = 0;
     g.form.store(0);
     g.ask.store(kNone);
@@ -349,13 +361,57 @@ void remove() {
 void frame(bool in_game, double, play::GameFrame*) {
     if (!g.base) return;
     const uint64_t buttons = hid::sampled_buttons();
-    const uint64_t zl = hid::btn(hid::kBtnZL), turn = zl | hid::btn(hid::kBtnLeft), back = zl | hid::btn(hid::kBtnRight);
+    const uint64_t zl = hid::btn(hid::kBtnZL), turn = zl | hid::btn(hid::kBtnLeft), back = zl | hid::btn(hid::kBtnRight), copy = zl | hid::btn(hid::kBtnUp);
     const auto pressed = [&](uint64_t combo) { return (buttons & combo) == combo && (g.prev_buttons & combo) != combo; };
     if (in_game) {
         if (pressed(turn)) g.ask.store(kTurn, std::memory_order_release);
         else if (pressed(back)) g.ask.store(kBack, std::memory_order_release);
+        else if (pressed(copy)) g.ask.store(kCopy, std::memory_order_release);
     }
     g.prev_buttons = buttons;
+}
+
+// ---- copying ----
+// The Pokemon a copy takes (number 0: none in reach).
+play_as::Copied copy_target(::Ctx* c) {
+    play_as::Copied best;
+    const uint64_t player = local_player();
+    const uint64_t holder = rd<uint64_t>(g.base + layout::kActorPool);
+    const uint64_t pool = guest::ok(holder, 8) ? rd<uint64_t>(holder) : 0;
+    if (!guest::ok(player, layout::kFormWanted + 2) || !guest::ok(pool + layout::kPoolSlots, layout::kPoolSize * 8)) return best;
+    const float px = rd<float>(player + layout::kPosition), pz = rd<float>(player + layout::kPosition + 8);
+    const float heading = rd<float>(player + layout::kHeading), fx = std::sin(heading), fz = std::cos(heading);
+    float nearest = kCopyReach;
+    for (uint32_t i = 0; i < layout::kPoolSize; ++i) {
+        const uint64_t actor = rd<uint64_t>(pool + layout::kPoolSlots + uint64_t{i} * 8);
+        if (actor == player || !guest::ok(actor, layout::kActorSpecies + 2)) continue;
+        const float dx = rd<float>(actor + layout::kPosition) - px, dz = rd<float>(actor + layout::kPosition + 8) - pz;
+        float far = std::hypot(dx, dz);
+        if (dx * fx + dz * fz < 0) far *= 2;   // behind the player
+        if (!(far < nearest)) continue;
+        const uint64_t vtable = rd<uint64_t>(actor);
+        if (!guest::ok(vtable + layout::kCharacterNumber, 8)) continue;
+        const uint64_t number = guest::call(c, rd<uint64_t>(vtable + layout::kCharacterNumber), actor) & 0xffff;
+        if (number <= layout::kFormHuman || number > layout::kFormMax) continue;
+        nearest = far;
+        best = {static_cast<uint16_t>(number), rd<uint16_t>(actor + layout::kActorSpecies)};
+    }
+    return best;
+}
+
+// Turns the player into the Pokemon in front and makes it the chosen form.
+void copy(::Ctx* c) {
+    const play_as::Copied target = copy_target(c);
+    if (!target.number) {
+        notices::post("pkp.play_as", "No Pokémon close enough to copy", 2.0);
+        return;
+    }
+    if (!change(target.number, target.number)) return;
+    play_as::remember(target);
+    settings::set_int(settings::Key::PlayAsPokemonForm, target.number);
+    const std::string name = play_as::species_name(c, target.species);
+    notices::post("pkp.play_as", name.empty() ? "Copied" : "Copied: " + name, 2.5);
+    NXLOG_I(kTag, "play as Pokemon: copied form %u (species %u, %s)", target.number, target.species, name.c_str());
 }
 
 // The game thread, once a frame: what the main thread asked for, and the turn back when a Link Play session starts.
@@ -368,7 +424,9 @@ void game_frame(::Ctx* c) {
     if (ask == kTurn && !online) {
         const auto form = static_cast<uint16_t>(settings::get_int(settings::Key::PlayAsPokemonForm));
         if (change(form, form)) NXLOG_I(kTag, "play as Pokemon: the player turns into form %u and keeps it", form);
-    } else if (ask == kTurn) {
+    } else if (ask == kCopy && !online) {
+        copy(c);
+    } else if (ask == kTurn || ask == kCopy) {
         notices::post("pkp.play_as", "Not during Link Play", 2.0);
     } else if (held && (ask == kBack || online)) {
         if (change(0, layout::kFormHuman)) NXLOG_I(kTag, "play as Pokemon: the player turns back%s", online ? " (a Link Play session started)" : "");
