@@ -36,7 +36,7 @@
 extern "C" {
 #endif
 
-#define MT_CORE_VERSION "0.6.1"
+#define MT_CORE_VERSION "0.7.0"
 
 typedef struct MtLoader MtLoader;
 
@@ -138,6 +138,10 @@ typedef struct MtBackend {
     /* API 0.6: notify with a picture beside the text: MT_NOTIFY_IMAGE x MT_NOTIFY_IMAGE pixels of RGBA (not premultiplied; the core has
        read and fitted the mod's PNG; valid during the call). NULL: the core calls notify, and the text goes out alone */
     int (*notify_image)(void *user, const char *mod_id, const char *text, double seconds, const uint8_t *rgba);
+
+    /* API 0.7: selected local title/account within save_dir, not a loaded-world or save-generation identifier. MT_OK fills out;
+       MT_ERR_STATE when no local account is selected. NULL: unsupported. Called on a game thread with non-NULL out. */
+    int (*save_identity)(void *user, MtSaveIdentity *out);
 } MtBackend;
 #define MT_AUDIO_VOICES 8
 #define MT_NOTIFY_IMAGE 128

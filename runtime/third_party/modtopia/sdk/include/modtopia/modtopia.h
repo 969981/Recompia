@@ -31,7 +31,7 @@ extern "C" {
 #endif
 
 #define MT_API_VERSION_MAJOR 0
-#define MT_API_VERSION_MINOR 6
+#define MT_API_VERSION_MINOR 7
 #define MT_API_VERSION ((uint32_t)(MT_API_VERSION_MAJOR << 16 | MT_API_VERSION_MINOR))
 
 #if defined(_WIN32)
@@ -99,6 +99,12 @@ typedef int (*MtEventFn)(MtMod *mod, const MtEvent *ev, void *user);
 typedef struct MtFrameData { uint64_t frame; } MtFrameData;                               /* FrameStart */
 typedef struct MtAreaData { int32_t area; int32_t previous; const char *name; } MtAreaData; /* AreaEntered: the game's area (stage) id; name or NULL */
 typedef struct MtSaveData { uint32_t count; } MtSaveData;                                  /* SaveLoaded / SaveWritten: how many so far this run */
+
+/* The selected local account's save namespace. account_id is opaque, in guest byte order; not a player name or network identity. */
+typedef struct MtSaveIdentity {
+    uint64_t title_id;
+    uint8_t account_id[16];
+} MtSaveIdentity;
 
 /* ---------------------------------------------------------------- guest calls
  * x0..x7 and v0..v7 in; on return x0..x7 and v0..v7 hold what the game function left (x0/x1 and v0..v3 are its results). Only on a game
@@ -228,6 +234,12 @@ struct MtHost {
        a side). Where the host cannot show pictures, or the file cannot be read, the text is shown alone. A mod's own files are under
        mod_dir */
     int (*notify_image)(MtMod *mod, const char *text, double seconds, const char *png_path);
+
+    /* ---- API 0.7 */
+    /* Selected local title/account, scoped to save_dir(); not proof a save exists or is loaded. A deleted/recreated save can have the
+       same identity: mods must track their own binding and wait for SaveLoaded before using gameplay data. Call on a game thread.
+       MT_OK fills out; MT_ERR_STATE means no selected account, MT_ERR_VERSION no host support. Failure clears out; NULL out: MT_ERR. */
+    int (*save_identity)(MtMod *mod, MtSaveIdentity *out);
 };
 
 #define MT_HOST_HAS(host, field) ((host)->size >= offsetof(MtHost, field) + sizeof((host)->field))

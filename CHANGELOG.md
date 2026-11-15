@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Modtopia: added a read-only selected title/account identity API so mods can scope their own data to the player's save account. **Set up again** after updating the runtime; saves and shaders are kept.
+
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed. Shaders and saves are kept; no shader is translated again.
