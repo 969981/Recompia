@@ -342,7 +342,7 @@ export default {
   'Search in the crafting screen': '제작 화면에서 검색',
   'Save button in the pause menu': '일시정지 메뉴에 저장 버튼',
   'Play as Pokémon (experimental)': '포켓몬으로 플레이 (실험적)',
-  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': 'ZL을 누른 채 방향 버튼 왼쪽을 누르면 메타몽으로 변신하고 그대로 유지됩니다. ZL과 방향 버튼 오른쪽을 누르면 원래 모습으로 돌아옵니다. Link Play 중에는 꺼집니다.',
+  'Hold ZL and press Left on the D-pad to turn into a Pokémon and stay that way. ZL and Right on the D-pad turns you back. It is Ditto unless you pick another one in the game\'s Settings, tab Play as. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': 'ZL을 누른 채 방향 버튼 왼쪽을 누르면 포켓몬으로 변신하고 그대로 유지됩니다. ZL과 방향 버튼 오른쪽을 누르면 원래 모습으로 돌아옵니다. 게임 설정 화면의 "Play as" 탭에서 다른 포켓몬을 고르지 않으면 메타몽이 됩니다. 날 수 있는 포켓몬은 ZR로 날아오르고 ZL로 착지합니다. Link Play 중에는 꺼집니다.',
   'More Pokémon in town': '마을에 더 많은 포켓몬',
   'Pokémon in town': '마을의 포켓몬 수',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '실험적 기능입니다. 방문자와 일시적으로 나타나는 포켓몬은 주민과 게임의 64칸을 함께 쓰므로, 수를 높이면 그만큼 자리가 줄어듭니다.',

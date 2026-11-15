@@ -342,7 +342,7 @@ export default {
   'Search in the crafting screen': 'Suche im Handwerksbildschirm',
   'Save button in the pause menu': 'Speichern-Schaltfläche im Pausenmenü',
   'Play as Pokémon (experimental)': 'Als Pokémon spielen (experimentell)',
-  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': 'Halte ZL und drücke auf dem Steuerkreuz nach links, um dich in Ditto zu verwandeln und es zu bleiben. ZL und Steuerkreuz nach rechts verwandelt dich zurück. Aus während Link Play.',
+  'Hold ZL and press Left on the D-pad to turn into a Pokémon and stay that way. ZL and Right on the D-pad turns you back. It is Ditto unless you pick another one in the game\'s Settings, tab Play as. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': 'Halte ZL und drücke auf dem Steuerkreuz nach links, um dich in ein Pokémon zu verwandeln und es zu bleiben. ZL und Steuerkreuz nach rechts verwandelt dich zurück. Es ist Ditto, solange du in den Einstellungen des Spiels im Tab „Play as“ kein anderes wählst. Fliegende Pokémon heben mit ZR ab und landen mit ZL. Aus während Link Play.',
   'More Pokémon in town': 'Mehr Pokémon in der Stadt',
   'Pokémon in town': 'Pokémon in der Stadt',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Experimentell. Besucher und vorübergehend erscheinende Pokémon teilen sich die 64 Plätze des Spiels mit deinen Bewohnern, eine hohe Zahl lässt ihnen also weniger Platz.',

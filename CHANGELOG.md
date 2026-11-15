@@ -6,7 +6,7 @@
 
 ### Gameplay
 - Added an experimental **Play as Pokémon** mod: hold ZL and press Left on the D-pad to turn into Ditto and stay that way, ZL and Right on the D-pad turns you back. Off during Link Play. Switch: Settings > Gameplay in the launcher (`[pkp] play_as_pokemon`)
-  - Another Pokémon instead of Ditto: its character number in `[pkp] play_as_pokemon_form` of `pkp.ini` (70 is Ditto). It does not have to live in your town
+  - Another Pokémon instead of Ditto: its number in the game's Settings, tab **Play as** (`[pkp] play_as_pokemon_form`; 70 is Ditto). It does not have to live in your town
   - As a Pokémon that hovers or flies in the game (Charizard, Scyther, Noctowl and others): ZR takes off and rises, ZL sinks and, held on the ground, lands, ZR and ZL together drops out of the air; letting go of both hovers in place
   - After [Pokopia-Editor](https://github.com/cycalo/Pokopia-Editor)'s Play as Pokemon mod
   - Needs **Set up again** once after the update (the game code is translated again for the new hook points). Shaders and saves are kept; no shader is translated again
