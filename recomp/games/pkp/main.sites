@@ -314,3 +314,8 @@ entryhook 0x7100eeae14
 inline 0x7100ef0c38
 # the time of day as text (hour w0, minute w1, out x2): [tweaks] clock_format (pkp_options.cpp)
 entryhook 0x7100ead978
+# the cross key guide (pkp_cross_guide.cpp): the prompt beside the player, a face button with the other three around it. Where its widget
+# stores the set it shows (w8: 0 none, 1 A, 2 Y, 3 X; x19 the widget), in the two functions that fill it (0x7100e77900, 0x7100e77dc0):
+# the set follows where the button sits on the player's pad
+inline 0x7100e77a30
+inline 0x7100e780c0
