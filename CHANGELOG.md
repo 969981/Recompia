@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed shader translation failing in Set up when the game folder's path has a non-ASCII character (such as an accented user name)
+
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed. Shaders and saves are kept; no shader is translated again.

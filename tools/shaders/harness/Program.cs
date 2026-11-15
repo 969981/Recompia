@@ -408,6 +408,7 @@ namespace SpirvHarness
                 }
                 return jobs.Values.ToList();
             }
+            if (!Directory.Exists(root)) throw new DirectoryNotFoundException($"the shader corpus folder does not exist: {root}");
             foreach (string manifest in Directory.EnumerateFiles(root, "manifest.tsv", SearchOption.AllDirectories)
                                                 .OrderBy(x => x.Replace('\\', '/'), StringComparer.Ordinal))  // same order on Windows
             {
@@ -550,8 +551,12 @@ namespace SpirvHarness
             string outDir = Opt(args, "--out", null) ?? throw new ArgumentException("--out is required");
             Directory.CreateDirectory(outDir);
             List<string> common = args.Skip(1).Where(a => a != "--serve").ToList();   // what a --batch run gets, less its corpus folder
+            // The launcher writes each folder as UTF-8. Console.In decodes a redirected stdin with the console code page on Windows,
+            // so a game folder with a non-ASCII character (a user name such as "José") reached Batch mangled and LoadJobs failed
+            // in Directory.EnumerateFiles on a folder that does not exist.
+            using StreamReader input = new(Console.OpenStandardInput(), new UTF8Encoding(false));
             string line;
-            while ((line = Console.In.ReadLine()) != null)
+            while ((line = input.ReadLine()) != null)
             {
                 line = line.Trim();
                 if (line.Length == 0) continue;
