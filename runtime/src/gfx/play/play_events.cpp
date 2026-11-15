@@ -71,7 +71,10 @@ void handle_event(const input::Event& e, uint64_t now) {
             return;
         }
         if (cancel) { st.capture_state.store(0); return; }
-        if (e.type == EventType::KeyDown || e.type == EventType::KeyUp) return;    // nothing reaches the game while capturing
+        // No press reaches the game while capturing, but a release does: a game menu row starts its capture on a key press (the Mouse Mode
+        // Key slider moves on the right arrow), and swallowing that key's release left it held in the game, so the slider kept moving and
+        // re-armed the capture after every key the player picked.
+        if (e.type == EventType::KeyDown) return;
     }
     // The frame rate counter hotkey: flips the counter and never reaches the game (press, repeat and release).
     if (st.overlay && (e.type == EventType::KeyDown || e.type == EventType::KeyUp) && st.settings.fps.key.kind == InKind::Key &&
