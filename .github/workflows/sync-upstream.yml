@@ -51,7 +51,24 @@ jobs:
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
             before=$(git rev-parse HEAD)
-            git merge --no-ff --no-commit upstream/main
+            if ! git merge --no-ff --no-commit upstream/main; then
+              # Workflow files are owned by the mirror; source conflicts always stop.
+              mapfile -d '' -t conflicts < <(git diff --name-only --diff-filter=U -z)
+              if (( ${#conflicts[@]} == 0 )); then
+                echo "::error::Merge failed without a resolvable workflow conflict"
+                exit 1
+              fi
+              for file in "${conflicts[@]}"; do
+                case "$file" in
+                  .github/workflows/*) echo "Keeping mirror workflow: $file" ;;
+                  *)
+                    echo "::error::Unreviewed source conflict: $file"
+                    git merge --abort || true
+                    exit 1
+                    ;;
+                esac
+              done
+            fi
             # Never overwrite local CI or import upstream workflow changes without workflow permission.
             git restore --source="$before" --staged --worktree -- .github/workflows
             git commit -m "chore(sync): merge upstream/main $upstream_sha"
