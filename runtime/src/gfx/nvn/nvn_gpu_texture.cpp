@@ -221,10 +221,12 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     if (!g->depth && !is_block_format(chosen)) {
         add(VK_IMAGE_USAGE_STORAGE_BIT);
         // sRGB formats have no storage support. The console's image stores write the raw bits (no sRGB encode), which is what a UNORM view
-        // of the same image does: storage usage is then allowed through EXTENDED_USAGE when the UNORM partner can be stored to.
+        // of the same image does: storage usage is then allowed through EXTENDED_USAGE when the UNORM partner can be stored to and the sRGB
+        // image itself is accepted with it (Intel's Windows driver refuses sRGB + STORAGE even with EXTENDED_USAGE: the image would not be made).
         const VkFormat unorm = is_srgb(chosen) ? srgb_partner(chosen) : VK_FORMAT_UNDEFINED;
         if (!(usage & VK_IMAGE_USAGE_STORAGE_BIT) && unorm != VK_FORMAT_UNDEFINED && (flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-            device().image_supported(make_desc(s, unorm, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags))) {
+            device().image_supported(make_desc(s, unorm, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags)) &&
+            device().image_supported(make_desc(s, chosen, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))) {
             flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
             usage |= VK_IMAGE_USAGE_STORAGE_BIT;
         }

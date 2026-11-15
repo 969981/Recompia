@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Graphics
+- Fixed a black screen on Intel Iris and other Intel GPUs on Windows: the driver refused the game's sRGB render targets, so nothing was drawn
+
 ## 0.13.6 (build Q: Quokka Hotfix a3)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
