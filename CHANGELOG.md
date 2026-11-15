@@ -7,6 +7,7 @@
 
 ### Fixed
 - Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
+- Mods: a save's SaveWritten event is posted on the game's thread at the next frame, not from the thread that committed the save, so a mod's handlers never run on two threads at once (#662)
 
 ### Launcher
 - Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many Pokemon have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
