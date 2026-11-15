@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+## 0.13.8 (build Q: Quokka Hotfix a5)
+
+**Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- Fixed the game closing (code 0xC0000409) soon after loading the world on PCs with 8 GB of RAM or less
+- Fixed low frame rates on graphics cards with less than 8 GB of video memory (#693, #694)
+- Added a **Brightness** setting and a **Controller** setting to pick the one controller that plays
+
 ### Controls
-- Added a **Controller** setting (in-game Settings > Controller, and the launcher's Settings > Controls): pick the one controller that plays, for PCs with other people's controllers connected (a shared streaming host). All, the default, keeps every controller playing. **Set up again** after updating; saves and shaders are kept.
+- Added a **Controller** setting (in-game Settings > Controller, and the launcher's Settings > Controls): pick the one controller that plays, for PCs with other people's controllers connected (a shared streaming host). All, the default, keeps every controller playing.
 
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
+- Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
+  - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
+  - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
+  - Still not: the stars in the loading screen's sky end at the old 16:9 edges
 - Fixed the game closing (code 0xC0000409) soon after loading the world on PCs with 8 GB of RAM or less, such as laptops with AMD Vega integrated graphics: the copies of the game's graphics memory kept in RAM are now limited to an eighth of the PC's RAM
 - Fixed low frame rates on graphics cards with less than 8 GB of video memory, worst after visiting several areas (#693, #694)
   - Before: the game's copy of its data in video memory filled up with mostly empty blocks and was never cleared, so later areas read their data from system memory
@@ -20,20 +33,16 @@
   - Now: every core gets one console core first, and the remaining two each share a core with one other
   - Still not: on a 4-core processor two cores still carry two console cores each
 
+### Launcher
+- Fixed shader translation failing in Set up when the game folder's path has a non-ASCII character (such as an accented user name)
+
 ### For developers
 - `[sched] pick = auto` with fewer physical cores than console cores: one console core per physical core (fastest first, the core of processor 0 last), then the rest on second hardware threads (`place_on_few_cores` in `src/kernel/sched.cpp`); `take_slot` now says when there are too few processors for a slot instead of blaming other processes
 - `[nvn] pool_mirror_mb`: device-local pool copies use 16 MiB chunks under a cap of 1792 MiB (64 MiB from it up), release chunks idle for 600 presents once the cap is used up (`release_idle_chunks` in `nvn_gpu_pool.cpp`), and start at 3.5 GiB of video memory instead of 4 GiB (`nvn_mirror_cap.h`)
 - `[pad] controller` (`all` or 1 to 8, `controls.ini`): `poll_pads` reads only the pad whose SDL player index + 1 matches (on Windows the XInput slot + 1); `input::GamepadInfo::player` carries the index and pkp.log prints it when a pad is added
 - `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged
-- Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
-  - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
-  - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
-  - Still not: the stars in the loading screen's sky end at the old 16:9 edges
-
-### For developers
 - `runtime/games/pkp/render/pkp_loading_backdrop.cpp`: the pane quad hook is also installed on a canvas wider than 1920 and grows the loading layout's sky and ground and the fade quad `000_prt_square_k` (authored 2112x1188) with the canvas; `play_ui_canvas_width()` in `input/pkp_play.h`
-- Modtopia: added a read-only selected title/account identity API so mods can scope their own data to the player's save account. **Set up again** after updating the runtime; saves and shaders are kept.
-- Fixed shader translation failing in Set up when the game folder's path has a non-ASCII character (such as an accented user name)
+- Modtopia: added a read-only selected title/account identity API so mods can scope their own data to the player's save account.
 
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
