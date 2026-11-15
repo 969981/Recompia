@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Graphics
+- Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
+
+### For developers
+- `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged
+
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed. Shaders and saves are kept; no shader is translated again.

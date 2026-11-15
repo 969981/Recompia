@@ -27,7 +27,7 @@ std::atomic<int> g_aa_mode{0};
 std::atomic<int> g_scene_scale{100};
 std::atomic<float> g_scene_fx{1.0f}, g_scene_fy{1.0f};   // scene_fraction
 std::atomic<int> g_upscale_quality{static_cast<int>(UpscaleQuality::Quality)};
-std::atomic<float> g_pic_contrast{1.0f}, g_pic_saturation{1.0f}, g_pic_black{0.0f}, g_pic_gamma{1.0f};
+std::atomic<float> g_pic_contrast{1.0f}, g_pic_saturation{1.0f}, g_pic_black{0.0f}, g_pic_gamma{1.0f}, g_pic_brightness{1.0f};
 std::atomic<bool> g_pic_active{false};
 
 // The state is a handful of floats read by the render thread, the guest threads (hooks) and the UI. A seqlock keeps readers lock-free
@@ -84,6 +84,7 @@ Settings settings_from_config() {
     pic.saturation = config_get_double("picture", "saturation", pic.saturation);
     pic.black = config_get_double("picture", "black", pic.black);
     pic.gamma = config_get_double("picture", "gamma", pic.gamma);
+    pic.brightness = config_get_double("picture", "brightness", pic.brightness);
     s.picture = picture_clamped(pic);
     return s;
 }
@@ -122,6 +123,7 @@ PictureSettings picture_clamped(PictureSettings p) {
     p.saturation = std::clamp(p.saturation, 0.0, 2.0);
     p.black = std::clamp(p.black, -0.5, 0.25);
     p.gamma = std::clamp(p.gamma, 0.5, 2.0);
+    p.brightness = std::clamp(p.brightness, 0.25, 1.0);
     return p;
 }
 
@@ -131,6 +133,7 @@ void set_picture_live(const PictureSettings& in) {
     g_pic_saturation.store(static_cast<float>(p.saturation), std::memory_order_relaxed);
     g_pic_black.store(static_cast<float>(p.black), std::memory_order_relaxed);
     g_pic_gamma.store(static_cast<float>(p.gamma), std::memory_order_relaxed);
+    g_pic_brightness.store(static_cast<float>(p.brightness), std::memory_order_relaxed);
     g_pic_active.store(!p.neutral(), std::memory_order_release);
 }
 
@@ -143,6 +146,7 @@ PictureLive picture_live() {
     l.saturation = g_pic_saturation.load(std::memory_order_relaxed);
     l.black = g_pic_black.load(std::memory_order_relaxed);
     l.gamma = g_pic_gamma.load(std::memory_order_relaxed);
+    l.brightness = g_pic_brightness.load(std::memory_order_relaxed);
     return l;
 }
 
