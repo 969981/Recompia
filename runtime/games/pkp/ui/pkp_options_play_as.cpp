@@ -31,10 +31,10 @@ int rest_max() { return 99; }
 
 // clang-format off
 constexpr Row kPlayAs[] = {
-    key_row("Play as Pokémon", "Experimental: hold ZL and press Left on the D-pad to turn into the Pokémon below and stay that way; ZL and Right on the D-pad turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.", Key::PlayAsPokemon),
-    dynamic("Pokémon number: hundreds", "The number of the Pokémon you turn into is this plus the row below. 70 is Ditto. Numbers run from 2 to 403; not every number is a Pokémon.", &hundreds_text, &hundreds_max,
+    key_row("Play as Pokémon", "Experimental: ZL + D-pad Left turns you into a Pokémon, ZL + D-pad Right turns you back.", Key::PlayAsPokemon),
+    dynamic("Pokémon number: hundreds", "The number of the Pokémon is this plus the row below. 70 is Ditto.", &hundreds_text, &hundreds_max,
             [](const S&) { return form() / 100; }, [](S&, int) {}),
-    dynamic("Pokémon number: rest", "Added to the hundreds above. The next ZL and Left on the D-pad uses the new number.", &rest_text, &rest_max,
+    dynamic("Pokémon number: rest", "Added to the hundreds above. Flying Pokémon take off with ZR and land with ZL.", &rest_text, &rest_max,
             [](const S&) { return form() % 100; }, [](S&, int) {}),
 };
 // clang-format on
