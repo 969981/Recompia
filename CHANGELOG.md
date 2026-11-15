@@ -10,6 +10,8 @@
 
 ### For developers
 - `runtime/games/pkp/render/pkp_loading_backdrop.cpp`: the pane quad hook is also installed on a canvas wider than 1920 and grows the loading layout's sky and ground and the fade quad `000_prt_square_k` (authored 2112x1188) with the canvas; `play_ui_canvas_width()` in `input/pkp_play.h`
+- Modtopia: added a read-only selected title/account identity API so mods can scope their own data to the player's save account. **Set up again** after updating the runtime; saves and shaders are kept.
+- Fixed shader translation failing in Set up when the game folder's path has a non-ASCII character (such as an accented user name)
 
 ## 0.13.7 (build Q: Quokka Hotfix a4)
 
