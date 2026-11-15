@@ -9,12 +9,17 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#if defined(_WIN32)
+#include <cfgmgr32.h>
+#pragma comment(lib, "cfgmgr32.lib")
+#endif
 
 #include <algorithm>
 #include <cctype>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <deque>
 #include <fstream>
 #include <mutex>
@@ -103,6 +108,25 @@ bool host_is_linux() {
     return linux_kernel;
 #else
     return false;   // macOS
+#endif
+}
+
+bool host_usb_vendor_present(unsigned vendor_id) {
+#if defined(_WIN32)
+    // ponytail: a device plugged in between the two calls makes the list too small and the answer false; the next start sees it.
+    const ULONG flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
+    ULONG len = 0;
+    if (CM_Get_Device_ID_List_SizeW(&len, L"USB", flags) != CR_SUCCESS || len == 0) return false;
+    std::wstring ids(len, L'\0');
+    if (CM_Get_Device_ID_ListW(L"USB", ids.data(), len, flags) != CR_SUCCESS) return false;
+    wchar_t want[24];
+    const int n = swprintf(want, 24, L"USB\\VID_%04X&", vendor_id & 0xFFFFu);   // instance ids: USB\VID_057E&PID_2069\<serial>
+    for (const wchar_t* p = ids.c_str(); *p; p += wcslen(p) + 1)
+        if (_wcsnicmp(p, want, static_cast<size_t>(n)) == 0) return true;
+    return false;
+#else
+    (void)vendor_id;
+    return false;
 #endif
 }
 

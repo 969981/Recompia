@@ -22,6 +22,10 @@ bool host_is_steam_deck();
 // invalidating them, a listener's TIME_WAIT, /proc, the SteamOS session. Nothing asks whether the process is Wine any more: what Wine
 // does differently is asked as a capability (is winebrowser there, did SDL report the pad) where it is needed.
 bool host_is_linux();
+// A USB device from this vendor (USB vendor id) is plugged in, read from the Windows device manager's list of present devices: no
+// device is opened or asked anything, so a USB device that never answers cannot block it. false on the POSIX hosts and when the list
+// cannot be read.
+bool host_usb_vendor_present(unsigned vendor_id);
 // Steam's on-screen keyboard for text the game asks for (the software keyboard applet). Wanted under Wine (Proton) on a Steam Deck
 // (host_is_steam_deck), on SteamOS (SteamOS=1) and in Steam's gamepad UI (SteamGamepadUI=1); [applet] steam_keyboard = auto (default)
 // | on | off overrides it. Not on Windows by default: a steam:// URL there would start the Steam client if it is not running.
