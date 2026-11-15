@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+## 0.13.7 (build Q: Quokka Hotfix a4)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed. Shaders and saves are kept; no shader is translated again.
+
+### Highlights
+- Fixed a black screen on Intel Iris and other Intel graphics on Windows (#681)
+
 ### Graphics
-- Fixed a black screen on Intel Iris and other Intel GPUs on Windows: the driver refused the game's sRGB render targets, so nothing was drawn
+- Fixed a black screen on Intel Iris and other Intel GPUs on Windows: the driver refused the game's main picture, so nothing was drawn (#681)
+  - If the picture is still black or the game closes after about a minute, update the Intel graphics driver and send the new `pkp.log`
+
+### For developers
+- `runtime/src/gfx/nvn/nvn_gpu_texture.cpp` `create_texture`: an sRGB colour image gets STORAGE through EXTENDED_USAGE only when the GPU accepts the sRGB image with that flag; Intel's Windows driver refused it (format 43, VK_ERROR_FORMAT_NOT_SUPPORTED) and the render targets had no image
 
 ## 0.13.6 (build Q: Quokka Hotfix a3)
 
