@@ -2,12 +2,29 @@
 
 ## Unreleased
 
-### Added
-- Experimental: the game, the launcher and the release package build and run natively on AArch64 (Arm64) Linux (#606)
+## 0.13.5 (build Q: Quokka Hotfix a2)
 
-### Fixed
-- Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
-- Mods: a save's SaveWritten event is posted on the game's thread at the next frame, not from the thread that committed the save, so a mod's handlers never run on two threads at once (#662)
+**Update:** press **Update**, then **Finish update** once when it asks (the game program is linked again with the new runtime, no game code compiles again). Shaders and saves are kept; no shader is translated again.
+
+### Highlights
+- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
+- Added a **Save Editor** page to the launcher: PokoHex built in, working on the save the game plays
+- Fixed camera aim placing a held block into a wall instead of in front of it (#663)
+- Fixed the frame rate limit stopping after the first loading screen (#660)
+
+### Graphics
+- Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
+- Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
+
+### Gameplay
+- Fixed camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
+- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
+  - Before: at start the game asked every USB device for its details, for the Switch 2 Pro Controller over USB; on a PC where one device never answers, the game waited forever (pkp.log ends with "FREEZE: no frame tick", frame count 0)
+  - Now: the game asks USB devices that way only when a Nintendo controller or adapter is plugged in over USB when it starts
+  - Still not: a Nintendo controller plugged in over USB after the game started is seen only after a restart; with one plugged in on such a PC the freeze can still happen
+
+### Controls
+- Fixed the **Mouse Mode Key** row in the game's Settings never leaving "Press the new key" when its capture was started with the arrow keys
 
 ### Launcher
 - Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many Pokemon have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
@@ -17,22 +34,16 @@
   - The controller works in the editor as on the other pages: move onto it from the sidebar, the d-pad or left stick moves between its buttons, tabs and lists, A presses, the right stick scrolls, and B steps back out to the sidebar
   - Still not: typing a name or a number needs a keyboard (on the Steam Deck, Steam + X opens one)
 
-### Fixed
-- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
-  - Before: at start the game asked every USB device for its details, for the Switch 2 Pro Controller over USB; on a PC where one device never answers, the game waited forever (pkp.log ends with "FREEZE: no frame tick", frame count 0)
-  - Now: the game asks USB devices that way only when a Nintendo controller or adapter is plugged in over USB when it starts
-  - Still not: a Nintendo controller plugged in over USB after the game started is seen only after a restart; with one plugged in on such a PC the freeze can still happen
-- Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
-- Fixed the game clock always running on UTC in the native Linux build: the game now follows your PC's time zone, as it does on Windows (#654)
-
-### Removed
-- Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
-
 ### Linux & Steam Deck
+- Added, experimental: the game, the launcher and the release package build and run natively on AArch64 (Arm64) Linux (#606)
+- Fixed the game clock always running on UTC in the native Linux build: the game now follows your PC's time zone, as it does on Windows (#654)
 - Fixed **HDR** on **Auto** never turning on in the native Linux build (#644)
   - Before: on Linux, Auto always stayed in SDR, even on a display with HDR on. Only **On** gave HDR, with a fixed 203 nits for white and 1000 nits for highlights whatever the monitor could do
   - Now: Auto uses HDR when a Wayland desktop has it on for the monitor, and in Steam's game mode (gamescope) when HDR output is on there. On a Wayland desktop white is as bright as the desktop's SDR content and highlights go up to the monitor's peak
   - Still not: a game window opened through X11 on a desktop (the default when Steam starts the game there) gets no HDR, and a window moved to another monitor keeps the answer from its start
+
+### Mods
+- Fixed a save's SaveWritten event running a mod's handlers on two threads at once: it is now posted on the game's thread at the next frame (#662)
 
 ## 0.13.1 (build Q: Quokka Hotfix a1)
 
