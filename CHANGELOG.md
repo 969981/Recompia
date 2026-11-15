@@ -4,6 +4,7 @@
 
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
+- Fixed the game closing (code 0xC0000409) soon after loading the world on PCs with 8 GB of RAM or less, such as laptops with AMD Vega integrated graphics: the copies of the game's graphics memory kept in RAM are now limited to an eighth of the PC's RAM
 - Fixed low frame rates on graphics cards with less than 8 GB of video memory, worst after visiting several areas (#693, #694)
   - Before: the game's copy of its data in video memory filled up with mostly empty blocks and was never cleared, so later areas read their data from system memory
   - Now: smaller blocks on those cards, blocks no area has drawn from for about 10 seconds are cleared for new ones, and 4 GB cards get a copy too
