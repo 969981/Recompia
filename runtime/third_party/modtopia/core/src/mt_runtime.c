@@ -338,6 +338,14 @@ static int h_screenshot(MtMod *m, const char *path, char *out, size_t out_n) {
     return r;
 }
 static const char *h_save_dir(MtMod *m) { return m->L->be.save_dir ? m->L->be.save_dir(m->L->be.user) : NULL; }
+static int h_save_identity(MtMod *m, MtSaveIdentity *out) {
+    if (!out) return MT_ERR;
+    memset(out, 0, sizeof *out);
+    if (!m->L->be.save_identity) return MT_ERR_VERSION;
+    int r = m->L->be.save_identity(m->L->be.user, out);
+    if (r != MT_OK) memset(out, 0, sizeof *out);
+    return r;
+}
 static const char *h_data_dir(MtMod *m) {
     if (!m->data_dir) {
         m->data_dir = mt_path_join(m->L->config_dir, m->m.id);
@@ -463,6 +471,7 @@ void mt_host_init(MtLoader *L) {
     h->audio_queued = h_audio_queued;
     h->audio_clear = h_audio_clear;
     h->notify_image = h_notify_image;
+    h->save_identity = h_save_identity;
 }
 
 /* ---------------------------------------------------------------- start: check the points against the game, load the code */

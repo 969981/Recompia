@@ -6,7 +6,7 @@
 // shared that state and its loads crashed at a different place every run).
 // Measured in smo-recomp (runtime/os/os_threads.c): free scheduling failed 4 of 6 boots in sead heap code, the console model 0 of 6.
 // Config: [sched] console_cores (default 1; env NXRT_SCHED_CONSOLE_CORES), [sched] host_cpus = hexadecimal mask of host processors to use,
-// [sched] pick = auto (the three fastest free physical cores, one hardware thread each) | top (the old rule: every second processor from the top of the mask).
+// [sched] pick = auto (the fastest free physical cores, one hardware thread each; with fewer physical cores than console cores, see place_on_few_cores) | top (the old rule: every second processor from the top of the mask).
 // [sched] affinity = soft (default) | strict. strict pins each thread to its core's processor (the model above). soft makes that processor the
 // thread's ideal processor and lets it run on any processor of a wide pool (every usable processor except the physical core of processor 0, where
 // most DPC and interrupt work lands): the p2 soak's 100+ ms stalls were ready threads pinned to one busy processor while the machine sat idle
@@ -37,28 +37,57 @@ SchedInfo g_info;
 HANDLE g_slot_mutex = nullptr;
 
 // The physical cores of processor group 0 inside `proc`, fastest first (a hybrid CPU reports a higher EfficiencyClass for its performance cores), each
-// as the mask of ONE hardware thread of the core (its lowest): a guest thread never shares a core with another guest thread, and never lands on an
-// efficiency core while a performance core is free. Empty when the system call fails.
-std::vector<uint64_t> cores_fastest_first(uint64_t proc) {
+// as the mask of its hardware threads inside `proc`. Empty when the system call fails.
+std::vector<uint64_t> core_masks_fastest_first(uint64_t proc) {
     std::vector<uint64_t> out;
     DWORD len = 0;
     GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
     if (!len) return out;
     std::vector<uint8_t> buf(len);
     if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buf.data()), &len)) return out;
-    struct C { int eff; uint64_t first; };
+    struct C { int eff; uint64_t mask; };
     std::vector<C> cores;
     for (DWORD off = 0; off < len;) {
         auto* e = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buf.data() + off);
         if (e->Relationship == RelationProcessorCore && e->Processor.GroupCount >= 1 && e->Processor.GroupMask[0].Group == 0) {
             const uint64_t m = static_cast<uint64_t>(e->Processor.GroupMask[0].Mask) & proc;
-            if (m) cores.push_back({e->Processor.EfficiencyClass, m & (~m + 1)});
+            if (m) cores.push_back({e->Processor.EfficiencyClass, m});
         }
         off += e->Size;
     }
-    std::stable_sort(cores.begin(), cores.end(), [](const C& a, const C& b) { return a.eff > b.eff || (a.eff == b.eff && a.first < b.first); });
-    for (const C& c : cores) out.push_back(c.first);
+    std::stable_sort(cores.begin(), cores.end(), [](const C& a, const C& b) { return a.eff > b.eff || (a.eff == b.eff && (a.mask & (~a.mask + 1)) < (b.mask & (~b.mask + 1))); });
+    for (const C& c : cores) out.push_back(c.mask);
     return out;
+}
+
+// The same cores, each as the mask of ONE hardware thread of the core (its lowest): a guest thread never shares a core with another guest thread, and
+// never lands on an efficiency core while a performance core is free.
+std::vector<uint64_t> cores_fastest_first(uint64_t proc) {
+    std::vector<uint64_t> out = core_masks_fastest_first(proc);
+    for (uint64_t& m : out) m &= ~m + 1;
+    return out;
+}
+
+// Fewer physical cores than console cores (a 4-core / 8-thread laptop under Switch 2's six): one console core per physical core first, fastest first
+// and the core of processor 0 last (it takes most DPC and interrupt work), then the rest on a second hardware thread of those cores in the same order,
+// so no physical core holds three console cores while another holds one. Before this the every-second-processor rule found four processors and its
+// fallback put cores (0,1) (2,3) (4,5) on the two threads of three physical cores and left the fourth idle (#694). Writes g_info.host_masks; false
+// when the cores' hardware threads are fewer than the console cores. No slot: several nxrt processes on such a CPU share its processors.
+bool place_on_few_cores(uint64_t proc, int nc) {
+    std::vector<uint64_t> cores = core_masks_fastest_first(proc);
+    if (cores.empty() || cores.size() >= static_cast<size_t>(nc)) return false;
+    std::stable_partition(cores.begin(), cores.end(), [](uint64_t m) { return !(m & 1); });
+    int n = 0;
+    for (int pass = 0; pass < 2; ++pass)        // pass 0: a first hardware thread of every core, pass 1: a second one
+        for (uint64_t& m : cores)
+            if (n < nc && m) {
+                const uint64_t b = m & (~m + 1);
+                g_info.host_masks[n++] = b;
+                m &= ~b;
+            }
+    if (n < nc) return false;
+    NXLOG_I("sched", "console cores: %zu physical cores for %d console cores: one per core, then %d on a second hardware thread", cores.size(), nc, nc - static_cast<int>(cores.size()));
+    return true;
 }
 
 // The processors of the physical core that holds processor 0 of group 0 (processor 0 and its SMT siblings). 1 when the call fails.
@@ -126,7 +155,8 @@ uint64_t take_slot(uint64_t proc, int* slot_out) {
         NXLOG_I("sched", "console cores in processor slot %d of %d (mask %llx); other nxrt processes take other slots", k, nb / per, (unsigned long long)mask);
         return mask;
     }
-    NXLOG_W("sched", "every processor slot is held by other processes: sharing the top of the affinity mask");
+    if (nb < per) NXLOG_W("sched", "%d processors, fewer than %d for a processor slot: sharing the top of the affinity mask", nb, per);
+    else NXLOG_W("sched", "every processor slot is held by other processes: sharing the top of the affinity mask");
     *slot_out = -1;
     return proc;
 }
@@ -179,6 +209,11 @@ void init_locked() {
         if (!top) {
             const std::vector<uint64_t> cores = cores_fastest_first(usable);
             if (cores.size() >= static_cast<size_t>(nc)) chosen = take_core_slot(cores, static_cast<size_t>(nc), &slot);
+            else if (place_on_few_cores(usable, nc)) {
+                g_info.active = true;
+                log_model();
+                return;
+            }
         }
         if (chosen) {
             int k = 0;

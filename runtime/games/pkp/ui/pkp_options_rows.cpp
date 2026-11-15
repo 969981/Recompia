@@ -14,6 +14,7 @@
 #include "nxrt/audio_sink.h"
 #include "nxrt/extras.h"
 #include "nxrt/host_device.h"
+#include "nxrt/input.h"
 #include "nxrt/platform.h"
 #include "play_game.h"
 
@@ -79,6 +80,22 @@ const char* monitor_text(int v, char* out, size_t n) {
     return out;
 }
 int monitor_max() { return std::max(platform::display_count(), 1); }
+
+// [pad] controller: 0 = every pad, n = the pad SDL numbers player n (GamepadInfo::player + 1)
+const char* controller_text(int v, char* out, size_t n) {
+    if (v <= 0) return "All Controllers";
+    input::GamepadInfo pads[8];
+    const size_t count = input::gamepad_list(pads, 8);
+    for (size_t i = 0; i < count; ++i) {
+        if (pads[i].player + 1 == v) {
+            std::snprintf(out, n, "%d: %s", v, pads[i].name);
+            return out;
+        }
+    }
+    std::snprintf(out, n, "%d: Not Connected", v);
+    return out;
+}
+int controller_max() { return 8; }
 
 const char* device_text(int v, char*, size_t) {
     return v <= 0 || v > static_cast<int>(g_devices.size()) ? "System Default" : g_devices[static_cast<size_t>(v - 1)].c_str();
@@ -166,12 +183,13 @@ const Row kPicture[] = {
             [](S& s, int v) { s.extras.hdr.paper_white_nits = v <= 0 ? 0 : 70 + v * 10; }),
     number("Highlight Boost", "How far highlights reach toward peak brightness.", 0, 40, "%.2f", 0, 0.05, ROW_STEP(extras.hdr.highlight_boost, 0.0, 0.05)),
     Row{"Color Preset", "Neutral is the game's own picture.", {"Neutral", "Vivid", "Custom"}, 3, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr, nullptr,
-        [](const S& s) { extras::PictureSettings v; extras::picture_preset("vivid", &v); const auto& p = s.extras.picture; if (p.neutral()) return 0; return p.contrast == v.contrast && p.saturation == v.saturation && p.black == v.black && p.gamma == v.gamma ? 1 : 2; },
+        [](const S& s) { extras::PictureSettings v; extras::picture_preset("vivid", &v); const auto& p = s.extras.picture; if (p.neutral()) return 0; return p.contrast == v.contrast && p.saturation == v.saturation && p.black == v.black && p.gamma == v.gamma && p.brightness == v.brightness ? 1 : 2; },
         [](S& s, int v) { if (v < 2) extras::picture_preset(v ? "vivid" : "neutral", &s.extras.picture); }, false, true},
     number("Contrast", "Spreads the tones away from mid grey. 1.00 is the game's own.", 0, 100, "%.2f", 0.5, 0.01, ROW_STEP(extras.picture.contrast, 0.5, 0.01), true),
     number("Saturation", "Color intensity. 1.00 is the game's own.", 0, 100, "%.2f", 0, 0.02, ROW_STEP(extras.picture.saturation, 0.0, 0.02), true),
     number("Black Level", "Below 0 deepens the blacks, above 0 lifts them.", 0, 150, "%+.3f", -0.5, 0.005, ROW_STEP(extras.picture.black, -0.5, 0.005), true),
     number("Gamma", "Mid-tone brightness. 1.00 is the game's own.", 0, 150, "%.2f", 0.5, 0.01, ROW_STEP(extras.picture.gamma, 0.5, 0.01), true),
+    number("Brightness", "Dims the whole picture, white included. 1.00 is the game's own.", 0, 75, "%.2f", 0.25, 0.01, ROW_STEP(extras.picture.brightness, 0.25, 0.01), true),
 };
 
 // The Mouse mode key (the Joy-Con 2 mouse mode, pkp_play.cpp): its binding in play, any key, mouse button or wheel notch, saved at once. The
@@ -208,6 +226,8 @@ const Row kMouse[] = {
 };
 
 const Row kController[] = {
+    dynamic("Controller", "The controller that plays. All lets every connected controller play; pick one when other controllers on this PC belong to someone else.",
+            controller_text, controller_max, ROW_INT(pad.controller)),
     choice("Face Buttons", "Switch keeps the buttons by position, Xbox by their letters.", {"Switch", "Xbox"}, 2, ROW_BOOL(pad.label_abxy)),
     number("Left Stick Dead Zone", "Ignores small movements of the left stick.", 0, 50, "%.0f%%", 0, 1, ROW_PCT(pad.stick_deadzone)),
     number("Right Stick Dead Zone", "Ignores small movements of the right stick.", 0, 50, "%.0f%%", 0, 1, ROW_PCT(pad.right_deadzone)),

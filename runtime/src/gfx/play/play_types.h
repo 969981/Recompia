@@ -150,6 +150,9 @@ struct PadSettings {
     double gyro_scale = 1.0;
     bool rumble = true;
     double rumble_scale = 1.0;
+    // 0 = every connected pad drives the game (merged); n = only the pad SDL numbers player n (on Windows the XInput slot + 1), for a
+    // PC with pads that belong to someone else (a shared streaming host)
+    int controller = 0;
 };
 struct TimingSettings {
     int tap_ms = 200;              // a press shorter than this is a tap
@@ -356,6 +359,7 @@ const char* key_wheel_cycles();
 //   [mouse]    yaw = 0.000768   pitch = 0.000768   invert_y = 0   invert_x = 0   menu_cursor = 1   wheel_beams = 1     (radians per count)
 //              yaw_source / pitch_source = 2.0 are accepted as well (Source scale); when both forms appear the last one wins
 //   [pad]      label_abxy (0 = Switch layout, the default; 1 = Xbox layout, by label) deadzone stick_max right_stick_max trigger_threshold gyro gyro_scale rumble rumble_scale
+//              controller (all, or the one pad's player number, 1 = the first)
 //   [timing]   tap_ms hold_ms double_ms pulse_ms
 //   [display]  window_mode vsync fps_limit (number, 0 = unlimited, auto = refresh rate; fps_cap is read too) width height keep_aspect render_scale render_width render_height aspect fov_offset
 //              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm astc_quality (fast high uncompressed)
@@ -364,7 +368,8 @@ const char* key_wheel_cycles();
 //              80..500) highlight_boost (0..2)
 //   [upscale]  mode (off fsr1 nis, and fsr3 dlss xess kept but not used; spatial = fsr1) sharpness (0..1) fsr_dll dlss_dll (paths, kept verbatim)
 //   [latency]  mode (off auto on boost) log_timings (1/0)
-//   [picture]  contrast (0.5..1.5) saturation (0..2) black (-0.5..0.25) gamma (0.5..2), neutral 1 1 0 1; preset (neutral vivid) is read, not written
+//   [picture]  contrast (0.5..1.5) saturation (0..2) black (-0.5..0.25) gamma (0.5..2) brightness (0.25..1), neutral 1 1 0 1 1; preset (neutral
+//              vivid) is read, not written
 //   [audio]    volume (0..1) mute_unfocused (1/0) device (default or part of an output device's name)
 //   [prompts]  style = switch|xbox|playstation|keyboard|auto   (which button icons the game's prompts show; auto, the default, follows the last used input device)
 //   [tweaks]   language (auto or a language name such as French; next start)

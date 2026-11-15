@@ -221,6 +221,8 @@ void poll_pads(uint64_t now) {
         overlay_combo = 0;
     }
     for (size_t i = 0; i < n; ++i) {
+        // [pad] controller: the other pads are not read at all (no input, no quit combination, no rumble)
+        if (st.settings.pad.controller > 0 && infos[i].player + 1 != st.settings.pad.controller) continue;
         platform::GamepadRaw raw;
         if (!platform::gamepad_poll(infos[i].id, &raw)) continue;
         // the quit combination: every button of it held on this one pad (physical buttons, before [padmap])

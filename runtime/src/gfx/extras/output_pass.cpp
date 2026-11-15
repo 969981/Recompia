@@ -20,7 +20,7 @@ struct EncodePush {
     float pic[4];     // picture rectangle in destination UV: x, y, w, h
     float crop[4];    // source crop in texels: x, y, w, h
     float src[4];     // whole source size, z = flip
-    float p[4];       // x = mode, y = paper white nits, z = peak nits, w = 1: apply the picture controls
+    float p[4];       // x = mode, y = paper white nits, z = peak nits, w = the picture controls' brightness (0: no picture controls)
     float adj[4];     // picture controls: contrast, saturation, black, gamma
     float cm[12];     // colour matrix rows (3 vec4), used when src[3] = 1
 };
@@ -213,7 +213,7 @@ void OutputPass::encode(VkCommandBuffer cb, VkImageView dst_view, VkFormat dst_f
     pc.p[0] = static_cast<float>(mode);
     pc.p[1] = paper;
     pc.p[2] = peak;
-    pc.p[3] = pic ? 1.0f : 0.0f;
+    pc.p[3] = pic ? pic[4] : 0.0f;
     for (int i = 0; i < 4; ++i) pc.adj[i] = pic ? pic[i] : (i == 2 ? 0.0f : 1.0f);
 
     VkDescriptorSet set = enc_sets_[next_enc_];

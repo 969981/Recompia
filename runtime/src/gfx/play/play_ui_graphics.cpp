@@ -306,6 +306,8 @@ void color_group(Page& p) {
     tip("Below 0 pulls the darkest tones down to black (against a hazy, washed-out look); above 0 lifts them. White stays. 0 is the game's own.");
     changed |= slider("Gamma##pic_gamma", &c.gamma, 0.5, 2.0, "%.2f");
     tip("Mid-tone brightness: above 1 brightens, below 1 darkens. Black and white stay. 1 is the game's own.");
+    changed |= slider("Brightness##pic_brightness", &c.brightness, 0.25, 1.0, "%.2f");
+    tip("Dims the whole picture, white included, for when bright screens and menus are uncomfortable. 1 is the game's own.");
     if (changed) {
         extras::set_picture_live(c);
         mark(p);

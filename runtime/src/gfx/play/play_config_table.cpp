@@ -203,7 +203,7 @@ bool read_upscale_mode(const std::string& k, const std::string& v, Settings* s, 
 }
 std::string write_upscale_mode(const Settings& s) { return kUpscaleWords[static_cast<int>(s.extras.upscale.mode)]; }
 
-// [picture] preset: fills the four values in; the keys after it in the file win. Read only: the file keeps the four values.
+// [picture] preset: fills the five values in; the keys after it in the file win. Read only: the file keeps the five values.
 bool read_picture_preset(const std::string&, const std::string& v, Settings* s, std::string* msg) {
     if (extras::picture_preset(lower(v), &s->extras.picture)) return true;
     *msg = "preset must be neutral or vivid";
@@ -264,6 +264,8 @@ const SettingDef kTable[] = {
     {ROW("pad", "gyro_scale", Real), REAL(pad.gyro_scale), .doc = "Gyro rate multiplier."},
     {ROW("pad", "rumble", Bool), FLAG(pad.rumble), .doc = "Pass the game's rumble to the pad."},
     {ROW("pad", "rumble_scale", Real), REAL(pad.rumble_scale), .doc = "Rumble strength multiplier."},
+    {ROW("pad", "controller", Int), WHOLE(pad.controller), .lo = 0, .hi = 8, .auto_word = "all", .auto_at = 0,
+     .doc = "The controller that plays: all (every connected pad), or one pad's player number, 1 = the first."},
 
     {ROW("timing", "tap_ms", Int), WHOLE(timing.tap_ms), .lo = 1, .hi = 5000, .doc = "A press shorter than this is a tap (ms)."},
     {ROW("timing", "hold_ms", Int), WHOLE(timing.hold_ms), .lo = 1, .hi = 5000, .doc = "A hold starts after this (ms)."},
@@ -362,7 +364,7 @@ const SettingDef kTable[] = {
      .doc = "Log one line of timings per second."},
 
     {ROW("picture", "preset", Custom), CUSTOM(read_picture_preset, nullptr), .words = kPicturePresetWords, .syntax = "choice",
-     .nxrt_key = "picture.preset", .doc = "Fills in the four values below; the keys after it in the file win."},
+     .nxrt_key = "picture.preset", .doc = "Fills in the five values below; the keys after it in the file win."},
     {ROW("picture", "contrast", Real), REAL(extras.picture.contrast), .lo = 0.5, .hi = 1.5, .ranged = true, .exact = true,
      .nxrt_key = "picture.contrast", .doc = "Contrast around mid grey."},
     {ROW("picture", "saturation", Real), REAL(extras.picture.saturation), .lo = 0.0, .hi = 2.0, .ranged = true, .exact = true,
@@ -371,6 +373,8 @@ const SettingDef kTable[] = {
      .nxrt_key = "picture.black", .doc = "Black level: below 0 pulls the blacks down, above 0 lifts them."},
     {ROW("picture", "gamma", Real), REAL(extras.picture.gamma), .lo = 0.5, .hi = 2.0, .ranged = true, .exact = true,
      .nxrt_key = "picture.gamma", .doc = "Mid-tone brightness; above 1 brightens."},
+    {ROW("picture", "brightness", Real), REAL(extras.picture.brightness), .lo = 0.25, .hi = 1.0, .ranged = true, .exact = true,
+     .nxrt_key = "picture.brightness", .doc = "Brightness of the whole picture, white included; below 1 dims it."},
 
     {ROW("prompts", "style", Custom), CUSTOM(read_prompt_style, write_prompt_style), .word_fn = prompt_style_words,
      .details_fn = prompt_style_details, .syntax = "choice",

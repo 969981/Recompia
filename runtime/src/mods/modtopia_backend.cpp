@@ -25,6 +25,7 @@
 #include "nxrt/module.h"
 #include "nxrt/notices.h"
 #include "nxrt/screenshot.h"
+#include "nxrt/services.h"
 #include "nxrt/services_api.h"
 #include "nxrt/text.h"
 #include "nxrt/ui_layer.h"
@@ -177,6 +178,17 @@ int64_t be_game_read(void*, const char* path, uint64_t offset, void* buf, uint64
 }
 
 const char* be_save_dir(void*) { return host().save_dir.c_str(); }
+int be_save_identity(void*, MtSaveIdentity* out) {
+    const auto& p = services::profile();
+    if (!p.program_id || (!p.user_uid_hi && !p.user_uid_lo)) return MT_ERR_STATE;
+    out->title_id = p.program_id;
+    // Account service order: hi then lo, each little-endian, independent of the host's byte order.
+    for (unsigned i = 0; i < 8; ++i) {
+        out->account_id[i] = static_cast<uint8_t>(p.user_uid_hi >> (8 * i));
+        out->account_id[8 + i] = static_cast<uint8_t>(p.user_uid_lo >> (8 * i));
+    }
+    return MT_OK;
+}
 
 int be_pad_read(void*, int p, MtPad* out) { return pad_read(p, out); }
 int be_pad_hold(void*, int p, const MtPad* add) { return pad_hold(p, add); }
@@ -287,6 +299,7 @@ MtBackend make_backend() {
     be.game_file_size = &be_game_file_size;
     be.game_read = &be_game_read;
     be.save_dir = &be_save_dir;
+    be.save_identity = &be_save_identity;
     be.notify = &be_notify;
     be.notify_image = &be_notify_image;
     be.screenshot = &be_screenshot;

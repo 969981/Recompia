@@ -156,6 +156,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
         prm.pic[1] = pic.saturation;
         prm.pic[2] = pic.black;
         prm.pic[3] = pic.gamma;
+        prm.pic[4] = pic.brightness;
         prm.color_matrix = cm_on;
         if (cm_on) std::copy(std::begin(cm), std::end(cm), prm.cm);
         op->record(fi.cmd, fi.view, rend->format(), fi.extent, prm);
