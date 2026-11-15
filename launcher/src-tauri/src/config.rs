@@ -19,6 +19,14 @@ pub struct Config {
     pub minimize_on_play: bool,
     /// Show "Playing Recompia" on the player's Discord profile while the game runs (presence.rs). Off unless the player switches it on.
     pub discord_presence: bool,
+    /// The first Play after online presence came asked once whether to switch it on (home.js); never asked again. The switch itself is
+    /// pkp.ini [pkp] online_presence (online.rs), shared with the game's own Settings screen.
+    pub online_asked: bool,
+    /// The name online.rs sends; empty (the default): anonymous. The profile's nickname is never sent.
+    pub online_name: String,
+    /// Random, made the first time online presence starts; with the profile uid it makes the online ID (online.rs token_of). Only
+    /// "Reset my online ID" changes it, by emptying it.
+    pub online_salt: String,
     /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
     pub gentle_build: bool,
     /// A new setup keeps its translated shaders as ~99,000 loose files (the old storage) instead of the shader archive. Only read when
@@ -83,4 +91,17 @@ pub fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
 pub fn store_config(app: &AppHandle, config: &Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     settings::write_atomic(&config_path(app)?, &text).map_err(|e| format!("cannot save launcher settings: {}", e))
+}
+
+/// The install's online salt, made and saved the first time it is needed. None: it could not be saved, so no online ID is used (an ID
+/// that changed every run would split one player into many).
+pub fn online_salt(app: &AppHandle) -> Option<String> {
+    let mut cfg = load_config(app);
+    if cfg.online_salt.is_empty() {
+        let mut bytes = [0u8; 16];
+        pokopia_relay::random::os_random(&mut bytes).ok()?;
+        cfg.online_salt = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        save_config(app.clone(), cfg.clone()).ok()?;
+    }
+    Some(cfg.online_salt)
 }

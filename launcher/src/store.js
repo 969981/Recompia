@@ -7,6 +7,7 @@ import { fromBackend } from './backend-text.js';
 import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { keptLine, updatedLine } from './mods-model.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
+import { askOnlineOnce } from './online.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
@@ -235,6 +236,7 @@ export const store = {
   /** `withoutMods`: this one start runs without mods (the player's way out when a mod keeps the game from starting). */
   async play({ withoutMods = false } = {}) {
     if (store.state.starting) return;
+    await askOnlineOnce();   // once per install, before the first Play: online presence is off unless the player says yes
     set({ starting: true }, 'task');
     try {
       await api.play(withoutMods ? { withoutMods } : undefined);

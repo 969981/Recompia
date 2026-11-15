@@ -9,6 +9,7 @@
 - Camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
 
 ### Launcher
+- Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many Pokemon have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
 - Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
   - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand
   - Now: **Load Game save** opens the active profile's save in the editor, **Write to Game** puts the edited save back. A **Before a save edit** copy is made first (Settings > Saves > Backups can restore it). Both need the game closed. It works offline, on Windows and Linux (Steam Deck). The first time the page opens it makes the item, villager, skill and reaction names and pictures from your own game files (a few seconds, once); the launcher carries none of them

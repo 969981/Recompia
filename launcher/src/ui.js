@@ -58,7 +58,7 @@ export function toast(message, kind = '') {
  *   onAct (called with the element when a [data-act] control of `html` is pressed, e.g. a link button; the dialog stays open) }
  */
 export function confirm(opts = {}) {
-  const { title = '', body = '', html = '', ok = t('OK'), cancel = t('Cancel'), danger = false, alert = false, onAct = null } = opts;
+  const { title = '', body = '', html = '', ok = t('OK'), cancel = t('Cancel'), danger = false, alert = false, focusCancel = false, onAct = null } = opts;
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong';
@@ -84,8 +84,8 @@ export function confirm(opts = {}) {
       else if (e.target === dlg) dlg.close('');   // the dialog has no padding, so only the backdrop hits it
     });
     dlg.showModal();
-    // Enter on a dangerous question must not be the dangerous answer
-    dlg.querySelector(danger && !alert ? '[data-answer=""]' : '[data-answer="ok"]').focus();
+    // Enter on a dangerous question, or on one whose safe answer is no (focusCancel), must not be the yes
+    dlg.querySelector((danger || focusCancel) && !alert ? '[data-answer=""]' : '[data-answer="ok"]').focus();
   });
 }
 

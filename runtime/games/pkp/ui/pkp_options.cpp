@@ -107,6 +107,7 @@ const Tab kTabs[] = {
     {"Events", 12, &events_tab()},
     {"Mods", 14, &mods_tab()},   // group 13 is the game's own (Notes), so 14
     {"Items", 15, &items_tab()},
+    {"Online", 16, &online_tab()},   // last: the launcher's online sharing switch; groups 1..15 are taken (13 is the game's own Notes)
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;
