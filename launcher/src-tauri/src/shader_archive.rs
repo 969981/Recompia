@@ -26,14 +26,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const ARCHIVE_REL: &str = "shader_cache/spirv.archive";
 /// Where loose files live (shaders.rs SPIRV_REL).
 const SPIRV_REL: &str = "shader_cache/spirv";
-/// zstd level. Decompression speed is the same at every level, so the game reads the archive as fast at 12 as at 6 (the preload pack:
-/// ~3.8x). Higher levels only cost the launcher time when it writes.
-pub const LEVEL: i32 = 12;
+/// zstd level. Decompression speed is the same at every level, so the game reads the archive as fast at 6 as at 12; the level only
+/// costs the launcher time when it writes, and time there is the player's (a Steam Deck or a laptop far more than a desktop). Measured
+/// on 166 MB of the 2.0.1 corpus, one thread: level 12 and 9 both give 3.968x, level 6 gives 3.932x at 121 MB/s against 29 MB/s, level 3
+/// gives 3.760x at 230 MB/s. Level 6 is 0.9 % bigger than 12 for 4x the speed, so that is the level.
+pub const LEVEL: i32 = 6;
 /// A segment is closed at this much SPIR-V (or SEGMENT_MAX shaders): big enough that the game opens a few dozen files, small enough that
 /// a pause loses little work.
 const SEGMENT_RAW: u64 = 512 << 20;
 const SEGMENT_MAX: usize = 4000;
-/// Before anything is measured, "Make smaller" promises what the preload pack measured at level 6 (~3.8x): never more than it gets.
+/// Before anything is measured, "Make smaller" promises what level 6 measures on the 2.0.1 corpus (3.93x): never more than it gets.
 pub const RATIO_GUESS: f64 = 3.8;
 
 const MAGIC: &[u8; 8] = b"NXSPACK1";
@@ -166,15 +168,42 @@ pub fn read_translation(spirv: &Path, archive: &Archive, hash: &str) -> Option<V
     fs::read(spirv.join(format!("{}.spv", hash))).ok().or_else(|| archive.read(hash))
 }
 
+/// Reads `names` (hashes) from `spirv` on every core, in order. A file that cannot be read gives None.
+fn read_all(spirv: &Path, names: &[String], threads: usize) -> Vec<Option<Vec<u8>>> {
+    let per = names.len().div_ceil(threads).max(1);
+    let parts: Vec<Vec<Option<Vec<u8>>>> = std::thread::scope(|s| {
+        let handles: Vec<_> = names
+            .chunks(per)
+            .map(|part| s.spawn(move || part.iter().map(|h| fs::read(spirv.join(format!("{}.spv", h))).ok()).collect::<Vec<_>>()))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+    });
+    let mut out: Vec<Option<Vec<u8>>> = parts.into_iter().flatten().collect();
+    out.truncate(names.len());
+    out.resize_with(names.len(), || None);
+    out
+}
+
 /// Compresses `items` (hash, SPIR-V) on every core and writes them as the next segment. Returns the segment's size on disk.
-fn write_segment(dir: &Path, items: &[(String, Vec<u8>)]) -> Result<u64, String> {
+fn write_segment(dir: &Path, items: &[(String, Vec<u8>)], threads: usize) -> Result<u64, String> {
     fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 16);
+    let threads = threads.clamp(1, 16);
     let per = items.len().div_ceil(threads).max(1);
-    let frames: Vec<Result<Vec<u8>, String>> = std::thread::scope(|s| {
-        let parts: Vec<_> = items.chunks(per).map(|part| s.spawn(move || part.iter().map(|(_, raw)| zstd::bulk::compress(raw, LEVEL).map_err(|e| e.to_string())).collect::<Vec<_>>())).collect();
+    let mut frames: Vec<Result<Vec<u8>, String>> = std::thread::scope(|s| {
+        // One compressor per thread, reused for its whole part: `zstd::bulk::compress` builds a context, and its match-finder
+        // tables, for every call, which on 99,012 blocks of 263 KB is real work spent on setup rather than compression.
+        let parts: Vec<_> = items.chunks(per).map(|part| s.spawn(move || {
+            match zstd::bulk::Compressor::new(LEVEL) {
+                Ok(mut c) => part.iter().map(|(_, raw)| c.compress(raw).map_err(|e| e.to_string())).collect::<Vec<_>>(),
+                Err(e) => vec![Err(e.to_string()); part.len()],
+            }
+        })).collect();
         parts.into_iter().flat_map(|p| p.join().unwrap_or_else(|_| vec![Err("a compression thread failed".into())])).collect()
     });
+    // Every item needs its frame, or the zip below would quietly drop the tail of the segment.
+    if frames.len() < items.len() {
+        frames.resize_with(items.len(), || Err("a compression thread failed".into()));
+    }
     let next = segments(dir).last().map_or(1, |(n, _)| n + 1);
     let fin = dir.join(format!("{:06}.pack", next));
     let tmp = dir.join(format!("{:06}.pack.tmp", next));
@@ -218,6 +247,18 @@ fn loose_hash(name: &str) -> Option<&str> {
     (h.len() == 16 && h.bytes().all(|b| b.is_ascii_hexdigit())).then_some(h)
 }
 
+/// The loose shader hashes in `dir`, without a stat per file: `compact` only needs the names, and a card with a slow 4 KiB queue
+/// makes 99,000 of those cost real time.
+fn loose_hashes_in(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter_map(|e| loose_hash(&e.file_name().to_string_lossy()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The loose shader files: (hash, size).
 pub fn loose_files(game_dir: &Path) -> Vec<(String, u64)> {
     let dir = game_dir.join(SPIRV_REL);
@@ -244,20 +285,33 @@ pub struct Moved {
 }
 
 /// Moves the loose files whose hash is in `only` (None: every loose file) into new segments, deleting each after its segment is on disk.
-/// `progress(done, total)`. Stops between shaders when `cancel` is set (what is moved stays moved). A file that is not valid SPIR-V
-/// (empty, not whole words) stays loose. Ok((moved, finished)).
-pub fn compact(game_dir: &Path, only: Option<&[String]>, cancel: &AtomicBool, mut progress: impl FnMut(u64, u64)) -> Result<(Moved, bool), String> {
+/// `src`: where the loose files are (None: `shader_cache/spirv`), which Set up points at its stage so a fresh translation is archived
+/// without being written to the game folder first. `progress(done, total)`. Stops between shaders when `cancel` is set (what is moved
+/// stays moved). A file that is not valid SPIR-V (empty, not whole words) stays loose. Ok((moved, finished)).
+pub fn compact(game_dir: &Path, src: Option<&Path>, only: Option<&[String]>, cancel: &AtomicBool, progress: impl FnMut(u64, u64)) -> Result<(Moved, bool), String> {
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 16);
+    compact_with(game_dir, src, only, cancel, threads, progress)
+}
+
+/// `compact` on at most `threads` cores. Set up runs it beside the translator (`shaders::run`), which already holds every core, so
+/// there the archive step gets the few the translator leaves and the translation never waits for it.
+pub fn compact_with(game_dir: &Path, src: Option<&Path>, only: Option<&[String]>, cancel: &AtomicBool, threads: usize, mut progress: impl FnMut(u64, u64)) -> Result<(Moved, bool), String> {
     let t0 = std::time::Instant::now();
-    let spirv = game_dir.join(SPIRV_REL);
+    let loose_dir = src.map(Path::to_path_buf).unwrap_or_else(|| game_dir.join(SPIRV_REL));
+    let spirv: &Path = &loose_dir;
     let dir = archive_dir(game_dir);
-    let mut todo = loose_files(game_dir);
+    let mut todo = loose_hashes_in(spirv);
     if let Some(only) = only {
         let want: std::collections::HashSet<&str> = only.iter().map(String::as_str).collect();
-        todo.retain(|(h, _)| want.contains(h.as_str()));
+        todo.retain(|h| want.contains(h.as_str()));
     }
     // in name order: a pause and a continue walk the same list
     todo.sort();
     let total = todo.len() as u64;
+    // The reads are handed out across the cores and run ahead of the segment writer: one `fs::read` after another pays the card's
+    // latency 7,000 times per chunk, which on a Steam Deck's SD card is most of the time this function spends.
+    let threads = threads.clamp(1, 16);
+    let window = threads * 4;
     let mut moved = Moved::default();
     let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
     let mut batch_raw = 0u64;
@@ -267,33 +321,49 @@ pub fn compact(game_dir: &Path, only: Option<&[String]>, cancel: &AtomicBool, mu
         if batch.is_empty() {
             return Ok(());
         }
-        moved.disk_bytes += write_segment(&dir, batch)?;
-        for (h, raw) in batch.iter() {
-            let _ = fs::remove_file(spirv.join(format!("{}.spv", h)));
-            moved.raw_bytes += raw.len() as u64;
-        }
+        moved.disk_bytes += write_segment(&dir, batch, threads)?;
+        // the loose copies go only now that the segment holding them is on disk, and on every core: the unlinks are as slow as the
+        // reads were on a card
+        let per = batch.len().div_ceil(threads).max(1);
+        let spirv_dir: &Path = spirv;
+        std::thread::scope(|s| {
+            for part in batch.chunks(per) {
+                s.spawn(move || {
+                    for (h, _) in part {
+                        let _ = fs::remove_file(spirv_dir.join(format!("{}.spv", h)));
+                    }
+                });
+            }
+        });
+        moved.raw_bytes += batch.iter().map(|(_, raw)| raw.len() as u64).sum::<u64>();
         moved.shaders += batch.len() as u64;
         batch.clear();
         *batch_raw = 0;
         Ok(())
     };
-    for (h, _) in &todo {
+    let mut reported = 0u64;
+    for part in todo.chunks(window) {
         if cancel.load(Ordering::SeqCst) {
             flush(&mut batch, &mut batch_raw, &mut moved)?;
             moved.seconds = t0.elapsed().as_secs_f64();
             return Ok((moved, false));
         }
-        done += 1;
-        let Ok(raw) = fs::read(spirv.join(format!("{}.spv", h))) else { continue };
-        if raw.is_empty() || raw.len() % 4 != 0 || raw.len() as u64 > MAX_SHADER as u64 {
-            continue;
+        // the window is read in parallel, then taken in list order, so the segments hold the shaders in the same order either way
+        let raws = read_all(spirv, part, threads);
+        for (h, raw) in part.iter().zip(raws) {
+            done += 1;
+            let Some(raw) = raw else { continue };
+            if raw.is_empty() || raw.len() % 4 != 0 || raw.len() as u64 > MAX_SHADER as u64 {
+                continue;
+            }
+            batch_raw += raw.len() as u64;
+            batch.push((h.clone(), raw));
+            if batch_raw >= SEGMENT_RAW || batch.len() >= SEGMENT_MAX {
+                flush(&mut batch, &mut batch_raw, &mut moved)?;
+            }
         }
-        batch_raw += raw.len() as u64;
-        batch.push((h.clone(), raw));
-        if batch_raw >= SEGMENT_RAW || batch.len() >= SEGMENT_MAX {
-            flush(&mut batch, &mut batch_raw, &mut moved)?;
-        }
-        if done.is_multiple_of(250) || done == total {
+        if done - reported >= 250 || done == total {
+            reported = done;
             progress(done, total);
         }
     }
@@ -424,7 +494,7 @@ mod tests {
         assert_eq!(before.mode, "loose");
         assert_eq!(before.loose_files, 300);
 
-        let (moved, finished) = compact(&game, None, &AtomicBool::new(false), |_, _| {}).unwrap();
+        let (moved, finished) = compact(&game, None, None, &AtomicBool::new(false), |_, _| {}).unwrap();
         assert!(finished);
         assert_eq!(moved.shaders, 300);
         assert!(moved.disk_bytes < moved.raw_bytes, "{} >= {}", moved.disk_bytes, moved.raw_bytes);
@@ -444,7 +514,7 @@ mod tests {
         let newer = module(9999, 400);
         fs::write(spirv.join(format!("{}.spv", h0)), &newer).unwrap();
         assert_eq!(read_translation(&spirv, &Archive::open(&game), h0), Some(newer.clone()));
-        compact(&game, None, &AtomicBool::new(false), |_, _| {}).unwrap();
+        compact(&game, None, None, &AtomicBool::new(false), |_, _| {}).unwrap();
         assert!(!spirv.join(format!("{}.spv", h0)).exists());
         assert_eq!(Archive::open(&game).read(h0), Some(newer.clone()));
 
@@ -458,19 +528,54 @@ mod tests {
     }
 
     #[test]
+    fn compact_reads_the_stage_a_translation_was_written_to() {
+        // Set up's packed path: the harness writes into a stage folder and the archive takes the shaders straight from there, so a
+        // fresh translation never exists as a loose file in the game's cache.
+        let game = temp("stage");
+        let stage = temp("stage-src");
+        let mut written = Vec::new();
+        for i in 0..120u32 {
+            let h = format!("{:016x}", 0xabc0_0000u64 + i as u64);
+            let b = module(i, 400);
+            fs::write(stage.join(format!("{}.spv", h)), &b).unwrap();
+            written.push((h, b));
+        }
+        // the last one has no results row (a run killed between its .spv and its row): it is not archived
+        let (last, _) = written.last().unwrap().clone();
+        let rows: Vec<String> = written[..written.len() - 1].iter().map(|(h, _)| h.clone()).collect();
+
+        let (moved, finished) = compact(&game, Some(&stage), Some(&rows), &AtomicBool::new(false), |_, _| {}).unwrap();
+        assert!(finished);
+        assert_eq!(moved.shaders, 119);
+        // nothing was written loose to the game folder, and the archived copy is the stage's bytes
+        assert_eq!(loose_files(&game).len(), 0);
+        assert_eq!(storage(&game).mode, "compact");
+        let a = Archive::open(&game);
+        for (h, b) in &written[..written.len() - 1] {
+            assert_eq!(a.read(h).as_deref(), Some(b.as_slice()), "{}", h);
+        }
+        assert!(!a.contains(&last), "a shader without a row is not archived");
+        assert!(stage.join(format!("{}.spv", last)).is_file(), "and its file is left in the stage");
+        assert!(!stage.join(format!("{}.spv", written[0].0)).exists(), "an archived shader is deleted from the stage");
+        let _ = fs::remove_dir_all(&game);
+        let _ = fs::remove_dir_all(&stage);
+    }
+
+    #[test]
     fn cancelled_compact_keeps_everything_readable() {
         let game = temp("cancel");
         let shaders: Vec<_> = (0..600).map(|i| put(&game, i)).collect();
         let stop = AtomicBool::new(false);
-        let (moved, finished) = compact(&game, None, &stop, |done, _| {
+        let (moved, finished) = compact(&game, None, None, &stop, |done, _| {
             if done >= 250 {
                 stop.store(true, Ordering::SeqCst);
             }
         })
         .unwrap();
         assert!(!finished);
-        assert_eq!(moved.shaders, 250, "the shaders read before the pause are flushed into a segment");
-        assert_eq!(loose_files(&game).len(), 350);
+        // the pause is taken at the end of the window the request falls in, so at or after it and never far after it
+        assert!(moved.shaders >= 250, "the shaders read before the pause are flushed into a segment: {}", moved.shaders);
+        assert_eq!(moved.shaders + loose_files(&game).len() as u64, 600, "every shader is archived or still loose");
         let a = Archive::open(&game);
         let spirv = game.join(SPIRV_REL);
         assert_eq!(a.len() as u64, moved.shaders);
@@ -486,7 +591,7 @@ mod tests {
         // PackDiskEntry {hash[16], line_hash, offset, csize, usize} = 40 bytes, index at the end of the file
         let game = temp("layout");
         let (h, b) = put(&game, 7);
-        compact(&game, None, &AtomicBool::new(false), |_, _| {}).unwrap();
+        compact(&game, None, None, &AtomicBool::new(false), |_, _| {}).unwrap();
         let (_, path) = segments(&archive_dir(&game)).pop().unwrap();
         let f = fs::read(&path).unwrap();
         assert_eq!(&f[..8], b"NXSPACK1");

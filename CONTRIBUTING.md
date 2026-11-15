@@ -10,6 +10,23 @@ Always build code cleanly, modularly, and with proper architecture and separatio
 - Release notes are the version's section of [CHANGELOG.md](CHANGELOG.md); write it from [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md).
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.
 
+## Changes that make players compile the game again
+
+Every player builds the game code on their own PC, and a full compile is 15 minutes on a fast PC and an hour on a slow one. Set up
+keeps each compiled unit in a cache, so an update compiles only the units whose key changed. A change to any of these can change keys:
+
+- `recomp/nxrecomp/` (the lifter) and `recomp/games/pkp/` (`config.py`, `main.sites`): the units whose generated text changes
+- `recomp/include/`: every unit, unless the change is a comment or a branch the x86-64 build does not take
+- the compile flags (`recomp/nxrecomp/compile_flags.py`) or the bundled Zig: every unit
+- the key formula in `game-build/release_b/pkp_build.py` (`KEY_SCHEME`): every unit
+
+Before merging one, measure it and put the number in the pull request:
+
+    python recomp/scripts/rebuild_impact.py --exefs <your dump>/exefs --zig <the bundled zig>
+
+It prints how many of the 284 units a player updating from the last release compiles again. A change that costs a few units ships
+any time. Changes that cost most of the game are collected and shipped together in one release, not one after another.
+
 ## Keeping up with pokopia-native
 
 [pokopia-native](https://github.com/xFractals/pokopia-native) is this project's parent. Every update it publishes gets mirrored here:

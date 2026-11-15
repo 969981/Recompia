@@ -17,6 +17,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <ctime>
+#include <cstdlib>
+#include <unistd.h>
 #endif
 
 namespace nxrt::services::tz {
@@ -94,12 +98,6 @@ void civil_from_days(int64_t z, int64_t* y, int* m, int* d) {
     *d = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
     *m = static_cast<int>(mp < 10 ? mp + 3 : mp - 9);
     *y = yoe + era * 400 + (*m <= 2 ? 1 : 0);
-}
-
-int days_in_month(int64_t y, int m) {
-    static constexpr int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    const bool leap = (y % 4 == 0) && (y % 100 != 0 || y % 400 == 0);
-    return (m == 2 && leap) ? 29 : kDays[m - 1];
 }
 
 // ---- rule access (tzcode localtime.c semantics) ----
@@ -226,6 +224,106 @@ int to_posix_impl(const RuleImage& r, const CalendarTime& cal, int64_t out[2]) {
     return count;
 }
 
+// ---- host rule (shared) ----
+
+std::string numeric_abbr(int32_t off) {
+    const int32_t a = off < 0 ? -off : off;
+    char b[16];
+    if (a % 3600 == 0) {
+        std::snprintf(b, sizeof b, "%c%02d", off < 0 ? '-' : '+', a / 3600);
+    } else {
+        std::snprintf(b, sizeof b, "%c%02d%02d", off < 0 ? '-' : '+', a / 3600, (a % 3600) / 60);
+    }
+    return b;
+}
+
+struct HostType {
+    int32_t utoff;
+    bool isdst;
+    std::string abbr;
+};
+
+struct HostTransition {
+    int64_t at;
+    int before;   // type index in effect before `at`
+    int after;    // type index from `at` on
+};
+
+int find_or_add(std::vector<HostType>& types, int32_t utoff, bool isdst, const std::string& abbr) {
+    for (size_t i = 0; i < types.size(); ++i) {
+        if (types[i].utoff == utoff && types[i].isdst == isdst && types[i].abbr == abbr) return static_cast<int>(i);
+    }
+    types.push_back({utoff, isdst, abbr});
+    return static_cast<int>(types.size() - 1);
+}
+
+// The rule for a host zone read as types and transitions (any order). `first_ty` is the type in effect when there is no
+// transition. Transitions that do not change the type are dropped. False when the zone does not fit a rule.
+bool assemble_rule(std::vector<HostType> types, std::vector<HostTransition> trans, int first_ty, RuleImage& img) {
+    if (types.empty() || first_ty < 0 || first_ty >= static_cast<int>(types.size())) return false;
+    if (types.size() > static_cast<size_t>(kMaxTypes)) return false;
+    std::sort(trans.begin(), trans.end(), [](const HostTransition& a, const HostTransition& b) { return a.at < b.at; });
+
+    // The type in effect before the first transition is the table's default; it must be type 0.
+    const int default_ty = trans.empty() ? first_ty : trans[0].before;
+    auto remap = [&](int i) {
+        if (i == 0) return default_ty;
+        if (i == default_ty) return 0;
+        return i;
+    };
+    std::swap(types[0], types[default_ty]);
+
+    // Drop transitions that do not change the type (keeps the table minimal and strictly increasing).
+    std::vector<HostTransition> table;
+    int state = remap(default_ty);
+    for (const HostTransition& t : trans) {
+        if (!table.empty() && t.at == table.back().at) return false;
+        const int after = remap(t.after);
+        if (after == state) continue;
+        table.push_back({t.at, state, after});
+        state = after;
+    }
+    if (static_cast<int>(table.size()) > kMaxTimes) return false;
+
+    // Abbreviations into chars, NUL separated, each name stored once.
+    std::string chars;
+    std::vector<int32_t> desig(types.size(), 0);
+    for (size_t i = 0; i < types.size(); ++i) {
+        const std::string& a = types[i].abbr;
+        const size_t pos = chars.find(a + '\0');
+        if (pos != std::string::npos && (pos == 0 || chars[pos - 1] == '\0')) {
+            desig[i] = static_cast<int32_t>(pos);
+        } else {
+            desig[i] = static_cast<int32_t>(chars.size());
+            chars += a;
+            chars.push_back('\0');
+        }
+    }
+    if (chars.size() > static_cast<size_t>(kMaxChars)) return false;
+
+    img.timecnt = static_cast<int32_t>(table.size());
+    img.typecnt = static_cast<int32_t>(types.size());
+    img.charcnt = static_cast<int32_t>(chars.size());
+    img.goback = 0;
+    img.goahead = 0;
+    for (int i = 0; i < img.timecnt; ++i) {
+        img.ats[i] = table[static_cast<size_t>(i)].at;
+        img.types[i] = static_cast<uint8_t>(table[static_cast<size_t>(i)].after);
+    }
+    for (size_t j = 0; j < types.size(); ++j) {
+        TtInfo& tt = img.ttis[j];
+        tt.utoff = types[j].utoff;
+        tt.isdst = types[j].isdst ? 1 : 0;
+        tt.desigidx = desig[j];
+        tt.ttisstd = 0;
+        tt.ttisut = 0;
+    }
+    std::memcpy(img.chars, chars.data(), chars.size());
+    img.defaulttype = 0;
+    return valid_rule(img);
+}
+
+#ifdef _WIN32
 // ---- host rule (Windows) ----
 
 struct AbbrMap {
@@ -283,44 +381,18 @@ const AbbrMap* find_zone(const std::string& id) {
     return nullptr;
 }
 
-std::string numeric_abbr(int32_t off) {
-    const int32_t a = off < 0 ? -off : off;
-    char b[16];
-    if (a % 3600 == 0) {
-        std::snprintf(b, sizeof b, "%c%02d", off < 0 ? '-' : '+', a / 3600);
-    } else {
-        std::snprintf(b, sizeof b, "%c%02d%02d", off < 0 ? '-' : '+', a / 3600, (a % 3600) / 60);
-    }
-    return b;
-}
-
-struct HostType {
-    int32_t utoff;
-    bool isdst;
-    std::string abbr;
-};
-
-struct HostTransition {
-    int64_t at;
-    int before;   // type index in effect before `at`
-    int after;    // type index from `at` on
-};
-
-int find_or_add(std::vector<HostType>& types, int32_t utoff, bool isdst, const std::string& abbr) {
-    for (size_t i = 0; i < types.size(); ++i) {
-        if (types[i].utoff == utoff && types[i].isdst == isdst && types[i].abbr == abbr) return static_cast<int>(i);
-    }
-    types.push_back({utoff, isdst, abbr});
-    return static_cast<int>(types.size() - 1);
-}
-
-#ifdef _WIN32
 std::string wide_to_utf8(const wchar_t* w) {
     const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
     if (n <= 1) return {};
     std::string s(static_cast<size_t>(n - 1), '\0');
     WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
     return s;
+}
+
+int days_in_month(int64_t y, int m) {
+    static constexpr int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const bool leap = (y % 4 == 0) && (y % 100 != 0 || y % 400 == 0);
+    return (m == 2 && leap) ? 29 : kDays[m - 1];
 }
 
 // Local wall time of a SYSTEMTIME as seconds since the epoch in that wall clock. A wYear of 0 is a recurring rule:
@@ -373,67 +445,108 @@ bool build_host_rule(RuleImage& img, std::string& name) {
         trans.push_back({end, dst_ty, std_ty});
     }
     if (std_1970 < 0) return false;
+    return assemble_rule(std::move(types), std::move(trans), std_1970, img);
+}
+#else
+// ---- host rule (POSIX: Linux, macOS) ----
+// libc's localtime_r is the host zone: it follows $TZ and /etc/localtime, so no tz database is read here.
 
-    std::sort(trans.begin(), trans.end(), [](const HostTransition& a, const HostTransition& b) { return a.at < b.at; });
+bool local_type_at(int64_t t, HostType* out) {
+    const time_t tt = static_cast<time_t>(t);
+    struct tm tm{};
+    if (!localtime_r(&tt, &tm)) return false;
+    out->utoff = static_cast<int32_t>(tm.tm_gmtoff);
+    out->isdst = tm.tm_isdst > 0;
+    out->abbr = (tm.tm_zone && tm.tm_zone[0]) ? std::string(tm.tm_zone) : numeric_abbr(out->utoff);
+    return true;
+}
 
-    // The type in effect before the first transition is the table's default; it must be type 0.
-    const int default_ty = trans.empty() ? std_1970 : trans[0].before;
-    if (types.size() > static_cast<size_t>(kMaxTypes)) return false;
-    auto remap = [&](int i) {
-        if (i == 0) return default_ty;
-        if (i == default_ty) return 0;
-        return i;
-    };
-    std::swap(types[0], types[default_ty]);
+bool same_type(const HostType& a, const HostType& b) { return a.utoff == b.utoff && a.isdst == b.isdst && a.abbr == b.abbr; }
 
-    // Drop transitions that do not change the type (keeps the table minimal and strictly increasing).
-    std::vector<HostTransition> table;
-    int state = remap(default_ty);
-    for (const HostTransition& t : trans) {
-        if (!table.empty() && t.at == table.back().at) return false;
-        const int after = remap(t.after);
-        if (after == state) continue;
-        table.push_back({t.at, state, after});
-        state = after;
+// "Area/Location" from a path into a zoneinfo tree ("/usr/share/zoneinfo/Australia/Sydney", "../usr/share/zoneinfo/posix/UTC").
+std::string zone_from_path(const std::string& path) {
+    static constexpr char kTree[] = "zoneinfo/";
+    const size_t k = path.rfind(kTree);
+    if (k == std::string::npos) return {};
+    std::string zone = path.substr(k + sizeof kTree - 1);
+    for (const char* tree : {"posix/", "right/"}) {   // tzdata's alternative trees hold the same zone names
+        if (zone.rfind(tree, 0) == 0) zone.erase(0, std::strlen(tree));
     }
-    if (static_cast<int>(table.size()) > kMaxTimes) return false;
+    return zone;
+}
 
-    // Abbreviations into chars, NUL separated, each name stored once.
-    std::string chars;
-    std::vector<int32_t> desig(types.size(), 0);
-    for (size_t i = 0; i < types.size(); ++i) {
-        const std::string& a = types[i].abbr;
-        const size_t pos = chars.find(a + '\0');
-        if (pos != std::string::npos && (pos == 0 || chars[pos - 1] == '\0')) {
-            desig[i] = static_cast<int32_t>(pos);
-        } else {
-            desig[i] = static_cast<int32_t>(chars.size());
-            chars += a;
-            chars.push_back('\0');
+// The host's location name: $TZ when it names a zone, else the /etc/localtime link, else /etc/timezone (Debian). A POSIX TZ
+// string ("AEST-10AEDT,M10.1.0,M4.1.0/3") or an unreadable zone has no name: "Etc/Unknown" (CLDR's unknown zone).
+std::string host_zone_name() {
+    if (const char* env = std::getenv("TZ"); env && *env) {
+        const std::string tz = env[0] == ':' ? env + 1 : env;
+        if (!tz.empty() && tz[0] == '/') {
+            std::string zone = zone_from_path(tz);
+            if (!zone.empty()) return zone;
+        } else if ((tz.find('/') != std::string::npos && tz.find(',') == std::string::npos) || tz == "UTC") {
+            return tz;
         }
+        return "Etc/Unknown";
     }
-    if (chars.size() > static_cast<size_t>(kMaxChars)) return false;
+    char link[512];
+    const ssize_t n = readlink("/etc/localtime", link, sizeof link - 1);
+    if (n > 0) {
+        link[n] = '\0';
+        std::string zone = zone_from_path(link);
+        if (!zone.empty()) return zone;
+    }
+    if (FILE* f = std::fopen("/etc/timezone", "r")) {
+        char line[128] = {};
+        const bool got = std::fgets(line, sizeof line, f) != nullptr;
+        std::fclose(f);
+        std::string zone = got ? std::string(line) : std::string();
+        while (!zone.empty() && (zone.back() == '\n' || zone.back() == '\r' || zone.back() == ' ')) zone.pop_back();
+        if (!zone.empty()) return zone;
+    }
+    return "Etc/Unknown";
+}
 
-    img.timecnt = static_cast<int32_t>(table.size());
-    img.typecnt = static_cast<int32_t>(types.size());
-    img.charcnt = static_cast<int32_t>(chars.size());
-    img.goback = 0;
-    img.goahead = 0;
-    for (int i = 0; i < img.timecnt; ++i) {
-        img.ats[i] = table[static_cast<size_t>(i)].at;
-        img.types[i] = static_cast<uint8_t>(table[static_cast<size_t>(i)].after);
+// Builds the rule from the host zone for 1970..2037, the span the Windows rule covers. The zone is sampled once a day and each
+// change is narrowed to its second; a change and its reversal inside one day would be missed, which tzdata has no zone doing.
+bool build_host_rule(RuleImage& img, std::string& name) {
+    tzset();
+    name = host_zone_name();
+    const int64_t end = days_from_civil(2038, 1, 1) * kSecondsPerDay;
+
+    std::vector<HostType> types;
+    std::vector<HostTransition> trans;
+    HostType cur{};
+    if (!local_type_at(0, &cur)) return false;
+    int cur_ty = find_or_add(types, cur.utoff, cur.isdst, cur.abbr);
+    const int first_ty = cur_ty;
+    for (int64_t t = 0; t < end;) {
+        const int64_t next = std::min(t + kSecondsPerDay, end);
+        HostType probe{};
+        if (!local_type_at(next, &probe)) return false;
+        if (same_type(probe, cur)) {
+            t = next;
+            continue;
+        }
+        int64_t lo = t;      // still `cur`
+        int64_t hi = next;   // already changed
+        while (hi - lo > 1) {
+            const int64_t mid = lo + (hi - lo) / 2;
+            HostType m{};
+            if (!local_type_at(mid, &m)) return false;
+            if (same_type(m, cur)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        if (!local_type_at(hi, &cur)) return false;
+        const int ty = find_or_add(types, cur.utoff, cur.isdst, cur.abbr);
+        trans.push_back({hi, cur_ty, ty});
+        if (trans.size() > static_cast<size_t>(kMaxTimes) || types.size() > static_cast<size_t>(kMaxTypes)) return false;
+        cur_ty = ty;
+        t = hi;
     }
-    for (size_t j = 0; j < types.size(); ++j) {
-        TtInfo& tt = img.ttis[j];
-        tt.utoff = types[j].utoff;
-        tt.isdst = types[j].isdst ? 1 : 0;
-        tt.desigidx = desig[j];
-        tt.ttisstd = 0;
-        tt.ttisut = 0;
-    }
-    std::memcpy(img.chars, chars.data(), chars.size());
-    img.defaulttype = 0;
-    return valid_rule(img);
+    return assemble_rule(std::move(types), std::move(trans), first_ty, img);
 }
 #endif
 
@@ -453,7 +566,6 @@ void make_utc_rule(uint8_t* out) {
 }
 
 bool make_host_rule(uint8_t* out, std::string* name_out) {
-#ifdef _WIN32
     auto img = std::make_unique<RuleImage>();
     std::string name;
     if (build_host_rule(*img, name)) {
@@ -461,7 +573,6 @@ bool make_host_rule(uint8_t* out, std::string* name_out) {
         if (name_out) *name_out = name;
         return true;
     }
-#endif
     make_utc_rule(out);
     if (name_out) *name_out = "UTC";
     return false;

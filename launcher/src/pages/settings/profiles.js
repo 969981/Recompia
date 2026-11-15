@@ -25,6 +25,10 @@ export function createProfileActions(h) {
         st.profiles = list;
         h.draw();
       }).catch((e) => console.warn('profiles_list', e));
+      api.profilesPlayTime().then((times) => {
+        st.playTimes = times;
+        h.draw();
+      }).catch((e) => console.warn('profiles_play_time', e));
     },
     actions: {
       async 'profile-new'() {

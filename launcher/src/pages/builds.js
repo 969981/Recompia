@@ -123,7 +123,7 @@ export async function confirmBuild(b) {
 export async function chooseBuild(channel, join) {
   const builds = await loadBuilds(channel, true);
   const picked = await pickBuild(join
-    ? { title: t('Testing builds'), intro: t('You are on the Testing channel now. Pick a build to install, or choose Not now and press Update when you want the newest one.'), builds }
+    ? { title: t('Testing builds'), intro: t('You are on the Testing channel now. Pick a build to install, or choose Not now and pick one later in Settings > About > Choose a version.'), builds }
     : { title: t('Choose a version'), intro: channel === 'testing' ? t('Testing builds and the normal releases. Newer builds install like an update; an older one asks first.') : t('The releases you can install. A newer one installs like an update; an older one asks first.'), builds, close: t('Close') });
   if (!picked) return;
   const ok = await confirmBuild(picked);

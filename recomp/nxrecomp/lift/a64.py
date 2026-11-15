@@ -15,8 +15,13 @@ is mapped at its real address, so guest pointers are host pointers.
 """
 import struct
 
+# Bit-field masks by width: bits() runs about nine times per instruction (a fifth of the lifter's own time), and
+# building the mask with a shift and a subtraction every time was a sixth of that.
+_MASK = tuple((1 << n) - 1 for n in range(33))
+
+
 def bits(w, hi, lo):
-    return (w >> lo) & ((1 << (hi - lo + 1)) - 1)
+    return (w >> lo) & _MASK[hi - lo + 1]
 
 
 def sext(v, n):
@@ -28,36 +33,47 @@ class Unimpl(Exception):
 
 
 # ---------------------------------------------------------------- operands
+# The operand strings are looked up, not formatted: a statement names two to five operands, the values are 0..31 and a
+# bit, so every form is one of a handful of strings ('%' formatting of an int costs four times a table lookup).
+_X = tuple(f'c->x[{n}]' for n in range(31)) + ('0ULL',)           # x31 reads as zero
+_XS = tuple(f'c->x[{n}]' for n in range(32))                      # ... and as SP here
+_W = tuple(f'(uint32_t)c->x[{n}]' for n in range(31)) + ('0U',)
+_WS = tuple(f'(uint32_t)c->x[{n}]' for n in range(32))
+_R = ((_W, _WS), (_X, _XS))                                       # [sf][sp]
+_T = ('uint32_t', 'uint64_t')
+# SET: the assignment in front of the expression, by width and register ('c->x[5] = (uint64_t)(' ... ');')
+_SET = (tuple(f'c->x[{n}] = (uint32_t)(' for n in range(32)),
+        tuple(f'c->x[{n}] = (uint64_t)(' for n in range(32)))
+
+
 def X(n):
-    return '0ULL' if n == 31 else 'c->x[%d]' % n
+    return _X[n]
 
 
 def XS(n):
-    return 'c->x[%d]' % n            # register 31 is SP here
+    return _XS[n]
 
 
 def W(n):
-    return '0U' if n == 31 else '(uint32_t)c->x[%d]' % n
+    return _W[n]
 
 
 def WS(n):
-    return '(uint32_t)c->x[%d]' % n
+    return _WS[n]
 
 
 def R(n, sf, sp=False):
-    if sf:
-        return XS(n) if sp else X(n)
-    return WS(n) if sp else W(n)
+    return _R[sf][sp][n]
 
 
 def SET(n, sf, expr, sp=False):
     if n == 31 and not sp:
-        return '(void)(%s);' % expr
-    return 'c->x[%d] = (%s)(%s);' % (n, 'uint64_t' if sf else 'uint32_t', expr)
+        return '(void)(' + expr + ');'
+    return _SET[sf][n] + expr + ');'
 
 
 def T(sf):
-    return 'uint64_t' if sf else 'uint32_t'
+    return _T[sf]
 
 
 def decode_bitmasks(n, imms, immr, datasize):
@@ -86,12 +102,12 @@ def shifted(expr, kind, amount, sf):
     if amount == 0:
         return expr
     if kind == 0:
-        return '(%s << %d)' % (expr, amount)
+        return f'({expr} << {amount})'
     if kind == 1:
-        return '(%s >> %d)' % (expr, amount)
+        return f'({expr} >> {amount})'
     if kind == 2:
-        return '(%s)((%s)%s >> %d)' % (T(sf), 'int64_t' if sf else 'int32_t', expr, amount)
-    return 'ror%d(%s, %d)' % (64 if sf else 32, expr, amount)
+        return f'({T(sf)})(({"int64_t" if sf else "int32_t"}){expr} >> {amount})'
+    return f'ror{64 if sf else 32}({expr}, {amount})'
 
 
 def extended(n, option, shift):
@@ -99,8 +115,8 @@ def extended(n, option, shift):
     cast = ['(uint64_t)(uint8_t)', '(uint64_t)(uint16_t)', '(uint64_t)(uint32_t)', '(uint64_t)',
             '(uint64_t)(int64_t)(int8_t)', '(uint64_t)(int64_t)(int16_t)', '(uint64_t)(int64_t)(int32_t)',
             '(uint64_t)'][option]
-    e = '(%s%s)' % (cast, src)
-    return '(%s << %d)' % (e, shift) if shift else e
+    e = f'({cast}{src})'
+    return f'({e} << {shift})' if shift else e
 
 
 # ---------------------------------------------------------------- lifter
@@ -115,8 +131,8 @@ class Fn:
     def jump(self, target):
         if self.entry <= target < self.end:
             self.targets.add(target)
-            return 'goto L_%x;' % target
-        return '{ %s return; }' % self.env.call(target)
+            return f'goto L_{target:x};'
+        return f'{{ {self.env.call(target)} return; }}'
 
     def lift(self, w, pc):
         op0 = bits(w, 28, 25)
@@ -134,7 +150,7 @@ class Fn:
         # (ARMv8.0, no SVE): executing one raises an undefined-instruction exception, so the faithful translation is a
         # trap. Nintendo's SDK uses this deliberately (UDF #0xdefe, the word 0xe7ffdefe, in Halt / DebugBreak paths).
         # [from smo-recomp]
-        return 'guest_trap("undefined instruction", 0x%xULL);' % pc
+        return f'guest_trap("undefined instruction", 0x{pc:x}ULL);'
 
     # ---- data processing, immediate
     def dp_imm(self, w, pc):
@@ -143,31 +159,31 @@ class Fn:
         if g in (0, 1):
             imm = sext((bits(w, 23, 5) << 2) | bits(w, 30, 29), 21)
             val = ((pc & ~0xfff) + (imm << 12)) if sf else pc + imm
-            return SET(rd, 1, '0x%xULL' % (val & (2 ** 64 - 1)))
+            return SET(rd, 1, f'0x{val & (2 ** 64 - 1):x}ULL')
         if g == 2:
             imm = bits(w, 21, 10) << (12 if bits(w, 22, 22) else 0)
             sub, s = bits(w, 30, 30), bits(w, 29, 29)
             a = R(rn, sf, sp=True)
             if s:
-                return SET(rd, sf, '%s%d(c, %s, %s, %d)' % ('adds', 64 if sf else 32, a,
-                                                              ('~(%s)%dULL' % (T(sf), imm)) if sub else '%dULL' % imm, sub))
-            return SET(rd, sf, '%s %s %dULL' % (a, '-' if sub else '+', imm), sp=True)
+                b = f'~({T(sf)}){imm}ULL' if sub else f'{imm}ULL'
+                return SET(rd, sf, f'adds{64 if sf else 32}(c, {a}, {b}, {sub})')
+            return SET(rd, sf, f'{a} {"-" if sub else "+"} {imm}ULL', sp=True)
         if g == 4:
             opc = bits(w, 30, 29)
             wmask, _ = decode_bitmasks(bits(w, 22, 22), bits(w, 15, 10), bits(w, 21, 16), 64 if sf else 32)
             a = R(rn, sf)
-            e = '%s %s 0x%xULL' % (a, '&|^&'[opc], wmask)
+            e = f'{a} {"&|^&"[opc]} 0x{wmask:x}ULL'
             if opc == 3:
-                return SET(rd, sf, 'logic%d(c, %s)' % (64 if sf else 32, e))
+                return SET(rd, sf, f'logic{64 if sf else 32}(c, {e})')
             return SET(rd, sf, e, sp=True)
         if g == 5:
             opc, hw, imm = bits(w, 30, 29), bits(w, 22, 21) * 16, bits(w, 20, 5)
             if opc == 0:
-                return SET(rd, sf, '~(0x%xULL)' % (imm << hw))
+                return SET(rd, sf, f'~(0x{imm << hw:x}ULL)')
             if opc == 2:
-                return SET(rd, sf, '0x%xULL' % (imm << hw))
+                return SET(rd, sf, f'0x{imm << hw:x}ULL')
             if opc == 3:
-                return SET(rd, sf, '(%s & ~0x%xULL) | 0x%xULL' % (R(rd, sf), 0xffff << hw, imm << hw))
+                return SET(rd, sf, f'({R(rd, sf)} & ~0x{0xffff << hw:x}ULL) | 0x{imm << hw:x}ULL')
             raise Unimpl('movwide')
         if g == 6:
             opc, n, immr, imms = bits(w, 30, 29), bits(w, 22, 22), bits(w, 21, 16), bits(w, 15, 10)
@@ -176,66 +192,66 @@ class Fn:
             if opc == 3:
                 raise Unimpl('bitfield3')
             dst = R(rd, sf) if opc == 1 else '0'
-            top = dst if opc == 1 else ('((s >> %d) & 1 ? ~(%s)0 : 0)' % (imms, T(sf)) if opc == 0 else '0')
-            return ('{ %s s = %s; %s bot = (%s & ~0x%xULL) | (ror%d(s, %d) & 0x%xULL); %s top = %s; %s }'
-                    % (T(sf), R(rn, sf), T(sf), dst, wmask, size, immr, wmask, T(sf), top,
-                       SET(rd, sf, '(top & ~0x%xULL) | (bot & 0x%xULL)' % (tmask, tmask))))
+            top = dst if opc == 1 else (f'((s >> {imms}) & 1 ? ~({T(sf)})0 : 0)' if opc == 0 else '0')
+            ins = SET(rd, sf, f'(top & ~0x{tmask:x}ULL) | (bot & 0x{tmask:x}ULL)')
+            return (f'{{ {T(sf)} s = {R(rn, sf)}; {T(sf)} bot = ({dst} & ~0x{wmask:x}ULL) | (ror{size}(s, {immr}) & 0x{wmask:x}ULL); '
+                    f'{T(sf)} top = {top}; {ins} }}')
         if g == 7:
             rm, lsb = bits(w, 20, 16), bits(w, 15, 10)
             size = 64 if sf else 32
             if lsb == 0:
                 return SET(rd, sf, R(rm, sf))
-            return SET(rd, sf, '(%s >> %d) | (%s << %d)' % (R(rm, sf), lsb, R(rn, sf), size - lsb))
-        raise Unimpl('dpimm%d' % g)
+            return SET(rd, sf, f'({R(rm, sf)} >> {lsb}) | ({R(rn, sf)} << {size - lsb})')
+        raise Unimpl(f'dpimm{g}')
 
     # ---- branches and system
     def branch(self, w, pc):
         if bits(w, 30, 26) == 5:
             target = pc + sext(bits(w, 25, 0), 26) * 4
             if bits(w, 31, 31):
-                return 'c->x[30] = 0x%xULL; %s' % (pc + 4, self.env.call(target))
+                return f'c->x[30] = 0x{pc + 4:x}ULL; {self.env.call(target)}'
             return self.jump(target)
         if bits(w, 31, 24) == 0x54:
             target = pc + sext(bits(w, 23, 5), 19) * 4
-            return 'if (cond(c, %d)) %s' % (bits(w, 3, 0), self.jump(target))
+            return f'if (cond(c, {bits(w, 3, 0)})) {self.jump(target)}'
         if bits(w, 30, 25) == 0x1a:
             target = pc + sext(bits(w, 23, 5), 19) * 4
-            return 'if (%s %s 0) %s' % (R(bits(w, 4, 0), bits(w, 31, 31)), '!=' if bits(w, 24, 24) else '==', self.jump(target))
+            return f'if ({R(bits(w, 4, 0), bits(w, 31, 31))} {"!=" if bits(w, 24, 24) else "=="} 0) {self.jump(target)}'
         if bits(w, 30, 25) == 0x1b:
             bit = (bits(w, 31, 31) << 5) | bits(w, 23, 19)
             target = pc + sext(bits(w, 18, 5), 14) * 4
-            return 'if (((%s >> %d) & 1) %s 0) %s' % (X(bits(w, 4, 0)), bit, '!=' if bits(w, 24, 24) else '==', self.jump(target))
+            return f'if ((({X(bits(w, 4, 0))} >> {bit}) & 1) {"!=" if bits(w, 24, 24) else "=="} 0) {self.jump(target)}'
         if bits(w, 31, 25) == 0x6b:
             opc, rn = bits(w, 24, 21), bits(w, 9, 5)
             if opc == 2:
                 return 'return;'
             if opc == 1:
-                return '{ uint64_t t = %s; c->x[30] = 0x%xULL; call_indirect(c, t); }' % (X(rn), pc + 4)
+                return f'{{ uint64_t t = {X(rn)}; c->x[30] = 0x{pc + 4:x}ULL; call_indirect(c, t); }}'
             if opc == 0:
                 tg = self.env.jt.get(pc)
                 if tg:                                   # a resolved jump table: a switch over exactly its targets
-                    return 'switch (%s) { %s default: call_indirect(c, %s); return; }' % (
-                        X(rn), ' '.join('case 0x%xULL: %s' % (t, self.jump(t)) for t in tg), X(rn))
+                    cases = ' '.join(f'case 0x{t:x}ULL: {self.jump(t)}' for t in tg)
+                    return f'switch ({X(rn)}) {{ {cases} default: call_indirect(c, {X(rn)}); return; }}'
                 if pc in self.env.tailbr:                # an indirect tail call (vtable / function pointer): no dispatch
-                    return '{ call_indirect(c, %s); return; }' % X(rn)
+                    return f'{{ call_indirect(c, {X(rn)}); return; }}'
                 self.has_br_fallback = True
-                return '{ jt = %s; goto L_dispatch; }' % X(rn)
-            raise Unimpl('br%d' % opc)
+                return f'{{ jt = {X(rn)}; goto L_dispatch; }}'
+            raise Unimpl(f'br{opc}')
         if w == 0xd503205f or w == 0xd503203f:           # wfe / yield: a spin-wait hint; the runtime may give the host thread away
-            return 'nx_spin_hint(%d);' % (1 if w == 0xd503205f else 0)
+            return f'nx_spin_hint({1 if w == 0xd503205f else 0});'
         if (w & 0xfffff01f) == 0xd503201f:
             return ';'                                   # nop / hint
         if (w & 0xffe0001f) == 0xd4000001:
-            return 'guest_svc(c, 0x%x);' % bits(w, 20, 5)
+            return f'guest_svc(c, 0x{bits(w, 20, 5):x});'
         if (w & 0xffe0001f) == 0xd4200000:
-            return 'guest_trap("brk", 0x%xULL);' % pc
+            return f'guest_trap("brk", 0x{pc:x}ULL);'
         rt = bits(w, 4, 0)
         if (w & 0xffffffe0) == 0xd53bd040:               # mrs xt, tpidr_el0
             return SET(rt, 1, 'c->tpidr')
         if (w & 0xffffffe0) == 0xd53bd060:               # mrs xt, tpidrro_el0 (ScarletNX keeps it separate)
             return SET(rt, 1, 'c->tpidrro')
         if (w & 0xffffffe0) == 0xd51bd040:               # msr tpidr_el0, xt
-            return 'c->tpidr = %s;' % X(rt)
+            return f'c->tpidr = {X(rt)};'
         if (w & 0xffffffe0) == 0xd53b00e0:
             return SET(rt, 1, '0x10ULL')                 # dczid_el0: DC ZVA prohibited
         if (w & 0xffffffe0) == 0xd53b4400:               # mrs xt, fpcr
@@ -243,13 +259,13 @@ class Fn:
         if (w & 0xffffffe0) == 0xd53b4420:               # mrs xt, fpsr
             return SET(rt, 1, 'c->fpsr')
         if (w & 0xffffffe0) == 0xd51b4400:               # msr fpcr, xt   (stored, not honoured: docs/GAPS.md)
-            return 'c->fpcr = %s & 0x07f70000ULL;' % X(rt)      # the bits a Cortex-A57 implements
+            return f'c->fpcr = {X(rt)} & 0x07f70000ULL;'      # the bits a Cortex-A57 implements
         if (w & 0xffffffe0) == 0xd51b4420:               # msr fpsr, xt
-            return 'c->fpsr = %s & 0xf800009fULL;' % X(rt)
+            return f'c->fpsr = {X(rt)} & 0xf800009fULL;'
         if (w & 0xffffffe0) == 0xd53b4200:               # mrs xt, nzcv
             return SET(rt, 1, 'get_nzcv(c)')
         if (w & 0xffffffe0) == 0xd51b4200:               # msr nzcv, xt
-            return 'set_nzcv(c, (int)(%s >> 28));' % X(rt)
+            return f'set_nzcv(c, (int)({X(rt)} >> 28));'
         if (w & 0xfffff0ff) in (0xd50330bf, 0xd503309f):  # dmb / dsb: x86 is stronger than AArch64 except store->load
             return '__atomic_thread_fence(__ATOMIC_SEQ_CST);'
         if (w & 0xfffff0ff) == 0xd503305f:               # clrex: the monitor is closed
@@ -262,9 +278,9 @@ class Fn:
         if (w & 0xffffffe0) == 0xd50b7e20:               # dc civac: clean + invalidate a data-cache line; the host
             return ';'                                   # memory the lifted code uses is coherent: nothing to do
         if (w & 0xfff00000) == 0xd5300000:               # any other mrs: the runtime answers (counter, ID registers)
-            return SET(rt, 1, 'guest_mrs(c, 0x%x)' % bits(w, 20, 5))
+            return SET(rt, 1, f'guest_mrs(c, 0x{bits(w, 20, 5):x})')
         if (w & 0xfff00000) == 0xd5100000:               # any other msr (register form)
-            return 'guest_msr(c, 0x%x, %s);' % (bits(w, 20, 5), X(rt))
+            return f'guest_msr(c, 0x{bits(w, 20, 5):x}, {X(rt)});'
         raise Unimpl('system')
 
     # ---- loads and stores
@@ -273,21 +289,21 @@ class Fn:
         rn = bits(w, 9, 5)
         base = XS(rn)
         if bits(w, 24, 24):
-            return '', '%s + %dULL' % (base, bits(w, 21, 10) << scale), ''
+            return '', f'{base} + {bits(w, 21, 10) << scale}ULL', ''
         if bits(w, 21, 21) == 0:
             imm, mode = sext(bits(w, 20, 12), 9), bits(w, 11, 10)
             if mode == 0:
-                return '', '%s + (uint64_t)%dLL' % (base, imm), ''
+                return '', f'{base} + (uint64_t){imm}LL', ''
             if mode == 1:
-                return '', base, '%s += (uint64_t)%dLL;' % (base, imm)
+                return '', base, f'{base} += (uint64_t){imm}LL;'
             if mode == 3:
-                return '%s += (uint64_t)%dLL;' % (base, imm), base, ''
+                return f'{base} += (uint64_t){imm}LL;', base, ''
             raise Unimpl('ldst-unpriv')
         if bits(w, 11, 10) == 2:
             option, s, rm = bits(w, 15, 13), bits(w, 12, 12), bits(w, 20, 16)
             if option not in (2, 3, 6, 7):
                 raise Unimpl('ldst-ext')
-            return '', '%s + %s' % (base, extended(rm, option, scale if s else 0)), ''
+            return '', f'{base} + {extended(rm, option, scale if s else 0)}', ''
         raise Unimpl('ldst-atomic')
 
     def loadstore(self, w, pc):
@@ -305,25 +321,25 @@ class Fn:
                 size = 8 if opc == 2 else 4
             imm = sext(bits(w, 21, 15), 7) * size
             base = XS(rn)
-            pre = '%s += (uint64_t)%dLL;' % (base, imm) if mode == 3 else ''
-            post = '%s += (uint64_t)%dLL;' % (base, imm) if mode == 1 else ''
+            pre = f'{base} += (uint64_t){imm}LL;' if mode == 3 else ''
+            post = f'{base} += (uint64_t){imm}LL;' if mode == 1 else ''
             off = imm if mode in (2, 0) else 0
-            body = 'uint64_t a = %s + (uint64_t)%dLL; ' % (base, off)
+            body = f'uint64_t a = {base} + (uint64_t){off}LL; '
             if v:
                 if load:
-                    body += 'V128 t1 = rdv(a, %d), t2 = rdv(a + %d, %d); c->v[%d] = t1; c->v[%d] = t2;' % (size, size, size, rt, rt2)
+                    body += f'V128 t1 = rdv(a, {size}), t2 = rdv(a + {size}, {size}); c->v[{rt}] = t1; c->v[{rt2}] = t2;'
                 else:
-                    body += 'wrv(a, &c->v[%d], %d); wrv(a + %d, &c->v[%d], %d);' % (rt, size, size, rt2, size)
+                    body += f'wrv(a, &c->v[{rt}], {size}); wrv(a + {size}, &c->v[{rt2}], {size});'
             elif load:
-                rd = 'rd%d' % (size * 8)
+                rd = f'rd{size * 8}'
                 if opc == 1:
                     body += 'uint64_t t1 = (uint64_t)(int64_t)(int32_t)rd32(a), t2 = (uint64_t)(int64_t)(int32_t)rd32(a + 4); '
                 else:
-                    body += 'uint64_t t1 = %s(a), t2 = %s(a + %d); ' % (rd, rd, size)
+                    body += f'uint64_t t1 = {rd}(a), t2 = {rd}(a + {size}); '
                 body += SET(rt, 1, 't1') + ' ' + SET(rt2, 1, 't2')
             else:
-                body += 'wr%d(a, %s); wr%d(a + %d, %s);' % (size * 8, R(rt, size == 8), size * 8, size, R(rt2, size == 8))
-            return '{ %s %s %s }' % (pre, body, post)
+                body += f'wr{size * 8}(a, {R(rt, size == 8)}); wr{size * 8}(a + {size}, {R(rt2, size == 8)});'
+            return f'{{ {pre} {body} {post} }}'
         if g == 7:                                       # single register
             size, opc = bits(w, 31, 30), bits(w, 23, 22)
             if v:
@@ -333,30 +349,30 @@ class Fn:
                 scale = 4 if opc & 2 else size
                 pre, a, post = self.addr_mode(w, scale)
                 if opc & 1:
-                    body = 'c->v[%d] = rdv(a, %d);' % (rt, nbytes)
+                    body = f'c->v[{rt}] = rdv(a, {nbytes});'
                 else:
-                    body = 'wrv(a, &c->v[%d], %d);' % (rt, nbytes)
-                return '{ %s uint64_t a = %s; %s %s }' % (pre, a, body, post)
+                    body = f'wrv(a, &c->v[{rt}], {nbytes});'
+                return f'{{ {pre} uint64_t a = {a}; {body} {post} }}'
             if size == 3 and opc == 2 and (bits(w, 24, 24) or not (bits(w, 21, 21) and bits(w, 11, 10) == 0)):
                 return ';'                               # prfm (the same size/opc class holds the LSE atomics ldadda...: tier 2)
             pre, a, post = self.addr_mode(w, size)
             nb = 8 << size
             if opc == 0:
-                body = 'wr%d(a, %s);' % (nb, R(rt, size == 3))
+                body = f'wr{nb}(a, {R(rt, size == 3)});'
             elif opc == 1:
-                body = SET(rt, 1, 'rd%d(a)' % nb)
+                body = SET(rt, 1, f'rd{nb}(a)')
             else:
-                ext = '(int64_t)(int%d_t)rd%d(a)' % (nb, nb)
-                body = SET(rt, 1 if opc == 2 else 0, ext)
-            return '{ %s uint64_t a = %s; %s %s }' % (pre, a, body, post)
+                body = SET(rt, 1 if opc == 2 else 0, f'(int64_t)(int{nb}_t)rd{nb}(a)')
+            return f'{{ {pre} uint64_t a = {a}; {body} {post} }}'
         if g == 3 and bits(w, 24, 24) == 0:              # literal
             opc = bits(w, 31, 30)
-            a = '0x%xULL' % (pc + sext(bits(w, 23, 5), 19) * 4)
+            a = f'0x{pc + sext(bits(w, 23, 5), 19) * 4:x}ULL'
             if v:
-                return 'c->v[%d] = rdv(%s, %d);' % (rt, a, 4 << opc)
+                return f'c->v[{rt}] = rdv({a}, {4 << opc});'
             if opc == 3:
                 return ';'
-            return SET(rt, 1, ['rd32(%s)', 'rd64(%s)', '(int64_t)(int32_t)rd32(%s)'][opc] % a)
+            tpl = ['rd32(', 'rd64(', '(int64_t)(int32_t)rd32('][opc]
+            return SET(rt, 1, f'{tpl}{a})')
         if bits(w, 29, 24) == 8 and not v:               # exclusive / ordered
             size, o2, load, o1 = bits(w, 31, 30), bits(w, 23, 23), bits(w, 22, 22), bits(w, 21, 21)
             if o1:
@@ -367,25 +383,24 @@ class Fn:
                 rt2, rs = bits(w, 14, 10), bits(w, 20, 16)
                 if load:
                     if size == 2:
-                        return ('{ uint64_t a = %s; uint64_t v = __atomic_load_n((uint64_t *)(uintptr_t)a, __ATOMIC_ACQUIRE); '
-                                'c->ex_addr = a; c->ex_val = v; %s %s }' % (XS(rn), SET(rt, 0, '(uint32_t)v'), SET(rt2, 0, '(uint32_t)(v >> 32)')))
-                    return ('{ uint64_t a = %s; uint64_t lo, hi; ldxp128(c, a, &lo, &hi); %s %s }'
-                            % (XS(rn), SET(rt, 1, 'lo'), SET(rt2, 1, 'hi')))
+                        lo, hi = SET(rt, 0, '(uint32_t)v'), SET(rt2, 0, '(uint32_t)(v >> 32)')
+                        return (f'{{ uint64_t a = {XS(rn)}; uint64_t v = __atomic_load_n((uint64_t *)(uintptr_t)a, __ATOMIC_ACQUIRE); '
+                                f'c->ex_addr = a; c->ex_val = v; {lo} {hi} }}')
+                    lo, hi = SET(rt, 1, 'lo'), SET(rt2, 1, 'hi')
+                    return f'{{ uint64_t a = {XS(rn)}; uint64_t lo, hi; ldxp128(c, a, &lo, &hi); {lo} {hi} }}'
                 if size == 2:
-                    return SET(rs, 0, 'stxp32(c, %s, %s, %s)' % (XS(rn), R(rt, 0), R(rt2, 0)))
-                return SET(rs, 0, 'stxp64(c, %s, %s, %s)' % (XS(rn), R(rt, 1), R(rt2, 1)))
+                    return SET(rs, 0, f'stxp32(c, {XS(rn)}, {R(rt, 0)}, {R(rt2, 0)})')
+                return SET(rs, 0, f'stxp64(c, {XS(rn)}, {R(rt, 1)}, {R(rt2, 1)})')
             nb = 8 << size
             rs = bits(w, 20, 16)
-            if o2:                                       # ldar / stlr: ordered, not exclusive -> acquire / sequentially consistent store
-                # AArch64 orders STLR before a later LDAR (RCsc); x86 lets a later load pass a plain (release) store, so STLR is a
-                # seq_cst store (xchg): store-then-check handshakes (job systems, sleep/wake flags) otherwise see stale values.
-                if load:
-                    return SET(rt, 1, '__atomic_load_n((uint%d_t *)(uintptr_t)%s, __ATOMIC_ACQUIRE)' % (nb, XS(rn)))
-                return '__atomic_store_n((uint%d_t *)(uintptr_t)%s, (uint%d_t)%s, __ATOMIC_SEQ_CST);' % (nb, XS(rn), nb, R(rt, size == 3))
+            if o2:                                       # ldar / stlr: ordered, not exclusive -> ctx.h ldar* / stlr* (the ordering
+                if load:                                 # each host needs is decided there: an acquire load is too weak)
+                    return SET(rt, 1, f'ldar{nb}({XS(rn)})')
+                return f'stlr{nb}({XS(rn)}, (uint{nb}_t){R(rt, size == 3)});'
             if load:                                     # ldxr / ldaxr: remember address and value
-                return '{ uint64_t a = %s; c->ex_addr = a; c->ex_val = rd%d(a); %s }' % (XS(rn), nb, SET(rt, 1, 'c->ex_val'))
+                return f'{{ uint64_t a = {XS(rn)}; c->ex_addr = a; c->ex_val = rd{nb}(a); {SET(rt, 1, "c->ex_val")} }}'
             # stxr / stlxr: succeeds only if the value is still the one loaded (compare-and-swap)
-            return SET(rs, 0, 'stx%d(c, %s, %s)' % (nb, XS(rn), R(rt, size == 3)))
+            return SET(rs, 0, f'stx{nb}(c, {XS(rn)}, {R(rt, size == 3)})')
         if bits(w, 31, 31) == 0 and bits(w, 29, 24) in (0x0c, 0x0d):   # AdvSIMD structure load/store
             q, post, load, rm = bits(w, 30, 30), bits(w, 23, 23), bits(w, 22, 22), bits(w, 20, 16)
             size = bits(w, 11, 10)
@@ -395,16 +410,16 @@ class Fn:
                 nreg = {7: 1, 10: 2, 6: 3, 2: 4}.get(opcode)          # LD1/ST1: one structure, 1..4 registers
                 if nreg is not None:
                     if load:
-                        body = ' '.join('V128 t%d = rdv(a + %d, %d);' % (i, i * nb, nb) for i in range(nreg))
-                        body += ' ' + ' '.join('c->v[%d] = t%d;' % ((rt + i) & 31, i) for i in range(nreg))
+                        body = ' '.join(f'V128 t{i} = rdv(a + {i * nb}, {nb});' for i in range(nreg))
+                        body += ' ' + ' '.join(f'c->v[{(rt + i) & 31}] = t{i};' for i in range(nreg))
                     else:
-                        body = ' '.join('wrv(a + %d, &c->v[%d], %d);' % (i * nb, (rt + i) & 31, nb) for i in range(nreg))
+                        body = ' '.join(f'wrv(a + {i * nb}, &c->v[{(rt + i) & 31}], {nb});' for i in range(nreg))
                     total = nb * nreg
                 else:
                     nstruct = {8: 2, 4: 3, 0: 4}.get(opcode)           # LD2..LD4 / ST2..ST4: interleaved
                     if nstruct is None or (size == 3 and not q):
                         raise Unimpl('ldN')
-                    body = '%s(c, a, %d, %d, %d, %d);' % ('v_ldn' if load else 'v_stn', rt, nstruct, size, q)
+                    body = f'{"v_ldn" if load else "v_stn"}(c, a, {rt}, {nstruct}, {size}, {q});'
                     total = nb * nstruct
             else:
                 opcode, s_bit = bits(w, 15, 13), bits(w, 12, 12)
@@ -413,7 +428,7 @@ class Fn:
                 if bits(w, 21, 21):
                     raise Unimpl('ldN')
                 if opcode == 6 and load:
-                    body = 'v_dup(&c->v[%d], rd%d(a), %d, %d);' % (rt, 8 << size, size, (16 if q else 8) >> size)
+                    body = f'v_dup(&c->v[{rt}], rd{8 << size}(a), {size}, {(16 if q else 8) >> size});'
                     total = 1 << size
                 else:
                     if opcode == 0:
@@ -427,15 +442,15 @@ class Fn:
                     else:
                         raise Unimpl('ldN')
                     if load:
-                        body = 'vset(&c->v[%d], %d, %d, rd%d(a));' % (rt, es, idx, 8 << es)
+                        body = f'vset(&c->v[{rt}], {es}, {idx}, rd{8 << es}(a));'
                     else:
-                        body = 'wr%d(a, vget(&c->v[%d], %d, %d));' % (8 << es, rt, es, idx)
+                        body = f'wr{8 << es}(a, vget(&c->v[{rt}], {es}, {idx}));'
                     total = 1 << es
             wb = ''
             if post:
-                wb = '%s += %s;' % (XS(rn), ('%dULL' % total) if rm == 31 else X(rm))
-            return '{ uint64_t a = %s; %s %s }' % (XS(rn), body, wb)
-        raise Unimpl('ldst%d' % g)
+                wb = f'{XS(rn)} += {total}ULL;' if rm == 31 else f'{XS(rn)} += {X(rm)};'
+            return f'{{ uint64_t a = {XS(rn)}; {body} {wb} }}'
+        raise Unimpl(f'ldst{g}')
 
     def ldst_lanes(self, w, rt, rn, rm, q, post, load, size, opcode, s_bit):
         """SMO addition (audio DSP of the 7.3.2 SDK): LD2 / ST2 (opcode 0, 2, 4) and LD4 / ST4 (opcode 1, 3, 5), one
@@ -454,15 +469,15 @@ class Fn:
             raise Unimpl('ldN')
         nb = 1 << es
         if load:
-            body = ' '.join('uint64_t e%d = rd%d(a + %d);' % (k, 8 << es, k * nb) for k in range(nstruct))
-            body += ' ' + ' '.join('vset(&c->v[%d], %d, %d, e%d);' % ((rt + k) & 31, es, idx, k) for k in range(nstruct))
+            body = ' '.join(f'uint64_t e{k} = rd{8 << es}(a + {k * nb});' for k in range(nstruct))
+            body += ' ' + ' '.join(f'vset(&c->v[{(rt + k) & 31}], {es}, {idx}, e{k});' for k in range(nstruct))
         else:
-            body = ' '.join('wr%d(a + %d, vget(&c->v[%d], %d, %d));' % (8 << es, k * nb, (rt + k) & 31, es, idx)
+            body = ' '.join(f'wr{8 << es}(a + {k * nb}, vget(&c->v[{(rt + k) & 31}], {es}, {idx}));'
                             for k in range(nstruct))
         wb = ''
         if post:
-            wb = '%s += %s;' % (XS(rn), ('%dULL' % (nb * nstruct)) if rm == 31 else X(rm))
-        return '{ uint64_t a = %s; %s %s }' % (XS(rn), body, wb)
+            wb = f'{XS(rn)} += {nb * nstruct}ULL;' if rm == 31 else f'{XS(rn)} += {X(rm)};'
+        return f'{{ uint64_t a = {XS(rn)}; {body} {wb} }}'
 
     # ---- data processing, register
     def dp_reg(self, w, pc):
@@ -473,10 +488,10 @@ class Fn:
                 opc, n = bits(w, 30, 29), bits(w, 21, 21)
                 b = shifted(R(rm, sf), bits(w, 23, 22), bits(w, 15, 10), sf)
                 if n:
-                    b = '~%s' % b
-                e = '%s %s %s' % (R(rn, sf), '&|^&'[opc], b)
+                    b = f'~{b}'
+                e = f'{R(rn, sf)} {"&|^&"[opc]} {b}'
                 if opc == 3:
-                    return SET(rd, sf, 'logic%d(c, %s)' % (size, e))
+                    return SET(rd, sf, f'logic{size}(c, {e})')
                 return SET(rd, sf, e)
             sub, s = bits(w, 30, 30), bits(w, 29, 29)
             if bits(w, 21, 21) == 0:                     # add/sub, shifted register
@@ -484,77 +499,77 @@ class Fn:
                 a = R(rn, sf)
                 sp = False
             else:                                        # add/sub, extended register
-                b = '(%s)%s' % (T(sf), extended(rm, bits(w, 15, 13), bits(w, 12, 10)))
+                b = f'({T(sf)}){extended(rm, bits(w, 15, 13), bits(w, 12, 10))}'
                 a = R(rn, sf, sp=True)
                 sp = True
             if s:
-                return SET(rd, sf, 'adds%d(c, %s, %s, %d)' % (size, a, ('~(%s)' % b) if sub else b, sub))
-            return SET(rd, sf, '%s %s %s' % (a, '-' if sub else '+', b), sp=sp)
+                bb = f'~({b})' if sub else b
+                return SET(rd, sf, f'adds{size}(c, {a}, {bb}, {sub})')
+            return SET(rd, sf, f'{a} {"-" if sub else "+"} {b}', sp=sp)
         g = bits(w, 24, 21)
         if bits(w, 24, 24):                              # three-source
             op31, o0, ra = bits(w, 23, 21), bits(w, 15, 15), bits(w, 14, 10)
             sign = '-' if o0 else '+'
             if op31 == 0:
-                return SET(rd, sf, '%s %s %s * %s' % (R(ra, sf), sign, R(rn, sf), R(rm, sf)))
+                return SET(rd, sf, f'{R(ra, sf)} {sign} {R(rn, sf)} * {R(rm, sf)}')
             if op31 == 1:
-                return SET(rd, 1, '%s %s (uint64_t)((int64_t)(int32_t)%s * (int64_t)(int32_t)%s)' % (X(ra), sign, W(rn), W(rm)))
+                return SET(rd, 1, f'{X(ra)} {sign} (uint64_t)((int64_t)(int32_t){W(rn)} * (int64_t)(int32_t){W(rm)})')
             if op31 == 5:
-                return SET(rd, 1, '%s %s (uint64_t)%s * (uint64_t)%s' % (X(ra), sign, W(rn), W(rm)))
+                return SET(rd, 1, f'{X(ra)} {sign} (uint64_t){W(rn)} * (uint64_t){W(rm)}')
             if op31 == 2:
-                return SET(rd, 1, 'smulh(%s, %s)' % (X(rn), X(rm)))
+                return SET(rd, 1, f'smulh({X(rn)}, {X(rm)})')
             if op31 == 6:
-                return SET(rd, 1, 'umulh(%s, %s)' % (X(rn), X(rm)))
+                return SET(rd, 1, f'umulh({X(rn)}, {X(rm)})')
             raise Unimpl('mul3')
         if g == 0 and bits(w, 15, 10) == 0:              # adc / sbc
             sub, s = bits(w, 30, 30), bits(w, 29, 29)
-            b = ('~%s' % R(rm, sf)) if sub else R(rm, sf)
+            b = f'~{R(rm, sf)}' if sub else R(rm, sf)
             if s:
-                return SET(rd, sf, 'adds%d(c, %s, %s, c->C)' % (size, R(rn, sf), b))
-            return SET(rd, sf, '%s + %s + c->C' % (R(rn, sf), b))
+                return SET(rd, sf, f'adds{size}(c, {R(rn, sf)}, {b}, c->C)')
+            return SET(rd, sf, f'{R(rn, sf)} + {b} + c->C')
         if g == 2:                                       # ccmn / ccmp
             sub, cc, nzcv = bits(w, 30, 30), bits(w, 15, 12), bits(w, 3, 0)
-            b = ('%dULL' % rm) if bits(w, 11, 11) else R(rm, sf)
-            b = ('~(%s)%s' % (T(sf), b)) if sub else '(%s)%s' % (T(sf), b)
-            return ('if (cond(c, %d)) (void)adds%d(c, %s, %s, %d); else set_nzcv(c, %d);'
-                    % (cc, size, R(rn, sf), b, sub, nzcv))
+            b = f'{rm}ULL' if bits(w, 11, 11) else R(rm, sf)
+            b = f'~({T(sf)}){b}' if sub else f'({T(sf)}){b}'
+            return f'if (cond(c, {cc})) (void)adds{size}(c, {R(rn, sf)}, {b}, {sub}); else set_nzcv(c, {nzcv});'
         if g == 4:                                       # csel family
             op, o2, cc = bits(w, 30, 30), bits(w, 10, 10), bits(w, 15, 12)
             b = R(rm, sf)
-            alt = [b, '%s + 1' % b, '~%s' % b, '(%s)0 - %s' % (T(sf), b)][op * 2 + o2]
-            return SET(rd, sf, 'cond(c, %d) ? %s : %s' % (cc, R(rn, sf), alt))
+            alt = [b, f'{b} + 1', f'~{b}', f'({T(sf)})0 - {b}'][op * 2 + o2]
+            return SET(rd, sf, f'cond(c, {cc}) ? {R(rn, sf)} : {alt}')
         if g == 6:
             opcode = bits(w, 15, 10)
             if bits(w, 30, 30) == 0:                     # two-source
                 a, b = R(rn, sf), R(rm, sf)
                 if opcode == 2:
-                    return SET(rd, sf, '%s ? %s / %s : 0' % (b, a, b))
+                    return SET(rd, sf, f'{b} ? {a} / {b} : 0')
                 if opcode == 3:
-                    return SET(rd, sf, 'sdiv%d(%s, %s)' % (size, a, b))
+                    return SET(rd, sf, f'sdiv{size}({a}, {b})')
                 if opcode in (8, 9, 10, 11):
-                    amt = '(%s & %d)' % (b, size - 1)
+                    amt = f'({b} & {size - 1})'
                     if opcode == 8:
-                        return SET(rd, sf, '%s << %s' % (a, amt))
+                        return SET(rd, sf, f'{a} << {amt}')
                     if opcode == 9:
-                        return SET(rd, sf, '%s >> %s' % (a, amt))
+                        return SET(rd, sf, f'{a} >> {amt}')
                     if opcode == 10:
-                        return SET(rd, sf, '(%s)%s >> %s' % ('int64_t' if sf else 'int32_t', a, amt))
-                    return SET(rd, sf, 'ror%d(%s, %s)' % (size, a, amt))
+                        return SET(rd, sf, f'({"int64_t" if sf else "int32_t"}){a} >> {amt}')
+                    return SET(rd, sf, f'ror{size}({a}, {amt})')
                 raise Unimpl('dp2')
             a = R(rn, sf)
             if opcode == 0:
-                return SET(rd, sf, 'rbit%d(%s)' % (size, a))
+                return SET(rd, sf, f'rbit{size}({a})')
             if opcode == 1:
-                return SET(rd, sf, 'rev16_%d(%s)' % (size, a))
+                return SET(rd, sf, f'rev16_{size}({a})')
             if opcode == 2:
-                return SET(rd, sf, 'rev32_64(%s)' % a if sf else 'bswap32(%s)' % a)
+                return SET(rd, sf, f'rev32_64({a})' if sf else f'bswap32({a})')
             if opcode == 3 and sf:
-                return SET(rd, sf, 'bswap64(%s)' % a)
+                return SET(rd, sf, f'bswap64({a})')
             if opcode == 4:
-                return SET(rd, sf, 'clz%d(%s)' % (size, a))
+                return SET(rd, sf, f'clz{size}({a})')
             if opcode == 5:
-                return SET(rd, sf, 'cls%d(%s)' % (size, a))
+                return SET(rd, sf, f'cls{size}({a})')
             raise Unimpl('dp1')
-        raise Unimpl('dpreg%d' % g)
+        raise Unimpl(f'dpreg{g}')
 
     # ---- scalar floating point (advanced SIMD is handled only where needed)
     def fpsimd(self, w, pc):
@@ -568,10 +583,10 @@ class Fn:
             if rmode == 0 and opcode in (2, 3):              # SCVTF / UCVTF: one rounding, then an exact scale
                 src = R(rn, sf)
                 if opcode == 2:
-                    src = '(%s)%s' % ('int64_t' if sf else 'int32_t', src)
-                return '{ %s t = (%s)%s * (%s)%s; vzero(&c->v[%d]); c->v[%d].%s = t; }' % (ft, ft, src, ft, repr(2.0 ** -fbits), rd, rd, f)
+                    src = f'({"int64_t" if sf else "int32_t"}){src}'
+                return f'{{ {ft} t = ({ft}){src} * ({ft}){2.0 ** -fbits!r}; vzero(&c->v[{rd}]); c->v[{rd}].{f} = t; }}'
             if rmode == 3 and opcode in (0, 1):              # FCVTZS / FCVTZU
-                return SET(rd, sf, 'f2%s%d(trunc((double)c->v[%d].%s * %s))' % ('u' if opcode else 's', 64 if sf else 32, rn, f, repr(2.0 ** fbits)))
+                return SET(rd, sf, f'f2{"u" if opcode else "s"}{64 if sf else 32}(trunc((double)c->v[{rn}].{f} * {2.0 ** fbits!r}))')
             raise Unimpl('fcvt')
         if bits(w, 31, 24) == 0x1e and bits(w, 21, 21) == 1 or bits(w, 30, 24) == 0x1e and bits(w, 21, 21) == 1 and bits(w, 15, 10) == 0:
             ty = bits(w, 23, 22)
@@ -579,8 +594,8 @@ class Fn:
                 sf, rmode, opcode = bits(w, 31, 31), bits(w, 20, 19), bits(w, 18, 16)
                 if ty == 2 and rmode == 1 and opcode in (6, 7):
                     if opcode == 6:
-                        return SET(rd, 1, 'c->v[%d].d[1]' % rn)
-                    return 'c->v[%d].d[1] = %s;' % (rd, X(rn))
+                        return SET(rd, 1, f'c->v[{rn}].d[1]')
+                    return f'c->v[{rd}].d[1] = {X(rn)};'
                 if ty > 1:
                     raise Unimpl('fp16')
                 f = 'df[0]' if ty else 'f[0]'
@@ -588,26 +603,27 @@ class Fn:
                 if rmode == 0 and opcode in (2, 3):
                     src = R(rn, sf)
                     if opcode == 2:
-                        src = '(%s)%s' % ('int64_t' if sf else 'int32_t', src)
-                    return '{ %s t = (%s)%s; vzero(&c->v[%d]); c->v[%d].%s = t; }' % (ft, ft, src, rd, rd, f)
+                        src = f'({"int64_t" if sf else "int32_t"}){src}'
+                    return f'{{ {ft} t = ({ft}){src}; vzero(&c->v[{rd}]); c->v[{rd}].{f} = t; }}'
                 if rmode == 0 and opcode == 6:
-                    return SET(rd, sf, 'c->v[%d].%s' % (rn, 'd[0]' if sf else 'w[0]'))
+                    return SET(rd, sf, f'c->v[{rn}].{"d[0]" if sf else "w[0]"}')
                 if rmode == 0 and opcode == 7:
-                    return '{ uint64_t t = %s; vzero(&c->v[%d]); c->v[%d].%s = t; }' % (R(rn, sf), rd, rd, 'd[0]' if sf else 'w[0]')
+                    return f'{{ uint64_t t = {R(rn, sf)}; vzero(&c->v[{rd}]); c->v[{rd}].{"d[0]" if sf else "w[0]"} = t; }}'
                 rnd = {(3, 0): 'trunc', (3, 1): 'trunc', (0, 0): 'rint', (0, 1): 'rint', (1, 0): 'ceil', (1, 1): 'ceil',
                        (2, 0): 'floor', (2, 1): 'floor', (0, 4): 'round', (0, 5): 'round'}.get((rmode, opcode))
                 if rnd is None:
                     raise Unimpl('fcvt')
                 unsigned = opcode & 1
-                return SET(rd, sf, 'f2%s%d(%s((double)c->v[%d].%s))' % ('u' if unsigned else 's', 64 if sf else 32, rnd, rn, f))
+                return SET(rd, sf, f'f2{"u" if unsigned else "s"}{64 if sf else 32}({rnd}((double)c->v[{rn}].{f}))')
             if bits(w, 31, 24) == 0x1e and bits(w, 14, 10) == 0x10 and ty in (0, 1, 3):
                 # FCVT to or from half precision (opcode 7 = to half; type 3 = from half, opcode 4 / 5 = to single / double)
                 op = bits(w, 20, 15)
                 if ty != 3 and op == 7:
-                    return '{ uint16_t t = %s(c->v[%d].%s); vzero(&c->v[%d]); c->v[%d].h[0] = t; }' % ('f64_to_half' if ty else 'f32_to_half', rn, 'df[0]' if ty else 'f[0]', rd, rd)
+                    return (f'{{ uint16_t t = {"f64_to_half" if ty else "f32_to_half"}(c->v[{rn}].{"df[0]" if ty else "f[0]"}); '
+                            f'vzero(&c->v[{rd}]); c->v[{rd}].h[0] = t; }}')
                 if ty == 3 and op in (4, 5):
                     tf, tt, fn = ('df[0]', 'double', 'half_to_f64') if op == 5 else ('f[0]', 'float', 'half_to_f32')
-                    return '{ %s t = %s(c->v[%d].h[0]); vzero(&c->v[%d]); c->v[%d].%s = t; }' % (tt, fn, rn, rd, rd, tf)
+                    return f'{{ {tt} t = {fn}(c->v[{rn}].h[0]); vzero(&c->v[{rd}]); c->v[{rd}].{tf} = t; }}'
             if bits(w, 31, 24) != 0x1e or ty > 1:
                 raise Unimpl('fp16')
             f = 'df[0]' if ty else 'f[0]'
@@ -616,51 +632,52 @@ class Fn:
 
             nbits = 64 if ty else 32                 # the arithmetic is exact in fpexact.h (fp_<op><bits>); setf adds no NaN fix
             def setf(expr):
-                return '{ %s t = %s; vzero(&c->v[%d]); c->v[%d].%s = t; }' % (ft, expr, rd, rd, f)
-            a, b = 'c->v[%d].%s' % (rn, f), 'c->v[%d].%s' % (rm, f)
+                return f'{{ {ft} t = {expr}; vzero(&c->v[{rd}]); c->v[{rd}].{f} = t; }}'
+            a, b = f'c->v[{rn}].{f}', f'c->v[{rm}].{f}'
             if bits(w, 11, 10) == 2:
                 op = bits(w, 15, 12)
                 if op < 4:                           # FMUL, FDIV, FADD, FSUB
-                    return setf('fp_%s%d(%s, %s)' % (('mul', 'div', 'add', 'sub')[op], nbits, a, b))
+                    return setf(f'fp_{("mul", "div", "add", "sub")[op]}{nbits}({a}, {b})')
                 if op in (4, 5, 6, 7):               # FMAX, FMIN, FMAXNM, FMINNM: exact NaN and signed-zero rules (fpexact.h); the result is an operand, no fnan
-                    return '{ %s t = fp_maxmin%d(%s, %s, %d, %d); vzero(&c->v[%d]); c->v[%d].%s = t; }' % (ft, 64 if ty else 32, a, b, op & 1, op >> 1 & 1, rd, rd, f)
+                    return (f'{{ {ft} t = fp_maxmin{64 if ty else 32}({a}, {b}, {op & 1}, {op >> 1 & 1}); '
+                            f'vzero(&c->v[{rd}]); c->v[{rd}].{f} = t; }}')
                 if op == 8:                          # FNMUL = FPNeg(FPMul(n, m)): the sign is flipped after the product
-                    return setf('fp_neg%d(fp_mul%d(%s, %s))' % (nbits, nbits, a, b))
+                    return setf(f'fp_neg{nbits}(fp_mul{nbits}({a}, {b}))')
                 raise Unimpl('fp2')
             if bits(w, 14, 10) == 0x10:
                 op = bits(w, 20, 15)
                 if op == 0:                          # FMOV (register): a bit copy
                     return setf(a)
                 if op == 1:                          # FABS: clears the sign bit, no quieting
-                    return setf('fp_abs%d(%s)' % (nbits, a))
+                    return setf(f'fp_abs{nbits}({a})')
                 if op == 2:                          # FNEG: flips the sign bit, no quieting
-                    return setf('fp_neg%d(%s)' % (nbits, a))
+                    return setf(f'fp_neg{nbits}({a})')
                 if op == 3:
-                    return setf('fp_sqrt%d(%s)' % (nbits, a))
+                    return setf(f'fp_sqrt{nbits}({a})')
                 if op in (4, 5):
                     tf, tt = ('df[0]', 'double') if op == 5 else ('f[0]', 'float')
                     # FCVT single <-> double: a signalling NaN is quietened on the bit patterns (fp_s2d / fp_d2s, fpexact.h)
-                    return '{ %s t = %s(%s); vzero(&c->v[%d]); c->v[%d].%s = t; }' % (tt, 'fp_s2d' if op == 5 else 'fp_d2s', a, rd, rd, tf)
+                    return f'{{ {tt} t = {"fp_s2d" if op == 5 else "fp_d2s"}({a}); vzero(&c->v[{rd}]); c->v[{rd}].{tf} = t; }}'
                 # FRINTN (8) nearest-even, FRINTP (9) ceiling, FRINTM (10) floor, FRINTZ (11) towards zero,
                 # FRINTA (12) nearest ties away, FRINTX (14) and FRINTI (15) the current mode = nearest-even
                 frmode = {8: 0, 9: 3, 10: 2, 11: 4, 12: 1, 14: 0, 15: 0}.get(op)
                 if frmode is not None:
-                    return setf('fp_frint%d(%s, %d)' % (nbits, a, frmode))
+                    return setf(f'fp_frint{nbits}({a}, {frmode})')
                 raise Unimpl('fp1')
             if bits(w, 13, 10) == 8:
                 b2 = '0' if bits(w, 3, 3) else b
-                return 'fcmp(c, (double)%s, (double)%s);' % (a, b2)
+                return f'fcmp(c, (double){a}, (double){b2});'
             if bits(w, 12, 10) == 4:
                 imm8 = bits(w, 20, 13)
                 sign = -1.0 if imm8 & 0x80 else 1.0
                 exp = ((imm8 >> 4) & 7) ^ 4
                 val = sign * (16 + (imm8 & 0xf)) / 16.0 * (2.0 ** (exp - 3))
-                return setf('(%s)%r' % (ft, val))
+                return setf(f'({ft}){val!r}')
             if bits(w, 11, 10) == 1:
-                return ('if (cond(c, %d)) fcmp(c, (double)%s, (double)%s); else set_nzcv(c, %d);'
-                        % (bits(w, 15, 12), a, b, bits(w, 3, 0)))
+                return (f'if (cond(c, {bits(w, 15, 12)})) fcmp(c, (double){a}, (double){b}); '
+                        f'else set_nzcv(c, {bits(w, 3, 0)});')
             if bits(w, 11, 10) == 3:
-                return setf('cond(c, %d) ? %s : %s' % (bits(w, 15, 12), a, b))
+                return setf(f'cond(c, {bits(w, 15, 12)}) ? {a} : {b}')
             raise Unimpl('fp')
         if bits(w, 31, 24) == 0x1f:                      # fmadd family
             ty = bits(w, 23, 22)
@@ -668,16 +685,16 @@ class Fn:
                 raise Unimpl('fp16')
             f = 'df[0]' if ty else 'f[0]'
             ft = 'double' if ty else 'float'
-            a, b, r = 'c->v[%d].%s' % (rn, f), 'c->v[%d].%s' % (rm, f), 'c->v[%d].%s' % (bits(w, 14, 10), f)
+            a, b, r = f'c->v[{rn}].{f}', f'c->v[{rm}].{f}', f'c->v[{bits(w, 14, 10)}].{f}'
             o1, o0 = bits(w, 21, 21), bits(w, 15, 15)
             nbits = 64 if ty else 32
             # fp_fma(op1, op2, addend) = FPMulAdd of fpexact.h. The Arm pseudocode negates operands with FPNeg, so the
             # sign of a NaN taken from them is flipped too: FMADD a + n*m, FMSUB a - n*m, FNMADD -a - n*m, FNMSUB n*m - a.
-            na, nr = 'fp_neg%d(%s)' % (nbits, a), 'fp_neg%d(%s)' % (nbits, r)
-            fma = 'fp_fma%d' % nbits
-            expr = ['%s(%s, %s, %s)' % (fma, a, b, r), '%s(%s, %s, %s)' % (fma, na, b, r),
-                    '%s(%s, %s, %s)' % (fma, na, b, nr), '%s(%s, %s, %s)' % (fma, a, b, nr)][o1 * 2 + o0]
-            return '{ %s t = %s; vzero(&c->v[%d]); c->v[%d].%s = t; }' % (ft, expr, rd, rd, f)
+            na, nr = f'fp_neg{nbits}({a})', f'fp_neg{nbits}({r})'
+            fma = f'fp_fma{nbits}'
+            expr = [f'{fma}({a}, {b}, {r})', f'{fma}({na}, {b}, {r})',
+                    f'{fma}({na}, {b}, {nr})', f'{fma}({a}, {b}, {nr})'][o1 * 2 + o0]
+            return f'{{ {ft} t = {expr}; vzero(&c->v[{rd}]); c->v[{rd}].{f} = t; }}'
         return self.simd(w, pc)
 
     def simd(self, w, pc):
@@ -709,18 +726,20 @@ class Fn:
                 val = v16 * 0x0001000100010001
             else:
                 raise Unimpl('simd-imm')
-            return '{ c->v[%d].d[0] = 0x%xULL; c->v[%d].d[1] = %s; }' % (rd, val, rd, ('0x%xULL' % val) if q else '0')
+            d1 = f'0x{val:x}ULL' if q else '0'
+            return f'{{ c->v[{rd}].d[0] = 0x{val:x}ULL; c->v[{rd}].d[1] = {d1}; }}'
         if (w & 0xbfe0fc00) == 0x0ea01c00 and rn == rm:  # mov vD.16b, vN.16b (orr)
             q = bits(w, 30, 30)
-            return '{ V128 t = c->v[%d]; %s c->v[%d] = t; }' % (rn, '' if q else 't.d[1] = 0;', rd)
+            zero = '' if q else 't.d[1] = 0;'
+            return f'{{ V128 t = c->v[{rn}]; {zero} c->v[{rd}] = t; }}'
         bitwise = {0x0e201c00: 'a & b', 0x2e201c00: 'a ^ b', 0x0e601c00: 'a & ~b', 0x0ea01c00: 'a | b',
                    0x0ee01c00: 'a | ~b'}
         if (w & 0xbfe0fc00) in bitwise:                  # and / eor / bic / orr / orn
             q = bits(w, 30, 30)
             opn = bitwise[w & 0xbfe0fc00]
-            body = ''.join('{ uint64_t a = c->v[%d].d[%d], b = c->v[%d].d[%d]; t.d[%d] = %s; } ' % (rn, i, rm, i, i, opn)
+            body = ''.join(f'{{ uint64_t a = c->v[{rn}].d[{i}], b = c->v[{rm}].d[{i}]; t.d[{i}] = {opn}; }} '
                            for i in range(2 if q else 1))
-            return '{ V128 t; t.d[1] = 0; %s c->v[%d] = t; }' % (body, rd)
+            return f'{{ V128 t; t.d[1] = 0; {body} c->v[{rd}] = t; }}'
         if bits(w, 31, 31) or bits(w, 27, 25) != 7:
             raise Unimpl('simd')
         scalar, q, u = bits(w, 28, 28), bits(w, 30, 30), bits(w, 29, 29)
@@ -729,7 +748,7 @@ class Fn:
         size, sz, a = bits(w, 23, 22), bits(w, 22, 22), bits(w, 23, 23)
 
         def V(n):
-            return '&c->v[%d]' % n
+            return f'&c->v[{n}]'
 
         def fcount():
             return 1 if scalar else ((2 if sz else 4) if q else (1 if sz else 2))
@@ -748,9 +767,9 @@ class Fn:
                           (0, 0, 0x1f): 'F_RECPS', (0, 1, 0x1f): 'F_RSQRTS'}.get((u, a, opc))
                     if op is None or (op == 'F_ADDP' and scalar):
                         raise Unimpl('simd-f3')
-                    return 'v_f3v(%s, %s, %s, %s, %d, %d);' % (V(rd), V(rn), V(rm), op, sz, fcount())
+                    return f'v_f3v({V(rd)}, {V(rn)}, {V(rm)}, {op}, {sz}, {fcount()});'
                 if opc == 3 and u and size:
-                    return 'v_bitsel(%s, %s, %s, %d, %d);' % (V(rd), V(rn), V(rm), size, q)
+                    return f'v_bitsel({V(rd)}, {V(rn)}, {V(rm)}, {size}, {q});'
                 op = {(0, 0x10): 'I_ADD', (1, 0x10): 'I_SUB', (0, 0x13): 'I_MUL', (1, 0x11): 'I_CMEQ', (0, 0x11): 'I_CMTST',
                       (0, 0x06): 'I_CMGT', (1, 0x06): 'I_CMHI', (0, 0x07): 'I_CMGE', (1, 0x07): 'I_CMHS',
                       # SMO additions (audio DSP in the SDK): saturating add / subtract, multiply-accumulate (7.3.2)
@@ -758,7 +777,7 @@ class Fn:
                       (0, 0x12): 'I_MLA'}.get((u, opc))
                 if op is None or (op == 'I_MLA' and size == 3):
                     raise Unimpl('simd-i3')
-                return 'v_i3v(%s, %s, %s, %s, %d, %d);' % (V(rd), V(rn), V(rm), op, size, icount(size))
+                return f'v_i3v({V(rd)}, {V(rn)}, {V(rm)}, {op}, {size}, {icount(size)});'
             if bits(w, 20, 17) == 0 and bits(w, 11, 10) == 2:    # two registers, miscellaneous
                 opc = bits(w, 16, 12)
                 op = {(0, 1, 0x0f): 'F1_ABS', (1, 1, 0x0f): 'F1_NEG', (1, 1, 0x1f): 'F1_SQRT', (1, 1, 0x1d): 'F1_RSQRTE',
@@ -770,34 +789,34 @@ class Fn:
                 frint = {(0, 0, 0x18): 0, (0, 0, 0x19): 2, (0, 1, 0x18): 3, (0, 1, 0x19): 4, (1, 0, 0x18): 1,
                          (1, 0, 0x19): 0, (1, 1, 0x19): 0}.get((u, a, opc))
                 if frint is not None and not scalar:
-                    return 'v_frint(%s, %s, %d, %d, %d);' % (V(rd), V(rn), frint, sz, fcount())
+                    return f'v_frint({V(rd)}, {V(rn)}, {frint}, {sz}, {fcount()});'
                 if op:
-                    return 'v_f1v(%s, %s, %s, %d, %d);' % (V(rd), V(rn), op, sz, fcount())
+                    return f'v_f1v({V(rd)}, {V(rn)}, {op}, {sz}, {fcount()});'
                 if (u, opc) == (0, 0x12) and not scalar and size < 3:
-                    return 'v_xtn(%s, %s, %d, %d);' % (V(rd), V(rn), size, q)
+                    return f'v_xtn({V(rd)}, {V(rn)}, {size}, {q});'
                 op = {(1, 0x05): 'I1_NOT', (0, 0x05): 'I1_CNT', (1, 0x0b): 'I1_NEG', (0, 0x0b): 'I1_ABS',
                       (0, 0x09): 'I1_CMEQ0', (0, 0x00): 'I1_REV64'}.get((u, opc))
                 if op is None or (op in ('I1_NOT', 'I1_CNT') and size):
                     raise Unimpl('simd-misc')
-                return 'v_i1v(%s, %s, %s, %d, %d);' % (V(rd), V(rn), op, size, icount(size))
+                return f'v_i1v({V(rd)}, {V(rn)}, {op}, {size}, {icount(size)});'
             if scalar and u and bits(w, 20, 17) == 8 and bits(w, 16, 12) == 0x0d and bits(w, 11, 10) == 2:
                 f, ft = ('df', 'double') if sz else ('f', 'float')   # faddp scalar
-                return '{ %s t = c->v[%d].%s[0] + c->v[%d].%s[1]; vzero(%s); c->v[%d].%s[0] = t; }' % (ft, rn, f, rn, f, V(rd), rd, f)
+                return f'{{ {ft} t = c->v[{rn}].{f}[0] + c->v[{rn}].{f}[1]; vzero({V(rd)}); c->v[{rd}].{f}[0] = t; }}'
             if bits(w, 11, 10) == 0 and not scalar and size < 3:    # SMO addition: three registers, different types
                 acc = {0xc: 0, 0x8: 1, 0xa: 2}.get(bits(w, 15, 12))  # SMULL/UMULL, SMLAL/UMLAL, SMLSL/UMLSL (and the "2" forms)
                 if acc is not None:
-                    return 'v_mull(%s, %s, %s, %d, %d, %d, %d, -1);' % (V(rd), V(rn), V(rm), size, q, u, acc)
+                    return f'v_mull({V(rd)}, {V(rn)}, {V(rm)}, {size}, {q}, {u}, {acc}, -1);'
             # FMAXV (U1 sz0 0f), FMINV (U1 sz1 0f), FMAXNMV (U1 sz0 0c), FMINNMV (U1 sz1 0c): across the 4 single lanes
             if u and not bits(w, 23, 23) and not scalar and bits(w, 20, 17) == 8 and bits(w, 11, 10) == 2 \
                     and bits(w, 16, 12) in (0x0c, 0x0f):
                 if not q:
                     raise Unimpl('simd-across')
-                return 'v_fred32(%s, %s, %d, %d);' % (V(rd), V(rn), bits(w, 22, 22), int(bits(w, 16, 12) == 0x0c))
+                return f'v_fred32({V(rd)}, {V(rn)}, {bits(w, 22, 22)}, {int(bits(w, 16, 12) == 0x0c)});'
             # SMO addition (audio DSP of the 7.3.2 SDK): ADDV, across lanes
             if not scalar and not u and bits(w, 20, 17) == 8 and bits(w, 16, 12) == 0x1b and bits(w, 11, 10) == 2:
                 if size == 3 or (size == 2 and not q):
                     raise Unimpl('simd-across')
-                return 'v_addv(%s, %s, %d, %d);' % (V(rd), V(rn), size, icount(size))
+                return f'v_addv({V(rd)}, {V(rn)}, {size}, {icount(size)});'
             raise Unimpl('simd-e')
         if bits(w, 27, 24) == 0xe:
             if bits(w, 15, 15) == 0 and bits(w, 10, 10) == 1:    # copy: dup / ins / umov / smov
@@ -809,26 +828,26 @@ class Fn:
                 if scalar:
                     if u or imm4:
                         raise Unimpl('simd-copy')
-                    return '{ uint64_t t = vget(%s, %d, %d); vzero(%s); vset(%s, %d, 0, t); }' % (V(rn), es, idx, V(rd), V(rd), es)
+                    return f'{{ uint64_t t = vget({V(rn)}, {es}, {idx}); vzero({V(rd)}); vset({V(rd)}, {es}, 0, t); }}'
                 if u:
-                    return 'vset(%s, %d, %d, vget(%s, %d, %d));' % (V(rd), es, idx, V(rn), es, imm4 >> es)
+                    return f'vset({V(rd)}, {es}, {idx}, vget({V(rn)}, {es}, {imm4 >> es}));'
                 if imm4 == 0:
-                    return 'v_dup(%s, vget(%s, %d, %d), %d, %d);' % (V(rd), V(rn), es, idx, es, icount(es))
+                    return f'v_dup({V(rd)}, vget({V(rn)}, {es}, {idx}), {es}, {icount(es)});'
                 if imm4 == 1:
-                    return 'v_dup(%s, %s, %d, %d);' % (V(rd), X(rn), es, icount(es))
+                    return f'v_dup({V(rd)}, {X(rn)}, {es}, {icount(es)});'
                 if imm4 == 3:
-                    return 'vset(%s, %d, %d, %s);' % (V(rd), es, idx, X(rn))
+                    return f'vset({V(rd)}, {es}, {idx}, {X(rn)});'
                 if imm4 == 7:
-                    return SET(rd, 1, 'vget(%s, %d, %d)' % (V(rn), es, idx))
+                    return SET(rd, 1, f'vget({V(rn)}, {es}, {idx})')
                 if imm4 == 5:
-                    return SET(rd, q, 'vsext(vget(%s, %d, %d), %d)' % (V(rn), es, idx, es))
+                    return SET(rd, q, f'vsext(vget({V(rn)}, {es}, {idx}), {es})')
                 raise Unimpl('simd-copy')
             if bits(w, 15, 15) == 0 and bits(w, 10, 10) == 0 and not scalar:
                 if u:
-                    return 'v_ext(%s, %s, %s, %d, %d);' % (V(rd), V(rn), V(rm), bits(w, 14, 11), q)
+                    return f'v_ext({V(rd)}, {V(rn)}, {V(rm)}, {bits(w, 14, 11)}, {q});'
                 if bits(w, 11, 10) == 0:
-                    return 'v_tbl(c, %d, %d, %d, %d, %d, %d);' % (rd, rn, bits(w, 14, 13) + 1, rm, q, bits(w, 12, 12))
-                return 'v_perm(%s, %s, %s, %d, %d, %d);' % (V(rd), V(rn), V(rm), bits(w, 14, 12), size, icount(size))
+                    return f'v_tbl(c, {rd}, {rn}, {bits(w, 14, 13) + 1}, {rm}, {q}, {bits(w, 12, 12)});'
+                return f'v_perm({V(rd)}, {V(rn)}, {V(rm)}, {bits(w, 14, 12)}, {size}, {icount(size)});'
             raise Unimpl('simd-e')
         if bits(w, 10, 10) == 0:                          # by element
             acc = {0xa: 0, 0x2: 1, 0x6: 2}.get(bits(w, 15, 12))       # SMO addition: SMULL / SMLAL / SMLSL (and U, "2") by element
@@ -837,7 +856,7 @@ class Fn:
                     idx, em = (bits(w, 11, 11) << 2) | (bits(w, 21, 21) << 1) | bits(w, 20, 20), bits(w, 19, 16)
                 else:
                     idx, em = (bits(w, 11, 11) << 1) | bits(w, 21, 21), bits(w, 20, 16)
-                return 'v_mull(%s, %s, %s, %d, %d, %d, %d, %d);' % (V(rd), V(rn), V(em), size, q, u, acc, idx)
+                return f'v_mull({V(rd)}, {V(rn)}, {V(em)}, {size}, {q}, {u}, {acc}, {idx});'
             # SMO addition: integer MUL (U=0 opcode 1000), MLA (U=1 0000), MLS (U=1 0100) by element
             macc = {(0, 0x8): 0, (1, 0x0): 1, (1, 0x4): 2}.get((u, bits(w, 15, 12)))
             if macc is not None and not scalar and size in (1, 2):
@@ -845,23 +864,23 @@ class Fn:
                     idx, em = (bits(w, 11, 11) << 2) | (bits(w, 21, 21) << 1) | bits(w, 20, 20), bits(w, 19, 16)
                 else:
                     idx, em = (bits(w, 11, 11) << 1) | bits(w, 21, 21), bits(w, 20, 16)
-                return 'v_mul_elem(%s, %s, %s, %d, %d, %d, %d);' % (V(rd), V(rn), V(em), size, idx, macc, icount(size))
+                return f'v_mul_elem({V(rd)}, {V(rn)}, {V(em)}, {size}, {idx}, {macc}, {icount(size)});'
             op = {9: 'F_MUL', 1: 'F_MLA', 5: 'F_MLS'}.get(bits(w, 15, 12))
             if op is None or u or not a:
                 raise Unimpl('simd-elem')
             idx = bits(w, 11, 11) if sz else (bits(w, 11, 11) << 1) | bits(w, 21, 21)
             n = 1 if scalar else ((2 if sz else 4) if q else 2)
-            return 'v_f3e(%s, %s, %s, %d, %s, %d, %d);' % (V(rd), V(rn), V(bits(w, 20, 16)), idx, op, sz, n)
+            return f'v_f3e({V(rd)}, {V(rn)}, {V(bits(w, 20, 16))}, {idx}, {op}, {sz}, {n});'
         immh, immhb, opc = bits(w, 22, 19), bits(w, 22, 16), bits(w, 15, 11)
         if immh == 0:
             raise Unimpl('simd-imm')
         es = immh.bit_length() - 1
         if opc == 0x14 and not scalar and es < 3:
-            return 'v_shll(%s, %s, %d, %d, %d, %d);' % (V(rd), V(rn), immhb - (8 << es), es, u, q)
+            return f'v_shll({V(rd)}, {V(rn)}, {immhb - (8 << es)}, {es}, {u}, {q});'
         if opc == 0x0a and not u:
-            return 'v_shift(%s, %s, %d, %d, 0, %d);' % (V(rd), V(rn), immhb - (8 << es), es, icount(es))
+            return f'v_shift({V(rd)}, {V(rn)}, {immhb - (8 << es)}, {es}, 0, {icount(es)});'
         if opc == 0:
-            return 'v_shift(%s, %s, %d, %d, %d, %d);' % (V(rd), V(rn), (16 << es) - immhb, es, 2 if u else 1, icount(es))
+            return f'v_shift({V(rd)}, {V(rn)}, {(16 << es) - immhb}, {es}, {2 if u else 1}, {icount(es)});'
         # SMO addition (audio DSP in the SDK): saturating narrowing shifts. es = DESTINATION element size; the shift is
         # 2 * esize - immh:immb. U=0 0x12/0x13 SQSHRN/SQRSHRN, U=1 0x12/0x13 UQSHRN/UQRSHRN, U=1 0x10/0x11 SQSHRUN/SQRSHRUN.
         if opc in (0x12, 0x13) or (u and opc in (0x10, 0x11)):
@@ -870,7 +889,7 @@ class Fn:
             src_signed = 0 if (u and opc in (0x12, 0x13)) else 1
             dst_signed = 0 if u else 1
             if scalar:                                   # the scalar forms (7.3.2 SDK): one element
-                return 'v_qshrn_s(%s, %s, %d, %d, %d, %d, %d);' % (V(rd), V(rn), (16 << es) - immhb, es, opc & 1, src_signed, dst_signed)
-            return 'v_qshrn(%s, %s, %d, %d, %d, %d, %d, %d);' % (V(rd), V(rn), (16 << es) - immhb, es, opc & 1, src_signed, dst_signed, q)
+                return f'v_qshrn_s({V(rd)}, {V(rn)}, {(16 << es) - immhb}, {es}, {opc & 1}, {src_signed}, {dst_signed});'
+            return f'v_qshrn({V(rd)}, {V(rn)}, {(16 << es) - immhb}, {es}, {opc & 1}, {src_signed}, {dst_signed}, {q});'
         raise Unimpl('simd-shift')
 

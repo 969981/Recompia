@@ -31,16 +31,16 @@ export const api = {
 
   // Choosing the game files
   pickFolder: (args) => invoke('pick_folder', args),   // { title, start }
-  pickNup: (args) => invoke('pick_nup', args),   // { start }
+  pickPackage: (args) => invoke('pick_package', args),   // { start }
   pickNsp: () => invoke('pick_nsp'),
   validateDump: (args) => invoke('validate_dump', args),   // { path }
   saveDump: (args) => invoke('save_dump', args),   // { path }
-  importNup: (args) => invoke('import_nup', args),   // { path }
+  importPackage: (args) => invoke('import_package', args),   // { path }
   importDlc: (args) => invoke('import_dlc', args),   // { path }
-  cancelNup: () => invoke('cancel_nup'),
+  cancelUnpack: () => invoke('cancel_unpack'),
 
   // Play and setup
-  play: () => invoke('play'),
+  play: (args) => invoke('play', args),   // { withoutMods } (optional: this one start runs without mods)
   gameStatus: () => invoke('game_status'),
   setupStatus: () => invoke('setup_status'),
   startSetup: (args) => invoke('start_setup', args),   // { gentle }
@@ -62,11 +62,16 @@ export const api = {
   backupList: () => invoke('backup_list'),
   backupNow: () => invoke('backup_now'),
   backupRestore: (args) => invoke('backup_restore', args),   // { name }
+  saveEditRead: () => invoke('save_edit_read'),   // [{ path, data (base64) }]: the active profile's G00 and S00
+  saveEditWrite: (args) => invoke('save_edit_write', args),   // { files: [{ path, data }] }
+  saveEditDataReady: () => invoke('save_edit_data_ready'),   // the editor's game data (names, pictures) is made and current
+  saveEditPrepare: () => invoke('save_edit_prepare'),   // makes it from the game files; "save-edit-data-progress" { done, total }
   repairPlan: (args) => invoke('repair_plan', args),   // { actions, groups }
   repairApply: (args) => invoke('repair_apply', args),   // { actions, groups }
   repairUndo: () => invoke('repair_undo'),
   repairLast: () => invoke('repair_last'),
   profilesList: () => invoke('profiles_list'),
+  profilesPlayTime: () => invoke('profiles_play_time'),   // { [profile id]: seconds played }, only profiles with a time
   profileAdd: (args) => invoke('profile_add', args),   // { name }
   profileRename: (args) => invoke('profile_rename', args),   // { id, name }
   profileRemove: (args) => invoke('profile_remove', args),   // { id }
@@ -74,6 +79,7 @@ export const api = {
 
   // Steam
   steamStatus: () => invoke('steam_status'),
+  applyBranding: () => invoke('apply_branding'),
   steamAdd: (args) => invoke('steam_add', args),   // { target }
   steamRemove: (args) => invoke('steam_remove', args),   // { target }
 
@@ -83,9 +89,7 @@ export const api = {
   relayStatus: () => invoke('relay_status'),
   lanReport: () => invoke('lan_report'),
   publicIp: () => invoke('public_ip'),
-  roomCodeNew: () => invoke('room_code_new'),
-  roomCodeCheck: (args) => invoke('room_code_check', args),   // { code }
-  roomCodeHost: () => invoke('room_code_host'),
+
 
   // Mods (Modtopia)
   modsList: () => invoke('mods_list'),
@@ -96,5 +100,9 @@ export const api = {
   modsCatalog: (args) => invoke('mods_catalog', args),   // { refresh }
   modsInstall: (args) => invoke('mods_install', args),   // { id }
   modsAutoUpdate: () => invoke('mods_auto_update'),   // [{ name, from, to }] updated, once per session, only with the launcher preference on
+  modsKeepLocked: () => invoke('mods_keep_locked'),   // ['install' | 'switch_on' | 'share_on'] done, once at launcher start
+  modsSetLock: (args) => invoke('mods_set_lock', args),   // { what: 'mod' | 'sharing', locked }
   openModsDir: () => invoke('open_mods_dir'),
+  // Achievements (the community tracker)
+  achievementsView: (args) => invoke('achievements_view', args),   // { refresh }
 };

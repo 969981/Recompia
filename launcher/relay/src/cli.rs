@@ -5,7 +5,7 @@
 use crate::engine::Config;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-pub const OPTIONS: &str = "[--listen <IPv4>[:<port>]] [--port N] [--no-udp] [--rooms N] [--peers N] [--links N] [--per-ip N] [--new-per-ip N] [--nofind-per-min N] [--room-hours H] [--room-mib M] [--link-kib K] [--wait-s S] [--idle-s S] [--stats S] [--quiet]";
+pub const OPTIONS: &str = "[--listen <IPv4>[:<port>]] [--port N] [--no-udp] [--no-list] [--rooms N] [--peers N] [--links N] [--per-ip N] [--new-per-ip N] [--nofind-per-min N] [--room-hours H] [--room-mib M] [--link-kib K] [--list-per-min N] [--wait-s S] [--idle-s S] [--stats S] [--quiet]";
 
 /// What the command line asked for. `stats_s`: a counters line every so many seconds (0: never). `quiet`: no log lines.
 pub struct Args {
@@ -28,6 +28,10 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
             "--host" => continue,
             "--no-udp" => {
                 cfg.udp = false;
+                continue;
+            }
+            "--no-list" => {
+                cfg.list = false;
                 continue;
             }
             "--quiet" => {
@@ -65,6 +69,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
             "--per-ip" => cfg.max_per_ip = x.min(i32::MAX as u64) as i32,
             "--new-per-ip" => cfg.new_per_ip = x as i64,
             "--nofind-per-min" => cfg.nofind_per_min = x as i64,
+            "--list-per-min" => cfg.list_per_min = x as i64,
             "--room-hours" => cfg.room_ms = x as i64 * 3600 * 1000,
             "--room-mib" => cfg.room_bytes = x << 20,
             "--link-kib" => cfg.link_bps = (x << 10) as i64,

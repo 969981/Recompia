@@ -269,7 +269,7 @@ void pick_size(const play::DisplaySettings& d, int window_w, int window_h, int* 
 void game_target_memory(uint64_t base, int* w, int* h) {
     const GfxHeapPlan plan = gfx_heap_plan(*w, *h);
     if (plan.clamped)
-        NXLOG_W(kTag, "render resolution %dx%d needs more graphics memory than the game's pools can hold (4 GiB each): using %dx%d", *w, *h,
+        NXLOG_W(kTag, "render resolution %dx%d needs more graphics memory than the game can load the world with (pools under 4 GiB, at most 3840x2160 pixels): using %dx%d", *w, *h,
                 plan.w, plan.h);
     *w = plan.w;
     *h = plan.h;

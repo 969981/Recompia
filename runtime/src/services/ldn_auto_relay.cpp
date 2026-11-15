@@ -60,7 +60,6 @@ std::shared_ptr<vnet::Lobby> process_lobby(bool* auto_mode) {
         vnet::RelayOptions o;
         if (v.empty() || v == "off") {
             NXLOG_I("net", "ldn: [net] server is %s: local wireless off (scans find nothing)", v.empty() ? "empty" : "off");
-            std::remove(room_code_file().c_str());
         } else if (v == "auto") {
             if (relay_options(&o)) {
                 s.auto_mode = true;

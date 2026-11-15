@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mods host's MtBackend (Modtopia docs/HOST.md section 2): what the Modtopia core asks of the running game. Guest memory, the registers
-// of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files, the save folder and messages
-// over the picture (notify, notify_image), screenshots without our menus, the players' pads (pad_read, pad_hold, pad_block:
-// modtopia_input.cpp), sound under the game's (audio_*), which keyboard keys are held (key_down), a colour matrix over the final picture
-// (color_matrix) and HTTP(S) requests (net_request). Every other callback (HUD, file notes) stays NULL: the core then tells a mod that asks
-// for it that this host has none (MT_ERR_VERSION).
+// of a hook stop, guest calls, module bases, which hook points the game build has, the game's own RomFS files and a note on those that hold
+// shaders (file_note), the save folder, messages over the picture (notify, notify_image), screenshots without our menus, the players' pads
+// (pad_read, pad_hold, pad_block: modtopia_input.cpp), sound under the game's (audio_*), which keyboard keys are held (key_down), a colour
+// matrix over the final picture (color_matrix), the game's 2D shown or hidden (ui_visible) and HTTP(S) requests (net_request). ui_visible
+// stays NULL when the game's rendering cannot hide its 2D (ui_layer::supported): the core then tells a mod that asks for it that this host
+// has none (MT_ERR_VERSION).
 #include <windows.h>
 
 #include <cstring>
@@ -15,6 +16,8 @@
 #include "nxrt/audio_sink.h"
 #include "nxrt/color_matrix.h"
 #include "nxrt/dispatch.h"
+#include "nxrt/fault_guard.h"
+#include "nxrt/game.h"
 #include "nxrt/kernel.h"
 #include "nxrt/key_state.h"
 #include "nxrt/log.h"
@@ -23,6 +26,8 @@
 #include "nxrt/notices.h"
 #include "nxrt/screenshot.h"
 #include "nxrt/services_api.h"
+#include "nxrt/text.h"
+#include "nxrt/ui_layer.h"
 
 namespace nxrt::mods::detail {
 
@@ -50,14 +55,9 @@ bool guest_range(uint64_t addr, size_t n, bool write) {
 }
 
 // The copy itself, guarded: a page the map calls mapped may still fault (a race with an unmap). The write tracker's vectored handler serves
-// its guarded pages before this handler is asked (nxrt/write_watch.h). No C++ object may live in this frame (SEH).
+// its guarded pages before this handler is asked (nxrt/write_watch.h).
 bool guarded_copy(void* dst, const void* src, size_t n) {
-    __try {
-        std::memcpy(dst, src, n);
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
+    return nxrt::fault_guarded([&] { std::memcpy(dst, src, n); }, nxrt::FaultCatch::Any);
 }
 
 void be_log(void*, int level, const char* line) {
@@ -160,6 +160,17 @@ int be_hook_built_in(void*, uint64_t addr, int kind) {
 }
 
 int be_game_has_file(void*, const char* path) { return path && services::fsapi::romfs_game_file_size(path) >= 0 ? 1 : 0; }
+// A data mod's file over one of the game's shader files (game::ModHost::shader_files): the shader cache has no translation for the shaders
+// it changes; the launcher translates them after the game closes ([nvn] dump_missing). The core puts the file's path before the note.
+const char* be_file_note(void*, const char* path) {
+    const game::ModHost* mh = game::info().mods;
+    if (!path || !mh) return nullptr;
+    const std::string p = text::lower(path);
+    for (uint32_t i = 0; i < mh->shader_file_count; ++i)
+        if (p == text::lower(mh->shader_files[i]))
+            return "holds shaders: the ones this mod changes are translated after the game closes, so its first run may miss some graphics";
+    return nullptr;
+}
 int64_t be_game_file_size(void*, const char* path) { return path ? services::fsapi::romfs_game_file_size(path) : -1; }
 int64_t be_game_read(void*, const char* path, uint64_t offset, void* buf, uint64_t n) {
     return path && buf ? services::fsapi::romfs_game_read(path, offset, buf, n) : -1;
@@ -216,6 +227,14 @@ int be_color_matrix(void*, const float* m12) {
     return MT_OK;
 }
 
+// The game's 2D (HUD, markers, menus, text) over its picture: the core passes 0 while any mod hides it, 1 when none does
+// (modtopia_host.h). The replay leaves it out from the next draw on (nxrt/ui_layer.h). Offered only when the game supports it
+// (make_backend), so elsewhere a mod that asks hears MT_ERR_VERSION as before.
+int be_ui_visible(void*, int visible) {
+    ui_layer::set_visible(visible != 0);
+    return MT_OK;
+}
+
 // One HTTP(S) request off the calling thread (src/net/http_client.h: https only but for localhost, no redirects, no cookies or sign-in). The
 // core has checked the URL against the mod's hosts and keeps at most 4 of a mod's waiting; the client caps the whole process. The sizes are
 // modtopia.h's: a body of at most 64 KiB, an answer of at most 256 KiB (longer: no answer, status 0). done runs once, on the request's worker.
@@ -264,6 +283,7 @@ MtBackend make_backend() {
     be.call_original = &be_call_original;
     be.hook_built_in = &be_hook_built_in;
     be.game_has_file = &be_game_has_file;
+    be.file_note = &be_file_note;
     be.game_file_size = &be_game_file_size;
     be.game_read = &be_game_read;
     be.save_dir = &be_save_dir;
@@ -272,6 +292,7 @@ MtBackend make_backend() {
     be.screenshot = &be_screenshot;
     be.key_down = &be_key_down;
     be.color_matrix = &be_color_matrix;
+    if (ui_layer::supported()) be.ui_visible = &be_ui_visible;
     be.net_request = &be_net_request;
     be.pad_read = &be_pad_read;
     be.pad_hold = &be_pad_hold;

@@ -112,10 +112,10 @@ fn save(dir: &Path, s: &Store) -> Result<(), String> {
     write_atomic(&dir.join(FILE), &text)
 }
 
-/// 32 hex digits from the OS random source (the one room codes use).
+/// 32 hex digits from the OS random source (the relay's).
 fn random_hex() -> std::io::Result<String> {
     let mut bytes = [0u8; 16];
-    crate::relay::room_code::os_random(&mut bytes)?;
+    crate::relay::random::os_random(&mut bytes)?;
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 

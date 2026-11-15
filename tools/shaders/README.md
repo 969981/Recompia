@@ -41,8 +41,13 @@ program length and constant data, +0x708 start, +0x714 stage, +0x748 work group,
 
 ```powershell
 dotnet tools\shaders\build\bin\Release\net10.0\spirv_harness.dll --batch <corpus> --out <out> --jobs 8 [--host desktop|moltenvk] [--target-env vulkan1.3] [--no-retry]
+dotnet tools\shaders\build\bin\Release\net10.0\spirv_harness.dll --serve --out <out> --jobs 8 [same options]   # one corpus folder per line on stdin
 dotnet tools\shaders\build\bin\Release\net10.0\spirv_harness.dll <code.bin> <ctrl.bin> -o x.spv [--glsl]
 ```
+
+`--serve` is `--batch` for each corpus folder named on its input, one per line (`quit` ends it), and prints `chunk done`
+after each. It exists so a caller that translates a corpus in pieces pays the .NET start, the JIT and the thread pool ramp
+once: the launcher's Set up runs it for a whole game's shaders, 7,000 blocks at a time.
 
 Output: `<hash>.spv`, `results.tsv` (hash, group, stage, status, spirv-val result, bound resources in Maxwell and Vulkan
 terms, translator messages, draw-time queries) and `summary.txt`. The binding scheme is Ryujinx's Vulkan one (set 0

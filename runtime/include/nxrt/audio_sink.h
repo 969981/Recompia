@@ -70,6 +70,12 @@ void set_sink(std::shared_ptr<AudioSink> s);          // replaces the active sin
 // a WAV tee (make_wav_tee).
 std::shared_ptr<AudioSink> sink();
 std::shared_ptr<AudioSink> make_xaudio2_sink();       // src/services/audio_xaudio2.cpp; nullptr when XAudio2 is unavailable
+// The CoreAudio sink (src/services/audio_coreaudio.cpp): an AudioUnit on the default output device, or on [audio] device. macOS only;
+// on Windows and Linux the "coreaudio" name is not a sink name.
+std::shared_ptr<AudioSink> make_coreaudio_sink();
+// The SDL3 sink (src/services/audio_sdl3.cpp): a device-bound audio stream on the default output device, or on [audio] device.
+// Linux only, and nullptr when the build has no SDL3 (no graphics shell); it is also the platform's output-device list.
+std::shared_ptr<AudioSink> make_sdl3_sink();
 // A simulated device: consumes queued frames at the sample rate (times 1 + skew_ppm / 1e6) on the host clock, counts the times it
 // ran dry and the lowest and highest queue level. No output. [audio] sink = paced ([audio] paced_ppm sets the skew); what the tests and
 // the underrun checks run on when no audio device is present. src/services/audio_paced.cpp.

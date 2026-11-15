@@ -21,6 +21,10 @@
 // The arena grows by the sum (a pool grown alone fails its storage allocation): +928 MiB at 4K, within the +937 MiB that the clamped 8K
 // size used before (larger sizes now need more: untested). At 1920x1080 and below nothing is hooked. Pools stay under 4 GiB (the suballocator may keep 32-bit offsets): a
 // render size whose start-up RT use plus 1 GiB would not fit is clamped to the largest that fits.
+// Game targets are also held to 3840x2160 pixels, the largest size known to load the world. Above it the start-up rate no longer holds:
+// a 4K window at 133% (5088x2862) and at 200% (clamped to 5312x2988) both filled the 4095 MiB RT pool to 99% on the title screen (the
+// estimate was ~2.7 GiB), and the world load then waited on the Ditto loading screen for good. Larger render scales are clamped to the
+// same pixel count (the back end still scales the picture to the window).
 #include "render/pkp_gfx_heap.h"
 #include "core/pkp_guest.h"
 
@@ -48,6 +52,7 @@ constexpr uint64_t kMiB = 1ull << 20;
 constexpr uint64_t kGeneralPool = 0x14c00000ull, kRtPool = 0xdac00000ull, kArena = 0x137c07008ull;
 constexpr uint64_t kPoolCap = 0xfff00000ull;
 constexpr int64_t kConsolePixels = 1920ll * 1080;
+constexpr int64_t kMaxPixels = 3840ll * 2160;       // the largest game target size known to load the world (see the top of this file)
 constexpr uint64_t kGeneralPerPixel = 56;
 constexpr uint64_t kRtPerPixel = 160, kRtAt1080 = 9376ull * kMiB / 10, kRtMargin = 1024 * kMiB;
 
@@ -70,7 +75,9 @@ GfxHeapPlan plan_for(int w, int h) {
     return p;
 }
 
-bool fits(const GfxHeapPlan& p) { return p.general <= kPoolCap && p.rt <= kPoolCap; }
+bool fits(const GfxHeapPlan& p) {
+    return p.general <= kPoolCap && p.rt <= kPoolCap && static_cast<int64_t>(p.w) * p.h <= kMaxPixels;
+}
 
 struct Heap {
     GfxHeapPlan plan;                           // fixed before the guest boots; both hooks read it

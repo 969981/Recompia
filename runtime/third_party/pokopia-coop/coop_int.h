@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_int.h @035bd9c, modified (marked "pokopia-recomp extension: relay UDP" and "LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop_int.h @035bd9c, modified (marked "pokopia-recomp extension: relay UDP", "LAN sweep" and "room list")
 // coop internals shared by coop_ldn.c, coop_vnet.c, coop_mpnet.c, coop_disc.c, coop_plat.c and coop_auth.c (MIT, our own code). Not for the HLE: it
 // includes the platform's socket headers.
 #pragma once
@@ -144,10 +144,21 @@ void cauth_frame_tag(const chmac *k, uint64_t seq, const uint8_t *hdr5, const ui
 void cauth_udp_tag(const chmac *k, const uint8_t *pkt, size_t n, uint8_t tag[CAUTH_TAG]);
 int cauth_replay_ok(uint64_t *max, uint64_t *win, uint64_t seq);
 
+// pokopia-recomp extension: room list (coop_xlist.c): a listed room as the relay gave it, its NetworkInfo checked sane; its keys come from its
+// (public) code
+#define XL_MAX 24          // listed rooms a station keeps (nn::ldn's scan results at most)
+#define XL_LINK_MS 6000    // a Connect to a listed room waits this long for its link (the relay pairs it, the host dials in, both prove the code)
+typedef struct xl_room {
+    char code[COOP_ROOM_LEN + 1];
+    uint8_t k_auth[32], room_id[16];
+    char build[17]; uint64_t mods;
+    uint8_t info[LDN_NETINFO];
+} xl_room;
+
 // A host a station knows: the configured one (JOIN) or one DNS-SD found (AUTO). Its link carries scans, the join and, once joined, the session
 #define PEERS 8
 #define DISC_ADDRS 4              // a DNS-SD host's addresses kept (a PC on two networks, or a phone's Wi-Fi and its USB link)
-enum { PEER_CFG = 1, PEER_DISC };
+enum { PEER_CFG = 1, PEER_DISC, PEER_X_LIST };   // PEER_X_LIST: pokopia-recomp extension: room list
 typedef struct peer {
     int used, src;
     uint32_t ip; uint16_t port;
@@ -163,6 +174,8 @@ typedef struct peer {
     int relay;                        // the relay (DM_COOP_RELAY): every dial asks it for the room's host
     uint32_t alt[DISC_ADDRS]; int nalt, alti;   // DNS-SD: the host's addresses, the one on this machine's subnet first; a failed dial tries the next
     int said;                         // the last relay or room-code problem logged (a line when it changes)
+    // pokopia-recomp extension: room list: a listed room the game connects to (PEER_X_LIST): its own room id and keys, from its listed code
+    uint8_t x_kauth[32], x_room[16];
 } peer;
 
 // DNS-SD (coop_disc.c). The I/O thread starts and stops the backend as adv_want / browse_want say; found hosts land in e[] under the node's dlk
@@ -260,7 +273,13 @@ struct coop_node {
     // pokopia-recomp extension: relay UDP: one UDP socket for every link with a relay token, and a buffer to put the relay's header in front
     csock x_rsock;
     uint8_t x_buf[16 + MP_UDP_HDR3 + MP_DG_HDR + COOP_DGRAM_MAX + CAUTH_TAG];
+    // pokopia-recomp extension: room list (coop_xlist.c). Host: the relay lists rooms (its OK), the NetworkInfo change last listed and when the
+    // next may go. Station: the LIST link and its state (XL_*), the rooms it brought, when, and the relay's totals
+    int xl_cap; uint64_t xl_gen; int64_t xl_next; int xl_said;
+    conn xl_c; int xl_state; int64_t xl_at, xl_ok_at; int xl_slog;
+    xl_room xl[XL_MAX]; int nxl; int xl_rooms, xl_players;
 };
+enum { XL_IDLE, XL_BUSY, XL_DONE, XL_FAILED };   // pokopia-recomp extension: room list: the station's LIST link
 
 // coop_ldn.c
 void coop_logf(coop_node *n, const char *fmt, ...);
@@ -298,6 +317,25 @@ void cmp_host_accepts(coop_node *n);          // host: send the ACCEPTs that wer
 int cmp_src_ok(coop_node *n, uint32_t ip);    // the scope accepts this peer address (counts and logs a refusal)
 int cmp_peer_cfg(coop_node *n);               // station: the configured host as peer 0 (JOIN)
 peer *cmp_up(coop_node *n);                   // station: the joined peer, or NULL
+// pokopia-recomp extension: room list: the link helpers coop_xlist.c shares (coop_mpnet.c's own, unchanged)
+void cmp_conn_init(conn *c, csock s, int state);
+void cmp_conn_raw(conn *c, const void *p, size_t len);
+void cmp_conn_flush(conn *c);
+int cmp_grow(uint8_t **b, size_t *cap, size_t need);
+const char *cmp_relay_err(int code);
+void cmp_peer_free(coop_node *n, peer *p);
+
+// coop_xlist.c (pokopia-recomp extension: room list), every call with the lock held
+void cxl_host_ok(coop_node *n, uint32_t arg);  // the relay opened this host's room; arg: its OK's arg (RLY_X_CAP_LIST: it lists rooms)
+void cxl_host_reset(coop_node *n);             // the control link closed
+void cxl_host_tick(coop_node *n, int64_t now); // the control link is up: list the room, or list it again when its NetworkInfo changed
+void cxl_scan(coop_node *n);                   // station, at a Scan: the relay's list again when it is old (waits for it); idle listed peers freed
+peer *cxl_peer(coop_node *n, const uint8_t *netid);   // station, at a Connect: a peer for the listed room with this NetworkId, or NULL
+void cxl_io(coop_node *n, csock s, int got);   // I/O thread: the LIST link's socket
+void cxl_timers(coop_node *n, int64_t now);    // I/O thread
+void cxl_stop(coop_node *n);                   // the LIST link closed, the list forgotten
+static inline const uint8_t *cxl_kauth(coop_node *n, const peer *p) { return p && p->src == PEER_X_LIST ? p->x_kauth : n->k_auth; }
+static inline const uint8_t *cxl_room(coop_node *n, const peer *p) { return p && p->src == PEER_X_LIST ? p->x_room : n->room_id; }
 
 // coop_disc.c
 void cdisc_init(coop_node *n);                // at create
@@ -357,6 +395,20 @@ enum { RLY_E_NOROOM = 1, RLY_E_TAKEN, RLY_E_FULL, RLY_E_LIMIT, RLY_E_TIMEOUT, RL
 #define RLY_X_UMAGIC 0x31555250u   // "PRU1"
 #define RLY_X_HDR 16
 enum { RLY_XU_BIND = 1, RLY_XU_BOUND, RLY_XU_DATA };
+// pokopia-recomp extension: room list (not in pokopia-native; launcher/relay/src/lib.rs "Room list", coop_xlist.c). Internet play through a
+// relay with no room code (cfg.x_list): the host lists its room at the relay with this session's new code, and a Scan lists the relay's rooms
+// (anyone can visit a listed room; the game's own Link Code keeps one private). A relay that lists rooms says so in its OK to a host (arg
+// RLY_X_CAP_LIST); the host then sends RLY_X_LISTING (arg = length) and its record on the control link whenever its NetworkInfo changes. A
+// station's LIST link: hello kind RLY_X_LIST (room field = build, visitor id + cookie = mods, byte 6 = filter, byte 7 = entries wanted), answered
+// with RLY_X_LISTHDR (arg = entries | rooms open << 16, cookie = players) and one RLY_X_ENTRY (arg = length) + record per room, then closed.
+// Record v1: u8 1, u8 0, u16 NetworkInfo length, code[16], build[16], u64 mods, NetworkInfo (its first bytes; the rest are zeros)
+#define RLY_X_CAP_LIST 1u
+#define RLY_X_LIST 4
+#define RLY_X_LISTING 0xC6
+#define RLY_X_LISTHDR 0xC7
+#define RLY_X_ENTRY 0xC8
+#define XL_REC_HDR 44
+#define XL_INFO_MIN 0x68   // through NodeCountMax and NodeCount
 
 static inline void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static inline void put32(uint8_t *p, uint32_t v) { put16(p, v); put16(p + 2, v >> 16); }

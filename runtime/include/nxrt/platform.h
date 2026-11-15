@@ -25,13 +25,12 @@ bool create_window(const WindowDesc& desc);   // Vulkan-capable window (SDL_WIND
 void destroy_window();
 bool has_window();
 void* native_window();                        // SDL_Window*
-void* native_hwnd();                          // the Win32 HWND of the window (null when there is none)
+void* native_hwnd();                          // the native window handle: HWND on Windows, NSView* on macOS (null when there is none)
 void set_window_title(const char* title);
 void pixel_size(int* w, int* h);              // client size in pixels (0, 0 while minimised)
 bool set_window_size(int w, int h);           // windowed size in screen coordinates
 bool minimized();
 bool focused();
-bool touchscreen_present();                  // a direct touch screen is attached (a handheld, a touch laptop); not a touchpad
 bool visible();
 
 enum class FullscreenMode { Windowed, Borderless, Exclusive };
@@ -41,6 +40,13 @@ enum class FullscreenMode { Windowed, Borderless, Exclusive };
 bool set_fullscreen(FullscreenMode mode, int w = 0, int h = 0, float hz = 0.f);
 FullscreenMode fullscreen_mode();
 float display_refresh_hz();                   // refresh rate of the display the window is on (desktop mode), 0 if unknown
+// What the window system says about HDR for the window (SDL's window HDR properties): whether its display shows values above SDR
+// white, and the headroom, the display's peak as a multiple of SDR white (1 without HDR). False when there is no window.
+struct WindowHdr {
+    bool enabled = false;
+    float headroom = 1.0f;
+};
+bool window_hdr(WindowHdr* out);
 
 // Displays (monitors), numbered 1.. in the system's order. display_name is "Name (1920x1080 @ 144 Hz)"-style text for menus, empty for a bad number.
 int display_count();

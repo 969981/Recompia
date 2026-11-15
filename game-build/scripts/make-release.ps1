@@ -11,6 +11,7 @@ param(
     [Parameter(Mandatory)][string]$RtDir,      # folder with pkp_rt.dll + pkp_rt.lib (game-build, PKP_RT_DLL=ON PKP_RELEASE=ON)
     [Parameter(Mandatory)][string]$Launcher,   # pokopia-launcher.exe (launcher, npm run tauri build)
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder
+    [string]$PokoHex,                          # the Save Editor's data tool (build-pokohex.sh --extractor win-x64 <dir>)
     [Parameter(Mandatory)][string]$Out
 )
 $ErrorActionPreference = 'Stop'
@@ -50,8 +51,16 @@ function Mirror([string]$from, [string]$to, [string[]]$exclude = @()) {
 # built here
 Put (Join-Path $RtDir 'pkp_rt.dll') 'pkp_rt.dll'
 Put (Join-Path $RtDir 'pkp_rt.lib') 'tools\build\sdk\pkp_rt.lib'
+# libusb 1.0.30, unchanged official build (runtime/cmake/gfx_deps.cmake copies it next to pkp_rt.dll): SDL loads it by name for
+# controllers it reaches over USB, so it sits next to pkp.exe, ahead of any other libusb-1.0.dll on PATH.
+Put (Join-Path $RtDir 'libusb-1.0.dll') 'libusb-1.0.dll'
+Put "$root\runtime\third_party\libusb\COPYING" 'licenses\LICENSE.libusb.LGPL-2.1.txt'
 Put $Launcher 'PokopiaLauncher.exe'
 Mirror $Harness 'tools\spirv_harness' @('*.pdb')
+if ($PokoHex) {
+    if (-not (Test-Path (Join-Path $PokoHex 'pokohex-extract.exe'))) { throw "no pokohex-extract.exe in $PokoHex" }
+    Mirror $PokoHex 'tools\pokohex'
+}
 # from the checkout
 Put "$root\game-build\src\pkp_rt_api.h" 'tools\build\sdk\pkp_rt_api.h'
 Put "$root\game-build\src\pkp_stub.cpp" 'tools\build\sdk\pkp_stub.cpp'
@@ -69,6 +78,11 @@ Put "$root\recomp\LICENSE" 'tools\build\recomp\LICENSE'
 Mirror "$root\recomp\nxrecomp" 'tools\build\recomp\nxrecomp' @('*__pycache__*', '*.pyc')
 Mirror "$root\recomp\include\nxrecomp" 'tools\build\recomp\include\nxrecomp'
 foreach ($f in 'CMakeLists.txt', 'config.py', 'main.sites') { Put "$root\recomp\games\pkp\$f" "tools\build\recomp\games\pkp\$f" }
+# what the package ships under tools\build\recomp: pkp_build.py stamps a build by these files only, so a file an older release
+# left in an updated install (an update never removes one) does not change the stamp
+$recompDir = Join-Path $pkg 'tools\build\recomp'
+$shipped = Get-ChildItem $recompDir -Recurse -File | ForEach-Object { $_.FullName.Substring($recompDir.Length + 1).Replace('\', '/') } | Sort-Object
+[IO.File]::WriteAllText((Join-Path $pkg 'tools\build\recomp.files'), (($shipped -join "`n") + "`n"))
 
 # never ship anything from a game dump, a shader cache built from the game, saves or keys
 $bad = Get-ChildItem $pkg -Recurse -Force | Where-Object {

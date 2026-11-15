@@ -108,11 +108,20 @@ namespace Ryujinx.Graphics.Shader.Translation
             AttributeUsage attributeUsage = new(gpuAccessor);
             FeatureFlags features = FeatureFlags.None;
             byte clipDistances = 0;
-            IEnumerable<SassInst> emitted = reachable.Select(a => prog.At(a))
-                .Concat(prog.Subroutines.Values.Distinct().SelectMany(r => prog.Insts.Where(x => x.Address >= r.Start && x.Address <= r.End)));
-            foreach (SassInst i in emitted.Distinct())
+            // The subroutine ranges are slices of prog.Insts (sorted by address), so walk them by index. Filtering the whole
+            // instruction list once per subroutine made this instructions x subroutines on every block.
+            HashSet<SassInst> scanned = new();
+            foreach (int a in reachable)
             {
-                ScanFeatures(definitions, attributeUsage, ref features, ref clipDistances, i);
+                SassInst i = prog.At(a);
+                if (i != null && scanned.Add(i)) ScanFeatures(definitions, attributeUsage, ref features, ref clipDistances, i);
+            }
+            foreach ((int start, int end) in prog.Subroutines.Values.Distinct())
+            {
+                for (int k = prog.IndexOf[start]; k < prog.Insts.Count && prog.Insts[k].Address <= end; k++)
+                {
+                    if (scanned.Add(prog.Insts[k])) ScanFeatures(definitions, attributeUsage, ref features, ref clipDistances, prog.Insts[k]);
+                }
             }
 
             // Blocks: runs of reachable instructions split at leaders.

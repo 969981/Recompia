@@ -12,7 +12,8 @@
 //! `corpus/unique.tsv`, rewritten per chunk) into `shader_cache/stage`, and a chunk counts only once its `.spv` files are
 //! moved into `spirv/` and its rows appended to `spirv/results.tsv`. A block with a row there is never translated again.
 //! `shader_cache/setup.json` records what is done. The tools run at below-normal priority.
-//! On Linux the extractor runs with the Linux Python and the translator (a Windows program) through Proton (host.rs).
+//! On Linux and macOS the tools run natively: the extractor with the host's Python, the translator as the host's own self-contained
+//! publish (host.rs).
 //! Compact storage (shader_archive.rs): when the cache has a shader archive, or a new setup asks for one (`Job::compact`), every chunk is
 //! moved into the archive as soon as it is committed, so the loose files never pile up. A cache of loose files stays loose until the
 //! player makes it smaller (main.rs compact_shaders).
@@ -21,7 +22,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -39,8 +40,80 @@ pub const RUNTIME_REL: &str = "shader_cache/runtime";
 /// Run-time blocks a translator fix changes whose old translation is in the shader archive (it cannot be deleted one by one there):
 /// one hash per line. translate_missing translates them again, as if they had no translation, and empties the list.
 const RETRANSLATE_REL: &str = "shader_cache/runtime/retranslate.txt";
-/// Blocks per translator run. Under Proton every run also starts Proton (a few seconds), so Linux runs fewer, larger chunks.
-const CHUNK: usize = if cfg!(windows) { 1000 } else { 5000 };
+/// Blocks per translator run. Every run pays its own process start (the .NET start and a cold JIT everywhere) and its own commit,
+/// so a chunk of 1,000 cost about 7 s of overhead on a 24-thread Windows PC: 99 runs of 12 s for what one run of 413 s does. 7,000
+/// blocks is about 1.8 GB of SPIR-V (preflight CHUNK_BYTES) and 15 runs, and a stopped run no longer loses its work (the harness
+/// writes a results row per block as it goes), so a bigger chunk costs nothing when the player pauses.
+const CHUNK: usize = 7000;
+/// What a chunk of .spv files takes: the 2.0.1 corpus is 26.1 GB over 99,012 blocks, 1.8 GB per chunk (measured, every chunk of the
+/// corpus). A RAM stage is used only with this much free, so a chunk bigger than that one still fits.
+#[cfg(target_os = "linux")]
+const RAM_STAGE_FREE: u64 = 3 << 30;
+
+/// Where a chunk's loose .spv files are written before they are archived. A RAM filesystem when the platform has one with room: the
+/// files are written once, read back within the same chunk and deleted, and on a Steam Deck's microSD card those writes and reads are
+/// most of what the shader step costs. Elsewhere (and on Windows, which has no RAM file system) the game folder's cache.
+pub fn stage_dir(game_dir: &Path) -> PathBuf {
+    ram_stage().unwrap_or_else(|| disk_stage(game_dir))
+}
+
+/// The stage inside the game's cache, for a platform with no RAM filesystem (or one that is full or not writable).
+fn disk_stage(game_dir: &Path) -> PathBuf {
+    cache_dir(game_dir).join("stage")
+}
+
+/// True when `stage` is the RAM filesystem's: a chunk that does not fit there has to run from the game folder instead.
+#[cfg(target_os = "linux")]
+fn stage_is_ram(stage: &Path) -> bool {
+    stage.starts_with("/dev/shm")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn stage_is_ram(_stage: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn ram_stage() -> Option<PathBuf> {
+    let shm = Path::new("/dev/shm");
+    if !shm.is_dir() {
+        return None;
+    }
+    // A Set up that was killed leaves its folder behind, and a chunk of SPIR-V in RAM is not something to leak on a 16 GB machine
+    // (and a full tmpfs makes the next one fail). Every folder is named after the launcher process that owns it, so one whose
+    // process is gone is stale.
+    if let Ok(rd) = fs::read_dir(shm) {
+        for e in rd.filter_map(Result::ok) {
+            let name = e.file_name().to_string_lossy().to_string();
+            let Some(pid) = name.strip_prefix("nxrt-stage-").and_then(|p| p.parse::<u32>().ok()) else { continue };
+            if pid != std::process::id() && !Path::new(&format!("/proc/{}", pid)).exists() {
+                // a folder, or anything else that took the name (remove_dir_all alone would leave a file behind for good)
+                let p = e.path();
+                if fs::remove_file(&p).is_err() {
+                    let _ = fs::remove_dir_all(&p);
+                }
+            }
+        }
+    }
+    if crate::host::free_bytes(shm)? < RAM_STAGE_FREE {
+        return None;
+    }
+    // a mount that is there but not writable (a sandbox, a hardened distro) has to fall back here rather than fail a Set up halfway
+    let probe = shm.join(format!("nxrt-stage-probe-{}", std::process::id()));
+    if fs::write(&probe, b"x").is_err() {
+        return None;
+    }
+    let _ = fs::remove_file(&probe);
+    let dir = shm.join(format!("nxrt-stage-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    Some(dir)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ram_stage() -> Option<PathBuf> {
+    None
+}
+
 /// Workers for the extractor. It maps each asset file into memory and decompresses it, so one worker per CPU thread can
 /// thrash a machine's memory and disk (issue #194: 15 workers on a hard drive); a few already saturate the disk. The
 /// translator (spirv_harness) keeps the full `job.jobs`.
@@ -187,6 +260,13 @@ pub fn is_complete(game_dir: &Path) -> bool {
     m.complete && m.translator >= TRANSLATOR_REV && game_dir.join(SPIRV_REL).join("results.tsv").is_file()
 }
 
+/// Records a finished cache (the macOS setup translates it itself, outside shaders::run): `is_complete` then says so and
+/// Set up does not run again until the RomFS or the translator changes.
+pub fn mark_complete(game_dir: &Path, romfs: &str, blocks: usize) -> Result<(), String> {
+    let m = Marker { romfs: romfs.to_string(), extracted: true, blocks, complete: true, translator: TRANSLATOR_REV, storage: "loose".into() };
+    write_marker(game_dir, &m)
+}
+
 /// True when the cache was finished by an older translator that a later fix changes: Set up has to run once more.
 pub fn needs_retranslation(game_dir: &Path) -> bool {
     let m = read_marker(game_dir);
@@ -278,7 +358,7 @@ fn has_atomic(b: &[u8]) -> bool {
     false
 }
 
-fn quiet(cmd: &mut Command, idle: bool) {
+pub(crate) fn quiet(cmd: &mut Command, idle: bool) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -291,7 +371,7 @@ fn quiet(cmd: &mut Command, idle: bool) {
 
 fn python_has_lz4(py: &Path) -> bool {
     let mut c = crate::host::command(py);
-    c.args(["-I", "-c", "import lz4.block"]).stdout(Stdio::null()).stderr(Stdio::null());
+    c.args(["-I", "-B", "-c", "import lz4.block"]).stdout(Stdio::null()).stderr(Stdio::null());
     quiet(&mut c, false);
     c.status().map(|s| s.success()).unwrap_or(false)
 }
@@ -300,26 +380,37 @@ fn on_path(exe: &str) -> Vec<PathBuf> {
     std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(exe)).filter(|f| f.is_file()).collect()).unwrap_or_default()
 }
 
-/// The files of tools/spirv_harness without which the translator cannot start.
-const HARNESS_FILES: &[&str] = &[
-    "spirv_harness.exe",
-    "spirv_harness.dll",
-    "spirv_harness.deps.json",
-    "spirv_harness.runtimeconfig.json",
-    "hostfxr.dll",
-    "hostpolicy.dll",
-    "coreclr.dll",
-];
+/// Where the package keeps the translator: `tools/spirv_harness` in the Windows zip, `tools/harness` in the macOS and Linux
+/// packages (the native apphost, which they make executable).
+pub fn harness_dir(tools_dir: &Path) -> PathBuf {
+    tools_dir.join(if cfg!(windows) { "spirv_harness" } else { "harness" })
+}
+
+/// The translator in `tools_dir`: `spirv_harness.exe` on Windows, the native `spirv_harness` apphost elsewhere.
+pub fn harness_exe(tools_dir: &Path) -> PathBuf {
+    harness_dir(tools_dir).join(if cfg!(windows) { "spirv_harness.exe" } else { "spirv_harness" })
+}
+
+/// The files of the translator's self-contained publish without which it cannot start at all (one empty file is a cut-off copy
+/// or extraction, #366).
+fn harness_files() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["spirv_harness.exe", "spirv_harness.dll", "spirv_harness.deps.json", "spirv_harness.runtimeconfig.json", "hostfxr.dll", "hostpolicy.dll", "coreclr.dll"]
+    } else if cfg!(target_os = "macos") {
+        &["spirv_harness", "spirv_harness.dll", "spirv_harness.deps.json", "spirv_harness.runtimeconfig.json", "libhostfxr.dylib", "libhostpolicy.dylib", "libcoreclr.dylib"]
+    } else {
+        &["spirv_harness", "spirv_harness.dll", "spirv_harness.deps.json", "spirv_harness.runtimeconfig.json", "libhostfxr.so", "libhostpolicy.so", "libcoreclr.so"]
+    }
+}
 
 /// Finds the tools in `tools_dir` (the launcher's `tools/` folder). Python: `tools/python/python.exe` (Linux:
 /// `tools/linux/python/bin/python3`), else the first python.exe (python3) on PATH that has `lz4`. Every missing piece is named
 /// in the error.
 pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
     let mut missing = Vec::new();
-    let harness_dir = tools_dir.join("spirv_harness");
-    let harness = harness_dir.join("spirv_harness.exe");
-    // what the self-contained .NET publish needs to start at all; an empty file is a cut-off copy or extraction (#366)
-    let broken: Vec<&str> = HARNESS_FILES.iter().copied().filter(|f| fs::metadata(harness_dir.join(f)).map_or(true, |m| m.len() == 0)).collect();
+    let harness_dir = harness_dir(tools_dir);
+    let harness = harness_exe(tools_dir);
+    let broken: Vec<&str> = harness_files().iter().copied().filter(|f| fs::metadata(harness_dir.join(f)).map_or(true, |m| m.len() == 0)).collect();
     if !broken.is_empty() {
         missing.push(format!("the shader translator ({}: {} missing or empty)", harness_dir.display(), broken.join(", ")));
     }
@@ -344,7 +435,7 @@ pub fn find_tools(tools_dir: &Path) -> Result<Tools, String> {
 }
 
 /// A progress line of a tool ("scan: 12 of 99", "  500/1000  3.2 s"): counted by the progress bar, not worth a log line.
-fn is_progress_line(l: &str) -> bool {
+pub(crate) fn is_progress_line(l: &str) -> bool {
     l.starts_with("scan: ") || l.trim().split('/').next().map_or(false, |x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()) && l.contains('/'))
 }
 
@@ -360,17 +451,17 @@ pub(crate) fn run_tool(mut cmd: Command, cancel: &AtomicBool, idle: bool, log: O
         }
     };
     say(&format!("run: {} {}", name, cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect::<Vec<_>>().join(" ")));
-    let mut child: Child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("could not start {}: {}", name, e))?;
+    let mut child: Child = crate::proc_tree::spawn(cmd.stdout(Stdio::piped()).stderr(Stdio::piped())).map_err(|e| format!("could not start {}: {}", name, e))?;
     let (tx, rx) = mpsc::channel::<String>();
     let out = child.stdout.take().unwrap();
     let tx2 = tx.clone();
-    std::thread::spawn(move || BufReader::new(out).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(l))));
+    std::thread::spawn(move || crate::child_lines::lines(out).for_each(|l| drop(tx2.send(l))));
     let err = child.stderr.take().unwrap();
     let (etx, erx) = mpsc::channel::<String>();
     let elog = log.cloned();
     std::thread::spawn(move || {
         let mut tail: Vec<String> = Vec::new();
-        for l in BufReader::new(err).lines().map_while(Result::ok) {
+        for l in crate::child_lines::lines(err) {
             if let Some(f) = &elog {
                 f(&format!("stderr: {}", l));
             }
@@ -398,8 +489,7 @@ pub(crate) fn run_tool(mut cmd: Command, cancel: &AtomicBool, idle: bool, log: O
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                // stdout closed: the process is ending. Polled, so Pause and the time limit still apply while it does (Proton's
-                // wrapper waits for every wine process of the prefix)
+                // stdout closed: the process is ending. Polled, so Pause and the time limit still apply while it does
                 if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
                     if cancel.load(Ordering::SeqCst) {
                         say(&format!("stopped: {} (paused by the player)", name));
@@ -443,33 +533,56 @@ fn first_col(row: &str) -> &str {
     row.split('\t').next().unwrap_or("")
 }
 
-/// Moves a harness run's .spv files from `stage` into `spirv`, then appends its rows to spirv/results.tsv (the rows are
-/// what make a block count as done, so they go last). Returns the number of rows.
-fn commit_stage(stage: &Path, spirv: &Path) -> Result<usize, String> {
+/// The rows of a harness run, with a killed run's half-written last row dropped (a row without every column is not a translation).
+fn stage_rows(stage: &Path) -> Result<(String, Vec<String>), String> {
+    let (rheader, mut rrows) = read_tsv(&stage.join("results.tsv"))?;
+    let cols = rheader.split('\t').count();
+    rrows.retain(|r| r.split('\t').count() == cols);
+    Ok((rheader, rrows))
+}
+
+/// Appends a run's rows to spirv/results.tsv. They go last: a row is what makes a block count as done, so it is written only once the
+/// block's SPIR-V is in the cache (moved there or archived).
+fn append_rows(spirv: &Path, rheader: &str, rrows: &[String]) -> Result<usize, String> {
     let results = spirv.join("results.tsv");
-    let (rheader, rrows) = read_tsv(&stage.join("results.tsv"))?;
-    for r in &rrows {
-        let h = first_col(r);
-        let src = stage.join(format!("{}.spv", h));
-        if src.is_file() {
-            let dst = spirv.join(format!("{}.spv", h));
-            let _ = fs::remove_file(&dst);
-            fs::rename(&src, &dst).map_err(|e| format!("cannot move {}: {}", src.display(), e))?;
-        }
-    }
     let new_file = !results.is_file();
     let mut out = fs::OpenOptions::new().create(true).append(true).open(&results).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
     let mut text = String::new();
     if new_file {
-        text.push_str(&rheader);
+        text.push_str(rheader);
         text.push('\n');
     }
-    for r in &rrows {
+    for r in rrows {
         text.push_str(r);
         text.push('\n');
     }
     out.write_all(text.as_bytes()).map_err(|e| format!("cannot write {}: {}", results.display(), e))?;
     Ok(rrows.len())
+}
+
+/// Moves one file, copying it when the two are on different file systems (a RAM stage and the game folder are).
+fn move_file(src: &Path, dst: &Path) -> Result<(), String> {
+    let _ = fs::remove_file(dst);
+    if fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    fs::copy(src, dst).map_err(|e| format!("cannot move {}: {}", src.display(), e))?;
+    let _ = fs::remove_file(src);
+    Ok(())
+}
+
+/// Moves a harness run's .spv files from `stage` into `spirv` (the loose storage), then appends its rows to spirv/results.tsv.
+/// Returns the number of rows.
+fn commit_stage(stage: &Path, spirv: &Path) -> Result<usize, String> {
+    let (rheader, rrows) = stage_rows(stage)?;
+    for r in &rrows {
+        let h = first_col(r);
+        let src = stage.join(format!("{}.spv", h));
+        if src.is_file() {
+            move_file(&src, &spirv.join(format!("{}.spv", h)))?;
+        }
+    }
+    append_rows(spirv, &rheader, &rrows)
 }
 
 fn col(row: &str, k: usize) -> &str {
@@ -533,7 +646,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
         let mut f: Vec<String> = r.split('\t').map(String::from).collect();
         for k in [11, 12] {
             if let Some(v) = f.get_mut(k) {
-                *v = crate::host::win_path(&runtime.join(&*v)).to_string_lossy().replace('\\', "/");
+                *v = runtime.join(&*v).to_string_lossy().replace('\\', "/");
             }
         }
         text.push_str(&f.join("\t"));
@@ -541,7 +654,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     }
     fs::write(input.join("manifest.tsv"), text).map_err(|e| format!("cannot write {}: {}", input.display(), e))?;
     let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
-    let exe = tools_dir.join("spirv_harness").join("spirv_harness.exe");
+    let exe = harness_exe(tools_dir);
     let mut mode = crate::harness::Mode::Fast;
     if !crate::harness::run(&exe, &input, &stage, jobs, &mut mode, &AtomicBool::new(false), false, None, |_| {})? {
         return Err("the shader translator stopped".into());
@@ -553,7 +666,7 @@ pub fn translate_missing(game_dir: &Path, tools_dir: &Path) -> Result<usize, Str
     // a compact cache stays compact: the new translations join the archive (a small segment)
     if crate::shader_archive::exists(game_dir) {
         let hashes: Vec<String> = todo.iter().map(|r| col(r, 10).to_string()).collect();
-        crate::shader_archive::compact(game_dir, Some(&hashes), &AtomicBool::new(false), |_, _| {})?;
+        crate::shader_archive::compact(game_dir, None, Some(&hashes), &AtomicBool::new(false), |_, _| {})?;
     }
     Ok(n)
 }
@@ -571,12 +684,12 @@ pub fn warm_up(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result
     if let Some(install) = tools_dir.parent() {
         crate::host::sync_runtime_files(install, game_dir)?;
     }
-    let mut cmd = crate::host::windows_program(&game_dir.join("pkp.exe"))?;
-    cmd.current_dir(game_dir).arg("--headless").args(["--max-seconds", &WARMUP_SECONDS.to_string()]).arg("--log").arg(crate::host::win_path(&scratch.join("warmup.log")));
+    let mut cmd = crate::host::command(&crate::host::game_exe(game_dir));
+    cmd.current_dir(game_dir).arg("--headless").args(["--max-seconds", &WARMUP_SECONDS.to_string()]).arg("--log").arg(scratch.join("warmup.log"));
     // environment variables win over pkp.ini
-    cmd.env("NXRT_FS_SAVE_DIR", crate::host::win_path(&scratch.join("save"))).env("NXRT_NVN_DUMP_MISSING", MISSING_REL).env("NXRT_AUDIO_SINK", "null");
+    cmd.env("NXRT_FS_SAVE_DIR", scratch.join("save")).env("NXRT_NVN_DUMP_MISSING", MISSING_REL).env("NXRT_AUDIO_SINK", "null");
     // it ends with exit code 124 when the time is up: any end is fine, a crash only means fewer blocks were collected. One
-    // still running 4 minutes later (a first Proton start also makes its prefix) is stopped.
+    // still running 4 minutes later (a first start also translates the first blocks) is stopped.
     if let Ok(false) = run_tool(cmd, cancel, false, None, Some(Duration::from_secs(WARMUP_SECONDS as u64 + 240)), |_| {}) {
         return Ok(None);
     }
@@ -610,11 +723,33 @@ pub fn prepare(game_dir: &Path, tools_dir: &Path, cancel: &AtomicBool) -> Result
     }
 }
 
+/// One chunk's archive work, handed to the thread that packs beside the translator (`run`).
+struct PackJob {
+    game_dir: PathBuf,
+    /// the stage this chunk was translated into (a RAM filesystem on Linux, the game folder elsewhere)
+    stage: PathBuf,
+    spirv: PathBuf,
+    /// the hashes this chunk translated, so the packer takes its files and not the next chunk's
+    hashes: Vec<String>,
+    header: String,
+    rows: Vec<String>,
+    threads: usize,
+}
+
+/// How many cores the archive step may use while it runs beside the translator: what the translator leaves, but at least two. It is
+/// mostly waiting on the card, so two threads keep up with a translation that lasts minutes (a chunk's segments are a fraction of it).
+fn pack_threads(jobs: usize) -> usize {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    cores.saturating_sub(jobs).clamp(2, 16)
+}
+
 /// The whole setup. `report` gets every progress change. Ok(true) = finished (or the limit reached), Ok(false) = cancelled.
 pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut(Progress)) -> Result<bool, String> {
     let cache = cache_dir(&job.game_dir);
     let corpus = cache.join("corpus");
-    let stage = cache.join("stage");
+    let mut stage = stage_dir(&job.game_dir);
+    // a stage folder left by a Set up that was killed: its rows would look like this run's (a one-shot run cleared it itself)
+    let _ = fs::remove_dir_all(&stage);
     let spirv = job.game_dir.join(SPIRV_REL);
     fs::create_dir_all(&spirv).map_err(|e| format!("cannot create {}: {}", spirv.display(), e))?;
     crate::shader_archive::clean(&job.game_dir);
@@ -640,7 +775,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
         report(p("extract", 0, 0, "Finding the game's shaders in your game files...".into()));
         let _ = fs::remove_file(corpus.join("unique.tsv"));
         let mut cmd = crate::host::command(&tools.python);
-        cmd.arg("-I").arg(&tools.extract).arg("--romfs").arg(&job.romfs).arg("--main").arg(&job.main).arg("--out").arg(&corpus);
+        cmd.arg("-I").arg("-B").arg(&tools.extract).arg("--romfs").arg(&job.romfs).arg("--main").arg(&job.main).arg("--out").arg(&corpus);
         if let Some(b) = &job.romfs_base {
             cmd.arg("--romfs-base").arg(b);
         }
@@ -714,32 +849,133 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let total = urows.len() as u64;
     let mut finished = (urows.len() - urows.iter().filter(|r| !done.contains(first_col(r))).count()) as u64;
     report(p("translate", finished, total, format!("Translating shaders: {} of {}", finished, total)));
-    let mut mode = crate::harness::Mode::Fast;   // Safe from the first batch that needed it on (harness::run)
-    for chunk in todo.chunks(CHUNK) {
-        let mut f = fs::File::create(corpus.join("unique.tsv")).map_err(|e| e.to_string())?;
-        writeln!(f, "{}", uheader).map_err(|e| e.to_string())?;
-        for r in chunk {
-            writeln!(f, "{}", r).map_err(|e| e.to_string())?;
-        }
-        drop(f);
-        let base = finished;
-        let ok = crate::harness::run(&tools.harness, &corpus, &stage, job.jobs, &mut mode, cancel, job.idle, job.log.as_ref(), |l| {
-            // "  <n>/<count>  <s> s" every 500 blocks
-            if let Some(n) = l.trim().split('/').next().and_then(|x| x.parse::<u64>().ok()) {
-                report(p("translate", base + n, total, format!("Translating shaders: {} of {}", base + n, total)));
+    // One translator process for the whole translation (`--serve`): a chunk no longer pays the .NET start, the cold JIT and the
+    // thread pool ramp, which was about 3 s of every chunk. A process that dies is started again, in Safe mode when it died without
+    // a report (the same rule a one-shot run gets in harness::run), and its chunk runs from its start: nothing of a dead chunk was
+    // committed.
+    let mut worker: Option<crate::harness::Worker> = None;
+    let mut mode = crate::harness::Mode::Fast;
+    // The archive step runs beside the translator instead of after it: a chunk is packed while the next one is translated, so the
+    // segments' 6.6 GB are written during the minutes of translation rather than after them. On a Steam Deck that write is most of
+    // what the shader step spent outside the translator, and it is card time, not CPU: the packer asks for the cores the translator
+    // leaves (two on a Deck) and the translator never waits for it. One job is in flight at a time, so the stage never holds more
+    // than two chunks.
+    let pack_cores = pack_threads(job.jobs);
+    let (pack_tx, pack_rx) = mpsc::sync_channel::<PackJob>(1);
+    let packer = compact.then(|| {
+        std::thread::spawn(move || -> Result<(), String> {
+            for j in pack_rx.iter() {
+                crate::shader_archive::compact_with(&j.game_dir, Some(&j.stage), Some(&j.hashes), &AtomicBool::new(false), j.threads, |_, _| {})?;
+                // The rows go last, and only once their SPIR-V is in a segment: a row is what makes a block count as done, so it is
+                // written only once the block's SPIR-V is in the cache. A segment that cannot be written fails the whole setup.
+                append_rows(&j.spirv, &j.header, &j.rows)?;
             }
-        })?;
-        if !ok {
-            return Ok(false);
+            Ok(())
+        })
+    });
+    let ran = (|| -> Result<bool, String> {
+        for chunk in todo.chunks(CHUNK) {
+            let mut f = fs::File::create(corpus.join("unique.tsv")).map_err(|e| e.to_string())?;
+            writeln!(f, "{}", uheader).map_err(|e| e.to_string())?;
+            for r in chunk {
+                writeln!(f, "{}", r).map_err(|e| e.to_string())?;
+            }
+            drop(f);
+            let base = finished;
+            let ok = loop {
+                if worker.is_none() {
+                    worker = Some(crate::harness::Worker::start(&tools.harness, &stage, job.jobs, mode, job.idle)?);
+                }
+                let res = worker.as_mut().unwrap().run_chunk(&corpus, cancel, job.log.as_ref(), |l| {
+                    // "  <n>/<count>  <s> s" every 500 blocks
+                    if let Some(n) = l.trim().split('/').next().and_then(|x| x.parse::<u64>().ok()) {
+                        report(p("translate", base + n, total, format!("Translating shaders: {} of {}", base + n, total)));
+                    }
+                });
+                match res {
+                    Ok(ok) => break ok,
+                    Err(f) => {
+                        worker = None;
+                        // A RAM stage can run out of room (a chunk bigger than the free space, or /dev/shm shared with something else):
+                        // the chunk runs again from the game folder rather than ending Set up. Nothing of it was committed.
+                        if stage_is_ram(&stage) {
+                            if let Some(l) = &job.log {
+                                l("the RAM stage could not hold this chunk: the rest of this Set up uses the game folder");
+                            }
+                            let _ = fs::remove_dir_all(&stage);
+                            stage = disk_stage(&job.game_dir);
+                            continue;
+                        }
+                        if mode == crate::harness::Mode::Fast && !f.reported {
+                            mode = crate::harness::Mode::Safe;
+                            if let Some(l) = &job.log {
+                                l(&format!(
+                                    "The shader translator stopped without a report: running it again with workstation GC and {} jobs, and keeping that.",
+                                    job.jobs.clamp(1, 2)
+                                ));
+                            }
+                            continue;
+                        }
+                        return Err(f.message);
+                    }
+                }
+            };
+            // A run that was stopped still leaves every block it finished (the harness writes a row per block as it goes), so what it
+            // got through is committed before setup reports the pause: resuming starts where it stopped. A run that never started has
+            // no table to commit.
+            let started = stage.join("results.tsv").is_file();
+            if !ok && !started {
+                return Ok(false);
+            }
+            let kept = if compact {
+                // Straight from the stage into the archive: a fresh translation is never written loose to the game folder, so a chunk
+                // costs one compressed write instead of a loose write, a read back and a delete. The packer does it while the next chunk
+                // is translated, and appends this chunk's rows once their SPIR-V is in a segment.
+                let (rheader, rrows) = stage_rows(&stage)?;
+                let hashes: Vec<String> = rrows.iter().map(|r| first_col(r).to_string()).collect();
+                let n = rrows.len();
+                pack_tx
+                    .send(PackJob {
+                        game_dir: job.game_dir.clone(),
+                        stage: stage.clone(),
+                        spirv: spirv.clone(),
+                        hashes,
+                        header: rheader,
+                        rows: rrows,
+                        threads: pack_cores,
+                    })
+                    .map_err(|_| "the archive step stopped".to_string())?;
+                n
+            } else {
+                let n = commit_stage(&stage, &spirv)?;
+                let _ = fs::remove_dir_all(&stage);
+                n
+            };
+            if !ok {
+                if let Some(l) = &job.log {
+                    l(&format!("paused: {} shaders translated before the pause are kept", kept));
+                }
+                return Ok(false);
+            }
+            finished += chunk.len() as u64;
+            report(p("translate", finished, total, format!("Translating shaders: {} of {}", finished, total)));
         }
-        commit_stage(&stage, &spirv)?;
-        if compact {
-            // into the archive at once: the loose files of a chunk never pile up (peak disk use stays near the compressed size)
-            let hashes: Vec<String> = chunk.iter().map(|r| first_col(r).to_string()).collect();
-            crate::shader_archive::compact(&job.game_dir, Some(&hashes), &AtomicBool::new(false), |_, _| {})?;
-        }
-        finished += chunk.len() as u64;
-        report(p("translate", finished, total, format!("Translating shaders: {} of {}", finished, total)));
+        Ok(true)
+    })();
+    if let Some(mut w) = worker.take() {
+        w.stop();
+    }
+    // the last chunk's archive work finishes here: Set up reports nothing until every shader it counted is in a segment
+    drop(pack_tx);
+    let packed = match packer {
+        Some(h) => h.join().unwrap_or_else(|_| Err("the archive step stopped without a reason".into())),
+        None => Ok(()),
+    };
+    // the archive step's own failure is why a chunk could not be handed to it, so its reason is the one reported
+    packed?;
+    let done = ran?;
+    if !done {
+        return Ok(false);
     }
     let _ = fs::remove_dir_all(&stage);
     let _ = fs::remove_file(corpus.join("unique.tsv"));

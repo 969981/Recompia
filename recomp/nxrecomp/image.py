@@ -61,6 +61,10 @@ class Image:
     def word(self, addr):
         return struct.unpack_from('<I', self.mem, addr - self.base)[0]
 
+    def words_at(self, addr, count):
+        """The `count` words from `addr` in one read (one struct call for a whole function, not one per word)."""
+        return struct.unpack_from('<%dI' % count, self.mem, addr - self.base)
+
     def cstr(self, off):
         e = self.mem.index(b'\0', off)
         return bytes(self.mem[off:e]).decode('latin-1')

@@ -10,6 +10,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#if !defined(_WIN32)
+#include "nx_os.h"   // _wfopen on POSIX: the wide path is converted to UTF-8
+#endif
 #include <cstdio>
 #include <cstring>
 #include <atomic>
@@ -46,9 +49,8 @@ namespace nxrt::services::ldn_impl {
 // windows/src/coop/nxnative/ldn_glue.c.
 // Config ([net], read once when the first ldn:u service object is made): mode = auto | join:<IPv4>[:<port>] | off (auto: host on the LAN
 // while the game hosts, find LAN hosts with DNS-SD while it scans; without DNS-SD, Wine / Proton, a LAN sweep and mDNS answers: lan_sweep =
-// auto | off), internet (0/1: internet play, every link proves the room code),
-// room_code (the host's code; a host without one gets a new one, logged and written to room-code.txt; a visitor needs the host's),
-// relay (<IPv4>[:<port>], a pokopia-native coop relay; mode auto only), uid (32 hex digits; default: the install's persistent uid,
+// auto | off), internet (0/1: internet play, every link proves its room's code: through a relay the room list's code, else
+// COOP_X_ROOM_OPEN), relay (<IPv4>[:<port>], a pokopia-native coop relay, ours lists rooms; mode auto only), uid (32 hex digits; default: the install's persistent uid,
 // coop_uid_load). mode = off or an invalid setting: local wireless off (the Link Play backend's answers with no lobby).
 // What peers compare before a join: main's build id (first 16 hex digits) and a mods fingerprint. The fingerprint is
 // coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; Pokopia's "Interact everywhere" while armed, the same
@@ -209,9 +211,11 @@ coop_node* native_node() {
     std::string mode = text::lower(config_get_str("net", "mode", "auto"));
     text::trim_blanks(mode);
     const bool internet = config_get_bool("net", "internet", false);
-    std::string room = config_get_str("net", "room_code", "");
-    if (text::lower(room) == "new") room.clear();   // a host without a code gets a new one
+    // No room code (the launcher's [net] room_code is retired, an old value is skipped): through a relay the room is listed there (the
+    // module's room list: anyone finds it with the game's search, the game's own Link Code keeps a room private); without a relay every
+    // player uses the module's open code, so a host and its visitors agree.
     const std::string relay = config_get_str("net", "relay", "");
+    const std::string room = internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
     // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
     // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
     if (internet && !relay.empty() && mode.compare(0, 5, "join:") == 0) {
@@ -223,11 +227,9 @@ coop_node* native_node() {
     coop_cfg c;
     char err[256] = "";
     const int r = coop_cfg_parse_ex(&c, mode.c_str(), uid.c_str(), internet ? "1" : "0", room.c_str(), relay.c_str(), err, sizeof err);
-    const std::string code_file = room_code_file();
     if (r <= 0) {
         if (r < 0) NXLOG_W("net", "ldn: [net] (protocol native): %s: local wireless off", err);
         else NXLOG_I("net", "ldn: [net] mode = off: local wireless off");
-        std::remove(code_file.c_str());
         return nullptr;
     }
     // [net] lan_sweep = auto | off: auto (the default) finds and answers LAN players without DNS-SD (Wine / Proton: the module's LAN sweep and
@@ -244,7 +246,6 @@ coop_node* native_node() {
     coop_node* n = coop_create(&c);
     if (!n) {
         NXLOG_W("net", "ldn: the co-op module did not start (no sockets): local wireless off");
-        std::remove(code_file.c_str());
         return nullptr;
     }
     const char* role = c.role == COOP_ROLE_JOIN ? "join" : c.role == COOP_ROLE_HOST ? "host" : "auto";
@@ -254,16 +255,11 @@ coop_node* native_node() {
     NXLOG_I("net", "ldn: protocol native (pokopia-native's co-op), mode %s, port %u, %s", role, c.port,
             c.scope == COOP_SCOPE_INTERNET ? "internet play (links prove the room code; not encrypted)"
             : c.scope == COOP_SCOPE_LOOPBACK ? "loopback peers only" : "LAN peers only");
-    if (c.auth) {
-        char shown[COOP_ROOM_SHOWN];
-        coop_room_format(c.room, shown);
-        if (FILE* f = std::fopen(code_file.c_str(), "wb")) {
-            std::fprintf(f, "%s\n", shown);
-            std::fclose(f);
-        }
-        NXLOG_I("net", "ldn: internet play room code %s%s", shown, c.room_new ? " (new: visitors need it)" : "");
-    } else {
-        std::remove(code_file.c_str());
+    if (c.x_list) {
+        NXLOG_I("net", "ldn: internet play through the relay's room list: a room hosted here is listed for every player of this build (the "
+                "game's Link Code keeps it private); Visit a Friend lists the relay's rooms");
+    } else if (c.auth) {
+        NXLOG_I("net", "ldn: internet play without a relay: anyone with this host's address can visit (the game's Link Code keeps it private)");
     }
     s.node.store(n);
     return n;

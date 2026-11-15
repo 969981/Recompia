@@ -11,6 +11,7 @@ import ja from './i18n/ja.js';
 import fr from './i18n/fr.js';
 import it from './i18n/it.js';
 import de from './i18n/de.js';
+import ptBR from './i18n/pt-BR.js';
 import ko from './i18n/ko.js';
 import zhCN from './i18n/zh-CN.js';
 import zhTW from './i18n/zh-TW.js';
@@ -23,6 +24,7 @@ export const LANGUAGES = [
   { code: 'fr', name: 'Français', catalog: fr },
   { code: 'it', name: 'Italiano', catalog: it },
   { code: 'de', name: 'Deutsch', catalog: de },
+  { code: 'pt-BR', name: 'Português (Brasil)', catalog: ptBR },
   { code: 'ko', name: '한국어', catalog: ko },
   { code: 'zh-CN', name: '简体中文', catalog: zhCN },
   { code: 'zh-TW', name: '繁體中文', catalog: zhTW },
@@ -35,12 +37,14 @@ const TRADITIONAL = ['tw', 'hk', 'mo', 'hant'];   // zh-TW, zh-HK, zh-MO and zh-
 
 /**
  * The code of LANGUAGES a system language tag stands for, or null. Only the language counts, so es-ES and es-MX are both 'es'.
- * Chinese is told apart by script or region: zh-Hant, zh-TW, zh-HK, zh-MO are Traditional, the rest Simplified.
+ * Chinese is told apart by script or region: zh-Hant, zh-TW, zh-HK, zh-MO are Traditional, the rest Simplified. Portuguese has one
+ * catalog, Brazilian: pt-BR, pt-PT and plain pt all read it.
  */
 export function matchLanguage(tag) {
   const parts = String(tag ?? '').trim().toLowerCase().replace(/_/g, '-').split('-');
   const base = parts[0];
   if (base === 'zh') return parts.slice(1).some((p) => TRADITIONAL.includes(p)) ? 'zh-TW' : 'zh-CN';
+  if (base === 'pt') return 'pt-BR';
   return LANGUAGES.some((l) => l.code === base) ? base : null;
 }
 
@@ -68,7 +72,12 @@ export function savedLanguage() {
   return LANGUAGES.some((l) => l.code === v) ? v : AUTO;
 }
 
-const systemTags = () => globalThis.navigator?.languages?.length ? [...globalThis.navigator.languages] : [globalThis.navigator?.language].filter(Boolean);
+// The webview's languages. Node 21 and later has a navigator too, with the PC's language: outside a window (the tests and the check
+// scripts) there are none, so they get English on every PC, as their English expectations need.
+const systemTags = () => {
+  const nav = globalThis.window ? globalThis.navigator : undefined;
+  return nav?.languages?.length ? [...nav.languages] : [nav?.language].filter(Boolean);
+};
 
 export const language = resolveLanguage(savedLanguage(), systemTags());
 const catalog = LANGUAGES.find((l) => l.code === language).catalog;

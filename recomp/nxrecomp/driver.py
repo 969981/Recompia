@@ -92,16 +92,31 @@ def open_image(spec):
 
 
 _worker_env = None
+_worker_version = None
 
 
-def _worker_init(spec):
-    global _worker_env
-    _worker_env = make_env(spec)
+def _worker_init(version_path):
+    """A worker's first spec (multiprocessing's initializer); later ones come with the tasks (driver._worker_spec)."""
+    _worker_spec(version_path)
 
 
-def _worker_scan(entries):
-    """entries: [(entry, end or None)]; an end given here replaces the one the worker's spec has (discovery shortens them)."""
-    env = _worker_env
+def _worker_spec(version_path):
+    """The spec a task runs with. The lift hands out a new one when it learns more (the function extents after discovery,
+    then the flag table), and a worker rebuilds its Env the first time it sees a version. One file per version, written
+    before any task of that version is sent: a worker that is still on the last pass never reads a newer spec."""
+    global _worker_env, _worker_version
+    version, path = version_path
+    if _worker_version != version:
+        with open(path, 'rb') as f:
+            _worker_env = make_env(pickle.load(f))
+        _worker_version = version
+    return _worker_env
+
+
+def _worker_scan(task):
+    """task: (spec, [(entry, end or None)]); an end given here replaces the one the worker's spec has (discovery shortens them)."""
+    env = _worker_spec(task[0])
+    entries = task[1]
     env.wanted = collections.OrderedDict()
     total = bad = 0
     keep, env.spin = env.spin, False                 # discovery needs only the branch targets
@@ -109,22 +124,23 @@ def _worker_scan(entries):
     for a, end in entries:
         if end is not None:
             env.ends[a] = end
-        _, n, b, _ = lift_function(env, a)
+        _, n, b, _ = lift_function(env, a, text=False)
         total += n
         bad += len(b)
     env.spin, env.locals = keep, keep_locals
     return total, bad, list(env.wanted)
 
 
-def _worker_summary(entries):
-    """'lean' summary pass: {entry: locals.summarize()} of the given functions (their text is not kept). The flag flow
-    the text pass's rewrite needs again is kept on disk, one file per group (_flows_file)."""
-    env = _worker_env
+def _worker_summary(task):
+    """'lean' summary pass: (functions, {entry: locals.summarize()}) of the given ones (their text is not kept). The flag
+    flow the text pass's rewrite needs again is kept on disk, one file per group (_flows_file)."""
+    env = _worker_spec(task[0])
+    entries = task[1]
     env.wanted = collections.OrderedDict()
     env.locals_summaries = {}
     env.lean_flows = {}
     for a in entries:
-        t = lift_function(env, a)[0]
+        t = lift_function(env, a, text=False)[0]
         if a not in env.locals_summaries:                  # a PLT stub: lift_function returned before the locals pass
             s = localsmod.stub_summary(t)
             if s:
@@ -133,7 +149,7 @@ def _worker_summary(entries):
         with open(_flows_file(env, entries[0]), 'wb') as f:
             pickle.dump(env.lean_flows, f, pickle.HIGHEST_PROTOCOL)
     env.lean_flows = {}
-    return env.locals_summaries
+    return len(entries), env.locals_summaries
 
 
 def _flows_file(env, first):
@@ -205,11 +221,9 @@ def entered_from_outside(env, cfg, img, funcs, sums):
     return entry, out & fs
 
 
-def flag_table(pool, env, cfg, img, groups, all_funcs, log):
-    """'lean': the summary pass over every function and locals.solve() -> the flag table the text pass consults."""
-    sums = {}
-    for part in map_ordered(pool, _worker_summary, groups):
-        sums.update(part)
+def flag_table(sums, env, cfg, img, all_funcs, log):
+    """'lean': the flag table the text pass consults, from every function's summary (_worker_summary) and
+    locals.solve()."""
     kept = localsmod.check_held(sums)
     log('%s: unresolved br limited to held addresses in %d functions' % (img.name, len(kept)))
     entry, entered = entered_from_outside(env, cfg, img, all_funcs, sums)
@@ -228,8 +242,11 @@ def flag_table(pool, env, cfg, img, groups, all_funcs, log):
     return table
 
 
-def _worker_text(entries):
-    env = _worker_env
+def _worker_text(task):
+    """task: (spec, key, entries) -> (key, the functions' text, resume entries, instructions, spin stats, locals stats).
+    key: the shard the text belongs in, so the caller writes each one as it comes."""
+    env = _worker_spec(task[0])
+    entries = task[2]
     env.wanted = collections.OrderedDict()
     texts, resume, insns = [], [], 0
     env.spin_stats = spinmod.Stats()
@@ -241,17 +258,42 @@ def _worker_text(entries):
         texts.append(t)
         resume += r
         insns += n
-    return '\n\n'.join(texts), resume, insns, env.spin_stats, env.locals_stats
+    return task[1], '\n\n'.join(texts), resume, insns, env.spin_stats, env.locals_stats
 
 
-def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
+# How one module's lift divides its work, per mille: finding the functions (reading the module, the jump tables, the
+# discovery rounds), the 'lean' flag summary pass, and the text pass. Measured on main (148,021 functions, 10.2M
+# instructions, 24 threads, 23 workers). The launcher's bar and its time left are only as good as this: a lift without the
+# summary pass (another locals mode) gives its share to the text.
+_PASSES = (('discover', 20), ('flags', 600), ('text', 380))
+
+
+def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print, progress=None):
     """Lift every function of the module described by `spec` into outdir.
     spec: dict(kind, path, base, name, game, patches). shards > 0: exactly that many c_NNN.cpp files (balanced by
-    instruction count, contiguous in address order); shards == 0: one c_<bucket>.cpp per `bucket` bytes of guest code."""
+    instruction count, contiguous in address order); shards == 0: one c_<bucket>.cpp per `bucket` bytes of guest code.
+    progress: None, or f(done, total, text): how far this module is, out of total, and what it is doing (the launcher's
+    bar; pkp_build.py passes one through `nxrecomp lift --progress`). _PASSES says how the work divides."""
     from .config import load_game
     t0 = time.time()
-    img = open_image(spec)
     cfg = load_game(spec.get('game'))
+    lean = locals_mode(cfg, spec) == localsmod.LEAN
+    weights = dict(_PASSES)
+    if not lean:
+        weights['text'] += weights['flags']
+        weights['flags'] = 0
+    at = 0
+    base = {}
+    for step, _ in _PASSES:
+        base[step] = at
+        at += weights[step]
+
+    def tick(step, done, total, text):
+        if progress is not None:
+            progress(base[step] + (weights[step] * done // total if total else 0), 1000, text)
+
+    tick('discover', 0, 1, 'reading the game code')
+    img = open_image(spec)
     env = Env(img, cfg)
     env.module_index = module_index_of(cfg, spec)
     if spec.get('patches'):
@@ -268,23 +310,39 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
     env.load_eh()
     from . import jumptables
     jumptables.resolve(env)
-    if locals_mode(cfg, spec) == localsmod.LEAN:
+    if lean:
         jumptables.bound_dispatch(env)
         env.lean_held = held_code(env, img)
     starts = env.starts
     log('%s: %d function entries, %d landing pads, %d jump tables  (%.1fs)' % (img.name, len(starts), len(env.pads), len(env.jt), time.time() - t0))
     spec = dict(spec, ends=env.ends, jt={str(k): v for k, v in env.jt.items()}, tailbr=sorted(env.tailbr), pads=env.pads, catchers=sorted(env.catchers))
-    if locals_mode(cfg, spec) == localsmod.LEAN:
+    if lean:
         spec.update(br_plain=sorted(env.br_plain), lean_held=env.lean_held)
     os.makedirs(outdir, exist_ok=True)
+    # One pool for the whole lift. The workers rebuild their Env when the spec changes (hand_out below), which is far
+    # cheaper than the three pools this used to start: each one pickled the module's whole spec to every worker.
+    version = [0]
+
+    def hand_out(spec):
+        version[0] += 1
+        path = os.path.join(outdir, '.spec-%d' % version[0])
+        with open(path, 'wb') as f:
+            pickle.dump(spec, f, pickle.HIGHEST_PROTOCOL)
+        return version[0], path
+
+    def stream(fn, items):
+        """fn's results as they come, one task at a time: a slow function (a big one, with hundreds of calls) then holds
+        up its own shard only, not the end of the pass."""
+        return pool.imap_unordered(fn, items, chunksize=1) if pool else map(fn, items)
+
+    handed = hand_out(spec)
     known = set(starts)
     pending = list(starts)
     all_funcs, total, bad = [], 0, 0
-    pool = multiprocessing.Pool(jobs, _worker_init, (spec,)) if jobs > 1 else None
+    pool = multiprocessing.Pool(jobs, _worker_init, (handed,)) if jobs > 1 else None
     if pool is None:
-        _worker_init(spec)
+        _worker_init(handed)
     try:
-        mapper = pool.imap_unordered if pool else map
         # discovery: lifting finds branch targets that are not listed functions (tail calls, fall-through ends).
         # A found entry has no exact end (no FDE covers it): it ends at the next known entry and falls through into it. Each round can
         # find entries inside earlier found ones (code without unwind tables); those shrink and are scanned again, so no stretch of
@@ -292,9 +350,9 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
         found, listed = set(), set()
         while pending:
             pending.sort()
-            parts = [[(a, env.ends.get(a) if a in found else None) for a in pending[i:i + 400]] for i in range(0, len(pending), 400)]
+            parts = [(handed, [(a, env.ends.get(a) if a in found else None) for a in pending[i:i + 400]]) for i in range(0, len(pending), 400)]
             new = set()
-            for n, b, wanted in mapper(_worker_scan, parts):
+            for n, b, wanted in stream(_worker_scan, parts):
                 total += n
                 bad += b
                 new.update(w for w in wanted if w not in known and env.text_lo <= w < env.text_hi)
@@ -313,34 +371,31 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
                         again.append(a)
                     env.ends[a] = end
             pending = sorted(new | set(again))
+            tick('discover', len(listed), len(listed) + len(pending), 'finding the functions')
         all_funcs.sort()
-        lean = locals_mode(cfg, spec) == localsmod.LEAN
+        parts = [all_funcs[i:i + 400] for i in range(0, len(all_funcs), 400)]
         if lean:
             cut = jumptables.lean_tables(env)            # jump tables read without a bound, cut to what they hold
             spec['jt'] = dict(spec['jt'], **{str(b): t for b, t in cut.items()})
             log('%s: %d jump tables without a bound cut to their end' % (img.name, len(cut)))
-            parts = [all_funcs[i:i + 400] for i in range(0, len(all_funcs), 400)]
             cache = os.path.join(outdir, '.lean-flows')   # the summary pass's flag flows, for the text pass
             shutil.rmtree(cache, ignore_errors=True)
             os.makedirs(cache)
             spec.update(lean_cache=cache, lean_chunks=[p[0] for p in parts])
-        # workers must know the new entries too (their extents are by the next start): rebuild the spec
+        # workers must know the new entries too (their extents are by the next start): a new spec for them
         if len(all_funcs) != len(starts) or lean:
             spec['ends'] = {a: env.ends.get(a, env.extent(a)) for a in all_funcs}
-            if pool:
-                pool.close()
-                pool = multiprocessing.Pool(jobs, _worker_init, (spec,))
-                mapper = pool.imap_unordered
-            else:
-                _worker_init(spec)
+            handed = hand_out(spec)
         if lean:                                         # the flag table, before any function is rewritten
-            spec['flags_table'] = flag_table(pool, env, cfg, img, parts, all_funcs, log)
-            if pool:
-                pool.close()
-                pool = multiprocessing.Pool(jobs, _worker_init, (spec,))
-                mapper = pool.imap_unordered
-            else:
-                _worker_init(spec)
+            sums, done = {}, 0
+            tick('flags', 0, len(all_funcs), 'working out the flags')
+            for n, part in stream(_worker_summary, [(handed, p) for p in parts]):
+                sums.update(part)
+                done += n
+                tick('flags', done, len(all_funcs), 'working out the flags')
+            spec['flags_table'] = flag_table(sums, env, cfg, img, all_funcs, log)
+            del sums
+            handed = hand_out(spec)
             # the table next to the sources (ind_in, ind_out, then entry NEEDS_IN NEEDS_OUT KILLS), for checks of the generated code
             ft = spec['flags_table']
             write_if_changed(os.path.join(outdir, 'flags_%s.txt' % img.name),
@@ -364,22 +419,29 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
             for a in all_funcs:
                 groups.setdefault((a - env.base) // bucket, []).append(a)
             names = {k: 'c_%04x.cpp' % k for k in groups}
-        jobs_list = [(k, v) for k, v in groups.items()]
+        tasks = [(handed, k, v) for k, v in groups.items()]
         resume, files, changed, insns = [], [], 0, 0
         sst, lst = spinmod.Stats(), localsmod.Stats()
-        for (k, entries), (text, res, n, ss, ls) in zip(jobs_list, map_ordered(pool, _worker_text, [v for _, v in jobs_list])):
+        done = 0
+        tick('text', 0, len(all_funcs), 'writing the code')
+        for k, text, res, n, ss, ls in stream(_worker_text, tasks):
             resume += res
             insns += n
             sst.add(ss)
             lst.add(ls)
-            content = GEN_HEADER + text + '\n'
             files.append(names[k])
-            changed += write_if_changed(os.path.join(outdir, names[k]), content)
+            changed += write_if_changed(os.path.join(outdir, names[k]), GEN_HEADER + text + '\n')
+            done += len(groups[k])
+            tick('text', done, len(all_funcs), 'writing the code')
     finally:
         if pool:
             pool.close()
+            pool.join()
         if spec.get('lean_cache'):
             shutil.rmtree(spec['lean_cache'], ignore_errors=True)
+        for n in os.listdir(outdir):
+            if n.startswith('.spec-'):
+                os.remove(os.path.join(outdir, n))
     first = {}
     for lp, e in sorted(resume):
         first.setdefault(lp, e)
@@ -400,7 +462,3 @@ def lift_module(spec, outdir, jobs=8, shards=0, bucket=0xC000, log=print):
         for line in lst.lines(img.name, mode):
             log(line)
     return {'functions': len(all_funcs), 'files': files, 'instructions': insns, 'not_translated': bad, 'spin_loops': sst.loops}
-
-
-def map_ordered(pool, fn, items):
-    return pool.map(fn, items) if pool else [fn(i) for i in items]

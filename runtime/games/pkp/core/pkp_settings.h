@@ -65,6 +65,8 @@ enum class Key : uint8_t {
     PokemonCapLimit,
     OptionsMenu,
     EventsFile,
+    SaveNow,
+    OnlinePresence,
     Count
 };
 

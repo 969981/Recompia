@@ -23,6 +23,7 @@
 // Rows that are not fields: info (label, value, actions), keycap (label, key), note (a line of text), and { expand } for rows made from env.
 
 import { num, t } from './i18n.js';
+import { playTimeLine } from './play-time-model.js';
 import { previewItem } from './prompt-pack-model.js';
 import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
 import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
@@ -30,6 +31,9 @@ import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 
 const controls = (section, key) => ({ file: 'controls', section, key });
 const pkp = (section, key) => ({ file: 'pkp', section, key });
 const config = (key) => ({ file: 'config', section: '', key });
+
+/** The logo and icon choices: 'Recompia' is a name and stays in English. */
+const LOOKS = [{ value: 'recompia', label: 'Recompia' }, { value: 'classic', label: t('Classic') }];
 
 const keyOf = (at) => (at.file === 'config' ? at.key : `${at.section}.${at.key}`);
 const rawOf = (src, at) => src[at.file]?.[keyOf(at)];
@@ -263,6 +267,7 @@ const READ = {
     return +near.toFixed(2);
   },
   path: (f, src) => String(rawOf(src, f.at) ?? ''),
+  text: (f, src) => String(rawOf(src, f.at) ?? f.def),
   clock: (f, src) => clockMinutes(has(src, f.at) ? rawOf(src, f.at) : f.def),
 };
 
@@ -274,6 +279,7 @@ const WRITE = {
   toggle: (f, v) => [edit(f.at, f.at.file === 'config' ? !!v : v ? '1' : '0')],
   slider: (f, v) => [edit(f.at, String(v))],
   path: (f, v) => [edit(f.at, fwd(v))],
+  text: (f, v) => [edit(f.at, String(v))],
   clock: (f, v) => [edit(f.at, String(clockMinutes(v)))],
 };
 
@@ -306,6 +312,7 @@ const GAMEPLAY = {
   inventory_sort: { label: t('Sort button in the bag and containers') },
   inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
+  save_now: { label: t('Save button in the pause menu') },
   item_editor: {
     label: t('Item editor (experimental)'),
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
@@ -380,7 +387,15 @@ export const SECTIONS = [
               { value: '133', label: t('1440p') }, { value: '200', label: t('2160p') },
             ],
           },
-          { id: 'keep_aspect', label: t('Keep 16:9 picture'), type: 'toggle', ...fromSchema(controls('display', 'keep_aspect')) },
+          {
+            // [display] aspect: the runtime writes a preset back as W:H (write_aspect in play_config_table.cpp)
+            id: 'aspect', label: t('Aspect ratio'), type: 'select', ...fromSchema(controls('display', 'aspect')),
+            options: [
+              { value: 'auto', label: t('Automatic') }, { value: '16:9', label: t('16:9') }, { value: '16:10', label: t('16:10') },
+              { value: '21:9', label: t('21:9') }, { value: '32:9', label: t('32:9') },
+            ],
+          },
+          { id: 'keep_aspect', label: t('Letterbox instead of stretching'), type: 'toggle', ...fromSchema(controls('display', 'keep_aspect')) },
         ],
       },
       {
@@ -502,7 +517,8 @@ export const SECTIONS = [
             expand: (env) => (env.profiles?.profiles ?? []).map((p) => {
               const on = p.id === env.profiles.active;
               return {
-                id: `profile_${p.id}`, label: p.name, type: 'info', value: on ? t('Playing') : '',
+                id: `profile_${p.id}`, label: p.name, type: 'info',
+                value: [on ? t('Playing') : '', playTimeLine(env.playTimes, p.id)].filter(Boolean).join(' · '),
                 actions: [
                   ...(on ? [] : [{ act: 'profile-use', arg: p.id, name: p.name, label: t('Use'), icon: 'user-check', disabled: env.gameBusy }]),
                   { act: 'profile-rename', arg: p.id, name: p.name, label: t('Rename'), icon: 'pencil', disabled: env.gameBusy },
@@ -573,6 +589,24 @@ export const SECTIONS = [
     label: t('Game'),
     groups: [
       {
+        // online.rs: sends data off the PC, so off by default; the notice must say exactly what is sent (recompia.com #online says the
+        // same). The switch is pkp.ini [pkp] online_presence, the same key as the Home chip and the game's own Settings (Online tab).
+        title: t('Online'),
+        rows: [
+          { id: 'online_presence', label: t('Share that I am online'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_presence')) },
+          {
+            id: 'online_name', label: t('Online name'), type: 'text', at: config('online_name'), def: '', placeholder: () => t('anonymous'),
+            enabled: (src) => truthy(rawOf(src, pkp('pkp', 'online_presence')) ?? '0'),
+          },
+          {
+            id: 'online_note', type: 'note',
+            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
+          },
+          { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
+          { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },
+        ],
+      },
+      {
         title: '',
         rows: [
           {
@@ -594,11 +628,12 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Experimental'),
+        title: t('Logo and icon'),
         rows: [
-          // pkp.ini [display] unpaced_loading, read by runtime/src/gfx/nvn/nvn_replay.cpp; that section has no generated schema yet
-          { id: 'unpaced_loading', label: t('Fast loading screens'), type: 'toggle', at: pkp('display', 'unpaced_loading'), def: '0' },
-          { id: 'unpaced_loading_note', type: 'note', note: () => ({ text: t('Lets loading screens run past your frame limit, so loading ends a little sooner. Their animations then play too fast above 60 fps. Takes effect the next time the game starts.') }) },
+          // launcher.json; the launcher puts the choice in place (writer.js -> apply_branding, src-tauri/src/branding.rs)
+          { id: 'logo', label: t('Logo'), type: 'segmented', at: config('logo'), def: 'recompia', options: LOOKS },
+          { id: 'icon', label: t('Icon'), type: 'segmented', at: config('icon'), def: 'recompia', options: LOOKS },
+          { id: 'look_note', type: 'note', note: () => ({ text: t('Classic is the bubble-letter logo and R icon of earlier versions. The icon changes for the launcher, the game and the Steam shortcut (Steam shows it after a restart). Windows can take a moment to redraw an icon it has already shown.') }) },
         ],
       },
       {
@@ -689,7 +724,7 @@ export const SECTIONS = [
           },
           {
             id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: t('Testing builds come first and may have bugs. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
+            note: () => ({ text: t('Testing builds come first and may have bugs. Testing does not update by itself: pick each build with Choose a version below. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
           },
           {
             id: 'testing_help', label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
@@ -728,6 +763,11 @@ export const SECTIONS = [
             id: 'repair', label: t('Repair and reset'), type: 'info',
             value: t('Settings, caches and old copies. You see what changes first.'),
             actions: (env) => [{ act: 'repair-open', label: t('Repair and reset'), icon: 'wrench', disabled: env.gameBusy || env.updating || env.taskBusy }],
+          },
+          {
+            id: 'without_mods', label: t('Start without mods'), type: 'info',
+            value: t('Starts the game once without mods. Your mods and their settings stay as they are.'),
+            actions: (env) => [{ act: 'play-without-mods', label: t('Start without mods'), icon: 'play', disabled: !env.canPlay }],
           },
           {
             id: 'repair_undo', label: t('Undo last repair'), type: 'info', when: (v, env) => !!env.repairBackup,

@@ -2,10 +2,10 @@
 // Item editor: reads the bag's stacks and sets a stack's count. [pkp] item_editor (a mod the player opts in to: it gives items for free).
 // The Items tab of the game's Settings screen (pkp_options_items.cpp) is its only caller.
 //
-// What it relies on (main 2.0.1a; the slots are described in pkp_items.h and pkp_sort.cpp):
+// What it relies on (main 2.0.1a; the slots are described in pkp_items.h):
 //  * Offline the bag is 120 slots at save common + layout::kBagOffline; every slot holds the slot vtable. A bag whose slots do not is not
 //    read at all, so a save that is not loaded, or another layout, shows no stacks instead of a guess.
-//  * Only the count byte of a slot that already holds an item is written, the same 8-byte store the inventory sort does when it merges
+//  * Only the count byte of a slot that already holds an item is written, the same 8-byte store the game's own sort does when it merges
 //    stacks. An empty slot is never filled: the packed word's bits above the id are per-slot data this does not know how to make.
 //  * The count stays within 1 and the game's max stack (layout::kMaxStack), the range the game's own stacking keeps.
 //  * While an item is held the bag screen works on a temp copy (layout::kItemTempFlag) that it copies back over the bag; the Settings

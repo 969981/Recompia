@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The relay server the launcher can host, the LAN and public address lookups and room codes.
+//! The relay server the launcher can host, and the LAN and public address lookups.
 
-use std::fs;
 use std::sync::Mutex;
 use tauri::AppHandle;
 
 use crate::states::{RelayArg, States};
-use crate::config::game_dir;
 use crate::{lan, public_ip, relay};
 
 pub fn stop_relay(app: &AppHandle) {
@@ -55,27 +53,4 @@ pub fn lan_report() -> lan::LanReport {
 #[tauri::command]
 pub async fn public_ip() -> Option<String> {
     tauri::async_runtime::spawn_blocking(public_ip::lookup).await.ok().flatten()
-}
-
-/// A new room code for a host, XXXX-XXXX-XXXX-XXXX (80 bits from the OS random source). The launcher writes it to pkp.ini
-/// `[net] room_code` so the game hosts with it and the page can show it before the game starts.
-#[tauri::command]
-pub fn room_code_new() -> Result<String, String> {
-    relay::room_code::new_code().map(|c| relay::room_code::format(&c)).map_err(|e| format!("Cannot make a room code: {}", e))
-}
-
-/// A visitor's typed code: the display form, or the error text to show.
-#[tauri::command]
-pub fn room_code_check(code: String) -> Result<String, String> {
-    relay::room_code::normalize(&code)
-        .map(|c| relay::room_code::format(&c))
-        .ok_or_else(|| "A room code has 16 letters and digits: XXXX-XXXX-XXXX-XXXX.".to_string())
-}
-
-/// The room code the running game uses, from `<game folder>/room-code.txt` (written by the game when it starts local wireless
-/// with `[net] room_code` set, removed when it runs without one). None: no file or no valid code in it.
-#[tauri::command]
-pub fn room_code_host(app: AppHandle) -> Option<String> {
-    let text = fs::read_to_string(game_dir(&app).join("room-code.txt")).ok()?;
-    relay::room_code::normalize(text.trim()).map(|c| relay::room_code::format(&c))
 }

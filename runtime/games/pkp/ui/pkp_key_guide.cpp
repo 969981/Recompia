@@ -153,11 +153,18 @@ uint64_t layout_of(::Ctx* c, const Part& p) {
 
 uint16_t Entries::id(uint64_t i) const { return rd<uint16_t>(data + i * kEntrySize); }
 void Entries::set_id(uint64_t i, uint16_t guide) const { wr<uint16_t>(data + i * kEntrySize, guide); }
+bool Entries::append(uint16_t guide) const {
+    if (!widget || count >= kSetSlots) return false;
+    wr<uint16_t>(data + count * kEntrySize, guide);
+    wr<uint64_t>(widget + kWidgetCount, count + 1);
+    return true;
+}
 
 bool entries(uint64_t widget, Entries* out) {
     if (!widget || !mem::is_mapped(widget + kWidgetEntries, 0x10)) return false;
     const uint64_t data = rd<uint64_t>(widget + kWidgetEntries), n = rd<uint64_t>(widget + kWidgetCount);
     if (!data || n == 0 || n > kSetSlots || !mem::is_mapped(data, n * kEntrySize)) return false;
+    out->widget = widget;
     out->data = data;
     out->count = n;
     return true;

@@ -36,7 +36,6 @@ static bool same_image(Texture* a, Texture* b) { return a == b || (a && b && a->
 // then ends without a barrier when it only wrote its attachments. Any other caller gets a full barrier, also for passes ended earlier
 // without one.
 void end_pass(bool to_pass) {
-    rp_bump(ft::kCntEpEndPass);
     if (!P.open) {
         if (!to_pass && !g_bar.pending.empty()) {
             memory_barrier(F->cb);
@@ -44,6 +43,10 @@ void end_pass(bool to_pass) {
         }
         return;
     }
+    // Only a pass that was open can have changed what a texture binding resolves to. The bump used to happen before this check, so
+    // the many end_pass calls with nothing open (230 of 406 epoch bumps in a world frame) threw away the descriptor-set cache of
+    // every draw that followed: set_reuse hit 48%, and each miss rebuilds a set inside the replay.
+    rp_bump(ft::kCntEpEndPass);
     xfb_end_in_pass();
     vkCmdEndRendering(F->cb);
     P.open = false;

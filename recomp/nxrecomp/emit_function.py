@@ -33,8 +33,11 @@ def dynimm_stmt(w, pc):
 TAILS = ('return;', 'goto', '{ jt', '{ f_', '{ h_', '{ call_indirect', 'switch (', '{ nx_')
 
 
-def lift_function(env, entry):
-    """-> (text, instruction count, [(pc, word, reason)], [(pad, entry)])."""
+def lift_function(env, entry, text=True):
+    """-> (text, instruction count, [(pc, word, reason)], [(pad, entry)]).
+    text=False: the text is not built ('' instead, but a PLT stub's, which is all it has): the discovery and summary passes
+    (driver._worker_scan, _worker_summary) read only what the lift finds (env.wanted, the counts, the summaries), and
+    assembling the C++ of every function a second and third time was most of their cost."""
     img = env.img
     if env.full and env.plt_entry(entry):
         sym, shndx, value = env.plt_entry(entry)
@@ -47,9 +50,7 @@ def lift_function(env, entry):
     end = env.extent(entry)
     fn = Lifter(entry, end, env)
     lines, bad = [], []
-    pc = entry
-    while pc < end:
-        w = env.word(pc)
+    for pc, w in zip(range(entry, end, 4), env.words(entry, end)):
         try:
             if pc in env.sites['dynimm']:
                 stmt = dynimm_stmt(w, pc)
@@ -66,7 +67,6 @@ def lift_function(env, entry):
         if pre:
             stmt = '{ %s%s }' % (pre, stmt)
         lines.append((pc, stmt))
-        pc += 4
     if env.spin and lines:
         lines = spinmod.apply(lines, spinmod.find(env.word, entry, end), env.spin_stats, env.spin_yield)
     pads = env.pads[bisect.bisect_left(env.pads, entry):bisect.bisect_left(env.pads, end)]
@@ -95,6 +95,8 @@ def lift_function(env, entry):
                               env.locals_summaries, held, env.lean_flows)
         if res:
             lines, trailer, decl = res
+    if not text:
+        return '', len(lines), bad, [(lp, entry) for lp in pads]
     out = ['%svoid %s_%x(Ctx *__restrict c%s) {' % (cold, 'u' if two else 'f', entry, ', uint64_t rp' if two else ''),
            '  c->fn = 0x%xULL;' % entry]
     if entry in env.sites['entryhook']:

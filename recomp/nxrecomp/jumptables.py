@@ -54,6 +54,23 @@ def _ops(op_str):
     return out
 
 
+def _insns(cs, img, s, e):
+    """{address: (mnemonic, op_str)} of the function [s, e), in one capstone call. A word capstone will not decode stops
+    that stream, so the slots it left are decoded one at a time: the same map the per-slot loop this replaced produced, for
+    one capstone call per function instead of one per instruction (main: 6.3 s of the lift's single-threaded setup)."""
+    data = img.mem[s - img.base:e - img.base]
+    out = {}
+    for ins in cs.disasm(data, s):
+        out[ins.address] = (ins.mnemonic, ins.op_str)
+    if len(out) * 4 != e - s:
+        for a in range(s, e, 4):
+            if a not in out:
+                ins = list(cs.disasm(data[a - s:a - s + 4], a))
+                if ins:
+                    out[a] = (ins[0].mnemonic, ins[0].op_str)
+    return out
+
+
 class _Fn:
     def __init__(self, start, end, insns):
         self.start, self.end, self.insns = start, end, insns
@@ -415,14 +432,8 @@ def bound_dispatch(env):
             e = starts[k + 1] if k + 1 < len(starts) else env.text_hi
             groups.setdefault((s, e), []).append(b)
     for (s, e), brs in groups.items():
-        data = img.mem[s - img.base:e - img.base]
-        insns = {}
-        for a in range(s, e, 4):
-            ins = list(cs.disasm(data[a - s:a - s + 4], a))
-            if ins:
-                insns[a] = (ins[0].mnemonic, ins[0].op_str)
         try:
-            res = _computed_br(img, _Fn(s, e, insns), brs)
+            res = _computed_br(img, _Fn(s, e, _insns(cs, img, s, e)), brs)
         except (KeyError, IndexError, ValueError, AttributeError, TypeError):
             continue
         env.br_plain |= {b for b, computed in res.items() if not computed}
@@ -457,13 +468,7 @@ def resolve(env):
             continue
         f = done.get(s)
         if f is None:
-            data = img.mem[s - img.base:e - img.base]
-            insns = {}
-            for a in range(s, e, 4):
-                ins = list(cs.disasm(data[a - s:a - s + 4], a))
-                if ins:
-                    insns[a] = (ins[0].mnemonic, ins[0].op_str)
-            f = done[s] = _Fn(s, e, insns)
+            f = done[s] = _Fn(s, e, _insns(cs, img, s, e))
         try:
             tg = _jump_table(img, f, b, env.jt_shape)
         except (KeyError, IndexError, ValueError, AttributeError, TypeError):

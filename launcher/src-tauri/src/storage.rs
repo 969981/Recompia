@@ -88,7 +88,7 @@ pub async fn compact_shaders(app: AppHandle) -> Result<CompactResult, String> {
         writecheck::check(&dir).map_err(|e| e.message())?;
         let before = shader_archive::storage(&dir);
         slog.line(&format!("=== Make shader files smaller: {} loose files ({:.1} GB)", before.loose_files, before.loose_bytes as f64 / preflight::GB as f64));
-        let r = shader_archive::compact(&dir, None, &st.cancel, |done, total| {
+        let r = shader_archive::compact(&dir, None, None, &st.cancel, |done, total| {
             let _ = app.emit("shader-storage-progress", StorageProgress { kind: "compact".into(), done, total });
         });
         // a later Set up again keeps the cache packed (shaders.rs Marker::storage)

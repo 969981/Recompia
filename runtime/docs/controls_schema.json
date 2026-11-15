@@ -2,7 +2,8 @@
   "file": "controls.ini",
   "sections": [
     {"name": "meta", "keys": [
-        {"key": "defaults_rev", "type": "int", "default": "5", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."}
+        {"key": "defaults_rev", "type": "int", "default": "5", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
+        {"key": "display_rev", "type": "int", "default": "0", "min": 0, "max": 1000, "doc": "The display-defaults revision the file was written with (the game writes it; a file without it counts as 0). macOS turns vsync on for an older file."}
     ]},
     {"name": "mouse", "keys": [
         {"key": "yaw", "type": "real", "default": "0.000767945", "doc": "Horizontal mouse sensitivity in radians per count."},
@@ -39,6 +40,7 @@
         {"key": "pulse_ms", "type": "int", "default": "80", "min": 1, "max": 5000, "doc": "How long a tap or a wheel notch stays pressed on the Switch side (ms)."}
     ]},
     {"name": "display", "keys": [
+        {"key": "render_mode", "type": "choice", "default": "console", "choices": ["console", "window"], "doc": "What an unset internal resolution follows: console renders 1920x1080 docked (1280x720 handheld) and the window upscales, window renders at the window's size. render_scale and a fixed size override it. Next start."},
         {"key": "window_mode", "type": "choice", "default": "windowed", "choices": ["windowed", "borderless", "exclusive"], "doc": "Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing."},
         {"key": "vsync", "type": "bool", "default": "0", "doc": "0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit."},
         {"key": "fps_limit", "type": "int", "default": "auto", "min": 0, "max": 1000, "auto": "auto", "aliases": ["fps_cap"], "doc": "Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate."},
@@ -47,9 +49,9 @@
         {"key": "height", "type": "int", "default": "720", "min": 320, "max": 16384, "doc": "Windowed client height, remembered."},
         {"key": "keep_aspect", "type": "bool", "default": "1", "doc": "Letterbox instead of stretching."},
         {"key": "vram_cap", "type": "bool", "default": "1", "doc": "On a GPU with 4 GB of video memory or less, a render size that is not set is kept to 2560x1440."},
-        {"key": "render_scale", "type": "int", "default": "auto", "min": 25, "max": 400, "auto": "auto", "doc": "Internal resolution in percent; ignored with a fixed size. Next start."},
-        {"key": "render_width", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal width (with render_height); 0 = follow the window. Next start."},
-        {"key": "render_height", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal height (with render_width); 0 = follow the window. Next start."},
+        {"key": "render_scale", "type": "int", "default": "auto", "min": 25, "max": 400, "auto": "auto", "doc": "Internal resolution in percent of the window (100 = the window's size, more is sharper and slower); auto = the console's own resolution, upscaled to the window; ignored with a fixed size. Next start."},
+        {"key": "render_width", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal width (with render_height); 0 = the console's resolution (or render_scale). Next start."},
+        {"key": "render_height", "type": "int", "default": "0", "min": 320, "max": 16384, "zero_ok": true, "doc": "Fixed internal height (with render_width); 0 = the console's resolution (or render_scale). Next start."},
         {"key": "aspect", "type": "ratio", "default": "auto", "min": 1, "max": 5, "auto": "auto", "doc": "Shape of the 3D view and the HUD: auto (the internal resolution's), W:H (16:9, 21:9, 16:10) or a number. Next start."},
         {"key": "fov_offset", "type": "real", "default": "0", "min": -30, "max": 40, "doc": "Degrees added to the vertical field of view of every game camera; 0 = the game's own."},
         {"key": "dynamic_resolution", "type": "bool", "default": "0", "doc": "The game's own dynamic resolution (it lowers the render size when the GPU is late)."},

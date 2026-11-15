@@ -60,14 +60,28 @@ ViState& vi() {
 namespace {
 
 // The display's vsync: a host thread signals the event at 60 Hz. Started by the first GetDisplayVsyncEvent, stopped by vi_nv_reset().
+//
+// The ticks sit on an absolute grid, not on repeated relative waits: a timed wait overshoots by a fraction of a millisecond (a
+// scheduling quantum on macOS), and a relative wait carries that overshoot into the next tick, so the grid drifts and the game,
+// which paces itself to these ticks, drifts with it. A frame that fits in 16.7 ms was landing on the tick after the next one:
+// 42 fps in the world instead of 60, with the renderer idle 14 of every 24 ms. On the grid, a late tick is followed by a shorter
+// wait that returns to the grid, and the average stays 60 Hz.
 void vsync_main() {
     log_set_thread_name("vi-vsync");
     ViState& s = vi();
     std::unique_lock<std::mutex> lk(s.mu);
+    constexpr auto kPeriod = std::chrono::microseconds(16667);   // 60 Hz: 16.667 ms
+    auto t0 = std::chrono::steady_clock::now();
+    uint64_t n = 0;
     while (!s.vsync_stop) {
-        s.cv.wait_for(lk, std::chrono::microseconds(16667), [&] { return s.vsync_stop; });
-        if (s.vsync_stop) break;
+        const auto next = t0 + kPeriod * ++n;
+        if (s.cv.wait_until(lk, next, [&] { return s.vsync_stop; })) break;
         s.vsync.signal();
+        // More than a tick behind (the host stalled us): restart the grid here rather than firing a burst of catch-up signals.
+        if (std::chrono::steady_clock::now() > next + kPeriod) {
+            t0 = std::chrono::steady_clock::now();
+            n = 0;
+        }
     }
 }
 

@@ -170,10 +170,13 @@ struct DisplaySettings {
     bool keep_aspect = true;       // letterbox instead of stretching
     bool vram_cap = true;          // [display] vram_cap: an unset render size is kept to 2560x1440 on a GPU with 4 GB of video memory or less
     // ---- S10 display options (play_display.h). The first four only apply at the next start: the game builds its render targets once.
-    // Internal resolution in percent (25..400), 0 = auto; ignored with a fixed size. What 100 means is the game's: the window's client size
-    // where the game module resizes the targets itself (auto = 100), the console's own size where the NVN back end scales the game's
-    // targets (Pokopia: 100 = 1920x1080, auto = the window height / 1080, at least 1).
-    int render_scale = 100;
+    // Internal resolution in percent of the window (25..400), 0 = auto; ignored with a fixed size. 100 is the window's client size;
+    // auto follows render_mode (below).
+    int render_scale = 0;
+    // [display] render_mode: what auto means. "console" (default): the game renders at the resolution the console would, 1920x1080
+    // docked and 1280x720 handheld, and the present pass upscales to the window. "window": the render follows the window's size, which
+    // is what every build did before this key existed. render_scale and render_width/render_height override both.
+    std::string render_mode = "console";
     int render_width = 0, render_height = 0;   // fixed internal resolution (both > 0 and both within 320..16384), 0 = follow the window
     double aspect = 0;             // 0 = the ratio of the internal resolution; otherwise the forced ratio of the 3D view and the HUD (1.0 .. 5.0)
     // live:
@@ -284,6 +287,9 @@ struct Settings {
     // [meta] defaults_rev: the factory-defaults revision the file was written with (0 when the file has no [meta]). When a file with
     // bindings sections is read at an older revision, the newer factory bindings are added to it (play_config.cpp defaults_rev(): the game's GameDefaults::rev and additions).
     int defaults_rev = 0;
+    // [meta] display_rev: the display defaults a file has been brought to (0 when the file has no [meta]). macOS turns vsync on once for
+    // a file below 1 (a Windows controls.ini has it off, and without it MoltenVK presents mid-refresh); a player who turns it off keeps it off.
+    int display_rev = 0;
     // Transient, never written to the file: set by load_settings when it upgraded an older file, so the caller can keep a .bak and save.
     bool migrated = false;
     std::string migration_added;   // transient: the bindings the upgrade added, for the log line

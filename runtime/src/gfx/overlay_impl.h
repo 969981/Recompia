@@ -61,14 +61,6 @@ struct Overlay::Impl {
     float ui_scale = 0.f;             // 0: not applied yet
     bool backend_ready = false;
     std::atomic<bool> visible{false};
-    std::atomic<bool> touch_btn{false};      // set_touch_button: the corner button and finger-sized controls
-    std::atomic<bool> touch_toggle_req{false};   // the ImGui button was tapped while the menu was open: apply_pending toggles outside the frame
-    std::atomic<float> disp_w{0.f}, disp_h{0.f};   // the frame size of the last drawn frame (the button's place, for hit tests off the presenting thread)
-    bool touch_armed = false;                // a finger went down on the corner button and has not come up yet (main thread)
-    bool scaled_touch = false;               // the touch state the style was scaled for
-    ImVec4 touch_rect() const;               // x, y, w, h of the corner button in frame pixels
-    bool touch_button_event(const input::Event& e);   // the hidden menu's corner button; true = the event is the button's
-    void draw_touch_button(bool open);       // inside an ImGui frame
     std::mutex mu;                    // guards the ImGui context: events arrive on the game's main thread, drawing happens on the presenting thread
     int toggle_sc = SDL_SCANCODE_F1;
     bool restore_relative = false;

@@ -1,14 +1,16 @@
 // Home: one button that does the next right thing, what went wrong if anything did, and the newest releases.
 import './home.css';
-import logoUrl from '../art/logo.png';
+import { brandImg } from '../branding.js';
 import { api } from '../api.js';
 import { num, t } from '../i18n.js';
 import { fromBackend } from '../backend-text.js';
 import { errText, esc, icon, toast } from '../ui.js';
 import { store } from '../store.js';
-import { canCancelUpdate, canUpdate, gamePhase, primaryAction } from '../action.js';
+import { canCancelUpdate, canUpdate, gamePhase, primaryAction, updatePlayable } from '../action.js';
 import { readIni, viewOf } from '../linkplay-model.js';
+import { onlineOn, setOnline } from '../online.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
+import { playTimeLine } from '../play-time-model.js';
 
 const REPORT_LABEL = {
   'pkp_crash.txt': t('Crash report'),
@@ -38,7 +40,11 @@ function releaseCard(r) {
   </button>`;
 }
 
-function crashCard(game) {
+// A mod can be what stopped the game: one start without mods tells, and leaves the mods as they are.
+const withoutModsButton = (s) =>
+  `<button class="btn sm" data-act="play-without-mods" ${s.app?.readiness?.kind === 'ready' && !s.starting ? '' : 'disabled'} title="${esc(t('Starts the game once without mods. Your mods and their settings stay as they are.'))}">${icon('play')}${esc(t('Start without mods'))}</button>`;
+
+function crashCard(game, s) {
   const files = (game.files ?? []).filter((f) => f.fresh || f.name === 'pkp.log');
   return `<div class="home-card glass strong" role="alert">
     <div class="home-card-head">
@@ -46,7 +52,7 @@ function crashCard(game) {
       <button class="btn quiet sm icon-only" data-act="dismiss" aria-label="${esc(t('Dismiss'))}" title="${esc(t('Dismiss'))}">${icon('x')}</button>
     </div>
     <p class="selectable">${esc(fromBackend(game.message))}</p>
-    ${files.length ? `<div class="cluster">${files.map((f) => `<button class="btn sm" data-open="${esc(f.name)}" title="${esc(f.name)}">${icon('file-text')}${esc(REPORT_LABEL[f.name] ?? f.name)}</button>`).join('')}</div>` : ''}
+    <div class="cluster">${files.map((f) => `<button class="btn sm" data-open="${esc(f.name)}" title="${esc(f.name)}">${icon('file-text')}${esc(REPORT_LABEL[f.name] ?? f.name)}</button>`).join('')}${withoutModsButton(s)}</div>
   </div>`;
 }
 
@@ -68,7 +74,7 @@ const DISCORD_URL = 'https://discord.recompia.com';
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home">
     <div class="home-hero">
-      <h1 class="display"><img class="home-logo" src="${logoUrl}" alt="Pokopia" /></h1>
+      <h1 class="display">${brandImg('logo', 'class="home-logo" alt="Pokopia"')}</h1>
       <div class="home-actions">
         <button class="btn primary big" id="primary"></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>
@@ -80,6 +86,7 @@ export function render(el, ctx) {
         <span class="pct num" id="task-pct"></span>
         <progress max="100" id="task-bar"></progress>
         <button class="btn sm" id="task-stop"></button>
+        <p class="note" id="task-note" hidden></p>
       </div>
       <div class="home-notices" id="notices"></div>
     </div>
@@ -113,6 +120,10 @@ export function render(el, ctx) {
     stop.dataset.act = update ? 'cancel' : kind === 'repack' ? 'stop-repack' : 'pause';
     patch(stop, update ? `${icon('x')}${esc(t('Cancel'))}` : kind === 'repack' ? `${icon('square')}${esc(t('Stop'))}` : `${icon('pause')}${esc(t('Pause'))}`);
     stop.hidden = update && !canCancelUpdate(s);
+    // the update prepares the game code beside the installed one (update.rs): say Play still works and when the swap comes
+    const note = part('task-note');
+    note.textContent = update && updatePlayable(s) ? t('You can play while the update is prepared. It is installed once the game is closed.') : '';
+    note.hidden = !note.textContent;
   }
 
   function draw(s) {
@@ -137,7 +148,7 @@ export function render(el, ctx) {
     drawTask(s);
 
     const crashed = s.game?.state === 'exited' && s.game.crashed && !crashDismissed;
-    patch(part('notices'), (s.updateError ? updateErrorCard(s) : '') + (crashed ? crashCard(s.game) : ''));
+    patch(part('notices'), (s.updateError ? updateErrorCard(s) : '') + (crashed ? crashCard(s.game, s) : ''));
     el.firstElementChild.classList.toggle('noticed', !!(crashed || s.updateError));
 
     patch(part('news'), s.news.releases.slice(0, CARDS).map(releaseCard).join(''));
@@ -149,6 +160,7 @@ export function render(el, ctx) {
     if (t.id === 'primary') store.perform(primaryAction(store.state).run, ctx.go);
     if (t.id === 'link-chip') ctx.go('linkplay');
     if (t.id === 'discord-chip') api.openLink({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
+    if (t.id === 'online-chip') toggleOnline();
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
@@ -156,6 +168,7 @@ export function render(el, ctx) {
       case 'cancel': return store.cancelUpdate();
       case 'pause': return store.pauseSetup();
       case 'stop-repack': return store.cancelRepack();
+      case 'play-without-mods': return store.play({ withoutMods: true });
       case 'dismiss':
         crashDismissed = true;
         return draw(store.state);
@@ -165,21 +178,53 @@ export function render(el, ctx) {
   // a settings file that cannot be read just leaves the chip out
   let linkChip = '';
   let profileChip = '';
+  let timeChip = '';
+  let onlineChip = '';
   const discordChip = `<button class="chip on-art" id="discord-chip">${icon('globe')}Discord</button>`;
-  const drawChips = () => { part('link').innerHTML = profileChip + linkChip + discordChip; };
+  const drawChips = () => { part('link').innerHTML = onlineChip + profileChip + timeChip + linkChip + discordChip; };
+  // online presence (online.js): first among the chips so it is seen; one click switches it, the same key as Settings > Game and the
+  // game's own Settings (Online tab), so a change made in the game shows here the next time Home is drawn
+  const drawOnline = (on) => {
+    onlineChip = `<button class="chip on-art ${on ? 'ok' : ''}" id="online-chip" aria-pressed="${on}" title="${esc(t('Share that I am online'))}">${
+      icon(on ? 'user-check' : 'eye-off')}${esc(on ? t('Online: shown') : t('Online: hidden'))}</button>`;
+    drawChips();
+  };
+  let online = false;
+  async function toggleOnline() {
+    try {
+      await setOnline(!online);
+      online = !online;
+      drawOnline(online);
+      toast(online ? t('You will show as online while you play') : t('You no longer show as online'), 'ok');
+    } catch (err) {
+      toast(errText(err), 'error');
+    }
+  }
   drawChips();
   api.readSettings().then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
-    drawChips();
+    online = onlineOn(data.pkp);
+    drawOnline(online);
   }).catch((e) => console.warn('read_settings', e));
   // with more than one profile the player picks who plays here; the choice is the Settings > Saves list
   const profileSelect = (list, busy) => `<select class="chip on-art" id="profile-pick" aria-label="${esc(t('Profile'))}" ${busy ? 'disabled' : ''}>${
     list.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === list.active ? 'selected' : ''}>${esc(t('Profile: {name}', { name: p.name }))}</option>`).join('')}</select>`;
-  const loadProfiles = () => api.profilesList().then((list) => {
+  // the play time is the active profile's save's, as the game counted it; a save not played since that count began shows none
+  const loadProfiles = () => Promise.all([api.profilesList(), api.profilesPlayTime().catch(() => ({}))]).then(([list, times]) => {
     profileChip = list.profiles.length > 1 ? profileSelect(list, ['starting', 'running', 'finishing'].includes(gamePhase(store.state.game))) : '';
+    const played = playTimeLine(times, list.active);
+    timeChip = played ? `<span class="chip on-art">${icon('clock')}${esc(played)}</span>` : '';
     drawChips();
   }).catch((e) => console.warn('profiles_list', e));
   loadProfiles();
+  // the game writes its play time while it runs: read it again once the game has ended (the profile pick is enabled again then too)
+  let lastPhase = gamePhase(store.state.game);
+  ctx.on((s) => {
+    const phase = gamePhase(s.game);
+    if (phase === lastPhase) return;
+    if (lastPhase === 'running' || lastPhase === 'finishing') loadProfiles();
+    lastPhase = phase;
+  });
   el.addEventListener('change', async (e) => {
     if (e.target.id !== 'profile-pick') return;
     try {

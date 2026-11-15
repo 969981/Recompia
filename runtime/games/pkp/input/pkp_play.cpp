@@ -105,8 +105,11 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         float scale = 1.0f;
         if (fixed_size) scale = static_cast<float>(d.render_height) / gh;
         else if (d.render_scale <= 0) {
-            scale = std::min(static_cast<float>(window_h) / gh, static_cast<float>(window_w) / gw);
-            if (!host_is_handheld()) scale = std::max(1.0f, scale);   // see pick_size
+            // The console's resolution, not the window's: the game's targets stay the size the game picks (1080p docked, 720p
+            // handheld) and the present pass upscales to the window. Rendering them at the window's height was 1.78x the pixels
+            // in a 1440p window and measured 42 fps against 60.0 at 1080p in the same world scene on an M3 (the GPU is fill-rate
+            // bound there); the sharper render stays available with [display] render_scale or render_width/render_height.
+            scale = host_is_handheld() ? std::min(1.0f, std::min(static_cast<float>(window_h) / gh, static_cast<float>(window_w) / gw)) : 1.0f;
         }
         else scale = static_cast<float>(std::clamp(d.render_scale, 25, 400)) / 100.0f;
         gfx::tuning().render_scale.store(scale);
@@ -116,7 +119,13 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         s.render_installed = true;
         return;
     }
-    if (!override_size) {
+    // Below the console's 1920x1080 the game keeps its own size, whatever [pkp] render_override says. The game scales its layouts to its
+    // targets in whole pixels, pane by pane, so the parts of a layout stop adding up: the tiles of the terminal menu are two 368 px
+    // halves with a 0 px piece between them, at 832x468 they came out as 159 + 1 + 159 and the 1 px piece drew a column of the half's
+    // texture, a line down the tile (#490). The back end renders the game's 1920x1080 targets at h / 1080 instead: the same number of
+    // pixels, laid out as the game authored it. Sizes from 1920x1080 up stay the game's own (its text is then drawn at that size).
+    const bool below_console = override_size && h < kTableH;
+    if (!override_size || below_console) {
         // The game's own size (the back end's [gfx] render_scale enlarges it). Its dynamic resolution still drops the scene viewport below
         // 1920x1080 when frames run late (1664x936 seen at 1440p: the scene then covers part of the targets, a hard-edged band): with
         // [display] dynamic_resolution off, the per-frame copy of the parameters keeps the top level ([upscale] scene_scale below it).
@@ -124,8 +133,10 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         // [display] render_scale for the NVN back end, which renders the game's targets at that factor: a fixed size by its height, auto
         // by the window's height (at least 1), a percentage of the console's 1920x1080
         float scale = 1.0f;
-        if (d.render_width > 0 && d.render_height > 0) scale = static_cast<float>(d.render_height) / kTableH;
-        else if (d.render_scale <= 0) scale = host_is_handheld() ? static_cast<float>(window_h) / kTableH : std::max(1.0f, static_cast<float>(window_h) / kTableH);
+        if (below_console) scale = static_cast<float>(h) / kTableH;   // the size pick_size chose
+        else if (d.render_width > 0 && d.render_height > 0) scale = static_cast<float>(d.render_height) / kTableH;
+        // the console's resolution (see above): the game's targets are not enlarged to the window, the present pass upscales
+        else if (d.render_scale <= 0) scale = host_is_handheld() ? std::min(1.0f, static_cast<float>(window_h) / kTableH) : 1.0f;
         else scale = static_cast<float>(std::clamp(d.render_scale, 25, 400)) / 100.0f;
         gfx::tuning().render_scale.store(scale);
         NXLOG_I(kTag, "aspect 16:9 (%s, window %dx%d): letterboxed on other window shapes", d.aspect > 0 ? "[display] aspect" : "auto", window_w, window_h);
@@ -168,6 +179,8 @@ void install(const FeatureInstall& in) {
     s.hooks->add_mid(base + kCamField, &hook_cam_field);
     s.hooks->add_mid(base + kCamStick, &hook_cam_stick);
     s.hooks->add_mid(base + kFollowGate, &hook_follow_gate);
+    s.hooks->add_mid(base + kPhotoStickX, &hook_photo_stick_x);
+    s.hooks->add_mid(base + kPhotoStickY, &hook_photo_stick_y);
     s.hooks->add_mid(base + kMmStyle, &hook_mm_style);
     s.hooks->add_mid(base + kMmOption, &hook_mm_option);
     s.hooks->add_mid(base + kMmStart, &hook_mm_start);
@@ -192,13 +205,14 @@ void remove() {   // the registry has removed play's hooks
 
 void status_text(char* buf, size_t n) {
     const State& s = st();
-    const int k = std::snprintf(buf, n, " render=%dx%d res_hooks=%llu copies=%llu set_vp=%llu vp_fixes=%llu mult=%.3f short_frames=%llu sync=%llu fixed_step=%llu cam=%llu cam_moves=%llu cam_field=%llu follow_forced=%llu cam_dropped=%llu mouse_mode=%d mm_dropped=%llu", s.w.load(), s.h.load(),
+    const int k = std::snprintf(buf, n, " render=%dx%d res_hooks=%llu copies=%llu set_vp=%llu vp_fixes=%llu mult=%.3f short_frames=%llu sync=%llu fixed_step=%llu cam=%llu cam_moves=%llu cam_field=%llu follow_forced=%llu cam_dropped=%llu mouse_mode=%d mm_dropped=%llu photo=%llu photo_moves=%llu", s.w.load(), s.h.load(),
                   static_cast<unsigned long long>(s.res_calls.load()), static_cast<unsigned long long>(s.copy_calls.load()), static_cast<unsigned long long>(g_set_vp_fixes.load()), static_cast<unsigned long long>(s.vp_fixes.load()),
                   static_cast<double>(s.last_mult.load()), static_cast<unsigned long long>(s.fps_calls.load()),
                   static_cast<unsigned long long>(s.sync_calls.load()), static_cast<unsigned long long>(s.fixed_calls.load()),
                   static_cast<unsigned long long>(s.cam_calls.load()), static_cast<unsigned long long>(s.cam_moves.load()),
                   static_cast<unsigned long long>(s.cam_field.load()), static_cast<unsigned long long>(s.follow_forced.load()),
-                  static_cast<unsigned long long>(s.cam_dropped.load()), s.mm_want ? 1 : 0, static_cast<unsigned long long>(s.mm_dropped.load()));
+                  static_cast<unsigned long long>(s.cam_dropped.load()), s.mm_want ? 1 : 0, static_cast<unsigned long long>(s.mm_dropped.load()),
+                  static_cast<unsigned long long>(s.photo_calls.load()), static_cast<unsigned long long>(s.photo_moves.load()));
     if (k > 0 && static_cast<size_t>(k) < n && wide_on()) {
         const Wide& w = wide();
         std::snprintf(buf + k, n - k, " aspect=%.3f cam_fixes=%llu aspect_puts=%llu fov_puts=%llu ui_fixes=%llu", w.aspect,
@@ -228,11 +242,21 @@ play::DisplayLive play_display_live() {
     return l;
 }
 
+int play_ui_canvas_height() {
+    const uint64_t size = wide().ui_size;
+    return size ? rd<int32_t>(size + sizeof(int32_t)) : kTableH;
+}
+
 uint32_t play_display_calls() { return static_cast<uint32_t>(st().res_calls.load() + st().copy_calls.load()); }
 
 bool play_follow_live() {
     const uint64_t t = g_follow_ns.load(std::memory_order_relaxed);
     return t != 0 && mono_ns() - t < 1000000000ull;
+}
+
+bool play_photo_live() {
+    const uint64_t t = g_photo_ns.load(std::memory_order_relaxed);
+    return t != 0 && mono_ns() - t < st().grace_ns;
 }
 
 }  // namespace nxrt::games::pkp

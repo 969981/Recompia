@@ -11,7 +11,7 @@ export function render(el) {
       row('VSync', toggle('vsync', true)),
       row('Keep 16:9', toggle('aspect', false)),
       row('Master volume', slider('vol', 0, 100, 80, { suffix: '%' })),
-      row('Room code', field('code', '', 'XXXX-XXXX-XXXX-XXXX', { mono: true })),
+      row('Address', field('code', '', '192.0.2.10', { mono: true })),
       row('Disabled', toggle('off', true, { disabled: true })),
       row('A long row label that has to share its line with a wide control beside it', segmented('w', ['Off', 'Same network', 'Internet'], 'Off')),
     ])}

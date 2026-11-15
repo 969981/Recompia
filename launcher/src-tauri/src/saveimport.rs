@@ -17,7 +17,7 @@ use std::time::SystemTime;
 use serde::Serialize;
 
 /// Program id of the game (little-endian in the save attribute).
-const PROGRAM_ID: u64 = 0x0400_A3A0_1EE4_C000;
+pub(crate) const PROGRAM_ID: u64 = 0x0400_A3A0_1EE4_C000;
 const TITLE_DIR: &str = "0400A3A01EE4C000";
 /// The runtime's built-in local user (games/pkp/core/pkp_core.cpp): [account] uid is hi then lo; the save folder is each u64 little-endian.
 const DEFAULT_UID: &str = "000000000000000141434e4852656370";
@@ -188,6 +188,11 @@ pub fn uid_key(uid_hex: &str) -> Option<String> {
     Some(format!("{}{}", le(&h[..16]), le(&h[16..])))
 }
 
+/// The account folder the runtime plays for [account] uid: that uid's, or the runtime's built-in user's when it is empty (or not a uid).
+pub fn account_key_of(uid_hex: &str) -> String {
+    uid_key(uid_hex).or_else(|| uid_key(DEFAULT_UID)).unwrap()
+}
+
 fn app_hex() -> String {
     PROGRAM_ID.to_le_bytes().iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -222,7 +227,7 @@ pub fn target_key(save_dir: &Path, ini_uid: &str) -> String {
     if let Some(stem) = metas.first().and_then(|m| m.file_stem()).and_then(|s| s.to_str()) {
         return stem.to_string();
     }
-    uid_key(ini_uid).or_else(|| uid_key(DEFAULT_UID)).unwrap()
+    account_key_of(ini_uid)
 }
 
 fn meta_text(key: &str) -> String {
@@ -369,11 +374,12 @@ pub fn game_running() -> bool {
         .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains("pkp.exe"))
         .unwrap_or(false)
 }
-/// Linux: a process named pkp.exe (Wine names a Windows program's process after its exe), also one Steam started.
+/// Linux: a process named `pkp` (from `host::game_exe_name`).
 #[cfg(not(windows))]
 pub fn game_running() -> bool {
+    let name = crate::host::game_exe_name();
     fs::read_dir("/proc")
-        .map(|rd| rd.flatten().any(|e| fs::read_to_string(e.path().join("comm")).map(|c| c.trim() == "pkp.exe").unwrap_or(false)))
+        .map(|rd| rd.flatten().any(|e| fs::read_to_string(e.path().join("comm")).map(|c| c.trim() == name).unwrap_or(false)))
         .unwrap_or(false)
 }
 

@@ -7,8 +7,8 @@ use serde::Serialize;
 
 /// The player stopped an update or an install of a build: nothing to report.
 pub const UPDATE_CANCELLED: &str = "update_cancelled";
-/// The player stopped a .nup unpack.
-pub const NUP_CANCELLED: &str = "nup_cancelled";
+/// The player stopped the unpack of a game package.
+pub const UNPACK_CANCELLED: &str = "unpack_cancelled";
 
 #[derive(Debug, Serialize)]
 pub struct CmdError {

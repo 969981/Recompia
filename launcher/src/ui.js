@@ -1,15 +1,15 @@
 // The UI kit. Controls return HTML strings of real inputs, restyled in components.css; pages listen with ordinary
 // `change` / `input` events (delegate on the page root). Inside row() they are named by the row's label.
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
-  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
-  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
+  ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
+  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Mouse, Newspaper, Palette, Pause,
+  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, UserCheck, Users, Wrench, X,
 } from 'lucide';
 
 const ICONS = {
-  ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
-  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Minus, Mouse, Newspaper, Palette, Pause,
-  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Upload, UserCheck, Users, Wrench, X,
+  ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
+  Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Mouse, Newspaper, Palette, Pause,
+  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, UserCheck, Users, Wrench, X,
 };
 
 import { fromBackend } from './backend-text.js';
@@ -54,10 +54,11 @@ export function toast(message, kind = '') {
 
 /**
  * A modal question on a native <dialog>. Resolves true for OK; Esc, Cancel or a click outside give false.
- * opts: { title, body (plain text), html (trusted markup, instead of body), ok = 'OK', cancel = 'Cancel', danger, alert (no Cancel) }
+ * opts: { title, body (plain text), html (trusted markup, instead of body), ok = 'OK', cancel = 'Cancel', danger, alert (no Cancel),
+ *   onAct (called with the element when a [data-act] control of `html` is pressed, e.g. a link button; the dialog stays open) }
  */
 export function confirm(opts = {}) {
-  const { title = '', body = '', html = '', ok = t('OK'), cancel = t('Cancel'), danger = false, alert = false } = opts;
+  const { title = '', body = '', html = '', ok = t('OK'), cancel = t('Cancel'), danger = false, alert = false, focusCancel = false, onAct = null } = opts;
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong';
@@ -79,11 +80,12 @@ export function confirm(opts = {}) {
     dlg.addEventListener('click', (e) => {
       const answer = e.target.closest('[data-answer]')?.dataset.answer;
       if (answer !== undefined) dlg.close(answer);
+      else if (onAct && e.target.closest('[data-act]')) onAct(e.target.closest('[data-act]'));
       else if (e.target === dlg) dlg.close('');   // the dialog has no padding, so only the backdrop hits it
     });
     dlg.showModal();
-    // Enter on a dangerous question must not be the dangerous answer
-    dlg.querySelector(danger && !alert ? '[data-answer=""]' : '[data-answer="ok"]').focus();
+    // Enter on a dangerous question, or on one whose safe answer is no (focusCancel), must not be the yes
+    dlg.querySelector((danger || focusCancel) && !alert ? '[data-answer=""]' : '[data-answer="ok"]').focus();
   });
 }
 

@@ -9,7 +9,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
-const CODES = ['es', 'ja', 'fr', 'it', 'de', 'ko', 'zh-CN', 'zh-TW'];
+const CODES = ['es', 'ja', 'fr', 'it', 'de', 'pt-BR', 'ko', 'zh-CN', 'zh-TW'];
 
 function files(dir) {
   return readdirSync(dir).flatMap((name) => {

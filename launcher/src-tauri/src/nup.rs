@@ -1,33 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Reads a `.nup` package (https://github.com/a55uka/nup, format 1) and unpacks it into the folder layout the rest
-//! of the launcher expects: `<out>/base/{exefs,romfs}` and `<out>/updates/<version>/{exefs,romfs}`.
-//! Only the exefs and romfs subtrees of each program are written. Add-on (DLC) packages with a RomFS go to
-//! `<out>/aoc/<16-digit hex id>/romfs/`, the layout dump.rs finds for pkp's `[fs] aoc_dir` (#236).
+//! Reads a `.nup` package (https://github.com/a55uka/nup, format 1) for unpack.rs: the header and table of contents
+//! (size, SHA-256 of the TOC, every record's bounds) are checked when it is opened, before anything is written. A
+//! non-standalone update gets the base's RomFS files underneath its own (the update's files win).
 //!
-//! Order of work, so a wrong or damaged package fails in seconds and not after 7 GB: header and table of contents
-//! (size, SHA-256 of the TOC, every record's bounds); then every program's ExeFS (small) and the main build ID check; then
-//! the free-space check; then the RomFS of the chosen program only. A non-standalone update gets the base's RomFS files
-//! underneath its own (the update's files win). Every file is written to `<name>.part` and renamed once its size and
-//! SHA-256 match the record.
-//!
-//! The checks (TOC hash, per-file hash, record validation, `.part` + rename, standalone layering, free space) follow
-//! pokopia-native (MIT), nupread.py and nxs2.py nup_unpack @7c3655d.
+//! The checks (TOC hash, record validation, standalone layering) follow pokopia-native (MIT), nupread.py and nxs2.py
+//! nup_unpack @7c3655d.
 
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
 
+use crate::unpack::{self, Program};
+
+pub const MAGIC: &[u8] = b"NUP\x01";
+const LABEL: &str = ".nup";
 const NO_DIR: u32 = 0xFFFF_FFFF;
 const KIND_BASE: u8 = 0;
 const KIND_UPDATE: u8 = 1;
 const KIND_ADDON: u8 = 2;
-const MARKER: &str = ".nup_done";
-const WORKING: &str = ".unpacking";
-/// Free space kept beyond the unpacked size.
-const SPARE: u64 = 2 << 30;
-pub const CANCELLED: &str = "Unpacking was cancelled.";
 const DAMAGED: &str = "The .nup file is damaged or incomplete.";
 
 struct Package {
@@ -72,19 +63,11 @@ fn u64_at(b: &[u8], o: usize) -> Result<u64, String> {
     b.get(o..o.saturating_add(8)).map(|s| u64::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| DAMAGED.to_string())
 }
 
-/// Names in a package are labels (checked when a folder is walked: package roots are nameless), never paths: no separators, no "." or "..", nothing Windows reads specially.
-fn checked_name(n: &str) -> Result<&str, String> {
-    if n.is_empty() || n == "." || n == ".." || n.contains(['/', '\\', ':', '\0', '<', '>', '"', '|', '?', '*']) || n.chars().any(|c| (c as u32) < 0x20) {
-        return Err(format!("The .nup contains a file name that cannot be used here: {:?}", n));
-    }
-    Ok(n)
-}
-
 fn parse(f: &mut File) -> Result<Nup, String> {
     let real_size = f.metadata().map_err(|e| e.to_string())?.len();
     let mut sb = [0u8; 0x80];
     f.read_exact(&mut sb).map_err(|_| "This file is too small to be a .nup package.".to_string())?;
-    if &sb[0..4] != b"NUP\x01" {
+    if &sb[0..4] != MAGIC {
         return Err("This is not a .nup package (wrong header).".into());
     }
     let header_size = u16::from_le_bytes([sb[4], sb[5]]) as u64;
@@ -221,11 +204,11 @@ impl Nup {
         for slot in dir.first_child..dir.first_child + dir.child_count {
             let id = *self.children.get(slot as usize).ok_or("The .nup folder listing is out of bounds.")?;
             if id < dc {
-                self.walk(id, &format!("{}{}/", prefix, checked_name(&self.dirs[id as usize].name)?), depth + 1, out)?;
+                self.walk(id, &format!("{}{}/", prefix, unpack::checked_name(&self.dirs[id as usize].name, LABEL)?), depth + 1, out)?;
             } else {
                 let fi = (id - dc) as usize;
                 let f = self.files.get(fi).ok_or("The .nup refers to a file that does not exist.")?;
-                out.push((format!("{}{}", prefix, checked_name(&f.name)?), fi));
+                out.push((format!("{}{}", prefix, unpack::checked_name(&f.name, LABEL)?), fi));
             }
         }
         Ok(())
@@ -240,252 +223,103 @@ impl Nup {
     }
 }
 
-/// Writes through to `inner` and hashes what passes.
-struct HashWriter<W: Write> {
-    inner: W,
-    hash: Sha256,
-    len: u64,
-}
-impl<W: Write> Write for HashWriter<W> {
-    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        let n = self.inner.write(b)?;
-        self.hash.update(&b[..n]);
-        self.len += n as u64;
-        Ok(n)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-struct Extractor<'a> {
-    nup: &'a Nup,
-    src: BufReader<File>,
-    done: u64,
-    total: u64,
-    progress: &'a mut dyn FnMut(u64, u64, &str),
-    cancel: &'a dyn Fn() -> bool,
-}
-
-impl Extractor<'_> {
-    /// One file to `dest`: written to `<dest>.part`, renamed once its size and SHA-256 match the record.
-    fn file(&mut self, fi: usize, dest: &Path) -> Result<(), String> {
-        let f = &self.nup.files[fi];
-        if (self.cancel)() {
-            return Err(CANCELLED.into());
-        }
-        (self.progress)(self.done, self.total, &f.name);
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {}", parent.display(), e))?;
-        }
-        let mut tmp_name = dest.file_name().unwrap_or_default().to_os_string();
-        tmp_name.push(".part");
-        let tmp = dest.with_file_name(tmp_name);
-        let res = self.write_part(fi, &tmp);
-        if res.is_err() {
-            let _ = fs::remove_file(&tmp);
-            return res;
-        }
-        fs::rename(&tmp, dest).map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            format!("Cannot write {}: {}", dest.display(), e)
-        })?;
-        self.done += f.size;
-        Ok(())
+impl Nup {
+    fn programs(&self) -> Vec<Program> {
+        // add-ons and system packages are not programs
+        let prog = |p: &Package| (p.kind == KIND_BASE || p.kind == KIND_UPDATE) && p.exefs_dir != NO_DIR;
+        self.packages.iter().enumerate().filter(|(_, p)| prog(p)).map(|(id, p)| Program { update: p.kind == KIND_UPDATE, version: p.version, id }).collect()
     }
 
-    fn write_part(&mut self, fi: usize, tmp: &Path) -> Result<(), String> {
-        let nup = self.nup;
-        let f = &nup.files[fi];
-        let disk = |e: std::io::Error| format!("Cannot write {} (disk full or blocked?): {}", tmp.display(), e);
-        let mut out = HashWriter { inner: std::io::BufWriter::with_capacity(1 << 20, File::create(tmp).map_err(disk)?), hash: Sha256::new(), len: 0 };
-        if f.extent_size > 0 {
-            self.src.seek(SeekFrom::Start(f.extent_offset)).map_err(|e| e.to_string())?;
-            let part = (&mut self.src).take(f.extent_size);
-            let (name, cancel) = (&f.name, self.cancel);
-            // a file may not unpack larger than its record says (guards against decompression bombs)
-            match f.codec {
-                0 => copy(&mut part.take(f.size), &mut out, cancel, name)?,
-                _ => {
-                    let dec = zstd::stream::read::Decoder::new(part).map_err(|e| format!("{} could not be decompressed: {}", name, e))?;
-                    copy(&mut dec.take(f.size + 1), &mut out, cancel, name)?
+    /// The RomFS of a program; a non-standalone update only holds what it changes, so the base's files go under it.
+    fn romfs(&self, id: usize) -> Result<BTreeMap<String, usize>, String> {
+        let p = &self.packages[id];
+        let mut files: BTreeMap<String, usize> = BTreeMap::new();
+        if p.romfs_dir != NO_DIR {
+            files.extend(self.tree(p.romfs_dir)?);
+        }
+        if p.kind == KIND_UPDATE && !p.standalone {
+            let base = self.packages.iter().find(|q| q.kind == KIND_BASE && q.romfs_dir != NO_DIR);
+            match base {
+                Some(base) => {
+                    for (rel, fi) in self.tree(base.romfs_dir)? {
+                        files.entry(rel).or_insert(fi);
+                    }
+                }
+                // A packer that kept an empty `base/` folder still writes a base record, just with nothing in it (empty
+                // ExeFS, no RomFS), and such a container's update has to keep standalone_update clear (SPEC 3.1.2). That
+                // record is not a base game: an update whose own RomFS holds the whole game needs nothing under it, so ask
+                // for the base only when the update's own RomFS is short of what the supported version has.
+                None => {
+                    let whole = crate::dump::supported_romfs().map_or(false, |need| {
+                        let (n, b) = files.values().fold((0u64, 0u64), |(n, b), &fi| (n + 1, b + self.files[fi].size));
+                        n >= need.files && b >= need.bytes
+                    });
+                    if !whole {
+                        return Err("This update only holds the files it changes and needs the base game, which is not in this .nup. Use a .nup that contains the base game too.".into());
+                    }
                 }
             }
         }
-        out.flush().map_err(disk)?;
-        if out.len != f.size || out.hash.finalize().as_slice() != f.sha {
-            return Err(format!("{} does not match its checksum: the .nup is damaged. Download it again.", f.name));
-        }
-        Ok(())
+        Ok(files)
+    }
+
+    /// The RomFS files of every add-on package, by title id.
+    fn add_ons(&self) -> Result<Vec<(u64, Vec<(String, usize)>)>, String> {
+        self.packages.iter().filter(|p| p.kind == KIND_ADDON && p.romfs_dir != NO_DIR).map(|p| Ok((p.title_id, self.tree(p.romfs_dir)?))).collect()
     }
 }
 
-fn copy(r: &mut dyn Read, w: &mut dyn Write, cancel: &dyn Fn() -> bool, name: &str) -> Result<(), String> {
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        if cancel() {
-            return Err(CANCELLED.into());
-        }
-        let n = r.read(&mut buf).map_err(|e| format!("{} could not be read from the .nup: {}", name, e))?;
-        if n == 0 {
+/// A .nup that is open for unpacking.
+pub struct Reader {
+    nup: Nup,
+    src: BufReader<File>,
+}
+
+pub fn open(mut file: File) -> Result<Reader, String> {
+    let nup = parse(&mut file)?;
+    Ok(Reader { nup, src: BufReader::with_capacity(1 << 20, file) })
+}
+
+impl unpack::Package for Reader {
+    fn label(&self) -> &'static str {
+        LABEL
+    }
+    fn stamp(&self) -> String {
+        format!("{}:{}", self.nup.uuid.iter().map(|b| format!("{:02x}", b)).collect::<String>(), self.nup.file_size)
+    }
+    fn programs(&self) -> Vec<Program> {
+        self.nup.programs()
+    }
+    fn exefs(&self, p: &Program) -> Result<Vec<(String, usize)>, String> {
+        self.nup.tree(self.nup.packages[p.id].exefs_dir)
+    }
+    fn romfs(&self, p: &Program) -> Result<BTreeMap<String, usize>, String> {
+        self.nup.romfs(p.id)
+    }
+    fn add_ons(&self) -> Result<Vec<(u64, Vec<(String, usize)>)>, String> {
+        self.nup.add_ons()
+    }
+    fn size(&self, file: usize) -> u64 {
+        self.nup.files[file].size
+    }
+    fn sha256(&self, file: usize) -> [u8; 32] {
+        self.nup.files[file].sha
+    }
+    fn read(&mut self, file: usize, name: &str, w: &mut dyn Write, cancel: &dyn Fn() -> bool) -> Result<(), String> {
+        let f = &self.nup.files[file];
+        if f.extent_size == 0 {
             return Ok(());
         }
-        w.write_all(&buf[..n]).map_err(|e| format!("Cannot write {} (disk full or blocked?): {}", name, e))?;
-    }
-}
-
-fn uuid_hex(u: &[u8; 16]) -> String {
-    u.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-/// Unpacks `nup_path` into `out`. A finished unpack of the same package is reused. `progress(done, total, current file)`
-/// is called per file; `cancel` is polled during the unpack. Returns `out`.
-pub fn extract(nup_path: &Path, out: &Path, progress: &mut dyn FnMut(u64, u64, &str), cancel: &dyn Fn() -> bool) -> Result<PathBuf, String> {
-    let want = crate::dump::supported().map(|(id, _)| id);
-    extract_with(nup_path, out, progress, cancel, want.as_deref(), &crate::preflight::free_bytes)
-}
-
-fn extract_with(
-    nup_path: &Path,
-    out: &Path,
-    progress: &mut dyn FnMut(u64, u64, &str),
-    cancel: &dyn Fn() -> bool,
-    want_build: Option<&str>,
-    free: &dyn Fn(&Path) -> Option<u64>,
-) -> Result<PathBuf, String> {
-    let mut file = File::open(nup_path).map_err(|e| format!("Cannot open {}: {}", nup_path.display(), e))?;
-    let nup = parse(&mut file)?;
-    let stamp = format!("{}:{}", uuid_hex(&nup.uuid), nup.file_size);
-    if fs::read_to_string(out.join(MARKER)).map(|s| s.trim() == stamp).unwrap_or(false) {
-        // an unpack from a launcher that skipped add-ons gets them now, without unpacking the game again
-        if !fs::read_to_string(out.join("aoc").join(MARKER)).map(|s| s.trim() == stamp).unwrap_or(false) {
-            let mut ex = Extractor { nup: &nup, src: BufReader::with_capacity(1 << 20, file), done: 0, total: 0, progress, cancel };
-            add_ons(&mut ex, out, &stamp)?;
-        }
-        return Ok(out.to_path_buf());
-    }
-    // programs, newest update first, the base last; add-ons and system packages are not used by the game build
-    let mut progs: Vec<&Package> = nup.packages.iter().filter(|p| (p.kind == KIND_BASE || p.kind == KIND_UPDATE) && p.exefs_dir != NO_DIR).collect();
-    progs.sort_by_key(|p| std::cmp::Reverse((p.kind == KIND_UPDATE, p.version)));
-    if progs.is_empty() {
-        return Err("This .nup has no base game or update in it.".into());
-    }
-
-    // only a folder this code made is ever removed
-    if out.exists() {
-        let ours = out.join(MARKER).is_file() || out.join(WORKING).is_file() || fs::read_dir(out).map_err(|e| e.to_string())?.next().is_none();
-        if !ours {
-            return Err(format!("{} already exists and was not made by the launcher. Move or delete it, then try again.", out.display()));
-        }
-        fs::remove_dir_all(out).map_err(|e| format!("Cannot clear {}: {}", out.display(), e))?;
-    }
-    fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {}", out.display(), e))?;
-    fs::write(out.join(WORKING), &stamp).map_err(|e| e.to_string())?;
-
-    let mut ex = Extractor { nup: &nup, src: BufReader::with_capacity(1 << 20, file), done: 0, total: 0, progress, cancel };
-    let root_of = |p: &Package| if p.kind == KIND_BASE { out.join("base") } else { out.join("updates").join(p.version.to_string()) };
-
-    // ExeFS of every program first (small), then the version check: nothing big is written for a wrong .nup
-    let mut chosen: Option<&Package> = None;
-    let mut seen = Vec::new();
-    for &p in &progs {
-        let root = root_of(p);
-        for (rel, fi) in nup.tree(p.exefs_dir)? {
-            ex.file(fi, &root.join("exefs").join(&rel))?;
-        }
-        let bid = crate::dump::main_build_id(&root.join("exefs").join("main"));
-        let label = if p.kind == KIND_BASE { "base game".to_string() } else { format!("update {}", p.version) };
-        seen.push(format!("{} (build {})", label, bid.as_deref().unwrap_or("none")));
-        if chosen.is_none() && (want_build.is_none() || bid.as_deref() == want_build) {
-            chosen = Some(p);
-        }
-    }
-    let p = chosen.ok_or_else(|| {
-        format!("This .nup is not the game version this launcher supports (build {}). It holds: {}.", want_build.unwrap_or("?"), seen.join(", "))
-    })?;
-
-    // RomFS of the chosen program; a non-standalone update only holds what it changes, so the base's files go under it
-    let mut files: BTreeMap<String, usize> = BTreeMap::new();
-    if p.romfs_dir != NO_DIR {
-        files.extend(nup.tree(p.romfs_dir)?);
-    }
-    if p.kind == KIND_UPDATE && !p.standalone {
-        let base = nup.packages.iter().find(|q| q.kind == KIND_BASE && q.romfs_dir != NO_DIR);
-        match base {
-            Some(base) => {
-                for (rel, fi) in nup.tree(base.romfs_dir)? {
-                    files.entry(rel).or_insert(fi);
-                }
-            }
-            // A packer that kept an empty `base/` folder still writes a base record, just with nothing in it (empty
-            // ExeFS, no RomFS), and such a container's update has to keep standalone_update clear (SPEC 3.1.2). That
-            // record is not a base game: an update whose own RomFS holds the whole game needs nothing under it, so ask
-            // for the base only when the update's own RomFS is short of what the supported version has.
-            None => {
-                let whole = crate::dump::supported_romfs().map_or(false, |need| {
-                    let (n, b) = files.values().fold((0u64, 0u64), |(n, b), &fi| (n + 1, b + nup.files[fi].size));
-                    n >= need.files && b >= need.bytes
-                });
-                if !whole {
-                    return Err("This update only holds the files it changes and needs the base game, which is not in this .nup. Use a .nup that contains the base game too.".into());
-                }
+        self.src.seek(SeekFrom::Start(f.extent_offset)).map_err(|e| e.to_string())?;
+        let part = (&mut self.src).take(f.extent_size);
+        match f.codec {
+            0 => unpack::copy(&mut part.take(f.size), w, cancel, name, LABEL),
+            _ => {
+                let dec = zstd::stream::read::Decoder::new(part).map_err(|e| format!("{} could not be decompressed: {}", name, e))?;
+                unpack::copy(&mut dec.take(f.size + 1), w, cancel, name, LABEL)
             }
         }
     }
-    if files.is_empty() {
-        return Err("The game program in this .nup has no RomFS (game data).".into());
-    }
-    let aoc_bytes: u64 = add_on_files(&nup)?.iter().map(|(_, fi)| nup.files[*fi].size).sum();
-    let need: u64 = files.values().map(|&fi| nup.files[fi].size).sum::<u64>() + aoc_bytes;
-    if let Some(avail) = free(out) {
-        if avail < need.saturating_add(SPARE) {
-            let gb = |b: u64| (b as f64 / (1u64 << 30) as f64).ceil() as u64;
-            return Err(format!(
-                "Not enough free disk space to unpack the game: about {} GB are needed on the drive of {}, {} GB are free.",
-                gb(need.saturating_add(SPARE)),
-                out.display(),
-                avail >> 30
-            ));
-        }
-    }
-    ex.total = need;
-    ex.done = 0;
-    let romfs = root_of(p).join("romfs");
-    fs::create_dir_all(&romfs).map_err(|e| format!("Cannot create {}: {}", romfs.display(), e))?;
-    for (rel, fi) in &files {
-        ex.file(*fi, &romfs.join(rel))?;
-    }
-    add_ons(&mut ex, out, &stamp)?;
-    (ex.progress)(need, need, "");
-    fs::write(out.join(MARKER), stamp).map_err(|e| e.to_string())?;
-    let _ = fs::remove_file(out.join(WORKING));
-    Ok(out.to_path_buf())
-}
-
-/// The RomFS files of every add-on package as (path below `<out>`, file index): `aoc/<ID>/romfs/<rel>`.
-/// pkp decides which ids belong to this title.
-fn add_on_files(nup: &Nup) -> Result<Vec<(PathBuf, usize)>, String> {
-    let mut out = Vec::new();
-    for p in nup.packages.iter().filter(|p| p.kind == KIND_ADDON && p.romfs_dir != NO_DIR) {
-        let root = Path::new("aoc").join(format!("{:016X}", p.title_id)).join("romfs");
-        out.extend(nup.tree(p.romfs_dir)?.into_iter().map(|(rel, fi)| (root.join(rel), fi)));
-    }
-    Ok(out)
-}
-
-/// Writes the add-ons into `<out>/aoc` and marks them done with `stamp`. The folder is made even with none, so a
-/// .nup player can see where an add-on dumped on its own goes.
-fn add_ons(ex: &mut Extractor, out: &Path, stamp: &str) -> Result<(), String> {
-    let aoc = out.join("aoc");
-    fs::create_dir_all(&aoc).map_err(|e| format!("Cannot create {}: {}", aoc.display(), e))?;
-    let files = add_on_files(ex.nup)?;
-    if ex.total == 0 {
-        ex.total = files.iter().map(|(_, fi)| ex.nup.files[*fi].size).sum();
-    }
-    for (rel, fi) in files {
-        ex.file(fi, &out.join(rel))?;
-    }
-    fs::write(aoc.join(MARKER), stamp).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -493,7 +327,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_on_romfs_goes_to_aoc_id_romfs() {
+    fn add_ons_are_the_romfs_of_add_on_packages() {
         let dir = |name: &str, first_child, child_count| Dir { name: name.into(), first_child, child_count };
         let file = FileNode { name: "a.bin".into(), size: 1, extent_offset: 0, extent_size: 0, sha: [0; 32], codec: 0 };
         let pkg = |kind, romfs_dir| Package { title_id: 0x0400A3A01EE4D001, root_dir: 0, exefs_dir: NO_DIR, romfs_dir, version: 0, kind, standalone: false };
@@ -506,8 +340,7 @@ mod tests {
             files: vec![file],
             children: vec![1, 2], // ids past the folders are files
         };
-        let got = add_on_files(&nup).unwrap();
-        assert_eq!(got.len(), 1, "{:?}", got);
-        assert_eq!(got[0].0, Path::new("aoc").join("0400A3A01EE4D001").join("romfs").join("sub/a.bin"));
+        assert_eq!(nup.add_ons().unwrap(), vec![(0x0400A3A01EE4D001, vec![("sub/a.bin".to_string(), 0)])]);
+        assert!(nup.programs().is_empty(), "a base without an ExeFS is not a program");
     }
 }

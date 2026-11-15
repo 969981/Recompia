@@ -44,9 +44,17 @@ constexpr int kTableW = 1920, kTableH = 1080;
 // dynres manager layout: per view (stride 28) +16 target w/h, +24 largest scene w/h, +32 scene w/h, +40 levels (target, largest, current)
 constexpr size_t kViewStride = 28, kTgtW = 16, kTgtH = 20, kMaxW = 24, kMaxH = 28, kCurW = 32, kCurH = 36, kLvlMax = 41, kLvlCur = 42;
 
-// follow camera layout
-constexpr size_t kCamPlayer = 8, kCamPitch = 0xa0, kCamYaw = 0xa4, kCamPitchMax = 0xd4, kCamPitchMin = 0xd8, kCamManual = 0xff,
-                 kCamTwinPitch = 0x124, kCamTwinYaw = 0x128, kCamIdle = 0x13c;
+// follow camera layout (+0xcc / +0xd0: the stick's pitch / yaw rate, radians per second at full deflection)
+constexpr size_t kCamPlayer = 8, kCamPitch = 0xa0, kCamYaw = 0xa4, kCamPitchRate = 0xcc, kCamYawRate = 0xd0, kCamPitchMax = 0xd4,
+                 kCamPitchMin = 0xd8, kCamManual = 0xff, kCamTwinPitch = 0x124, kCamTwinYaw = 0x128, kCamIdle = 0x13c;
+// the camera manager: the embedded follow camera of local player i at +0x10 + i * 0x1b0
+constexpr uint64_t kCameraManager = 0x3561948;   // qword
+constexpr size_t kMgrFollow = 0x10, kMgrFollowStride = 0x1b0;
+// photo camera (camera mode 3, pkp_photo_camera.cpp): the turn function 0x8ee4c (x19 = the photo camera, s8 = the frame time)
+constexpr uint64_t kPhotoStickX = 0x8eef0;       // mid: s10 = the right stick's x, right after its load
+constexpr uint64_t kPhotoStickY = 0x8f1e4;       // mid: s0 = the right stick's y, right after its load
+constexpr uint32_t kPhotoSiteWord = 0x1e2a1001;  // `fmov s1, #0.25` at both sites (the turn's dead zone)
+constexpr size_t kPhotoPlayer = 8, kPhotoInvertX = 9, kPhotoInvertY = 10;   // u8: local player index; the game's invert options
 constexpr double kTwoPi = 6.283185307179586;
 constexpr float kHalfPi = 1.5707964f;
 
@@ -71,6 +79,10 @@ struct State {
     double pend_dx = 0, pend_dy = 0;
     uint64_t last_turn_ns = 0;
     std::atomic<uint64_t> cam_field{0}, follow_forced{0}, cam_dropped{0};
+    // main thread (the photo camera's turn, pkp_photo_camera.cpp): mouse turn not handed to the game yet, radians (the stick's dead zone)
+    double photo_yaw = 0, photo_pitch = 0;
+    int photo_sites = 0;                      // 0 = not checked yet, 1 = main has the expected words, -1 = not: the photo hooks stay off
+    std::atomic<uint64_t> photo_calls{0}, photo_moves{0};
     HookSet* hooks = nullptr;                // the registry's set for play (pkp_feature.h): every hook of these files goes in it
     std::atomic<uint64_t> res_calls{0}, copy_calls{0}, vp_fixes{0}, fps_calls{0}, cam_calls{0}, cam_moves{0};
     std::atomic<uint64_t> vp_shapes[16]{};   // distinct scissor sizes the viewport stretch has touched (logged once each)
@@ -154,6 +166,11 @@ extern std::atomic<uint64_t> g_follow_ns;
 int hook_cam_field(::Ctx*, uint64_t, void*);
 int hook_follow_gate(::Ctx* c, uint64_t, void*);
 int hook_cam_stick(::Ctx* c, uint64_t, void*);
+
+// ---- photo camera (pkp_photo_camera.cpp) ----
+extern std::atomic<uint64_t> g_photo_ns;
+int hook_photo_stick_x(::Ctx* c, uint64_t, void*);
+int hook_photo_stick_y(::Ctx* c, uint64_t, void*);
 
 // ---- Joy-Con 2 mouse mode (pkp_mouse_mode.cpp) ----
 // Joy-Con 2 mouse mode gate (see "Joy-Con 2 mouse mode" in pkp_mouse_mode.cpp)

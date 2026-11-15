@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: our entries in the game's key guide (pkp_key_guide.cpp). The title's Quit Game (pkp_title.cpp), the bag's Sort
-// (pkp_sort.cpp) and the crafting screen's Search (pkp_craft.cpp) are clients: each says what it wants done when the widget takes a set,
+// Pokémon Pokopia: our entries in the game's key guide (pkp_key_guide.cpp). The title's Quit Game (pkp_title.cpp), the bag's Hold to
+// Sort click (pkp_sort.cpp) and the crafting screen's Search (pkp_craft.cpp) are clients: each says what it wants done when the widget takes a set,
 // lays its entries out and fills a part, and what a click on its part does. This module owns the widget's hooks, its layout facts, the
 // writes into a part (icon, text) and the routing of a click on a client's part (pkp_menu.cpp).
 //
@@ -62,9 +62,10 @@ uint64_t layout_of(::Ctx* c, const Part& p);              // the part's layout (
 
 // The entries the widget lays out (the set's ids as it took them; a client may change an id before the layout pass places them).
 struct Entries {
-    uint64_t data = 0, count = 0;
+    uint64_t widget = 0, data = 0, count = 0;
     uint16_t id(uint64_t i) const;
     void set_id(uint64_t i, uint16_t guide) const;
+    bool append(uint16_t guide) const;   // one more part at the end; false when all six are used
 };
 bool entries(uint64_t widget, Entries* out);   // false when they cannot be read
 

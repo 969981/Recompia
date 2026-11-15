@@ -40,9 +40,6 @@ public:
     bool handle_event(const input::Event& e);
 
     void set_visible(bool v);
-    // Touch screens: a "Menu" button in the bottom left corner of the frame (a handheld has no F1 key). A finger on it opens the menu; while the
-    // menu is open it reads "Close" and closes it. The menu also gets finger-sized controls while this is on. Any thread. Off by default.
-    void set_touch_button(bool on);
     bool visible() const;
     void toggle();
     int toggle_scancode() const;             // SDL scancode of the toggle key

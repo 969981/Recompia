@@ -8,7 +8,10 @@
 
 namespace nxrt {
 
-enum class LogLevel : int { Error = 0, Warn = 1, Info = 2, Debug = 3, Trace = 4 };
+// Off is below Error, not above Trace: the filter drops a line whose level is greater than the threshold, so silencing everything
+// means a threshold below the lowest level. [log] level = off silences the file and the console, which a player can use when a
+// frame-time problem needs every microsecond. Nothing defaults to Off: a pre-alpha build wants the log from players.
+enum class LogLevel : int { Off = -1, Error = 0, Warn = 1, Info = 2, Debug = 3, Trace = 4 };
 
 struct LogOptions {
     const char* path = nullptr;      // null: "nxrt.log" in the current directory ("" = no file)

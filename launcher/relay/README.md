@@ -39,12 +39,15 @@ Run it as a service under its own user (`sudo useradd --system --no-create-home 
     WantedBy=multi-user.target
 
 then `sudo systemctl daemon-reload && sudo systemctl enable --now pokopia-relay`. Logs (one counters line every `--stats` seconds,
-with the bytes carried): `journalctl -u pokopia-relay`.
+with the bytes carried, the rooms listed, the players in them and the room lists served): `journalctl -u pokopia-relay`.
+
+Rooms opened with no room code are listed: anyone can see them in the game's Visit a Friend list (the room list in `src/lib.rs`).
+`--no-list` turns this off (those rooms can then only be joined by code), `--list-per-min` sets how many lists one address may ask for.
 
 Open **TCP and UDP 47610** in every firewall in front of it: the cloud provider's (security list / security group) and the
 server's own (`iptables`/`ufw`; Ubuntu images on some clouds reject everything but SSH by default).
 
 Updating: copy the new source, build, `sudo install ...` again, `sudo systemctl restart pokopia-relay`. A restart drops the rooms that are
-open; players start Link Play again.
+open; players start Link Play again. A new relay serves older builds unchanged.
 
 The address the launcher uses by default is `PUBLIC_RELAY` in `launcher/src/linkplay-model.js`.

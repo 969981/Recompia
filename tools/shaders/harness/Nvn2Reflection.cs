@@ -11,7 +11,9 @@
 //                   [13] array size, [14] array stride, [15] matrix stride, [17] stage mask, [18 + stage] binding or -1.
 // Binding rules seen in the code: uniform block binding b is c[3 + b]; a sampler with binding n is read by a bound TEX/TLD
 // with handle word 8 + 2n of c[2] (graphics stages). Compute shaders read texture handles from c[0] with another layout.
+using Microsoft.Win32.SafeHandles;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -23,15 +25,26 @@ namespace SpirvHarness
     /// default --layout packs (a few large files instead of one file per block; '|' cannot occur in a Windows path).
     static class Blobs
     {
+        // One open handle per pack file, for the whole run: a corpus is a handful of pack files and every block is a slice of
+        // one, so opening and closing per block was 200,000 opens for the 99,012-block corpus (two per block) to save nothing.
+        static readonly ConcurrentDictionary<string, SafeFileHandle> Packs = new(StringComparer.Ordinal);
+
         public static byte[] Read(string blob)
         {
             int a = blob.IndexOf('|');
             if (a < 0) return File.ReadAllBytes(blob);
             int b = blob.IndexOf('|', a + 1);
             byte[] d = new byte[int.Parse(blob.AsSpan(b + 1))];
-            using FileStream f = new(blob[..a], FileMode.Open, FileAccess.Read, FileShare.Read, 0, FileOptions.RandomAccess);
-            f.Position = long.Parse(blob.AsSpan(a + 1, b - a - 1));
-            f.ReadExactly(d);
+            SafeFileHandle h = Packs.GetOrAdd(blob[..a], static p => File.OpenHandle(p, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess));
+            long off = long.Parse(blob.AsSpan(a + 1, b - a - 1));
+            // A slice is a few hundred KB at most, so this is one read; the loop is for the partial read a signal can cut short.
+            int got = 0;
+            while (got < d.Length)
+            {
+                int n = RandomAccess.Read(h, d.AsSpan(got), off + got);
+                if (n <= 0) throw new EndOfStreamException($"{blob[..a]}: {got} of {d.Length} bytes at {off}");
+                got += n;
+            }
             return d;
         }
 

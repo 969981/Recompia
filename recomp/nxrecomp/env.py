@@ -56,6 +56,17 @@ class Env:
             return self.patches[addr]
         return self.img.word(addr)
 
+    def words(self, addr, end):
+        """The words of [addr, end) in one read, with the patches applied (word(), for one address)."""
+        out = self.img.words_at(addr, (end - addr) // 4)
+        if self.patches:
+            out = list(out)
+            for i, a in enumerate(range(addr, end, 4)):
+                p = self.patches.get(a)
+                if p is not None:
+                    out[i] = p
+        return out
+
     # ---- imports through the PLT
     def load_plt(self):
         self.plt_syms, self.plt_info = {}, {}
@@ -93,11 +104,11 @@ class Env:
     # ---- direct calls
     def call(self, target):
         if target in self.overrides:
-            return 'h_%s(c);' % self.overrides[target]
+            return f'h_{self.overrides[target]}(c);'
         if not (self.text_lo <= target < self.text_hi):
-            return 'call_indirect(c, 0x%xULL);' % target          # another module / not code of this one
+            return f'call_indirect(c, 0x{target:x}ULL);'          # another module / not code of this one
         self.wanted.setdefault(target, None)
-        return 'f_%x(c);' % target
+        return f'f_{target:x}(c);'
 
     # ---- function list
     def compute_starts(self, extra=()):

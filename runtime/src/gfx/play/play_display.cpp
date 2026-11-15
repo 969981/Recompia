@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "nxrt/gfx_tuning.h"
+#include "nxrt/host_device.h"
 
 namespace nxrt::play {
 
@@ -25,8 +26,28 @@ void internal_size(const DisplaySettings& d, int window_w, int window_h, int* ou
     if (d.render_width > 0 && d.render_height > 0) {
         w = d.render_width;
         h = d.render_height;
+    } else if (d.render_scale <= 0) {
+        // auto: [display] render_mode decides. "console" (the default) renders at the resolution the console would, 1920x1080 docked
+        // and 1280x720 handheld, and the present pass upscales to the window, which is what a console does; rendering at the window's
+        // size instead was 1.78x the pixels in a 1440p window and measured 42 fps against 60.0 at 1080p in the same world scene on an
+        // M3, where the GPU is fill-rate bound. "window" is the behaviour every build had before this key: the render follows the
+        // window. render_scale and render_width/render_height override both.
+        if (d.render_mode == "window") {
+            w = std::max(window_w, 1);
+            h = std::max(window_h, 1);
+        } else {
+            const bool handheld = host_is_handheld();
+            w = handheld ? 1280 : 1920;
+            h = handheld ? 720 : 1080;
+            if (window_w > 0 && window_h > 0) {
+                // a smaller window than the console's mode renders at the window's size (no point upscaling a small window)
+                const double f = std::min(1.0, std::min(static_cast<double>(window_w) / w, static_cast<double>(window_h) / h));
+                w *= f;
+                h *= f;
+            }
+        }
     } else {
-        const double s = d.render_scale <= 0 ? 1.0 : std::clamp(d.render_scale, 25, 400) / 100.0;   // auto: the window's size
+        const double s = std::clamp(d.render_scale, 25, 400) / 100.0;
         w = std::max(window_w, 1) * s;
         h = std::max(window_h, 1) * s;
     }

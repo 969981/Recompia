@@ -3,8 +3,9 @@
 //! loader for one mods folder that never loads mod code (`no_code`): the launcher lists mods, changes their switches, order and
 //! settings, records the player's yes to a mod's code and writes the hook plan, all of which the core owns (modtopia_host.h, contract 1).
 //!
-//! The backend sets only what a plan needs (modtopia_host.h: size, the names, log). The platform is always "windows-x64": the game is
-//! the Windows pkp.exe, also under Proton, so its mods' libraries are the Windows ones whatever the launcher runs on.
+//! The backend sets only what a plan needs (modtopia_host.h: size, the names, log). The platform is the host's: the game is a native
+//! program (pkp.exe on Windows, pkp on Linux and macOS), so a mod's library is the one built for this system (mt_loader.c
+//! `mt_platform`, which returns the same three tags).
 //! The core keeps process-wide state (the last loader made, its network lock), so every loader and every call is serialised by one lock
 //! held for a `Core`'s whole life. Strings the core returns are copied out at once.
 
@@ -16,7 +17,18 @@ use std::sync::{Mutex, MutexGuard};
 pub const CORE_VERSION: &str = "0.6.1";
 /// The game version every mod is planned for (the one game build Recompia runs).
 pub const GAME_VERSION: &str = "2.0.1";
-const PLATFORM: &str = "windows-x64";
+/// The tag of the library folder the core plans mods for: the host's, the same three values `mt_platform` (mt_loader.c) returns.
+pub fn platform_tag() -> &'static str {
+    if cfg!(windows) {
+        "windows-x64"
+    } else if cfg!(target_os = "macos") {
+        "macos-arm64"
+    } else if cfg!(target_arch = "aarch64") {
+        "linux-arm64"
+    } else {
+        "linux-x64"
+    }
+}
 
 pub const FLAG_CODE: i32 = 1;
 pub const FLAG_LAYEREDFS: i32 = 4;
@@ -194,7 +206,7 @@ impl Core {
     /// mt_loader_new + mt_loader_scan for `mods_dir`, with the mappings in `mappings_dir`. A missing mods folder scans as no mods.
     pub fn open(mods_dir: &Path, mappings_dir: &Path, host_name: &str) -> Core {
         let guard = lock();
-        let strings = vec![c_path(mods_dir), c_path(mappings_dir), c(host_name), c(GAME_VERSION), c(PLATFORM)];
+        let strings = vec![c_path(mods_dir), c_path(mappings_dir), c(host_name), c(GAME_VERSION), c(platform_tag())];
         let opt = Options { mods_dir: strings[0].as_ptr(), config_dir: std::ptr::null(), cache_dir: std::ptr::null(), mappings_dir: strings[1].as_ptr(), no_code: 1 };
         let be = Backend {
             size: std::mem::size_of::<Backend>() as u32,

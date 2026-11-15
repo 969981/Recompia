@@ -22,6 +22,8 @@ pkp.ini
 pipeline_keys.bin
 # tool output
 node_modules/
+# the save editor build (launcher/scripts/build-pokohex.sh)
+launcher/public/pokohex/
 target/
 bin/
 obj/
@@ -30,3 +32,11 @@ obj/
 __pycache__/
 /export/
 /saves/
+
+# macOS Finder metadata (the port builds on macOS)
+.DS_Store
+
+# inputs fetched on this machine, never part of the tree: the read-only Ryujing checkout the shader translator builds from
+# (tools/shaders/scripts/setup_ryujinx.ps1 stages the projects it needs) and a local .NET SDK
+/refs/
+tools/.dotnet/

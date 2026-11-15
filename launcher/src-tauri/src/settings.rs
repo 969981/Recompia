@@ -99,13 +99,22 @@ pub fn apply(dir: &Path, edits: &[Edit]) -> Result<(), String> {
 /// Called once when the launcher window starts (not by `--play` or `--host`): puts Link Play's per-session [net] keys back to their
 /// defaults, so nothing left from an earlier session or an older version (a `join:<ip>`, a relay that is no longer running, an old room
 /// code, `protocol = linkplay`) decides how the next one runs (#239). The Link Play page remembers the player's own addresses and codes in
-/// its storage and offers them again. Off stays off; `lan_sweep` and `uid` are preferences and are kept. A missing pkp.ini is left
-/// missing, and the file is only written when a value changes. True: something was reset.
+/// its storage and offers them again. Off stays off; `lan_sweep` and `uid` are preferences and are kept. Internet through a relay on
+/// another machine (the public relay, a friend's) is a standing choice like Off and is kept too: it names nothing from one session, and
+/// players who only play over the internet would otherwise find Same network every start. A relay on this PC (127.x) is not running
+/// when the launcher starts, so that one is still reset. A missing pkp.ini is left missing, and the file is only written when a value
+/// changes. True: something was reset.
 pub fn reset_link_play(dir: &Path) -> Result<bool, String> {
     let path = dir.join(PKP_INI);
     let Some(mut ini) = load(&path) else { return Ok(false) };
     let cur = |ini: &Ini, key: &str| ini.get("net", key).map(|v| v.trim().to_ascii_lowercase());
     let off = matches!(cur(&ini, "mode").as_deref(), Some("off") | Some("0") | Some(""));
+    // the page's reading of the file (linkplay-model.js readIni): mode auto or auto:<port>, internet truthy, a relay that is not this PC
+    let mode = cur(&ini, "mode").unwrap_or_else(|| "auto".into());
+    let auto = mode == "auto" || mode.strip_prefix("auto:").is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let internet = matches!(cur(&ini, "internet").as_deref(), Some("1" | "true" | "yes" | "on"));
+    let relay = cur(&ini, "relay").unwrap_or_default();
+    let remote_relay = internet && auto && !relay.is_empty() && !relay.starts_with("127.");
     let mut changed = false;
     let mut put = |ini: &mut Ini, key: &str, value: &str, keep: &dyn Fn(&str) -> bool| {
         if let Some(v) = cur(ini, key) {
@@ -119,8 +128,10 @@ pub fn reset_link_play(dir: &Path) -> Result<bool, String> {
     if !off {
         put(&mut ini, "mode", "auto", &|v| v == "auto");
     }
-    put(&mut ini, "internet", "false", &|v| matches!(v, "" | "false" | "0" | "no" | "off"));
-    put(&mut ini, "relay", "", &|v| v.is_empty());
+    if !remote_relay {
+        put(&mut ini, "internet", "false", &|v| matches!(v, "" | "false" | "0" | "no" | "off"));
+        put(&mut ini, "relay", "", &|v| v.is_empty());
+    }
     put(&mut ini, "room_code", "", &|v| v.is_empty());
     if changed {
         write_atomic(&path, &ini.to_text())?;
@@ -131,7 +142,7 @@ pub fn reset_link_play(dir: &Path) -> Result<bool, String> {
 /// Used by Play and setup: the ini keys the launcher owns. pkp.exe reads every path from pkp.ini (a pkp.ini next to it makes
 /// the game folder its working directory), so it needs no command-line paths.
 /// A path for pkp.ini: relative to the game folder (forward slashes) when it lies inside it, so the folder can be moved or copied to
-/// another PC or to SteamOS/Proton with its dump and saves; absolute otherwise. The game resolves relative paths against its folder.
+/// another PC or to a Steam Deck with its dump and saves; absolute otherwise. The game resolves relative paths against its folder.
 pub fn portable(dir: &Path, p: &str) -> String {
     let full = Path::new(p.trim());
     match (fs::canonicalize(dir), fs::canonicalize(full)) {
@@ -255,6 +266,29 @@ mod reset_tests {
         assert_eq!(net(&out, "lan_sweep").as_deref(), Some("off"));
         assert_eq!(net(&out, "uid").as_deref(), Some("0123456789abcdef0123456789abcdef"));
         assert_eq!(Ini::parse(&out).get("pkp", "link_story_coop").as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn internet_through_a_relay_elsewhere_is_kept() {
+        let (changed, out) = run("[net]\nprotocol = native\nmode = auto\ninternet = true\nrelay = 204.216.111.91:47610\nroom_code = ABCD\n");
+        assert!(changed, "the room code still goes");
+        assert_eq!(net(&out, "mode").as_deref(), Some("auto"));
+        assert_eq!(net(&out, "internet").as_deref(), Some("true"));
+        assert_eq!(net(&out, "relay").as_deref(), Some("204.216.111.91:47610"));
+        assert_eq!(net(&out, "room_code").as_deref(), Some(""));
+        let text = "[net]\nmode = auto\ninternet = true\nrelay = 203.0.113.5:47610\n";
+        assert_eq!(run(text), (false, text.to_string()));
+    }
+
+    #[test]
+    fn internet_through_this_pcs_relay_or_a_direct_address_is_reset() {
+        for text in ["[net]\nmode = auto\ninternet = true\nrelay = 127.0.0.1:47610\n", "[net]\nmode = join:203.0.113.5\ninternet = true\nrelay =\n"] {
+            let (changed, out) = run(text);
+            assert!(changed);
+            assert_eq!(net(&out, "mode").as_deref(), Some("auto"));
+            assert_eq!(net(&out, "internet").as_deref(), Some("false"));
+            assert_eq!(net(&out, "relay").as_deref(), Some(""));
+        }
     }
 
     #[test]

@@ -85,14 +85,14 @@ inline constexpr Spec kSpecs[] = {
     b(QualityProbe, "quality_probe", false, "Log what the quality hooks see (diagnostics)."),
     i(GameTaa, "game_taa", 0, 0, 2, "Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's)."),
     b(LinkInteractEverywhere, "link_interact_everywhere", false, "Experimental: Link Play visitors can interact outside Palette Town."),
-    b(LinkStoryCoop, "link_story_coop", false, "Experimental: Link Play visitors can take part in the host's story."),
+    b(LinkStoryCoop, "link_story_coop", false, "Experimental: in Link Play every player plays their own story, saved in their own save."),
     b(UuidRepair, "uuid_repair", true, "At start, give a save with the player UUID earlier builds shared a UUID of its own."),
     gameplay(b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air.")),
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
     gameplay(b(CameraAim, "camera_aim", true, "Abilities and tools aim where the camera looks instead of where the character faces.")),
     under(CameraAim, i(CameraAimReach, "camera_aim_reach", 0, 0, 4, "With camera_aim: extra cells of reach (0: the game's own range).")),
     live(b(CameraAimDebug, "camera_aim_debug", false, "Draw camera aim's ray, the cells it tested and the cell it picked (debugging).")),
-    gameplay(b(InventorySort, "inventory_sort", true, "A Sort button in the bag's and the container screens' key guide.")),
+    gameplay(b(InventorySort, "inventory_sort", true, "A click on Hold to Sort in the bag and the container screens sorts at once (the game's own sort, as holding X).")),
     under(InventorySort, b(InventoryAutosort, "inventory_autosort", false, "Sort the bag each time the bag or a container screen opens.")),
     opt_in(gameplay(b(CraftSearch, "craft_search", false, "A Search button in the crafting screen's key guide."))),
     opt_in(gameplay(b(ItemEditor, "item_editor", false, "Experimental: an Items tab in the game's Settings screen that changes the count of a stack in the bag."))),
@@ -102,6 +102,9 @@ inline constexpr Spec kSpecs[] = {
                         "With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the game's 64 actor slots.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),
+    gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
+    // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
+    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 

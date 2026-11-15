@@ -58,6 +58,7 @@ AAPCS64 flags. Re-implemented for this lifter's statements; differences: every r
 used, loaded lazily; no trust in callee-saved registers after a call; every flag definition writes both forms instead of
 a per-definition packing plan.
 """
+import functools
 import re
 
 REG = re.compile(r'c->x\[(\d+)\]')
@@ -135,6 +136,15 @@ def _args(text, i):
     return out, end
 
 
+# The statements repeat: the same instruction with the same registers is lifted once for every place it appears (68% of
+# main's statements are a text the module has already produced, and the commonest ones appear thousands of times). What
+# the analysis below reads out of a statement's text is a function of that text alone, and the summary pass reads every
+# statement's calls, escapes and flag effects (a third of its time), so it is remembered. Bounded: a module has millions
+# of distinct texts, and an unbounded memo in every worker process would hold them all.
+MEMO = 1 << 13
+
+
+@functools.lru_cache(maxsize=MEMO)
 def flag_effect(text):
     """(reads flags, kind written or None, written on every path) of one statement's original text."""
     reads = bool(FLAG_RAW.search(text))
@@ -167,6 +177,7 @@ def flag_effect(text):
     return reads, kind, always
 
 
+@functools.lru_cache(maxsize=MEMO)
 def calls_out(text):
     """Where the statement calls code that can see the Ctx: the text offsets of every call that takes it and is not a
     helper known to touch neither registers nor flags, and of the traps."""
@@ -175,9 +186,10 @@ def calls_out(text):
         name = m.group(1).split('::')[-1]
         if not (name in SAFE or name in FLAG_DEF_NAMES or name in ('cond', 'get_nzcv')):
             out.append(m.start())
-    return out
+    return tuple(out)
 
 
+@functools.lru_cache(maxsize=MEMO)
 def escapes(text):
     """Whether the statement hands the Ctx to other code (and so needs a sync)."""
     return bool(calls_out(text)) or 'return;' in text
@@ -735,10 +747,21 @@ def _norm(items):
     """The (source, via) pairs of a state, reduced: per source only the smallest vias (a larger one gets through only
     where a smaller one does), at most VIA_MAX of them (else their intersection: it gets through wherever one does).
     The result does not depend on the order of items."""
+    # A state whose sources are each there once is already what this returns, and the small states (a handful of pairs,
+    # the common ones) usually are; this runs at every join of the flow, so the check comes first. A large state (a
+    # function with hundreds of calls before it) mostly is not, and takes the slow path below.
+    out = frozenset(items)
+    seen = set()
+    for b, _ in out:
+        if b in seen:
+            break
+        seen.add(b)
+    else:
+        return out
     by = {}
-    for b, v in items:
+    for b, v in out:
         by.setdefault(b, set()).add(v)
-    out = []
+    pairs = []
     for b, vs in by.items():
         if len(vs) > 1:
             if frozenset() in vs:
@@ -749,10 +772,11 @@ def _norm(items):
                     if not any(u <= v for u in keep):
                         keep.append(v)
                 vs = [frozenset.intersection(*keep)] if len(keep) > VIA_MAX else keep
-        out.extend((b, v) for v in vs)
-    return frozenset(out)
+        pairs.extend((b, v) for v in vs)
+    return frozenset(pairs)
 
 
+@functools.lru_cache(maxsize=MEMO)
 def _flag_events(t):
     """[(pos, order, kind, arg)] of one statement's original text in text order: flag reads and definitions (arg: the
     definition is on every path), calls ('call' g, 'icall' call_indirect, 'ind' a runtime call that may run guest code,
@@ -762,7 +786,7 @@ def _flag_events(t):
         ev.append((m.start(), 0, 'read', None))
     # A mid-function hook's early return leaves the function (its 'ret' event comes first): the rest of the statement runs
     # on the one path that goes on, so a definition there is on every path that reaches what follows.
-    always = flag_effect(MIDHOOK.sub('nx_site_midhook(c, 0);', t))[2]
+    always = flag_effect(MIDHOOK.sub('nx_site_midhook(c, 0);', t) if 'nx_site_midhook' in t else t)[2]
     for m in FLAG_CALL.finditer(t):
         name = m.group(1)
         if name in ('cond', 'get_nzcv'):
@@ -799,7 +823,7 @@ def _flag_events(t):
     for m in re.finditer(r'goto ' + LABEL_DISPATCH + ';', t):
         ev.append((m.start(), 2, 'dispatch', None))
     ev.sort(key=lambda e: (e[0], e[1]))
-    return ev
+    return tuple(ev)
 
 
 def flag_flow(texts, succ, roots, falls, index, dispatch=None):

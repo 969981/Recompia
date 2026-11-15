@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwctype>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -168,6 +169,27 @@ std::wstring exe_dir() {
 bool file_exists(const std::wstring& p) {
     const DWORD a = GetFileAttributesW(p.c_str());
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+// A path inside a folder, with the platform's separator: the installed-layout checks below used a Windows backslash, which
+// std::filesystem and the shim's GetFileAttributesW read literally on POSIX, so a folder with pkp.ini was never "installed".
+std::wstring join_wide(const std::wstring& dir, const wchar_t* name) {
+#ifdef _WIN32
+    return dir + L"\\" + name;
+#else
+    return dir + L"/" + name;
+#endif
+}
+
+// A file inside a folder, with the platform's separator (the loader opens the result as a plain host path).
+std::string join_path(const std::string& dir, const char* file) {
+    if (dir.empty()) return file;
+    const char last = dir.back();
+    if (last == '/' || last == '\\') return dir + file;
+#ifdef _WIN32
+    return dir + "\\" + file;
+#else
+    return dir + "/" + file;
+#endif
 }
 // Absolute form of a path given on the command line, resolved against the current directory (before it is changed).
 std::string absolute_utf8(const std::string& p) {
@@ -326,8 +348,9 @@ extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
 int main(int argc, char** argv) {
 #endif
     nxrt_register_game_pkp();      // before anything reads it (nxrt::init, play mode, the services, the test tooling): docs/GAME_BOUNDARY.md
-#ifdef PKP_GUI_SUBSYSTEM
+#if defined(PKP_GUI_SUBSYSTEM) && defined(_WIN32)
     // Started from a terminal: show the output there. When the output is redirected to a file or a pipe (pkp --version > v.txt), leave it alone.
+    // Windows only: a macOS build has no GUI subsystem to reattach a console to.
     const HANDLE out_handle = GetStdHandle(STD_OUTPUT_HANDLE);
     if ((!out_handle || out_handle == INVALID_HANDLE_VALUE) && AttachConsole(ATTACH_PARENT_PROCESS)) {
         std::freopen("CONOUT$", "w", stdout);
@@ -368,7 +391,7 @@ int main(int argc, char** argv) {
     {
         const std::wstring base = game.empty() ? exe_dir() : widen_utf8(absolute_utf8(game));
         const char* gi = nxrt::game::info().game_ini;
-        installed = !game.empty() || file_exists(base + L"\\exefs\\main") || (*gi && file_exists(base + L"\\" + widen_utf8(gi)));
+        installed = !game.empty() || file_exists(join_wide(base, L"exefs/main")) || (*gi && file_exists(join_wide(base, widen_utf8(gi).c_str())));
         if (installed) {
             if (exefs_given) exefs = absolute_utf8(exefs);
             if (ini) { ini_abs = absolute_utf8(ini); ini = ini_abs.c_str(); }
@@ -478,7 +501,7 @@ int main(int argc, char** argv) {
         lo.name = g.file;
         lo.base = g.base;
         std::string err;
-        const std::string path = exefs + "\\" + g.file;
+        const std::string path = join_path(exefs, g.file);
         nxrt::Module* m = nullptr;
         if (packaged) {
             auto it = std::find_if(pkg.exefs.begin(), pkg.exefs.end(), [&](const nxrt::nup::File& f) { return f.path == g.file; });

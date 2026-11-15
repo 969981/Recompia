@@ -37,8 +37,11 @@ pub fn game_running(play: &play::PlayState) -> bool {
 pub enum Need {
     Game(&'static str),
     Setup(&'static str),
-    /// Play, Set up and the DLSS download write or run what an update is replacing.
+    /// Set up, the DLSS download and the other jobs that write or run what an update is replacing: refused for the whole update.
     Update,
+    /// Play: refused only once the update has begun to move files (update.rs `applying`), so the game stays playable while the
+    /// update downloads and prepares. The caller holds `UpdateState::hold_swap` from this check until its game has started.
+    Swap,
     Storage,
 }
 
@@ -52,6 +55,7 @@ pub fn ensure_idle(app: &AppHandle, needs: &[Need]) -> Result<(), String> {
             Need::Game(msg) => game_running(&app.play()).then_some(*msg),
             Need::Setup(msg) => app.setup().running().then_some(*msg),
             Need::Update => app.updates().busy().then_some(UPDATE_BUSY),
+            Need::Swap => app.updates().applying().then_some(UPDATE_BUSY),
             Need::Storage => app.storage().running.load(std::sync::atomic::Ordering::SeqCst).then_some(STORAGE_BUSY),
         };
         if let Some(msg) = refusal {

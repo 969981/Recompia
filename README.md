@@ -53,7 +53,7 @@
 > **No game files are included.** You need your own extracted copy of the game, version **2.0.1a**. This project provides no game files, keys or dumping tools. Not affiliated with Nintendo, The Pokémon Company or Koei Tecmo; Pokémon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. (see [LEGAL.md](LEGAL.md)).
 
 > [!NOTE]
-> **Built with AI, supervised by a human.** This project is developed primarily with AI, with me as the supervisor. I have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by me before it lands.
+> **Built with AI, supervised by humans.** This project is developed primarily with AI, with Dittobyte developers as the supervisors. Note on Josh - They say they have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by before it lands.
 
 ## Screenshots
 
@@ -83,7 +83,7 @@
 - If a save can't be written (a full disk, OneDrive or antivirus holding the file), your last good save is kept and the game tells you.
 
 ### Easy setup
-- **Use your dump as it comes:** a folder (with `base` and `updates`) or a single `.nup` file.
+- **Use your dump as it comes:** a folder (with `base` and `updates`) or a single `.nup` or `.nx` file.
 - **Clear messages if something is wrong with your dump:** the wrong game version, a missing update, or files damaged while copying. The launcher tells you what to do.
 - **Checks before it starts:** enough disk space, a working graphics driver, enough memory.
 - **Use fewer cores** keeps your PC usable while it builds. You can pause and carry on later.
@@ -102,7 +102,7 @@
 ### Steam Deck and handhelds
 - Steam Deck, Legion Go S and other handhelds are recognised: controller icons stay on screen and the picture size suits the screen.
 - 16:10 screens are filled edge to edge, with no black bars.
-- Runs through Proton on SteamOS, with handheld speed-ups (about 26 to 53 fps on a Steam Deck and 55 to 75 fps on a Legion Go S, measured by players).
+- Runs natively on SteamOS, with handheld speed-ups (about 26 to 53 fps on a Steam Deck and 55 to 75 fps on a Legion Go S, measured by players).
 - The launcher runs on Linux and SteamOS too: see [Linux, SteamOS and the Steam Deck](#linux-steamos-and-the-steam-deck).
 
 ### Graphics
@@ -126,10 +126,11 @@ F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode (point 
 
 ### Linux, SteamOS and the Steam Deck
 
-1. In Steam, install **Proton Experimental** (Library, Tools; on a Steam Deck switch to Desktop Mode first).
-2. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere (for example your home folder).
-3. Run `PokopiaLauncher.AppImage` in that folder (double-click it, or `./PokopiaLauncher.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache through Proton. You can pause and continue later.
-4. Press **Play**. The game itself runs through Steam's Proton.
+1. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest) and extract it anywhere (for example your home folder).
+2. Run `PokopiaLauncher.AppImage` in that folder (double-click it, or `./PokopiaLauncher.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache. You can pause and continue later.
+3. Press **Play**.
+
+Nothing runs through Proton or Wine: the launcher, the game, the shader translator and the build tools are all native Linux programs.
 
 If `PokopiaLauncher.AppImage` does not start on a system without FUSE, run `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
@@ -163,11 +164,11 @@ Se o download tiver uma pasta externa (por exemplo `2.0.1/romfs/...`), escolha a
 
 Your saves, settings and shaders stay.
 
-**From 0.7.5 on:** press **Update** on Home (or in Settings > About). The launcher downloads the new release, checks it, swaps its own files and restarts.
+**From 0.7.5 on:** press **Update** on Home (or in Settings > About). The launcher downloads the new release, checks it, swaps its own files and restarts. When the release changes the game code, the launcher first builds the new game program (`pkp.exe`) next to the one you have, with the new release's own tools. That takes from a few minutes to an hour, depending on your PC, and you can keep playing the whole time: Home shows the progress, and the update installs once the game is closed. **Cancel** stops it until then and changes nothing; the next **Update** picks up where it stopped.
 
 **From 0.7.0 or older:** download the new zip (Windows) or `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) from the [latest release](https://github.com/featureJosh/pokopia-recomp/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
 
-**If Home shows Finish update after an update:** that release changed the game code, so the launcher builds the game program (`pkp.exe`) again from your game files. It also happens when you skipped such a release earlier and update later. This is a short wait, about 7 minutes on most PCs and a bit longer on a handheld, because your shaders and saves are kept. It is not the long first setup: shaders are only translated again when the release notes say so, and then only the ones that changed. The old `pkp.exe` stays until the new one is ready.
+**If Home shows Finish update after an update:** that release changed the game code and it could not be built before the update (an install that was extracted by hand, or an older version picked in Settings), so the launcher builds the game program (`pkp.exe`) again from your game files. It also happens when you skipped such a release earlier and update by hand later. This takes from a few minutes to an hour, depending on your PC, and your shaders and saves are kept. It is not the long first setup: shaders are only translated again when the release notes say so, and then only the ones that changed. The old `pkp.exe` stays until the new one is ready.
 
 Copy the `save` folder somewhere first if you want a backup. A save that a newer version wrote may not load in an older one.
 
@@ -185,7 +186,7 @@ Link Play puts several players on one island. Cross-play works with pokopia-nati
 |---|---|
 | Off | No Link Play. |
 | Same network | The default. Same Wi-Fi or network: the host is found by itself. If not, type the host's address, for example `192.0.2.10` (under **This PC** on the host's page), in **Join directly**. |
-| Internet | **Host** or **Visit** over the internet with a room code, through a relay or a forwarded port. |
+| Internet | Play over the internet. Every room shows up in the game's **Visit a Friend** list: no room code, nothing to forward. |
 
 Changes apply the next time the game starts.
 
@@ -193,7 +194,7 @@ Changes apply the next time the game starts.
 
 **Same network.** Everyone picks **Same network**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
 
-**Over the internet.** Nothing to forward: the launcher uses the project's public relay. The host picks **Internet** -> **Host** and sends the room code; the visitor picks **Internet** -> **Visit** and types it. Your own relay or a forwarded port are under **Advanced**; any pokopia-native co-op relay works there too, and `PokopiaLauncher --host` runs one on a server. **[Step by step, and what to check when it does not connect](docs/multiplayer/README.md#step-by-step-over-the-internet).** The relay checks the room code but does not encrypt the game's traffic.
+**Over the internet.** Everyone picks **Internet**. Nothing to forward and no code to type: the launcher uses the project's public relay, and every room on it shows up in the game's **Visit a Friend** list. For a private room, say yes when the game asks to set a **Link Code**: only players who type it can join. Your own relay or a forwarded port are under **Advanced**; any pokopia-native co-op relay works there too, and `PokopiaLauncher --host` runs one on a server. **[The Link Play guide](docs/link-play.md)** has the steps and what to check when it does not connect; [the full multiplayer page](docs/multiplayer/README.md) has relays and ports. The relay does not encrypt the game's traffic.
 
 **Ports and firewall.** The first time you host, Windows Firewall asks about `pkp.exe`: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**).
 
@@ -202,18 +203,19 @@ Changes apply the next time the game starts.
 | 47600 | the host | TCP and UDP |
 | 47610 | the relay | TCP, and UDP for the faster path |
 
-**Interact everywhere and Story co-op (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. **Story co-op** lets them talk to the story characters, and turns Interact everywhere on. Every player needs the same two switches, or the host is not listed. Only the host's save keeps the story progress.
+**Interact everywhere and Seamless co-op (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. **Seamless co-op** lets every player play their own story in the host's world, with their own requests and talks, saved in their own save; it turns Interact everywhere on. Every player needs the same two switches, or the host is not listed.
 
 Link Play: joining and walking around together work. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
 
 ## Common problems
 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
+- **Windows says "Smart App Control blocked" the launcher, the setup or the game.** Smart App Control only runs programs that are digitally signed or already known to Microsoft, and it has no **Run anyway** button. The game (`pkp.exe`) is compiled on your own PC during setup, so it can never carry a signature. Turn Smart App Control off: **Windows Security**, **App & browser control**, **Smart App Control settings**, **Off**. On some Windows 11 versions it cannot be turned back on without resetting Windows, so read Windows' own message before you confirm. Then run `PokopiaLauncher.exe` again and press **Set up** if it stopped.
 - **The launcher says the game files are from an older version, or that the update is missing.** This release needs version 2.0.1a. Dump the game again with the update installed. The base game alone is not enough.
 - **The launcher says it found no usable game files, or Set up says a file does not match.** Pick the folder that holds `base` and `updates` (for example `Pokopia_v2.0.1a`). Each needs `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) and `romfs`. A file that does not match is damaged. Dump it again, or copy it again.
 - **The launcher says the game data (romfs) is incomplete, or the game closed at start with "pkp.exe exited with code 4".** Your dumping tool wrote the update's `romfs` without the base game's files under it (an update only holds the files it changes). Keep the base game in the same dump (`base` next to `updates`, each with `exefs` and `romfs`) and pick the folder that holds both: the launcher adds the missing files from `base` itself. Then press **Set up** once more. Otherwise dump the game again with the update merged into the base game.
 - **The launcher says the dump was copied in text mode.** You copied it with FTP in text mode, which damages `main`, `sdk` and `subsdk0`. Copy the `exefs` and `romfs` folders again with the transfer type set to **Binary** (FileZilla: Transfer, Transfer type, Binary).
-- **Your dump is one file** (`.nsp`, `.xci`). The launcher takes the game as folders, or as a `.nup`. Extract the `.nsp` or `.xci` to folders with your dumping tool.
+- **Your dump is one file** (`.nsp`, `.xci`). The launcher takes the game as folders, or as a `.nup` or `.nx` package (an `.nx` made from extracted files or from a `.nup`, not straight from the `.nsp` or `.xci`). Extract the `.nsp` or `.xci` to folders with your dumping tool.
 - **Setup stops with an error about a file that cannot be opened or removed.** Put the folder somewhere plain, like `C:\Pokopia`, not in a folder that OneDrive syncs. Your antivirus may be scanning the files it is building: wait for it, or allow the folder. **Open setup log** shows where it stopped.
 - **Set up warns before it starts.** It checks free disk space (about 14 GB with packed shader files, the default, or about 31 GB with loose ones), Vulkan, memory and the processor first. On an Intel 13th or 14th generation desktop CPU, update the BIOS before you set up: without Intel's fix these CPUs can crash under long full load. If the PC gets hot or hard to use while it builds, tick **Use fewer cores**.
 - **Low frame rate, or a blurry picture.** The picture size is fixed when the game starts. It is the size of the window or screen at that moment (**Settings**, **Display**).
@@ -238,7 +240,7 @@ All of these are in the game folder: the folder with `PokopiaLauncher.exe` and `
 | Log | `pkp.log`, written on every start from the launcher. A crash also writes `pkp_crash.txt`, `pkp_freeze.txt` or `pkp_fatal.txt`. |
 | Translated shaders | `shader_cache` (about 26 GB) |
 | Build files | `build` (the setup's work folder) |
-| Unpacked `.nup` | `nup_dump`, if you picked a `.nup` (its add-ons, if any, in `nup_dump/aoc`) |
+| Unpacked `.nup` or `.nx` | `nup_dump`, if you picked a `.nup` or `.nx` (its add-ons, if any, in `nup_dump/aoc`) |
 | Launcher settings | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (your dump folder and game folder) |
 
 Never attach game files, the `build` or `shader_cache` folders, or saves to an issue. `pkp.log` is enough.

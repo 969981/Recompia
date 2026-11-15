@@ -26,8 +26,10 @@ pub fn overview_of(cfg: &Config) -> Overview {
     let dir = game_dir_of(cfg);
     Overview {
         game_dir: dump::fwd(&dir),
-        default_game_dir: dump::fwd(&exe_dir()),
-        exe_exists: dir.join("pkp.exe").is_file(),
+        // the folder a fresh install starts from, not the launcher's own: inside a .app that is the bundle's Contents, and
+        // the settings page offered it as the Install folder (a save then wrote it back, and Set up and Play worked in it)
+        default_game_dir: dump::fwd(&crate::paths::default_game_dir()),
+        exe_exists: crate::host::game_exe(&dir).is_file(),
         builds_exe: gamebuild::is_package_b(&exe_dir().join("tools")),
     }
 }
@@ -73,10 +75,10 @@ pub struct ReadyFacts {
 
 pub fn readiness_of(f: &ReadyFacts) -> Readiness {
     if !f.builds_exe && !f.exe_exists {
-        return Readiness::of("no_exe", format!("pkp.exe was not found in {}. Put the launcher next to pkp.exe.", f.game_dir));
+        return Readiness::of("no_exe", format!("{} was not found in {}. Put the launcher next to {}.", crate::host::game_exe_name(), f.game_dir, crate::host::game_exe_name()));
     }
     if f.exe_exists && f.runtime_missing {
-        return Readiness::of("no_runtime", format!("pkp_rt.dll was not found next to pkp.exe in {} nor next to the launcher. Extract the release again so the launcher's folder has it, or set the game folder in Settings.", f.game_dir));
+        return Readiness::of("no_runtime", format!("{} was not found next to {} in {} nor next to the launcher. Extract the release again so the launcher's folder has it, or set the game folder in Settings.", crate::host::runtime_lib_name(), crate::host::game_exe_name(), f.game_dir));
     }
     let unfinished = || {
         if f.started {
@@ -136,6 +138,35 @@ pub fn setup_started(dir: &Path) -> bool {
 
 /// The one answer to "can Play run": the Play command and the page's main button both come here, so they cannot disagree.
 pub fn readiness(cfg: &Config) -> Probe {
+    // macOS: the game is a native build and reads its own pkp.ini. When the package carries the builder, pkp does not exist
+    // until Set up has built it from the player's dump, so a missing pkp is "press Set up", not "no executable".
+    if crate::host::native_game() {
+        let dir = game_dir_of(cfg);
+        let refuse = |r: Readiness| Probe { readiness: r, paths: None, dump: None };
+        let tools = crate::paths::exe_dir().join("tools");
+        let package_b = crate::gamebuild::is_package_b(&tools);
+        let exe = crate::host::game_exe(&dir);
+        if package_b {
+            if cfg.dump_dir.trim().is_empty() {
+                return refuse(Readiness::of("no_files", "Choose your game files first."));
+            }
+            if !exe.is_file() || !crate::gamebuild::is_built(&dir, &tools) {
+                return refuse(Readiness::of("setup", "Press Set up to build the game from your files and prepare its shaders."));
+            }
+        } else if !exe.is_file() {
+            return refuse(Readiness::of(
+                "no_exe",
+                format!("{} was not found in {}. Put it there or set the game folder in Settings.", crate::host::game_exe_name(), dump::fwd(&dir)),
+            ));
+        }
+        if !dir.join(crate::settings::PKP_INI).is_file() {
+            return refuse(Readiness::of("no_files", format!("pkp.ini was not found in {}. It needs [fs] exefs and [fs] romfs.", dump::fwd(&dir))));
+        }
+        if !crate::shaders::is_complete(&dir) {
+            return refuse(Readiness::of("setup", "Press Set up to extract and translate the game's shaders."));
+        }
+        return Probe { readiness: Readiness::of("ready", ""), paths: None, dump: None };
+    }
     let refuse = |r: Readiness| Probe { readiness: r, paths: None, dump: None };
     let picked = cfg.dump_dir.trim();
     if picked.is_empty() {
@@ -169,8 +200,8 @@ pub fn readiness(cfg: &Config) -> Probe {
     };
     let readiness = readiness_of(&ReadyFacts {
         game_dir: dump::fwd(&dir),
-        exe_exists: dir.join("pkp.exe").is_file(),
-        runtime_missing: !dir.join("pkp_rt.dll").is_file() && !exe_dir().join("pkp_rt.dll").is_file(),
+        exe_exists: crate::host::game_exe(&dir).is_file(),
+        runtime_missing: !crate::host::runtime_lib(&dir).is_file() && !crate::host::runtime_lib(&exe_dir()).is_file(),
         builds_exe,
         built: if builds_exe { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current },
         mod_plan_changed: gamebuild::mod_plan_changed(&dir),

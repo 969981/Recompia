@@ -41,11 +41,14 @@
     <!-- Call arguments stay locals (SPIR-V GenerateCall); see the patch header. -->
     <ShaderPatch Include="spirv-call-args.patch" File="StructuredIr/AstOptimizer.cs" />
     <ShaderPatch Include="spirv-g2s-c0-base.patch" File="Translation/Optimizations/GlobalToStorage.cs" />
+    <!-- Set up speed: the hot types are interned once per module, and the per-block LINQ sort of the predecessors is gone. -->
+    <ShaderPatch Include="spirv-type-cache.patch" File="CodeGen/Spirv/CodeGenContext.cs" />
+    <ShaderPatch Include="structured-predecessors.patch" File="StructuredIr/StructuredProgramContext.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="$(ShaderSrc)**/*.cs"
-             Exclude="$(ShaderSrc)bin/**;$(ShaderSrc)obj/**;$(ShaderSrc)CodeGen/Spirv/SpirvGenerator.cs;$(ShaderSrc)Instructions/InstEmitFloatArithmetic.cs;$(ShaderSrc)IntermediateRepresentation/IoVariable.cs;$(ShaderSrc)CodeGen/Spirv/IoMap.cs;$(ShaderSrc)CodeGen/Glsl/Instructions/IoMap.cs;$(ShaderSrc)CodeGen/Spirv/Declarations.cs;$(ShaderSrc)Instructions/InstEmit.cs;$(ShaderSrc)Decoders/RegisterConsts.cs;$(ShaderSrc)StructuredIr/AstOptimizer.cs;$(ShaderSrc)Translation/Optimizations/GlobalToStorage.cs" />
+             Exclude="$(ShaderSrc)bin/**;$(ShaderSrc)obj/**;$(ShaderSrc)CodeGen/Spirv/SpirvGenerator.cs;$(ShaderSrc)CodeGen/Spirv/CodeGenContext.cs;$(ShaderSrc)StructuredIr/StructuredProgramContext.cs;$(ShaderSrc)Instructions/InstEmitFloatArithmetic.cs;$(ShaderSrc)IntermediateRepresentation/IoVariable.cs;$(ShaderSrc)CodeGen/Spirv/IoMap.cs;$(ShaderSrc)CodeGen/Glsl/Instructions/IoMap.cs;$(ShaderSrc)CodeGen/Spirv/Declarations.cs;$(ShaderSrc)Instructions/InstEmit.cs;$(ShaderSrc)Decoders/RegisterConsts.cs;$(ShaderSrc)StructuredIr/AstOptimizer.cs;$(ShaderSrc)Translation/Optimizations/GlobalToStorage.cs" />
     <Compile Include="$(PatchedDir)CodeGen/Spirv/SpirvGenerator.cs" />
     <Compile Include="$(PatchedDir)Instructions/InstEmitFloatArithmetic.cs" />
     <Compile Include="$(PatchedDir)IntermediateRepresentation/IoVariable.cs" />
@@ -56,6 +59,8 @@
     <Compile Include="$(PatchedDir)Decoders/RegisterConsts.cs" />
     <Compile Include="$(PatchedDir)StructuredIr/AstOptimizer.cs" />
     <Compile Include="$(PatchedDir)Translation/Optimizations/GlobalToStorage.cs" />
+    <Compile Include="$(PatchedDir)CodeGen/Spirv/CodeGenContext.cs" />
+    <Compile Include="$(PatchedDir)StructuredIr/StructuredProgramContext.cs" />
     <!-- Ampere front end: SassInst -> Ryujinx IR (partial InstEmit and translator internals, hence in this assembly). -->
     <Compile Include="$(MSBuildThisFileDirectory)../../ampere/frontend/*.cs" />
     <EmbeddedResource Include="$(ShaderSrc)CodeGen/Glsl/HelperFunctions/*.glsl"

@@ -6,6 +6,7 @@
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
 #include "nvn_gpu_texture_internal.h"
+#include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
 
 namespace nxrt::nvn::be {
 static uint64_t g_wgen_next = 0;                        // render thread only (move_layout, the replay)
@@ -115,6 +116,12 @@ static bool read_only_layout(VkImageLayout l) {
            l == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || l == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
 }
 
+// A side of an image made at a resolution scale: the whole pixels the scaled NVN side covers. Rounded down: a pass's viewport is the
+// NVN rectangle times the scale, so a side rounded up has a last row or column whose pixel centres lie outside it, and no draw reaches
+// them. An 80x45 target at 0.5 was 40x23 with 22.5 rows drawn; the 23rd row kept what the memory held, and the passes that sample the
+// target by UV spread it over the bottom of the frame as a band. The 0.001 keeps a product that is whole but for the float's error.
+static uint32_t scaled_side(uint32_t side, float scale) { return static_cast<uint32_t>(std::floor(static_cast<float>(side) * scale + 0.001f)); }
+
 TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto* g = new TexGpu();
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live_set.insert(g); }
@@ -214,10 +221,12 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     if (!g->depth && !is_block_format(chosen)) {
         add(VK_IMAGE_USAGE_STORAGE_BIT);
         // sRGB formats have no storage support. The console's image stores write the raw bits (no sRGB encode), which is what a UNORM view
-        // of the same image does: storage usage is then allowed through EXTENDED_USAGE when the UNORM partner can be stored to.
+        // of the same image does: storage usage is then allowed through EXTENDED_USAGE when the UNORM partner can be stored to and the sRGB
+        // image itself is accepted with it (Intel's Windows driver refuses sRGB + STORAGE even with EXTENDED_USAGE: the image would not be made).
         const VkFormat unorm = is_srgb(chosen) ? srgb_partner(chosen) : VK_FORMAT_UNDEFINED;
         if (!(usage & VK_IMAGE_USAGE_STORAGE_BIT) && unorm != VK_FORMAT_UNDEFINED && (flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-            device().image_supported(make_desc(s, unorm, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags))) {
+            device().image_supported(make_desc(s, unorm, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags)) &&
+            device().image_supported(make_desc(s, chosen, usage | VK_IMAGE_USAGE_STORAGE_BIT, flags | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))) {
             flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
             usage |= VK_IMAGE_USAGE_STORAGE_BIT;
         }
@@ -234,7 +243,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     Shape is = s;
     if (want_scale != 1.0f && !g->transcoded && !is_block_format(chosen)) {
         const uint32_t lim = device().properties().limits.maxImageDimension2D;
-        const uint32_t w = static_cast<uint32_t>(std::lround(s.base.width * want_scale)), h = static_cast<uint32_t>(std::lround(s.base.height * want_scale));
+        const uint32_t w = scaled_side(s.base.width, want_scale), h = scaled_side(s.base.height, want_scale);
         if (w >= 1 && h >= 1 && w <= lim && h <= lim) {
             is.base.width = w;
             is.base.height = h;
@@ -330,7 +339,7 @@ void copy_regions_to_image(Frame& f, TexGpu& g, VkBuffer buf, const std::vector<
 // image uploaded once kept the old glyph set and every later new glyph drew as nothing. The storage pages of an uploaded coherent texture
 // are therefore armed in one write-watch region over the heap (nxrt/write_watch.h), before the storage is read for the upload. At the start
 // of every submission the pages the CPU wrote since are handed to textures_cpu_wrote, as a flush of them would be: the textures there are
-// uploaded again before their next use (and armed again). A texture the GPU renders to is not armed. [nvn] tex_write_watch = auto (off under Wine) | true | false.
+// uploaded again before their next use (and armed again). A texture the GPU renders to is not armed. [nvn] tex_write_watch = auto (off on Linux) | true | false.
 static mem::ww::Region* g_tex_ww = nullptr;
 static bool g_tex_ww_tried = false;
 static std::vector<uint64_t> g_tex_ww_pages;
@@ -338,12 +347,12 @@ static std::vector<uint64_t> g_tex_ww_pages;
 static mem::ww::Region* tex_ww() {
     if (!g_tex_ww_tried) {
         g_tex_ww_tried = true;
-        // auto (default): off under Wine (Proton, SteamOS). There the heap is private memory imported as amdgpu userptr BOs, and
+        // auto (default): off on Linux (Proton or native). There the heap is private memory imported as amdgpu userptr BOs, and
         // making those pages read-only invalidates the BOs: the next submission loses the device (#169, Legion Go S and Steam Deck).
         const std::string v = nxrt::config_get_str("nvn", "tex_write_watch", "auto");
-        const bool on = v == "auto" ? !nxrt::host_is_wine() : (v == "on" || v == "1" || v == "true");
+        const bool on = v == "auto" ? !nxrt::host_is_linux() : (v == "on" || v == "1" || v == "true");
         NXLOG_I(kTag, "tex_write_watch %s (%s%s)", on ? "on" : "off", v.c_str(),
-                v == "auto" ? (nxrt::host_is_wine() ? ", Wine" : ", not Wine") : "");
+                v == "auto" ? (nxrt::host_is_linux() ? ", Linux" : ", not Linux") : "");
         if (on && mem::heap_exists())
             g_tex_ww = mem::ww::region_create(mem::kHeapBase, mem::heap_reserved());
     }
@@ -446,7 +455,9 @@ void tex_ww_arm_later(Texture* t, const TexGpu& g, bool have_hash, uint64_t hash
     std::lock_guard<std::mutex> lk(aq.mu);
     if (!aq.started) {
         aq.started = true;
-        std::thread(arm_worker).detach();
+        BigThread t;
+        t.start("nvn-tex-arm", 16, arm_worker);
+        t.detach();
     }
     ArmJob j;
     j.t = Ref<Texture>::share(t);
@@ -495,8 +506,8 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     if (to != 1.0f && (g->scale_blocked || g->transcoded || is_block_format(g->format))) return false;
     Shape s = shape_of(*t);
     if (to != 1.0f) {
-        s.base.width = static_cast<uint32_t>(std::lround(s.base.width * to));
-        s.base.height = static_cast<uint32_t>(std::lround(s.base.height * to));
+        s.base.width = scaled_side(s.base.width, to);
+        s.base.height = scaled_side(s.base.height, to);
     }
     gfx::Image ni;
     std::string err;

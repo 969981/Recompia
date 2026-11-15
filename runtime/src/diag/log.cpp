@@ -160,6 +160,9 @@ const char* log_path() {
 
 void log_set_thread_name(const char* name) {
     std::snprintf(t_name, sizeof t_name, "%s", name ? name : "");
+#if !defined(_WIN32)
+    nxos_set_thread_name(t_name);   // the signal handler prints it without a libc call (an exhausted stack cannot take one)
+#endif
     ThreadName e;
     e.tid = GetCurrentThreadId();
     FILETIME created, exited, kernel_t, user_t;
@@ -191,6 +194,7 @@ LogLevel log_parse_level(const char* s, LogLevel fallback) {
     if (v == "info") return LogLevel::Info;
     if (v == "debug") return LogLevel::Debug;
     if (v == "trace") return LogLevel::Trace;
+    if (v == "off" || v == "none" || v == "silent") return LogLevel::Off;
     if (v.size() == 1 && v[0] >= '0' && v[0] <= '4') return static_cast<LogLevel>(v[0] - '0');
     return fallback;
 }

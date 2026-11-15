@@ -50,7 +50,7 @@ function noteHead(r, s) {
     ${open}${action}`;
 }
 
-const BANNER = () => t('A Testing build: newer than the latest stable release and less tested. You are on Testing: please tell us what you find and attach pkp.log (Settings > About > Report a problem).');
+const BANNER = () => t('A Testing build: less tested than the stable releases. You are on Testing: please tell us what you find and attach pkp.log (Settings > About > Report a problem).');
 
 /** A note's body. Testing notes (and the overview) get their regressions as a highlighted block at the top, and a banner. */
 function noteBody(r) {

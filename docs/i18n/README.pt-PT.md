@@ -74,7 +74,7 @@
 - Se um save não puder ser escrito (disco cheio, OneDrive ou antivírus a segurar o ficheiro), o seu último save bom é mantido e o jogo avisa-o.
 
 ### Configuração fácil
-- **Use o seu dump tal como está:** uma pasta (com `base` e `updates`) ou um único ficheiro `.nup`.
+- **Use o seu dump tal como está:** uma pasta (com `base` e `updates`) ou um único ficheiro `.nup` ou `.nx`.
 - **Mensagens claras se algo estiver mal com o seu dump:** versão errada do jogo, atualização em falta ou ficheiros danificados durante a cópia. O launcher diz o que fazer.
 - **Verificações antes de começar:** espaço em disco suficiente, um controlador gráfico a funcionar, memória suficiente.
 - **Use fewer cores** mantém o seu PC utilizável enquanto compila. Pode pausar e continuar mais tarde.
@@ -210,7 +210,7 @@ Link Play: entrar e andar juntos funcionam. Ver [docs/multiplayer](../multiplaye
 - **O launcher diz que não encontrou ficheiros do jogo utilizáveis, ou o Set up diz que um ficheiro não corresponde.** Escolha a pasta que contém `base` e `updates` (por exemplo `Pokopia_v2.0.1a`). Cada uma precisa de `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) e `romfs`. Um ficheiro que não corresponde está danificado. Faça o dump dele de novo, ou copie-o de novo.
 - **O launcher diz que os dados do jogo (romfs) estão incompletos, ou o jogo fechou no arranque com "pkp.exe exited with code 4".** A sua ferramenta de dump escreveu o `romfs` da atualização sem os ficheiros do jogo base por baixo (uma atualização só contém os ficheiros que altera). Mantenha o jogo base no mesmo dump (`base` ao lado de `updates`, cada um com `exefs` e `romfs`) e escolha a pasta que contém os dois: o launcher acrescenta sozinho os ficheiros em falta a partir de `base`. Depois prima **Set up** mais uma vez. Caso contrário, faça novamente o dump do jogo com a atualização integrada no jogo base.
 - **O launcher diz que o dump foi copiado em modo de texto.** Copiou-o por FTP em modo de texto, o que danifica `main`, `sdk` e `subsdk0`. Copie de novo as pastas `exefs` e `romfs` com o tipo de transferência em **Binary** (FileZilla: Transferência, Tipo de transferência, Binário).
-- **O seu dump é um único ficheiro** (`.nsp`, `.xci`). O launcher aceita o jogo em pastas, ou como `.nup`. Extraia o `.nsp` ou o `.xci` para pastas com a sua ferramenta de dump.
+- **O seu dump é um único ficheiro** (`.nsp`, `.xci`). O launcher aceita o jogo em pastas, ou como `.nup` ou `.nx`. Extraia o `.nsp` ou o `.xci` para pastas com a sua ferramenta de dump.
 - **A configuração pára com um erro sobre um ficheiro que não pode ser aberto ou removido.** Ponha a pasta num local simples, como `C:\Pokopia`, e não numa pasta que o OneDrive sincroniza. O seu antivírus pode estar a analisar os ficheiros que ele está a gerar: espere, ou autorize a pasta. **Open setup log** mostra onde parou.
 - **O Set up avisa antes de começar.** Verifica primeiro o espaço livre em disco (cerca de 14 GB com ficheiros de shaders empacotados, a predefinição, ou cerca de 31 GB com ficheiros soltos), o Vulkan, a memória e o processador. Num processador de secretária Intel de 13.ª ou 14.ª geração, atualize a BIOS antes de configurar: sem a correção da Intel, estes processadores podem falhar sob carga total prolongada. Se o PC aquecer ou ficar difícil de usar enquanto compila, assinale **Use fewer cores**.
 - **Taxa de fotogramas baixa, ou imagem desfocada.** O tamanho da imagem é fixado quando o jogo arranca. É o tamanho da janela ou do ecrã nesse momento (**Settings**, **Display**).
@@ -235,7 +235,7 @@ Tudo isto está na pasta do jogo: a pasta com `PokopiaLauncher.exe` e `pkp.exe`,
 | Registo | `pkp.log`, escrito a cada arranque a partir do launcher. Uma falha também escreve `pkp_crash.txt`, `pkp_freeze.txt` ou `pkp_fatal.txt`. |
 | Shaders traduzidos | `shader_cache` (cerca de 26 GB) |
 | Ficheiros de compilação | `build` (a pasta de trabalho da configuração) |
-| `.nup` descompactado | `nup_dump`, se escolheu um `.nup` (os add-ons dele, se existirem, em `nup_dump/aoc`) |
+| `.nup` ou `.nx` descompactado | `nup_dump`, se escolheu um `.nup` ou `.nx` (os add-ons dele, se existirem, em `nup_dump/aoc`) |
 | Definições do launcher | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (a pasta do seu dump e a pasta do jogo) |
 
 Nunca anexe ficheiros do jogo, as pastas `build` ou `shader_cache`, nem saves a uma issue. O `pkp.log` chega.

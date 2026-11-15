@@ -131,9 +131,11 @@ let dumpDir = sc.dump ? 'D:/Dumps/Pokopia' : '';
 let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
+let mockLook = { logo: '', icon: '' };
+let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
-const BACK = ['The game files may have to be built again for the older version, so Set up again can be asked (about 15 to 20 minutes).', 'Files that only the newer version has stay in the folder; they are not removed.'];
+const BACK = ['The game code may have to be built again for the older version, before it is installed or with Set up again after it: from a few minutes to an hour, depending on your PC.', 'Files that only the newer version has stay in the folder; they are not removed.'];
 const MOCK_BUILDS = [
   { tag: 'v0.8.1-beta.7', name: 'Pokopia Recomp 0.8.1-beta.7 (Testing)', date: '2026-11-09T12:00:00Z', prerelease: true, installable: true, relation: 'newer', risk: 'none', reasons: [], url: 'https://github.com/featureJosh/Recompia/releases/tag/v0.8.1-beta.7',
     notes: '### Regressions and known problems\n- Going back to an older build has only been tried in tests so far\n\n### What to test\n- Open Choose a version and read a note. Report: what the list showed' },
@@ -149,6 +151,7 @@ const mockBackups = [
   { version: 1, name: '20261108-142000-auto', created: '2026-11-08T19:20:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825000, hash: 'b' },
 ];
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
+const mockPlayTimes = { default: 13104 };   // 3 h 38 min; a profile added in the mock has none yet
 
 const settings = {
   game_dir: GAME_DIR,
@@ -156,7 +159,7 @@ const settings = {
   controls_exists: !sc.noControls,
   pkp: {
     'fs.romfs': 'D:/Dumps/Pokopia/updates/2.0.1a/romfs', 'fs.save_dir': '', 'audio.volume': '0.8',
-    'net.protocol': 'native', 'net.mode': 'auto', 'net.internet': 'false', 'net.relay': '', 'net.room_code': '', 'net.server': 'auto',
+    'net.protocol': 'native', 'net.mode': 'auto', 'net.internet': 'false', 'net.relay': '', 'net.server': 'auto',
     'pkp.link_interact_everywhere': '0', 'pkp.link_story_coop': '0',
   },
   controls: sc.noControls ? {} : {
@@ -224,36 +227,73 @@ async function runPlay() {
 }
 
 let setupTimer = null;
-const STEPS = [['verify', 'Checking your game files...'], ['lift', 'Reading the game code...'], ['compile', 'Building the game...'], ['translate', 'Translating shaders...']];
+
+// The real sequence, as the build script and the shader job report it (pkp_build.py's `@progress`, shaders.rs): every
+// phase has its own count, and the lift's message names the module and the step it is in. Compressed in time.
+const MODULES = [['main', 230], ['sdk', 45], ['subsdk0', 4], ['rtld', 1]];
+const LIFT_TOTAL = MODULES.reduce((n, m) => n + m[1], 0) * 1000;
+const DUMP_FILES = ['main', 'main.npdm', 'rtld', 'sdk', 'subsdk0'];
+
+/** pkp_build.py lift(): a module's shards are its share, and inside it the passes are 2 % discovery, 60 % flags, 38 % text. */
+function liftAt(f) {
+  const done = f * LIFT_TOTAL;
+  let k = 0;
+  let at = 0;
+  while (k < MODULES.length - 1 && done >= at + MODULES[k][1] * 1000) {
+    at += MODULES[k][1] * 1000;
+    k += 1;
+  }
+  const inner = Math.min(1, (done - at) / (MODULES[k][1] * 1000));
+  const step = inner < 0.02 ? 'reading the game code' : inner < 0.62 ? 'working out the flags' : 'writing the code';
+  return { done: Math.round(done), total: LIFT_TOTAL, message: `Translating the game code: ${MODULES[k][0]} (${k + 1} of ${MODULES.length}), ${step}` };
+}
+
+const PLAN = [
+  { phase: 'verify', ms: 500, ticks: 3, at: (f) => ({ done: Math.round(f * 5), total: 5, message: f >= 1 ? 'Game files match 2.0.1a' : `Checking your game files: ${DUMP_FILES[Math.min(4, Math.round(f * 5))]}` }) },
+  { phase: 'lift', ms: 7000, ticks: 140, at: liftAt },
+  { phase: 'compile', ms: 5000, ticks: 50, at: (f) => ({ done: Math.round(f * 284), total: 284, message: `Compiling: ${Math.round(f * 284)} of 284` }) },
+  { phase: 'link', ms: 700, ticks: 2, at: (f) => ({ done: f >= 1 ? 1 : 0, total: 1, message: f >= 1 ? 'pkp.exe built' : 'Linking pkp.exe' }) },
+  { phase: 'finish', ms: 700, ticks: 2, at: (f) => ({ done: f >= 1 ? 1 : 0, total: 1, message: f >= 1 ? 'pkp.exe is ready (68 s)' : 'Removing the build files' }) },
+  { phase: 'extract', ms: 1200, ticks: 6, at: (f) => ({ done: Math.round(f * 4), total: 4, message: f > 0 ? `Scanning game files: ${Math.round(f * 4)} of 4` : "Finding the game's shaders in your game files..." }) },
+  { phase: 'recheck', ms: 600, ticks: 3, at: (f) => ({ done: Math.round(f * 99012), total: 99012, message: 'Checking the shaders an earlier version translated...' }) },
+  { phase: 'translate', ms: 5000, ticks: 50, at: (f) => ({ done: Math.round(f * 99012), total: 99012, message: `Translating shaders: ${Math.round(f * 99012)} of 99,012` }) },
+];
 
 function runSetup() {
   if (setup.progress.state === 'running') throw 'Setup is already running.';
-  let done = setup.progress.done || 0;
-  const total = 1000;
-  const tick = () => {
-    done += 6;
-    const [phase, message] = STEPS[Math.min(STEPS.length - 1, Math.floor((done / total) * STEPS.length))];
-    setup.progress = progress('running', { phase, done, total, message: `${message} ${done} of ${total}` });
-    emit('setup-status', setup.progress);
-    if (done >= total) {
-      clearInterval(setupTimer);
+  let i = 0;
+  let n = 0;
+  const next = () => {
+    if (i >= PLAN.length) {
       setup = sstatus();
       readiness = { kind: 'ready', detail: '' };
       emit('setup-status', progress('done', { message: 'Setup finished.' }));
+      return;
     }
+    const p = PLAN[i];
+    n += 1;
+    const f = Math.min(1, n / p.ticks);
+    setup.progress = progress('running', { phase: p.phase, ...p.at(f) });
+    emit('setup-status', setup.progress);
+    if (f >= 1) {
+      i += 1;
+      n = 0;
+    }
+    setupTimer = setTimeout(next, p.ms / p.ticks);
   };
   setup.progress = progress('running', { message: 'Checking the setup tools...' });
-  setupTimer = setInterval(tick, 400);
+  emit('setup-status', setup.progress);
+  setupTimer = setTimeout(next, 400);
 }
 
 function pauseSetup() {
-  clearInterval(setupTimer);
+  clearTimeout(setupTimer);
   setup.progress = { ...setup.progress, state: 'cancelled', message: 'Paused. Finished work is kept.' };
   emit('setup-status', setup.progress);
 }
 
 let updateStop = null;
-let nupStop = false;
+let unpackStop = false;
 
 function runUpdate() {
   return new Promise((resolve, reject) => {
@@ -265,8 +305,17 @@ function runUpdate() {
       if (done < total) return;
       clearInterval(timer);
       (async () => {
-        for (const phase of ['verify', 'extract', 'apply', 'restart']) {
-          emit('update-progress', { phase, done: 0, total: 0 });
+        for (const phase of ['verify', 'extract']) {
+          emit('update-progress', { phase, step: '', done: 0, total: 0 });
+          await sleep(1200);
+        }
+        // update.rs prepares the game code with the update's own build (pkp_build.py --prepare) while Play still works
+        for (let n = 0; n <= 284; n += 4) {
+          emit('update-progress', { phase: 'prepare', step: 'compile', done: n, total: 284 });
+          await sleep(60);
+        }
+        for (const phase of ['apply', 'adopt', 'restart']) {
+          emit('update-progress', { phase, step: '', done: 0, total: 0 });
           await sleep(1200);
         }
         location.search = '?s=ready';   // what a restart looks like from here
@@ -306,7 +355,7 @@ async function runTicks(event, make, count = 40) {
   }
 }
 
-// ?page=mods: two installed mods (one with code not allowed yet) and a short hub list
+// ?page=mods: three installed mods (one with code not allowed yet, one the launcher locks) and a short hub list
 const mockMods = {
   dir: `${GAME_DIR}/mods`, gameplay: [], points: 2,
   mods: [
@@ -316,14 +365,51 @@ const mockMods = {
         { key: 'scale', label: 'Field of view', description: '', kind: 'number', restart: false, min: 0.5, max: 1.6, step: 0.05, choices: [], text: '1.25', number: 1.25 },
       ] },
     { id: 'bigger_stacks', name: 'Bigger Stacks', version: '1.0.0', authors: 'The Modtopia contributors', license: 'MIT', description: '', source: 'bigger_stacks-1.0.0.pkmod', gameplay: true, guessed: false, code: true, needs_yes: true, network: '', enabled: false, state: 'off', message: 'switched off', hook_points: 1, settings: [] },
+    { id: 'community_achievements', name: 'Community Achievements', version: '0.3.0', authors: 'The Modtopia contributors', license: 'MIT', description: 'Achievements for what you do in Pokopia.', source: 'community_achievements-0.3.0.pkmod', gameplay: false, guessed: false, code: true, needs_yes: false, network: 'achievements.pokopia-native.workers.dev', enabled: true, state: 'ok', message: '', hook_points: 0,
+      settings: [
+        { key: 'messages', label: 'Show a message when I earn an achievement', description: '', kind: 'bool', restart: false, min: 0, max: 0, step: 0, choices: [], text: 'On', number: 1 },
+        { key: 'share', label: 'Share my achievements with other players (no name) and show how many have each', description: '', kind: 'bool', restart: false, min: 0, max: 0, step: 0, choices: [], text: 'On', number: 1 },
+      ] },
   ],
 };
+// the launcher's locks (config achievements_unlocked / achievements_sharing_unlocked, inverted), marked on every list as mods_lock.rs does
+const mockLocks = { kept: true, sharing: true };
+function markedMods() {
+  const v = structuredClone(mockMods);
+  v.locks = { ...mockLocks };
+  for (const m of v.mods) {
+    m.lockable = m.id === 'community_achievements';
+    m.locked = m.lockable && mockLocks.kept;
+    for (const s of m.settings) {
+      s.lockable = m.lockable && s.key === 'share';
+      s.locked = s.lockable && mockLocks.sharing;
+    }
+  }
+  return v;
+}
 const mockCatalog = {
-  offline: false, preview: false, hub: 'https://pokopia-native.vercel.app/mods', submit: 'https://pokopia-native.vercel.app/mods/submit',
+  offline: false, preview: false, game: '2.0.1', hub: 'https://pokopia-native.vercel.app/mods', submit: 'https://pokopia-native.vercel.app/mods/submit',
+  groups: [{ key: 'qol', label: 'Quality of life' }, { key: 'gameplay', label: 'Gameplay' }, { key: 'community', label: 'Community' }],
   mods: [
-    { id: 'auto_run', name: 'Auto-Run', version: '1.0.0', summary: 'Tap once to keep running.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: false, page: 'https://pokopia-native.vercel.app/mods/auto-run', available: true, installed: '', newer: false },
-    { id: 'bigger_stacks', name: 'Bigger Stacks', version: '1.1.0', summary: 'More of an item in one slot.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: true, network: false, page: '', available: true, installed: '1.0.0', newer: true },
-    { id: 'community_achievements', name: 'Community Achievements', version: '1.0.0', summary: 'Achievements counted with the community.', authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: true, page: '', available: false, installed: '', newer: false },
+    { id: 'auto_run', name: 'Auto-Run', version: '1.0.0', summary: 'Tap once to keep running.', description: 'Tap once to keep running: your character goes on forward (you still steer) until you tap again, pull the stick back or open a menu.\n\nWorks with the controller and the keyboard.',
+      settings: ['Controller button that starts and stops it (the game no longer sees that button)', 'Keyboard key that starts and stops it', 'Run (hold B) instead of walking', 'Say so on the screen'], tested: ['2.0.1', '1.0.5'], group: 'qol', source: 'https://github.com/example/auto-run', size: 77330,
+      authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: false, page: 'https://pokopia-native.vercel.app/mods/auto-run', available: true, installed: '', newer: false },
+    { id: 'bigger_stacks', name: 'Bigger Stacks', version: '1.1.0', summary: 'More of an item in one slot.', description: 'More of an item in one slot. The game still counts what you hold, only the limit moves.', settings: ['Stack limit'], tested: [], group: 'gameplay', source: '', size: 4096,
+      authors: ['The Modtopia contributors'], license: 'MIT', gameplay: true, network: false, page: '', available: true, installed: '1.0.0', newer: true },
+    { id: 'community_achievements', name: 'Community Achievements', version: '1.0.0', summary: 'Achievements counted with the community.', description: '', settings: [], tested: ['2.0.1'], group: 'community', source: '', size: 0,
+      authors: ['The Modtopia contributors'], license: 'MIT', gameplay: false, network: true, page: '', available: false, installed: '', newer: false },
+  ],
+};
+
+// ?page=achievements: a short list with counts, two earned; the mod is installed and locked (Unlock, remove it on ?page=mods, Lock again)
+const mockAch = (n, name, cat, goal, players) => ({ id: n, name, desc: `Have ${goal} of the ${cat}.`, cat, goal, picture: '', players });
+const mockAchievements = {
+  available: true, offline: false, mod_id: 'community_achievements',
+  stats: { players: 240, kept: false },
+  earned: { dex_5: 1762900000, habitat_5: 1762990000 },
+  list: [
+    mockAch('dex_5', 'New Neighbors', 'pokedex', 5, 200), mockAch('dex_25', 'Busy Street', 'pokedex', 25, 90), mockAch('dex_200', 'Living Encyclopedia', 'pokedex', 200, 2),
+    mockAch('habitat_5', 'Home Sweet Habitat', 'habitats', 5, 150), mockAch('streak_30', 'Dedicated', 'streak', 30, 0), mockAch('relic_1', 'Dig It', 'relics', 1, 12),
   ],
 };
 
@@ -335,7 +421,7 @@ function handle(cmd, args) {
       return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
     case 'setup_status': return structuredClone(setup);
     case 'game_status': return game;
-    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.2', 'Pokopia Recomp 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };
+    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.2', 'Pokopia Recomp 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Pokopia Recomp 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update && mockChannel !== 'testing' ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };   // Testing offers no update (update.rs Channel::offers_updates)
     case 'install_update': return runUpdate();
     case 'cancel_update': return updateStop?.();
     case 'play': return runPlay();
@@ -345,11 +431,14 @@ function handle(cmd, args) {
     case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_link':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate };
-    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; return null;
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockLook, ...mockOnline };
+    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockLook = { logo: args.config.logo ?? '', icon: args.config.icon ?? '' };
+      mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
+      return null;
+    case 'apply_branding': return null;
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Pokopia';
-    case 'pick_nup': return 'D:/Downloads/pokopia-2.0.1a.nup';
+    case 'pick_package': return 'D:/Downloads/pokopia-2.0.1a.nup';
     case 'pick_nsp': return 'D:/Downloads/Pokopia DLC [0400A3A01EE4D001].nsp';
     case 'import_dlc': return ['0400A3A01EE4D001'];
     case 'validate_dump': return dumpReport(args.path);
@@ -357,13 +446,13 @@ function handle(cmd, args) {
       dumpDir = args.path;
       readiness = { kind: 'setup', detail: 'Press Set up to build the game and prepare its shaders.' };
       return null;
-    case 'import_nup':
-      nupStop = false;
-      return runTicks('nup-progress', (i, n) => {
-        if (nupStop) throw { code: 'nup_cancelled', message: 'Unpacking was cancelled.' };
+    case 'import_package':
+      unpackStop = false;
+      return runTicks('unpack-progress', (i, n) => {
+        if (unpackStop) throw { code: 'unpack_cancelled', message: 'Unpacking was cancelled.' };
         return { done: i, total: n, file: `romfs/data/pack_${i}.bin` };
       }).then(() => `${GAME_DIR}/nup_dump`);
-    case 'cancel_nup': nupStop = true; return null;
+    case 'cancel_unpack': unpackStop = true; return null;
     case 'read_settings': return structuredClone(settings);
     case 'prompt_icon_pack': throw 'assets/prompts/prompt_icons.pak not found in the game folder';   // the preview row says so
     case 'write_settings':
@@ -398,10 +487,15 @@ function handle(cmd, args) {
     case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);
+    case 'save_edit_read': return [{ path: 'G00/CMNDAT.BIN', data: '' }, { path: 'S00/SYDAT.BIN', data: '' }];
+    case 'save_edit_write': return { files: args.files.length, safety: null };
+    case 'save_edit_data_ready': return false;
+    case 'save_edit_prepare': return runTicks('save-edit-data-progress', (i, n) => ({ done: i * 217, total: n * 217 })).then(() => null);
     case 'backup_now': mockBackups.unshift({ version: 1, name: `20261108-15${String(mockBackups.length).padStart(2, '0')}00-manual`, created: '2026-11-08T20:00:00Z', kind: 'manual', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: String(mockBackups.length) }); return { result: 'made', entry: mockBackups[0] };
     case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
     case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'profiles_list': return structuredClone(mockProfiles);
+    case 'profiles_play_time': return { ...mockPlayTimes };
     case 'profile_add': mockProfiles.profiles.push({ id: `p${mockProfiles.profiles.length}`, name: args.name, uid: '', nickname: args.name, net_uid: '' }); return structuredClone(mockProfiles);
     case 'profile_rename': mockProfiles.profiles.find((p) => p.id === args.id).name = args.name; return structuredClone(mockProfiles);
     case 'profile_remove': mockProfiles.profiles = mockProfiles.profiles.filter((p) => p.id !== args.id); mockProfiles.active = 'default'; return structuredClone(mockProfiles);
@@ -417,30 +511,33 @@ function handle(cmd, args) {
       return relay;
     case 'lan_report': return lanReport;
     case 'public_ip': return params.get('public') === 'none' ? null : '198.51.100.23';
-    case 'room_code_new': return Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[Math.floor(Math.random() * 32)]).join('')).join('-');
-    case 'room_code_check': {
-      const c = args.code.replace(/[- ]/g, '').toUpperCase().replaceAll('O', '0').replace(/[IL]/g, '1');
-      if (!/^[0-9A-HJKMNP-TV-Z]{16}$/.test(c)) throw 'A room code has 16 letters and digits: XXXX-XXXX-XXXX-XXXX.';
-      return c.match(/.{4}/g).join('-');
-    }
-    case 'room_code_host': return params.get('gamecode');
-    case 'mods_list': return structuredClone(mockMods);
-    case 'mods_set_enabled': mockMods.mods.find((m) => m.id === args.id).enabled = args.on; return structuredClone(mockMods);
+
+    case 'mods_list': return markedMods();
+    case 'mods_set_enabled': mockMods.mods.find((m) => m.id === args.id).enabled = args.on; return markedMods();
     case 'mods_move': {
       const i = mockMods.mods.findIndex((m) => m.id === args.id), j = i + args.delta;
       if (j >= 0 && j < mockMods.mods.length) [mockMods.mods[i], mockMods.mods[j]] = [mockMods.mods[j], mockMods.mods[i]];
-      return structuredClone(mockMods);
+      return markedMods();
     }
     case 'mods_set_setting': {
       const s = mockMods.mods.find((m) => m.id === args.id).settings.find((x) => x.key === args.key);
       if (args.number !== undefined) { s.number = args.number; s.text = String(args.number); } else s.text = args.text;
-      return structuredClone(mockMods);
+      return markedMods();
     }
-    case 'mods_remove': mockMods.mods = mockMods.mods.filter((m) => m.id !== args.id); return structuredClone(mockMods);
+    case 'mods_remove': mockMods.mods = mockMods.mods.filter((m) => m.id !== args.id); return markedMods();
     case 'mods_catalog': return structuredClone(mockCatalog);
-    case 'mods_install': return structuredClone(mockMods);
+    case 'mods_install': return markedMods();
     case 'mods_auto_update': return [];
+    case 'mods_keep_locked': return [];
+    case 'mods_set_lock': {
+      mockLocks[args.what === 'mod' ? 'kept' : 'sharing'] = args.locked;
+      const ca = mockMods.mods.find((m) => m.id === 'community_achievements');
+      if (args.locked && ca && args.what === 'mod') ca.enabled = true;
+      if (args.locked && ca && args.what === 'sharing') ca.settings.find((s) => s.key === 'share').number = 1;
+      return markedMods();
+    }
     case 'open_mods_dir': return null;
+    case 'achievements_view': return structuredClone(mockAchievements);
     default:
       console.warn('[mock] unknown command', cmd, args);
       throw `The mock has no command ${cmd}`;

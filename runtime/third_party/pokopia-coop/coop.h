@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop.h @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop.h @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep" and "room list")
 // coop: Pokopia's Link Play "Local Connection" between our native builds (research/06 §5, docs/coop-step1.md, docs/coop-step1c.md). MIT, our own code.
 // One portable C11 module every port's HLE layer calls: `ldn` (the nn::ldn state machine and the 0x480 NetworkInfo), `vnet` (the game's UDP
 // sockets on a virtual 169.254.S.0/24), `mpnet` (the real transport: a star of TCP control links around the host plus UDP for game datagrams)
@@ -27,6 +27,9 @@ enum { COOP_SCOPE_LOOPBACK, COOP_SCOPE_LAN, COOP_SCOPE_INTERNET };
 #define COOP_RELAY_PORT_DEFAULT 47610      // tools/coop-relay's port
 #define COOP_ROOM_LEN 16                   // a room code's symbols (Crockford base32, 5 bits each: 80 bits)
 #define COOP_ROOM_SHOWN (COOP_ROOM_LEN + 4)  // XXXX-XXXX-XXXX-XXXX and its NUL
+// pokopia-recomp extension: room list: the code a port gives internet play without a relay when the player has no code of their own, so a host
+// and its visitors agree: an open room (the links still carry tags; the code is no secret, the game's own Link Code is the password)
+#define COOP_X_ROOM_OPEN "0PEN0PEN0PEN0PEN"
 
 typedef struct coop_hooks {
     void *user;
@@ -55,6 +58,9 @@ typedef struct coop_cfg {
     int room_new;        // the code was made here (the host shows it: coop_env_node logs it)
     uint32_t relay_ip;   // the relay, host order (0: none): auto hosts through it while the game hosts and joins its room while the game scans
     uint16_t relay_port;
+    // pokopia-recomp extension: room list (coop_xlist.c): through a relay with no room code given, the host lists its room there (with its new
+    // code) and a Scan lists the relay's rooms; set by coop_cfg_parse_ex then. A relay without the list: nothing is listed
+    int x_list;
     coop_hooks hooks;
     // pokopia-recomp extension: LAN sweep: 1 turns off the LAN sweep and mDNS responder that stand in for DNS-SD where dnsapi.dll has no
     // DnsService* (Wine / Proton; coop_disc.c x_*). 0 (the default): on there, never used where DNS-SD works

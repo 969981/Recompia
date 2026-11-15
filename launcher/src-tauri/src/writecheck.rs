@@ -2,7 +2,7 @@
 //! Can setup write in the game folder? Windows Security's Controlled folder access (ransomware protection) and some
 //! antivirus programs block writes in Documents, Desktop, Downloads and Pictures for programs they do not know. The game
 //! folder defaults to the launcher's own folder, which is often one of those, and the build and shader tools then fail
-//! halfway with errors that read like a missing file. The pre-flight check, Set up and the .nup unpack try a test file
+//! halfway with errors that read like a missing file. The pre-flight check, Set up and the package unpack try a test file
 //! first: create, write, read back, delete. The wording follows the OS error code.
 //!
 //! Idea from pokopia-native (MIT), nxs2.py `check_writable` @5f0b08f.
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The folders setup writes in, under the game folder: pkp.ini, setup.log and pkp.exe in the folder itself, the game
-/// build (`build`, its zig cache inside), the shader cache, and the unpacked .nup (`nup_dump`). Subfolders that do not
+/// build (`build`, its zig cache inside), the shader cache, and the unpacked .nup or .nx (`nup_dump`). Subfolders that do not
 /// exist yet are created inside the game folder, so testing the game folder covers them.
 pub const SUBFOLDERS: [&str; 4] = ["build", "shader_cache", "shader_cache/spirv", "nup_dump"];
 
@@ -108,7 +108,7 @@ impl WriteError {
         }
     }
 
-    /// What happened and what to do, for the pre-flight list and the error of Set up and the .nup unpack.
+    /// What happened and what to do, for the pre-flight list and the error of Set up and the package unpack.
     pub fn message(&self) -> String {
         let dir = self.dir.to_string_lossy().replace('/', "\\");
         let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();

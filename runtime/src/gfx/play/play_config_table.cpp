@@ -2,6 +2,7 @@
 // Play mode: the settings table of controls.ini and its generic reader and writer, see play_config_table.h.
 #include "play_config_table.h"
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,7 @@ constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high
 constexpr const char* kLatencyWords[] = {"off", "auto", "on", "boost"};
 constexpr const char* kClockFormatWords[] = {"auto", "12h", "24h"};
 constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive"};
+constexpr const char* kRenderModeWords[] = {"console", "window"};
 constexpr const char* kAstcWords[] = {"fast", "high", "uncompressed"};
 constexpr const char* kFpsSnapWords[] = {"auto", "true", "false"};
 constexpr const char* kPicturePresetWords[] = {"neutral", "vivid"};
@@ -165,7 +167,14 @@ bool read_aspect(const std::string& k, const std::string& v, Settings* s, std::s
     s->display.aspect = x;
     return true;
 }
-std::string write_aspect(const Settings& s) { return s.display.aspect <= 0 ? std::string("auto") : num_exact(s.display.aspect); }
+// A common ratio is written as W:H, so the file stays readable and the launcher's aspect list finds it; any other value as a number.
+std::string write_aspect(const Settings& s) {
+    if (s.display.aspect <= 0) return "auto";
+    static constexpr int kRatios[][2] = {{16, 9}, {16, 10}, {21, 9}, {32, 9}, {4, 3}};
+    for (const auto& r : kRatios)
+        if (std::fabs(s.display.aspect - static_cast<double>(r[0]) / r[1]) < 1e-6) return std::to_string(r[0]) + ":" + std::to_string(r[1]);
+    return num_exact(s.display.aspect);
+}
 
 bool read_quality_preset(const std::string&, const std::string& v, Settings* s, std::string* msg) {
     const QualityPresetInfo* q = find_quality_preset(v);
@@ -213,6 +222,8 @@ bool read_picture_preset(const std::string&, const std::string& v, Settings* s, 
 const SettingDef kTable[] = {
     {ROW("meta", "defaults_rev", Int), WHOLE(defaults_rev), .lo = 0, .hi = 1000,
      .doc = "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
+    {ROW("meta", "display_rev", Int), WHOLE(display_rev), .lo = 0, .hi = 1000,
+     .doc = "The display-defaults revision the file was written with (the game writes it; a file without it counts as 0). macOS turns vsync on for an older file."},
 
     {ROW("mouse", "yaw", Real), REAL(mouse.yaw_rad), .doc = "Horizontal mouse sensitivity in radians per count."},
     {ROW("mouse", "pitch", Real), REAL(mouse.pitch_rad), .doc = "Vertical mouse sensitivity in radians per count."},
@@ -261,6 +272,9 @@ const SettingDef kTable[] = {
     {ROW("timing", "pulse_ms", Int), WHOLE(timing.pulse_ms), .lo = 1, .hi = 5000,
      .doc = "How long a tap or a wheel notch stays pressed on the Switch side (ms)."},
 
+    {ROW("display", "render_mode", Choice), TEXT(display.render_mode), .words = kRenderModeWords,
+     .doc = "What an unset internal resolution follows: console renders 1920x1080 docked (1280x720 handheld) and the window upscales, "
+            "window renders at the window's size. render_scale and a fixed size override it. Next start."},
     {ROW("display", "window_mode", Choice), TEXT(display.window_mode), .words = kWindowModeWords,
      .doc = "Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing."},
     {ROW("display", "vsync", Bool), FLAG(display.vsync), .doc = "0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit."},
@@ -275,11 +289,12 @@ const SettingDef kTable[] = {
     {ROW("display", "vram_cap", Bool), FLAG(display.vram_cap),
      .doc = "On a GPU with 4 GB of video memory or less, a render size that is not set is kept to 2560x1440."},
     {ROW("display", "render_scale", Int), WHOLE(display.render_scale), .lo = 25, .hi = 400, .auto_word = "auto", .auto_at = 0,
-     .doc = "Internal resolution in percent; ignored with a fixed size. Next start."},
+     .doc = "Internal resolution in percent of the window (100 = the window's size, more is sharper and slower); auto = the "
+            "console's own resolution, upscaled to the window; ignored with a fixed size. Next start."},
     {ROW("display", "render_width", Int), WHOLE(display.render_width), .lo = 320, .hi = 16384, .zero_ok = true,
-     .doc = "Fixed internal width (with render_height); 0 = follow the window. Next start."},
+     .doc = "Fixed internal width (with render_height); 0 = the console's resolution (or render_scale). Next start."},
     {ROW("display", "render_height", Int), WHOLE(display.render_height), .lo = 320, .hi = 16384, .zero_ok = true,
-     .doc = "Fixed internal height (with render_width); 0 = follow the window. Next start."},
+     .doc = "Fixed internal height (with render_width); 0 = the console's resolution (or render_scale). Next start."},
     {ROW("display", "aspect", Custom), CUSTOM(read_aspect, write_aspect), .lo = 1.0, .hi = 5.0, .ranged = true, .auto_word = "auto", .syntax = "ratio",
      .doc = "Shape of the 3D view and the HUD: auto (the internal resolution's), W:H (16:9, 21:9, 16:10) or a number. Next start."},
     {ROW("display", "fov_offset", Real), REAL(display.fov_offset), .lo = -30.0, .hi = 40.0, .ranged = true, .exact = true,

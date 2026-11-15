@@ -29,17 +29,25 @@ if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
         "${_pkp}/core/pkp_game.cpp"
+        "${_pkp}/core/pkp_link_digspots.cpp"
+        "${_pkp}/core/pkp_link_trips.cpp"
         "${_pkp}/core/pkp_linkplay.cpp"
         "${_pkp}/core/pkp_mods.cpp"
+        "${_pkp}/core/pkp_play_time.cpp"
         "${_pkp}/core/pkp_pokemon_cap.cpp"
         "${_pkp}/core/pkp_resident_census.cpp"
+        "${_pkp}/core/pkp_save_files.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
+        "${_pkp}/core/pkp_story_guard.cpp"
+        "${_pkp}/core/pkp_story_hold.cpp"
+        "${_pkp}/core/pkp_story_pickups.cpp"
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
         "${_pkp}/render/pkp_render_targets.cpp"
         "${_pkp}/render/pkp_aspect.cpp"
+        "${_pkp}/render/pkp_loading_backdrop.cpp"
         "${_pkp}/render/pkp_wide_text.cpp"
         "${_pkp}/render/pkp_frame_rate.cpp"
         "${_pkp}/render/pkp_gfx_heap.cpp"
@@ -50,6 +58,7 @@ if(TARGET nxrt_gfx)
         # input
         "${_pkp}/input/pkp_play.cpp"
         "${_pkp}/input/pkp_mouse_camera.cpp"
+        "${_pkp}/input/pkp_photo_camera.cpp"
         "${_pkp}/input/pkp_mouse_mode.cpp"
         "${_pkp}/input/pkp_aim.cpp"
         "${_pkp}/input/pkp_aim_debug.cpp"
@@ -68,10 +77,12 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_options_rows.cpp"
         "${_pkp}/ui/pkp_options_time.cpp"
         "${_pkp}/ui/pkp_options_items.cpp"
+        "${_pkp}/ui/pkp_options_online.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"
         "${_pkp}/ui/pkp_sort.cpp"
         "${_pkp}/ui/pkp_craft.cpp"
+        "${_pkp}/ui/pkp_save_now.cpp"
         "${_pkp}/ui/pkp_item_edit.cpp"
         "${_pkp}/ui/pkp_time.cpp")
     if(NXRT_TESTTOOLS)

@@ -12,17 +12,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::branding::{self, Branding};
 use crate::fsutil::{self, AtomicFail};
 
 use serde::Serialize;
-
-// ---- the artwork, embedded (the grids and hero are a plain meadow placeholder with the wordmark; the icons are the launcher's: the R, and the R with a T badge on Testing) ----
-const WIDE: &[u8] = include_bytes!("../assets/steam/grid_wide.png");
-const PORTRAIT: &[u8] = include_bytes!("../assets/steam/grid_portrait.png");
-const HERO: &[u8] = include_bytes!("../assets/steam/hero.png");
-const LOGO: &[u8] = include_bytes!("../assets/steam/logo.png");
-const ICON: &[u8] = include_bytes!("../assets/steam/icon.png");
-const ICON_TESTING: &[u8] = include_bytes!("../assets/steam/icon_testing.png");
 
 // ---- Steam's binary key-value format ----
 // A map is a run of entries ended by 0x08. An entry is a type byte (0 map, 1 string, 2 u32 little endian), the key and a 0 byte, then the
@@ -167,7 +160,8 @@ pub struct Spec {
     pub exe: String,        // quoted, as Steam writes it
     pub start_dir: String,  // quoted
     pub launch: String,
-    pub testing: bool,
+    /// the artwork, and the Testing channel's names and icon
+    pub look: Branding,
 }
 
 fn entry_for(spec: &Spec, icon_path: &str) -> Vec<(String, Val)> {
@@ -227,13 +221,26 @@ pub fn has_entry(root: &[(String, Val)], spec: &Spec) -> bool {
 
 // ---- Steam's folders ----
 fn roots() -> Vec<PathBuf> {
+    roots_in(std::env::var_os("HOME").map(PathBuf::from))
+}
+
+/// The Steam installs under `home`: Linux keeps them under `.local/share`, macOS in `Library/Application Support`, and the Flatpak
+/// in `.var`. Split from `roots()` so a test can point it at a folder of its own.
+fn roots_in(home: Option<PathBuf>) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = Vec::new();
     #[cfg(unix)]
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        v.push(home.join(".local/share/Steam"));
-        v.push(home.join(".steam/steam"));
-        v.push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+    if let Some(home) = home {
+        #[cfg(target_os = "macos")]
+        v.push(home.join("Library/Application Support/Steam"));
+        #[cfg(not(target_os = "macos"))]
+        {
+            v.push(home.join(".local/share/Steam"));
+            v.push(home.join(".steam/steam"));
+            v.push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+        }
     }
+    #[cfg(not(unix))]
+    let _ = home;
     #[cfg(windows)]
     {
         for var in ["ProgramFiles(x86)", "ProgramFiles"] {
@@ -302,7 +309,18 @@ fn steam_running() -> bool {
             .map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("steam.exe"))
             .unwrap_or(false)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        // Steam runs as steam_osx. Its own folder is checked too, because pgrep is not guaranteed on a Mac without the developer tools.
+        if std::process::Command::new("pgrep").arg("-x").arg("steam_osx").output().map(|o| o.status.success()).unwrap_or(false) {
+            return true;
+        }
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|h| h.join("Library/Application Support/Steam/logs/connection_log.txt"))
+            .is_some_and(|log| fs::metadata(log).and_then(|m| m.modified()).map(|t| t.elapsed().map(|e| e.as_secs() < 120).unwrap_or(false)).unwrap_or(false))
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         false
     }
@@ -317,22 +335,6 @@ fn art_files(grid: &Path, id: u32) -> [(PathBuf, &'static str); 5] {
         (grid.join(format!("{id}_logo.png")), "logo"),
         (grid.join(format!("{id}_icon.png")), "icon"),
     ]
-}
-
-fn art_bytes(kind: &str, testing: bool) -> &'static [u8] {
-    match kind {
-        "wide" => WIDE,
-        "portrait" => PORTRAIT,
-        "hero" => HERO,
-        "logo" => LOGO,
-        _ => {
-            if testing {
-                ICON_TESTING
-            } else {
-                ICON
-            }
-        }
-    }
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
@@ -369,7 +371,7 @@ pub fn add_to_account(account: &Path, spec: &Spec) -> Result<(), String> {
     let mut root = load_root(&file)?;
     let id = short_id(&spec.exe, &spec.name);
     for (path, kind) in art_files(&grid, id) {
-        write_atomic(&path, art_bytes(kind, spec.testing))?;
+        write_atomic(&path, branding::steam_art(kind, &spec.look))?;
     }
     let icon_path = grid.join(format!("{id}_icon.png")).to_string_lossy().into_owned();
     add_entry(&mut root, spec, &icon_path);
@@ -390,7 +392,7 @@ pub fn remove_from_account(account: &Path, spec: &Spec) -> Result<bool, String> 
     let id = short_id(&spec.exe, &spec.name);
     for (path, kind) in art_files(&cfg.join("grid"), id) {
         if let Ok(cur) = fs::read(&path) {
-            if cur == art_bytes(kind, spec.testing) {
+            if branding::is_our_steam_art(kind, spec.look.testing, &cur) {
                 let _ = fs::remove_file(&path);
             }
         }
@@ -431,7 +433,7 @@ impl Target {
 
 /// The shortcut for this launcher's own file (the AppImage when run from one). The game shortcut is named "Recompia" (the name the game
 /// goes by, so a SteamGridDB search for it finds the right title) and starts the game with `--play`; the launcher shortcut is "Recompia Launcher" and has no launch option.
-pub fn spec_here(testing: bool, target: Target) -> Result<Spec, String> {
+pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
     let exe = std::env::var_os("APPIMAGE")
         .map(PathBuf::from)
         .filter(|p| p.is_file())
@@ -439,11 +441,11 @@ pub fn spec_here(testing: bool, target: Target) -> Result<Spec, String> {
         .ok_or("could not find this launcher's own path")?;
     let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
     Ok(Spec {
-        name: shortcut_name(testing, target),
+        name: shortcut_name(look.testing, target),
         exe: format!("\"{}\"", exe.display()),
         start_dir: format!("\"{}\"", dir.display()),
         launch: if target == Target::Game { "--play".into() } else { String::new() },
-        testing,
+        look: *look,
     })
 }
 
@@ -467,20 +469,21 @@ fn count_added(accs: &[PathBuf], spec: &Result<Spec, String>) -> usize {
     }
 }
 
-pub fn status(testing: bool) -> Status {
+pub fn status(look: &Branding) -> Status {
+    let testing = look.testing;
     let accs = all_accounts();
     Status {
         found: !roots().is_empty() && !accs.is_empty(),
         running: steam_running(),
         accounts: accs.len(),
-        game_added: count_added(&accs, &spec_here(testing, Target::Game)),
-        launcher_added: count_added(&accs, &spec_here(testing, Target::Launcher)),
+        game_added: count_added(&accs, &spec_here(look, Target::Game)),
+        launcher_added: count_added(&accs, &spec_here(look, Target::Launcher)),
         game_name: shortcut_name(testing, Target::Game),
         launcher_name: shortcut_name(testing, Target::Launcher),
     }
 }
 
-pub fn add(testing: bool, target: Target) -> Result<String, String> {
+pub fn add(look: &Branding, target: Target) -> Result<String, String> {
     if steam_running() {
         return Err("Close Steam first (Steam, Exit), then press the button again. Steam only saves its shortcut list when it closes.".into());
     }
@@ -488,18 +491,18 @@ pub fn add(testing: bool, target: Target) -> Result<String, String> {
     if accs.is_empty() {
         return Err("Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and try again.".into());
     }
-    let spec = spec_here(testing, target)?;
+    let spec = spec_here(look, target)?;
     for a in &accs {
         add_to_account(a, &spec)?;
     }
     Ok(format!("Added \"{}\" to Steam for {} account{}. Start Steam again to see it, with its artwork.", spec.name, accs.len(), if accs.len() == 1 { "" } else { "s" }))
 }
 
-pub fn remove(testing: bool, target: Target) -> Result<String, String> {
+pub fn remove(look: &Branding, target: Target) -> Result<String, String> {
     if steam_running() {
         return Err("Close Steam first (Steam, Exit), then press the button again.".into());
     }
-    let spec = spec_here(testing, target)?;
+    let spec = spec_here(look, target)?;
     let mut n = 0;
     for a in all_accounts() {
         if remove_from_account(&a, &spec)? {
@@ -509,9 +512,48 @@ pub fn remove(testing: bool, target: Target) -> Result<String, String> {
     Ok(if n == 0 { "It was not in Steam.".into() } else { format!("Removed \"{}\" from Steam. Start Steam again.", spec.name) })
 }
 
+/// After a logo or icon choice: the shortcuts already in Steam get the new artwork. Only pictures that are still ours are replaced (a
+/// player's own art from SteamGridDB stays), and shortcuts.vdf is not touched, so Steam may run; it shows the new pictures after a restart.
+pub fn refresh_art(look: &Branding) -> Result<(), String> {
+    for target in [Target::Game, Target::Launcher] {
+        let spec = spec_here(look, target)?;
+        let id = short_id(&spec.exe, &spec.name);
+        for account in all_accounts() {
+            let grid = account.join("config").join("grid");
+            for (path, kind) in art_files(&grid, id) {
+                let want = branding::steam_art(kind, look);
+                match fs::read(&path) {
+                    Ok(cur) if cur != want && branding::is_our_steam_art(kind, look.testing, &cur) => write_atomic(&path, want)?,
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // unix only: Windows finds Steam under Program Files, not under a home folder a test can point at
+    #[cfg(unix)]
+    #[test]
+    fn roots_find_the_platform_install() {
+        let base = std::env::temp_dir().join(format!("steam_roots_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        #[cfg(target_os = "macos")]
+        let steam = base.join("Library/Application Support/Steam");
+        #[cfg(not(target_os = "macos"))]
+        let steam = base.join(".local/share/Steam");
+        fs::create_dir_all(steam.join("userdata").join("123").join("config")).unwrap();
+        let roots = roots_in(Some(base.clone()));
+        assert_eq!(roots, vec![steam.clone()]);
+        assert_eq!(accounts(&steam).len(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    const LOOK: Branding = Branding { logo: crate::branding::Look::Recompia, icon: crate::branding::Look::Recompia, testing: false };
 
     fn spec(testing: bool) -> Spec {
         Spec {
@@ -519,7 +561,7 @@ mod tests {
             exe: "\"/home/deck/Games/PokopiaRecomp/PokopiaLauncher.AppImage\"".into(),
             start_dir: "\"/home/deck/Games/PokopiaRecomp\"".into(),
             launch: "--play".into(),
-            testing,
+            look: Branding { testing, ..LOOK },
         }
     }
 
@@ -543,7 +585,7 @@ mod tests {
     fn vdf_round_trip_keeps_everything() {
         let mut root = Vec::new();
         add_entry(&mut root, &spec(false), "/x/icon.png");
-        let other = Spec { name: "Other Game".into(), exe: "\"/bin/other\"".into(), start_dir: "\"/bin\"".into(), launch: "-x".into(), testing: false };
+        let other = Spec { name: "Other Game".into(), exe: "\"/bin/other\"".into(), start_dir: "\"/bin\"".into(), launch: "-x".into(), look: LOOK };
         add_entry(&mut root, &other, "");
         let bytes = write(&root);
         assert_eq!(bytes[0], 0);
@@ -556,7 +598,7 @@ mod tests {
     #[test]
     fn add_replaces_ours_and_keeps_others() {
         let mut root = Vec::new();
-        let other = Spec { name: "Other".into(), exe: "\"/bin/o\"".into(), start_dir: "\"/bin\"".into(), launch: "".into(), testing: false };
+        let other = Spec { name: "Other".into(), exe: "\"/bin/o\"".into(), start_dir: "\"/bin\"".into(), launch: "".into(), look: LOOK };
         add_entry(&mut root, &other, "");
         add_entry(&mut root, &spec(false), "a");
         add_entry(&mut root, &spec(false), "b");   // the second add updates the entry, it does not make a second one
@@ -580,8 +622,8 @@ mod tests {
         assert!(Target::parse("game").is_ok() && Target::parse("launcher").is_ok() && Target::parse("x").is_err());
         let acc = tmp("two");
         let exe = "\"/h/PokopiaLauncher.AppImage\"".to_string();
-        let game = Spec { name: g, exe: exe.clone(), start_dir: "\"/h\"".into(), launch: "--play".into(), testing: false };
-        let launcher = Spec { name: l, exe, start_dir: "\"/h\"".into(), launch: String::new(), testing: false };
+        let game = Spec { name: g, exe: exe.clone(), start_dir: "\"/h\"".into(), launch: "--play".into(), look: LOOK };
+        let launcher = Spec { name: l, exe, start_dir: "\"/h\"".into(), launch: String::new(), look: LOOK };
         assert_ne!(short_id(&game.exe, &game.name), short_id(&launcher.exe, &launcher.name));
         add_to_account(&acc, &game).unwrap();
         add_to_account(&acc, &launcher).unwrap();

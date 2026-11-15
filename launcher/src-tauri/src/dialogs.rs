@@ -16,9 +16,10 @@ pub async fn pick_folder(app: AppHandle, title: String, start: Option<String>) -
     dlg.blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
 }
 
+/// Asks for the game as one package file, a .nup or an .nx.
 #[tauri::command]
-pub async fn pick_nup(app: AppHandle, start: Option<String>) -> Option<String> {
-    let mut dlg = app.dialog().file().set_title("Choose your Pokopia .nup package").add_filter("NUP package", &["nup"]);
+pub async fn pick_package(app: AppHandle, start: Option<String>) -> Option<String> {
+    let mut dlg = app.dialog().file().set_title("Choose your Pokopia .nup or .nx package").add_filter("Game package", &["nup", "nx"]);
     if let Some(s) = start.filter(|s| PathBuf::from(s).is_dir()) {
         dlg = dlg.set_directory(s);
     }

@@ -46,6 +46,62 @@ const XU_DATA: u8 = 3; // either way: payload for the other link of the pair (re
 const XU_HDR: usize = 16;
 const XU_MAX: usize = 4608; // a tagged game datagram (24 + 12 + 4096 + 16) and the header, with room to spare
 
+// pokopia-recomp extension: the room list (lib.rs "Room list"). A host's OK carries arg X_CAP_LIST when this relay lists rooms; such a host may
+// send X_LISTING on its control link (arg = the record's length, the record follows). Hello kind K_LIST asks for the list: X_LIST (arg = entries
+// following | rooms open << 16, cookie = players in the listed rooms), then one X_ENTRY (arg = length, the record follows) per room, then close.
+// Record v1: u8 version 1, u8 flags 0, u16 info length, room code[16] (normalized Crockford base32, ASCII), build[16] (main's build id, first 16
+// hex digits, ASCII; zeros: unknown), u64 mods fingerprint, NetworkInfo (its first `info length` bytes; the rest are zeros).
+pub const K_LIST: u8 = 4;
+pub const X_CAP_LIST: u32 = 1;
+pub const X_LISTING: u8 = 0xC6;
+pub const X_LIST: u8 = 0xC7;
+pub const X_ENTRY: u8 = 0xC8;
+pub const REC_HDR: usize = 44;
+const REC_INFO_MIN: usize = 0x68; // through NodeCountMax (0x66) and NodeCount (0x67)
+const REC_INFO_MAX: usize = 0x480;
+pub const LIST_MAX: usize = 32; // entries one answer carries
+const LISTING_GAP_MS: i64 = 250; // a host's listing changes at most this often; faster ones are read and dropped
+const B32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// A listed room: its record as the host sent it (checked), and what lists sort and filter by.
+#[derive(Clone)]
+struct Listing {
+    rec: Vec<u8>,
+    build: [u8; 16],
+    mods: u64,
+    players: u8,
+    max: u8,
+}
+
+/// A record from a host, checked against its room id. Err: why not.
+fn listing_parse(rec: &[u8], room_id: &[u8; 16]) -> Result<Listing, &'static str> {
+    if rec.len() < REC_HDR || rec[0] != 1 {
+        return Err("not a version 1 record");
+    }
+    let info = u16::from_le_bytes([rec[2], rec[3]]) as usize;
+    if !(REC_INFO_MIN..=REC_INFO_MAX).contains(&info) || rec.len() != REC_HDR + info {
+        return Err("a bad length");
+    }
+    let code = &rec[4..20];
+    if !code.iter().all(|c| B32.contains(c)) {
+        return Err("not a room code");
+    }
+    if &crate::hkdf::room_id(code) != room_id {
+        return Err("a room code that is not this room's");
+    }
+    let mut build = [0u8; 16];
+    build.copy_from_slice(&rec[20..36]);
+    if !build.iter().all(|c| c.is_ascii_hexdigit() || *c == 0) {
+        return Err("a bad build id");
+    }
+    let ni = &rec[REC_HDR..];
+    let (max, players) = (ni[0x66], ni[0x67]);
+    if max == 0 || max > 8 || players > max {
+        return Err("a bad player count");
+    }
+    Ok(Listing { rec: rec.to_vec(), build, mods: get64(&rec[36..]), players, max })
+}
+
 pub type LogFn = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 #[derive(Clone)]
@@ -63,6 +119,8 @@ pub struct Config {
     pub room_bytes: u64,   // and carries at most this many bytes, both ways, all its links (4 GiB)
     pub link_bps: i64,     // bytes a second one link may send (256 KiB; bursts twice that); beyond, the relay stops reading it for a moment
     pub udp: bool,         // pokopia-recomp extension: relay UDP on the same port (true)
+    pub list: bool,        // pokopia-recomp extension: the room list (true)
+    pub list_per_min: i64, // lists one address may ask for a minute (120; bursts as much); beyond, refused with "limit"
     pub log: Option<LogFn>, // one line without a newline; None: silent
 }
 
@@ -82,6 +140,8 @@ impl Default for Config {
             room_bytes: 4 << 30,
             link_bps: 256 << 10,
             udp: true,
+            list: true,
+            list_per_min: 120,
             log: None,
         }
     }
@@ -102,6 +162,9 @@ pub struct Stats {
     pub expired: u64,   // rooms closed by age, bytes or a silent host
     pub udp_pairs: u64, // pokopia-recomp extension: pairs given relay UDP
     pub udp_packets: u64,
+    pub listed: usize,  // pokopia-recomp extension: rooms in the room list now
+    pub players: usize, // and the players in them
+    pub lists: u64,     // lists answered
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,6 +200,9 @@ struct Conn {
     x_want: bool,               // its hello asked for relay UDP
     x_tok: u64,                 // Pair: its UDP token (0: none)
     x_ep: Option<SocketAddrV4>, // the endpoint its last bind or datagram came from
+    // pokopia-recomp extension: the room list. Host: the bytes of a listing record still to read, and those read
+    l_need: usize,
+    l_rec: Vec<u8>,
 }
 
 impl Conn {
@@ -164,6 +230,8 @@ impl Conn {
             x_want: false,
             x_tok: 0,
             x_ep: None,
+            l_need: 0,
+            l_rec: Vec::new(),
         }
     }
 }
@@ -176,6 +244,7 @@ struct Room {
     created: i64,
     bytes: u64,
     next_vid: u32,
+    listed_at: i64, // pokopia-recomp extension: the room list: its last listing (0: none yet)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -186,6 +255,8 @@ struct IpRec {
     nat: i64,
     ftok: i64,
     fat: i64,
+    ltok: i64, // pokopia-recomp extension: the room list: lists a minute
+    lat: i64,
     seen: i64,
 }
 
@@ -196,6 +267,7 @@ pub struct Relay {
     addr: SocketAddr,
     k: Vec<Conn>,
     rm: Vec<Room>,
+    lst: Vec<Option<Listing>>, // pokopia-recomp extension: the room list, one slot per room
     ips: Vec<IpRec>,
     st: Stats,
     t0: Instant,
@@ -218,12 +290,12 @@ fn roomstr(id: &[u8]) -> String {
 }
 fn rand32() -> u32 {
     let mut b = [0u8; 4];
-    let _ = crate::room_code::os_random(&mut b); // a cookie only stops blind attaches; the players' own handshake is what protects a link
+    let _ = crate::random::os_random(&mut b); // a cookie only stops blind attaches; the players' own handshake is what protects a link
     u32::from_le_bytes(b)
 }
 fn rand64() -> u64 {
     let mut b = [0u8; 8];
-    let _ = crate::room_code::os_random(&mut b);
+    let _ = crate::random::os_random(&mut b);
     u64::from_le_bytes(b)
 }
 fn blocked(e: &io::Error) -> bool {
@@ -241,6 +313,7 @@ impl Relay {
         let mut r = Relay {
             k: (0..c.max_conns).map(|_| Conn::free()).collect(),
             rm: vec![Room::default(); c.max_rooms],
+            lst: vec![None; c.max_rooms],
             ips: vec![IpRec::default(); IPS],
             us: None,
             c,
@@ -294,9 +367,27 @@ impl Relay {
             nat: now,
             ftok: 1000 * self.c.nofind_per_min,
             fat: now,
+            ltok: 1000 * self.c.list_per_min,
+            lat: now,
             conns: 0,
         };
         Some(f)
+    }
+    fn ip_list_ok(&mut self, a: Option<usize>, now: i64) -> bool {
+        // thousandths of a list: per minute, burst as much
+        let Some(a) = a else { return false };
+        let rate = self.c.list_per_min;
+        let a = &mut self.ips[a];
+        let add = (now - a.lat) * rate / 60;
+        if add > 0 {
+            a.ltok = (a.ltok + add).min(1000 * rate);
+            a.lat = now;
+        }
+        if a.ltok < 1000 {
+            return false;
+        }
+        a.ltok -= 1000;
+        true
     }
     fn ip_new_ok(&mut self, a: usize, now: i64) -> bool {
         // thousandths of a link: rate a second, burst twice that
@@ -393,6 +484,7 @@ impl Relay {
         let m = self.rm[ri];
         self.log(&format!("room {} closed: {} (open {} s, {} bytes)", roomstr(&m.id), why, (now - m.created) / 1000, m.bytes));
         self.rm[ri].used = false;
+        self.lst[ri] = None;
         for i in 0..self.c.max_conns {
             if self.k[i].st == St::Free || self.k[i].room != Some(ri) {
                 continue;
@@ -423,9 +515,14 @@ impl Relay {
         let a = ipstr(self.k[i].ip);
         let id = roomstr(&h[8..]);
         let ad = self.ip_get(self.k[i].ip, now);
-        if get32(&h) != MAGIC || h[5] != 1 || h[4] < K_HOST || h[4] > K_ATTACH {
+        let last = if self.c.list { K_LIST } else { K_ATTACH };
+        if get32(&h) != MAGIC || h[5] != 1 || h[4] < K_HOST || h[4] > last {
             self.st.bad += 1;
             self.refuse(i, E_BAD, now);
+            return;
+        }
+        if h[4] == K_LIST {
+            self.list(i, &h, ad, now);
             return;
         }
         self.k[i].x_want = h[6] == X_UDP; // pokopia-recomp extension: relay UDP (their clients send zeros)
@@ -445,12 +542,14 @@ impl Relay {
             };
             let mut idb = [0u8; 16];
             idb.copy_from_slice(&h[8..24]);
-            self.rm[ri] = Room { used: true, id: idb, host: Some(i), created: now, bytes: 0, next_vid: 0 };
+            self.rm[ri] = Room { used: true, id: idb, host: Some(i), created: now, bytes: 0, next_vid: 0, listed_at: 0 };
+            self.lst[ri] = None;
             let k = &mut self.k[i];
             k.st = St::Host;
             k.room = Some(ri);
             k.inn = 0;
-            self.msg(i, T_OK, 0, 0, 0);
+            let cap = if self.c.list { X_CAP_LIST } else { 0 }; // their relay sends 0; their clients ignore it
+            self.msg(i, T_OK, 0, cap, 0);
             self.st.rooms_opened += 1;
             self.log(&format!("room {} open (host {}:{})", id, a, self.k[i].port));
             return;
@@ -533,7 +632,63 @@ impl Relay {
             }
         }
     }
-    /// A host's control link: 16-byte messages; pings are answered, the rest ignored.
+    /// pokopia-recomp extension: the room list. A LIST hello: the matching listed rooms, then the link closes. Filter (hello byte 6): bit 0 the
+    /// build in bytes 8..24 must match, bit 1 the mods fingerprint in bytes 24..32. Byte 7: entries wanted (0: LIST_MAX). Rooms with a free
+    /// place first, then the newest.
+    fn list(&mut self, i: usize, h: &[u8; HELLO_LEN], ad: Option<usize>, now: i64) {
+        if !self.ip_list_ok(ad, now) {
+            self.st.refused += 1;
+            self.refuse(i, E_LIMIT, now);
+            return;
+        }
+        let want = if h[7] == 0 { LIST_MAX } else { (h[7] as usize).min(LIST_MAX) };
+        let (by_build, by_mods) = (h[6] & 1 != 0, h[6] & 2 != 0);
+        let mods = get64(&h[24..]);
+        let mut pick: Vec<usize> = (0..self.c.max_rooms)
+            .filter(|&r| self.rm[r].used && self.rm[r].host.is_some())
+            .filter(|&r| {
+                self.lst[r].as_ref().is_some_and(|l| (!by_build || l.build[..] == h[8..24]) && (!by_mods || l.mods == mods))
+            })
+            .collect();
+        pick.sort_by_key(|&r| {
+            let l = self.lst[r].as_ref().unwrap();
+            (l.players >= l.max, std::cmp::Reverse(self.rm[r].created))
+        });
+        pick.truncate(want);
+        let open = self.rm.iter().filter(|r| r.used).count().min(0xFFFF) as u32;
+        let players: u32 = self.lst.iter().flatten().map(|l| l.players as u32).sum();
+        self.msg(i, X_LIST, 0, pick.len() as u32 | open << 16, players);
+        for r in pick {
+            let rec = self.lst[r].as_ref().unwrap().rec.clone();
+            self.msg(i, X_ENTRY, 0, rec.len() as u32, 0);
+            self.k[i].out.extend_from_slice(&rec);
+        }
+        self.st.lists += 1;
+        self.closing(i, now);
+    }
+    /// pokopia-recomp extension: the room list. A host's listing record is complete: checked, then its room is listed with it.
+    fn listing(&mut self, i: usize, now: i64) {
+        let rec = std::mem::take(&mut self.k[i].l_rec);
+        let Some(ri) = self.k[i].room.filter(|&r| self.rm[r].used && self.rm[r].host == Some(i)) else { return };
+        if self.rm[ri].listed_at != 0 && now - self.rm[ri].listed_at < LISTING_GAP_MS {
+            return; // too soon after the last one: the next change brings it up to date
+        }
+        match listing_parse(&rec, &self.rm[ri].id) {
+            Ok(l) => {
+                if self.lst[ri].is_none() {
+                    self.log(&format!("room {} listed ({} of {} players)", roomstr(&self.rm[ri].id), l.players, l.max));
+                }
+                self.lst[ri] = Some(l);
+                self.rm[ri].listed_at = now;
+            }
+            Err(why) => {
+                self.st.bad += 1;
+                self.log(&format!("room {}: a listing with {} ignored", roomstr(&self.rm[ri].id), why));
+            }
+        }
+    }
+    /// A host's control link: 16-byte messages; pings are answered, a listing's header starts its record (pokopia-recomp extension), the rest
+    /// is ignored.
     fn host_ctl(&mut self, i: usize, now: i64) {
         while self.k[i].inn >= MSG_LEN {
             if get32(&self.k[i].inb) != MAGIC {
@@ -543,6 +698,19 @@ impl Relay {
             }
             if self.k[i].inb[4] == T_PING {
                 self.msg(i, T_PONG, 0, 0, 0);
+            }
+            if self.k[i].inb[4] == X_LISTING && self.c.list {
+                let n = get32(&self.k[i].inb[8..]) as usize;
+                if !(REC_HDR + REC_INFO_MIN..=REC_HDR + REC_INFO_MAX).contains(&n) {
+                    self.st.bad += 1;
+                    self.conn_free(i, now);
+                    return;
+                }
+                let k = &mut self.k[i];
+                k.l_need = n;
+                k.l_rec.clear();
+                k.inn = 0; // reads are one message at most: nothing follows the header in inb
+                return;
             }
             let k = &mut self.k[i];
             k.inb.copy_within(MSG_LEN..k.inn, 0);
@@ -573,6 +741,25 @@ impl Relay {
     }
     fn conn_read(&mut self, i: usize, now: i64) {
         let st = self.k[i].st;
+        if st == St::Host && self.k[i].l_need > 0 {
+            // pokopia-recomp extension: the room list: the rest of a listing record
+            let mut b = vec![0u8; self.k[i].l_need];
+            match self.k[i].s.as_mut().unwrap().read(&mut b) {
+                Ok(0) => self.conn_free(i, now),
+                Err(e) if !blocked(&e) => self.conn_free(i, now),
+                Err(_) => {}
+                Ok(n) => {
+                    let k = &mut self.k[i];
+                    k.l_rec.extend_from_slice(&b[..n]);
+                    k.l_need -= n;
+                    k.last_rx = now;
+                    if k.l_need == 0 {
+                        self.listing(i, now);
+                    }
+                }
+            }
+            return;
+        }
         if st == St::New || st == St::Host {
             let want = if st == St::New { HELLO_LEN - self.k[i].inn } else { MSG_LEN - self.k[i].inn };
             let k = &mut self.k[i];
@@ -889,6 +1076,115 @@ impl Relay {
         s.links = self.k.iter().filter(|k| k.st != St::Free).count();
         s.waiting = self.k.iter().filter(|k| k.st == St::Wait).count();
         s.paired = self.k.iter().filter(|k| k.st == St::Pair).count();
+        s.listed = self.lst.iter().flatten().count();
+        s.players = self.lst.iter().flatten().map(|l| l.players as usize).sum();
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn hello(kind: u8, room: &[u8; 16], b6: u8, b7: u8, tail: &[u8; 8]) -> [u8; HELLO_LEN] {
+        let mut h = [0u8; HELLO_LEN];
+        put32(&mut h, MAGIC);
+        h[4] = kind;
+        h[5] = 1;
+        h[6] = b6;
+        h[7] = b7;
+        h[8..24].copy_from_slice(room);
+        h[24..32].copy_from_slice(tail);
+        h
+    }
+    fn record(code: &[u8; 16], build: &[u8; 16], mods: u64, players: u8, max: u8) -> Vec<u8> {
+        let info_len = 0x100usize;
+        let mut r = vec![1u8, 0];
+        r.extend_from_slice(&(info_len as u16).to_le_bytes());
+        r.extend_from_slice(code);
+        r.extend_from_slice(build);
+        r.extend_from_slice(&mods.to_le_bytes());
+        let mut ni = vec![0u8; info_len];
+        ni[0x66] = max;
+        ni[0x67] = players;
+        r.extend_from_slice(&ni);
+        r
+    }
+    /// Steps the relay until `n` bytes arrived on `s` (or 2 s passed).
+    fn read_n(r: &mut Relay, s: &mut TcpStream, n: usize) -> Vec<u8> {
+        let mut got = Vec::new();
+        let t = Instant::now();
+        while got.len() < n && t.elapsed() < Duration::from_secs(2) {
+            r.step(5).unwrap();
+            let mut b = [0u8; 4096];
+            match s.read(&mut b) {
+                Ok(0) => break,
+                Ok(k) => got.extend_from_slice(&b[..k]),
+                Err(_) => {}
+            }
+        }
+        got
+    }
+
+    #[test]
+    fn room_list_round_trip() {
+        let mut r = Relay::create("127.0.0.1:0".parse().unwrap(), Config { udp: false, ..Config::default() }).unwrap();
+        let addr = r.local_addr();
+        let code = *b"0123456789ABCDEF";
+        let id = crate::hkdf::room_id(&code);
+        let build = *b"0123456789abcdef";
+
+        let mut host = TcpStream::connect(addr).unwrap();
+        host.set_read_timeout(Some(Duration::from_millis(5))).unwrap();
+        host.write_all(&hello(K_HOST, &id, 0, 0, &[0; 8])).unwrap();
+        let ok = read_n(&mut r, &mut host, MSG_LEN);
+        assert_eq!(ok.len(), MSG_LEN);
+        assert_eq!((ok[4], get32(&ok[8..])), (T_OK, X_CAP_LIST));
+
+        // a record whose code is not this room's is ignored
+        let bad = record(b"ZZZZZZZZZZZZZZZZ", &build, 7, 1, 4);
+        let mut m = [0u8; MSG_LEN];
+        put32(&mut m, MAGIC);
+        m[4] = X_LISTING;
+        put32(&mut m[8..], bad.len() as u32);
+        host.write_all(&m).unwrap();
+        host.write_all(&bad).unwrap();
+        for _ in 0..20 {
+            r.step(5).unwrap();
+        }
+        assert_eq!(r.stats().listed, 0);
+
+        std::thread::sleep(Duration::from_millis(LISTING_GAP_MS as u64));
+        let rec = record(&code, &build, 7, 2, 4);
+        put32(&mut m[8..], rec.len() as u32);
+        host.write_all(&m).unwrap();
+        host.write_all(&rec).unwrap();
+        for _ in 0..20 {
+            r.step(5).unwrap();
+        }
+        assert_eq!((r.stats().listed, r.stats().players), (1, 2));
+
+        // another build's list is empty; this build's has the room
+        for (b, want) in [(*b"fedcba9876543210", 0usize), (build, 1)] {
+            let mut v = TcpStream::connect(addr).unwrap();
+            v.set_read_timeout(Some(Duration::from_millis(5))).unwrap();
+            v.write_all(&hello(K_LIST, &b, 3, 0, &7u64.to_le_bytes())).unwrap();
+            let got = read_n(&mut r, &mut v, MSG_LEN + want * (MSG_LEN + rec.len()));
+            assert_eq!(got[4], X_LIST);
+            assert_eq!(get32(&got[8..]), want as u32 | 1 << 16);
+            assert_eq!(get32(&got[12..]), 2);
+            if want == 1 {
+                assert_eq!(got[MSG_LEN + 4], X_ENTRY);
+                assert_eq!(&got[2 * MSG_LEN..], &rec[..]);
+            }
+        }
+
+        // the room closes with its host: no longer listed
+        drop(host);
+        for _ in 0..20 {
+            r.step(5).unwrap();
+        }
+        assert_eq!(r.stats().listed, 0);
     }
 }

@@ -1,7 +1,9 @@
 // Mods: the player's Modtopia mods (Installed) and the Modtopia mod hub's list (Browse). The core behind them, the trust rule and the
 // hook plan are in Rust (mods.rs, mods_catalog.rs, mods_install.rs); what a row or a card says and the questions are ../mods-model.js.
 // Every change answers with the new list, which is drawn whole; the plan it wrote may need Set up again, which the store's readiness
-// says (kind 'mods') and this page offers with the same Set up as Home.
+// says (kind 'mods') and this page offers with the same Set up as Home. A mod or setting the launcher keeps on (mods_lock.rs, Community
+// Achievements and its sharing) shows locked, with Unlock behind its question and Lock to keep it on again. Browse opens first; an
+// installed mod shows as one collapsed line (name, switch, chips) and opens to its description, settings and actions.
 import './mods.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
@@ -9,10 +11,8 @@ import { fromBackend } from '../backend-text.js';
 import { confirm, errText, esc, field, icon, row, segmented, select, slider, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
-import { allowQuestion, badges, byLine, canMove, cardAction, installQuestion, isSlider, settingValue } from '../mods-model.js';
-
-// The Browse tab (the Modtopia mod hub's list and installs) is off for 0.11.1 by the repo owner's call; true brings it back.
-const BROWSE = false;
+import { modLine, modState, sharingText } from '../achievements-model.js';
+import { allowQuestion, badges, byLine, canMove, cardAction, detailsView, filterByGroup, groupChips, installQuestion, isSlider, isTested, keepGroup, lockAction, settingValue, unlockQuestion } from '../mods-model.js';
 
 const gameActive = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
 
@@ -21,18 +21,20 @@ const linkButton = (url, label, ic = 'external-link') => (url ? `<button class="
 const questionHtml = (q) => q.lines.map((l) => `<p>${esc(l)}</p>`).join('');
 
 export async function render(el, ctx) {
-  let tab = 'installed';
+  let tab = 'browse';
+  const open = new Set(); // ids of the installed mods shown opened (kept across redraws)
   let view = null;        // mods_list
   let listError = '';
   let catalog = null;     // mods_catalog
   let catalogError = '';
+  let group = '';         // the Browse filter chip: a group key, '' = All
   let busy = false;       // a change or an install is on its way: every control waits
-  let autoUpdate = false; // launcher.json mods_auto_update (the hub feature is off with BROWSE, so is its switch)
+  let autoUpdate = false; // launcher.json mods_auto_update (the switch for the hub's updates)
 
   el.innerHTML = `<div class="page mods">
     <div class="mods-head">
       <h1>${esc(t('Mods'))}</h1>
-      ${BROWSE ? segmented('mods-tab', [['installed', t('Installed')], ['browse', t('Browse')]], tab, { label: t('Mods') }) : ''}
+      ${segmented('mods-tab', [['browse', t('Browse')], ['installed', t('Installed')]], tab, { label: t('Mods') })}
     </div>
     <div class="mods-part" id="mods-banners"></div>
     <div class="mods-part" id="mods-prefs"></div>
@@ -55,48 +57,70 @@ export async function render(el, ctx) {
 
   /** The launcher's own preference for the hub's mods (the update itself runs at launcher start, mods_update.rs). */
   function prefsHtml() {
-    if (!BROWSE || tab !== 'installed') return '';
+    if (tab !== 'installed') return '';
     return `<div class="mods-pref glass">${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
       <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p></div>`;
+  }
+
+  /** Unlock or Lock for a row the launcher locks (what: 'mod' or 'sharing'); '' for any other. */
+  function lockButton(x, what) {
+    const act = lockAction(x);
+    if (!act) return '';
+    const text = act === 'unlock' ? t('Unlock') : t('Lock');
+    return `<button class="btn quiet sm" data-act="${act}" data-id="${what}" ${busy ? 'disabled' : ''}>${icon(act === 'unlock' ? 'lock-open' : 'lock')}${esc(text)}</button>`;
   }
 
   function settingControl(m, s, i, mi) {
     const id = `mod-${mi}-set-${i}`;
     const attrs = `data-mod="${esc(m.id)}" data-key="${esc(s.key)}"`;
-    const opts = { label: s.label, disabled: busy };
+    const opts = { label: s.label, disabled: busy || s.locked };
     let html;
     if (s.kind === 'bool') html = toggle(id, s.number !== 0, opts);
     else if (s.kind === 'choice') html = select(id, s.choices.map((c, k) => [String(k), c]), String(s.number), opts);
     else if (isSlider(s)) html = slider(id, s.min, s.max, s.number, { ...opts, step: s.step > 0 ? s.step : 'any' });
     else html = field(id, s.text, '', { ...opts, mono: s.kind === 'key' });
     // the data attributes go on the control itself, so a change event names its mod and setting
-    html = html.replace(`id="${id}"`, `id="${id}" ${attrs}`);
+    html = html.replace(`id="${id}"`, `id="${id}" ${attrs}`) + lockButton(s, 'sharing');
     const label = s.restart ? `${s.label} ${t('(after a restart of the game)')}` : s.label;
     return row(label, html);
   }
 
+  /** For the Community Achievements mod: what its state means for the Achievements page, and what sharing sends. */
+  function achievementsHtml(m) {
+    if (m.id !== view.achievements_mod) return '';
+    return `<p class="mod-desc">${esc(modLine(modState(view, m.id)))}</p><p class="faint mods-note">${esc(sharingText())}</p>`;
+  }
+
   function modHtml(m, mi, list) {
+    const opened = open.has(m.id);
     const msg = m.message ? `<div class="banner ${m.state === 'error' ? 'danger' : 'warn'} mod-msg">${icon(m.state === 'error' ? 'circle-x' : 'circle-alert')}<div class="grow selectable">${esc(m.message)}</div></div>` : '';
     const sets = m.settings.length ? `<div class="mod-settings">${m.settings.map((s, i) => settingControl(m, s, i, mi)).join('')}</div>` : '';
-    const dis = busy ? 'disabled' : '';
-    return `<section class="mod glass" data-id="${esc(m.id)}">
+    const lock = m.locked ? `<p class="faint mods-note">${esc(t('Locked: the launcher keeps it on, so your achievements and stats are recorded. Unlock it to switch it off or remove it.'))}</p>` : '';
+    const name = m.name || m.id;
+    return `<section class="mod glass ${opened ? 'open' : ''}" data-id="${esc(m.id)}">
       <div class="mod-head">
-        <div class="grow">
-          <h2 class="mod-name"><span class="clip">${esc(m.name || m.id)}</span> <span class="faint num">${esc(m.version)}</span></h2>
-          <p class="mod-by">${esc(byLine(m))}</p>
-        </div>
-        ${toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`)}
+        <button class="mod-fold grow" data-act="fold" data-id="${esc(m.id)}" aria-expanded="${opened}" aria-label="${esc(opened ? t('Hide {name}', { name }) : t('Show {name}', { name }))}">
+          ${icon(opened ? 'chevron-down' : 'chevron-right')}
+          <span class="grow">
+            <span class="mod-name"><span class="clip">${esc(name)}</span> <span class="faint num">${esc(m.version)}</span></span>
+            <span class="mod-by">${esc(byLine(m))}</span>
+          </span>
+        </button>
+        ${toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy || (m.locked && m.enabled) }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`)}
       </div>
       <div class="cluster">${badges(m).map(chip).join('')}</div>
-      ${m.description ? `<p class="mod-desc">${esc(m.description)}</p>` : ''}
       ${msg}
+      ${opened ? `${m.description ? `<p class="mod-desc">${esc(m.description)}</p>` : ''}
+      ${achievementsHtml(m)}
+      ${lock}
       ${sets}
       <div class="cluster mod-actions">
         <button class="btn quiet sm" data-act="up" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} earlier', { name: m.name || m.id }))}" ${canMove(list, mi, -1) && !busy ? '' : 'disabled'}>${icon('arrow-up')}${esc(t('Earlier'))}</button>
         <button class="btn quiet sm" data-act="down" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} later', { name: m.name || m.id }))}" ${canMove(list, mi, 1) && !busy ? '' : 'disabled'}>${icon('arrow-down')}${esc(t('Later'))}</button>
         <span class="grow"></span>
-        <button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${dis}>${icon('trash-2')}${esc(t('Remove'))}</button>
-      </div>
+        ${lockButton(m, 'mod')}
+        <button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${busy || m.locked ? 'disabled' : ''}>${icon('trash-2')}${esc(t('Remove'))}</button>
+      </div>` : ''}
     </section>`;
   }
 
@@ -106,7 +130,7 @@ export async function render(el, ctx) {
     if (!view) return `<div class="empty">${icon('loader-circle', 'spin')}</div>`;
     if (!view.mods.length) {
       return `<div class="empty glass">${icon('puzzle')}<strong>${esc(t('No mods yet'))}</strong>
-        <span>${esc(BROWSE ? t('Find mods under Browse, or put them into the mods folder.') : t('Put mods into the mods folder.'))}</span></div>${folder}`;
+        <span>${esc(t('Find mods under Browse, or put them into the mods folder.'))}</span></div>${folder}`;
     }
     const order = view.mods.length > 1 ? `<p class="faint mods-note">${esc(t('Mods load from the top down: on the same game file, the one further down wins.'))}</p>` : '';
     return `${order}${view.mods.map((m, i) => modHtml(m, i, view.mods)).join('')}${folder}`;
@@ -124,6 +148,7 @@ export async function render(el, ctx) {
     }[act];
     const chips = [{ text: c.gameplay ? t('Changes gameplay') : t('Looks only'), kind: c.gameplay ? 'warn' : '' }];
     if (c.network) chips.push({ text: t('Goes online'), kind: '' });
+    if (isTested(c, catalog.game)) chips.push({ text: t('Tested'), kind: 'ok' });
     return `<section class="mod glass card-mod">
       <div class="mod-head">
         <div class="grow">
@@ -133,22 +158,29 @@ export async function render(el, ctx) {
       </div>
       ${c.summary ? `<p class="mod-desc">${esc(c.summary)}</p>` : ''}
       <div class="cluster">${chips.map(chip).join('')}${c.installed && c.newer ? `<span class="chip">${esc(t('{version} installed', { version: c.installed }))}</span>` : ''}</div>
-      <div class="cluster mod-actions">${linkButton(c.page, t('Mod page'))}<span class="grow"></span>${button}</div>
+      <div class="cluster mod-actions"><button class="btn quiet sm" data-act="details" data-id="${esc(c.id)}">${icon('info')}${esc(t('Details'))}</button>${linkButton(c.page, t('Mod page'))}<span class="grow"></span>${button}</div>
     </section>`;
+  }
+
+  /** The group chips of Browse (only when the hub names groups): one button each, the chosen one pressed. */
+  function groupsHtml() {
+    const chips = groupChips(catalog.groups);
+    if (!chips.length) return '';
+    return `<div class="cluster mods-groups" role="group" aria-label="${esc(t('Mod groups'))}">${chips.map((g) => `<button class="chip" data-act="group" data-id="${esc(g.key)}" aria-pressed="${g.key === group}">${esc(g.label)}</button>`).join('')}</div>`;
   }
 
   function browseHtml() {
     if (catalogError) return `<div class="banner danger">${icon('circle-x')}<div class="grow">${esc(catalogError)}</div><button class="btn sm" data-act="refresh">${esc(t('Try again'))}</button></div>`;
     if (!catalog) return `<div class="empty">${icon('loader-circle', 'spin')}</div>`;
-    const note = `<div class="banner info">${icon('info')}<div class="grow">${esc(t('These mods come from the Modtopia mod hub. Its team checks every mod before it is listed. Made one? Send it to the hub.'))}
-        <div class="cluster mods-links">${linkButton(catalog.hub, t('Mod hub'))}${linkButton(catalog.submit, t('Submit a mod'))}
-        <button class="btn quiet sm" data-act="refresh" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}${esc(t('Refresh'))}</button></div></div></div>`;
+    const links = `<div class="cluster mods-links">${linkButton(catalog.hub, t('Mod hub'))}${linkButton(catalog.submit, t('Submit a mod'))}
+        <button class="btn quiet sm" data-act="refresh" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}${esc(t('Refresh'))}</button></div>`;
     const offline = catalog.offline ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(t('The mod hub cannot be reached: this is the last list the launcher saw. Installing needs the hub.'))}</div></div>` : '';
     const preview = catalog.preview ? `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(t('The mod hub is not open for installs yet: this is what is coming.'))}</div></div>` : '';
-    const cards = catalog.mods.length
-      ? catalog.mods.map(cardHtml).join('')
-      : `<div class="empty glass">${icon('puzzle')}<strong>${esc(t('No mods for this game version yet'))}</strong></div>`;
-    return note + offline + preview + cards;
+    const shown = filterByGroup(catalog.mods, group);
+    const cards = shown.length
+      ? shown.map(cardHtml).join('')
+      : `<div class="empty glass">${icon('puzzle')}<strong>${esc(catalog.mods.length ? t('No mods in this group') : t('No mods for this game version yet'))}</strong></div>`;
+    return offline + preview + groupsHtml() + cards + links;
   }
 
   // a redraw keeps the focus on the same control (the pad and the keyboard must not lose their place)
@@ -183,6 +215,7 @@ export async function render(el, ctx) {
     if (refresh) { catalog = null; catalogError = ''; draw(); }
     try {
       catalog = await api.modsCatalog({ refresh });
+      group = keepGroup(catalog.groups, group);
       catalogError = '';
     } catch (e) {
       catalogError = errText(e);
@@ -243,6 +276,19 @@ export async function render(el, ctx) {
     if (ok) await loadCatalog();
   }
 
+  /** The whole description, the settings it adds, what the hub says about testing, size and links. Plain text only. */
+  async function details(id) {
+    const c = catalog?.mods.find((x) => x.id === id);
+    if (!c) return;
+    const d = detailsView(c, catalog.game);
+    const html = `<p class="mod-by">${esc(d.by)}</p>
+      ${d.description ? `<p class="mod-long selectable">${esc(d.description)}</p>` : ''}
+      ${d.settings.length ? `<h3 class="mod-sub">${esc(t('Settings you can change'))}</h3><ul class="mod-set-list">${d.settings.map((s) => `<li class="selectable">${esc(s)}</li>`).join('')}</ul>` : ''}
+      ${d.facts.map((f) => `<p>${esc(f)}</p>`).join('')}
+      ${d.links.length ? `<div class="cluster">${d.links.map((l) => linkButton(l.url, l.label)).join('')}</div>` : ''}`;
+    await confirm({ title: d.title, html, ok: t('Close'), alert: true, onAct: (b) => api.openLink({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error')) });
+  }
+
   async function remove(id) {
     const m = view?.mods.find((x) => x.id === id);
     if (!m) return;
@@ -253,6 +299,15 @@ export async function render(el, ctx) {
       danger: true,
     });
     if (yes) await apply(() => api.modsRemove({ id }), t('{name} was removed', { name: m.name || m.id }));
+  }
+
+  /** Unlock asks first (what turning it off costs the player); Lock keeps it at once (mods_set_lock installs or switches it back on). */
+  async function setLock(what, locked) {
+    if (!locked) {
+      const q = unlockQuestion(what);
+      if (!await confirm({ title: q.title, html: questionHtml(q), ok: q.ok, danger: true })) return;
+    }
+    await apply(() => api.modsSetLock({ what, locked }), locked ? t('Locked again') : t('Unlocked'));
   }
 
   // --- events
@@ -280,8 +335,13 @@ export async function render(el, ctx) {
     switch (b.dataset.act) {
       case 'up': return apply(() => api.modsMove({ id, delta: -1 }));
       case 'down': return apply(() => api.modsMove({ id, delta: 1 }));
+      case 'fold': if (!open.delete(id)) open.add(id); return draw();
       case 'remove': return remove(id);
+      case 'unlock': return setLock(id, false);
+      case 'lock': return setLock(id, true);
       case 'install': return install(id);
+      case 'details': return details(id);
+      case 'group': group = id; return draw();
       case 'folder': return api.openModsDir().catch((err) => toast(errText(err), 'error'));
       case 'link': return api.openLink({ url: b.dataset.url }).catch((err) => toast(errText(err), 'error'));
       case 'refresh': return loadCatalog(true);
@@ -294,7 +354,8 @@ export async function render(el, ctx) {
     if (['app', 'game', 'task', 'setup'].includes(why)) part('mods-banners').innerHTML = bannersHtml();
   });
 
-  if (BROWSE) api.getConfig().then((c) => { autoUpdate = !!c?.mods_auto_update; draw(); }).catch((e) => console.warn('get_config', e));
+  api.getConfig().then((c) => { autoUpdate = !!c?.mods_auto_update; draw(); }).catch((e) => console.warn('get_config', e));
   draw();
+  loadCatalog();
   await loadList();
 }

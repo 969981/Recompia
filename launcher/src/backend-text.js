@@ -17,6 +17,13 @@ const TEXTS = [
   msg('The game is running. Close it first, then change profiles.'),
   msg('The game is running. Close it first, then repair.'),
   msg('The game is running. Close it first, then import the save.'),
+  msg('The game is running. Close it first, then edit the save.'),
+  msg('There is no save to edit yet. Play the game once, or import a save in Settings, then try again.'),
+  msg('There is no save to write to. Play the game once, or import a save in Settings, then try again.'),
+  msg('The save editor needs the game files: choose them on the Set up page first.'),
+  msg('The game files are not where pkp.ini says ({1}). Choose them again on the Set up page.'),
+  msg('This package has no save editor data tool (tools/pokohex). Extract the release zip again so tools/ is complete.'),
+  msg('The save editor could not read the game files: {1}'),
   msg('The game is running. Close it first, then update.'),
   msg('Setup is running. Wait for it to finish, then repair.'),
   msg('Setup is running. Pause it first, then update.'),
@@ -61,7 +68,7 @@ const TEXTS = [
   msg("The local start time for timed event '{1}' is not available in this time zone."),
 
   // gamebuild.rs, readiness.rs, setup_job.rs
-  msg('This update changes the game code. Press Finish update to rebuild it (about 7 minutes). Your shaders and saves are kept.'),
+  msg('This update changes the game code. Press Finish update to build it again: from a few minutes to an hour, depending on your PC. Your shaders and saves are kept.'),
   msg('This update changes the runtime only. Press Finish update to link the game again (about a minute). Your shaders and saves are kept.'),
   msg('pkp_rt.dll next to the launcher is from another release than the build tools in the tools folder ({1} and {2}), so Set up would build a pkp.exe that does not run with it. Only part of an update is in place: extract the whole release zip over this folder, every file, then press Set up again.'),
   msg('The game build cannot run, missing: {1}. Extract the release zip again so tools/ is complete.'),
@@ -77,6 +84,8 @@ const TEXTS = [
   msg('There is no mod {1} in the mods folder.'),
   msg("Could not save the mods' list in the mods folder."),
   msg("This mod's code is not allowed yet."),
+  msg('Community Achievements is locked: unlock it first to switch it off or remove it.'),
+  msg('Sharing of Community Achievements is locked: unlock it first to switch it off.'),
   msg('Could not record your yes for {1}.'),
   msg('Could not change {1} of {2}.'),
   msg('Could not delete {1}: {2}'),
@@ -112,7 +121,7 @@ const TEXTS = [
   msg('If Windows Firewall asks about this program, allow it on Private networks. If it was answered wrongly once, remove the Block rules for the program in Windows Defender Firewall > Allow an app.'),
   msg('If visitors cannot connect, the firewall may block the ports (47600 for a host, 47610 for a relay). With firewalld (Fedora, Bazzite): sudo firewall-cmd --add-port=47600/tcp --add-port=47600/udp --add-port=47610/tcp --add-port=47610/udp'),
 
-  // nsp.rs, nup.rs: 'Cannot write {1} (disk full or blocked?): {2}' comes first, the plainer 'Cannot write {1}: {2}' would match it too
+  // nsp.rs, unpack.rs, nx.rs: 'Cannot write {1} (disk full or blocked?): {2}' comes first, the plainer 'Cannot write {1}: {2}' would match it too
   msg('Cannot write {1} (disk full or blocked?): {2}'),
   msg('The .nsp file is damaged or incomplete.'),
   msg('This is not an .nsp file (no PFS0 header).'),
@@ -120,19 +129,27 @@ const TEXTS = [
   msg('Add-on {1} is not for this game.'),
   msg('This .nsp holds no add-on content for this game.'),
 
-  // nup.rs
+  // unpack.rs: {1} is the package, .nup or .nx
   msg('Unpacking was cancelled.'),
+  msg('This {1} has no base game or update in it.'),
+  msg('{1} already exists and was not made by the launcher. Move or delete it, then try again.'),
+  msg('This {1} is not the game version this launcher supports (build {2}). It holds: {3}.'),
+  msg('The game program in this {1} has no RomFS (game data).'),
+  msg('Not enough free disk space to unpack the game: about {1} GB are needed on the drive of {2}, {3} GB are free.'),
+
+  // nup.rs
   msg('The .nup file is damaged or incomplete.'),
   msg('This is not a .nup package (wrong header).'),
   msg('This .nup was made with a newer format than this launcher knows. Update the launcher.'),
   msg('The .nup file is damaged or incomplete (it does not match its header). Download it again.'),
   msg('The .nup table of contents is damaged (checksum mismatch). Download the file again.'),
-  msg('This .nup has no base game or update in it.'),
-  msg('{1} already exists and was not made by the launcher. Move or delete it, then try again.'),
-  msg('This .nup is not the game version this launcher supports (build {1}). It holds: {2}.'),
   msg('This update only holds the files it changes and needs the base game, which is not in this .nup. Use a .nup that contains the base game too.'),
-  msg('The game program in this .nup has no RomFS (game data).'),
-  msg('Not enough free disk space to unpack the game: about {1} GB are needed on the drive of {2}, {3} GB are free.'),
+
+  // nx.rs
+  msg('This is not an .nx package (wrong header).'),
+  msg('This .nx was made with a newer format than this launcher knows. Update the launcher.'),
+  msg('The .nx file is damaged or incomplete (it does not match its header). Download it again.'),
+  msg('This .nx holds the game as NCA packages (it was made from an .nsp or .xci), which the launcher cannot read. Make the .nx from extracted game files or from a .nup (nxconvert pack-tree or pack-nup).'),
 
   // play.rs: starting and watching the game (the raw text is what action.js gamePhase reads)
   msg('The game is already running.'),
@@ -197,8 +214,7 @@ const TEXTS = [
 
   // relay_cmds.rs
   msg('Cannot open port {1}: {2}'),
-  msg('Cannot make a room code: {1}'),
-  msg('A room code has 16 letters and digits: XXXX-XXXX-XXXX-XXXX.'),
+
 
   // repair.rs, rollback.rs
   msg('Pick at least one group of game settings to reset.'),
@@ -253,11 +269,11 @@ const TEXTS = [
   msg('It was not in Steam.'),
   msg('Removed "{1}" from Steam. Start Steam again.'),
 
-  // update.rs, update_cmds.rs
+  // releases.rs, update.rs, update_cmds.rs
   msg('Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.'),
   msg('The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.'),
   msg('That version could not be compared with the one you have.'),
-  msg('The game files may have to be built again for the older version, so Set up again can be asked (about 15 to 20 minutes).'),
+  msg('The game code may have to be built again for the older version, before it is installed or with Set up again after it: from a few minutes to an hour, depending on your PC.'),
   msg('Files that only the newer version has stay in the folder; they are not removed.'),
   msg('You already have that build.'),
   msg('Going back to an older build needs your confirmation first. Nothing was changed.'),
@@ -286,6 +302,10 @@ const TEXTS = [
   msg("Could not find the launcher's own file."),
   msg('The new launcher did not start ({1}). The update was undone.'),
   msg('The new launcher did not start ({1}). {2}'),
+  msg('The game could not be prepared for the update: {1} Nothing was changed. The details are in setup.log.'),
+  msg('The new game build could not be put in place: {1} Nothing was changed.'),
+  msg('The new game build could not be put in place: {1} {2}'),
+  msg('The earlier game build could not be put back ({1}): press Set up to build it again.'),
 
   // writecheck.rs: can the launcher write in the game folder
   msg('Windows is blocking writes in the game folder'),

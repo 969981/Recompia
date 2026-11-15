@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pokémon Pokopia: an item slot's fields and an item's name, for every hook file that reads items (the inventory sort, the crafting
-// search, the item editor). The addresses are in pkp_layout.h; how the slots were measured is in pkp_sort.cpp.
+// search, the item editor). The addresses are in pkp_layout.h.
 //
-// A slot is 16 bytes: a vtable qword (main + layout::kItemSlotVtable), a packed u32 (bits 0..12 the item id, 0 = empty; the bits above are
-// per-slot data) and a u8 count at +0xc. Only the 8 bytes from +8 (the payload) ever move; every slot keeps its vtable.
+// A slot is 16 bytes: a vtable qword (main + layout::kItemSlotVtable), a packed u32 (bits 0..12 the item id, 0 = empty; 13..20, 21..25,
+// 26..30 and bit 31 per-slot data) and a u8 count at +0xc. Only the 8 bytes from +8 (the payload) ever move; every slot keeps its vtable
+// (measured with page traps and snapshot diffs in scripted runs, main 2.0.1a; the game's own sort 0x71005b25e0 moves the same fields).
+// Inventory kind 0 is the player's bag: 120 slots, then kind 4 (10 slots at bag + 0x780, a separate sub-area). The other kinds are
+// containers: count slots from slot `first` of a store (0x71002ee4bc (type, id, &first, &count)); 0x7100e6dc2c (player, kind, type, id,
+// use_temp) returns the bag or the store. While an item is held the bag screen works on a temp copy (layout::kItemTempFlag) and copies
+// it back on placement / close. Two stacks merge when their packed words are equal and the count stays within the max stack
+// (layout::kMaxStack, one value for every item).
 #pragma once
 #include <cstdint>
 #include <string>

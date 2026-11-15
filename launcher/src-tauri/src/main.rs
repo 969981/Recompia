@@ -2,6 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backup_cmds;
+mod branding;
+mod branding_cmds;
+mod child_lines;
 mod cli;
 mod config;
 mod dialogs;
@@ -12,10 +15,14 @@ mod dump;
 mod dump_cmds;
 mod error;
 mod events;
+mod exe_icon;
+mod achievements;
+mod achievements_cmds;
 mod fsutil;
 mod gamebuild;
 mod guard;
 mod harness;
+mod home_count;
 mod host;
 mod ini;
 mod lan;
@@ -24,14 +31,19 @@ mod mods;
 mod mods_catalog;
 mod mods_cmds;
 mod mods_install;
+mod mods_lock;
 mod mods_update;
 mod nsp;
 mod launch;
 mod nup;
+mod nx;
+mod online;
 mod open;
 mod paths;
 mod play;
+mod play_time;
 mod presence;
+mod proc_tree;
 mod preflight;
 mod prompts;
 mod profile_cmds;
@@ -40,11 +52,15 @@ mod public_ip;
 mod readiness;
 use pokopia_relay as relay;
 mod relay_cmds;
+mod releases;
 mod repair;
 mod repair_cmds;
 mod rollback;
 mod runtime_api;
 mod savebackup;
+mod saveedit;
+mod saveedit_cmds;
+mod saveedit_data;
 mod saveimport;
 mod saves;
 mod settings;
@@ -59,7 +75,10 @@ mod states;
 mod storage;
 #[cfg(debug_assertions)]
 mod testhook;
+mod unpack;
 mod update;
+mod update_apply;
+mod update_game;
 mod update_cmds;
 mod window;
 mod writecheck;
@@ -88,11 +107,14 @@ fn main() {
     states::install(tauri::Builder::default().plugin(tauri_plugin_dialog::init()))
         // a swap cut off by closing the window would have to wait for the next start to be undone
         .on_window_event(window::on_event)
+        // the save editor's game data (saveedit_data.rs), read only, from the game folder's pokohex_data
+        .register_uri_scheme_protocol(saveedit_data::PROTOCOL, |ctx, request| saveedit_data::respond(&game_dir(ctx.app_handle()), &request))
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 // a failed screen query only means the window keeps its default size: it must never stop the launcher from starting
                 let _ = window::fit_window(&window, load_config(app.handle()).window);
             }
+            branding::apply_window(app.handle(), &branding::Branding::of(&load_config(app.handle())));
             // Link Play starts from its defaults on every launcher start: nothing left from an earlier session decides the next one (#239)
             if let Err(e) = settings::reset_link_play(&game_dir(app.handle())) {
                 eprintln!("Link Play reset: {e}");
@@ -106,6 +128,7 @@ fn main() {
                     let (root, game) = (exe_dir(), game_dir(&handle));
                     update::clean_start(&root, &update::old_files(&launcher, &game));
                     st.set_cleaning(false);
+                    branding::on_start(&load_config(&handle));
                 });
             }
             #[cfg(debug_assertions)]
@@ -127,11 +150,11 @@ fn main() {
             readiness::get_overview,
             dialogs::pick_folder,
             dump_cmds::validate_dump,
-            dialogs::pick_nup,
+            dialogs::pick_package,
             dialogs::pick_nsp,
             dump_cmds::import_dlc,
-            dump_cmds::import_nup,
-            dump_cmds::cancel_nup,
+            dump_cmds::import_package,
+            dump_cmds::cancel_unpack,
             dump_cmds::save_dump,
             settings_cmds::read_settings,
             settings_cmds::write_settings,
@@ -153,6 +176,7 @@ fn main() {
             saves::import_save,
             saves::open_save_dir,
             profile_cmds::profiles_list,
+            profile_cmds::profiles_play_time,
             profile_cmds::profile_add,
             profile_cmds::profile_rename,
             profile_cmds::profile_remove,
@@ -166,6 +190,11 @@ fn main() {
             backup_cmds::backup_now,
             backup_cmds::backup_restore,
             backup_cmds::open_backup_dir,
+            saveedit_cmds::save_edit_read,
+            saveedit_cmds::save_edit_write,
+            saveedit_cmds::save_edit_data_ready,
+            saveedit_cmds::save_edit_prepare,
+            branding_cmds::apply_branding,
             steam_cmds::steam_status,
             steam_cmds::steam_add,
             steam_cmds::steam_remove,
@@ -176,9 +205,7 @@ fn main() {
             relay_cmds::relay_status,
             relay_cmds::lan_report,
             relay_cmds::public_ip,
-            relay_cmds::room_code_new,
-            relay_cmds::room_code_check,
-            relay_cmds::room_code_host,
+
             mods_cmds::mods_list,
             mods_cmds::mods_set_enabled,
             mods_cmds::mods_move,
@@ -187,7 +214,10 @@ fn main() {
             mods_cmds::mods_catalog,
             mods_cmds::mods_install,
             mods_cmds::mods_auto_update,
+            mods_cmds::mods_keep_locked,
+            mods_cmds::mods_set_lock,
             mods_cmds::open_mods_dir,
+            achievements_cmds::achievements_view,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");

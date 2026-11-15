@@ -227,14 +227,6 @@ bool start(const StartOptions& opt) {
                 st.overlay->install_on_renderer();
                 if (const GamePlay* gp = game_play()) st.overlay->set_game_layer(gp->overlay_layer);   // its place: play_frame.cpp (picture rect)
                 apply_fps_counter(st.settings.fps);
-                {   // [overlay] touch_button: auto (the default: when the machine has a touch screen), on, off
-                    std::string tb = config_get_str("overlay", "touch_button", "auto");
-                    tb = nxrt::text::lower(std::move(tb));
-                    const bool on = tb == "on" || tb == "true" || tb == "1" || tb == "yes" || (tb == "auto" && st.window && platform::touchscreen_present());
-                    st.overlay->set_touch_button(on);
-                    NXLOG_I(kTag, "touch: touch screen %s, menu button %s ([overlay] touch_button = %s)", st.window && platform::touchscreen_present() ? "found" : "not found",
-                            on ? "on" : "off", tb.c_str());
-                }
             }
         }
     }

@@ -50,12 +50,15 @@ Address space (`include/nxrt/memory.h`):
 | Region | Base | Size |
 |---|---|---|
 | Main module image (`kMainBase`) | 0x7100000000 | per module, at its lifted address |
-| HLE thunks (`kHleBase`) | 0x7400000000 | 0x1000000 (16 MiB) |
+| Remote region (`kRemoteBase`) | 0x7200000000 | 0x100000000 (4 GiB) |
+| Alias views (`kAliasBase`) | 0x7300000000 | 0x200000000 (8 GiB) |
 | SDK modules (`kSdkBase`) | 0x7500000000 | per module |
 | Heap view (`kHeapBase`) | 0x7800000000 | 0x200000000 (8 GiB maximum) |
-| Alias views (`kAliasBase`) | 0x7A00000000 | 0x200000000 (8 GiB) |
 | Guest thread stacks (`kStackBase`) | 0x7C00000000 | 0x100000000 (4 GiB) |
 | Kernel region (`kKernelBase`) | 0x7E00000000 | 0x100000000 (4 GiB) |
+| HLE thunks (`kHleBase`) | 0x7F00000000 | 0x1000000 (16 MiB) |
+
+On macOS the whole span 0x7000000000-0x8200000000 is reserved in the executable's Mach-O header as a zero-fill `__GUEST` segment, because libmalloc's xzone allocator takes ~24 GiB of it at random addresses before `main` runs; see `docs/macos-port.md`.
 
 ## Configuration
 
@@ -140,6 +143,7 @@ Third-party code fetched at configure time (graphics shell). Each archive is dow
 | volk | vulkan-sdk-1.4.363.0 | github.com/zeux/volk tag archive, 889b90fdcbe9cee7b118339d640c6895b7be5c920d309c44b744692063275b3d | MIT |
 | VulkanMemoryAllocator | v3.4.0 | github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator tag archive, ce9a61ea5e72284ac9ccc152c214eef381ab57bfd7383f20232e5a652e3afda6 | MIT |
 | Dear ImGui | v1.92.9b | github.com/ocornut/imgui tag archive, e1c46d676c2bcb7ced847ba27f50553e33a19db97b3cadaec7f8be64449139f8 | MIT |
+| libusb (Windows x64 only) | 1.0.30, official binary release, unchanged; SDL loads `libusb-1.0.dll` at run time | github.com/libusb/libusb release v1.0.30 `libusb-1.0.30.7z`, 7fb1dfec805b97983763d7d0ae244320da12add1003d4249c96cc4d586398c79 | LGPL-2.1-or-later |
 
 The Vulkan SDK (validation layer, `glslc` for `scripts/gen_scene_shaders.py`) is a development tool and is not shipped.
 

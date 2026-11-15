@@ -9,11 +9,17 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#if defined(_WIN32)
+#include <cfgmgr32.h>
+#pragma comment(lib, "cfgmgr32.lib")
+#endif
 
 #include <algorithm>
 #include <cctype>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
+#include <cwchar>
 #include <deque>
 #include <fstream>
 #include <mutex>
@@ -25,13 +31,17 @@ namespace nxrt {
 namespace {
 
 // An SMBIOS string: HKLM\HARDWARE\DESCRIPTION\System\BIOS (Windows; Wine's wineboot fills it from SMBIOS), else the Linux DMI file
-// through Wine's Z: drive (on Windows that path does not exist).
+// (through Wine's Z: drive on a Windows build under Wine, and straight from /sys on the POSIX hosts, where the registry is not there).
 std::string smbios(const char* value, const char* dmi_file) {
+#if defined(_WIN32)
     char buf[128] = {};
     DWORD n = sizeof buf;
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\BIOS", value, RRF_RT_REG_SZ, nullptr, buf, &n) == ERROR_SUCCESS)
         return text::lower_trim(buf);
     std::ifstream f(std::string("Z:\\sys\\class\\dmi\\id\\") + dmi_file);
+#else
+    std::ifstream f(std::string("/sys/class/dmi/id/") + dmi_file);
+#endif
     std::string s;
     if (f && std::getline(f, s)) return text::lower_trim(s);
     return {};
@@ -78,12 +88,46 @@ bool host_is_steam_deck() {
     return deck;
 }
 
-bool host_is_wine() {
-    static const bool wine = [] {
+bool host_is_linux() {
+#if defined(__linux__)
+    return true;   // the native Linux build
+#elif defined(_WIN32)
+    // A Windows build under Wine: ntdll's wine_get_host_version names the kernel the process really runs on ("Linux" under Proton on
+    // SteamOS, whatever the host is under CrossOver on macOS).
+    static const bool linux_kernel = [] {
         HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-        return nt && GetProcAddress(nt, "wine_get_version");
+        if (!nt) return false;
+        using host_version_fn = void (*)(const char**, const char**);
+        const auto fn = reinterpret_cast<host_version_fn>(GetProcAddress(nt, "wine_get_host_version"));
+        if (!fn) return false;
+        const char* sysname = nullptr;
+        const char* release = nullptr;
+        fn(&sysname, &release);
+        return sysname && std::strcmp(sysname, "Linux") == 0;
     }();
-    return wine;
+    return linux_kernel;
+#else
+    return false;   // macOS
+#endif
+}
+
+bool host_usb_vendor_present(unsigned vendor_id) {
+#if defined(_WIN32)
+    // ponytail: a device plugged in between the two calls makes the list too small and the answer false; the next start sees it.
+    const ULONG flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
+    ULONG len = 0;
+    if (CM_Get_Device_ID_List_SizeW(&len, L"USB", flags) != CR_SUCCESS || len == 0) return false;
+    std::wstring ids(len, L'\0');
+    if (CM_Get_Device_ID_ListW(L"USB", ids.data(), len, flags) != CR_SUCCESS) return false;
+    wchar_t want[24];
+    const int n = swprintf(want, 24, L"USB\\VID_%04X&", vendor_id & 0xFFFFu);   // instance ids: USB\VID_057E&PID_2069\<serial>
+    for (const wchar_t* p = ids.c_str(); *p; p += wcslen(p) + 1)
+        if (_wcsnicmp(p, want, static_cast<size_t>(n)) == 0) return true;
+    return false;
+#else
+    (void)vendor_id;
+    return false;
+#endif
 }
 
 // ---- Steam's on-screen keyboard -------------------------------------------------------------------------------------------------------
@@ -114,19 +158,16 @@ bool run_with_url(const wchar_t* exe, const std::string& url) {
 }
 
 // Hands a steam:// URL to the Steam client. Under Proton, the prefix's steam.exe is Proton's helper, which forwards steam:// arguments to
-// the native client (steam_helper: steam-runtime-steam-remote, else steam); on Windows it is Steam itself. Plain Wine without Proton:
+// the native client (steam_helper: steam-runtime-steam-remote, else steam); on Windows it is Steam itself. A prefix without that helper has
 // winebrowser (xdg-open, which reaches Steam through its x-scheme-handler/steam). Last: ShellExecute.
 void send_to_steam(const std::string& url) {
-    static const wchar_t* const kSteamExe[] = {L"C:\\Program Files (x86)\\Steam\\steam.exe", L"C:\\windows\\system32\\steam.exe"};
+    static const wchar_t* const kSteamExe[] = {L"C:\\Program Files (x86)\\Steam\\steam.exe", L"C:\\windows\\system32\\steam.exe",
+                                               L"C:\\windows\\system32\\winebrowser.exe"};
     for (const wchar_t* exe : kSteamExe) {
         if (file_exists(exe) && run_with_url(exe, url)) {
             NXLOG_I("host", "Steam keyboard: %s (through %ls)", url.c_str(), exe);
             return;
         }
-    }
-    if (host_is_wine() && run_with_url(L"C:\\windows\\system32\\winebrowser.exe", url)) {
-        NXLOG_I("host", "Steam keyboard: %s (through winebrowser)", url.c_str());
-        return;
     }
     const INT_PTR r = reinterpret_cast<INT_PTR>(ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     if (r > 32) NXLOG_I("host", "Steam keyboard: %s (ShellExecute)", url.c_str());
@@ -181,8 +222,8 @@ bool host_steam_keyboard_wanted() {
             why = "[applet] steam_keyboard = on";
         } else if (c == "0" || c == "off" || c == "false" || c == "no") {
             why = "[applet] steam_keyboard = off";
-        } else if (!host_is_wine()) {
-            why = "Windows (a steam:// URL would start Steam if it is not running)";
+        } else if (!host_is_linux()) {
+            why = "Windows or macOS (a steam:// URL would start Steam if it is not running)";
         } else if (host_is_steam_deck()) {
             w = true;
             why = "a Steam Deck";

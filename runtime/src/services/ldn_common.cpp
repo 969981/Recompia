@@ -45,41 +45,24 @@ int16_t wire_version(int16_t game) {
 int16_t game_version(int16_t wire) { return wire < 0 ? wire : static_cast<int16_t>(wire & ~ldnapi::kVariantMask); }
 uint8_t variant_of(int16_t wire) { return wire < 0 ? 0 : static_cast<uint8_t>((wire & ldnapi::kVariantMask) >> ldnapi::kVariantShift); }
 
-// room-code.txt beside the log (the game folder for pkp.exe): the code in use, for the launcher to show (launcher room_code_host).
-std::string room_code_file() {
-    const std::string log = log_path();
-    const size_t cut = log.find_last_of("/\\");
-    return (cut == std::string::npos ? std::string() : log.substr(0, cut + 1)) + "room-code.txt";
-}
-
-// [net] room_code -> the lobby's room key (zero: none). While a code is in use it is logged and written to room_code_file(), else
-// that file is removed (a code from an earlier run must not be shown). False: the value is not a code (local wireless stays off).
+// [net] room_code (protocol linkplay only, the old protocol; the launcher no longer writes it) -> the lobby's room key (zero: none).
+// False: the value is not a code (local wireless stays off).
 bool room_code_setup(std::array<uint8_t, 16>* key) {
     std::string v = config_get_str("net", "room_code", "");
-    const std::string file = room_code_file();
     std::string lower = text::lower(v), norm;
-    if (v.empty()) {
-        std::remove(file.c_str());
-        return true;
-    }
+    if (v.empty()) return true;
     if (lower == "new") {
         norm = vnet::room_code_new();
         if (norm.empty()) {
             NXLOG_W("net", "ldn: [net] room_code = new: no random source: local wireless off");
-            std::remove(file.c_str());
             return false;
         }
     } else if (!vnet::room_code_normalize(v, &norm)) {
         NXLOG_W("net", "ldn: [net] room_code is not a room code (16 letters and digits, XXXX-XXXX-XXXX-XXXX): local wireless off");
-        std::remove(file.c_str());
         return false;
     }
     *key = vnet::room_key(norm);
     const std::string shown = vnet::room_code_format(norm);
-    if (FILE* f = std::fopen(file.c_str(), "wb")) {
-        std::fprintf(f, "%s\n", shown.c_str());
-        std::fclose(f);
-    }
     NXLOG_I("net", "ldn: room code %s%s: a room hosted here is seen only by players with this code; scans show open rooms and rooms with it",
             shown.c_str(), lower == "new" ? " (new)" : "");
     return true;

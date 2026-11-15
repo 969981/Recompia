@@ -1,0 +1,40 @@
+Ryujinx shader translator: LookForDoWhileStatements took the block's predecessors in descending index order with
+LINQ's OrderByDescending, which allocates a buffer, an ordered enumerable and an iterator for every basic block of
+every shader. The predecessors are a handful of blocks, so pick the highest index at or above the block's own each
+time instead. Same order, same side effects, no allocation. The Ryujinx code in the context lines is MIT.
+--- a/StructuredIr/StructuredProgramContext.cs
++++ b/StructuredIr/StructuredProgramContext.cs
+@@ -118,13 +118,30 @@
+             // current block, this indicates a loop.
+             bool done = false;
+ 
+-            foreach (BasicBlock predecessor in block.Predecessors.OrderByDescending(x => x.Index))
+-            {
++            // The predecessors are a handful of blocks; take them in descending index order by picking the highest one each
++            // time. OrderByDescending allocated a buffer and an iterator for every block of every shader.
++            int below = int.MaxValue;
++
++            while (true)
++            {
++                BasicBlock predecessor = null;
++
++                foreach (BasicBlock candidate in block.Predecessors)
++                {
++                    if (candidate.Index >= block.Index && candidate.Index < below &&
++                        (predecessor == null || candidate.Index > predecessor.Index))
++                    {
++                        predecessor = candidate;
++                    }
++                }
++
+                 // If not a loop, break.
+-                if (predecessor.Index < block.Index)
++                if (predecessor == null)
+                 {
+                     break;
+                 }
++
++                below = predecessor.Index;
+ 
+                 // Check if we can create a do-while loop here (only possible if the loop end
+                 // falls inside the current scope), if not add a goto instead.

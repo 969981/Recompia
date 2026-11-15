@@ -18,7 +18,7 @@ struct GfxHeapPlan {
 };
 
 // Pure: the pool growth for game targets of w x h (the size the game itself builds them at), clamped (aspect kept, even sides; a 16:9 size
-// in steps of 32x18) to the largest size whose pools stay under 4 GiB.
+// in steps of 32x18) to the largest size whose pools stay under 4 GiB and whose pixels stay within 3840x2160's.
 GfxHeapPlan gfx_heap_plan(int w, int h);
 
 // Registers the two hooks (only when the plan grows a pool) and logs the plan. Call before the guest boots.

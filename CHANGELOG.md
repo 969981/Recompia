@@ -2,13 +2,216 @@
 
 ## Unreleased
 
-- New **Item editor (experimental)** in Settings > Gameplay, off by default: it adds an **Items** tab to the game's Settings screen where you change how many of an item in your bag you hold (up to the game's stack limit). It does not add new items and is off during Link Play. Back up your save first. Update only: no shader rebuild, no Set up again
+### Graphics
+- Fixed a black screen on Intel Iris and other Intel GPUs on Windows: the driver refused the game's sRGB render targets, so nothing was drawn
+
+## 0.13.6 (build Q: Quokka Hotfix a3)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Highlights
+- Fixed the **Save Editor** page saying the launcher was built without the save editor: 0.13.5 shipped the page without PokoHex in it
+
+### Launcher
+- Fixed the **Save Editor** page showing only "This launcher was built without the save editor" on Windows, Linux and macOS in 0.13.5
+  - The release now builds PokoHex into the launcher and ships its data tool in `tools/pokohex/`, so **Load Game save** and **Write to Game** work as described in 0.13.5
+
+### For developers
+- `.github/workflows/release.yml`: every launcher job runs `launcher/scripts/build-pokohex.sh --extractor <rid>` before `tauri build`; the package jobs put `pokohex-extract` in `tools/pokohex/` (`make-release.ps1 -PokoHex`, `make-linux.sh`, the macOS payload) and check that it is there. Changed with the repo owner's permission (PROJECT.md 6.2)
+
+## 0.13.5 (build Q: Quokka Hotfix a2)
+
+**Update:** press **Update**, then **Finish update** once when it asks (the game program is linked again with the new runtime, no game code compiles again). Shaders and saves are kept; no shader is translated again.
+
+### Highlights
+- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
+- Added a **Save Editor** page to the launcher: PokoHex built in, working on the save the game plays
+- Fixed camera aim placing a held block into a wall instead of in front of it (#663)
+- Fixed the frame rate limit stopping after the first loading screen (#660)
+
+### Graphics
+- Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
+- Removed the **Fast loading screens** option: loading screens now always keep your frame rate limit (#660)
+
+### Gameplay
+- Fixed camera aim: a held block or item aimed at a wall is placed in front of it again, not into the wall or through a gap into the wall behind it, and aiming more than two rows up no longer drops the placement to your feet (#663)
+- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
+  - Before: at start the game asked every USB device for its details, for the Switch 2 Pro Controller over USB; on a PC where one device never answers, the game waited forever (pkp.log ends with "FREEZE: no frame tick", frame count 0)
+  - Now: the game asks USB devices that way only when a Nintendo controller or adapter is plugged in over USB when it starts
+  - Still not: a Nintendo controller plugged in over USB after the game started is seen only after a restart; with one plugged in on such a PC the freeze can still happen
+
+### Controls
+- Fixed the **Mouse Mode Key** row in the game's Settings never leaving "Press the new key" when its capture was started with the arrow keys
+
+### Launcher
+- Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many Pokemon have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
+- Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
+  - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand
+  - Now: **Load Game save** opens the active profile's save in the editor, **Write to Game** puts the edited save back. A **Before a save edit** copy is made first (Settings > Saves > Backups can restore it). Both need the game closed. It works offline, on Windows and Linux (Steam Deck). The first time the page opens it makes the item, villager, skill and reaction names and pictures from your own game files (a few seconds, once); the launcher carries none of them
+  - The controller works in the editor as on the other pages: move onto it from the sidebar, the d-pad or left stick moves between its buttons, tabs and lists, A presses, the right stick scrolls, and B steps back out to the sidebar
+  - Still not: typing a name or a number needs a keyboard (on the Steam Deck, Steam + X opens one)
+
+### Linux & Steam Deck
+- Added, experimental: the game, the launcher and the release package build and run natively on AArch64 (Arm64) Linux (#606)
+- Fixed the game clock always running on UTC in the native Linux build: the game now follows your PC's time zone, as it does on Windows (#654)
+- Fixed **HDR** on **Auto** never turning on in the native Linux build (#644)
+  - Before: on Linux, Auto always stayed in SDR, even on a display with HDR on. Only **On** gave HDR, with a fixed 203 nits for white and 1000 nits for highlights whatever the monitor could do
+  - Now: Auto uses HDR when a Wayland desktop has it on for the monitor, and in Steam's game mode (gamescope) when HDR output is on there. On a Wayland desktop white is as bright as the desktop's SDR content and highlights go up to the monitor's peak
+  - Still not: a game window opened through X11 on a desktop (the default when Steam starts the game there) gets no HDR, and a window moved to another monitor keeps the answer from its start
 
 ### Mods
-- Added a **Mods** tab to the game's own Settings: pick a mod, switch it on or off (applies at the next start), see its state and change its settings, which reach the mod at once
-- Mods can now take screenshots (without the game's overlay menus in them) and react to keyboard keys
-- Mods can tint the final picture (colour presets, colorblind filters), show a picture beside their messages, and make HTTPS requests to the sites their own description names (no redirects, cookies or sign-in)
-- Changing mods that need other hook points now translates only the game part they touch: a plan with main-only points no longer redoes the other three parts (on PC: about 4.5 minutes for main-only points, under a minute for points outside main)
+- Fixed a save's SaveWritten event running a mod's handlers on two threads at once: it is now posted on the game's thread at the next frame (#662)
+
+## 0.13.1 (build Q: Quokka Hotfix a1)
+
+**Update:** press **Update**, then **Finish update** once when it asks (two new hook points for the photo camera, so only a few parts of the game code compile again). Shaders and saves are kept; no shader is translated again.
+
+### Highlights
+- Fixed the thin vertical line down the middle of menu tiles below 1080p, such as **720p** or a Steam Deck at its own size (#490)
+- Added play time: Home and **Settings > Saves > Profiles** show how long each profile has played
+- Added a **Save** prompt in the pause menu that saves and keeps you in the world (#354)
+
+### Graphics
+- Fixed the thin vertical line down the middle of menu tiles at render resolutions below 1080p (#490)
+  - Below 1080p the game keeps its own 1080p layout and draws the picture at the size you picked, with the same number of pixels as before
+  - The dark band this could leave along the bottom edge at some sizes is gone too
+  - Render resolutions above 1080p that are not a whole multiple of it, such as 1440p, can still show a faint line
+
+### Gameplay
+- Added a **Save** prompt to the pause menu's key guide: it writes the save and stays in the world, next to the game's own Save and Quit (#354)
+
+### Controls
+- Fixed photo mode with mouse and keyboard: the mouse turns the photo camera, as the right stick does, instead of showing the cursor
+
+### Launcher
+- Added play time on Home and in **Settings > Saves > Profiles**: the game's own count from the save, so it includes your time from before this update
+  - A profile shows it once you have played it with this version
+- Added Brazilian Portuguese: it follows a Portuguese system on its own, or pick **Português (Brasil)** in **Settings > About > Language**
+- Fixed an update stopping with "The prepared game code cannot be put in place (this release changes lifter)" in a game folder first installed from 0.9.0 or older
+
+### Linux & Steam Deck
+- Fixed the game closing at once without a message when the game folder or a game file has a name that is not valid UTF-8; it now says which folder
+
+### For developers
+- A crash from an uncaught C++ exception names the exception in pkp.log
+- `recomp/games/pkp/main.sites`: two photo camera midhooks (`0x710008eef0`, `0x710008f1e4`)
+
+## 0.13.0 (build Q: Quokka)
+
+**Update:** press Update, then Finish update once. The game code is built in full one last time, in about half the time it took before. Shaders and saves are kept; no shader is translated again.
+
+### Highlights
+- Building the game code is about twice as fast: a full build on a 16-thread PC went from 13 minutes to 7
+- Translating the game's shaders in Set up is 3.6 times faster: from over 15 minutes to about 4 on a 24-thread PC
+- Small updates stay small: only the parts of the game code an update really changes are built again
+- Updates no longer take the game away: from the next update on, the launcher builds the new game code in the background while you keep playing
+- Link Play over the internet needs no room code: every room shows up in the game's own Visit a Friend list
+- Private rooms use the game's own Link Code, set in the game when you host, not in the launcher
+- Only rooms you can join are listed: a room with another game version or other gameplay mods does not show up, so a join that would end in a communication error is never sent
+- Seamless co-op (experimental, off by default): every player in a Link Play session plays their own story in the host's world
+
+### Added
+- Seamless co-op (experimental): turn on Seamless co-op under Same for everyone on the launcher's Link Play page; every player of the session needs it on
+- Seamless co-op: Pokémon give each player the requests and story talks of that player's own progress, the host and each visitor alike
+- Seamless co-op: story progress is kept in each player's own save, and written after every story step
+- Seamless co-op: a story step that changes the town (a Pokémon moving in, its home) waits until you are back in your own world
+- Seamless co-op: an important item a visitor picks up stays in the host's world for the host, and each visitor takes it once
+- Seamless co-op: a copy of your save from before each session is kept (the newest 5, in `story-coop-backup` in the save folder), with a journal of every story quest change (`story-journal`)
+- Link Play: every room on the public relay is listed in the game's Visit a Friend, with how many players are in it
+- Link Play: the game's own Link Code makes a room private; the room is still listed, and only players who type the code get in
+- The launcher prepares an update's game code in the background, shows its progress on the Home page, and installs once the game is closed; you can cancel before that without losing progress
+- The game can be picked as an `.nx` archive, next to a folder or a `.nup` (#456, thanks renatoddias)
+- Settings > Game > Logo and icon: choose the Recompia or the Classic logo and icon, for the launcher, the game and the Steam shortcut (#557, #621)
+- A short Link Play guide: `docs/link-play.md`
+
+### Changed
+- Finish update and Set up again compile the game code in about half the time (794 s to 410 s on a 16-thread PC)
+- One compile job per GB of free memory instead of per two, so PCs with little free memory build with more of their cores
+- Translating the game code takes about 40 % less time: about 110 s to 65 s on a 24-thread PC (#625, thanks oopsmishap)
+- An update that changes only comments or other platforms' parts of the game code headers no longer compiles the whole game again
+- The game libraries kept for the next update take 0.3 GB instead of 2.4 GB
+- Set up translates shaders in one translator run and packs the cache while it translates: 925 s to 258 s on a 24-thread PC, 609 s to 236 s on 8 cores (#619, thanks oopsmishap)
+- A paused shader translation keeps every shader it finished
+- Shader translation on Linux and macOS picks its workers and memory from what the PC has free, and retries once with lighter settings when memory runs out (#616, thanks Piktrip)
+- Link Play over the internet needs no setup; the launcher's room code fields are gone, and your own relay or a direct address are under Advanced
+- Link Play rooms are listed only for players with the same game version, the same gameplay mods and the same Same for everyone switches
+- The launcher's Visitors can talk to story characters switch is now Seamless co-op; a player on the earlier Story co-op is not listed
+- The launcher keeps Link Play on Internet across restarts (thanks to Sakamoto on Discord for the report)
+- Sorting the bag or a storage box uses the game's own sort: hold X, or click Hold to Sort; it works in Link Play, and Y, ZR and F no longer sort
+- Camera aim keeps the block you aimed at while a move plays, so turning the camera after the press no longer hits another block (#535)
+- The render size is capped at 3840x2160; your screen still shows the full picture
+- If an update cannot finish, the launcher puts back the game build you had, not only its own files
+- The launcher no longer promises "about 7 minutes" for a rebuild: it says from a few minutes to an hour, depending on your PC
+
+### Fixed
+- Stuck on the Ditto loading screen for good with the render scale above 100% on a 4K screen
+- Windows: a Switch 2 Pro Controller on a USB cable not being picked up; it now works with Switch prompts, rumble and gyro (#522, thanks ondona)
+- Linux: the Steam Controller not working when the game is started from Steam without `SDL_VIDEO_DRIVER=x11` in the launch options
+- Linux and SteamOS: Set up not finding the shader translator
+- The Ditto loading screen's black background not reaching the top and bottom on taller screens such as the Steam Deck (#534, thanks Piktrip)
+- Set up looking frozen while it translates the game code: the bar now moves through that step and shows the time left
+- Set up showing no reason for a failure when the game folder has an accent in its path (#630)
+- The launcher reporting "The game stopped unexpectedly" (0xC0000409) when the game closes itself
+- A touch screen Menu button showing up in the corner on desktop PCs; the button is removed
+- Sort turning the bag page in storage boxes once the bag is expanded
+- Seamless co-op: asking Drifloon for a Dream Island in a story area left the session in a broken copy of the area
+- Seamless co-op: a gold-glowing buried spot stayed over an empty hole after a visitor dug it up; the host now gets the item
+- Seamless co-op: the host could not take a memory piece after a visitor took it, until the world was loaded again
+
+### Known issues
+- This update still waits on Finish update, because the launcher you have now runs it; the background build starts with the update after this one
+- While an update prepares in the background, the game can run slower on small PCs and handhelds; Slower, keeps the PC usable on the Set up page makes the build gentler
+- While an update is in progress, Set up, repair, profiles and mods are locked in the launcher until it has installed or you cancel it
+- A room with a Link Code still shows up in everyone's list; only joining it needs the code
+- Seamless co-op is experimental: to go back to a save from before a session, copy its account folder and `.meta` file from `story-coop-backup` over `account` with the game closed
+- Seamless co-op: story markers, story talks, buried spots and Pokémon traces follow each player's own story, so players do not see the same ones
+- Seamless co-op: the Dream Island trip is not available from a story area in a session; it still is in Palette Town and on Cloud Islands
+- Seamless co-op: an important item a visitor already took still lies in the host's world for that visitor, who cannot take it again
+- Seamless co-op: when the host picks an item up, it is gone for everyone, as in the game
+- Seamless co-op: what a visitor picks up or is given goes into the game's Link Play bag, not the bag you have at home
+- An `.nx` made straight from an `.nsp` or `.xci` is refused; make it from extracted files or from a `.nup`
+- A game folder inside OneDrive can still fail in Set up while OneDrive syncs it; a folder such as `C:\Games` avoids that
+
+## 0.12.0 (build P: Pitoy)
+
+**Update:** press Update, then Set up again once (the game code is translated again, several minutes). Shaders and saves are kept.
+
+### Highlights
+- Mods are here: browse and install Modtopia mods right in the launcher, and manage them in the game's Settings (Modtopia support was built in collaboration with the Pokopia Native team)
+- Achievements are here: earn community achievements and see how your progress compares with every other player
+- Linux runs natively: no Proton or Wine
+- macOS runs natively on Apple silicon: VERY EXPERIMENTAL, expect bugs
+
+### Added
+- Native Linux build, no Proton or Wine (`PokopiaRecomp-0.12.0-linux-x64.tar.gz`, glibc 2.35+)
+- Native macOS build for Apple silicon, very experimental (`Recompia-0.12.0-macos-arm64.zip`)
+- Browse tab on the Mods page: the Modtopia mod hub's list, with groups, details and one-click install or update
+- Achievements page: what you earned, and the progress every player shares (how many have each one, the rarest right now)
+- Mods tab in the game's own Settings
+- Aspect Ratio setting (Auto, 16:9, 16:10, 21:9, 32:9) in the game and the launcher (#564)
+- Item editor (experimental, off by default) in Settings > Gameplay
+- Start without mods, for one start with every mod left out
+- Update mods by themselves (off by default)
+- Mods can take screenshots, read keys, tint the picture, hide the HUD and make HTTPS requests
+
+### Changed
+- Community Achievements is on by default and locked, with sharing on; Unlock on the Mods page to turn it off
+- The Mods page opens on Browse, and installed mods fold into one line each
+- The Testing channel lists every prerelease and no longer offers an update
+- Changing mods re-translates only the game part they touch
+- The black-bars toggle is now called Letterbox
+- macOS renders at the console's resolution and scales to the window (58 to 60 fps on an M3)
+
+### Fixed
+- Nearest, FSR 1 and NIS doing nothing with Scene Resolution below 100% (#571)
+- Objects and effects invisible the first time they appear on cards like the RX 580 (#515)
+- Black screen on GPUs that cannot share memory with the game, such as Snapdragon X laptops (#589)
+- Set up failing at "Linking pkp.exe" after a power cut during an earlier Set up
+- Set up failing with ".lean-flows ... pkl" after the launcher was closed during an earlier Set up
+
+### Known issues
+- Linux: no FSR 3 or DLSS (FSR 1 and NIS work)
+- macOS is very experimental and likely still has many bugs; the two in-game movies do not play yet
 
 ## 0.11.1 (build O: Ocelot Hotfix a1)
 

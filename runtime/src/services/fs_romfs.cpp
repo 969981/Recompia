@@ -12,12 +12,14 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "nxrt/diag.h"
@@ -89,12 +91,29 @@ bool to_wide(const std::string& s, std::wstring& out) {
     return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), out.data(), n) == n;
 }
 
+// The wide form of a host path. False when it has none: on Linux and macOS a name is bytes, and path::wstring() throws on one that is
+// not UTF-8 (a folder made under another encoding, a copy from a drive that kept the old bytes). Windows names are wide already.
+bool wide_of(const std::filesystem::path& p, std::wstring& out) {
+    try {
+        out = p.wstring();
+        return true;
+    } catch (const std::exception&) {
+        out.clear();
+        return false;
+    }
+}
+
 // Host paths that may exceed MAX_PATH get the extended-length prefix. The input must already use backslashes.
 std::wstring long_path(std::wstring p) {
+#if defined(_WIN32)
     std::replace(p.begin(), p.end(), L'/', L'\\');
     if (p.size() < kLongPath || p.compare(0, 4, L"\\\\?\\") == 0) return p;
     if (p.compare(0, 2, L"\\\\") == 0) return L"\\\\?\\UNC\\" + p.substr(2);
     return L"\\\\?\\" + p;
+#else
+    // POSIX has no MAX_PATH and no extended-length prefix; '\' is an ordinary character there, so the path is used as is.
+    return p;
+#endif
 }
 
 // One folder or file of the host tree. Layout fields are filled in once the tree is complete.
@@ -135,7 +154,12 @@ bool scan(Node& dir, std::string& msg) {
         if (it == end) break;
         const std::filesystem::directory_entry& e = *it;
         std::string name;
-        if (!to_utf8(e.path().filename().wstring(), name) || name.empty() || name.size() > kMaxName) {
+        std::wstring wname, whost;
+        if (!wide_of(e.path().filename(), wname) || !wide_of(e.path(), whost)) {
+            msg = "a name in the folder " + shown(dir) + " is not valid UTF-8 (rename it, or copy the game files again)";
+            return false;
+        }
+        if (!to_utf8(wname, name) || name.empty() || name.size() > kMaxName) {
             msg = "name cannot be stored in a RomFS (1 to 255 bytes of UTF-8): " + shown(dir) + "/" + name;
             return false;
         }
@@ -146,7 +170,7 @@ bool scan(Node& dir, std::string& msg) {
             msg = "path too long for a RomFS (0x300 bytes): " + k.path;
             return false;
         }
-        k.host = long_path(e.path().wstring());
+        k.host = long_path(std::move(whost));
         std::error_code sec;
         const std::filesystem::file_status st = e.symlink_status(sec);
         if (sec) {
@@ -279,8 +303,13 @@ bool scan_root(const std::string& host_dir, Node& root, std::string* err) {
         if (err) *err = "not a folder: " + host_dir;
         return false;
     }
+    std::wstring wabs;
+    if (!wide_of(abs, wabs)) {
+        if (err) *err = "the full path of " + host_dir + " is not valid UTF-8 (move the game folder to a path with plain characters)";
+        return false;
+    }
     root.is_dir = true;
-    root.host = long_path(abs.wstring());
+    root.host = long_path(std::move(wabs));
     if (!(packaged ? scan_nup(host_dir, root, msg) : scan(root, msg))) {
         if (err) *err = msg;
         return false;

@@ -21,19 +21,24 @@ pub fn put_in_place(game_dir: &Path, entry: &Entry, trust: bool) -> Result<(), S
     if !mods_catalog::download_ok(dl) {
         return Err(format!("{} cannot be installed: its download is not on the mod hub's server.", entry.name));
     }
-    let dir = mods::mods_dir(game_dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {}", dir.display(), e))?;
+    let dir = mods::ensure_mods_dir(game_dir)?;
     let before = mods::installed(game_dir, &entry.id);
     let pin = Pinned { file: &dl.file, url: &dl.url, size: dl.size, sha256: &dl.sha256 };
     download::fetch(&download::agent(false), &pin, &dir, &AtomicBool::new(false), &mut |_| {})?;
-    // the older version's file goes once the new one is in place (two copies of one id: the core loads only one)
-    if let Some((_, source)) = before.filter(|(_, source)| *source != dl.file) {
-        mods::delete_source(game_dir, &source)?;
-    }
+    drop_older(game_dir, before, &dl.file)?;
     if trust {
         mods::trust_file(game_dir, &entry.id)?;
     }
     Ok(())
+}
+
+/// The older version's file goes once the new one is in place (two copies of one id: the core loads only one). `before` is what the core
+/// found for the id before the download: its file is found by the id inside it, never by its name, and is kept when it is the new file.
+fn drop_older(game_dir: &Path, before: Option<(String, String)>, new_file: &str) -> Result<(), String> {
+    match before {
+        Some((_, source)) if source != new_file => mods::delete_source(game_dir, &source),
+        _ => Ok(()),
+    }
 }
 
 pub fn install(game_dir: &Path, store: &CatalogStore, cache: &Path, id: &str) -> Result<ModsView, String> {
@@ -48,4 +53,37 @@ pub fn install(game_dir: &Path, store: &CatalogStore, cache: &Path, id: &str) ->
     // the page asked the install question (code runs with the player's rights) before this call
     put_in_place(game_dir, entry, true)?;
     mods::set_enabled(game_dir, id, true, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::testkit::{pkmod, temp_game_dir};
+    use std::fs;
+
+    fn pkmods(game_dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(mods::mods_dir(game_dir)).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".pkmod")).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn an_update_replaces_the_older_file_by_the_id_inside_it_not_its_name() {
+        let dir = temp_game_dir("update");
+        let mods_dir = mods::ensure_mods_dir(&dir).unwrap();
+        // the older version is under a name that says nothing about its id; a mod whose id starts the same and a broken package sit beside it
+        fs::write(mods_dir.join("my-copy.pkmod"), pkmod("auto_run", "1.0.0", false)).unwrap();
+        fs::write(mods_dir.join("auto_run_plus-1.0.0.pkmod"), pkmod("auto_run_plus", "1.0.0", false)).unwrap();
+        fs::write(mods_dir.join("broken.pkmod"), b"not a zip").unwrap();
+        let before = mods::installed(&dir, "auto_run");
+        assert_eq!(before, Some(("1.0.0".into(), "my-copy.pkmod".into())));
+        fs::write(mods_dir.join("auto_run-1.1.0.pkmod"), pkmod("auto_run", "1.1.0", false)).unwrap();
+        drop_older(&dir, before, "auto_run-1.1.0.pkmod").unwrap();
+        assert_eq!(pkmods(&dir), ["auto_run-1.1.0.pkmod", "auto_run_plus-1.0.0.pkmod", "broken.pkmod"]);
+        // a new package that replaced the older file under the same name is not deleted with it
+        drop_older(&dir, Some(("1.1.0".into(), "auto_run-1.1.0.pkmod".into())), "auto_run-1.1.0.pkmod").unwrap();
+        assert_eq!(pkmods(&dir).len(), 3);
+        drop_older(&dir, None, "x.pkmod").unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

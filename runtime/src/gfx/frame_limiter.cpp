@@ -226,19 +226,13 @@ uint64_t FrameLimiter::begin_frame() {
     return begin_frame_nohook();
 }
 
-namespace {
-std::atomic<bool> g_unpaced{false};
-}
-void frame_limiter_set_unpaced(bool on) { g_unpaced.store(on, std::memory_order_relaxed); }
-bool frame_limiter_unpaced() { return g_unpaced.load(std::memory_order_relaxed); }
-
 uint64_t FrameLimiter::begin_frame_nohook() {
     Impl& s = *impl_;
     const uint64_t entry = now_ns();
     const Impl::Pace pace = s.pace();
     const double fps = pace.fps;
 
-    if (!(fps > 0.0) || g_unpaced.load(std::memory_order_relaxed)) {
+    if (!(fps > 0.0)) {
         std::lock_guard<std::mutex> lk(s.mu);
         s.has_sched = false;
         s.last_wait = 0;

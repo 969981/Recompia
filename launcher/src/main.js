@@ -3,10 +3,8 @@ import './theme.css';
 import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import markUrl from './art/mark.png';
-import markTestingUrl from './art/mark-testing.png';
-import logoUrl from './art/logo.png';
 import { api } from './api.js';
+import { brandImg, setBranding } from './branding.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
@@ -14,8 +12,10 @@ import { isFirstRun } from './action.js';
 import { startGamepadNav } from './gamepad-nav.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
+import * as achievements from './pages/achievements.js';
 import * as mods from './pages/mods.js';
 import * as news from './pages/news.js';
+import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
 
@@ -24,6 +24,8 @@ const PAGES = {
   home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
   linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
   mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
+  achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
+  saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },
   news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
   settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
   setup: { mod: setup },
@@ -38,7 +40,7 @@ if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
 }
 
 // where the sidebar pill leads
-const TASK_PAGE = { setup: 'setup', nup: 'setup', update: 'home', dlss: 'settings', repack: 'home' };
+const TASK_PAGE = { setup: 'setup', unpack: 'setup', update: 'home', dlss: 'settings', repack: 'home' };
 
 const SWAP_WAIT_MS = 120;   // a page that loads fast swaps in whole; a slow one shows what it has by then
 
@@ -78,7 +80,7 @@ function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region><img class="brand-mark" src="${markUrl}" alt="" /><img class="brand-mark-testing" src="${markTestingUrl}" alt="${esc(t('Testing'))}" /><img class="brand-name brand-logo" src="${logoUrl}" alt="Pokopia" /><span class="brand-tag">${esc(t('Testing'))}</span></div>
+    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Pokopia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
@@ -106,11 +108,13 @@ function drawNav() {
   });
 }
 
-/** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a glance. */
-async function syncChannel() {
+/** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a
+ *  glance; the pictures follow the player's logo and icon choice. */
+async function syncLook() {
   try {
     const c = await api.getConfig();
     document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
+    setBranding(c);
   } catch (e) {
     console.warn('get_config', e);
   }
@@ -225,8 +229,8 @@ function start() {
     applySidebar(false);
   });
   store.subscribe(drawChrome);
-  store.subscribe((_s, why) => { if (why === 'news') syncChannel(); });
-  syncChannel();
+  store.subscribe((_s, why) => { if (why === 'news') syncLook(); });
+  syncLook();
   drawChrome();
   store.start().catch((e) => console.error(e));
   const once = store.subscribe((s, why) => {

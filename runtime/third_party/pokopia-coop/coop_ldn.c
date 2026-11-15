@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep")
+// From pokopia-native (MIT) windows/src/coop/coop_ldn.c @035bd9c, modified (marked "pokopia-recomp extension: LAN sweep" and "room list")
 // coop ldn (MIT, our own code): the nn::ldn state machine (None 0, Initialized 1, AccessPoint 2, AccessPointCreated 3, Station 4,
 // StationConnected 5), the 0x480 NetworkInfo the host builds, scan and connect over the transport, configuration and address classes. Layouts and
 // result codes follow switchbrew and research/06 §3.1, §4. The host is node 0 at 169.254.S.1; a station with node id k is 169.254.S.(k+1).
@@ -167,6 +167,7 @@ int coop_cfg_parse_ex(coop_cfg *c, const char *coop, const char *uid, const char
         }
         if (c->role != COOP_ROLE_AUTO) { snprintf(err, errn, "DM_COOP_RELAY needs DM_COOP=auto: it hosts through the relay while the game hosts and joins its room while the game scans"); return -1; }
         c->relay_port = (uint16_t)port; c->discovery = 0;   // the relay is the meeting place: no DNS-SD
+        c->x_list = c->room_new;   // pokopia-recomp extension: room list: no code given, the room is listed (coop_xlist.c)
     }
     return 1;
 }
@@ -202,7 +203,8 @@ coop_node *coop_env_node(const coop_hooks *hooks) {
                       c.tcp_only ? ", game datagrams over the control link (DM_COOP_TCP)" : "");
             if (c.auth) {
                 char shown[COOP_ROOM_SHOWN]; coop_room_format(c.room, shown);
-                if (c.room_new) coop_logf(node, "internet play: this session's room code is %s; visitors need it (set DM_COOP_ROOM to keep one code across sessions)", shown);
+                if (c.x_list) coop_logf(node, "internet play: no room code: rooms are listed at the relay, anyone can visit (the game's Link Code keeps a room private)");   // pokopia-recomp extension
+                else if (c.room_new) coop_logf(node, "internet play: this session's room code is %s; visitors need it (set DM_COOP_ROOM to keep one code across sessions)", shown);
                 else coop_logf(node, "internet play: room code %s", shown);
                 if (c.relay_ip) coop_logf(node, "internet play: through the relay %u.%u.%u.%u:%u (hosting opens the room there, scanning asks it for the room's host)",
                                           c.relay_ip >> 24, c.relay_ip >> 16 & 0xFF, c.relay_ip >> 8 & 0xFF, c.relay_ip & 0xFF, c.relay_port);
@@ -225,6 +227,7 @@ coop_node *coop_create(const coop_cfg *c) {
     n->proto = c->auth ? MP_PROTO_INET : MP_PROTO; n->uhdr = c->auth ? MP_UDP_HDR3 : MP_UDP_HDR;
     if (c->auth) croom_keys(n->cfg.room, n->k_auth, n->room_id);
     n->rc.s = CSOCK_BAD;
+    n->xl_c.s = CSOCK_BAD; n->xl_slog = -2;   // pokopia-recomp extension: room list
     for (int i = 0; i < HOST_CONNS; i++) n->hc[i].s = CSOCK_BAD;
     for (int i = 0; i < PEERS; i++) n->pr[i].c.s = CSOCK_BAD;
     n->next_eph = 49152;
@@ -460,6 +463,7 @@ uint32_t coop_ldn_scan(coop_node *n, void *out, int *count, int max, const void 
     while (n->scan_busy && n->io_on) cldn_wait(n, 1000000);
     if (!n->io_on) { cnode_unlock(n); return 0; }
     n->scan_busy = 1;
+    cxl_scan(n);   // pokopia-recomp extension: room list: the relay's rooms (waits for its list)
     int64_t t0 = cplat_now_ms(), until = t0 + (n->cfg.auth ? SCAN_LINK_INET_MS : SCAN_LINK_MS);
     if (n->cfg.role == COOP_ROLE_AUTO && n->cfg.discovery && n->browse_t0 + BROWSE_GRACE_MS > until) until = n->browse_t0 + BROWSE_GRACE_MS;
     for (;;) {   // links: every host that is not known to be down or incompatible, or the deadline
@@ -500,6 +504,13 @@ uint32_t coop_ldn_scan(coop_node *n, void *out, int *count, int max, const void 
         if (filter && !filter_match(n, p->scan_info, filter)) { filtered++; continue; }
         if (found < max) memcpy((uint8_t *)out + (size_t)found * LDN_NETINFO, p->scan_info, LDN_NETINFO), found++;
     }
+    for (int i = 0; i < n->nxl; i++) {   // pokopia-recomp extension: room list: the listed rooms not already listed above (a joined or dialled one)
+        int dup = 0;
+        for (int k = 0; k < found && !dup; k++) dup = !memcmp((uint8_t *)out + (size_t)k * LDN_NETINFO, n->xl[i].info, 0x20);
+        if (dup) continue;
+        if (filter && !filter_match(n, n->xl[i].info, filter)) { filtered++; continue; }
+        if (found < max) memcpy((uint8_t *)out + (size_t)found * LDN_NETINFO, n->xl[i].info, LDN_NETINFO), found++;
+    }
     if (count) *count = found;
     int code = found | hidden << 8 | filtered << 16;
     if (code != n->scan_logged) {
@@ -518,12 +529,13 @@ uint32_t coop_ldn_connect(coop_node *n, const void *info, const void *sec, const
     while (n->join_wait && n->io_on) cldn_wait(n, 1000000);
     peer *p = NULL;
     for (int i = 0; i < PEERS && !p; i++) if (n->pr[i].used && n->pr[i].scan_has && !memcmp(n->pr[i].scan_info, info, 0x20)) p = &n->pr[i];   // NetworkId
+    if (!p && n->io_on) p = cxl_peer(n, info);   // pokopia-recomp extension: room list: a listed room gets its peer now
     if (n->cfg.role == COOP_ROLE_HOST || !p || !n->io_on) {
         coop_logf(n, "ldn: Connect: no known host has that network");
         cnode_unlock(n); return COOP_LDN_CONNECT_NOT_FOUND;
     }
     if (p->compat < 0) { coop_logf(n, "ldn: Connect: that host runs another build or other mods"); cnode_unlock(n); return COOP_LDN_CONNECT_REJECTED; }
-    int64_t until = cplat_now_ms() + (n->cfg.auth ? SCAN_LINK_INET_MS : SCAN_LINK_MS);
+    int64_t until = cplat_now_ms() + (p->src == PEER_X_LIST ? XL_LINK_MS : n->cfg.auth ? SCAN_LINK_INET_MS : SCAN_LINK_MS);
     while ((p->c.state != CONN_READY || p->c.closing) && n->io_on && cplat_now_ms() < until) cldn_wait(n, 2000000);
     if (p->c.state != CONN_READY || p->c.closing) { cnode_unlock(n); return COOP_LDN_CONNECT_NOT_FOUND; }
     cldn_ident(n);   // cheats may have changed since the scan

@@ -5,8 +5,9 @@ import { api } from './api.js';
 import { num, t } from './i18n.js';
 import { fromBackend } from './backend-text.js';
 import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
-import { updatedLine } from './mods-model.js';
+import { keptLine, updatedLine } from './mods-model.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
+import { askOnlineOnce } from './online.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
@@ -70,11 +71,12 @@ export const store = {
     setup: null,          // setup_status
     game: null,           // game_status
     news: { releases: [], update: null },
-    task: null,           // derived: { kind: 'setup'|'update'|'nup'|'dlss', label, pct (null: unknown) } | null
+    task: null,           // derived: { kind: 'setup'|'update'|'unpack'|'dlss', label, pct (null: unknown) } | null
     update: null,         // last update-progress while an update runs
     updateError: null,
-    nup: null,            // last nup-progress while a .nup unpacks
+    unpack: null,         // last unpack-progress while a game package (.nup or .nx) unpacks
     dlss: null,           // last dlss-progress while DLSS downloads
+    saveEditData: null,   // last save-edit-data-progress while the save editor's names and pictures are made from the game files
     storage: null,        // shader_storage: how the translated shaders are kept (loose files or the shader archive), null until asked
     repack: null,         // { kind: 'compact'|'expand', done, total } while the shader files are being repacked
     starting: false,      // a start click is on its way to Rust
@@ -97,7 +99,8 @@ export const store = {
       on('setup-status', onSetupEvent),
       on('update-progress', (p) => set({ update: p }, 'update')),
       on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
-      on('nup-progress', (p) => store.state.nup && set({ nup: p }, 'task')),
+      on('save-edit-data-progress', (p) => set({ saveEditData: p }, 'saveedit')),
+      on('unpack-progress', (p) => store.state.unpack && set({ unpack: p }, 'task')),
       on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),
       on('tauri://drag-leave', () => set({ dragging: false, dropped: null }, 'drop')),
@@ -107,7 +110,20 @@ export const store = {
     store.refreshNews(false).then(() => store.refreshNews(true));
     afterUpdate();
     store.refreshStorage().then(offerCompact);
-    store.updateMods();
+    store.keepLockedMods().then(() => store.updateMods());
+  },
+
+  /** The mod the launcher keeps on (Community Achievements and its sharing, mods_lock.rs): installed or switched back on at start unless
+   *  the player unlocked it, then one line says what changed. Offline or busy: nothing, the next start tries again. Never in Play's way. */
+  async keepLockedMods() {
+    try {
+      const line = keptLine(await api.modsKeepLocked());
+      if (!line) return;
+      toast(line, 'ok');
+      await store.refresh();   // a new mod may need hook points: readiness says Set up again
+    } catch (e) {
+      console.warn('mods_keep_locked', e);
+    }
   },
 
   /** Mods by themselves (launcher preference, off by default; once per session in Rust): says once which were updated. Silent otherwise. */
@@ -217,11 +233,13 @@ export const store = {
     }
   },
 
-  async play() {
+  /** `withoutMods`: this one start runs without mods (the player's way out when a mod keeps the game from starting). */
+  async play({ withoutMods = false } = {}) {
     if (store.state.starting) return;
+    await askOnlineOnce();   // once per install, before the first Play: online presence is off unless the player says yes
     set({ starting: true }, 'task');
     try {
-      await api.play();
+      await api.play(withoutMods ? { withoutMods } : undefined);
     } catch (e) {
       toast(errText(e), 'error');
       store.refresh();
@@ -264,17 +282,17 @@ export const store = {
     }
   },
 
-  /** Unpacks a .nup through the sidebar task. Resolves to the unpacked folder; rejects like the command. */
-  async importNup(path) {
-    set({ nup: { done: 0, total: 0, file: '' } }, 'task');
+  /** Unpacks a .nup or .nx through the sidebar task. Resolves to the unpacked folder; rejects like the command. */
+  async importPackage(path) {
+    set({ unpack: { done: 0, total: 0, file: '' } }, 'task');
     try {
-      return await api.importNup({ path });
+      return await api.importPackage({ path });
     } finally {
-      set({ nup: null }, 'task');
+      set({ unpack: null }, 'task');
     }
   },
 
-  cancelNup: () => api.cancelNup(),
+  cancelUnpack: () => api.cancelUnpack(),
 
   /** Downloads NVIDIA's DLSS file through the sidebar task; rejects like the command. */
   async fetchDlss() {

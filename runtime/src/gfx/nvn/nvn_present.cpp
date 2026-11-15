@@ -78,6 +78,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
     { NXFT("present.frame_tick"); diag_frame_tick(); }
     if (!rend || !pp) return;
     { NXFT("present.tex"); if (!tex_gpu(t)) return; }
+    replay_note_presented(t);   // the draws into it after the picture are the game's 2D (nxrt/ui_layer.h)
     extras::pace_note_present();
     // [nvn] one_submit: batch flushes the worker has not started yet ride in this present's submission instead of a kernel submission of
     // their own; whatever is still taken when this function ends without submitting goes back to the worker

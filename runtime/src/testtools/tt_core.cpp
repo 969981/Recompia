@@ -162,8 +162,21 @@ std::string parent_dir(const std::string& p) {
 
 std::string join(const std::string& a, const std::string& b) {
     if (a.empty()) return b;
+#if defined(_WIN32)
+    constexpr char kSep = '\\';
+#else
+    constexpr char kSep = '/';
+#endif
     const char l = a.back();
-    return (l == '\\' || l == '/') ? a + b : a + "\\" + b;
+    std::string p = (l == '\\' || l == '/') ? a + b : a + kSep + b;
+#if !defined(_WIN32)
+    // A configured Windows path ([test] out, [test] shot_dir) names one folder in the Win32 API and another on POSIX, where a backslash
+    // is an ordinary character: this tool opens its files with std::fopen, which does not go through the shim's native_path, so a
+    // backslash here created a file called "testout\result.json" in the working directory.
+    for (char& c : p)
+        if (c == '\\') c = '/';
+#endif
+    return p;
 }
 
 

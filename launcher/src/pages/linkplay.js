@@ -9,12 +9,12 @@ import { errText, esc, field, group, icon, row, segmented, toast, toggle } from 
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
-  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, codeEdits, editsFor, hostsOverInternet, interactEdits, internetShare, pathParts,
-  protocolEdits, readIni, relayPort, shownCode, storyEdits, uiFrom,
+  HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, editsFor, interactEdits, internetShare, pathParts, protocolEdits, readIni,
+  relayPort, storyEdits, uiFrom,
 } from '../linkplay-model.js';
 
 const LS = 'pkp.linkplay';
-const POLL_MS = 3000;   // link count and the game's room code, while the Host view is on screen
+const POLL_MS = 3000;   // this PC's relay and its link count, while the own-relay Host view is on screen
 
 const stored = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } };
 const keep = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...stored(), ...patch })); } catch { /* private window: fine */ } };
@@ -22,7 +22,7 @@ const keep = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...sto
 const gameActive = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
 
 // which `ui` value each field edits
-const FIELDS = { 'lp-join': 'lanJoin', 'lp-relay': 'relay', 'lp-addr': 'visitAddr', 'lp-code-in': 'visitCode' };
+const FIELDS = { 'lp-join': 'lanJoin', 'lp-relay': 'relay', 'lp-addr': 'visitAddr' };
 
 export async function render(el, ctx) {
   let pkp = { ...(await api.readSettings()).pkp };
@@ -35,8 +35,6 @@ export async function render(el, ctx) {
   let lan = null;
   let publicIp;            // this PC's public address: undefined not asked yet, null not found
   let asking = false;
-  let gameCode = null;     // room-code.txt: the game's own
-  let dropped = null;      // the game's code the player replaced with New code
   let problems = {};       // field id -> what is wrong with it
   let gameplayMods = [];   // "id@version" of the Modtopia mods that change gameplay and are on (Mods page): every player needs them
 
@@ -45,9 +43,10 @@ export async function render(el, ctx) {
   const inOrder = (fn) => { tail = tail.then(fn).catch((e) => toast(errText(e), 'error')); return tail; };
 
   const remember = (patch) => { Object.assign(mem, patch); keep(patch); };
-  const isHost = () => ui.view === 'internet' && ui.role === 'host';
-  const isVisit = () => ui.view === 'internet' && ui.role === 'visit';
   const isOwn = () => ui.view === 'internet' && ui.server === 'own';   // Advanced: an own relay, or a direct address
+  // Host or Visit is only asked under Advanced: through the public relay both write the same file and the game decides
+  const isHost = () => isOwn() && ui.role === 'host';
+  const isVisit = () => isOwn() && ui.role === 'visit';
   let advOpen = ui.server === 'own';
 
   async function save(edits) {
@@ -70,11 +69,6 @@ export async function render(el, ctx) {
     patch(part('lp-share'), shareHtml());
   }
 
-  async function loadGameCode() {
-    const c = await api.roomCodeHost().catch(() => null);
-    gameCode = c === dropped ? null : c;
-    drawCode();
-  }
 
   // --- what is on the page
 
@@ -106,7 +100,7 @@ export async function render(el, ctx) {
       : '';
     return group(t('Same for everyone'), [
       row(t('Visitors can build everywhere'), exp + toggle('lp-interact', ui.interact || ui.story, { disabled: ui.story })),
-      row(t('Visitors can talk to story characters'), exp + toggle('lp-story', ui.story)),
+      row(t('Seamless co-op: every player plays their own story'), exp + toggle('lp-story', ui.story)),
     ]) + mods;
   }
 
@@ -121,7 +115,6 @@ export async function render(el, ctx) {
   // what visitors type: the public address over the internet (#245), this PC's LAN addresses on the same network
   function shareHtml() {
     if (!isHost()) return '';
-    if (!isOwn()) return `<div class="banner info">${icon('info')}<div class="grow">${esc(t('Visitors pick Internet, then Visit, and type this room code. Nothing else to set up.'))}</div></div>`;
     const share = internetShare(ui, { publicIp, relayOn: relay ? relayPort(relay) : 0 });
     if (!share) {
       return `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(t('The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.'))}</div></div>`;
@@ -135,7 +128,7 @@ export async function render(el, ctx) {
         ...addressRows({ lan: [], overlay: lan.overlay }, share.port).map(addressRow)]
       : [];
     const links = relay ? [row(t('Links'), `<span class="num" id="lp-links">${esc(relay.clients)}</span>`)] : [];
-    const how = share.through ? t('Visitors pick Visit and type this address and the room code, with Through a relay on.') : t('Visitors pick Visit and type this address and the room code, with Through a relay off.');
+    const how = share.through ? t('Visitors pick Visit and type this address, with Through a relay on.') : t('Visitors pick Visit and type this address, with Through a relay off.');
     const router = share.own ? ` ${t('Your router must forward port {port} (TCP and UDP) to this PC.', { port: share.port })}` : '';
     return group(t('Share with visitors'), [internet, ...local, ...links])
       + `<div class="banner info">${icon('info')}<div class="grow">${esc(how)}${esc(router)} ${esc(t("Never give out 127.0.0.1: on a visitor's PC it means their own PC."))}</div></div>`;
@@ -148,24 +141,25 @@ export async function render(el, ctx) {
         ${group('', [row(t('Join directly'), fieldAt('lp-join', '192.0.2.10'))])}
         ${ui.lastJoin ? `<datalist id="lp-last"><option value="${esc(ui.lastJoin)}"></option></datalist>` : ''}`;
     }
-    const role = segmented('role', [['host', t('Host')], ['visit', t('Visit')]], ui.role, { label: t('Host or visit') });
+    if (!isOwn()) {
+      // the public relay: nothing to type; the game's search lists every room there
+      return `<div class="banner info">${icon('info')}<div class="grow">${esc(t('Every room on the public relay shows up in Visit a Friend, so you can meet other players. To keep your room private, set a Link Code when the game asks.'))}</div></div>
+        ${advancedHtml([])}`;
+    }
+    const role = row(t('Host or visit'), segmented('role', [['host', t('Host')], ['visit', t('Visit')]], ui.role, { label: t('Host or visit') }));
     if (ui.role === 'host') {
-      return `<div>${role}</div>
-        ${group('', [
-          row(t('Room code'), `<code class="selectable" id="lp-code"></code>${copyButton('')}<button class="btn sm" data-act="new-code">${icon('refresh-cw')}${esc(t('New code'))}</button>`),
-        ])}
-        <div class="lp-part" id="lp-share"></div>
-        ${advancedHtml([
+      return `${advancedHtml([
+          role,
           row(t('Relay address'), fieldAt('lp-relay', t('No relay'))),
           row(t('Run a relay on this PC'), toggle('lp-run-relay', !!relay)),
-        ])}`;
+        ])}
+        <div class="lp-part" id="lp-share"></div>`;
     }
-    return `<div>${role}</div>
-      ${group('', [row(t('Room code'), fieldAt('lp-code-in', 'XXXX-XXXX-XXXX-XXXX'))])}
-      ${advancedHtml([
-        row(t('Address'), fieldAt('lp-addr', visitPlaceholder())),
-        row(t('Through a relay'), toggle('lp-through', ui.through)),
-      ])}`;
+    return advancedHtml([
+      role,
+      row(t('Address'), fieldAt('lp-addr', visitPlaceholder())),
+      row(t('Through a relay'), toggle('lp-through', ui.through)),
+    ]);
   }
 
   // the public relay needs nothing typed; an own relay, this PC's relay or a direct address (forwarded port) live here
@@ -194,17 +188,6 @@ export async function render(el, ctx) {
     patch(part('lp-share'), shareHtml());
   }
 
-  function drawCode() {
-    const code = part('lp-code');
-    if (!code) return;
-    const shown = shownCode({ gameCode, hostCode: ui.hostCode, running: gameActive(store.state) });
-    code.textContent = shown || t('New each time the game starts');
-    code.classList.toggle('faint', !shown);
-    const button = code.nextElementSibling;
-    button.dataset.copy = shown;
-    button.disabled = !shown;
-    button.setAttribute('aria-label', t('Copy room code'));
-  }
 
   function drawProblems() {
     for (const id of Object.keys(FIELDS)) {
@@ -235,7 +218,6 @@ export async function render(el, ctx) {
     if (patch(part('lp-body'), bodyHtml())) {
       part('lp-join')?.setAttribute('list', 'lp-last');
       drawLan();
-      drawCode();
     }
     drawProblems();
   }
@@ -249,50 +231,30 @@ export async function render(el, ctx) {
     if (isVisit()) problems['lp-addr'] = addrProblem(ui.visitAddr, { port: ui.through ? RELAY_PORT : HOST_PORT, remote: true });
   }
 
-  /** Applies the page as it stands, if it is complete. `left`: the field just left, so an empty one beside a filled one is called out. */
-  async function commit(left) {
+  /** Applies the page as it stands, if it is complete. */
+  async function commit() {
     checkFormat();
-    if (isVisit()) {
-      const code = ui.visitCode.trim();
-      problems['lp-code-in'] = '';
-      if (code) {
-        try {
-          ui.visitCode = await api.roomCodeCheck({ code });
-          const input = part('lp-code-in');
-          if (input) input.value = ui.visitCode;
-        } catch (e) { problems['lp-code-in'] = errText(e); }
-      }
-      if (isOwn() && left === 'lp-addr' && !ui.visitAddr.trim() && code) problems['lp-addr'] = t('Needed');
-      if (isOwn() && left === 'lp-code-in' && !code && ui.visitAddr.trim()) problems['lp-code-in'] = t('Needed');
-    }
     drawProblems();
     if (Object.values(problems).some(Boolean)) return;
 
-    let edits = editsFor(ui, pkp);
+    const edits = editsFor(ui, pkp);
     if (!edits?.length) return;
-    if (isHost() && !ui.hostCode) {
-      ui.hostCode = mem.hostCode || await api.roomCodeNew();
-      edits = editsFor(ui, pkp);
-    }
     await save(edits);
     if (ui.view === 'lan' && ui.lanJoin.trim()) remember({ joinAddr: ui.lanJoin.trim() });
-    if (isHost()) remember(isOwn() ? { relayAddr: ui.relay.trim(), hostCode: ui.hostCode } : { hostCode: ui.hostCode });
-    if (isVisit() && !isOwn()) remember({ visitCode: ui.visitCode });
+    if (isHost()) remember({ relayAddr: ui.relay.trim() });
     else if (isVisit()) {
       const addr = ui.visitAddr.trim();
-      remember(ui.through ? { relayAddr: addr, visitCode: ui.visitCode } : { joinAddr: addr, joinCode: ui.visitCode });
+      remember(ui.through ? { relayAddr: addr } : { joinAddr: addr });
       if (ui.through) ui.relay = addr;   // one relay for both roles: Host shows what Visit just set
     }
     drawChrome();
-    drawCode();
     patch(part('lp-share'), shareHtml());   // the relay field decides what visitors are given
   }
 
   function enter() {
     if (ui.view === 'lan' && !lan) loadLan();
     if (isHost()) {
-      loadGameCode();
-      if (isOwn()) loadPublicIp();
+      loadPublicIp();
       if (relay && !lan) loadLan();
     }
   }
@@ -354,16 +316,6 @@ export async function render(el, ctx) {
     }
   });
 
-  const newCode = () => inOrder(async () => {
-    const code = await api.roomCodeNew();
-    ui.hostCode = code;
-    remember({ hostCode: code });
-    dropped = gameCode;
-    gameCode = null;
-    if (hostsOverInternet(readIni(pkp))) await save(codeEdits(code));
-    drawChrome();
-    drawCode();
-  });
 
   const setShared = (edits, input) => inOrder(async () => {
     try {
@@ -406,10 +358,10 @@ export async function render(el, ctx) {
     }
   });
   el.addEventListener('focusout', (e) => {
-    if (FIELDS[e.target.id]) inOrder(() => commit(e.target.id));
+    if (FIELDS[e.target.id]) inOrder(() => commit());
   });
   el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && FIELDS[e.target.id]) inOrder(() => commit(e.target.id));
+    if (e.key === 'Enter' && FIELDS[e.target.id]) inOrder(() => commit());
   });
   el.addEventListener('change', (e) => {
     const t = e.target;
@@ -432,14 +384,11 @@ export async function render(el, ctx) {
     const t = e.target.closest('[data-copy], [data-act]');
     if (!t) return;
     if (t.dataset.copy) copy(t.dataset.copy);
-    else if (t.dataset.act === 'new-code') newCode();
+
     else if (t.dataset.act === 'switch') inOrder(async () => { await save(protocolEdits()); draw(); });
   });
 
-  ctx.on((s, why) => {
-    drawChrome();
-    if (why === 'game' && isHost()) loadGameCode();
-  });
+  ctx.on(() => drawChrome());
 
   const timer = setInterval(async () => {
     if (document.hidden || !isHost()) return;
@@ -453,7 +402,6 @@ export async function render(el, ctx) {
       const links = part('lp-links');
       if (links) links.textContent = relay.clients;
     }
-    loadGameCode();
   }, POLL_MS);
 
   checkFormat();

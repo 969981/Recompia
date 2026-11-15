@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @035bd9c, modified (marked "pokopia-recomp extension: relay UDP")
+// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @035bd9c, modified (marked "pokopia-recomp extension: relay UDP" and "room list")
 // coop mpnet (MIT, our own code): the real transport, a star around the host (the LDN access point).
 // - Control: one TCP link per station and host, framed messages (u32 length, u8 type, body): HELLO / WELCOME (the coop protocol; the host's build and
 //   mods fingerprint), SCAN_REQ / SCAN_RESP (the host's NetworkInfo and identity), JOIN / ACCEPT / REFUSE (the host checks the network, passphrase,
@@ -530,7 +530,7 @@ static void station_frame(coop_node *n, peer *p, int type, const uint8_t *b, siz
     if (c->state == CONN_HELLO && n->cfg.auth && !c->keyed && type == M_AUTH_CHAL) {   // internet play: prove the room code
         if (len < MP_CHAL_LEN || get32(b) != MP_MAGIC || get16(b + 4) != MP_PROTO_INET) { bad_input(n, c, "host", "a bad room-code challenge"); return; }
         memcpy(c->nh, b + 6, CAUTH_NONCE);
-        uint8_t pr[32]; cauth_proof(n->k_auth, 0, c->ns, c->nh, c->hello, 17, pr);
+        uint8_t pr[32]; cauth_proof(cxl_kauth(n, p), 0, c->ns, c->nh, c->hello, 17, pr);   // pokopia-recomp extension: a listed room's own key
         cmp_send_frame(n, c, M_AUTH_PROOF, pr, 32);
         cwipe(pr, sizeof pr);
         c->state = CONN_AUTH;
@@ -543,7 +543,7 @@ static void station_frame(coop_node *n, peer *p, int type, const uint8_t *b, siz
             return;
         }
         if (type != M_AUTH_OK || len < 32) { bad_input(n, c, "host", "no answer to the room-code proof"); return; }
-        uint8_t want[32]; cauth_proof(n->k_auth, 1, c->ns, c->nh, NULL, 0, want);
+        uint8_t want[32]; cauth_proof(cxl_kauth(n, p), 1, c->ns, c->nh, NULL, 0, want);
         int ok = cct_eq(want, b, 32);
         cwipe(want, sizeof want);
         if (!ok) {
@@ -551,7 +551,7 @@ static void station_frame(coop_node *n, peer *p, int type, const uint8_t *b, siz
             peer_say(n, p, 11, "mp: host %s %s", "did not prove the room code: not the host this code belongs to (dialled again in 30 s)");
             return;
         }
-        cauth_link_keys(c, n->k_auth, c->ns, c->nh, 0);
+        cauth_link_keys(c, cxl_kauth(n, p), c->ns, c->nh, 0);
         n->auth_ok++;
         c->state = CONN_HELLO;   // the WELCOME comes next, tagged
         return;
@@ -843,6 +843,13 @@ static void peer_free(coop_node *n, peer *p) {
     p->c.s = CSOCK_BAD; p->c.node = -1;
     (void)n;
 }
+// pokopia-recomp extension: room list: the helpers above for coop_xlist.c
+void cmp_conn_init(conn *c, csock s, int state) { conn_init(c, s, state); }
+void cmp_conn_raw(conn *c, const void *p, size_t len) { conn_raw(c, p, len); }
+void cmp_conn_flush(conn *c) { conn_flush(c); }
+int cmp_grow(uint8_t **b, size_t *cap, size_t need) { return grow(b, cap, need); }
+const char *cmp_relay_err(int code) { return relay_err(code); }
+void cmp_peer_free(coop_node *n, peer *p) { peer_free(n, p); }
 static void peer_failed(coop_node *n, peer *p) {
     int64_t now = cplat_now_ms();
     if (p->src == PEER_DISC && p->nalt > 1) {   // a host on several networks: its next address right away; the back-off counts whole rounds
@@ -944,6 +951,7 @@ static void rc_close(coop_node *n, const char *why, int quiet) {
     }
     cplat_close(c->s); conn_init(c, CSOCK_BAD, CONN_FREE);
     n->rc_open = 0;
+    cxl_host_reset(n);   // pokopia-recomp extension: room list
 }
 static void rc_msg(coop_node *n, const uint8_t *m) {
     int64_t now = cplat_now_ms();
@@ -954,6 +962,7 @@ static void rc_msg(coop_node *n, const uint8_t *m) {
             n->rc_open = 1; n->rc_fails = 0; n->rc_said = 0;
             coop_logf(n, "mp: the relay opened the room (id %02x%02x%02x%02x...): visitors with the room code reach this host through it", n->room_id[0], n->room_id[1],
                       n->room_id[2], n->room_id[3]);
+            cxl_host_ok(n, get32(m + 8));   // pokopia-recomp extension: room list
         }
         break;
     case RLY_VISITOR: {   // a visitor asks for this room: a link of its own to the relay, which pairs the two
@@ -1009,6 +1018,7 @@ static void rc_timers(coop_node *n, int64_t now) {
     else if (c->state == CONN_READY && !c->closing) {
         if (now - c->last_tx >= RELAY_PING_MS) { uint8_t m[RLY_MSG_LEN] = {0}; put32(m, RLY_MAGIC); m[4] = RLY_PING; conn_raw(c, m, sizeof m); c->last_tx = now; }
         if (now - c->last_rx >= RELAY_TIMEOUT_MS) rc_close(n, "the relay went silent", 0);
+        else if (n->rc_open) cxl_host_tick(n, now);   // pokopia-recomp extension: room list
     }
     if (c->state != CONN_FREE && c->closing) {
         if (c->closing == 1 && !c->close_by) c->close_by = now + CLOSE_FLUSH_MS;
@@ -1037,6 +1047,7 @@ static void timers(coop_node *n) {
     if (n->cfg.role != COOP_ROLE_HOST) station_timers(n, now);
     if (n->hosting) cmp_host_accepts(n);
     rc_timers(n, now);
+    cxl_timers(n, now);   // pokopia-recomp extension: room list
     for (int i = 0; i < HOST_CONNS; i++) link_timers(n, &n->hc[i], NULL, now);
     for (int j = 0; j < PEERS; j++) if (n->pr[j].used) link_timers(n, &n->pr[j].c, &n->pr[j], now);
 }
@@ -1046,7 +1057,7 @@ static void conn_io(coop_node *n, conn *c, peer *p, csock s, int got) {
         if (cplat_tcp_connected(c->s) != 1) { cplat_close(c->s); conn_init(c, CSOCK_BAD, CONN_FREE); if (p) peer_failed(n, p); return; }
         c->opened = c->last_rx = cplat_now_ms();
         if (!p) { c->state = CONN_HELLO; c->x_rflag = c->x_rpend = x_enabled(n); relay_hello(c, RLY_ATTACH, n->room_id, c->rly_id, c->rly_cookie); return; }   // the host's link for one visitor
-        if (p->relay) { c->state = CONN_RELAY; c->x_rflag = x_enabled(n); relay_hello(c, RLY_JOIN, n->room_id, 0, 0); return; }               // HELLO once the relay pairs it
+        if (p->relay) { c->state = CONN_RELAY; c->x_rflag = x_enabled(n); relay_hello(c, RLY_JOIN, cxl_room(n, p), 0, 0); return; }          // HELLO once the relay pairs it
         c->state = CONN_HELLO;
         uint8_t h[MP_HELLO3_LEN]; put32(h, MP_MAGIC); put16(h + 4, (uint32_t)n->proto); h[6] = n->cfg.platform; memcpy(h + 7, n->cfg.uid, 16);
         if (n->cfg.auth) { memcpy(c->hello, h + 6, 17); cplat_random(c->ns, CAUTH_NONCE); memcpy(h + MP_HELLO_LEN, c->ns, CAUTH_NONCE); }
@@ -1061,10 +1072,10 @@ static void close_due(coop_node *n, conn *c, peer *p, int64_t now) {
     if (c->closing == 1 && !c->close_by) c->close_by = now + CLOSE_FLUSH_MS;
     if (c->closing >= 2 || !c->txn || now >= c->close_by) conn_close(n, c, p, c->closing == 3 ? "closed" : c->closing == 2 ? "error" : "done");
 }
-enum { PK_LISTEN = 1, PK_HUDP, PK_SUDP, PK_DISC, PK_HC, PK_PEER, PK_RELAY, PK_XRLY };   // PK_XRLY: pokopia-recomp extension
+enum { PK_LISTEN = 1, PK_HUDP, PK_SUDP, PK_DISC, PK_HC, PK_PEER, PK_RELAY, PK_XRLY, PK_XLIST };   // PK_XRLY, PK_XLIST: pokopia-recomp extensions
 static void io_main(void *arg) {
     coop_node *n = arg;
-    enum { NF = 6 + HOST_CONNS + PEERS };   // 6: pokopia-recomp extension (x_rsock)
+    enum { NF = 7 + HOST_CONNS + PEERS };   // 6, 7: pokopia-recomp extensions (x_rsock, the room list's link)
     cpollfd f[NF]; int kind[NF], idx[NF];
     cnode_lock(n);
     for (;;) {
@@ -1090,6 +1101,8 @@ static void io_main(void *arg) {
             ADD(PK_PEER, i, c->s, (stopping ? 0 : CP_IN) | (c->state == CONN_CONNECTING || c->txn ? CP_OUT : 0)); pending |= c->txn != 0;
         }
         if (n->rc.state != CONN_FREE && !stopping) ADD(PK_RELAY, 0, n->rc.s, CP_IN | (n->rc.state == CONN_CONNECTING || n->rc.txn ? CP_OUT : 0));
+        if (n->xl_c.state != CONN_FREE && !stopping)   // pokopia-recomp extension: room list
+            ADD(PK_XLIST, 0, n->xl_c.s, CP_IN | (n->xl_c.state == CONN_CONNECTING || n->xl_c.txn ? CP_OUT : 0));
 #undef ADD
         if (stopping && (!pending || now >= n->stop_until)) break;   // Finalize: queued goodbyes (KICK, LEAVE) had their moment
         cnode_unlock(n);
@@ -1106,6 +1119,7 @@ static void io_main(void *arg) {
             case PK_PEER: if (n->pr[idx[i]].used) conn_io(n, &n->pr[idx[i]].c, &n->pr[idx[i]], f[i].s, f[i].got); break;
             case PK_RELAY: rc_io(n, f[i].s, f[i].got); break;
             case PK_XRLY: if (f[i].s == n->x_rsock) x_read(n); break;   // pokopia-recomp extension: relay UDP
+            case PK_XLIST: cxl_io(n, f[i].s, f[i].got); break;         // pokopia-recomp extension: room list
             }
         }
         for (int i = 0; i < n->nzap; i++) cplat_close(n->zap[i]);   // sockets a game thread let go while the poll had them
@@ -1132,10 +1146,15 @@ int cmp_start(coop_node *n) {
     for (int i = 0; i < HOST_CONNS; i++) conn_init(&n->hc[i], CSOCK_BAD, CONN_FREE);
     for (int i = 0; i < PEERS; i++) peer_free(n, &n->pr[i]);
     conn_init(&n->rc, CSOCK_BAD, CONN_FREE); n->rc_open = 0; n->rc_next = 0; n->rc_fails = 0; n->rc_said = 0;
+    cxl_stop(n); n->xl_cap = 0; n->xl_said = 0;   // pokopia-recomp extension: room list
     char a[16]; ipstr(a, n->cfg.addr);
     if (n->cfg.role == COOP_ROLE_JOIN) { cmp_peer_cfg(n); coop_logf(n, "mp: joining %s:%u%s", a, n->cfg.port, n->cfg.auth ? " with the room code" : ""); }
     else if (n->cfg.role == COOP_ROLE_HOST) coop_logf(n, "mp: hosts on 127.0.0.1:%u while the game hosts", n->cfg.port);
-    else if (n->cfg.relay_ip) {
+    else if (n->cfg.relay_ip && n->cfg.x_list) {   // pokopia-recomp extension: room list: no configured room; a Scan asks for the list
+        ipstr(a, n->cfg.relay_ip);
+        coop_logf(n, "mp: auto through the relay %s:%u with its room list: lists this room there while the game hosts, lists the relay's rooms while it scans",
+                  a, n->cfg.relay_port);
+    } else if (n->cfg.relay_ip) {
         cmp_peer_cfg(n); ipstr(a, n->cfg.relay_ip);
         coop_logf(n, "mp: auto through the relay %s:%u: opens the room there while the game hosts, asks it for the room's host while the game scans", a, n->cfg.relay_port);
     } else coop_logf(n, "mp: auto: hosts on %s (port %u) while the game hosts%s", n->cfg.scope == COOP_SCOPE_INTERNET ? "every interface for internet play" : "the LAN",
@@ -1154,6 +1173,7 @@ void cmp_stop(coop_node *n) {
     for (int i = 0; i < HOST_CONNS; i++) { cplat_close(n->hc[i].s); conn_init(&n->hc[i], CSOCK_BAD, CONN_FREE); }
     for (int i = 0; i < PEERS; i++) peer_free(n, &n->pr[i]);
     cplat_close(n->rc.s); conn_init(&n->rc, CSOCK_BAD, CONN_FREE); n->rc_open = 0;
+    cxl_stop(n);   // pokopia-recomp extension: room list
     for (int i = 0; i < n->nzap; i++) cplat_close(n->zap[i]);
     n->nzap = 0;
     cplat_close(n->lsock); cplat_close(n->husock); cplat_close(n->susock); n->lsock = n->husock = n->susock = CSOCK_BAD;

@@ -37,11 +37,11 @@ using games::pkp::layout::kPlayerMode;
 using games::pkp::layout::kPlayerModeByte;
 constexpr uint64_t kSaveAltPos = 0x7419f0;
 using games::pkp::layout::kSaveHeading;
-constexpr uint64_t kPlayerAction = 0x18b8;
-constexpr uint64_t kActionState = 0x984;
+using games::pkp::layout::kAction;
+using games::pkp::layout::kActionId;
 using games::pkp::layout::kSaveRoot;
 constexpr uint64_t kSaveTimeOfDay = 0x13d373c;
-constexpr uint64_t kSavePlayTime = 0x4a5418;
+using games::pkp::layout::kSavePlayTime;
 constexpr uint64_t kSaveStageId = 0xc91f20;
 constexpr uint64_t kSaveTutorials = 0x6d7cec;   // m_tutorialHistory, 1024 bytes (serialiser 0x71005ca320); its set bits are `prog`
 
@@ -65,9 +65,9 @@ bool read_state(GameState* out) {
         if (rd(pos_at, &p) && std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2])) {
             std::memcpy(g.pos, p, sizeof p);
             if (rd(yaw_at, &yaw) && std::isfinite(yaw)) g.yaw = yaw;
-            const uint64_t act = rd64(player + kPlayerAction);
+            const uint64_t act = rd64(player + kAction);
             uint16_t st = 0;
-            if (act && rd(act + kActionState, &st)) g.move_state = st;
+            if (act && rd(act + kActionId, &st)) g.move_state = st;
             g.have_player = true;
         }
     }

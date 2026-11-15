@@ -1,0 +1,112 @@
+Ryujinx shader translator: every operand of every emitted SPIR-V instruction asks for its type, and each of those
+calls ends in Module's type-declaration dictionary, whose key hash (DeterministicHashCode.Combine over the candidate
+instruction's operands) is recomputed on every probe. The answers cannot change within one module, so hold the
+scalar and vector types (and the four TypeS32/TypeU32/TypeFP32/TypeFP64 wrappers) in the context. The first request
+for each still creates the type, in the same order, so the emitted module is byte-identical. The Ryujinx code in
+the context lines is MIT.
+--- a/CodeGen/Spirv/CodeGenContext.cs
++++ b/CodeGen/Spirv/CodeGenContext.cs
+@@ -290,6 +290,13 @@
+             return _functions[funcIndex];
+         }
+ 
++        // TypeS32()/TypeFP32()/TypeVector() all end in Module's type-declaration dictionary, whose key hash walks the candidate
++        // instruction's operands, and GetType runs for every operand of every emitted instruction. The answers never change
++        // within one module, so hold them: the first request still creates the type in the same order, so the module is
++        // byte-identical.
++        private readonly Instruction[] _scalarTypes = new Instruction[7];
++        private readonly Instruction[,] _vectorTypes = new Instruction[7, 5];
++
+         public Instruction GetType(AggregateType type, int length = 1)
+         {
+             if ((type & AggregateType.Array) != 0)
+@@ -303,7 +310,10 @@
+                     return TypeRuntimeArray(GetType(type & ~AggregateType.Array));
+                 }
+             }
+-            else if ((type & AggregateType.ElementCountMask) != 0)
++
++            int scalarIndex = (int)(type & AggregateType.ElementTypeMask);
++
++            if ((type & AggregateType.ElementCountMask) != 0)
+             {
+                 int vectorLength = (type & AggregateType.ElementCountMask) switch
+                 {
+@@ -313,10 +323,39 @@
+                     _ => 1,
+                 };
+ 
+-                return TypeVector(GetType(type & ~AggregateType.ElementCountMask), vectorLength);
+-            }
+-
+-            return type switch
++                if ((uint)scalarIndex >= (uint)_vectorTypes.GetLength(0))
++                {
++                    return TypeVector(ScalarType(type), vectorLength);
++                }
++
++                Instruction vector = _vectorTypes[scalarIndex, vectorLength];
++
++                if (vector == null)
++                {
++                    _vectorTypes[scalarIndex, vectorLength] = vector = TypeVector(ScalarType(type), vectorLength);
++                }
++
++                return vector;
++            }
++
++            return ScalarType(type);
++        }
++
++        private Instruction ScalarType(AggregateType type)
++        {
++            int index = (int)(type & AggregateType.ElementTypeMask);
++
++            if ((uint)index >= (uint)_scalarTypes.Length)
++            {
++                return NewScalarType(type);
++            }
++
++            return _scalarTypes[index] ??= NewScalarType(type);
++        }
++
++        private Instruction NewScalarType(AggregateType type)
++        {
++            return (type & AggregateType.ElementTypeMask) switch
+             {
+                 AggregateType.Void => TypeVoid(),
+                 AggregateType.Bool => TypeBool(),
+@@ -352,24 +391,29 @@
+             }
+         }
+ 
++        private Instruction _typeS32;
++        private Instruction _typeU32;
++        private Instruction _typeFP32;
++        private Instruction _typeFP64;
++
+         public Instruction TypeS32()
+         {
+-            return TypeInt(32, true);
++            return _typeS32 ??= TypeInt(32, true);
+         }
+ 
+         public Instruction TypeU32()
+         {
+-            return TypeInt(32, false);
++            return _typeU32 ??= TypeInt(32, false);
+         }
+ 
+         public Instruction TypeFP32()
+         {
+-            return TypeFloat(32);
++            return _typeFP32 ??= TypeFloat(32);
+         }
+ 
+         public Instruction TypeFP64()
+         {
+-            return TypeFloat(64);
++            return _typeFP64 ??= TypeFloat(64);
+         }
+     }
+ }

@@ -31,6 +31,10 @@ int index_of(const int* values, int n, int v, int otherwise) {
     for (int i = 0; i < n; ++i) if (values[i] == v) return i;
     return otherwise;
 }
+int index_of(const double* values, int n, double v, int otherwise) {
+    for (int i = 0; i < n; ++i) if (std::fabs(values[i] - v) < 1e-6) return i;
+    return otherwise;
+}
 
 constexpr int kFpsValues[] = {-1, 30, 40, 45, 60, 90, 120, 144, 165, 240, 0};
 constexpr int kFpsCount = static_cast<int>(std::size(kFpsValues));
@@ -38,6 +42,10 @@ constexpr const char* kFpsNames[kFpsCount + 1] = {"Match Display", "30", "40", "
 constexpr int kWidths[] = {1280, 1600, 1920, 2560, 3840}, kHeights[] = {720, 900, 1080, 1440, 2160};
 constexpr int kSizeCount = static_cast<int>(std::size(kWidths));
 constexpr const char* kSizeNames[kSizeCount + 1] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160", "Custom"};
+// [display] aspect: 0 is auto (the window's shape); read once at start (pkp_play.cpp install_render), so the row applies after a restart.
+constexpr double kAspectValues[] = {0.0, 16.0 / 9.0, 16.0 / 10.0, 21.0 / 9.0, 32.0 / 9.0};
+constexpr int kAspectCount = static_cast<int>(std::size(kAspectValues));
+constexpr const char* kAspectNames[kAspectCount + 1] = {"Auto", "16:9", "16:10", "21:9", "32:9", "Custom"};
 constexpr int kAniso[] = {0, 2, 4, 8, 16};
 constexpr const char* kAnisoNames[] = {"Game Default", "2x", "4x", "8x", "16x"};
 // In play::PromptStyle order (the row stores the enum's number).
@@ -92,7 +100,10 @@ const Row kDisplay[] = {
     names("Window Size", "The size of the window in windowed mode.", kSizeNames, kSizeCount + 1,
           [](const S& s) { for (int i = 0; i < kSizeCount; ++i) if (s.display.width == kWidths[i] && s.display.height == kHeights[i]) return i; return kSizeCount; },
           [](S& s, int v) { if (v < kSizeCount) { s.display.width = kWidths[v]; s.display.height = kHeights[v]; } }),
-    choice("Keep 16:9 Picture", "Letterbox the picture instead of stretching it to the window.", kOffOn, 2, ROW_BOOL(display.keep_aspect)),
+    names("Aspect Ratio", "The shape of the picture. Auto follows the window; 16:9 is the game's own.", kAspectNames, kAspectCount + 1,
+          [](const S& s) { return index_of(kAspectValues, kAspectCount, s.display.aspect, kAspectCount); },
+          [](S& s, int v) { if (v < kAspectCount) s.display.aspect = kAspectValues[v]; }, true),
+    choice("Letterbox", "Black bars keep the picture's shape when it does not fit the window, instead of stretching it.", kOffOn, 2, ROW_BOOL(display.keep_aspect)),
     choice("VSync", "Wait for the display between frames: no tearing, a little more delay.", kOffOn, 2, ROW_BOOL(display.vsync)),
     names("Frame Rate Limit", "The highest frame rate. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
           [](const S& s) { return index_of(kFpsValues, kFpsCount, s.display.fps_cap, kFpsCount); },
@@ -120,6 +131,7 @@ const Row kPerformance[] = {
     choice("Frame Rate Counter", "Show the frame rate on screen.", kOffOn, 2, ROW_BOOL(fps.show)),
     choice("Counter Corner", "Where the frame rate counter sits.", {"Top Left", "Top Right", "Bottom Left", "Bottom Right"}, 4, ROW_ENUM(fps.corner, play::Corner)),
     choice("Counter Detail", "What the frame rate counter shows.", {"FPS", "FPS and Time", "Full"}, 3, ROW_INT(fps.detail)),
+    key_row("Camera aim: show the ray", "Draws camera aim's ray over the picture: the blocks it tested, the block it hit and the block it selected, with the reason in a panel at the top left. For finding aiming bugs.", settings::Key::CameraAimDebug),
 };
 
 const Row kGraphics[] = {
@@ -211,18 +223,18 @@ const Row kController[] = {
 
 // The gameplay mods (the gameplay() rows of pkp_settings_table.h), labelled as in the launcher's Settings > Gameplay (settings-schema.js
 // GAMEPLAY). title_quit has no row (hidden by the repo owner). Every mod reads its keys when it installs, so these rows apply after a restart;
-// the shoulder camera's two distances are live keys (no switch: 0 / 0 is the game's own camera), in force when the screen commits, and so
-// is camera aim's debug view (a plain key, not a mod).
+// the shoulder camera's two distances are live keys (no switch: 0 / 0 is the game's own camera), in force when the screen commits. A tab has
+// kDirtySlot (13) rows; camera aim's debug view moved to Performance (an on-screen diagnostic) to keep this tab within that.
 using settings::Key;
 constexpr Row kGameplay[] = {
     key_row("Running jump keeps speed", "A running jump keeps the running speed in the air.", Key::JumpMomentum),
     key_row("Running jump speed kept", "With the running jump on: how much of the extra running speed is kept.", Key::JumpMomentumStrength, 0.01, "%.0f%%", 100),
     key_row("Camera aim", "Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.", Key::CameraAim),
     key_row("Extra reach in blocks", "With camera aim: extra blocks of reach. Off is the game's own range.", Key::CameraAimReach, 1, "%.0f", 1, "Off"),
-    key_row("Camera aim: show the ray", "Draws camera aim's ray over the picture: the blocks it tested, the block it hit and the block it selected, with the reason in a panel at the top left. For finding aiming bugs.", Key::CameraAimDebug),
-    key_row("Sort button in the bag and containers", "A Sort button in the key guide of the bag and of the container screens.", Key::InventorySort),
+    key_row("Sort button in the bag and containers", "Click Hold to Sort in the bag and storage boxes to sort at once.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
+    key_row("Save button in the pause menu", "A Save prompt in the key guide of the pause menu: writes the save and stays in the world.", Key::SaveNow),
     key_row("Item editor (experimental)", "Adds an Items tab to this screen that changes how many of an item you hold. Not during Link Play.", Key::ItemEditor),
     key_row("More Pokémon in town", "Experimental: more Pokémon can live in your town than the game's 25.", Key::PokemonCap),
     key_row("Pokémon in town", "With More Pokémon in town: how many can live there, 25 to 64. Visitors and spawns share the game's 64 slots, so a high number leaves them less room.", Key::PokemonCapLimit, 1, "%.0f"),

@@ -232,9 +232,11 @@ struct OpenCount {
     GaugeCounter& c;
 };
 
-std::shared_ptr<Service> make_file(std::shared_ptr<fs::VFile> f, const std::string& path) {
+// `keep` holds the Volume alive for as long as the file: the game may close the file-system session (unmount) while a file is
+// open, and the Volume's destructor drops its work folder -- the open file then vanished and every write failed with ENOENT.
+std::shared_ptr<Service> make_file(std::shared_ptr<fs::VFile> f, const std::string& path, std::shared_ptr<fs::Volume> keep = nullptr) {
     auto open = std::make_shared<OpenCount>(g_open_files);
-    return make_iface("nn::fssrv::sf::IFile", [f, path, open](Service& s) {
+    return make_iface("nn::fssrv::sf::IFile", [f, path, open, keep](Service& s) {
         s.add_cmd(0, "Read", [f, open](Request& req, Response& rsp) -> uint32_t {
             const int64_t off = req.arg<int64_t>(8);
             const uint64_t size = req.arg<uint64_t>(16);
@@ -353,7 +355,7 @@ std::shared_ptr<Service> make_filesystem(std::shared_ptr<Volume> v, std::string 
                 NXLOG_D("fs", "OpenFile %s%s (mode %u) -> 0x%x", label.c_str(), p.c_str(), req.arg<uint32_t>(0), r);
                 return r;
             }
-            rsp.push_object(make_file(f, p));
+            rsp.push_object(make_file(f, p, v));
             return 0;
         });
         s.add_cmd(9, "OpenDirectory", [v, label](Request& req, Response& rsp) -> uint32_t {

@@ -292,11 +292,11 @@ void frame_done(Agg& a, uint64_t p, uint64_t s_p, uint64_t s_next, uint64_t s_pr
             a.margin.push_back(static_cast<float>(m));
             if (static_cast<double>(s_p) > target + 0.5 * refresh_ns) ++a.late;
         }
-        const bool lock = cfg().lock && lim && g_waiter.load() && k >= 2 && refresh_ns > 0 && !frame_limiter_unpaced();
+        const bool lock = cfg().lock && lim && g_waiter.load() && k >= 2 && refresh_ns > 0;
         if (lock != a.lock_active && a.lock_lines < 16) {
             ++a.lock_lines;
             if (lock) NXLOG_I(kTag, "vblank lock: on (%.2f Hz, a frame every %d refreshes): presents held to their slot, the limiter's grid follows the vblank", hz, k);
-            else NXLOG_I(kTag, "vblank lock: off (%s)", !g_waiter.load() ? "no present wait" : k < 2 ? "no frame cap of refresh / k on a fixed-refresh panel" : "unpaced frames");
+            else NXLOG_I(kTag, "vblank lock: off (%s)", !g_waiter.load() ? "no present wait" : "no frame cap of refresh / k on a fixed-refresh panel");
         }
         if (lock && !a.lock_active) lock_reset(a);
         a.lock_active = lock;
@@ -390,7 +390,7 @@ void present_timing_shown(uint64_t frame, uint64_t t_ns) {
 }
 
 uint64_t present_timing_hold_until(uint64_t frame, bool fifo) {
-    if (!cfg().lock || !fifo || !frame || !g_waiter.load(std::memory_order_relaxed) || frame_limiter_unpaced()) return 0;
+    if (!cfg().lock || !fifo || !frame || !g_waiter.load(std::memory_order_relaxed)) return 0;
     FrameLimiter* lim = g_lim.load(std::memory_order_acquire);
     if (!lim) return 0;
     const int k = lim->grid_refreshes();

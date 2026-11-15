@@ -156,6 +156,10 @@ midhook 0x7100087d30
 midhook 0x7100087cd0
 #   mouse camera: 0x7100249780 after its 120 Hz tick (0x7100249960): w0 bit 0 = run the follow placement 0x71000783c0 this frame
 midhook 0x7100249848
+#   photo camera mouse turn: the photo camera's turn function 0x710008ee4c right after it loaded the right stick's X (s10) and Y (s0);
+#   x19 = the photo camera, s8 = the frame time
+midhook 0x710008eef0
+midhook 0x710008f1e4
 #   render resolution: the render thread's pass-state replay (0x71017b69e0) right before nvnCommandBufferSetViewports: viewports as floats at
 #   sp+216, scissors as ints at sp+24, count w23 (stretches viewports sized for 1920x1080 to their render target)
 midhook 0x71017b6c98
@@ -231,11 +235,40 @@ midhook 0x7101f78030
 midhook 0x7101f78124
 midhook 0x7101f7aa2c
 midhook 0x7101f7fe48
+#   Ditto loading backdrop: the pane quad's half-size and local centre, just before vertex emission (pkp_loading_backdrop.cpp)
+midhook 0x7101f98b98
 #   Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): the permission-mask builder 0x71000b0f60, story-area
 #   online block at `movk x13, #1, lsl #32` (x13 = the pattern's bits 0-31, x22 = the session's Spectator flag)
 midhook 0x71000b1030
 #   Story co-op (pkp_linkplay.cpp, [pkp] link_story_coop): the talk handler 0x71004c024c, at `orr w8, w25, w0` (w0 = IsHost's answer)
 midhook 0x71004c06d8
+#   Story co-op, every player's own story: the mask builder's `mov x19, x0` (it starts), talk conditions 0x19 (`mov w8, #1` after IsOnline)
+#   and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`
+midhook 0x71000b0f74
+midhook 0x71004cfe20
+midhook 0x71004d4860
+entryhook 0x71004d04fc
+#   Story co-op's journal (pkp_story_guard.cpp): the setters of a story quest's state (m_story, id, state) and flag (m_story, id, bool)
+entryhook 0x71005d865c
+entryhook 0x71005d8774
+#   Story co-op holds a visitor's town-changing quests (pkp_story_hold.cpp): the quest pump 0x710011b600, at `tbz w0, #0` after the flag read
+midhook 0x710011b6a4
+#   Story co-op's items (pkp_story_pickups.cpp): the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world, and
+#   the host's removal of an item it gave a visitor, `bl 0x71009cb680` in the request handler 0x7100222a20, and the end of that
+#   handler's memory-piece branch (`b` after the pickup; x21 = the item's entry)
+entryhook 0x71009cdba0
+entryhook 0x71009cb680
+midhook 0x7100222cf0
+midhook 0x7100222ba0
+#   Link Play, no Dream Island trip from a story area (pkp_link_trips.cpp): the poll's "this player goes" byte in w9, between its load
+#   and its `cbz`, in the three event callbacks 0x710049cc40, 0x710049d040, 0x710049d7c0; and the request for the island
+midhook 0x710049ccfc
+midhook 0x710049d274
+midhook 0x710049d894
+entryhook 0x71009a50ac
+#   Link Play, the host's story dig spots (pkp_link_digspots.cpp): the dig-spot manager's frame 0x710097d184, at `bl 0x710097d660`
+#   (the glows' refresh; x0 = the manager)
+midhook 0x710097d1c4
 # general value tween f_7100e51624: the frame counter steps by (u32)(multiplier + 0.5) once per frame (fadd s0, s0, s1 before the
 # fcvtzu), which is 0 above 120 fps with the frame-time fix; one site per counter (+0xc, +0x14). pkp_play.cpp hook_tween_step
 # replaces the step with whole 60 Hz frames.

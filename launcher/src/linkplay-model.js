@@ -4,12 +4,15 @@
 //   mode off, 0 or an empty value          Off. A missing key is auto, like the runtime.
 //   mode auto, internet false              Same network. One setting both hosts and visits: the game decides by Invite Others / Visit a Friend.
 //   mode join:<ip>[:port], internet false  Same network, Join directly: scanning asks that host only.
-//   mode auto, internet true, relay, code  Internet through a relay. Host or Visit is the same file, so the role lives in localStorage.
+//   mode auto, internet true, relay        Internet through a relay: hosts and visitors write the same file. The relay lists every room and the
+//                                          game's search (Visit a Friend) shows them; the game's own Link Code keeps a room private.
 //   mode auto, internet true, no relay     Internet host without a relay (router forwards 47600). A visitor cannot use this, so it opens as Host.
-//   mode join:<ip>, internet true, code    Internet visit without a relay.
+//   mode join:<ip>, internet true          Internet visit without a relay.
+//   room_code                              gone (rooms are listed); every choice clears it, as the launcher does at start (settings.rs).
 //   protocol linkplay                      the old relay Link Play. Any Link Play choice writes protocol = native; the toggles do not (as before).
 // Internet goes through PUBLIC_RELAY unless the player turns on Advanced > Use my own relay or address (`server` 'own', kept in
-// localStorage while nothing is written yet); a file whose relay is another address, or with no relay, opens in 'own'.
+// localStorage while nothing is written yet); a file whose relay is another address, or with no relay, opens in 'own'. Host or Visit is
+// only asked there (the role lives in localStorage while the file cannot tell).
 // `[net] server` belongs to the old protocol and is never written here.
 import { t } from './i18n.js';
 
@@ -70,7 +73,6 @@ export function readIni(pkp) {
     mode: ini('net.mode', 'auto').toLowerCase(),
     internet: truthy(ini('net.internet')),
     relay: ini('net.relay'),
-    code: ini('net.room_code'),
     interact: truthy(ini('pkp.link_interact_everywhere')),
     story: truthy(ini('pkp.link_story_coop')),
   };
@@ -78,18 +80,12 @@ export function readIni(pkp) {
 
 const isOff = (n) => n.mode === 'off' || n.mode === '0' || !n.mode;
 const joinOf = (n) => (n.mode.startsWith('join:') ? n.mode.slice(5) : '');
-const realCode = (code) => (code.toLowerCase() === 'new' ? '' : code);   // `new`: the game makes one each run
-// the forms of one code are one code (room_code::normalize)
-const codeKey = (code) => realCode(code).toUpperCase().replace(/[- ]/g, '').replaceAll('O', '0').replace(/[IL]/g, '1');
 
 export const viewOf = (n) => (isOff(n) ? 'off' : n.internet ? 'internet' : 'lan');
 
-/** Does the file already host over the internet (mode auto, internet on)? New code writes straight into it. */
-export const hostsOverInternet = (n) => viewOf(n) === 'internet' && !joinOf(n);
-
 /**
- * The page's state for this file and this browser's memory. `mem` is localStorage: { server, role, through, hostCode, visitCode, joinAddr,
- * joinCode, relayAddr }. `relayAddr` is only ever an own relay: the public one is never remembered, so Advanced opens with the player's own.
+ * The page's state for this file and this browser's memory. `mem` is localStorage: { server, role, through, joinAddr, relayAddr }.
+ * `relayAddr` is only ever an own relay: the public one is never remembered, so Advanced opens with the player's own.
  */
 export function uiFrom(pkp, mem = {}) {
   const n = readIni(pkp);
@@ -112,10 +108,8 @@ export function uiFrom(pkp, mem = {}) {
     legacy: n.legacy,
     lanJoin: view === 'lan' ? join : '',
     lastJoin: remembered(mem.joinAddr),
-    hostCode: internet && role === 'host' ? realCode(n.code) : mem.hostCode || '',
     relay: internet && !direct && !pub ? ownRelay : ownRelay || memRelay,
     visitAddr: direct ? join : internet && ownRelay ? ownRelay : through ? memRelay : remembered(mem.joinAddr),
-    visitCode: internet && role === 'visit' ? n.code : (through ? mem.visitCode : mem.joinCode) || '',
     interact: n.interact || n.story,
     story: n.story,
   };
@@ -128,11 +122,10 @@ export const offEdits = () => choice(net('mode', 'off'));
 /** Same network: automatic, or one host's address. */
 export const lanEdits = (addr = '') => choice(net('mode', addr ? `join:${addr}` : 'auto'), net('internet', 'false'), net('relay', ''), net('room_code', ''));
 
-export const hostEdits = (relay, code) => choice(net('mode', 'auto'), net('internet', 'true'), net('relay', relay), net('room_code', code));
+/** Internet through a relay (hosts and visitors alike), or a host without one (empty relay). */
+export const hostEdits = (relay) => choice(net('mode', 'auto'), net('internet', 'true'), net('relay', relay), net('room_code', ''));
 
-export const visitEdits = (addr, code, through) => choice(net('mode', through ? 'auto' : `join:${addr}`), net('internet', 'true'), net('relay', through ? addr : ''), net('room_code', code));
-
-export const codeEdits = (code) => choice(net('room_code', code));
+export const visitEdits = (addr, through) => choice(net('mode', through ? 'auto' : `join:${addr}`), net('internet', 'true'), net('relay', through ? addr : ''), net('room_code', ''));
 
 export const protocolEdits = () => choice();
 
@@ -153,7 +146,7 @@ function meaning(n) {
   // auto and auto:<port> are one choice. Anything else (join:<ip>, a bare address, a typo) is its own, so choosing Host or Same network
   // rewrites it: a join:<ip> left in the file makes the game visit-only, and a host there is unreachable (#239)
   const mode = /^auto(:\d+)?$/.test(n.mode) ? 'auto' : n.mode;
-  return n.internet ? JSON.stringify([mode, n.relay, codeKey(n.code)]) : mode;
+  return n.internet ? JSON.stringify([mode, n.relay]) : mode;
 }
 
 /** Would these edits change what the game does? The protocol line alone never counts: it goes with a real choice. */
@@ -161,7 +154,7 @@ export const changes = (pkp, edits) => meaning(readIni(pkp)) !== meaning(readIni
 
 /**
  * The edits for what the page shows now: [] when the file already says it, null while a field is empty or invalid, so nothing half-written
- * is saved. A host with no code yet gets [] or edits with an empty code; the page fills it in with room_code_new first.
+ * is saved.
  */
 export function editsFor(ui, pkp) {
   let edits;
@@ -170,28 +163,18 @@ export function editsFor(ui, pkp) {
     const addr = ui.lanJoin.trim();
     if (addrProblem(addr, { lan: true, remote: true })) return null;
     edits = lanEdits(addr);
-  } else if (ui.server === 'public') {
-    if (ui.role === 'host') edits = hostEdits(PUBLIC_RELAY, ui.hostCode);
-    else {
-      const code = ui.visitCode.trim();
-      if (!code) return null;
-      edits = visitEdits(PUBLIC_RELAY, code, true);
-    }
-  } else if (ui.role === 'host') {
+  } else if (ui.server === 'public') edits = hostEdits(PUBLIC_RELAY);
+  else if (ui.role === 'host') {
     const relay = ui.relay.trim();
     if (addrProblem(relay, { port: RELAY_PORT })) return null;
-    edits = hostEdits(relay, ui.hostCode);
+    edits = hostEdits(relay);
   } else {
     const addr = ui.visitAddr.trim();
-    const code = ui.visitCode.trim();
-    if (!validAddr(addr) || addrProblem(addr, { remote: true }) || !code) return null;
-    edits = visitEdits(addr, code, ui.through);
+    if (!validAddr(addr) || addrProblem(addr, { remote: true })) return null;
+    edits = visitEdits(addr, ui.through);
   }
   return changes(pkp, edits) ? edits : [];
 }
-
-/** The code visitors need. The game's own (room-code.txt) wins while it runs. Stopped, the file holds the last run: a fixed code in pkp.ini is the next one. */
-export const shownCode = ({ gameCode, hostCode, running }) => (running || !hostCode ? gameCode || hostCode || '' : hostCode);
 
 /** Port of a relay_status / relay_start answer. */
 export const relayPort = (status) => +String(status?.addr ?? '').split(':').pop() || RELAY_PORT;
@@ -222,6 +205,7 @@ export function internetShare(ui, { publicIp, relayOn }) {
 export function pathParts(ui) {
   const invite = t('Invite Others to Visit');
   const visit = t('Visit a Friend');
-  const last = ui.view === 'internet' ? (ui.role === 'host' ? invite : visit) : ui.lanJoin.trim() ? visit : `${invite} / ${visit}`;
+  const own = ui.view === 'internet' && ui.server === 'own';   // only there does the page know which one the player does
+  const last = own ? (ui.role === 'host' ? invite : visit) : ui.view === 'lan' && ui.lanJoin.trim() ? visit : `${invite} / ${visit}`;
   return ['Link Play', t('Local connection'), last];
 }

@@ -365,6 +365,7 @@ void replay_lists(Frame& f, const std::vector<Ref<CmdList>>& lists);
 void replay_end_submit(Frame& f);
 void replay_request_trace();      // trace the next whole presented frame (any thread)
 void replay_shutdown();           // destroys pipelines and layouts (render thread, device idle)
+void replay_note_presented(Texture* t);   // the present: the game shows t (render thread; nvn_replay_ui.cpp, nxrt/ui_layer.h)
 
 // ---- [nvn] gpu_split (nvn_gpu.cpp) -----------------------------------------------------------------------------------------
 // The recording time of one piece in TSC ticks (ft::tsc; 0: off) and the most pieces one submission is cut into.
@@ -393,8 +394,8 @@ void present_on_render_thread(Window* w, int index, bool again = false);   // ag
 void present_again();
 
 // ---- never-block compiles (WP06) -------------------------------------------------------------------------------------------
-// The replay's frame detector (note_frame_for_pacing, nvn_replay.cpp): true while the game loads (light frames while it stalls, or boot's
-// light run), and before the first present. Runs whether or not [display] unpaced_loading acts on it. Render thread.
+// The replay's frame detector (note_frame_for_loading, nvn_replay.cpp): true while the game loads (light frames while it stalls, or boot's
+// light run), and before the first present. Render thread.
 bool replay_loading();
 // The NVNmemoryPoolFlags of the pool holding a GPU address, 0 when it is in no pool (nvn_gpu_pool.cpp). Any thread.
 uint32_t pool_flags_at(uint64_t gpu_address);

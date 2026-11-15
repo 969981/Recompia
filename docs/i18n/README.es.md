@@ -76,7 +76,7 @@
 - Si no se puede escribir una partida guardada porque el disco está lleno, o OneDrive o el antivirus retienen el archivo, se conserva la última partida correcta y el juego te avisa.
 
 ### Configuración sencilla
-- **Usa tu volcado tal como lo tengas:** una carpeta con `base` y `updates`, o un único archivo `.nup`.
+- **Usa tu volcado tal como lo tengas:** una carpeta con `base` y `updates`, o un único archivo `.nup` o `.nx`.
 - **Mensajes claros si hay algún problema con el volcado:** versión incorrecta del juego, actualización ausente o archivos dañados durante la copia. El launcher te indica qué hacer.
 - **Comprobaciones antes de empezar:** espacio suficiente en disco, controlador gráfico operativo y memoria suficiente.
 - **Use fewer cores** permite seguir usando el PC durante la compilación. Puedes pausar y continuar más tarde.
@@ -213,7 +213,7 @@ Link Play todavía está en pruebas: unirse y caminar juntos funcionan. Las sesi
 - **El launcher indica que no encontró archivos utilizables del juego, o Set up indica que un archivo no coincide.** Elige la carpeta que contiene `base` y `updates`, por ejemplo `Pokopia_v2.0.1a`. Cada una necesita `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) y `romfs`. Un archivo que no coincide está dañado. Vuélvelo a volcar o a copiar.
 - **El launcher indica que los datos del juego (romfs) están incompletos, o el juego se cerró al inicio con "pkp.exe exited with code 4".** Tu herramienta de volcado escribió el `romfs` de la actualización sin incluir debajo los archivos del juego base (una actualización solo contiene los archivos que cambia). Conserva el juego base en el mismo volcado (`base` junto a `updates`, cada uno con `exefs` y `romfs`) y elige la carpeta que contiene ambos: el launcher añade automáticamente los archivos que faltan de `base`. Después pulsa **Set up** otra vez. Si no, vuelve a volcar el juego con la actualización integrada en el juego base.
 - **El launcher indica que el volcado se copió en modo texto.** Lo copiaste por FTP en modo texto, lo que daña `main`, `sdk` y `subsdk0`. Copia otra vez las carpetas `exefs` y `romfs` con el tipo de transferencia **Binary** (FileZilla: Transfer, Transfer type, Binary).
-- **Tu volcado es un solo archivo** (`.nsp`, `.xci`). El launcher acepta el juego en carpetas o como `.nup`. Extrae el `.nsp` o `.xci` en carpetas con tu herramienta de volcado.
+- **Tu volcado es un solo archivo** (`.nsp`, `.xci`). El launcher acepta el juego en carpetas o como `.nup` o `.nx`. Extrae el `.nsp` o `.xci` en carpetas con tu herramienta de volcado.
 - **La configuración se detiene con un error porque no se puede abrir o eliminar un archivo.** Coloca la carpeta en una ubicación sencilla, como `C:\Pokopia`, no en una carpeta sincronizada por OneDrive. Es posible que el antivirus esté analizando los archivos que se están compilando: espera a que termine o permite la carpeta. **Open setup log** muestra dónde se detuvo.
 - **Set up muestra una advertencia antes de empezar.** Primero comprueba el espacio libre en disco (unos 14 GB con los archivos de sombreadores empaquetados, que es lo predeterminado, o unos 31 GB con archivos sueltos), Vulkan, la memoria y el procesador. En una CPU de escritorio Intel de 13.ª o 14.ª generación, actualiza la BIOS antes de la configuración: sin la corrección de Intel, estas CPU pueden fallar durante cargas completas prolongadas. Si el PC se calienta o resulta difícil de usar durante la compilación, marca **Use fewer cores**.
 - **Frecuencia de fotogramas baja o imagen borrosa.** El tamaño de la imagen se fija al iniciar el juego. Es el tamaño de la ventana o la pantalla en ese momento (**Settings**, **Display**).
@@ -238,7 +238,7 @@ Todo esto está en la carpeta del juego: la carpeta con `PokopiaLauncher.exe` y 
 | Registro | `pkp.log`, que se escribe en cada inicio desde el launcher. Un fallo también escribe `pkp_crash.txt`, `pkp_freeze.txt` o `pkp_fatal.txt`. |
 | Sombreadores traducidos | `shader_cache` (unos 26 GB) |
 | Archivos de compilación | `build` (la carpeta de trabajo de la configuración) |
-| `.nup` desempaquetado | `nup_dump`, si elegiste un `.nup` (sus complementos, si los hay, en `nup_dump/aoc`) |
+| `.nup` o `.nx` desempaquetado | `nup_dump`, si elegiste un `.nup` o `.nx` (sus complementos, si los hay, en `nup_dump/aoc`) |
 | Ajustes del launcher | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (las carpetas de tu volcado y del juego) |
 
 No adjuntes nunca archivos del juego, las carpetas `build` o `shader_cache`, ni partidas guardadas a un problema. `pkp.log` es suficiente.

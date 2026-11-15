@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A small host HTTP(S) client: one request at a time per call, each on its own worker thread, answered once through a callback. Used by the
-// mods host (Modtopia's net_request); nothing here knows a game or a mod.
+// mods host (Modtopia's net_request); nothing here knows a game or a mod. WinHTTP on Windows, the system's libcurl on Linux and macOS
+// (loaded by name at the first request, so nothing is linked against it).
 //
 // What a request may do, always: https only, plain http only to localhost / 127.0.0.1; no redirect is followed (a 3xx is the answer); no
 // cookies are kept or sent, no sign-in of any kind (no automatic Windows logon, no stored credentials); TLS 1.2 or later. Each step

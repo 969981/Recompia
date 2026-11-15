@@ -49,12 +49,14 @@ void host_import(Ctx* c, uint32_t import_id) {
         leaf(c);
         return;
     }
-    const char* saved_name = c->in_import;
+    // Only the id is stored: resolving the name here cost a module lookup on every non-leaf import call (thousands a frame), and
+    // only a freeze or crash report ever reads it (diag/watchdog.cpp, which resolves it then).
+    const uint32_t saved_id = c->import_id;
     const uint64_t saved_from = c->import_from;
-    c->in_import = nxrt::import_name(import_id);
+    c->import_id = import_id;
     c->import_from = c->x[30] - 4;
     nxrt::dispatch_call(c, target);
-    c->in_import = saved_name;
+    c->import_id = saved_id;
     c->import_from = saved_from;
 }
 

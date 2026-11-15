@@ -3,6 +3,7 @@
 // magic 0x31227687, end of the compressed data at +0x10, zlib stream from 0x130. The rewrite is the one work/tools/pkp_uuid.py made
 // (checked in game: a save so changed joins a host made from the same original save).
 #include "core/pkp_save_uuid.h"
+#include "core/pkp_save_files.h"
 #include "core/pkp_settings.h"
 
 #include <windows.h>
@@ -12,7 +13,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -20,7 +20,6 @@
 
 #include "miniz.h"
 #include "nxrt/log.h"
-#include "nxrt/services.h"
 #include "nxrt/entropy.h"
 
 namespace nxrt::games::pkp {
@@ -37,11 +36,7 @@ constexpr size_t kCmnEndAt = 0x10;
 
 using Bytes = std::vector<uint8_t>;
 
-stdfs::path from_u8(const std::string& s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
-std::string u8(const stdfs::path& p) {
-    const std::u8string s = p.u8string();
-    return std::string(reinterpret_cast<const char*>(s.data()), s.size());
-}
+using save_files::u8;
 
 bool read_all(const stdfs::path& p, Bytes* out) {
     std::ifstream f(p, std::ios::binary);
@@ -135,28 +130,11 @@ std::string uuid_str(const uint8_t* u) {
     return s;
 }
 
-// The folder name fs.cpp gives the account save of the profile's user: the Uid's 16 bytes in memory order, as hex.
-std::string account_key() {
-    const services::TitleProfile& p = services::profile();
-    uint8_t u[16];
-    std::memcpy(u, &p.user_uid_hi, 8);
-    std::memcpy(u + 8, &p.user_uid_lo, 8);
-    std::string k;
-    char b[3];
-    for (uint8_t c : u) {
-        std::snprintf(b, sizeof b, "%02x", c);
-        k += b;
-    }
-    return k;
-}
-
 void repair() {
-    const stdfs::path base = from_u8(services::save_dir());
-    const std::string key = account_key();
-    const stdfs::path root = base / "account" / key;
+    const stdfs::path root = save_files::account_dir();
     std::error_code ec;
     if (!stdfs::is_directory(root, ec)) return;   // no save yet: a new game gets a random UUID now
-    if (stdfs::exists(stdfs::path(root.wstring() + L".commit"), ec)) {
+    if (save_files::commit_pending()) {
         NXLOG_W(kTag, "player UUID: not checked, the save has an interrupted commit (%s.commit) the game finishes first; checked again next start",
                 u8(root).c_str());
         return;
@@ -193,16 +171,10 @@ void repair() {
     }
 
     // a copy of the whole account folder first
-    char stamp[32];
-    const std::time_t now = std::time(nullptr);
-    std::tm tmv{};
-    localtime_s(&tmv, &now);
-    std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmv);
-    const stdfs::path backup = base / "uuid-backup" / stamp / key;
-    stdfs::create_directories(backup, ec);
-    if (!ec) stdfs::copy(root, backup, stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        NXLOG_E(kTag, "player UUID: the backup to %s failed (%s); the save is left as it is", u8(backup).c_str(), ec.message().c_str());
+    stdfs::path backup;
+    std::string error;
+    if (!save_files::copy_account("uuid-backup", 0, &backup, &error)) {
+        NXLOG_E(kTag, "player UUID: the backup to %s failed (%s); the save is left as it is", u8(backup).c_str(), error.c_str());
         return;
     }
 

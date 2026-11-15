@@ -26,6 +26,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "nxrt/hooks.h"
@@ -118,6 +119,9 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (!s.installed || !s.enabled || !snap.active) {
         if (s.was_up && log_ok(true)) NXLOG_I(kTag, "menu: closed");
         s.was_up = false;
+        // The pointer can be off while the pause menu is still up (the mouse outside the picture, a controller only): the last scan's
+        // answer stands until play mode leaves the menu context. Outside it nothing can be up.
+        if (!menu_up) s.pause_up.store(false, std::memory_order_relaxed);
         s.panes.clear();
         s.hovered = s.focused = s.cursor = s.slider = -1;
         return play::Act::None;
@@ -130,6 +134,10 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     pick(px, py, snap.inside && snap.shown);
     s.frame_scanned = true;
     s.frame_present = (s.cursor >= 0 && s.focused >= 0) || key_guide_drawn(s);
+    // The pause menu's main view (its 9 buttons) is up. Published here as well as in menu_in_game: the home opens the menu where play
+    // mode's in-game path does not run, so the Save prompt (pkp_save_now.cpp) has to follow this scan.
+    s.pause_up.store(s.focused >= 0 && std::strncmp(s.panes[s.focused].name, "CL_0300_parts_btn_mainmenu_", 27) == 0,
+                     std::memory_order_relaxed);
     log_layouts();
     s.was_up = true;
     {   // which rule found the selection (pick_extend), once per change: the proof for menus outside play
@@ -175,7 +183,7 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (snap.inside && snap.shown && !s.key_guides.empty()) {
         for (const Pane& p : s.panes) {
             if (!p.item || !p.contains(px, py)) continue;
-            // our own key guide entries (the title's Quit Game, the bag's Sort, the crafting screen's Search) are other instances of the
+            // our own key guide entries (the title's Quit Game, the bag's Hold to Sort, the crafting screen's Search) are other instances of the
             // same key guide layout: the instance a client last filled takes the click while the client still shows it (pkp_key_guide.h)
             if (p.lay >= 0 && p.lay < static_cast<int>(s.layouts.size())) {
                 play::Act act = play::Act::None;

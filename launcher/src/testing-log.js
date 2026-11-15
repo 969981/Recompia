@@ -9,13 +9,18 @@ export const OVERVIEW_TAG = '__testing';
 
 const versionOf = (r) => parseReleaseName(r.name, r.tag).version;
 
-/** The Testing builds: prereleases newer than the newest stable release (older ones belong to history), newest first. */
+const newestFirst = (a, b) => (isNewer(versionOf(a), versionOf(b)) ? -1 : isNewer(versionOf(b), versionOf(a)) ? 1 : 0);
+
+/** Every prerelease, from every test line (Testing betas, alpha side lines), newest first. */
+export function allTestingBuilds(releases) {
+  return (Array.isArray(releases) ? releases : []).filter((r) => r.prerelease).sort(newestFirst);
+}
+
+/** The Testing builds the overview sums up: prereleases newer than the newest stable release, newest first. */
 export function testingBuilds(releases) {
   const list = Array.isArray(releases) ? releases : [];
   const stable = list.filter((r) => !r.prerelease).map(versionOf).reduce((best, v) => (best === null || isNewer(v, best) ? v : best), null);
-  return list
-    .filter((r) => r.prerelease && (stable === null || isNewer(versionOf(r), stable)))
-    .sort((a, b) => (isNewer(versionOf(a), versionOf(b)) ? -1 : isNewer(versionOf(b), versionOf(a)) ? 1 : 0));
+  return allTestingBuilds(list).filter((r) => stable === null || isNewer(versionOf(r), stable));
 }
 
 /**
@@ -51,16 +56,18 @@ export function overviewEntry(releases) {
 }
 
 /**
- * The list as the page draws it: [{ id, label, items }]. With Testing builds: "Testing" (the overview first, then the builds) and
- * "Releases" (everything else). Without: one unlabelled group with the list as it is.
+ * The list as the page draws it: [{ id, label, items }]. With prereleases: "Testing" (the overview of the builds since the last stable
+ * release when there are any, then every prerelease of every test line) and "Releases" (everything else). Without: one unlabelled group
+ * with the list as it is.
  */
 export function groups(releases) {
   const list = Array.isArray(releases) ? releases : [];
-  const builds = testingBuilds(list);
+  const builds = allTestingBuilds(list);
   if (!builds.length) return [{ id: 'releases', label: '', items: list }];
   const tags = new Set(builds.map((r) => r.tag));
+  const overview = overviewEntry(list);
   return [
-    { id: 'testing', label: t('Testing'), items: [overviewEntry(list), ...builds] },
+    { id: 'testing', label: t('Testing'), items: [...(overview ? [overview] : []), ...builds] },
     { id: 'releases', label: t('Releases'), items: list.filter((r) => !tags.has(r.tag)) },
   ];
 }

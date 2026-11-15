@@ -22,13 +22,20 @@ def spec_from(a):
             'spin_yield': getattr(a, 'spin_yield', False) or None, 'locals': getattr(a, 'locals', None)}
 
 
-def build_info(game):
-    """The module table of the game config and the compile flags (compile_flags.py), as one JSON-ready dict."""
+def build_info(game, arch=''):
+    """The module table of the game config and the compile flags (compile_flags.py) for the target architecture, as one JSON-ready dict."""
     from . import compile_flags as cf
     from .config import load_game
     mods = [{'name': m.name, 'file': m.source or m.name, 'base': '0x%x' % m.base, 'index': i, 'shards': m.shards,
              'sites': m.sites or ''} for i, m in enumerate(load_game(game).modules)]
-    return {'modules': mods, 'clang_cl_opt': cf.CLANG_CL_OPT, 'clang_cl': cf.CLANG_CL, 'clang': cf.CLANG}
+    return {'modules': mods, 'clang_cl_opt': cf.CLANG_CL_OPT,
+            'clang_cl': cf.for_arch(arch, 'clang_cl'), 'clang': cf.for_arch(arch, 'clang')}
+
+
+def report(done, total, text):
+    """One progress tick of a lift (driver.lift_module), for the launcher: `@lift <done> <total> <text>`, on stdout, now
+    (a pipe buffers). pkp_build.py turns it into the bar's step of the whole build."""
+    print('@lift %d %d %s' % (done, total, text), flush=True)
 
 
 def main(argv=None):
@@ -37,6 +44,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     p = sub.add_parser('build-info')
     p.add_argument('--game', default='generic')
+    p.add_argument('--arch', default='', help='target processor (CMAKE_SYSTEM_PROCESSOR): -mcx16 is added for x86-64 only')
     p = sub.add_parser('module-header')
     p.add_argument('--game', required=True)
     p.add_argument('--out', required=True)
@@ -58,9 +66,12 @@ def main(argv=None):
         p.add_argument('--index', type=int, help='module index (NxModule.index, import ids); default: position in the game config')
         p.add_argument('--sites', action='append',
                        help='site list: patches, inline callouts, hooks (see sites.load_sites); repeat to merge several by address')
+        p.add_argument('--progress', action='store_true',
+                       help='report how far the lift is on stdout, one line per tick: @lift <done> <total> <text> '
+                            '(the launcher\'s bar; pkp_build.py reads it)')
     a = ap.parse_args(argv)
     if a.cmd == 'build-info':
-        print(json.dumps(build_info(a.game)))
+        print(json.dumps(build_info(a.game, a.arch)))
         return 0
     if a.cmd == 'module-header':
         from . import modheader
@@ -70,7 +81,7 @@ def main(argv=None):
     spec = spec_from(a)
     from . import cover, driver
     if a.cmd == 'lift':
-        driver.lift_module(spec, a.outdir, a.jobs, a.shards)
+        driver.lift_module(spec, a.outdir, a.jobs, a.shards, progress=report if a.progress else None)
         return 0
     from .config import load_game
     img = driver.open_image(spec)
