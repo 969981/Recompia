@@ -424,8 +424,9 @@ bool init(const InitOptions& opt) {
     g_quit = false;
     g_gamepads = opt.gamepads;
     const int v = SDL_GetVersion();
-    NXLOG_I(kTag, "SDL %d.%d.%d initialised (gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
-            SDL_VERSIONNUM_MICRO(v), opt.gamepads ? "on" : "off");
+    const char* video = SDL_GetCurrentVideoDriver();   // wayland or x11 decides what the window system can say about HDR
+    NXLOG_I(kTag, "SDL %d.%d.%d initialised (video %s, gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
+            SDL_VERSIONNUM_MICRO(v), video ? video : "none", opt.gamepads ? "on" : "off");
     return true;
 }
 
@@ -556,6 +557,14 @@ float display_refresh_hz() {
     if (!g_window) return 0.f;
     const SDL_DisplayMode* m = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(g_window));
     return m ? m->refresh_rate : 0.f;
+}
+
+bool window_hdr(WindowHdr* out) {
+    if (!g_window || !out) return false;
+    const SDL_PropertiesID props = SDL_GetWindowProperties(g_window);
+    out->enabled = SDL_GetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    out->headroom = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+    return true;
 }
 
 // ---- displays -----------------------------------------------------------------------------------------------------

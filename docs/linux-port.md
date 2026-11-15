@@ -116,13 +116,13 @@ Every `#if defined(__APPLE__)` in `runtime/src` (51 sites, 18 files), and what L
 | `gfx/vk_device.cpp:29,418` | `dlopen` of the bundled MoltenVK | not needed (same reason) |
 | `gfx/nvn/nvn_pipeline.cpp:228` | an empty shader-cache path (MoltenVK has no disk cache) | the normal cache path |
 | `gfx/nvn/nvn_pool_copy.cpp:68,120` | pool copy forced on (MoltenVK loses compute writes) | the Wine/integrated-GPU heuristic |
-| `gfx/extras/win_display_posix.cpp:17,26` | HDR query through IOKit | returns false (no HDR), as on Windows without DXGI |
+| `gfx/extras/win_display_posix.cpp:17,26` | HDR query through CoreGraphics | the window system's answer through SDL's window HDR properties (Wayland; X11 reads as no HDR) |
 | `mem/memory.cpp:182` | guest range from the Mach-O `__GUEST` segment | `MAP_FIXED_NOREPLACE` reservations |
 | `services/album.cpp:42,151` | ImageIO PNG writer | zlib PNG writer (`mz_compress2` + `mz_crc32`) |
 | `services/audio_sink.cpp:64,105` | CoreAudio sink selection and naming | SDL3 sink |
 
-Conclusion: no Apple branch is load-bearing for Linux correctness. The only silent degradations are the crash reporter's
-recent-fault list and the HDR query; both are diagnostics or optional features, and both are listed in §7.
+Conclusion: no Apple branch is load-bearing for Linux correctness. The only silent degradation is the crash reporter's
+recent-fault list; it is a diagnostic, and it is listed in §7.
 
 ## 4. Build
 
@@ -199,7 +199,10 @@ bytes).
   the launcher can re-run the translator.
 - **Crash reporter.** The recent-fault list and the faulting thread's name are Apple-only; a `/proc/<pid>/task/<tid>/comm`
   plus `si_code`/`si_addr` equivalent would restore them.
-- **HDR.** `win_display_posix.cpp` reports none on Linux; a DRM/`VK_EXT_hdr_metadata` query would be the Linux analogue.
+- **HDR.** `win_display_posix.cpp` asks the window system (Wayland's colour management, through SDL) whether the window's
+  display has HDR on and for its headroom; X11 gives no answer and reads as SDR. Under gamescope the surface's format list
+  is the answer (its Vulkan layer lists the HDR formats only while HDR output is on). The answer is taken once, when the renderer
+  is made, like the Windows one: a window that later lands on another display keeps the first answer.
 - **Audio device hot-plug and device selection** are untested (no device in the test host).
 - **Upscalers.** `NXRT_UPSCALER_*` are off outside Windows, so the launcher's FSR 3 / DLSS switches have nothing behind
   them on Linux; the Settings page does not hide them yet.

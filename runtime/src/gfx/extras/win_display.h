@@ -9,6 +9,8 @@ namespace nxrt::extras {
 struct DisplayHdrInfo {
     bool valid = false;            // the query found the monitor and answered
     bool hdr_enabled = false;      // Windows advanced colour (HDR) is on for this monitor
+    bool formats_tell = false;     // the system lists HDR surface formats only while HDR is on for the monitor (gamescope): the caller takes
+                                   // hdr_enabled from the surface's format list
     float max_nits = 0;            // peak luminance reported by the display (DXGI_OUTPUT_DESC1::MaxLuminance), 0 when unknown
     float min_nits = 0;            // DXGI_OUTPUT_DESC1::MinLuminance
     float max_fullframe_nits = 0;  // DXGI_OUTPUT_DESC1::MaxFullFrameLuminance
