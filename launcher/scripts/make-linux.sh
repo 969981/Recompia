@@ -52,6 +52,11 @@ cp "$repo/game-build/src/pkp_stub.cpp" "$repo/game-build/src/pkp_rt_api.h" "$pkg
 cp "$repo/tools/shaders/ampere/extract_corpus.py" "$pkg/tools/shaders/"
 cp -R "$harness" "$pkg/tools/harness"
 chmod +x "$pkg/tools/harness/spirv_harness"   # the launcher runs the apphost itself, so it needs the mode
+# the Save Editor's data tool (build-pokohex.sh --extractor linux-<arch> build/pokohex), when it was built
+if [ -f "$repo/build/pokohex/pokohex-extract" ]; then
+    cp -R "$repo/build/pokohex" "$pkg/tools/pokohex"
+    chmod +x "$pkg/tools/pokohex/pokohex-extract"
+fi
 
 # what the game reads next to pkp: the keyboard and mouse prompt icons and the shared font (pkp_build.py copies both)
 mkdir -p "$pkg/tools/build/sdk/kbm_icons" "$pkg/tools/build/sdk/fonts"

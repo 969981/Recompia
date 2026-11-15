@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.13.6 (build Q: Quokka Hotfix a3)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Highlights
+- Fixed the **Save Editor** page saying the launcher was built without the save editor: 0.13.5 shipped the page without PokoHex in it
+
+### Launcher
+- Fixed the **Save Editor** page showing only "This launcher was built without the save editor" on Windows, Linux and macOS in 0.13.5
+  - The release now builds PokoHex into the launcher and ships its data tool in `tools/pokohex/`, so **Load Game save** and **Write to Game** work as described in 0.13.5
+
+### For developers
+- `.github/workflows/release.yml`: every launcher job runs `launcher/scripts/build-pokohex.sh --extractor <rid>` before `tauri build`; the package jobs put `pokohex-extract` in `tools/pokohex/` (`make-release.ps1 -PokoHex`, `make-linux.sh`, the macOS payload) and check that it is there. Changed with the repo owner's permission (PROJECT.md 6.2)
+
 ## 0.13.5 (build Q: Quokka Hotfix a2)
 
 **Update:** press **Update**, then **Finish update** once when it asks (the game program is linked again with the new runtime, no game code compiles again). Shaders and saves are kept; no shader is translated again.

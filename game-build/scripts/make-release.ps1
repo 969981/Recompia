@@ -11,6 +11,7 @@ param(
     [Parameter(Mandatory)][string]$RtDir,      # folder with pkp_rt.dll + pkp_rt.lib (game-build, PKP_RT_DLL=ON PKP_RELEASE=ON)
     [Parameter(Mandatory)][string]$Launcher,   # pokopia-launcher.exe (launcher, npm run tauri build)
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder
+    [string]$PokoHex,                          # the Save Editor's data tool (build-pokohex.sh --extractor win-x64 <dir>)
     [Parameter(Mandatory)][string]$Out
 )
 $ErrorActionPreference = 'Stop'
@@ -56,6 +57,10 @@ Put (Join-Path $RtDir 'libusb-1.0.dll') 'libusb-1.0.dll'
 Put "$root\runtime\third_party\libusb\COPYING" 'licenses\LICENSE.libusb.LGPL-2.1.txt'
 Put $Launcher 'PokopiaLauncher.exe'
 Mirror $Harness 'tools\spirv_harness' @('*.pdb')
+if ($PokoHex) {
+    if (-not (Test-Path (Join-Path $PokoHex 'pokohex-extract.exe'))) { throw "no pokohex-extract.exe in $PokoHex" }
+    Mirror $PokoHex 'tools\pokohex'
+}
 # from the checkout
 Put "$root\game-build\src\pkp_rt_api.h" 'tools\build\sdk\pkp_rt_api.h'
 Put "$root\game-build\src\pkp_stub.cpp" 'tools\build\sdk\pkp_stub.cpp'
