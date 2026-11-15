@@ -4,6 +4,7 @@
 
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
+- Fixed the game closing (code 0xC0000409) soon after loading the world on PCs with 8 GB of RAM or less, such as laptops with AMD Vega integrated graphics: the copies of the game's graphics memory kept in RAM are now limited to an eighth of the PC's RAM
 
 ### For developers
 - `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged

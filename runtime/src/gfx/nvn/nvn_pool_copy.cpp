@@ -117,7 +117,13 @@ const Cfg& cfg() {
         r.on = !r.automatic && (r.mode == "on" || r.mode == "1" || r.mode == "true");
         r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 16), 1, 1024)) << 20;
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
-        r.cap = static_cast<uint64_t>(std::max<int64_t>(0, config_get_int("nvn", "pool_copy_mb", 1536))) << 20;
+        // Default: 1536 MiB, or an eighth of the RAM Windows sees when that is less. The shadows are system RAM; at 1536 MiB an 8 GB laptop
+        // (about 6 GB seen, the rest reserved for its integrated GPU) ran out of memory in the first area and was ended with 0xC0000409.
+        MEMORYSTATUSEX ms{};
+        ms.dwLength = sizeof ms;
+        const int64_t ram_mb = GlobalMemoryStatusEx(&ms) ? static_cast<int64_t>(ms.ullTotalPhys >> 20) : 0;
+        const int64_t def_mb = ram_mb ? std::clamp<int64_t>(ram_mb / 8, 256, 1536) : 1536;
+        r.cap = static_cast<uint64_t>(std::max<int64_t>(0, config_get_int("nvn", "pool_copy_mb", def_mb))) << 20;
         r.once_queued = config_get_bool("nvn", "pool_copy_once_queued", true);
         return r;
     }();
