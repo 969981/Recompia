@@ -5,8 +5,14 @@
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
 - Fixed the game closing (code 0xC0000409) soon after loading the world on PCs with 8 GB of RAM or less, such as laptops with AMD Vega integrated graphics: the copies of the game's graphics memory kept in RAM are now limited to an eighth of the PC's RAM
+- Fixed low frame rates on graphics cards with less than 8 GB of video memory, worst after visiting several areas (#693, #694)
+  - Before: the game's copy of its data in video memory filled up with mostly empty blocks and was never cleared, so later areas read their data from system memory
+  - Now: smaller blocks on those cards, blocks no area has drawn from for about 10 seconds are cleared for new ones, and 4 GB cards get a copy too
+  - Cards with 8 GB or more keep what they had until their copy is full
+  - Still not: on 4-core processors the console's cores can share a physical core (#694)
 
 ### For developers
+- `[nvn] pool_mirror_mb`: device-local pool copies use 16 MiB chunks under a cap of 1792 MiB (64 MiB from it up), release chunks idle for 600 presents once the cap is used up (`release_idle_chunks` in `nvn_gpu_pool.cpp`), and start at 3.5 GiB of video memory instead of 4 GiB (`nvn_mirror_cap.h`)
 - `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged
 - Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
   - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
