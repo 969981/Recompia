@@ -18,6 +18,10 @@
   - Still not: typing a name or a number needs a keyboard (on the Steam Deck, Steam + X opens one)
 
 ### Fixed
+- Fixed the game freezing on a black screen before its window opened on some Windows PCs since 0.13.0
+  - Before: at start the game asked every USB device for its details, for the Switch 2 Pro Controller over USB; on a PC where one device never answers, the game waited forever (pkp.log ends with "FREEZE: no frame tick", frame count 0)
+  - Now: the game asks USB devices that way only when a Nintendo controller or adapter is plugged in over USB when it starts
+  - Still not: a Nintendo controller plugged in over USB after the game started is seen only after a restart; with one plugged in on such a PC the freeze can still happen
 - Fixed the frame rate limit stopping after the first loading screen when **Fast loading screens** was on (#660)
 - Fixed the game clock always running on UTC in the native Linux build: the game now follows your PC's time zone, as it does on Windows (#654)
 

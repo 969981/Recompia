@@ -413,6 +413,15 @@ bool init(const InitOptions& opt) {
     SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
     SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SPEED_SCALE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#ifdef _WIN32
+    // With libusb-1.0.dll beside the exe (#522) SDL_Init opens libusb and reads the descriptors of every USB device; on some PCs one
+    // never answers and the game hung before its window (frame count 0). On Windows SDL needs libusb only for Nintendo's own
+    // devices (SDL_libusb_required: the GameCube adapter, the Switch 2 Joy-Con, Pro and GameCube controllers), so libusb is loaded
+    // only when a Nintendo USB device is plugged in at start. SDL_HIDAPI_LIBUSB in the environment still wins (SDL: an env var
+    // beats a normal-priority hint).
+    // ponytail: read once at start; a Nintendo pad plugged in later over USB needs a restart to be seen through libusb.
+    SDL_SetHint(SDL_HINT_HIDAPI_LIBUSB, nxrt::host_usb_vendor_present(0x057e) ? "1" : "0");
+#endif
 
     SDL_InitFlags flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS;
     if (opt.gamepads) flags |= SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
