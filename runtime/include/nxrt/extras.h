@@ -65,14 +65,15 @@ struct LatencySettings {
     bool log_timings = false;        // log one line of timings per second
 };
 
-// Picture controls applied in the present step (the output pass), on the display-encoded picture: black level, contrast, saturation, then gamma.
-// All neutral (1, 1, 0, 1): the present step is left exactly as it is (the pass is skipped).
+// Picture controls applied in the present step (the output pass), on the display-encoded picture: black level, contrast, saturation, gamma, then brightness.
+// All neutral (1, 1, 0, 1, 1): the present step is left exactly as it is (the pass is skipped).
 struct PictureSettings {
     double contrast = 1.0;     // 0.5 .. 1.5, around mid grey (0.5 of the encoded signal)
     double saturation = 1.0;   // 0 .. 2 (0 = grey)
     double black = 0.0;        // -0.5 .. 0.25: below 0 pulls the blacks down (the signal at -black becomes black), above 0 lifts them; white stays
     double gamma = 1.0;        // 0.5 .. 2: mid-tone brightness (signal^(1/gamma)); above 1 brightens
-    bool neutral() const { return contrast == 1.0 && saturation == 1.0 && black == 0.0 && gamma == 1.0; }
+    double brightness = 1.0;   // 0.25 .. 1: scales the signal after the gamma, so white is dimmed too (a bright picture is uncomfortable for some players)
+    bool neutral() const { return contrast == 1.0 && saturation == 1.0 && black == 0.0 && gamma == 1.0 && brightness == 1.0; }
 };
 // The named presets ([picture] preset): "neutral" and "vivid". False for any other name (*out unchanged).
 inline bool picture_preset(const std::string& name, PictureSettings* out) {   // inline: the launcher's settings code uses it without nxrt_gfx
@@ -121,7 +122,7 @@ void scene_fraction(float* fx, float* fy);
 void temporal_note_game_jitter(float x_ndc, float y_ndc);
 // The picture controls in force for the present step (lock-free; the F1 page's sliders change them live before Apply and save).
 struct PictureLive {
-    float contrast = 1, saturation = 1, black = 0, gamma = 1;
+    float contrast = 1, saturation = 1, black = 0, gamma = 1, brightness = 1;
     bool active = false;             // false: all neutral, the present step skips the adjustment
 };
 PictureLive picture_live();

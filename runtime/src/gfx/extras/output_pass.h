@@ -4,7 +4,7 @@
 //
 //   encode   mode 0 copy (the SDR picture as the game wrote it: sRGB-encoded bytes), 1 scene-linear to sRGB, 2 scene-linear to HDR10 (BT.2020, ST 2084),
 //            3 scene-linear to scRGB. "Scene-linear" is the HDR scene pipeline's window texture: float16, 1.0 = paper white, values above 1 are highlights.
-//   picture  optional colour controls (black level, contrast, saturation, gamma) on the display-encoded signal before the encode; for the
+//   picture  optional colour controls (black level, contrast, saturation, gamma, brightness) on the display-encoded signal before the encode; for the
 //            scene-linear modes the signal is rgb^(1/2.2) and goes back with ^2.2. Off: the encode is exactly the plain one.
 //   matrix   optional 3x4 colour matrix (nxrt/color_matrix.h) before the picture controls, on the sRGB-encoded picture: SDR on the output
 //            signal; HDR on the scene-linear value through the sRGB curve continued past 1 (1.0 = paper white). Off: skipped in the shader.
@@ -39,7 +39,7 @@ struct OutputParams {
     bool nis = false;                        // upscale with NVIDIA Image Scaling instead (FSR 1 when the scale is beyond 2x)
     float sharpness = 0.8f;                  // 0..1 (RCAS / NIS)
     bool picture = false;                    // apply the picture controls (nxrt/extras.h PictureSettings) in the encode
-    float pic[4] = {1, 1, 0, 1};             // contrast, saturation, black, gamma
+    float pic[5] = {1, 1, 0, 1, 1};          // contrast, saturation, black, gamma, brightness (above 0: the encode's switch for them)
     bool color_matrix = false;               // apply cm (nxrt/color_matrix.h) in the encode, before the picture controls
     float cm[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
 };

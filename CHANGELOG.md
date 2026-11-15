@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Graphics
+- Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
+
+### For developers
+- `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged
 - Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
   - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
   - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
