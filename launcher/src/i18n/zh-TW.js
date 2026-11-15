@@ -342,7 +342,7 @@ export default {
   'Search in the crafting screen': '製作畫面中的搜尋',
   'Save button in the pause menu': '暫停選單中的儲存按鈕',
   'Play as Pokémon (experimental)': '扮演寶可夢（實驗性）',
-  'Hold ZL and press Left on the D-pad to turn into a Pokémon and stay that way. ZL and Right on the D-pad turns you back. It is Ditto unless you pick another one in the game\'s Settings, tab Play as. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': '按住 ZL 並按十字鍵的左，即可變身為寶可夢並保持該形態。按住 ZL 並按十字鍵的右可變回原樣。若未在遊戲設定畫面的「Play as」分頁中選擇其他寶可夢，則變身為百變怪。會飛的寶可夢按 ZR 起飛，按 ZL 降落。Link Play 期間無法使用。',
+  'Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': '站在寶可夢面前，按住 ZL 並按十字鍵的上即可複製：你會變身為該寶可夢，並將其加入遊戲設定畫面「Play as」分頁的清單。按住 ZL 並按左可變身為在那裡選取的寶可夢，按住 ZL 並按右可變回原樣。會飛的寶可夢按 ZR 起飛，按 ZL 降落。Link Play 期間無法使用。',
   'More Pokémon in town': '城鎮中更多寶可夢',
   'Pokémon in town': '城鎮中的寶可夢數量',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '實驗性功能。訪客和臨時出現的寶可夢與你的居民共用遊戲的64個位置，數量設得越高，留給牠們的空間越少。',

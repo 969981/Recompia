@@ -315,7 +315,7 @@ const GAMEPLAY = {
   save_now: { label: t('Save button in the pause menu') },
   play_as_pokemon: {
     label: t('Play as Pokémon (experimental)'),
-    after: [{ id: 'play_as_pokemon_note', type: 'note', when: isOn('play_as_pokemon'), note: () => ({ text: t('Hold ZL and press Left on the D-pad to turn into a Pokémon and stay that way. ZL and Right on the D-pad turns you back. It is Ditto unless you pick another one in the game\'s Settings, tab Play as. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.') }) }],
+    after: [{ id: 'play_as_pokemon_note', type: 'note', when: isOn('play_as_pokemon'), note: () => ({ text: t('Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.') }) }],
   },
   item_editor: {
     label: t('Item editor (experimental)'),
