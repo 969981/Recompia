@@ -1100,10 +1100,6 @@ jobs:
       # The Save Editor (#666): PokoHex into launcher/public/pokohex/ before the launcher is built (a launcher built without it
       # shows only a note on the page), and its data tool, pokohex-extract, for the package's tools/pokohex/.
       - name: Save editor (PokoHex)
-        # mktemp's /var/folders is a symlink to /private/var, and the Razor build then misses its own generated partial classes
-        # (CS0115 on every component): a temp folder with no symlink in its path builds.
-        env:
-          TMPDIR: ${{ runner.temp }}
         run: sh launcher/scripts/build-pokohex.sh --extractor osx-arm64 work/pokohex
 
       - name: Launcher

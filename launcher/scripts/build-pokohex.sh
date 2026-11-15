@@ -24,7 +24,9 @@ elif [ $# -ne 0 ]; then
     exit 2
 fi
 pin=$(tr -d ' \r\n' < "$launcher/pokohex/PIN")
-work=$(mktemp -d)
+# the real path: macOS's mktemp gives /var/folders/..., a symlink to /private/var, and the Razor build then misses its own
+# generated partial classes (CS0115 on every component)
+work=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$work"' EXIT
 nuget="--source https://api.nuget.org/v3/index.json"
 
