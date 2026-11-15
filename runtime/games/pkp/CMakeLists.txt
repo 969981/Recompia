@@ -63,6 +63,8 @@ if(TARGET nxrt_gfx)
         "${_pkp}/input/pkp_aim.cpp"
         "${_pkp}/input/pkp_aim_debug.cpp"
         "${_pkp}/input/pkp_jump.cpp"
+        "${_pkp}/input/pkp_play_as.cpp"
+        "${_pkp}/input/pkp_play_as_list.cpp"
         "${_pkp}/input/pkp_kbm.cpp"
         # ui
         "${_pkp}/ui/pkp_menu.cpp"
@@ -78,6 +80,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_options_time.cpp"
         "${_pkp}/ui/pkp_options_items.cpp"
         "${_pkp}/ui/pkp_options_online.cpp"
+        "${_pkp}/ui/pkp_options_play_as.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"
         "${_pkp}/ui/pkp_cross_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"

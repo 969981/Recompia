@@ -313,6 +313,10 @@ const GAMEPLAY = {
   inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
   save_now: { label: t('Save button in the pause menu') },
+  play_as_pokemon: {
+    label: t('Play as Pokémon (experimental)'),
+    after: [{ id: 'play_as_pokemon_note', type: 'note', when: isOn('play_as_pokemon'), note: () => ({ text: t('Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.') }) }],
+  },
   item_editor: {
     label: t('Item editor (experimental)'),
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],

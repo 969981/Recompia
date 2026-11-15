@@ -319,3 +319,26 @@ entryhook 0x7100ead978
 # the set follows where the button sits on the player's pad
 inline 0x7100e77a30
 inline 0x7100e780c0
+# play as Pokemon (runtime games/pkp/input/pkp_play_as.cpp, [pkp] play_as_pokemon; the hook points of the Play as Pokemon patch in
+#   cycalo/Pokopia-Editor, GPL-3.0): the player's form getter and setter (virtuals; x0 = player, the u16 at +0x5a46; the setter's
+#   w1 = form): while a form is held the local player's getter answers it and its setter stores it
+entryhook 0x71006671b0
+entryhook 0x71006671bc
+#   the ground state's two writers of its flag word (the state is character + 0x2ac0, the word at +0xbe2): 0x71004050a4 right before
+#   its store (x20 = state, w10 = flags) and 0x710040a12c right before its store (x19 = state, w9 = flags): bit 16 is set for the local
+#   player while a form is held
+inline 0x7100405178
+inline 0x710040a388
+#   the form request 0x71002f14e0 (x0 = the request block at character + 0x3778, w1 = form): the local player's requests for the human
+#   form (1) are dropped while a form is held
+entryhook 0x71002f14e0
+#   the idle's obstacle check 0x71006d5374 (x0 = its context; the actor index is the u16 at [x0 + 8] + 0x1c) when called from
+#   0x71006f232c: answers 1 for actor 0 while a form is held, so the idle does not start its stand-up motion
+entryhook 0x71006d5374
+#   the character setup 0x710027cad0 right before it stores the character number whose motions the character plays (x19 = character,
+#   w8 = number): while a form is held the local player's number has its motion pack requested, and given back when it changes
+inline 0x710027cbd0
+#   the player's virtual 0x71002faca0 right before its virtual +0x200 call (x0 = player; every frame): once that pack is loaded the
+#   number's motion set gets a user, and the change of form is asked for again when the motions were not bound before
+#   and the fly buttons act on the local player's movement component (a form with a hover motion: ZR rises, ZL sinks and lands)
+inline 0x71002face0

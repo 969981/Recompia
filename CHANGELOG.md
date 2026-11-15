@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+
+### Gameplay
+- Added an experimental **Play as Pokémon** mod: stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it. You turn into it and stay that way; ZL and Right on the D-pad turns you back, ZL and Left turns you into your chosen Pokémon again. Off during Link Play. Switch: Settings > Gameplay in the launcher (`[pkp] play_as_pokemon`)
+  - Every Pokémon you copy is added to a list in the game's Settings, tab **Play as**, where you pick the one ZL and Left turns you into (kept in `play_as_pokemon.tsv` in the game folder, not in your save). The list has 20 places; **Remove from list** in the same tab frees one
+  - A Pokémon that is not in your world: its number in `[pkp] play_as_pokemon_form` of `pkp.ini` (70 is Ditto)
+  - As a Pokémon that hovers or flies in the game (Charizard, Scyther, Noctowl and others): ZR takes off and rises, ZL sinks and, held on the ground, lands, ZR and ZL together drops out of the air; letting go of both hovers in place
+  - After [Pokopia-Editor](https://github.com/cycalo/Pokopia-Editor)'s Play as Pokemon mod
+  - Needs **Set up again** once after the update (the game code is translated again for the new hook points). Shaders and saves are kept; no shader is translated again
 
 ### Controls
 - Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
