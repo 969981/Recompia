@@ -340,4 +340,5 @@ entryhook 0x71006d5374
 inline 0x710027cbd0
 #   the player's virtual 0x71002faca0 right before its virtual +0x200 call (x0 = player; every frame): once that pack is loaded the
 #   number's motion set gets a user, and the change of form is asked for again when the motions were not bound before
+#   and the fly buttons act on the local player's movement component (a form with a hover motion: ZR rises, ZL sinks and lands)
 inline 0x71002face0

@@ -74,6 +74,8 @@ constexpr uint64_t kPackOwner = 0x3561738, kMotionPacks = 0x8c830, kPackOfCharac
 constexpr uint64_t kMotionSets = 0x35619e8, kSetsEntries = 0x18, kSetsSlots = 0x20, kSetsUsed = 0x22;
 constexpr uint64_t kSetEntryNumber = 0x8;
 constexpr uint64_t kSetUsers = 0x1074, kSetLoaded = 0x1076;   // motion set: u16 users (the first binds the motions), u8 its motions are loaded
+constexpr uint64_t kSetMotions = 0xc8, kSetMotionCount = 0xd0;   // motion set: its motions (pointers at [+0xc8]), how many (u32)
+constexpr uint64_t kMotionData = 0x8;            // motion: its data (pointer; the first byte is the motion's kind)
 
 // ---- action component ([character + kAction]) ----
 // u16: the action running now. StartAction stores the started id at 0x710027e5d8 (its only non-zero writer); every end path writes 0.
@@ -93,6 +95,12 @@ constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / con
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
+constexpr uint64_t kControllerRise = 0xc;        // controller: the speed it rises with (float, negative: sinks)
+constexpr uint64_t kControllerY = 0x24;          // controller: its position's height (the position is the vec at +0x20)
+constexpr uint64_t kMoveMotion = 0x228;          // the motion the component plays (pointer)
+constexpr uint64_t kMoveMotions = 0x260;         // the motion set of its character (pointer)
+// The components by actor index: the pointers of [main + kMovements] from +kMovementSlots (index 0: the local player's).
+constexpr uint64_t kMovements = 0x356a778, kMovementSlots = 0x58;
 
 // ---- the save manager (pkp_story_guard.cpp, ui/pkp_save_now.cpp) ----
 constexpr uint64_t kSaveManager = 0x35619d0;      // main: -> the save manager

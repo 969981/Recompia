@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Play as Pokemon: ZL + D-pad Left turns the player into a Pokemon and keeps the form, ZL + D-pad Right turns back. [pkp] play_as_pokemon
+// Play as Pokemon: ZL + D-pad Left turns the player into a Pokemon and keeps the form, ZL + D-pad Right turns back; a Pokemon that flies
+// takes off and rises with ZR and sinks and lands with ZL. [pkp] play_as_pokemon
 // (on by default: the buttons work, and nothing changes until they are pressed), [pkp] play_as_pokemon_form (the form's character
 // number, Ditto by default; read at each press).
 //
 // A port of the Play as Pokemon patch of cycalo/Pokopia-Editor (GPL-3.0, mods/play-as-pokemon) to site hooks. The patch keeps "the form
 // held" (0 = none) in a spare word of the game's bss, branches from eight instructions of main into code caves that read it, and has a
 // cheat file write it on the button combos. Here the word is State::form, the caves are the hooks below and the cheat is the two frame
-// callbacks. Its flying is not here.
+// callbacks.
 //
 // What the game does (main 2.0.1a, read from the patch and the code around its sites):
 //  * A player's form is a character number (layout::kFormHuman = 1 the human form, 70 Ditto). The form the player is in is the u16 at
@@ -30,6 +31,9 @@
 //    id, flush) gives the request back, 0x71008d1130 (packs, id) says whether it is requested and loaded, 0x71008d11c0 (-, number)
 //    adds a user to the number's set (the first one binds its motions, when the set is loaded) and 0x71008d1380 (-, number, all)
 //    takes one away (the last one unbinds them).
+//  * Flying. A Pokemon that hovers or flies in the game has a hover motion: motion 7 of its motion set, of kind 34 (the first byte
+//    of the motion's data). The patch's notes: the game applies no gravity while that motion plays. A movement component plays the
+//    motion at +layout::kMoveMotion; its controller rises with the speed at +layout::kControllerRise.
 //
 // The hooks (all need their sites in recomp/games/pkp/main.sites), each acting only while a form is held and only on the local player
 // ([main + layout::kPlayerManager] + layout::kManagerPlayer); the patch does not look at whose block it is, so there the manager's
@@ -44,7 +48,12 @@
 //  * inline 0x71002face0, in the player's virtual 0x71002faca0, the patch's every-frame point (x0 = player): once the requested pack
 //    is loaded the number's set gets its user. When that user is the set's first, the motions were not bound when the game changed
 //    the form, so the change is asked for again from the human form (the patch's test for "first" is w8 == 1 after 0x71008d11c0,
-//    the user count that function leaves there; here the count is read before the call).
+//    the user count that function leaves there; here the count is read before the call). Then the fly buttons, for a form with a
+//    hover motion, on the local player's movement component: ZR alone starts the hover motion and, while it plays, rises (speed 7);
+//    ZL alone sinks (speed -7) and, once the height has changed by less than 0.5 for 4 calls in a row, lands: motion 1 (the
+//    patch's notes: the idle, from which the game does its own fall and landing) and a rise of 4 for the next 3 calls; ZR + ZL
+//    drops out of the air (motion 1 at once); neither hovers in place. With a D-pad direction held the buttons are left alone
+//    (ZL + D-pad are this module's combos). The counts are per call, as in the patch.
 // Turning into the form and back is asked for as the patch's cheat does it: the wanted form, then the request block's motion (0x3b2),
 // go flag and form, the three stores of the game's own writer.
 //
@@ -56,6 +65,7 @@
 #include "core/pkp_settings.h"
 
 #include <atomic>
+#include <cmath>
 
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
@@ -77,6 +87,11 @@ constexpr uint64_t kMotionStore = 0x27cbd0;                        // the charac
 constexpr uint64_t kPlayerTick = 0x2face0;                         // the player's every-frame virtual, at its virtual +0x200 call (x0)
 constexpr uint64_t kPackRequest = 0x8d20a0, kPackRelease = 0x8d2420, kPackReady = 0x8d1130;   // (packs, id[, flush])
 constexpr uint64_t kSetUse = 0x8d11c0, kSetRelease = 0x8d1380;     // (-, number[, all])
+constexpr uint32_t kHoverMotion = 7, kRestMotion = 1;              // motion set: the hover motion's place, and the motion landing goes to
+constexpr int kHoverKind = 34;                                     // a motion's kind: hover
+constexpr float kRiseSpeed = 7.0f, kLandSpeed = 4.0f;              // controller rise: flying up (down: the negative), the calls after landing
+constexpr float kStill = 0.5f;                                     // sinking moved the height by less than this: on the ground
+constexpr uint8_t kStillCalls = 4, kLandCalls = 3;
 
 using guest::rd;
 using guest::wr;
@@ -90,6 +105,9 @@ struct State {
     uint64_t prev_buttons = 0;          // main thread: the pads' buttons last frame
     uint16_t motions = 0;               // the two motion hooks: the number whose pack this module requested (0: none)
     uint16_t bound = 0;                 // the two motion hooks: the number whose set this module is a user of (0: none)
+    float sink_y = 0;                   // the player's tick: the height at the last sinking call
+    uint8_t still = 0;                  // the player's tick: sinking calls in a row that did not move the height
+    uint8_t landing = 0;                // the player's tick: calls left that rise with kLandSpeed
 };
 State g;
 
@@ -207,10 +225,10 @@ void hook_motion_store(::Ctx* c, uint64_t, void*) {
     if (const uint64_t packs = motion_packs()) guest::call(c, g.base + kPackRequest, packs, pack_of(packs, want));
 }
 
-void hook_player_tick(::Ctx* c, uint64_t, void*) {
-    const uint64_t player = c->x[0];
+// Once the pack this module requested is loaded: a user for the number's set, and the change again when the motions were not bound.
+void bind_motions(::Ctx* c, uint64_t player) {
     const uint16_t number = g.motions;
-    if (!number || number == g.bound || !player || player != local_player()) return;
+    if (!number || number == g.bound) return;
     const uint64_t packs = motion_packs();
     if (!packs) return;
     const uint16_t pack = pack_of(packs, number);
@@ -224,6 +242,78 @@ void hook_player_tick(::Ctx* c, uint64_t, void*) {
     wr<uint16_t>(player + layout::kFormNow, layout::kFormHuman);
     request(player, form);
     NXLOG_I(kTag, "play as Pokemon: the motions of %u are loaded, the change to form %u is asked for again", number, form);
+}
+
+// ---- flying ----
+// A motion's kind, -1 when there is no motion or it has no data.
+int motion_kind(uint64_t motion) {
+    if (!guest::ok(motion + layout::kMotionData, 8)) return -1;
+    const uint64_t data = rd<uint64_t>(motion + layout::kMotionData);
+    return guest::ok(data, 1) ? rd<uint8_t>(data) : -1;
+}
+
+void fly() {
+    if (!g.form.load(std::memory_order_relaxed)) return;
+    const uint64_t owner = rd<uint64_t>(g.base + layout::kMovements);
+    if (!guest::ok(owner + layout::kMovementSlots, 8)) return;
+    const uint64_t move = rd<uint64_t>(owner + layout::kMovementSlots);
+    if (!guest::ok(move, layout::kController + layout::kControllerY + 4)) return;
+    const uint64_t set = rd<uint64_t>(move + layout::kMoveMotions);
+    if (!guest::ok(set, layout::kSetMotionCount + 4) || rd<uint32_t>(set + layout::kSetMotionCount) <= kHoverMotion) return;
+    const uint64_t motions = rd<uint64_t>(set + layout::kSetMotions);
+    if (!guest::ok(motions, (kHoverMotion + 1) * 8)) return;
+    const uint64_t hover = rd<uint64_t>(motions + uint64_t{kHoverMotion} * 8);
+    if (motion_kind(hover) != kHoverKind) return;   // not a Pokemon that flies
+    const uint64_t rise = move + layout::kController + layout::kControllerRise;
+    if (g.landing) {
+        --g.landing;
+        wr<float>(rise, kLandSpeed);
+        return;
+    }
+    const uint64_t buttons = hid::sampled_buttons();
+    const bool zr = buttons & hid::btn(hid::kBtnZR), zl = buttons & hid::btn(hid::kBtnZL);
+    if (buttons & (hid::btn(hid::kBtnLeft) | hid::btn(hid::kBtnUp) | hid::btn(hid::kBtnRight) | hid::btn(hid::kBtnDown))) {
+        g.still = 0;
+        return;
+    }
+    const int playing = motion_kind(rd<uint64_t>(move + layout::kMoveMotion));
+    if (playing < 0) return;
+    if (playing != kHoverKind) {   // on the ground: ZR alone takes off
+        if (zr && !zl) wr<uint64_t>(move + layout::kMoveMotion, hover);
+        g.still = 0;
+        return;
+    }
+    const uint64_t rest = rd<uint64_t>(motions + uint64_t{kRestMotion} * 8);
+    if (zr && zl) {   // drop out of the air
+        if (rest) wr<uint64_t>(move + layout::kMoveMotion, rest);
+        g.still = 0;
+        return;
+    }
+    if (zr || !zl) {   // rise, or hover in place
+        if (zr) wr<float>(rise, kRiseSpeed);
+        g.still = 0;
+        return;
+    }
+    wr<float>(rise, -kRiseSpeed);
+    const float y = rd<float>(move + layout::kController + layout::kControllerY);
+    const bool moved = std::fabs(y - g.sink_y) >= kStill;
+    g.sink_y = y;
+    if (moved) {
+        g.still = 0;
+        return;
+    }
+    if (++g.still < kStillCalls) return;
+    g.still = 0;
+    if (!rest) return;
+    wr<uint64_t>(move + layout::kMoveMotion, rest);   // on the ground: land
+    g.landing = kLandCalls;
+}
+
+void hook_player_tick(::Ctx* c, uint64_t, void*) {
+    const uint64_t player = c->x[0];
+    if (!player || player != local_player()) return;
+    bind_motions(c, player);
+    fly();
 }
 
 void install(const FeatureInstall& in) {
@@ -250,6 +340,9 @@ void remove() {
     g.prev_buttons = 0;
     g.motions = 0;
     g.bound = 0;
+    g.sink_y = 0;
+    g.still = 0;
+    g.landing = 0;
 }
 
 // Main thread, once per frame: the two button combos, on the press that completes them, while the game is in play.
