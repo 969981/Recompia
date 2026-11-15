@@ -62,7 +62,7 @@
 // has a position, says its character number through the virtual every character has (layout::kCharacterNumber: the number its table
 // row and its motions are looked up with, and a player's form) and carries the id of its species name (layout::kActorSpecies). The
 // copy takes the nearest one within kCopyReach of the player, one behind the player counting as twice as far, turns the player into
-// its number and remembers number and species.
+// its number and remembers number and species, unless the list of copied Pokemon is full (the player removes one in the Play as tab).
 //
 // Link Play: the form is not turned on in a session, and a session that starts while it is held turns it back (layout::kOnline), so
 // no form is held in a session.
@@ -407,11 +407,11 @@ void copy(::Ctx* c) {
         return;
     }
     if (!change(target.number, target.number)) return;
-    play_as::remember(target);
+    const bool kept = play_as::remember(target);
     settings::set_int(settings::Key::PlayAsPokemonForm, target.number);
     const std::string name = play_as::species_name(c, target.species);
-    notices::post("pkp.play_as", name.empty() ? "Copied" : "Copied: " + name, 2.5);
-    NXLOG_I(kTag, "play as Pokemon: copied form %u (species %u, %s)", target.number, target.species, name.c_str());
+    notices::post("pkp.play_as", (name.empty() ? std::string("Copied") : "Copied: " + name) + (kept ? "" : " (list full, not added)"), kept ? 2.5 : 4.0);
+    NXLOG_I(kTag, "play as Pokemon: copied form %u (species %u, %s)%s", target.number, target.species, name.c_str(), kept ? "" : "; the list is full, it was not added");
 }
 
 // The game thread, once a frame: what the main thread asked for, and the turn back when a Link Play session starts.

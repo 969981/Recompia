@@ -17,7 +17,6 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 constexpr const char* kFile = "play_as_pokemon.tsv";
-constexpr size_t kMost = 256;   // what one slider of the Settings screen can show
 
 std::vector<Copied> g_list;
 bool g_read = false;
@@ -52,17 +51,23 @@ const std::vector<Copied>& copied() {
     return g_list;
 }
 
-void remember(Copied c) {
+bool remember(Copied c) {
     if (!g_read) read();
     const auto it = std::find_if(g_list.begin(), g_list.end(), [&](const Copied& e) { return e.number == c.number; });
     if (it != g_list.end()) {
-        if (it->species == c.species || !c.species) return;
+        if (it->species == c.species || !c.species) return true;
         it->species = c.species;
     } else {
-        if (g_list.size() >= kMost) g_list.erase(g_list.begin());   // the oldest makes room
+        if (g_list.size() >= kMost) return false;
         g_list.push_back(c);
     }
     write();
+    return true;
+}
+
+void forget(uint16_t number) {
+    if (!g_read) read();
+    if (std::erase_if(g_list, [&](const Copied& e) { return e.number == number; })) write();
 }
 
 std::string species_name(::Ctx* c, uint16_t species) {

@@ -19,8 +19,11 @@ struct Copied {
 void start(uint64_t base);             // main's base, for the names
 void stop();
 
+constexpr size_t kMost = 20;           // the list's places; a full list takes no new Pokemon until one is removed
+
 const std::vector<Copied>& copied();   // oldest first; read from the file at the first call
-void remember(Copied c);               // adds it (a number already in the list keeps its place) and writes the file
+bool remember(Copied c);               // adds it and writes the file (a number already in the list keeps its place); false: the list is full
+void forget(uint16_t number);          // takes it out of the list and writes the file
 
 // The species' name in the game's language (UTF-8), empty when the game has none.
 std::string species_name(::Ctx* c, uint16_t species);
