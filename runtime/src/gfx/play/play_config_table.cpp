@@ -264,6 +264,8 @@ const SettingDef kTable[] = {
     {ROW("pad", "gyro_scale", Real), REAL(pad.gyro_scale), .doc = "Gyro rate multiplier."},
     {ROW("pad", "rumble", Bool), FLAG(pad.rumble), .doc = "Pass the game's rumble to the pad."},
     {ROW("pad", "rumble_scale", Real), REAL(pad.rumble_scale), .doc = "Rumble strength multiplier."},
+    {ROW("pad", "controller", Int), WHOLE(pad.controller), .lo = 0, .hi = 8, .auto_word = "all", .auto_at = 0,
+     .doc = "The controller that plays: all (every connected pad), or one pad's player number, 1 = the first."},
 
     {ROW("timing", "tap_ms", Int), WHOLE(timing.tap_ms), .lo = 1, .hi = 5000, .doc = "A press shorter than this is a tap (ms)."},
     {ROW("timing", "hold_ms", Int), WHOLE(timing.hold_ms), .lo = 1, .hi = 5000, .doc = "A hold starts after this (ms)."},

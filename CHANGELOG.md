@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Controls
+- Added a **Controller** setting (in-game Settings > Controller, and the launcher's Settings > Controls): pick the one controller that plays, for PCs with other people's controllers connected (a shared streaming host). All, the default, keeps every controller playing. **Set up again** after updating; saves and shaders are kept.
+
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
 - Fixed low frame rates on graphics cards with less than 8 GB of video memory, worst after visiting several areas (#693, #694)
@@ -12,6 +15,7 @@
 
 ### For developers
 - `[nvn] pool_mirror_mb`: device-local pool copies use 16 MiB chunks under a cap of 1792 MiB (64 MiB from it up), release chunks idle for 600 presents once the cap is used up (`release_idle_chunks` in `nvn_gpu_pool.cpp`), and start at 3.5 GiB of video memory instead of 4 GiB (`nvn_mirror_cap.h`)
+- `[pad] controller` (`all` or 1 to 8, `controls.ini`): `poll_pads` reads only the pad whose SDL player index + 1 matches (on Windows the XInput slot + 1); `input::GamepadInfo::player` carries the index and pkp.log prints it when a pad is added
 - `[picture] brightness` (0.25 to 1, `controls.ini`): multiplies the display-encoded signal after the gamma in the output pass; its value rides in the encode's `p.w`, which was the picture controls' on/off flag, so the 128-byte push block is unchanged
 - Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
   - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom

@@ -14,6 +14,7 @@
 #include "nxrt/audio_sink.h"
 #include "nxrt/extras.h"
 #include "nxrt/host_device.h"
+#include "nxrt/input.h"
 #include "nxrt/platform.h"
 #include "play_game.h"
 
@@ -79,6 +80,22 @@ const char* monitor_text(int v, char* out, size_t n) {
     return out;
 }
 int monitor_max() { return std::max(platform::display_count(), 1); }
+
+// [pad] controller: 0 = every pad, n = the pad SDL numbers player n (GamepadInfo::player + 1)
+const char* controller_text(int v, char* out, size_t n) {
+    if (v <= 0) return "All Controllers";
+    input::GamepadInfo pads[8];
+    const size_t count = input::gamepad_list(pads, 8);
+    for (size_t i = 0; i < count; ++i) {
+        if (pads[i].player + 1 == v) {
+            std::snprintf(out, n, "%d: %s", v, pads[i].name);
+            return out;
+        }
+    }
+    std::snprintf(out, n, "%d: Not Connected", v);
+    return out;
+}
+int controller_max() { return 8; }
 
 const char* device_text(int v, char*, size_t) {
     return v <= 0 || v > static_cast<int>(g_devices.size()) ? "System Default" : g_devices[static_cast<size_t>(v - 1)].c_str();
@@ -209,6 +226,8 @@ const Row kMouse[] = {
 };
 
 const Row kController[] = {
+    dynamic("Controller", "The controller that plays. All lets every connected controller play; pick one when other controllers on this PC belong to someone else.",
+            controller_text, controller_max, ROW_INT(pad.controller)),
     choice("Face Buttons", "Switch keeps the buttons by position, Xbox by their letters.", {"Switch", "Xbox"}, 2, ROW_BOOL(pad.label_abxy)),
     number("Left Stick Dead Zone", "Ignores small movements of the left stick.", 0, 50, "%.0f%%", 0, 1, ROW_PCT(pad.stick_deadzone)),
     number("Right Stick Dead Zone", "Ignores small movements of the right stick.", 0, 50, "%.0f%%", 0, 1, ROW_PCT(pad.right_deadzone)),
