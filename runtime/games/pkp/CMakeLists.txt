@@ -79,6 +79,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_options_items.cpp"
         "${_pkp}/ui/pkp_options_online.cpp"
         "${_pkp}/ui/pkp_key_guide.cpp"
+        "${_pkp}/ui/pkp_cross_guide.cpp"
         "${_pkp}/ui/pkp_title.cpp"
         "${_pkp}/ui/pkp_sort.cpp"
         "${_pkp}/ui/pkp_craft.cpp"

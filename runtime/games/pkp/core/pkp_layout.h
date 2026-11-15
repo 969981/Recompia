@@ -21,8 +21,18 @@ constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource 
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
 constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here); +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
 
-// ---- KTGL layout panes ----
+// ---- KTGL layouts and their panes ----
+// A layout's panes are a list: u16 count, the first node (node +8 the next one, +16 its pane), and the node that ends it (layout + 64).
+constexpr size_t kLayPaneCount = 146, kLayFirstNode = 32, kLaySentinel = 64;
 constexpr size_t kPaneName = 176, kPaneParent = 208, kPaneWorld = 224, kPaneNameLen = 272;
+// kPaneWorld and kPaneLocal point to the pane's two 4x4 float matrices (X axis at [0], Y axis at [4], position at [12]); the update
+// before the draw builds them from the animation every frame, world = local x the parent's world.
+constexpr size_t kPaneLocal = 232;
+// A picture pane's texture record: the four corner UVs of its sprite (8 floats), not animated.
+constexpr size_t kPaneTexture = 0x1b0, kTextureUv = 8;
+// mid: the draw of a picture pane and of a window pane, at its flag store (pane in x0), before it reads the pane's world matrix. Two of
+// the menu pointer's sites (pkp_menu_internal.h kDrawSites).
+constexpr uint64_t kPictureDraw = 0x1f76168, kWindowDraw = 0x1f7fe48;
 
 // ---- the data-table manager: table i at +0x10 + its offset (pkp_tables.h looks a row up) ----
 // u32: how many tables it holds (8-byte slots from +0x10; a table at off is there while this is above off / 8, pkp_tables.h).

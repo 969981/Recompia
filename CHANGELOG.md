@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+
+### Controls
+- Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
+  - Before: with an Xbox or PlayStation controller and Face Buttons on Xbox, the prompt showed A (or the cross) at the right of the four buttons, though it is the bottom button of the controller; B, X and Y were in the wrong places too
+  - Now: each button is drawn where it sits on your controller: A at the bottom, B at the right, X at the left, Y at the top. A remapped button layout is followed the same way
+  - Until **Set up again** has run, the prompt stays as it was
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).

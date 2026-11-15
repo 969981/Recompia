@@ -238,6 +238,14 @@ std::string pad_pack_name(PromptStyle style, const PadSettings& pad, bool label_
     return pad_name(*set, pad, label_abxy, b);
 }
 
+bool pad_face_position(const PadSettings& pad, bool label_abxy, uint64_t switch_bit, PadSrc* out) {
+    if (switch_bit == 0 || (switch_bit & (switch_bit - 1)) != 0) return false;
+    PadSrc src = PadSrc::South;
+    if (!source_for_button(pad, label_abxy, switch_bit, &src) || src > PadSrc::North) return false;
+    *out = src;
+    return true;
+}
+
 bool prompt_style_is_pad(PromptStyle style) { return pad_set(style) != nullptr; }
 
 std::string pad_pack_fallback(const std::string& name) {
