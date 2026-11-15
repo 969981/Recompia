@@ -341,6 +341,8 @@ export default {
   'Sort each time the bag opens': 'バッグを開くたびに整理',
   'Search in the crafting screen': 'クラフト画面での検索',
   'Save button in the pause menu': 'ポーズメニューにセーブボタン',
+  'Play as Pokémon (experimental)': 'ポケモンになって遊ぶ（実験的）',
+  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': 'ZL を押しながら方向ボタンの左を押すと、メタモンに変身してそのままになります。ZL と方向ボタンの右で元に戻ります。Link Play 中は無効です。',
   'More Pokémon in town': '町に住めるポケモンを増やす',
   'Pokémon in town': '町のポケモンの数',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '実験的な機能です。訪問者や一時的な出現は、住人とゲームの64枠を共有するため、数を多くするとその分の余裕が減ります。',

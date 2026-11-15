@@ -341,6 +341,8 @@ export default {
   'Sort each time the bag opens': '每次開啟背包時整理',
   'Search in the crafting screen': '製作畫面中的搜尋',
   'Save button in the pause menu': '暫停選單中的儲存按鈕',
+  'Play as Pokémon (experimental)': '扮演寶可夢（實驗性）',
+  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': '按住 ZL 並按十字鍵的左，即可變身為百變怪並保持該形態。按住 ZL 並按十字鍵的右可變回原樣。Link Play 期間無法使用。',
   'More Pokémon in town': '城鎮中更多寶可夢',
   'Pokémon in town': '城鎮中的寶可夢數量',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '實驗性功能。訪客和臨時出現的寶可夢與你的居民共用遊戲的64個位置，數量設得越高，留給牠們的空間越少。',

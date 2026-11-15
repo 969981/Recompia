@@ -341,6 +341,8 @@ export default {
   'Sort each time the bag opens': 'Trier à chaque ouverture du sac',
   'Search in the crafting screen': 'Recherche dans l\'écran de fabrication',
   'Save button in the pause menu': 'Bouton Sauvegarder dans le menu pause',
+  'Play as Pokémon (experimental)': 'Jouer en tant que Pokémon (expérimental)',
+  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': 'Maintenez ZL et appuyez sur la gauche de la croix directionnelle pour vous transformer en Métamorph et le rester. ZL et la droite de la croix vous rendent votre apparence. Désactivé pendant Link Play.',
   'More Pokémon in town': 'Plus de Pokémon en ville',
   'Pokémon in town': 'Pokémon en ville',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Expérimental. Les visiteurs et les apparitions temporaires partagent les 64 emplacements du jeu avec vos résidents : un nombre élevé leur laisse moins de place.',

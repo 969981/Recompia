@@ -63,6 +63,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/input/pkp_aim.cpp"
         "${_pkp}/input/pkp_aim_debug.cpp"
         "${_pkp}/input/pkp_jump.cpp"
+        "${_pkp}/input/pkp_play_as.cpp"
         "${_pkp}/input/pkp_kbm.cpp"
         # ui
         "${_pkp}/ui/pkp_menu.cpp"

@@ -4,6 +4,12 @@
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
 
+### Gameplay
+- Added an experimental **Play as Pokémon** mod: hold ZL and press Left on the D-pad to turn into Ditto and stay that way, ZL and Right on the D-pad turns you back. Off during Link Play. Switch: Settings > Gameplay in the launcher (`[pkp] play_as_pokemon`)
+  - Another Pokémon instead of Ditto: its character number in `[pkp] play_as_pokemon_form` of `pkp.ini` (70 is Ditto). It does not have to live in your town
+  - After [Pokopia-Editor](https://github.com/cycalo/Pokopia-Editor)'s Play as Pokemon mod
+  - Needs **Set up again** once after the update (the game code is translated again for the new hook points). Shaders and saves are kept; no shader is translated again
+
 ### Controls
 - Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
   - Before: with an Xbox or PlayStation controller and Face Buttons on Xbox, the prompt showed A (or the cross) at the right of the four buttons, though it is the bottom button of the controller; B, X and Y were in the wrong places too

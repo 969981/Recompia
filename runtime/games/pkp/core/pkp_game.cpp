@@ -23,6 +23,7 @@
 #endif
 #include "ui/pkp_options.h"
 #include "input/pkp_play.h"
+#include "input/pkp_play_as.h"
 #include "core/pkp_play_time.h"
 #include "render/pkp_quality.h"
 #include "core/pkp_pokemon_cap.h"
@@ -103,6 +104,7 @@ constexpr Entry kEntries[] = {
     port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
     mod(&kCraftFeature, CraftSearch), mod(&kItemEditFeature, ItemEditor), mod(&kPokemonCapFeature, PokemonCap), mod(&kSaveNowFeature, SaveNow),
+    mod(&kPlayAsFeature, PlayAsPokemon),
     port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
     port(&kPlayTimeFeature),

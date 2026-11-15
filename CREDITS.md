@@ -10,4 +10,6 @@ The launcher's Save Editor page builds in [PokoHex](https://github.com/berichan/
 
 The Joy-Con 2 mouse mode follows [Pikantine](https://github.com/SpiderNic96/Pikantine) (GPL-3.0), an emulator build of the same game version: its clicks are the Joy-Con's R and ZR on the npad.
 
+The Play as Pokémon mod (`runtime/games/pkp/input/pkp_play_as.cpp`) ports the Play as Pokemon patch of [Pokopia-Editor](https://github.com/cycalo/Pokopia-Editor) by cycalo (GPL-3.0) to the runtime's hooks: where the patch changes the game's code and what each change does.
+
 Licences are in `runtime/THIRD_PARTY_NOTICES.md`, `recomp/THIRD_PARTY.md` and `tools/shaders/licenses/`.

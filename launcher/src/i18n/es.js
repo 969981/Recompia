@@ -341,6 +341,8 @@ export default {
   'Sort each time the bag opens': 'Ordenar cada vez que se abre la mochila',
   'Search in the crafting screen': 'Búsqueda en la pantalla de fabricación',
   'Save button in the pause menu': 'Botón Guardar en el menú de pausa',
+  'Play as Pokémon (experimental)': 'Jugar como Pokémon (experimental)',
+  'Hold ZL and press Left on the D-pad to turn into Ditto and stay that way. ZL and Right on the D-pad turns you back. Off during Link Play.': 'Mantén ZL y pulsa izquierda en la cruceta para transformarte en Ditto y seguir así. ZL y derecha en la cruceta te devuelven a tu aspecto. Desactivado durante Link Play.',
   'More Pokémon in town': 'Más Pokémon en el pueblo',
   'Pokémon in town': 'Pokémon en el pueblo',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Experimental. Los visitantes y las apariciones temporales comparten con tus residentes los 64 espacios del juego, así que un número alto les deja menos sitio.',
