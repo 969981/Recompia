@@ -31,7 +31,8 @@
         {"key": "gyro", "type": "bool", "default": "1", "doc": "Pass the pad's gyro to the game's six-axis sensor."},
         {"key": "gyro_scale", "type": "real", "default": "1", "doc": "Gyro rate multiplier."},
         {"key": "rumble", "type": "bool", "default": "1", "doc": "Pass the game's rumble to the pad."},
-        {"key": "rumble_scale", "type": "real", "default": "1", "doc": "Rumble strength multiplier."}
+        {"key": "rumble_scale", "type": "real", "default": "1", "doc": "Rumble strength multiplier."},
+        {"key": "controller", "type": "int", "default": "all", "min": 0, "max": 8, "auto": "all", "doc": "The controller that plays: all (every connected pad), or one pad's player number, 1 = the first."}
     ]},
     {"name": "timing", "keys": [
         {"key": "tap_ms", "type": "int", "default": "200", "min": 1, "max": 5000, "doc": "A press shorter than this is a tap (ms)."},

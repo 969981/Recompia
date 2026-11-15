@@ -495,6 +495,7 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 | `pad` | `gyro_scale` | `1` | a number |  | Gyro rate multiplier. |
 | `pad` | `rumble` | `1` | `1` `0` |  | Pass the game's rumble to the pad. |
 | `pad` | `rumble_scale` | `1` | a number |  | Rumble strength multiplier. |
+| `pad` | `controller` | `all` | `all`, `0` to `8` |  | The controller that plays: all (every connected pad), or one pad's player number, 1 = the first. |
 | `timing` | `tap_ms` | `200` | `1` to `5000` |  | A press shorter than this is a tap (ms). |
 | `timing` | `hold_ms` | `250` | `1` to `5000` |  | A hold starts after this (ms). |
 | `timing` | `double_ms` | `300` | `1` to `5000` |  | The second press of a double tap must come within this of the first release (ms). |

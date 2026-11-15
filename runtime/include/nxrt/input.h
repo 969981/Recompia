@@ -76,6 +76,7 @@ struct GamepadInfo {
     bool rumble = false;
     bool gyro = false;
     PadKind kind = PadKind::Other;
+    int player = -1;                // SDL's player index (the XInput slot for an XInput pad), -1 when SDL has none
 };
 size_t gamepad_count();
 size_t gamepad_list(GamepadInfo* out, size_t max);   // returns the number written

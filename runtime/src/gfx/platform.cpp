@@ -171,10 +171,11 @@ void gamepad_opened(SDL_JoystickID id, uint64_t ts) {
     info.rumble = props != 0 && SDL_GetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false);
     info.gyro = SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO);
     info.kind = pad_kind(pad);
+    info.player = SDL_GetGamepadPlayerIndex(pad);
     input::gamepad_set_info(info);
 
-    NXLOG_I(kTag, "gamepad %u added: \"%s\" kind=%s rumble=%d gyro=%d", static_cast<unsigned>(id), info.name,
-            pad_kind_name(info.kind), info.rumble ? 1 : 0, info.gyro ? 1 : 0);
+    NXLOG_I(kTag, "gamepad %u added: \"%s\" kind=%s rumble=%d gyro=%d player=%d", static_cast<unsigned>(id), info.name,
+            pad_kind_name(info.kind), info.rumble ? 1 : 0, info.gyro ? 1 : 0, info.player + 1);
     // Motion sensors: enabled when the pad has them, skipped silently when it does not.
     const bool accel_on =
         SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL) && SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, true);
