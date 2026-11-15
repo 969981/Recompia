@@ -242,6 +242,11 @@ play::DisplayLive play_display_live() {
     return l;
 }
 
+int play_ui_canvas_width() {
+    const uint64_t size = wide().ui_size;
+    return size ? rd<int32_t>(size) : kTableW;
+}
+
 int play_ui_canvas_height() {
     const uint64_t size = wide().ui_size;
     return size ? rd<int32_t>(size + sizeof(int32_t)) : kTableH;
