@@ -63,7 +63,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool) -> Result<(), String> {
+/// `coop`: a co-op start (coop_launch.rs); None is a singleplayer start.
+pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<crate::coop_launch::Launch>) -> Result<(), String> {
     let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     let gentle = cfg.gentle_build;
     {
@@ -115,7 +116,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
             eprintln!("branding: {e}");
         }
         // Calculate after shader preparation, immediately before the process starts, so a long preparation cannot age the offset.
-        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods)) {
+        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods, coop.as_ref())) {
             Ok(c) => c,
             Err(e) => {
                 set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
@@ -184,8 +185,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
 }
 
 /// How Play starts the game: `pkp` in its folder on macOS and Linux, `pkp.exe` on Windows (host.rs). Every path (exefs, romfs, shader
-/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods.
-fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool) -> Result<std::process::Command, String> {
+/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods. `coop`: the co-op start's environment, or None.
+fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool, coop: Option<&crate::coop_launch::Launch>) -> Result<std::process::Command, String> {
     if !crate::host::native_game() {
         crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;   // pkp_rt.dll and the ASTC decoders: Windows files
     }
@@ -210,6 +211,7 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
     if without_mods {
         leave_mods_out(&mut cmd);
     }
+    crate::coop_launch::apply(&mut cmd, coop);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -250,7 +252,11 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
             _ => {}
         }
     }
-    // the same rule as Play in the window: without the active profile in pkp.ini the game could start on another player's account and save
+    // the same rules as Play in the window: no co-op save as the singleplayer save, and the active profile in pkp.ini (without it the game
+    // could start on another player's account and save)
+    if let Err(e) = crate::coop_save::refuse_as_singleplayer(&crate::saveimport::locate(game_dir).0) {
+        return fail(e);
+    }
     if let Err(e) = crate::profiles::apply_active(game_dir) {
         return fail(format!("The profile could not be applied, so the game was not started: {}", e));
     }
@@ -259,7 +265,7 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
         Err(e) => return fail(e),
     };
     let backups = crate::savebackup::Watch::start(game_dir);   // the same save backups as Play in the window
-    let status = game_command(&exe, game_dir, clock, false).and_then(|mut c| {
+    let status = game_command(&exe, game_dir, clock, false, None).and_then(|mut c| {
         let mut child = c.spawn().map_err(|e| format!("Could not start {}: {}", crate::host::game_exe_name(), e))?;
         wait_with_memory_guard(&mut child).map_err(|e| format!("Lost track of {}: {}", crate::host::game_exe_name(), e))
     });

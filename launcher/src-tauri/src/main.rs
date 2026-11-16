@@ -7,6 +7,10 @@ mod branding_cmds;
 mod child_lines;
 mod cli;
 mod config;
+mod coop;
+mod coop_cmds;
+mod coop_launch;
+mod coop_save;
 mod dialogs;
 mod dlss;
 mod dlss_cmds;
@@ -181,6 +185,14 @@ fn main() {
             profile_cmds::profile_rename,
             profile_cmds::profile_remove,
             profile_cmds::profile_select,
+            coop_cmds::coop_list,
+            coop_cmds::coop_create,
+            coop_cmds::coop_add_member,
+            coop_cmds::coop_remove_member,
+            coop_cmds::coop_invite,
+            coop_cmds::coop_invite_members,
+            coop_cmds::coop_accept,
+            coop_cmds::coop_play,
             repair_cmds::repair_plan,
             repair_cmds::repair_apply,
             repair_cmds::repair_undo,

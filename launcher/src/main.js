@@ -10,6 +10,7 @@ import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
 import { startGamepadNav } from './gamepad-nav.js';
+import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
 import * as achievements from './pages/achievements.js';
@@ -23,6 +24,7 @@ import * as setup from './pages/setup.js';
 const PAGES = {
   home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
   linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
+  coop: { mod: coop, nav: t('Co-op'), icon: 'user-check' },
   mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
   achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
   saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },

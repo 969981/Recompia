@@ -119,7 +119,7 @@ fn random_hex() -> std::io::Result<String> {
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-fn new_uid(taken: &[&str]) -> Result<String, String> {
+pub fn new_uid(taken: &[&str]) -> Result<String, String> {
     loop {
         let u = random_hex().map_err(|e| format!("Cannot make an id for the profile: {}", e))?;
         // a zero half is not a valid account uid for the game, and the built-in user belongs to the default
@@ -144,7 +144,7 @@ pub fn clean_name(raw: &str) -> Result<String, String> {
     Ok(n.to_string())
 }
 
-fn nickname_of(name: &str) -> String {
+pub fn nickname_of(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars() {
         if out.len() + c.len_utf8() > MAX_NICK_BYTES {

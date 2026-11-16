@@ -150,6 +150,8 @@ const mockBackups = [
   { version: 1, name: '20261108-143000-auto', created: '2026-11-08T19:30:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: 'a' },
   { version: 1, name: '20261108-142000-auto', created: '2026-11-08T19:20:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825000, hash: 'b' },
 ];
+const coopView = (name, members, me) => ({ profile: { id: `c${name}`, name, members, me, relay: '192.0.2.10:47610' }, host: { host: members[0].id, role: members[0].id === me ? 'host' : 'visit' }, folder: `D:/Games/coop-saves/c${name}` });
+const mockCoop = [coopView('Island', [{ id: 'a1', name: 'Ash' }, { id: 'b2', name: 'Misty' }], 'b2')];
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
 const mockPlayTimes = { default: 13104 };   // 3 h 38 min; a profile added in the mock has none yet
 
@@ -160,7 +162,7 @@ const settings = {
   pkp: {
     'fs.romfs': 'D:/Dumps/Pokopia/updates/2.0.1a/romfs', 'fs.save_dir': '', 'audio.volume': '0.8',
     'net.protocol': 'native', 'net.mode': 'auto', 'net.internet': 'false', 'net.relay': '', 'net.server': 'auto',
-    'pkp.link_interact_everywhere': '0', 'pkp.link_story_coop': '0',
+    'pkp.link_interact_everywhere': '0',
   },
   controls: sc.noControls ? {} : {
     'display.window_mode': 'borderless', 'display.width': '1920', 'display.height': '1080', 'display.render_scale': 'auto', 'display.fps_limit': 'auto', 'display.vsync': '1',
@@ -510,6 +512,14 @@ function handle(cmd, args) {
     case 'backup_now': mockBackups.unshift({ version: 1, name: `20261108-15${String(mockBackups.length).padStart(2, '0')}00-manual`, created: '2026-11-08T20:00:00Z', kind: 'manual', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: String(mockBackups.length) }); return { result: 'made', entry: mockBackups[0] };
     case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
     case 'open_backup_dir': console.info('[mock] open backups'); return null;
+    case 'coop_list': return structuredClone(mockCoop);
+    case 'coop_create': mockCoop.push(coopView(args.name, [{ id: 'a1', name: args.myName }], 'a1')); return structuredClone(mockCoop);
+    case 'coop_add_member': mockCoop.find((c) => c.profile.id === args.id).profile.members.push({ id: `m${Date.now()}`, name: args.name }); return structuredClone(mockCoop);
+    case 'coop_remove_member': { const m = mockCoop.find((c) => c.profile.id === args.id).profile.members; m.splice(m.findIndex((x) => x.id === args.member), 1); return structuredClone(mockCoop); }
+    case 'coop_invite': return 'PKCOOP1.mock';
+    case 'coop_invite_members': return args.invite === 'PKCOOP1.mock' ? [{ id: 'a1', name: 'Ash' }, { id: 'b2', name: 'Misty' }] : [];
+    case 'coop_accept': throw new Error('This is not a co-op invite.');
+    case 'coop_play': console.info('[mock] co-op play', args.id); return null;
     case 'profiles_list': return structuredClone(mockProfiles);
     case 'profiles_play_time': return { ...mockPlayTimes };
     case 'profile_add': mockProfiles.profiles.push({ id: `p${mockProfiles.profiles.length}`, name: args.name, uid: '', nickname: args.name, net_uid: '' }); return structuredClone(mockProfiles);
