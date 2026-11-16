@@ -27,6 +27,8 @@ struct NativeSlot {
 NativeSlot& native();
 // The process's coop node from [net] (made once; null: local wireless off).
 coop_node* native_node();
+// ldn_native_port.cpp: a host-side port on n's session (one of its virtual sockets); null when n is in none.
+std::unique_ptr<vnet::SessionPort> open_native_port(coop_node* n, uint16_t port);
 
 class NativeLdn final : public LdnSession, public std::enable_shared_from_this<NativeLdn> {
 public:

@@ -101,6 +101,7 @@ public:
         }
         if (node) coop_destroy(node);   // finalizes: the host's links and the virtual sockets close
     }
+    std::unique_ptr<vnet::SessionPort> open_port(uint16_t port) override { return open_native_port(slot_.node.load(), port); }
 
     NativeSlot slot_;
 };

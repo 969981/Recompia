@@ -25,6 +25,9 @@ struct SessionRef {
     uint64_t tag = 0;
 };
 
+// ldn_linkplay_port.cpp: a host-side port on the current link's room (a socket of the process socket table); null outside a room.
+std::unique_ptr<vnet::SessionPort> open_linkplay_port(uint16_t port);
+
 class Ldn final : public LdnSession, public std::enable_shared_from_this<Ldn> {
 public:
     explicit Ldn(bool offline = false) : offline_(offline) {}
