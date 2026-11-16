@@ -8,6 +8,7 @@
 #include "nx_os.h"   // _wfopen on POSIX: the wide path is converted to UTF-8
 #endif
 
+#include "nxrt/coop_channel.h"
 #include "nxrt/log.h"
 #include "nxrt/services.h"
 #include "nxrt/services_api.h"
@@ -65,6 +66,7 @@ void ldn_reset() {
     }
     ldnapi::set_session_variant(0, "");
     ldnapi::set_coop_mods({});
+    coop_channel::close();   // first: its port lives on a backend's session
     for (LdnBackend* b : {&linkplay_backend(), &native_backend()}) b->reset();
 }
 
