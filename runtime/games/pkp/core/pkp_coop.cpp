@@ -6,6 +6,9 @@
 // what the story, session and save parts of co-op do there. The sites are checked once main is loaded (pkp_site_check.h): one that is
 // not the expected instruction, or a midhook site the lifted libraries lack, removes every co-op hook.
 #include "core/pkp_coop.h"
+#include "core/pkp_coop_internal.h"
+#include "core/pkp_guest.h"
+#include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
 #include "core/pkp_site_check.h"
 
@@ -101,6 +104,7 @@ struct State {
     CoopLaunch launch;
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
+    std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
 };
 State& st() {
     static State s;
@@ -143,8 +147,9 @@ void install(const FeatureInstall& in) {
 }
 
 // Play mode's frame (main is loaded): the first call checks the sites and arms the hooks or removes them.
-void frame(bool, double, play::GameFrame*) {
+void frame(bool in_game, double, play::GameFrame*) {
     State& s = st();
+    s.in_game.store(in_game, std::memory_order_relaxed);
     if (!s.ids[0] || s.checked.exchange(true)) return;
     HookSite at[kSiteCount];
     for (size_t i = 0; i < kSiteCount; ++i) at[i] = kSites[i].at;
@@ -159,16 +164,44 @@ void frame(bool, double, play::GameFrame*) {
     NXLOG_I(kTag, "Co-op: armed (%zu sites)", kSiteCount);
 }
 
+// The game thread, once a frame: the parts' per-frame work, in this order.
+void game_frame(::Ctx* c) {
+    State& s = st();
+    if (!s.armed.load(std::memory_order_acquire)) return;
+    coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
+}
+
 void remove() {   // the registry has removed the hooks
     State& s = st();
     s.armed.store(false);
     s.checked.store(false);
+    s.in_game.store(false);
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     s.launch = {};
+    coop::session::reset();
 }
 
 }  // namespace
+
+namespace coop {
+
+uint64_t base() { return st().base; }
+CoopRole role() { return st().launch.role; }
+
+uint8_t session_bits() {
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    return guest::ok(game, layout::kStateSession + 1) ? guest::rd<uint8_t>(game + layout::kStateSession) : 0;
+}
+
+uint64_t local_player() {
+    const uint64_t players = guest::rd<uint64_t>(base() + layout::kPlayerManager);
+    if (!guest::ok(players, layout::kManagerPlayer + 8)) return 0;
+    const uint64_t me = guest::rd<uint64_t>(players + layout::kManagerPlayer);
+    return guest::ok(me, layout::kPosition + 16) ? me : 0;
+}
+
+}  // namespace coop
 
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why) {
     if (role == "host") out->role = CoopRole::Host;
@@ -197,6 +230,6 @@ bool coop_launch_parse(const std::string& role, const std::string& group, const 
     return true;
 }
 
-const Feature kCoopFeature = {.name = "coop", .install = &install, .remove = &remove, .frame = &frame};
+const Feature kCoopFeature = {.name = "coop", .install = &install, .remove = &remove, .frame = &frame, .game_frame = &game_frame};
 
 }  // namespace nxrt::games::pkp
