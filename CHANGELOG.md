@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- An update that stops now writes its error to setup.log, with the step it reached
+
 ## 0.14.0 (build R: Raccoon)
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
