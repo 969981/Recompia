@@ -99,19 +99,26 @@ MtLoader *mt_loader_new(const MtOptions *opt, const MtBackend *be) {
     mt_lock_init(&L->lock);
     mt_net_init();
     mt_host_init(L);
+    MtSaveIdentity identity = {0};
+    if (L->be.save_identity && L->be.save_identity(L->be.user, &identity) == MT_OK) {
+        char key[33];
+        for (int i = 0; i < 16; ++i) snprintf(key + i * 2, 3, "%02x", identity.account_id[i]);
+        mt_loader_set_config_account(L, key);
+    }
     return L;
 }
 
 static void mod_free(Mod *m) {
+    for (int i = 0; i < m->m.nsettings; ++i) {
+        if (m->cfg) free(m->cfg[i].text);
+        if (m->global_cfg) free(m->global_cfg[i].text);
+    }
+    free(m->cfg), free(m->global_cfg), free(m->cfg_overrides);
     mt_manifest_free(&m->m);
     free(m->source), free(m->dir), free(m->data_root), free(m->lib_path), free(m->sha), free(m->msg), free(m->layered_name);
     free(m->patch_root), free(m->patched_root), free(m->data_dir), free(m->net_text);
     for (int i = 0; i < m->npts; i++) free(m->pts[i].name);
     free(m->pts);
-    if (m->cfg) {
-        for (int i = 0; i < m->m.nsettings; i++) free(m->cfg[i].text);
-        free(m->cfg);
-    }
     free(m);
 }
 void mt_loader_free(MtLoader *L) {
@@ -121,6 +128,7 @@ void mt_loader_free(MtLoader *L) {
     free(L->mods), free(L->order), free(L->plan);
     mt_strs_free(&L->player_order), mt_strs_free(&L->disabled), mt_strs_free(&L->overlay), mt_strs_free(&L->overlay_ids);
     mt_strs_free(&L->refused);
+    mt_strs_free(&L->profile_on), mt_strs_free(&L->profile_off);
     mt_strs_free(&L->known_ids), mt_strs_free(&L->known_shas), mt_strs_free(&L->affects_ids), mt_strs_free(&L->affects_vals);
     mt_toml_free(L->mappings);
     free(L->mods_dir), free(L->config_dir), free(L->cache_dir), free(L->mappings_dir);
@@ -725,7 +733,9 @@ static void resolve(MtLoader *L) {
     /* the player's switches and order; the same id twice keeps the newer version */
     for (int i = 0; i < L->nmods; i++) {
         Mod *m = L->mods[i];
-        m->info.enabled = mt_strs_find(&L->disabled, m->m.id) < 0;
+        int override = mt_loader_enabled_override(L, m->m.id);
+        m->info.enabled = override < 0 ? mt_loader_global_enabled(L, m->m.id) : override;
+        if (L->profile_error) { mt_mod_message(m, MT_STATE_ERROR, "profile mod overrides could not be read"); continue; }
         m->order_pos = mt_strs_find(&L->player_order, m->m.id);
         if (m->order_pos < 0) m->order_pos = INT_MAX;
         if (m->info.state != MT_STATE_OK) continue;
@@ -741,6 +751,10 @@ static void resolve(MtLoader *L) {
         if (m->info.state != MT_STATE_OK) continue;
         if (!m->info.enabled) { mt_mod_message(m, MT_STATE_OFF, "switched off"); continue; }
         check_mod(L, m);
+        if (L->no_code == 2 && (m->info.flags & MT_MOD_NEW_CODE)) {
+            m->info.enabled = 0;
+            if (m->info.state == MT_STATE_OK) mt_mod_message(m, MT_STATE_OFF, "its code has not been allowed yet");
+        }
     }
     for (int changed = 1; changed;) {   /* a mod that fails can take its dependents with it */
         changed = 0;
@@ -767,142 +781,6 @@ static void resolve(MtLoader *L) {
     /* those errors change the order's members: build it again */
     for (int i = 0; i < L->nmods; i++) L->mods[i]->info.load_index = -1;
     build_order(L);
-}
-
-/* ---------------------------------------------------------------- settings */
-static void config_load(MtLoader *L, Mod *m) {
-    if (!m->has_manifest || !m->m.nsettings) return;
-    m->cfg = mt_alloc(sizeof *m->cfg * (size_t)m->m.nsettings);
-    for (int i = 0; i < m->m.nsettings; i++) {
-        m->cfg[i].num = m->m.settings[i].def_num;
-        m->cfg[i].text = mt_strdup(m->m.settings[i].def_text ? m->m.settings[i].def_text : "");
-    }
-    char *f = mt_fmt("%s.toml", m->m.id), *p = mt_path_join(L->config_dir, f);
-    char *text = mt_read_file(p, NULL);
-    if (text) {
-        char err[300];
-        MtToml *t = mt_toml_parse(text, err, sizeof err);
-        if (!t) mt_log(L, MT_LOG_WARN, "%s: %s (its defaults are used)", p, err);
-        for (int i = 0; t && i < m->m.nsettings; i++) {
-            MtSetting *s = &m->m.settings[i];
-            MtToml *v = mt_toml_get(t, s->info.key);
-            if (!v) continue;
-            int okv = 1;
-            switch (s->info.type) {
-            case MT_SET_BOOL: if (v->type == MT_T_BOOL) m->cfg[i].num = v->b; else okv = 0; break;
-            case MT_SET_NUMBER:
-                if (v->type == MT_T_INT || v->type == MT_T_FLOAT) {
-                    double d = v->type == MT_T_INT ? (double)v->i : v->f;
-                    m->cfg[i].num = d < s->info.min ? s->info.min : d > s->info.max ? s->info.max : d;
-                } else okv = 0;
-                break;
-            case MT_SET_CHOICE: {
-                int k = v->type == MT_T_STRING ? mt_strs_find(&s->choices, v->s) : -1;
-                if (k >= 0) m->cfg[i].num = k; else okv = 0;
-                break;
-            }
-            default:
-                if (v->type == MT_T_STRING) { free(m->cfg[i].text); m->cfg[i].text = mt_strdup(v->s); } else okv = 0;
-            }
-            if (!okv) mt_log(L, MT_LOG_WARN, "%s: '%s' is not a valid value for this setting (the default is used)", p, s->info.key);
-        }
-        mt_toml_free(t);
-    }
-    free(text);
-    free(p);
-    free(f);
-}
-static int config_save(MtLoader *L, Mod *m) {
-    MtBuf b = {0};
-    mt_buf_fmt(&b, "# %s %s: your settings (the game's F1 menu and the launchers change this file too)\n", m->m.name, m->m.version);
-    for (int i = 0; i < m->m.nsettings; i++) {
-        MtSetting *s = &m->m.settings[i];
-        mt_buf_str(&b, "\n# ");
-        mt_buf_str(&b, s->info.label);
-        if (s->info.type == MT_SET_NUMBER) mt_buf_fmt(&b, " (%g to %g)", s->info.min, s->info.max);
-        if (s->info.type == MT_SET_CHOICE) {
-            mt_buf_str(&b, ":");
-            for (int k = 0; k < s->choices.n; k++) mt_buf_fmt(&b, " %s", s->choices.v[k]);
-        }
-        mt_buf_fmt(&b, "\n%s = ", s->info.key);
-        switch (s->info.type) {
-        case MT_SET_BOOL: mt_buf_str(&b, m->cfg[i].num ? "true" : "false"); break;
-        case MT_SET_NUMBER: {
-            double d = m->cfg[i].num;
-            if (d == floor(d) && fabs(d) < 1e15) mt_buf_fmt(&b, "%.1f", d); else mt_buf_fmt(&b, "%.17g", d);
-            break;
-        }
-        case MT_SET_CHOICE: mt_toml_quote(&b, s->choices.v[(int)m->cfg[i].num]); break;
-        default: mt_toml_quote(&b, m->cfg[i].text);
-        }
-        mt_buf_str(&b, "\n");
-    }
-    mt_mkdirs(L->config_dir);
-    char *f = mt_fmt("%s.toml", m->m.id), *p = mt_path_join(L->config_dir, f);
-    int rc = mt_write_file(p, b.p, b.n);
-    if (rc) mt_log(L, MT_LOG_ERROR, "cannot write %s", p);
-    free(p), free(f), free(b.p);
-    return rc;
-}
-int mt_setting_count(MtLoader *L, int mod) {
-    Mod *m = mod >= 0 && mod < L->nmods ? listed(L, mod) : NULL;
-    return m && m->has_manifest ? m->m.nsettings : 0;
-}
-const MtSettingInfo *mt_setting_info(MtLoader *L, int mod, int i) {
-    return i >= 0 && i < mt_setting_count(L, mod) ? &listed(L, mod)->m.settings[i].info : NULL;
-}
-double mt_setting_get_number(MtLoader *L, int mod, int i) {
-    if (i < 0 || i >= mt_setting_count(L, mod) || !listed(L, mod)->cfg) return 0;
-    return listed(L, mod)->cfg[i].num;
-}
-int mt_setting_get_text(MtLoader *L, int mod, int i, char *out, size_t n) {
-    if (i < 0 || i >= mt_setting_count(L, mod) || !listed(L, mod)->cfg) return MT_ERR_UNKNOWN;
-    Mod *m = listed(L, mod);
-    MtSetting *s = &m->m.settings[i];
-    switch (s->info.type) {
-    case MT_SET_BOOL: snprintf(out, n, "%s", m->cfg[i].num ? "On" : "Off"); break;
-    case MT_SET_NUMBER: snprintf(out, n, "%g", m->cfg[i].num); break;
-    case MT_SET_CHOICE: snprintf(out, n, "%s", s->choices.v[(int)m->cfg[i].num]); break;
-    default: snprintf(out, n, "%s", m->cfg[i].text);
-    }
-    return MT_OK;
-}
-int mt_setting_set_number(MtLoader *L, int mod, int i, double v) {
-    if (i < 0 || i >= mt_setting_count(L, mod) || !listed(L, mod)->cfg) return MT_ERR_UNKNOWN;
-    Mod *m = listed(L, mod);
-    MtSetting *s = &m->m.settings[i];
-    if (s->info.type == MT_SET_BOOL) v = v ? 1 : 0;
-    else if (s->info.type == MT_SET_NUMBER) {
-        if (s->info.step > 0) v = s->info.min + floor((v - s->info.min) / s->info.step + 0.5) * s->info.step;
-        v = v < s->info.min ? s->info.min : v > s->info.max ? s->info.max : v;
-    } else if (s->info.type == MT_SET_CHOICE) {
-        int k = (int)v;
-        v = k < 0 ? 0 : k >= s->choices.n ? s->choices.n - 1 : k;
-    } else return MT_ERR_STATE;
-    mt_lock(&L->lock);
-    m->cfg[i].num = v;
-    mt_unlock(&L->lock);
-    config_save(L, m);
-    mt_config_notify(m, s->info.key);
-    return MT_OK;
-}
-int mt_setting_set_text(MtLoader *L, int mod, int i, const char *v) {
-    if (i < 0 || i >= mt_setting_count(L, mod) || !listed(L, mod)->cfg) return MT_ERR_UNKNOWN;
-    Mod *m = listed(L, mod);
-    MtSetting *s = &m->m.settings[i];
-    if (s->info.type == MT_SET_CHOICE) {
-        int k = mt_strs_find(&s->choices, v);
-        return k < 0 ? MT_ERR_UNKNOWN : mt_setting_set_number(L, mod, i, k);
-    }
-    if (s->info.type != MT_SET_TEXT && s->info.type != MT_SET_KEY) return MT_ERR_STATE;
-    mt_lock(&L->lock);
-    char *old = m->cfg[i].text;   /* kept: a handler may still hold it */
-    m->cfg[i].text = mt_strdup(v);
-    mt_unlock(&L->lock);
-    (void)old;
-    config_save(L, m);
-    mt_config_notify(m, s->info.key);
-    return MT_OK;
 }
 
 /* ---------------------------------------------------------------- the plan */
@@ -971,6 +849,7 @@ static void overlay_build(MtLoader *L) {
 
 int mt_loader_scan(MtLoader *L) {
     read_list(L);
+    mt_profile_load(L);
     load_mappings(L);
     {   /* patches refused earlier (mt_loader_apply_patches): their mods stay off */
         char *p = mt_path_join(L->cache_dir, "patched/refused.txt"), *t = mt_read_file(p, NULL);
@@ -998,8 +877,8 @@ int mt_loader_scan(MtLoader *L) {
     clean_t c = {L, &d.used};
     if (mt_is_dir(L->cache_dir)) mt_list_dir(L->cache_dir, clean_entry, &c);
     mt_strs_free(&d.used);
-    resolve(L);
-    for (int i = 0; i < L->nmods; i++) config_load(L, L->mods[i]);
+    for (int i = 0; i < L->nmods; i++) mt_config_load(L, L->mods[i]);
+    resolve(L);   /* configuration failures also disable dependent mods */
     build_plan(L);
     overlay_build(L);
     for (int i = 0; i < L->nmods; i++) mt_info_refresh(L->mods[i]);
@@ -1027,19 +906,27 @@ const MtModInfo *mt_loader_info(MtLoader *L, int i) {
     Mod *m = i >= 0 && i < L->nmods ? listed(L, i) : NULL;
     return m ? &m->info : NULL;
 }
+Mod *mt_mod_at(MtLoader *L, int i) { return i >= 0 && i < L->nmods ? listed(L, i) : NULL; }
 int mt_loader_find(MtLoader *L, const char *id) {
     for (int i = 0; i < L->nmods; i++)
         if (!strcmp(listed(L, i)->m.id, id)) return i;
     return -1;
 }
 int mt_loader_set_enabled(MtLoader *L, const char *id, int on) {
+    if (L->config_account[0]) return mt_profile_set_enabled(L, id, on != 0);
+    int old = mt_loader_global_enabled(L, id);
     int k = mt_strs_find(&L->disabled, id);
     if (on && k >= 0) mt_strs_remove(&L->disabled, k);
     if (!on && k < 0) mt_strs_add(&L->disabled, id);
-    for (int i = 0; i < L->nmods; i++)
-        if (!strcmp(L->mods[i]->m.id, id)) L->mods[i]->info.enabled = on;
     if (mt_strs_find(&L->player_order, id) < 0) mt_strs_add(&L->player_order, id);
-    return mt_loader_save_list(L);
+    int rc = mt_loader_save_list(L);
+    if (rc) {
+        k = mt_strs_find(&L->disabled, id);
+        if (old && k >= 0) mt_strs_remove(&L->disabled, k);
+        if (!old && k < 0) mt_strs_add(&L->disabled, id);
+    } else for (int i = 0; i < L->nmods; i++)
+        if (!strcmp(L->mods[i]->m.id, id)) L->mods[i]->info.enabled = on;
+    return rc;
 }
 int mt_loader_move(MtLoader *L, const char *id, int delta) {
     int k = mt_strs_find(&L->player_order, id);

@@ -48,5 +48,7 @@ they want to. If yes, do it and note the override in the PR. Don't quietly look 
 - No AI session links, session IDs or model names in commits, PRs or issues. The commit trailer is exactly
   `Co-Authored-By: Claude <noreply@anthropic.com>` (or your tool's plain equivalent, without a model name).
 - No personal names, host names or LAN IPs in anything public. Never commit game data. Keep each file's line endings.
+- Record everything you reverse-engineer, whatever the task and even if the task does not use it, in `modding-docs\` (a clone of
+  the repo owner's private mappings repository), then commit and push it there directly in the same session. Never in public docs.
 - Game-specific code only in `recomp/games/pkp/` and `runtime/games/pkp/`. Shared code (nxrecomp, nxrt) must know no game.
 - Don't start the game or move the real mouse or keyboard unless the person running you says so. Don't add runtime unit tests.

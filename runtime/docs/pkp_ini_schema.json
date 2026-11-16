@@ -44,6 +44,8 @@
         {"key": "options_menu", "type": "bool", "default": "1", "env": "NXRT_PKP_OPTIONS_MENU", "doc": "The PC settings as tabs and rows of the game's own Settings screen. Next start."},
         {"key": "events_file", "type": "text", "default": "pokopia_events.tsv", "env": "NXRT_PKP_EVENTS_FILE", "doc": "The Events tab's list: one event per line, start date, end date and name, separated by tabs. Next start."},
         {"key": "save_now", "type": "bool", "default": "1", "env": "NXRT_PKP_SAVE_NOW", "group": "gameplay", "doc": "A Save prompt in the pause menu's key guide: writes the save and stays in the world. Next start."},
+        {"key": "play_as_pokemon", "type": "bool", "default": "1", "env": "NXRT_PKP_PLAY_AS_POKEMON", "group": "gameplay", "doc": "Experimental: ZL + D-pad Left turns the player into a Pokemon (play_as_pokemon_form) and keeps the form, ZL + D-pad Right turns back. Next start."},
+        {"key": "play_as_pokemon_form", "type": "int", "default": "70", "min": 2, "max": 1000, "clamped": true, "env": "NXRT_PKP_PLAY_AS_POKEMON_FORM", "doc": "With play_as_pokemon: the character number of the form (70: Ditto), read at each press. Copying a Pokemon sets it."},
         {"key": "online_presence", "type": "bool", "default": "0", "env": "NXRT_PKP_ONLINE_PRESENCE", "doc": "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default."}
     ]}
   ],

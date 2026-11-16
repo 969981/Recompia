@@ -44,7 +44,18 @@ What that means in practice:
 - No model names. The commit trailer is exactly `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - No personal names, PC host names, `.local` domains or LAN IPs. Git identity comes from your own git config; never pass `-c user.*`.
 - Never write test status ("not tested", "compile only", "not confirmed"). What was not verified goes to the reviewer privately.
-- Modding and reverse-engineering notes stay in a local, git-excluded `modding-docs\`, never in a public `docs/`.
+- Modding and reverse-engineering notes stay in `modding-docs\` (git-excluded here), never in a public `docs/`.
+
+**Reverse engineering: record every mapping, every time.**
+
+- Whatever the task, anything you reverse-engineer (an address, offset, struct field, function, vtable, data table, message,
+  behaviour) is written into `modding-docs\` (`MODDING-MAP.md`, or the mod's own folder), **even when the current task does not use
+  it**. Something mapped once and not written down is lost; the map is what makes the next task fast. This includes what sub-agents
+  find: brief them to record it, or record it from their report.
+- `modding-docs\` is a clone of the repo owner's **private** mappings repository (ask the repo owner for access). Commit and push
+  what you recorded there directly, on its `main`, in the same session and before the task's own commit. No PR is needed there.
+- Follow `modding-docs\README.md` for the format: one entry per item, how sure you are, short evidence. Raw run output (screenshots,
+  dumps, saves, logs, traces) stays local; its `.gitignore` keeps it out.
 
 **Repository:**
 
@@ -373,7 +384,8 @@ From a PowerShell in the checkout or worktree root. `runtime\scripts\env.cmd` se
     cd launcher; npm install; npm run tauri build   # launcher
 
 Before calling a change done: builds exit 0; launcher checks pass if the launcher was touched; `git ls-files --eol` shows no changed
-line endings; you have re-read your own diff; no extra's default changed and no check was touched (section 6); you have the list of
+line endings; you have re-read your own diff; everything reverse-engineered on the way is recorded and pushed to the mappings
+repository (section 2); no extra's default changed and no check was touched (section 6); you have the list of
 what a person must check in the game.
 
 ## 9. Workflow

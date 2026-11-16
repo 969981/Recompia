@@ -6,8 +6,7 @@
 //! `mods/README.txt` is the one file it writes, `ensure_mods_dir`). Each call opens
 //! a fresh scan, so a mod dropped into the folder by hand shows at the next look.
 //!
-//! Code the player has not allowed never runs: a code mod whose file is new or changed since the last yes (the core's MT_MOD_NEW_CODE) is
-//! switched off at every scan, and switching it on again is the moment the page asks (mods_cmds.rs `mods_set_enabled` with `allow`).
+//! Code the player has not allowed is held off in the effective list/plan without writing preferences. Enabling it asks for trust.
 //! After every change the plan is written again (`refresh_plan`): `<game>/mods/.modtopia/hooks.tsv`, or no file when no mod needs a hook
 //! point. Set up builds those points in; `pkp_build.py --check` compares the plan's hash, and readiness.rs says when Set up must run again.
 
@@ -69,25 +68,25 @@ fn host_name() -> String {
     format!("Recompia {}", env!("CARGO_PKG_VERSION"))
 }
 
-/// A scan of the game's mods, with code the player has not allowed switched off first (that needs a second scan: the plan and the load
-/// order are made by the scan).
+fn scan(game_dir: &Path) -> Core {
+    Core::open(&mods_dir(game_dir), &mappings_dir(game_dir), &host_name(), None)
+}
+
+/// Global configuration. Trusted-only planning holds unknown code off without modifying preferences.
 fn open(game_dir: &Path) -> Core {
     if let Err(e) = write_mappings(game_dir) {
         eprintln!("mods: {e}");
     }
-    let (mods, maps, host) = (mods_dir(game_dir), mappings_dir(game_dir), host_name());
-    let core = Core::open(&mods, &maps, &host);
-    let unallowed: Vec<String> = core.mods().into_iter().filter(|m| m.enabled && needs_yes(m)).map(|m| m.id).collect();
-    if unallowed.is_empty() {
-        return core;
-    }
-    for id in &unallowed {
-        if core.set_enabled(id, false).is_err() {
-            eprintln!("mods: could not switch off {id}, whose code is not allowed yet");
-        }
-    }
-    drop(core);
-    Core::open(&mods, &maps, &host)
+    scan(game_dir)
+}
+
+fn open_profile(game_dir: &Path, profile: Option<&str>) -> Result<Core, String> {
+    let Some(id) = profile else { return Ok(open(game_dir)); };
+    let profiles = crate::profiles::load(game_dir);
+    let selected = profiles.get(id).ok_or("That profile does not exist.")?;
+    let account = crate::saveimport::account_key_of(&selected.uid);
+    write_mappings(game_dir)?;
+    Ok(Core::open(&mods_dir(game_dir), &mappings_dir(game_dir), &host_name(), Some(&account)))
 }
 
 /// A code mod whose file the player has not said yes to (new, or changed since).
@@ -124,12 +123,15 @@ fn write_plan(core: &Core, game_dir: &Path) -> Result<String, String> {
 
 /// Scans the mods and writes their hook plan: before Play, before Set up and after every change on the Mods page.
 pub fn refresh_plan(game_dir: &Path) -> Result<(), String> {
-    write_plan(&open(game_dir), game_dir).map(|_| ())
+    let profiles = crate::profiles::load(game_dir);
+    let core = open_profile(game_dir, Some(&profiles.active_profile().id))?;
+    write_plan(&core, game_dir).map(|_| ())
 }
 
 /// One setting row of a mod.
 #[derive(Serialize, Clone, Debug)]
 pub struct SettingView {
+    pub overridden: bool,
     pub key: String,
     pub label: String,
     pub description: String,
@@ -160,7 +162,7 @@ fn setting_view(s: SettingInfo) -> SettingView {
         ffi::SET_TEXT => "text",
         _ => "text",
     };
-    SettingView { key: s.key, label: s.label, description: s.description, kind, restart: s.restart, min: s.min, max: s.max, step: s.step, choices: s.choices, text: s.text, number: s.number, locked: false, lockable: false }
+    SettingView { overridden: s.overridden, key: s.key, label: s.label, description: s.description, kind, restart: s.restart, min: s.min, max: s.max, step: s.step, choices: s.choices, text: s.text, number: s.number, locked: false, lockable: false }
 }
 
 /// One installed mod, as the Mods page shows it.
@@ -176,6 +178,8 @@ pub struct ModView {
     pub source: String,
     /// changes gameplay (everyone in a Link Play session needs it) rather than looks only
     pub gameplay: bool,
+    pub global_enabled: bool,
+    pub enabled_override: Option<bool>,
     /// a LayeredFS folder or zip without a mod.toml: the core guessed `gameplay` from its files
     pub guessed: bool,
     pub code: bool,
@@ -200,6 +204,8 @@ pub struct ModView {
 /// The Mods page's list.
 #[derive(Serialize, Clone, Debug)]
 pub struct ModsView {
+    /// Editing scope only; does not change the profile selected for Play.
+    pub profile: Option<String>,
     /// the mods folder, for the page's "Open mods folder"
     pub dir: String,
     /// installed mods: those that load, in load order, then the rest
@@ -221,6 +227,8 @@ fn view_of(core: &Core, game_dir: &Path) -> ModsView {
         .enumerate()
         .map(|(i, m)| ModView {
             gameplay: m.flags & ffi::FLAG_GAMEPLAY != 0,
+            global_enabled: m.global_enabled,
+            enabled_override: m.enabled_override,
             guessed: m.flags & ffi::FLAG_LAYEREDFS != 0 && m.flags & ffi::FLAG_KIND_GUESSED != 0,
             code: m.flags & ffi::FLAG_CODE != 0,
             needs_yes: needs_yes(&m),
@@ -245,23 +253,30 @@ fn view_of(core: &Core, game_dir: &Path) -> ModsView {
             lockable: false,
         })
         .collect();
-    ModsView { dir: crate::dump::fwd(&mods_dir(game_dir)), mods, gameplay: core.gameplay_mods(), points: core.plan_count(), locks: None, achievements_mod: crate::achievements::MOD_ID }
+    ModsView { profile: None, dir: crate::dump::fwd(&mods_dir(game_dir)), mods, gameplay: core.gameplay_mods(), points: core.plan_count(), locks: None, achievements_mod: crate::achievements::MOD_ID }
 }
 
 /// The installed mods, after writing their plan (a mod dropped in by hand changes it as much as a click does).
 pub fn list(game_dir: &Path) -> Result<ModsView, String> {
-    let core = open(game_dir);
-    write_plan(&core, game_dir)?;
-    Ok(view_of(&core, game_dir))
+    list_for_profile(game_dir, None)
+}
+
+pub fn list_for_profile(game_dir: &Path, profile: Option<&str>) -> Result<ModsView, String> {
+    // Editing an inactive profile must never replace the active profile's build plan.
+    refresh_plan(game_dir)?;
+    let core = open_profile(game_dir, profile)?;
+    let mut view = view_of(&core, game_dir);
+    view.profile = profile.map(str::to_owned);
+    Ok(view)
 }
 
 /// Opens a scan, applies `change` to it, then lists again with a fresh scan (the switches, the order and the plan are the scan's).
-fn change(game_dir: &Path, change: impl FnOnce(&Core) -> Result<(), String>) -> Result<ModsView, String> {
+fn change_profile(game_dir: &Path, profile: Option<&str>, change: impl FnOnce(&Core) -> Result<(), String>) -> Result<ModsView, String> {
     {
-        let core = open(game_dir);
+        let core = open_profile(game_dir, profile)?;
         change(&core)?;
     }
-    list(game_dir)
+    list_for_profile(game_dir, profile)
 }
 
 fn known(core: &Core, id: &str) -> Result<i32, String> {
@@ -272,16 +287,21 @@ const SAVE_FAILED: &str = "Could not save the mods' list in the mods folder.";
 
 /// The player's switch. A code mod that is not allowed yet is switched on only with `allow` (the player said yes to the question).
 pub fn set_enabled(game_dir: &Path, id: &str, on: bool, allow: bool) -> Result<ModsView, String> {
-    change(game_dir, |core| {
+    set_enabled_for_profile(game_dir, id, on, allow, None, false)
+}
+pub fn set_enabled_for_profile(game_dir: &Path, id: &str, on: bool, allow: bool, profile: Option<&str>, inherit: bool) -> Result<ModsView, String> {
+    if inherit && profile.is_none() { return Err("Select a profile to remove an override.".into()); }
+    change_profile(game_dir, profile, |core| {
         known(core, id)?;
         let m = core.mods().into_iter().find(|m| m.id == id).unwrap();
-        if on && needs_yes(&m) {
+        let effective = if inherit { m.global_enabled } else { on };
+        if effective && needs_yes(&m) {
             if !allow {
                 return Err("This mod's code is not allowed yet.".into());
             }
             core.trust_mod(id).map_err(|_| format!("Could not record your yes for {}.", m.name))?;
         }
-        core.set_enabled(id, on).map_err(|_| SAVE_FAILED.to_string())
+        (if inherit { core.clear_enabled_override(id) } else { core.set_enabled(id, on) }).map_err(|_| SAVE_FAILED.to_string())
     })
 }
 
@@ -313,16 +333,35 @@ pub fn move_by(game_dir: &Path, id: &str, delta: i32) -> Result<ModsView, String
 
 /// A new value for one of a mod's settings: a number (bools 0/1, choices by index) or a text, as the setting's kind takes it.
 pub fn set_setting(game_dir: &Path, id: &str, key: &str, number: Option<f64>, text: Option<&str>) -> Result<ModsView, String> {
-    change(game_dir, |core| {
+    set_setting_for_profile(game_dir, id, key, number, text, None, false)
+}
+pub fn set_setting_for_profile(game_dir: &Path, id: &str, key: &str, number: Option<f64>, text: Option<&str>, profile: Option<&str>, inherit: bool) -> Result<ModsView, String> {
+    if inherit && profile.is_none() { return Err("Select a profile to remove an override.".into()); }
+    change_profile(game_dir, profile, |core| {
         let m = known(core, id)?;
         let i = core.settings(m).iter().position(|s| s.key == key).ok_or_else(|| format!("{} has no setting {}.", id, key))? as i32;
-        let r = match (number, text) {
+        let r = if inherit { core.clear_setting_override(m, i) } else { match (number, text) {
             (Some(v), _) => core.set_number(m, i, v),
             (None, Some(t)) => core.set_text(m, i, t),
             (None, None) => return Err(format!("No value for {}.", key)),
-        };
+        } };
         r.map_err(|_| format!("Could not change {} of {}.", key, id))
     })
+}
+
+/// Clear profile exceptions when the existing global lock policy is re-applied.
+pub fn clear_locked_overrides(game_dir: &Path, id: &str, enabled: bool, setting: Option<&str>) -> Result<(), String> {
+    for profile in crate::profiles::load(game_dir).profiles {
+        let core = open_profile(game_dir, Some(&profile.id))?;
+        let Some(m) = core.find(id) else { continue; };
+        if enabled { core.clear_enabled_override(id).map_err(|_| SAVE_FAILED.to_string())?; }
+        if let Some(key) = setting {
+            if let Some(i) = core.settings(m).iter().position(|s| s.key == key) {
+                core.clear_setting_override(m, i as i32).map_err(|_| SAVE_FAILED.to_string())?;
+            }
+        }
+    }
+    refresh_plan(game_dir)
 }
 
 /// A mod's file or folder name as found in mods/: one plain name, never a path that leaves the folder.
@@ -387,7 +426,7 @@ pub fn installed_all(game_dir: &Path) -> Vec<Installed> {
 /// Records the player's yes for the file now in mods/ under this id, when it has code that is not allowed yet (an install or update that
 /// came through the hub's checked download). Opens the folder without `open`'s hold-back, which would switch the mod off first.
 pub fn trust_file(game_dir: &Path, id: &str) -> Result<(), String> {
-    let core = Core::open(&mods_dir(game_dir), &mappings_dir(game_dir), &host_name());
+    let core = scan(game_dir);
     let m = core.mods().into_iter().find(|m| m.id == id).ok_or_else(|| format!("There is no mod {} in the mods folder.", id))?;
     if !needs_yes(&m) {
         return Ok(());
@@ -455,6 +494,147 @@ pub(crate) mod testkit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn override_fixture(name: &str) -> (PathBuf, String, String) {
+        let dir = testkit::temp_game_dir(name);
+        let folder = mods_dir(&dir).join("demo");
+        fs::create_dir_all(&folder).unwrap();
+        // No manifest opt-in: all mods inherit and may be overridden.
+        fs::write(folder.join("mod.toml"), "id = \"demo\"\nversion = \"1.0.0\"\n\
+            [[settings]]\nkey = \"server\"\ntype = \"text\"\nlabel = \"Server\"\ndefault = \"factory\"\n\
+            [[settings]]\nkey = \"switch\"\ntype = \"bool\"\nlabel = \"Switch\"\ndefault = true\n\
+            [[settings]]\nkey = \"level\"\ntype = \"number\"\nlabel = \"Level\"\ndefault = 2\nmin = 0\nmax = 10\nstep = 1\n\
+            [[settings]]\nkey = \"choice\"\ntype = \"choice\"\nlabel = \"Choice\"\nchoices = [\"low\", \"high\"]\ndefault = \"low\"\n").unwrap();
+        let a = crate::profiles::add(&dir, "First").unwrap().profiles.last().unwrap().id.clone();
+        let b = crate::profiles::add(&dir, "Second").unwrap().profiles.last().unwrap().id.clone();
+        (dir, a, b)
+    }
+    fn mod_view(dir: &Path, profile: Option<&str>) -> ModView {
+        list_for_profile(dir, profile).unwrap().mods.into_iter().find(|m| m.id == "demo").unwrap()
+    }
+    fn profile_folder(dir: &Path, id: &str) -> PathBuf {
+        let profiles = crate::profiles::load(dir);
+        dir.join("config/accounts").join(crate::saveimport::account_key_of(&profiles.get(id).unwrap().uid))
+    }
+
+    #[test]
+    fn sparse_overrides_inherit_global_changes_and_reset_to_global() {
+        let (dir, a, b) = override_fixture("inherit-settings");
+        fs::create_dir_all(dir.join("config/demo")).unwrap();
+        fs::write(dir.join("config/demo/journal"), "keep").unwrap();
+        set_setting(&dir, "demo", "server", None, Some("global-one")).unwrap();
+        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "global-one");
+        assert!(!profile_folder(&dir, &a).exists(), "reading inheritance must not materialize overrides");
+        let globals = fs::read(dir.join("config/demo.toml")).unwrap();
+        let active = crate::profiles::load(&dir).active;
+        set_setting_for_profile(&dir, "demo", "server", None, Some("first"), Some(&a), false).unwrap();
+        // An explicit same-value override pins the value too.
+        set_setting_for_profile(&dir, "demo", "server", None, Some("global-one"), Some(&b), false).unwrap();
+        assert_eq!(fs::read(dir.join("config/demo.toml")).unwrap(), globals);
+        let sparse = fs::read_to_string(profile_folder(&dir, &a).join("demo.toml")).unwrap();
+        assert!(!sparse.contains("switch =") && !sparse.contains("level =") && !sparse.contains("choice ="));
+        set_setting(&dir, "demo", "server", None, Some("global-two")).unwrap();
+        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "first");
+        assert_eq!(mod_view(&dir, Some(&b)).settings[0].text, "global-one");
+        assert_eq!(mod_view(&dir, Some("default")).settings[0].text, "global-two");
+        set_setting_for_profile(&dir, "demo", "server", None, None, Some(&b), true).unwrap();
+        assert!(!mod_view(&dir, Some(&b)).settings[0].overridden);
+        set_setting(&dir, "demo", "server", None, Some("global-three")).unwrap();
+        assert_eq!(mod_view(&dir, Some(&b)).settings[0].text, "global-three");
+        for (key, value) in [("switch", 0.0), ("level", 7.0), ("choice", 1.0)] {
+            set_setting_for_profile(&dir, "demo", key, Some(value), None, Some(&a), false).unwrap();
+        }
+        let m = mod_view(&dir, Some(&a));
+        assert_eq!((m.settings[1].number, m.settings[2].number, m.settings[3].text.as_str()), (0.0, 7.0, "high"));
+        for key in ["switch", "level", "choice"] { set_setting_for_profile(&dir, "demo", key, None, None, Some(&a), true).unwrap(); }
+        assert!(mod_view(&dir, Some(&a)).settings[1..].iter().all(|s| !s.overridden));
+        crate::profiles::rename(&dir, &a, "Renamed").unwrap();
+        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "first");
+        assert_eq!(crate::profiles::load(&dir).active, active, "editing context is not playing context");
+        assert_eq!(fs::read_to_string(dir.join("config/demo/journal")).unwrap(), "keep");
+        assert!(list_for_profile(&dir, Some("../invalid")).is_err());
+        assert!(set_setting_for_profile(&dir, "demo", "server", None, None, None, true).is_err());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn enabled_overrides_support_both_directions_and_inheritance() {
+        let (dir, a, b) = override_fixture("inherit-enabled");
+        set_enabled(&dir, "demo", true, false).unwrap();
+        let global = fs::read(dir.join("mods/modtopia.toml")).unwrap();
+        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), false).unwrap();
+        assert_eq!(mod_view(&dir, Some(&a)).enabled_override, Some(false));
+        assert!(mod_view(&dir, Some(&b)).enabled);
+        assert_eq!(fs::read(dir.join("mods/modtopia.toml")).unwrap(), global);
+        set_enabled(&dir, "demo", false, false).unwrap();
+        assert!(!mod_view(&dir, Some(&b)).enabled);
+        set_enabled_for_profile(&dir, "demo", true, false, Some(&b), false).unwrap();
+        assert!(mod_view(&dir, Some(&b)).enabled && !mod_view(&dir, None).enabled);
+        set_enabled_for_profile(&dir, "demo", false, false, Some(&b), true).unwrap();
+        assert_eq!(mod_view(&dir, Some(&b)).enabled_override, None);
+        assert!(!mod_view(&dir, Some(&b)).enabled);
+        set_enabled(&dir, "demo", true, false).unwrap();
+        assert!(!mod_view(&dir, Some(&a)).enabled && mod_view(&dir, Some(&b)).enabled);
+        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), true).unwrap();
+        assert!(mod_view(&dir, Some(&a)).enabled);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn profile_plans_follow_play_selection_and_trust_cannot_be_inherited() {
+        let (dir, a, b) = override_fixture("inherit-plans");
+        let folder = mods_dir(&dir).join("demo");
+        let binary = folder.join("bin").join(ffi::platform_tag());
+        fs::create_dir_all(&binary).unwrap();
+        let library = binary.join(if cfg!(windows) { "mod.dll" } else if cfg!(target_os = "macos") { "mod.dylib" } else { "mod.so" });
+        fs::write(&library, b"fixture-code-one").unwrap();
+        let mut manifest = fs::read_to_string(folder.join("mod.toml")).unwrap();
+        manifest.push_str("\n[[hooks.\"2.0.1\"]]\nname = \"probe\"\ntarget = \"main+0x100\"\nword = 0xd503201f\nkind = \"observe\"\n");
+        fs::write(folder.join("mod.toml"), manifest).unwrap();
+        set_enabled(&dir, "demo", false, false).unwrap();
+        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&b), false).is_err());
+        set_enabled_for_profile(&dir, "demo", true, true, Some(&b), false).unwrap();
+        assert!(!dir.join(gamebuild::MOD_PLAN).exists(), "editing inactive profile must not change the active plan");
+        crate::profiles::select(&dir, &b).unwrap(); refresh_plan(&dir).unwrap();
+        let plan = fs::read(dir.join(gamebuild::MOD_PLAN)).unwrap();
+        assert!(String::from_utf8_lossy(&plan).contains("0x100"));
+        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), false).unwrap();
+        list(&dir).unwrap();
+        assert_eq!(fs::read(dir.join(gamebuild::MOD_PLAN)).unwrap(), plan);
+        assert_eq!(crate::profiles::load(&dir).active, b);
+        set_enabled(&dir, "demo", true, false).unwrap();
+        let global = fs::read(dir.join("mods/modtopia.toml")).unwrap();
+        let overrides = fs::read(profile_folder(&dir, &b).join(".enabled.toml")).unwrap();
+        fs::write(&library, b"fixture-code-two").unwrap();
+        assert!(mod_view(&dir, Some(&b)).needs_yes);
+        assert_eq!(fs::read(dir.join("mods/modtopia.toml")).unwrap(), global);
+        assert_eq!(fs::read(profile_folder(&dir, &b).join(".enabled.toml")).unwrap(), overrides);
+        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&b), true).is_err());
+        set_enabled_for_profile(&dir, "demo", true, true, Some(&b), true).unwrap();
+        assert_eq!(mod_view(&dir, Some(&b)).enabled_override, None);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn damaged_profile_overrides_are_preserved_and_write_failures_do_not_change_globals() {
+        let (dir, a, _) = override_fixture("inherit-damage");
+        fs::create_dir_all(mods_dir(&dir).join("dependent")).unwrap();
+        fs::write(mods_dir(&dir).join("dependent/mod.toml"), "id = \"dependent\"\nversion = \"1.0.0\"\n[[dependencies]]\nid = \"demo\"\nversion = \">=1.0.0\"\nrequired = true\n").unwrap();
+        set_setting(&dir, "demo", "server", None, Some("global")).unwrap();
+        let path = profile_folder(&dir, &a);
+        fs::create_dir_all(path.join("demo.toml")).unwrap();
+        assert!(set_setting_for_profile(&dir, "demo", "server", None, Some("new"), Some(&a), false).is_err());
+        fs::remove_dir(path.join("demo.toml")).unwrap();
+        fs::write(path.join("demo.toml"), "server = [broken").unwrap();
+        assert_eq!(mod_view(&dir, Some(&a)).state, "error");
+        assert_eq!(list_for_profile(&dir, Some(&a)).unwrap().mods.iter().find(|m| m.id == "dependent").unwrap().state, "error");
+        assert!(set_setting_for_profile(&dir, "demo", "server", None, Some("new"), Some(&a), false).is_err());
+        assert_eq!(fs::read_to_string(path.join("demo.toml")).unwrap(), "server = [broken");
+        fs::write(path.join(".enabled.toml"), "[enabled]\ndemo = \"off\"").unwrap();
+        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&a), false).is_err());
+        assert_eq!(mod_view(&dir, None).settings[0].text, "global");
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn only_plain_names_are_deleted() {

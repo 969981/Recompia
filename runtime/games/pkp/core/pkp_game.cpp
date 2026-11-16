@@ -4,6 +4,7 @@
 #include "input/pkp_aim.h"
 #include "input/pkp_aim_debug.h"
 #include "ui/pkp_craft.h"
+#include "ui/pkp_cross_guide.h"
 #include "ui/pkp_item_edit.h"
 #include "core/pkp_feature.h"
 #include "input/pkp_jump.h"
@@ -22,6 +23,7 @@
 #endif
 #include "ui/pkp_options.h"
 #include "input/pkp_play.h"
+#include "input/pkp_play_as.h"
 #include "core/pkp_play_time.h"
 #include "render/pkp_quality.h"
 #include "core/pkp_pokemon_cap.h"
@@ -74,6 +76,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   options             after title: title's frame callback runs first
 //   item_edit           no hooks and no callbacks: the Options screen's Items tab calls it when it opens and commits (pkp_item_edit.h)
 //   loading_backdrop   after play: uses the canvas size set by its UI camera hook
+//   cross_guide        shares the picture and the window pane's draw site with menu (both hooks return 0, so both run); no order between them
 // No other two features hook the same address.
 //
 // Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]
@@ -93,7 +96,7 @@ constexpr Entry kEntries[] = {
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif
-    port(&kMenuFeature), port(&kLoadingBackdropFeature), port(&kQualityFeature),
+    port(&kMenuFeature), port(&kCrossGuideFeature), port(&kLoadingBackdropFeature), port(&kQualityFeature),
     port(&kTaaFeature),
 #if NXRT_TESTTOOLS
     port(&kTaaProbeFeature),
@@ -101,6 +104,7 @@ constexpr Entry kEntries[] = {
     port(&kShoulderCameraFeature),
     mod(&kJumpFeature, JumpMomentum), mod(&kAimFeature, CameraAim), port(&kAimDebugFeature), mod(&kTitleFeature, TitleQuit), mod(&kSortFeature, InventorySort),
     mod(&kCraftFeature, CraftSearch), mod(&kItemEditFeature, ItemEditor), mod(&kPokemonCapFeature, PokemonCap), mod(&kSaveNowFeature, SaveNow),
+    mod(&kPlayAsFeature, PlayAsPokemon),
     port(&key_guide::kKeyGuideFeature),
     port(&kOptionsFeature),
     port(&kPlayTimeFeature),

@@ -35,7 +35,9 @@ constexpr size_t kEntInstances = 32, kEntFree = 40;
 constexpr uint64_t kMaxPoolEntries = 512, kMaxInstances = 64;
 constexpr size_t kPlaceableObj = 40, kObjLayout = 16;     // placeable +40 -> object, +16 -> the layout (DoPaneHitTest 0x2611d00)
 // layout
-constexpr size_t kLayPaneCount = 146, kLayFirstNode = 32, kLaySentinel = 64;   // u16 pane count; pane list: node +8 next, +16 pane
+using layout::kLayFirstNode;
+using layout::kLayPaneCount;
+using layout::kLaySentinel;
 // pane
 using layout::kPaneName;
 using layout::kPaneNameLen;
@@ -130,7 +132,7 @@ void log_layouts();
 struct DrawSite { uint64_t off; int reg; };
 constexpr DrawSite kDrawSites[] = {
     {0x1f5ac6c, 0}, {0x1f5b26c, 0}, {0x1f63094, 0}, {0x1f642a8, 0}, {0x1f6a028, 0}, {0x1f6a8c4, 0},
-    {0x1f76168, 0}, {0x1f765b4, 0}, {0x1f78030, 21}, {0x1f78124, 0}, {0x1f7aa2c, 0}, {0x1f7fe48, 0},
+    {layout::kPictureDraw, 0}, {0x1f765b4, 0}, {0x1f78030, 21}, {0x1f78124, 0}, {0x1f7aa2c, 0}, {layout::kWindowDraw, 0},
 };
 extern std::atomic<uint32_t> g_frame;
 extern std::atomic<uint64_t> g_draw_calls;

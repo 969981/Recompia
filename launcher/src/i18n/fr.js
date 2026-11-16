@@ -1,5 +1,11 @@
 // Launcher text in this language. The key is the English text the code passes to t(); {placeholders} stay as they are.
 export default {
+  'Global defaults': 'Valeurs globales par défaut',
+  'Settings for': 'Paramètres pour',
+  'Use global': 'Utiliser la valeur globale',
+  'Override': 'Remplacer',
+  'Inherited': 'Hérité',
+  'On': 'Activé',
   'Downloading update': 'Téléchargement de la mise à jour',
   'Checking update': 'Vérification de la mise à jour',
   'Unpacking update': 'Décompression de la mise à jour',
@@ -341,6 +347,8 @@ export default {
   'Sort each time the bag opens': 'Trier à chaque ouverture du sac',
   'Search in the crafting screen': 'Recherche dans l\'écran de fabrication',
   'Save button in the pause menu': 'Bouton Sauvegarder dans le menu pause',
+  'Play as Pokémon (experimental)': 'Jouer en tant que Pokémon (expérimental)',
+  'Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': 'Placez-vous devant un Pokémon, maintenez ZL et appuyez sur le haut de la croix directionnelle pour le copier : vous vous transformez en lui et il s\'ajoute à votre liste dans les paramètres du jeu, onglet « Play as ». ZL et gauche vous transforment en le Pokémon choisi là, ZL et droite vous rendent votre apparence. Les Pokémon qui volent décollent avec ZR et atterrissent avec ZL. Désactivé pendant Link Play.',
   'More Pokémon in town': 'Plus de Pokémon en ville',
   'Pokémon in town': 'Pokémon en ville',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Expérimental. Les visiteurs et les apparitions temporaires partagent les 64 emplacements du jeu avec vos résidents : un nombre élevé leur laisse moins de place.',

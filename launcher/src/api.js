@@ -92,7 +92,7 @@ export const api = {
 
 
   // Mods (Modtopia)
-  modsList: () => invoke('mods_list'),
+  modsList: (args = {}) => invoke('mods_list', args),   // profile id or active:true; absent = global defaults
   modsSetEnabled: (args) => invoke('mods_set_enabled', args),   // { id, on, allow }
   modsMove: (args) => invoke('mods_move', args),   // { id, delta }
   modsSetSetting: (args) => invoke('mods_set_setting', args),   // { id, key, number | text }

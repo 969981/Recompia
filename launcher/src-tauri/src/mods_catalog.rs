@@ -318,7 +318,7 @@ mod tests {
          "download": {"url": "https://downloads.pokopia-native.workers.dev/mods/auto-run/1.0.0/auto_run-1.0.0.pkmod", "file": "auto_run-1.0.0.pkmod",
                       "size": 77330, "sha256": "e70a6ef937952a9fe23aa7847df56f787fa8164129d53a081c1bec664b228ab8"}, "new": true},
         {"id": "old_only", "name": "Old", "version": "1.0.0", "game": ["1.0.5"], "needs": ">=0.1.0"},
-        {"id": "too_new", "name": "New", "version": "1.0.0", "game": ["2.0.1"], "needs": ">=0.7.0"},
+        {"id": "too_new", "name": "New", "version": "1.0.0", "game": ["2.0.1"], "needs": ">=99.0.0"},
         {"id": "soon", "name": "Soon", "version": "0.9.0", "affects": "gameplay", "game": ["2.0.1"], "needs": ">=0.1.0 <1.0.0", "download": null},
         {"name": "no id"}
       ]}"#;
