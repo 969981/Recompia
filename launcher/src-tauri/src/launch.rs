@@ -16,8 +16,18 @@ pub fn play(app: AppHandle, without_mods: Option<bool>) -> Result<(), String> {
     // an update may be preparing: Play waits only for its swap, and holds it off until this game has started (play::start)
     let updates = app.updates();
     let _swap = updates.hold_swap();
-    ensure_idle(&app, &[Need::Swap, Need::Storage])?;
-    let cfg = load_config(&app);
+    let (dir, cfg) = prepare(&app)?;
+    // a co-op save is only played from Co-op: never as the singleplayer save
+    crate::coop_save::refuse_as_singleplayer(&crate::saveimport::locate(&dir).0)?;
+    profiles::apply_active(&dir)?;
+    play::start(&app, &dir, &cfg, without_mods.unwrap_or(false), None)
+}
+
+/// What every start needs before the game runs (singleplayer Play, co-op Play): nothing busy, setup finished, the game's paths in
+/// pkp.ini. The caller holds `hold_swap` (see `play`) until its game has started. Returns the game folder and the launcher's config.
+pub fn prepare(app: &AppHandle) -> Result<(std::path::PathBuf, crate::config::Config), String> {
+    ensure_idle(app, &[Need::Swap, Need::Storage])?;
+    let cfg = load_config(app);
     let probe = readiness(&cfg);
     if probe.readiness.kind != "ready" {
         return Err(probe.readiness.detail);
@@ -28,8 +38,7 @@ pub fn play(app: AppHandle, without_mods: Option<bool>) -> Result<(), String> {
     if let Some(paths) = probe.paths {
         settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)?;
     }
-    profiles::apply_active(&dir)?;
-    play::start(&app, &dir, &cfg, without_mods.unwrap_or(false))
+    Ok((dir, cfg))
 }
 
 #[tauri::command]

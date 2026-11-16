@@ -34,6 +34,7 @@ pub fn import_save(app: AppHandle, source: Option<String>) -> Result<saveimport:
         }
     };
     let (sd, key) = save_paths(&app);
+    crate::coop_save::refuse_as_singleplayer(&sd)?;
     saveimport::import(&sd, &key, &src)
 }
 
