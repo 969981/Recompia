@@ -14,6 +14,7 @@
 
 ### Performance
 - PCs with a separate graphics card of 4 or 6 GB (such as a GTX 1650 or RTX 2060) now read the game's shader constants from video memory instead of system memory. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged. Switch: **Shader constants in video memory** in the launcher's Settings > Graphics and in the game's Settings (idea from pokopia-native)
+- Graphics cards under 8 GB keep more of the game's geometry in video memory: it is now held in 2 MB pieces where draws read it, instead of 16 MB blocks that filled up with unused data. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged (idea from pokopia-native)
 
 ### Controls
 - Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
