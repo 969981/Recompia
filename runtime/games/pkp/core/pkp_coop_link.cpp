@@ -11,7 +11,6 @@
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_layout.h"
 
-#include <array>
 #include <cstddef>
 
 #include "nxrt/coop_channel.h"
@@ -30,7 +29,10 @@ struct Route {
     bool shared;   // through the authority to every member; else to one node
     void (*apply)(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 };
-constexpr std::array<Route, 0> kRoutes{};
+constexpr Route kRoutes[] = {
+    {wire::Type::StoryFlag, true, &story::on_flag_message},
+    {wire::Type::Ability, true, &story::on_ability_message},
+};
 
 struct State {
     bool open = false;

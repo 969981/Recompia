@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Pokémon Pokopia: seamless co-op's shared story (pkp_coop_internal.h). Every player runs the story; its state is kept equal on every
+// process by sharing what the quest pump cannot derive on its own.
+//
+// Permissions. The permission mask (GameMgr+0x8c, bits 0..31; +0x90 the session bits) is built by 0xb0f60 on hosting, on every stage
+// entry and when the session ends. Its first instruction after the frame, 0xb0f74 (`mov x19, x0`), still has the arguments in x1..x4
+// (online, host, Spectator, special): Spectator and special are cleared, so every stage type takes its normal pattern. In the story-area
+// online block, at 0xb1030 (`movk x13, #1, lsl #32`), x13 holds the pattern's bits 0..31 and the movk adds bit 32: it becomes bits 0..30,
+// the offline single player's set (story on), on the authority; the members get the same without bit 23, the shop's visitor lock. The
+// role bits 33 / 34 stay as the game sets them: the game's own replication splits on them. Link Play's Interact everywhere hooks 0xb1030
+// too and runs first (pkp_game.cpp), so this value is the one kept.
+//
+// Quests. m_story S = save root + 0x4a26a0: per quest id 1..1000 a state (read 0x5d85c0, written 0x5d865c: 1 listed, 2 started,
+// 3 complete, 4 closed) and a flag (read 0x5d86e4, written 0x5d8774: the next step's condition is met). The quest pump (0x11b600, every
+// frame) moves a quest on its flag alone: flag -> start / complete / close, which writes the state and clears the flag through the two
+// setters and runs the quest's effect commands. In 2.0.1 the state setter has three callers, all inside those pump steps, and every flag
+// clear is one of theirs; every other flag write sets it (condition checker, scripts, events). So only flag sets are shared: each
+// process's own pump then makes the same state writes and runs the same effects, and a state never arrives ahead of its flag.
+// A set is an edge whose meaning depends on the state it was made in, so a message carries that state and a receiver sets the flag only
+// in the same state with its flag clear. A receiver still behind waits for its pump; a receiver past it (it did that step itself, which
+// is normal: every process checks the conditions) drops the message.
+//
+// Abilities. The ability effect commands 0x01 (0x121bb8: up to 8 ids set) and 0x19 (0x1227fc: one id set or cleared) write the bits at
+// save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit id & 7). A command that changes a bit is shared; a receiver runs the same handler
+// when a bit differs on its process.
+#include "core/pkp_coop_internal.h"
+#include "core/pkp_guest.h"
+#include "core/pkp_layout.h"
+
+#include <cstring>
+#include <deque>
+
+#include "nxrt/log.h"
+#include "nxrt/qpc.h"
+
+namespace nxrt::games::pkp::coop::story {
+
+namespace {
+
+constexpr const char* kTag = "pkp";
+
+constexpr uint64_t kSpectatorReg = 3, kSpecialReg = 4, kPatternReg = 13;
+constexpr uint64_t kAuthorityPattern = 0x7fffffffull;   // bits 0..30: the offline single player's permissions, story on
+constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 23: no shop visitor lock
+
+constexpr uint64_t kStory = 0x4a26a0, kAbilities = 0x4a26a8;                       // save root +
+constexpr uint64_t kStateOf = 0x5d85c0, kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value])
+constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
+constexpr uint32_t kQuestMax = 1000;
+constexpr double kWaitForPump = 10.0;   // a flag whose state the receiver has not reached is kept this long
+
+constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
+constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
+constexpr unsigned kAbilitySlots = 8;   // command 0x01: u16 ids at +2, +4, .. +0x10
+
+struct Flag {
+    uint16_t quest;
+    uint8_t state;
+    double since;
+};
+
+struct State {
+    int remote = 0;                    // > 0 while a received change is applied: the hooks do not share it again
+    std::deque<Flag> flags;            // received flag sets, in the authority's order
+    bool logged_state = false;
+    alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
+};
+State& st() {
+    static State s;
+    return s;
+}
+
+struct Remote {
+    Remote() { ++st().remote; }
+    ~Remote() { --st().remote; }
+};
+
+uint64_t save_root() {
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    return guest::ok(r, kAbilities + 0x20) ? r : 0;
+}
+uint64_t story() {
+    const uint64_t r = save_root();
+    return r ? r + kStory : 0;
+}
+
+uint8_t quest_state(::Ctx* c, uint64_t s, uint32_t id) { return static_cast<uint8_t>(guest::call(c, base() + kStateOf, s, id)); }
+bool quest_flag(::Ctx* c, uint64_t s, uint32_t id) { return guest::call(c, base() + kFlagOf, s, id) & 1; }
+
+bool ability_id(uint16_t v) { return static_cast<uint8_t>(v - 1) < 0xf9; }
+bool ability_on(uint64_t root, uint16_t v) {
+    return guest::rd<uint8_t>(root + kAbilities + ((v & 0xff) >> 3)) & (1u << (v & 7));
+}
+// The command would change an ability bit on this process.
+bool ability_changes(uint64_t root, const uint8_t* cmd) {
+    uint16_t v[kAbilitySlots];
+    std::memcpy(v, cmd + 2, sizeof v);
+    if (cmd[0] == kAbilityToggle) return ability_id(v[0]) && ability_on(root, v[0]) != (v[1] != 0);
+    for (uint16_t id : v)
+        if (ability_id(id) && !ability_on(root, id)) return true;
+    return false;
+}
+
+// Applies the received flag sets whose state this process has reached; per quest, in order.
+void apply_flags(::Ctx* c) {
+    State& s = st();
+    const uint64_t story_obj = story();
+    if (!story_obj || s.flags.empty()) return;
+    const double now = qpc::seconds();
+    bool blocked[kQuestMax + 1] = {};
+    for (auto it = s.flags.begin(); it != s.flags.end();) {
+        if (blocked[it->quest]) {
+            ++it;
+            continue;
+        }
+        const uint8_t state = quest_state(c, story_obj, it->quest);
+        if (state == it->state) {
+            if (!quest_flag(c, story_obj, it->quest)) {
+                Remote remote;
+                guest::call(c, base() + kSetFlag, story_obj, it->quest, 1);
+                NXLOG_D(kTag, "Co-op story: quest %u flag set (state %u)", it->quest, state);
+            }
+        } else if (state < it->state && now - it->since < kWaitForPump) {
+            blocked[it->quest] = true;
+            ++it;
+            continue;
+        } else {
+            NXLOG_D(kTag, "Co-op story: quest %u flag of state %u dropped, this process is at state %u", it->quest, it->state, state);
+        }
+        it = s.flags.erase(it);
+    }
+}
+
+}  // namespace
+
+int on_mask_start(::Ctx* c) {
+    c->x[kSpectatorReg] = 0;
+    c->x[kSpecialReg] = 0;
+    return 0;
+}
+
+int on_mask_pattern(::Ctx* c) {
+    c->x[kPatternReg] = role() == CoopRole::Host ? kAuthorityPattern : kMemberPattern;
+    return 0;
+}
+
+int on_quest_state(::Ctx* c) {
+    State& s = st();
+    const uint64_t from = c->x[30] - base();
+    for (uint64_t site : kPumpStateWrites)
+        if (from == site) return 0;
+    if (!s.logged_state && c->x[0] == story()) {
+        s.logged_state = true;
+        NXLOG_W(kTag, "Co-op story: quest %u's state was written outside the quest pump (from main+0x%llx); it is not shared",
+                static_cast<unsigned>(c->x[1] & 0xffff), static_cast<unsigned long long>(from));
+    }
+    return 0;
+}
+
+int on_quest_flag(::Ctx* c) {
+    State& s = st();
+    if (s.remote || !(c->x[2] & 1) || !link::in_session()) return 0;
+    const uint64_t story_obj = story();
+    const uint32_t id = static_cast<uint32_t>(c->x[1]) & 0xffff;
+    if (!story_obj || c->x[0] != story_obj || id - 1 >= kQuestMax || quest_flag(c, story_obj, id)) return 0;
+    const uint8_t state = quest_state(c, story_obj, id);
+    link::share(wire::Type::StoryFlag, wire::Writer(link::self()).u16(static_cast<uint16_t>(id)).u8(state).take());
+    NXLOG_D(kTag, "Co-op story: quest %u flag set here (state %u), shared", id, state);
+    return 0;
+}
+
+int on_ability(::Ctx* c) {
+    if (st().remote || !link::in_session()) return 0;
+    const uint64_t root = save_root();
+    const uint64_t cmd = c->x[0];
+    if (!root || !guest::ok(cmd, wire::kEffectSize)) return 0;
+    uint8_t bytes[wire::kEffectSize];
+    std::memcpy(bytes, reinterpret_cast<const void*>(cmd), sizeof bytes);
+    if ((bytes[0] != kAbilitySet && bytes[0] != kAbilityToggle) || !ability_changes(root, bytes)) return 0;
+    link::share(wire::Type::Ability, wire::Writer(link::self()).bytes(bytes, sizeof bytes).take());
+    NXLOG_D(kTag, "Co-op story: ability command 0x%02x here, shared", bytes[0]);
+    return 0;
+}
+
+void on_flag_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
+    const uint16_t quest = r.u16();
+    const uint8_t state = r.u8();
+    if (!r.ok() || quest - 1u >= kQuestMax) return;
+    st().flags.push_back({quest, state, qpc::seconds()});
+    apply_flags(c);
+}
+
+void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
+    State& s = st();
+    std::memset(s.command, 0, sizeof s.command);
+    r.bytes(s.command, wire::kEffectSize);
+    const uint64_t root = save_root();
+    if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle) || !ability_changes(root, s.command)) return;
+    Remote remote;
+    guest::call(c, base() + (s.command[0] == kAbilitySet ? kAbilitySetFn : kAbilityToggleFn), reinterpret_cast<uint64_t>(s.command));
+    NXLOG_D(kTag, "Co-op story: ability command 0x%02x applied", s.command[0]);
+}
+
+void tick(::Ctx* c) { apply_flags(c); }
+
+void reset() { st() = State{}; }
+
+}  // namespace nxrt::games::pkp::coop::story

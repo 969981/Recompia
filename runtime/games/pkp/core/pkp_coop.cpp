@@ -111,9 +111,19 @@ State& st() {
     return s;
 }
 
-// Every co-op site (user: its Site). Passes through: the game's own code runs at each site until the part of co-op that owns the site
-// gives it its work (the Site comments above), after the frame callback armed the hooks.
-int hook(::Ctx*, uint64_t, void*) { return 0; }
+// Every co-op site (user: its Site), once the frame callback armed the hooks: the part of co-op that owns the site does its work there.
+// A site no part owns yet passes through (returns 0: the game's own code runs).
+int hook(::Ctx* c, uint64_t, void* user) {
+    if (!st().armed.load(std::memory_order_acquire)) return 0;
+    switch (static_cast<Site>(reinterpret_cast<uintptr_t>(user))) {
+        case Site::MaskStart: return coop::story::on_mask_start(c);
+        case Site::MaskPattern: return coop::story::on_mask_pattern(c);
+        case Site::QuestState: return coop::story::on_quest_state(c);
+        case Site::QuestFlag: return coop::story::on_quest_flag(c);
+        case Site::AbilityEffect: return coop::story::on_ability(c);
+        default: return 0;
+    }
+}
 
 void remove_hooks(State& s) {
     for (uint32_t& h : s.ids) {
@@ -170,6 +180,7 @@ void game_frame(::Ctx* c) {
     if (!s.armed.load(std::memory_order_acquire)) return;
     coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::link::tick(c);
+    coop::story::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -181,6 +192,7 @@ void remove() {   // the registry has removed the hooks
     s.hooks = nullptr;
     s.launch = {};
     coop::link::reset();
+    coop::story::reset();
     coop::session::reset();
 }
 

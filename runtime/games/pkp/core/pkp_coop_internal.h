@@ -5,6 +5,7 @@
 //                         a joining member is then put next to the host
 //   pkp_coop_link.cpp     the co-op channel: opened with the session, drained once a frame; every rule change goes through the authority
 //   pkp_coop_wire.h       the messages: type ids and payload layouts
+//   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -49,5 +50,20 @@ bool to_authority(wire::Type type, std::vector<uint8_t>&& payload);
 bool to_node(int node, wire::Type type, std::vector<uint8_t>&& payload);
 void to_members(wire::Type type, const std::vector<uint8_t>& payload);
 }  // namespace link
+
+namespace story {
+// The hook sites (pkp_coop.cpp): each returns what the site's hook returns.
+int on_mask_start(::Ctx* c);     // midhook 0xb0f74: the mask builder's arguments
+int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online pattern
+int on_quest_state(::Ctx* c);    // entry 0x5d865c
+int on_quest_flag(::Ctx* c);     // entry 0x5d8774
+int on_ability(::Ctx* c);        // entry 0x121bb8, 0x1227fc
+// The messages (pkp_coop_link.cpp).
+void on_flag_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Applies the received flags this process has caught up with (once a frame, after the channel's handlers).
+void tick(::Ctx* c);
+void reset();
+}  // namespace story
 
 }  // namespace nxrt::games::pkp::coop
