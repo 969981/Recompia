@@ -1,5 +1,11 @@
 // Launcher text in this language. The key is the English text the code passes to t(); {placeholders} stay as they are.
 export default {
+  'Global defaults': '全局默认值',
+  'Settings for': '设置对象',
+  'Use global': '使用全局值',
+  'Override': '覆盖',
+  'Inherited': '已继承',
+  'On': '开启',
   'Downloading update': '正在下载更新',
   'Checking update': '正在检查更新',
   'Unpacking update': '正在解压更新',

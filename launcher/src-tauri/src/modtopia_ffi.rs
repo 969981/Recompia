@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 /// The core's version this launcher is built with (MT_CORE_VERSION): what a catalog entry's `needs` range is checked against.
-pub const CORE_VERSION: &str = "0.6.1";
+pub const CORE_VERSION: &str = "0.8.0";
 /// The game version every mod is planned for (the one game build Recompia runs).
 pub const GAME_VERSION: &str = "2.0.1";
 /// The tag of the library folder the core plans mods for: the host's, the same three values `mt_platform` (mt_loader.c) returns.
@@ -109,12 +109,16 @@ struct MtLoader {
 
 extern "C" {
     fn mt_loader_new(opt: *const Options, be: *const Backend) -> *mut MtLoader;
+    fn mt_loader_set_config_account(l: *mut MtLoader, key: *const c_char) -> c_int;
     fn mt_loader_free(l: *mut MtLoader);
     fn mt_loader_scan(l: *mut MtLoader) -> c_int;
     fn mt_loader_count(l: *mut MtLoader) -> c_int;
     fn mt_loader_info(l: *mut MtLoader, i: c_int) -> *const RawModInfo;
     fn mt_loader_find(l: *mut MtLoader, id: *const c_char) -> c_int;
     fn mt_loader_set_enabled(l: *mut MtLoader, id: *const c_char, on: c_int) -> c_int;
+    fn mt_loader_global_enabled(l: *mut MtLoader, id: *const c_char) -> c_int;
+    fn mt_loader_enabled_override(l: *mut MtLoader, id: *const c_char) -> c_int;
+    fn mt_loader_clear_enabled_override(l: *mut MtLoader, id: *const c_char) -> c_int;
     fn mt_loader_move(l: *mut MtLoader, id: *const c_char, delta: c_int) -> c_int;
     fn mt_loader_trust_mod(l: *mut MtLoader, id: *const c_char) -> c_int;
     fn mt_loader_gameplay_mods(l: *mut MtLoader, f: extern "C" fn(*mut c_void, *const c_char), user: *mut c_void) -> c_int;
@@ -124,6 +128,8 @@ extern "C" {
     fn mt_setting_get_number(l: *mut MtLoader, m: c_int, i: c_int) -> f64;
     fn mt_setting_set_number(l: *mut MtLoader, m: c_int, i: c_int, v: f64) -> c_int;
     fn mt_setting_set_text(l: *mut MtLoader, m: c_int, i: c_int, v: *const c_char) -> c_int;
+    fn mt_setting_is_overridden(l: *mut MtLoader, m: c_int, i: c_int) -> c_int;
+    fn mt_setting_clear_override(l: *mut MtLoader, m: c_int, i: c_int) -> c_int;
     fn mt_plan_count(l: *mut MtLoader) -> c_int;
     fn mt_plan_hash(l: *mut MtLoader) -> *const c_char;
     fn mt_plan_write(l: *mut MtLoader, path: *const c_char) -> c_int;
@@ -171,6 +177,8 @@ pub struct ModInfo {
     pub flags: i32,
     pub state: i32,
     pub enabled: bool,
+    pub global_enabled: bool,
+    pub enabled_override: Option<bool>,
     pub message: String,
     pub hook_points: i32,
     pub network: String,
@@ -192,6 +200,7 @@ pub struct SettingInfo {
     pub text: String,
     /// bool 0/1, the number, or the choice's index
     pub number: f64,
+    pub overridden: bool,
 }
 
 /// A loader over one mods folder, scanned once when opened. Holds the core's lock until dropped.
@@ -204,10 +213,11 @@ pub struct Core {
 
 impl Core {
     /// mt_loader_new + mt_loader_scan for `mods_dir`, with the mappings in `mappings_dir`. A missing mods folder scans as no mods.
-    pub fn open(mods_dir: &Path, mappings_dir: &Path, host_name: &str) -> Core {
+    pub fn open(mods_dir: &Path, mappings_dir: &Path, host_name: &str, account: Option<&str>) -> Core {
         let guard = lock();
         let strings = vec![c_path(mods_dir), c_path(mappings_dir), c(host_name), c(GAME_VERSION), c(platform_tag())];
-        let opt = Options { mods_dir: strings[0].as_ptr(), config_dir: std::ptr::null(), cache_dir: std::ptr::null(), mappings_dir: strings[1].as_ptr(), no_code: 1 };
+        // Mode 2 plans only trusted code without writing disabled preferences during a read.
+        let opt = Options { mods_dir: strings[0].as_ptr(), config_dir: std::ptr::null(), cache_dir: std::ptr::null(), mappings_dir: strings[1].as_ptr(), no_code: 2 };
         let be = Backend {
             size: std::mem::size_of::<Backend>() as u32,
             user: std::ptr::null_mut(),
@@ -220,6 +230,10 @@ impl Core {
         // SAFETY: opt and be are valid for the call (the core copies them); the strings they point at live as long as the Core
         let l = unsafe { mt_loader_new(&opt, &be) };
         assert!(!l.is_null(), "mt_loader_new");
+        // SAFETY: the core copies the key before scanning. None explicitly selects global editing.
+        let key = account.map(c);
+        let selected = unsafe { mt_loader_set_config_account(l, key.as_ref().map_or(std::ptr::null(), |k| k.as_ptr())) };
+        assert_eq!(selected, 0, "validated mod settings account");
         // SAFETY: l is a live loader; -1 (no mods folder) leaves it with no mods, which is what the page shows
         unsafe { mt_loader_scan(l) };
         Core { l, _strings: strings, _guard: guard }
@@ -245,6 +259,8 @@ impl Core {
                     flags: m.flags,
                     state: m.state,
                     enabled: m.enabled != 0,
+                    global_enabled: unsafe { mt_loader_global_enabled(self.l, m.id) } != 0,
+                    enabled_override: match unsafe { mt_loader_enabled_override(self.l, m.id) } { 0 => Some(false), 1 => Some(true), _ => None },
                     message: text(m.message),
                     hook_points: m.hook_points,
                     network: text(m.network),
@@ -265,6 +281,9 @@ impl Core {
     pub fn set_enabled(&self, id: &str, on: bool) -> Result<(), i32> {
         let id = c(id);
         ok(unsafe { mt_loader_set_enabled(self.l, id.as_ptr(), on as c_int) })
+    }
+    pub fn clear_enabled_override(&self, id: &str) -> Result<(), i32> {
+        ok(unsafe { mt_loader_clear_enabled_override(self.l, c(id).as_ptr()) })
     }
 
     /// One place earlier (-1) or later (+1) in the player's order, saved.
@@ -312,6 +331,7 @@ impl Core {
                     choices,
                     text: text(buf.as_ptr()),
                     number: unsafe { mt_setting_get_number(self.l, m, i) },
+                    overridden: unsafe { mt_setting_is_overridden(self.l, m, i) } != 0,
                 })
             })
             .collect()
@@ -326,6 +346,9 @@ impl Core {
     pub fn set_text(&self, m: i32, i: i32, v: &str) -> Result<(), i32> {
         let v = c(v);
         ok(unsafe { mt_setting_set_text(self.l, m, i, v.as_ptr()) })
+    }
+    pub fn clear_setting_override(&self, m: i32, i: i32) -> Result<(), i32> {
+        ok(unsafe { mt_setting_clear_override(self.l, m, i) })
     }
 
     /// How many hook points the mods that are on need for this game version.

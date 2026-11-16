@@ -40,18 +40,23 @@ fn locks(app: &AppHandle) -> Locks {
 
 /// The installed mods (writes their hook plan too).
 #[tauri::command]
-pub async fn mods_list(app: AppHandle) -> Result<ModsView, String> {
+pub async fn mods_list(app: AppHandle, profile: Option<String>, active: Option<bool>) -> Result<ModsView, String> {
     let locks = locks(&app);
-    off_thread(move || mods::list(&game_dir(&app)).map(|v| locks.mark(v))).await
+    off_thread(move || {
+        let dir = game_dir(&app);
+        let profile = if active.unwrap_or(false) { Some(crate::profiles::load(&dir).active_profile().id.clone()) } else { profile };
+        mods::list_for_profile(&dir, profile.as_deref()).map(|v| locks.mark(v))
+    }).await
 }
 
 /// A mod's switch. `allow`: the player said yes to running its code (asked when the list says `needs_yes`).
 #[tauri::command]
-pub async fn mods_set_enabled(app: AppHandle, id: String, on: bool, allow: Option<bool>) -> Result<ModsView, String> {
+pub async fn mods_set_enabled(app: AppHandle, id: String, on: bool, allow: Option<bool>, profile: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
     let dir = idle_game_dir(&app)?;
     let locks = locks(&app);
-    locks.check_switch(&id, on)?;
-    off_thread(move || mods::set_enabled(&dir, &id, on, allow.unwrap_or(false)).map(|v| locks.mark(v))).await
+    let inherit = inherit.unwrap_or(false);
+    locks.check_switch(&id, if inherit { false } else { on })?;
+    off_thread(move || mods::set_enabled_for_profile(&dir, &id, on, allow.unwrap_or(false), profile.as_deref(), inherit).map(|v| locks.mark(v))).await
 }
 
 /// One place earlier (delta -1) or later (+1) in the load order.
@@ -64,11 +69,12 @@ pub async fn mods_move(app: AppHandle, id: String, delta: i32) -> Result<ModsVie
 
 /// A mod's setting: `number` for on/off (0/1), numbers and choices (their index), `text` for text and keys.
 #[tauri::command]
-pub async fn mods_set_setting(app: AppHandle, id: String, key: String, number: Option<f64>, text: Option<String>) -> Result<ModsView, String> {
+pub async fn mods_set_setting(app: AppHandle, id: String, key: String, number: Option<f64>, text: Option<String>, profile: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
     let dir = idle_game_dir(&app)?;
     let locks = locks(&app);
-    locks.check_setting(&id, &key, number)?;
-    off_thread(move || mods::set_setting(&dir, &id, &key, number, text.as_deref()).map(|v| locks.mark(v))).await
+    let inherit = inherit.unwrap_or(false);
+    locks.check_setting(&id, &key, if inherit { None } else { number })?;
+    off_thread(move || mods::set_setting_for_profile(&dir, &id, &key, number, text.as_deref(), profile.as_deref(), inherit).map(|v| locks.mark(v))).await
 }
 
 /// Deletes a mod from the mods folder (the page asks first).

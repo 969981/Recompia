@@ -5,14 +5,14 @@ fn main() {
     tauri_build::build()
 }
 
-/// The Modtopia core (runtime/third_party/modtopia: C11, vendored unchanged, MIT), compiled into the launcher for its Mods page
+/// The Modtopia core (runtime/third_party/modtopia: C11, MIT), compiled into the launcher for its Mods page
 /// (modtopia_ffi.rs), and its mappings embedded as `$OUT_DIR/modtopia_mappings.rs` (MAPPINGS: file name and bytes, one row a file),
 /// which mods.rs writes into the game folder. The runtime builds the same files with its own CMake.
 fn modtopia() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/third_party/modtopia");
     let src = root.join("core/src");
     let mut build = cc::Build::new();
-    for name in ["mt_util", "mt_toml", "mt_version", "mt_zip", "mt_manifest", "mt_loader", "mt_runtime", "mt_patch", "mt_net", "mt_png"] {
+    for name in ["mt_util", "mt_toml", "mt_version", "mt_zip", "mt_manifest", "mt_loader", "mt_runtime", "mt_patch", "mt_net", "mt_png", "mt_config"] {
         build.file(src.join(format!("{name}.c")));
     }
     build.include(root.join("sdk/include")).define("_CRT_SECURE_NO_WARNINGS", None).warnings(false);

@@ -1,5 +1,11 @@
 // Launcher text in this language. The key is the English text the code passes to t(); {placeholders} stay as they are.
 export default {
+  'Global defaults': '전체 기본값',
+  'Settings for': '설정 대상',
+  'Use global': '전체 설정 사용',
+  'Override': '재정의',
+  'Inherited': '상속됨',
+  'On': '켜짐',
   'Downloading update': '업데이트 다운로드 중',
   'Checking update': '업데이트 확인 중',
   'Unpacking update': '업데이트 압축 해제 중',

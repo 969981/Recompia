@@ -18,6 +18,9 @@
   - Now: each button is drawn where it sits on your controller: A at the bottom, B at the right, X at the left, Y at the top. A remapped button layout is followed the same way
   - Until **Set up again** has run, the prompt stays as it was
 
+### Mods
+- Mods use global defaults with optional per-profile overrides for individual settings and enabled states. Every mod supports this automatically; "Use global" resumes inheritance. Update the launcher and runtime; use **Set up again** if prompted. Shaders are retained.
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).

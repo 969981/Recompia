@@ -22,7 +22,7 @@ pub fn profiles_play_time(app: AppHandle) -> HashMap<String, u64> {
 }
 
 pub fn profiles_guard(app: &AppHandle) -> Result<PathBuf, String> {
-    ensure_idle(app, &[Need::Game("The game is running. Close it first, then change profiles."), Need::Update])?;
+    ensure_idle(app, &[Need::Game("The game is running. Close it first, then change profiles."), Need::Setup("Setup is running. Wait for it to finish, then change your mods."), Need::Update])?;
     Ok(game_dir(app))
 }
 
@@ -41,10 +41,16 @@ pub fn profile_rename(app: AppHandle, id: String, name: String) -> Result<profil
 
 #[tauri::command]
 pub fn profile_remove(app: AppHandle, id: String) -> Result<profiles::Store, String> {
-    profiles::remove(&profiles_guard(&app)?, &id)
+    let dir = profiles_guard(&app)?;
+    let profiles = profiles::remove(&dir, &id)?;
+    crate::mods::refresh_plan(&dir)?;
+    Ok(profiles)
 }
 
 #[tauri::command]
 pub fn profile_select(app: AppHandle, id: String) -> Result<profiles::Store, String> {
-    profiles::select(&profiles_guard(&app)?, &id)
+    let dir = profiles_guard(&app)?;
+    let profiles = profiles::select(&dir, &id)?;
+    crate::mods::refresh_plan(&dir)?;
+    Ok(profiles)
 }

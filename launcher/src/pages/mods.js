@@ -24,11 +24,14 @@ export async function render(el, ctx) {
   let tab = 'browse';
   const open = new Set(); // ids of the installed mods shown opened (kept across redraws)
   let view = null;        // mods_list
+  let profiles = null;
+  let profile = null;     // editor scope; null = global defaults, never changes the profile used by Play
   let listError = '';
   let catalog = null;     // mods_catalog
   let catalogError = '';
   let group = '';         // the Browse filter chip: a group key, '' = All
   let busy = false;       // a change or an install is on its way: every control waits
+  const profileBusy = (s) => busy || gameActive(s) || s.starting || !!s.task;
   let autoUpdate = false; // launcher.json mods_auto_update (the switch for the hub's updates)
 
   el.innerHTML = `<div class="page mods">
@@ -58,8 +61,10 @@ export async function render(el, ctx) {
   /** The launcher's own preference for the hub's mods (the update itself runs at launcher start, mods_update.rs). */
   function prefsHtml() {
     if (tab !== 'installed') return '';
-    return `<div class="mods-pref glass">${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
-      <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p></div>`;
+    const scope = profiles ? row(t('Settings for'), select('mods-scope', [['', t('Global defaults')], ...profiles.profiles.map((p) => [p.id, p.name])],
+      profile ?? '', { label: t('Settings for'), disabled: profileBusy(store.state) })) : '';
+    return `<div class="mods-pref glass">${scope}${!profile ? `${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
+      <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p>` : ''}</div>`;
   }
 
   /** Unlock or Lock for a row the launcher locks (what: 'mod' or 'sharing'); '' for any other. */
@@ -81,7 +86,9 @@ export async function render(el, ctx) {
     else html = field(id, s.text, '', { ...opts, mono: s.kind === 'key' });
     // the data attributes go on the control itself, so a change event names its mod and setting
     html = html.replace(`id="${id}"`, `id="${id}" ${attrs}`) + lockButton(s, 'sharing');
-    const label = s.restart ? `${s.label} ${t('(after a restart of the game)')}` : s.label;
+    if (profile) html += `<button class="btn quiet sm" data-act="setting-inheritance" data-id="${esc(m.id)}" data-key="${esc(s.key)}" ${busy || s.locked ? 'disabled' : ''}>${esc(s.overridden ? t('Use global') : t('Override'))}</button>`;
+    let label = s.restart ? `${s.label} ${t('(after a restart of the game)')}` : s.label;
+    if (profile) label += ` · ${s.overridden ? t('Override') : t('Inherited')}`;
     return row(label, html);
   }
 
@@ -95,6 +102,10 @@ export async function render(el, ctx) {
     const opened = open.has(m.id);
     const msg = m.message ? `<div class="banner ${m.state === 'error' ? 'danger' : 'warn'} mod-msg">${icon(m.state === 'error' ? 'circle-x' : 'circle-alert')}<div class="grow selectable">${esc(m.message)}</div></div>` : '';
     const sets = m.settings.length ? `<div class="mod-settings">${m.settings.map((s, i) => settingControl(m, s, i, mi)).join('')}</div>` : '';
+    const enabled = profile ? select(`mod-on-${mi}`, [['inherit', `${t('Use global')} (${m.global_enabled ? t('On') : t('Off')})`], ['on', t('On')], ['off', t('Off')]],
+      m.enabled_override == null ? 'inherit' : m.enabled_override ? 'on' : 'off', { label: t('{name} on', { name: m.name || m.id }), disabled: busy || m.locked })
+      .replace('<select ', `<select data-enabled="${esc(m.id)}" `)
+      : toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy || (m.locked && m.enabled) }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`);
     const lock = m.locked ? `<p class="faint mods-note">${esc(t('Locked: the launcher keeps it on, so your achievements and stats are recorded. Unlock it to switch it off or remove it.'))}</p>` : '';
     const name = m.name || m.id;
     return `<section class="mod glass ${opened ? 'open' : ''}" data-id="${esc(m.id)}">
@@ -106,7 +117,7 @@ export async function render(el, ctx) {
             <span class="mod-by">${esc(byLine(m))}</span>
           </span>
         </button>
-        ${toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy || (m.locked && m.enabled) }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`)}
+        ${enabled}
       </div>
       <div class="cluster">${badges(m).map(chip).join('')}</div>
       ${msg}
@@ -115,11 +126,11 @@ export async function render(el, ctx) {
       ${lock}
       ${sets}
       <div class="cluster mod-actions">
-        <button class="btn quiet sm" data-act="up" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} earlier', { name: m.name || m.id }))}" ${canMove(list, mi, -1) && !busy ? '' : 'disabled'}>${icon('arrow-up')}${esc(t('Earlier'))}</button>
-        <button class="btn quiet sm" data-act="down" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} later', { name: m.name || m.id }))}" ${canMove(list, mi, 1) && !busy ? '' : 'disabled'}>${icon('arrow-down')}${esc(t('Later'))}</button>
+        ${!profile ? `<button class="btn quiet sm" data-act="up" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} earlier', { name: m.name || m.id }))}" ${canMove(list, mi, -1) && !busy ? '' : 'disabled'}>${icon('arrow-up')}${esc(t('Earlier'))}</button>
+        <button class="btn quiet sm" data-act="down" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} later', { name: m.name || m.id }))}" ${canMove(list, mi, 1) && !busy ? '' : 'disabled'}>${icon('arrow-down')}${esc(t('Later'))}</button>` : ''}
         <span class="grow"></span>
         ${lockButton(m, 'mod')}
-        <button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${busy || m.locked ? 'disabled' : ''}>${icon('trash-2')}${esc(t('Remove'))}</button>
+        ${!profile ? `<button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${busy || m.locked ? 'disabled' : ''}>${icon('trash-2')}${esc(t('Remove'))}</button>` : ''}
       </div>` : ''}
     </section>`;
   }
@@ -203,7 +214,8 @@ export async function render(el, ctx) {
 
   async function loadList() {
     try {
-      view = await api.modsList();
+      view = await api.modsList({ profile });
+      profiles = await api.profilesList();
       listError = '';
     } catch (e) {
       listError = errText(e);
@@ -231,6 +243,7 @@ export async function render(el, ctx) {
     draw(key);
     try {
       view = await call();
+      if ((view.profile ?? null) !== profile) view = await api.modsList({ profile });
       if (done) toast(done, 'ok');
       return true;
     } catch (e) {
@@ -255,16 +268,17 @@ export async function render(el, ctx) {
   }
 
   async function switchMod(input) {
-    const m = view?.mods.find((x) => x.id === input.dataset.on);
+    const m = view?.mods.find((x) => x.id === (input.dataset.on || input.dataset.enabled));
     if (!m) return;
-    const on = input.checked;
+    const inherit = !!input.dataset.enabled && input.value === 'inherit';
+    const on = input.dataset.enabled ? inherit ? m.global_enabled : input.value === 'on' : input.checked;
     let allow = false;
     if (on && m.needs_yes) {
       const q = allowQuestion(m);
       allow = await confirm({ title: q.title, html: questionHtml(q), ok: q.ok });
-      if (!allow) { input.checked = false; return; }
+      if (!allow) { draw(); return; }
     }
-    await apply(() => api.modsSetEnabled({ id: m.id, on, allow }));
+    await apply(() => api.modsSetEnabled({ id: m.id, on, allow, profile, inherit }));
   }
 
   async function install(id) {
@@ -321,11 +335,20 @@ export async function render(el, ctx) {
       return;
     }
     if (c.id === 'mods-auto-update') return saveAutoUpdate(c.checked);
-    if (c.dataset.on) return switchMod(c);
+    if (c.id === 'mods-scope') {
+      if (busy) return;
+      profile = c.value || null;
+      return apply(async () => {
+      view = null;
+      try { const next = await api.modsList({ profile }); listError = ''; return next; }
+      catch (e) { listError = errText(e); throw e; }
+      });
+    }
+    if (c.dataset.on || c.dataset.enabled) return switchMod(c);
     if (c.dataset.key) {
       const m = view?.mods.find((x) => x.id === c.dataset.mod);
       const s = m?.settings.find((x) => x.key === c.dataset.key);
-      if (s) apply(() => api.modsSetSetting({ id: m.id, key: s.key, ...settingValue(s, c) }));
+      if (s) apply(() => api.modsSetSetting({ id: m.id, key: s.key, ...settingValue(s, c), profile }));
     }
   });
   el.addEventListener('click', (e) => {
@@ -333,6 +356,12 @@ export async function render(el, ctx) {
     if (!b || b.disabled) return;
     const id = b.dataset.id;
     switch (b.dataset.act) {
+      case 'setting-inheritance': {
+        const m = view?.mods.find((m) => m.id === id), s = m?.settings.find((s) => s.key === b.dataset.key);
+        if (!s || !profile) return;
+        const value = settingValue(s, { checked: s.number !== 0, value: s.kind === 'choice' ? s.number : s.text });
+        return apply(() => api.modsSetSetting({ id, key: s.key, ...value, profile, inherit: !!s.overridden }));
+      }
       case 'up': return apply(() => api.modsMove({ id, delta: -1 }));
       case 'down': return apply(() => api.modsMove({ id, delta: 1 }));
       case 'fold': if (!open.delete(id)) open.add(id); return draw();
@@ -352,6 +381,8 @@ export async function render(el, ctx) {
 
   ctx.on((_s, why) => {
     if (['app', 'game', 'task', 'setup'].includes(why)) part('mods-banners').innerHTML = bannersHtml();
+    const scope = el.querySelector('#mods-scope');
+    if (scope) scope.disabled = profileBusy(_s);
   });
 
   api.getConfig().then((c) => { autoUpdate = !!c?.mods_auto_update; draw(); }).catch((e) => console.warn('get_config', e));

@@ -125,7 +125,7 @@ export async function render(el, _ctx) {
 
   async function loadMods() {
     try {
-      modsView = await api.modsList();
+      modsView = await api.modsList({ active: true });
     } catch (e) {
       console.warn('mods_list', e);
       modsView = null;
@@ -155,6 +155,7 @@ export async function render(el, _ctx) {
     redraw();
     try {
       modsView = await call();
+      await loadMods();
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -172,7 +173,7 @@ export async function render(el, _ctx) {
       allow = await confirm({ title: q.title, html: q.lines.map((l) => `<p>${esc(l)}</p>`).join(''), ok: q.ok });
       if (!allow) return;
     }
-    await change(() => api.modsSetEnabled({ id: mod.id, on: true, allow }));
+    await change(() => api.modsSetEnabled({ id: mod.id, on: true, allow, profile: mod.locked ? null : modsView?.profile }));
   }
 
   async function install() {
@@ -195,7 +196,7 @@ export async function render(el, _ctx) {
 
   async function shareOn() {
     const { mod } = modState(modsView, view.mod_id);
-    if (mod) await change(() => api.modsSetSetting({ id: mod.id, key: 'share', number: 1 }));
+    if (mod) await change(() => api.modsSetSetting({ id: mod.id, key: 'share', number: 1, profile: modsView?.locks?.sharing ? null : modsView?.profile }));
   }
 
   /** Unlock asks first (what turning it off costs the player); Lock keeps it on again at once (installs it when it was removed). */

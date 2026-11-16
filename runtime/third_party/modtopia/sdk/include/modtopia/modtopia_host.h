@@ -36,7 +36,7 @@
 extern "C" {
 #endif
 
-#define MT_CORE_VERSION "0.7.0"
+#define MT_CORE_VERSION "0.8.0"
 
 typedef struct MtLoader MtLoader;
 
@@ -151,13 +151,17 @@ typedef struct MtOptions {
     const char *config_dir;      /* the players' settings, config/<id>.toml (NULL: <mods_dir>/../config) */
     const char *cache_dir;       /* unpacked packages and known-code.toml (NULL: <mods_dir>/.modtopia) */
     const char *mappings_dir;    /* the folder of <game version>.toml mappings (NULL: none: mapped names do not resolve, no AreaEntered) */
-    int no_code;                 /* 1: no code is ever loaded (a launcher's plan, a safe mode); data mods still are */
+    int no_code;                 /* 1: never load code; 2: also hold untrusted code off in the plan/list without changing preferences */
 } MtOptions;
 
 /* ---------------------------------------------------------------- lifecycle */
 /* A loader for one game. opt and be are copied (their strings must outlive the loader). One loader per process: the MtHost calls mods make
    without a mod (mem_read, call_guest, frame) reach the loader that was started last */
 MtLoader *mt_loader_new(const MtOptions *opt, const MtBackend *be);
+/* Before scan: select a profile using the SDK account-id bytes encoded as 32 hex digits; NULL/empty selects global editing.
+   The runtime defaults to be.save_identity. Profiles inherit global settings and enabled states unless explicitly overridden.
+   Copies the key. MT_ERR: invalid/zero key; MT_ERR_STATE: already scanned/started. data_dir and load order stay global. */
+int mt_loader_set_config_account(MtLoader *L, const char *key);
 /* Frees the loader's lists. Unloads nothing: code mods stay mapped and their hooks stay registered until the process ends */
 void mt_loader_free(MtLoader *L);
 /* Reads mods/modtopia.toml and the mappings, finds every mod in mods_dir (.pkmod / .zip packages, mod folders, LayeredFS folders and zips),
@@ -232,7 +236,7 @@ enum { MT_STATE_OK = 0, MT_STATE_OFF = 1, MT_STATE_ERROR = 2 };
 enum { MT_MOD_HAS_CODE = 1, MT_MOD_HAS_DATA = 2, MT_MOD_LAYEREDFS = 4, MT_MOD_GAMEPLAY = 8, MT_MOD_NEW_CODE = 16,
        MT_MOD_KIND_GUESSED = 32,     /* GAMEPLAY decided by the loader from a LayeredFS mod's files (see mt_loader_set_affects) */
        MT_MOD_HAS_PATCHES = 64,      /* patches/ against the game's own files */
-       MT_MOD_NETWORK = 128 };       /* its mod.toml names hosts it may reach (MtModInfo.network) */
+        MT_MOD_NETWORK = 128 };       /* its mod.toml names hosts it may reach (MtModInfo.network) */
 typedef struct MtModInfo {
     const char *id, *name, *version, *authors, *description, *license;
     const char *source;      /* the file or folder in mods/ */
@@ -254,6 +258,9 @@ int mt_loader_find(MtLoader *L, const char *id);                     /* its inde
 
 /* The player's choices, saved at once to mods/modtopia.toml (0, or -1 when it cannot be written); they take effect at the next start */
 int mt_loader_set_enabled(MtLoader *L, const char *id, int on);
+int mt_loader_global_enabled(MtLoader *L, const char *id); /* global preference, before code-trust holdback */
+int mt_loader_enabled_override(MtLoader *L, const char *id); /* -1: inherited/global context; 0/1: profile override */
+int mt_loader_clear_enabled_override(MtLoader *L, const char *id); /* profile only; restores global preference */
 int mt_loader_move(MtLoader *L, const char *id, int delta);           /* earlier (-1) or later (+1) in the player's order; MT_ERR_STATE at an end */
 int mt_loader_save_list(MtLoader *L);
 /* A LayeredFS mod (no mod.toml) counts as gameplay for Link Play unless every one of its files is a visual-only kind (textures, movies, fonts,
@@ -280,11 +287,13 @@ int mt_setting_count(MtLoader *L, int mod);
 const MtSettingInfo *mt_setting_info(MtLoader *L, int mod, int i);
 int mt_setting_get_text(MtLoader *L, int mod, int i, char *out, size_t n);   /* the value as shown: On / Off, a number, the choice, the text */
 double mt_setting_get_number(MtLoader *L, int mod, int i);                   /* bool 0/1, number, choice index */
-/* A new value: clamped to min..max and the step (numbers), wrapped into range (choices), 0/1 (bools); saved to config/<id>.toml; then the mod's
+/* A new value: clamped to min..max and the step (numbers), wrapped into range (choices), 0/1 (bools); saved in the selected context; then the mod's
    on_config_changed callback runs on the calling thread unless the setting is restart. MT_OK, MT_ERR_UNKNOWN (no such setting), MT_ERR_STATE
    (text through set_number, or the reverse) */
 int mt_setting_set_number(MtLoader *L, int mod, int i, double v);
 int mt_setting_set_text(MtLoader *L, int mod, int i, const char *v);         /* text, key, or a choice by its name */
+int mt_setting_is_overridden(MtLoader *L, int mod, int i); /* 0/1; global context always 0 */
+int mt_setting_clear_override(MtLoader *L, int mod, int i); /* profile only; restore global value and notify */
 
 /* Link Play (SPEC §12): calls fn with "id@version" of every gameplay mod that is on (code mods only when they started), in load order; returns
    how many. A host sorts them and adds each to the session's mods fingerprint after its own features, so two hosts refuse the same mismatches */

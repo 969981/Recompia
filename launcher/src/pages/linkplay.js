@@ -407,6 +407,6 @@ export async function render(el, ctx) {
   checkFormat();
   draw();
   enter();
-  api.modsList().then((v) => { gameplayMods = v.gameplay; patch(part('lp-shared'), sharedHtml()); }).catch(() => {});
+  api.modsList({ active: true }).then((v) => { gameplayMods = v.gameplay; patch(part('lp-shared'), sharedHtml()); }).catch(() => {});
   return () => clearInterval(timer);
 }

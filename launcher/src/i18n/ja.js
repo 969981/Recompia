@@ -1,5 +1,11 @@
 // Launcher text in this language. The key is the English text the code passes to t(); {placeholders} stay as they are.
 export default {
+  'Global defaults': '全体の既定値',
+  'Settings for': '設定対象',
+  'Use global': '全体の設定を使用',
+  'Override': '上書き',
+  'Inherited': '継承',
+  'On': 'オン',
   'Downloading update': 'アップデートをダウンロード中',
   'Checking update': 'アップデートを確認中',
   'Unpacking update': 'アップデートを展開中',
