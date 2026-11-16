@@ -101,7 +101,7 @@ inline constexpr Spec kSpecs[] = {
     under(PokemonCap, i(PokemonCapLimit, "pokemon_cap_limit", 31, 25, 64,
                         "With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the game's 64 actor slots.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
-    s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs."),
+    s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events."),
     gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
     gameplay(b(PlayAsPokemon, "play_as_pokemon", true, "Experimental: ZL + D-pad Left turns the player into a Pokemon (play_as_pokemon_form) and keeps the form, ZL + D-pad Right turns back.")),
     live(i(PlayAsPokemonForm, "play_as_pokemon_form", 70, 2, 1000, "With play_as_pokemon: the character number of the form (70: Ditto), read at each press. Copying a Pokemon sets it.")),

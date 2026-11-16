@@ -2,8 +2,9 @@
 // In-game Options, the Time and Events tabs (pkp_options_model.h); the pure part (event file, calendar) is pkp_time.cpp.
 // Time: the game clock moved to a date and time (nxrt::services::timetravel, time.cpp). The date rows show the game's clock; "Time Travel"
 // On sets the game to them when the screen commits, Off puts the clock back on the real time. Nothing reaches Settings or the save file.
-// Events: one button row per line of [pkp] events_file (pokopia_events.tsv, read every time the screen opens); pressing one sets the game
-// clock to noon on the day the event starts, at once, fills the Time tab with it and marks that row "Chosen" (only one at a time).
+// Events: one button row per line of [pkp] events_file (pokopia_events.tsv, read every time the screen opens; no file: the built-in list
+// of pkp_time.cpp); pressing one sets the game clock to noon on the day the event starts, at once, fills the Time tab with it and marks
+// that row "Chosen" (only one at a time).
 #include "ui/pkp_options_model.h"
 
 #include <algorithm>
@@ -81,11 +82,14 @@ int real_today() {
     return v[0] * 10000 + v[1] * 100 + v[2];
 }
 
-// Reads the event file again (the launcher or a script may have changed it) and fills the Events tab's rows.
+// Reads the event file again (the launcher or a script may have changed it) and fills the Events tab's rows. No file: the built-in list
+// (pkp_time.cpp), so the tab is never empty on a fresh install.
 int load_events() {
     std::stringstream text;
     std::ifstream file(settings::get_str(settings::Key::EventsFile));
-    if (file) text << file.rdbuf();
+    const bool from_file = static_cast<bool>(file);
+    if (from_file) text << file.rdbuf();
+    else text << builtin_events();
     const int today = real_today();
     g_events = parse_events(text.str(), today, kMaxEvents);
     for (size_t i = 0; i < g_events.size(); ++i) {
@@ -99,7 +103,7 @@ int load_events() {
         g_event_rows[0] = Row{"No events found", g_none_desc.c_str(), {kChoose[0], kChoose[1]}, 2, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr,
                               nullptr, [](const S&) { return 0; }, [](S&, int) {}, false, false};
     }
-    NXLOG_I(kTag, "options: %zu events from %s", g_events.size(), settings::get_str(settings::Key::EventsFile).c_str());
+    NXLOG_I(kTag, "options: %zu events from %s", g_events.size(), from_file ? settings::get_str(settings::Key::EventsFile).c_str() : "the built-in list");
     return g_events.empty() ? 1 : static_cast<int>(g_events.size());
 }
 
