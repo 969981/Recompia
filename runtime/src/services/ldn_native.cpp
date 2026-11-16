@@ -216,7 +216,11 @@ coop_node* native_node() {
     // module's room list: anyone finds it with the game's search, the game's own Link Code keeps a room private); without a relay every
     // player uses the module's open code, so a host and its visitors agree.
     const std::string relay = config_get_str("net", "relay", "");
-    const std::string room = internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
+    // A private room ([net] private_room, set per start by the launcher for a coop group, never written to an ini): every member
+    // uses the same code and the room is not listed on the relay. The retired room_code key stays ignored.
+    std::string priv = config_get_str("net", "private_room", "");
+    text::trim_blanks(priv);
+    const std::string room = !priv.empty() && internet ? priv : internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
     // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
     // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
     if (internet && !relay.empty() && mode.compare(0, 5, "join:") == 0) {

@@ -12,10 +12,9 @@
 //!   NXRT_FS_SAVE_DIR=<folder>    the co-op folder is the whole save folder of this run (coop_save.rs has its layout)
 //!   NXRT_ACCOUNT_UID, NXRT_ACCOUNT_NICKNAME    the shared account of the save, and this member's name
 //!   NXRT_NET_PROTOCOL=native, NXRT_NET_MODE=auto, NXRT_NET_INTERNET=true, NXRT_NET_RELAY=<relay>, NXRT_NET_UID=<member id>
-//!   NXRT_NET_ROOM_CODE=<room code>    the private room on the relay. NOT EFFECTIVE YET: the native Link Play ignores `[net] room_code`
-//!                                     (runtime/src/services/ldn_native.cpp passes no room to coop_cfg_parse_ex), so without that change the
-//!                                     room is the listed one. The co-op module takes a fixed code as is (coop_cfg_parse_ex `room`, same
-//!                                     alphabet as the code made here) and then does not list the room (`x_list` is only for a new code)
+//!   NXRT_NET_PRIVATE_ROOM=<room code> the private room on the relay (`[net] private_room`): not listed there, members only
+//!                                     The co-op module takes a fixed code as is (coop_cfg_parse_ex `room`, same alphabet as the code
+//!                                     made here) and then does not list the room (`x_list` is only for a new code)
 //!
 //! A start that is not a co-op start removes the four NXRT_PKP_COOP* variables from the game's environment (`apply` with None), so a
 //! launcher that was itself started with them set cannot turn a singleplayer start into a co-op one.
@@ -62,7 +61,7 @@ pub fn build(p: &Profile, dir: &Path, singleplayer_save_dir: &Path) -> Result<(L
         ("NXRT_NET_INTERNET", "true".to_string()),
         ("NXRT_NET_RELAY", p.relay.clone()),
         ("NXRT_NET_UID", me.id.clone()),
-        ("NXRT_NET_ROOM_CODE", p.room_code.clone()),
+        ("NXRT_NET_PRIVATE_ROOM", p.room_code.clone()),
     ];
     Ok((Launch { env }, choice))
 }
@@ -114,7 +113,7 @@ mod tests {
         assert_eq!(l.get("NXRT_PKP_COOP_MEMBER"), Some(p.me.as_str()));
         assert_eq!(l.get("NXRT_NET_UID"), Some(p.me.as_str()));
         assert_eq!(l.get("NXRT_FS_SAVE_DIR"), Some(dir.display().to_string().as_str()));
-        assert_eq!(l.get("NXRT_NET_ROOM_CODE"), Some(p.room_code.as_str()));
+        assert_eq!(l.get("NXRT_NET_PRIVATE_ROOM"), Some(p.room_code.as_str()));
         assert_eq!(l.get("NXRT_NET_RELAY"), Some("192.0.2.10"));
         // nothing known yet: the creator hosts
         assert_eq!(l.get("NXRT_PKP_COOP_ROLE"), Some("host"));
