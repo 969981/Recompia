@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn an_entry_that_does_not_fit_or_cannot_be_downloaded_is_skipped() {
         let other_game = entry("a", "1.1.0", "").replace(r#""game": ["2.0.1"]"#, r#""game": ["1.0.5"]"#);
-        let too_new = entry("b", "1.1.0", "").replace(">=0.3.0 <1.0.0", ">=0.7.0");
+        let too_new = entry("b", "1.1.0", "").replace(">=0.3.0 <1.0.0", ">=99.0.0");
         let foreign = entry("c", "1.1.0", "").replace(DOWNLOAD_HOST, "https://example.invalid/");
         let soon = r#"{"id": "d", "name": "d", "version": "1.1.0", "game": ["2.0.1"], "needs": ">=0.3.0 <1.0.0", "download": null}"#.to_string();
         let c = list(false, &[other_game, too_new, foreign, soon]);

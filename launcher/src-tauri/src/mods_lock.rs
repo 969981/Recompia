@@ -213,6 +213,9 @@ pub fn keep(game_dir: &Path, locks: Locks, load: impl FnOnce() -> Result<(Catalo
             break;
         }
     }
+    if locks.kept || locks.sharing {
+        mods::clear_locked_overrides(game_dir, MOD_ID, locks.kept, locks.sharing.then_some(SHARE))?;
+    }
     Ok(done)
 }
 
@@ -335,5 +338,18 @@ mod tests {
         let m = open.mods.iter().find(|m| m.id == MOD_ID).unwrap();
         assert!(!m.locked && m.lockable && m.settings.iter().all(|s| !s.locked && s.lockable == (s.key == SHARE)), "unlocked: Lock is offered");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn locking_again_removes_profile_exceptions() {
+        let dir = game("lock-profile", true);
+        let profile = crate::profiles::add(&dir, "Other").unwrap().profiles.last().unwrap().id.clone();
+        mods::set_enabled_for_profile(&dir, MOD_ID, false, false, Some(&profile), false).unwrap();
+        mods::set_setting_for_profile(&dir, MOD_ID, SHARE, Some(0.0), None, Some(&profile), false).unwrap();
+        keep(&dir, LOCKED, || panic!("already installed")).unwrap();
+        let m = mods::list_for_profile(&dir, Some(&profile)).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
+        assert!(m.enabled && m.enabled_override.is_none());
+        assert!(m.settings.iter().filter(|s| s.key == SHARE).all(|s| s.number == 1.0 && !s.overridden));
+        let _ = fs::remove_dir_all(dir);
     }
 }

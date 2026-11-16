@@ -1,5 +1,11 @@
 // Launcher text in this language. The key is the English text the code passes to t(); {placeholders} stay as they are.
 export default {
+  'Global defaults': 'Valeurs globales par défaut',
+  'Settings for': 'Paramètres pour',
+  'Use global': 'Utiliser la valeur globale',
+  'Override': 'Remplacer',
+  'Inherited': 'Hérité',
+  'On': 'Activé',
   'Downloading update': 'Téléchargement de la mise à jour',
   'Checking update': 'Vérification de la mise à jour',
   'Unpacking update': 'Décompression de la mise à jour',

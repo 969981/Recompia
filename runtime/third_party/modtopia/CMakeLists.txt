@@ -1,8 +1,8 @@
-# Modtopia 0.6.1 (MIT, README.md, THIRD_PARTY_NOTICES.md): the mod loader core, vendored unchanged. Portable C11 with no dependencies; the
+# Modtopia (MIT, README.md, THIRD_PARTY_NOTICES.md): the mod loader core with local extensions. Portable C11 with no dependencies; the
 # runtime's mods host (src/mods/) calls it through sdk/include/modtopia/modtopia_host.h. Its tests, tools and example mods are not vendored.
 add_library(nxrt_modtopia STATIC
     core/src/mt_util.c core/src/mt_toml.c core/src/mt_version.c core/src/mt_zip.c core/src/mt_manifest.c core/src/mt_loader.c
-    core/src/mt_runtime.c core/src/mt_patch.c core/src/mt_net.c core/src/mt_png.c)
+    core/src/mt_runtime.c core/src/mt_patch.c core/src/mt_net.c core/src/mt_png.c core/src/mt_config.c)
 target_include_directories(nxrt_modtopia PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include)
 set_target_properties(nxrt_modtopia PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 target_compile_definitions(nxrt_modtopia PRIVATE _CRT_SECURE_NO_WARNINGS)

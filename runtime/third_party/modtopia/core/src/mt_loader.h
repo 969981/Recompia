@@ -41,6 +41,9 @@ struct MtMod {
     MtPoint *pts;
     int npts;
     MtCfgVal *cfg;
+    MtCfgVal *global_cfg;
+    uint8_t *cfg_overrides;
+    int cfg_error;
     MtConfigFn cfg_fn;
     void *cfg_user;
     void *lib;
@@ -65,6 +68,9 @@ typedef struct EventSlot { char *name; SubList *volatile list; } EventSlot;
 struct MtLoader {
     MtBackend be;
     char *mods_dir, *config_dir, *cache_dir, *mappings_dir;
+    char config_account[33]; /* hex account-id bytes; empty when no account is selected */
+    MtStrs profile_on, profile_off;
+    int profile_error;
     int no_code;
     Mod **mods;
     int nmods;
@@ -102,6 +108,11 @@ const char *mt_mapping_area_name(MtLoader *L, int32_t area);
 uint64_t mt_resolve_name(MtLoader *L, const char *name, uint32_t *word, char module[16], uint64_t *offset);
 void mt_mod_message(Mod *m, int state, const char *fmt, ...);
 void mt_info_refresh(Mod *m);
+Mod *mt_mod_at(MtLoader *L, int index);
+/* mt_config.c: layered settings and the selected profile's enabled-state overrides */
+void mt_config_load(MtLoader *L, Mod *m);
+void mt_profile_load(MtLoader *L);
+int mt_profile_set_enabled(MtLoader *L, const char *id, int value); /* -1 removes the override */
 
 /* mt_runtime.c */
 void mt_host_init(MtLoader *L);
