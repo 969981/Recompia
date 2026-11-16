@@ -4,6 +4,10 @@
 
 ### Changed
 - An update that stops now writes its error to setup.log, with the step it reached
+- A crash report now lists the render targets the game was drawing to when it crashed (#720)
+
+### Fixed
+- Fixed a post-processing effect of the game not being drawn at low render scales (below about 53%, such as 75% in a 1280x720 window) (#720)
 
 ## 0.14.0 (build R: Raccoon)
 
