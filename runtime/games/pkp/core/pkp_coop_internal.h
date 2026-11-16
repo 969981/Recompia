@@ -7,6 +7,7 @@
 //   pkp_coop_wire.h       the messages: type ids and payload layouts
 //   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
+//   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -84,5 +85,17 @@ void on_member(::Ctx* c, int node, bool joined);
 void tick();
 void reset();
 }  // namespace talk
+
+namespace catchup {
+// The hook sites (pkp_coop.cpp).
+int on_name_entry(::Ctx* c);     // entry 0x43d3e0: script command 0x44, the name entry
+int on_script_items(::Ctx* c);   // entry 0x12c734: script command 0xbea, items given
+// The messages (pkp_coop_link.cpp).
+void on_name_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The talker's name watch, this player's name prompt and the received items (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace catchup
 
 }  // namespace nxrt::games::pkp::coop

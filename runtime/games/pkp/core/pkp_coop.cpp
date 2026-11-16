@@ -2,8 +2,9 @@
 // Pokémon Pokopia: seamless co-op's hooks into the 2.0.1 main (pkp_coop.h).
 //
 // Every site the co-op phases need is registered here, in coop mode only, so the game libraries are lifted once with all of them
-// (recomp/games/pkp/main.sites). Each hook passes through for now (returns 0: the game's own code runs); the comment of each site says
-// what the story, session and save parts of co-op do there. The sites are checked once main is loaded (pkp_site_check.h): one that is
+// (recomp/games/pkp/main.sites). Each hook hands its site to the part of co-op that owns it (pkp_coop_internal.h); the comment of each
+// site says what that part does there. The session and save sites pass through until their parts land (returns 0: the game's own code
+// runs). The sites are checked once main is loaded (pkp_site_check.h): one that is
 // not the expected instruction, or a midhook site the lifted libraries lack, removes every co-op hook.
 #include "core/pkp_coop.h"
 #include "core/pkp_coop_internal.h"
@@ -125,6 +126,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
+        case Site::NameEntry: return coop::catchup::on_name_entry(c);
+        case Site::ScriptItems: return coop::catchup::on_script_items(c);
         default: return 0;
     }
 }
@@ -186,6 +189,7 @@ void game_frame(::Ctx* c) {
     coop::link::tick(c);
     coop::story::tick(c);
     coop::talk::tick();
+    coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -199,6 +203,7 @@ void remove() {   // the registry has removed the hooks
     coop::link::reset();
     coop::story::reset();
     coop::talk::reset();
+    coop::catchup::reset();
     coop::session::reset();
 }
 

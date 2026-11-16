@@ -35,6 +35,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::TalkAsk, false, &talk::on_ask},
     {wire::Type::TalkDone, false, &talk::on_done},
     {wire::Type::TalkHolder, false, &talk::on_holder},
+    {wire::Type::NamePrompt, true, &catchup::on_name_message},
+    {wire::Type::Items, true, &catchup::on_items_message},
 };
 
 struct State {
