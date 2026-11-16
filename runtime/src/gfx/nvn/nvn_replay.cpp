@@ -40,6 +40,7 @@ static void rp_flush() {
 GpuWrites g_gw;
 static void note_gw(uint64_t addr, uint64_t size) {
     if (!size || !F) return;
+    ++g_gw.gen;
     GpuWrite& last = g_gw.ring[(g_gw.next + kGpuWriteRing - 1) % kGpuWriteRing];
     if (g_gw.count && last.lo == addr && last.hi == addr + size) { last.serial = F->serial; return; }
     GpuWrite& w = g_gw.ring[g_gw.next];
@@ -47,6 +48,25 @@ static void note_gw(uint64_t addr, uint64_t size) {
     else ++g_gw.count;
     w = {addr, addr + size, F->serial};
     g_gw.next = (g_gw.next + 1) % kGpuWriteRing;
+}
+
+bool gw_settled_fast(uint64_t addr, uint64_t size) {
+    static std::vector<GpuWrite> pending;     // ranges of the ring whose submission had not completed at `done`
+    static uint64_t gen = UINT64_MAX, done = UINT64_MAX;
+    static bool lost = false;
+    const uint64_t now_done = completed_serial();     // cached: a stale value only keeps more ranges pending
+    if (gen != g_gw.gen || done != now_done) {
+        gen = g_gw.gen;
+        done = now_done;
+        lost = g_gw.lost_serial > done;
+        pending.clear();
+        for (size_t i = 0; i < g_gw.count; ++i)
+            if (g_gw.ring[i].serial > done) pending.push_back(g_gw.ring[i]);
+    }
+    if (lost) return false;
+    for (const GpuWrite& w : pending)
+        if (addr < w.hi && w.lo < addr + size) return false;
+    return true;
 }
 
 void gpu_wrote(uint64_t addr, uint64_t size, int use) {

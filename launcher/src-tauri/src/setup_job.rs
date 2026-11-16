@@ -184,13 +184,14 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
                 return Ok(false);
             }
             // the shaders the game builds while it runs: one hidden run collects those of the opening; later ones are
-            // collected by every normal run, and every Play checks them all (play.rs)
-            emit(shaders::Progress {
-                state: RunState::Running,
-                phase: "warmup".into(),
-                message: format!("Running the game once in the background to collect the shaders it builds while it runs (about {} s)...", shaders::WARMUP_SECONDS),
-                ..Default::default()
-            });
+            // collected by every normal run, and every Play checks them all (play.rs). The hidden run happens only while no run has
+            // collected any (shaders::prepare); otherwise prepare only translates what earlier runs collected, so say that instead.
+            let message = if shaders::needs_warm_up(&job.game_dir) {
+                format!("Running the game once in the background to collect the shaders it builds while it runs (about {} s)...", shaders::WARMUP_SECONDS)
+            } else {
+                "Checking the shaders the game builds while it runs...".to_string()
+            };
+            emit(shaders::Progress { state: RunState::Running, phase: "warmup".into(), message, ..Default::default() });
             Ok(shaders::prepare(&job.game_dir, &tools_dir, &st.cancel)?.is_some())
         })();
         let end = match result {

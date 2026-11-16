@@ -32,6 +32,7 @@
 #include "nvn_gpu_internal.h"
 #include "nvn_thread.h"
 #include "nvn_mirror_cap.h"
+#include "nvn_gpu_pool_internal.h"
 
 namespace nxrt::nvn::be {
 
@@ -44,6 +45,8 @@ MemoryPool::~MemoryPool() {
 }
 
 namespace gpu {
+using namespace pool_detail;   // the pool and sparse files share these (nvn_gpu_pool_internal.h)
+
 namespace {
 
 constexpr const char* kTag = "nvn.pool";
@@ -175,8 +178,6 @@ void note_import(uint64_t size, double ms) {
 }
 
 void destroy_chunk(PoolChunk& c);
-
-uint32_t presents_now() { return static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed)); }
 
 // A failed import is tried again, never given up on: a driver refuses to pin more host memory for a while (vkAllocateMemory
 // VK_ERROR_OUT_OF_DEVICE_MEMORY on a GTX 1060, #304), and with no retry every draw reading that chunk bound the dummy buffer until a
@@ -918,43 +919,25 @@ void pool_gpu_destroy(PoolGpu* p) {
 // its pages, so a pool of gigabytes (Pokopia's 3.5 GiB graphics heap) costs video memory only for the parts draws read. A bind that spans
 // two chunks reads the pool. When the cap is used up, chunks no draw used for a while are released for new ones (release_idle_chunks).
 //
+// Sparse copies ([nvn] mirror_sparse, nvn_mirror_cap.h: a cap under kMirrorLargeCap on a discrete GPU that can bind sparse buffers): the
+// copy is one sparse buffer the size of the pool instead of chunks, bound to device-local memory in granules of kMirrorGranule, each the
+// first time a draw wants one of its pages, so the cap holds the granules draws read rather than whole chunks around them, and no bind is
+// across two chunks. Idea from pokopia-native (MIT), windows/src/nxrt/vk/vk_mem.c: one sparse device-local buffer per pool with 2 MB
+// granules bound on first use. A granule a bind, fill or copy wants is bound by one vkQueueBindSparse at the start of a later submission
+// (sparse_submit) and used once that bind has run (sparse_poll); until then its pages are read from the pool. Idle granules are unbound
+// when the cap is used up (sparse_release). The memory is 32 MiB blocks cut into granules (sparse_piece).
+//
 // [nvn] pool_mirror = on (default) | off.
-struct Mirror {
-    std::vector<gfx::Buffer> chunks;    // the copy, chunk_bytes() each (the last one may be shorter); empty until a draw wants a page in it
-    std::vector<uint32_t> chunk_used_at;      // per chunk: present count of the last bind, fill or copy that named it (release_idle_chunks)
-    std::vector<uint64_t> chunk_used_serial;  // per chunk: the submission being recorded then
-    PoolGpu* pg = nullptr;              // the pool (the copies read its chunk imports, mirror_src)
-    mem::ww::Region* ww = nullptr;      // the CPU's writes to the pool's pages
-    uint64_t npages = 0;
-    std::vector<uint64_t> want;         // bitmap: a draw wanted the page while it was not valid
-    std::vector<uint32_t> copied_at;    // present count of the last copy (0: never)
-    std::vector<uint64_t> used;         // bitmap: a draw read the page from the copy since it was copied
-    std::vector<uint8_t> score;         // copies in a row that the CPU overwrote before any draw read them
-    std::vector<uint8_t> backoff;       // how often the page has been hot in a row (the hold doubles each time)
-    std::vector<uint32_t> hot_until;    // present count until which the page is not copied
-    bool any_want = false;
-    uint64_t want_lo = UINT64_MAX, want_hi = 0;   // [nvn] setup_coalesce: the pages [want_lo, want_hi] hold every set bit of `want`
-    int pool_flags = 0;
-    int64_t st_written = 0, st_copied = 0;   // pages the CPU wrote after a copy, pages copied (summary line)
-    uint64_t pool_bytes = 0;
-    // compute out (below): pages where a compute result in the copy is newer than the pool, and pages the CPU has read compute results
-    // from (any thread sets them; atomics)
-    std::unique_ptr<std::atomic<uint64_t>[]> gpu_new, cpu_read;
-};
 
 namespace {
 
 enum class MirrorMode { Off, On };
-constexpr uint64_t kPageBytes = 4096;
 constexpr uint64_t kMaxBindPages = (64ull << 20) / kPageBytes;      // a binding over more than 64 MiB stays in the pool
 constexpr uint64_t kCopyBudget = 64ull << 20;                        // bytes copied per submission at most (an area load can want hundreds of MiB)
 constexpr uint8_t kHotHits = 2;                                      // two copies in a row overwritten before any draw read them: the page is hot ...
 constexpr uint32_t kHotHold = 600;                                   // ... and is not copied for 600 presents, twice that the next time, ...
 constexpr uint8_t kHotMaxShift = 4;                                  // ... up to 16 times
 constexpr uint32_t kHotWindow = 4;                                   // a write this many presents or fewer after the copy counts even when draws read it
-// A chunk no bind, fill or copy named for this many presents may be released when the cap is used up (release_idle_chunks). Long enough that
-// chunks the current area draws from are never taken, so a scene that needs more than the cap keeps its chunks, as before.
-constexpr uint32_t kChunkIdle = 600;
 
 // [nvn] mirror_hot_used (default on): a page the CPU rewrites within kHotWindow presents of its copy, kHotHits times in a row, goes hot even
 // when draws read it (per-frame vertices, uniforms and texels). Each such rewrite was a write fault on the game's thread (a vectored exception
@@ -965,10 +948,19 @@ bool hot_used_on() {
     return on;
 }
 
+}  // namespace
+
+namespace pool_detail {
 std::vector<Mirror*> g_mirrors;      // render thread
 uint64_t g_mirror_bytes = 0;         // video memory of the chunks made
 uint64_t g_released_bytes = 0;       // video memory of the chunks released for new ones (release_idle_chunks), ever
 uint64_t g_released_n = 0;
+std::atomic<uint64_t> g_st_chunk_bytes_made{0};   // video memory of the copy chunks made, ever (the hitch line: new chunks during a slow frame)
+std::atomic<int64_t> g_st_live_bytes{0};   // video memory of the chunks made, for the gauge
+uint32_t presents_now() { return static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed)); }
+}  // namespace pool_detail
+
+namespace {
 uint32_t g_release_tried_at = UINT32_MAX;   // present count of the last release attempt: at most one search per present
 bool g_mirror_on = false;            // this submission reads mirrors (mode on and, with [nvn] gpuperf_ab, an "on" window)
 std::vector<uint64_t> g_written_tmp;
@@ -980,7 +972,6 @@ std::vector<VkBufferCopy> g_copy_tmp;
 // submissions. Render thread.
 int64_t g_arm_spent_ns = 0;
 std::atomic<uint64_t> g_st_arm_deferred{0};
-std::atomic<uint64_t> g_st_chunk_bytes_made{0};   // video memory of the copy chunks made, ever (the hitch line: new chunks during a slow frame)
 
 int64_t arm_budget_ns() {
     static const int64_t ns = std::max<int64_t>(0, config_get_int("nvn", "mirror_arm_ms", 3)) * 1000000;
@@ -1001,7 +992,7 @@ bool arm_timed(mem::ww::Region* r, uint64_t first, uint64_t count) {
     return ok;
 }
 
-std::atomic<int64_t> g_st_dev_binds{0}, g_st_host_binds{0}, g_st_copied{0}, g_st_hot{0}, g_st_live_bytes{0};
+std::atomic<int64_t> g_st_dev_binds{0}, g_st_host_binds{0}, g_st_copied{0}, g_st_hot{0};
 // statistics for the summary line (render thread): binds by use (to the copy / to the pool / not eligible), pages made stale by GPU writes by use
 int64_t g_use_dev[3] = {}, g_use_host[3] = {}, g_use_skip[3] = {};
 int64_t g_skip_why[5] = {};          // binds not eligible: outside a pool (or past its end), over 64 MiB, pool without a copy, two chunks, no chunk
@@ -1026,20 +1017,35 @@ MirrorMode mirror_mode() {
 // logged once.
 MirrorCap mirror_budget() {
     uint64_t vram = 0;
-    bool shared = false;
+    bool shared = false, discrete = false;
     if (VkPhysicalDevice pd = device().physical()) {
         VkPhysicalDeviceProperties pp{};
         vkGetPhysicalDeviceProperties(pd, &pp);
         shared = pp.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU || pp.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+        discrete = pp.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
         VkPhysicalDeviceMemoryProperties mp{};
         vkGetPhysicalDeviceMemoryProperties(pd, &mp);
         for (uint32_t h = 0; h < mp.memoryHeapCount; ++h)
             if (mp.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max<uint64_t>(vram, mp.memoryHeaps[h].size);
     }
     const int64_t set_mb = config_has("nvn", "pool_mirror_mb") ? std::max<int64_t>(0, config_get_int("nvn", "pool_mirror_mb", 0)) : -1;
-    const MirrorCap c = mirror_cap(vram, set_mb, shared);
-    NXLOG_I(kTag, "pool copies: cap %llu MiB (%s; largest device-local heap %llu MiB), chunks of %llu MiB%s", static_cast<unsigned long long>(c.bytes >> 20),
-            c.why, static_cast<unsigned long long>(vram >> 20), static_cast<unsigned long long>(c.chunk_bytes >> 20), c.bytes ? "" : ": no device-local copies");
+    MirrorCap c = mirror_cap(vram, set_mb, shared);
+    // [nvn] mirror_sparse = auto (default: nvn_mirror_cap.h mirror_sparse) | off
+    const std::string sv = config_get_str("nvn", "mirror_sparse", "auto");
+    const bool allowed = !(sv == "off" || sv == "0" || sv == "false");
+    const gfx::DeviceFeatures& ft = device().features();
+    const bool supported = ft.sparse_binding && ft.sparse_residency_buffer && ft.sparse_queue;
+    c.sparse = mirror_sparse(c, discrete, supported, allowed);
+    const char* not_sparse = "";      // a small cap that keeps its chunks: why (a large cap or no copies say nothing, as before)
+    if (!c.sparse && c.bytes && c.bytes < kMirrorLargeCap)
+        not_sparse = !allowed ? " ([nvn] mirror_sparse = off)" : !discrete ? " (not a discrete GPU)" : " (no sparse buffer binding on this device)";
+    if (c.sparse)
+        NXLOG_I(kTag, "pool copies: cap %llu MiB (%s; largest device-local heap %llu MiB), granules of %llu MiB (sparse)", static_cast<unsigned long long>(c.bytes >> 20),
+                c.why, static_cast<unsigned long long>(vram >> 20), static_cast<unsigned long long>(kMirrorGranule >> 20));
+    else
+        NXLOG_I(kTag, "pool copies: cap %llu MiB (%s; largest device-local heap %llu MiB), chunks of %llu MiB%s%s", static_cast<unsigned long long>(c.bytes >> 20),
+                c.why, static_cast<unsigned long long>(vram >> 20), static_cast<unsigned long long>(c.chunk_bytes >> 20), not_sparse,
+                c.bytes ? "" : ": no device-local copies");
     return c;
 }
 
@@ -1047,14 +1053,27 @@ const MirrorCap& mirror_cfg() {
     static const MirrorCap c = mirror_budget();
     return c;
 }
+}  // namespace
+
+namespace pool_detail {
 uint64_t mirror_cap_bytes() { return mirror_cfg().bytes; }
 uint64_t chunk_bytes() { return mirror_cfg().chunk_bytes; }
+}  // namespace pool_detail
+
+namespace {
+bool sparse_on() { return mirror_cfg().sparse; }
 
 bool bit_get(const std::vector<uint64_t>& v, uint64_t i) { return (v[static_cast<size_t>(i >> 6)] >> (i & 63)) & 1; }
+}  // namespace
+
+namespace pool_detail {
 void bit_put(std::vector<uint64_t>& v, uint64_t i, bool on) {
     if (on) v[static_cast<size_t>(i >> 6)] |= uint64_t{1} << (i & 63);
     else v[static_cast<size_t>(i >> 6)] &= ~(uint64_t{1} << (i & 63));
 }
+}  // namespace pool_detail
+
+namespace {
 
 bool page_valid(const Mirror& m, uint64_t p) { return mem::ww::page_valid(m.ww, p); }
 void out_register(Mirror* m);
@@ -1083,10 +1102,12 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
                 static_cast<void*>(pg->base), static_cast<unsigned long long>(pg->size >> 10));
         return nullptr;
     }
-    m->chunks.resize(static_cast<size_t>((pg->size + chunk_bytes() - 1) / chunk_bytes()));
-    m->chunk_used_at.assign(m->chunks.size(), 0);
-    m->chunk_used_serial.assign(m->chunks.size(), 0);
     m->pg = pg;
+    if (!sparse_on() || !sparse_create(*m)) {    // sparse_create fills chunk_used_* per granule
+        m->chunks.resize(static_cast<size_t>((pg->size + chunk_bytes() - 1) / chunk_bytes()));
+        m->chunk_used_at.assign(m->chunks.size(), 0);
+        m->chunk_used_serial.assign(m->chunks.size(), 0);
+    }
     m->pool_flags = mp->flags;
     m->npages = pg->size / kPageBytes;
     const size_t words = static_cast<size_t>((m->npages + 63) / 64);
@@ -1101,8 +1122,13 @@ Mirror* mirror_for(PoolGpu* pg, MemoryPool* mp) {
     m->cpu_read.reset(new std::atomic<uint64_t>[words]);
     for (size_t i = 0; i < words; ++i) { m->gpu_new[i].store(0, std::memory_order_relaxed); m->cpu_read[i].store(0, std::memory_order_relaxed); }
     out_register(m.get());
-    NXLOG_I(kTag, "pool %p: device-local copy (%llu KiB in %zu chunks made on demand, pool flags 0x%x, %s)", static_cast<void*>(pg->base),
-            static_cast<unsigned long long>(pg->size >> 10), m->chunks.size(), static_cast<unsigned>(mp->flags), "writes tracked");
+    if (m->sparse)
+        NXLOG_I(kTag, "pool %p: device-local copy (%llu KiB in %zu granules of %llu MiB bound on demand (sparse), pool flags 0x%x, %s)", static_cast<void*>(pg->base),
+                static_cast<unsigned long long>(pg->size >> 10), m->gstate.size(), static_cast<unsigned long long>(kMirrorGranule >> 20),
+                static_cast<unsigned>(mp->flags), "writes tracked");
+    else
+        NXLOG_I(kTag, "pool %p: device-local copy (%llu KiB in %zu chunks made on demand, pool flags 0x%x, %s)", static_cast<void*>(pg->base),
+                static_cast<unsigned long long>(pg->size >> 10), m->chunks.size(), static_cast<unsigned>(mp->flags), "writes tracked");
     pg->mirror = m.release();
     g_mirrors.push_back(pg->mirror);
     return pg->mirror;
@@ -1157,12 +1183,14 @@ void log_summary(uint32_t now) {
             valid += page_valid(*m, p) ? 1 : 0;
             hot += m->hot_until[static_cast<size_t>(p)] > now ? 1 : 0;
         }
+    char sp[224] = "";
+    if (sparse_live()) sparse_log(sp, sizeof sp);   // sparse copies: granules bound now, and the binds of this period (since the last summary)
     NXLOG_I(kTag, "pool mirrors: %zu, %llu MiB, valid %llu MiB, hot %llu KiB; binds to mirrors %lld, to pools %lld; copied %lld MiB; write faults %llu; "
-            "chunks released for new ones %llu (%llu MiB)",
+            "chunks released for new ones %llu (%llu MiB)%s",
             g_mirrors.size(), static_cast<unsigned long long>(g_mirror_bytes >> 20), static_cast<unsigned long long>(valid * kPageBytes >> 20),
             static_cast<unsigned long long>(hot * kPageBytes >> 10), static_cast<long long>(g_st_dev_binds.load()), static_cast<long long>(g_st_host_binds.load()),
             static_cast<long long>(g_st_copied.load() >> 20), static_cast<unsigned long long>(mem::ww::faults()),
-            static_cast<unsigned long long>(g_released_n), static_cast<unsigned long long>(g_released_bytes >> 20));
+            static_cast<unsigned long long>(g_released_n), static_cast<unsigned long long>(g_released_bytes >> 20), sp);
     NXLOG_I(kTag, "pool mirror binds (copy/pool/not eligible): vertex %lld/%lld/%lld index %lld/%lld/%lld uniform %lld/%lld/%lld; GPU writes (calls/pages): storage %lld/%lld "
             "stream-out %lld/%lld image copy %lld/%lld update %lld/%lld fill %lld/%lld copy %lld/%lld",
             (long long)g_use_dev[0], (long long)g_use_host[0], (long long)g_use_skip[0], (long long)g_use_dev[1], (long long)g_use_host[1], (long long)g_use_skip[1],
@@ -1194,6 +1222,7 @@ struct MirrorGauges {
         nxrt::hitch_add_counter("write_faults", []() -> uint64_t { return mem::ww::faults(); });
         nxrt::hitch_add_counter("mirror_arms_deferred", []() -> uint64_t { return g_st_arm_deferred.load(std::memory_order_relaxed); });
         nxrt::hitch_add_counter("pool_mirror_chunks_mb", []() -> uint64_t { return g_st_chunk_bytes_made.load(std::memory_order_relaxed) >> 20; });
+        nxrt::hitch_add_counter("pool_mirror_bind_us", []() -> uint64_t { return sparse_bind_us(); });   // vkQueueBindSparse (sparse copies)
         nxrt::hitch_add_counter("pool_lazy_imported_mb", []() -> uint64_t { return g_lz_imported_bytes.load(std::memory_order_relaxed) >> 20; });
         nxrt::hitch_add_counter("pools_imported", []() -> uint64_t { Counters* c = counters_if(); return c ? c->pools_imported.load(std::memory_order_relaxed) : 0; });
     }
@@ -1208,22 +1237,27 @@ MirrorGauges g_mirror_gauges;
 void out_unregister(Mirror* m);
 void out_retire();
 void out_log();
-bool out_holds(VkBuffer chunk);
+bool out_holds(VkBuffer buf, VkDeviceSize lo, VkDeviceSize hi);
 
 bool mirror_enabled() { return mirror_mode() != MirrorMode::Off; }
 
-namespace {
+namespace pool_detail {
 
-// A chunk that may be released: made, named by nothing for kChunkIdle presents, its last submission completed, and holding no compute
-// result newer than the pool (gpu_new pages, or an out entry that still copies back from it).
+// A chunk (sparse: a granule) that may be released: made (bound), named by nothing for kChunkIdle presents, its last submission completed,
+// and holding no compute result newer than the pool (gpu_new pages, or an out entry that still copies back from it).
 bool chunk_idle(const Mirror& m, size_t ci, uint32_t now, uint64_t done, uint64_t cur) {
-    if (!m.chunks[ci].buffer || now - m.chunk_used_at[ci] <= kChunkIdle) return false;
+    if (!(m.sparse ? m.gstate[ci] == kGranBound : m.chunks[ci].buffer != VK_NULL_HANDLE) || now - m.chunk_used_at[ci] <= kChunkIdle) return false;
     if (m.chunk_used_serial[ci] > done || m.chunk_used_serial[ci] >= cur) return false;
-    const uint64_t cpages = chunk_bytes() / kPageBytes, first = ci * cpages, end = std::min(m.npages, first + cpages);
+    const uint64_t unit = m.sparse ? kMirrorGranule : chunk_bytes();
+    const uint64_t cpages = unit / kPageBytes, first = ci * cpages, end = std::min(m.npages, first + cpages);
     for (uint64_t p = first; p < end; ++p)
         if (new_get(m, p)) return false;
-    return !out_holds(m.chunks[ci].buffer);
+    return m.sparse ? !out_holds(m.sbuf, ci * unit, (ci + 1) * unit) : !out_holds(m.chunks[ci].buffer, 0, UINT64_MAX);
 }
+
+}  // namespace pool_detail
+
+namespace {
 
 // The cap is used up and `need` more bytes are wanted: releases idle chunks (chunk_idle) of any mirror, the least recently used first, until
 // they fit. Their pages stop being valid (still armed: write_watch.h), so a draw that wants them again reads the pool until they are copied
@@ -1285,12 +1319,7 @@ VkBuffer mirror_chunk(Mirror& m, uint64_t page) {
         }
         return VK_NULL_HANDLE;
     }
-    // texel buffer and transfer source usage: compute dispatches bind the copy directly as storage and texel buffers, and their results go
-    // back to the pool from it (nvn_replay.cpp, compute shadows)
-    const VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
-    if (device().create_buffer(bytes, usage, gfx::MemoryUse::GpuOnly, &c, "nvn pool mirror") != VK_SUCCESS) {
+    if (device().create_buffer(bytes, kMirrorUsage, gfx::MemoryUse::GpuOnly, &c, "nvn pool mirror") != VK_SUCCESS) {
         c = gfx::Buffer{};
         static bool logged = false;
         if (!logged) { logged = true; NXLOG_W(kTag, "a device-local chunk of %llu MiB could not be made: those pages stay in the pool", static_cast<unsigned long long>(bytes >> 20)); }
@@ -1313,13 +1342,25 @@ VkBuffer mirror_src(Mirror& m, uint64_t page, uint64_t* base) {
 
 // The mirror window of `size` bytes at pool offset `poff`: its pages, all in one chunk of the pool's mirror (made here if missing), the
 // chunk's buffer, the offset in it and the bytes to its end. 0 when there is one, else why not (1 too many pages, 2 no mirror or past its
-// end, 3 across chunks, 4 no chunk buffer). resolve_read and mirror_span share it.
+// end, 3 across chunks, 4 no chunk buffer, kWinBinding: a sparse copy whose granules are not bound yet, asked for; m, first and last are
+// set). resolve_read and mirror_span share it.
 struct MirrorWindow { Mirror* m = nullptr; uint64_t first = 0, last = 0; VkBuffer chunk = VK_NULL_HANDLE; uint64_t offset = 0, avail = 0; };
+constexpr int kWinBinding = 5;
 static int mirror_window(PoolGpu* pg, MemoryPool* mp, uint64_t poff, uint64_t size, MirrorWindow* w) {
     const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     if (last - first + 1 > kMaxBindPages) return 1;
     Mirror* m = mirror_for(pg, mp);
     if (!m || last >= m->npages) return 2;
+    if (m->sparse) {     // one buffer: never across chunks, offset = pool offset
+        w->m = m;
+        w->first = first;
+        w->last = last;
+        if (!sparse_ready(*m, first, last)) return sparse_starved() ? 4 : kWinBinding;
+        w->chunk = m->sbuf;
+        w->offset = poff;
+        w->avail = std::min<uint64_t>(m->pool_bytes, (gran_of(last) + 1ull) * kMirrorGranule) - poff;   // to the end of the last granule
+        return 0;
+    }
     const uint64_t chunk_pages = chunk_bytes() / kPageBytes;
     if (first / chunk_pages != last / chunk_pages) return 3;
     const VkBuffer cb = mirror_chunk(*m, first);
@@ -1341,10 +1382,12 @@ BufRef resolve_read(uint64_t gpu_address, uint64_t size, int use) {
     if (!g_mirror_on) return out;
     if (!out.ok || !pg || !size) { g_use_skip[use % 3]++; g_skip_why[0]++; return out; }
     MirrorWindow w;
-    if (const int why = mirror_window(pg, mp, poff, size, &w)) { g_use_skip[use % 3]++; g_skip_why[why]++; return out; }
+    const int why = mirror_window(pg, mp, poff, size, &w);
+    if (why && why != kWinBinding) { g_use_skip[use % 3]++; g_skip_why[why]++; return out; }
     Mirror* m = w.m;
     const uint64_t first = w.first, last = w.last;
-    if (range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last))) {
+    // kWinBinding: the pool now; the pages are wanted, copied once their granules are bound
+    if (!why && (range_valid(*m, first, last - first + 1) || (out_lazy() && new_servable(*m, first, last)))) {
         out.buffer = w.chunk;
         out.offset = w.offset;
         out.avail = w.avail;
@@ -1389,6 +1432,7 @@ void mirror_span_written(uint64_t gpu_address, uint64_t size) {
     Mirror& m = *pg->mirror;
     const uint64_t first = (poff + kPageBytes - 1) / kPageBytes, end = (poff + size) / kPageBytes;   // pages wholly inside
     if (first >= end || end > m.npages) return;
+    if (m.sparse && !sparse_bound(m, first, end - 1)) return;   // the copy does not hold these bytes
     const uint32_t now = presents_now();
     for (uint64_t p = first; p < end; ++p)
         if (m.hot_until[static_cast<size_t>(p)] > now || mem::ww::page_banned(m.ww, p)) return;     // per-frame CPU data: leave it untracked
@@ -1410,9 +1454,18 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
     Mirror& m = *pg->mirror;
     const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     const uint64_t chunk_pages = chunk_bytes() / kPageBytes;
-    if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
-    const VkBuffer chunk = mirror_chunk(m, first);
-    if (!chunk) return false;
+    VkBuffer chunk = VK_NULL_HANDLE;
+    uint64_t base = 0;                 // pool offset of the copy buffer's byte 0
+    if (m.sparse) {                    // one source import (mirror_src), granules bound
+        if (last >= m.npages || last - first + 1 > kMaxBindPages || first * kPageBytes / m.pg->stride != last * kPageBytes / m.pg->stride) return false;
+        if (!sparse_ready(m, first, last)) return false;
+        chunk = m.sbuf;
+    } else {
+        if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
+        chunk = mirror_chunk(m, first);
+        if (!chunk) return false;
+        base = (first / chunk_pages) * chunk_bytes();
+    }
     uint64_t src_base = 0;
     const VkBuffer src = mirror_src(m, first, &src_base);
     if (!src) return false;
@@ -1421,7 +1474,6 @@ bool mirror_fill(VkCommandBuffer cb, uint64_t gpu_address, uint64_t size, uint64
         if (!page_valid(m, p) && (m.hot_until[static_cast<size_t>(p)] > now || mem::ww::page_banned(m.ww, p))) return false;
     static std::vector<VkBufferCopy> copies;
     copies.clear();
-    const uint64_t base = (first / chunk_pages) * chunk_bytes();
     bool ok = true;
     for (uint64_t p = first; p <= last;) {
         if (page_valid(m, p) || new_get(m, p)) { ++p; continue; }
@@ -1477,6 +1529,7 @@ void mirror_begin_submit(Frame& f, bool on) {
     }
     const uint32_t now = presents_now();
     log_summary(now);
+    if (sparse_live()) sparse_poll(false);    // granules whose bind has run serve this submission's copies and draws
     uint64_t budget = kCopyBudget;
     bool barrier_done = false;
     g_arm_spent_ns = 0;          // the arming budget is per submission (mirror_fill and mirror_span_written during recording count too)
@@ -1504,11 +1557,13 @@ void mirror_begin_submit(Frame& f, bool on) {
                 break;
             }
             const uint64_t chunk_pages = chunk_bytes() / kPageBytes;
-            const uint64_t chunk_end = (p / chunk_pages + 1) * chunk_pages;
             uint64_t src_base = 0;
-            if (!mirror_chunk(m, p) || !mirror_src(m, p, &src_base)) { bit_put(m.want, p, false); ++p; continue; }
+            // sparse: a granule not bound yet is asked for (sparse_ready); its pages wait, the next draw wants them again
+            if (!(m.sparse ? sparse_ready(m, p, p) : mirror_chunk(m, p) != VK_NULL_HANDLE) || !mirror_src(m, p, &src_base)) { bit_put(m.want, p, false); ++p; continue; }
+            const uint64_t chunk_end = m.sparse ? sparse_run_end(m, p) : (p / chunk_pages + 1) * chunk_pages;
             uint64_t q = p + 1;
             while (q < m.npages && q < chunk_end && copyable(m, q, now) && (q - p + 1) * kPageBytes <= budget) ++q;
+            if (m.sparse) sparse_ready(m, p, q - 1);     // the granules the run reaches (bound: sparse_run_end) are used by this submission
             const bool armed = arm_timed(m.ww, p, q - p);
             for (uint64_t i = p; i < q; ++i) {
                 bit_put(m.want, i, false);
@@ -1517,7 +1572,7 @@ void mirror_begin_submit(Frame& f, bool on) {
                 bit_put(m.used, i, false);
             }
             if (armed) {
-                const uint64_t base = (p / chunk_pages) * chunk_bytes();
+                const uint64_t base = m.sparse ? 0 : (p / chunk_pages) * chunk_bytes();
                 g_copy_tmp.push_back(VkBufferCopy{p * kPageBytes, p * kPageBytes - base, (q - p) * kPageBytes});
                 budget -= (q - p) * kPageBytes;
                 m.st_copied += static_cast<int64_t>(q - p);
@@ -1531,15 +1586,17 @@ void mirror_begin_submit(Frame& f, bool on) {
             barrier_done = true;
         }
         // the source is the pool's own buffer: the copy reads what the CPU and earlier GPU work left in the pages. The runs are in pool
-        // order and never span two chunks: one copy command per chunk.
+        // order and never span two chunks: one copy command per chunk. Sparse: never two imports of the pool (sparse_run_end): one copy
+        // command per import into the one buffer.
+        const uint64_t unit = m.sparse ? m.pg->stride : chunk_bytes();
         for (size_t i = 0; i < g_copy_tmp.size();) {
-            const size_t ci = static_cast<size_t>(g_copy_tmp[i].srcOffset / chunk_bytes());
+            const size_t ci = static_cast<size_t>(g_copy_tmp[i].srcOffset / unit);
             size_t j = i + 1;
-            while (j < g_copy_tmp.size() && g_copy_tmp[j].srcOffset / chunk_bytes() == ci) ++j;
+            while (j < g_copy_tmp.size() && g_copy_tmp[j].srcOffset / unit == ci) ++j;
             uint64_t src_base = 0;
             const VkBuffer src = mirror_src(m, g_copy_tmp[i].srcOffset / kPageBytes, &src_base);   // imported when the run was made
             for (size_t k = i; k < j; ++k) g_copy_tmp[k].srcOffset -= src_base;
-            if (src) vkCmdCopyBuffer(f.cb, src, m.chunks[ci].buffer, static_cast<uint32_t>(j - i), g_copy_tmp.data() + i);
+            if (src) vkCmdCopyBuffer(f.cb, src, m.sparse ? m.sbuf : m.chunks[ci].buffer, static_cast<uint32_t>(j - i), g_copy_tmp.data() + i);
             i = j;
         }
     }
@@ -1556,6 +1613,7 @@ void mirror_begin_submit(Frame& f, bool on) {
         vkCmdPipelineBarrier2(f.cb, &di);
         if (gpass_on()) gpass_stamp(f, "mirror", 0);      // GPU pass profiler: the copies of this submission
     }
+    if (sparse_live()) sparse_submit();       // the granules asked for so far: used by a later submission, once bound
 }
 
 void mirror_destroy(PoolGpu* p) {
@@ -1565,6 +1623,7 @@ void mirror_destroy(PoolGpu* p) {
     out_unregister(m);
     g_mirrors.erase(std::remove(g_mirrors.begin(), g_mirrors.end(), m), g_mirrors.end());
     if (m->ww) mem::ww::region_destroy(m->ww);
+    if (m->sparse) sparse_destroy(*m);
     for (gfx::Buffer& c : m->chunks)
         if (c.buffer) {
             forget_buffer_views(c.buffer);     // compute texel buffers bound to the copy
@@ -1802,8 +1861,12 @@ bool out_servable(uint64_t addr, uint64_t size) {
     const Mirror& m = *pg->mirror;
     const uint64_t first = poff / kPageBytes, last = (poff + size - 1) / kPageBytes;
     const uint64_t chunk_pages = chunk_bytes() / kPageBytes;
-    if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
-    if (!m.chunks[static_cast<size_t>(first / chunk_pages)].buffer) return false;
+    if (m.sparse) {
+        if (last >= m.npages || last - first + 1 > kMaxBindPages || !sparse_bound(m, first, last)) return false;
+    } else {
+        if (last >= m.npages || last - first + 1 > kMaxBindPages || first / chunk_pages != last / chunk_pages) return false;
+        if (!m.chunks[static_cast<size_t>(first / chunk_pages)].buffer) return false;
+    }
     return range_valid(m, first, last - first + 1) || new_servable(m, first, last);
 }
 
@@ -1965,12 +2028,13 @@ void out_unregister(Mirror* m) {
     recompute_bounds();
 }
 
-// An entry still copies back from this mirror chunk (release_idle_chunks keeps it). Render thread.
-bool out_holds(VkBuffer chunk) {
+// An entry still copies back from bytes [lo, hi) of this copy buffer (a chunk: 0, UINT64_MAX; a sparse copy: one granule), so
+// release_idle_chunks / sparse_release keep them. Render thread.
+bool out_holds(VkBuffer buf, VkDeviceSize lo, VkDeviceSize hi) {
     if (!out_any()) return false;
     std::lock_guard<std::mutex> lk(g_out_mu);
     for (const OutEntry& e : g_out)
-        if (e.mbuf == chunk) return true;
+        if (e.mbuf == buf && e.moff < hi && e.moff + e.size > lo) return true;
     return false;
 }
 

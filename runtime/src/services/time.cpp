@@ -338,11 +338,13 @@ void init_locked(State& s) {
     // game code that prefers the network clock. Anything else is "user" (the behaviour above).
     {
         const std::string scope = text::lower(config_get_str("time", "clock_scope", "user"));
+        // A game told it is online (net_report_online) must see one date: the network clocks follow the game clock too.
+        const bool online = net_report_online();
         if (scope != "user" && scope != "all")
             NXLOG_W("time", "[time] clock_scope = %s is not user or all; using user", scope.c_str());
-        else if (scope == "all") {
+        if (scope == "all" || online) {
             s.scope_all = true;
-            NXLOG_I("time", "time: [time] clock_scope = all: the network clocks are moved by the same offset as the game clock");
+            NXLOG_I("time", "time: network clocks follow the game clock's offset (%s)", scope == "all" ? "[time] clock_scope = all" : "all (reporting online)");
             if (s.local_delta) {
                 s.network_delta = s.local_delta;
                 s.ephemeral_delta = s.local_delta;

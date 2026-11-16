@@ -728,6 +728,14 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.sparse_residency_image2d = af.sparseResidencyImage2D;
     features_.sparse_residency_image3d = af.sparseResidencyImage3D;
     features_.sparse_residency_aliased = af.sparseResidencyAliased;
+    features_.sparse_residency_buffer = af.sparseResidencyBuffer;
+    {
+        uint32_t nq = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, nullptr);
+        std::vector<VkQueueFamilyProperties> qf(nq);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, qf.data());
+        features_.sparse_queue = queue_family_ < nq && (qf[queue_family_].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) != 0;
+    }
     features_.shader_draw_parameters = a11.shaderDrawParameters;
     features_.sampler_mirror_clamp_to_edge = a12.samplerMirrorClampToEdge;
     features_.descriptor_indexing = a12.descriptorIndexing && a12.shaderSampledImageArrayNonUniformIndexing;
@@ -1246,6 +1254,12 @@ VkResult Device::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, Memo
     set_name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(b.buffer), name);
     *out = b;
     return VK_SUCCESS;
+}
+
+VkMemoryPropertyFlags Device::memory_flags(const Buffer& b) const {
+    VkMemoryPropertyFlags mp = 0;
+    if (b.allocation) vmaGetAllocationMemoryProperties(vma_, b.allocation, &mp);
+    return mp;
 }
 
 void Device::destroy_buffer(Buffer& b) {

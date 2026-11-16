@@ -127,6 +127,8 @@ struct DeviceFeatures {
     bool debug_labels = false;            // VK_EXT_debug_utils is enabled on the instance (command buffer labels)
     bool occlusion_query = false, occlusion_query_precise = false, pipeline_statistics_query = false;
     bool sparse_binding = false, sparse_residency_image2d = false, sparse_residency_image3d = false, sparse_residency_aliased = false;
+    bool sparse_residency_buffer = false;  // sparseResidencyBuffer (partly bound buffers: the pool copies, nvn_gpu_pool.cpp)
+    bool sparse_queue = false;            // the device's queue family can bind sparse memory (VK_QUEUE_SPARSE_BINDING_BIT)
     // Display extras (S14): HDR swapchains and low-latency markers. Enabled whenever the GPU / driver offers them; used only when the settings ask.
     bool swapchain_colorspace = false;    // VK_EXT_swapchain_colorspace (instance): HDR10 and scRGB colour spaces in the surface format list
     bool hdr_metadata = false;            // VK_EXT_hdr_metadata
@@ -212,6 +214,7 @@ public:
 
     VkResult create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, MemoryUse use, Buffer* out, const char* name = nullptr);
     void destroy_buffer(Buffer& b);
+    VkMemoryPropertyFlags memory_flags(const Buffer& b) const;   // the property flags of the memory the buffer got (0: none)
     void flush_buffer(const Buffer& b);         // after the CPU wrote an Upload buffer (non-coherent memory)
     void invalidate_buffer(const Buffer& b);    // before the CPU reads a Readback buffer the GPU wrote
 

@@ -147,7 +147,9 @@ void schedule_locked(Texture* t) {
     if (e.st == Entry::Queued) return;                // the job reads the generation when it starts
     if (e.st == Entry::Running) { e.again = true; return; }
     if (e.st == Entry::Waiting) { leave_waiting_locked(t); e.st = Entry::Idle; }
-    if (e.st == Entry::Done) drop_result(e);          // its content is older than the new write
+    // Its content is older than the new write. Idle, not Done: the budget loop below erases Done entries, and erasing this one left `e`
+    // naming a freed node, whose stale `keep` the writes below then released once more (the texture died while the game still had it, #700).
+    if (e.st == Entry::Done) { drop_result(e); e.st = Entry::Idle; }
     uint64_t est = std::min<uint64_t>(t->storage_size, 1ull << 30);
     // [gfx] astc_quality = uncompressed: a job holds the texture as RGBA8, 4 bytes a texel against 16 per ASTC block
     if (t->fmt && t->fmt->astc && !S().caps.astc && astc_quality() == AstcQuality::Uncompressed) est = std::min<uint64_t>(est * t->fmt->block_w * t->fmt->block_h / 4, 1ull << 30);

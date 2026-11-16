@@ -313,10 +313,6 @@ const GAMEPLAY = {
   inventory_autosort: { label: t('Sort each time the bag opens') },
   craft_search: { label: t('Search in the crafting screen') },
   save_now: { label: t('Save button in the pause menu') },
-  play_as_pokemon: {
-    label: t('Play as Pokémon (experimental)'),
-    after: [{ id: 'play_as_pokemon_note', type: 'note', when: isOn('play_as_pokemon'), note: () => ({ text: t('Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.') }) }],
-  },
   item_editor: {
     label: t('Item editor (experimental)'),
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
@@ -455,6 +451,16 @@ export const SECTIONS = [
             id: 'dlss_file', label: t('DLSS file'), type: 'info', value: (env) => (env.dlssPresent ? t('Downloaded') : t('Missing')),
             when: (v, env) => ['dlss', 'dlaa'].includes(v.upscale_mode) && env.dlssCanFetch,
             actions: (env) => [{ act: 'dlss-get', label: env.dlssPresent ? t('Download again') : t('Download'), icon: 'download', disabled: env.dlssBusy }],
+          },
+        ],
+      },
+      {
+        title: t('Performance'),
+        rows: [
+          {
+            // [display] uniform_snapshot: becomes [nvn] uniform_snapshot at the next start (play_startup.cpp); auto = discrete GPUs under 7 GiB
+            id: 'uniform_snapshot', label: t('Shader constants in video memory'), type: 'select', ...fromSchema(controls('display', 'uniform_snapshot')),
+            options: [{ value: 'auto', label: t('Automatic') }, { value: 'on', label: t('On') }, { value: 'off', label: t('Off') }],
           },
         ],
       },
@@ -621,6 +627,12 @@ export const SECTIONS = [
           },
           { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
           { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },
+          // pkp.ini [pkp] online_events: the runtime's network services read it at start (game::Info::report_online); nothing is sent.
+          { id: 'online_events', label: t('Online events'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_events')) },
+          {
+            id: 'online_events_note', type: 'note',
+            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
+          },
         ],
       },
       {

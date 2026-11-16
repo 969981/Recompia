@@ -65,6 +65,7 @@
         {"key": "fast_gpu_memory", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.pool_mirror", "env": "NXRT_NVN_POOL_MIRROR"}, "doc": "Device-local copies of the memory pools draws read (up to 2 GiB of video memory). Next start."},
         {"key": "fewer_gpu_waits", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.pass_barriers", "env": "NXRT_NVN_PASS_BARRIERS"}, "doc": "No full barrier after passes that only wrote their attachments. Next start."},
         {"key": "shader_prewarm", "type": "bool", "default": "1", "overridden_by": {"ini": "nvn.prewarm", "env": "NXRT_NVN_PREWARM"}, "doc": "Build the pipelines recorded by earlier runs ahead of the draws. Next start."},
+        {"key": "uniform_snapshot", "type": "choice", "default": "auto", "choices": ["auto", "on", "off"], "overridden_by": {"ini": "nvn.uniform_snapshot", "env": "NXRT_NVN_UNIFORM_SNAPSHOT"}, "doc": "Shader constants read from video memory: auto (discrete GPUs with under 7 GiB of video memory), on or off. Next start."},
         {"key": "astc_quality", "type": "choice", "default": "high", "choices": ["fast", "high", "uncompressed"], "overridden_by": {"ini": "gfx.astc_quality", "env": "NXRT_GFX_ASTC_QUALITY"}, "doc": "ASTC texture quality on this GPU (uncompressed: RGBA8, lots of video memory). Next start."},
         {"key": "monitor", "type": "int", "default": "auto", "min": 0, "max": 32, "auto": "auto", "doc": "The display the window lives on, 1 = the first; auto = wherever the window opens."}
     ]},

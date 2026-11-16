@@ -8,7 +8,6 @@
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
 //   pkp_options_mods.cpp   the Mods tab: the Modtopia mods of the mods host (nxrt/mods.h)
 //   pkp_options_items.cpp  the Items tab: the item editor's screen (pkp_item_edit.h)
-//   pkp_options_play_as.cpp  the Play as tab: the Play as Pokemon mod's switch and form (input/pkp_play_as.h)
 #pragma once
 #include <cstddef>
 #include <cstdint>

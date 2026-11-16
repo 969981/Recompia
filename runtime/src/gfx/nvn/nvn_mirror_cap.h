@@ -11,6 +11,7 @@ struct MirrorCap {
     uint64_t bytes = 0;         // most bytes the copies may take in all (0: no copies)
     const char* why = "";       // for the log line
     uint64_t chunk_bytes = 0;   // the copy's chunk: made whole the first time a draw wants one of its pages
+    bool sparse = false;        // mirror_sparse(): one sparse buffer per pool, bound in kMirrorGranule pieces (chunk_bytes unused then)
 };
 
 constexpr uint64_t kMirrorCapMax = 2048ull << 20;      // the default cap on a large card
@@ -37,6 +38,18 @@ inline MirrorCap mirror_cap(uint64_t vram_bytes, int64_t explicit_mb, bool share
     else c = {std::min(kMirrorCapMax, vram_bytes / 4), vram_bytes / 4 < kMirrorCapMax ? "a quarter of the video memory" : "2048 MiB"};
     c.chunk_bytes = c.bytes >= kMirrorLargeCap ? kMirrorChunkLarge : kMirrorChunkSmall;
     return c;
+}
+
+// [nvn] mirror_sparse = auto (default) | off. Under kMirrorLargeCap a chunk was made for a few wanted pages and held mostly invalid ones: a
+// GTX 1650 (983 MiB cap, 16 MiB chunks) used the cap up with 30-70 MiB of valid pages, and 6.0M vertex binds a period found no chunk. A
+// sparse buffer the size of the pool is bound in granules of this many bytes instead, each the first time a draw wants one of its pages.
+constexpr uint64_t kMirrorGranule = 2ull << 20;
+
+// The copies are sparse only where chunks fall short: a cap under kMirrorLargeCap (cards under about 8 GB; a large cap keeps its 64 MiB
+// chunks), a discrete GPU (an integrated one has no copies by default), a device and queue that can bind sparse buffers, and `allowed`
+// ([nvn] mirror_sparse not off). Every other case keeps the chunks.
+inline bool mirror_sparse(const MirrorCap& c, bool discrete, bool supported, bool allowed) {
+    return allowed && supported && discrete && c.bytes != 0 && c.bytes < kMirrorLargeCap;
 }
 
 }  // namespace nxrt::nvn

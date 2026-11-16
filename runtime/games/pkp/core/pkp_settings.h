@@ -66,9 +66,8 @@ enum class Key : uint8_t {
     OptionsMenu,
     EventsFile,
     SaveNow,
-    PlayAsPokemon,
-    PlayAsPokemonForm,
     OnlinePresence,
+    OnlineEvents,
     Count
 };
 

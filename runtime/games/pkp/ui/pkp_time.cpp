@@ -64,6 +64,21 @@ std::vector<TimeEvent> parse_events(const std::string& text, int today, size_t l
     return all;
 }
 
+// Dates as the event guides list them (Serebii's event list); each event starts at 5:00 local time on its first day. Bulbasaur's Jump
+// Rope Contest ran twice.
+const char* builtin_events() {
+    return "2026-03-10\t2026-03-25\tMore Spores for Hoppip\n"
+           "2026-04-01\t2026-04-01\tCopycat Challenge\n"
+           "2026-04-19\t2026-04-26\tBulbasaur's Jump Rope Contest\n"
+           "2026-04-29\t2026-05-14\tSableye's Gem Hunt\n"
+           "2026-06-23\t2026-07-08\tWish Upon a Jirachi\n"
+           "2026-07-19\t2026-07-27\tZorua's Hide-and-Sneak Contest\n"
+           "2026-08-13\t2026-08-28\tFetching Scales for Feebas\n"
+           "2026-09-20\t2026-09-28\tBulbasaur's Jump Rope Contest\n"
+           "2026-10-17\t2026-11-01\tPumpkaboo's Sweet Surprises\n"
+           "2026-11-16\t2026-12-01\tApples to Applin\n";
+}
+
 std::string event_dates(const TimeEvent& e, int today) {
     std::string out = today >= e.start && today <= e.end ? "Now: " : "";
     if (e.start == e.end) return out + day_text(e.start, true);
