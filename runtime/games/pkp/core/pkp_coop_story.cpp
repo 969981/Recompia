@@ -180,7 +180,9 @@ int on_quest_flag(::Ctx* c) {
 }
 
 int on_quest_effect(::Ctx* c) {
-    if (!link::in_session() || link::is_authority() || !guest::ok(c->x[0], 1)) return 0;
+    // The game's own session bits, not the channel: a member in the host's world never runs a world effect, even before its channel
+    // has learnt the authority.
+    if (role() != CoopRole::Visit || !(session_bits() & layout::kSessionVisitor) || !guest::ok(c->x[0], 1)) return 0;
     const uint8_t kind = guest::rd<uint8_t>(c->x[0]);
     if (kind < kEffectFirst || kind > kEffectLast) return 0;
     for (uint8_t every : kEveryProcessEffects)
@@ -222,6 +224,8 @@ void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
 }
 
 void tick(::Ctx* c) { apply_flags(c); }
+
+void on_session_change() { st().flags.clear(); }
 
 void reset() { st() = State{}; }
 

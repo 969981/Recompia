@@ -66,6 +66,8 @@ void on_flag_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Applies the received flags this process has caught up with (once a frame, after the channel's handlers).
 void tick(::Ctx* c);
+// This process joined or left a session: received flags still waiting belong to the old one.
+void on_session_change();
 void reset();
 }  // namespace story
 
@@ -80,7 +82,7 @@ bool talking();
 void on_ask(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_done(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_holder(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
-void on_member(::Ctx* c, int node, bool joined);
+void on_member(::Ctx* c, int node, bool joined, bool authority, bool self);
 // The lease of an unused grant and the watchdog of a talk with nothing running (once a frame).
 void tick();
 void reset();

@@ -72,7 +72,11 @@ void deliver(const Route& route, const ch::Message& m) {
 }
 
 void on_member(const ch::MemberEvent& e) {
-    if (e.node == ch::self()) {
+    // Our own leave may be drained once the channel has no node for us any more.
+    const bool self = e.node == ch::self() || ch::self() == ch::kNoNode;
+    talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
+    if (self) {
+        story::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
@@ -80,7 +84,6 @@ void on_member(const ch::MemberEvent& e) {
         return;
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
-    talk::on_member(st().ctx, e.node, e.joined);
 }
 
 void open_channel(State& s) {

@@ -37,10 +37,11 @@ enum class Site : uintptr_t {
     TalkNone,         // the talk start right after its talk event call 0x4bf7c0 returns (every return): w22 bit 0 clear there is the
                       // "no talk after all" path (the function then returns 0), where the lock is given back
     TalkEnd,          // the end of a talk's event chain: the lock of that talk slot is given back
-    QuestState,       // a story quest's state is set: a local write goes to the authority, which orders it and sends it to every member;
-                      // a member's copy arriving is applied through this same setter, marked so it is not sent again
-    QuestFlag,        // a story quest's flag is set: as QuestState
-    AbilityEffect,    // an ability is given (two effect functions): sent to the others as a story change
+    QuestState,       // a story quest's state is set: every write comes from the quest pump's own steps, which every process runs on
+                      // the flag alone, so nothing is sent; a write from anywhere else is logged once
+    QuestFlag,        // a story quest's flag is set here: shared with the state it was made in, through the authority to every member;
+                      // a received set is applied through this same setter, marked so it is not shared again
+    AbilityEffect,    // an ability command (two effect functions) that changes a bit here: shared; a receiver runs the same handler
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own

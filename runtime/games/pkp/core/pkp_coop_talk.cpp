@@ -218,15 +218,24 @@ void on_holder(::Ctx*, int, uint8_t, wire::Reader& r) {
     if (s.asked == chara) {
         s.asked = 0;
         if (holder == link::self()) {
+            if (s.held) release("another character was granted");
             s.held = Held{chara, 0, false, qpc::seconds(), 0};
             NXLOG_I(kTag, "Co-op talk: character %u granted; the next press talks", chara);
         }
+    } else if (holder == link::self() && !(s.held && s.held->chara == chara)) {   // a grant asked for before another press: not wanted
+        link::to_authority(wire::Type::TalkDone, wire::Writer(link::self()).u32(chara).take());
     }
     if (s.held && s.held->chara == chara && holder != link::self()) s.held.reset();
 }
 
-void on_member(::Ctx*, int node, bool joined) {
+void on_member(::Ctx*, int node, bool joined, bool authority, bool self) {
     State& s = st();
+    if (self || (!joined && authority)) {   // this process joined or left a session, or the table left with its
+        s.holders.clear();                                   // authority: nothing of the old one holds
+        s.held.reset();
+        s.asked = 0;
+        return;
+    }
     if (link::is_authority()) {
         if (joined) {   // the newcomer's copy starts with the whole table
             for (const auto& [chara, holder] : s.holders)
@@ -243,12 +252,6 @@ void on_member(::Ctx*, int node, bool joined) {
             set_holder(chara, wire::kNobody);
             NXLOG_I(kTag, "Co-op talk: character %u freed, its holder left", chara);
         }
-        return;
-    }
-    if (!joined && node == link::authority()) {   // the table left with it
-        s.holders.clear();
-        s.held.reset();
-        s.asked = 0;
     }
 }
 
