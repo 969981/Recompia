@@ -107,6 +107,9 @@ inline constexpr Spec kSpecs[] = {
     live(i(PlayAsPokemonForm, "play_as_pokemon_form", 70, 2, 1000, "With play_as_pokemon: the character number of the form (70: Ditto), read at each press. Copying a Pokemon sets it.")),
     // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
     live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
+    // Read by the network services at start (game::Info::report_online, pkp_game.cpp). Off by default until it is known not to bring up
+    // connection errors: with it on the game tries online services that cannot answer.
+    b(OnlineEvents, "online_events", false, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 

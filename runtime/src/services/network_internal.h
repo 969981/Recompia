@@ -78,8 +78,9 @@ struct TwoEvents {
 
 NetState& st();
 
-// [net] online_test, read once: nifm and ntc report online (nothing reaches the network: bsd and BCAT answer as before).
-bool online_test();
+// Read once: nifm and ntc report online when [net] online_test is on or the game asks for it (game::Info::report_online). Nothing
+// reaches the network: bsd and BCAT answer as before.
+bool report_online();
 
 // "ask:" lines for what the game tries to reach (network_common.cpp).
 std::string buf_text(const ipc::Buffer& b);

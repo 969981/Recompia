@@ -69,6 +69,7 @@ enum class Key : uint8_t {
     PlayAsPokemon,
     PlayAsPokemonForm,
     OnlinePresence,
+    OnlineEvents,
     Count
 };
 
