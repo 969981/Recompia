@@ -3,13 +3,17 @@
 //   pkp_coop.cpp          the feature: the switch, the hook sites, their arming, the dispatch of each site to its part, the frame order
 //   pkp_coop_session.cpp  the session: opened (host role) or searched and joined (visit role) by call once the player is in the world;
 //                         a joining member is then put next to the host
+//   pkp_coop_link.cpp     the co-op channel: opened with the session, drained once a frame; every rule change goes through the authority
+//   pkp_coop_wire.h       the messages: type ids and payload layouts
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
 #include <cstdint>
+#include <vector>
 
 #include "nxrt/abi.h"
 #include "core/pkp_coop.h"
+#include "core/pkp_coop_wire.h"
 
 namespace nxrt::games::pkp::coop {
 
@@ -27,5 +31,23 @@ namespace session {
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace session
+
+namespace link {
+// Opens the channel once the session is up, then runs the handlers of what arrived (once a frame). reset() closes it.
+void tick(::Ctx* c);
+void reset();
+// The channel is open and this process is in its session (the authority known); this process's node (wire::kNobody outside it),
+// whether it is the authority, and the authority's node.
+bool in_session();
+uint8_t self();
+bool is_authority();
+int authority();
+// A rule change of this process's player (a shared route): to the authority, which applies it and passes it on to every other member.
+bool share(wire::Type type, std::vector<uint8_t>&& payload);
+// One message to the authority, to one node, or (the authority) to every member.
+bool to_authority(wire::Type type, std::vector<uint8_t>&& payload);
+bool to_node(int node, wire::Type type, std::vector<uint8_t>&& payload);
+void to_members(wire::Type type, const std::vector<uint8_t>& payload);
+}  // namespace link
 
 }  // namespace nxrt::games::pkp::coop

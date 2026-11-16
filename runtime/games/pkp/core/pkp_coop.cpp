@@ -169,6 +169,7 @@ void game_frame(::Ctx* c) {
     State& s = st();
     if (!s.armed.load(std::memory_order_acquire)) return;
     coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::link::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -179,6 +180,7 @@ void remove() {   // the registry has removed the hooks
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     s.launch = {};
+    coop::link::reset();
     coop::session::reset();
 }
 
