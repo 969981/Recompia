@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.9 (build Q: Quokka Hotfix a6)
+
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
 
 ### Online
