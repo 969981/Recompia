@@ -28,6 +28,7 @@ target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
+        "${_pkp}/core/pkp_coop.cpp"
         "${_pkp}/core/pkp_game.cpp"
         "${_pkp}/core/pkp_link_digspots.cpp"
         "${_pkp}/core/pkp_link_trips.cpp"
