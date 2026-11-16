@@ -122,6 +122,8 @@ uint8_t self() {
 
 bool in_session() { return st().open && ch::authority() != ch::kNoNode && ch::self() != ch::kNoNode; }
 
+size_t member_count() { return st().open ? ch::members().size() : 0; }
+
 bool is_authority() { return in_session() && ch::is_authority(); }
 
 int authority() { return ch::authority(); }

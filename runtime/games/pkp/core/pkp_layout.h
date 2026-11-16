@@ -56,6 +56,8 @@ constexpr uint64_t kMouseModeOn = 0xaa81;        // the game's Joy-Con 2 mouse m
 constexpr uint64_t kMouseHitValid = 0xaa82;      // the pointer's hit is valid (u8)
 constexpr uint64_t kMouseSwingPos = 0xaa50, kMouseSwingValid = 0xaa84;   // the swing tools' position under the pointer (vec4), its flag
 constexpr uint64_t kAction = 0x18b8;             // the action component (pointer)
+constexpr uint64_t kInputLock = 0xa9ec;          // u8 flags; bit kInputLockBit set: the character takes no input (verified at runtime)
+constexpr uint8_t kInputLockBit = 0x20;
 
 // ---- action component ([character + kAction]) ----
 // u16: the action running now. StartAction stores the started id at 0x710027e5d8 (its only non-zero writer); every end path writes 0.

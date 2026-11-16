@@ -75,17 +75,6 @@ uint64_t manager() {
     return guest::ok(sm, kSmSize) ? sm : 0;
 }
 
-// The player walks: in the world, no event running, no autosave in progress.
-bool can_walk(bool in_game) {
-    if (!in_game || !local_player()) return false;
-    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
-    if (!guest::ok(game, layout::kStateAutosave + 4)) return false;
-    const uint32_t autosave = guest::rd<uint32_t>(game + layout::kStateAutosave);
-    if (autosave - 1 < 5) return false;
-    const uint64_t event = guest::rd<uint64_t>(game + layout::kStateEvent);
-    return !(event && guest::ok(event, layout::kEventBusy + 1) && guest::rd<uint8_t>(event + layout::kEventBusy));
-}
-
 void retry_later(State& s, double now, const char* why) {
     s.step = Step::Wait;
     s.next_try = now + s.backoff;
@@ -170,6 +159,16 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
 }
 
 }  // namespace
+
+bool can_walk(bool in_game) {
+    if (!in_game || !local_player()) return false;
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(game, layout::kStateAutosave + 4)) return false;
+    const uint32_t autosave = guest::rd<uint32_t>(game + layout::kStateAutosave);
+    if (autosave - 1 < 5) return false;
+    const uint64_t event = guest::rd<uint64_t>(game + layout::kStateEvent);
+    return !(event && guest::ok(event, layout::kEventBusy + 1) && guest::rd<uint8_t>(event + layout::kEventBusy));
+}
 
 void tick(::Ctx* c, bool in_game) {
     State& s = st();

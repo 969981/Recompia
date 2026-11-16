@@ -54,6 +54,7 @@ enum class Key : uint8_t {
     CoopRole,
     CoopGroup,
     CoopMember,
+    CoopMembers,
     UuidRepair,
     JumpMomentum,
     JumpMomentumStrength,

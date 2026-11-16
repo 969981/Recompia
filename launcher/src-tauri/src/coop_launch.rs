@@ -9,6 +9,7 @@
 //!   NXRT_PKP_COOP_ROLE=host|visit    what this member does this session (`[pkp] coop_role`): the newest copy hosts (coop_save::choose_host)
 //!   NXRT_PKP_COOP_GROUP=<id>     the co-op save's id, also the name of its folder (`[pkp] coop_group`); equals `group` in coop.marker
 //!   NXRT_PKP_COOP_MEMBER=<id>    this PC's member, as in coop.json (`[pkp] coop_member`); the same 32 hex digits are [net] uid
+//!   NXRT_PKP_COOP_MEMBERS=<n>    how many members the group has (`[pkp] coop_members`); the session waits for all of them
 //!   NXRT_FS_SAVE_DIR=<folder>    the co-op folder is the whole save folder of this run (coop_save.rs has its layout)
 //!   NXRT_ACCOUNT_UID, NXRT_ACCOUNT_NICKNAME    the shared account of the save, and this member's name
 //!   NXRT_NET_PROTOCOL=native, NXRT_NET_MODE=auto, NXRT_NET_INTERNET=true, NXRT_NET_RELAY=<relay>, NXRT_NET_UID=<member id>
@@ -16,7 +17,7 @@
 //!                                     The co-op module takes a fixed code as is (coop_cfg_parse_ex `room`, same alphabet as the code
 //!                                     made here) and then does not list the room (`x_list` is only for a new code)
 //!
-//! A start that is not a co-op start removes the four NXRT_PKP_COOP* variables from the game's environment (`apply` with None), so a
+//! A start that is not a co-op start removes the five NXRT_PKP_COOP* variables from the game's environment (`apply` with None), so a
 //! launcher that was itself started with them set cannot turn a singleplayer start into a co-op one.
 
 use std::path::Path;
@@ -27,7 +28,7 @@ use crate::coop_save::{self, HostChoice};
 
 /// The switch variables of co-op mode: a singleplayer start never has them. The settings a co-op start also sets (NXRT_NET_*, NXRT_ACCOUNT_*,
 /// NXRT_FS_SAVE_DIR) are ordinary runtime overrides a player may use on their own, so they are left alone.
-const COOP_ONLY: [&str; 4] = ["NXRT_PKP_COOP", "NXRT_PKP_COOP_ROLE", "NXRT_PKP_COOP_GROUP", "NXRT_PKP_COOP_MEMBER"];
+const COOP_ONLY: [&str; 5] = ["NXRT_PKP_COOP", "NXRT_PKP_COOP_ROLE", "NXRT_PKP_COOP_GROUP", "NXRT_PKP_COOP_MEMBER", "NXRT_PKP_COOP_MEMBERS"];
 
 /// The environment of one co-op start.
 #[derive(Debug, PartialEq)]
@@ -53,6 +54,7 @@ pub fn build(p: &Profile, dir: &Path, singleplayer_save_dir: &Path) -> Result<(L
         ("NXRT_PKP_COOP_ROLE", choice.role.word().to_string()),
         ("NXRT_PKP_COOP_GROUP", p.id.clone()),
         ("NXRT_PKP_COOP_MEMBER", me.id.clone()),
+        ("NXRT_PKP_COOP_MEMBERS", p.members.len().to_string()),
         ("NXRT_FS_SAVE_DIR", dir.display().to_string()),
         ("NXRT_ACCOUNT_UID", p.account_uid.clone()),
         ("NXRT_ACCOUNT_NICKNAME", crate::profiles::nickname_of(&me.name)),
@@ -111,6 +113,7 @@ mod tests {
         assert_eq!(l.get("NXRT_PKP_COOP"), Some("1"));
         assert_eq!(l.get("NXRT_PKP_COOP_GROUP"), Some(p.id.as_str()));
         assert_eq!(l.get("NXRT_PKP_COOP_MEMBER"), Some(p.me.as_str()));
+        assert_eq!(l.get("NXRT_PKP_COOP_MEMBERS"), Some("2"));
         assert_eq!(l.get("NXRT_NET_UID"), Some(p.me.as_str()));
         assert_eq!(l.get("NXRT_FS_SAVE_DIR"), Some(dir.display().to_string().as_str()));
         assert_eq!(l.get("NXRT_NET_PRIVATE_ROOM"), Some(p.room_code.as_str()));

@@ -31,6 +31,7 @@
         {"key": "coop_role", "type": "choice", "optional": true, "choices": ["host", "visit"], "env": "NXRT_PKP_COOP_ROLE", "doc": "Launcher only, with coop: host opens the co-op session, visit joins it. Next start."},
         {"key": "coop_group", "type": "text", "default": "", "env": "NXRT_PKP_COOP_GROUP", "doc": "Launcher only, with coop: the id of the co-op group this launch plays in. Next start."},
         {"key": "coop_member", "type": "text", "default": "", "env": "NXRT_PKP_COOP_MEMBER", "doc": "Launcher only, with coop: this player's member id in the group (32 hex digits). Next start."},
+        {"key": "coop_members", "type": "int", "optional": true, "min": 0, "max": 16, "clamped": true, "env": "NXRT_PKP_COOP_MEMBERS", "doc": "Launcher only, with coop: how many members the group has; the session waits for all of them (0: no waiting). Next start."},
         {"key": "uuid_repair", "type": "bool", "default": "1", "env": "NXRT_PKP_UUID_REPAIR", "doc": "At start, give a save with the player UUID earlier builds shared a UUID of its own. Next start."},
         {"key": "jump_momentum", "type": "bool", "default": "1", "env": "NXRT_PKP_JUMP_MOMENTUM", "group": "gameplay", "doc": "A running jump keeps the running speed in the air. Next start."},
         {"key": "jump_momentum_strength", "type": "real", "default": "1", "min": 0, "max": 1, "clamped": true, "env": "NXRT_PKP_JUMP_MOMENTUM_STRENGTH", "doc": "With jump_momentum: how much of the extra running speed is kept. Next start."},

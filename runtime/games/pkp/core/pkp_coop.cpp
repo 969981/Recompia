@@ -150,6 +150,7 @@ void install(const FeatureInstall& in) {
         NXLOG_W(kTag, "Co-op ([pkp] coop): off, the launch's co-op facts are not usable: %s", why);
         return;
     }
+    launch.members = static_cast<int>(settings::get_int(settings::Key::CoopMembers));
     s.launch = launch;
     s.base = in.base;
     s.hooks = &in.hooks;
@@ -191,6 +192,7 @@ void game_frame(::Ctx* c) {
     coop::story::tick(c);
     coop::talk::tick();
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -205,6 +207,7 @@ void remove() {   // the registry has removed the hooks
     coop::story::reset();
     coop::talk::reset();
     coop::catchup::reset();
+    coop::gate::reset();
     coop::session::reset();
 }
 
@@ -214,6 +217,7 @@ namespace coop {
 
 uint64_t base() { return st().base; }
 CoopRole role() { return st().launch.role; }
+int members() { return st().launch.members; }
 
 uint8_t session_bits() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);

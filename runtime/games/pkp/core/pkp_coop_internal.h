@@ -8,9 +8,12 @@
 //   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
+//   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
+//   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -20,9 +23,10 @@
 
 namespace nxrt::games::pkp::coop {
 
-// The launch's facts, fixed at install: main's base and this process's role.
+// The launch's facts, fixed at install: main's base, this process's role and how many members the group has (0: not given).
 uint64_t base();
 CoopRole role();
+int members();
 
 // The game state's Link Play session bits (layout::kSession*); 0 with no game state or no session.
 uint8_t session_bits();
@@ -33,6 +37,8 @@ namespace session {
 // Opens or joins the session by role once the player is in the world (play mode's in_game); retries with a backoff; logs each step.
 void tick(::Ctx* c, bool in_game);
 void reset();
+// The player walks: in the world, no event running, no autosave in progress.
+bool can_walk(bool in_game);
 }  // namespace session
 
 namespace link {
@@ -42,6 +48,8 @@ void reset();
 // The channel is open and this process is in its session (the authority known); this process's node (wire::kNobody outside it),
 // whether it is the authority, and the authority's node.
 bool in_session();
+// How many other members the channel has (not this process).
+size_t member_count();
 uint8_t self();
 bool is_authority();
 int authority();
@@ -99,5 +107,18 @@ void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace catchup
+
+namespace lock {
+// The local character's input lock, claimed by one part each: the bit stays set while any claim is on the character.
+enum class Holder : uint8_t { Name, Gate };
+void hold(Holder who, uint64_t chara);   // idempotent; a claim on another character is let go first
+void release(Holder who);                // no claim left on the character: the lock is cleared
+}  // namespace lock
+
+namespace gate {
+// Holds this player's input, with a notice, while fewer members than the group has are in the session (once a frame).
+void tick(bool in_game);
+void reset();
+}  // namespace gate
 
 }  // namespace nxrt::games::pkp::coop

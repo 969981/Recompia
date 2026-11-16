@@ -10,7 +10,7 @@
 //   opts, 32 bytes: +0 header (char*), +0x18 u16 min length 1, +0x1a u16 max length (12 for languages 1..5, else 6), +0x1c 1, +0x1f 1.
 //   The header is the game's own text, from 0x248338(text): +0 u32 kind 0x25, +8 u8 text id 2, +0x10 arguments, +0x18 count 0,
 //   +0x20 capacity 6; 6 arguments of 0x88 bytes follow (+0 u32 -1).
-// While it is up the character takes no input (lock bit 0x20 of the byte at character + 0xa9ec). An OK answer is written as command 0x44
+// While it is up the character takes no input (the input lock, pkp_coop_lock.cpp). An OK answer is written as command 0x44
 // writes it, for the game's language L (u32 at [main+0x36ca680]) in the save root R:
 //   R+0x741799 + L*0x19: 0x19 bytes cleared, then 0x1122b50(dst, 0x19, name); 0x1122b50(R+0x74187c + L*0x20, 0x19, name);
 //   u32 R+0x741898 + L*0x20 = L; and the autosave is asked for as the command asks for it: game state + 0x3bb5e8 bit 0 set and
@@ -44,8 +44,6 @@ constexpr uint32_t kKeyboardName = 6;
 constexpr uint64_t kTextOf = 0x248338;
 constexpr uint32_t kTextKind = 0x25, kTextName = 2, kArgNone = 0xffffffffu;
 constexpr size_t kTextArgs = 0x28, kArgSize = 0x88, kArgCount = 6;
-constexpr uint64_t kInputLock = 0xa9ec;   // character +
-constexpr uint8_t kInputLockBit = 0x20;
 constexpr uint64_t kAutosaveStep = 0x3bb5e0, kAutosaveDelay = 0x3bb5e4, kAutosaveFlags = 0x3bb5e8;   // game state +
 constexpr float kAutosaveSoon = 570.0f;
 constexpr double kWatchName = 600.0;   // how long after command 0x44 the talker's name slot is watched
@@ -65,7 +63,6 @@ struct State {
     uint8_t name_before[kNameSlotSize] = {};
     // the other members
     Prompt prompt = Prompt::None;
-    uint64_t locked = 0;   // the character whose input lock this prompt set
     std::deque<std::pair<uint16_t, uint8_t>> gives;
     alignas(16) uint8_t name[0x40] = {};
     alignas(16) uint8_t opts[0x20] = {};
@@ -89,12 +86,6 @@ uint32_t language() {
 }
 
 uint64_t name_slot(uint64_t root, uint32_t lang) { return root + kNameSlot + lang * kNameSlotSize; }
-
-void set_input_lock(uint64_t me, bool on) {
-    if (!guest::ok(me + kInputLock, 1)) return;
-    const uint8_t v = guest::rd<uint8_t>(me + kInputLock);
-    guest::wr<uint8_t>(me + kInputLock, on ? (v | kInputLockBit) : (v & ~kInputLockBit));
-}
 
 // The game's own header text of the name keyboard; 0 if none.
 uint64_t name_header(::Ctx* c) {
@@ -122,8 +113,7 @@ bool open_prompt(::Ctx* c, uint64_t me) {
     guest::wr<uint8_t>(opts + 0x1f, 1);
     if (!(guest::call(c, base() + kKeyboardStart, kKeyboardName, reinterpret_cast<uint64_t>(s.name), kNameSlotSize, opts) & 1))
         return false;
-    set_input_lock(me, true);
-    s.locked = me;
+    lock::hold(lock::Holder::Name, me);
     return true;
 }
 
@@ -165,8 +155,7 @@ void tick_prompt(::Ctx* c, bool in_game) {
     if (s.prompt != Prompt::Open || (guest::call_n<0>(c, base() + kKeyboardBusy, {}) & 1)) return;
     const bool ok = guest::call_n<0>(c, base() + kKeyboardOk, {}) & 1;
     guest::call_n<0>(c, base() + kKeyboardEnd, {});
-    set_input_lock(s.locked, false);
-    s.locked = 0;
+    lock::release(lock::Holder::Name);
     if (ok) {
         write_name(c);
         s.prompt = Prompt::None;
@@ -257,7 +246,7 @@ void tick(::Ctx* c, bool in_game) {
 
 void reset() {
     State& s = st();
-    if (s.locked) set_input_lock(s.locked, false);
+    lock::release(lock::Holder::Name);
     s = State{};
 }
 

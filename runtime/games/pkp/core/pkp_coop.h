@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, seamless co-op (pkp_coop.cpp; [pkp] coop, coop_role, coop_group, coop_member): a launch the launcher starts as one
+// Pokémon Pokopia, seamless co-op (pkp_coop.cpp; [pkp] coop, coop_role, coop_group, coop_member, coop_members): a launch the launcher starts as one
 // member of a co-op group. The players share one story and one save; the process that opened the session (the authority) holds the save
 // files, runs the world effects, grants the talk locks and relays the story state.
 //
 // The switch is set by the launcher in the environment of one launch (NXRT_PKP_COOP=1, NXRT_PKP_COOP_ROLE=host|visit,
-// NXRT_PKP_COOP_GROUP=<id>, NXRT_PKP_COOP_MEMBER=<32 hex digits>); it has no row in the game's Settings, since it cannot change while the
+// NXRT_PKP_COOP_GROUP=<id>, NXRT_PKP_COOP_MEMBER=<32 hex digits>, NXRT_PKP_COOP_MEMBERS=<n>); it has no row in the game's Settings, since it cannot change while the
 // game runs. Without it the module registers no hook at all: every other launch keeps exactly the game's code paths.
 #pragma once
 #include <cstdint>
@@ -21,6 +21,7 @@ struct CoopLaunch {
     CoopRole role = CoopRole::Host;
     std::string group;
     std::string member;   // 32 hex digits, lowercase
+    int members = 0;      // how many members the group has (coop_members); 0 or 1: the session does not wait for anyone
 };
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.

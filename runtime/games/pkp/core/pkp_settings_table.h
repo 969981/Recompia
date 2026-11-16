@@ -91,6 +91,7 @@ inline constexpr Spec kSpecs[] = {
     unset_by_default(s(CoopRole, "coop_role", "", "host visit", "Launcher only, with coop: host opens the co-op session, visit joins it.")),
     s(CoopGroup, "coop_group", "", "", "Launcher only, with coop: the id of the co-op group this launch plays in."),
     s(CoopMember, "coop_member", "", "", "Launcher only, with coop: this player's member id in the group (32 hex digits)."),
+    unset_by_default(i(CoopMembers, "coop_members", 0, 0, 16, "Launcher only, with coop: how many members the group has; the session waits for all of them (0: no waiting).")),
     b(UuidRepair, "uuid_repair", true, "At start, give a save with the player UUID earlier builds shared a UUID of its own."),
     gameplay(b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air.")),
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
