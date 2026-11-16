@@ -334,6 +334,19 @@ when the patch really changes what a shader becomes on the player's PC.
   CHANGELOG Update line says so. A patch that needs neither says **Update** only.
 - The PR's "For players" box and the CHANGELOG Update line say whether shaders are rebuilt, and why when they are.
 
+### 6.6 Outlier reports never cost the majority.
+
+Thousands of players run this port, and most of them (Steam Deck, Legion Go S, AMD and Windows PCs) get better performance than the
+alternatives. A bug report from a few players is worth fixing, but not by making the game worse for everyone else.
+
+- Before fixing a report, decide whether it is an outlier: which hardware and settings it needs, how many players share them, and
+  whether the logs show a real bug or one setup.
+- A fix for an outlier is scoped to the players who have the problem: a hardware, driver or setting condition (a discrete GPU, a
+  4 GB card, one vendor), or an opt-in setting. Every other player keeps exactly the code path they had.
+- A fix that would cost the majority any performance, stability or features is not merged. Find a narrower fix, or bring it to the
+  repo owner.
+- The PR says who the fix is for, how many players that is, and why nobody else is affected.
+
 ---
 
 ## 7. Guard rails: signs you are about to break the structure
