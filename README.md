@@ -203,7 +203,7 @@ Changes apply the next time the game starts.
 | 47600 | the host | TCP and UDP |
 | 47610 | the relay | TCP, and UDP for the faster path |
 
-**Interact everywhere and Seamless co-op (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. **Seamless co-op** lets every player play their own story in the host's world, with their own requests and talks, saved in their own save; it turns Interact everywhere on. Every player needs the same two switches, or the host is not listed.
+**Interact everywhere (experimental, off by default).** In the story areas the game puts visitors in Spectator Mode. **Interact everywhere** lets them use moves and items, pick up, place and build there. Every player needs the same switch, or the host is not listed.
 
 Link Play: joining and walking around together work. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
 
@@ -223,7 +223,7 @@ Link Play: joining and walking around together work. See [docs/multiplayer](docs
   - Start **Windowed** (1280x720 by default) and press Alt+Enter, and the picture stays 720p, scaled up. Set **Window mode** before you press **Play**.
   - Set **Frame rate limit** to what your screen can show.
 - **Link Play: the visitor cannot find the host.** Pick **Visit by address** and type the host's address (the host's Link Play page shows it). Check that the host started the game and picked **Invite Others to Visit**, that Windows Firewall allows `pkp.exe` on Private networks, and that the network is Private. Cafe, hotel and guest Wi-Fi that keeps devices apart blocks LAN play for everyone: use **Internet** with a relay and a room code. Over the internet, check the relay address and the room code. Changes on the Link Play page apply the next time the game starts.
-- **Link Play: the connection is refused.** The players do not match. Everyone needs game 2.0.1, the same release (or pokopia-native for cross-play), and the same mods and the same **Interact everywhere** and **Story co-op** switches.
+- **Link Play: the connection is refused.** The players do not match. Everyone needs game 2.0.1, the same release (or pokopia-native for cross-play), and the same mods and the same **Interact everywhere** switch.
 - **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save, so both have the same player ID. Each player needs their own save.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.
 

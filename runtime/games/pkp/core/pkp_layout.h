@@ -76,7 +76,7 @@ constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / con
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
 
-// ---- the save manager (pkp_story_guard.cpp, ui/pkp_save_now.cpp) ----
+// ---- the save manager (ui/pkp_save_now.cpp) ----
 constexpr uint64_t kSaveManager = 0x35619d0;      // main: -> the save manager
 constexpr uint64_t kSaveRequest = 0x241324;       // (manager, request, mode, flag) -> 1 when queued
 constexpr uint64_t kSaveDone = 0x2412b0;          // (manager) -> 1 when the save manager is idle (its last request finished)

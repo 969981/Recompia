@@ -58,6 +58,14 @@ std::vector<setting_doc::Row> doc_rows() {
         if (sp.applies == Applies::AtStart) r.doc += " Next start.";
         rows.push_back(std::move(r));
     }
+    for (const char* name : table::kRetired) {
+        setting_doc::Row r;
+        r.section = kSection;
+        r.key = name;
+        r.type = "retired";
+        r.retired = true;
+        rows.push_back(std::move(r));
+    }
     return rows;
 }
 

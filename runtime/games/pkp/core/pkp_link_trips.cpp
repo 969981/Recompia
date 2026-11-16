@@ -94,7 +94,7 @@ void remove_hooks(State& s) {
 void install(const FeatureInstall& in) {
     State& s = st();
     if (s.ids[0]) return;
-    if (!settings::get_bool(settings::Key::LinkInteractEverywhere) && !settings::get_bool(settings::Key::LinkStoryCoop)) return;
+    if (!settings::get_bool(settings::Key::LinkInteractEverywhere)) return;
     s.base = in.base;
     s.hooks = &in.hooks;
     s.armed.store(false);

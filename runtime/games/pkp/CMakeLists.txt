@@ -28,6 +28,7 @@ target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
+        "${_pkp}/core/pkp_coop.cpp"
         "${_pkp}/core/pkp_game.cpp"
         "${_pkp}/core/pkp_link_digspots.cpp"
         "${_pkp}/core/pkp_link_trips.cpp"
@@ -39,9 +40,6 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_save_files.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
-        "${_pkp}/core/pkp_story_guard.cpp"
-        "${_pkp}/core/pkp_story_hold.cpp"
-        "${_pkp}/core/pkp_story_pickups.cpp"
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
