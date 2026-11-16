@@ -57,9 +57,7 @@ namespace nxrt::services::ldn_impl {
 // name pokopia-native adds as COOP_INTERACT_MOD) while one is set, then the co-op mods below; 0 when there is neither. The variant's
 // bits 12..14 of the local communication version are a Link Play (relay) thing and are not sent here: the game's version goes out as the
 // game gave it.
-// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order: Pokopia's Story co-op
-// (games/pkp/core/pkp_linkplay.cpp) adds COOP_STORY_MOD's name after the Interact one, so both on give pokopia-native's fingerprint
-// c75a2da0380038c1.
+// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order.
 // Not mapped (the module has no counterpart; pokopia-native cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
 // (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
 // built here from the node tables the game reads.
