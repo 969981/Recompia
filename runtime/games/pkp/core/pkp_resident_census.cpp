@@ -12,20 +12,20 @@
 
 namespace nxrt::games::pkp::resident_census {
 namespace {
-constexpr std::uint64_t kPoolGlobal = layout::kActorPool;
+constexpr std::uint64_t kPoolGlobal = 0x3483bd0;
 constexpr std::uint64_t kWorldGlobal = 0x3483b60;
 constexpr std::uint64_t kResidentsGlobal = layout::kPlayerManager;
-constexpr std::uint64_t kSlotsOffset = layout::kPoolSlots;
+constexpr std::uint64_t kSlotsOffset = 0x50;
 constexpr std::uint64_t kFreeOffset = 0x6608;
 constexpr std::uint64_t kResidentDataOffset = 0x2a0;
 constexpr std::uint64_t kResidentCountOffset = 0x2ac;
 constexpr std::uint64_t kResidentRow = 0x382c;
-constexpr std::uint64_t kKind = layout::kActorSpecies;
+constexpr std::uint64_t kKind = 0x39f0;
 constexpr std::uint64_t kFlags = 0x245e;
 constexpr std::uint64_t kLinkA = 0x3a50;
 constexpr std::uint64_t kLinkB = 0x18a8;
 constexpr std::uint64_t kWorldTransforms = 0x835af0;
-constexpr std::uint32_t kSlots = layout::kPoolSize;
+constexpr std::uint32_t kSlots = 64;
 constexpr std::uint32_t kMaxResidentRow = 1050;
 constexpr std::uint32_t kSampleFrames = 120;
 constexpr std::uint32_t kDetailEverySamples = 15;

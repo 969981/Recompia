@@ -347,8 +347,6 @@ export default {
   'Sort each time the bag opens': 'バッグを開くたびに整理',
   'Search in the crafting screen': 'クラフト画面での検索',
   'Save button in the pause menu': 'ポーズメニューにセーブボタン',
-  'Play as Pokémon (experimental)': 'ポケモンになって遊ぶ（実験的）',
-  'Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': 'ポケモンの前に立ち、ZL を押しながら方向ボタンの上を押すとコピーできます。そのポケモンに変身し、ゲームの設定画面の「Play as」タブのリストに追加されます。ZL と左でそこで選んだポケモンに変身し、ZL と右で元に戻ります。飛べるポケモンは ZR で飛び立ち、ZL で着地します。Link Play 中は無効です。',
   'More Pokémon in town': '町に住めるポケモンを増やす',
   'Pokémon in town': '町のポケモンの数',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '実験的な機能です。訪問者や一時的な出現は、住人とゲームの64枠を共有するため、数を多くするとその分の余裕が減ります。',
