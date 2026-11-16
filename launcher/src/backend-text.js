@@ -34,6 +34,23 @@ const TEXTS = [
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
 
+  // coop_cmds.rs, coop.rs, coop_save.rs: the Co-op page
+  msg('The game is running. Close it first, then change the co-op save.'),
+  msg('Type a name for the co-op save (1 to 24 characters).'),
+  msg('Type a name for the player (1 to 24 characters).'),
+  msg('There is already a co-op save called {1}.'),
+  msg('There is already a player called {1}.'),
+  msg('A co-op save has at most {n1} players.'),
+  msg('That co-op save does not exist.'),
+  msg('This is not a co-op invite.'),
+  msg('You already have this co-op save.'),
+  msg('The creator and the player on this PC cannot be removed.'),
+  msg('{1} already has files in it. A co-op save starts in a new, empty folder.'),
+  msg('That player is not in the invite.'),
+  msg('That player is not in this co-op save.'),
+  msg('The save folder {1} holds a co-op save, and a co-op save is only played from Co-op. Choose another save folder in the settings.'),
+  msg('The co-op save folder and the singleplayer save folder overlap. Choose another save folder in the settings.'),
+
   // dlss.rs
   msg('This package has no DLSS download tool. Extract the release zip again so tools/ is complete.'),
   msg('The download needs the Linux build tools that Set up fetches: run Set up first.'),
