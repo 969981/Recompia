@@ -27,6 +27,12 @@
   - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): turn the switch on for those as well, then pick the event in the game's **Events** tab
 - The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
+### Fixes
+- Fixed a rare crash in the background texture preparation (part of #700)
+  - Before: when the prepared textures waiting for use filled their memory budget (`[nvn] tex_prep_mb`), a texture written again could be freed while the game still used it, and the game crashed later at a random place
+  - Now: that texture keeps its place; nothing else changes
+  - Still not: the other crashes in #700 (two game processes on one PC) have a cause not found yet
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
