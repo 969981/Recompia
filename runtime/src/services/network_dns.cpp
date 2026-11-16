@@ -173,7 +173,7 @@ namespace {
 
 // =============================================================================================================================================
 // ntc: ntc (IStaticService) and IEnsureNetworkClockAvailabilityService. The network clock task fails at once with "network not available"
-// (time 1000), or succeeds at once with [net] online_test = on; Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
+// (time 1000), or succeeds at once when reporting online (report_online()); Cancel makes it "task canceled" (time 1003). The finish event is signalled when the task ends.
 // =============================================================================================================================================
 
 struct NtcTask {
@@ -185,7 +185,7 @@ std::shared_ptr<ipc::Service> make_ntc_task() {
     auto t = std::make_shared<NtcTask>();
     return make_iface("nn::ntc::detail::IEnsureNetworkClockAvailabilityService", [t](ipc::Service& s) {
         cmd(s, "ntc", 0, "StartTask", [t](ipc::Request&, ipc::Response&) -> uint32_t {
-            t->result = online_test() ? 0 : kTimeNetworkNotAvailable;
+            t->result = report_online() ? 0 : kTimeNetworkNotAvailable;
             t->finish.signal();
             return t->result;
         });

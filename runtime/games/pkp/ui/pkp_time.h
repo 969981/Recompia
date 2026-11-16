@@ -18,6 +18,10 @@ struct TimeEvent {
 // `today` is y * 10000 + m * 100 + d; at most `limit` events are kept.
 std::vector<TimeEvent> parse_events(const std::string& text, int today, size_t limit);
 
+// The game's events so far, in the events file's format: the Events tab's list when [pkp] events_file does not exist. A file the player
+// made always wins, even an empty one.
+const char* builtin_events();
+
 // "16 Nov to 1 Dec 2026", or "16 Nov 2026" for a one-day event; "Now: " in front while `today` falls inside it.
 std::string event_dates(const TimeEvent& e, int today);
 

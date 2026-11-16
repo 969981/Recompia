@@ -21,6 +21,12 @@
 ### Mods
 - Mods use global defaults with optional per-profile overrides for individual settings and enabled states. Every mod supports this automatically; "Use global" resumes inheritance. Update the launcher and runtime; use **Set up again** if prompted. Shaders are retained.
 
+### Online
+- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; off by default) for events that need an internet connection the first time, such as **Apples to Applin** (16 Nov to 1 Dec 2026). It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts
+  - The event also needs the town's important request done and its Pokémon Center rebuilt, and the real date (Time Travel off)
+  - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): turn the switch on for those as well, then pick the event in the game's **Events** tab
+- The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).

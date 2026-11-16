@@ -621,6 +621,12 @@ export const SECTIONS = [
           },
           { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
           { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },
+          // pkp.ini [pkp] online_events: the runtime's network services read it at start (game::Info::report_online); nothing is sent.
+          { id: 'online_events', label: t('Online events'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_events')) },
+          {
+            id: 'online_events_note', type: 'note',
+            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
+          },
         ],
       },
       {
