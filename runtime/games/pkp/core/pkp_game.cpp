@@ -227,6 +227,7 @@ const game::Info& full_info() {
         game::Info g = core_info();
         g.play = &game_play();
         g.render = &render_info();
+        g.report_online = [] { return settings::get_bool(settings::Key::OnlineEvents); };
         return g;
     }();
     return info;

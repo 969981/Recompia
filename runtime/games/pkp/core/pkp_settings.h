@@ -67,6 +67,7 @@ enum class Key : uint8_t {
     EventsFile,
     SaveNow,
     OnlinePresence,
+    OnlineEvents,
     Count
 };
 

@@ -28,7 +28,7 @@ namespace {
 
 // =============================================================================================================================================
 // nifm: nifm:u, nifm:a, nifm:s (IStaticService). Switchbrew "Network Interface services", ScarletNX nifm.swipc, Ryujinx Nifm/.
-// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection); with [net] online_test = on
+// No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection); when reporting online (report_online())
 // they report online instead.
 // =============================================================================================================================================
 
@@ -50,11 +50,11 @@ std::shared_ptr<ipc::Service> make_scan_request() {
 }
 
 std::shared_ptr<ipc::Service> make_request() {
-    const bool online = online_test();
+    const bool online = report_online();
     auto ev = std::make_shared<TwoEvents>();
     return make_iface("nn::nifm::detail::IRequest", [ev, online](ipc::Service& s) {
         rows(s, "nifm", {
-            {0, "GetRequestState", K::U32, static_cast<uint64_t>(online ? 3 : 1)},      // 1 = Free: nothing was accepted; 3 = Accepted (online_test)
+            {0, "GetRequestState", K::U32, static_cast<uint64_t>(online ? 3 : 1)},      // 1 = Free: nothing was accepted; 3 = Accepted (online)
             {1, "GetResult", online ? K::Ok : K::Fail, kNifmNoConnection},
             {3, "Cancel", K::Ok},
             {4, "Submit", K::Ok},
@@ -95,7 +95,7 @@ std::shared_ptr<ipc::Service> make_request() {
 }
 
 std::shared_ptr<ipc::Service> make_general() {
-    const bool online = online_test();
+    const bool online = report_online();
     const uint32_t client_id = alloc_client_id();
     auto ev = std::make_shared<ServiceEvent>();
     return make_iface("nn::nifm::detail::IGeneralService", [client_id, ev, online](ipc::Service& s) {
@@ -123,13 +123,13 @@ std::shared_ptr<ipc::Service> make_general() {
             {9, "SetNetworkProfile", K::Zeros, 0, 16},          // returns a Uuid (16 zero bytes); the profile is not kept
             {10, "RemoveNetworkProfile", K::Ok},
             {11, "GetScanDataOld", K::S32, 0},
-            {12, "GetCurrentIpAddress", online ? K::Bytes : K::Fail, online ? 0x0200000Aull : kNifmNoConnection, 4},   // online_test: 10.0.0.2
+            {12, "GetCurrentIpAddress", online ? K::Bytes : K::Fail, online ? 0x0200000Aull : kNifmNoConnection, 4},   // online: 10.0.0.2
             {13, "GetCurrentAccessPointOld", K::Fail, kNifmNoConnection},
             {14, "CreateTemporaryNetworkProfile", K::Fail, kNifmNoConnection},
             {15, "GetCurrentIpConfigInfo", K::Fail, kNifmNoConnection},
             {16, "SetWirelessCommunicationEnabled", K::Ok},
             {17, "IsWirelessCommunicationEnabled", K::U8, 1},   // radio on, no access point
-            {18, "GetInternetConnectionStatus", online ? K::Bytes : K::Fail, online ? 0x040301ull : kNifmNoConnection, 3},   // online_test: Wifi, strength 3, Connected
+            {18, "GetInternetConnectionStatus", online ? K::Bytes : K::Fail, online ? 0x040301ull : kNifmNoConnection, 3},   // online: Wifi, strength 3, Connected
             {19, "SetEthernetCommunicationEnabled", K::Ok},
             {20, "IsEthernetCommunicationEnabled", K::U8, 0},   // no adapter
             {21, "IsAnyInternetRequestAccepted", K::U8, static_cast<uint64_t>(online ? 1 : 0)},

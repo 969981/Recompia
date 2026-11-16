@@ -918,6 +918,8 @@ export default {
   'anonymous': 'anônimo',
   'While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.': 'Enquanto o jogo está aberto, o launcher envia ao servidor online do Recompia seu nome online (vazio: anônimo), a versão do Recompia, Windows ou Linux e quantos Pokémon têm uma casa no seu save. Seu save, o apelido do seu perfil e o seu ID de usuário nunca são enviados. O recompia.com diz por quanto tempo isso é guardado.',
   'Online ID': 'ID online',
+  'Online events': 'Eventos online',
+  'Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.': 'Diz ao jogo que ele tem conexão com a internet, para que eventos que precisam dela na primeira vez, como Apples to Applin, possam começar. Nada é enviado. Vale a partir da próxima vez que o jogo for iniciado.',
   'Reset my online ID': 'Redefinir meu ID online',
   'Reset your online ID?': 'Redefinir seu ID online?',
   'The next time you play online, you start with a new online ID. What the old ID sent stays with the old ID and is not linked to the new one.': 'Na próxima vez que você jogar online, começa com um novo ID online. O que o ID antigo enviou fica com o ID antigo e não é ligado ao novo.',

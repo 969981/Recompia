@@ -920,6 +920,8 @@ export default {
   'anonymous': '匿名',
   'While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.': '遊戲執行時，啟動器會向 Recompia 線上伺服器傳送你的線上名稱（留空則為匿名）、Recompia 版本、Windows 或 Linux，以及你存檔中有家的寶可夢數量。絕不會傳送你的存檔、個人檔案暱稱或使用者 ID。保存時間請見 recompia.com。',
   'Online ID': '線上 ID',
+  'Online events': '線上活動',
+  'Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.': '告訴遊戲已連上網路，讓第一次需要連線的活動（例如 Apples to Applin）能夠開始。不會傳送任何資料。下次啟動遊戲時生效。',
   'Reset my online ID': '重設我的線上 ID',
   'Reset your online ID?': '要重設線上 ID 嗎？',
   'The next time you play online, you start with a new online ID. What the old ID sent stays with the old ID and is not linked to the new one.': '下次在線上遊玩時，你會使用新的線上 ID。舊 ID 傳送的內容仍屬於舊 ID，不會與新 ID 連結。',
