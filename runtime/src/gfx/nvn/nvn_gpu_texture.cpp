@@ -6,6 +6,8 @@
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
 #include "nvn_gpu_texture_internal.h"
+#include <bit>
+
 #include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
 
 namespace nxrt::nvn::be {
@@ -121,6 +123,13 @@ static bool read_only_layout(VkImageLayout l) {
 // them. An 80x45 target at 0.5 was 40x23 with 22.5 rows drawn; the 23rd row kept what the memory held, and the passes that sample the
 // target by UV spread it over the bottom of the frame as a band. The 0.001 keeps a product that is whole but for the float's error.
 static uint32_t scaled_side(uint32_t side, float scale) { return static_cast<uint32_t>(std::floor(static_cast<float>(side) * scale + 0.001f)); }
+
+// The image at `scale` still holds every level of the texture. A 960x540 bloom chain of 10 levels is 480x270 at 0.5, which holds 9: the
+// image was refused and the texture had no image at all (#720, render scale 75% in a 1280x720 window). Such a texture keeps the NVN size.
+static bool scale_keeps_levels(const Shape& s, float scale) {
+    const uint32_t side = std::max(scaled_side(s.base.width, scale), scaled_side(s.base.height, scale));
+    return side >= 1 && s.levels <= static_cast<uint32_t>(std::bit_width(side));
+}
 
 TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto* g = new TexGpu();
@@ -244,7 +253,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     if (want_scale != 1.0f && !g->transcoded && !is_block_format(chosen)) {
         const uint32_t lim = device().properties().limits.maxImageDimension2D;
         const uint32_t w = scaled_side(s.base.width, want_scale), h = scaled_side(s.base.height, want_scale);
-        if (w >= 1 && h >= 1 && w <= lim && h <= lim) {
+        if (w >= 1 && h >= 1 && w <= lim && h <= lim && scale_keeps_levels(s, want_scale)) {
             is.base.width = w;
             is.base.height = h;
             g->scale = want_scale;
@@ -314,6 +323,7 @@ static float attachment_scale(const Texture& t) {
     const int w = b.width, h = b.height;
     if (w < 32 || h < 32) return 1.0f;
     if (w == h && (w & (w - 1)) == 0) return 1.0f;
+    if (!scale_keeps_levels(shape_of(t), sc)) return 1.0f;
     return sc;
 }
 
@@ -505,6 +515,11 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     if (!g || g->scale == to) return false;
     if (to != 1.0f && (g->scale_blocked || g->transcoded || is_block_format(g->format))) return false;
     Shape s = shape_of(*t);
+    if (to != 1.0f && !scale_keeps_levels(s, to)) {   // asked by a pass whose other targets are scaled: the levels would not fit
+        NXLOG_I(kTag, "texture %u: %u levels do not fit at scale %.3f: it keeps scale %.3f", t->id, s.levels, to, g->scale);
+        g->scale_blocked = true;
+        return false;
+    }
     if (to != 1.0f) {
         s.base.width = scaled_side(s.base.width, to);
         s.base.height = scaled_side(s.base.height, to);
