@@ -278,6 +278,24 @@ void gpu_group(Page& p) {
     if (ImGui::Checkbox("Faster GPU memory (uses more video memory)", &d.fast_gpu_memory)) mark(p);
     tip("Keeps device-local copies of the memory the draws read: faster, costs up to 2 GiB of video memory. [nvn] pool_mirror in the ini wins over this.");
     restart_badge();
+    {
+        static const char* const kSnapValues[] = {"auto", "on", "off"};
+        static const char* const kSnapNames[] = {"Auto", "On", "Off"};
+        int sel = 0;
+        for (int i = 0; i < 3; ++i)
+            if (d.uniform_snapshot == kSnapValues[i]) sel = i;
+        if (ImGui::BeginCombo("Shader constants in video memory", kSnapNames[sel])) {
+            for (int i = 0; i < 3; ++i)
+                if (ImGui::Selectable(kSnapNames[i], i == sel) && i != sel) {
+                    d.uniform_snapshot = kSnapValues[i];
+                    mark(p);
+                }
+            ImGui::EndCombo();
+        }
+        tip("Copies the game's shader constants into video memory when a draw uses them, instead of reading system memory over PCIe. Auto: on for graphics cards with "
+            "under 7 GiB of video memory. [nvn] uniform_snapshot in the ini wins over this.");
+        restart_badge();
+    }
     if (ImGui::Checkbox("Fewer GPU pipeline waits", &d.fewer_gpu_waits)) mark(p);
     tip("No full barrier after render passes that only wrote their own targets. [nvn] pass_barriers in the ini wins over this.");
     restart_badge();

@@ -12,6 +12,9 @@
   - After [Pokopia-Editor](https://github.com/cycalo/Pokopia-Editor)'s Play as Pokemon mod
   - Needs **Set up again** once after the update (the game code is translated again for the new hook points). Shaders and saves are kept; no shader is translated again
 
+### Performance
+- PCs with a separate graphics card of 4 or 6 GB (such as a GTX 1650 or RTX 2060) now read the game's shader constants from video memory instead of system memory. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged. Switch: **Shader constants in video memory** in the launcher's Settings > Graphics and in the game's Settings (idea from pokopia-native)
+
 ### Controls
 - Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
   - Before: with an Xbox or PlayStation controller and Face Buttons on Xbox, the prompt showed A (or the cross) at the right of the four buttons, though it is the bottom button of the controller; B, X and Y were in the wrong places too

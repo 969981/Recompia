@@ -401,6 +401,7 @@ export default {
   'Native': '네이티브',
   'Balanced': '균형',
   'Performance': '성능',
+  'Shader constants in video memory': '셰이더 상수를 비디오 메모리에 두기',
   'Ultra performance': '울트라 성능',
   'DLSS file': 'DLSS 파일',
   'Downloaded': '다운로드됨',

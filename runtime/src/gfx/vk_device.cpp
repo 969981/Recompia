@@ -1248,6 +1248,12 @@ VkResult Device::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, Memo
     return VK_SUCCESS;
 }
 
+VkMemoryPropertyFlags Device::memory_flags(const Buffer& b) const {
+    VkMemoryPropertyFlags mp = 0;
+    if (b.allocation) vmaGetAllocationMemoryProperties(vma_, b.allocation, &mp);
+    return mp;
+}
+
 void Device::destroy_buffer(Buffer& b) {
     if (b.buffer) { vmaDestroyBuffer(vma_, b.buffer, b.allocation); vk_gauge_buffers().sub(1); }
     b = Buffer{};

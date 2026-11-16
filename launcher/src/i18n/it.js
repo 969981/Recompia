@@ -401,6 +401,7 @@ export default {
   'Native': 'Nativa',
   'Balanced': 'Bilanciata',
   'Performance': 'Prestazioni',
+  'Shader constants in video memory': 'Costanti degli shader nella memoria video',
   'Ultra performance': 'Prestazioni massime',
   'DLSS file': 'File DLSS',
   'Downloaded': 'Scaricato',

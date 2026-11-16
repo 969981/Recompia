@@ -312,9 +312,13 @@ struct GpuWrites {   // owner: nvn_replay.cpp (gpu_wrote); kept across submissio
     GpuWrite ring[kGpuWriteRing] = {};
     size_t next = 0, count = 0;
     uint64_t lost_serial = 0;   // the newest serial among ranges dropped from the ring
-    void reset() { next = count = 0; lost_serial = 0; }
+    uint64_t gen = 0;           // bumped by every recorded write (gw_settled_fast's cache)
+    void reset() { next = count = 0; lost_serial = 0; ++gen; }
 };
 extern GpuWrites g_gw;
+// gw_settled for many calls per submission (uniform snapshots): the ranges still in flight are gathered once per new write or completion
+// instead of walking the whole ring each time. Render thread.
+bool gw_settled_fast(uint64_t addr, uint64_t size);
 // True when no submission still in flight (the one being recorded included) may write [addr, addr + size).
 inline bool gw_settled(uint64_t addr, uint64_t size) {
     const uint64_t done = poll_completed();

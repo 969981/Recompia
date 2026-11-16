@@ -401,6 +401,7 @@ export default {
   'Native': '原生',
   'Balanced': '平衡',
   'Performance': '效能',
+  'Shader constants in video memory': '著色器常數放在顯示記憶體中',
   'Ultra performance': '極致效能',
   'DLSS file': 'DLSS 檔案',
   'Downloaded': '已下載',
