@@ -1075,7 +1075,10 @@ BOOL ResetEvent(HANDLE h) {
 // Named mutexes: kernel/sched.cpp picks a scheduler slot through one and tests for ERROR_ALREADY_EXISTS; fs_volume.cpp
 // opens and closes one around every save commit. A name stays in the list while a handle to it is open: the last
 // CloseHandle takes it out under the list's lock, so a later create never finds a deleted object (it used to, and
-// retained and returned freed memory from the second save commit on).
+// retained and returned freed memory from the second save commit on). Each name in the list also holds its claim in
+// os_posix_named.cpp, which is what other processes see; it is dropped (the fd closed) under the same lock, so a create
+// right after the last close claims afresh instead of meeting this process's old lock. Waiting and owning stay inside
+// one process: a second process gets ERROR_ALREADY_EXISTS but its own mutex object.
 namespace {
 pthread_mutex_t g_named_mu = PTHREAD_MUTEX_INITIALIZER;
 std::vector<std::pair<std::string, MutexObj*>> g_named_mutexes;
@@ -1092,7 +1095,7 @@ void release_named_mutex(MutexObj* m) {
                 g_named_mutexes.erase(it);
                 break;
             }
-        delete m;
+        delete m;   // under the lock: its destructor closes the claim (see above)
     }
     pthread_mutex_unlock(&g_named_mu);
 }
@@ -1113,8 +1116,15 @@ HANDLE nxos_create_mutex(const char* name, BOOL initial_owner) {
                 return kv.second;
             }
         }
+        bool others = false;
+        m->claim_fd = named_claim(m->name, &others);
         g_named_mutexes.emplace_back(m->name, m);
         pthread_mutex_unlock(&g_named_mu);
+        if (others) {   // as Win32: the mutex existed, so initial ownership is not given
+            m->signaled.store(true, std::memory_order_release);
+            t_last_error = ERROR_ALREADY_EXISTS;
+            return m;
+        }
         t_last_error = ERROR_SUCCESS;   // as Win32: a caller testing for ERROR_ALREADY_EXISTS must not see an older error
     }
     if (initial_owner) {
