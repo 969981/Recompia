@@ -83,6 +83,10 @@ struct Frame {
     // Host-visible memory valid until the submission has completed: small per-draw data (support buffer, driver constants,
     // inline uniform data). align is a power of two.
     UploadAlloc upload(VkDeviceSize size, VkDeviceSize align);
+    // Like upload, from the slot's own upload memory only: empty when it is full (no staging buffer is made).
+    UploadAlloc upload_ring(VkDeviceSize size, VkDeviceSize align);
+    // The slot's upload memory is device-local (on a discrete GPU: the resizable-BAR window), so the GPU reads it from video memory.
+    bool upload_in_vram() const;
     // A staging buffer for texture data (own buffer when large). Freed when the submission has completed.
     UploadAlloc staging(VkDeviceSize size);
     // A staging buffer somebody else made and filled (background texture preparation): freed like the ones above when the submission has completed.

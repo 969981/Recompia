@@ -57,6 +57,7 @@ constexpr const char* kAheadNames[] = {"No Limit", "0", "1", "2", "3"};
 constexpr const char* kAaNames[] = {"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};      // indexed by extras::AaMode
 constexpr const char* kShadowNames[] = {"Game Default", "High (2x)", "Very High (3x)", "Ultra (4x)", "Extreme (8x)"};      // indexed by extras::ShadowQuality
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
+constexpr const char* kUniformSnapshotKeys[] = {"auto", "on", "off"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
 constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
 
@@ -168,6 +169,9 @@ const Row kGraphics[] = {
     choice("Texture Compression", "Fast loads quickest; Uncompressed uses a lot of video memory.", {"Fast", "High", "Uncompressed"}, 3,
            [](const S& s) { return key_index(kAstcKeys, 3, s.display.astc_quality); }, [](S& s, int v) { s.display.astc_quality = kAstcKeys[v]; }, true),
     choice("Faster GPU Memory", "Uses more video memory for smoother drawing.", kOffOn, 2, ROW_BOOL(display.fast_gpu_memory), true),
+    choice("Constants in Video Memory", "Auto helps graphics cards under 8 GB. Off: read them from system memory as before.", {"Auto", "On", "Off"}, 3,
+           [](const S& s) { return key_index(kUniformSnapshotKeys, 3, s.display.uniform_snapshot); },
+           [](S& s, int v) { s.display.uniform_snapshot = kUniformSnapshotKeys[v]; }, true),
     choice("Fewer GPU Waits", "Skips pipeline waits that are not needed.", kOffOn, 2, ROW_BOOL(display.fewer_gpu_waits), true),
     choice("Prepare Shaders", "Builds known shaders early to reduce stutter.", kOffOn, 2, ROW_BOOL(display.shader_prewarm), true),
 };

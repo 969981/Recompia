@@ -212,6 +212,7 @@ public:
 
     VkResult create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, MemoryUse use, Buffer* out, const char* name = nullptr);
     void destroy_buffer(Buffer& b);
+    VkMemoryPropertyFlags memory_flags(const Buffer& b) const;   // the property flags of the memory the buffer got (0: none)
     void flush_buffer(const Buffer& b);         // after the CPU wrote an Upload buffer (non-coherent memory)
     void invalidate_buffer(const Buffer& b);    // before the CPU reads a Readback buffer the GPU wrote
 

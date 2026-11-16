@@ -84,6 +84,7 @@ struct Slot {
     size_t dpool_cur = 0;
     gfx::Buffer upload;
     VkDeviceSize upload_off = 0;
+    bool upload_dl = false;               // `upload` is in device-local memory (Frame::upload_in_vram)
     std::vector<gfx::Buffer> extra;       // staging / overflow buffers of the submission
     uint64_t serial = 0;                  // last submission that used the slot
     bool timed = false;                   // frame trace: the submission wrote GPU timestamps (query pair index = slot index * 2)
@@ -360,6 +361,12 @@ bool create_slot(Slot& s) {
                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
                                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;   // quad_args_gpu: indexed indirect arguments a dispatch writes
     if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
+    const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
+    s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
+    static int n_dl = 0, n_sys = 0;
+    ++(s.upload_dl ? n_dl : n_sys);
+    if (n_dl + n_sys == 1 || (!s.upload_dl && n_sys == 1))
+        NXLOG_I(kTag, "upload memory: slot %d in %s memory (flags 0x%x)", n_dl + n_sys - 1, s.upload_dl ? "video" : "system", static_cast<unsigned>(mp));
     return true;
 }
 
@@ -671,21 +678,26 @@ Slot* acquire_slot() {
 }  // namespace
 
 // ---- Frame ---------------------------------------------------------------------------------------------------------------
-UploadAlloc Frame::upload(VkDeviceSize size, VkDeviceSize align) {
+UploadAlloc Frame::upload_ring(VkDeviceSize size, VkDeviceSize align) {
     Slot& s = *static_cast<Slot*>(slot);
     if (align == 0) align = 16;
     VkDeviceSize off = (s.upload_off + align - 1) & ~(align - 1);
-    if (off + size <= kUploadBytes) {
-        s.upload_off = off + size;
-        UploadAlloc a;
-        a.buffer = s.upload.buffer;
-        a.offset = off;
-        a.ptr = static_cast<uint8_t*>(s.upload.mapped) + off;
-        a.size = size;
-        return a;
-    }
-    return staging(size + align);
+    if (off + size > kUploadBytes) return {};
+    s.upload_off = off + size;
+    UploadAlloc a;
+    a.buffer = s.upload.buffer;
+    a.offset = off;
+    a.ptr = static_cast<uint8_t*>(s.upload.mapped) + off;
+    a.size = size;
+    return a;
 }
+
+UploadAlloc Frame::upload(VkDeviceSize size, VkDeviceSize align) {
+    if (UploadAlloc a = upload_ring(size, align)) return a;
+    return staging(size + (align ? align : 16));
+}
+
+bool Frame::upload_in_vram() const { return static_cast<const Slot*>(slot)->upload_dl; }
 
 UploadAlloc Frame::staging(VkDeviceSize size) {
     Slot& s = *static_cast<Slot*>(slot);

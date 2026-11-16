@@ -301,6 +301,90 @@ static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
     return now.ds;
 }
 
+// ---- uniform snapshots ([nvn] uniform_snapshot) ---------------------------------------------------------------------------------------
+// The game's uniform blocks live in its memory pools, which are host memory here, and the game rewrites most of them every frame, so the
+// pool copies (nvn_gpu_pool.cpp) leave them "hot": every shader read of a uniform went over PCIe (logs of 2026-11-16: 22.9 million of
+// 22.9 million uniform binds read the pool, on a GTX 1650 and an RTX 2060). On a discrete GPU the bytes of the block are copied, when the
+// draw is recorded, into the submission's upload memory, which is device-local there (the resizable-BAR window), and the draw reads them
+// from video memory. The same block bound again in the submission reuses its copy.
+// The idea comes from pokopia-native (MIT, the pokopia-native contributors): its draws read every pool buffer from video memory, with the
+// bytes taken when the replay binds them (windows/src/nxrt/vk/vk_mem.c, vkm_use).
+// Only when the pool bytes are final: no submission still in flight (this one included) may write the range (gw_settled_fast), and no
+// compute result for it is held elsewhere (out_overlaps). Otherwise, and when the upload memory is full or not in video memory, the block is
+// bound from the pool as before.
+// auto (default): on with a discrete GPU of under 7 GiB of video memory only. An integrated GPU or APU (Steam Deck, Legion Go S, ...) has
+// one memory for both: a copy buys nothing there, so nothing changes for them; larger cards keep their path until it is measured there.
+// on / off force it.
+namespace {
+// auto turns the snapshots on below this much video memory only (the cards the pool copies give the small cap: nvn_mirror_cap.h): the
+// reports came from 4 and 6 GB cards, and larger cards keep the path they had until the snapshots are measured there (PROJECT.md 6.6).
+constexpr uint64_t kSnapshotMaxVram = 7ull << 30;
+struct UniformSnapStats { uint64_t copies = 0, reused = 0, bytes = 0, unsettled = 0, full = 0; };
+UniformSnapStats g_usnap;
+
+bool uniform_snapshot_on() {
+    static const bool on = [] {
+        const std::string v = nxrt::config_get_str("nvn", "uniform_snapshot", "auto");
+        const bool discrete = device().properties().deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        uint64_t vram = 0;      // the largest device-local heap
+        VkPhysicalDeviceMemoryProperties mp{};
+        vkGetPhysicalDeviceMemoryProperties(device().physical(), &mp);
+        for (uint32_t h = 0; h < mp.memoryHeapCount; ++h)
+            if (mp.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max<uint64_t>(vram, mp.memoryHeaps[h].size);
+        const bool small = vram < kSnapshotMaxVram;
+        const bool r = v == "on" || v == "1" || v == "true" || (v == "auto" && discrete && small);
+        NXLOG_I(kTag, "uniform snapshots: %s ([nvn] uniform_snapshot = %s, %s GPU, %llu MiB of video memory)", r ? "on" : "off", v.c_str(),
+                discrete ? "discrete" : "not a discrete", static_cast<unsigned long long>(vram >> 20));
+        return r;
+    }();
+    return on;
+}
+
+void uniform_snapshot_log() {
+    static uint64_t last = 0;
+    const uint64_t now = counters().presents.load(std::memory_order_relaxed);
+    if (now - last < 1200) return;
+    last = now;
+    NXLOG_I(kTag, "uniform snapshots: %llu copied (%llu MiB), %llu reused, %llu read from the pool (GPU write in flight), %llu (upload memory full)",
+            (unsigned long long)g_usnap.copies, (unsigned long long)(g_usnap.bytes >> 20), (unsigned long long)g_usnap.reused,
+            (unsigned long long)g_usnap.unsettled, (unsigned long long)g_usnap.full);
+}
+}  // namespace
+
+static bool uniform_snapshot(uint64_t addr, uint64_t bind_size, VkDeviceSize align, VkDescriptorBufferInfo* bi) {
+    if (!uniform_snapshot_on() || !F->upload_in_vram() || pool_copy_any()) return false;
+    const BufRef br = resolve_buffer(addr, bind_size);
+    if (!br.ok) return false;
+    const VkDeviceSize n = std::min<VkDeviceSize>({bind_size ? bind_size : 65536, br.avail, 65536});
+    if (!n) return false;
+    if (!gw_settled_fast(addr, n) || out_overlaps(addr, n)) { ++g_usnap.unsettled; return false; }
+    struct Entry { uint64_t addr; VkDeviceSize n; VkDescriptorBufferInfo bi; };
+    static std::unordered_map<uint64_t, Entry> cache;      // this submission's copies (the upload memory is the submission's)
+    static const void* c_slot = nullptr;
+    static uint64_t c_serial = UINT64_MAX;
+    if (c_slot != F->slot || c_serial != F->serial) {
+        cache.clear();
+        c_slot = F->slot;
+        c_serial = F->serial;
+        uniform_snapshot_log();
+    }
+    const uint64_t key = addr * 0x9E3779B97F4A7C15ull ^ n;
+    const auto it = cache.find(key);
+    if (it != cache.end() && it->second.addr == addr && it->second.n == n) {
+        *bi = it->second.bi;
+        ++g_usnap.reused;
+        return true;
+    }
+    const UploadAlloc u = F->upload_ring(n, std::max<VkDeviceSize>(align, 256));
+    if (!u) { ++g_usnap.full; return false; }
+    std::memcpy(u.ptr, host_ptr(addr), n);
+    *bi = {u.buffer, u.offset, n};
+    cache[key] = Entry{addr, n, *bi};
+    ++g_usnap.copies;
+    g_usnap.bytes += n;
+    return true;
+}
+
 // The set resolved from the current state: a set of this submission with the same contents (g_sets.cache), or a new one.
 static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
     RpScope rp_(kRpSetBuild);
@@ -356,10 +440,11 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                             const VkDeviceSize ua = device().properties().limits.minUniformBufferOffsetAlignment;
                             out_draw_read(bind.addr, bind.size ? bind.size : 65536, ua && (bind.addr % ua) == 0, kOutDrawBuffer);   // resolve_read serves the copy
                         }
-                        BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
                         const float ufs = ufs_scale_for(d, idx);
                         const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex;
+                        if (ufs == 1.0f && !tsr && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
+                        BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         if (br.ok && (ufs != 1.0f || tsr)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
