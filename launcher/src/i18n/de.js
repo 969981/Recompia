@@ -347,8 +347,6 @@ export default {
   'Sort each time the bag opens': 'Bei jedem Öffnen der Tasche sortieren',
   'Search in the crafting screen': 'Suche im Handwerksbildschirm',
   'Save button in the pause menu': 'Speichern-Schaltfläche im Pausenmenü',
-  'Play as Pokémon (experimental)': 'Als Pokémon spielen (experimentell)',
-  'Stand in front of a Pokémon, hold ZL and press Up on the D-pad to copy it: you turn into it, and it is added to your list in the game\'s Settings, tab Play as. ZL and Left turns you into the Pokémon picked there, ZL and Right turns you back. Pokémon that fly take off with ZR and land with ZL. Off during Link Play.': 'Stell dich vor ein Pokémon, halte ZL und drücke auf dem Steuerkreuz nach oben, um es zu kopieren: Du verwandelst dich in dieses Pokémon, und es kommt in deine Liste in den Einstellungen des Spiels, Tab „Play as“. ZL und links verwandelt dich in das dort gewählte Pokémon, ZL und rechts verwandelt dich zurück. Fliegende Pokémon heben mit ZR ab und landen mit ZL. Aus während Link Play.',
   'More Pokémon in town': 'Mehr Pokémon in der Stadt',
   'Pokémon in town': 'Pokémon in der Stadt',
   'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Experimentell. Besucher und vorübergehend erscheinende Pokémon teilen sich die 64 Plätze des Spiels mit deinen Bewohnern, eine hohe Zahl lässt ihnen also weniger Platz.',

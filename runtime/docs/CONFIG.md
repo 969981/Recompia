@@ -424,8 +424,6 @@ Pokopia's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.ini
 | `pkp` | `options_menu` | `1` | `1` `0` | `NXRT_PKP_OPTIONS_MENU` | The PC settings as tabs and rows of the game's own Settings screen. Next start. |
 | `pkp` | `events_file` | `pokopia_events.tsv` | text | `NXRT_PKP_EVENTS_FILE` | The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events. Next start. |
 | `pkp` | `save_now` | `1` | `1` `0` | `NXRT_PKP_SAVE_NOW` | A Save prompt in the pause menu's key guide: writes the save and stays in the world. Next start. |
-| `pkp` | `play_as_pokemon` | `1` | `1` `0` | `NXRT_PKP_PLAY_AS_POKEMON` | Experimental: ZL + D-pad Left turns the player into a Pokemon (play_as_pokemon_form) and keeps the form, ZL + D-pad Right turns back. Next start. |
-| `pkp` | `play_as_pokemon_form` | `70` | `2` to `1000` (clamped into it) | `NXRT_PKP_PLAY_AS_POKEMON_FORM` | With play_as_pokemon: the character number of the form (70: Ditto), read at each press. Copying a Pokemon sets it. |
 | `pkp` | `online_presence` | `0` | `1` `0` | `NXRT_PKP_ONLINE_PRESENCE` | Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default. |
 | `pkp` | `online_events` | `0` | `1` `0` | `NXRT_PKP_ONLINE_EVENTS` | The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail. Next start. |
 

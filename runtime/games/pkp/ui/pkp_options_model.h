@@ -97,6 +97,5 @@ TabModel& events_tab();   // pkp_options_time.cpp: one button per event; pressin
 TabModel& mods_tab();     // pkp_options_mods.cpp: the Modtopia mods, one at a time: switch, state and settings
 TabModel& online_tab();   // pkp_options_online.cpp: the launcher's online sharing switch (a [pkp] key the runtime does not read)
 TabModel& items_tab();    // pkp_options_items.cpp: a stack of the bag and its new count, written to the bag when the screen commits
-TabModel& play_as_tab();  // pkp_options_play_as.cpp: the Play as Pokemon mod's switch and the Pokemon to turn into, picked from the copied ones
 
 }  // namespace nxrt::games::pkp::options_detail
