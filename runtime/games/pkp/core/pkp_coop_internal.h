@@ -6,6 +6,7 @@
 //   pkp_coop_link.cpp     the co-op channel: opened with the session, drained once a frame; every rule change goes through the authority
 //   pkp_coop_wire.h       the messages: type ids and payload layouts
 //   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
+//   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -66,5 +67,22 @@ void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c);
 void reset();
 }  // namespace story
+
+namespace talk {
+// The hook sites (pkp_coop.cpp).
+int on_talk_start(::Ctx* c);   // entry 0x3180e0: the lock is asked; refused, the busy line and no talk
+int on_no_talk(::Ctx* c);      // midhook 0x3181cc: no talk started after all
+int on_talk_end(::Ctx* c);     // entry 0x47bd00: a slot's event chain ended
+// This process's player holds a character's talk and the talk runs.
+bool talking();
+// The messages and member events (pkp_coop_link.cpp).
+void on_ask(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_done(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_holder(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_member(::Ctx* c, int node, bool joined);
+// The lease of an unused grant and the watchdog of a talk with nothing running (once a frame).
+void tick();
+void reset();
+}  // namespace talk
 
 }  // namespace nxrt::games::pkp::coop

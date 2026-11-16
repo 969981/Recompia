@@ -122,6 +122,9 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QuestFlag: return coop::story::on_quest_flag(c);
         case Site::AbilityEffect: return coop::story::on_ability(c);
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
+        case Site::TalkStart: return coop::talk::on_talk_start(c);
+        case Site::TalkNone: return coop::talk::on_no_talk(c);
+        case Site::TalkEnd: return coop::talk::on_talk_end(c);
         default: return 0;
     }
 }
@@ -182,6 +185,7 @@ void game_frame(::Ctx* c) {
     coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::link::tick(c);
     coop::story::tick(c);
+    coop::talk::tick();
 }
 
 void remove() {   // the registry has removed the hooks
@@ -194,6 +198,7 @@ void remove() {   // the registry has removed the hooks
     s.launch = {};
     coop::link::reset();
     coop::story::reset();
+    coop::talk::reset();
     coop::session::reset();
 }
 
