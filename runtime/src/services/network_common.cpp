@@ -244,3 +244,7 @@ void echo_in_to_out(const ipc::Request& req) {
 }
 
 }  // namespace nxrt::services::netsvc
+
+namespace nxrt::services {
+bool net_report_online() { return netsvc::report_online(); }
+}  // namespace nxrt::services
