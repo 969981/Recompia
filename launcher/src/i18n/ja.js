@@ -121,7 +121,6 @@ export default {
   'Experimental': '実験的',
   'Same for everyone': '全員共通',
   'Visitors can build everywhere': '訪問者がどこでも建築できる',
-  'Seamless co-op: every player plays their own story': 'シームレス協力プレイ：各プレイヤーが自分のストーリーを進める',
   'This PC': 'このPC',
   'No address found': 'アドレスが見つかりません',
   'The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.': 'このPCのリレーがオフなので、訪問者は参加できません。「このPCでリレーを実行」をオンにしてください。',

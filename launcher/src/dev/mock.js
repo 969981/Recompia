@@ -162,7 +162,7 @@ const settings = {
   pkp: {
     'fs.romfs': 'D:/Dumps/Pokopia/updates/2.0.1a/romfs', 'fs.save_dir': '', 'audio.volume': '0.8',
     'net.protocol': 'native', 'net.mode': 'auto', 'net.internet': 'false', 'net.relay': '', 'net.server': 'auto',
-    'pkp.link_interact_everywhere': '0', 'pkp.link_story_coop': '0',
+    'pkp.link_interact_everywhere': '0',
   },
   controls: sc.noControls ? {} : {
     'display.window_mode': 'borderless', 'display.width': '1920', 'display.height': '1080', 'display.render_scale': 'auto', 'display.fps_limit': 'auto', 'display.vsync': '1',

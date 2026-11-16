@@ -6,6 +6,7 @@
 - Co-op saves page in the launcher: a co-op save has its own folder apart from your singleplayer saves, its players and an invite to share
 
 ### Changed
+- The Seamless co-op switch is gone from the Link Play page (the old Story co-op is retired)
 - An update that stops now writes its error to setup.log, with the step it reached
 - A crash report now lists the render targets the game was drawing to when it crashed (#720)
 
