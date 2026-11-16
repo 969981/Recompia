@@ -121,7 +121,6 @@ export default {
   'Experimental': '실험적',
   'Same for everyone': '모두에게 동일',
   'Visitors can build everywhere': '방문자가 어디서든 건설할 수 있음',
-  'Seamless co-op: every player plays their own story': '심리스 협동: 모든 플레이어가 자신의 스토리를 진행',
   'This PC': '이 PC',
   'No address found': '주소를 찾을 수 없습니다',
   'The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.': '이 PC의 릴레이가 꺼져 있어 방문자가 참여할 수 없습니다. 이 PC에서 릴레이 실행을 켜세요.',

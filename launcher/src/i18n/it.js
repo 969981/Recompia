@@ -121,7 +121,6 @@ export default {
   'Experimental': 'Sperimentale',
   'Same for everyone': 'Uguale per tutti',
   'Visitors can build everywhere': 'I visitatori possono costruire ovunque',
-  'Seamless co-op: every player plays their own story': 'Co-op continua: ogni giocatore gioca la propria storia',
   'This PC': 'Questo PC',
   'No address found': 'Nessun indirizzo trovato',
   'The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.': 'Il relay su questo PC è spento, quindi i visitatori non possono unirsi. Attiva Avvia un relay su questo PC.',

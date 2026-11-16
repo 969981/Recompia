@@ -121,7 +121,6 @@ export default {
   'Experimental': '实验性',
   'Same for everyone': '对所有人相同',
   'Visitors can build everywhere': '访客可以在任何地方建造',
-  'Seamless co-op: every player plays their own story': '无缝合作：每位玩家进行自己的剧情',
   'This PC': '这台电脑',
   'No address found': '未找到地址',
   'The relay on this PC is off, so visitors cannot join. Turn on Run a relay on this PC.': '这台电脑上的中继已关闭，访客无法加入。请打开“在这台电脑上运行中继”。',
