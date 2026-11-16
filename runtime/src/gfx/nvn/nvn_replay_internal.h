@@ -161,7 +161,10 @@ struct Pass {
     bool depth_ro = false;      // the depth attachment is in DEPTH_STENCIL_READ_ONLY_OPTIMAL (it is also sampled by the draws of this pass)
     uint32_t samples = 1;
     uint32_t layers = 1;        // VkRenderingInfo::layerCount
-    uint8_t no_view = 0;        // colour slots with a texture but no attachment view (VK_NULL_HANDLE in the pass); crash report only
+    // Crash report only (pass_report): copied at the pass's start, so the report never follows a texture pointer that may be gone by then.
+    struct Note { uint32_t id = 0; const char* fmt = nullptr; int w = 0, h = 0; uint32_t levels = 0; };
+    Note note[9];               // colour slots 0..7, then the depth target
+    uint8_t no_view = 0;        // colour slots with a texture but no attachment view (VK_NULL_HANDLE in the pass)
     bool depth_no_view = false; // the same for the depth target
     float scale = 1.0f;         // resolution scale of the attachments ([gfx] render_scale): viewports and scissors are multiplied by it
     uint8_t fbl = 0;            // colour slots in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (their draws sample them: feedback_prepare)

@@ -143,14 +143,19 @@ float attach_targets(bool fix) {
 }
 
 // Crash report section: the attachments of the last pass begun. A driver that faults inside vkCmdBeginRendering (#720: Intel Iris Plus,
-// igvk64.dll reading 0x68 at world entry) leaves no other trace of what the pass held. Read without a lock: best effort after a crash.
+// igvk64.dll reading 0x68 at world entry) leaves no other trace of what the pass held. Only plain values copied at the pass's start are
+// read (the freeze dump runs this on a live game, where a texture of an ended pass may be freed). Read without a lock: best effort.
+static Pass::Note note_of(const Texture* t) {
+    if (!t) return {};
+    return {t->id, t->fmt ? t->fmt->name : nullptr, t->b.width, t->b.height, t->levels};   // fmt->name: the static format table
+}
+
 static std::string pass_report() {
-    auto target = [](const Target& tg, bool no_view, VkFormat f) {
+    auto target = [](const Target& tg, const Pass::Note& n, bool no_view, VkFormat f) {
         char b[200];
-        const Texture* t = tg.tex;
-        if (!t) return std::string("none");
-        std::snprintf(b, sizeof b, "texture %u (%s %dx%d, %u levels), level %u, layer %u+%u, format %d%s", t->id, t->fmt ? t->fmt->name : "?", t->b.width, t->b.height,
-                      t->levels, tg.level, tg.layer, tg.layers, static_cast<int>(f), no_view ? ", NO VIEW (null in the pass)" : "");
+        if (!n.id) return std::string("none");
+        std::snprintf(b, sizeof b, "texture %u (%s %dx%d, %u levels), level %u, layer %u+%u, format %d%s", n.id, n.fmt ? n.fmt : "?", n.w, n.h,
+                      n.levels, tg.level, tg.layer, tg.layers, static_cast<int>(f), no_view ? ", NO VIEW (null in the pass)" : "");
         return std::string(b);
     };
     char b[200];
@@ -158,8 +163,8 @@ static std::string pass_report() {
                   P.ncolor, P.extent.width, P.extent.height, P.layers, P.samples, P.scale, P.depth_ro ? "read-only" : "written");
     std::string out = b;
     for (uint32_t i = 0; i < P.ncolor && i < 8; ++i)
-        out += "  colour " + std::to_string(i) + ": " + target(P.color[i], (P.no_view >> i) & 1, P.color_fmt[i]) + "\n";
-    out += "  depth: " + target(P.depth, P.depth_no_view, P.depth_fmt) + (P.has_stencil ? " (with stencil)" : "") + "\n";
+        out += "  colour " + std::to_string(i) + ": " + target(P.color[i], P.note[i], (P.no_view >> i) & 1, P.color_fmt[i]) + "\n";
+    out += "  depth: " + target(P.depth, P.note[8], P.depth_no_view, P.depth_fmt) + (P.has_stencil ? " (with stencil)" : "") + "\n";
     return out;
 }
 
@@ -202,6 +207,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         Texture* t = S.color_tex[i].get();
         P.color[i] = make_target(t, S.color_view[i], S.color_has_view[i]);
+        if (i < 8) P.note[i] = note_of(t);
         if (!t || !tex_gpu(t)) continue;
         const bool fresh = tex_layout(t) == VK_IMAGE_LAYOUT_UNDEFINED;
         const VkImageLayout cl = color_layout(fbl, i);
@@ -224,6 +230,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
     }
     Texture* dt = S.depth_tex.get();
     P.depth = make_target(dt, S.depth_view, S.depth_has_view);
+    P.note[8] = note_of(dt);
     bool have_depth = false;
     if (dt && tex_gpu(dt)) {
         const bool fresh = tex_layout(dt) == VK_IMAGE_LAYOUT_UNDEFINED;
