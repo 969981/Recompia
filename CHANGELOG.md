@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+## 0.14.0 (build R: Raccoon)
+
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- Higher frame rates on graphics cards of 4 or 6 GB (such as a GTX 1650 or RTX 2060)
+- Fixed the button prompt beside the player showing Switch positions with Face Buttons on Xbox (#683)
+- Mod settings can be global or per profile
 
 ### Performance
 - PCs with a separate graphics card of 4 or 6 GB (such as a GTX 1650 or RTX 2060) now read the game's shader constants from video memory instead of system memory. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged. Switch: **Shader constants in video memory** in the launcher's Settings > Graphics and in the game's Settings (idea from pokopia-native)
@@ -17,14 +24,8 @@
 ### Mods
 - Mods use global defaults with optional per-profile overrides for individual settings and enabled states. Every mod supports this automatically; "Use global" resumes inheritance. Update the launcher and runtime; use **Set up again** if prompted. Shaders are retained.
 
-### Online
-- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; off by default) for events that need an internet connection the first time, such as **Apples to Applin** (16 Nov to 1 Dec 2026). It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts
-  - The event also needs the town's important request done and its Pokémon Center rebuilt, and the real date (Time Travel off)
-  - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): turn the switch on for those as well, then pick the event in the game's **Events** tab
-
 ### Launcher
 - **Set up again** no longer says it is running the game in the background for about 60 seconds when there is nothing to collect; it says it is checking the shaders instead. Finishing at once with an up-to-date game and shaders is expected
-- The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
 ### Fixes
 - Fixed a rare crash in the background texture preparation (part of #700)
@@ -38,6 +39,16 @@
   - Now: the second game takes the next free cores, as on Windows; a game that crashed frees its cores at once
   - A second game started from the same game folder is now refused with "The game is already running from this folder", as on Windows (two would write the same log, pipeline cache and saves)
 - Fixed memory being written after it was freed around every save after the first, on Linux and macOS
+
+## 0.13.9 (build Q: Quokka Hotfix a6)
+
+**Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
+
+### Online
+- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; on by default) for events that need an internet connection the first time, such as **Apples to Applin** (16 Nov to 1 Dec 2026). It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts. With it on, a moved game clock (Time Travel) moves the network clock too, so the game sees one date
+  - The event also needs the town's important request done and its Pokémon Center rebuilt, and the real date (Time Travel off)
+  - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): the switch is on by default, so they start on their dates (or pick the event in the game's **Events** tab); turn it off in Settings > Game > Online if the game shows connection messages
+- The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
