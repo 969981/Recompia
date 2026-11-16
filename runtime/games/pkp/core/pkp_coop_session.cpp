@@ -12,11 +12,18 @@
 //   0xe7ffc8(index)    join result `index`; GM+0x90 bit 2 (visitor) is set once the host's world has loaded, 10 to 20 s later
 // A request is made only while the player can walk: play mode's in_game, the event bus not busy and the autosave idle. The game state
 // GM = layout::kGameState, its session bits at layout::kStateSession.
+//
+// A joining member arrives at the host world's PC, wherever the host is (in a new game the host is in the first cave, which cannot be
+// reached from there). Once the member can walk again after the load (play mode's in_game comes back about 13 s after the visitor bit,
+// after the game's own last placing), the game's player warp 0x275760(character, vec4* pos, 0, 1, 1, 1, 0, 0, [sp] u8 0) puts it on the
+// host's spot, and the game moves the two a little apart. In a session of two the host's character is the player manager's second slot
+// (+0x38). A second later it looks again and warps once more while still far from the host (at most kPlaceTries warps).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
@@ -35,12 +42,24 @@ constexpr uint32_t kSmSearched = 1u << 4;
 constexpr double kFirstWait = 3.0, kMaxWait = 30.0;      // backoff between tries
 constexpr double kOpenTimeout = 30.0, kSearchTimeout = 15.0, kJoinTimeout = 45.0;
 
+constexpr uint64_t kWarp = 0x275760;
+constexpr uint64_t kOtherPlayer = layout::kManagerPlayer + 8;
+constexpr unsigned kPlaceTries = 3;
+constexpr double kPlaceCheck = 1.0;
+constexpr float kNearHost = 300.0f;   // world units; the game puts the two about 60 apart after a warp
+
 enum class Step { Wait, Opening, Searching, Joining, Up };
+enum class Place { Loading, Ready, Check, Done };
 
 struct State {
     Step step = Step::Wait;
     double next_try = 0.0, started = 0.0, backoff = kFirstWait;
     unsigned tries = 0;
+    // A joining member's placement next to the host.
+    Place place = Place::Loading;
+    bool loaded = false;   // in_game went away during the join (the host's world loads)
+    double check_at = 0.0;
+    unsigned warps = 0;
 };
 State& st() {
     static State s;
@@ -99,6 +118,57 @@ void searched(::Ctx* c, State& s, uint64_t sm, double now) {
     NXLOG_I(kTag, "Co-op session (visit): joining the host's session (%u found)", results);
 }
 
+uint64_t host_player() {
+    const uint64_t players = guest::rd<uint64_t>(base() + layout::kPlayerManager);
+    if (!guest::ok(players, kOtherPlayer + 8)) return 0;
+    const uint64_t host = guest::rd<uint64_t>(players + kOtherPlayer);
+    return guest::ok(host, layout::kPosition + 16) ? host : 0;
+}
+
+bool placed(const float* p) { return p[0] != 0.0f || p[1] != 0.0f || p[2] != 0.0f; }
+
+// The squared distance between the two characters' positions; negative while either has none yet.
+float distance2(uint64_t me, uint64_t host) {
+    float a[4], b[4];
+    std::memcpy(a, reinterpret_cast<const void*>(me + layout::kPosition), sizeof a);
+    std::memcpy(b, reinterpret_cast<const void*>(host + layout::kPosition), sizeof b);
+    if (!placed(a) || !placed(b)) return -1.0f;
+    const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
+}
+
+void warp_to_host(::Ctx* c, uint64_t me, uint64_t host) {
+    const uint64_t sp = (c->x[31] - 0x100) & ~uint64_t{0xf};   // below the game thread's stack: free at the frame tick
+    guest::wr<uint64_t>(sp, 0);                                 // the stack argument (u8 0)
+    std::memcpy(reinterpret_cast<void*>(sp + 0x10), reinterpret_cast<const void*>(host + layout::kPosition), 16);
+    guest::call_n<8>(c, base() + kWarp, {me, sp + 0x10, 0, 1, 1, 1, 0, 0}, sp);
+}
+
+// A joining member, once the session is up: next to the host as soon as it can walk again.
+void place(::Ctx* c, State& s, bool in_game, double now) {
+    if (s.place == Place::Done) return;
+    if (!in_game) s.loaded = true;
+    if (s.place == Place::Loading) {
+        if (s.loaded && in_game) s.place = Place::Ready;
+        return;
+    }
+    const uint64_t me = local_player(), host = host_player();
+    if (!me || !host) return;
+    const float d2 = distance2(me, host);
+    if (d2 < 0.0f) return;
+    if (s.place == Place::Check && now < s.check_at) return;
+    if (d2 <= kNearHost * kNearHost || s.warps >= kPlaceTries) {
+        s.place = Place::Done;
+        NXLOG_I(kTag, "Co-op session (visit): %s the host (%u warps)", d2 <= kNearHost * kNearHost ? "next to" : "still far from", s.warps);
+        return;
+    }
+    warp_to_host(c, me, host);
+    ++s.warps;
+    s.place = Place::Check;
+    s.check_at = now + kPlaceCheck;
+    NXLOG_I(kTag, "Co-op session (visit): warped to the host (try %u)", s.warps);
+}
+
 }  // namespace
 
 void tick(::Ctx* c, bool in_game) {
@@ -109,10 +179,14 @@ void tick(::Ctx* c, bool in_game) {
         if (s.step != Step::Up) NXLOG_I(kTag, "Co-op session (%s): the session is up (session bits %02x)", role_name(), session_bits());
         s.step = Step::Up;
         s.backoff = kFirstWait;
+        if (role() == CoopRole::Visit) place(c, s, in_game, now);
         return;
     }
     if (s.step == Step::Up) {
         s.step = Step::Wait;
+        s.place = Place::Loading;
+        s.loaded = false;
+        s.warps = 0;
         s.next_try = now + kFirstWait;
         NXLOG_W(kTag, "Co-op session (%s): the session ended; starting it again once the player can walk", role_name());
         return;
@@ -132,6 +206,7 @@ void tick(::Ctx* c, bool in_game) {
             else if (now - s.started > kSearchTimeout) retry_later(s, now, "the search did not finish");
             return;
         case Step::Joining:
+            if (!in_game) s.loaded = true;
             if (now - s.started > kJoinTimeout) retry_later(s, now, "the join did not finish");
             return;
         case Step::Up: return;
