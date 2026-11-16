@@ -28,9 +28,6 @@
 #include "core/pkp_pokemon_cap.h"
 #include "core/pkp_save_uuid.h"
 #include "ui/pkp_save_now.h"
-#include "core/pkp_story_guard.h"
-#include "core/pkp_story_hold.h"
-#include "core/pkp_story_pickups.h"
 #include "render/pkp_shoulder_camera.h"
 #include "ui/pkp_sort.h"
 #include "render/pkp_taa.h"
@@ -60,8 +57,6 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 // frame-rate hook at that site, as they did when that hook called them. Where the order matters:
 //   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
-//   story_guard         after save_uuid: its install copies the save, which is then the repaired one (pkp_story_guard.h)
-//   story_hold          after story_guard, whose journal it writes to (pkp_story_hold.h)
 //   mods                the Modtopia mods' frame tick (pkp_mods.h): first of the game-frame callbacks, so mods see each frame before our
 //                       features change anything in it
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
@@ -91,7 +86,7 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kStoryGuardFeature), port(&kStoryHoldFeature), port(&kStoryPickupsFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif

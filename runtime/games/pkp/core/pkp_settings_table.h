@@ -85,7 +85,6 @@ inline constexpr Spec kSpecs[] = {
     b(QualityProbe, "quality_probe", false, "Log what the quality hooks see (diagnostics)."),
     i(GameTaa, "game_taa", 0, 0, 2, "Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's)."),
     b(LinkInteractEverywhere, "link_interact_everywhere", false, "Experimental: Link Play visitors can interact outside Palette Town."),
-    b(LinkStoryCoop, "link_story_coop", false, "Experimental: in Link Play every player plays their own story, saved in their own save."),
     b(UuidRepair, "uuid_repair", true, "At start, give a save with the player UUID earlier builds shared a UUID of its own."),
     gameplay(b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air.")),
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
@@ -110,6 +109,11 @@ inline constexpr Spec kSpecs[] = {
     b(OnlineEvents, "online_events", true, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
+
+// Keys of older builds, read and ignored without a warning (an old pkp.ini keeps loading); the launcher never writes them.
+inline constexpr const char* kRetired[] = {
+    "link_story_coop",   // Story co-op (every player's own story)
+};
 
 constexpr bool in_key_order() {
     for (size_t n = 0; n < static_cast<size_t>(Count); ++n)

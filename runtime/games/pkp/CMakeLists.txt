@@ -39,9 +39,6 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_save_files.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
-        "${_pkp}/core/pkp_story_guard.cpp"
-        "${_pkp}/core/pkp_story_hold.cpp"
-        "${_pkp}/core/pkp_story_pickups.cpp"
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"

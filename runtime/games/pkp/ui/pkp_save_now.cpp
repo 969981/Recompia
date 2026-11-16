@@ -10,8 +10,8 @@
 //   * the part is filled: the icon is the first of kButtons no other prompt of the set uses (Y, then R; click only when both are taken),
 //     the text is "Save" in the game's language, and the part's layout goes to the menu pointer.
 //   * a left click on the prompt, or that button on any pad while the pause menu is up, asks for the save; the game thread then queues it
-//     with the game's own request, the one its Save and Quit dialog makes (0x241324, kind 2, pkp_layout.h; pkp_story_guard.cpp uses the
-//     same call), and says so with a notice.
+//     with the game's own request, the one its Save and Quit dialog makes (0x241324, kind 2, pkp_layout.h), and says so with a
+//     notice.
 #include "ui/pkp_save_now.h"
 #include "ui/pkp_key_guide.h"
 #include "ui/pkp_menu.h"

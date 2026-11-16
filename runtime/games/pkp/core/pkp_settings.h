@@ -49,7 +49,6 @@ enum class Key : uint8_t {
     GameTaa,
     // gameplay and menus
     LinkInteractEverywhere,
-    LinkStoryCoop,
     UuidRepair,
     JumpMomentum,
     JumpMomentumStrength,
