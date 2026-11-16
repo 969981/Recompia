@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, with multiplayer support.</b>
+  <b>Pokémon Pokopia (Switch 2) recompiled to run natively on Windows, Linux, & Mac with multiplayer support.</b>
 </p>
 
 <p align="center">
