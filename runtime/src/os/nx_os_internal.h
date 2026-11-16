@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// nx_os_internal.h: the object model shared by the three files of the POSIX shim (os_posix.cpp, os_posix_file.cpp,
-// os_posix_mem.cpp). Internal to src/os -- the rest of the runtime only sees src/os/nx_os.h.
+// nx_os_internal.h: the object model shared by the files of the POSIX shim (os_posix*.cpp). Internal to src/os -- the
+// rest of the runtime only sees src/os/nx_os.h.
 //
 // One definition of Obj and one Kind enum, so that a HANDLE made by one file (a file handle from CreateFileW) can be
 // passed to a function in another (CloseHandle). A per-file copy of these structs would compile and then be undefined
@@ -95,8 +95,12 @@ struct MutexObj : Waitable {
     DWORD owner = 0;
     int depth = 0;
     std::string name;
+    int claim_fd = -1;   // a named mutex's lock file, held shared while this process has the name open (os_posix_named.cpp)
     MutexObj() : Waitable(Kind::Mutex) {}
-    ~MutexObj() override { pthread_mutex_destroy(&mu); }
+    ~MutexObj() override {
+        if (claim_fd >= 0) ::close(claim_fd);
+        pthread_mutex_destroy(&mu);
+    }
 };
 
 struct SemaphoreObj : Waitable {
@@ -163,6 +167,11 @@ T* as(HANDLE h, Kind k) {
 
 void retain(Obj* o);
 void release(Obj* o);
+
+// ---- names other processes see (os_posix_named.cpp) ---------------------------------------------------------------
+// Holds `name` for this process until the returned fd is closed; *others = another process holds it too. -1 when no
+// lock file can be made: the name then stays known to this process only.
+int named_claim(const std::string& name, bool* others);
 
 // ---- shared wait plumbing ----------------------------------------------------------------------------------------
 // One process-wide condition variable and one mutex: see the comment at the top of os_posix.cpp.

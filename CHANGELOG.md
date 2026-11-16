@@ -32,6 +32,13 @@
   - Now: that texture keeps its place; nothing else changes
   - Still not: the other crashes in #700 (two game processes on one PC) have a cause not found yet
 
+### Linux & Steam Deck
+- Fixed two games running side by side on one Linux PC (the native Linux build, not Proton) putting their console cores on the same six processors, which slowed both (#700)
+  - Before: every game took the fastest cores, as if it were alone
+  - Now: the second game takes the next free cores, as on Windows; a game that crashed frees its cores at once
+  - A second game started from the same game folder is now refused with "The game is already running from this folder", as on Windows (two would write the same log, pipeline cache and saves)
+- Fixed memory being written after it was freed around every save after the first, on Linux and macOS
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
