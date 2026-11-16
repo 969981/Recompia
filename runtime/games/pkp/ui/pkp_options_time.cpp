@@ -93,7 +93,7 @@ int load_events() {
     const int today = real_today();
     g_events = parse_events(text.str(), today, kMaxEvents);
     for (size_t i = 0; i < g_events.size(); ++i) {
-        g_event_dates[i] = event_dates(g_events[i], today) + ". Press to set the game clock to this day, at noon.";
+        g_event_dates[i] = event_dates(g_events[i], today) + ". Press to set the game clock to this day, at noon (an event that is on now: the real date).";
         g_event_rows[i] = Row{g_events[i].name.c_str(), g_event_dates[i].c_str(), {kChoose[0], kChoose[1]}, 2, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr,
                               nullptr, kEventChosen[i], [](S&, int) {}, false, false};
     }
@@ -128,6 +128,15 @@ void go_to_event(int row, int (&time_cur)[kSlots], int (&time_orig)[kSlots]) {
     namespace tt = services::timetravel;
     if (row < 0 || row >= static_cast<int>(g_events.size())) return;
     const int start = g_events[row].start, year = start / 10000, month = start / 100 % 100, day = start % 100;
+    // An event that is running today needs the real date and Time Travel off: the row clears the offset instead of moving the clock.
+    if (const int today = real_today(); today >= start && today <= g_events[row].end) {
+        tt::set_offset(0);
+        const Shown now = shown_clock();
+        const int real_rows[6] = {0, clamp_pos(now.v[0] - kFirstYear, kYearCount), now.v[1] - 1, now.v[2] - 1, now.v[3], now.v[4]};
+        for (int i = 0; i < 6; ++i) time_cur[i] = time_orig[i] = real_rows[i];
+        NXLOG_I(kTag, "options: %s is on now: the game clock follows the real date (Time Travel off)", g_events[row].name.c_str());
+        return;
+    }
     int64_t at = 0;
     if (!tt::posix_of_local(year, month, day, kEventHour, 0, &at)) {
         NXLOG_W(kTag, "options: %s starts on a date that does not exist in this time zone", g_events[row].name.c_str());
