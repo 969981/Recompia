@@ -20,6 +20,12 @@
 // in the same state with its flag clear. A receiver still behind waits for its pump; a receiver past it (it did that step itself, which
 // is normal: every process checks the conditions) drops the message.
 //
+// Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
+// returns with nothing done). Every process runs them, since every process runs the pump. Personal kinds (the player's abilities,
+// bag, name, profile: 0x01 0x02 0x03 0x19 0x1e 0x1f 0x30) and the story kinds (quest flags and states: 0x04 0x14 0x15 0x27 0x29 0x2d)
+// run on every process; every other kind changes the shared world, which the game's own
+// replication brings from the authority to the members, so on a member in the session it returns at once, as an unknown kind does.
+//
 // Abilities. The ability effect commands 0x01 (0x121bb8: up to 8 ids set) and 0x19 (0x1227fc: one id set or cleared) write the bits at
 // save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit id & 7). A command that changes a bit is shared; a receiver runs the same handler
 // when a bit differs on its process.
@@ -48,6 +54,10 @@ constexpr uint64_t kStateOf = 0x5d85c0, kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
 constexpr uint32_t kQuestMax = 1000;
 constexpr double kWaitForPump = 10.0;   // a flag whose state the receiver has not reached is kept this long
+
+constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
+                                            0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
+constexpr uint8_t kEffectFirst = 0x01, kEffectLast = 0x39;
 
 constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
 constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
@@ -167,6 +177,16 @@ int on_quest_flag(::Ctx* c) {
     link::share(wire::Type::StoryFlag, wire::Writer(link::self()).u16(static_cast<uint16_t>(id)).u8(state).take());
     NXLOG_D(kTag, "Co-op story: quest %u flag set here (state %u), shared", id, state);
     return 0;
+}
+
+int on_quest_effect(::Ctx* c) {
+    if (!link::in_session() || link::is_authority() || !guest::ok(c->x[0], 1)) return 0;
+    const uint8_t kind = guest::rd<uint8_t>(c->x[0]);
+    if (kind < kEffectFirst || kind > kEffectLast) return 0;
+    for (uint8_t every : kEveryProcessEffects)
+        if (kind == every) return 0;
+    NXLOG_D(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
+    return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
 int on_ability(::Ctx* c) {

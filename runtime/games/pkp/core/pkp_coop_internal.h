@@ -57,6 +57,7 @@ int on_mask_start(::Ctx* c);     // midhook 0xb0f74: the mask builder's argument
 int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online pattern
 int on_quest_state(::Ctx* c);    // entry 0x5d865c
 int on_quest_flag(::Ctx* c);     // entry 0x5d8774
+int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
 int on_ability(::Ctx* c);        // entry 0x121bb8, 0x1227fc
 // The messages (pkp_coop_link.cpp).
 void on_flag_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);

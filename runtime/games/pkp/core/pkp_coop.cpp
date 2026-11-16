@@ -121,6 +121,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QuestState: return coop::story::on_quest_state(c);
         case Site::QuestFlag: return coop::story::on_quest_flag(c);
         case Site::AbilityEffect: return coop::story::on_ability(c);
+        case Site::QuestEffect: return coop::story::on_quest_effect(c);
         default: return 0;
     }
 }
