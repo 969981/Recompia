@@ -30,7 +30,8 @@ enum class Site : uintptr_t {
     // ---- the shared story ----
     TalkStart,        // the talk start: the talk lock for that character is asked of the authority; refused, the player gets the busy
                       // line and no talk starts
-    TalkNone,         // the talk start's path where its event call answered no talk: the lock is given back
+    TalkNone,         // the talk start right after its talk event call 0x4bf7c0 returns (every return): w22 bit 0 clear there is the
+                      // "no talk after all" path (the function then returns 0), where the lock is given back
     TalkEnd,          // the end of a talk's event chain: the lock of that talk slot is given back
     QuestState,       // a story quest's state is set: a local write goes to the authority, which orders it and sends it to every member;
                       // a member's copy arriving is applied through this same setter, marked so it is not sent again
