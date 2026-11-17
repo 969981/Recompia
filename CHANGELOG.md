@@ -11,6 +11,9 @@
 
 ### Launcher
 - Added icons to the Settings tabs
+- macOS and Linux: Play now prepares the shaders the game builds while it runs before the start, as Windows does (#727)
+  - Before: when Set up's warm-up collected none of them, the first start drew them black or not at all until the game was restarted
+  - Now: Play runs the warm-up once more in that case, and translates what an earlier run left before the start
 
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
