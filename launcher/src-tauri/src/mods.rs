@@ -623,6 +623,8 @@ mod tests {
         assert!(mod_view(&dir, &p(&a)).enabled && mod_view(&dir, &Scope::Global).enabled);
         // the layer the game picks from NXRT_ACCOUNT_UID (coop_launch.rs)
         assert!(dir.join("config/accounts").join(crate::saveimport::account_key_of(&g.account_uid)).join("demo.toml").exists());
+        // the folder Scope::layer_dir names (what deleting a co-op save removes) is the one the core wrote
+        assert!(group.layer_dir(&dir).unwrap().unwrap().join("demo.toml").exists());
         ensure_points_built(&dir, &group).unwrap();
         let _ = fs::remove_dir_all(dir);
     }

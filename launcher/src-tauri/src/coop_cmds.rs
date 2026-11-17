@@ -104,10 +104,10 @@ pub fn coop_accept(app: AppHandle, invite: String, member: String) -> Result<Vec
 #[tauri::command]
 pub fn coop_delete(app: AppHandle, id: String) -> Result<Vec<CoopView>, String> {
     let root = guarded_root(&app)?;
-    let layer = crate::mods_scope::Scope::Coop(id.clone()).account(&game_dir(&app)).ok().flatten();
+    let layer = crate::mods_scope::Scope::Coop(id.clone()).layer_dir(&game_dir(&app)).ok().flatten();
     coop::delete(&root, &id)?;
-    if let Some(key) = layer {
-        let _ = std::fs::remove_dir_all(game_dir(&app).join("config").join("accounts").join(key));   // the group's mod layer (mods_scope.rs)
+    if let Some(dir) = layer {
+        let _ = std::fs::remove_dir_all(dir);   // the group's own mod choices: only this group's account uses that layer
     }
     Ok(views(&root))
 }

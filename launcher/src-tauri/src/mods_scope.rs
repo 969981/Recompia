@@ -65,6 +65,11 @@ impl Scope {
     pub fn coop_id(&self) -> Option<String> {
         if let Scope::Coop(id) = self { Some(id.clone()) } else { None }
     }
+
+    /// The folder of the scope's layer, as the Modtopia core lays it out (header); None for the global defaults.
+    pub fn layer_dir(&self, game_dir: &Path) -> Result<Option<std::path::PathBuf>, String> {
+        Ok(self.account(game_dir)?.map(|key| game_dir.join("config").join("accounts").join(key)))
+    }
 }
 
 #[cfg(test)]
