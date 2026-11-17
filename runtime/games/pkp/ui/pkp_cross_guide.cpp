@@ -16,8 +16,10 @@
 //   * the icons: each key pane of that set shows the button that sits at the pane's place. A pane's sprite is the four corner UVs in
 //     its texture record, which nothing rewrites; all four sprites are in one texture.
 //   * upside down: set 3's backdrop and its three faint keys are mirrored about the row of its large key. The animation writes every
-//     pane's position each frame, so the mirror is put into the pane's world matrix as the pane goes to its draw (the menu pointer's
-//     draw sites); the backdrop's picture is mirrored with it, the keys only move.
+//     pane's position each frame, so the mirror is made where each of their quads is built (the quad builder's site, pkp_layout.h):
+//     the quad's centre moves, in the pane's own units, and the backdrop's quads are turned over as well, the keys' are not. A window
+//     pane's nine quads do not follow the pane's world matrix once the update has run (#683's first fix wrote it at the draw: the
+//     keys moved, the backdrop stayed under the text).
 #include "ui/pkp_cross_guide.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -35,6 +37,10 @@ namespace {
 // inline: `str w8, [x19, #0xa4]`, the widget (x19) stores the set it shows (w8), in its two fill functions
 constexpr uint64_t kSetStores[] = {0xe77a30, 0xe780c0};
 constexpr uint64_t kWidgetPart = 0x68;     // widget: its layout part; [part + 8] is the layout's source (layout::kLayoutOf)
+// The quad builder called from a window pane's build: the return address, and the SP-relative draw object of the part that is built
+// (that build's x20; layout::kDrawPane of it is the part). A window pane holds its nine parts itself.
+constexpr uint64_t kWindowQuadReturn = 0x1f8172c;
+constexpr size_t kQuadWindowDraw = 0x60, kWindowPaneSize = 0xcb0;
 
 using guest::ok;
 using guest::rd;
@@ -46,7 +52,6 @@ using layout::kPaneName;
 using layout::kPaneNameLen;
 using layout::kPaneParent;
 using layout::kPaneTexture;
-using layout::kPaneWorld;
 using layout::kTextureUv;
 
 // The Switch face buttons, and the four places of a pad's face buttons (play::PadSrc's numbers).
@@ -83,7 +88,7 @@ struct State {
         uint64_t lay = 0, first = 0;       // the layout and its first pane node
         uint32_t set = 0, places = 0;      // the game's set and the places it was handled for
     } last;
-    // Set 3 upside down: the game thread sets these, the pane draws read them.
+    // Set 3 upside down: the game thread sets these, the quad builds read them.
     std::atomic<uint64_t> flip_root{0};    // 'Null_set_X' while it is drawn upside down, 0 = as the game draws it
     std::atomic<uint64_t> flip_axis{0};    // its large key pane: the mirror's row
     std::atomic<uint64_t> flip_pane[kFaces] = {};   // its backdrop, then its three faint key panes
@@ -207,32 +212,45 @@ void hook_set_store(::Ctx* c, uint64_t, void*) {
     s.flip_root.store(p.root, std::memory_order_release);
 }
 
-// A picture or window pane goes to its draw: a pane of the upside-down set gets its world matrix mirrored about the large key's row
-// (local y -> 2 * row - y in the set's root, then the root's world matrix as the game's update applies it).
-int hook_pane_draw(::Ctx* c, uint64_t, void*) {
+// A quad is about to be built: a quad of the upside-down set's backdrop or of one of its faint keys is mirrored about the large key's
+// row. The row and the pane's own place are local to the set's root; the quad is in the pane's units, so the way up is divided by the
+// pane's own height scale. A pane that is turned keeps the game's place.
+int hook_quad(::Ctx* c, uint64_t addr, void*) {
     const State& s = g;
     const uint64_t root = s.flip_root.load(std::memory_order_acquire);
     if (!root) return 0;
-    const uint64_t pane = c->x[0];
-    int i = 0;
-    while (i < kFaces && s.flip_pane[i].load(std::memory_order_relaxed) != pane) ++i;
-    if (i == kFaces || rd<uint64_t>(pane + kPaneParent) != root) return 0;     // not one of them, or the layout is another one's now
-    const uint64_t axis = s.flip_axis.load(std::memory_order_relaxed);
-    const uint64_t wp = rd<uint64_t>(pane + kPaneWorld), lp = rd<uint64_t>(pane + kPaneLocal), pp = rd<uint64_t>(root + kPaneWorld);
-    const uint64_t ap = rd<uint64_t>(axis + kPaneLocal);
-    if (!wp || !lp || !pp || !ap) return 0;
-    float l[16], p[16];
+    const uint64_t base = addr - layout::kQuadGeometry;
+    const uint64_t back = rd<uint64_t>(c->x[29] + layout::kQuadReturn);
+    uint64_t pane = 0;
+    bool backdrop = false;
+    if (back == base + layout::kPictureQuadReturn) {
+        pane = rd<uint64_t>(rd<uint64_t>(c->x[31] + layout::kQuadPictureDraw) + layout::kDrawPane);
+        int i = 1;
+        while (i < kFaces && s.flip_pane[i].load(std::memory_order_relaxed) != pane) ++i;
+        if (i == kFaces) return 0;
+    } else if (back == base + kWindowQuadReturn) {
+        const uint64_t part = rd<uint64_t>(rd<uint64_t>(c->x[31] + kQuadWindowDraw) + layout::kDrawPane);
+        pane = s.flip_pane[0].load(std::memory_order_relaxed);
+        if (part < pane || part >= pane + kWindowPaneSize) return 0;
+        backdrop = true;
+    } else {
+        return 0;
+    }
+    if (rd<uint64_t>(pane + kPaneParent) != root) return 0;     // the layout is another one's now
+    const uint64_t lp = rd<uint64_t>(pane + kPaneLocal);
+    const uint64_t ap = rd<uint64_t>(s.flip_axis.load(std::memory_order_relaxed) + kPaneLocal);
+    if (!lp || !ap) return 0;
+    float l[16];
     std::memcpy(l, reinterpret_cast<const void*>(lp), sizeof l);
-    std::memcpy(p, reinterpret_cast<const void*>(pp), sizeof p);
-    const float x = l[12], y = 2.f * rd<float>(ap + 13 * sizeof(float)) - l[13];
-    float* w = reinterpret_cast<float*>(wp);
-    w[12] = p[12] + x * p[0] + y * p[4];
-    w[13] = p[13] + x * p[1] + y * p[5];
-    if (i == 0) {     // the backdrop's picture too: its local axes with y negated
-        w[0] = l[0] * p[0] - l[1] * p[4];
-        w[1] = l[0] * p[1] - l[1] * p[5];
-        w[4] = l[4] * p[0] - l[5] * p[4];
-        w[5] = l[4] * p[1] - l[5] * p[5];
+    if (l[1] != 0.f || l[4] != 0.f || !(l[5] > 0.f)) return 0;
+    const float up = 2.f * (rd<float>(ap + 13 * sizeof(float)) - l[13]) / l[5];
+    float& half_height = c->v[1].f32[0];
+    float& y = c->v[3].f32[0];
+    if (backdrop) {
+        y = up - y;
+        half_height = -half_height;
+    } else {
+        y += up;
     }
     return 0;
 }
@@ -254,8 +272,7 @@ void install(const FeatureInstall& in) {
     s.base = in.base;
     settings_changed(in.settings);
     for (uint64_t site : kSetStores) in.hooks.add_inline(in.base + site, &hook_set_store);
-    in.hooks.add_mid(in.base + layout::kPictureDraw, &hook_pane_draw);
-    in.hooks.add_mid(in.base + layout::kWindowDraw, &hook_pane_draw);
+    in.hooks.add_mid(in.base + layout::kQuadGeometry, &hook_quad);
 }
 
 // The hooks are gone: the key panes show their own buttons again, and nothing is mirrored.
