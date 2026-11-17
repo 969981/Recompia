@@ -134,6 +134,7 @@ mod tests {
         // the same folder, played by the other member whose copy is that one
         p.me = p.members[1].id.clone();
         std::fs::write(dir.join(coop_save::STAMP), r#"{"seq":3,"saved_at":9}"#).unwrap();
+        std::fs::write(dir.join(coop_save::PEERS), format!(r#"{{"peers":{{"{}":{{"seq":1,"saved_at":1}}}}}}"#, p.members[0].id)).unwrap();
         assert_eq!(build(&p, &dir, &sp).unwrap().0.get("NXRT_PKP_COOP_ROLE"), Some("host"));
     }
 

@@ -172,11 +172,19 @@ pub struct HostChoice {
     pub peers_known: bool,
 }
 
-/// The newest copy hosts. `members` are ids in list order; `me` is this PC's member. A member with no known stamp counts as `(0, 0)`.
+/// The newest copy hosts. `members` are ids in list order; `me` is this PC's member. Every PC must reach the same answer, so the
+/// stamps are compared only when every other member's stamp is known (peers.json). Otherwise the first member (the group's creator)
+/// hosts: comparing this PC's real stamp with an unknown one made every member with a copy pick itself, and nobody visited.
 pub fn choose_host(members: &[String], me: &str, own: Stamp, peers: &HashMap<String, Stamp>) -> HostChoice {
     let stamp_of = |id: &str| if id == me { own } else { peers.get(id).copied().unwrap_or_default() };
-    // max_by_key keeps the LAST of equal keys, so walk the list backwards: the earliest member wins a tie
-    let host = members.iter().rev().max_by_key(|id| stamp_of(id)).cloned().unwrap_or_else(|| me.to_string());
+    let all_known = members.iter().all(|id| id == me || peers.contains_key(id));
+    let host = if all_known {
+        // max_by_key keeps the LAST of equal keys, so walk the list backwards: the earliest member wins a tie
+        members.iter().rev().max_by_key(|id| stamp_of(id)).cloned()
+    } else {
+        members.first().cloned()
+    }
+    .unwrap_or_else(|| me.to_string());
     let peers_known = members.iter().any(|id| id != me && peers.contains_key(id));
     HostChoice { role: if host == me { Role::Host } else { Role::Visit }, host, own, peers_known }
 }
@@ -280,6 +288,7 @@ mod tests {
         let c = choose_host(&m, "a", Stamp { seq: 6, saved_at: 1 }, &peers);
         assert_eq!((c.host.as_str(), c.role), ("a", Role::Host));
         // seq first, then time
+        peers.insert("a".to_string(), Stamp { seq: 4, saved_at: 60 });
         let c = choose_host(&m, "c", Stamp { seq: 5, saved_at: 60 }, &peers);
         assert_eq!((c.host.as_str(), c.role), ("c", Role::Host));
     }
@@ -297,5 +306,18 @@ mod tests {
         assert_eq!(choose_host(&m, "a", Stamp::default(), &none).role, Role::Host);
         assert_eq!(choose_host(&m, "b", Stamp::default(), &none).role, Role::Visit);
         assert!(!choose_host(&m, "b", Stamp::default(), &none).peers_known);
+    }
+
+    #[test]
+    fn with_a_stamp_unknown_the_creator_hosts_on_every_pc() {
+        // both have played into the group alone, nothing written peers.json: each PC once picked itself
+        let m = ids(&["a", "b"]);
+        let none = HashMap::new();
+        assert_eq!(choose_host(&m, "a", Stamp { seq: 0, saved_at: 100 }, &none).role, Role::Host);
+        assert_eq!(choose_host(&m, "b", Stamp { seq: 0, saved_at: 200 }, &none).role, Role::Visit);
+        // one of three stamps unknown: still the creator
+        let m = ids(&["a", "b", "c"]);
+        let some: HashMap<_, _> = [("b".to_string(), Stamp { seq: 9, saved_at: 9 })].into_iter().collect();
+        assert_eq!(choose_host(&m, "c", Stamp { seq: 9, saved_at: 99 }, &some).host, "a");
     }
 }
