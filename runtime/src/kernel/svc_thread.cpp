@@ -18,6 +18,7 @@
 #include "nxrt/ftrace.h"
 #include "nxrt/game.h"
 #include "nxrt/kernel.h"
+#include "nxrt/perf_report.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
@@ -50,6 +51,7 @@ void svc_exit_process(::Ctx* c) {
         NXLOG_I("svc", "svcExitProcess caller chain: %s", chain.c_str());
     }
     NXLOG_I("runtime", "state at svcExitProcess:\n%s", kernel::detail::state_report().c_str());
+    perf::session_end();     // TerminateProcess below: runtime::shutdown (hitch_stop) never runs
     log_flush();
     // Not ExitProcess: it runs the DLLs' detach and static destructors while guest and render threads still run, which ends in a
     // fail-fast (0xC0000409) that the launcher reports as a crash. Every other runtime exit terminates; os_posix's ExitProcess is _exit.
