@@ -23,28 +23,36 @@ namespace {
 namespace ch = nxrt::coop_channel;
 constexpr const char* kTag = "pkp";
 
+// How a message type travels, which also says who may have sent it.
+enum class Path : uint8_t {
+    Shared,          // a member's (or the authority's own) change, to the authority, which passes it on to every other member
+    ToAuthority,     // a member's request to the authority alone
+    FromAuthority,   // the authority's word to a member
+};
+
 // Every message type, how it travels and the part that applies it, in one place.
 struct Route {
     wire::Type type;
-    bool shared;   // through the authority to every member; else to one node
+    Path path;
     void (*apply)(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 };
 constexpr Route kRoutes[] = {
-    {wire::Type::StoryStates, true, &story::on_states_message},
-    {wire::Type::Ability, true, &story::on_ability_message},
-    {wire::Type::TalkAsk, false, &talk::on_ask},
-    {wire::Type::TalkDone, false, &talk::on_done},
-    {wire::Type::TalkHolder, false, &talk::on_holder},
-    {wire::Type::NamePrompt, true, &catchup::on_name_message},
-    {wire::Type::Items, true, &catchup::on_items_message},
-    {wire::Type::StoryDigest, false, &story::on_digest_message},
-    {wire::Type::MemberName, true, &notice::on_name_message},
-    {wire::Type::ReqUnique, true, &requests::on_unique_message},
+    {wire::Type::StoryStates, Path::Shared, &story::on_states_message},
+    {wire::Type::Ability, Path::Shared, &story::on_ability_message},
+    {wire::Type::TalkAsk, Path::ToAuthority, &talk::on_ask},
+    {wire::Type::TalkDone, Path::ToAuthority, &talk::on_done},
+    {wire::Type::TalkHolder, Path::FromAuthority, &talk::on_holder},
+    {wire::Type::NamePrompt, Path::Shared, &catchup::on_name_message},
+    {wire::Type::Items, Path::Shared, &catchup::on_items_message},
+    {wire::Type::StoryDigest, Path::FromAuthority, &story::on_digest_message},
+    {wire::Type::MemberName, Path::Shared, &notice::on_name_message},
+    {wire::Type::ReqUnique, Path::Shared, &requests::on_unique_message},
 };
 
 struct State {
     bool open = false;
     uint32_t bad_version = 0;   // bit per type: a message of another version was logged
+    uint32_t bad_sender = 0;    // bit per type: a message whose sender may not send it was logged
     ::Ctx* ctx = nullptr;       // the game thread's context while drain() runs the handlers
 };
 State& st() {
@@ -52,12 +60,29 @@ State& st() {
     return s;
 }
 
+// The sender (m.from, set by the channel) may send this message with this origin. A process sends only its own messages (origin is
+// its node; the authority's own reach it through the loopback, from itself), and only the authority passes a member's shared message
+// on, byte for byte, so a shared message on a member comes from the authority with any other member as its origin. The authority is
+// known before the first message of a session is drained (the channel sets it before it queues our join).
+bool sender_ok(Path path, int from, uint8_t origin) {
+    const int authority = ch::authority();
+    switch (path) {
+    case Path::Shared:
+        return ch::is_authority() ? from == origin : from == authority && origin != ch::self();
+    case Path::ToAuthority:
+        return ch::is_authority() && from == origin;
+    case Path::FromAuthority:
+        return from == authority && origin == from;
+    }
+    return false;
+}
+
 void deliver(const Route& route, const ch::Message& m) {
     State& s = st();
     wire::Reader r(m.data, m.size);
     uint8_t origin = wire::kNobody;
+    const uint32_t bit = 1u << (static_cast<uint32_t>(route.type) & 31);
     if (!r.header(&origin)) {
-        const uint32_t bit = 1u << (static_cast<uint32_t>(route.type) & 31);
         if (!(s.bad_version & bit)) {
             s.bad_version |= bit;
             NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: version %u, this build speaks %u", m.type, m.from,
@@ -65,7 +90,15 @@ void deliver(const Route& route, const ch::Message& m) {
         }
         return;
     }
-    if (route.shared && ch::is_authority()) {
+    if (!sender_ok(route.path, m.from, origin)) {
+        if (!(s.bad_sender & bit)) {
+            s.bad_sender |= bit;
+            NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: origin %u, authority node %d; it may not send that", m.type,
+                    m.from, origin, ch::authority());
+        }
+        return;
+    }
+    if (route.path == Path::Shared && ch::is_authority()) {
         if (origin != ch::self()) route.apply(s.ctx, m.from, origin, r);
         for (int node : ch::members())
             if (node != origin) ch::send(node, m.type, m.data, m.size);

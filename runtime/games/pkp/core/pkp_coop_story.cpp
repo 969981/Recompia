@@ -29,8 +29,10 @@
 // the ones that can. The flag stays set: the pump takes it whenever the quest can move. It runs only while the game's own session is
 // up (on a member: in the host's world), the same condition the world effects' skip uses.
 // The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
-// the ability bits). A member behind it catches up as above; a member ahead of it sends all its states again (a rise lost on the way is
-// sent once more); ability bits are merged both ways. So two saves that drifted apart for any reason are brought together within
+// the ability bits). A member behind it catches up as above; a member ahead of it sends each quest it is ahead on again, once per
+// state (a rise lost on the way is sent once more; one the authority's pump cannot step yet is not sent every digest); ability bits
+// are merged both ways. Received states are taken only in the range a quest can have (2..4 shared, 0..4 in a digest). So two saves
+// that drifted apart for any reason are brought together within
 // seconds, and a member who joins late gets the abilities unlocked before it came.
 //
 // Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
@@ -74,6 +76,8 @@ constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
 constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
+constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
+                                                          // is one no pump step reaches, so the catch-up would flag it for ever
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
                                             0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
@@ -99,6 +103,8 @@ struct State {
     uint8_t sent[kQuestMax] = {};      // per quest (id - 1): the state last shared from here
     uint8_t target[kQuestMax] = {};    // per quest: the highest state another member has, which this process catches up to
     uint8_t logged[kQuestMax] = {};    // per quest: the target the catch-up was last logged for
+    uint8_t resent[kQuestMax] = {};    // per quest: the state sent again because a digest showed the authority behind it; each state
+                                       // is sent again once, so a quest the authority cannot step does not resend every digest
     bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
     double stall_until[kQuestMax] = {};   // per quest: passed over by the catch-up until then
     uint8_t stalls[kQuestMax] = {};       // per quest: how often the pump left its flag (the skip doubles each time)
@@ -166,7 +172,9 @@ void share_states() {
         pairs.push_back(static_cast<uint8_t>(id >> 8));
         pairs.push_back(state);
         ++n;
-        if (!all) NXLOG_I(kTag, "Co-op story: quest %u reached state %u here, shared", id, state);
+        if (!all)
+            NXLOG_I(kTag, "Co-op story: quest %u %s state %u here, shared", id, s.resent[i] == state ? "still ahead of the authority at" : "reached",
+                    state);
     }
     if (!n) return;
     link::share(wire::Type::StoryStates, wire::Writer(link::self()).u16(n).bytes(pairs.data(), pairs.size()).take());
@@ -354,7 +362,7 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     for (uint16_t k = 0; k < n && r.ok(); ++k) {
         const uint16_t id = r.u16();
         const uint8_t state = r.u8();
-        if (!r.ok() || id - 1u >= kQuestMax || state <= s.target[id - 1]) continue;
+        if (!r.ok() || id - 1u >= kQuestMax || state < kStarted || state > kClosed || state <= s.target[id - 1]) continue;
         s.target[id - 1] = state;
         const uint8_t here = words ? static_cast<uint8_t>(guest::rd<uint16_t>(words + (id - 1u) * 2)) : 0;
         if (here < state) {
@@ -383,14 +391,20 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     if (!r.ok() || !words || !root || !story_shared_here()) return;
     unsigned behind = 0, ahead = 0;
     for (uint32_t i = 0; i < kQuestMax; ++i) {
+        if (states[i] > kClosed) continue;
         const uint8_t here = state_at(words, i);
         if (states[i] > here && states[i] > s.target[i]) {
             s.target[i] = states[i];
             ++behind;
         }
-        if (here > states[i] && here > kListed) ++ahead;
+        // Ahead of the authority: this state is sent once more (share_states), in case the first send was lost. A state the
+        // authority still lacks after that is one its pump cannot step yet; sending it again each digest would not change that.
+        if (here > states[i] && here > kListed && here > s.resent[i]) {
+            s.resent[i] = here;
+            s.sent[i] = 0;
+            ++ahead;
+        }
     }
-    if (ahead) s.send_all = true;
     unsigned got = 0, gave = 0;
     for (unsigned byte = 0; byte < kAbilityBytes; ++byte) {
         const uint8_t mine = guest::rd<uint8_t>(root + kAbilities + byte);
@@ -452,6 +466,7 @@ void on_session_change() {
     State& s = st();
     std::memset(s.target, 0, sizeof s.target);
     std::memset(s.logged, 0, sizeof s.logged);
+    std::memset(s.resent, 0, sizeof s.resent);
     std::fill(std::begin(s.stall_until), std::end(s.stall_until), 0.0);
     std::memset(s.stalls, 0, sizeof s.stalls);
     s.stepping = 0;

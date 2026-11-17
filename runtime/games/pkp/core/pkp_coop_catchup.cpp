@@ -56,6 +56,8 @@ constexpr double kWatchName = 600.0;   // how long after command 0x44 this playe
 constexpr uint64_t kGiveItems = 0x12c734;
 constexpr uint32_t kGiveCommand = 0xbea;
 constexpr uint16_t kItemMax = 0x11f6;
+constexpr uint32_t kItemsPerMessage = 0xff;   // Items carries a u8 count: a larger give goes as several messages
+constexpr uint32_t kGiveMax = 8 * kItemsPerMessage;   // a script give past this is taken as garbage and cut to it
 
 enum class Prompt { None, Wanted, Open };
 
@@ -67,7 +69,7 @@ struct State {
     uint8_t name_before[kNameSlotSize] = {};
     // the other members
     Prompt prompt = Prompt::None;
-    std::deque<std::pair<uint16_t, uint8_t>> gives;
+    std::deque<std::pair<uint16_t, uint32_t>> gives;   // item, count; one give split over several messages is merged again
     alignas(16) uint8_t name[0x40] = {};
     alignas(16) uint8_t opts[0x20] = {};
     alignas(16) uint8_t text[kTextArgs + kArgCount * kArgSize] = {};
@@ -218,9 +220,15 @@ int on_script_items(::Ctx* c) {
     if (s.remote || !link::in_session() || !guest::ok(c->x[0], 0xc)) return 0;
     const uint16_t item = guest::rd<uint16_t>(c->x[0] + 4);
     const uint32_t count = guest::rd<uint32_t>(c->x[0] + 8);
-    if (item < 1 || item > kItemMax) return 0;
-    link::share(wire::Type::Items, wire::Writer(link::self()).u16(item).u8(static_cast<uint8_t>(count)).take());
-    NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, count & 0xff);
+    if (item < 1 || item > kItemMax || !count) return 0;
+    if (count > kGiveMax) NXLOG_W(kTag, "Co-op catch-up: item %u x%u given here; shared as x%u", item, count, kGiveMax);
+    const uint32_t total = std::min(count, kGiveMax);
+    for (uint32_t left = total; left;) {
+        const uint32_t part = std::min(left, kItemsPerMessage);
+        link::share(wire::Type::Items, wire::Writer(link::self()).u16(item).u8(static_cast<uint8_t>(part)).take());
+        left -= part;
+    }
+    NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, total);
     return 0;
 }
 
@@ -238,8 +246,13 @@ void on_name_message(::Ctx*, int, uint8_t, wire::Reader&) {
 void on_items_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     const uint16_t item = r.u16();
     const uint8_t count = r.u8();
-    if (!r.ok() || item < 1 || item > kItemMax) return;
-    st().gives.emplace_back(item, count);
+    if (!r.ok() || item < 1 || item > kItemMax || !count) return;
+    auto& gives = st().gives;
+    if (!gives.empty() && gives.back().first == item) {   // the next part of one give (a count past kItemsPerMessage): one line
+        gives.back().second += count;
+        return;
+    }
+    gives.emplace_back(item, count);
     notice::post(notice::name_of(origin) + " was given items in a talk. You got them too!");
 }
 

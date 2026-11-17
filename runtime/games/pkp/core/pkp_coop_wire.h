@@ -4,19 +4,25 @@
 //   +0 u8 version (kVersion; a message of another version is dropped and logged once)
 //   +1 u8 origin: the node of the process whose player did the thing (the authority passes a member's message on unchanged)
 // Then, by type (offsets from the start of the payload; a payload shorter than its layout is dropped):
-//   StoryStates +2 u16 count n, then n times: u16 quest id (1..1000), u8 that quest's state on the origin (2 and up)
+//   StoryStates +2 u16 count n, then n times: u16 quest id (1..1000), u8 that quest's state on the origin (2..4)
 //   Ability     +2 u8[0x14] the ability effect command as the quest effect gave it (+0 its type, 0x01 or 0x19)
 //   TalkAsk     +2 u32 character id                          (a member asks the authority for the talk lock)
 //   TalkDone    +2 u32 character id                          (the holder gives the lock back)
 //   TalkHolder  +2 u32 character id, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
 //   NamePrompt  nothing more                                 (the talker entered their name in the game's name entry)
-//   Items       +2 u16 item id, +4 u8 count                  (the talker's event script gave items)
+//   Items       +2 u16 item id, +4 u8 count (1..255)         (the talker's event script gave items)
 //   StoryDigest +2 u16 count n (kQuestCount), n u8 quest states (id 1 first), then u8[kAbilityBytes] the ability bits
 //                                                            (the authority's whole story, to every member every few seconds)
 //   MemberName  +2 u8 length n, n bytes: the player's name as the game keeps it (UTF-8)
 //   ReqUnique   +2 u8 count n, then n times: u8 unique request id (1..200), u8 its state on the origin (3..5)
-// A change to a layout raises kVersion. A new type does not: a build without its handler drops it (one warning per type), so
-// it plays on with a build that has it.
+// A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
+// nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
+// an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
+// messages on); with an older build as a member, only that member misses it.
+// Every payload's origin is checked against its real sender (pkp_coop_link.cpp deliver()): a member's message comes from its own
+// node, a shared message a member receives comes from the authority, and the authority-only types come from the authority alone.
+//   StoryStates states: 2 started, 3 complete, 4 closed; any other value is dropped. StoryDigest states: 0..4, a higher one is
+//   skipped for that quest. Items counts: 1..255 per message; a larger give is sent as several messages.
 #pragma once
 #include <cstddef>
 #include <cstdint>
