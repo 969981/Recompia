@@ -41,7 +41,6 @@ enum class Site : uintptr_t {
                       // the flag alone, so nothing is sent; a write from anywhere else is logged once
     QuestFlag,        // a story quest's flag is set here: shared with the state it was made in, through the authority to every member;
                       // a received set is applied through this same setter, marked so it is not shared again
-    AbilityEffect,    // an ability command (two effect functions) that changes a bit here: shared; a receiver runs the same handler
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
@@ -73,8 +72,6 @@ constexpr CoopSite kSites[] = {
     {{0x47bd00, kPacibsp, true}, Site::TalkEnd},
     {{0x5d865c, 0x51000428u, true}, Site::QuestState},       // sub w8, w1, #1
     {{0x5d8774, 0x51000428u, true}, Site::QuestFlag},        // sub w8, w1, #1
-    {{0x121bb8, kPacibsp, true}, Site::AbilityEffect},
-    {{0x1227fc, kPacibsp, true}, Site::AbilityEffect},
     {{0x11b214, 0x39400008u, true}, Site::QuestEffect},      // ldrb w8, [x0]
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
@@ -122,7 +119,6 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::MaskPattern: return coop::story::on_mask_pattern(c);
         case Site::QuestState: return coop::story::on_quest_state(c);
         case Site::QuestFlag: return coop::story::on_quest_flag(c);
-        case Site::AbilityEffect: return coop::story::on_ability(c);
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);

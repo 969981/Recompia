@@ -26,9 +26,13 @@
 // run on every process; every other kind changes the shared world, which the game's own
 // replication brings from the authority to the members, so on a member in the session it returns at once, as an unknown kind does.
 //
-// Abilities. The ability effect commands 0x01 (0x121bb8: up to 8 ids set) and 0x19 (0x1227fc: one id set or cleared) write the bits at
-// save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit id & 7). A command that changes a bit is shared; a receiver runs the same handler
-// when a bit differs on its process.
+// Abilities (unlocks such as the Pokedex and its menu entries). The bits live at save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit
+// id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
+// 0x12c35c (the Pokedex talk sets ids 17 and 76 through one of the latter two; coop-story/ABILITIES-RE.md 2). So the bits themselves are
+// watched, not a writer: once a frame in the session, every bit that turned on here since the last look is shared as an effect 0x19
+// "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline: what a
+// member already had before joining is not sent. A bit turned off is not shared (no writer clears one in the story; the saves seen only
+// grow).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -62,6 +66,7 @@ constexpr uint8_t kEffectFirst = 0x01, kEffectLast = 0x39;
 constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
 constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
 constexpr unsigned kAbilitySlots = 8;   // command 0x01: u16 ids at +2, +4, .. +0x10
+constexpr unsigned kAbilityBytes = 0x20;   // ids 0..0xff, one bit each
 
 struct Flag {
     uint16_t quest;
@@ -74,6 +79,8 @@ struct State {
     std::deque<Flag> flags;            // received flag sets, in the authority's order
     bool logged_state = false;
     alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
+    uint8_t seen[kAbilityBytes] = {};        // the ability bits at the last look; a bit on now and off here turned on since
+    bool have_seen = false;                  // false until the first look of a session (the baseline)
 };
 State& st() {
     static State s;
@@ -87,7 +94,7 @@ struct Remote {
 
 uint64_t save_root() {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    return guest::ok(r, kAbilities + 0x20) ? r : 0;
+    return guest::ok(r, kAbilities + kAbilityBytes) ? r : 0;
 }
 uint64_t story() {
     const uint64_t r = save_root();
@@ -141,6 +148,33 @@ void apply_flags(::Ctx* c) {
     }
 }
 
+// Shares every ability bit that turned on here since the last look, as an effect 0x19 "set" command (u16 id at +2, u16 1 at +4).
+void share_new_abilities() {
+    State& s = st();
+    const uint64_t root = save_root();
+    if (!root || !link::in_session()) return;
+    uint8_t now[kAbilityBytes];
+    std::memcpy(now, reinterpret_cast<const void*>(root + kAbilities), sizeof now);
+    if (!s.have_seen) {
+        std::memcpy(s.seen, now, sizeof now);
+        s.have_seen = true;
+        return;
+    }
+    for (unsigned byte = 0; byte < kAbilityBytes; ++byte) {
+        const uint8_t turned_on = now[byte] & ~s.seen[byte];
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
+            if (!(turned_on & (1u << bit)) || !ability_id(id)) continue;
+            uint8_t cmd[wire::kEffectSize] = {kAbilityToggle};
+            const uint16_t args[2] = {id, 1};
+            std::memcpy(cmd + 2, args, sizeof args);
+            link::share(wire::Type::Ability, wire::Writer(link::self()).bytes(cmd, sizeof cmd).take());
+            NXLOG_I(kTag, "Co-op story: ability %u turned on here, shared", id);
+        }
+    }
+    std::memcpy(s.seen, now, sizeof now);
+}
+
 }  // namespace
 
 int on_mask_start(::Ctx* c) {
@@ -191,19 +225,6 @@ int on_quest_effect(::Ctx* c) {
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
-int on_ability(::Ctx* c) {
-    if (st().remote || !link::in_session()) return 0;
-    const uint64_t root = save_root();
-    const uint64_t cmd = c->x[0];
-    if (!root || !guest::ok(cmd, wire::kEffectSize)) return 0;
-    uint8_t bytes[wire::kEffectSize];
-    std::memcpy(bytes, reinterpret_cast<const void*>(cmd), sizeof bytes);
-    if ((bytes[0] != kAbilitySet && bytes[0] != kAbilityToggle) || !ability_changes(root, bytes)) return 0;
-    link::share(wire::Type::Ability, wire::Writer(link::self()).bytes(bytes, sizeof bytes).take());
-    NXLOG_D(kTag, "Co-op story: ability command 0x%02x here, shared", bytes[0]);
-    return 0;
-}
-
 void on_flag_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     const uint16_t quest = r.u16();
     const uint8_t state = r.u8();
@@ -218,14 +239,20 @@ void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     r.bytes(s.command, wire::kEffectSize);
     const uint64_t root = save_root();
     if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle) || !ability_changes(root, s.command)) return;
-    Remote remote;
     guest::call(c, base() + (s.command[0] == kAbilitySet ? kAbilitySetFn : kAbilityToggleFn), reinterpret_cast<uint64_t>(s.command));
-    NXLOG_D(kTag, "Co-op story: ability command 0x%02x applied", s.command[0]);
+    if (s.have_seen) std::memcpy(s.seen, reinterpret_cast<const void*>(root + kAbilities), kAbilityBytes);   // received: not sent back
+    NXLOG_I(kTag, "Co-op story: ability command 0x%02x from another member applied here", s.command[0]);
 }
 
-void tick(::Ctx* c) { apply_flags(c); }
+void tick(::Ctx* c) {
+    apply_flags(c);
+    share_new_abilities();
+}
 
-void on_session_change() { st().flags.clear(); }
+void on_session_change() {
+    st().flags.clear();
+    st().have_seen = false;
+}
 
 void reset() { st() = State{}; }
 

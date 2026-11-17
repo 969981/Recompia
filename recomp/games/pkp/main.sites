@@ -243,7 +243,7 @@ midhook 0x71000b1030
 #   Seamless co-op (pkp_coop.cpp, [pkp] coop; hooked only in a co-op launch). The shared story: the mask builder's `mov x19, x0` (it
 #   starts) and its online pattern (above, shared with Interact everywhere); the talk start 0x71003180e0, the `mov w0, wzr` right after
 #   its talk event call returns (w22 bit 0 clear next: "no talk after all") and the end of a talk's event chain 0x710047bd00; the setters of a story quest's state (m_story,
-#   id, state) and flag (m_story, id, bool); the two ability effects; one effect command of a completed quest; event-script commands 0x44
+#   id, state) and flag (m_story, id, bool); one effect command of a completed quest; event-script commands 0x44
 #   (the name entry) and 0xbea (items)
 midhook 0x71000b0f74
 entryhook 0x71003180e0
@@ -251,8 +251,6 @@ midhook 0x71003181cc
 entryhook 0x710047bd00
 entryhook 0x71005d865c
 entryhook 0x71005d8774
-entryhook 0x7100121bb8
-entryhook 0x71001227fc
 entryhook 0x710011b214
 entryhook 0x710043d3e0
 entryhook 0x710012c734
