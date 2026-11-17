@@ -633,6 +633,13 @@ export const SECTIONS = [
             id: 'online_events_note', type: 'note',
             note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
+          // pkp.ini [net] cloud_server (runtime/src/services/network_cloud.cpp): the game's Cloud Island menu talks to this self-hosted server
+          // instead of Nintendo's. Empty: Cloud Islands stay off. docs/cloud-island/README.md.
+          { id: 'cloud_server', label: t('Cloud Islands server'), type: 'text', at: pkp('net', 'cloud_server'), def: '', placeholder: () => t('off') },
+          {
+            id: 'cloud_server_note', type: 'note',
+            note: () => ({ text: t('Experimental. The address of a Cloud Islands test server (four numbers with dots). With it set, PC > Link Play > Cloud Island in the game uses that server; nothing is sent to Nintendo. Leave it empty to turn Cloud Islands off. Takes effect the next time the game starts.') }),
+          },
         ],
       },
       {

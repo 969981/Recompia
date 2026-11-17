@@ -14,15 +14,18 @@
 //   closesocket()   close().
 //
 // WSAStartup/WSACleanup are reference-counted no-ops, WSAGetLastError is errno, and SIO_UDP_CONNRESET is a no-op that
-// succeeds: an ICMP port-unreachable does not surface on a BSD socket, so there is nothing to suppress.
+// succeeds: an ICMP port-unreachable does not surface on a BSD socket, so there is nothing to suppress. WSAPoll is
+// poll() (restarted after a signal: Winsock has no EINTR), and ioctlsocket knows FIONBIO and FIONREAD.
 #pragma once
 
 #include "nx_os.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -66,6 +69,9 @@ typedef struct WSAData_ {
 #define SIO_RCVALL 0x98000001
 
 #define FIONBIO 0x5421
+#define FIONREAD 0x541B
+
+typedef struct pollfd WSAPOLLFD, *LPWSAPOLLFD;
 
 // Winsock error values are compared against WSAGetLastError(), which is errno here, so they are errno values.
 #define WSAEWOULDBLOCK EAGAIN
@@ -84,6 +90,17 @@ typedef struct WSAData_ {
 #define WSAEINVAL EINVAL
 #define WSAENOTSOCK EBADF
 #define WSAENOBUFS ENOBUFS
+#define WSAEBADF EBADF
+#define WSAECONNABORTED ECONNABORTED
+#define WSAEISCONN EISCONN
+#define WSAENOTCONN ENOTCONN
+#define WSAENETDOWN ENETDOWN
+#define WSAEMFILE EMFILE
+#define WSAEOPNOTSUPP EOPNOTSUPP
+#define WSAEAFNOSUPPORT EAFNOSUPPORT
+#define WSAEPROTONOSUPPORT EPROTONOSUPPORT
+// Winsock fails a send after shutdown(SD_SEND) with WSAESHUTDOWN; a BSD stack says EPIPE.
+#define WSAESHUTDOWN EPIPE
 
 int WSAStartup(WORD version, LPWSADATA data);
 int WSACleanup(void);
@@ -93,6 +110,7 @@ int closesocket(SOCKET s);
 int ioctlsocket(SOCKET s, long cmd, unsigned long* arg);
 int WSAIoctl(SOCKET s, DWORD code, void* in, DWORD in_len, void* out, DWORD out_len, DWORD* returned, void* ov,
              void* completion);
+int WSAPoll(WSAPOLLFD* fds, ULONG count, INT timeout);
 
 // The five translated calls. The macros make `::select(...)` in the callers reach them too.
 int nxos_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, struct timeval* timeout);
