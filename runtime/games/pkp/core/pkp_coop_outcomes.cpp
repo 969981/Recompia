@@ -19,7 +19,6 @@
 //   #13 the general entry       row +0x5d == 1 or 0x39: chara = request component +0xc; +0x22 = row +0x40, +0x24 = 0, +0x26 = the
 //                               date, in the entry the 3-way select picks (0x77ecb0: R + 0xc81488, else 0x376c4: R + 0x16f2af8, else
 //                               R + 0x22fef0; + chara * 0x30 while chara < 0x41a). Idempotent but the date.
-// (Listing work/requests-re/l_618304.txt; RE notes modding-docs/coop-v2/REQUESTS-RE.md U11.)
 //
 // The two accumulating ones (#6, #11) are what "once for the group" is about. Two hook sites (pkp_coop.cpp) steer them in the game's
 // own step, one decision per run:
@@ -37,7 +36,7 @@
 //     run (any player) skips them. Its idempotent pieces run every time, as the game does;
 //   - a member's report on the authority, the bit clear: the authority replays the world part in its own world once, at a safe
 //     moment (it can walk, talks to no one, the Pokémon is bound and loaded here), in the step's order: #6, #9, #10, #11, #12, #13,
-//     then sets the bit. Its own record and request component are left as they are (option B: the host keeps its own hand-in);
+//     then sets the bit. Its own record and request component are left as they are (the host keeps its own hand-in);
 //     for #10 the component's id is cleared for that one call and put back, or 0x117320 sees this Pokémon's open request and
 //     clears nothing. Not replayed: #7 (the gift: personal), #8 (above), the play report, the UI trigger and the follow-up offer;
 //   - a report of an id whose bit is set is dropped; a non-story id whose record is 5 on the authority (its own hand-in, maybe
@@ -45,7 +44,7 @@
 //   - the authority's own run while a replay waits does the world part itself: the replay is dropped;
 //   - ids the game binds to one player (requests::own_request) are not touched: the game's own step runs as it does.
 // The ledger lives in the authority's save, so a later session does not apply the world part again: the unused elements of the
-// record array (256 of 4 bytes, ids 1..200 used; every reader checks id - 1 <= 0xc7, U1, and the file is the flat CMNDAT image,
+// record array (256 of 4 bytes, ids 1..200 used; every reader checks id - 1 <= 0xc7, and the file is the flat CMNDAT image,
 // elements 201..255 seen at their default 01 01 00 00 in a real save): element 201 holds kLedgerMagic, 202..208 hold one bit per
 // id (bit (id - 1) & 7 of byte (id - 1) / 8). Members never write it.
 #include "core/pkp_coop_internal.h"
@@ -224,7 +223,7 @@ bool replay(::Ctx* c, uint32_t id) {
         guest::call(c, base() + kMoveIn, h, kind, reinterpret_cast<uint64_t>(s.house_arg));
     }
     if (goal >= 1 && goal <= 0x1f4) {
-        // 0x117320 would find this Pokémon's own open request (the host keeps it, option B) and clear nothing: its id is let go
+        // 0x117320 would find this Pokémon's own open request (the host keeps it) and clear nothing: its id is let go
         // for this one call, as the step has let it go by then (0x6183b0), and put back.
         const uint8_t held = guest::rd<uint8_t>(comp + kCompId);
         guest::wr<uint8_t>(comp + kCompId, 0);
