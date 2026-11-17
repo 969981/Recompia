@@ -7,6 +7,7 @@
 //!
 //!   NXRT_PKP_COOP=1              co-op mode (`[pkp] coop`: set only by the launcher, per start, no in-game row)
 //!   NXRT_PKP_COOP_ROLE=host|visit    what this member does this session (`[pkp] coop_role`): the newest copy hosts (coop_save::choose_host)
+//!                                     unless the player picked Host or Join for this start (coop_save::StartAs)
 //!   NXRT_PKP_COOP_GROUP=<id>     the co-op save's id, also the name of its folder (`[pkp] coop_group`); equals `group` in coop.marker
 //!   NXRT_PKP_COOP_MEMBER=<id>    this PC's member, as in coop.json (`[pkp] coop_member`); the same 32 hex digits are [net] uid
 //!   NXRT_PKP_COOP_MEMBERS=<n>    how many members the group has (`[pkp] coop_members`); the session waits for all of them
@@ -17,6 +18,8 @@
 //!   NXRT_NET_PRIVATE_ROOM=<room code> the private room on the relay (`[net] private_room`): not listed there, members only
 //!                                     The co-op module takes a fixed code as is (coop_cfg_parse_ex `room`, same alphabet as the code
 //!                                     made here) and then does not list the room (`x_list` is only for a new code)
+//!   NXRT_PKP_LINK_INTERACT_EVERYWHERE=0   Link Play's "Interact everywhere" is part of the mods fingerprint players are matched on, so a
+//!                                     member with it on never finds the host. Co-op sets its own permissions, so it is off for every co-op start
 //!
 //! A start that is not a co-op start removes the five NXRT_PKP_COOP* variables from the game's environment (`apply` with None), so a
 //! launcher that was itself started with them set cannot turn a singleplayer start into a co-op one.
@@ -25,7 +28,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::coop::Profile;
-use crate::coop_save::{self, HostChoice};
+use crate::coop_save::{self, HostChoice, StartAs};
 
 /// The switch variables of co-op mode: a singleplayer start never has them. The settings a co-op start also sets (NXRT_NET_*, NXRT_ACCOUNT_*,
 /// NXRT_FS_SAVE_DIR) are ordinary runtime overrides a player may use on their own, so they are left alone.
@@ -45,14 +48,15 @@ impl Launch {
 }
 
 /// The co-op start of profile `p` from folder `dir`, after the refusals of coop_save::ensure_playable. `singleplayer_save_dir`: the
-/// save folder a singleplayer start uses (never the same folder as `dir`). The role comes from the copies' stamps.
-pub fn build(p: &Profile, dir: &Path, singleplayer_save_dir: &Path) -> Result<(Launch, HostChoice), String> {
+/// save folder a singleplayer start uses (never the same folder as `dir`). The role comes from the copies' stamps, or from `start_as` when
+/// the player picked one.
+pub fn build(p: &Profile, dir: &Path, singleplayer_save_dir: &Path, start_as: StartAs) -> Result<(Launch, HostChoice), String> {
     coop_save::ensure_playable(dir, &p.id, singleplayer_save_dir)?;
     let me = p.member(&p.me).ok_or("This co-op save has no player for this PC.")?;
     let choice = coop_save::choose_host(&p.member_ids(), &p.me, coop_save::own_stamp(dir), &coop_save::peer_stamps(dir));
     let env = vec![
         ("NXRT_PKP_COOP", "1".to_string()),
-        ("NXRT_PKP_COOP_ROLE", choice.role.word().to_string()),
+        ("NXRT_PKP_COOP_ROLE", coop_save::role_for(&choice, start_as).word().to_string()),
         ("NXRT_PKP_COOP_GROUP", p.id.clone()),
         ("NXRT_PKP_COOP_MEMBER", me.id.clone()),
         ("NXRT_PKP_COOP_MEMBERS", p.members.len().to_string()),
@@ -65,6 +69,7 @@ pub fn build(p: &Profile, dir: &Path, singleplayer_save_dir: &Path) -> Result<(L
         ("NXRT_NET_RELAY", p.relay.clone()),
         ("NXRT_NET_UID", me.id.clone()),
         ("NXRT_NET_PRIVATE_ROOM", p.room_code.clone()),
+        ("NXRT_PKP_LINK_INTERACT_EVERYWHERE", "0".to_string()),
     ];
     Ok((Launch { env }, choice))
 }
@@ -110,7 +115,7 @@ mod tests {
     #[test]
     fn a_co_op_start_names_the_mode_the_member_the_folder_and_the_room() {
         let (p, dir, sp) = setup();
-        let (l, choice) = build(&p, &dir, &sp).unwrap();
+        let (l, choice) = build(&p, &dir, &sp, StartAs::Auto).unwrap();
         assert_eq!(l.get("NXRT_PKP_COOP"), Some("1"));
         assert_eq!(l.get("NXRT_PKP_COOP_GROUP"), Some(p.id.as_str()));
         assert_eq!(l.get("NXRT_PKP_COOP_MEMBER"), Some(p.me.as_str()));
@@ -122,34 +127,43 @@ mod tests {
         // nothing known yet: the creator hosts
         assert_eq!(l.get("NXRT_PKP_COOP_ROLE"), Some("host"));
         assert_eq!(choice.host, p.members[0].id);
+        // Link Play's Interact everywhere is in the mods fingerprint: off, so no member hides the host from another
+        assert_eq!(l.get("NXRT_PKP_LINK_INTERACT_EVERYWHERE"), Some("0"));
+    }
+
+    #[test]
+    fn the_player_can_pick_host_or_join_for_one_start() {
+        let (p, dir, sp) = setup();
+        assert_eq!(build(&p, &dir, &sp, StartAs::Visit).unwrap().0.get("NXRT_PKP_COOP_ROLE"), Some("visit"));
+        assert_eq!(build(&p, &dir, &sp, StartAs::Host).unwrap().0.get("NXRT_PKP_COOP_ROLE"), Some("host"));
     }
 
     #[test]
     fn a_member_with_an_older_copy_visits() {
         let (mut p, dir, sp) = setup();
         std::fs::write(dir.join(coop_save::PEERS), format!(r#"{{"peers":{{"{}":{{"seq":3,"saved_at":9}}}}}}"#, p.members[1].id)).unwrap();
-        let (l, c) = build(&p, &dir, &sp).unwrap();
+        let (l, c) = build(&p, &dir, &sp, StartAs::Auto).unwrap();
         assert_eq!(l.get("NXRT_PKP_COOP_ROLE"), Some("visit"));
         assert_eq!(c.host, p.members[1].id);
         // the same folder, played by the other member whose copy is that one
         p.me = p.members[1].id.clone();
         std::fs::write(dir.join(coop_save::STAMP), r#"{"seq":3,"saved_at":9}"#).unwrap();
         std::fs::write(dir.join(coop_save::PEERS), format!(r#"{{"peers":{{"{}":{{"seq":1,"saved_at":1}}}}}}"#, p.members[0].id)).unwrap();
-        assert_eq!(build(&p, &dir, &sp).unwrap().0.get("NXRT_PKP_COOP_ROLE"), Some("host"));
+        assert_eq!(build(&p, &dir, &sp, StartAs::Auto).unwrap().0.get("NXRT_PKP_COOP_ROLE"), Some("host"));
     }
 
     #[test]
     fn a_folder_that_is_not_the_co_op_save_is_refused() {
         let (p, dir, sp) = setup();
-        assert!(build(&p, &sp, &sp).is_err(), "the singleplayer folder is never a co-op save");
+        assert!(build(&p, &sp, &sp, StartAs::Auto).is_err(), "the singleplayer folder is never a co-op save");
         std::fs::remove_file(dir.join(coop_save::MARKER)).unwrap();
-        assert!(build(&p, &dir, &sp).is_err());
+        assert!(build(&p, &dir, &sp, StartAs::Auto).is_err());
     }
 
     #[test]
     fn apply_sets_a_co_op_start_and_clears_a_singleplayer_one() {
         let (p, dir, sp) = setup();
-        let (l, _) = build(&p, &dir, &sp).unwrap();
+        let (l, _) = build(&p, &dir, &sp, StartAs::Auto).unwrap();
         let mut cmd = Command::new("pkp-test");
         apply(&mut cmd, Some(&l));
         let e = env_of(&cmd);

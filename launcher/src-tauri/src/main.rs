@@ -9,6 +9,7 @@ mod cli;
 mod config;
 mod coop;
 mod coop_cmds;
+mod coop_diag;
 mod coop_launch;
 mod coop_save;
 mod dialogs;
@@ -194,6 +195,8 @@ fn main() {
             coop_cmds::coop_invite_members,
             coop_cmds::coop_accept,
             coop_cmds::coop_play,
+            coop_cmds::coop_delete,
+            coop_cmds::coop_last_run,
             repair_cmds::repair_plan,
             repair_cmds::repair_apply,
             repair_cmds::repair_undo,

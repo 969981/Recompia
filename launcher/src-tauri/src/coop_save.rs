@@ -189,6 +189,26 @@ pub fn choose_host(members: &[String], me: &str, own: Stamp, peers: &HashMap<Str
     HostChoice { role: if host == me { Role::Host } else { Role::Visit }, host, own, peers_known }
 }
 
+/// How the player starts this session: as the launcher decides (`Auto`, choose_host), or as host or visitor because they said so. The choice
+/// is made per start on the page and never stored: a stored override went stale and let two members host the same session.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StartAs {
+    #[default]
+    Auto,
+    Host,
+    Visit,
+}
+
+/// The role this start plays: the automatic choice unless the player overrode it.
+pub fn role_for(choice: &HostChoice, start_as: StartAs) -> Role {
+    match start_as {
+        StartAs::Auto => choice.role,
+        StartAs::Host => Role::Host,
+        StartAs::Visit => Role::Visit,
+    }
+}
+
 /// The folder of group `id` under `root`.
 pub fn folder_of(root: &Path, id: &str) -> PathBuf {
     root.join(id)
@@ -306,6 +326,16 @@ mod tests {
         assert_eq!(choose_host(&m, "a", Stamp::default(), &none).role, Role::Host);
         assert_eq!(choose_host(&m, "b", Stamp::default(), &none).role, Role::Visit);
         assert!(!choose_host(&m, "b", Stamp::default(), &none).peers_known);
+    }
+
+    #[test]
+    fn the_player_can_override_the_automatic_role() {
+        let m = ids(&["a", "b"]);
+        let c = choose_host(&m, "b", Stamp::default(), &HashMap::new());
+        assert_eq!(role_for(&c, StartAs::Auto), Role::Visit);
+        assert_eq!(role_for(&c, StartAs::Host), Role::Host);
+        assert_eq!(role_for(&c, StartAs::Visit), Role::Visit);
+        assert_eq!(serde_json::from_str::<StartAs>(r#""visit""#).unwrap(), StartAs::Visit);
     }
 
     #[test]
