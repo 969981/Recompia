@@ -72,6 +72,7 @@ const B32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 pub const X_INVITE_PUT: u8 = 0xC9;
 pub const X_INVITE_GET: u8 = 0xCA;
 const INVITE_PRUNE_MS: i64 = 60_000;
+const INVITE_ADDRS: usize = 65536; // addresses whose invite budget is remembered (each forgotten after a quiet minute); beyond, refused
 
 /// A listed room: its record as the host sent it (checked), and what lists sort and filter by.
 #[derive(Clone)]
@@ -278,8 +279,6 @@ struct IpRec {
     fat: i64,
     ltok: i64, // pokopia-recomp extension: the room list: lists a minute
     lat: i64,
-    itok: i64, // pokopia-recomp extension: invite codes: stores and lookups a minute
-    iat: i64,
     seen: i64,
 }
 
@@ -291,7 +290,8 @@ pub struct Relay {
     k: Vec<Conn>,
     rm: Vec<Room>,
     lst: Vec<Option<Listing>>, // pokopia-recomp extension: the room list, one slot per room
-    inv: invites::Store,       // pokopia-recomp extension: invite codes
+    inv: invites::Store,       // pokopia-recomp extension: invite codes, and each address's budget for them
+    inv_rate: invites::Limiter,
     inv_pruned: i64,
     ips: Vec<IpRec>,
     st: Stats,
@@ -353,6 +353,7 @@ impl Relay {
             rm: vec![Room::default(); c.max_rooms],
             lst: vec![None; c.max_rooms],
             inv: invites::Store::new(c.invite_max),
+            inv_rate: invites::Limiter::new(c.invite_per_min, INVITE_ADDRS),
             inv_pruned: 0,
             ips: vec![IpRec::default(); IPS],
             us: None,
@@ -409,8 +410,6 @@ impl Relay {
             fat: now,
             ltok: 1000 * self.c.list_per_min,
             lat: now,
-            itok: 1000 * self.c.invite_per_min,
-            iat: now,
             conns: 0,
         };
         Some(f)
@@ -419,11 +418,6 @@ impl Relay {
         let Some(a) = a else { return false };
         let a = &mut self.ips[a];
         per_min_ok(&mut a.ltok, &mut a.lat, self.c.list_per_min, now)
-    }
-    fn ip_invite_ok(&mut self, a: Option<usize>, now: i64) -> bool {
-        let Some(a) = a else { return false };
-        let a = &mut self.ips[a];
-        per_min_ok(&mut a.itok, &mut a.iat, self.c.invite_per_min, now)
     }
     fn ip_new_ok(&mut self, a: usize, now: i64) -> bool {
         // thousandths of a link: rate a second, burst twice that
@@ -550,8 +544,8 @@ impl Relay {
         }
         match h[4] {
             K_LIST => return self.list(i, &h, ad, now),
-            X_INVITE_PUT => return self.invite_put(i, &h, ad, now),
-            X_INVITE_GET => return self.invite_get(i, &h, ad, now),
+            X_INVITE_PUT => return self.invite_put(i, &h, now),
+            X_INVITE_GET => return self.invite_get(i, &h, now),
             _ => {}
         }
         self.k[i].x_want = h[6] == X_UDP; // pokopia-recomp extension: relay UDP (their clients send zeros)
@@ -697,13 +691,13 @@ impl Relay {
     }
     /// pokopia-recomp extension: invite codes. A PUT hello: within the address's rate, the invite (its length in the visitor id field) is
     /// read next, then kept (invite_kept).
-    fn invite_put(&mut self, i: usize, h: &[u8; HELLO_LEN], ad: Option<usize>, now: i64) {
+    fn invite_put(&mut self, i: usize, h: &[u8; HELLO_LEN], now: i64) {
         let n = get32(&h[24..]) as usize;
         if !(1..=invites::BLOB_MAX).contains(&n) {
             self.st.bad += 1;
             return self.refuse(i, E_BAD, now);
         }
-        if !self.ip_invite_ok(ad, now) {
+        if !self.inv_rate.ok(self.k[i].ip, now) {
             self.st.refused += 1;
             return self.refuse(i, E_LIMIT, now);
         }
@@ -731,12 +725,12 @@ impl Relay {
     }
     /// pokopia-recomp extension: invite codes. A GET hello: the invite under the code in the room id field, within the address's rate (every
     /// lookup counts, found or not, so guessing codes is as slow as the rate), then the link closes.
-    fn invite_get(&mut self, i: usize, h: &[u8; HELLO_LEN], ad: Option<usize>, now: i64) {
+    fn invite_get(&mut self, i: usize, h: &[u8; HELLO_LEN], now: i64) {
         if !invites::valid(&h[8..8 + invites::CODE_LEN]) {
             self.st.bad += 1;
             return self.refuse(i, E_BAD, now);
         }
-        if !self.ip_invite_ok(ad, now) {
+        if !self.inv_rate.ok(self.k[i].ip, now) {
             self.st.refused += 1;
             return self.refuse(i, E_LIMIT, now);
         }
@@ -1018,6 +1012,7 @@ impl Relay {
         if now - self.inv_pruned >= INVITE_PRUNE_MS {
             self.inv_pruned = now;
             self.inv.prune(now);
+            self.inv_rate.prune(now);
         }
     }
 

@@ -109,9 +109,75 @@ impl Store {
     }
 }
 
+/// How many stores and lookups each address may make: `rate` a minute, bursting as much. Kept apart from the relay's address table (whose
+/// records are reused as soon as an address holds no link, which every invite link soon does): an address is forgotten only after a
+/// minute without a request, when its budget is full again anyway, so leaving and coming back never refills it early. A full table refuses.
+pub struct Limiter {
+    m: HashMap<u32, Budget>,
+    rate: i64,
+    max: usize,
+}
+
+struct Budget {
+    tok: i64, // thousandths of a request
+    at: i64,
+    used: i64,
+}
+
+const FORGET_MS: i64 = 60_000; // an empty budget is full again after a minute
+
+impl Limiter {
+    pub fn new(rate: i64, max: usize) -> Limiter {
+        Limiter { m: HashMap::new(), rate, max }
+    }
+
+    /// Forgets the addresses quiet for a minute.
+    pub fn prune(&mut self, now: i64) {
+        self.m.retain(|_, b| now - b.used < FORGET_MS);
+    }
+
+    /// True takes one request from `ip`'s budget.
+    pub fn ok(&mut self, ip: u32, now: i64) -> bool {
+        if !self.m.contains_key(&ip) && self.m.len() >= self.max {
+            self.prune(now);
+            if self.m.len() >= self.max {
+                return false;
+            }
+        }
+        let rate = self.rate;
+        let b = self.m.entry(ip).or_insert(Budget { tok: 1000 * rate, at: now, used: now });
+        let add = (now - b.at) * rate / 60;
+        if add > 0 {
+            b.tok = (b.tok + add).min(1000 * rate);
+            b.at = now;
+        }
+        b.used = now;
+        if b.tok < 1000 {
+            return false;
+        }
+        b.tok -= 1000;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_budget_refills_at_its_rate_and_is_never_forgotten_early() {
+        let mut l = Limiter::new(3, 2);
+        assert!((0..3).all(|_| l.ok(1, 0)));
+        assert!(!l.ok(1, 0));
+        assert!(!l.ok(1, 19_000), "a third of a minute: not yet one more");
+        assert!(l.ok(1, 21_000));
+        // two other addresses fill the table: a third is refused while both were busy within the minute, the first one kept its budget
+        assert!(l.ok(2, 21_000));
+        assert!(!l.ok(3, 30_000));
+        assert!(!l.ok(1, 30_000));
+        // after a quiet minute they are forgotten (full again anyway) and a new address gets a place
+        assert!(l.ok(3, 91_000));
+    }
 
     #[test]
     fn codes_are_typed_loosely_and_shown_with_a_dash() {

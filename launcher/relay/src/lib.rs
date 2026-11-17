@@ -66,9 +66,10 @@
 //!   ASCII, 2 zeros); the same invite again gets the same code, kept a day from then. A full store answers "limit".
 //! - Hello kind 0xCA (GET), room id field = the code (6 ASCII, the rest zeros). Answer: type 0xCA (arg = length) and the invite, or "no room"
 //!   (no invite under that code: never stored, or expired).
-//! - Then the relay closes the link. Stores and lookups share one budget per address: 10 a minute (bursts as much), found or not, so
-//!   guessing is slow: with N invites kept, one guess finds one with odds N / 30^6 (with the 4096 at most: 1 in 178 000), about one hit in
-//!   12 days per address at the full store; the store is in memory only (4096 invites, at most 2 KiB each).
+//! - Then the relay closes the link. Stores and lookups share one budget per address: 10 a minute (bursts as much), found or not, kept
+//!   until the address has been quiet a minute (invites.rs Limiter), so leaving and coming back does not refill it. One guess finds an
+//!   invite with odds N / 30^6 for N kept: with the store full (4096) 1 in 178 000, about one hit in 12 days per address; K addresses guess
+//!   K times as fast. The store is in memory only (4096 invites, at most 2 KiB each); a full store refuses new ones until some expire.
 //! - The invite is kept as it came and never parsed or logged, but it is not encrypted: it carries the co-op save's private room code, so
 //!   whoever runs the relay can read the invites it keeps. The launcher stores one only on the relay that already holds that room.
 
