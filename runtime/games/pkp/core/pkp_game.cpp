@@ -75,7 +75,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   options             after title: title's frame callback runs first
 //   item_edit           no hooks and no callbacks: the Options screen's Items tab calls it when it opens and commits (pkp_item_edit.h)
 //   loading_backdrop   after play: uses the canvas size set by its UI camera hook
-//   cross_guide        shares the picture and the window pane's draw site with menu (both hooks return 0, so both run); no order between them
+//   cross_guide        shares the quad builder's site with loading_backdrop (both hooks return 0, so both run); no order between them
 // No other two features hook the same address.
 //
 // Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]

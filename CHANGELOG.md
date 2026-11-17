@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Controls
+- Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)
+  - Before: since 0.14.0 the three faint buttons were drawn above the text, where they sit on the controller, but the dark shape that belongs behind them stayed below the text
+  - Now: the shape is behind the three buttons
+
 ### Launcher
 - Added icons to the Settings tabs
 
