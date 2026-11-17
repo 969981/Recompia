@@ -21,8 +21,9 @@
 //                                    none). The offer needs it free, the take-on step writes it whatever it held (0x61491c), the
 //                                    report talk needs it to hold the id at 4, and the completion 0x618304 clears it (0x6183b0).
 //   the checker 0x613c9c (3 -> 4)    for the event types (+0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: kEventIds) it tests record
-//                                    byte +3 bit 0 alone (0x613df4..0x613e14), a bit an event sets on the player's own record; a
-//                                    one-time scene a teammate already played may never set it here.
+//                                    byte +3 bit 0 alone (0x613df4..0x613e14; type 0x25 after two actor checks), a bit an event
+//                                    sets on the player's own record; a one-time scene a teammate already played may never set it
+//                                    here.
 //   general entries                  the Pokémon's general (daily) request, 0x30 bytes per chara (< 0x41a, else entry 0), +8 its
 //                                    state: save root + 0xc81488 on Cloud Island (stage 0x11), + 0x16f2af8 (the host's, mirrored)
 //                                    on a visitor, + 0x22fef0 otherwise. The offer 0x6132b8 offers no unique id while it is 1..5.
@@ -100,10 +101,11 @@ constexpr uint8_t kEventBit = 0x01;                          // flags: the event
 constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 76, 77, 79, 80};
 // Requests the game binds to one player (#1557 +0x2c != 0): never shared.
 constexpr uint8_t kOwnIds[] = {94, 95};
-// Requests the checker meets by the record's event bit alone (#1557 +0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a).
+// Requests the checker meets by the record's event bit (#1557 +0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: the bit alone; 0x25,
+// id 171: two actor checks at 0x613f64, then the same bit test).
 constexpr uint8_t kEventIds[] = {8,   9,   12,  15,  17,  28,  34,  35,  40,  42,  51,  63,  67,  69,  70,  73,
                                  84,  107, 108, 110, 114, 115, 116, 121, 129, 131, 133, 134, 140, 145, 146, 147,
-                                 150, 151, 154, 156, 157, 166, 173, 174, 175, 176, 177, 178, 179, 180};
+                                 150, 151, 154, 156, 157, 166, 171, 173, 174, 175, 176, 177, 178, 179, 180};
 constexpr uint32_t kIdMax = layout::kUniqueRequestCount;   // ids 1..200
 constexpr uint8_t kWaiting = 1, kOffered = 2, kTaken = 3, kFulfilled = 4, kDone = 5;
 constexpr double kAllEvery = 10.0;       // the whole list again (a member that missed a change)
@@ -228,7 +230,8 @@ bool general_busy(uint32_t chara) {
 }
 
 // The Pokémon that offers id is busy here: another of its ids (by the table, or the same bound actor) is offered, taken on or
-// fulfilled (its component holds that one), or it has a general request (by its loaded actor's chara, else the table's).
+// fulfilled (its component holds that one), or its loaded actor (the one the take-on step writes to) has a general request. An
+// unbound slot is only queued, so the general check needs the actor's own chara; the #1081 key is another lookup (0x61d068).
 bool chara_busy(::Ctx* c, uint64_t recs, uint64_t mu, uint32_t id) {
     const State& s = st();
     const uint64_t slot = mu + id * kSlotSize;
@@ -242,8 +245,7 @@ bool chara_busy(::Ctx* c, uint64_t recs, uint64_t mu, uint32_t id) {
         if (state >= kOffered && state <= kFulfilled) return true;
     }
     const uint64_t comp = component(c, slot);
-    const uint32_t chara = comp ? guest::rd<uint32_t>(comp + kCompChara) : s.chara[id];
-    return chara && general_busy(chara);
+    return comp && general_busy(guest::rd<uint32_t>(comp + kCompChara));
 }
 
 bool shared_here() { return (session_bits() & layout::kSessionOnline) && link::in_session(); }
@@ -298,9 +300,9 @@ uint8_t target(uint32_t id, uint8_t there, uint8_t here) {
     return here >= kWaiting && here < kTaken ? kTaken : here;
 }
 
-// The record needs its event bit for the checker: an event id another member met, here taken on or being taken on.
-bool needs_event_bit(uint64_t recs, uint32_t id, uint8_t there, uint8_t here, uint8_t to) {
-    return listed(kEventIds, id) && there >= kFulfilled && (to == kTaken || here == kTaken) &&
+// The record needs its event bit for the checker: an event id another member met, being taken on here or held at 3.
+bool needs_event_bit(uint64_t recs, uint32_t id, uint8_t there, uint8_t here, uint8_t to, bool take) {
+    return listed(kEventIds, id) && there >= kFulfilled && (take || (here == kTaken && to == here)) &&
            !(guest::rd<uint8_t>(recs + id * 4 + kRecFlags) & kEventBit);
 }
 
@@ -319,7 +321,8 @@ void apply(::Ctx* c, uint64_t recs) {
         if (!waiting.there) continue;
         const uint8_t here = state_of(recs, id);
         const uint8_t to = target(id, waiting.there, here);
-        if (to == kTaken && chara_busy(c, recs, mu, id)) {   // kept: taken on once the Pokémon's other request is done here
+        const bool take = here < kTaken && to == kTaken;   // only a take-on waits; a request held here is never held back
+        if (take && chara_busy(c, recs, mu, id)) {   // kept: taken on once the Pokémon's other request is done here
             if (!waiting.logged)
                 NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u waits, its Pokémon has another one here", id,
                         waiting.there, waiting.origin);
@@ -328,12 +331,12 @@ void apply(::Ctx* c, uint64_t recs) {
         }
         const Pending p = waiting;
         waiting = Pending{};
-        const bool event_bit = needs_event_bit(recs, id, p.there, here, to);
+        const bool event_bit = needs_event_bit(recs, id, p.there, here, to, take);
         if (to == here && !event_bit) continue;
         ++applied;
-        if (event_bit)   // before the take-on, whose condition check then makes it 4 at once; a 3 here: the frame check does
+        if (event_bit)   // before the take-on, whose condition check then makes it 4 at once; a 3 held here: the frame check does
             guest::wr<uint8_t>(recs + id * 4 + kRecFlags, guest::rd<uint8_t>(recs + id * 4 + kRecFlags) | kEventBit);
-        if (to == kTaken) {
+        if (take) {
             take_on(c, recs, mu, id);
         } else if (to != here) {
             const uint64_t slot = mu + id * kSlotSize;
@@ -345,7 +348,7 @@ void apply(::Ctx* c, uint64_t recs) {
         if (s.have_seen) s.seen[id] = state_of(recs, id);   // ours now: not sent back as a change
         NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u, %u here -> %u%s", id, p.there, p.origin, here, to,
                 event_bit ? ", its event bit set" : "");
-        int& first = to == kDone ? closed : p.there == kDone ? finished : taken;
+        int& first = to == kDone ? closed : take && p.there != kDone ? taken : finished;   // only the bit: it was listed already
         if (first < 0) first = p.origin;
     }
     if (taken >= 0) line(notice::name_of(static_cast<uint8_t>(taken)) + " took on a Pokemon request. It is in your requests too!");
