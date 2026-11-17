@@ -4,6 +4,9 @@
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
 
+### Performance
+- Graphics cards of 4 or 6 GB on PCs without Resizable BAR now read all of the game's shader constants from video memory; a third of them still came from system memory
+
 ### Controls
 - Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)
   - Before: since 0.14.0 the three faint buttons were drawn above the text, where they sit on the controller, but the dark shape that belongs behind them stayed below the text

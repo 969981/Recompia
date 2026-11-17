@@ -50,6 +50,10 @@ constexpr uint32_t kSlots = 36;                  // about three frames of submis
                                                  // the GPU for a submission of a recent frame and the CPU cannot get frames ahead
 constexpr uint32_t kGpMax = 1024;      // GPU pass profiler: timestamps per submission
 constexpr VkDeviceSize kUploadBytes = 8ull << 20;   // per slot; larger uploads get their own staging buffer
+// Frame::vram_ring: a slot whose upload memory is in system memory gets this much device-local, host-visible memory of its own the first
+// time it is asked (uniform snapshots: about 130 KB a submission on a GTX 1650 / RTX 2060 in the 2026-11-17 traces, 1 MiB leaves room).
+// Without resizable BAR that memory is a ~214 MiB window, and 24 of the 36 upload rings (8 MiB each) already fill most of it.
+constexpr VkDeviceSize kVramRingBytes = 1ull << 20;
 constexpr uint32_t kMaxPieces = 8;               // [nvn] gpu_split: command buffers per slot (the most pieces one submission is cut into)
 
 // Live-count gauges of this file (leak monitor, nxrt/gauge.h).
@@ -84,7 +88,12 @@ struct Slot {
     size_t dpool_cur = 0;
     gfx::Buffer upload;
     VkDeviceSize upload_off = 0;
-    bool upload_dl = false;               // `upload` is in device-local memory (Frame::upload_in_vram)
+    bool upload_dl = false;               // `upload` is in device-local memory (Frame::vram_ring uses it then)
+    // Frame::vram_ring when `upload` is in system memory: made on first use (kVramRingBytes); vram_state 0 not tried, 1 in video memory,
+    // 2 none (the allocation failed or landed in system memory: no second try)
+    gfx::Buffer vram;
+    VkDeviceSize vram_off = 0;
+    uint8_t vram_state = 0;
     std::vector<gfx::Buffer> extra;       // staging / overflow buffers of the submission
     uint64_t serial = 0;                  // last submission that used the slot
     bool timed = false;                   // frame trace: the submission wrote GPU timestamps (query pair index = slot index * 2)
@@ -363,10 +372,6 @@ bool create_slot(Slot& s) {
     if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
     const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
     s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
-    static int n_dl = 0, n_sys = 0;
-    ++(s.upload_dl ? n_dl : n_sys);
-    if (n_dl + n_sys == 1 || (!s.upload_dl && n_sys == 1))
-        NXLOG_I(kTag, "upload memory: slot %d in %s memory (flags 0x%x)", n_dl + n_sys - 1, s.upload_dl ? "video" : "system", static_cast<unsigned>(mp));
     return true;
 }
 
@@ -670,6 +675,7 @@ Slot* acquire_slot() {
     s.sets_live = 0;
     s.dpool_cur = 0;
     s.upload_off = 0;
+    s.vram_off = 0;
     for (auto& b : s.extra) g->dev->destroy_buffer(b);
     s.extra.clear();
     return &s;
@@ -697,7 +703,35 @@ UploadAlloc Frame::upload(VkDeviceSize size, VkDeviceSize align) {
     return staging(size + (align ? align : 16));
 }
 
-bool Frame::upload_in_vram() const { return static_cast<const Slot*>(slot)->upload_dl; }
+UploadAlloc Frame::vram_ring(VkDeviceSize size, VkDeviceSize align) {
+    Slot& s = *static_cast<Slot*>(slot);
+    if (s.upload_dl) return upload_ring(size, align);
+    if (s.vram_state == 0) {      // first use: a small device-local ring of the slot's own (kVramRingBytes)
+        s.vram_state = 2;
+        gfx::Device& d = *g->dev;
+        const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        if (d.create_buffer(kVramRingBytes, usage, gfx::MemoryUse::Upload, &s.vram, "nvn vram ring") == VK_SUCCESS) {
+            if (d.memory_flags(s.vram) & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) s.vram_state = 1;
+            else d.destroy_buffer(s.vram);      // the window is full: this slot reads its blocks from the pools
+        }
+        static uint32_t made = 0, missed = 0;
+        ++(s.vram_state == 1 ? made : missed);
+        if ((s.vram_state == 1 ? made : missed) == 1)     // the first of each outcome
+            NXLOG_I(kTag, "video memory ring of %llu KiB for upload slots in system memory: %s", static_cast<unsigned long long>(kVramRingBytes >> 10),
+                    s.vram_state == 1 ? "made (uniform snapshots read video memory in every slot)" : "no video memory left for one (those slots read the pools)");
+    }
+    if (s.vram_state != 1) return {};
+    if (align == 0) align = 16;
+    const VkDeviceSize off = (s.vram_off + align - 1) & ~(align - 1);
+    if (off + size > kVramRingBytes) return {};
+    s.vram_off = off + size;
+    UploadAlloc a;
+    a.buffer = s.vram.buffer;
+    a.offset = off;
+    a.ptr = static_cast<uint8_t*>(s.vram.mapped) + off;
+    a.size = size;
+    return a;
+}
 
 UploadAlloc Frame::staging(VkDeviceSize size) {
     Slot& s = *static_cast<Slot*>(slot);
@@ -1646,6 +1680,11 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
             delete gp;
             return false;
         }
+    {
+        uint32_t n_dl = 0;
+        for (const Slot& s : gp->slots) n_dl += s.upload_dl ? 1 : 0;
+        NXLOG_I(kTag, "upload memory: %u of %u slots in video memory (%llu MiB each)", n_dl, kSlots, static_cast<unsigned long long>(kUploadBytes >> 20));
+    }
     if (ft::on()) {
         VkQueryPoolCreateInfo qi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -1802,6 +1841,7 @@ void tear_down() {
             vk_gauge_descriptor_pools().sub(1);
         }
         d.destroy_buffer(s.upload);
+        if (s.vram.buffer) d.destroy_buffer(s.vram);
         if (s.pool) {
             vkDestroyCommandPool(d.device(), s.pool, nullptr);
             vk_gauge_command_pools().sub(1);

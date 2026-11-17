@@ -85,8 +85,10 @@ struct Frame {
     UploadAlloc upload(VkDeviceSize size, VkDeviceSize align);
     // Like upload, from the slot's own upload memory only: empty when it is full (no staging buffer is made).
     UploadAlloc upload_ring(VkDeviceSize size, VkDeviceSize align);
-    // The slot's upload memory is device-local (on a discrete GPU: the resizable-BAR window), so the GPU reads it from video memory.
-    bool upload_in_vram() const;
+    // Device-local, host-visible memory valid until the submission has completed: upload_ring when the slot's upload memory is in video
+    // memory, else a small ring of the slot's own in video memory made on first use. Empty when full or when no video memory was left for
+    // it. Only callers that read nothing from it otherwise (uniform snapshots) take it: it is made only for them.
+    UploadAlloc vram_ring(VkDeviceSize size, VkDeviceSize align);
     // A staging buffer for texture data (own buffer when large). Freed when the submission has completed.
     UploadAlloc staging(VkDeviceSize size);
     // A staging buffer somebody else made and filled (background texture preparation): freed like the ones above when the submission has completed.
