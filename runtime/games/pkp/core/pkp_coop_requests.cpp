@@ -301,7 +301,8 @@ void on_unique_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         const uint8_t id = r.u8(), there = r.u8();
         if (!r.ok()) return;
         if (id < 1 || id > kIdMax || there < kTaken || there > kDone || listed(kOwnIds, id)) continue;
-        s.pending[id] = Pending{there, origin};
+        s.pending[id].there = there;   // the latest wins; a logged wait stays logged (the whole list comes every kAllEvery)
+        s.pending[id].origin = origin;
     }
 }
 
