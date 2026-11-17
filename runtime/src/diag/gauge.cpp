@@ -2,6 +2,7 @@
 // Gauges and the soak sampler (declared in nxrt/gauge.h).
 #include "nxrt/gauge.h"
 #include "host_probe.h"
+#include "perf_report.h"
 #include "thread_cpu.h"
 
 #include <windows.h>
@@ -20,6 +21,7 @@
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/log.h"
+#include "nxrt/perf_report.h"
 #include "nxrt/qpc.h"
 
 namespace nxrt {
@@ -250,6 +252,7 @@ void monitor_run(double summary_s) {
             } else if (seen_frames) {
                 NXLOG_W("hitch", "no frame presented in the last %.1f s", summary_s);
             }
+            diag::perf_tick(summary_s);
         }
     }
 }
@@ -371,12 +374,14 @@ void soak_note_frame() {
     g_ring[n % kRing].store(t, std::memory_order_relaxed);
     g_ring_n.store(n + 1, std::memory_order_release);
     hitch_on_frame(t, prev_t, n + 1);
+    diag::perf_frame(t);
 }
 
 uint64_t hitch_ticks() { return qpc::ticks(); }
 void hitch_phase_add(int phase, uint64_t ticks) {
     if (phase >= 0 && phase < kHpCount) g_phase[phase].fetch_add(ticks, std::memory_order_relaxed);
 }
+uint64_t hitch_phase_total(int phase) { return phase >= 0 && phase < kHpCount ? g_phase[phase].load(std::memory_order_relaxed) : 0; }
 void hitch_set_render_thread() { t_render_thread = true; }
 bool hitch_on_render_thread() { return t_render_thread; }
 bool hitch_on_game_present_thread() { return t_game_present_thread; }
@@ -431,6 +436,7 @@ void hitch_start() {
 }
 
 void hitch_stop() {
+    perf::session_end();
     Monitor& s = mon();
     std::lock_guard<std::mutex> g(s.ctl);
     g_hitch_on.store(false);

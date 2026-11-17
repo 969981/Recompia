@@ -101,6 +101,7 @@ enum HitchPhase : int {
 };
 uint64_t hitch_ticks();                                  // QueryPerformanceCounter
 void hitch_phase_add(int phase, uint64_t ticks);
+uint64_t hitch_phase_total(int phase);                   // the phase's ticks summed since start (a relaxed load; the performance report)
 struct HitchTimer {
     int phase;
     uint64_t t0;

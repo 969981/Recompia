@@ -6,6 +6,7 @@
 
 ### Performance
 - Graphics cards of 4 or 6 GB on PCs without Resizable BAR now read all of the game's shader constants from video memory; a third of them still came from system memory
+- Added a performance report to the game's log: what the PC is (CPU, memory, graphics card, driver, PCIe link, Resizable BAR, power plan), the settings that change the frame rate, and every 10 seconds whether the frame rate is held back by the graphics card or the processor. Sending the log is now enough for a low-fps report (`[diag] perf_report = off` turns it off)
 
 ### Controls
 - Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)

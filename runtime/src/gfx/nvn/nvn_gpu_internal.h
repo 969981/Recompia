@@ -106,9 +106,10 @@ uint64_t completed_serial();      // cached timeline value; call poll_completed(
 uint64_t poll_completed();
 uint64_t current_serial();        // the serial of the submission being recorded (or the last one)
 
-// ---- GPU pass profiler ([prof] gpu_passes = true, needs the frame trace) --------------------------------------------------------------
+// ---- GPU pass profiler (nvn_gpu_timing.h) --------------------------------------------------------------------------------------------
 // Writes a GPU timestamp after everything recorded so far; the time since the previous stamp of the submission becomes a trace event
-// `gp:<label>` (arg = draws or 0). No-ops when the profiler is off.
+// `gp:<label>` (arg = draws or 0) with [prof] gpu_passes and the frame trace, and a row of the performance report's pass sample when it
+// samples this frame. gpass_on(): the submission being recorded is stamped; both no-ops otherwise.
 bool gpass_on();
 void gpass_stamp(Frame& f, const char* label, uint32_t arg = 0);
 
