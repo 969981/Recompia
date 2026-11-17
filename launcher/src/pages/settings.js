@@ -6,7 +6,7 @@
 import './settings.css';
 import { api } from '../api.js';
 import { setLanguage, t } from '../i18n.js';
-import { errText, esc, segmented, toast } from '../ui.js';
+import { errText, esc, faIcon, segmented, toast } from '../ui.js';
 import { store } from '../store.js';
 import { SECTIONS } from '../settings-schema.js';
 import { createState, env, rememberSection } from './settings/state.js';
@@ -38,7 +38,7 @@ export async function render(el, ctx) {
       <h1>${esc(t('Settings'))}</h1>
       <span class="set-saved" id="set-saved" role="status"></span>
     </div>
-    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label })), st.section, { label: t('Settings section') })}</div>
+    <div class="set-pills">${segmented('section', SECTIONS.map((s) => ({ value: s.id, label: s.label, icon: faIcon(s.icon) })), st.section, { label: t('Settings section') })}</div>
     <div class="set-body" id="set-body"></div>
   </div>`;
 
