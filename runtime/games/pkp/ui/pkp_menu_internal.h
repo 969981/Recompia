@@ -93,8 +93,6 @@ struct State {
     // in-game menus (menu_in_game): a layout with the game's cursor on an entry while the game is in play
     bool ig_enabled = false;
     bool ig_up = false;                // the in-game menu is up (debounced)
-    std::atomic<bool> pause_up{false}; // the in-game menu is the pause menu's main view (pkp_save_now.cpp reads it)
-    char ig_focus[48] = {};            // the selected entry's pane name
     int ig_tick = 0, ig_hits = 0, ig_miss = 0;
     bool frame_scanned = false;        // menu_frame scanned this frame (the next poll reuses its result)
     bool frame_present = false;

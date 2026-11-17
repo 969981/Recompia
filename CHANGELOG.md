@@ -15,6 +15,9 @@
 - Fixed the title screen's **PRESS (A)** showing the Switch A instead of the controller's or keyboard's button in French, German, Italian and Spanish (#730)
 - Fixed the **(A) Complete!** badge on the challenge list showing the Switch A instead of the controller's or keyboard's button (#733)
 
+### Gameplay
+- Fixed the pause menu's **Save** prompt only showing inside a home; it now shows wherever the pause menu opens, also while hosting or visiting in Link Play
+
 ### Launcher
 - Added icons to the Settings tabs
 - macOS and Linux: Play now prepares the shaders the game builds while it runs before the start, as Windows does (#727)
