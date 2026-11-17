@@ -25,14 +25,15 @@
 //     glyphs (left, right, up, down) get the d-pad with that arm lit (xbox/dpad_up ...).
 // The sprites are also looked up from the frame hook (pkp_play.cpp) once the sprite sheets are loaded, so the title screen and the HUD,
 // which draw them without a text tag, show the icons before the first tag.
-// The title screen's "PRESS (A) BUTTON" is not text: it is part of the title logo texture (a 1024x1024 BC7 texture loaded with the title
-// layout, the English one: the A disc at (262..309, 631..678)). That texture is found by the content of the disc's blocks and the disc is
-// drawn over with whatever A shows in the current prompt style (the Enter key's icon in keyboard style, the pad's button icon in a pad
-// style; nxrt/tex_patch.h texture_patch_bc7_matching), in the art's style: a white key with its symbol cut out and the art's soft dark shadow.
+// The A glyphs drawn into the game's art instead (the title screen's "PRESS (A) BUTTON", the challenges' badge) are pkp_baked_prompts.cpp:
+// they show what A shows in the current prompt style (the Enter key's icon in keyboard style when one is bound to A, the pad's button icon
+// in a pad style).
 #include "input/pkp_kbm.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
+#include "input/pkp_baked_prompts.h"
+#include "input/pkp_prompt_icons.h"
 
 #include <windows.h>
 
@@ -40,12 +41,10 @@
 #include <array>
 #include <atomic>
 #include <cctype>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <map>
 #include <mutex>
 #include <string>
 
@@ -97,12 +96,6 @@ struct Glyph {
     std::vector<uint8_t> saved;
 };
 
-struct Image {
-    bool tried = false;
-    std::vector<uint8_t> rgba;
-    uint32_t w = 0, h = 0;
-};
-
 constexpr std::array<int8_t, kMaxCode> unknown_codes() {
     std::array<int8_t, kMaxCode> a{};
     for (auto& v : a) v = -2;
@@ -112,7 +105,8 @@ constexpr std::array<int8_t, kMaxCode> unknown_codes() {
 struct State {
     uint64_t base = 0x7100000000ull;
     bool enabled = true;                             // [pkp] kbm_icons
-    std::string dir;                                 // <exe folder>/assets/kbm_icons/
+    prompt_icons::Cache icons;                       // keyboard icons from <exe folder>/assets/kbm_icons/, pad icons from the pack
+    BakedPrompts baked;                              // the A drawn into the game's art (game thread only)
     play::Settings settings;                         // the last applied settings: bindings for the keyboard style, the pad remap for pad styles
     play::PromptStyle eff = play::PromptStyle::Switch;   // the style that shows now (play::prompts_effective_style)
     std::mutex mu;
@@ -120,20 +114,12 @@ struct State {
     std::array<Glyph, kSlots> glyph;
     std::array<int8_t, kMaxCode> code_slot = unknown_codes();   // glyph code -> slot, -1 = none, -2 = not looked up yet
     bool all_resolved = false;
-    std::map<std::string, Image> images;
     uint32_t frames = 0, frame_tries = 0;            // kbm_frame: game frames seen, lookups tried before the first tag
     uint64_t types_logged[4] = {};                   // text tag types logged once (diagnostics)
 #if NXRT_TESTTOOLS
     std::vector<uint64_t> dumped;                    // atlases written to NXRT_PKP_KBM_DUMP
 #endif
-    std::string title_icon;                          // the title art's A: the Enter key bound to A (else A's icon)
-    std::vector<uint8_t> title_px;                   // ... drawn (kTitleArt), for title_px_icon
-    std::string title_px_icon;
-    std::vector<uint32_t> title_checked;             // textures looked at for the title art
-    uint32_t scan_every = 60, scan_last = 0, scan_empty = 0;   // the title-art scan backs off (60 .. 600 game frames) while nothing changes (#280)
-    size_t scan_registry = ~size_t{0};               // registry size at the last scan
-    play::PromptStyle scan_style = play::PromptStyle::Switch;
-    uint32_t scan_slow_logged = 0;
+    std::string art_icon;                            // the A drawn into the game's art: the Enter key bound to A (else A's icon)
     std::atomic<uint64_t> tags{0}, texts{0}, patches{0};
 };
 
@@ -200,235 +186,6 @@ bool input_for_bits(const play::Settings& s, uint64_t bit, play::InputId* out) {
             if (input_for_act(s, static_cast<play::Act>(a), out)) return true;
         }
     return false;
-}
-
-// ---- icon files ----
-// The game's button glyphs (atlas #493, "0000_key_1_a" ...) are a white cap with a dark rim and a dark letter, so they read on the white
-// dialogue boxes, the blue tutorial boxes and the 3D scene alike. Kenney's keys are a white cap with the letter cut out (transparent), which
-// vanishes on a white box. The icon is put on the game's look: a plate of the game's rim colour under it (the icon's shape grown by a rim of
-// 3/64 of its size, and every hole inside the shape, the letter, filled) and the icon itself on top.
-constexpr uint8_t kPlate[3] = {51, 51, 51};   // the game's rim and letter: grey 51 at alpha 191
-constexpr float kPlateAlpha = 191.f / 255.f;
-
-// The title logo's A disc: the 72 x 72 rectangle around it, the FNV-1a hash of its BC7 blocks (the English title art of 2.0.1), and the
-// disc in that rectangle (48 x 48 at 10, 11).
-constexpr gfx::Bc7Match kTitleArt = {1024, 1024, 252, 620, 72, 72, 0xc400174b48564fa1ull};
-constexpr uint32_t kTitleGlyph = 48, kTitleGlyphX = 10, kTitleGlyphY = 11;
-
-// 1 for the clear texels reachable from the border through clear texels; the other clear texels are holes in the shape (a key's letter).
-std::vector<uint8_t> outside_of(const uint8_t* rgba, int w, int h) {
-    auto a = [&](int x, int y) { return rgba[(static_cast<size_t>(y) * w + x) * 4 + 3]; };
-    std::vector<uint8_t> outside(static_cast<size_t>(w) * h, 0);
-    std::vector<int> todo;
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x)
-            if ((x == 0 || y == 0 || x == w - 1 || y == h - 1) && a(x, y) < 128) outside[static_cast<size_t>(y) * w + x] = 1, todo.push_back(y * w + x);
-    while (!todo.empty()) {
-        const int i = todo.back(), x = i % w, y = i / w;
-        todo.pop_back();
-        const int nb[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
-        for (const auto& n : nb) {
-            if (n[0] < 0 || n[1] < 0 || n[0] >= w || n[1] >= h) continue;
-            const size_t j = static_cast<size_t>(n[1]) * w + n[0];
-            if (!outside[j] && a(n[0], n[1]) < 128) outside[j] = 1, todo.push_back(static_cast<int>(j));
-        }
-    }
-    return outside;
-}
-
-void plate(Image& im) {
-    const int w = static_cast<int>(im.w), h = static_cast<int>(im.h);
-    auto a = [&](int x, int y) { return im.rgba[(static_cast<size_t>(y) * w + x) * 4 + 3]; };
-    const std::vector<uint8_t> outside = outside_of(im.rgba.data(), w, h);
-    const int r = std::max(1, static_cast<int>(std::lround(w * 3.0 / 64)));
-    std::vector<uint8_t> out(im.rgba.size());
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) {
-            float pa = outside[static_cast<size_t>(y) * w + x] ? 0.f : 255.f;   // plate alpha: holes full, the rest grown from the shape
-            for (int dy = -r; dy <= r && pa < 255.f; ++dy)
-                for (int dx = -r; dx <= r; ++dx) {
-                    const int sx = x + dx, sy = y + dy;
-                    if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
-                    const float d = std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                    if (d > r + 0.5f) continue;
-                    pa = std::max(pa, a(sx, sy) * std::clamp(r + 0.5f - d, 0.f, 1.f));   // soft edge on the rim
-                }
-            const uint8_t* s = &im.rgba[(static_cast<size_t>(y) * w + x) * 4];
-            uint8_t* o = &out[(static_cast<size_t>(y) * w + x) * 4];
-            const float sa = s[3] / 255.f, da = pa / 255.f * kPlateAlpha, oa = sa + da * (1 - sa);
-            for (int ch = 0; ch < 3; ++ch) o[ch] = static_cast<uint8_t>(oa > 0 ? std::lround((s[ch] * sa + kPlate[ch] * da * (1 - sa)) / oa) : 0);
-            o[3] = static_cast<uint8_t>(std::lround(oa * 255.f));
-        }
-    im.rgba = std::move(out);
-}
-
-// A pack icon without colour of its own: the d-pad, the triggers and shoulders and the d-pad's direction icons are white or grey, which
-// vanishes on the pale move wheel and the dialogue boxes (#230). The face buttons (A, B, cross, circle...) are saturated and read as they are.
-bool colourless(const Image& im) {
-    size_t opaque = 0, coloured = 0;
-    for (size_t i = 0; i + 3 < im.rgba.size(); i += 4) {
-        if (im.rgba[i + 3] <= 128) continue;
-        ++opaque;
-        const uint8_t hi = std::max({im.rgba[i], im.rgba[i + 1], im.rgba[i + 2]}), lo = std::min({im.rgba[i], im.rgba[i + 1], im.rgba[i + 2]});
-        if (hi - lo > 60) ++coloured;
-    }
-    return opaque > 0 && coloured * 4 < opaque;
-}
-
-// The icon `name`: a pack entry ("xbox/a", "ps/cross"; names with a slash, straight RGBA from the prompt pack; the colourless ones are put
-// on the plate like the keyboard icons) or a Kenney file `name`.png from assets/kbm_icons, on its plate (plated) or as drawn by Kenney.
-const Image* image_locked(State& s, const std::string& name, bool plated = true) {
-    const bool from_pack = name.find('/') != std::string::npos;
-    Image& im = s.images[from_pack ? "pack:" + name : (plated ? name : "raw:" + name)];
-    if (!im.tried) {
-        im.tried = true;
-        if (from_pack) {
-            const play::IconPack* pack = play::prompts_pack();
-            const uint8_t* px = pack ? pack->find(name) : nullptr;
-            if (px && pack->width() >= 8 && pack->height() >= 8) {
-                im.w = pack->width();
-                im.h = pack->height();
-                im.rgba.assign(px, px + static_cast<size_t>(im.w) * im.h * 4);
-                if (colourless(im)) plate(im);
-                NXLOG_I(kTag, "prompt icon %s: %ux%u from the pack", name.c_str(), im.w, im.h);
-            } else im.rgba.clear();
-        } else if (!gfx::load_png_rgba(s.dir + name + ".png", &im.rgba, &im.w, &im.h) || im.w < 8 || im.h < 8) im.rgba.clear();
-        else {
-            if (plated) plate(im);
-            NXLOG_I(kTag, "kbm icon %s.png: %ux%u", name.c_str(), im.w, im.h);
-        }
-    }
-    return im.rgba.empty() ? nullptr : &im;
-}
-
-// The icon scaled (bilinear) to w x h.
-std::vector<uint8_t> scaled(const Image& im, uint32_t w, uint32_t h) {
-    std::vector<uint8_t> out(static_cast<size_t>(w) * h * 4);
-    for (uint32_t y = 0; y < h; ++y)
-        for (uint32_t x = 0; x < w; ++x) {
-            const float fx = std::clamp((x + 0.5f) * im.w / w - 0.5f, 0.f, im.w - 1.f), fy = std::clamp((y + 0.5f) * im.h / h - 0.5f, 0.f, im.h - 1.f);
-            const uint32_t x0 = static_cast<uint32_t>(fx), y0 = static_cast<uint32_t>(fy);
-            const uint32_t x1 = std::min(x0 + 1, im.w - 1), y1 = std::min(y0 + 1, im.h - 1);
-            const float ax = fx - x0, ay = fy - y0;
-            // premultiplied, so clear texels (black) do not darken the edges
-            auto p = [&](uint32_t px, uint32_t py, int ch) {
-                const uint8_t* q = &im.rgba[(static_cast<size_t>(py) * im.w + px) * 4];
-                return ch == 3 ? static_cast<float>(q[3]) : q[ch] * (q[3] / 255.f);
-            };
-            auto lerp = [&](int ch) { return (p(x0, y0, ch) * (1 - ax) + p(x1, y0, ch) * ax) * (1 - ay) + (p(x0, y1, ch) * (1 - ax) + p(x1, y1, ch) * ax) * ay; };
-            const float alpha = lerp(3);
-            uint8_t* o = &out[(static_cast<size_t>(y) * w + x) * 4];
-            for (int ch = 0; ch < 3; ++ch) o[ch] = static_cast<uint8_t>(alpha > 0 ? std::lround(std::clamp(lerp(ch) * 255.f / alpha, 0.f, 255.f)) : 0);
-            o[3] = static_cast<uint8_t>(std::lround(std::clamp(alpha, 0.f, 255.f)));
-        }
-    return out;
-}
-
-// The icon's drawn part (its bounding box, without the file's clear margin) scaled to fill 0.96 of w x h, aspect kept, centred: the game's
-// glyphs fill their sprite, Kenney's keys sit in a margin (and wide keys are half as tall), so they would show smaller than the game's.
-std::vector<uint8_t> fitted(const Image& im, uint32_t w, uint32_t h) {
-    uint32_t x0 = im.w, y0 = im.h, x1 = 0, y1 = 0;
-    for (uint32_t y = 0; y < im.h; ++y)
-        for (uint32_t x = 0; x < im.w; ++x)
-            if (im.rgba[(static_cast<size_t>(y) * im.w + x) * 4 + 3] > 8) x0 = std::min(x0, x), y0 = std::min(y0, y), x1 = std::max(x1, x + 1), y1 = std::max(y1, y + 1);
-    if (x1 <= x0 || y1 <= y0) return scaled(im, w, h);
-    Image crop;
-    crop.w = x1 - x0;
-    crop.h = y1 - y0;
-    crop.rgba.resize(static_cast<size_t>(crop.w) * crop.h * 4);
-    for (uint32_t y = 0; y < crop.h; ++y)
-        std::memcpy(&crop.rgba[static_cast<size_t>(y) * crop.w * 4], &im.rgba[(static_cast<size_t>(y0 + y) * im.w + x0) * 4], static_cast<size_t>(crop.w) * 4);
-    const float k = std::min(w * 0.96f / crop.w, h * 0.96f / crop.h);
-    const uint32_t sw = std::max(1u, static_cast<uint32_t>(std::lround(crop.w * k))), sh = std::max(1u, static_cast<uint32_t>(std::lround(crop.h * k)));
-    const std::vector<uint8_t> small = scaled(crop, sw, sh);
-    std::vector<uint8_t> out(static_cast<size_t>(w) * h * 4, 0);
-    const uint32_t ox = (w - std::min(w, sw)) / 2, oy = (h - std::min(h, sh)) / 2;
-    for (uint32_t y = 0; y < sh && oy + y < h; ++y)
-        std::memcpy(&out[(static_cast<size_t>(oy + y) * w + ox) * 4], &small[static_cast<size_t>(y) * sw * 4], static_cast<size_t>(std::min(sw, w - ox)) * 4);
-    return out;
-}
-
-// A wanted icon: a file name, or "@move:" and four file names (the move keys, forward left back right) drawn as the WASD cluster.
-std::vector<std::string> parts_of(const std::string& target) {
-    if (target.compare(0, 6, "@move:") != 0) return {target};
-    std::vector<std::string> v;
-    size_t p = 6;
-    for (size_t q; (q = target.find(',', p)) != std::string::npos; p = q + 1) v.push_back(target.substr(p, q - p));
-    v.push_back(target.substr(p));
-    return v.size() == 4 ? v : std::vector<std::string>{};
-}
-
-bool have_icon_locked(State& s, const std::string& target) {
-    const std::vector<std::string> parts = parts_of(target);
-    if (parts.empty()) return false;
-    for (const std::string& n : parts)
-        if (n.empty() || !image_locked(s, n)) return false;
-    return true;
-}
-
-std::vector<uint8_t> pixels_locked(State& s, const std::string& target, uint32_t w, uint32_t h) {
-    const std::vector<std::string> parts = parts_of(target);
-    if (parts.size() == 1) return fitted(*image_locked(s, parts[0]), w, h);
-    // forward on top in the middle, left / back / right below it. The icons carry a transparent margin (the key is about 3/4 of the
-    // icon), so they are drawn at 0.45 of the glyph and 0.31 apart: the keys nearly touch and fill the glyph (the margins overlap or are cut).
-    std::vector<uint8_t> out(static_cast<size_t>(w) * h * 4, 0);
-    const int k = static_cast<int>(w * 0.45f), step = static_cast<int>(w * 0.31f), cx = static_cast<int>(w) / 2, cy = static_cast<int>(h) / 2;
-    const int ctr[4][2] = {{cx, cy - step / 2}, {cx - step, cy + step / 2}, {cx, cy + step / 2}, {cx + step, cy + step / 2}};
-    for (int i = 0; i < 4; ++i) {
-        const std::vector<uint8_t> key = scaled(*image_locked(s, parts[i]), static_cast<uint32_t>(k), static_cast<uint32_t>(k));
-        for (int y = 0; y < k; ++y)
-            for (int x = 0; x < k; ++x) {
-                const int ox = ctr[i][0] - k / 2 + x, oy = ctr[i][1] - k / 2 + y;
-                if (ox < 0 || oy < 0 || ox >= static_cast<int>(w) || oy >= static_cast<int>(h)) continue;
-                const uint8_t* src = &key[(static_cast<size_t>(y) * k + x) * 4];
-                uint8_t* dst = &out[(static_cast<size_t>(oy) * w + ox) * 4];
-                const float sa = src[3] / 255.f, da = dst[3] / 255.f, oa = sa + da * (1 - sa);
-                for (int ch = 0; ch < 3; ++ch)
-                    dst[ch] = static_cast<uint8_t>(oa > 0 ? std::lround((src[ch] * sa + dst[ch] * da * (1 - sa)) / oa) : 0);
-                dst[3] = static_cast<uint8_t>(std::lround(oa * 255.f));
-            }
-    }
-    return out;
-}
-
-// The title art's rectangle (kTitleArt, 72 x 72) with the icon in the art's style: white with its symbol cut out, over a soft shadow of the
-// whole shape (the cut-out shows the shadow, like the art's A). Empty when the icon is missing.
-std::vector<uint8_t> title_pixels_locked(State& s, const std::string& icon) {
-    const Image* im = icon.empty() ? nullptr : image_locked(s, icon, false);
-    if (!im) return {};
-    const int W = static_cast<int>(kTitleArt.w), H = static_cast<int>(kTitleArt.h), g = static_cast<int>(kTitleGlyph);
-    const std::vector<uint8_t> glyph = fitted(*im, kTitleGlyph, kTitleGlyph);
-    const std::vector<uint8_t> outside = outside_of(glyph.data(), g, g);
-    std::vector<float> shadow(static_cast<size_t>(W) * H, 0.f), tmp(shadow.size());
-    for (int y = 0; y < g; ++y)
-        for (int x = 0; x < g; ++x)
-            shadow[static_cast<size_t>(y + kTitleGlyphY) * W + x + kTitleGlyphX] =
-                outside[static_cast<size_t>(y) * g + x] ? glyph[(static_cast<size_t>(y) * g + x) * 4 + 3] / 255.f : 1.f;
-    for (int pass = 0; pass < 2; ++pass)   // two box blurs of radius 3 in x and y: about the art's shadow (6 texels)
-        for (int dir = 0; dir < 2; ++dir) {
-            for (int y = 0; y < H; ++y)
-                for (int x = 0; x < W; ++x) {
-                    float sum = 0;
-                    for (int k = -3; k <= 3; ++k) {
-                        const int sx = dir ? x : x + k, sy = dir ? y + k : y;
-                        if (sx >= 0 && sy >= 0 && sx < W && sy < H) sum += shadow[static_cast<size_t>(sy) * W + sx];
-                    }
-                    tmp[static_cast<size_t>(y) * W + x] = sum / 7.f;
-                }
-            shadow.swap(tmp);
-        }
-    std::vector<uint8_t> out(static_cast<size_t>(W) * H * 4);
-    for (int y = 0; y < H; ++y)
-        for (int x = 0; x < W; ++x) {
-            const float da = std::min(1.f, shadow[static_cast<size_t>(y) * W + x] * 0.4f);   // the art's shadow: near black, up to ~0.3 alpha
-            const int gx = x - static_cast<int>(kTitleGlyphX), gy = y - static_cast<int>(kTitleGlyphY);
-            const uint8_t* sp = gx >= 0 && gy >= 0 && gx < g && gy < g ? &glyph[(static_cast<size_t>(gy) * g + gx) * 4] : nullptr;
-            const float sa = sp ? sp[3] / 255.f : 0.f, oa = sa + da * (1 - sa);
-            uint8_t* o = &out[(static_cast<size_t>(y) * W + x) * 4];
-            for (int ch = 0; ch < 3; ++ch) o[ch] = static_cast<uint8_t>(oa > 0 ? std::lround(((sp ? sp[ch] : 0) * sa + 12.f * da * (1 - sa)) / oa) : 0);
-            o[3] = static_cast<uint8_t>(std::lround(oa * 255.f));
-        }
-    return out;
 }
 
 // ---- the sprite and its atlas ----
@@ -544,7 +301,7 @@ void compute_want_locked(State& s) {
     const play::PromptStyle eff = play::prompts_effective_style();
     s.eff = eff;
     std::array<Want, kSlots> want;
-    std::string title;
+    std::string art;
     if (eff == play::PromptStyle::Keyboard) {
         for (int i = 0; i < kCodes; ++i) {
             play::InputId in;
@@ -561,14 +318,15 @@ void compute_want_locked(State& s) {
         }
         want[kSlotLS] = {move.size() == 4 ? move : "Move", move_icon};
         want[kSlotRS] = {"Mouse", "mouse_move"};
-        // the title art's A: the Enter key when one is bound to A (the menu key, though E is listed first), else whatever A shows
-        title = want[5].icon;
+        // the A drawn into the art (title, menu badges): the Enter key when one is bound to A (the menu key, though E is listed first),
+        // else whatever A shows
+        art = want[5].icon;
         for (const play::Binding& b : s.settings.bindings) {
             const play::Output& o = s.settings.out[static_cast<int>(b.act)];
             if (b.trig != play::Trig::Press || b.in.kind != play::InKind::Key || o.buttons != kCodeBit[5] || o.lx || o.ly || o.rx || o.ry) continue;
             const std::string n = play::input_name(b.in);
             if ((n == "Return" || n == "Keypad Enter") && !icon_of(b.in).empty()) {
-                title = icon_of(b.in);
+                art = icon_of(b.in);
                 break;
             }
         }
@@ -577,10 +335,10 @@ void compute_want_locked(State& s) {
         // stick glyphs have no pad icon and keep the game's own
         for (int i = 0; i < kCodes; ++i)
             want[i].icon = play::pad_pack_name(eff, s.settings.pad, s.settings.pad.label_abxy, kCodeBit[i]);
-        title = want[5].icon;
+        art = want[5].icon;
     }
     s.want = want;
-    s.title_icon = title;
+    s.art_icon = art;
 }
 
 // Puts the wanted icon (or the game's pixels) into every glyph that was found. Caller holds s.mu.
@@ -591,9 +349,9 @@ void sync_glyphs_locked(State& s) {
         Glyph& g = s.glyph[i];
         if (!g.tex) continue;
         std::string target = patch ? s.want[i].icon : std::string();
-        if (!target.empty() && !have_icon_locked(s, target)) {
+        if (!target.empty() && !s.icons.have(target)) {
             const std::string fb = play::pad_pack_fallback(target);   // an older pack without the d-pad directions: the whole d-pad
-            target = !fb.empty() && have_icon_locked(s, fb) ? fb : std::string();
+            target = !fb.empty() && s.icons.have(fb) ? fb : std::string();
         }
         if (target == g.shown) continue;
         const void* tex = reinterpret_cast<const void*>(g.tex);
@@ -602,7 +360,7 @@ void sync_glyphs_locked(State& s) {
             g.shown.clear();
         }
         if (!target.empty()) {
-            const std::vector<uint8_t> px = pixels_locked(s, target, g.w, g.h);
+            const std::vector<uint8_t> px = s.icons.pixels(target, g.w, g.h);
             if (gfx::texture_patch_bc7(tex, g.x, g.y, g.w, g.h, px.data(), &g.saved)) {
                 g.shown = target;
                 s.patches.fetch_add(1, std::memory_order_relaxed);
@@ -680,7 +438,8 @@ void frame(::Ctx* c) {
     State& s = st();
     if (!s.enabled || (++s.frames % 30) != 0) return;
     const play::PromptStyle eff = play::prompts_effective_style();
-    std::vector<uint8_t> title;
+    // the art with an A drawn into it (title, challenge badge) is looked for while a style other than switch shows
+    s.baked.scan(s.frames, eff != play::PromptStyle::Switch, static_cast<int>(eff));
     {
         std::lock_guard<std::mutex> lk(s.mu);
         bool ready = s.all_resolved;
@@ -696,49 +455,9 @@ void frame(::Ctx* c) {
         // not only once everything is found: the title draws (-) Settings while other sprites (sticks) are not loaded yet, so every
         // glyph already found gets its icon now. Skipped while none was found (nothing to patch, no per-frame work)
         if (ready || std::any_of(s.glyph.begin(), s.glyph.end(), [](const Glyph& g) { return g.tex != 0; })) sync_glyphs_locked(s);
-        if (eff != play::PromptStyle::Switch && s.frames % 60 == 0) {
-            // #280: the scan below walks every registered texture under the registry lock. It is meant for the title screen, but ran once a
-            // second for the whole session. It now backs off while nothing changes: the interval doubles (60 .. 600 frames) after two scans in
-            // a row that found nothing new, and goes back to 60 as soon as the registry changed (a title screen loads textures) or the prompt
-            // style did.
-            const size_t reg = gfx::texture_registry_count();
-            if (reg != s.scan_registry || eff != s.scan_style) {
-                s.scan_registry = reg;
-                s.scan_style = eff;
-                s.scan_every = 60;
-                s.scan_empty = 0;
-                s.scan_last = 0;
-            }
-            if (s.scan_last != 0 && s.frames - s.scan_last < s.scan_every) return;
-            if (s.title_px_icon != s.title_icon) {
-                s.title_px = title_pixels_locked(s, s.title_icon);
-                s.title_px_icon = s.title_icon;
-            }
-            title = s.title_px;
-        }
+        else compute_want_locked(s);
+        s.baked.sync(s.icons, s.eff != play::PromptStyle::Switch ? s.art_icon : std::string());
     }
-    if (title.empty()) return;
-    // a new title art texture (each time the title screen loads) is drawn over once; textures looked at before are skipped
-    const size_t checked_before = st().title_checked.size();
-    const auto t0 = std::chrono::steady_clock::now();
-    const int n = gfx::texture_patch_bc7_matching(kTitleArt, title.data(), &st().title_checked);
-    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    {
-        std::lock_guard<std::mutex> lk(s.mu);
-        s.scan_last = s.frames;
-        if (n > 0 || st().title_checked.size() != checked_before) {
-            s.scan_empty = 0;
-            s.scan_every = 60;
-        } else if (++s.scan_empty >= 2) {
-            s.scan_every = std::min<uint32_t>(s.scan_every * 2, 600);
-        }
-        if (ms > 2.0 && s.scan_slow_logged < 20) {
-            ++s.scan_slow_logged;
-            NXLOG_I(kTag, "kbm: title art scan took %.2f ms over %zu textures (next in %u game frames)", ms, s.scan_registry, s.scan_every);
-        }
-    }
-    if (n)
-        NXLOG_I(kTag, "kbm: title screen art: PRESS (A) BUTTON now shows %s (%d texture%s)", s.title_px_icon.c_str(), n, n == 1 ? "" : "s");
 }
 
 std::string exe_dir() {
@@ -761,10 +480,10 @@ void install(const FeatureInstall& in) {
     State& s = st();
     s.base = in.base;
     s.enabled = settings::get_bool(settings::Key::KbmIcons);
-    s.dir = exe_dir() + "assets/kbm_icons/";
+    s.icons.set_dir(exe_dir() + "assets/kbm_icons/");
     in.hooks.add_mid(in.base + kTagCall, &hook_tag);
     NXLOG_I(kTag, "button prompts %s (keyboard icons from %s, pad icons from the prompt icon pack; the style is [prompts] style)",
-            s.enabled ? "on" : "off ([pkp] kbm_icons = 0)", s.dir.c_str());
+            s.enabled ? "on" : "off ([pkp] kbm_icons = 0)", s.icons.dir().c_str());
     settings_changed(in.settings);
 }
 

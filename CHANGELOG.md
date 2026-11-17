@@ -12,6 +12,8 @@
 - Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)
   - Before: since 0.14.0 the three faint buttons were drawn above the text, where they sit on the controller, but the dark shape that belongs behind them stayed below the text
   - Now: the shape is behind the three buttons
+- Fixed the title screen's **PRESS (A)** showing the Switch A instead of the controller's or keyboard's button in French, German, Italian and Spanish (#730)
+- Fixed the **(A) Complete!** badge on the challenge list showing the Switch A instead of the controller's or keyboard's button (#733)
 
 ### Launcher
 - Added icons to the Settings tabs
