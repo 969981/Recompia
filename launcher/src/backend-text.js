@@ -34,7 +34,7 @@ const TEXTS = [
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
 
-  // coop_cmds.rs, coop.rs, coop_save.rs: the Co-op page
+  // coop_cmds.rs, coop.rs, coop_save.rs, mods.rs: Recompia: Co-op's Home
   msg('The game is running. Close it first, then change the co-op save.'),
   msg('Type a name for the co-op save (1 to 24 characters).'),
   msg('Type a name for the player (1 to 24 characters).'),
@@ -48,7 +48,8 @@ const TEXTS = [
   msg('{1} already has files in it. A co-op save starts in a new, empty folder.'),
   msg('That player is not in the invite.'),
   msg('That player is not in this co-op save.'),
-  msg('The save folder {1} holds a co-op save, and a co-op save is only played from Co-op. Choose another save folder in the settings.'),
+  msg('The save folder {1} holds a co-op save, and a co-op save is only played from Recompia: Co-op. Choose another save folder in the settings.'),
+  msg('A mod this co-op save has on needs hook points the game was not built with. Switch it off for this co-op save on the Mods page of Recompia: Co-op.'),
   msg('The co-op save folder and the singleplayer save folder overlap. Choose another save folder in the settings.'),
 
   // dlss.rs

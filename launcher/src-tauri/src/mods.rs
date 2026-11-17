@@ -148,7 +148,7 @@ pub fn ensure_points_built(game_dir: &Path, scope: &Scope) -> Result<(), String>
     }
 }
 
-const POINTS_NOT_BUILT: &str = "A mod this co-op group has on needs hook points the game was not built with. Switch it off for this group on the Mods page of Recompia: Co-op.";
+const POINTS_NOT_BUILT: &str = "A mod this co-op save has on needs hook points the game was not built with. Switch it off for this co-op save on the Mods page of Recompia: Co-op.";
 
 /// One setting row of a mod.
 #[derive(Serialize, Clone, Debug)]

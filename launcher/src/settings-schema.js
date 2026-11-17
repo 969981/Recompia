@@ -25,6 +25,7 @@
 import { num, t } from './i18n.js';
 import { playTimeLine } from './play-time-model.js';
 import { previewItem } from './prompt-pack-model.js';
+import { shownIn } from './games.js';
 import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
 import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
 
@@ -359,6 +360,11 @@ export const DLSS_DOWNLOAD = {
 
 export const IMPORT_FACTS = t('Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.');
 
+// `games` (games.js shownIn): the rows a Recompia: Co-op start has no use for. The co-op start sets the online and relay settings itself
+// (coop_launch.rs) and plays its own save folder, so the Online rows, profiles, saves, backups and the game clock are singleplayer
+// only; the install (game files, Set up, shaders, Steam, art, updates, repair) is looked after from Recompia.
+const SINGLEPLAYER = ['recompia'];
+
 export const SECTIONS = [
   {
     id: 'display',
@@ -529,7 +535,7 @@ export const SECTIONS = [
     ],
   },
   {
-    id: 'saves',
+    id: 'saves', games: SINGLEPLAYER,
     label: t('Saves'),
     groups: [
       {
@@ -614,7 +620,7 @@ export const SECTIONS = [
       {
         // online.rs: sends data off the PC, so off by default; the notice must say exactly what is sent (recompia.com #online says the
         // same). The switch is pkp.ini [pkp] online_presence, the same key as the Home chip and the game's own Settings (Online tab).
-        title: t('Online'),
+        title: t('Online'), games: SINGLEPLAYER,
         rows: [
           { id: 'online_presence', label: t('Share that I am online'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_presence')) },
           {
@@ -636,7 +642,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: '',
+        title: '', games: SINGLEPLAYER,
         rows: [
           {
             id: 'game_files', label: t('Game files'), type: 'info', value: (env) => env.gameFiles, mono: true,
@@ -657,7 +663,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Logo and icon'),
+        title: t('Logo and icon'), games: SINGLEPLAYER,
         rows: [
           // launcher.json; the launcher puts the choice in place (writer.js -> apply_branding, src-tauri/src/branding.rs)
           { id: 'logo', label: t('Logo'), type: 'segmented', at: config('logo'), def: 'recompia', options: LOOKS },
@@ -666,7 +672,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Steam'),
+        title: t('Steam'), games: SINGLEPLAYER,
         rows: [
           {
             id: 'steam_note', type: 'note',
@@ -692,7 +698,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Shader files'),
+        title: t('Shader files'), games: SINGLEPLAYER,
         rows: [
           { id: 'shader_storage', label: t('Storage'), type: 'info', value: storageText, actions: storageActions },
           { id: 'shader_storage_note', type: 'note', when: (v, env) => !!storageNote(env), note: storageNote },
@@ -703,15 +709,15 @@ export const SECTIONS = [
         rows: [
           {
             // saved on leaving the field, not while typing: half a path would make the whole launcher think the game is gone
-            id: 'game_dir', label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
+            id: 'game_dir', games: SINGLEPLAYER, label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
           {
-            id: 'romfs_mod', label: t('Mods'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
+            id: 'romfs_mod', games: SINGLEPLAYER, label: t('Mods'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
             placeholder: () => '',
           },
           {
-            id: 'romfs_mod_note', type: 'note',
+            id: 'romfs_mod_note', games: SINGLEPLAYER, type: 'note',
             note: () => ({ text: t("Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path.") }),
           },
           { id: 'minimize_on_play', label: t('Minimise while playing'), type: 'toggle', at: config('minimize_on_play'), def: false },
@@ -719,7 +725,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Game clock'),
+        title: t('Game clock'), games: SINGLEPLAYER,
         rows: [
           ...TIMED_EVENTS.map((event) => ({
             id: `event_${event.id}`, label: event.label, type: 'toggle', at: AT_EVENT_PRESET, def: false,
@@ -747,16 +753,16 @@ export const SECTIONS = [
         rows: [
           { id: 'version', label: t('Version'), type: 'info', value: (env) => env.version, selectable: true },
           {
-            id: 'channel', label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
+            id: 'channel', games: SINGLEPLAYER, label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
             lock: (env) => env.updating || env.gameBusy,
             options: [{ value: 'stable', label: t('Stable') }, { value: 'testing', label: t('Testing') }],
           },
           {
-            id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
+            id: 'channel_note', games: SINGLEPLAYER, type: 'note', when: (v) => v.channel === 'testing',
             note: () => ({ text: t('Testing builds come first and may have bugs. Testing does not update by itself: pick each build with Choose a version below. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
           },
           {
-            id: 'testing_help', label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
+            id: 'testing_help', games: SINGLEPLAYER, label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
             value: t('What to test is listed with each Testing build in What\'s New.'),
             actions: () => [
               { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: t('Report a problem'), icon: 'external-link' },
@@ -764,11 +770,11 @@ export const SECTIONS = [
             ],
           },
           {
-            id: 'builds', label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
+            id: 'builds', games: SINGLEPLAYER, label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
             actions: (env) => [{ act: 'builds-open', label: t('Choose a version'), icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
-            id: 'updates', label: t('Updates'), type: 'info', value: (env) => env.updateText,
+            id: 'updates', games: SINGLEPLAYER, label: t('Updates'), type: 'info', value: (env) => env.updateText,
             actions: (env) => [
               ...(env.canUpdate ? [{ act: 'update', label: t('Update'), icon: 'download', primary: true }] : []),
               { act: 'check-updates', label: t('Check for updates'), icon: 'refresh-cw', disabled: env.checking },
@@ -786,7 +792,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Troubleshooting'),
+        title: t('Troubleshooting'), games: SINGLEPLAYER,
         rows: [
           {
             id: 'repair', label: t('Repair and reset'), type: 'info',
@@ -886,6 +892,12 @@ export function isAvailable(f, src) {
 }
 
 export const isEnabled = (f, src, env) => isAvailable(f, src) && !f.lock?.(env);
+
+/** The sections shown in game `id` (games.js), each holding only its groups and rows shown there; a section left empty is gone. FIELDS
+ *  keeps every row whatever the game: a row hidden in one game still reads and writes the same key. */
+export const sectionsIn = (id) => SECTIONS.filter((s) => shownIn(s, id))
+  .map((s) => ({ ...s, groups: s.groups.filter((g) => shownIn(g, id)).map((g) => ({ ...g, rows: g.rows.filter((r) => shownIn(r, id)) })) }))
+  .filter((s) => s.groups.some((g) => g.rows.length));
 
 /** The rows of a group with `expand` entries unfolded and hidden rows gone. */
 export const rowsOf = (group, values, env) => group.rows.flatMap((r) => (r.expand ? r.expand(env) : [r])).filter((r) => isVisible(r, values, env));

@@ -4,6 +4,8 @@
 // says (kind 'mods') and this page offers with the same Set up as Home. A mod or setting the launcher keeps on (mods_lock.rs, Community
 // Achievements and its sharing) shows locked, with Unlock behind its question and Lock to keep it on again. Browse opens first; an
 // installed mod shows as one collapsed line (name, switch, chips) and opens to its description, settings and actions.
+// In Recompia: Co-op (games.js `mods: 'coop'`) the page edits one co-op group's set only: no Browse, no install, order or remove (the
+// mods folder is the install's, looked after from Recompia), and never the global defaults.
 import './mods.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
@@ -12,7 +14,7 @@ import { confirm, errText, esc, field, icon, row, segmented, select, slider, toa
 import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import { modLine, modState, sharingText } from '../achievements-model.js';
-import { allowQuestion, badges, byLine, canMove, cardAction, detailsView, filterByGroup, groupChips, installQuestion, isSlider, isTested, keepGroup, lockAction, settingValue, unlockQuestion } from '../mods-model.js';
+import { allowQuestion, badges, byLine, canMove, cardAction, detailsView, filterByGroup, groupChips, installQuestion, isSlider, isTested, keepGroup, keepScope, lockAction, scopeArgs, scopeOf, scopeOptions, settingValue, unlockQuestion } from '../mods-model.js';
 
 const gameActive = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
 
@@ -21,11 +23,13 @@ const linkButton = (url, label, ic = 'external-link') => (url ? `<button class="
 const questionHtml = (q) => q.lines.map((l) => `<p>${esc(l)}</p>`).join('');
 
 export async function render(el, ctx) {
-  let tab = 'browse';
+  const kind = ctx.game?.mods ?? 'profiles';   // whose sets the scope picks from: 'profiles' or 'coop'
+  const coop = kind === 'coop';
+  let tab = coop ? 'installed' : 'browse';
   const open = new Set(); // ids of the installed mods shown opened (kept across redraws)
   let view = null;        // mods_list
-  let profiles = null;
-  let profile = null;     // editor scope; null = global defaults, never changes the profile used by Play
+  let scopes = null;      // [{ id, name }]: the singleplayer profiles, or the co-op groups
+  let scope = null;       // editor scope: a profile or group id; null = global defaults. Never changes the profile used by Play
   let listError = '';
   let catalog = null;     // mods_catalog
   let catalogError = '';
@@ -37,7 +41,7 @@ export async function render(el, ctx) {
   el.innerHTML = `<div class="page mods">
     <div class="mods-head">
       <h1>${esc(t('Mods'))}</h1>
-      ${segmented('mods-tab', [['browse', t('Browse')], ['installed', t('Installed')]], tab, { label: t('Mods') })}
+      ${coop ? '' : segmented('mods-tab', [['browse', t('Browse')], ['installed', t('Installed')]], tab, { label: t('Mods') })}
     </div>
     <div class="mods-part" id="mods-banners"></div>
     <div class="mods-part" id="mods-prefs"></div>
@@ -61,9 +65,11 @@ export async function render(el, ctx) {
   /** The launcher's own preference for the hub's mods (the update itself runs at launcher start, mods_update.rs). */
   function prefsHtml() {
     if (tab !== 'installed') return '';
-    const scope = profiles ? row(t('Settings for'), select('mods-scope', [['', t('Global defaults')], ...profiles.profiles.map((p) => [p.id, p.name])],
-      profile ?? '', { label: t('Settings for'), disabled: profileBusy(store.state) })) : '';
-    return `<div class="mods-pref glass">${scope}${!profile ? `${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
+    if (coop && !scopes?.length) return '';
+    const pick = scopes ? row(coop ? t('Mods for') : t('Settings for'), select('mods-scope', scopeOptions(kind, scopes),
+      scope ?? '', { label: coop ? t('Mods for') : t('Settings for'), disabled: profileBusy(store.state) })) : '';
+    const note = coop ? `<p class="faint mods-note">${esc(t('Each co-op save has its own mods, apart from your singleplayer ones. Mods you have not changed here follow your Recompia mods. Install and remove mods in Recompia.'))}</p>` : '';
+    return `<div class="mods-pref glass">${pick}${note}${!scope && !coop ? `${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
       <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p>` : ''}</div>`;
   }
 
@@ -86,9 +92,9 @@ export async function render(el, ctx) {
     else html = field(id, s.text, '', { ...opts, mono: s.kind === 'key' });
     // the data attributes go on the control itself, so a change event names its mod and setting
     html = html.replace(`id="${id}"`, `id="${id}" ${attrs}`) + lockButton(s, 'sharing');
-    if (profile) html += `<button class="btn quiet sm" data-act="setting-inheritance" data-id="${esc(m.id)}" data-key="${esc(s.key)}" ${busy || s.locked ? 'disabled' : ''}>${esc(s.overridden ? t('Use global') : t('Override'))}</button>`;
+    if (scope) html += `<button class="btn quiet sm" data-act="setting-inheritance" data-id="${esc(m.id)}" data-key="${esc(s.key)}" ${busy || s.locked ? 'disabled' : ''}>${esc(s.overridden ? t('Use global') : t('Override'))}</button>`;
     let label = s.restart ? `${s.label} ${t('(after a restart of the game)')}` : s.label;
-    if (profile) label += ` · ${s.overridden ? t('Override') : t('Inherited')}`;
+    if (scope) label += ` · ${s.overridden ? t('Override') : t('Inherited')}`;
     return row(label, html);
   }
 
@@ -102,7 +108,7 @@ export async function render(el, ctx) {
     const opened = open.has(m.id);
     const msg = m.message ? `<div class="banner ${m.state === 'error' ? 'danger' : 'warn'} mod-msg">${icon(m.state === 'error' ? 'circle-x' : 'circle-alert')}<div class="grow selectable">${esc(m.message)}</div></div>` : '';
     const sets = m.settings.length ? `<div class="mod-settings">${m.settings.map((s, i) => settingControl(m, s, i, mi)).join('')}</div>` : '';
-    const enabled = profile ? select(`mod-on-${mi}`, [['inherit', `${t('Use global')} (${m.global_enabled ? t('On') : t('Off')})`], ['on', t('On')], ['off', t('Off')]],
+    const enabled = scope ? select(`mod-on-${mi}`, [['inherit', `${t('Use global')} (${m.global_enabled ? t('On') : t('Off')})`], ['on', t('On')], ['off', t('Off')]],
       m.enabled_override == null ? 'inherit' : m.enabled_override ? 'on' : 'off', { label: t('{name} on', { name: m.name || m.id }), disabled: busy || m.locked })
       .replace('<select ', `<select data-enabled="${esc(m.id)}" `)
       : toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy || (m.locked && m.enabled) }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`);
@@ -126,11 +132,11 @@ export async function render(el, ctx) {
       ${lock}
       ${sets}
       <div class="cluster mod-actions">
-        ${!profile ? `<button class="btn quiet sm" data-act="up" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} earlier', { name: m.name || m.id }))}" ${canMove(list, mi, -1) && !busy ? '' : 'disabled'}>${icon('arrow-up')}${esc(t('Earlier'))}</button>
+        ${!scope ? `<button class="btn quiet sm" data-act="up" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} earlier', { name: m.name || m.id }))}" ${canMove(list, mi, -1) && !busy ? '' : 'disabled'}>${icon('arrow-up')}${esc(t('Earlier'))}</button>
         <button class="btn quiet sm" data-act="down" data-id="${esc(m.id)}" aria-label="${esc(t('Load {name} later', { name: m.name || m.id }))}" ${canMove(list, mi, 1) && !busy ? '' : 'disabled'}>${icon('arrow-down')}${esc(t('Later'))}</button>` : ''}
         <span class="grow"></span>
         ${lockButton(m, 'mod')}
-        ${!profile ? `<button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${busy || m.locked ? 'disabled' : ''}>${icon('trash-2')}${esc(t('Remove'))}</button>` : ''}
+        ${!scope ? `<button class="btn quiet sm" data-act="remove" data-id="${esc(m.id)}" ${busy || m.locked ? 'disabled' : ''}>${icon('trash-2')}${esc(t('Remove'))}</button>` : ''}
       </div>` : ''}
     </section>`;
   }
@@ -138,6 +144,10 @@ export async function render(el, ctx) {
   function installedHtml() {
     const folder = `<div class="cluster"><button class="btn sm" data-act="folder">${icon('folder-open')}${esc(t('Open mods folder'))}</button></div>`;
     if (listError) return `<div class="banner danger">${icon('circle-x')}<div class="grow selectable">${esc(listError)}</div><button class="btn sm" data-act="reload">${esc(t('Try again'))}</button></div>${folder}`;
+    if (coop && scopes && !scopes.length) {
+      return `<div class="empty glass">${icon('users')}<strong>${esc(t('No co-op saves yet'))}</strong>
+        <span>${esc(t('Make a co-op save on Home: each one has its own mods.'))}</span></div>`;
+    }
     if (!view) return `<div class="empty">${icon('loader-circle', 'spin')}</div>`;
     if (!view.mods.length) {
       return `<div class="empty glass">${icon('puzzle')}<strong>${esc(t('No mods yet'))}</strong>
@@ -214,8 +224,9 @@ export async function render(el, ctx) {
 
   async function loadList() {
     try {
-      view = await api.modsList({ profile });
-      profiles = await api.profilesList();
+      scopes = coop ? (await api.coopList()).map((v) => v.profile) : (await api.profilesList()).profiles;
+      scope = keepScope(kind, scopes, scope);
+      view = coop && !scope ? null : await api.modsList(scopeArgs(kind, scope));
       listError = '';
     } catch (e) {
       listError = errText(e);
@@ -243,7 +254,7 @@ export async function render(el, ctx) {
     draw(key);
     try {
       view = await call();
-      if ((view.profile ?? null) !== profile) view = await api.modsList({ profile });
+      if (scopeOf(kind, view) !== scope) view = await api.modsList(scopeArgs(kind, scope));
       if (done) toast(done, 'ok');
       return true;
     } catch (e) {
@@ -278,7 +289,7 @@ export async function render(el, ctx) {
       allow = await confirm({ title: q.title, html: questionHtml(q), ok: q.ok });
       if (!allow) { draw(); return; }
     }
-    await apply(() => api.modsSetEnabled({ id: m.id, on, allow, profile, inherit }));
+    await apply(() => api.modsSetEnabled({ id: m.id, on, allow, ...scopeArgs(kind, scope), inherit }));
   }
 
   async function install(id) {
@@ -337,10 +348,10 @@ export async function render(el, ctx) {
     if (c.id === 'mods-auto-update') return saveAutoUpdate(c.checked);
     if (c.id === 'mods-scope') {
       if (busy) return;
-      profile = c.value || null;
+      scope = c.value || null;
       return apply(async () => {
       view = null;
-      try { const next = await api.modsList({ profile }); listError = ''; return next; }
+      try { const next = await api.modsList(scopeArgs(kind, scope)); listError = ''; return next; }
       catch (e) { listError = errText(e); throw e; }
       });
     }
@@ -348,7 +359,7 @@ export async function render(el, ctx) {
     if (c.dataset.key) {
       const m = view?.mods.find((x) => x.id === c.dataset.mod);
       const s = m?.settings.find((x) => x.key === c.dataset.key);
-      if (s) apply(() => api.modsSetSetting({ id: m.id, key: s.key, ...settingValue(s, c), profile }));
+      if (s) apply(() => api.modsSetSetting({ id: m.id, key: s.key, ...settingValue(s, c), ...scopeArgs(kind, scope) }));
     }
   });
   el.addEventListener('click', (e) => {
@@ -358,9 +369,9 @@ export async function render(el, ctx) {
     switch (b.dataset.act) {
       case 'setting-inheritance': {
         const m = view?.mods.find((m) => m.id === id), s = m?.settings.find((s) => s.key === b.dataset.key);
-        if (!s || !profile) return;
+        if (!s || !scope) return;
         const value = settingValue(s, { checked: s.number !== 0, value: s.kind === 'choice' ? s.number : s.text });
-        return apply(() => api.modsSetSetting({ id, key: s.key, ...value, profile, inherit: !!s.overridden }));
+        return apply(() => api.modsSetSetting({ id, key: s.key, ...value, ...scopeArgs(kind, scope), inherit: !!s.overridden }));
       }
       case 'up': return apply(() => api.modsMove({ id, delta: -1 }));
       case 'down': return apply(() => api.modsMove({ id, delta: 1 }));
@@ -381,12 +392,12 @@ export async function render(el, ctx) {
 
   ctx.on((_s, why) => {
     if (['app', 'game', 'task', 'setup'].includes(why)) part('mods-banners').innerHTML = bannersHtml();
-    const scope = el.querySelector('#mods-scope');
-    if (scope) scope.disabled = profileBusy(_s);
+    const pick = el.querySelector('#mods-scope');
+    if (pick) pick.disabled = profileBusy(_s);
   });
 
   api.getConfig().then((c) => { autoUpdate = !!c?.mods_auto_update; draw(); }).catch((e) => console.warn('get_config', e));
   draw();
-  loadCatalog();
+  if (!coop) loadCatalog();
   await loadList();
 }

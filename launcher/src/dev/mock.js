@@ -379,15 +379,18 @@ const mockLocks = { kept: true, sharing: true };
 const mockModOverrides = new Map();
 function modOverrides(profile, id, create = false) {
   if (!profile) return null;
-  if (!mockProfiles.profiles.some((p) => p.id === profile)) throw 'That profile does not exist.';
+  if (!profile.startsWith('coop:') && !mockProfiles.profiles.some((p) => p.id === profile)) throw 'That profile does not exist.';
   if (create && !mockModOverrides.has(profile)) mockModOverrides.set(profile, new Map());
   const mods = mockModOverrides.get(profile);
   if (create && !mods.has(id)) mods.set(id, { settings: {} });
   return mods?.get(id);
 }
+// a scope's key: a profile id, or 'coop:<group id>' for a co-op group's set (mods_scope.rs)
+const scopeKey = (args) => (args.coop ? `coop:${args.coop}` : args.profile ?? null);
 function markedMods(profile = null) {
   const v = structuredClone(mockMods);
-  v.profile = profile;
+  v.profile = profile?.startsWith('coop:') ? null : profile;
+  v.coop = profile?.startsWith('coop:') ? profile.slice(5) : null;
   v.locks = { ...mockLocks };
   for (const m of v.mods) {
     const overrides = modOverrides(profile, m.id);
@@ -538,15 +541,15 @@ function handle(cmd, args) {
     case 'lan_report': return lanReport;
     case 'public_ip': return params.get('public') === 'none' ? null : '198.51.100.23';
 
-    case 'mods_list': return markedMods(args.active ? mockProfiles.active : args.profile ?? null);
+    case 'mods_list': return markedMods(args.active ? mockProfiles.active : scopeKey(args));
     case 'mods_set_enabled': {
       const m = mockMods.mods.find((m) => m.id === args.id);
       const on = args.inherit ? m.enabled : args.on;
       if (on && m.needs_yes && !args.allow) throw 'This mod\'s code is not allowed yet.';
       if (args.allow) m.needs_yes = false;
-      if (args.profile) { const o = modOverrides(args.profile, m.id, true); if (args.inherit) delete o.enabled; else o.enabled = on; }
+      if (scopeKey(args)) { const o = modOverrides(scopeKey(args), m.id, true); if (args.inherit) delete o.enabled; else o.enabled = on; }
       else m.enabled = on;
-      return markedMods(args.profile ?? null);
+      return markedMods(scopeKey(args));
     }
     case 'mods_move': {
       const i = mockMods.mods.findIndex((m) => m.id === args.id), j = i + args.delta;
@@ -558,9 +561,9 @@ function handle(cmd, args) {
       const value = args.number !== undefined
         ? { number: args.number, text: s.kind === 'choice' ? s.choices[args.number] : s.kind === 'bool' ? args.number ? 'On' : 'Off' : String(args.number) }
         : { text: args.text };
-      if (args.profile) { const o = modOverrides(args.profile, args.id, true); if (args.inherit) delete o.settings[s.key]; else o.settings[s.key] = value; }
+      if (scopeKey(args)) { const o = modOverrides(scopeKey(args), args.id, true); if (args.inherit) delete o.settings[s.key]; else o.settings[s.key] = value; }
       else Object.assign(s, value);
-      return markedMods(args.profile ?? null);
+      return markedMods(scopeKey(args));
     }
     case 'mods_remove': mockMods.mods = mockMods.mods.filter((m) => m.id !== args.id); return markedMods();
     case 'mods_catalog': return structuredClone(mockCatalog);

@@ -1,6 +1,7 @@
-// Co-op saves: a save played together, kept apart from the singleplayer saves (launcher/src-tauri/src/coop*.rs). The creator names each
+// Recompia: Co-op's Home (games.js). Co-op saves: a save played together, kept apart from the singleplayer saves (launcher/src-tauri/src/coop*.rs). The creator names each
 // player, copies the invite and sends it to them; a player pastes it and says which of the named players they are. Play starts the game
-// as that player, in the save's private room; the player whose copy of the save is the newest hosts.
+// as that player, in the save's private room; the player whose copy of the save is the newest hosts. Co-op plays the install
+// Recompia sets up: until it is ready, this page says so and leads there.
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { PUBLIC_RELAY } from '../linkplay-model.js';
@@ -9,6 +10,8 @@ import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 
 const busy = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
+/** The install is set up and current (readiness.rs): anything else is put right in Recompia (Set up, Update, game files). */
+const ready = (s) => s.app?.readiness?.kind === 'ready';
 const MAX_NAME = 24;
 const INVITE_LENGTH = 2000;
 
@@ -31,22 +34,26 @@ export async function render(el, ctx) {
     row(t('Players'), players(s)),
     row(hostLine(s), `<button class="btn quiet sm" data-act="add" data-id="${esc(s.profile.id)}">${icon('plus')}${esc(t('Add a player'))}</button>`
       + `<button class="btn quiet sm" data-act="invite" data-id="${esc(s.profile.id)}">${icon('copy')}${esc(t('Copy invite'))}</button>`
-      + `<button class="btn primary sm" data-act="play" data-id="${esc(s.profile.id)}"${busy(store.state) ? ' disabled' : ''}>${icon('play')}${esc(t('Play'))}</button>`),
+      + `<button class="btn primary sm" data-act="play" data-id="${esc(s.profile.id)}"${busy(store.state) || !ready(store.state) ? ' disabled' : ''}>${icon('play')}${esc(t('Play'))}</button>`),
   ]);
 
   function draw() {
+    el.querySelector('#coop-ready').innerHTML = !store.state.app || ready(store.state) ? ''
+      : `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(t('Recompia: Co-op plays the game you set up in Recompia, and it is not ready to play yet.'))}</div>`
+        + `<button class="btn sm" data-act="recompia">${esc(t('Go to Recompia'))}</button></div>`;
     el.querySelector('#coop-list').innerHTML = saves.length ? saves.map(saveHtml).join('') : `<p class="faint">${esc(t('No co-op saves yet.'))}</p>`;
   }
 
   el.innerHTML = `<div class="page coop">
     <div class="lp-head">
-      <h1>${esc(t('Co-op'))}</h1>
+      <h1>${esc(t('Recompia: Co-op'))}</h1>
       <div>
         <button class="btn primary" data-act="create">${icon('plus')}${esc(t('New co-op save'))}</button>
         <button class="btn" data-act="join">${esc(t('Join with an invite'))}</button>
       </div>
     </div>
-    <p class="faint">${esc(t('A co-op save is played together and kept apart from your singleplayer saves. Players join with an invite.'))}</p>
+    <p class="faint">${esc(t('A co-op save is played together and kept apart from your singleplayer saves, with mods of its own. Players join with an invite.'))}</p>
+    <div id="coop-ready"></div>
     <div id="coop-list"></div>
   </div>`;
   draw();
@@ -114,6 +121,7 @@ export async function render(el, ctx) {
     else if (act === 'remove') removePlayer(id, member);
     else if (act === 'invite') copyInvite(id);
     else if (act === 'play') inOrder(() => api.coopPlay({ id }));
+    else if (act === 'recompia') ctx.go('home');   // Recompia's Home: Set up, Update or the game files, whichever is needed
   });
 
   ctx.on(() => draw());

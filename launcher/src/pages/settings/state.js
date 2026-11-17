@@ -3,15 +3,25 @@
 import { store } from '../../store.js';
 import { t } from '../../i18n.js';
 import { canUpdate, gamePhase, updatePlayable } from '../../action.js';
-import { makeSource } from '../../settings-schema.js';
+import { makeSource, sectionsIn } from '../../settings-schema.js';
+import { gameOf } from '../../games.js';
 import { backupDetail, backupText } from '../backups.js';
 
 let lastSection = 'display';   // coming back to Settings lands where the player was
 
 export const rememberSection = (id) => { lastSection = id; };
 
+/** The section to open: the one asked for when the game shows it, else the first the game has (a section remembered from another game,
+ *  or one a game hides, cannot be drawn). */
+function openingSection(game, wanted) {
+  const ids = sectionsIn(game).map((s) => s.id);
+  return ids.includes(wanted) ? wanted : ids[0];
+}
+
 export function createState({ dump, cfg, dlss, overview, promptIcons }, ctx) {
+  const game = gameOf(ctx.game?.id).id;
   return {
+    game,                 // games.js id: which sections, groups and rows are shown
     src: makeSource(dump, cfg),
     dlss,
     overview,
@@ -24,7 +34,7 @@ export function createState({ dump, cfg, dlss, overview, promptIcons }, ctx) {
     backups: null,        // savebackup.rs Status: the settings, how many copies and the newest
     steamBusy: false,
     steam: null,          // steam.rs Status: Steam found and running, and whether the game and the launcher shortcuts are in it
-    section: store.state.dlss ? 'graphics' : ctx.section || lastSection,
+    section: openingSection(game, store.state.dlss ? 'graphics' : ctx.section || lastSection),
     customOpen: new Set(),   // choice rows showing their number field although the value is a preset
     unsaved: [],             // edits in the queue, not on disk yet
     importing: false,

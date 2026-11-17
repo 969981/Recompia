@@ -78,7 +78,20 @@ body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-title);
 }
-.brand > * { pointer-events: none; }
+.brand > :not(.brand-switch), .brand-switch > * { pointer-events: none; }
+/* the brand block is the game switcher (main.js brandHtml): the shown game's pictures as one button, its menu under it */
+.brand-switch {
+  display: flex; align-items: center; gap: var(--space-3); min-width: 0; height: 100%; padding: 0 var(--space-2); margin-inline: calc(-1 * var(--space-2));
+  border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.brand-switch:hover, .brand-switch[aria-expanded="true"] { background: var(--surface-2); }
+.brand-more { width: 14px; height: 14px; flex: none; opacity: .6; }
+/* a game with no art of its own yet (games.js `badge`): its word beside the shared wordmark, and on the mark in the rail */
+.brand-badge { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-accent); color: var(--color-bg, #fff); font-size: 11px; font-weight: var(--weight-bold); letter-spacing: .04em; white-space: nowrap; }
+.game-menu { display: flex; flex-direction: column; gap: 2px; margin: calc(-1 * var(--space-2)) 0 var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--surface-2); }
+.game-menu[hidden] { display: none; }
+.game-mark { width: 20px; height: 20px; flex: none; object-fit: contain; }
 .brand-logo { height: 28px; width: auto; }
 .brand-mark { display: none; width: 26px; height: 26px; flex: none; object-fit: contain; }
 /* The Testing channel: the Testing mark (and a small tag next to the wordmark) replace the Stable look. [data-channel] is set by main.js. */
@@ -506,7 +519,9 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
 @media (max-width: 999.98px) {
   #nav { align-items: center; padding-inline: var(--space-2); }
   .brand { justify-content: center; width: 100%; padding: 0; }
-  .brand-name, .brand-tag, .nav-label { display: none !important; }
+  .brand-name, .brand-tag, .brand-more, .nav-label { display: none !important; }
+  .brand-switch { position: relative; justify-content: center; width: 44px; margin: 0; padding: 0; }
+  .brand-badge { position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); padding: 0 4px; font-size: 9px; }
   .brand-mark { display: block; }
   :root[data-channel="testing"] .brand-mark { display: none; }
   .nav-item { justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-sm); }

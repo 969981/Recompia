@@ -85,7 +85,7 @@ pub fn write_marker(dir: &Path, group: &str) -> Result<(), String> {
 pub fn refuse_as_singleplayer(save_dir: &Path) -> Result<(), String> {
     if is_coop_folder(save_dir) {
         return Err(format!(
-            "The save folder {} holds a co-op save, and a co-op save is only played from Co-op. Choose another save folder in the settings.",
+            "The save folder {} holds a co-op save, and a co-op save is only played from Recompia: Co-op. Choose another save folder in the settings.",
             crate::dump::fwd(save_dir)
         ));
     }

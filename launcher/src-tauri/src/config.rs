@@ -48,6 +48,9 @@ pub struct Config {
     pub logo: String,
     /// The icon of the launcher, the game and the Steam shortcut, with the same values as `logo` (branding.rs).
     pub icon: String,
+    /// Which game the launcher shows (src/games.js): "recompia" or "coop". Empty (an older launcher.json): "recompia". Only the pages
+    /// read it; both games are the same install, build and shaders.
+    pub game: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

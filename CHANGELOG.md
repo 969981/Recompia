@@ -6,6 +6,7 @@
 - Co-op saves page in the launcher: a co-op save has its own folder apart from your singleplayer saves, its players and an invite to share
 
 ### Changed
+- The launcher shows Recompia and Recompia: Co-op as two games, switched from the sidebar; each co-op save has its own mods
 - The Seamless co-op switch is gone from the Link Play page (the old Story co-op is retired)
 
 ## 0.14.1 (build R: Raccoon Hotfix a1)

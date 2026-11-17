@@ -4,7 +4,8 @@ import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './api.js';
-import { brandImg, setBranding } from './branding.js';
+import { brandImg, setBrandGame, setBranding } from './branding.js';
+import { GAMES, gameForPage, gameOf, hasPage } from './games.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
@@ -20,11 +21,11 @@ import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
 
-// nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy.
+// nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy. Which game offers a page is games.js.
 const PAGES = {
   home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
+  coop: { mod: coop, nav: t('Home'), icon: 'house', art: 'sharp' },   // Recompia: Co-op's Home
   linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
-  coop: { mod: coop, nav: t('Co-op'), icon: 'user-check' },
   mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
   achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
   saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },
@@ -41,7 +42,7 @@ if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
   startPage = new URLSearchParams(location.search).get('page');
 }
 
-// where the sidebar pill leads
+// where the sidebar pill leads (a page of another game switches to that game, see go)
 const TASK_PAGE = { setup: 'setup', unpack: 'setup', update: 'home', dlss: 'settings', repack: 'home' };
 
 const SWAP_WAIT_MS = 120;   // a page that loads fast swaps in whole; a slow one shows what it has by then
@@ -51,6 +52,7 @@ const view = document.getElementById('view');
 let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
+let shown = GAMES[0];    // the game the sidebar shows (games.js; launcher.json `game`)
 
 // Launcher colours: 'koi' (Koi's Camp: a bright daytime picture, the default), 'sunrise' (amber to red; reads well with red-green colour blindness), 'dusk' (the old violet) or 'meadow' (a bright daytime scene made for the project).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
@@ -78,11 +80,33 @@ function applySidebar(hidden) {
 }
 applySidebar(readSidebar());
 
+const navButton = (attrs, ic, label) =>
+  `<button class="nav-item" ${attrs} aria-label="${esc(label)}">${ic}<span class="nav-label">${esc(label)}</span><span class="nav-tip" aria-hidden="true">${esc(label)}</span></button>`;
+
+/** The brand block is the game switcher: the shown game's pictures and badge, and a menu of every game (games.js) under it. */
+function brandHtml() {
+  const badge = shown.badge ? `<span class="brand-badge">${esc(shown.badge)}</span>` : '';
+  const games = GAMES.map((g) => navButton(`data-game="${g.id}"${g.id === shown.id ? ' aria-current="true"' : ''}`, brandImg('mark', 'class="game-mark" alt=""', g.id), g.name)).join('');
+  return `<div class="brand" data-tauri-drag-region>
+      <button class="brand-switch" id="game-btn" aria-haspopup="true" aria-expanded="false" aria-controls="game-menu" aria-label="${esc(t('Game: {name}. Choose a game', { name: shown.name }))}" title="${esc(t('Choose a game'))}">${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Recompia"')}${badge}<span class="brand-tag">${esc(t('Testing'))}</span>${icon('chevron-down', 'brand-more')}</button>
+    </div>
+    <div class="game-menu" id="game-menu" role="group" aria-label="${esc(t('Choose a game'))}" hidden>${games}</div>`;
+}
+
+function showMenu(open) {
+  const menu = document.getElementById('game-menu');
+  menu.hidden = !open;
+  document.getElementById('game-btn').setAttribute('aria-expanded', String(open));
+  if (open) (menu.querySelector('[aria-current]') || menu.querySelector('button'))?.focus();
+}
+
 function drawNav() {
-  const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
-    `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
+  const items = Object.entries(PAGES).filter(([id, p]) => p.nav && hasPage(shown, id)).map(([id, p]) =>
+    navButton(`data-page="${id}"${id === shown.home ? ' data-home' : ''}`, icon(p.icon), p.nav));
+  document.documentElement.dataset.game = shown.id;
+  setBrandGame(shown.id);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Pokopia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
+    ${brandHtml()}
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
@@ -92,7 +116,19 @@ function drawNav() {
       <span class="task-track"><span class="task-fill"></span></span>
     </button>`;
   applyTheme(readTheme());
+  if (current) drawChrome();
+}
+
+/** Bound once: drawNav replaces the markup inside #nav, not the element. */
+function listenNav() {
   nav.addEventListener('click', (e) => {
+    if (e.target.closest('#game-btn')) return showMenu(document.getElementById('game-menu').hidden);
+    if (!e.target.closest('#game-menu')) showMenu(false);
+    const pick = e.target.closest('[data-game]')?.dataset.game;
+    if (pick) {
+      showMenu(false);
+      return switchGame(pick);
+    }
     if (e.target.closest('#theme-btn')) {
       const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
       try { localStorage.setItem('theme', next); } catch { /* the choice lasts until the launcher closes */ }
@@ -108,6 +144,22 @@ function drawNav() {
     const target = e.target.closest('#task-pill') && TASK_PAGE[store.state.task?.kind];
     if (target && target !== current) go(target);
   });
+}
+
+/** Shows game `id` (games.js): the choice is saved to launcher.json `game`, then the sidebar, the pictures and the page follow. `page`:
+ *  where to land (the game's Home when absent). */
+async function switchGame(id, page, opts) {
+  const next = gameOf(id);
+  if (next.id !== shown.id) {
+    shown = next;
+    try {
+      await api.saveConfig({ config: { ...(await api.getConfig()), game: next.id } });
+    } catch (e) {
+      console.warn('save_config', e);   // the choice lasts until the launcher closes
+    }
+    drawNav();
+  }
+  return go(page ?? next.home, opts);
 }
 
 /** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a
@@ -152,6 +204,9 @@ function drawChrome() {
 /** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup hides the sidebar. */
 async function go(page, opts = {}) {
   if (!PAGES[page]) return;
+  // a page the shown game lacks (Set up from Co-op, the task pill, first run) is shown in the game that has it
+  const owner = gameForPage(shown, page);
+  if (owner && owner !== shown) return switchGame(owner.id, page, opts);
   const id = ++token;
   leaving.forEach((fn) => fn());
   leaving = [];
@@ -165,6 +220,7 @@ async function go(page, opts = {}) {
   const ctx = {
     ...opts,
     go,
+    game: shown,
     on(fn) {
       if (id !== token) return () => {};
       const off = store.subscribe(fn);
@@ -216,11 +272,13 @@ function drawWindowButtons() {
   syncMax();
 }
 
-function start() {
+async function start() {
   // the static shell of index.html is English; the language of the player goes on here
   nav.setAttribute('aria-label', t('Main'));
   document.getElementById('winbtns').setAttribute('aria-label', t('Window'));
   startGamepadNav();
+  shown = gameOf(await api.getConfig().then((c) => c?.game, () => ''));
+  listenNav();
   drawNav();
   drawWindowButtons();
   const showSidebar = document.getElementById('show-sidebar');
@@ -239,8 +297,8 @@ function start() {
     if (why !== 'app') return;
     once();
     if (startPage) go(startPage);
-    else go(isFirstRun(s) ? 'setup' : 'home', { firstRun: isFirstRun(s) });
+    else go(isFirstRun(s) ? 'setup' : shown.home, { firstRun: isFirstRun(s) });
   });
 }
 
-start();
+start().catch((e) => console.error(e));

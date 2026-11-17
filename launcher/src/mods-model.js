@@ -145,3 +145,24 @@ export function keptLine(done) {
   if (done.includes('switch_on')) return t('Community Achievements was switched on again. It is locked: unlock it on the Mods page to switch it off.');
   return t('Sharing of Community Achievements was switched on again. It is locked: unlock it on the Mods page to switch it off.');
 }
+/**
+ * Whose mods the Installed tab edits (games.js `mods`). 'profiles' (Recompia): the global defaults ('') or a singleplayer profile;
+ * 'coop' (Recompia: Co-op): one co-op group, never the global defaults, so a change there stays in the group (mods_scope.rs).
+ * `list`: [{ id, name }], the profiles or the groups.
+ */
+export function scopeOptions(kind, list) {
+  const own = list.map((x) => [x.id, x.name]);
+  return kind === 'coop' ? own : [['', t('Global defaults')], ...own];
+}
+
+/** The scope `wanted` when it is still one of `list`, else what the page opens: the global defaults (null) or the first co-op group. */
+export function keepScope(kind, list, wanted) {
+  if (wanted && list.some((x) => x.id === wanted)) return wanted;
+  return kind === 'coop' ? list[0]?.id ?? null : null;
+}
+
+/** The arguments that name scope `id` to the mods commands ({} for the global defaults). */
+export const scopeArgs = (kind, id) => (!id ? {} : kind === 'coop' ? { coop: id } : { profile: id });
+
+/** The scope a list from Rust (mods.rs ModsView) was made for. */
+export const scopeOf = (kind, view) => (kind === 'coop' ? view.coop : view.profile) ?? null;

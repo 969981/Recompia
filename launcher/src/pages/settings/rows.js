@@ -4,7 +4,7 @@ import { esc, field, group, icon, row, segmented, select, slider, toggle } from 
 import { store } from '../../store.js';
 import { AUTO, LANGUAGES, savedLanguage, t } from '../../i18n.js';
 import { fromBackend } from '../../backend-text.js';
-import { SECTIONS, customStart, isAvailable, isEnabled, optionsFor, readAll, rowsOf, shownChoice } from '../../settings-schema.js';
+import { sectionsIn, customStart, isAvailable, isEnabled, optionsFor, readAll, rowsOf, shownChoice } from '../../settings-schema.js';
 
 const numberField = (id, value, min, max, label, disabled) =>
   field(id, value, '', { type: 'number', label, disabled }).replace('class="input', `min="${min}" max="${max}" step="1" class="input set-num`);
@@ -108,7 +108,7 @@ function bannerHtml(st, sec, values, e) {
 
 /** The whole current section: its banner and its groups of rows. */
 export function sectionHtml(st, e) {
-  const sec = SECTIONS.find((s) => s.id === st.section);
+  const sec = sectionsIn(st.game).find((s) => s.id === st.section);
   const values = readAll(st.src);
   const groups = sec.groups.map((g) => {
     const rows = rowsOf(g, values, e);

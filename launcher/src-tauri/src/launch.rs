@@ -17,7 +17,7 @@ pub fn play(app: AppHandle, without_mods: Option<bool>) -> Result<(), String> {
     let updates = app.updates();
     let _swap = updates.hold_swap();
     let (dir, cfg) = prepare(&app)?;
-    // a co-op save is only played from Co-op: never as the singleplayer save
+    // a co-op save is only played from Recompia: Co-op: never as the singleplayer save
     crate::coop_save::refuse_as_singleplayer(&crate::saveimport::locate(&dir).0)?;
     profiles::apply_active(&dir)?;
     play::start(&app, &dir, &cfg, without_mods.unwrap_or(false), None)

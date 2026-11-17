@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Co-op profiles: a co-op save with its members, played only from Co-op (never as singleplayer; coop_save.rs has the folder contract).
+//! Co-op profiles: a co-op save with its members, played only from Recompia: Co-op (never as singleplayer; coop_save.rs has the folder contract).
 //!
 //! A profile is a folder of its own, `<root>/<id>/`, where `root` is the `coop-saves` folder beside the singleplayer save folder (so
 //! the two never nest). The profile lives in that folder's `coop.json`, next to the save it describes, so the folder can be copied to
