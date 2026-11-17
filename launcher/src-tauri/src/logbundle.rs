@@ -86,17 +86,27 @@ impl Private {
         for k in ["USERPROFILE", "HOME"] {
             if let Ok(h) = std::env::var(k) {
                 if let Some(name) = Path::new(&h).file_name().and_then(|n| n.to_str()) {
-                    p.words.push((name.to_string(), USER.into()));
+                    user_word(&mut p, name);
                 }
                 p.homes.push(h);
             }
         }
         for k in ["USERNAME", "USER", "LOGNAME"] {
             if let Ok(u) = std::env::var(k) {
-                p.words.push((u, USER.into()));
+                user_word(&mut p, &u);
             }
         }
         p
+    }
+}
+
+/// System user names every machine of a kind shares (SteamOS, Proton's prefix, Linux): nobody's name, and words the logs need
+/// ("Steam Deck", the Proton prefix path).
+const GENERIC_USERS: [&str; 5] = ["deck", "steamuser", "root", "user", "admin"];
+
+fn user_word(p: &mut Private, name: &str) {
+    if !GENERIC_USERS.iter().any(|g| g.eq_ignore_ascii_case(name)) {
+        p.words.push((name.to_string(), USER.into()));
     }
 }
 
