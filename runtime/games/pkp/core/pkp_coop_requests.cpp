@@ -398,4 +398,12 @@ void on_member_joined() { st().send_all = true; }
 
 void reset() { st() = State{}; }
 
+uint64_t request_slot(uint32_t id) {
+    const uint64_t mu = manager();
+    return mu && id >= 1 && id <= kIdMax ? mu + id * kSlotSize : 0;
+}
+uint64_t request_component(::Ctx* c, uint64_t slot) { return component(c, slot); }
+bool story_request(uint32_t id) { return listed(kStoryIds, id); }
+bool own_request(uint32_t id) { return listed(kOwnIds, id); }
+
 }  // namespace nxrt::games::pkp::coop::requests

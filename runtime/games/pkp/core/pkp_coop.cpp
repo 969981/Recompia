@@ -46,6 +46,10 @@ enum class Site : uintptr_t {
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
     MaskPattern,      // the mask builder's online pattern: every member gets the full permissions with the story system on
+    // ---- the requests ----
+    GoalCount,        // a unique request's completion step, right before its town goal +1: the run's one-off world effects are
+                      // decided (once for the group), the goal skipped when they are not this run's
+    Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
     // ---- the session ----
     PastTitle,        // the title screen's continue: the co-op save loads without the title, and its unclean-exit mark is cleared
     SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
@@ -76,6 +80,8 @@ constexpr CoopSite kSites[] = {
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
     {{0xb1030, 0xf2c0002du, false}, Site::MaskPattern},      // movk x13, #1, lsl #32
+    {{0x61858c, 0xb4000040u, false}, Site::GoalCount},       // cbz x0, 0x618594 (x0 = the challenge manager, before bl 0x618b00)
+    {{0x619410, kPacibsp, true}, Site::Friendship},
     {{0xa88214, 0xb00156c8u, true}, Site::PastTitle},        // adrp x8, ...
     {{0x231890, kPacibsp, true}, Site::SimStep},
     {{0xbd45c, 0xb9400008u, true}, Site::TripFile},          // ldr w8, [x0]
@@ -124,6 +130,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
+        case Site::GoalCount: return coop::outcomes::on_goal_count(c);
+        case Site::Friendship: return coop::outcomes::on_friendship(c);
         default: return 0;
     }
 }
@@ -186,6 +194,7 @@ void game_frame(::Ctx* c) {
     coop::link::tick(c);
     coop::story::tick(c);
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -204,6 +213,7 @@ void remove() {   // the registry has removed the hooks
     coop::link::reset();
     coop::story::reset();
     coop::requests::reset();
+    coop::outcomes::reset();
     coop::talk::reset();
     coop::catchup::reset();
     coop::notice::reset();

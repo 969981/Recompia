@@ -14,6 +14,7 @@
 //   pkp_coop_notice.cpp   lines in the game's own message log: what another member's event unlocked or moved on here, by name
 //   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
 //   pkp_coop_requests.cpp the Pokémon requests a member took on or finished, listed in every member's requests app
+//   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -97,7 +98,24 @@ void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: the records are read again, the whole list sent
 void on_member_joined();    // another member joined: the whole list is sent again
 void reset();
+// For the outcomes: the id's slot in the unique request manager (0: no manager), the request component of the Pokémon bound to a
+// slot and loaded here (0: none), and the request lists.
+uint64_t request_slot(uint32_t id);
+uint64_t request_component(::Ctx* c, uint64_t slot);
+bool story_request(uint32_t id);   // also a story step: one completion closes it for the group
+bool own_request(uint32_t id);     // bound to one player: never shared
 }  // namespace requests
+
+namespace outcomes {
+// The hook sites (pkp_coop.cpp), in the completion step 0x618304.
+int on_goal_count(::Ctx* c);   // midhook 0x61858c: decides the run's town goal (+1) and friendship; x0 = 0 skips the goal
+int on_friendship(::Ctx* c);   // entry 0x619410: the step's friendship, skipped as decided
+// The message (pkp_coop_link.cpp): a member finished a request; the authority applies its world part once.
+void on_outcome_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// A member sends its finished ids; the authority runs a waiting world part at a safe moment (once a frame, after the requests).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace outcomes
 
 namespace talk {
 // The hook sites (pkp_coop.cpp).

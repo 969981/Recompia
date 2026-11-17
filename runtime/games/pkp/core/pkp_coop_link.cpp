@@ -47,6 +47,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::StoryDigest, Path::FromAuthority, &story::on_digest_message},
     {wire::Type::MemberName, Path::Shared, &notice::on_name_message},
     {wire::Type::ReqUnique, Path::Shared, &requests::on_unique_message},
+    {wire::Type::ReqOutcome, Path::ToAuthority, &outcomes::on_outcome_message},
 };
 
 struct State {
