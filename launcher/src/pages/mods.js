@@ -29,7 +29,8 @@ export async function render(el, ctx) {
   const open = new Set(); // ids of the installed mods shown opened (kept across redraws)
   let view = null;        // mods_list
   let scopes = null;      // [{ id, name }]: the singleplayer profiles, or the co-op groups
-  let scope = null;       // editor scope: a profile or group id; null = global defaults. Never changes the profile used by Play
+  let scope = ctx.scope ?? null;   // editor scope: a profile or group id (the co-op Home opens a save's); null = global defaults. Never changes the profile used by Play
+  const inherit = coop ? t('Same as Solo') : t('Use global');   // a co-op save's unchanged mods follow the Solo set
   let listError = '';
   let catalog = null;     // mods_catalog
   let catalogError = '';
@@ -68,7 +69,7 @@ export async function render(el, ctx) {
     if (coop && !scopes?.length) return '';
     const pick = scopes ? row(coop ? t('Mods for') : t('Settings for'), select('mods-scope', scopeOptions(kind, scopes),
       scope ?? '', { label: coop ? t('Mods for') : t('Settings for'), disabled: profileBusy(store.state) })) : '';
-    const note = coop ? `<p class="faint mods-note">${esc(t('Each co-op save has its own mods, apart from your singleplayer ones. Mods you have not changed here follow your Recompia mods. Install and remove mods in Recompia.'))}</p>` : '';
+    const note = coop ? `<p class="faint mods-note">${esc(t('Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.'))}</p>` : '';
     return `<div class="mods-pref glass">${pick}${note}${!scope && !coop ? `${row(t('Update mods by themselves'), toggle('mods-auto-update', autoUpdate, { label: t('Update mods by themselves') }))}
       <p class="faint mods-note">${esc(t('Once each time the launcher starts, from the mod hub. Mods you switched off stay off.'))}</p>` : ''}</div>`;
   }
@@ -92,7 +93,7 @@ export async function render(el, ctx) {
     else html = field(id, s.text, '', { ...opts, mono: s.kind === 'key' });
     // the data attributes go on the control itself, so a change event names its mod and setting
     html = html.replace(`id="${id}"`, `id="${id}" ${attrs}`) + lockButton(s, 'sharing');
-    if (scope) html += `<button class="btn quiet sm" data-act="setting-inheritance" data-id="${esc(m.id)}" data-key="${esc(s.key)}" ${busy || s.locked ? 'disabled' : ''}>${esc(s.overridden ? t('Use global') : t('Override'))}</button>`;
+    if (scope) html += `<button class="btn quiet sm" data-act="setting-inheritance" data-id="${esc(m.id)}" data-key="${esc(s.key)}" ${busy || s.locked ? 'disabled' : ''}>${esc(s.overridden ? inherit : t('Override'))}</button>`;
     let label = s.restart ? `${s.label} ${t('(after a restart of the game)')}` : s.label;
     if (scope) label += ` · ${s.overridden ? t('Override') : t('Inherited')}`;
     return row(label, html);
@@ -106,9 +107,10 @@ export async function render(el, ctx) {
 
   function modHtml(m, mi, list) {
     const opened = open.has(m.id);
-    const msg = m.message ? `<div class="banner ${m.state === 'error' ? 'danger' : 'warn'} mod-msg">${icon(m.state === 'error' ? 'circle-x' : 'circle-alert')}<div class="grow selectable">${esc(m.message)}</div></div>` : '';
+    // the core's word on a mod that is simply switched off ("switched off") repeats its switch: shown only for a broken mod or one meant to load
+    const msg = m.message && (m.state === 'error' || m.enabled) ? `<div class="banner ${m.state === 'error' ? 'danger' : 'warn'} mod-msg">${icon(m.state === 'error' ? 'circle-x' : 'circle-alert')}<div class="grow selectable">${esc(m.message)}</div></div>` : '';
     const sets = m.settings.length ? `<div class="mod-settings">${m.settings.map((s, i) => settingControl(m, s, i, mi)).join('')}</div>` : '';
-    const enabled = scope ? select(`mod-on-${mi}`, [['inherit', `${t('Use global')} (${m.global_enabled ? t('On') : t('Off')})`], ['on', t('On')], ['off', t('Off')]],
+    const enabled = scope ? select(`mod-on-${mi}`, [['inherit', `${inherit} (${m.global_enabled ? t('On') : t('Off')})`], ['on', t('On')], ['off', t('Off')]],
       m.enabled_override == null ? 'inherit' : m.enabled_override ? 'on' : 'off', { label: t('{name} on', { name: m.name || m.id }), disabled: busy || m.locked })
       .replace('<select ', `<select data-enabled="${esc(m.id)}" `)
       : toggle(`mod-on-${mi}`, m.enabled, { label: t('{name} on', { name: m.name || m.id }), disabled: busy || (m.locked && m.enabled) }).replace(`id="mod-on-${mi}"`, `id="mod-on-${mi}" data-on="${esc(m.id)}"`);

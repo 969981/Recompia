@@ -10,6 +10,7 @@
 //! hosts the first session. One shared account uid names the account folder in every member's copy, so the copies are interchangeable.
 //! The private room is the room code of the profile on its relay: only members have the code (they get it with the invite). The creator
 //! adds each player by name, then sends the invite; a player joins as the name the creator gave them, so every PC lists the same members.
+//! Only the creator changes the member list. A newer invite pasted on a PC that already has the save brings its list up to date there.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -53,6 +54,10 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// This PC plays the creator (the first member), who alone changes the member list.
+    pub fn is_creator(&self) -> bool {
+        self.members.first().is_some_and(|m| m.id == self.me)
+    }
     pub fn member(&self, id: &str) -> Option<&Member> {
         self.members.iter().find(|m| m.id == id)
     }
@@ -156,9 +161,14 @@ pub fn create(root: &Path, name: &str, my_name: &str, relay: &str) -> Result<Pro
     Ok(p)
 }
 
-/// A new member, with an id made here, so the invite can name them before they join. At most `MAX_MEMBERS`.
+const CREATOR_ONLY: &str = "Only the player who made this co-op save can change its players.";
+
+/// A new member, with an id made here, so the invite can name them before they join. At most `MAX_MEMBERS`. Creator only.
 pub fn add_member(root: &Path, id: &str, name: &str) -> Result<Profile, String> {
     let mut p = get(root, id)?;
+    if !p.is_creator() {
+        return Err(CREATOR_ONLY.into());
+    }
     let name = name_of_member(name)?;
     if p.members.len() >= MAX_MEMBERS {
         return Err(format!("A co-op save has at most {} players.", MAX_MEMBERS));
@@ -173,9 +183,12 @@ pub fn add_member(root: &Path, id: &str, name: &str) -> Result<Profile, String> 
     Ok(p)
 }
 
-/// Drops a member. The creator (first) and the member who plays on this PC stay.
+/// Drops a member. The creator (first) and the member who plays on this PC stay. Creator only.
 pub fn remove_member(root: &Path, id: &str, member: &str) -> Result<Profile, String> {
     let mut p = get(root, id)?;
+    if !p.is_creator() {
+        return Err(CREATOR_ONLY.into());
+    }
     if p.members.first().is_some_and(|m| m.id == member) || p.me == member {
         return Err("The creator and the player on this PC cannot be removed.".into());
     }
@@ -227,11 +240,25 @@ fn parse_invite(text: &str) -> Result<Invite, String> {
 }
 
 /// Joins a co-op save from its invite, as the player the creator added for you (`member`), in a new folder of this PC. The creator's own
-/// place is not joined: that would be a second copy of the creator.
+/// place is not joined: that would be a second copy of the creator. When this PC has the save already, the invite only brings its name,
+/// relay and players up to date (the creator added or removed one): this PC stays the player it was, and `member` is ignored.
 pub fn accept(root: &Path, text: &str, member: &str) -> Result<Profile, String> {
     let inv = parse_invite(text)?;
-    if read(&coop_save::folder_of(root, &inv.id)).is_some() {
-        return Err("You already have this co-op save.".into());
+    if let Some(mut have) = read(&coop_save::folder_of(root, &inv.id)) {
+        if have.account_uid != inv.account_uid || have.room_code != inv.room_code {
+            return Err("This invite does not match the co-op save you have.".into());
+        }
+        if have.is_creator() {
+            return Err("You made this co-op save: send the invite to the other players.".into());
+        }
+        if !inv.members.iter().any(|m| m.id == have.me) {
+            return Err("You are no longer a player in this co-op save.".into());
+        }
+        have.name = inv.name;
+        have.relay = inv.relay;
+        have.members = inv.members;
+        write(root, &have)?;
+        return Ok(have);
     }
     if inv.members.first().is_some_and(|m| m.id == member) || !inv.members.iter().any(|m| m.id == member) {
         return Err("That player is not in the invite.".into());
@@ -240,6 +267,23 @@ pub fn accept(root: &Path, text: &str, member: &str) -> Result<Profile, String> 
     coop_save::make_coop_folder(&coop_save::folder_of(root, &p.id), &p.id)?;
     write(root, &p)?;
     Ok(p)
+}
+
+/// Deletes co-op save `id` from this PC: its folder, with this PC's copy of the world. The other members keep their copies. Only a folder
+/// this module made (a hex id with this group's marker) is removed.
+pub fn delete(root: &Path, id: &str) -> Result<Profile, String> {
+    let p = get(root, id)?;
+    let dir = coop_save::folder_of(root, &p.id);
+    if coop_save::marker_group(&dir).as_deref() != Some(p.id.as_str()) {
+        return Err("That co-op save does not exist.".into());
+    }
+    fs::remove_dir_all(&dir).map_err(|e| format!("Cannot delete {}: {}", crate::dump::fwd(&dir), e))?;
+    Ok(p)
+}
+
+/// The id of the co-op save an invite is for, so the page can tell a new save from an update of one it has. None: not an invite.
+pub fn invite_save_id(text: &str) -> Option<String> {
+    parse_invite(text).ok().map(|i| i.id)
 }
 
 /// The players an invite names, creator first, for the page to ask "who are you?". None: the text is not an invite.
@@ -316,11 +360,38 @@ mod tests {
         assert_eq!((&q.id, &q.room_code, &q.account_uid, &q.relay, &q.members), (&p.id, &p.room_code, &p.account_uid, &p.relay, &p.members));
         assert_eq!(q.me, misty);
         assert_eq!(q.members[0], p.members[0], "the creator is first on every PC");
-        assert!(accept(&b, &text, &misty).is_err(), "joined once");
+        // the same invite again changes nothing; one with a new player brings the list up to date, still as Misty
+        assert_eq!(accept(&b, &text, "").unwrap().members.len(), 2);
+        let p = add_member(&a, &p.id, "Brock").unwrap();
+        let newer = invite(&a, &p.id).unwrap();
+        let q = accept(&b, &newer, "").unwrap();
+        assert_eq!((q.members.len(), q.me.as_str()), (3, misty.as_str()));
+        assert!(add_member(&b, &q.id, "Dawn").is_err(), "only the creator adds players");
+        assert!(accept(&a, &newer, "").is_err(), "the creator does not join their own save");
+        let p = remove_member(&a, &p.id, &misty).unwrap();
+        assert!(accept(&b, &invite(&a, &p.id).unwrap(), "").is_err(), "removed from the save");
         // not as the creator, not as a stranger
         assert!(accept(&tmp("c"), &text, &p.members[0].id).is_err());
         assert!(accept(&tmp("d"), &text, "ffff").is_err());
-        assert_eq!(list(&b), vec![q]);
+        assert_eq!(list(&b).len(), 1);
+    }
+
+    #[test]
+    fn a_save_is_deleted_with_its_folder_and_nothing_else() {
+        let root = tmp("delete");
+        let p = create(&root, "Island", "Ash", "192.0.2.10").unwrap();
+        let q = create(&root, "Beach", "Ash", "192.0.2.10").unwrap();
+        fs::create_dir_all(coop_save::folder_of(&root, &p.id).join("account").join("k")).unwrap();
+        assert_eq!(delete(&root, &p.id).unwrap().id, p.id);
+        assert!(!coop_save::folder_of(&root, &p.id).exists());
+        assert_eq!(list(&root), vec![q]);
+        assert!(delete(&root, &p.id).is_err());
+        assert!(delete(&root, "..").is_err());
+        // a folder without the marker is not a co-op save and stays
+        let other = root.join("abcdef0123456789");
+        fs::create_dir_all(&other).unwrap();
+        assert!(delete(&root, "abcdef0123456789").is_err());
+        assert!(other.exists());
     }
 
     #[test]

@@ -24,8 +24,8 @@ import * as setup from './pages/setup.js';
 // nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy. Which game offers a page is games.js.
 const PAGES = {
   home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
-  coop: { mod: coop, nav: t('Home'), icon: 'house', art: 'sharp' },   // Recompia: Co-op's Home
-  linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'users' },
+  coop: { mod: coop, nav: t('Home'), icon: 'house' },   // Recompia: Co-op's Home: cards to read, so the soft art
+  linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'link' },   // 'users' is the Co-op tab's
   mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
   achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
   saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },
@@ -83,21 +83,13 @@ applySidebar(readSidebar());
 const navButton = (attrs, ic, label) =>
   `<button class="nav-item" ${attrs} aria-label="${esc(label)}">${ic}<span class="nav-label">${esc(label)}</span><span class="nav-tip" aria-hidden="true">${esc(label)}</span></button>`;
 
-/** The brand block is the game switcher: the shown game's pictures and badge, and a menu of every game (games.js) under it. */
+/** The brand block, and under it one tab per game (games.js): Solo and Co-op are always in sight, so nobody has to find co-op in a menu. */
 function brandHtml() {
-  const badge = shown.badge ? `<span class="brand-badge">${esc(shown.badge)}</span>` : '';
-  const games = GAMES.map((g) => navButton(`data-game="${g.id}"${g.id === shown.id ? ' aria-current="true"' : ''}`, brandImg('mark', 'class="game-mark" alt=""', g.id), g.name)).join('');
+  const tabs = GAMES.map((g) => `<button class="game-tab" data-game="${g.id}" aria-pressed="${g.id === shown.id}" aria-label="${esc(g.name)}">${icon(g.icon)}<span class="nav-label">${esc(g.tab)}</span><span class="nav-tip" aria-hidden="true">${esc(g.name)}</span></button>`).join('');
   return `<div class="brand" data-tauri-drag-region>
-      <button class="brand-switch" id="game-btn" aria-haspopup="true" aria-expanded="false" aria-controls="game-menu" aria-label="${esc(t('Game: {name}. Choose a game', { name: shown.name }))}" title="${esc(t('Choose a game'))}">${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Recompia"')}${badge}<span class="brand-tag">${esc(t('Testing'))}</span>${icon('chevron-down', 'brand-more')}</button>
+      ${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Recompia"')}<span class="brand-tag">${esc(t('Testing'))}</span>
     </div>
-    <div class="game-menu" id="game-menu" role="group" aria-label="${esc(t('Choose a game'))}" hidden>${games}</div>`;
-}
-
-function showMenu(open) {
-  const menu = document.getElementById('game-menu');
-  menu.hidden = !open;
-  document.getElementById('game-btn').setAttribute('aria-expanded', String(open));
-  if (open) (menu.querySelector('[aria-current]') || menu.querySelector('button'))?.focus();
+    <div class="game-tabs" role="group" aria-label="${esc(t('Choose a game'))}">${tabs}</div>`;
 }
 
 function drawNav() {
@@ -121,13 +113,8 @@ function drawNav() {
 /** Bound once: drawNav replaces the markup inside #nav, not the element. */
 function listenNav() {
   nav.addEventListener('click', (e) => {
-    if (e.target.closest('#game-btn')) return showMenu(document.getElementById('game-menu').hidden);
-    if (!e.target.closest('#game-menu')) showMenu(false);
-    const pick = e.target.closest('#game-menu [data-game]')?.dataset.game;
-    if (pick) {
-      showMenu(false);
-      return switchGame(pick);
-    }
+    const pick = e.target.closest('.game-tabs [data-game]')?.dataset.game;
+    if (pick) return switchGame(pick);
     if (e.target.closest('#theme-btn')) {
       const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
       try { localStorage.setItem('theme', next); } catch { /* the choice lasts until the launcher closes */ }

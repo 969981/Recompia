@@ -83,9 +83,11 @@ export const api = {
   coopAddMember: (args) => invoke('coop_add_member', args),   // { id, name }
   coopRemoveMember: (args) => invoke('coop_remove_member', args),   // { id, member }
   coopInvite: (args) => invoke('coop_invite', args),   // { id }: the invite text
-  coopInviteMembers: (args) => invoke('coop_invite_members', args),   // { invite }: [{ id, name }], empty when it is not an invite
+  coopInviteMembers: (args) => invoke('coop_invite_members', args),   // { invite }: { id, members: [{ id, name }] }, null when it is not an invite
   coopAccept: (args) => invoke('coop_accept', args),   // { invite, member }
-  coopPlay: (args) => invoke('coop_play', args),   // { id }
+  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit' }
+  coopDelete: (args) => invoke('coop_delete', args),   // { id }; resolves the list
+  coopLastRun: (args) => invoke('coop_last_run', args),   // { since }: unix seconds; { mismatch: 'build' | 'mods', own_mods } or null
 
   // Steam
   steamStatus: () => invoke('steam_status'),

@@ -78,6 +78,7 @@ export function render(el, ctx) {
       <div class="home-actions">
         <button class="btn primary big" id="primary"></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>
+        <button class="btn big on-art" data-act="coop" title="${esc(t('Play the story together with friends, each on their own PC'))}">${icon('users')}${esc(t('Play co-op'))}</button>
         <span id="link"></span>
       </div>
       <p class="home-detail" id="detail" hidden></p>
@@ -165,6 +166,7 @@ export function render(el, ctx) {
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
       case 'update': return store.installUpdate();
+      case 'coop': return ctx.go('coop');   // Recompia: Co-op's Home (games.js): the sidebar switches with it
       case 'cancel': return store.cancelUpdate();
       case 'pause': return store.pauseSetup();
       case 'stop-repack': return store.cancelRepack();
@@ -202,7 +204,7 @@ export function render(el, ctx) {
   }
   drawChips();
   api.readSettings().then((data) => {
-    linkChip = `<button class="chip on-art" id="link-chip">${icon('users')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
+    linkChip = `<button class="chip on-art" id="link-chip">${icon('link')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
     online = onlineOn(data.pkp);
     drawOnline(online);
   }).catch((e) => console.warn('read_settings', e));

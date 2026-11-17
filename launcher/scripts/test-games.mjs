@@ -19,7 +19,7 @@ for (const g of GAMES) {
 }
 const coop = gameOf('coop');
 const recompia = gameOf('recompia');
-check(coop.name === 'Recompia: Co-op' && !!coop.badge, 'Co-op is named "Recompia: Co-op" and has a badge until its own art exists');
+check(coop.name === 'Recompia: Co-op' && GAMES.every((g) => g.tab && g.icon), 'Co-op is named "Recompia: Co-op"; every game has a sidebar tab with an icon');
 check(['coop', 'mods', 'news', 'settings'].every((p) => hasPage(coop, p)) && coop.pages.length === 4, 'Co-op: Home, Mods, Settings, News only');
 for (const p of ['setup', 'linkplay', 'saveedit', 'achievements']) check(!hasPage(coop, p) && hasPage(recompia, p), `${p} is Recompia only`);
 check(GAMES.filter((g) => g.install).length === 1 && recompia.install && hasPage(recompia, 'setup'), 'Recompia alone looks after the install');
