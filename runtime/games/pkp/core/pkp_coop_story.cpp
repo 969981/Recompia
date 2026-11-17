@@ -71,7 +71,7 @@ constexpr uint64_t kSpectatorReg = 3, kSpecialReg = 4, kPatternReg = 13;
 constexpr uint64_t kAuthorityPattern = 0x7fffffffull;   // bits 0..30: the offline single player's permissions, story on
 constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 23: no shop visitor lock
 
-constexpr uint64_t kStory = 0x4a26a0, kAbilities = 0x4a26a8;                       // save root +
+constexpr uint64_t kStory = 0x4a26a0, kAbilities = layout::kSaveAbilities;         // save root +
 constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]); the state is read from the quest words
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
 constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte

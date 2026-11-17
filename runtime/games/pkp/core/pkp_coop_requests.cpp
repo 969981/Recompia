@@ -61,7 +61,7 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-constexpr uint64_t kUnique = 0x6fabd9;   // save root + : the unique request records, 4 bytes each, by id
+constexpr uint64_t kUnique = layout::kSaveUniqueRequests;   // save root + : the unique request records, 4 bytes each, by id
 constexpr uint64_t kManager = 0x3565160; // main + : the unique request manager MU
 constexpr uint64_t kSlotSize = 16;       // MU + id * : the id's slot
 constexpr uint64_t kQueueList = 0x2c70;  // MU + : the re-sort queue
@@ -78,7 +78,7 @@ constexpr uint64_t kCharaIds = 2, kCharaIdsEnd = 0x16;   // *(row + 8) + : the i
 constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 76, 77, 79, 80};
 // Requests the game binds to one player (#1557 +0x2c != 0): never shared.
 constexpr uint8_t kOwnIds[] = {94, 95};
-constexpr uint32_t kIdMax = 200;         // ids 1..200
+constexpr uint32_t kIdMax = layout::kUniqueRequestCount;   // ids 1..200
 constexpr uint8_t kWaiting = 1, kOffered = 2, kTaken = 3, kFulfilled = 4, kDone = 5;
 constexpr double kAllEvery = 10.0;       // the whole list again (a member that missed a change)
 constexpr double kNoticeGap = 4.0;       // at most one line per this many seconds

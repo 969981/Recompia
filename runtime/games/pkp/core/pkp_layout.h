@@ -101,10 +101,13 @@ constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id,
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
-// ---- story and characters (read by the co-op trace) ----
+// ---- story and characters (read by co-op and its test probe) ----
 constexpr uint64_t kQuestWords = 0x4a3702;       // save root: u16 per quest id 1..1000 (index id - 1; 0x4a3700 + id * 2), low byte the state,
                                                  // 0x100 the flag (a flag set on quest 2 in state 3 turned 0x4a3704 0x3 -> 0x103 -> 0x4)
 constexpr uint32_t kQuestWordCount = 1000;
+constexpr uint64_t kSaveAbilities = 0x4a26a8;    // save root: the ability bits, id 1..0xf9 at byte id >> 3, bit id & 7 (0x20 bytes)
+constexpr uint64_t kSaveUniqueRequests = 0x6fabd9;   // save root + id * 4: the record of unique request id 1..200 (+0 its state)
+constexpr uint32_t kUniqueRequestCount = 200;
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;
