@@ -13,6 +13,7 @@
 //   pkp_coop_trace.cpp    the trace for testers: quest words, players and characters that move, a wall clock, in the log
 //   pkp_coop_notice.cpp   lines in the game's own message log: what another member's event unlocked or moved on here, by name
 //   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
+//   pkp_coop_requests.cpp the Pokémon requests a member took on or finished, listed in every member's requests app
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -86,6 +87,16 @@ void on_session_change();
 void on_member_joined();
 void reset();
 }  // namespace story
+
+namespace requests {
+// The message (pkp_coop_link.cpp).
+void on_unique_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Reads this player's request records and shares what changed (once a frame, after the channel's handlers).
+void tick();
+void on_session_change();   // this process joined or left: the records are read again, the whole list sent
+void on_member_joined();    // another member joined: the whole list is sent again
+void reset();
+}  // namespace requests
 
 namespace talk {
 // The hook sites (pkp_coop.cpp).

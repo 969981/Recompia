@@ -14,7 +14,9 @@
 //   StoryDigest +2 u16 count n (kQuestCount), n u8 quest states (id 1 first), then u8[kAbilityBytes] the ability bits
 //                                                            (the authority's whole story, to every member every few seconds)
 //   MemberName  +2 u8 length n, n bytes: the player's name as the game keeps it (UTF-8)
-// A change to a layout raises kVersion.
+//   ReqUnique   +2 u8 count n, then n times: u8 unique request id (1..200), u8 its state on the origin (3..5)
+// A change to a layout raises kVersion. A new type does not: a build without its handler drops it (one warning per type), so
+// it plays on with a build that has it.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +42,7 @@ enum class Type : uint32_t {
     Items = 7,
     StoryDigest = 8,
     MemberName = 9,
+    ReqUnique = 10,
 };
 
 // Builds one payload: the header, then the fields in order.
