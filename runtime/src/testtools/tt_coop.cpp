@@ -340,9 +340,13 @@ size_t drain_injected(DeliverFn deliver) {
         Injector& s = inj();
         std::lock_guard<std::mutex> lk(s.mu);
         const double now = now_ms();
-        while (!s.queue.empty() && s.queue.front().drain <= drain && s.queue.front().ms <= now) {
-            due.push_back(std::move(s.queue.front()));
-            s.queue.pop_front();
+        for (auto it = s.queue.begin(); it != s.queue.end();) {   // every due one, in queue order: a delayed message lets later ones pass
+            if (it->drain <= drain && it->ms <= now) {
+                due.push_back(std::move(*it));
+                it = s.queue.erase(it);
+            } else {
+                ++it;
+            }
         }
     }
     for (const Message& m : due) {

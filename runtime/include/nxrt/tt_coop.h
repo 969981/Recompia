@@ -18,7 +18,8 @@
 //
 // Injected messages are delivered by the channel's drain() (the thread the game layer drains on, at the point it drains), through the
 // handler registered for their type, after the messages the channel itself received in that drain: to the game layer they are messages
-// from `node`. They need the channel open (the game layer opened it); a drain with no channel delivers nothing and keeps them.
+// from `node`. Every due message is delivered, in queue order (a delayed one lets later ones pass). They wait until the channel is in a
+// session (open, with our own node known): only drains in a session count, and a drain outside one delivers nothing.
 //
 // Configuration ([test] section, env NXRT_TEST_<KEY>; read at first use, independent of the other [test] keys):
 //   coop_record=<file>       write every message this process sends, receives or is injected to <file> (the format above)
@@ -50,7 +51,8 @@ namespace nxrt::tt::coop {
 // ---- the channel's side (services/ldn_channel.cpp) ----
 void on_sent(int node, uint32_t type, const void* data, size_t size);
 void on_received(int from, bool loopback, uint32_t type, const uint8_t* data, size_t size);
-// Hands every injected message that is due to deliver, in order, and counts this drain. Returns how many were delivered.
+// Hands every injected message that is due to deliver, in order, and counts this drain. The channel calls it only in a session.
+// Returns how many were delivered.
 using DeliverFn = void (*)(int from, uint32_t type, const uint8_t* data, size_t size);
 size_t drain_injected(DeliverFn deliver);
 

@@ -146,7 +146,8 @@ size_t drain(size_t max) {
         }
     }
 #if NXRT_TESTTOOLS
-    return items.size() + tt::coop::drain_injected(&dispatch);
+    if (c->self() != kNoNode) return items.size() + tt::coop::drain_injected(&dispatch);   // in a session: the handlers can act on them
+    return items.size();
 #else
     return items.size();
 #endif
