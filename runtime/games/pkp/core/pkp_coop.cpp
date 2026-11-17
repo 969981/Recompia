@@ -185,7 +185,7 @@ void game_frame(::Ctx* c) {
     coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::link::tick(c);
     coop::story::tick(c);
-    coop::requests::tick();
+    coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));

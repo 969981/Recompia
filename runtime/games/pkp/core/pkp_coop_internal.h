@@ -89,10 +89,11 @@ void reset();
 }  // namespace story
 
 namespace requests {
-// The message (pkp_coop_link.cpp).
+// The message (pkp_coop_link.cpp): kept until this player can take it.
 void on_unique_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
-// Reads this player's request records and shares what changed (once a frame, after the channel's handlers).
-void tick();
+// Applies what other members shared when this player can walk and talks to no one, reads this player's request records and shares
+// what changed (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: the records are read again, the whole list sent
 void on_member_joined();    // another member joined: the whole list is sent again
 void reset();
