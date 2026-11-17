@@ -18,7 +18,7 @@ check(roleLine(newest, 'auto').startsWith('Brock hosts, because their copy of th
 check(roleLine(save([A, B], 'b', 'b', true), 'auto').startsWith('You host, because your copy'), 'own newest copy');
 // an override wins and says what the others must pick
 check(hosting(asB, 'host') && !hosting(asA, 'visit') && hosting(asA, 'auto') && !hosting(asB, 'auto'), 'hosting follows the override');
-check(roleLine(asB, 'host').startsWith('You host. Start first'), 'host override line');
+check(roleLine(asB, 'host').includes('Join, not Auto'), 'host override asks the others for Join: on Auto the creator would host too');
 check(roleLine(asA, 'visit').startsWith('You join.'), 'join override line');
 // while running
 check(runningLine(asA, 'auto').startsWith('You are hosting'), 'running as host');

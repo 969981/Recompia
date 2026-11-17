@@ -23,15 +23,33 @@ const now = () => Math.floor(Date.now() / 1000);
 // kept while the launcher runs, across visits to the page: the start choice of each save (back to Auto when its game ends), the save
 // whose game runs, and what its last start found
 const startAs = new Map();
-let playing = null;   // { id, at }
+let playing = null;   // { id, at, seen }: seen once the game was reported busy, so an event before the start lands is not its end
 const findings = new Map();
 let redraw = () => {};   // the page on screen, if any
+const LOG_POLL_MS = 5000;   // while it runs: a host hidden by other mods is said while the visitor still waits in the game
+let poll = null;
+
+function readLog(id, at) {
+  return api.coopLastRun({ since: at }).then((f) => {
+    if (f) findings.set(id, f); else findings.delete(id);
+    redraw();
+  }).catch((e) => console.warn('coop_last_run', e));
+}
+
 store.subscribe((s) => {
-  if (!playing || busy(s)) return;
+  if (!playing) return;
+  if (busy(s)) {
+    playing.seen = true;
+    if (!poll) { const { id, at } = playing; poll = setInterval(() => readLog(id, at), LOG_POLL_MS); }
+    return;
+  }
+  if (!playing.seen) return;
   const { id, at } = playing;
   playing = null;
+  clearInterval(poll);
+  poll = null;
   startAs.delete(id);
-  api.coopLastRun({ since: at }).then((f) => { if (f) findings.set(id, f); else findings.delete(id); redraw(); }).catch((e) => console.warn('coop_last_run', e));
+  readLog(id, at);
 });
 
 const field = (id, label, opts = {}) => `<label class="form-field"><span>${esc(label)}${opts.hint ? ` <span class="hint">${esc(opts.hint)}</span>` : ''}</span>
@@ -183,11 +201,16 @@ export async function render(el, ctx) {
     });
     if (!form) return;
     const [name, mine, ...friends] = form;
-    saves = await api.coopCreate({ name, myName: mine, relay: PUBLIC_RELAY });
-    const made = saves.find((v) => v.profile.name.toLowerCase() === name.toLowerCase() && v.creator);
-    for (const friend of friends.filter(Boolean)) saves = await api.coopAddMember({ id: made.profile.id, name: friend });
-    draw();
-    await showInvite(made.profile.id);
+    const before = new Set(saves.map((v) => v.profile.id));
+    try {
+      saves = await api.coopCreate({ name, myName: mine, relay: PUBLIC_RELAY });
+      const made = saves.find((v) => !before.has(v.profile.id));   // by id: Rust may tidy the name
+      for (const friend of friends.filter(Boolean)) saves = await api.coopAddMember({ id: made.profile.id, name: friend });
+      draw();
+      await showInvite(made.profile.id);
+    } finally {
+      draw();   // a player that could not be added still leaves the save on screen
+    }
   });
 
   const addPlayer = (id) => inOrder(async () => {
@@ -260,7 +283,7 @@ export async function render(el, ctx) {
 
   const play = (id) => inOrder(async () => {
     findings.delete(id);
-    playing = { id, at: now() };
+    playing = { id, at: now(), seen: false };
     try {
       await api.coopPlay({ id, startAs: startAs.get(id) ?? 'auto' });
     } catch (e) {

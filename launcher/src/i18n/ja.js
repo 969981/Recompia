@@ -977,7 +977,7 @@ export default {
   'You made this co-op save: send the invite to the other players.': 'この協力プレイのセーブはあなたが作りました。招待をほかのプレイヤーに送ってください。',
   'You are no longer a player in this co-op save.': 'あなたはこの協力プレイのセーブのプレイヤーではなくなりました。',
   'Cannot delete {1}: {2}': '{1} を削除できません: {2}',
-  'You host. Start first, and ask the others to pick Join or Auto.': 'あなたがホストです。先に始めて、ほかの人には「参加」か「自動」を選んでもらってください。',
+  'You host. Start first, and ask the others to pick Join, not Auto.': 'あなたがホストです。先に始めて、ほかの人には「自動」ではなく「参加」を選んでもらってください。',
   'You join. Another player must host: press Play once they are in the game.': 'あなたは参加します。ほかのプレイヤーがホストになる必要があります。その人がゲームに入ってからプレイを押してください。',
   'You host, because you made this save. Start first; the others press Play once you are in the game.': 'このセーブを作ったので、あなたがホストです。先に始めてください。ほかの人はあなたがゲームに入ってからプレイを押します。',
   'You host, because your copy of the world is the newest. Start first; the others press Play once you are in the game.': 'あなたの世界のコピーが最新なので、あなたがホストです。先に始めてください。ほかの人はあなたがゲームに入ってからプレイを押します。',
@@ -1052,4 +1052,5 @@ export default {
   'Play co-op': '協力プレイで遊ぶ',
   'Same as Solo': '「ひとりで」と同じ',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '協力プレイのセーブの全員が同じゲームプレイ MOD をオンにしていないと、おたがいに参加できません。「「ひとりで」と同じ」のままの MOD は「ひとりで」の MOD に従います。MOD の追加と削除は「ひとりで」で行います。',
+  'Replacement game files': '差し替えるゲームファイル',
 };

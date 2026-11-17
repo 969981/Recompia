@@ -977,7 +977,7 @@ export default {
   'You made this co-op save: send the invite to the other players.': '이 협동 세이브는 내가 만들었습니다. 다른 플레이어에게 초대를 보내세요.',
   'You are no longer a player in this co-op save.': '더 이상 이 협동 세이브의 플레이어가 아닙니다.',
   'Cannot delete {1}: {2}': '{1}을(를) 삭제할 수 없습니다: {2}',
-  'You host. Start first, and ask the others to pick Join or Auto.': '내가 호스트입니다. 먼저 시작하고, 다른 사람에게 참가나 자동을 고르라고 하세요.',
+  'You host. Start first, and ask the others to pick Join, not Auto.': '내가 호스트입니다. 먼저 시작하고, 다른 사람에게 자동이 아닌 참가를 고르라고 하세요.',
   'You join. Another player must host: press Play once they are in the game.': '참가합니다. 다른 플레이어가 호스트해야 합니다. 그 사람이 게임에 들어간 뒤 플레이를 누르세요.',
   'You host, because you made this save. Start first; the others press Play once you are in the game.': '이 세이브를 만들었으므로 내가 호스트입니다. 먼저 시작하세요. 다른 사람은 내가 게임에 들어간 뒤 플레이를 누릅니다.',
   'You host, because your copy of the world is the newest. Start first; the others press Play once you are in the game.': '내 월드 사본이 가장 최신이므로 내가 호스트입니다. 먼저 시작하세요. 다른 사람은 내가 게임에 들어간 뒤 플레이를 누릅니다.',
@@ -1052,4 +1052,5 @@ export default {
   'Play co-op': '협동 플레이',
   'Same as Solo': '솔로와 같게',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '협동 세이브의 모든 플레이어가 같은 게임플레이 모드를 켜야 서로 참가할 수 있습니다. 솔로와 같게로 둔 모드는 솔로 모드를 따릅니다. 모드 설치와 제거는 솔로에서 합니다.',
+  'Replacement game files': '교체할 게임 파일',
 };

@@ -977,7 +977,7 @@ export default {
   'You made this co-op save: send the invite to the other players.': 'Du hast diesen Koop-Spielstand angelegt: Schick die Einladung an die anderen Spieler.',
   'You are no longer a player in this co-op save.': 'Du bist kein Spieler dieses Koop-Spielstands mehr.',
   'Cannot delete {1}: {2}': '{1} kann nicht gelöscht werden: {2}',
-  'You host. Start first, and ask the others to pick Join or Auto.': 'Du hostest. Starte zuerst und bitte die anderen, Beitreten oder Auto zu wählen.',
+  'You host. Start first, and ask the others to pick Join, not Auto.': 'Du hostest. Starte zuerst und bitte die anderen, Beitreten zu wählen, nicht Auto.',
   'You join. Another player must host: press Play once they are in the game.': 'Du trittst bei. Ein anderer Spieler muss hosten: Drück auf Spielen, sobald er im Spiel ist.',
   'You host, because you made this save. Start first; the others press Play once you are in the game.': 'Du hostest, weil du diesen Spielstand angelegt hast. Starte zuerst; die anderen drücken auf Spielen, sobald du im Spiel bist.',
   'You host, because your copy of the world is the newest. Start first; the others press Play once you are in the game.': 'Du hostest, weil deine Kopie der Welt die neueste ist. Starte zuerst; die anderen drücken auf Spielen, sobald du im Spiel bist.',
@@ -1052,4 +1052,5 @@ export default {
   'Play co-op': 'Koop spielen',
   'Same as Solo': 'Wie in Solo',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': 'Alle Spieler eines Koop-Spielstands brauchen dieselben Gameplay-Mods, sonst finden sie einander nicht. Mods auf Wie in Solo folgen deinen Solo-Mods. Mods installierst und entfernst du unter Solo.',
+  'Replacement game files': 'Ersatz-Spieldateien',
 };

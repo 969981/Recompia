@@ -20,7 +20,7 @@ export const hosting = (v, startAs) => (startAs === 'auto' ? v.host.role === 'ho
 /** Who hosts this start and what this player does, before Play. With Auto every PC reaches the same answer (coop_save.rs choose_host):
  *  the creator while the copies' stamps are unknown, then the newest copy. */
 export function roleLine(v, startAs) {
-  if (startAs === 'host') return t('You host. Start first, and ask the others to pick Join or Auto.');
+  if (startAs === 'host') return t('You host. Start first, and ask the others to pick Join, not Auto.');
   if (startAs === 'visit') return t('You join. Another player must host: press Play once they are in the game.');
   const host = nameOf(v, v.host.host);
   const byCreator = v.host.host === v.profile.members[0]?.id;

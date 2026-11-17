@@ -975,7 +975,7 @@ export default {
   'You made this co-op save: send the invite to the other players.': 'Você criou este save coop: envie o convite aos outros jogadores.',
   'You are no longer a player in this co-op save.': 'Você não é mais jogador deste save coop.',
   'Cannot delete {1}: {2}': 'Não foi possível excluir {1}: {2}',
-  'You host. Start first, and ask the others to pick Join or Auto.': 'Você hospeda. Comece primeiro e peça aos outros para escolher Entrar ou Auto.',
+  'You host. Start first, and ask the others to pick Join, not Auto.': 'Você hospeda. Comece primeiro e peça aos outros para escolher Entrar, não Auto.',
   'You join. Another player must host: press Play once they are in the game.': 'Você entra. Outro jogador precisa hospedar: aperte Jogar quando ele estiver no jogo.',
   'You host, because you made this save. Start first; the others press Play once you are in the game.': 'Você hospeda, porque criou este save. Comece primeiro; os outros apertam Jogar quando você estiver no jogo.',
   'You host, because your copy of the world is the newest. Start first; the others press Play once you are in the game.': 'Você hospeda, porque sua cópia do mundo é a mais recente. Comece primeiro; os outros apertam Jogar quando você estiver no jogo.',
@@ -1050,4 +1050,5 @@ export default {
   'Play co-op': 'Jogar em coop',
   'Same as Solo': 'Igual ao Solo',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': 'Todos os jogadores de um save coop precisam dos mesmos mods de jogabilidade ligados, ou não conseguem entrar. Mods em Igual ao Solo seguem seus mods do Solo. Instale e remova mods no Solo.',
+  'Replacement game files': 'Arquivos de jogo substitutos',
 };

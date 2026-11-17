@@ -977,7 +977,7 @@ export default {
   'You made this co-op save: send the invite to the other players.': '這是你建立的合作存檔：請把邀請傳給其他玩家。',
   'You are no longer a player in this co-op save.': '你已不再是此合作存檔的玩家。',
   'Cannot delete {1}: {2}': '無法刪除 {1}：{2}',
-  'You host. Start first, and ask the others to pick Join or Auto.': '由你主持。請先開始，並讓其他人選擇「加入」或「自動」。',
+  'You host. Start first, and ask the others to pick Join, not Auto.': '由你主持。請先開始，並讓其他人選擇「加入」，不要選「自動」。',
   'You join. Another player must host: press Play once they are in the game.': '你加入。必須由另一位玩家主持：等對方進入遊戲後再按「開始遊戲」。',
   'You host, because you made this save. Start first; the others press Play once you are in the game.': '你建立了此存檔，所以由你主持。請先開始；你進入遊戲後，其他人再按「開始遊戲」。',
   'You host, because your copy of the world is the newest. Start first; the others press Play once you are in the game.': '你的世界副本最新，所以由你主持。請先開始；你進入遊戲後，其他人再按「開始遊戲」。',
@@ -1052,4 +1052,5 @@ export default {
   'Play co-op': '合作遊玩',
   'Same as Solo': '與單人相同',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '合作存檔中的每位玩家都必須開啟相同的遊戲玩法模組，否則無法互相加入。保持「與單人相同」的模組會跟隨你的單人模組。在「單人」中安裝和移除模組。',
+  'Replacement game files': '替換的遊戲檔案',
 };
