@@ -52,7 +52,7 @@ const view = document.getElementById('view');
 let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
-let shown = GAMES[0];    // the game the sidebar shows (games.js; launcher.json `game`)
+let shown = gameOf();    // the game the sidebar shows (games.js; launcher.json `game`)
 
 // Launcher colours: 'koi' (Koi's Camp: a bright daytime picture, the default), 'sunrise' (amber to red; reads well with red-green colour blindness), 'dusk' (the old violet) or 'meadow' (a bright daytime scene made for the project).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
@@ -103,7 +103,6 @@ function showMenu(open) {
 function drawNav() {
   const items = Object.entries(PAGES).filter(([id, p]) => p.nav && hasPage(shown, id)).map(([id, p]) =>
     navButton(`data-page="${id}"${id === shown.home ? ' data-home' : ''}`, icon(p.icon), p.nav));
-  document.documentElement.dataset.game = shown.id;
   setBrandGame(shown.id);
   nav.innerHTML = `
     ${brandHtml()}
@@ -124,7 +123,7 @@ function listenNav() {
   nav.addEventListener('click', (e) => {
     if (e.target.closest('#game-btn')) return showMenu(document.getElementById('game-menu').hidden);
     if (!e.target.closest('#game-menu')) showMenu(false);
-    const pick = e.target.closest('[data-game]')?.dataset.game;
+    const pick = e.target.closest('#game-menu [data-game]')?.dataset.game;
     if (pick) {
       showMenu(false);
       return switchGame(pick);
