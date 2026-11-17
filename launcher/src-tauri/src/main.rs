@@ -36,6 +36,7 @@ mod mods_catalog;
 mod mods_cmds;
 mod mods_install;
 mod mods_lock;
+mod mods_scope;
 mod mods_update;
 mod nsp;
 mod launch;

@@ -114,6 +114,23 @@ pub fn mod_plan_changed(game_dir: &Path) -> bool {
     plan_hash_of(&game_dir.join(MOD_PLAN)) != plan_hash_of(&game_dir.join(MOD_HOOKS_BUILT))
 }
 
+/// The points a hooks file lists, as `module offset kind word` (the core and modplan.py write them in the same spelling); the record of
+/// what was built has the site as a fifth column, left off here.
+fn points_of(path: &Path) -> Vec<String> {
+    let body = fs::read_to_string(path).unwrap_or_default();
+    body.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.split('\t').take(4).collect::<Vec<_>>().join("\t"))
+        .collect()
+}
+
+/// Every point of the plan in `plan` is built into pkp.exe. The game turns a mod whose point is missing off at start (hook_built_in).
+pub fn plan_is_built(game_dir: &Path, plan: &Path) -> bool {
+    let built = points_of(&game_dir.join(MOD_HOOKS_BUILT));
+    points_of(plan).iter().all(|p| built.contains(p))
+}
+
 /// The last check: (done.json path, its mtime and size, pkp.exe's mtime, exe and dll APIs differ, the mods' plan's mtime and size) ->
 /// result. The tools do not change while the launcher runs, and a finished build rewrites done.json, so one python run per finished
 /// build and plan is enough.

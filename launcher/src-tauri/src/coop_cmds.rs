@@ -90,6 +90,8 @@ pub fn coop_play(app: AppHandle, id: String) -> Result<(), String> {
     let (dir, cfg) = launch::prepare(&app)?;
     let root = coop::root_of(&dir);
     let p = coop::get(&root, &id)?;
+    // the group's own mod set is the layer of its account (mods_scope.rs); the game picks it from NXRT_ACCOUNT_UID
+    crate::mods::ensure_points_built(&dir, &crate::mods::Scope::Coop(p.id.clone()))?;
     let (go, _) = coop_launch::build(&p, &coop_save::folder_of(&root, &p.id), &saveimport::locate(&dir).0)?;
     play::start(&app, &dir, &cfg, false, Some(go))
 }

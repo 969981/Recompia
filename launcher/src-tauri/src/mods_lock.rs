@@ -344,10 +344,24 @@ mod tests {
     fn locking_again_removes_profile_exceptions() {
         let dir = game("lock-profile", true);
         let profile = crate::profiles::add(&dir, "Other").unwrap().profiles.last().unwrap().id.clone();
-        mods::set_enabled_for_profile(&dir, MOD_ID, false, false, Some(&profile), false).unwrap();
-        mods::set_setting_for_profile(&dir, MOD_ID, SHARE, Some(0.0), None, Some(&profile), false).unwrap();
+        mods::set_enabled_in(&dir, MOD_ID, false, false, &mods::Scope::Profile(profile.clone()), false).unwrap();
+        mods::set_setting_in(&dir, MOD_ID, SHARE, Some(0.0), None, &mods::Scope::Profile(profile.clone()), false).unwrap();
         keep(&dir, LOCKED, || panic!("already installed")).unwrap();
-        let m = mods::list_for_profile(&dir, Some(&profile)).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
+        let m = mods::list_in(&dir, &mods::Scope::Profile(profile.clone())).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
+        assert!(m.enabled && m.enabled_override.is_none());
+        assert!(m.settings.iter().filter(|s| s.key == SHARE).all(|s| s.number == 1.0 && !s.overridden));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn locking_again_removes_co_op_group_exceptions() {
+        let dir = game("lock-coop", true);
+        let g = crate::coop::create(&crate::coop::root_of(&dir), "Island", "Ash", "192.0.2.10").unwrap();
+        let group = mods::Scope::Coop(g.id);
+        mods::set_enabled_in(&dir, MOD_ID, false, false, &group, false).unwrap();
+        mods::set_setting_in(&dir, MOD_ID, SHARE, Some(0.0), None, &group, false).unwrap();
+        keep(&dir, LOCKED, || panic!("already installed")).unwrap();
+        let m = mods::list_in(&dir, &group).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
         assert!(m.enabled && m.enabled_override.is_none());
         assert!(m.settings.iter().filter(|s| s.key == SHARE).all(|s| s.number == 1.0 && !s.overridden));
         let _ = fs::remove_dir_all(dir);

@@ -11,7 +11,8 @@
 //!   NXRT_PKP_COOP_MEMBER=<id>    this PC's member, as in coop.json (`[pkp] coop_member`); the same 32 hex digits are [net] uid
 //!   NXRT_PKP_COOP_MEMBERS=<n>    how many members the group has (`[pkp] coop_members`); the session waits for all of them
 //!   NXRT_FS_SAVE_DIR=<folder>    the co-op folder is the whole save folder of this run (coop_save.rs has its layout)
-//!   NXRT_ACCOUNT_UID, NXRT_ACCOUNT_NICKNAME    the shared account of the save, and this member's name
+//!   NXRT_ACCOUNT_UID, NXRT_ACCOUNT_NICKNAME    the shared account of the save, and this member's name. The account also picks the
+//!                                     group's own mod set: the Modtopia core reads the overrides of the save's account (mods_scope.rs)
 //!   NXRT_NET_PROTOCOL=native, NXRT_NET_MODE=auto, NXRT_NET_INTERNET=true, NXRT_NET_RELAY=<relay>, NXRT_NET_UID=<member id>
 //!   NXRT_NET_PRIVATE_ROOM=<room code> the private room on the relay (`[net] private_room`): not listed there, members only
 //!                                     The co-op module takes a fixed code as is (coop_cfg_parse_ex `room`, same alphabet as the code
