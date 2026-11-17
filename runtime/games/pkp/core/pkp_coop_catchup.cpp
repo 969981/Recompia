@@ -3,8 +3,10 @@
 // every member needs, is given to the others too. The talk lock (pkp_coop_talk.cpp) means only one player runs a character's event;
 // the shared story then moves every process on, but two of the first quest's steps act on the talker's process only:
 //
-// Name. Event-script command 0x44 (0x43d3e0) asks the player's name and writes it. Once the talker's name slot has changed after it,
-// every other member is asked for a name of their own (NamePrompt; a member whose slot is already set is not asked). The prompt is the
+// Name. Event-script command 0x44 (0x43d3e0) asks the player's name and writes it. Once this player's name slot has changed after it,
+// every other member is asked for a name of their own (NamePrompt; a member whose slot is already set is not asked). The command runs
+// in a talk the character starts too (the first quest's name talk follows the Pokedex pickup unasked), so it is watched in any event,
+// not only in a talk this player holds: the name entry only ever runs on the process whose player is asked. The prompt is the
 // game's own name keyboard, asynchronous so the game thread never waits:
 //   0x11314b0(6, buf, 0x19, opts) starts it (1: started); 0x11316d0() busy; 0x11316e0() answered with OK; 0x1131680() ends it.
 //   opts, 32 bytes: +0 header (char*), +0x18 u16 min length 1, +0x1a u16 max length (12 for languages 1..5, else 6), +0x1c 1, +0x1f 1.
@@ -46,7 +48,7 @@ constexpr uint32_t kTextKind = 0x25, kTextName = 2, kArgNone = 0xffffffffu;
 constexpr size_t kTextArgs = 0x28, kArgSize = 0x88, kArgCount = 6;
 constexpr uint64_t kAutosaveStep = 0x3bb5e0, kAutosaveDelay = 0x3bb5e4, kAutosaveFlags = 0x3bb5e8;   // game state +
 constexpr float kAutosaveSoon = 570.0f;
-constexpr double kWatchName = 600.0;   // how long after command 0x44 the talker's name slot is watched
+constexpr double kWatchName = 600.0;   // how long after command 0x44 this player's name slot is watched
 
 // The items
 constexpr uint64_t kGiveItems = 0x12c734;
@@ -202,7 +204,7 @@ void tick_gives(::Ctx* c) {
 int on_name_entry(::Ctx*) {
     State& s = st();
     const uint64_t root = save_root();
-    if (!link::in_session() || !talk::talking() || !root) return 0;
+    if (!link::in_session() || !root) return 0;
     std::memcpy(s.name_before, reinterpret_cast<const void*>(name_slot(root, language())), kNameSlotSize);
     s.watching = true;
     s.watch_since = qpc::seconds();
