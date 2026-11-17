@@ -89,10 +89,11 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
     let app2 = app.clone();
     let dir = game_dir.to_path_buf();
     let tools = crate::paths::exe_dir().join("tools");
-    let first = if crate::host::native_game() {
-        "Starting the game..."
-    } else if crate::shaders::needs_warm_up(game_dir) {
+    let warm_up = if crate::host::native_game() { crate::host::native_needs_warm_up(game_dir) } else { crate::shaders::needs_warm_up(game_dir) };
+    let first = if warm_up {
         "Collecting the shaders the game builds while it runs (once, about a minute)..."
+    } else if crate::host::native_game() {
+        "Starting the game..."
     } else {
         "Checking the shaders the game builds while it runs..."
     };
@@ -100,9 +101,13 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
     std::thread::spawn(move || {
         // every start: the run-time shaders seen so far must all be translated (the warm-up run collects them the first
         // time, e.g. for a setup finished before it existed). A failure here is logged in the status, the game still starts.
-        // macOS builds and translates its own shaders: the shader tools are Windows programs, so there is nothing to prepare
+        // Linux and macOS translate with their own harness (host::native_prepare); the shader tools are Windows programs
         let prep = if crate::host::native_game() {
-            String::new()
+            match crate::host::native_prepare(&dir, gentle) {
+                Ok(Some(line)) => format!(" {}.", line),
+                Ok(None) => String::new(),
+                Err(e) => format!(" Shaders were not prepared: {}.", e),
+            }
         } else {
             match crate::shaders::prepare(&dir, &tools, &std::sync::atomic::AtomicBool::new(false)) {
                 Ok(Some(n)) if n > 0 => format!(" {} shaders were translated before the start.", n),
@@ -243,7 +248,13 @@ pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
     if !game_dir.join(crate::settings::PKP_INI).is_file() || (!crate::host::native_game() && !crate::shaders::is_complete(game_dir)) {
         return fail("Setup has not finished: open the launcher and press Set up.".into());
     }
-    if !crate::host::native_game() {
+    if crate::host::native_game() {
+        match crate::host::native_prepare(game_dir, false) {
+            Ok(Some(line)) => println!("shaders: {}", line),
+            Ok(None) => {}
+            Err(e) => eprintln!("Shaders were not prepared: {}.", e),
+        }
+    } else {
         match crate::shaders::prepare(game_dir, tools, &std::sync::atomic::AtomicBool::new(false)) {
             Ok(Some(n)) if n > 0 => println!("{} shaders were translated before the start.", n),
             Err(e) => eprintln!("Shaders were not prepared: {}.", e),

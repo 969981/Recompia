@@ -118,8 +118,37 @@ pub fn native_warm_up(game_dir: &Path, cancel: &std::sync::atomic::AtomicBool, g
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
+    // kept beside the cache: a warm-up that collects nothing leaves no other trace of why (#727)
+    let _ = std::fs::rename(scratch.join("warmup.log"), crate::shaders::cache_dir(game_dir).join("warmup.log"));
     let _ = std::fs::remove_dir_all(&scratch);
     native_translate_shaders(game_dir, cancel, gentle, log)
+}
+
+/// Linux and macOS, before every Play: what shaders::prepare is on Windows. A cache that never received a run-time block (Set up's
+/// warm-up was cancelled, crashed or collected nothing) gets the warm-up once more here, else the first start draws those blocks
+/// with unlinked programs (black models, missing parts: #727) until the launcher translates them after it. Otherwise the blocks an
+/// earlier run dumped and left untranslated (a crash, a start without the launcher) are translated.
+pub fn native_prepare(game_dir: &Path, gentle: bool) -> Result<Option<String>, String> {
+    let cancel = AtomicBool::new(false);
+    if native_needs_warm_up(game_dir) {
+        // once: a game that never dumps a block in the opening must not cost a minute on every start
+        let _ = std::fs::write(crate::shaders::cache_dir(game_dir).join("warmup_tried"), "");
+        return native_warm_up(game_dir, &cancel, gentle, None);
+    }
+    native_translate_shaders(game_dir, &cancel, gentle, None)
+}
+
+/// True while results.tsv holds no more rows than the romfs corpus Set up translated (no run-time block ever arrived) and Play
+/// has not retried the warm-up yet. A cache with no setup.json is not judged.
+pub fn native_needs_warm_up(game_dir: &Path) -> bool {
+    let blocks = crate::shaders::read_marker(game_dir).blocks;
+    if blocks == 0 || crate::shaders::cache_dir(game_dir).join("warmup_tried").is_file() {
+        return false;
+    }
+    let rows = std::fs::read(game_dir.join(crate::shaders::SPIRV_REL).join("results.tsv"))
+        .map(|t| t.iter().filter(|&&b| b == b'\n').count().saturating_sub(1))
+        .unwrap_or(0);
+    rows <= blocks
 }
 
 /// Linux and macOS: the shader cache is built by the C# harness in `tools/shaders`, not by the release's Windows tools. Runs it over
@@ -832,6 +861,25 @@ pub fn sync_macos_runtime(game_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_warm_up_is_retried_once_while_no_run_time_block_arrived() {
+        let dir = std::env::temp_dir().join(format!("pkp_warm_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let spirv = dir.join(crate::shaders::SPIRV_REL);
+        std::fs::create_dir_all(&spirv).unwrap();
+        let rows = |n: usize| std::fs::write(spirv.join("results.tsv"), format!("hash\n{}", "x\n".repeat(n))).unwrap();
+        rows(3);
+        assert!(!native_needs_warm_up(&dir), "no setup.json: not judged");
+        std::fs::write(crate::shaders::cache_dir(&dir).join("setup.json"), r#"{"romfs":"r","extracted":true,"blocks":3,"complete":true,"translator":0,"storage":""}"#).unwrap();
+        assert!(native_needs_warm_up(&dir), "only the corpus rows: the warm-up never delivered");
+        rows(4);
+        assert!(!native_needs_warm_up(&dir), "a run-time row arrived");
+        rows(3);
+        std::fs::write(crate::shaders::cache_dir(&dir).join("warmup_tried"), "").unwrap();
+        assert!(!native_needs_warm_up(&dir), "Play tried it already");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     #[ignore = "needs PKP_GAME_DIR; plays the opening headless for a minute and translates what it built"]
