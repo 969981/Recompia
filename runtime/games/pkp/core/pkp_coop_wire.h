@@ -4,7 +4,7 @@
 //   +0 u8 version (kVersion; a message of another version is dropped and logged once)
 //   +1 u8 origin: the node of the process whose player did the thing (the authority passes a member's message on unchanged)
 // Then, by type (offsets from the start of the payload; a payload shorter than its layout is dropped):
-//   StoryFlag   +2 u16 quest id (1..1000), +4 u8 the quest's state on the origin when its flag was set
+//   StoryStates +2 u16 count n, then n times: u16 quest id (1..1000), u8 that quest's state on the origin (2 and up)
 //   Ability     +2 u8[0x14] the ability effect command as the quest effect gave it (+0 its type, 0x01 or 0x19)
 //   TalkAsk     +2 u32 character id                          (a member asks the authority for the talk lock)
 //   TalkDone    +2 u32 character id                          (the holder gives the lock back)
@@ -20,13 +20,13 @@
 
 namespace nxrt::games::pkp::coop::wire {
 
-constexpr uint8_t kVersion = 1;
+constexpr uint8_t kVersion = 2;   // 2: StoryStates replaced 1's quest flag sets
 constexpr uint8_t kNobody = 0xff;
 constexpr size_t kHeader = 2;
 constexpr size_t kEffectSize = 0x14;
 
 enum class Type : uint32_t {
-    StoryFlag = 1,
+    StoryStates = 1,   // u16 count, then per quest: u16 id, u8 state
     Ability = 2,
     TalkAsk = 3,
     TalkDone = 4,

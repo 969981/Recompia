@@ -30,7 +30,7 @@ struct Route {
     void (*apply)(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 };
 constexpr Route kRoutes[] = {
-    {wire::Type::StoryFlag, true, &story::on_flag_message},
+    {wire::Type::StoryStates, true, &story::on_states_message},
     {wire::Type::Ability, true, &story::on_ability_message},
     {wire::Type::TalkAsk, false, &talk::on_ask},
     {wire::Type::TalkDone, false, &talk::on_done},
@@ -83,6 +83,7 @@ void on_member(const ch::MemberEvent& e) {
                     role() == CoopRole::Host ? "host" : "visit");
         return;
     }
+    if (e.joined) story::on_member_joined();
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
 

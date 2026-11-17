@@ -13,12 +13,14 @@
 // Quests. m_story S = save root + 0x4a26a0: per quest id 1..1000 a state (read 0x5d85c0, written 0x5d865c: 1 listed, 2 started,
 // 3 complete, 4 closed) and a flag (read 0x5d86e4, written 0x5d8774: the next step's condition is met). The quest pump (0x11b600, every
 // frame) moves a quest on its flag alone: flag -> start / complete / close, which writes the state and clears the flag through the two
-// setters and runs the quest's effect commands. In 2.0.1 the state setter has three callers, all inside those pump steps, and every flag
-// clear is one of theirs; every other flag write sets it (condition checker, scripts, events). So only flag sets are shared: each
-// process's own pump then makes the same state writes and runs the same effects, and a state never arrives ahead of its flag.
-// A set is an edge whose meaning depends on the state it was made in, so a message carries that state and a receiver sets the flag only
-// in the same state with its flag clear. A receiver still behind waits for its pump; a receiver past it (it did that step itself, which
-// is normal: every process checks the conditions) drops the message.
+// setters and runs the quest's effect commands. In 2.0.1 the state setter has three callers, all inside those pump steps.
+// Whoever moves a quest on moves it on for everyone: every process shares its quests' states (the low byte of each quest word, save
+// root + kQuestWords), all of them when it joins a session or another member does, then every state that rose since the last look.
+// A process behind a received state catches up through its own pump: it sets the quest's flag in its own state, the pump makes the
+// step (state write, effects), and the next frame sets it again until the state is reached. So a step only one player could make (a
+// quest active for one of them, a condition met in one process: the grass built by another player, a talk started by another) is
+// still made on every process, with that process's own effects and rewards. Sharing flag sets instead (as before) lost every step
+// whose receiver was not in exactly the sender's state at that moment.
 //
 // Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
 // returns with nothing done). Every process runs them, since every process runs the pump. Personal kinds (the player's abilities,
@@ -38,10 +40,9 @@
 #include "core/pkp_layout.h"
 
 #include <cstring>
-#include <deque>
+#include <vector>
 
 #include "nxrt/log.h"
-#include "nxrt/qpc.h"
 
 namespace nxrt::games::pkp::coop::story {
 
@@ -56,8 +57,8 @@ constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 
 constexpr uint64_t kStory = 0x4a26a0, kAbilities = 0x4a26a8;                       // save root +
 constexpr uint64_t kStateOf = 0x5d85c0, kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value])
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
-constexpr uint32_t kQuestMax = 1000;
-constexpr double kWaitForPump = 10.0;   // a flag whose state the receiver has not reached is kept this long
+constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte
+constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
                                             0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
@@ -68,15 +69,11 @@ constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
 constexpr unsigned kAbilitySlots = 8;   // command 0x01: u16 ids at +2, +4, .. +0x10
 constexpr unsigned kAbilityBytes = 0x20;   // ids 0..0xff, one bit each
 
-struct Flag {
-    uint16_t quest;
-    uint8_t state;
-    double since;
-};
-
 struct State {
-    int remote = 0;                    // > 0 while a received change is applied: the hooks do not share it again
-    std::deque<Flag> flags;            // received flag sets, in the authority's order
+    uint8_t sent[kQuestMax] = {};      // per quest (id - 1): the state last shared from here
+    uint8_t target[kQuestMax] = {};    // per quest: the highest state another member has, which this process catches up to
+    uint8_t logged[kQuestMax] = {};    // per quest: the target the catch-up was last logged for
+    bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
     bool logged_state = false;
     alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
     uint8_t seen[kAbilityBytes] = {};        // the ability bits at the last look; a bit on now and off here turned on since
@@ -87,11 +84,6 @@ State& st() {
     return s;
 }
 
-struct Remote {
-    Remote() { ++st().remote; }
-    ~Remote() { --st().remote; }
-};
-
 uint64_t save_root() {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     return guest::ok(r, kAbilities + kAbilityBytes) ? r : 0;
@@ -101,7 +93,11 @@ uint64_t story() {
     return r ? r + kStory : 0;
 }
 
-uint8_t quest_state(::Ctx* c, uint64_t s, uint32_t id) { return static_cast<uint8_t>(guest::call(c, base() + kStateOf, s, id)); }
+uint64_t quest_words() {
+    const uint64_t r = save_root();
+    return r && guest::ok(r + layout::kQuestWords, kQuestMax * 2) ? r + layout::kQuestWords : 0;
+}
+
 bool quest_flag(::Ctx* c, uint64_t s, uint32_t id) { return guest::call(c, base() + kFlagOf, s, id) & 1; }
 
 bool ability_id(uint16_t v) { return static_cast<uint8_t>(v - 1) < 0xf9; }
@@ -118,34 +114,48 @@ bool ability_changes(uint64_t root, const uint8_t* cmd) {
     return false;
 }
 
-// Applies the received flag sets whose state this process has reached; per quest, in order.
-void apply_flags(::Ctx* c) {
+// Shares the quests whose state rose here since the last look (every started one after a join), as (u16 id, u8 state) pairs.
+void share_states() {
     State& s = st();
-    const uint64_t story_obj = story();
-    if (!story_obj || s.flags.empty()) return;
-    const double now = qpc::seconds();
-    bool blocked[kQuestMax + 1] = {};
-    for (auto it = s.flags.begin(); it != s.flags.end();) {
-        if (blocked[it->quest]) {
-            ++it;
-            continue;
+    const uint64_t words = quest_words();
+    if (!words || !link::in_session()) return;
+    const bool all = s.send_all;
+    s.send_all = false;
+    std::vector<uint8_t> pairs;
+    uint16_t n = 0;
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2));
+        if (state <= kListed || (!all && state <= s.sent[i])) continue;
+        s.sent[i] = state;
+        if (!all && state <= s.target[i]) continue;   // caught up to another member's state: they have it already
+        const uint16_t id = static_cast<uint16_t>(i + 1);
+        pairs.push_back(static_cast<uint8_t>(id));
+        pairs.push_back(static_cast<uint8_t>(id >> 8));
+        pairs.push_back(state);
+        ++n;
+        if (!all) NXLOG_I(kTag, "Co-op story: quest %u reached state %u here, shared", id, state);
+    }
+    if (!n) return;
+    link::share(wire::Type::StoryStates, wire::Writer(link::self()).u16(n).bytes(pairs.data(), pairs.size()).take());
+    if (all) NXLOG_I(kTag, "Co-op story: the states of %u started quests shared (a join)", static_cast<unsigned>(n));
+}
+
+// Moves every quest that is behind another member's state one pump step on: its flag set in this process's own state.
+void catch_up(::Ctx* c) {
+    State& s = st();
+    const uint64_t words = quest_words(), story_obj = story();
+    if (!words || !story_obj || !link::in_session()) return;
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        if (!s.target[i]) continue;
+        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2));
+        if (state >= s.target[i]) continue;
+        const uint32_t id = i + 1;
+        if (quest_flag(c, story_obj, id)) continue;   // a step is already waiting for the pump
+        if (s.logged[i] != s.target[i]) {
+            s.logged[i] = s.target[i];
+            NXLOG_I(kTag, "Co-op story: quest %u catching up here, state %u -> %u", id, state, s.target[i]);
         }
-        const uint8_t state = quest_state(c, story_obj, it->quest);
-        if (state == it->state) {
-            if (!quest_flag(c, story_obj, it->quest)) {
-                Remote remote;
-                guest::call(c, base() + kSetFlag, story_obj, it->quest, 1);
-                NXLOG_I(kTag, "Co-op story: quest %u flag from another member set here (state %u)", it->quest, state);
-            }
-        } else if (state < it->state && now - it->since < kWaitForPump) {
-            blocked[it->quest] = true;
-            ++it;
-            continue;
-        } else {
-            NXLOG_I(kTag, "Co-op story: quest %u flag of state %u DROPPED, this process is at state %u%s", it->quest, it->state, state,
-                    state < it->state ? " (waited too long)" : "");
-        }
-        it = s.flags.erase(it);
+        guest::call(c, base() + kSetFlag, story_obj, id, 1);
     }
 }
 
@@ -203,14 +213,12 @@ int on_quest_state(::Ctx* c) {
 }
 
 int on_quest_flag(::Ctx* c) {
-    State& s = st();
-    if (s.remote || !(c->x[2] & 1) || !link::in_session()) return 0;
+    // Only logged: the state it leads to is what is shared (share_states).
+    if (!(c->x[2] & 1) || !link::in_session()) return 0;
     const uint64_t story_obj = story();
     const uint32_t id = static_cast<uint32_t>(c->x[1]) & 0xffff;
     if (!story_obj || c->x[0] != story_obj || id - 1 >= kQuestMax || quest_flag(c, story_obj, id)) return 0;
-    const uint8_t state = quest_state(c, story_obj, id);
-    link::share(wire::Type::StoryFlag, wire::Writer(link::self()).u16(static_cast<uint16_t>(id)).u8(state).take());
-    NXLOG_I(kTag, "Co-op story: quest %u flag set here (state %u), shared", id, state);
+    NXLOG_I(kTag, "Co-op story: quest %u flag set here (from main+0x%llx)", id, static_cast<unsigned long long>(c->x[30] - base()));
     return 0;
 }
 
@@ -231,14 +239,24 @@ int on_quest_effect(::Ctx* c) {
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
-void on_flag_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
-    const uint16_t quest = r.u16();
-    const uint8_t state = r.u8();
-    if (!r.ok() || quest - 1u >= kQuestMax) return;
-    if (const uint64_t story_obj = story())
-        NXLOG_I(kTag, "Co-op story: quest %u flag received (state %u there, %u here)", quest, state, quest_state(c, story_obj, quest));
-    st().flags.push_back({quest, state, qpc::seconds()});
-    apply_flags(c);
+void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
+    State& s = st();
+    const uint16_t n = r.u16();
+    const uint64_t words = quest_words();
+    unsigned ahead = 0;
+    for (uint16_t k = 0; k < n && r.ok(); ++k) {
+        const uint16_t id = r.u16();
+        const uint8_t state = r.u8();
+        if (!r.ok() || id - 1u >= kQuestMax || state <= s.target[id - 1]) continue;
+        s.target[id - 1] = state;
+        const uint8_t here = words ? static_cast<uint8_t>(guest::rd<uint16_t>(words + (id - 1u) * 2)) : 0;
+        if (here < state) {
+            ++ahead;
+            if (n <= 8) NXLOG_I(kTag, "Co-op story: quest %u at state %u on node %u, %u here", id, state, origin, here);
+        }
+    }
+    if (n > 8) NXLOG_I(kTag, "Co-op story: %u quest states from node %u, %u ahead of this process", n, origin, ahead);
+    catch_up(c);
 }
 
 void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
@@ -253,14 +271,20 @@ void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
 }
 
 void tick(::Ctx* c) {
-    apply_flags(c);
+    catch_up(c);
+    share_states();
     share_new_abilities();
 }
 
 void on_session_change() {
-    st().flags.clear();
-    st().have_seen = false;
+    State& s = st();
+    std::memset(s.target, 0, sizeof s.target);
+    std::memset(s.logged, 0, sizeof s.logged);
+    s.send_all = true;
+    s.have_seen = false;
 }
+
+void on_member_joined() { st().send_all = true; }
 
 void reset() { st() = State{}; }
 

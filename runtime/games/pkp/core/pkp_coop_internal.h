@@ -67,16 +67,18 @@ namespace story {
 int on_mask_start(::Ctx* c);     // midhook 0xb0f74: the mask builder's arguments
 int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online pattern
 int on_quest_state(::Ctx* c);    // entry 0x5d865c
-int on_quest_flag(::Ctx* c);     // entry 0x5d8774
+int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged only
 int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
 // The messages (pkp_coop_link.cpp).
-void on_flag_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_states_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
-// Applies the received flags this process has caught up with and shares the ability bits that turned on here (once a frame, after
-// the channel's handlers).
+// Moves the quests behind another member's state one step on, shares the quest states and ability bits that rose here (once a frame,
+// after the channel's handlers).
 void tick(::Ctx* c);
-// This process joined or left a session: received flags still waiting belong to the old one.
+// This process joined or left a session: the other members' states are learnt again, and all of this process's are sent.
 void on_session_change();
+// Another member joined: all of this process's quest states are sent again, so the newcomer catches up.
+void on_member_joined();
 void reset();
 }  // namespace story
 

@@ -39,8 +39,7 @@ enum class Site : uintptr_t {
     TalkEnd,          // the end of a talk's event chain: the lock of that talk slot is given back
     QuestState,       // a story quest's state is set: every write comes from the quest pump's own steps, which every process runs on
                       // the flag alone, so nothing is sent; a write from anywhere else is logged once
-    QuestFlag,        // a story quest's flag is set here: shared with the state it was made in, through the authority to every member;
-                      // a received set is applied through this same setter, marked so it is not shared again
+    QuestFlag,        // a story quest's flag is set here: logged (the quests' states are what is shared, pkp_coop_story.cpp)
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
