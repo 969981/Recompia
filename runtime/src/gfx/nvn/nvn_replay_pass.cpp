@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Render passes of the replay: dynamic rendering begun lazily on the current targets, ended with or without a barrier (tracked barriers).
 #include "nvn_replay_internal.h"
+#include "nxrt/diag.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -141,6 +142,32 @@ float attach_targets(bool fix) {
     return lo;
 }
 
+// Crash report section: the attachments of the last pass begun. A driver that faults inside vkCmdBeginRendering (#720: Intel Iris Plus,
+// igvk64.dll reading 0x68 at world entry) leaves no other trace of what the pass held. Only plain values copied at the pass's start are
+// read (the freeze dump runs this on a live game, where a texture of an ended pass may be freed). Read without a lock: best effort.
+static Pass::Note note_of(const Texture* t) {
+    if (!t) return {};
+    return {t->id, t->fmt ? t->fmt->name : nullptr, t->b.width, t->b.height, t->levels};   // fmt->name: the static format table
+}
+
+static std::string pass_report() {
+    auto target = [](const Target& tg, const Pass::Note& n, bool no_view, VkFormat f) {
+        char b[200];
+        if (!n.id) return std::string("none");
+        std::snprintf(b, sizeof b, "texture %u (%s %dx%d, %u levels), level %u, layer %u+%u, format %d%s", n.id, n.fmt ? n.fmt : "?", n.w, n.h,
+                      n.levels, tg.level, tg.layer, tg.layers, static_cast<int>(f), no_view ? ", NO VIEW (null in the pass)" : "");
+        return std::string(b);
+    };
+    char b[200];
+    std::snprintf(b, sizeof b, "last render pass begun (%s): %u colour slot(s), %ux%u, %u layer(s), %u sample(s), scale %.3f, depth %s\n", P.open ? "open" : "ended or not begun",
+                  P.ncolor, P.extent.width, P.extent.height, P.layers, P.samples, P.scale, P.depth_ro ? "read-only" : "written");
+    std::string out = b;
+    for (uint32_t i = 0; i < P.ncolor && i < 8; ++i)
+        out += "  colour " + std::to_string(i) + ": " + target(P.color[i], P.note[i], (P.no_view >> i) & 1, P.color_fmt[i]) + "\n";
+    out += "  depth: " + target(P.depth, P.note[8], P.depth_no_view, P.depth_fmt) + (P.has_stencil ? " (with stencil)" : "") + "\n";
+    return out;
+}
+
 // Starts a pass on the current render targets if none is open for them. False when there is nothing to render to. fbl: the colour slots
 // that are in the feedback loop layout (a pass in another layout mode is ended: the layouts and the pipelines' feedback flag go together).
 bool ensure_pass(bool depth_ro, uint8_t fbl) {
@@ -150,6 +177,8 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         P.targets_gen = S.targets_gen;
         return true;
     }
+    static const bool report_registered = (diag_add_report(pass_report), true);   // crash report and freeze dump
+    (void)report_registered;
     end_pass(true);
     if (!g_bar.pending.empty()) {
         bool conflict = false;
@@ -178,13 +207,17 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         Texture* t = S.color_tex[i].get();
         P.color[i] = make_target(t, S.color_view[i], S.color_has_view[i]);
+        if (i < 8) P.note[i] = note_of(t);
         if (!t || !tex_gpu(t)) continue;
         const bool fresh = tex_layout(t) == VK_IMAGE_LAYOUT_UNDEFINED;
         const VkImageLayout cl = color_layout(fbl, i);
         tex_transition_attach(t, *F, cl, P.color[i].level);   // the pass writes this level only (tex_write_gen: the feedback copies)
         tex_mark_gpu_written(t, static_cast<int>(P.color[i].level));
         VkImageView v = tex_attachment_view(t, P.color[i].level, P.color[i].layer, P.color[i].layers, P.color[i].view_format);
-        if (!v) continue;
+        if (!v) {
+            P.no_view |= static_cast<uint8_t>(1u << i);
+            continue;
+        }
         colors[i].imageView = v;
         colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -197,6 +230,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
     }
     Texture* dt = S.depth_tex.get();
     P.depth = make_target(dt, S.depth_view, S.depth_has_view);
+    P.note[8] = note_of(dt);
     bool have_depth = false;
     if (dt && tex_gpu(dt)) {
         const bool fresh = tex_layout(dt) == VK_IMAGE_LAYOUT_UNDEFINED;
@@ -218,6 +252,8 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             extent.height = std::min(extent.height, e.height);
             have_depth = true;
             any = true;
+        } else {
+            P.depth_no_view = true;
         }
     }
     if (!any && g_xfb.active && device().features().transform_feedback) {   // a stream-out pass without attachments
@@ -235,6 +271,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         if (colors[i].imageView) layer_count = std::min(layer_count, std::max<uint32_t>(1, P.color[i].layers));
     if (have_depth) layer_count = std::min(layer_count, std::max<uint32_t>(1, P.depth.layers));
     ri.layerCount = layer_count == UINT32_MAX ? 1 : layer_count;
+    P.layers = ri.layerCount;
     uint32_t last = 0;
     for (uint32_t i = 0; i < S.ncolor; ++i)
         if (colors[i].imageView) last = i + 1;

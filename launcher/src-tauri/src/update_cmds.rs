@@ -13,7 +13,7 @@ use crate::guard::{ensure_idle, Need};
 use crate::paths::{exe_dir, launcher_path};
 use crate::relay_cmds::stop_relay;
 use crate::releases::{self, Channel};
-use crate::{rollback, update};
+use crate::{rollback, setuplog, update};
 
 /// The version updates compare with. None: a dev build, which takes none.
 pub fn update_version(app: &AppHandle) -> Option<String> {
@@ -55,7 +55,18 @@ pub fn releases_for(app: &AppHandle, refresh: bool, channel: Channel) -> Vec<rel
     releases::load_releases(&app.releases(), &cache, &app.package_info().version.to_string(), refresh, channel)
 }
 
+/// An update, with its phases and its error in setup.log: otherwise the error lives only in the dialog, and a player's report of it
+/// comes with a setup.log that ends at the last update that worked.
 pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>) -> Result<(), String> {
+    let log = setuplog::SetupLog::open(&game_dir(app));
+    let r = update_steps(app, st, wanted, &log);
+    if let Err(e) = &r {
+        log.line(&format!("=== Update stopped: {e}"));
+    }
+    r
+}
+
+fn update_steps(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>, log: &setuplog::SetupLog) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
     // Set up builds in the game folder the update prepares in. The game may run: the update downloads and prepares meanwhile, and
     // waits for it to close before files move (`busy`, asked until then)
@@ -79,7 +90,14 @@ pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Want
         launcher: launcher_path().ok_or("Could not find the launcher's own file.")?,
         game_dir: game_dir(app),
     };
+    log.line(&format!("=== Update from v{version} to {}: started in {}", target.tag, paths.install.display()));
+    // one line per phase; the game build's own steps go to the log through GameStep
+    let mut phase = String::new();
     let mut report = |p: update::Progress| {
+        if p.phase != phase {
+            phase.clone_from(&p.phase);
+            log.line(&format!("update: {phase}"));
+        }
         let _ = app.emit("update-progress", p);
     };
     // an older build: the player's data is copied first (rollback.rs), after the download and right before the files move; if the copy

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.14.1 (build R: Raccoon Hotfix a1)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Graphics
+- Fixed a post-processing effect of the game not being drawn at low render scales (below about 53%, such as 75% in a 1280x720 window) (#720)
+- Changed a crash report: it now lists the render targets the game was drawing to when it crashed (#720)
+
+### Launcher
+- Changed an update that stops: it now writes its error to setup.log, with the step it reached
+
 ## 0.14.0 (build R: Raccoon)
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets two new hook points and is linked again; saves and shaders are kept, no shader is translated again).
