@@ -78,20 +78,21 @@ body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-title);
 }
-.brand > :not(.brand-switch), .brand-switch > * { pointer-events: none; }
-/* the brand block is the game switcher (main.js brandHtml): the shown game's pictures as one button, its menu under it */
-.brand-switch {
-  display: flex; align-items: center; gap: var(--space-3); min-width: 0; height: 100%; padding: 0 var(--space-2); margin-inline: calc(-1 * var(--space-2));
-  border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: pointer;
-  transition: background var(--dur) var(--ease);
+.brand > * { pointer-events: none; }
+/* one tab per game under the brand (main.js brandHtml, games.js): Solo and Co-op side by side, the shown one lit */
+.game-tabs {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; margin: calc(-1 * var(--space-1)) 0 var(--space-3); padding: 3px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-1);
 }
-.brand-switch:hover, .brand-switch[aria-expanded="true"] { background: var(--surface-2); }
-.brand-more { width: 14px; height: 14px; flex: none; opacity: .6; }
-/* a game with no art of its own yet (games.js `badge`): its word beside the shared wordmark, and on the mark in the rail */
-.brand-badge { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-accent); color: var(--color-bg, #fff); font-size: 11px; font-weight: var(--weight-bold); letter-spacing: .04em; white-space: nowrap; }
-.game-menu { display: flex; flex-direction: column; gap: 2px; margin: calc(-1 * var(--space-2)) 0 var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--surface-2); }
-.game-menu[hidden] { display: none; }
-.game-mark { width: 20px; height: 20px; flex: none; object-fit: contain; }
+.game-tab {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-2);
+  border: 0; border-radius: calc(var(--radius-sm) - 3px); background: none; color: var(--color-text-2); font: inherit; font-size: var(--text-sm);
+  font-weight: var(--weight-semi); cursor: default; transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.game-tab:hover { color: var(--color-text); background: var(--surface-1); }
+.game-tab[aria-pressed="true"] { background: var(--color-accent); color: var(--color-on-accent); }
+.game-tab .icon { width: 16px; height: 16px; flex: none; }
+.game-tab .nav-tip { display: none; }
 .brand-logo { height: 28px; width: auto; }
 .brand-mark { display: none; width: 26px; height: 26px; flex: none; object-fit: contain; }
 /* The Testing channel: the Testing mark (and a small tag next to the wordmark) replace the Stable look. [data-channel] is set by main.js. */
@@ -485,6 +486,16 @@ dialog.modal {
   border-radius: var(--radius-lg);
   animation: modal-in var(--dur) var(--ease);
 }
+dialog.modal.wide { width: min(540px, calc(100vw - var(--space-8))); }
+/* formDialog (ui.js): labelled fields stacked, the reason OK cannot be pressed under them */
+.form-field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.form-field .input { width: 100%; }
+.form-field .hint { color: var(--color-text-2); font-weight: normal; font-size: var(--text-xs); }
+textarea.input { height: auto; min-height: 88px; padding-block: var(--space-2); resize: none; font-family: var(--font-mono, monospace); font-size: var(--text-xs); line-height: 1.4; word-break: break-all; user-select: text; -webkit-user-select: text; }
+.modal-body .form-error { color: var(--color-danger); font-size: var(--text-sm); }
+.modal-body textarea.input { width: 100%; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-3); }
+.form-error[hidden] { display: none; }
 dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var(--dur) var(--ease); }
 .modal-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-6) var(--space-6) var(--space-5); }
 .modal-body p { color: var(--color-text-2); }
@@ -519,14 +530,14 @@ dialog.modal::backdrop { background: var(--backdrop); animation: backdrop-in var
 @media (max-width: 999.98px) {
   #nav { align-items: center; padding-inline: var(--space-2); }
   .brand { justify-content: center; width: 100%; padding: 0; }
-  .brand-name, .brand-tag, .brand-more, .nav-label { display: none !important; }
-  .brand-switch { position: relative; justify-content: center; width: 44px; margin: 0; padding: 0; }
-  .brand-badge { position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); padding: 0 4px; font-size: 9px; }
+  .brand-name, .brand-tag, .nav-label { display: none !important; }
+  .game-tabs { grid-auto-flow: row; width: 44px; padding: 2px; }
+  .game-tab { width: 100%; height: 36px; padding: 0; }
   .brand-mark { display: block; }
   :root[data-channel="testing"] .brand-mark { display: none; }
   .nav-item { justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-sm); }
   .nav-dot { position: absolute; top: 8px; right: 8px; margin: 0; }
-  .nav-item:is(:hover, :focus-visible) .nav-tip {
+  :is(.nav-item, .game-tab):is(:hover, :focus-visible) .nav-tip {
     position: absolute;
     top: 50%;
     left: calc(100% + var(--space-4));

@@ -144,8 +144,6 @@ function back() {
     return;
   }
   if (frame) return leave(frame, null);   // out of the frame first; B again then goes Home
-  const menu = document.getElementById('game-menu');
-  if (menu && !menu.hidden) return document.getElementById('game-btn').click();   // the game switcher's menu closes first
   const home = document.querySelector('#nav [data-home]');   // the shown game's Home (games.js `home`)
   if (home && !home.hasAttribute('aria-current')) home.click();   // from any other page, B goes Home
 }

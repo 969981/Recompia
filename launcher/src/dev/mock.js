@@ -132,6 +132,7 @@ let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
 let mockLook = { logo: '', icon: '' };
+let mockGame = params.get('game') || '';   // launcher.json `game` (games.js); &game=coop opens Recompia: Co-op
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
@@ -150,8 +151,25 @@ const mockBackups = [
   { version: 1, name: '20261108-143000-auto', created: '2026-11-08T19:30:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825792, hash: 'a' },
   { version: 1, name: '20261108-142000-auto', created: '2026-11-08T19:20:00Z', kind: 'auto', key: 'k', profile: 'Player', files: 6, bytes: 17825000, hash: 'b' },
 ];
-const coopView = (name, members, me) => ({ profile: { id: `c${name}`, name, members, me, relay: '192.0.2.10:47610' }, host: { host: members[0].id, role: members[0].id === me ? 'host' : 'visit' }, folder: `D:/Games/coop-saves/c${name}` });
-const mockCoop = [coopView('Island', [{ id: 'a1', name: 'Ash' }, { id: 'b2', name: 'Misty' }], 'b2')];
+// co-op saves as coop_cmds.rs CoopView sends them. &coop=<state>: none | solo (one player) | many (default: one joined, one made here) |
+// long (long names) | mismatch (the last start found a host with other mods) | build (another version)
+const coopState = params.get('coop') || 'many';
+const ASH = { id: 'a1', name: 'Ash' }, MISTY = { id: 'b2', name: 'Misty' }, BROCK = { id: 'c3', name: 'Brock' }, DAWN = { id: 'd4', name: 'Dawn' };
+const coopView = (name, members, me, { hostId = members[0].id, peers = false, savedAt = 0 } = {}) => ({
+  profile: { version: 1, id: `c${name.replace(/\W/g, '').toLowerCase()}`, name, account_uid: '0'.repeat(32), room_code: 'K7QM-2XRA-9DPH-TV4E', relay: '192.0.2.10:47610', members, me },
+  host: { host: hostId, role: hostId === me ? 'host' : 'visit', own: { seq: 0, saved_at: savedAt }, peers_known: peers },
+  folder: `D:/Games/coop-saves/c${name}`, creator: members[0].id === me, saved_at: savedAt, created: 1763300000,
+});
+const mockCoop = {
+  none: [],
+  solo: [coopView('Our island', [ASH], 'a1')],
+  many: [coopView('Island', [ASH, MISTY], 'b2', { savedAt: 1763390000 }), coopView('Beach weekend', [ASH, BROCK, DAWN], 'a1', { hostId: 'c3', peers: true, savedAt: 1763200000 })],
+  long: [coopView('The very long island name', [{ id: 'a1', name: 'Bartholomew the 3rd' }, { id: 'b2', name: 'Maximiliana Rose' }, { id: 'c3', name: 'Christopherson' }, { id: 'd4', name: 'Anastasia-Marie' }], 'b2')],
+  mismatch: [coopView('Island', [ASH, MISTY], 'b2', { savedAt: 1763390000 })],
+  build: [coopView('Island', [ASH, MISTY], 'b2', { savedAt: 1763390000 })],
+}[coopState] ?? [];
+const coopFinding = coopState === 'mismatch' ? { mismatch: 'mods', own_mods: 'bigger_stacks@1.1.0' } : coopState === 'build' ? { mismatch: 'build', own_mods: '' } : null;
+const MOCK_INVITE = { id: 'cmistyisland', members: [{ id: 'z9', name: 'Gary' }, MISTY, BROCK] };
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
 const mockPlayTimes = { default: 13104 };   // 3 h 38 min; a profile added in the mock has none yet
 
@@ -452,8 +470,8 @@ function handle(cmd, args) {
     case 'open_setup_log': case 'open_game_file': case 'open_game_dir': case 'open_save_dir': case 'open_link':
       console.info('[mock] open', cmd, args);
       return null;
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockLook, ...mockOnline };
-    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockLook = { logo: args.config.logo ?? '', icon: args.config.icon ?? '' };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockLook, ...mockOnline, game: mockGame };
+    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockLook = { logo: args.config.logo ?? '', icon: args.config.icon ?? '' }; mockGame = args.config.game ?? mockGame;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;
@@ -516,13 +534,25 @@ function handle(cmd, args) {
     case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
     case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'coop_list': return structuredClone(mockCoop);
-    case 'coop_create': mockCoop.push(coopView(args.name, [{ id: 'a1', name: args.myName }], 'a1')); return structuredClone(mockCoop);
+    case 'coop_create': {
+      if (mockCoop.some((c) => c.profile.name.toLowerCase() === args.name.toLowerCase())) throw `There is already a co-op save called ${args.name}.`;
+      mockCoop.push(coopView(args.name, [{ id: `m${mockCoop.length}a`, name: args.myName }], `m${mockCoop.length}a`));
+      return structuredClone(mockCoop);
+    }
     case 'coop_add_member': mockCoop.find((c) => c.profile.id === args.id).profile.members.push({ id: `m${Date.now()}`, name: args.name }); return structuredClone(mockCoop);
     case 'coop_remove_member': { const m = mockCoop.find((c) => c.profile.id === args.id).profile.members; m.splice(m.findIndex((x) => x.id === args.member), 1); return structuredClone(mockCoop); }
-    case 'coop_invite': return 'PKCOOP1.mock';
-    case 'coop_invite_members': return args.invite === 'PKCOOP1.mock' ? [{ id: 'a1', name: 'Ash' }, { id: 'b2', name: 'Misty' }] : [];
-    case 'coop_accept': throw new Error('This is not a co-op invite.');
-    case 'coop_play': console.info('[mock] co-op play', args.id); return null;
+    case 'coop_invite': return `PKCOOP1.eyJpZCI6IiR7YXJncy5pZH0iLCJuYW1lIjoiSXNsYW5kIiwiYWNjb3VudF91aWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsInJvb21fY29kZSI6Iks3UU0tMlhSQS05RFBILVRWNEUiLCJyZWxheSI6IjE5Mi4wLjIuMTA6NDc2MTAi${args.id}`;
+    case 'coop_invite_members': return args.invite.startsWith('PKCOOP1.') && args.invite.length > 12 ? structuredClone(MOCK_INVITE) : null;
+    case 'coop_accept': {
+      if (!args.invite.startsWith('PKCOOP1.')) throw 'This is not a co-op invite.';
+      const have = mockCoop.find((c) => c.profile.id === MOCK_INVITE.id);
+      if (have) { have.profile.members = structuredClone(MOCK_INVITE.members); return structuredClone(mockCoop); }
+      mockCoop.push({ ...coopView("Gary's island", structuredClone(MOCK_INVITE.members), args.member), profile: { ...coopView('x', MOCK_INVITE.members, args.member).profile, id: MOCK_INVITE.id, name: "Gary's island" } });
+      return structuredClone(mockCoop);
+    }
+    case 'coop_delete': mockCoop.splice(mockCoop.findIndex((c) => c.profile.id === args.id), 1); return structuredClone(mockCoop);
+    case 'coop_last_run': return coopFinding;
+    case 'coop_play': console.info('[mock] co-op play', args); return runPlay();
     case 'profiles_list': return structuredClone(mockProfiles);
     case 'profiles_play_time': return { ...mockPlayTimes };
     case 'profile_add': mockProfiles.profiles.push({ id: `p${mockProfiles.profiles.length}`, name: args.name, uid: '', nickname: args.name, net_uid: '' }); return structuredClone(mockProfiles);

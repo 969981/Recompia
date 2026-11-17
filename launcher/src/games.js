@@ -2,9 +2,10 @@
 // the sidebar offers, which picture and name the brand block shows, which Settings rows apply and whose mod set the Mods page edits. The
 // Rust side does not know them; the choice is launcher.json `game` (config.rs), read by main.js. A later game is another row here.
 //
-// Row: { id, name, badge, home, pages, mods, install }
-//   name   the full name, in the switcher and the page titles ('Recompia' is a name and stays in English)
-//   badge  the short word beside the shared wordmark while the game has no art of its own (branding.js), or ''
+// Row: { id, name, tab, icon, home, pages, mods, install }
+//   name   the full name, for screen readers and messages ('Recompia' is a name and stays in English)
+//   tab    the short word on the game's tab at the top of the sidebar (main.js): the two tabs are how a player finds co-op
+//   icon   the tab's icon (ui.js icon name)
 //   home   the page the game opens on (and the pad's B goes back to)
 //   pages  the page ids of main.js PAGES it offers, in no particular order (the sidebar keeps PAGES' order)
 //   mods   whose mod set the Mods page edits: 'profiles' (the global defaults or a singleplayer profile) or 'coop' (one co-op group)
@@ -16,12 +17,12 @@ import { t } from './i18n.js';
 
 export const GAMES = [
   {
-    id: 'recompia', name: 'Recompia', badge: '', home: 'home', mods: 'profiles', install: true,
+    id: 'recompia', name: 'Recompia', tab: t('Solo'), icon: 'user', home: 'home', mods: 'profiles', install: true,
     pages: ['home', 'linkplay', 'mods', 'achievements', 'saveedit', 'news', 'settings', 'setup'],
   },
   {
     // co-op saves are played only from here (coop_save.rs refuses one as the singleplayer save); the install itself is Recompia's
-    id: 'coop', name: t('Recompia: Co-op'), badge: t('Co-op'), home: 'coop', mods: 'coop', install: false,
+    id: 'coop', name: t('Recompia: Co-op'), tab: t('Co-op'), icon: 'users', home: 'coop', mods: 'coop', install: false,
     pages: ['coop', 'mods', 'news', 'settings'],
   },
 ];

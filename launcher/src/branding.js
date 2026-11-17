@@ -14,7 +14,7 @@ const RECOMPIA_ART = {
   'mark-testing': { recompia: markTestingUrl, classic: markTestingClassicUrl },
 };
 
-/** Each game's pictures (games.js ids). Co-op has no art of its own yet: it shows Recompia's, with its badge (games.js) beside them. */
+/** Each game's pictures (games.js ids). Co-op has no art of its own yet: it shows Recompia's; the sidebar tabs (main.js) say which game is shown. */
 const GAME_ART = { recompia: RECOMPIA_ART, coop: RECOMPIA_ART };
 
 /** Which choice each picture follows: the wordmark the logo, the square marks the icon. */
