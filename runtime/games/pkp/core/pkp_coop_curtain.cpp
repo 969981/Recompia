@@ -3,7 +3,7 @@
 // member joins or leaves the host's world. What it hides is the game's own Link Play travel (the PC, the transfer, the landing) and
 // the warp next to the host, which seamless co-op makes without the game's menus. The session part (pkp_coop_session.cpp) says when;
 // this part only fades and draws. It is the co-op feature's overlay layer, drawn over the picture and under the overlay's own menu.
-// A line under the text after kHintAfter seconds: a dialog of the game's that waits for A may sit under a long cover.
+// A second, dimmer line (hint) is set by the session part where a dialog of the game's that waits for A may sit under the cover.
 #include "core/pkp_coop_internal.h"
 
 #include <algorithm>
@@ -18,15 +18,13 @@ namespace nxrt::games::pkp::coop::curtain {
 
 namespace {
 
-constexpr double kFade = 0.3;        // seconds to fade in or out
-constexpr double kHintAfter = 10.0;  // the hint line shows once the cover has been up this long
-constexpr const char* kHint = "Taking long? Press A";
+constexpr double kFade = 0.3;   // seconds to fade in or out
 constexpr double kNever = std::numeric_limits<double>::infinity();
 
 struct State {
     std::mutex m;
     double cover_at = -kNever, lift_at = -kNever;   // lift_at: when the fade out starts (kNever: held)
-    std::string text;
+    std::string text, hint;
 };
 State& st() {
     static State s;
@@ -54,6 +52,13 @@ void cover(const char* text) {
     else if (s.lift_at != kNever) s.cover_at = now - a * kFade;   // fading out: back in from the opacity it has now
     s.lift_at = kNever;
     s.text = text;
+    s.hint.clear();
+}
+
+void hint(const char* text) {
+    State& s = st();
+    std::lock_guard<std::mutex> lock(s.m);
+    s.hint = text;
 }
 
 void lift(double after) {
@@ -78,13 +83,14 @@ bool overlay_active() {
 void overlay_draw(gfx::OverlayCanvas& c) {
     State& s = st();
     double a, up;
-    std::string text;
+    std::string text, hint;
     {
         std::lock_guard<std::mutex> lock(s.m);
         const double now = qpc::seconds();
         a = alpha(s, now);
         up = now - s.cover_at;
         text = s.text;
+        hint = s.hint;
     }
     if (a <= 0.0) return;
     const float w = c.width(), h = c.height(), lh = c.line_height();
@@ -93,7 +99,7 @@ void overlay_draw(gfx::OverlayCanvas& c) {
     const std::string shown = text + std::string(static_cast<size_t>(dots), '.');
     const float tw = c.text_width((text + "...").c_str());
     c.text((w - tw) * 0.5f, h * 0.5f - lh, rgba(0xffffff, a), shown.c_str());
-    if (up >= kHintAfter) c.text((w - c.text_width(kHint)) * 0.5f, h * 0.5f + lh * 0.5f, rgba(0xa0a0a0, a), kHint);
+    if (!hint.empty()) c.text((w - c.text_width(hint.c_str())) * 0.5f, h * 0.5f + lh * 0.5f, rgba(0xa0a0a0, a), hint.c_str());
 }
 
 void reset() {
@@ -101,6 +107,7 @@ void reset() {
     std::lock_guard<std::mutex> lock(s.m);
     s.cover_at = s.lift_at = -kNever;
     s.text.clear();
+    s.hint.clear();
 }
 
 }  // namespace nxrt::games::pkp::coop::curtain

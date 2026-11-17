@@ -21,11 +21,13 @@
 // quest active for one of them, a condition met in one process: the grass built by another player, a talk started by another) is
 // still made on every process, with that process's own effects and rewards. Sharing flag sets instead (as before) lost every step
 // whose receiver was not in exactly the sender's state at that moment.
-// The catch-up moves one quest at a time, the lowest id first, and waits for the pump to step it before it flags the next: quests whose
-// prerequisites are behind get them first, and a quest another quest's effect closes (effect 0x15) is closed by that effect rather
-// than pumped through effects the source never ran. A flag the pump leaves for kStall seconds (the quest is in none of its lists: another
-// stage, a prerequisite unmet, a cutscene) is logged and that quest is passed over for kStallSkip seconds. It runs only while the game's
-// own session is up (on a member: in the host's world), the same condition the world effects' skip uses.
+// The catch-up moves one quest at a time, the lowest id first, and waits for the pump to step it before it flags the next, so a quest
+// another quest's effect closes (effect 0x15) has a chance to be closed by that effect before it is pumped itself (id order is not
+// known to follow the story's order; it is only the usual case). The pump runs every frame, so a step it will make comes within
+// frames: a flag it leaves for kStall seconds (the quest is in none of its lists: another stage, a prerequisite unmet, a cutscene) is
+// passed over, for kStallSkip seconds doubled on each stall of that quest up to kStallSkipMax, so quests that cannot move never hold up
+// the ones that can. The flag stays set: the pump takes it whenever the quest can move. It runs only while the game's own session is
+// up (on a member: in the host's world), the same condition the world effects' skip uses.
 // The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
 // the ability bits). A member behind it catches up as above; a member ahead of it sends all its states again (a rise lost on the way is
 // sent once more); ability bits are merged both ways. So two saves that drifted apart for any reason are brought together within
@@ -41,9 +43,9 @@
 // id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
 // 0x12c35c (the Pokedex talk sets ids 17 and 76 through one of the latter two). So the bits themselves are
 // watched, not a writer: once a frame in the session, every bit that turned on here since the last look is shared as an effect 0x19
-// "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline: what a
-// member already had before joining is not sent. A bit turned off is not shared (no writer clears one in the story; the saves seen only
-// grow).
+// "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline; what a
+// member had before joining reaches the others through the digest (below), which merges the bits both ways. A bit turned off is not
+// shared (no writer clears one in the story; the saves seen only grow).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -82,7 +84,7 @@ constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
 constexpr unsigned kAbilitySlots = 8;   // command 0x01: u16 ids at +2, +4, .. +0x10
 constexpr unsigned kAbilityBytes = wire::kAbilityBytes;
 constexpr double kDigestEvery = 5.0;                 // the authority's whole story to every member
-constexpr double kStall = 10.0, kStallSkip = 30.0;   // a catch-up flag left by the pump this long: passed over for kStallSkip
+constexpr double kStall = 1.0, kStallSkip = 5.0, kStallSkipMax = 120.0;   // a catch-up flag the pump leaves: passed over
 constexpr double kNoticeGap = 4.0;                   // at most one "moved the story on" line per this many seconds
 constexpr uint8_t kComplete = 3;
 
@@ -99,6 +101,7 @@ struct State {
     uint8_t logged[kQuestMax] = {};    // per quest: the target the catch-up was last logged for
     bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
     double stall_until[kQuestMax] = {};   // per quest: passed over by the catch-up until then
+    uint8_t stalls[kQuestMax] = {};       // per quest: how often the pump left its flag (the skip doubles each time)
     uint32_t stepping = 0;                // the quest the catch-up flagged last (id), and its state then
     uint8_t stepping_state = 0;
     double stepping_since = 0.0;
@@ -196,10 +199,12 @@ void catch_up(::Ctx* c) {
             s.stepping_state = state;
             s.stepping_since = now;
         } else if (now - s.stepping_since > kStall) {
-            s.stall_until[i] = now + kStallSkip;
+            const double skip = std::min(kStallSkipMax, kStallSkip * static_cast<double>(1u << std::min<unsigned>(s.stalls[i], 5)));
+            s.stall_until[i] = now + skip;
             s.stepping = 0;
-            NXLOG_W(kTag, "Co-op story: quest %u stays at state %u here (the pump does not step it; %u wanted); trying again in %.0f s",
-                    id, state, s.target[i], kStallSkip);
+            if (s.stalls[i]++ == 0)
+                NXLOG_W(kTag, "Co-op story: quest %u stays at state %u here (the pump does not step it yet; %u wanted); passed over for now",
+                        id, state, s.target[i]);
             continue;
         }
         if (s.logged[i] != s.target[i]) {
@@ -448,6 +453,7 @@ void on_session_change() {
     std::memset(s.target, 0, sizeof s.target);
     std::memset(s.logged, 0, sizeof s.logged);
     std::fill(std::begin(s.stall_until), std::end(s.stall_until), 0.0);
+    std::memset(s.stalls, 0, sizeof s.stalls);
     s.stepping = 0;
     s.digest_at = 0.0;
     s.send_all = true;

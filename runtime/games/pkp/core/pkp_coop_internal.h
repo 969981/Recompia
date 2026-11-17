@@ -137,6 +137,7 @@ namespace curtain {
 // Covers the picture (fading in) with a line of text, until lift; lift(after) keeps it up that much longer first. Game thread.
 void cover(const char* text);
 void lift(double after = 0.0);
+void hint(const char* text);   // a second line under the text, until the next cover
 bool covered();   // up and fully opaque: what it hides is not seen
 // The overlay's presenting thread (the feature's overlay layer).
 bool overlay_active();

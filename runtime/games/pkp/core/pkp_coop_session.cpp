@@ -22,9 +22,10 @@
 // A visitor's search that finds nothing (the host not up yet) is made again every kSearchWait, not on the growing backoff: a search costs
 // nothing, and a visitor started before the host would otherwise wait up to kMaxWait after the host is up.
 // The curtain (pkp_coop_curtain.cpp) covers a visitor's travel: from the join request until it can walk in the host's world (at most
-// kArrivalCover after the session is up: a dialog of the game's may wait for A there), and again around the warp, which waits for the
-// cover to be opaque (at most kWarpWait). When the session ends it covers the trip home until the player's world has loaded and the
-// player is back in play (at most kLeaveCover).
+// kArrivalCover after the session is up: a dialog of the game's may wait for A there, so a hint says so from kHintAfter), and again
+// around the warp, which waits for the cover to be opaque (at most kWarpWait). When the session ends it covers the trip home until the
+// player's world has loaded and the player is back in play (at most kLeaveCover; the game's own error popup when the host quits waits
+// for A under it, so the hint shows at once).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -48,9 +49,10 @@ constexpr uint32_t kSmSearched = 1u << 4;
 
 constexpr double kFirstWait = 3.0, kMaxWait = 30.0;      // backoff between tries
 constexpr double kSearchWait = 2.0;                      // between a visitor's searches that found nothing
-constexpr double kArrivalCover = 16.0, kWarpWait = 1.0, kWarpHold = 0.6, kLeaveCover = 10.0;
+constexpr double kArrivalCover = 16.0, kHintAfter = 6.0, kWarpWait = 1.0, kWarpHold = 0.6, kLeaveCover = 6.0;
 constexpr const char* kJoiningText = "Joining your group";
 constexpr const char* kLeavingText = "Leaving the group";
+constexpr const char* kHint = "Taking long? Press A";
 constexpr double kOpenTimeout = 30.0, kSearchTimeout = 15.0, kJoinTimeout = 45.0;
 
 constexpr uint64_t kWarp = 0x275760;
@@ -161,6 +163,8 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
             curtain::cover(kJoiningText);   // up already, or back for the warp
         } else if (now - s.up_at > kArrivalCover) {
             curtain::lift();
+        } else if (now - s.up_at > kHintAfter) {
+            curtain::hint(kHint);
         }
         return;
     }
@@ -223,6 +227,7 @@ void tick(::Ctx* c, bool in_game) {
             s.left_world = false;
             s.left_at = now;
             curtain::cover(kLeavingText);
+            curtain::hint(kHint);
         }
         NXLOG_W(kTag, "Co-op session (%s): the session ended; starting it again once the player can walk", role_name());
         return;
