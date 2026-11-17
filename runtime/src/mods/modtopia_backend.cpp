@@ -15,6 +15,7 @@
 #include "mods_internal.h"
 #include "nxrt/audio_sink.h"
 #include "nxrt/color_matrix.h"
+#include "nxrt/diag.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/fault_guard.h"
 #include "nxrt/game.h"
@@ -173,7 +174,10 @@ const char* be_file_note(void*, const char* path) {
     return nullptr;
 }
 int64_t be_game_file_size(void*, const char* path) { return path ? services::fsapi::romfs_game_file_size(path) : -1; }
+// Patching reads the whole game file it patches before the first frame (once per mod and game build; a voice mod's 876 MB archive takes
+// well over the watchdog's 10 s), so each read is a heartbeat: slow, not frozen, and no freeze report on a mod's first launch.
 int64_t be_game_read(void*, const char* path, uint64_t offset, void* buf, uint64_t n) {
+    diag_progress();
     return path && buf ? services::fsapi::romfs_game_read(path, offset, buf, n) : -1;
 }
 
