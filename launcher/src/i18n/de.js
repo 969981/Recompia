@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': 'Wie in Solo',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': 'Alle Spieler eines Koop-Spielstands brauchen dieselben Gameplay-Mods, sonst finden sie einander nicht. Mods auf Wie in Solo folgen deinen Solo-Mods. Mods installierst und entfernst du unter Solo.',
   'Replacement game files': 'Ersatz-Spieldateien',
+  'There are no logs yet. Start the game once, then try again.': 'Es gibt noch keine Protokolle. Starte das Spiel einmal und versuche es dann erneut.',
+  'Saved {path}. Attach it to your bug report.': 'Gespeichert unter {path}. Hänge die Datei an deinen Fehlerbericht an.',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': 'Protokolle, Einstellungen und Infos zum Koop-Spielstand in einer Zip-Datei. Raumcodes und Einladungen sind nicht enthalten.',
+  'Save logs for a bug report': 'Protokolle für einen Fehlerbericht speichern',
+  'Bug report': 'Fehlerbericht',
+  'Save logs': 'Protokolle speichern',
 };

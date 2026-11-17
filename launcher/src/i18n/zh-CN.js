@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': '与单人相同',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '合作存档中的每位玩家都必须开启相同的游戏玩法模组，否则无法互相加入。保持“与单人相同”的模组会跟随你的单人模组。在“单人”中安装和移除模组。',
   'Replacement game files': '替换的游戏文件',
+  'There are no logs yet. Start the game once, then try again.': '还没有日志。请先运行一次游戏，然后重试。',
+  'Saved {path}. Attach it to your bug report.': '已保存到 {path}。请把它附在错误报告中。',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': '日志、设置和合作存档信息打包为一个 zip。不包含房间码和邀请码。',
+  'Save logs for a bug report': '保存日志用于错误报告',
+  'Bug report': '错误报告',
+  'Save logs': '保存日志',
 };

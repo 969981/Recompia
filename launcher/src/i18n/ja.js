@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': '「ひとりで」と同じ',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '協力プレイのセーブの全員が同じゲームプレイ MOD をオンにしていないと、おたがいに参加できません。「「ひとりで」と同じ」のままの MOD は「ひとりで」の MOD に従います。MOD の追加と削除は「ひとりで」で行います。',
   'Replacement game files': '差し替えるゲームファイル',
+  'There are no logs yet. Start the game once, then try again.': 'まだログがありません。ゲームを一度起動してから、もう一度お試しください。',
+  'Saved {path}. Attach it to your bug report.': '{path} に保存しました。不具合報告に添付してください。',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': 'ログ、設定、協力プレイのセーブ情報を1つのzipにまとめます。ルームコードと招待コードは含まれません。',
+  'Save logs for a bug report': '不具合報告用にログを保存',
+  'Bug report': '不具合報告',
+  'Save logs': 'ログを保存',
 };

@@ -32,6 +32,8 @@ mod home_count;
 mod host;
 mod ini;
 mod lan;
+mod logbundle;
+mod logbundle_cmds;
 mod modtopia_ffi;
 mod mods;
 mod mods_catalog;
@@ -89,6 +91,7 @@ mod update_game;
 mod update_cmds;
 mod window;
 mod writecheck;
+mod zipout;
 
 use std::sync::atomic::Ordering;
 use tauri::Manager;
@@ -217,6 +220,7 @@ fn main() {
             steam_cmds::steam_add,
             steam_cmds::steam_remove,
             open::open_game_file,
+            logbundle_cmds::save_log_bundle,
             open::open_game_dir,
             relay_cmds::relay_start,
             relay_cmds::relay_stop,

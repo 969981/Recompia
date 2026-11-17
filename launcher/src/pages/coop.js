@@ -11,6 +11,7 @@ import { formatDate } from '../markdown.js';
 import { MAX_PLAYERS, START_AS, creatorName, hosting, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine } from '../coop-model.js';
 import { askText, confirm, errText, esc, formDialog, icon, segmented, toast } from '../ui.js';
 import { store } from '../store.js';
+import { saveLogs } from '../log-bundle.js';
 import { gamePhase } from '../action.js';
 
 const busy = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
@@ -153,6 +154,7 @@ export async function render(el, ctx) {
   el.innerHTML = `<div class="page coop">
     <div class="coop-head">
       <div class="grow"><h1>${esc(t('Co-op'))}</h1><p class="coop-lead">${esc(t('Play the story together, each on your own PC. Co-op saves are kept apart from your Solo saves.'))}</p></div>
+      <div class="cluster"><button class="btn quiet" data-act="save-logs" title="${esc(t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'))}">${icon('file-archive')}${esc(t('Save logs for a bug report'))}</button></div>
       <div class="cluster" id="coop-actions">
         <button class="btn" data-act="join">${icon('log-in')}${esc(t('Join'))}</button>
         <button class="btn primary" data-act="create">${icon('plus')}${esc(t('New co-op save'))}</button>
@@ -321,6 +323,7 @@ export async function render(el, ctx) {
     const { act, id, member } = b.dataset;
     if (act === 'create') create();
     else if (act === 'join') join();
+    else if (act === 'save-logs') saveLogs();
     else if (act === 'add') addPlayer(id);
     else if (act === 'remove') removePlayer(id, member);
     else if (act === 'invite') inOrder(() => showInvite(id));

@@ -135,6 +135,7 @@ const TEXTS = [
   msg('Running the game once in the background to collect the shaders it builds while it runs (about {n1} s)...'),
   msg('Setup paused. Set up again continues where it stopped.'),
   msg('There is no setup log yet: it is written when Set up starts.'),
+  msg('There are no logs yet. Start the game once, then try again.'),
 
   // host.rs: the Linux build tools
   msg('Nothing to run the game\'s Windows programs with was found. Install Steam and its Proton (in Steam: Library, Tools, Proton Experimental), umu-launcher, or Wine.'),

@@ -653,6 +653,7 @@ export const SECTIONS = [
             actions: (env) => [{ act: 'setup-again', label: t('Set up'), icon: 'wrench', disabled: !env.canSetUp }],
           },
           { id: 'setup_log', label: t('Setup log'), type: 'info', actions: [{ act: 'setup-log', label: t('Open'), icon: 'file-text' }] },
+          { id: 'bug_report_logs', label: t('Bug report'), type: 'info', value: t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'), actions: [{ act: 'save-logs', label: t('Save logs'), icon: 'file-archive' }] },
         ],
       },
       {

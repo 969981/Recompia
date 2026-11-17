@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': 'Comme en Solo',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': 'Tous les joueurs d\'une sauvegarde coop doivent avoir les mêmes mods de jeu activés, sinon ils ne peuvent pas se rejoindre. Les mods laissés sur Comme en Solo suivent vos mods Solo. Installez et retirez les mods dans Solo.',
   'Replacement game files': 'Fichiers de jeu de remplacement',
+  'There are no logs yet. Start the game once, then try again.': 'Il n\'y a pas encore de journaux. Lancez le jeu une fois, puis réessayez.',
+  'Saved {path}. Attach it to your bug report.': 'Enregistré dans {path}. Joignez-le à votre rapport de bogue.',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': 'Journaux, réglages et infos de la sauvegarde coop dans un seul zip. Les codes de salon et les invitations n\'y figurent pas.',
+  'Save logs for a bug report': 'Enregistrer les journaux pour un rapport de bogue',
+  'Bug report': 'Rapport de bogue',
+  'Save logs': 'Enregistrer les journaux',
 };

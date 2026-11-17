@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': 'Come in Solo',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': 'Tutti i giocatori di un salvataggio co-op devono avere le stesse mod di gioco attive, altrimenti non possono unirsi. Le mod lasciate su Come in Solo seguono le tue mod Solo. Installa e rimuovi le mod in Solo.',
   'Replacement game files': 'File di gioco sostitutivi',
+  'There are no logs yet. Start the game once, then try again.': 'Non ci sono ancora log. Avvia il gioco una volta, poi riprova.',
+  'Saved {path}. Attach it to your bug report.': 'Salvato in {path}. Allegalo alla tua segnalazione di bug.',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': 'Log, impostazioni e info del salvataggio co-op in un solo zip. I codici stanza e gli inviti non sono inclusi.',
+  'Save logs for a bug report': 'Salva i log per una segnalazione di bug',
+  'Bug report': 'Segnalazione di bug',
+  'Save logs': 'Salva i log',
 };

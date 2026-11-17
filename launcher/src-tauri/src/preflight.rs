@@ -327,6 +327,14 @@ pub fn probe(game_dir: &Path, r: &Remaining) -> Facts {
     }
 }
 
+/// What this PC is, for a bug report: (GPUs, RAM bytes, CPU brand). Reads only; unlike `probe` it writes nothing to the game folder.
+pub fn machine() -> (Vulkan, Option<u64>, Option<String>) {
+    if cfg!(target_os = "macos") {
+        return (Vulkan::Gpus(Vec::new()), None, sys::cpu().0);
+    }
+    (sys::vulkan(), sys::ram_total(), sys::cpu().0)
+}
+
 /// Free bytes on the drive of `dir` (or its nearest existing parent).
 pub fn free_bytes(dir: &Path) -> Option<u64> {
     sys::free_bytes(dir)

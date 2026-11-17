@@ -1060,4 +1060,10 @@ export default {
   'Same as Solo': '솔로와 같게',
   'Every player in a co-op save needs the same gameplay mods on, or they cannot join each other. Mods you leave on Same as Solo follow your Solo mods. Install and remove mods under Solo.': '협동 세이브의 모든 플레이어가 같은 게임플레이 모드를 켜야 서로 참가할 수 있습니다. 솔로와 같게로 둔 모드는 솔로 모드를 따릅니다. 모드 설치와 제거는 솔로에서 합니다.',
   'Replacement game files': '교체할 게임 파일',
+  'There are no logs yet. Start the game once, then try again.': '아직 로그가 없습니다. 게임을 한 번 실행한 뒤 다시 시도하세요.',
+  'Saved {path}. Attach it to your bug report.': '{path}에 저장했습니다. 버그 신고에 첨부하세요.',
+  'Logs, settings and co-op save info in one zip. Room codes and invites are left out.': '로그, 설정, 협동 저장 정보를 하나의 zip으로 묶습니다. 방 코드와 초대 코드는 포함되지 않습니다.',
+  'Save logs for a bug report': '버그 신고용 로그 저장',
+  'Bug report': '버그 신고',
+  'Save logs': '로그 저장',
 };
