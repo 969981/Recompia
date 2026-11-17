@@ -165,7 +165,7 @@ export async function render(el, ctx) {
   draw();
 
   // ---- the invite code -------------------------------------------------------------------------------------------------------------
-  // The short code (coop_code.rs) when the public relay keeps one, and the long code always: it also works on another relay and after a day.
+  // The short code (coop_code.rs) when the public relay keeps one, and the long code always: it also works on another relay and after 6 hours.
   async function showInvite(id) {
     const v = saves.find((x) => x.profile.id === id);
     const { long, short } = await api.coopInvite({ id, relay: PUBLIC_RELAY });

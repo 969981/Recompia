@@ -141,7 +141,7 @@ impl Store {
 
     /// Drops the invite stored longest ago: of address `ip`, or of all.
     fn drop_oldest(&mut self, ip: Option<u32>) {
-        let old = self.m.iter().filter(|(_, e)| ip.is_none_or(|ip| e.ip == ip)).min_by_key(|(_, e)| (e.at, e.seq)).map(|(c, _)| *c);
+        let old = self.m.iter().filter(|(_, e)| ip.is_none() || ip == Some(e.ip)).min_by_key(|(_, e)| (e.at, e.seq)).map(|(c, _)| *c);
         if let Some(c) = old {
             self.m.remove(&c);
         }
@@ -160,7 +160,7 @@ impl Store {
     }
 }
 
-/// How many stores and lookups each address may make: `rate` a minute, bursting as much. Kept apart from the relay's address table (whose
+/// How many stores, deletes and lookups each address may make: `rate` a minute, bursting as much. Kept apart from the relay's address table (whose
 /// records are reused as soon as an address holds no link, which every invite link soon does): an address is forgotten only after a
 /// minute without a request, when its budget is full again anyway, so leaving and coming back never refills it early. A full table refuses.
 pub struct Limiter {
@@ -301,6 +301,18 @@ mod tests {
         let last = s.put(&inv(PER_ADDR + 49), 1, 200, &mut os_fill).unwrap();
         assert!(s.get(&last, 200).is_some());
         assert_eq!(s.len(), PER_ADDR + 1);
+    }
+
+    #[test]
+    fn stores_within_one_millisecond_keep_their_order() {
+        let mut s = Store::new(100);
+        let first = s.put(&inv(0), 1, 7, &mut os_fill).unwrap();
+        let second = s.put(&inv(1), 1, 7, &mut os_fill).unwrap();
+        for n in 2..=PER_ADDR {
+            s.put(&inv(n), 1, 7, &mut os_fill).unwrap();
+        }
+        assert_eq!(s.get(&first, 7), None);
+        assert!(s.get(&second, 7).is_some());
     }
 
     #[test]

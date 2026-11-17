@@ -44,9 +44,10 @@ with the bytes carried, the rooms listed, the players in them and the room lists
 Rooms opened with no room code are listed: anyone can see them in the game's Visit a Friend list (the room list in `src/lib.rs`).
 `--no-list` turns this off (those rooms can then only be joined by code), `--list-per-min` sets how many lists one address may ask for.
 
-The relay also keeps launchers' co-op invites for a day under short codes (`src/lib.rs` "Invite codes"), in memory only. An invite holds
-its co-op save's private room code, so whoever runs the relay can read the invites it keeps. `--no-invites` turns this off (launchers then
-show the long code only), `--invites` sets how many are kept, `--invite-per-min` how many stores and lookups one address may make.
+The relay also keeps launchers' co-op invites for 6 hours under short codes (`src/lib.rs` "Invite codes"), in memory only, at most 8 per
+address. An invite holds its co-op save's private room code, so whoever runs the relay can read the invites it keeps. `--no-invites` turns
+this off (launchers then show the long code only), `--invites` sets how many are kept, `--invite-per-min` how many stores, deletes and
+lookups one address may make.
 
 Open **TCP and UDP 47610** in every firewall in front of it: the cloud provider's (security list / security group) and the
 server's own (`iptables`/`ufw`; Ubuntu images on some clouds reject everything but SSH by default).
