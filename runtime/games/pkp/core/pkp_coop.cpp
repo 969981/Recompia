@@ -189,6 +189,7 @@ void game_frame(::Ctx* c) {
     coop::talk::tick();
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -204,6 +205,7 @@ void remove() {   // the registry has removed the hooks
     coop::talk::reset();
     coop::catchup::reset();
     coop::gate::reset();
+    coop::trace::reset();
     coop::session::reset();
 }
 

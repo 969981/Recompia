@@ -135,14 +135,15 @@ void apply_flags(::Ctx* c) {
             if (!quest_flag(c, story_obj, it->quest)) {
                 Remote remote;
                 guest::call(c, base() + kSetFlag, story_obj, it->quest, 1);
-                NXLOG_D(kTag, "Co-op story: quest %u flag set (state %u)", it->quest, state);
+                NXLOG_I(kTag, "Co-op story: quest %u flag from another member set here (state %u)", it->quest, state);
             }
         } else if (state < it->state && now - it->since < kWaitForPump) {
             blocked[it->quest] = true;
             ++it;
             continue;
         } else {
-            NXLOG_D(kTag, "Co-op story: quest %u flag of state %u dropped, this process is at state %u", it->quest, it->state, state);
+            NXLOG_I(kTag, "Co-op story: quest %u flag of state %u DROPPED, this process is at state %u%s", it->quest, it->state, state,
+                    state < it->state ? " (waited too long)" : "");
         }
         it = s.flags.erase(it);
     }
@@ -209,19 +210,24 @@ int on_quest_flag(::Ctx* c) {
     if (!story_obj || c->x[0] != story_obj || id - 1 >= kQuestMax || quest_flag(c, story_obj, id)) return 0;
     const uint8_t state = quest_state(c, story_obj, id);
     link::share(wire::Type::StoryFlag, wire::Writer(link::self()).u16(static_cast<uint16_t>(id)).u8(state).take());
-    NXLOG_D(kTag, "Co-op story: quest %u flag set here (state %u), shared", id, state);
+    NXLOG_I(kTag, "Co-op story: quest %u flag set here (state %u), shared", id, state);
     return 0;
 }
 
 int on_quest_effect(::Ctx* c) {
     // The game's own session bits, not the channel: a member in the host's world never runs a world effect, even before its channel
     // has learnt the authority.
-    if (role() != CoopRole::Visit || !(session_bits() & layout::kSessionVisitor) || !guest::ok(c->x[0], 1)) return 0;
+    if (!guest::ok(c->x[0], 1)) return 0;
     const uint8_t kind = guest::rd<uint8_t>(c->x[0]);
     if (kind < kEffectFirst || kind > kEffectLast) return 0;
-    for (uint8_t every : kEveryProcessEffects)
-        if (kind == every) return 0;
-    NXLOG_D(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
+    const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    bool every_process = false;
+    for (uint8_t every : kEveryProcessEffects) every_process |= kind == every;
+    if (!member || every_process) {
+        if (link::in_session()) NXLOG_I(kTag, "Co-op story: effect 0x%02x run here", kind);
+        return 0;
+    }
+    NXLOG_I(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
@@ -229,6 +235,8 @@ void on_flag_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     const uint16_t quest = r.u16();
     const uint8_t state = r.u8();
     if (!r.ok() || quest - 1u >= kQuestMax) return;
+    if (const uint64_t story_obj = story())
+        NXLOG_I(kTag, "Co-op story: quest %u flag received (state %u there, %u here)", quest, state, quest_state(c, story_obj, quest));
     st().flags.push_back({quest, state, qpc::seconds()});
     apply_flags(c);
 }

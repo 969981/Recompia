@@ -101,4 +101,12 @@ constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id,
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
+// ---- story and characters (read by the co-op trace) ----
+constexpr uint64_t kQuestWords = 0x4a3700;       // save root: u16 per quest id 1..1000 (index id - 1), the quest's state word
+constexpr uint32_t kQuestWordCount = 1000;
+constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
+constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
+constexpr uint64_t kCharaStatusStride = 0x30;
+constexpr uint32_t kCharaCount = 1050;           // chara 0..1049 (the save's character arrays)
+
 }  // namespace nxrt::games::pkp::layout

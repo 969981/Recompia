@@ -92,7 +92,7 @@ void set_holder(uint32_t chara, uint8_t node) {
     else s.holders[chara] = node;
     tell_members(chara, node);
     NXLOG_I(kTag, "Co-op talk: character %u %s", chara, node == wire::kNobody ? "is free" : "is taken");
-    NXLOG_D(kTag, "Co-op talk: character %u holder node %u", chara, node);
+    NXLOG_I(kTag, "Co-op talk: character %u holder node %u", chara, node);
 }
 
 void release(const char* why) {

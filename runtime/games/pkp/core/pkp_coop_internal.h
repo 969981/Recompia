@@ -10,6 +10,7 @@
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
 //   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
+//   pkp_coop_trace.cpp    the trace for testers: quest words, players and characters that move, a wall clock, in the log
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -120,5 +121,11 @@ namespace gate {
 void tick(bool in_game);
 void reset();
 }  // namespace gate
+
+namespace trace {
+// Logs what changed since the last look (once a frame in a session): quest words, the players' and the characters' places.
+void tick(bool in_game);
+void reset();
+}  // namespace trace
 
 }  // namespace nxrt::games::pkp::coop
