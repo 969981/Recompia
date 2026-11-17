@@ -21,6 +21,15 @@
 // quest active for one of them, a condition met in one process: the grass built by another player, a talk started by another) is
 // still made on every process, with that process's own effects and rewards. Sharing flag sets instead (as before) lost every step
 // whose receiver was not in exactly the sender's state at that moment.
+// The catch-up moves one quest at a time, the lowest id first, and waits for the pump to step it before it flags the next: quests whose
+// prerequisites are behind get them first, and a quest another quest's effect closes (effect 0x15) is closed by that effect rather
+// than pumped through effects the source never ran. A flag the pump leaves for kStall seconds (the quest is in none of its lists: another
+// stage, a prerequisite unmet, a cutscene) is logged and that quest is passed over for kStallSkip seconds. It runs only while the game's
+// own session is up (on a member: in the host's world), the same condition the world effects' skip uses.
+// The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
+// the ability bits). A member behind it catches up as above; a member ahead of it sends all its states again (a rise lost on the way is
+// sent once more); ability bits are merged both ways. So two saves that drifted apart for any reason are brought together within
+// seconds, and a member who joins late gets the abilities unlocked before it came.
 //
 // Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
 // returns with nothing done). Every process runs them, since every process runs the pump. Personal kinds (the player's abilities,
@@ -39,10 +48,14 @@
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
+#include <algorithm>
 #include <cstring>
+#include <iterator>
+#include <string>
 #include <vector>
 
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 namespace nxrt::games::pkp::coop::story {
 
@@ -55,7 +68,7 @@ constexpr uint64_t kAuthorityPattern = 0x7fffffffull;   // bits 0..30: the offli
 constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 23: no shop visitor lock
 
 constexpr uint64_t kStory = 0x4a26a0, kAbilities = 0x4a26a8;                       // save root +
-constexpr uint64_t kStateOf = 0x5d85c0, kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value])
+constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]); the state is read from the quest words
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
 constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
@@ -67,13 +80,30 @@ constexpr uint8_t kEffectFirst = 0x01, kEffectLast = 0x39;
 constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
 constexpr uint64_t kAbilitySetFn = 0x121bb8, kAbilityToggleFn = 0x1227fc;
 constexpr unsigned kAbilitySlots = 8;   // command 0x01: u16 ids at +2, +4, .. +0x10
-constexpr unsigned kAbilityBytes = 0x20;   // ids 0..0xff, one bit each
+constexpr unsigned kAbilityBytes = wire::kAbilityBytes;
+constexpr double kDigestEvery = 5.0;                 // the authority's whole story to every member
+constexpr double kStall = 10.0, kStallSkip = 30.0;   // a catch-up flag left by the pump this long: passed over for kStallSkip
+constexpr double kNoticeGap = 4.0;                   // at most one "moved the story on" line per this many seconds
+constexpr uint8_t kComplete = 3;
+
+// The abilities a line names; any other is "something new".
+struct AbilityName {
+    uint16_t id;
+    const char* name;
+};
+constexpr AbilityName kAbilityNames[] = {{17, "the Pokedex"}, {76, "the Pokedex"}, {10, "Water Gun"}, {55, "Water Gun"}, {101, "Water Gun"}};
 
 struct State {
     uint8_t sent[kQuestMax] = {};      // per quest (id - 1): the state last shared from here
     uint8_t target[kQuestMax] = {};    // per quest: the highest state another member has, which this process catches up to
     uint8_t logged[kQuestMax] = {};    // per quest: the target the catch-up was last logged for
     bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
+    double stall_until[kQuestMax] = {};   // per quest: passed over by the catch-up until then
+    uint32_t stepping = 0;                // the quest the catch-up flagged last (id), and its state then
+    uint8_t stepping_state = 0;
+    double stepping_since = 0.0;
+    double digest_at = 0.0, story_line_at = -1e9;
+    std::string last_ability_line;
     bool logged_state = false;
     alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
     uint8_t seen[kAbilityBytes] = {};        // the ability bits at the last look; a bit on now and off here turned on since
@@ -140,23 +170,97 @@ void share_states() {
     if (all) NXLOG_I(kTag, "Co-op story: the states of %u started quests shared (a join)", static_cast<unsigned>(n));
 }
 
-// Moves every quest that is behind another member's state one pump step on: its flag set in this process's own state.
+uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2)); }
+
+// The game's own session is up, and on a member it is in the host's world: the condition the world effects' skip uses too.
+bool story_shared_here() {
+    const uint8_t bits = session_bits();
+    if (!(bits & layout::kSessionOnline) || !link::in_session()) return false;
+    return role() == CoopRole::Host || (bits & layout::kSessionVisitor);
+}
+
+// Moves the lowest quest that is behind another member's state one pump step on (its flag set in this process's own state), and
+// waits for the pump to make that step before it flags another.
 void catch_up(::Ctx* c) {
     State& s = st();
     const uint64_t words = quest_words(), story_obj = story();
-    if (!words || !story_obj || !link::in_session()) return;
+    if (!words || !story_obj || !story_shared_here()) return;
+    const double now = qpc::seconds();
     for (uint32_t i = 0; i < kQuestMax; ++i) {
-        if (!s.target[i]) continue;
-        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2));
+        if (!s.target[i] || now < s.stall_until[i]) continue;
+        const uint8_t state = state_at(words, i);
         if (state >= s.target[i]) continue;
         const uint32_t id = i + 1;
-        if (quest_flag(c, story_obj, id)) continue;   // a step is already waiting for the pump
+        if (s.stepping != id || s.stepping_state != state) {   // a new quest, or the pump made the last step
+            s.stepping = id;
+            s.stepping_state = state;
+            s.stepping_since = now;
+        } else if (now - s.stepping_since > kStall) {
+            s.stall_until[i] = now + kStallSkip;
+            s.stepping = 0;
+            NXLOG_W(kTag, "Co-op story: quest %u stays at state %u here (the pump does not step it; %u wanted); trying again in %.0f s",
+                    id, state, s.target[i], kStallSkip);
+            continue;
+        }
         if (s.logged[i] != s.target[i]) {
             s.logged[i] = s.target[i];
             NXLOG_I(kTag, "Co-op story: quest %u catching up here, state %u -> %u", id, state, s.target[i]);
         }
-        guest::call(c, base() + kSetFlag, story_obj, id, 1);
+        if (!quest_flag(c, story_obj, id)) guest::call(c, base() + kSetFlag, story_obj, id, 1);
+        return;   // one quest at a time
     }
+}
+
+// The authority's whole story to every member (StoryDigest).
+void send_digest() {
+    State& s = st();
+    const uint64_t words = quest_words(), root = save_root();
+    if (!words || !root || !link::is_authority() || !story_shared_here()) return;
+    const double now = qpc::seconds();
+    if (now - s.digest_at < kDigestEvery) return;
+    s.digest_at = now;
+    uint8_t states[kQuestMax];
+    for (uint32_t i = 0; i < kQuestMax; ++i) states[i] = state_at(words, i);
+    link::to_members(wire::Type::StoryDigest, wire::Writer(link::self())
+                                                  .u16(static_cast<uint16_t>(kQuestMax))
+                                                  .bytes(states, kQuestMax)
+                                                  .bytes(reinterpret_cast<const uint8_t*>(root + kAbilities), kAbilityBytes)
+                                                  .take());
+}
+
+const char* ability_name(uint16_t id) {
+    for (const AbilityName& a : kAbilityNames)
+        if (a.id == id) return a.name;
+    return nullptr;
+}
+
+// A line naming what another member's player unlocked; the same line twice in a row (the Pokedex is two ids) is said once.
+void ability_line(uint8_t origin, uint16_t id) {
+    State& s = st();
+    const char* name = ability_name(id);
+    const std::string who = notice::name_of(origin);
+    const std::string text = name ? who + " unlocked " + name + ". You have it too!" : who + " unlocked something new. You have it too!";
+    if (text == s.last_ability_line) return;
+    s.last_ability_line = text;
+    notice::post(text);
+}
+
+// The ability bit applied here as received, through the quest effect 0x19 (set): marked seen, so it is not sent back.
+void apply_ability(::Ctx* c, uint64_t root, uint16_t id) {
+    State& s = st();
+    std::memset(s.command, 0, sizeof s.command);
+    s.command[0] = kAbilityToggle;
+    const uint16_t args[2] = {id, 1};
+    std::memcpy(s.command + 2, args, sizeof args);
+    guest::call(c, base() + kAbilityToggleFn, reinterpret_cast<uint64_t>(s.command));
+    if (s.have_seen && ability_on(root, id)) s.seen[(id & 0xff) >> 3] |= static_cast<uint8_t>(1u << (id & 7));
+}
+
+void share_ability(uint16_t id) {
+    uint8_t cmd[wire::kEffectSize] = {kAbilityToggle};
+    const uint16_t args[2] = {id, 1};
+    std::memcpy(cmd + 2, args, sizeof args);
+    link::share(wire::Type::Ability, wire::Writer(link::self()).bytes(cmd, sizeof cmd).take());
 }
 
 // Shares every ability bit that turned on here since the last look, as an effect 0x19 "set" command (u16 id at +2, u16 1 at +4).
@@ -176,10 +280,7 @@ void share_new_abilities() {
         for (unsigned bit = 0; bit < 8; ++bit) {
             const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
             if (!(turned_on & (1u << bit)) || !ability_id(id)) continue;
-            uint8_t cmd[wire::kEffectSize] = {kAbilityToggle};
-            const uint16_t args[2] = {id, 1};
-            std::memcpy(cmd + 2, args, sizeof args);
-            link::share(wire::Type::Ability, wire::Writer(link::self()).bytes(cmd, sizeof cmd).take());
+            share_ability(id);
             NXLOG_I(kTag, "Co-op story: ability %u turned on here, shared", id);
         }
     }
@@ -244,6 +345,7 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     const uint16_t n = r.u16();
     const uint64_t words = quest_words();
     unsigned ahead = 0;
+    bool completed = false;
     for (uint16_t k = 0; k < n && r.ok(); ++k) {
         const uint16_t id = r.u16();
         const uint8_t state = r.u8();
@@ -252,34 +354,102 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
         const uint8_t here = words ? static_cast<uint8_t>(guest::rd<uint16_t>(words + (id - 1u) * 2)) : 0;
         if (here < state) {
             ++ahead;
+            completed |= state >= kComplete;
             if (n <= 8) NXLOG_I(kTag, "Co-op story: quest %u at state %u on node %u, %u here", id, state, origin, here);
         }
     }
     if (n > 8) NXLOG_I(kTag, "Co-op story: %u quest states from node %u, %u ahead of this process", n, origin, ahead);
+    const double now = qpc::seconds();
+    if (n <= 8 && completed && now - s.story_line_at >= kNoticeGap) {
+        s.story_line_at = now;
+        notice::post(notice::name_of(origin) + " finished a step of a request. Your story moves on too!");
+    }
     catch_up(c);
 }
 
-void on_ability_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
+void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
+    State& s = st();
+    const uint16_t n = r.u16();
+    uint8_t states[kQuestMax], bits[kAbilityBytes];
+    if (!r.ok() || n != kQuestMax) return;
+    r.bytes(states, kQuestMax);
+    r.bytes(bits, kAbilityBytes);
+    const uint64_t words = quest_words(), root = save_root();
+    if (!r.ok() || !words || !root || !story_shared_here()) return;
+    unsigned behind = 0, ahead = 0;
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        const uint8_t here = state_at(words, i);
+        if (states[i] > here && states[i] > s.target[i]) {
+            s.target[i] = states[i];
+            ++behind;
+        }
+        if (here > states[i] && here > kListed) ++ahead;
+    }
+    if (ahead) s.send_all = true;
+    unsigned got = 0, gave = 0;
+    for (unsigned byte = 0; byte < kAbilityBytes; ++byte) {
+        const uint8_t mine = guest::rd<uint8_t>(root + kAbilities + byte);
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
+            if (!ability_id(id)) continue;
+            const bool there = bits[byte] & (1u << bit), here = mine & (1u << bit);
+            if (there && !here) {
+                apply_ability(c, root, id);
+                ++got;
+            } else if (here && !there) {
+                share_ability(id);
+                ++gave;
+            }
+        }
+    }
+    if (behind || ahead || got || gave)
+        NXLOG_I(kTag, "Co-op story: the authority's story (node %u): %u quests behind it here, %u ahead (sent again); abilities %u taken, "
+                "%u sent", origin, behind, ahead, got, gave);
+    if (behind || got) {
+        const double now = qpc::seconds();
+        if (now - s.story_line_at >= kNoticeGap) {
+            s.story_line_at = now;
+            notice::post("Caught up with your group's story.");
+        }
+    }
+    catch_up(c);
+}
+
+void on_ability_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     std::memset(s.command, 0, sizeof s.command);
     r.bytes(s.command, wire::kEffectSize);
     const uint64_t root = save_root();
     if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle) || !ability_changes(root, s.command)) return;
+    uint16_t ids[kAbilitySlots];
+    std::memcpy(ids, s.command + 2, sizeof ids);
+    bool off_before[kAbilitySlots] = {};
+    for (unsigned k = 0; k < kAbilitySlots; ++k) off_before[k] = ability_id(ids[k]) && !ability_on(root, ids[k]);
     guest::call(c, base() + (s.command[0] == kAbilitySet ? kAbilitySetFn : kAbilityToggleFn), reinterpret_cast<uint64_t>(s.command));
-    if (s.have_seen) std::memcpy(s.seen, reinterpret_cast<const void*>(root + kAbilities), kAbilityBytes);   // received: not sent back
-    NXLOG_I(kTag, "Co-op story: ability command 0x%02x from another member applied here", s.command[0]);
+    // Received: only the bits this command turned on are marked seen (not sent back); a bit that turned on here the same frame still is.
+    const unsigned slots = s.command[0] == kAbilityToggle ? 1 : kAbilitySlots;
+    for (unsigned k = 0; k < slots; ++k) {
+        if (!off_before[k] || !ability_on(root, ids[k])) continue;
+        if (s.have_seen) s.seen[(ids[k] & 0xff) >> 3] |= static_cast<uint8_t>(1u << (ids[k] & 7));
+        ability_line(origin, ids[k]);
+    }
+    NXLOG_I(kTag, "Co-op story: ability command 0x%02x from node %u applied here", s.command[0], origin);
 }
 
 void tick(::Ctx* c) {
     catch_up(c);
     share_states();
     share_new_abilities();
+    send_digest();
 }
 
 void on_session_change() {
     State& s = st();
     std::memset(s.target, 0, sizeof s.target);
     std::memset(s.logged, 0, sizeof s.logged);
+    std::fill(std::begin(s.stall_until), std::end(s.stall_until), 0.0);
+    s.stepping = 0;
+    s.digest_at = 0.0;
     s.send_all = true;
     s.have_seen = false;
 }

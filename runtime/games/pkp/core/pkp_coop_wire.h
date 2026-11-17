@@ -11,6 +11,9 @@
 //   TalkHolder  +2 u32 character id, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
 //   NamePrompt  nothing more                                 (the talker entered their name in the game's name entry)
 //   Items       +2 u16 item id, +4 u8 count                  (the talker's event script gave items)
+//   StoryDigest +2 u16 count n (kQuestCount), n u8 quest states (id 1 first), then u8[kAbilityBytes] the ability bits
+//                                                            (the authority's whole story, to every member every few seconds)
+//   MemberName  +2 u8 length n, n bytes: the player's name as the game keeps it (UTF-8)
 // A change to a layout raises kVersion.
 #pragma once
 #include <cstddef>
@@ -20,10 +23,12 @@
 
 namespace nxrt::games::pkp::coop::wire {
 
-constexpr uint8_t kVersion = 2;   // 2: StoryStates replaced 1's quest flag sets
+constexpr uint8_t kVersion = 3;   // 2: StoryStates replaced 1's quest flag sets; 3: StoryDigest, MemberName
 constexpr uint8_t kNobody = 0xff;
 constexpr size_t kHeader = 2;
 constexpr size_t kEffectSize = 0x14;
+constexpr size_t kAbilityBytes = 0x20;   // ability ids 0..0xff, one bit each
+constexpr size_t kNameMax = 0x40;
 
 enum class Type : uint32_t {
     StoryStates = 1,   // u16 count, then per quest: u16 id, u8 state
@@ -33,6 +38,8 @@ enum class Type : uint32_t {
     TalkHolder = 5,
     NamePrompt = 6,
     Items = 7,
+    StoryDigest = 8,
+    MemberName = 9,
 };
 
 // Builds one payload: the header, then the fields in order.

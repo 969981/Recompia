@@ -187,6 +187,7 @@ void game_frame(::Ctx* c) {
     coop::story::tick(c);
     coop::talk::tick();
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
 }
@@ -203,6 +204,8 @@ void remove() {   // the registry has removed the hooks
     coop::story::reset();
     coop::talk::reset();
     coop::catchup::reset();
+    coop::notice::reset();
+    coop::curtain::reset();
     coop::gate::reset();
     coop::trace::reset();
     coop::session::reset();
@@ -257,6 +260,12 @@ bool coop_launch_parse(const std::string& role, const std::string& group, const 
     return true;
 }
 
-const Feature kCoopFeature = {.name = "coop", .install = &install, .remove = &remove, .frame = &frame, .game_frame = &game_frame};
+const Feature kCoopFeature = {.name = "coop",
+                              .install = &install,
+                              .remove = &remove,
+                              .frame = &frame,
+                              .game_frame = &game_frame,
+                              .overlay_active = &coop::curtain::overlay_active,
+                              .overlay_draw = &coop::curtain::overlay_draw};
 
 }  // namespace nxrt::games::pkp

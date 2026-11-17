@@ -11,14 +11,18 @@
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
 //   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
 //   pkp_coop_trace.cpp    the trace for testers: quest words, players and characters that move, a wall clock, in the log
+//   pkp_coop_notice.cpp   lines in the game's own message log: what another member's event unlocked or moved on here, by name
+//   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "nxrt/abi.h"
+#include "nxrt/overlay_canvas.h"
 #include "core/pkp_coop.h"
 #include "core/pkp_coop_wire.h"
 
@@ -72,6 +76,7 @@ int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the aut
 // The messages (pkp_coop_link.cpp).
 void on_states_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Moves the quests behind another member's state one step on, shares the quest states and ability bits that rose here (once a frame,
 // after the channel's handlers).
 void tick(::Ctx* c);
@@ -109,7 +114,35 @@ void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // The talker's name watch, this player's name prompt and the received items (once a frame).
 void tick(::Ctx* c, bool in_game);
 void reset();
+// This player's name as the save keeps it for the game's language; empty before the name entry.
+std::string player_name();
 }  // namespace catchup
+
+namespace notice {
+// A line in the game's message log now, on the player's event slot.
+void line(::Ctx* c, uint8_t slot, const char* text);
+// A line for this player, shown when the player can walk (queued; once a frame in tick).
+void post(const std::string& text);
+// The name another member's player goes by (MemberName), or "Your teammate".
+std::string name_of(uint8_t node);
+void set_slot(uint8_t slot);   // this player's event slot, from a talk start
+void on_name_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: names are learnt again, ours is sent
+void on_member_joined();    // another member joined: ours is sent again
+void reset();
+}  // namespace notice
+
+namespace curtain {
+// Covers the picture (fading in) with a line of text, until lift; lift(after) keeps it up that much longer first. Game thread.
+void cover(const char* text);
+void lift(double after = 0.0);
+bool covered();   // up and fully opaque: what it hides is not seen
+// The overlay's presenting thread (the feature's overlay layer).
+bool overlay_active();
+void overlay_draw(gfx::OverlayCanvas& c);
+void reset();
+}  // namespace curtain
 
 namespace lock {
 // The local character's input lock, claimed by one part each: the bit stays set while any claim is on the character.

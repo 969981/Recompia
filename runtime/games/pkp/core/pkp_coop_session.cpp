@@ -18,6 +18,13 @@
 // after the game's own last placing), the game's player warp 0x275760(character, vec4* pos, 0, 1, 1, 1, 0, 0, [sp] u8 0) puts it on the
 // host's spot, and the game moves the two a little apart. In a session of two the host's character is the player manager's second slot
 // (+0x38). A second later it looks again and warps once more while still far from the host (at most kPlaceTries warps).
+//
+// A visitor's search that finds nothing (the host not up yet) is made again every kSearchWait, not on the growing backoff: a search costs
+// nothing, and a visitor started before the host would otherwise wait up to kMaxWait after the host is up.
+// The curtain (pkp_coop_curtain.cpp) covers a visitor's travel: from the join request until it can walk in the host's world (at most
+// kArrivalCover after the session is up: a dialog of the game's may wait for A there), and again around the warp, which waits for the
+// cover to be opaque (at most kWarpWait). When the session ends it covers the trip home until the player's world has loaded and the
+// player is back in play (at most kLeaveCover).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -40,6 +47,10 @@ constexpr uint64_t kSmState = 0x0, kSmCode = 0x4, kSmResults = 0x1358, kSmFlags 
 constexpr uint32_t kSmSearched = 1u << 4;
 
 constexpr double kFirstWait = 3.0, kMaxWait = 30.0;      // backoff between tries
+constexpr double kSearchWait = 2.0;                      // between a visitor's searches that found nothing
+constexpr double kArrivalCover = 16.0, kWarpWait = 1.0, kWarpHold = 0.6, kLeaveCover = 10.0;
+constexpr const char* kJoiningText = "Joining your group";
+constexpr const char* kLeavingText = "Leaving the group";
 constexpr double kOpenTimeout = 30.0, kSearchTimeout = 15.0, kJoinTimeout = 45.0;
 
 constexpr uint64_t kWarp = 0x275760;
@@ -58,8 +69,11 @@ struct State {
     // A joining member's placement next to the host.
     Place place = Place::Loading;
     bool loaded = false;   // in_game went away during the join (the host's world loads)
-    double check_at = 0.0;
+    double check_at = 0.0, up_at = 0.0, ready_at = 0.0;
     unsigned warps = 0;
+    // The trip home after the session ended (visit role): covered until the player is back in play.
+    bool leaving = false, left_world = false;
+    double left_at = 0.0;
 };
 State& st() {
     static State s;
@@ -75,11 +89,13 @@ uint64_t manager() {
     return guest::ok(sm, kSmSize) ? sm : 0;
 }
 
-void retry_later(State& s, double now, const char* why) {
+void retry_later(State& s, double now, const char* why, bool backoff = true) {
+    if (s.step == Step::Joining) curtain::lift();
     s.step = Step::Wait;
-    s.next_try = now + s.backoff;
-    NXLOG_I(kTag, "Co-op session (%s): %s; trying again in %.0f s", role_name(), why, s.backoff);
-    s.backoff = std::min(s.backoff * 2.0, kMaxWait);
+    const double wait = backoff ? s.backoff : kSearchWait;
+    s.next_try = now + wait;
+    NXLOG_I(kTag, "Co-op session (%s): %s; trying again in %.0f s", role_name(), why, wait);
+    if (backoff) s.backoff = std::min(s.backoff * 2.0, kMaxWait);
 }
 
 void start(::Ctx* c, State& s, uint64_t sm, double now) {
@@ -100,10 +116,11 @@ void start(::Ctx* c, State& s, uint64_t sm, double now) {
 // A finished search: joins the first result (the relay room holds only this group's session), or searches again later.
 void searched(::Ctx* c, State& s, uint64_t sm, double now) {
     const uint32_t results = guest::rd<uint32_t>(sm + kSmResults);
-    if (!(guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) || results == 0) return retry_later(s, now, "no session found yet");
+    if (!(guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) || results == 0) return retry_later(s, now, "no session found yet", false);
     if (!(guest::call(c, base() + kJoin, 0) & 1)) return retry_later(s, now, "the session manager refused to join");
     s.step = Step::Joining;
     s.started = now;
+    curtain::cover(kJoiningText);
     NXLOG_I(kTag, "Co-op session (visit): joining the host's session (%u found)", results);
 }
 
@@ -138,9 +155,16 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
     if (s.place == Place::Done) return;
     if (!in_game) s.loaded = true;
     if (s.place == Place::Loading) {
-        if (s.loaded && in_game) s.place = Place::Ready;
+        if (s.loaded && in_game) {
+            s.place = Place::Ready;
+            s.ready_at = now;
+            curtain::cover(kJoiningText);   // up already, or back for the warp
+        } else if (now - s.up_at > kArrivalCover) {
+            curtain::lift();
+        }
         return;
     }
+    if (now - s.ready_at > kArrivalCover) curtain::lift();   // no host to warp to: the cover does not stay
     const uint64_t me = local_player(), host = host_player();
     if (!me || !host) return;
     const float d2 = distance2(me, host);
@@ -148,9 +172,11 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
     if (s.place == Place::Check && now < s.check_at) return;
     if (d2 <= kNearHost * kNearHost || s.warps >= kPlaceTries) {
         s.place = Place::Done;
+        curtain::lift(kWarpHold);
         NXLOG_I(kTag, "Co-op session (visit): %s the host (%u warps)", d2 <= kNearHost * kNearHost ? "next to" : "still far from", s.warps);
         return;
     }
+    if (s.place == Place::Ready && !curtain::covered() && now - s.ready_at < kWarpWait) return;   // the warp is not seen
     warp_to_host(c, me, host);
     ++s.warps;
     s.place = Place::Check;
@@ -175,7 +201,12 @@ void tick(::Ctx* c, bool in_game) {
     const double now = qpc::seconds();
     const bool online = session_bits() & layout::kSessionOnline;
     if (online) {
-        if (s.step != Step::Up) NXLOG_I(kTag, "Co-op session (%s): the session is up (session bits %02x)", role_name(), session_bits());
+        if (s.step != Step::Up) {
+            NXLOG_I(kTag, "Co-op session (%s): the session is up (session bits %02x)", role_name(), session_bits());
+            s.up_at = now;
+            if (s.leaving) curtain::lift();
+            s.leaving = false;
+        }
         s.step = Step::Up;
         s.backoff = kFirstWait;
         if (role() == CoopRole::Visit) place(c, s, in_game, now);
@@ -187,8 +218,21 @@ void tick(::Ctx* c, bool in_game) {
         s.loaded = false;
         s.warps = 0;
         s.next_try = now + kFirstWait;
+        if (role() == CoopRole::Visit) {
+            s.leaving = true;
+            s.left_world = false;
+            s.left_at = now;
+            curtain::cover(kLeavingText);
+        }
         NXLOG_W(kTag, "Co-op session (%s): the session ended; starting it again once the player can walk", role_name());
         return;
+    }
+    if (s.leaving) {
+        if (!in_game) s.left_world = true;
+        if ((s.left_world && in_game) || now - s.left_at > kLeaveCover) {
+            s.leaving = false;
+            curtain::lift(s.left_world && in_game ? kWarpHold : 0.0);
+        }
     }
     const uint64_t sm = manager();
     if (!sm) return;

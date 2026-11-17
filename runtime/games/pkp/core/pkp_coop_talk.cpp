@@ -20,10 +20,8 @@
 //   0x47bd00(runner)                  the end of a slot's whole event chain; byte runner+0x2000 is the slot
 //   event runners ER = [main+0x35650f8], ER + slot*0x2010: busy while u32 +8 < 9 or u32 +0xc < 9
 //   event queue Q = [main+0x3565100], Q + slot*0x20fa0 + 0x20e08: u32, the events still waiting for that slot's runner
-//   0xa8fba0(w0 slot, x1 text, w2 1)  a line in the message log. text: +0 u32 kind, +8 u64 (the text template's word at
-//                                     [main+0x3483e98] with the text id in its low 16 bits), +0x10 arguments, +0x18 their count,
-//                                     +0x20 capacity 6; 6 arguments of 0x88 bytes follow (+0 u32 type, -1 unused). Kind 0x1c id 0xa8
-//                                     is the text "<string>"; argument type 7 carries the string inline at +8 (up to 0x80 bytes).
+// The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
+// this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 
@@ -48,9 +46,6 @@ constexpr uint64_t kQueue = 0x3565100, kQueueSlot = 0x20fa0, kQueuePending = 0x2
 constexpr uint32_t kRunnerIdle = 9;
 constexpr uint8_t kSlots = 2;
 
-constexpr uint64_t kShowLine = 0xa8fba0, kTextTemplate = 0x3483e98;
-constexpr uint32_t kTextPlain = 0x1c, kTextString = 0xa8, kArgString = 7, kArgNone = 0xffffffffu;
-constexpr size_t kTextArgs = 0x28, kArgSize = 0x88, kArgCount = 6, kArgText = 0x80;
 constexpr const char* kBusyLine = "This NPC is in a conversation with someone.";
 
 constexpr double kLease = 5.0;        // a grant not used for a talk by then is given back
@@ -70,7 +65,6 @@ struct State {
     std::optional<Held> held;                        // the lock this process holds
     uint32_t asked = 0;                              // a member's TalkAsk in flight
     double asked_at = 0.0;
-    alignas(16) uint8_t text[kTextArgs + kArgCount * kArgSize] = {};   // the busy line's text, guest-readable
 };
 State& st() {
     static State s;
@@ -105,23 +99,6 @@ void release(const char* why) {
     else link::to_authority(wire::Type::TalkDone, wire::Writer(link::self()).u32(chara).take());
 }
 
-void busy_line(::Ctx* c, uint8_t slot) {
-    State& s = st();
-    std::memset(s.text, 0, sizeof s.text);
-    const uint64_t text = reinterpret_cast<uint64_t>(s.text);
-    const uint64_t tmpl = guest::rd<uint64_t>(base() + kTextTemplate);
-    const uint64_t word = guest::ok(tmpl, 8) ? guest::rd<uint64_t>(tmpl) : 0;
-    guest::wr<uint32_t>(text, kTextPlain);
-    guest::wr<uint64_t>(text + 8, (word & ~uint64_t{0xffff}) | kTextString);
-    guest::wr<uint64_t>(text + 0x10, text + kTextArgs);
-    guest::wr<uint64_t>(text + 0x18, 1);
-    guest::wr<uint64_t>(text + 0x20, kArgCount);
-    for (size_t i = 0; i < kArgCount; ++i) guest::wr<uint32_t>(text + kTextArgs + i * kArgSize, kArgNone);
-    guest::wr<uint32_t>(text + kTextArgs, kArgString);
-    std::memcpy(s.text + kTextArgs + 8, kBusyLine, std::min(std::strlen(kBusyLine), kArgText - 1));
-    guest::call(c, base() + kShowLine, slot, text, 1);
-}
-
 // Nothing of the slot's talk runs or waits: its runner is idle and its queue empty.
 bool slot_idle(uint8_t slot) {
     const uint64_t runners = guest::rd<uint64_t>(base() + kRunners);
@@ -141,10 +118,11 @@ int on_talk_start(::Ctx* c) {
     const uint8_t slot = static_cast<uint8_t>(c->x[kSlotReg]);
     const uint32_t chara = character_of(c, c->x[kActorReg]);
     if (!chara || slot >= kSlots) return 0;
+    notice::set_slot(slot);
     const uint8_t self = link::self();
     const auto it = s.holders.find(chara);
     if (it != s.holders.end() && it->second != self) {
-        busy_line(c, slot);
+        notice::line(c, slot, kBusyLine);
         c->x[0] = 0;
         return 1;
     }

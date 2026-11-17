@@ -37,6 +37,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::TalkHolder, false, &talk::on_holder},
     {wire::Type::NamePrompt, true, &catchup::on_name_message},
     {wire::Type::Items, true, &catchup::on_items_message},
+    {wire::Type::StoryDigest, false, &story::on_digest_message},
+    {wire::Type::MemberName, true, &notice::on_name_message},
 };
 
 struct State {
@@ -77,13 +79,17 @@ void on_member(const ch::MemberEvent& e) {
     talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
     if (self) {
         story::on_session_change();
+        notice::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
                     role() == CoopRole::Host ? "host" : "visit");
         return;
     }
-    if (e.joined) story::on_member_joined();
+    if (e.joined) {
+        story::on_member_joined();
+        notice::on_member_joined();
+    }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
 

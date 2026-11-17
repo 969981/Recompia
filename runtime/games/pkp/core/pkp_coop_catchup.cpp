@@ -235,11 +235,19 @@ void on_name_message(::Ctx*, int, uint8_t, wire::Reader&) {
     s.prompt = Prompt::Wanted;
 }
 
-void on_items_message(::Ctx*, int, uint8_t, wire::Reader& r) {
+void on_items_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     const uint16_t item = r.u16();
     const uint8_t count = r.u8();
     if (!r.ok() || item < 1 || item > kItemMax) return;
     st().gives.emplace_back(item, count);
+    notice::post(notice::name_of(origin) + " was given items in a talk. You got them too!");
+}
+
+std::string player_name() {
+    const uint64_t root = save_root();
+    if (!root) return {};
+    const char* name = reinterpret_cast<const char*>(name_slot(root, language()));
+    return std::string(name, strnlen(name, kNameSlotSize));
 }
 
 void tick(::Ctx* c, bool in_game) {
