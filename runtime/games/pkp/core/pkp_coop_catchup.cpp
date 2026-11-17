@@ -18,8 +18,10 @@
 //   u32 R+0x741898 + L*0x20 = L; and the autosave is asked for as the command asks for it: game state + 0x3bb5e8 bit 0 set and
 //   u32 +0x3bb5e0 (the autosave's step) not 1..5: bit 2 cleared and float +0x3bb5e4 = max(itself, 570).
 //
-// Items. Event-script command 0xbea (0x12c734(cmd): u16 item at +4 (1..0x11f6), u32 count at +8, given to the local player) given in
-// the talker's talk is given to every other member too (Items), through the same handler.
+// Items. Event-script command 0xbea (0x12c734(cmd): u16 item at +4 (1..0x11f6), u32 count at +8, given to the local player) is given
+// to every other member too (Items), through the same handler. Like the name it counts in any event, a talk the player holds or one a
+// character starts: an event runs on the process of the player it is with only (Run A: control is taken from that player alone), so a
+// give is never run on two processes and shared twice.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -213,12 +215,12 @@ int on_name_entry(::Ctx*) {
 
 int on_script_items(::Ctx* c) {
     State& s = st();
-    if (s.remote || !link::in_session() || !talk::talking() || !guest::ok(c->x[0], 0xc)) return 0;
+    if (s.remote || !link::in_session() || !guest::ok(c->x[0], 0xc)) return 0;
     const uint16_t item = guest::rd<uint16_t>(c->x[0] + 4);
     const uint32_t count = guest::rd<uint32_t>(c->x[0] + 8);
     if (item < 1 || item > kItemMax) return 0;
     link::share(wire::Type::Items, wire::Writer(link::self()).u16(item).u8(static_cast<uint8_t>(count)).take());
-    NXLOG_D(kTag, "Co-op catch-up: item %u x%u given in this talk, shared", item, count & 0xff);
+    NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, count & 0xff);
     return 0;
 }
 
