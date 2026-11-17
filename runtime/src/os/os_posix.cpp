@@ -2134,12 +2134,6 @@ BOOL GetLogicalProcessorInformationEx(int relationship, SYSTEM_LOGICAL_PROCESSOR
     if (cores > 64) cores = 64;   // one GROUP_AFFINITY word
 
     const DWORD entry = sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX);
-    const DWORD need = entry * static_cast<DWORD>(cores);
-    if (!buffer || *len < need) {
-        *len = need;
-        t_last_error = ERROR_INSUFFICIENT_BUFFER;
-        return FALSE;
-    }
     // macOS numbers the performance cores first (hw.perflevel0) and the efficiency cores after them (hw.perflevel1),
     // which is the order kernel/sched.cpp wants: a higher EfficiencyClass is a faster core.
     long performance = 0;
@@ -2148,14 +2142,50 @@ BOOL GetLogicalProcessorInformationEx(int relationship, SYSTEM_LOGICAL_PROCESSOR
     if (sysctlbyname("hw.perflevel0.logicalcpu", &performance, &perf_len, nullptr, 0) != 0) performance = 0;
     if (performance <= 0 || performance > cores) performance = cores;
 #endif
-    auto* out = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer);
+    // One entry per PHYSICAL core, its mask holding every hardware thread of that core, as the Windows API reports it:
+    // sched.cpp's cores_fastest_first() takes one thread per entry and expects the entries to be distinct cores. One entry
+    // per logical CPU made SMT siblings look like separate cores, so a 4-core/8-thread CPU offered 8 entries for 4 cores and
+    // take_core_slot() picked 6 of them: two physical cores carried two console cores each while two carried one, the case
+    // place_on_few_cores() exists for (#694). That fallback only runs when the core count is below the console's six, so the
+    // entry count being inflated kept it from ever running. A CPU with a core per entry (6 cores, 12 threads) landed on six
+    // distinct ones by numbering alone, so only the smaller CPUs were affected.
+    struct SiblingGroup { DWORD_PTR mask; long first; };
+    std::vector<SiblingGroup> groups;
+#if defined(__linux__)
     for (long i = 0; i < cores; ++i) {
+        // thread_siblings_list is "0,6" or a range such as "0-5": its first number is the group's lowest CPU, which keys the group.
+        char path[96], buf[128] = {};
+        std::snprintf(path, sizeof path, "/sys/devices/system/cpu/cpu%ld/topology/thread_siblings_list", i);
+        const DWORD_PTR own = static_cast<DWORD_PTR>(1) << i;
+        long lowest = i;
+        if (std::FILE* f = std::fopen(path, "rb")) {
+            if (std::fgets(buf, sizeof buf, f)) lowest = std::strtol(buf, nullptr, 10);
+            std::fclose(f);
+        }
+        if (lowest < 0 || lowest >= cores) lowest = i;   // unreadable, or a group key outside the mask: its own entry
+        bool merged = false;
+        for (SiblingGroup& g : groups)
+            if (g.first == lowest) { g.mask |= own; merged = true; break; }
+        if (!merged) groups.push_back({own, lowest});
+    }
+#endif
+    if (groups.empty())      // no topology to read (macOS, or a kernel without sysfs): every logical CPU its own entry, as before
+        for (long i = 0; i < cores; ++i) groups.push_back({static_cast<DWORD_PTR>(1) << i, i});
+    std::stable_sort(groups.begin(), groups.end(), [](const SiblingGroup& a, const SiblingGroup& b) { return a.first < b.first; });
+    const DWORD need = entry * static_cast<DWORD>(groups.size());
+    if (!buffer || *len < need) {
+        *len = need;
+        t_last_error = ERROR_INSUFFICIENT_BUFFER;
+        return FALSE;
+    }
+    auto* out = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer);
+    for (size_t k = 0; k < groups.size(); ++k) {
         std::memset(out, 0, entry);
         out->Relationship = RelationProcessorCore;
         out->Size = entry;
-        out->Processor.EfficiencyClass = i < performance ? 1 : 0;
+        out->Processor.EfficiencyClass = groups[k].first < performance ? 1 : 0;
         out->Processor.GroupCount = 1;
-        out->Processor.GroupMask[0].Mask = static_cast<DWORD_PTR>(1) << i;
+        out->Processor.GroupMask[0].Mask = groups[k].mask;
         out = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(reinterpret_cast<unsigned char*>(out) + entry);
     }
     *len = need;
