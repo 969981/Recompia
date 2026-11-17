@@ -9,6 +9,7 @@ mod cli;
 mod config;
 mod coop;
 mod coop_cmds;
+mod coop_code;
 mod coop_diag;
 mod coop_launch;
 mod coop_save;
@@ -192,6 +193,7 @@ fn main() {
             coop_cmds::coop_add_member,
             coop_cmds::coop_remove_member,
             coop_cmds::coop_invite,
+            coop_cmds::coop_resolve_invite,
             coop_cmds::coop_invite_members,
             coop_cmds::coop_accept,
             coop_cmds::coop_play,

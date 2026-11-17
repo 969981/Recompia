@@ -11,7 +11,7 @@ use crate::coop::{self, Profile};
 use crate::coop_save::{self, HostChoice, StartAs};
 use crate::guard::{ensure_idle, Need};
 use crate::states::States;
-use crate::{coop_launch, launch, play, saveimport};
+use crate::{coop_code, coop_launch, launch, play, saveimport};
 
 /// A co-op save as the page shows it: the profile, who would host if it started now, and where it lives.
 #[derive(Serialize)]
@@ -73,10 +73,32 @@ pub fn coop_remove_member(app: AppHandle, id: String, member: String) -> Result<
     Ok(views(&root))
 }
 
-/// The invite text: it carries the private room's code, so it goes to the members only.
+/// An invite: the long text, and its short code when relay `relay` (the one joiners' launchers ask) keeps one (coop_code.rs). Both carry
+/// the private room, so they go to the members only.
+#[derive(Serialize)]
+pub struct InviteCodes {
+    pub long: String,
+    pub short: Option<String>,
+}
+
+/// On a worker thread: the short code waits for the relay.
 #[tauri::command]
-pub fn coop_invite(app: AppHandle, id: String) -> Result<String, String> {
-    coop::invite(&coop::root_of(&game_dir(&app)), &id)
+pub async fn coop_invite(app: AppHandle, id: String, relay: String) -> Result<InviteCodes, String> {
+    let root = coop::root_of(&game_dir(&app));
+    tauri::async_runtime::spawn_blocking(move || {
+        let save_relay = coop::get(&root, &id)?.relay;
+        let long = coop::invite(&root, &id)?;
+        let short = coop_code::shorten(&save_relay, &relay, &long);
+        Ok(InviteCodes { long, short })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The long invite for what the player typed under Join: a short code is looked up on `relay`, other text comes back as it is.
+#[tauri::command]
+pub async fn coop_resolve_invite(text: String, relay: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || coop_code::resolve(&relay, &text)).await.map_err(|e| e.to_string())?
 }
 
 /// What an invite holds for the page: the save it is for and its players (creator first), so the page can ask which one you are, or

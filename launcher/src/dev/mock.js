@@ -170,6 +170,11 @@ const mockCoop = {
 }[coopState] ?? [];
 const coopFinding = coopState === 'mismatch' ? { mismatch: 'mods', own_mods: 'bigger_stacks@1.1.0' } : coopState === 'build' ? { mismatch: 'build', own_mods: '' } : null;
 const MOCK_INVITE = { id: 'cmistyisland', members: [{ id: 'z9', name: 'Gary' }, MISTY, BROCK] };
+// invites as coop_cmds.rs sends them: &invite=<state>: short (default: the relay keeps a short code, K7Q-M2X finds MOCK_INVITE) | long (no
+// short code: an older relay) | down (the relay does not answer lookups)
+const inviteState = params.get('invite') || 'short';
+const MOCK_SHORT = 'K7Q-M2X';
+const MOCK_LONG_INVITE = 'PKCOOP1.eyJpZCI6IiR7YXJncy5pZH0iLCJuYW1lIjoiSXNsYW5kIiwiYWNjb3VudF91aWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsInJvb21fY29kZSI6Iks3UU0tMlhSQS05RFBILVRWNEUiLCJyZWxheSI6IjE5Mi4wLjIuMTA6NDc2MTAi';
 const mockProfiles = { active: 'default', profiles: [{ id: 'default', name: 'Player', uid: '', nickname: 'Player', net_uid: '' }] };
 const mockPlayTimes = { default: 13104 };   // 3 h 38 min; a profile added in the mock has none yet
 
@@ -541,7 +546,14 @@ function handle(cmd, args) {
     }
     case 'coop_add_member': mockCoop.find((c) => c.profile.id === args.id).profile.members.push({ id: `m${Date.now()}`, name: args.name }); return structuredClone(mockCoop);
     case 'coop_remove_member': { const m = mockCoop.find((c) => c.profile.id === args.id).profile.members; m.splice(m.findIndex((x) => x.id === args.member), 1); return structuredClone(mockCoop); }
-    case 'coop_invite': return `PKCOOP1.eyJpZCI6IiR7YXJncy5pZH0iLCJuYW1lIjoiSXNsYW5kIiwiYWNjb3VudF91aWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsInJvb21fY29kZSI6Iks3UU0tMlhSQS05RFBILVRWNEUiLCJyZWxheSI6IjE5Mi4wLjIuMTA6NDc2MTAi${args.id}`;
+    case 'coop_invite': return { long: `${MOCK_LONG_INVITE}${args.id}`, short: inviteState === 'long' ? null : MOCK_SHORT };
+    case 'coop_resolve_invite': {
+      const code = args.text.replace(/[-\s]/g, '').toUpperCase();
+      if (!/^[2-9A-HJKMNP-TV-Z]{6}$/.test(code)) return args.text.trim();
+      if (inviteState === 'down') throw 'The relay could not look up this code. Ask your friend for the long code instead.';
+      if (code !== MOCK_SHORT.replace('-', '')) throw 'No invite has this code. Codes last a day: ask for a new one, or for the long code.';
+      return `${MOCK_LONG_INVITE}cmistyisland`;
+    }
     case 'coop_invite_members': return args.invite.startsWith('PKCOOP1.') && args.invite.length > 12 ? structuredClone(MOCK_INVITE) : null;
     case 'coop_accept': {
       if (!args.invite.startsWith('PKCOOP1.')) throw 'This is not a co-op invite.';

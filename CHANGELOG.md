@@ -4,6 +4,7 @@
 
 ### Added
 - Co-op saves page in the launcher: a co-op save has its own folder apart from your singleplayer saves, its players and an invite to share
+- Short co-op invite codes (like K7Q-M2X) that last a day, kept by the public relay; the long code still works
 
 ### Changed
 - The launcher shows Recompia and Recompia: Co-op as two games, switched from the sidebar; each co-op save has its own mods

@@ -62,9 +62,9 @@ impl RelayServer {
                     next = Instant::now() + Duration::from_secs(stats_s);
                     if let Some(l) = &lg {
                         l(&format!(
-                            "rooms {}, links {} ({} waiting, {} paired); opened {}, paired {}, {} bytes, refused {}, not found {}, bad {}, expired {}; relay UDP pairs {}, packets {}; listed rooms {} ({} players), lists {}",
+                            "rooms {}, links {} ({} waiting, {} paired); opened {}, paired {}, {} bytes, refused {}, not found {}, bad {}, expired {}; relay UDP pairs {}, packets {}; listed rooms {} ({} players), lists {}; invites kept {}, stored {}, found {}, missed {}",
                             s.rooms, s.links, s.waiting, s.paired, s.rooms_opened, s.visitors_paired, s.bytes, s.refused, s.not_found, s.bad, s.expired,
-                            s.udp_pairs, s.udp_packets, s.listed, s.players, s.lists
+                            s.udp_pairs, s.udp_packets, s.listed, s.players, s.lists, s.invites, s.invites_stored, s.invites_found, s.invites_missed
                         ));
                     }
                 }

@@ -5,8 +5,8 @@
 //! pokopia-native's coop-relay, the meeting point for internet play when the host cannot forward a port. Game builds with `[net] relay` set
 //! (ours and pokopia-native's) all dial out to it.
 //!
-//! It keeps rooms keyed by a 16-byte room id the players derive from their room code (coop_auth.c croom_keys): it never sees a private code or any
-//! key (a listed room's code is public, see "Room list"). A host keeps a control link open for its room; a visitor asks for the room, the relay tells the host, the host dials one more link for
+//! It keeps rooms keyed by a 16-byte room id the players derive from their room code (coop_auth.c croom_keys): it never sees a private code (except inside an invite
+//! a launcher asks it to keep, see "Invite codes") or any key (a listed room's code is public, see "Room list"). A host keeps a control link open for its room; a visitor asks for the room, the relay tells the host, the host dials one more link for
 //! that visitor, and the relay pairs the two and copies bytes between them without reading them. Everything inside is the players' own
 //! authenticated protocol (coop protocol 3), so the relay cannot forge or change game messages; it CAN read them (nothing is encrypted).
 //!
@@ -55,10 +55,28 @@
 //!   cookie = players in the listed rooms), then per room type 0xC8 (arg = length) and its record, rooms with a free place first, then the
 //!   newest. Then the relay closes the link. 120 lists a minute per address (bursts as much). A relay without the list refuses kind 4 ("bad").
 //! - A visitor joins a listed room as any other: the room id and the keys come from the listed code.
+//!
+//! # Invite codes (pokopia-recomp extension, launcher only, invites.rs)
+//!
+//! A co-op invite (the launcher's `PKCOOP1.` text) is long; the relay can keep one for a day under a 6-symbol code (`XXX-XXX`, symbols
+//! `23456789ABCDEFGHJKMNPQRSTVWXYZ`) that a player can read out. Game builds never use this; a relay without it refuses both kinds ("bad"),
+//! and the launcher then shows the long invite only.
+//!
+//! - Hello kind 0xC9 (PUT), visitor id field = the invite's length (1..2048), then the invite. Answer: type 0xC9, arg + cookie = the code (6
+//!   ASCII, 2 zeros); the same invite again gets the same code, kept a day from then. A full store answers "limit".
+//! - Hello kind 0xCA (GET), room id field = the code (6 ASCII, the rest zeros). Answer: type 0xCA (arg = length) and the invite, or "no room"
+//!   (no invite under that code: never stored, or expired).
+//! - Then the relay closes the link. Stores and lookups share one budget per address: 10 a minute (bursts as much), found or not, so
+//!   guessing is slow: with N invites kept, one guess finds one with odds N / 30^6 (with the 4096 at most: 1 in 178 000), about one hit in
+//!   12 days per address at the full store; the store is in memory only (4096 invites, at most 2 KiB each).
+//! - The invite is kept as it came and never parsed or logged, but it is not encrypted: it carries the co-op save's private room code, so
+//!   whoever runs the relay can read the invites it keeps. The launcher stores one only on the relay that already holds that room.
 
 pub mod cli;
 mod engine;
 mod hkdf;
+pub mod invite_client;
+pub mod invites;
 mod poll;
 pub mod random;
 mod server;

@@ -1,6 +1,6 @@
 // Recompia: Co-op's Home (games.js). A co-op save is played together and kept apart from the singleplayer saves (src-tauri/src/coop*.rs).
-// The creator names every player when making it and sends the invite code; the others paste the code under Join and say which player
-// they are. Each card says who hosts the next start and why (coop-model.js), lets the player override it for one start, and starts the
+// The creator names every player when making it and sends the invite code (a short code the relay keeps, or the long one); the others
+// enter it under Join and say which player they are. Each card says who hosts the next start and why (coop-model.js), lets the player override it for one start, and starts the
 // game; the host starts first. After a start the game's log is read for a host hidden by another build or other mods (coop_diag.rs).
 // Co-op plays the install Recompia (Solo) sets up: until it is ready, this page says so and leads there.
 import './coop.css';
@@ -163,24 +163,32 @@ export async function render(el, ctx) {
   draw();
 
   // ---- the invite code -------------------------------------------------------------------------------------------------------------
+  // The short code (coop_code.rs) when the public relay keeps one, and the long code always: it also works on another relay and after a day.
   async function showInvite(id) {
     const v = saves.find((x) => x.profile.id === id);
-    const code = await api.coopInvite({ id });
+    const { long, short } = await api.coopInvite({ id, relay: PUBLIC_RELAY });
     const who = others(v).join(', ');
-    const copy = async () => {
+    const copy = async (code) => {
       try {
         await navigator.clipboard.writeText(code);
         toast(t('Invite code copied'), 'ok');
       } catch (e) { toast(errText(e), 'error'); }
     };
+    const longBox = `<textarea class="input" readonly rows="4" aria-label="${esc(t('Invite code'))}">${esc(long)}</textarea>`;
+    const html = short
+      ? `<p>${esc(t('Send this code to {names}. They press Join in Co-op and type it in.', { names: who }))}</p>
+        <output class="coop-short-code" aria-label="${esc(t('Invite code'))}">${esc(short)}</output>
+        <p class="faint">${esc(t('It works for a day. After that, or if your friends use another relay, send the long code instead.'))}</p>
+        <details class="coop-how coop-long"><summary>${icon('chevron-right')}${esc(t('Long code'))}</summary>${longBox}
+          <button class="btn" data-act="copy-long">${icon('copy')}${esc(t('Copy long code'))}</button></details>`
+      : `<p>${esc(t('Send this code to {names}. They press Join in Co-op and paste it.', { names: who }))}</p>${longBox}`;
     const ok = await confirm({
       title: t('Invite code for {name}', { name: v.profile.name }),
-      html: `<p>${esc(t('Send this code to {names}. They press Join in Co-op and paste it.', { names: who }))}</p>
-        <textarea class="input" readonly rows="4" aria-label="${esc(t('Invite code'))}">${esc(code)}</textarea>
-        <p class="faint">${esc(t('It opens this save\'s private room, so send it only to these players. If you add a player later, send the new code to everyone.'))}</p>`,
+      html: `${html}<p class="faint">${esc(t('It opens this save\'s private room, so send it only to these players. If you add a player later, send the new code to everyone.'))}</p>`,
       ok: t('Copy code'), cancel: t('Close'),
+      onAct: (b) => { if (b.dataset.act === 'copy-long') copy(long); },
     });
-    if (ok) copy();
+    if (ok) copy(short ?? long);
   }
 
   // ---- create ------------------------------------------------------------------------------------------------------------------------
@@ -232,17 +240,31 @@ export async function render(el, ctx) {
   // ---- join --------------------------------------------------------------------------------------------------------------------------
   const join = () => inOrder(async () => {
     let parsed = null;
+    // the long invite of what is typed: a short code is looked up once per text (coop_code.rs; the relay limits lookups), other text comes
+    // back as it is; `found` keeps the answers for read()
+    const lookups = new Map();
+    const found = new Map();
+    const resolve = (text) => {
+      if (!lookups.has(text)) {
+        lookups.set(text, api.coopResolveInvite({ text, relay: PUBLIC_RELAY }).then((long) => { found.set(text, long); return { long }; }, (e) => ({ error: errText(e) })));
+      }
+      return lookups.get(text);
+    };
+    const typed = (f) => f.querySelector('#coop-code').value.trim();
     const form = await formDialog({
       title: t('Join a co-op save'), ok: t('Join'), wide: true,
-      html: `<label class="form-field">${esc(t('Invite code'))} <span class="hint">${esc(t('The friend who made the save sends it to you.'))}</span>
-          <textarea class="input" id="coop-code" rows="4" maxlength="${INVITE_LENGTH}" spellcheck="false" placeholder="PKCOOP1..."></textarea></label>
+      html: `<label class="form-field">${esc(t('Invite code'))} <span class="hint">${esc(t('The friend who made the save sends it to you: the short code or the long one, both work.'))}</span>
+          <textarea class="input" id="coop-code" rows="4" maxlength="${INVITE_LENGTH}" spellcheck="false" placeholder="K7Q-M2X · PKCOOP1..."></textarea></label>
         <div id="coop-who"></div>`,
       check: async (f) => {
-        const text = f.querySelector('#coop-code').value.trim();
+        const text = typed(f);
         const who = f.querySelector('#coop-who');
-        if (!text) { parsed = null; who.innerHTML = ''; return ''; }
-        const inv = await api.coopInviteMembers({ invite: text }).catch(() => null);
-        if (!inv) { parsed = null; who.innerHTML = ''; return t('This is not an invite code. Copy the whole code from the message, starting with PKCOOP1.'); }
+        const none = (why) => { parsed = null; who.innerHTML = ''; return why; };
+        if (!text) return none('');
+        const r = await resolve(text);
+        if (r.error) return none(r.error);
+        const inv = await api.coopInviteMembers({ invite: r.long }).catch(() => null);
+        if (!inv) return none(t('This is not an invite code. Type the short code (like K7Q-M2X), or copy the whole long code, starting with PKCOOP1.'));
         const have = saves.find((v) => v.profile.id === inv.id);
         if (parsed?.id !== inv.id) {
           parsed = inv;
@@ -255,7 +277,7 @@ export async function render(el, ctx) {
         if (inv.members.length < 2) return t('{name} has not added any players yet. Ask them to add you and send a new code.', { name: inv.members[0]?.name ?? '' });
         return f.querySelector('input[name="coop-who"]:checked') ? true : '';
       },
-      read: (f) => ({ invite: f.querySelector('#coop-code').value.trim(), member: f.querySelector('input[name="coop-who"]:checked')?.value ?? '' }),
+      read: (f) => ({ invite: found.get(typed(f)) ?? typed(f), member: f.querySelector('input[name="coop-who"]:checked')?.value ?? '' }),
     });
     if (!form) return;
     saves = await api.coopAccept(form);

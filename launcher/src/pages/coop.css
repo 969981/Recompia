@@ -57,6 +57,16 @@
 .coop-role-line.ok { color: var(--color-ok); font-weight: var(--weight-medium); }
 .coop-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
+/* the invite dialog: the short code to read out, the long one folded under it */
+.coop-short-code {
+  display: block; margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md, var(--radius-sm));
+  background: var(--surface-1); font-family: ui-monospace, Consolas, monospace; font-size: 32px; font-weight: var(--weight-bold); letter-spacing: 0.12em;
+  text-align: center; user-select: all;
+}
+.coop-long { margin-bottom: var(--space-3); }
+.coop-long > summary { margin-bottom: var(--space-2); }
+.coop-long .btn { margin-top: var(--space-2); }
+
 /* the join dialog */
 .coop-who { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .coop-who legend { margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }

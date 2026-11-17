@@ -34,7 +34,7 @@ const TEXTS = [
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
 
-  // coop_cmds.rs, coop.rs, coop_save.rs, mods.rs: Recompia: Co-op's Home
+  // coop_cmds.rs, coop.rs, coop_code.rs, coop_save.rs, mods.rs: Recompia: Co-op's Home
   msg('The game is running. Close it first, then change the co-op save.'),
   msg('Type a name for the co-op save (1 to 24 characters).'),
   msg('Type a name for the player (1 to 24 characters).'),
@@ -52,6 +52,9 @@ const TEXTS = [
   msg('The creator and the player on this PC cannot be removed.'),
   msg('{1} already has files in it. A co-op save starts in a new, empty folder.'),
   msg('That player is not in the invite.'),
+  msg('No invite has this code. Codes last a day: ask for a new one, or for the long code.'),
+  msg('Too many codes were tried from this PC. Wait a minute, then try again.'),
+  msg('The relay could not look up this code. Ask your friend for the long code instead.'),
   msg('That player is not in this co-op save.'),
   msg('The save folder {1} holds a co-op save, and a co-op save is only played from Recompia: Co-op. Choose another save folder in the settings.'),
   msg('A mod this co-op save has on needs hook points the game was not built with. Switch it off for this co-op save on the Mods page of Recompia: Co-op.'),
