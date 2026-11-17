@@ -17,27 +17,42 @@
 //                                    3, queues the slot, sets the component's id, checks the condition once. Returns at once
 //                                    when the slot has no Pokémon bound (handle bit 11 set or kind not 1..4).
 //   the request component            a Pokémon's actor (0x281360(*(*(main + 0x3483bd0)), &handle), its vt+0x1d8() true) has it
-//                                    at vt+0x408() + 0x29a8; +0x10 u8 is the id the Pokémon offers or holds (0: none). The offer
-//                                    needs it free, the take-on step writes it whatever it held (0x61491c), the report talk needs
-//                                    it to hold the id at 4, and the completion 0x618304 clears it (0x6183b0).
+//                                    at vt+0x408() + 0x29a8; +0xc u32 its chara, +0x10 u8 the id the Pokémon offers or holds (0:
+//                                    none). The offer needs it free, the take-on step writes it whatever it held (0x61491c), the
+//                                    report talk needs it to hold the id at 4, and the completion 0x618304 clears it (0x6183b0).
+//   the checker 0x613c9c (3 -> 4)    for the event types (+0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: kEventIds) it tests record
+//                                    byte +3 bit 0 alone (0x613df4..0x613e14), a bit an event sets on the player's own record; a
+//                                    one-time scene a teammate already played may never set it here.
+//   general entries                  the Pokémon's general (daily) request, 0x30 bytes per chara (< 0x41a, else entry 0), +8 its
+//                                    state: save root + 0xc81488 on Cloud Island (stage 0x11), + 0x16f2af8 (the host's, mirrored)
+//                                    on a visitor, + 0x22fef0 otherwise. The offer 0x6132b8 offers no unique id while it is 1..5.
 //   data table slot 0x129 (#1081)    a row per character 1..0x1ff, read as the Pokémon's load 0x61ccc0 reads it: *(row + 8) + 2
-//                                    .. + 0x15 are the unique ids that Pokémon offers, one at a time (its one component; the load
-//                                    re-applies every saved 2, 3 or 4 of the list, the last one winning).
+//                                    .. + 0x15 are the unique ids that Pokémon offers in that order, one at a time (its one
+//                                    component; the load re-applies every saved 2, 3 or 4 of the list, the last one winning).
 // Rules on a receiver (the repo owner's call: every member can complete a request and gets its rewards; two to four times the
 // resources is fine), so nothing is undone and no history is invented:
 //   - another member's 3, 4 or 5: a record here below 3 becomes 3 through the game's own take-on step (or 3 + the queue when the
 //     Pokémon is not loaded here; it binds and re-applies when it loads); the game's checker and the report talk do the rest, on
 //     each member's own record and with each member's own rewards. A 5 counts too, so a player who was away when another member
 //     finished a request still gets it;
-//   - except a request that is also a story step (kStoryIds: the story is shared, so its effects run once): another member's 5
-//     closes it here from any state 1..4 (5 + the queue, and the Pokémon's component let go as the completion does), so it is
-//     never offered or done again here;
+//   - an event id (kEventIds) is taken on only from another member's 4 or 5, and then with its event bit (+3 bit 0) set, so the
+//     checker makes it 4 at once: its event may be a one-time scene of the shared world that this player never sees, and a 3
+//     taken on from another member's 3 could stay 3 forever and keep the Pokémon's other requests waiting here (the rule below).
+//     A 3 here (taken on by this player, or by an older build) gets the bit from another member's 4 or 5 the same way;
+//   - a request that is also a story step (kStoryIds: the story is shared, so its effects run once): on a member, another member's
+//     5 closes it here from any state 1..4 (5 + the queue, and the Pokémon's component let go as the completion does), so it is
+//     never offered or done again here. On the host it is taken on instead (as any request): the host's world is the group's
+//     world, and only the host's own completion 0x618304 runs the world part of the step (home, party, world event, the next
+//     offer); a raw 5 there would skip it for everyone;
 //   - one request per Pokémon at a time, as the game offers them: an id waits while another id of its Pokémon (by the table, or
-//     the same bound actor) is at 2..4 here, so the take-on step never takes the component from a request in progress;
+//     the same bound actor) is at 2..4 here, or while the Pokémon has a general request (the offer's own rule), so the take-on step
+//     never takes the component from a request in progress. Only a take-on waits: a request the player already holds is never
+//     held back (its event bit and a story close go at once);
 //   - kOwnIds (requests the game binds to one player) are not shared at all.
-// A received state is kept (per id, the latest wins) and applied from the frame tick only while this player is in the group's world
-// (the host, or a member with the visitor bit), can walk (no event, menu, autosave or load) and talks to no one, at most
-// kApplyPerTick ids a frame (a member's whole list comes at a join).
+// A received state is kept (per id, the highest within a wait wins: a member that is behind never lowers it) and applied from the
+// frame tick only while this player is in the group's world (the host, or a member with the visitor bit), can walk (no event,
+// menu, autosave or load) and talks to no one, once the character table is read, at most kApplyPerTick ids a frame (a member's
+// whole list comes at a join), a Pokémon's ids in the order of its #1081 row.
 // Each process reads its records every frame and sends a change when it sees one (one that could not be sent goes at the next
 // frame), and its whole list of taken-on and finished requests every kAllEvery seconds and when it or another member joins,
 // through the authority to every member.
@@ -70,14 +85,25 @@ constexpr uint64_t kTakeOn = 0x614860;   // (MU, slot, talked): the step "taken 
 constexpr uint64_t kActors = 0x3483bd0;  // main + : -> the actor manager pointer
 constexpr uint64_t kActorOf = 0x281360;  // (actors, &u16 handle): the actor, or 0
 constexpr uint64_t kActorAlive = 0x1d8, kActorRequest = 0x408;   // actor vtable + : bool (), the request owner ()
-constexpr uint64_t kRequestComp = 0x29a8, kCompId = 0x10;        // owner + : the request component; component + : its u8 id
+constexpr uint64_t kRequestComp = 0x29a8;                        // owner + : the request component
+constexpr uint64_t kCompChara = 0xc, kCompId = 0x10;             // component + : its u32 chara, its u8 id
 constexpr uint64_t kCharaTable = 0x129 * 8;              // data-table manager + 0x10 + : the table of slot 0x129, a row per character
 constexpr uint32_t kCharaMax = 0x1ff;                    // characters 1..0x1ff
-constexpr uint64_t kCharaIds = 2, kCharaIdsEnd = 0x16;   // *(row + 8) + : the ids the character offers
+constexpr uint64_t kCharaIds = 2, kCharaIdsEnd = 0x16;   // *(row + 8) + : the ids the character offers, in its order
+constexpr uint64_t kGeneralOwn = 0x22fef0, kGeneralMirror = 0x16f2af8, kGeneralCloud = 0xc81488;   // save root + : general entries
+constexpr uint64_t kGeneralSize = 0x30, kGeneralState = 8;   // per chara; entry + : u8 state (0 none, 1..5 a request today)
+constexpr uint32_t kGeneralCount = 0x41a;                    // charas with an entry (another reads entry 0, as the game does)
+constexpr uint8_t kCloudStage = 0x11;                        // game state stage: Cloud Island (0x77ecb0)
+constexpr uint64_t kRecFlags = 3;                            // record + : u8 flags
+constexpr uint8_t kEventBit = 0x01;                          // flags: the event of an event-type request ran
 // Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group.
 constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 76, 77, 79, 80};
 // Requests the game binds to one player (#1557 +0x2c != 0): never shared.
 constexpr uint8_t kOwnIds[] = {94, 95};
+// Requests the checker meets by the record's event bit alone (#1557 +0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a).
+constexpr uint8_t kEventIds[] = {8,   9,   12,  15,  17,  28,  34,  35,  40,  42,  51,  63,  67,  69,  70,  73,
+                                 84,  107, 108, 110, 114, 115, 116, 121, 129, 131, 133, 134, 140, 145, 146, 147,
+                                 150, 151, 154, 156, 157, 166, 173, 174, 175, 176, 177, 178, 179, 180};
 constexpr uint32_t kIdMax = layout::kUniqueRequestCount;   // ids 1..200
 constexpr uint8_t kWaiting = 1, kOffered = 2, kTaken = 3, kFulfilled = 4, kDone = 5;
 constexpr double kAllEvery = 10.0;       // the whole list again (a member that missed a change)
@@ -94,12 +120,15 @@ struct Pending {
 struct State {
     uint8_t seen[kIdMax + 1] = {};   // per id: the state last read here (0: not read yet in this session)
     bool have_seen = false;          // the first read of a session only takes the baseline
+    bool baseline_sent = false;      // the session's first list went out (until then a send is the baseline: no change lines)
     bool send_all = true;            // the whole list at the next read
     double all_at = 0.0, line_at = -1e9;
     alignas(8) uint64_t slot_arg = 0;     // the queue's argument, holding the slot (guest-readable, outlives the call's frame)
     alignas(8) uint16_t handle_arg = 0;   // the actor lookup's argument: a handle
-    Pending pending[kIdMax + 1] = {};   // per id: the latest received state
+    Pending pending[kIdMax + 1] = {};   // per id: the highest received state not applied yet
     uint16_t chara[kIdMax + 1] = {};    // per id: the character that offers it (0: none known)
+    uint8_t pos[kIdMax + 1] = {};       // per id: its place in that character's row
+    uint8_t order[kIdMax] = {};         // the ids by (character, place): the order apply takes them in
     bool have_chara = false;            // the character table was read (game data: once)
 };
 State& st() {
@@ -174,15 +203,33 @@ void read_charas(::Ctx* c) {
             const uint8_t id = guest::rd<uint8_t>(ids + at);
             if (id < 1 || id > kIdMax || s.chara[id]) continue;
             s.chara[id] = static_cast<uint16_t>(chara);
+            s.pos[id] = static_cast<uint8_t>(at - kCharaIds);
             ++n;
         }
     }
+    for (uint32_t id = 1; id <= kIdMax; ++id) s.order[id - 1] = static_cast<uint8_t>(id);
+    std::stable_sort(std::begin(s.order), std::end(s.order), [&s](uint8_t a, uint8_t b) {
+        return s.chara[a] != s.chara[b] ? s.chara[a] < s.chara[b] : s.pos[a] < s.pos[b];
+    });
     NXLOG_I(kTag, "Co-op requests: %u requests have a known Pokémon", n);
 }
 
-// Another id of the Pokémon that offers id (by the table, or the same bound actor) is offered, taken on or fulfilled here: the
-// Pokémon's component holds that one.
-bool chara_busy(uint64_t recs, uint64_t mu, uint32_t id) {
+// The character has a general (daily) request here (state 1..5), read as the offer 0x6132b8 reads it before it offers a unique id.
+bool general_busy(uint32_t chara) {
+    const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!root || !guest::ok(game, layout::kStateStage + 1)) return false;
+    const bool cloud = guest::rd<uint8_t>(game + layout::kStateStage) == kCloudStage;
+    const uint64_t entries = root + (cloud ? kGeneralCloud : (session_bits() & layout::kSessionVisitor) ? kGeneralMirror : kGeneralOwn);
+    const uint64_t entry = entries + (chara < kGeneralCount ? chara * kGeneralSize : 0);
+    if (!guest::ok(entry + kGeneralState, 1)) return false;
+    const uint8_t state = guest::rd<uint8_t>(entry + kGeneralState);
+    return state >= 1 && state <= 5;
+}
+
+// The Pokémon that offers id is busy here: another of its ids (by the table, or the same bound actor) is offered, taken on or
+// fulfilled (its component holds that one), or it has a general request (by its loaded actor's chara, else the table's).
+bool chara_busy(::Ctx* c, uint64_t recs, uint64_t mu, uint32_t id) {
     const State& s = st();
     const uint64_t slot = mu + id * kSlotSize;
     const bool is_bound = bound(slot);
@@ -194,7 +241,9 @@ bool chara_busy(uint64_t recs, uint64_t mu, uint32_t id) {
         const uint8_t state = same ? state_of(recs, other) : 0;
         if (state >= kOffered && state <= kFulfilled) return true;
     }
-    return false;
+    const uint64_t comp = component(c, slot);
+    const uint32_t chara = comp ? guest::rd<uint32_t>(comp + kCompChara) : s.chara[id];
+    return chara && general_busy(chara);
 }
 
 bool shared_here() { return (session_bits() & layout::kSessionOnline) && link::in_session(); }
@@ -222,15 +271,15 @@ bool share(uint64_t recs, bool all) {
         pairs.push_back(state);
         ++n;
     }
-    const bool first = !s.have_seen;
     s.have_seen = true;
-    if (!n) return true;
-    if (!link::share(wire::Type::ReqUnique, wire::Writer(link::self()).u8(n).bytes(pairs.data(), pairs.size()).take())) return false;
+    if (n && !link::share(wire::Type::ReqUnique, wire::Writer(link::self()).u8(n).bytes(pairs.data(), pairs.size()).take()))
+        return false;
     for (uint8_t k = 0; k < n; ++k) {
         const uint8_t id = pairs[k * 2], state = pairs[k * 2 + 1];
-        if (!first && s.seen[id] != state) NXLOG_I(kTag, "Co-op requests: request %u reached state %u here, shared", id, state);
+        if (s.baseline_sent && s.seen[id] != state) NXLOG_I(kTag, "Co-op requests: request %u reached state %u here, shared", id, state);
         s.seen[id] = state;
     }
+    s.baseline_sent = true;
     return true;
 }
 
@@ -244,24 +293,33 @@ void line(const std::string& text) {
 
 // The state another member's state `there` gives a record at `here` (the rules above).
 uint8_t target(uint32_t id, uint8_t there, uint8_t here) {
-    if (there == kDone && listed(kStoryIds, id)) return here >= kWaiting && here < kDone ? kDone : here;
+    if (there == kDone && listed(kStoryIds, id) && role() != CoopRole::Host) return here >= kWaiting && here < kDone ? kDone : here;
+    if (listed(kEventIds, id) && there < kFulfilled) return here;
     return here >= kWaiting && here < kTaken ? kTaken : here;
 }
 
-// Applies up to kApplyPerTick of the waiting states, lowest id first; one notice line for them.
+// The record needs its event bit for the checker: an event id another member met, here taken on or being taken on.
+bool needs_event_bit(uint64_t recs, uint32_t id, uint8_t there, uint8_t here, uint8_t to) {
+    return listed(kEventIds, id) && there >= kFulfilled && (to == kTaken || here == kTaken) &&
+           !(guest::rd<uint8_t>(recs + id * 4 + kRecFlags) & kEventBit);
+}
+
+// Applies up to kApplyPerTick of the waiting states, a Pokémon's ids in its row's order; one notice line for them.
 void apply(::Ctx* c, uint64_t recs) {
     State& s = st();
     const uint64_t mu = manager();
     if (!mu) return;
     read_charas(c);
+    if (!s.have_chara) return;   // chara_busy needs it: without it a take-on could take a component in use
     unsigned applied = 0;
     int taken = -1, finished = -1, closed = -1;   // per kind of change: the node of its first (-1: none)
-    for (uint32_t id = 1; id <= kIdMax && applied < kApplyPerTick; ++id) {
+    for (uint32_t k = 0; k < kIdMax && applied < kApplyPerTick; ++k) {
+        const uint32_t id = s.order[k];
         Pending& waiting = s.pending[id];
         if (!waiting.there) continue;
         const uint8_t here = state_of(recs, id);
         const uint8_t to = target(id, waiting.there, here);
-        if (to == kTaken && chara_busy(recs, mu, id)) {   // kept: taken on once the Pokémon's other request is done here
+        if (to == kTaken && chara_busy(c, recs, mu, id)) {   // kept: taken on once the Pokémon's other request is done here
             if (!waiting.logged)
                 NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u waits, its Pokémon has another one here", id,
                         waiting.there, waiting.origin);
@@ -270,11 +328,14 @@ void apply(::Ctx* c, uint64_t recs) {
         }
         const Pending p = waiting;
         waiting = Pending{};
-        if (to == here) continue;
+        const bool event_bit = needs_event_bit(recs, id, p.there, here, to);
+        if (to == here && !event_bit) continue;
         ++applied;
+        if (event_bit)   // before the take-on, whose condition check then makes it 4 at once; a 3 here: the frame check does
+            guest::wr<uint8_t>(recs + id * 4 + kRecFlags, guest::rd<uint8_t>(recs + id * 4 + kRecFlags) | kEventBit);
         if (to == kTaken) {
             take_on(c, recs, mu, id);
-        } else {
+        } else if (to != here) {
             const uint64_t slot = mu + id * kSlotSize;
             const uint64_t comp = component(c, slot);   // the completion lets the component go; a raw 5 does too
             if (comp && guest::rd<uint8_t>(comp + kCompId) == id) guest::wr<uint8_t>(comp + kCompId, 0);
@@ -282,7 +343,8 @@ void apply(::Ctx* c, uint64_t recs) {
             queue(c, mu, slot);
         }
         if (s.have_seen) s.seen[id] = state_of(recs, id);   // ours now: not sent back as a change
-        NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u, %u here -> %u", id, p.there, p.origin, here, to);
+        NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u, %u here -> %u%s", id, p.there, p.origin, here, to,
+                event_bit ? ", its event bit set" : "");
         int& first = to == kDone ? closed : p.there == kDone ? finished : taken;
         if (first < 0) first = p.origin;
     }
@@ -301,8 +363,10 @@ void on_unique_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         const uint8_t id = r.u8(), there = r.u8();
         if (!r.ok()) return;
         if (id < 1 || id > kIdMax || there < kTaken || there > kDone || listed(kOwnIds, id)) continue;
-        s.pending[id].there = there;   // the latest wins; a logged wait stays logged (the whole list comes every kAllEvery)
-        s.pending[id].origin = origin;
+        Pending& p = s.pending[id];
+        if (there <= p.there) continue;   // the highest wins: a member that is behind never lowers it
+        p.there = there;                  // a logged wait stays logged (the whole list comes every kAllEvery)
+        p.origin = origin;
     }
 }
 
@@ -323,6 +387,7 @@ void on_session_change() {
     std::memset(s.seen, 0, sizeof s.seen);
     std::fill(std::begin(s.pending), std::end(s.pending), Pending{});
     s.have_seen = false;
+    s.baseline_sent = false;
     s.send_all = true;
 }
 
