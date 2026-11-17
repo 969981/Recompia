@@ -7,8 +7,10 @@
 // The game, 2.0.1:
 //   0xa8fba0(w0 slot, x1 text, w2 1)  a line in the message log. text: +0 u32 kind, +8 u64 (the text template's word at
 //                                     [main+0x3483e98] with the text id in its low 16 bits), +0x10 arguments, +0x18 their count,
-//                                     +0x20 capacity 6; 6 arguments of 0x88 bytes follow (+0 u32 type, -1 unused). Kind 0x1c id 0xa8
-//                                     is the text "<string>"; argument type 7 carries the string inline at +8 (up to 0x80 bytes).
+//                                     +0x20 capacity 6; 6 arguments of 0x88 bytes follow (+0 u32 type, -1 unused). The kind picks
+//                                     the text bank: kind 0 id 0xa8 is "<string>", as 0xf35f20 builds it for a widget (kind 0x44, the
+//                                     bank of the game's own log lines such as the busy one, 0x318274, has no plain string; kind 0x1c
+//                                     id 0xa8 is a line of another bank). Argument type 7 carries the string inline at +8 (up to 0x80 bytes).
 //   slot: the player's event slot, as the talk start gives it (pkp_coop_talk.cpp passes it on); 0 until one was seen.
 // Queued lines wait until the player can walk (no event or menu running), and come at least kGap apart, so none is lost under a
 // cutscene and two do not cover each other.
@@ -30,7 +32,7 @@ namespace {
 constexpr const char* kTag = "pkp";
 
 constexpr uint64_t kShowLine = 0xa8fba0, kTextTemplate = 0x3483e98;
-constexpr uint32_t kTextPlain = 0x1c, kTextString = 0xa8, kArgString = 7, kArgNone = 0xffffffffu;
+constexpr uint32_t kTextPlain = 0, kTextString = 0xa8, kArgString = 7, kArgNone = 0xffffffffu;
 constexpr size_t kTextArgs = 0x28, kArgSize = 0x88, kArgCount = 6, kArgText = 0x80;
 constexpr double kGap = 2.5;              // seconds between two queued lines
 constexpr size_t kQueueMax = 8;           // older lines are dropped past this many
