@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Launcher
+- Added icons to the Settings tabs
+
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
