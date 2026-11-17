@@ -68,9 +68,11 @@ const B32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 // pokopia-recomp extension: invite codes (lib.rs "Invite codes"). Hello kind X_INVITE_PUT, visitor id field = the invite's length, then the
 // invite: answered with type X_INVITE_PUT, arg + cookie = the code (6 ASCII, 2 zeros). Hello kind X_INVITE_GET, room id field = the code (6
-// ASCII, the rest zeros): answered with type X_INVITE_GET (arg = length) and the invite. Either way the link closes after the answer.
+// ASCII, the rest zeros): answered with type X_INVITE_GET (arg = length) and the invite. Hello kind X_INVITE_DEL, as PUT: the invite is
+// forgotten, answered with type X_INVITE_DEL (arg = 1 when it was kept). Either way the link closes after the answer.
 pub const X_INVITE_PUT: u8 = 0xC9;
 pub const X_INVITE_GET: u8 = 0xCA;
+pub const X_INVITE_DEL: u8 = 0xCB;
 const INVITE_PRUNE_MS: i64 = 60_000;
 const INVITE_ADDRS: usize = 65536; // addresses whose invite budget is remembered (each forgotten after a quiet minute); beyond, refused
 
@@ -133,8 +135,8 @@ pub struct Config {
     pub list: bool,        // pokopia-recomp extension: the room list (true)
     pub list_per_min: i64, // lists one address may ask for a minute (120; bursts as much); beyond, refused with "limit"
     pub invites: bool,     // pokopia-recomp extension: invite codes (true)
-    pub invite_max: usize, // invites kept at once (4096); a full store refuses with "limit"
-    pub invite_per_min: i64, // invites stored plus codes looked up, per address a minute (10; bursts as much); beyond, refused with "limit"
+    pub invite_max: usize, // invites kept at once (4096); a full store drops its oldest
+    pub invite_per_min: i64, // invites stored or deleted plus codes looked up, per address a minute (10; bursts as much); beyond, refused with "limit"
     pub log: Option<LogFn>, // one line without a newline; None: silent
 }
 
@@ -534,7 +536,7 @@ impl Relay {
         let kind_ok = match h[4] {
             K_HOST..=K_ATTACH => true,
             K_LIST => self.c.list,
-            X_INVITE_PUT | X_INVITE_GET => self.c.invites,
+            X_INVITE_PUT | X_INVITE_GET | X_INVITE_DEL => self.c.invites,
             _ => false,
         };
         if get32(&h) != MAGIC || h[5] != 1 || !kind_ok {
@@ -544,7 +546,7 @@ impl Relay {
         }
         match h[4] {
             K_LIST => return self.list(i, &h, ad, now),
-            X_INVITE_PUT => return self.invite_put(i, &h, now),
+            X_INVITE_PUT | X_INVITE_DEL => return self.invite_put(i, &h, now),
             X_INVITE_GET => return self.invite_get(i, &h, now),
             _ => {}
         }
@@ -689,8 +691,8 @@ impl Relay {
         self.st.lists += 1;
         self.closing(i, now);
     }
-    /// pokopia-recomp extension: invite codes. A PUT hello: within the address's rate, the invite (its length in the visitor id field) is
-    /// read next, then kept (invite_kept).
+    /// pokopia-recomp extension: invite codes. A PUT or DEL hello: within the address's rate, the invite (its length in the visitor id field)
+    /// is read next, then kept or forgotten (invite_kept).
     fn invite_put(&mut self, i: usize, h: &[u8; HELLO_LEN], now: i64) {
         let n = get32(&h[24..]) as usize;
         if !(1..=invites::BLOB_MAX).contains(&n) {
@@ -706,10 +708,21 @@ impl Relay {
         k.rec_need = n;
         k.rec.clear();
     }
-    /// The invite of a PUT link is complete: its code, or "limit" when the store is full. Codes and invites are never logged.
+    /// The invite of a PUT or DEL link (its hello is still in inb) is complete. Anything but a launcher invite is "bad". DEL: forgotten. PUT:
+    /// its code, or "limit" when the relay's random source failed. Codes and invites are never logged.
     fn invite_kept(&mut self, i: usize, now: i64) {
         let blob = std::mem::take(&mut self.k[i].rec);
-        match self.inv.put(&blob, now, &mut invites::os_fill) {
+        if !invites::looks_like_invite(&blob) {
+            self.st.bad += 1;
+            return self.refuse(i, E_BAD, now);
+        }
+        if self.k[i].inb[4] == X_INVITE_DEL {
+            let had = self.inv.remove(&blob);
+            self.msg(i, X_INVITE_DEL, 0, had as u32, 0);
+            return self.closing(i, now);
+        }
+        let ip = self.k[i].ip;
+        match self.inv.put(&blob, ip, now, &mut invites::os_fill) {
             Some(code) => {
                 let mut m = [0u8; 8];
                 m[..invites::CODE_LEN].copy_from_slice(&code);

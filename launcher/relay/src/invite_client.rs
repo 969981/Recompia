@@ -2,7 +2,7 @@
 //! pokopia-recomp extension: invite codes, the launcher's side (lib.rs "Invite codes"): keep an invite on a relay for its short code, and
 //! look one up. One short blocking link each, every step within `timeout`.
 
-use crate::engine::{E_LIMIT, E_NOROOM, HELLO_LEN, MAGIC, MSG_LEN, T_ERR, X_INVITE_GET, X_INVITE_PUT};
+use crate::engine::{E_LIMIT, E_NOROOM, HELLO_LEN, MAGIC, MSG_LEN, T_ERR, X_INVITE_DEL, X_INVITE_GET, X_INVITE_PUT};
 use crate::invites::{self, Code};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};
@@ -12,7 +12,7 @@ use std::time::Duration;
 pub enum Error {
     /// No invite is kept under that code (never was, or it expired).
     NotFound,
-    /// Over this address's rate, or the relay's store is full.
+    /// Over this address's rate (or the relay could not draw a code).
     Limit,
     /// The relay does not keep invites (an older relay, or one run with --no-invites), or it refused the request as malformed.
     Unsupported,
@@ -60,7 +60,7 @@ fn answer(s: &mut TcpStream, want: u8) -> Result<[u8; MSG_LEN], Error> {
     }
 }
 
-/// Keeps `invite` on the relay for a day: its code.
+/// Keeps `invite` on the relay for a few hours (lib.rs "Invite codes"; storing it again restarts them): its code.
 pub fn store(relay: SocketAddr, invite: &[u8], timeout: Duration) -> Result<Code, Error> {
     if invite.is_empty() || invite.len() > invites::BLOB_MAX {
         return Err(Error::Unsupported);
@@ -69,6 +69,16 @@ pub fn store(relay: SocketAddr, invite: &[u8], timeout: Duration) -> Result<Code
     let m = answer(&mut s, X_INVITE_PUT)?;
     let code = &m[8..8 + invites::CODE_LEN];
     invites::normalize(&String::from_utf8_lossy(code)).ok_or(Error::Unsupported)
+}
+
+/// Drops `invite`'s code from the relay, so it no longer opens the room. True: it was kept. Unsupported: a relay from before deletes.
+pub fn delete(relay: SocketAddr, invite: &[u8], timeout: Duration) -> Result<bool, Error> {
+    if invite.is_empty() || invite.len() > invites::BLOB_MAX {
+        return Err(Error::Unsupported);
+    }
+    let mut s = send(relay, &[&hello(X_INVITE_DEL, &[], invite.len() as u32), invite], timeout)?;
+    let m = answer(&mut s, X_INVITE_DEL)?;
+    Ok(m[8] != 0)
 }
 
 /// The invite kept under `code`.
@@ -129,13 +139,52 @@ mod tests {
     }
 
     #[test]
-    fn a_relay_without_invites_refuses_and_a_full_store_says_limit() {
+    fn a_relay_without_invites_refuses_and_a_full_store_drops_its_oldest() {
         let off = relay(Config { invites: false, ..Config::default() });
-        assert_eq!(store(off.local_addr(), b"x", T), Err(Error::Unsupported));
+        assert_eq!(store(off.local_addr(), b"PKCOOP1.x", T), Err(Error::Unsupported));
         assert_eq!(lookup(off.local_addr(), b"222222", T), Err(Error::Unsupported));
+        assert_eq!(delete(off.local_addr(), b"PKCOOP1.x", T), Err(Error::Unsupported));
         let full = relay(Config { invite_max: 1, ..Config::default() });
-        store(full.local_addr(), b"x", T).unwrap();
-        assert_eq!(store(full.local_addr(), b"y", T), Err(Error::Limit));
+        let at = full.local_addr();
+        let x = store(at, b"PKCOOP1.x", T).unwrap();
+        let y = store(at, b"PKCOOP1.y", T).unwrap();
+        assert_eq!(lookup(at, &x, T), Err(Error::NotFound));
+        assert_eq!(lookup(at, &y, T).unwrap(), b"PKCOOP1.y");
+    }
+
+    #[test]
+    fn only_launcher_invites_are_kept() {
+        let srv = relay(Config::default());
+        let at = srv.local_addr();
+        for bad in [&b"x"[..], b"PKCOOP1.", b"PKCOOP1.a b", b"hello world, free storage", &[0u8; 64]] {
+            assert_eq!(store(at, bad, T), Err(Error::Unsupported), "{:?}", String::from_utf8_lossy(bad));
+        }
+        assert_eq!(srv.status().stats.invites, 0);
+        assert!(store(at, b"PKCOOP1.eyJpZCI6IjAifQ==", T).is_ok());
+    }
+
+    #[test]
+    fn one_address_keeps_at_most_eight_codes() {
+        let srv = relay(Config { invite_per_min: 100, ..Config::default() });
+        let at = srv.local_addr();
+        let first = store(at, b"PKCOOP1.first", T).unwrap();
+        for n in 0..invites::PER_ADDR {
+            store(at, format!("PKCOOP1.n{}", n).as_bytes(), T).unwrap();
+        }
+        assert_eq!(srv.status().stats.invites, invites::PER_ADDR);
+        assert_eq!(lookup(at, &first, T), Err(Error::NotFound), "its oldest made room");
+    }
+
+    #[test]
+    fn a_deleted_invite_no_longer_has_a_code() {
+        let srv = relay(Config::default());
+        let at = srv.local_addr();
+        let invite = b"PKCOOP1.eyJpZCI6IjAxMjMifQ";
+        let code = store(at, invite, T).unwrap();
+        assert_eq!(delete(at, invite, T), Ok(true));
+        assert_eq!(lookup(at, &code, T), Err(Error::NotFound));
+        assert_eq!(delete(at, invite, T), Ok(false));
+        assert_eq!(delete(at, b"not an invite", T), Err(Error::Unsupported));
     }
 
     #[test]

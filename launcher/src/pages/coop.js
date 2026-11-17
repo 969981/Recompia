@@ -180,7 +180,7 @@ export async function render(el, ctx) {
     const html = short
       ? `<p>${esc(t('Send this code to {names}. They press Join in Co-op and type it in.', { names: who }))}</p>
         <output class="coop-short-code" aria-label="${esc(t('Invite code'))}">${esc(short)}</output>
-        <p class="faint">${esc(t('It works for a day. After that, or if your friends use another relay, send the long code instead.'))}</p>
+        <p class="faint">${esc(t('It works for 6 hours. After that, or if your friends use another relay, send the long code instead.'))}</p>
         <details class="coop-how coop-long"><summary>${icon('chevron-right')}${esc(t('Long code'))}</summary>${longBox}
           <button class="btn" data-act="copy-long">${icon('copy')}${esc(t('Copy long code'))}</button></details>`
       : `<p>${esc(t('Send this code to {names}. They press Join in Co-op and paste it.', { names: who }))}</p>${longBox}`;

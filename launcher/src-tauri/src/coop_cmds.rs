@@ -123,13 +123,19 @@ pub fn coop_accept(app: AppHandle, invite: String, member: String) -> Result<Vec
 }
 
 /// Deletes co-op save `id` from this PC: its folder (this PC's copy of the world) and its own mod settings. The other players keep theirs.
+/// On the creator's PC its short code is dropped from the relay too (coop_code::forget, in the background: the page does not wait on the
+/// relay); a member's delete leaves the code for the others.
 #[tauri::command]
 pub fn coop_delete(app: AppHandle, id: String) -> Result<Vec<CoopView>, String> {
     let root = guarded_root(&app)?;
     let layer = crate::mods_scope::Scope::Coop(id.clone()).layer_dir(&game_dir(&app)).ok().flatten();
+    let code = coop::get(&root, &id).ok().filter(|p| p.is_creator()).and_then(|p| Some((p.relay, coop::invite(&root, &id).ok()?)));
     coop::delete(&root, &id)?;
     if let Some(dir) = layer {
         let _ = std::fs::remove_dir_all(dir);   // the group's own mod choices: only this group's account uses that layer
+    }
+    if let Some((relay, invite)) = code {
+        std::thread::spawn(move || coop_code::forget(&relay, &invite));
     }
     Ok(views(&root))
 }

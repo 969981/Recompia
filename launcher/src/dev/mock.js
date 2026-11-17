@@ -552,7 +552,7 @@ function handle(cmd, args) {
       const code = args.text.replace(/[-\s]/g, '').toUpperCase();
       if (!/^[2-9A-HJKMNP-TV-Z]{6}$/.test(code)) return args.text.trim();
       if (inviteState === 'down') throw 'The relay could not look up this code. Ask your friend for the long code instead.';
-      if (code !== MOCK_SHORT.replace('-', '')) throw 'No invite has this code. Codes last a day: ask for a new one, or for the long code.';
+      if (code !== MOCK_SHORT.replace('-', '')) throw 'No invite has this code. Codes last 6 hours: ask for a new one, or for the long code.';
       return `${MOCK_LONG_INVITE}cmistyisland`;
     }
     case 'coop_invite_members': return args.invite.startsWith('PKCOOP1.') && args.invite.length > 12 ? structuredClone(MOCK_INVITE) : null;

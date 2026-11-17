@@ -58,20 +58,27 @@
 //!
 //! # Invite codes (pokopia-recomp extension, launcher only, invites.rs)
 //!
-//! A co-op invite (the launcher's `PKCOOP1.` text) is long; the relay can keep one for a day under a 6-symbol code (`XXX-XXX`, symbols
-//! `23456789ABCDEFGHJKMNPQRSTVWXYZ`) that a player can read out. Game builds never use this; a relay without it refuses both kinds ("bad"),
-//! and the launcher then shows the long invite only.
+//! A co-op invite (the launcher's `PKCOOP1.` text) is long; the relay can keep one for 6 hours under a 6-symbol code (`XXX-XXX`, symbols
+//! `23456789ABCDEFGHJKMNPQRSTVWXYZ`) that a player can read out. Game builds never use this; a relay without it refuses these kinds
+//! ("bad"), and the launcher then shows the long invite only.
 //!
-//! - Hello kind 0xC9 (PUT), visitor id field = the invite's length (1..2048), then the invite. Answer: type 0xC9, arg + cookie = the code (6
-//!   ASCII, 2 zeros); the same invite again gets the same code, kept a day from then. A full store answers "limit".
+//! - Hello kind 0xC9 (PUT), visitor id field = the invite's length (1..2048), then the invite: `PKCOOP1.` and base64 (URL-safe or standard),
+//!   anything else is refused ("bad"). Answer: type 0xC9, arg + cookie = the code (6 ASCII, 2 zeros); the same invite again gets the same
+//!   code, kept 6 hours from then (the launcher stores it again each time its invite dialog opens). An address keeps at most 8 invites (its
+//!   9th replaces its oldest) and a full store drops its oldest, so a store always gets a code; "limit" only when over the rate (or when the
+//!   relay's random source fails).
 //! - Hello kind 0xCA (GET), room id field = the code (6 ASCII, the rest zeros). Answer: type 0xCA (arg = length) and the invite, or "no room"
-//!   (no invite under that code: never stored, or expired).
-//! - Then the relay closes the link. Stores and lookups share one budget per address: 10 a minute (bursts as much), found or not, kept
-//!   until the address has been quiet a minute (invites.rs Limiter), so leaving and coming back does not refill it. One guess finds an
+//!   (no invite under that code: never stored, expired, deleted or dropped).
+//! - Hello kind 0xCB (DEL), as PUT: the invite is forgotten (the launcher sends it when a co-op save is deleted). Answer: type 0xCB, arg = 1
+//!   when it was kept. Only who has the invite can delete its code. Relays from before 0xCB refuse it ("bad"), which the launcher ignores.
+//! - Then the relay closes the link. Stores, deletes and lookups share one budget per address: 10 a minute (bursts as much), found or not,
+//!   kept until the address has been quiet a minute (invites.rs Limiter), so leaving and coming back does not refill it. One guess finds an
 //!   invite with odds N / 30^6 for N kept: with the store full (4096) 1 in 178 000, about one hit in 12 days per address; K addresses guess
-//!   K times as fast. The store is in memory only (4096 invites, at most 2 KiB each); a full store refuses new ones until some expire.
-//! - The invite is kept as it came and never parsed or logged, but it is not encrypted: it carries the co-op save's private room code, so
-//!   whoever runs the relay can read the invites it keeps. The launcher stores one only on the relay that already holds that room.
+//!   K times as fast. The store is in memory only (4096 invites, at most 2 KiB each); filling it takes 512 addresses, and only shortens how
+//!   long the oldest codes last.
+//! - The invite is kept as it came and never parsed (only its shape is checked) or logged, but it is not encrypted: it carries the co-op
+//!   save's private room code, so whoever runs the relay can read the invites it keeps. The launcher stores one only on the relay that
+//!   already holds that room.
 
 pub mod cli;
 mod engine;

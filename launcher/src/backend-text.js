@@ -52,7 +52,7 @@ const TEXTS = [
   msg('The creator and the player on this PC cannot be removed.'),
   msg('{1} already has files in it. A co-op save starts in a new, empty folder.'),
   msg('That player is not in the invite.'),
-  msg('No invite has this code. Codes last a day: ask for a new one, or for the long code.'),
+  msg('No invite has this code. Codes last 6 hours: ask for a new one, or for the long code.'),
   msg('Too many codes were tried from this PC. Wait a minute, then try again.'),
   msg('The relay could not look up this code. Ask your friend for the long code instead.'),
   msg('That player is not in this co-op save.'),
