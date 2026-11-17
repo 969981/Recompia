@@ -9,6 +9,7 @@ use tauri::AppHandle;
 use crate::config::game_dir;
 use crate::coop::{self, Profile};
 use crate::coop_save::{self, HostChoice, StartAs};
+use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
 use crate::states::States;
 use crate::{coop_code, coop_launch, launch, play, saveimport};
@@ -86,9 +87,9 @@ pub struct InviteCodes {
 pub async fn coop_invite(app: AppHandle, id: String, relay: String) -> Result<InviteCodes, String> {
     let root = coop::root_of(&game_dir(&app));
     tauri::async_runtime::spawn_blocking(move || {
-        let save_relay = coop::get(&root, &id)?.relay;
+        let p = coop::get(&root, &id)?;
         let long = coop::invite(&root, &id)?;
-        let short = coop_code::shorten(&save_relay, &relay, &long);
+        let short = coop_code::shorten(&p, &relay, &long);
         Ok(InviteCodes { long, short })
     })
     .await
@@ -96,9 +97,13 @@ pub async fn coop_invite(app: AppHandle, id: String, relay: String) -> Result<In
 }
 
 /// The long invite for what the player typed under Join: a short code is looked up on `relay`, other text comes back as it is.
+/// "No invite has this code" is tagged (error::INVITE_NOT_FOUND): the page keeps that answer for the text, and asks again after any other.
 #[tauri::command]
-pub async fn coop_resolve_invite(text: String, relay: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || coop_code::resolve(&relay, &text)).await.map_err(|e| e.to_string())?
+pub async fn coop_resolve_invite(text: String, relay: String) -> Result<String, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || coop_code::resolve(&relay, &text))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|m| CmdError::coded_if(m, coop_code::NOT_FOUND, error::INVITE_NOT_FOUND))
 }
 
 /// What an invite holds for the page: the save it is for and its players (creator first), so the page can ask which one you are, or
@@ -123,19 +128,19 @@ pub fn coop_accept(app: AppHandle, invite: String, member: String) -> Result<Vec
 }
 
 /// Deletes co-op save `id` from this PC: its folder (this PC's copy of the world) and its own mod settings. The other players keep theirs.
-/// On the creator's PC its short code is dropped from the relay too (coop_code::forget, in the background: the page does not wait on the
-/// relay); a member's delete leaves the code for the others.
+/// On the creator's PC its short codes are dropped from relay `relay` (the one coop_invite was given) too, when the save plays there
+/// (coop_code::forget, in the background: the page does not wait on the relay); a member's delete leaves the code for the others.
 #[tauri::command]
-pub fn coop_delete(app: AppHandle, id: String) -> Result<Vec<CoopView>, String> {
+pub fn coop_delete(app: AppHandle, id: String, relay: String) -> Result<Vec<CoopView>, String> {
     let root = guarded_root(&app)?;
     let layer = crate::mods_scope::Scope::Coop(id.clone()).layer_dir(&game_dir(&app)).ok().flatten();
-    let code = coop::get(&root, &id).ok().filter(|p| p.is_creator()).and_then(|p| Some((p.relay, coop::invite(&root, &id).ok()?)));
+    let code = coop::get(&root, &id).ok().filter(|p| p.is_creator()).and_then(|p| Some((coop::invite(&root, &id).ok()?, p)));
     coop::delete(&root, &id)?;
     if let Some(dir) = layer {
         let _ = std::fs::remove_dir_all(dir);   // the group's own mod choices: only this group's account uses that layer
     }
-    if let Some((relay, invite)) = code {
-        std::thread::spawn(move || coop_code::forget(&relay, &invite));
+    if let Some((invite, p)) = code {
+        std::thread::spawn(move || coop_code::forget(&p, &relay, &invite));
     }
     Ok(views(&root))
 }

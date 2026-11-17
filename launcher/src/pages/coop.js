@@ -8,8 +8,8 @@ import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { PUBLIC_RELAY } from '../linkplay-model.js';
 import { formatDate } from '../markdown.js';
-import { MAX_PLAYERS, START_AS, creatorName, hosting, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine } from '../coop-model.js';
-import { askText, confirm, errText, esc, formDialog, icon, segmented, toast } from '../ui.js';
+import { MAX_PLAYERS, START_AS, askOnce, creatorName, hosting, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine } from '../coop-model.js';
+import { askText, confirm, errCode, errText, esc, formDialog, icon, segmented, toast } from '../ui.js';
 import { store } from '../store.js';
 import { saveLogs } from '../log-bundle.js';
 import { gamePhase } from '../action.js';
@@ -243,15 +243,10 @@ export async function render(el, ctx) {
   const join = () => inOrder(async () => {
     let parsed = null;
     // the long invite of what is typed: a short code is looked up once per text (coop_code.rs; the relay limits lookups), other text comes
-    // back as it is; `found` keeps the answers for read()
-    const lookups = new Map();
+    // back as it is; a failed lookup is asked again on the next check, except "no invite has this code". `found` keeps the answers for read()
+    const lookup = askOnce((text) => api.coopResolveInvite({ text, relay: PUBLIC_RELAY }), (e) => errCode(e) === 'invite_not_found');
     const found = new Map();
-    const resolve = (text) => {
-      if (!lookups.has(text)) {
-        lookups.set(text, api.coopResolveInvite({ text, relay: PUBLIC_RELAY }).then((long) => { found.set(text, long); return { long }; }, (e) => ({ error: errText(e) })));
-      }
-      return lookups.get(text);
-    };
+    const resolve = (text) => lookup(text).then((long) => { found.set(text, long); return { long }; }, (e) => ({ error: errText(e) }));
     const typed = (f) => f.querySelector('#coop-code').value.trim();
     const form = await formDialog({
       title: t('Join a co-op save'), ok: t('Join'), wide: true,
@@ -298,7 +293,7 @@ export async function render(el, ctx) {
       ok: t('Delete'), danger: true,
     });
     if (!ok) return;
-    saves = await api.coopDelete({ id });
+    saves = await api.coopDelete({ id, relay: PUBLIC_RELAY });
     findings.delete(id);
     startAs.delete(id);
     draw();

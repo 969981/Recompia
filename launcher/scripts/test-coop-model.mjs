@@ -1,5 +1,5 @@
 // Tests for what the co-op Home says (src/coop-model.js). Run: node scripts/test-coop-model.mjs   (exit 1 on a failure)
-import { hosting, mismatchText, needsPlayers, others, roleLine, runningLine } from '../src/coop-model.js';
+import { askOnce, hosting, mismatchText, needsPlayers, others, roleLine, runningLine } from '../src/coop-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -29,6 +29,16 @@ check(needsPlayers(save([A], 'a', 'a')) && !needsPlayers(asA), 'one player is no
 check(others(newest).join() === 'Ash,Brock', 'the others, in list order');
 // a hidden host
 check(mismatchText({ mismatch: 'mods' }).title.includes('mods') && mismatchText({ mismatch: 'build' }).title.includes('version'), 'mismatch titles');
+
+// a lookup is asked once per text; a failure is asked again, except one that is kept
+{
+  let calls = 0;
+  const answers = { ok: () => Promise.resolve('long'), down: () => Promise.reject({ code: null }), gone: () => Promise.reject({ code: 'invite_not_found' }) };
+  const ask = askOnce((k) => { calls++; return answers[k](); }, (e) => e?.code === 'invite_not_found');
+  const run = async (k) => ask(k).then((v) => v, (e) => e);
+  for (const k of ['ok', 'ok', 'down', 'down', 'gone', 'gone']) await run(k);
+  check(calls === 4, `asked once for ok and gone, twice for down (${calls} calls)`);
+}
 
 console.log(bad ? `${bad} failed` : 'coop model tests passed');
 process.exit(bad ? 1 : 0);

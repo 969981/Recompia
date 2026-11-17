@@ -39,6 +39,22 @@ export function runningLine(v, startAs) {
   return host ? t('Joining {name}. Your game waits until {name} is in the game.', { name: host }) : t('Joining. Your game waits until the host is in the game.');
 }
 
+/** `ask(key)` once per key: the same promise again while it holds. A failure is forgotten, so the next call asks again, unless `keep(error)`
+ *  (an answer that will not change, like "no invite has this code"). */
+export function askOnce(ask, keep) {
+  const asked = new Map();
+  return (key) => {
+    if (!asked.has(key)) {
+      const p = ask(key).catch((e) => {
+        if (!keep(e) && asked.get(key) === p) asked.delete(key);
+        throw e;
+      });
+      asked.set(key, p);
+    }
+    return asked.get(key);
+  };
+}
+
 /** Why the last start of this save found no host to join (coop_diag.rs Finding), as a title and what to do. */
 export function mismatchText(f) {
   if (f.mismatch === 'build') {

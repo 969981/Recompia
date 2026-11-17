@@ -66,10 +66,11 @@ pub const LIST_MAX: usize = 32; // entries one answer carries
 const LISTING_GAP_MS: i64 = 250; // a host's listing changes at most this often; faster ones are read and dropped
 const B32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-// pokopia-recomp extension: invite codes (lib.rs "Invite codes"). Hello kind X_INVITE_PUT, visitor id field = the invite's length, then the
-// invite: answered with type X_INVITE_PUT, arg + cookie = the code (6 ASCII, 2 zeros). Hello kind X_INVITE_GET, room id field = the code (6
-// ASCII, the rest zeros): answered with type X_INVITE_GET (arg = length) and the invite. Hello kind X_INVITE_DEL, as PUT: the invite is
-// forgotten, answered with type X_INVITE_DEL (arg = 1 when it was kept). Either way the link closes after the answer.
+// pokopia-recomp extension: invite codes (lib.rs "Invite codes"). Hello kind X_INVITE_PUT, room id field = the save's token (zeros: none),
+// visitor id field = the invite's length, then the invite: answered with type X_INVITE_PUT, arg + cookie = the code (6 ASCII, 2 zeros).
+// Hello kind X_INVITE_GET, room id field = the code (6 ASCII, the rest zeros): answered with type X_INVITE_GET (arg = length) and the
+// invite. Hello kind X_INVITE_DEL, as PUT: the invite and every invite of the token are forgotten, answered with type X_INVITE_DEL (arg =
+// 1 when one was kept). Either way the link closes after the answer.
 pub const X_INVITE_PUT: u8 = 0xC9;
 pub const X_INVITE_GET: u8 = 0xCA;
 pub const X_INVITE_DEL: u8 = 0xCB;
@@ -135,7 +136,7 @@ pub struct Config {
     pub list: bool,        // pokopia-recomp extension: the room list (true)
     pub list_per_min: i64, // lists one address may ask for a minute (120; bursts as much); beyond, refused with "limit"
     pub invites: bool,     // pokopia-recomp extension: invite codes (true)
-    pub invite_max: usize, // invites kept at once (4096); a full store drops its oldest
+    pub invite_max: usize, // invites kept at once (4096); a full store drops the oldest of the address keeping the most
     pub invite_per_min: i64, // invites stored or deleted plus codes looked up, per address a minute (10; bursts as much); beyond, refused with "limit"
     pub log: Option<LogFn>, // one line without a newline; None: silent
 }
@@ -708,21 +709,24 @@ impl Relay {
         k.rec_need = n;
         k.rec.clear();
     }
-    /// The invite of a PUT or DEL link (its hello is still in inb) is complete. Anything but a launcher invite is "bad". DEL: forgotten. PUT:
-    /// its code, or "limit" when the relay's random source failed. Codes and invites are never logged.
+    /// The invite of a PUT or DEL link (its hello is still in inb) is complete. Anything but a launcher invite is "bad". DEL: forgotten, with
+    /// every invite of its save's token. PUT: its code, or "limit" when the address keeps its most already or the relay's random source
+    /// failed. Codes, tokens and invites are never logged.
     fn invite_kept(&mut self, i: usize, now: i64) {
         let blob = std::mem::take(&mut self.k[i].rec);
         if !invites::looks_like_invite(&blob) {
             self.st.bad += 1;
             return self.refuse(i, E_BAD, now);
         }
+        let mut token: invites::Token = [0; 16];
+        token.copy_from_slice(&self.k[i].inb[8..24]); // the room id field: the save's token (older launchers send zeros: none)
         if self.k[i].inb[4] == X_INVITE_DEL {
-            let had = self.inv.remove(&blob);
+            let had = self.inv.remove(&blob, &token);
             self.msg(i, X_INVITE_DEL, 0, had as u32, 0);
             return self.closing(i, now);
         }
         let ip = self.k[i].ip;
-        match self.inv.put(&blob, ip, now, &mut invites::os_fill) {
+        match self.inv.put(&blob, &token, ip, now, &mut invites::os_fill) {
             Some(code) => {
                 let mut m = [0u8; 8];
                 m[..invites::CODE_LEN].copy_from_slice(&code);
