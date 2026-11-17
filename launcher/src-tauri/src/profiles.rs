@@ -23,6 +23,8 @@ const MAX_NAME: usize = 24;
 const MAX_NICK_BYTES: usize = 32;
 /// The runtime's built-in user (saveimport.rs DEFAULT_UID): a new profile must never get it.
 const BUILT_IN_UID: &str = "000000000000000141434e4852656370";
+/// The runtime's own default nickname (games/pkp/core/pkp_core.cpp): what the game is told when pkp.ini names nobody.
+pub const DEFAULT_NICKNAME: &str = "Player";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Profile {
@@ -58,8 +60,8 @@ fn load_ini(dir: &Path) -> Ini {
 /// The profile that stands for what pkp.ini holds now: the existing save.
 fn default_profile(ini: &Ini) -> Profile {
     let get = |s: &str, k: &str| ini.get(s, k).unwrap_or_default().trim().to_string();
-    // the runtime's own default nickname is "Player" (games/pkp/core/pkp_core.cpp); an empty key would give the game an empty name
-    let nickname = Some(get("account", "nickname")).filter(|n| !n.is_empty()).unwrap_or_else(|| "Player".into());
+    // the runtime's own default nickname (an empty key would give the game an empty name)
+    let nickname = Some(get("account", "nickname")).filter(|n| !n.is_empty()).unwrap_or_else(|| DEFAULT_NICKNAME.into());
     Profile {
         id: DEFAULT_ID.into(),
         name: nickname.chars().take(MAX_NAME).collect(),

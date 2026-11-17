@@ -36,14 +36,15 @@ fn target_dir(app: &AppHandle, game: &Path) -> PathBuf {
     [p.download_dir(), p.desktop_dir()].into_iter().flatten().find(|d| d.is_dir()).unwrap_or_else(|| game.to_path_buf())
 }
 
-/// Writes `recompia-logs-<time>.zip` where the player finds it, shows the folder and says where the file is.
+/// Writes `recompia-logs-<time>.zip` where the player finds it, shows the folder and says where the file is. `public_relay`: the
+/// launcher's public relay (the page's), which coop-saves.json names "public" instead of giving its address.
 #[tauri::command]
-pub async fn save_log_bundle(app: AppHandle) -> Result<Saved, String> {
+pub async fn save_log_bundle(app: AppHandle, public_relay: String) -> Result<Saved, String> {
     let game = game_dir(&app);
     let out = target_dir(&app, &game).join(format!("recompia-logs-{}.zip", chrono::Local::now().format("%Y%m%d-%H%M%S")));
     let path = out.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let zip = logbundle::build(&game, &coop::root_of(&game), &system_text())?;
+        let zip = logbundle::build(&game, &coop::root_of(&game), &system_text(), &public_relay)?;
         std::fs::write(&path, zip).map_err(|e| format!("Cannot write {}: {}", crate::dump::fwd(&path), e))
     })
     .await

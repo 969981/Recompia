@@ -28,7 +28,7 @@ export const api = {
   openSaveDir: () => invoke('open_save_dir'),
   openBackupDir: () => invoke('open_backup_dir'),
   openSetupLog: () => invoke('open_setup_log'),
-  saveLogBundle: () => invoke('save_log_bundle'),   // { path }: a zip of the logs, settings and co-op save info (no secrets) for a bug report
+  saveLogBundle: (args) => invoke('save_log_bundle', args),   // { publicRelay }: { path }: a zip of the logs, settings and co-op save info (no secrets) for a bug report
 
   // Choosing the game files
   pickFolder: (args) => invoke('pick_folder', args),   // { title, start }
