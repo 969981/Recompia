@@ -28,7 +28,7 @@
 //
 // Abilities (unlocks such as the Pokedex and its menu entries). The bits live at save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit
 // id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
-// 0x12c35c (the Pokedex talk sets ids 17 and 76 through one of the latter two; coop-story/ABILITIES-RE.md 2). So the bits themselves are
+// 0x12c35c (the Pokedex talk sets ids 17 and 76 through one of the latter two). So the bits themselves are
 // watched, not a writer: once a frame in the session, every bit that turned on here since the last look is shared as an effect 0x19
 // "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline: what a
 // member already had before joining is not sent. A bit turned off is not shared (no writer clears one in the story; the saves seen only

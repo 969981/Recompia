@@ -20,7 +20,7 @@
 //
 // Items. Event-script command 0xbea (0x12c734(cmd): u16 item at +4 (1..0x11f6), u32 count at +8, given to the local player) is given
 // to every other member too (Items), through the same handler. Like the name it counts in any event, a talk the player holds or one a
-// character starts: an event runs on the process of the player it is with only (Run A: control is taken from that player alone), so a
+// character starts: an event runs on the process of the player it is with only (control is taken from that player alone), so a
 // give is never run on two processes and shared twice.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
