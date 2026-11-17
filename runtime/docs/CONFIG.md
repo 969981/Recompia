@@ -791,4 +791,7 @@ All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT
 | `shot_dir` / `require_shots` | `<out>/shots` / `false` | Where `@shot` writes; a missing screenshot provider fails the run when set. |
 | `game_base` | `0x7100000000` | Base of the game's main module (probe and hook addresses). |
 | `warp_wait_loader` | `true` | `@warp` waits until the game's resource loader thread has been idle for 10 frames in a row before it starts the warp. Warping while the loader still builds assets for the old game instance crashed it in `CParticleStaticRenderState` (S42). `false` warps at once, as before. |
+| `coop_record` | empty | Write every co-op channel message this process sends, receives or is injected to this file, in the message log format `@coop_inject` reads (`include/nxrt/tt_coop.h`). Works on its own, without the other test keys. |
+| `coop_state` | `<out>/coop_state.txt` | Where the game's shared co-op state lines go (`@coop_state`, `coop_state_every`): a hash per part of the state and a short summary, to compare two runs for desync. |
+| `coop_state_every` | `0` | A shared-state line every this many game frames when the state changed since the last one; `0` writes one only at `@coop_state` steps. |
 | `warp_loader_max_ms` | `30000` | How long `@warp` waits for the idle loader, in host milliseconds, before it warps anyway with a warning. |

@@ -57,6 +57,9 @@
 //   @probe <in> <out>                 the player's own collision box against the static world at positions: in = lines `x y z`, out = `0` free / `1` collides per line
 //   @poke <in>                        write guest memory: lines `addr [off ...] : hexbytes` (pointers followed as in @peek; a token `+N` adds N without following); a development aid, e.g. to restore health
 //   @peek <in> <out>                  read guest memory: in = lines `addr len [off ...]` (hex addr; each off follows a 64-bit pointer first), out = one hex line per request (`-` on failure)
+//   @coop_msg <type> <node> <hex> [options]   inject one co-op channel message, as if node sent it (nxrt/tt_coop.h); goes on at once
+//   @coop_inject <file> [options]     inject the messages of a co-op channel message log (nxrt/tt_coop.h); goes on at once
+//   @coop_state [<label>]             write the game's shared co-op state line at the next game frame (nxrt/tt_coop.h); goes on at once
 //   @timeout <n>                      default timeout (frames) of every later wait; initial 3600; 0 = none
 //   @pass | @fail [<message...>]      end the run (exit code 0 or 1) at once
 //   @end                              the same as @pass
@@ -110,6 +113,7 @@ enum class StepKind : uint8_t {
     Rays,        // text = "IN OUT": batch of static-collision ray casts (S26)
     PressUntil,  // buttons pressed 4 frames every `count` frames until the condition (field/op/x/id, as Assert) holds; timeout
     GoTo,        // x, z, r: steer the left stick until the player is within r of (x, z); soft = a timeout logs and goes on
+    Coop,        // text = the step without its '@' (coop_msg, coop_inject, coop_state and their arguments; nxrt/tt_coop.h)
 };
 
 enum class AssertField : uint8_t { Area, World, Frame, Igt, Health, PosX, PosY, PosZ, VelX, VelY, VelZ, Speed, State, Tod, Prog };

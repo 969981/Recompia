@@ -19,6 +19,7 @@
 #include "core/pkp_mods.h"
 #include "ui/pkp_menu.h"
 #if NXRT_TESTTOOLS
+#include "test/pkp_coop_probe.h"
 #include "test/pkp_movie_test.h"
 #include "test/pkp_taa_probe.h"
 #endif
@@ -60,6 +61,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
 //   coop                after linkplay: both hook the permission mask's online pattern (main+0xb1030; both return 0, so both run), and
 //                       co-op's runs second, so its pattern is the one the builder keeps. Installs nothing unless this is a co-op launch
+//   coop_probe          a test tool (NXRT_TESTTOOLS only): after coop, so its game-frame state lines see the frame's co-op messages applied
 //   mods                the Modtopia mods' frame tick (pkp_mods.h): first of the game-frame callbacks, so mods see each frame before our
 //                       features change anything in it
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
@@ -89,7 +91,11 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kCoopFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kCoopFeature),
+#if NXRT_TESTTOOLS
+    port(&kCoopProbeFeature),
+#endif
+    port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif

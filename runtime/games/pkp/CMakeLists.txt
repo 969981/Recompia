@@ -97,6 +97,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_time.cpp")
     if(NXRT_TESTTOOLS)
         target_sources(nxrt_game_pkp PRIVATE
+            "${_pkp}/test/pkp_coop_probe.cpp"
             "${_pkp}/test/pkp_movie_test.cpp"
             "${_pkp}/test/pkp_taa_probe.cpp")   # test-only features (pkp_game.cpp, NXRT_TESTTOOLS)
     endif()

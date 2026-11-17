@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // nxrt/coop_channel.h: the co-op channel's entry points. Holds the process's one channel (net/coop_channel.h) on the ports of the ldn
 // backend [net] protocol picks, the handlers the game layer registered, and drain(). ldn_reset() closes it before the backends reset.
+// Test-tools builds pass every message sent and drained to the recorder, and deliver the injected ones in drain() (nxrt/tt_coop.h).
 #include <map>
 #include <memory>
 #include <mutex>
@@ -11,6 +12,9 @@
 #include "nxrt/coop_channel.h"
 #include "nxrt/log.h"
 #include "../net/coop_channel.h"
+#if NXRT_TESTTOOLS
+#include "nxrt/tt_coop.h"
+#endif
 
 namespace nxrt::coop_channel {
 namespace {
@@ -32,6 +36,19 @@ std::shared_ptr<vnet::CoopChannel> current() {
     Slot& s = slot();
     std::lock_guard<std::mutex> lk(s.mu);
     return s.channel;
+}
+
+// Runs the handler of one message's type, on the calling thread.
+void dispatch(int from, uint32_t type, const uint8_t* data, size_t size) {
+    Slot& s = slot();
+    MessageHandler h;
+    {
+        std::lock_guard<std::mutex> lk(s.handlers_mu);
+        if (auto f = s.on_message.find(type); f != s.on_message.end()) h = f->second;
+        else if (s.unhandled_logged.insert(type).second)
+            NXLOG_W("net", "coop channel: no handler for message type %u (from node %d): dropped", type, from);
+    }
+    if (h) h(Message{from, type, data, size});
 }
 
 }  // namespace
@@ -82,7 +99,13 @@ bool send(int node, uint32_t type, const void* data, size_t size) {
 bool send(int node, uint32_t type, std::vector<uint8_t>&& data) {
     if (data.size() > kMaxMessage) return false;
     const auto c = current();
-    return c && c->send(node, type, std::make_shared<const std::vector<uint8_t>>(std::move(data)));
+    if (!c) return false;
+    auto payload = std::make_shared<const std::vector<uint8_t>>(std::move(data));
+    if (!c->send(node, type, payload)) return false;
+#if NXRT_TESTTOOLS
+    tt::coop::on_sent(node, type, payload->data(), payload->size());
+#endif
+    return true;
 }
 
 int send_all(uint32_t type, const void* data, size_t size) {
@@ -90,7 +113,11 @@ int send_all(uint32_t type, const void* data, size_t size) {
     const auto c = current();
     if (!c) return 0;
     const auto* b = static_cast<const uint8_t*>(data);
-    return c->send_all(type, std::make_shared<const std::vector<uint8_t>>(b, b + size));
+    const int n = c->send_all(type, std::make_shared<const std::vector<uint8_t>>(b, b + size));
+#if NXRT_TESTTOOLS
+    if (n > 0) tt::coop::on_sent(kNoNode, type, data, size);
+#endif
+    return n;
 }
 
 size_t queued_bytes(int node) {
@@ -105,14 +132,10 @@ size_t drain(size_t max) {
     Slot& s = slot();
     for (const auto& it : items) {
         if (it.kind == vnet::CoopChannel::Item::kMessage) {
-            MessageHandler h;
-            {
-                std::lock_guard<std::mutex> lk(s.handlers_mu);
-                if (auto f = s.on_message.find(it.type); f != s.on_message.end()) h = f->second;
-                else if (s.unhandled_logged.insert(it.type).second)
-                    NXLOG_W("net", "coop channel: no handler for message type %u (from node %d): dropped", it.type, it.node);
-            }
-            if (h) h(Message{it.node, it.type, it.data->data(), it.data->size()});
+#if NXRT_TESTTOOLS
+            tt::coop::on_received(it.node, it.node == c->self(), it.type, it.data->data(), it.data->size());
+#endif
+            dispatch(it.node, it.type, it.data->data(), it.data->size());
         } else {
             MemberHandler h;
             {
@@ -122,7 +145,11 @@ size_t drain(size_t max) {
             if (h) h(MemberEvent{it.node, it.kind == vnet::CoopChannel::Item::kJoin, it.authority});
         }
     }
+#if NXRT_TESTTOOLS
+    return items.size() + tt::coop::drain_injected(&dispatch);
+#else
     return items.size();
+#endif
 }
 
 int self() {
