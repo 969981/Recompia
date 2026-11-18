@@ -233,9 +233,9 @@ const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
 const AT_EVENT_PRESET = pkp('time', 'event_preset');
 const TIMED_EVENTS = [
   { id: 'copycat', label: t('Copycat Challenge (April 2, 2026)') },
-  { id: 'hoppip', label: t('More Spores for Hoppip (March 12, 2026)') },
-  { id: 'bulbasaur', label: t("Bulbasaur's Jump Rope Contest (April 21, 2026)") },
-  { id: 'sableye', label: t("Sableye's Gem Hunt (May 1, 2026)") },
+  { id: 'hoppip', label: t('Timed event (March 12, 2026)') },
+  { id: 'bulbasaur', label: t('Timed event (April 21, 2026)') },
+  { id: 'sableye', label: t('Timed event (May 1, 2026)') },
 ];
 const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
 const scopeNeedsReset = (src) => clockScope(src) === 'all';
@@ -640,7 +640,7 @@ export const SECTIONS = [
           { id: 'online_events', label: t('Online events'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_events')) },
           {
             id: 'online_events_note', type: 'note',
-            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
+            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
         ],
       },
