@@ -98,7 +98,7 @@ const game::Info& data_info() {
         game::Info g;
         g.id = "pkp";
         g.title = "Pokémon Pokopia";
-        g.product = "Pokémon Pokopia PC";
+        g.product = "Recompia";
         g.short_title = "Pokopia";
         g.program_id = 0x0400A3A01EE4C000ull;
         g.version = "2.0.1";

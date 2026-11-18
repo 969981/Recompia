@@ -83,7 +83,7 @@ struct Info {
     // ---- identity ----
     const char* id = "";                    // short id, also the stem of the game's file names: "pkp"
     const char* title = "";                 // the game's own name: "Pokémon Pokopia"
-    const char* product = "";               // the PC port's name in window titles and dialogs: "Pokémon Pokopia PC"
+    const char* product = "";               // the PC port's name in window titles and dialogs: "Recompia"
     const char* short_title = "";           // a short name for file headers: "Pokopia" (empty: product)
     uint64_t program_id = 0;                // the Switch title id
     const char* version = "";               // the game version the hooks were found in: "2.0.1"

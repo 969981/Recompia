@@ -28,11 +28,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", ""
-            VALUE "FileDescription", "Pokémon Pokopia PC"
+            VALUE "FileDescription", "Recompia"
             VALUE "FileVersion", PKP_VER_TEXT
             VALUE "InternalName", "pkp"
             VALUE "OriginalFilename", "pkp.exe"
-            VALUE "ProductName", "Pokémon Pokopia PC"
+            VALUE "ProductName", "Recompia"
             VALUE "ProductVersion", PKP_VER_TEXT
         END
     END

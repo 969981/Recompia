@@ -9,6 +9,9 @@
 ### Changed
 - Settings > Source code opens the source of the version you have installed
 
+### Game
+- Changed the game window's title and the game exe's description to Recompia
+
 ### Launcher
 - Changed the launcher's list of community mods
 - Changed the launcher's default colours to **Meadow** and removed the **Koi's Camp** colours; a launcher set to Koi's Camp opens in Meadow

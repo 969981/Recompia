@@ -449,7 +449,7 @@ int main(int argc, char** argv) {
                 disp = nxrt::play::display();       // controls.ini: window size, present mode, frame cap
                 nxrt::platform::init();
                 nxrt::platform::WindowDesc wd;
-                wd.title = nxrt::game::info().title;
+                wd.title = nxrt::game::info().product;
                 wd.width = disp.width;
                 wd.height = disp.height;
                 if (!nxrt::platform::create_window(wd)) die("cannot create the game window. The game needs a graphics driver with Vulkan 1.3: update the driver for your graphics card and try again. The reason is in pkp.log.");
