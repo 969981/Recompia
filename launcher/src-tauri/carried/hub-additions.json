@@ -103,30 +103,6 @@
    "platforms": [
     "windows-x64"
    ]
-  },
-  {
-   "id": "pokemon_voice_library",
-   "name": "Pokopia Anime Voices",
-   "version": "1.0.0",
-   "summary": "Anime voices replace the cries of 173 Pokémon.",
-   "description": "Anime voice replacements for 173 Pokemon.",
-   "group": "sound",
-   "affects": "gameplay",
-   "network": false,
-   "game": [
-    "2.0.1"
-   ],
-   "needs": ">=0.1.0 <1.0.0",
-   "authors": [
-    "Eppielicious"
-   ],
-   "license": "MIT",
-   "settings": [],
-   "tested": false,
-   "source": "https://github.com/peppershinybooty/Pokopia-Voices",
-   "page": "",
-   "download": null,
-   "manual": "https://github.com/peppershinybooty/Pokopia-Voices/releases/tag/2.1"
   }
  ]
 }

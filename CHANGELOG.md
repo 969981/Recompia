@@ -9,6 +9,9 @@
 ### Changed
 - Settings > Source code opens the source of the version you have installed
 
+### Launcher
+- Changed the launcher's list of community mods
+
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
@@ -16,7 +19,7 @@
 ### Highlights
 - **Seamless co-op v2 is ready for testing: join the Open Alpha!** Play together in one world over the internet, each player with their own character. It is stable now: there are still bugs, but nothing game-breaking. Get it from [Recompia: Co-op alpha 5](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.5) and tell us what you find
 - Fixed new Pokémon showing up invisible when **Pokémon in town** was set high (#745)
-- Added four community mods to Browse before the mod hub lists them, and Community Achievements 0.4.1 no longer gives five achievements too early
+- Added community mods to Browse before the mod hub lists them, and Community Achievements 0.4.1 no longer gives five achievements too early
 
 ### Link Play
 - Added the seamless co-op v2 Open Alpha: a separate test build, not part of this update
@@ -48,8 +51,7 @@
 - Community Achievements 0.4.1 now comes with the launcher, until the mod hub has a newer version
   - Fixed Identity Revealed, Cloud Pioneer, First Steps, Wanderer and Cartographer being earned before the player visited those places; the ones earned too early are taken back once and come back when the player gets there
   - Added `achievements.json` in the mod's folder: every achievement with its progress, the time it was earned, the share of players who have it and its picture, for other programs to read
-- Added four community mods to Browse before the mod hub lists them: Unlimited Crafting Storage Range, Play as Pokemon, Simple Cheats (Windows) and Pokopia Anime Voices; each one leaves the launcher's list once the hub lists it
-  - Pokopia Anime Voices is not installed by the launcher: **Get it yourself** explains why and opens its author's page
+- Added three community mods to Browse before the mod hub lists them; each one leaves the launcher's list once the hub lists it
 
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
