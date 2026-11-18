@@ -47,6 +47,16 @@ pub fn open_game_file(app: AppHandle, name: String) -> Result<(), String> {
     play::open_with_shell(&path)
 }
 
+/// Opens the `licenses/` folder of the install: the licence texts and notices every release package carries next to the launcher.
+#[tauri::command]
+pub fn open_licenses_dir() -> Result<(), String> {
+    let dir = crate::paths::exe_dir().join("licenses");
+    if !dir.is_dir() {
+        return Err("This install has no licenses folder.".into());
+    }
+    play::open_with_shell(&dir)
+}
+
 #[tauri::command]
 pub fn open_game_dir(app: AppHandle) -> Result<(), String> {
     play::open_with_shell(&game_dir(&app))

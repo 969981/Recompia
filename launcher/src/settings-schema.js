@@ -287,6 +287,7 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
+const SOURCE_URL = 'https://github.com/Dittobyte/Recompia';
 const DISCORD_URL = 'https://discord.recompia.com';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
@@ -786,7 +787,8 @@ export const SECTIONS = [
           { id: 'language', label: t('Language'), type: 'language' },
           { id: 'licence', label: t('Licence'), type: 'info', value: 'GPL-3.0-or-later' },
           { id: 'built_with', label: t('Built with'), type: 'info', value: t('Tauri 2, Lucide (ISC), Inter (OFL)') },
-          { id: 'repo', label: t('Source code'), type: 'info', actions: [open(REPO_URL, 'GitHub')] },
+          { id: 'repo', label: t('Source code'), type: 'info', actions: (env) => [open(`${SOURCE_URL}/tree/v${env.version}`, 'GitHub')] },
+          { id: 'licences', label: t('Licences'), type: 'info', actions: [{ act: 'licences-open', label: t('Open folder'), icon: 'folder-open' }] },
           { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
           { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: t('Artwork by Koi, hand drawn') },
           { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },

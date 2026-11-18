@@ -489,6 +489,7 @@ export default {
   'Built with': '建置於',
   'Tauri 2, Lucide (ISC), Inter (OFL)': 'Tauri 2, Lucide (ISC), Inter (OFL)',
   'Source code': '原始碼',
+  'Licences': '授權條款',
   'Community': '社群',
   'Recompia Discord: help, testing and chat': 'Recompia Discord：說明、測試和交流',
   'Join Discord': '加入 Discord',

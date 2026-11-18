@@ -23,6 +23,7 @@ export const api = {
 
   // Opening links, files and folders
   openLink: (args) => invoke('open_link', args),   // { url }
+  openLicensesDir: () => invoke('open_licenses_dir'),
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),
   openSaveDir: () => invoke('open_save_dir'),

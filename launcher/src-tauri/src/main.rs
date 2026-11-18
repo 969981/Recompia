@@ -148,6 +148,7 @@ fn main() {
             update_cmds::install_version,
             update_cmds::cancel_update,
             open::open_link,
+            open::open_licenses_dir,
             config::save_config,
             readiness::get_overview,
             dialogs::pick_folder,
