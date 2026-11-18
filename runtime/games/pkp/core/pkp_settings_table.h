@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the table of [pkp] keys (pkp_settings.h). A header of constexpr data, so the feature registry (pkp_game.cpp) can check
+// Game layer: the table of [pkp] keys (pkp_settings.h). A header of constexpr data, so the feature registry (pkp_game.cpp) can check
 // at compile time that every gameplay mod switch belongs to a feature and every mod feature names its switches. spec() and the doc rows
 // are in pkp_settings_table.cpp (nxrt_game_pkp_data, which the docs generator reads without the runtime), the getters in
 // pkp_settings.cpp. Defaults and ranges are the ones each module used before the table.
@@ -85,7 +85,13 @@ inline constexpr Spec kSpecs[] = {
     b(QualityProbe, "quality_probe", false, "Log what the quality hooks see (diagnostics)."),
     i(GameTaa, "game_taa", 0, 0, 2, "Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's)."),
     b(LinkInteractEverywhere, "link_interact_everywhere", false, "Experimental: Link Play visitors can interact outside Palette Town."),
-    b(LinkStoryCoop, "link_story_coop", false, "Experimental: in Link Play every player plays their own story, saved in their own save."),
+    // Seamless co-op: written by the launcher into the environment of one launch (NXRT_PKP_COOP, NXRT_PKP_COOP_ROLE, ...), never by a
+    // Settings row. Not a gameplay mod: it is a way to start the game, not a change to how it plays.
+    b(Coop, "coop", false, "Launcher only: this launch plays a seamless co-op session (with coop_role, coop_group and coop_member)."),
+    unset_by_default(s(CoopRole, "coop_role", "", "host visit", "Launcher only, with coop: host opens the co-op session, visit joins it.")),
+    s(CoopGroup, "coop_group", "", "", "Launcher only, with coop: the id of the co-op group this launch plays in."),
+    s(CoopMember, "coop_member", "", "", "Launcher only, with coop: this player's member id in the group (32 hex digits)."),
+    unset_by_default(i(CoopMembers, "coop_members", 0, 0, 16, "Launcher only, with coop: how many members the group has; the session waits for all of them (0: no waiting).")),
     b(UuidRepair, "uuid_repair", true, "At start, give a save with the player UUID earlier builds shared a UUID of its own."),
     gameplay(b(JumpMomentum, "jump_momentum", true, "A running jump keeps the running speed in the air.")),
     d(JumpMomentumStrength, "jump_momentum_strength", 1.0, 0.0, 1.0, "With jump_momentum: how much of the extra running speed is kept."),
@@ -97,19 +103,24 @@ inline constexpr Spec kSpecs[] = {
     opt_in(gameplay(b(CraftSearch, "craft_search", false, "A Search button in the crafting screen's key guide."))),
     opt_in(gameplay(b(ItemEditor, "item_editor", false, "Experimental: an Items tab in the game's Settings screen that changes the count of a stack in the bag."))),
     hidden(gameplay(b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen."))),
-    gameplay(b(PokemonCap, "pokemon_cap_50", true, "Experimental: more Pokemon can live in the town than the game's 25 (pokemon_cap_limit).")),
-    under(PokemonCap, i(PokemonCapLimit, "pokemon_cap_limit", 31, 25, 64,
-                        "With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the game's 64 actor slots.")),
+    gameplay(b(PokemonCap, "pokemon_cap_50", true, "Experimental: more creatures can live in the town than the game's 25 (pokemon_cap_limit).")),
+    under(PokemonCap, i(PokemonCapLimit, "pokemon_cap_limit", 31, 25, 50,
+                        "With pokemon_cap_50: how many creatures can live in the town; visitors and spawns share the same room, and the game draws at most 50 creatures.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events."),
     gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
     // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
-    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
+    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the creatures-at-home count. Sends data off the PC, so off by default.")),
     // Read by the network services at start (game::Info::report_online, pkp_game.cpp). On by default so events that need a connection
     // start on their date; online services other than the clock and nifm answers still fail.
     b(OnlineEvents, "online_events", true, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
+
+// Keys of older builds, read and ignored without a warning (an old pkp.ini keeps loading); the launcher never writes them.
+inline constexpr const char* kRetired[] = {
+    "link_story_coop",   // Story co-op (every player's own story), replaced by seamless co-op (coop)
+};
 
 constexpr bool in_key_order() {
     for (size_t n = 0; n < static_cast<size_t>(Count); ++n)

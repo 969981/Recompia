@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus (pkp_menu.cpp and the files it is split into): the scan's state, the game's layout and pane
+// Game layer, the mouse in the game's menus (pkp_menu.cpp and the files it is split into): the scan's state, the game's layout and pane
 // offsets, and the functions one of those files calls in another. Internal to those files.
 #pragma once
 #include <atomic>
@@ -93,8 +93,6 @@ struct State {
     // in-game menus (menu_in_game): a layout with the game's cursor on an entry while the game is in play
     bool ig_enabled = false;
     bool ig_up = false;                // the in-game menu is up (debounced)
-    std::atomic<bool> pause_up{false}; // the in-game menu is the pause menu's main view (pkp_save_now.cpp reads it)
-    char ig_focus[48] = {};            // the selected entry's pane name
     int ig_tick = 0, ig_hits = 0, ig_miss = 0;
     bool frame_scanned = false;        // menu_frame scanned this frame (the next poll reuses its result)
     bool frame_present = false;
@@ -132,7 +130,7 @@ void log_layouts();
 struct DrawSite { uint64_t off; int reg; };
 constexpr DrawSite kDrawSites[] = {
     {0x1f5ac6c, 0}, {0x1f5b26c, 0}, {0x1f63094, 0}, {0x1f642a8, 0}, {0x1f6a028, 0}, {0x1f6a8c4, 0},
-    {layout::kPictureDraw, 0}, {0x1f765b4, 0}, {0x1f78030, 21}, {0x1f78124, 0}, {0x1f7aa2c, 0}, {layout::kWindowDraw, 0},
+    {0x1f76168, 0}, {0x1f765b4, 0}, {0x1f78030, 21}, {0x1f78124, 0}, {0x1f7aa2c, 0}, {0x1f7fe48, 0},
 };
 extern std::atomic<uint32_t> g_frame;
 extern std::atomic<uint64_t> g_draw_calls;

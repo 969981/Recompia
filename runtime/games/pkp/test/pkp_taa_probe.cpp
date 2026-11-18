@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, test tool: log-only entry hooks on the engine's temporal AA pass slot setups (offsets in `main` of the 2.0.1 update, base
+// Game layer, test tool: log-only entry hooks on the engine's temporal AA pass slot setups (offsets in `main` of the 2.0.1 update, base
 // 0x7100000000; the passes are described in pkp_taa.cpp). Each logs once when reached, to show whether the pass exists in a run. They change
 // nothing. Built only with NXRT_TESTTOOLS (runtime/games/pkp/CMakeLists.txt); a release package has no such hooks.
 //   0x7101e53748  TemporalAA3 slot setup (x0 = the pass): its switch byte and the colour / depth / output slot ids

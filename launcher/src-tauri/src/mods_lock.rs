@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The mod the launcher keeps on (the repo owner's call, 2026-11-12): Community Achievements (achievements.rs `MOD_ID`) is installed from
-//! the mod hub, switched on and kept on, and its `share` setting is kept on, each until the player unlocks it. Two launcher options hold
+//! the mod hub or from the launcher's own copy (mods_carried.rs), switched on and kept on, and its `share` setting is kept on, each until the player unlocks it. Two launcher options hold
 //! the locks (config.rs `achievements_unlocked`, `achievements_sharing_unlocked`; both off = locked, the default).
 //!
 //! - Keeping (`keep`): at every launcher start and when the player locks again. With the game set up (pkp.exe in the game folder) and the
-//!   mod locked: a missing mod is installed through the Browse install path (mods_install.rs `put_in_place`: the hub's server only, size
-//!   and SHA-256 checked) with the player's yes recorded for that one id (the launcher fetched it, as a Browse install), switched on and
+//!   mod locked: a missing mod is installed through the Browse install path (mods_install.rs `install_best`: the launcher's own copy
+//!   unless the hub's is newer; the hub's from its server only, size and SHA-256 checked) with the player's yes recorded for that one id (the launcher fetched it, as a Browse install), switched on and
 //!   its sharing on, with no question (the owner's call). Installed but off: switched on, unless its code is not allowed (a file that did
-//!   not come through the launcher stays the player's question). Sharing locked and off: on again. Offline or a failed download: nothing,
-//!   the next start tries again; never an error, never in Play's way. Unlocked and removed stays removed ("deleted stays deleted").
+//!   not come through the launcher stays the player's question). Sharing locked and off: on again. Neither source has it
+//!   (offline with no copy of its own) or a failed download: nothing, the next start tries again; never an error, never in Play's way. Unlocked and removed stays removed ("deleted stays deleted").
 //! - Guarding (`check_*`): while locked, the commands refuse to switch the mod off or remove it, and to switch sharing off; the pages
 //!   show the rows locked (`mark`) with an Unlock action and its question.
 //! - The game: the locks go into pkp.ini `[mods] locked` / `locked_settings` (runtime/docs/CONFIG.md; `mirror`), which the in-game Mods
@@ -21,7 +21,7 @@ use crate::achievements::MOD_ID;
 use crate::config::Config;
 use crate::ini::Ini;
 use crate::mods::{self, ModView, ModsView};
-use crate::mods_catalog::{self, Catalog};
+use crate::mods_catalog::Catalog;
 use crate::settings::{self, PKP_INI};
 
 /// The mod's sharing setting (its mod.toml: "Share my achievements with other players").
@@ -163,25 +163,13 @@ fn share_on(game_dir: &Path) -> Result<(), String> {
     mods::set_setting(game_dir, MOD_ID, SHARE, Some(1.0), None).map(|_| ())
 }
 
-/// Installs the hub's current package, records the yes for it, switches it on and sharing on. False: offline, not on the hub's list for
-/// this game, or the download failed (logged; the next launcher start tries again).
+/// Installs the better package (mods_install.rs `install_best`: the one the launcher carries unless the hub's is newer), records the yes
+/// for it, switches it on and sharing on. False: neither has it now (offline and nothing carried, not on the hub's list for this game) or
+/// the download failed (logged; the next launcher start tries again).
 fn install(game_dir: &Path, load: impl FnOnce() -> Result<(Catalog, bool), String>) -> Result<bool, String> {
-    let (catalog, offline) = match load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("mods: {MOD_ID} not installed now: {e}");
-            return Ok(false);
-        }
-    };
-    if offline || catalog.preview {
-        eprintln!("mods: {MOD_ID} not installed now: the mod hub cannot be reached");
-        return Ok(false);
-    }
-    let Some(entry) = catalog.mods.iter().find(|e| e.id == MOD_ID && mods_catalog::fits(e) && e.download.is_some()) else {
-        eprintln!("mods: {MOD_ID} is not on the mod hub's list for this game");
-        return Ok(false);
-    };
-    if let Err(e) = crate::mods_install::put_in_place(game_dir, entry, true) {
+    let loaded = load().map_err(|e| eprintln!("mods: the mod hub's list for {MOD_ID}: {e}")).ok();
+    let hub = loaded.as_ref().and_then(|(catalog, offline)| crate::mods_install::hub_entry(catalog, *offline, MOD_ID));
+    if let Err(e) = crate::mods_install::install_best(game_dir, hub, MOD_ID, true) {
         eprintln!("mods: {MOD_ID} not installed now: {e}");
         return Ok(false);
     }
@@ -303,12 +291,15 @@ mod tests {
     }
 
     #[test]
-    fn offline_the_first_start_installs_nothing_and_is_no_error() {
+    fn offline_the_first_start_installs_the_launchers_own_copy() {
         let dir = game("lock-offline", false);
         let offline = || parse_empty().map(|c| (c, true));
-        assert!(keep(&dir, LOCKED, offline).unwrap().is_empty());
-        assert!(keep(&dir, LOCKED, || Err("The mod list could not be loaded.".to_string())).unwrap().is_empty());
-        assert!(the_mod(&dir).is_none());
+        assert_eq!(keep(&dir, LOCKED, offline).unwrap(), [Step::Install]);
+        let m = the_mod(&dir).unwrap();
+        assert!(m.enabled && !Have::of(&m).share_off && Some(m.version.as_str()) == crate::mods_carried::find(MOD_ID).map(|c| c.version));
+        let again = game("lock-unreachable", false);
+        assert_eq!(keep(&again, LOCKED, || Err("The mod list could not be loaded.".to_string())).unwrap(), [Step::Install]);
+        let _ = fs::remove_dir_all(&again);
         let never = || -> Result<(Catalog, bool), String> { panic!("unlocked: the hub is not asked") };
         assert!(keep(&dir, OPEN, never).unwrap().is_empty(), "unlocked and missing: nothing");
         assert!(keep(&temp_game_dir("lock-no-game"), LOCKED, never).unwrap().is_empty(), "no game folder set up: nothing");
@@ -316,7 +307,7 @@ mod tests {
     }
 
     fn parse_empty() -> Result<Catalog, String> {
-        mods_catalog::parse(br#"{"schema": 1, "preview": false, "mods": []}"#)
+        crate::mods_catalog::parse(br#"{"schema": 1, "preview": false, "mods": []}"#)
     }
 
     #[test]
@@ -344,10 +335,24 @@ mod tests {
     fn locking_again_removes_profile_exceptions() {
         let dir = game("lock-profile", true);
         let profile = crate::profiles::add(&dir, "Other").unwrap().profiles.last().unwrap().id.clone();
-        mods::set_enabled_for_profile(&dir, MOD_ID, false, false, Some(&profile), false).unwrap();
-        mods::set_setting_for_profile(&dir, MOD_ID, SHARE, Some(0.0), None, Some(&profile), false).unwrap();
+        mods::set_enabled_in(&dir, MOD_ID, false, false, &mods::Scope::Profile(profile.clone()), false).unwrap();
+        mods::set_setting_in(&dir, MOD_ID, SHARE, Some(0.0), None, &mods::Scope::Profile(profile.clone()), false).unwrap();
         keep(&dir, LOCKED, || panic!("already installed")).unwrap();
-        let m = mods::list_for_profile(&dir, Some(&profile)).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
+        let m = mods::list_in(&dir, &mods::Scope::Profile(profile.clone())).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
+        assert!(m.enabled && m.enabled_override.is_none());
+        assert!(m.settings.iter().filter(|s| s.key == SHARE).all(|s| s.number == 1.0 && !s.overridden));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn locking_again_removes_co_op_group_exceptions() {
+        let dir = game("lock-coop", true);
+        let g = crate::coop::create(&crate::coop::root_of(&dir), "Island", "Ash", "192.0.2.10").unwrap();
+        let group = mods::Scope::Coop(g.id);
+        mods::set_enabled_in(&dir, MOD_ID, false, false, &group, false).unwrap();
+        mods::set_setting_in(&dir, MOD_ID, SHARE, Some(0.0), None, &group, false).unwrap();
+        keep(&dir, LOCKED, || panic!("already installed")).unwrap();
+        let m = mods::list_in(&dir, &group).unwrap().mods.into_iter().find(|m| m.id == MOD_ID).unwrap();
         assert!(m.enabled && m.enabled_override.is_none());
         assert!(m.settings.iter().filter(|s| s.key == SHARE).all(|s| s.number == 1.0 && !s.overridden));
         let _ = fs::remove_dir_all(dir);

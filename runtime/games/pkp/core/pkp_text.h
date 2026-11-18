@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: a UI widget's text slot set to our own UTF-8 string (a key guide part, pkp_key_guide.cpp; a Settings row,
+// Game layer: a UI widget's text slot set to our own UTF-8 string (a key guide part, pkp_key_guide.cpp; a Settings row,
 // pkp_options.cpp), the way the game shows a string argument: text id layout::kStringText ("<string;0(lstr1)>") through
 // layout::kTextString (widget, slot, text id, const char*).
 #pragma once

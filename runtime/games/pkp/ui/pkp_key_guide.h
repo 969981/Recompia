@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: our entries in the game's key guide (pkp_key_guide.cpp). The title's Quit Game (pkp_title.cpp), the bag's Hold to
+// Game layer: our entries in the game's key guide (pkp_key_guide.cpp). The title's Quit Game (pkp_title.cpp), the bag's Hold to
 // Sort click (pkp_sort.cpp) and the crafting screen's Search (pkp_craft.cpp) are clients: each says what it wants done when the widget takes a set,
 // lays its entries out and fills a part, and what a click on its part does. This module owns the widget's hooks, its layout facts, the
 // writes into a part (icon, text) and the routing of a click on a client's part (pkp_menu.cpp).

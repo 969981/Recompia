@@ -32,19 +32,25 @@ bool texture_put_bc7_blocks(const void* guest, uint32_t x, uint32_t y, uint32_t 
 
 // A texture known by its content: a w x h (level 0) BC7 texture whose blocks in the rectangle (x, y, w, h) of level 0 (multiples of 4) hash
 // to `hash` (FNV-1a 64 over the rectangle's 16-byte blocks, row by row, as untiled). For a texture the game loads from its files (no pointer
-// to its NVNtexture at hand), e.g. the title screen's "PRESS (A) BUTTON" art.
+// to its NVNtexture at hand), e.g. art with a button glyph drawn into it.
 struct Bc7Match {
     uint32_t width = 0, height = 0;
     uint32_t x = 0, y = 0, w = 0, h = 0;
     uint64_t hash = 0;
 };
-// Every live texture that matches gets `rgba` (m.w x m.h straight-alpha RGBA8) written over that rectangle (as texture_patch_bc7; once
-// written it no longer matches). Only textures the game has drawn with are looked at (their data is in). `checked` (optional): ids of
-// textures already looked at, skipped, and the ones looked at now are added.
-// Returns how many were written. Reads the storage of every texture of that size and format not checked before: call it now and then.
-int texture_patch_bc7_matching(const Bc7Match& m, const uint8_t* rgba, std::vector<uint32_t>* checked);
+struct Bc7Found {
+    uint32_t id = 0;              // the runtime's texture id: the handle of the *_by_id calls below
+    uint32_t match = 0;           // index into the matches given
+};
+// The live textures that match one of the `n` matches `m` (the first that matches, for each texture). Only textures the game has drawn
+// with are looked at (their data is in). `checked` (optional): ids of textures already looked at, skipped, and the ones looked at now are
+// added. Reads the storage of every texture of a matched size and format not checked before: call it now and then.
+std::vector<Bc7Found> texture_find_bc7(const Bc7Match* m, size_t n, std::vector<uint32_t>* checked);
+// texture_patch_bc7 / texture_put_bc7_blocks on a texture found by texture_find_bc7. False also when it is gone (the game freed it).
+bool texture_patch_bc7_by_id(uint32_t id, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* rgba, std::vector<uint8_t>* saved);
+bool texture_put_bc7_blocks_by_id(uint32_t id, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* blocks, size_t size);
 
-// How many textures are registered now (cheap): a caller that scans with texture_patch_bc7_matching can tell that nothing was added or
+// How many textures are registered now (cheap): a caller that scans with texture_find_bc7 can tell that nothing was added or
 // removed since its last scan.
 size_t texture_registry_count();
 

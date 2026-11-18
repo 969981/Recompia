@@ -1,6 +1,6 @@
 # Third-party notices
 
-The nxrt files below name SuperMarioWonderRecomp as a source in their header comments, and the provenance table in README.md lists them: include/nxrt/diag.h, include/nxrt/dispatch.h, include/nxrt/ipc.h, include/nxrt/kernel.h, include/nxrt/memory.h, include/nxrt/module.h, include/nxrt/svc.h, src/core/dispatch.cpp, src/diag/memguard.cpp, src/diag/watchdog.cpp, src/ipc/ipc.cpp, src/ipc/sm.cpp, src/kernel/handles.cpp, src/kernel/kernel_sync.cpp, src/kernel/svc.cpp, src/kernel/svc_info.cpp, src/kernel/svc_memory.cpp, src/kernel/svc_thread.cpp, src/kernel/thread.cpp, src/kernel/time.cpp, src/loader/module.cpp.
+The licence texts that releases ship are the files of `tools/release/licenses/` (one per component; `licenses/` in each package, with an index in its `README.txt`). The nxrt files below name SuperMarioWonderRecomp as a source in their header comments, and the provenance table in README.md lists them: include/nxrt/diag.h, include/nxrt/dispatch.h, include/nxrt/ipc.h, include/nxrt/kernel.h, include/nxrt/memory.h, include/nxrt/module.h, include/nxrt/svc.h, src/core/dispatch.cpp, src/diag/memguard.cpp, src/diag/watchdog.cpp, src/ipc/ipc.cpp, src/ipc/sm.cpp, src/kernel/handles.cpp, src/kernel/kernel_sync.cpp, src/kernel/svc.cpp, src/kernel/svc_info.cpp, src/kernel/svc_memory.cpp, src/kernel/svc_thread.cpp, src/kernel/thread.cpp, src/kernel/time.cpp, src/loader/module.cpp.
 
 ## SuperMarioWonderRecomp (MIT)
 
@@ -78,7 +78,7 @@ PokoMac (https://github.com/Chaos192/PokoMac, Copyright (c) 2026 Chaos192) is th
 
 ## Eglantine / Lichii (GPL-3.0)
 
-`games/pkp/core/pkp_pokemon_cap.cpp` ports the default (non-staged) behaviour of the Eglantine Pokémon cap, and the id token answers in `src/services/acc.cpp` follow Lichii / Eglantine `src/core/hle/service/acc/acc.cpp` (yuzu family, GPL-3.0). Both files are GPL-3.0-or-later here; the GPL-3.0 text is the `LICENSE` file at the repository root.
+`games/pkp/core/pkp_pokemon_cap.cpp` ports the default (non-staged) behaviour of the Eglantine town population cap, and the id token answers in `src/services/acc.cpp` follow Lichii / Eglantine `src/core/hle/service/acc/acc.cpp` (yuzu family, GPL-3.0). Both files are GPL-3.0-or-later here; the GPL-3.0 text is the `LICENSE` file at the repository root.
 
 ## LLVM libc++abi (Apache-2.0 with LLVM exceptions)
 
@@ -264,7 +264,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ## miniz 3.0.2 (MIT)
 
 `third_party/miniz/` is miniz 3.0.2 (https://github.com/richgel999/miniz, release asset `miniz-3.0.2.zip`), the amalgamated `miniz.c` and
-`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
+`miniz.h`, unchanged. It reads and writes the zlib stream of the game's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
 `LICENSE`, reproduced verbatim:
 
 ```text
@@ -344,7 +344,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## DejaVu fonts (Bitstream Vera licence, reference only)
 
-`src/services/pl.cpp` uses DejaVu Sans (`DejaVuSans.ttf`) as the fallback shared font. The font file is not in this worktree. Its licence text is `assets/fonts/LICENSE-DejaVu.txt` (in the `svc-pl` worktree, with the font at `assets/fonts/DejaVuSans.ttf`), the Bitstream Vera licence as the DejaVu fonts name it. Not copied here.
+`src/services/pl.cpp` uses DejaVu Sans (`DejaVuSans.ttf`) as the fallback shared font. The font file is `assets/fonts/DejaVuSans.ttf`, shipped in the packages under `tools/build/sdk/fonts/`. Its licence text is `assets/fonts/LICENSE-DejaVu.txt`, the Bitstream Vera licence as the DejaVu fonts name it; releases carry it as `licenses/LICENSE.DejaVu-fonts.Bitstream-Vera.txt`.
 
 ## AMD FidelityFX SDK v1.1.4, FSR 1 shader headers (MIT)
 

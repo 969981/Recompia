@@ -1,6 +1,6 @@
-# Pokémon Pokopia game module
+# the game module
 
-The title-specific part of the runtime (`nxrt`): everything the game-independent base needs to run Pokopia, as one `nxrt::game::Info` (`core/pkp_game.h`, `runtime/docs/GAME_BOUNDARY.md`). Nothing outside this folder and `recomp/games/pkp` names the game.
+The title-specific part of the runtime (`nxrt`): everything the game-independent base needs to run the game, as one `nxrt::game::Info` (`core/pkp_game.h`, `runtime/docs/GAME_BOUNDARY.md`). Nothing outside this folder and `recomp/games/pkp` names the game.
 
 Includes are relative to this folder (`#include "core/pkp_game.h"`); no `../`. File names keep the `pkp_` prefix.
 
@@ -12,7 +12,7 @@ Includes are relative to this folder (`#include "core/pkp_game.h"`); no `../`. F
 | `render/` | Picture: render resolution and targets, aspect ratios, wide-text spacing, frame rate, graphics pools, quality presets, the engine's TAA, and `game::Info::render` (`pkp_render_info.cpp`). |
 | `input/` | Play mode's hub (`pkp_play*`), keyboard and mouse prompts, the mouse camera and mouse mode, camera aim, jump momentum. |
 | `ui/` | The game's menus and screens: the mouse in menus (`pkp_menu*`), the in-game Options, the key guide and its clients (title Quit Game, inventory sort, crafting search). |
-| `test/` | Test-only sources: the test tooling's probes, the movie test, the TAA probe. Built only with `NXRT_TESTTOOLS`; a release package has none of them. |
+| `test/` | Test-only sources: the test tooling's probes, the co-op state probe, the movie test, the TAA probe. Built only with `NXRT_TESTTOOLS`; a release package has none of them. |
 
 ## Adding a feature
 

@@ -8,6 +8,7 @@
 // A source is { pkp, controls, config, controls_exists }: read_settings' `section.key` maps plus get_config.
 // An edit is { file, section, key, value }. file 'pkp' and 'controls' go to write_settings, 'config' to save_config.
 //
+// A section: { id, icon (a Font Awesome solid name for faIcon), label, groups }.
 // Field: { id, label, type, at, def, options, min, max, step, suffix, ... }
 //   type     segmented | select | choice | size | toggle | slider | path | clock
 //   at       where it lives: controls(), pkp() or config(); an array when it has two keys
@@ -25,6 +26,7 @@
 import { num, t } from './i18n.js';
 import { playTimeLine } from './play-time-model.js';
 import { previewItem } from './prompt-pack-model.js';
+import { shownIn } from './games.js';
 import controlsSchema from '../../runtime/docs/controls_schema.json' with { type: 'json' };
 import gameIniSchema from '../../runtime/docs/pkp_ini_schema.json' with { type: 'json' };
 
@@ -32,8 +34,6 @@ const controls = (section, key) => ({ file: 'controls', section, key });
 const pkp = (section, key) => ({ file: 'pkp', section, key });
 const config = (key) => ({ file: 'config', section: '', key });
 
-/** The logo and icon choices: 'Recompia' is a name and stays in English. */
-const LOOKS = [{ value: 'recompia', label: 'Recompia' }, { value: 'classic', label: t('Classic') }];
 
 const keyOf = (at) => (at.file === 'config' ? at.key : `${at.section}.${at.key}`);
 const rawOf = (src, at) => src[at.file]?.[keyOf(at)];
@@ -232,9 +232,9 @@ const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
 const AT_EVENT_PRESET = pkp('time', 'event_preset');
 const TIMED_EVENTS = [
   { id: 'copycat', label: t('Copycat Challenge (April 2, 2026)') },
-  { id: 'hoppip', label: t('More Spores for Hoppip (March 12, 2026)') },
-  { id: 'bulbasaur', label: t("Bulbasaur's Jump Rope Contest (April 21, 2026)") },
-  { id: 'sableye', label: t("Sableye's Gem Hunt (May 1, 2026)") },
+  { id: 'hoppip', label: t('Timed event (March 12, 2026)') },
+  { id: 'bulbasaur', label: t('Timed event (April 21, 2026)') },
+  { id: 'sableye', label: t('Timed event (May 1, 2026)') },
 ];
 const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
 const scopeNeedsReset = (src) => clockScope(src) === 'all';
@@ -286,7 +286,9 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
+const SOURCE_URL = 'https://github.com/Dittobyte/Recompia';
 const DISCORD_URL = 'https://discord.recompia.com';
+const PRIVACY_URL = 'https://github.com/Dittobyte/Recompia/blob/main/PRIVACY.md';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
@@ -318,10 +320,10 @@ const GAMEPLAY = {
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
   },
   pokemon_cap_50: {
-    label: t('More Pokémon in town'),
-    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.') }) }],
+    label: t('More creatures in town'),
+    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
-  pokemon_cap_limit: { label: t('Pokémon in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
+  pokemon_cap_limit: { label: t('Creatures in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
@@ -359,9 +361,15 @@ export const DLSS_DOWNLOAD = {
 
 export const IMPORT_FACTS = t('Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.');
 
+// `games` (games.js shownIn): the rows a Recompia: Co-op start has no use for. The co-op start sets the online and relay settings itself
+// (coop_launch.rs) and plays its own save folder, so the Online rows, profiles, saves, backups and the game clock are singleplayer
+// only; the install (game files, Set up, shaders, Steam, art, updates, repair) is looked after from Recompia.
+const SINGLEPLAYER = ['recompia'];
+
 export const SECTIONS = [
   {
     id: 'display',
+    icon: 'display',
     label: t('Display'),
     groups: [
       {
@@ -417,6 +425,7 @@ export const SECTIONS = [
   },
   {
     id: 'graphics',
+    icon: 'wand-magic-sparkles',
     label: t('Graphics'),
     groups: [
       {
@@ -469,6 +478,7 @@ export const SECTIONS = [
   },
   {
     id: 'audio',
+    icon: 'volume-high',
     label: t('Audio'),
     groups: [
       {
@@ -485,6 +495,7 @@ export const SECTIONS = [
   },
   {
     id: 'controls',
+    icon: 'gamepad',
     label: t('Controls'),
     groups: [
       {
@@ -529,7 +540,8 @@ export const SECTIONS = [
     ],
   },
   {
-    id: 'saves',
+    id: 'saves', games: SINGLEPLAYER,
+    icon: 'floppy-disk',
     label: t('Saves'),
     groups: [
       {
@@ -609,12 +621,13 @@ export const SECTIONS = [
   },
   {
     id: 'game',
+    icon: 'sliders',
     label: t('Game'),
     groups: [
       {
         // online.rs: sends data off the PC, so off by default; the notice must say exactly what is sent (recompia.com #online says the
         // same). The switch is pkp.ini [pkp] online_presence, the same key as the Home chip and the game's own Settings (Online tab).
-        title: t('Online'),
+        title: t('Online'), games: SINGLEPLAYER,
         rows: [
           { id: 'online_presence', label: t('Share that I am online'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_presence')) },
           {
@@ -623,7 +636,7 @@ export const SECTIONS = [
           },
           {
             id: 'online_note', type: 'note',
-            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
+            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many creatures have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
           },
           { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
           { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },
@@ -631,7 +644,7 @@ export const SECTIONS = [
           { id: 'online_events', label: t('Online events'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_events')) },
           {
             id: 'online_events_note', type: 'note',
-            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
+            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
           // pkp.ini [net] cloud_server (runtime/src/services/network_cloud.cpp): the game's Cloud Island menu talks to this self-hosted server
           // instead of Nintendo's. Empty: Cloud Islands stay off. docs/cloud-island/README.md.
@@ -643,7 +656,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: '',
+        title: '', games: SINGLEPLAYER,
         rows: [
           {
             id: 'game_files', label: t('Game files'), type: 'info', value: (env) => env.gameFiles, mono: true,
@@ -654,6 +667,7 @@ export const SECTIONS = [
             actions: (env) => [{ act: 'setup-again', label: t('Set up'), icon: 'wrench', disabled: !env.canSetUp }],
           },
           { id: 'setup_log', label: t('Setup log'), type: 'info', actions: [{ act: 'setup-log', label: t('Open'), icon: 'file-text' }] },
+          { id: 'bug_report_logs', label: t('Bug report'), type: 'info', value: t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'), actions: [{ act: 'save-logs', label: t('Save logs'), icon: 'file-archive' }] },
         ],
       },
       {
@@ -664,42 +678,34 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Logo and icon'),
-        rows: [
-          // launcher.json; the launcher puts the choice in place (writer.js -> apply_branding, src-tauri/src/branding.rs)
-          { id: 'logo', label: t('Logo'), type: 'segmented', at: config('logo'), def: 'recompia', options: LOOKS },
-          { id: 'icon', label: t('Icon'), type: 'segmented', at: config('icon'), def: 'recompia', options: LOOKS },
-          { id: 'look_note', type: 'note', note: () => ({ text: t('Classic is the bubble-letter logo and R icon of earlier versions. The icon changes for the launcher, the game and the Steam shortcut (Steam shows it after a restart). Windows can take a moment to redraw an icon it has already shown.') }) },
-        ],
-      },
-      {
-        title: t('Steam'),
+        title: t('Steam'), games: SINGLEPLAYER,
         rows: [
           {
             id: 'steam_note', type: 'note',
             note: (env) => ({ text: env.steam && !env.steam.found
               ? t('Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.')
-              : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.') }),
+              : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. The shortcut opens this window, which checks for updates, and then you press Play.') }),
           },
-          {
-            id: 'steam_game', label: t('Game in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.game_added ? t('In Steam as {name}', { name: env.steam.game_name }) : t('Not in Steam. Starts the game at once.')),
-            actions: (env) => [env.steam?.game_added
-              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
-          },
+          // The buttons stay pressable while Steam runs: the status is read when the page opens, so a player who closes Steam afterwards
+          // would face dead buttons. steam.rs checks again on every press and answers "Close Steam first" while it runs.
           {
             id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
             value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
             actions: (env) => [env.steam?.launcher_added
-              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
+              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
+          },
+          {
+            // only for a shortcut an earlier launcher added: it started the game without the window, so updates were skipped. It is never added again.
+            id: 'steam_game', label: t('Old game shortcut'), type: 'info', when: (v, env) => !!env.steam?.found && !!env.steam.game_added,
+            value: (env) => t('Still in Steam as {name}. This is an old shortcut: the launcher shortcut replaces it.', { name: env.steam.game_name }),
+            actions: (env) => [{ act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }],
           },
           { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: t('Steam is running. Close it (Steam, Exit) to add or remove a shortcut.') }) },
         ],
       },
       {
-        title: t('Shader files'),
+        title: t('Shader files'), games: SINGLEPLAYER,
         rows: [
           { id: 'shader_storage', label: t('Storage'), type: 'info', value: storageText, actions: storageActions },
           { id: 'shader_storage_note', type: 'note', when: (v, env) => !!storageNote(env), note: storageNote },
@@ -710,15 +716,16 @@ export const SECTIONS = [
         rows: [
           {
             // saved on leaving the field, not while typing: half a path would make the whole launcher think the game is gone
-            id: 'game_dir', label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
+            id: 'game_dir', games: SINGLEPLAYER, label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
           {
-            id: 'romfs_mod', label: t('Mods'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
+            // not the Mods page's Modtopia mods: files that replace the game's own romfs files
+            id: 'romfs_mod', games: SINGLEPLAYER, label: t('Replacement game files'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
             placeholder: () => '',
           },
           {
-            id: 'romfs_mod_note', type: 'note',
+            id: 'romfs_mod_note', games: SINGLEPLAYER, type: 'note',
             note: () => ({ text: t("Choose the folder that holds the same files and folders as the game's romfs (for example LD_C0_R.BIN at its top level), not the folder around it. Its files replace the game's files with the same path.") }),
           },
           { id: 'minimize_on_play', label: t('Minimise while playing'), type: 'toggle', at: config('minimize_on_play'), def: false },
@@ -726,7 +733,7 @@ export const SECTIONS = [
         ],
       },
       {
-        title: t('Game clock'),
+        title: t('Game clock'), games: SINGLEPLAYER,
         rows: [
           ...TIMED_EVENTS.map((event) => ({
             id: `event_${event.id}`, label: event.label, type: 'toggle', at: AT_EVENT_PRESET, def: false,
@@ -747,6 +754,7 @@ export const SECTIONS = [
   },
   {
     id: 'about',
+    icon: 'circle-info',
     label: t('About'),
     groups: [
       {
@@ -754,16 +762,16 @@ export const SECTIONS = [
         rows: [
           { id: 'version', label: t('Version'), type: 'info', value: (env) => env.version, selectable: true },
           {
-            id: 'channel', label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
+            id: 'channel', games: SINGLEPLAYER, label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
             lock: (env) => env.updating || env.gameBusy,
             options: [{ value: 'stable', label: t('Stable') }, { value: 'testing', label: t('Testing') }],
           },
           {
-            id: 'channel_note', type: 'note', when: (v) => v.channel === 'testing',
+            id: 'channel_note', games: SINGLEPLAYER, type: 'note', when: (v) => v.channel === 'testing',
             note: () => ({ text: t('Testing builds come first and may have bugs. Testing does not update by itself: pick each build with Choose a version below. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
           },
           {
-            id: 'testing_help', label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
+            id: 'testing_help', games: SINGLEPLAYER, label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
             value: t('What to test is listed with each Testing build in What\'s New.'),
             actions: () => [
               { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: t('Report a problem'), icon: 'external-link' },
@@ -771,11 +779,11 @@ export const SECTIONS = [
             ],
           },
           {
-            id: 'builds', label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
+            id: 'builds', games: SINGLEPLAYER, label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
             actions: (env) => [{ act: 'builds-open', label: t('Choose a version'), icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
-            id: 'updates', label: t('Updates'), type: 'info', value: (env) => env.updateText,
+            id: 'updates', games: SINGLEPLAYER, label: t('Updates'), type: 'info', value: (env) => env.updateText,
             actions: (env) => [
               ...(env.canUpdate ? [{ act: 'update', label: t('Update'), icon: 'download', primary: true }] : []),
               { act: 'check-updates', label: t('Check for updates'), icon: 'refresh-cw', disabled: env.checking },
@@ -785,15 +793,16 @@ export const SECTIONS = [
           { id: 'language', label: t('Language'), type: 'language' },
           { id: 'licence', label: t('Licence'), type: 'info', value: 'GPL-3.0-or-later' },
           { id: 'built_with', label: t('Built with'), type: 'info', value: t('Tauri 2, Lucide (ISC), Inter (OFL)') },
-          { id: 'repo', label: t('Source code'), type: 'info', actions: [open(REPO_URL, 'GitHub')] },
+          { id: 'repo', label: t('Source code'), type: 'info', actions: (env) => [open(`${SOURCE_URL}/tree/v${env.version}`, 'GitHub')] },
+          { id: 'licences', label: t('Licences'), type: 'info', actions: [{ act: 'licences-open', label: t('Open folder'), icon: 'folder-open' }] },
+          { id: 'privacy', label: t('Privacy'), type: 'info', actions: [open(PRIVACY_URL, 'GitHub')] },
           { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
-          { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: t('Artwork by Koi, hand drawn') },
           { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },
           { id: 'bug', label: t('Report a bug'), type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],
       },
       {
-        title: t('Troubleshooting'),
+        title: t('Troubleshooting'), games: SINGLEPLAYER,
         rows: [
           {
             id: 'repair', label: t('Repair and reset'), type: 'info',
@@ -893,6 +902,12 @@ export function isAvailable(f, src) {
 }
 
 export const isEnabled = (f, src, env) => isAvailable(f, src) && !f.lock?.(env);
+
+/** The sections shown in game `id` (games.js), each holding only its groups and rows shown there; a section left empty is gone. FIELDS
+ *  keeps every row whatever the game: a row hidden in one game still reads and writes the same key. */
+export const sectionsIn = (id) => SECTIONS.filter((s) => shownIn(s, id))
+  .map((s) => ({ ...s, groups: s.groups.filter((g) => shownIn(g, id)).map((g) => ({ ...g, rows: g.rows.filter((r) => shownIn(r, id)) })) }))
+  .filter((s) => s.groups.some((g) => g.rows.length));
 
 /** The rows of a group with `expand` entries unfolded and hidden rows gone. */
 export const rowsOf = (group, values, env) => group.rows.flatMap((r) => (r.expand ? r.expand(env) : [r])).filter((r) => isVisible(r, values, env));

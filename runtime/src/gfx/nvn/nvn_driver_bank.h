@@ -10,7 +10,7 @@
 //          8 bytes per image handle       {handle, 0}                         count: +0xb6
 // The translated shaders read the address words (GlobalToStorage: a global access is matched against [address, address + size)) and
 // the size words as bounds checks (clustered light culling: `uint(i + n) > uint(c0[2].z >> 2)` gives 0 past the end). A bank of
-// zeros fails every such check. The idea of filling it per dispatch is pokopia-native's drv_fill (MIT,
+// zeros fails every such check. The idea of filling it per dispatch is the parent project's drv_fill (MIT,
 // windows/src/nxrt/vk/vk_replay.c @7c3655d); the offsets are checked against our translator's c[0] reads (results.tsv sb[c0+...]
 // words) and spirv-cross output of the five compute shaders that read sizes.
 //
@@ -29,7 +29,7 @@
 
 namespace nxrt::nvn::be {
 
-// Bytes of c[0] the replay fills and binds per draw / dispatch. Everything NVN keeps in c[0] that a Pokopia shader reads lies
+// Bytes of c[0] the replay fills and binds per draw / dispatch. Everything NVN keeps in c[0] that a game shader reads lies
 // below it (compute table rows 2..8, fragment row 0x55, vertex row 0x64); the SPIR-V declares vec4[4096], read only by constant
 // index in those shaders.
 constexpr uint32_t kDriverBankBytes = 0x800;

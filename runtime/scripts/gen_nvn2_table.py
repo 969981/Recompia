@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the NVN2 entry-point table and the NVN2 struct-size table (Pokemon Pokopia, NintendoSDK_NVN-20_5_25).
+"""Generate the NVN2 entry-point table and the NVN2 struct-size table (the game, NintendoSDK_NVN-20_5_25).
 
 Inputs (relative to the repo root that contains this scripts/ folder):
   src/gfx/nvn/nvn2_procs.tsv  one row per proc of the sdk's GetProcAddress table (written by the analysis tooling,

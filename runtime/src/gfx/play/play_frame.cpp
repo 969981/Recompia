@@ -42,7 +42,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
     G& st = g();
     if (st.device && st.device->device_lost()) {
         const game::Info& gi = game::info();
-        const std::string name = *gi.short_title ? gi.short_title : gi.title;     // "Pokopia"
+        const std::string name = *gi.short_title ? gi.short_title : gi.title;     // "Recompia"
         const std::string message = "The graphics device was lost, so " + name + " must close. Restart the game and attach " + gi.id + ".log if the problem repeats.";
         if (st.window) MessageBoxA(static_cast<HWND>(platform::native_hwnd()), message.c_str(), (name + " - graphics device lost").c_str(), MB_OK | MB_ICONERROR);
         exit_process_impl(2, "fail", message, false);
@@ -54,7 +54,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
     } in_update;
     // frame pacing (S18): the limiter waits here, before the input is sampled, so the picture shown is the one simulated one render time
     // earlier. The wait for frames still in flight comes first, then the limiter's schedule.
-    // All of it runs once per presented frame: the game's main loop runs more iterations than it presents frames (Pokopia ~79 against ~50 a
+    // All of it runs once per presented frame: the game's main loop runs more iterations than it presents frames (the game ~79 against ~50 a
     // second), and per iteration the limiter took several slots per frame while the in-flight list (one id per sim_begin, one popped per
     // present) filled up until wait_in_flight held the main thread for presents that only come after more main-loop work.
     const bool frame_start = extras::pace_boundary_due();
@@ -291,7 +291,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
 }
 
 // The software keyboard applet blocks the game: the thread that asked waits for the answer, the main thread soon waits too, and no frame is
-// presented (Pokopia's name entry: the freeze watchdog fired 10 s after the question, frame count still). update_hook, which pumps the window
+// presented (the game's name entry: the freeze watchdog fired 10 s after the question, frame count still). update_hook, which pumps the window
 // and feeds the overlay, does not run then. keyboard_service does that part on the window's thread while it is blocked in the kernel
 // (kernel::set_blocked_hook) or about to make an SVC (busy_pump), every 8 ms at most: the window's events and the pads go to the overlay's
 // on-screen keyboard, the mouse is free, typing is on, and the game's last frame is presented again so the keyboard is drawn. Nothing

@@ -35,7 +35,7 @@ Ret ok(int32_t v = 0) { return {v, 0}; }
 Ret fail(uint32_t e) { return {-1, e}; }
 constexpr uint32_t kLimitedBroadcast = 0xFFFFFFFFu;
 
-// The payload's first kDumpBytes bytes as hex for the Debug udp lines ("|" every 16 bytes, "..." when cut). 192 covers Pokopia's KTGL
+// The payload's first kDumpBytes bytes as hex for the Debug udp lines ("|" every 16 bytes, "..." when cut). 192 covers the game's KTGL
 // join request (171 bytes with its 4-byte routing header, work/mp/join-reject-analysis.md). Only built when Debug is on (NXLOG_D).
 constexpr size_t kDumpBytes = 192;
 std::string hex_head(const std::vector<uint8_t>& b) { return text::hex_head(b, kDumpBytes); }

@@ -2,6 +2,99 @@
 
 ## Unreleased
 
+## 0.15.0 (build S: Sloth)
+
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets the co-op hook points and is linked again; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- **Recompia: Co-op is here (seamless co-op v2).** Play the story together over the internet, each player on their own PC with their own character, in one shared world. Open the **Co-op** tab at the top of the launcher's sidebar to start
+- **Co-op needs a new save.** A co-op save is a save of its own that starts from the beginning: your current save cannot be played in co-op, and co-op never uses or changes it
+- **Co-op is fully separate from the old Seamless co-op switch.** That switch on the Link Play page is gone, and it never had anything to do with Recompia: Co-op. Link Play itself works as before
+- Fixed the camera jumping in steps when flying, gliding or swimming above 60 fps (#741, #743)
+
+### Co-op
+- Added Recompia: Co-op as a second game in the launcher, with its own logo: the **Solo** and **Co-op** tabs at the top of the sidebar switch between them; both use the same install, build and shaders
+- Start: one player presses **Start a co-op save** and sends its invite code; every other player presses **Join a friend**, enters the code and picks which player they are
+- Invite codes: a short code such as `K7Q-4MX` you can type on a controller (one per co-op save, kept by the public relay for 6 hours), or the long code
+- Play: everyone presses **Play**. The save card says who hosts and **Start as** changes that. Each player makes their own character, and the game waits until every player is in
+- Each co-op save has its own folder and its own mod set (the Mods page in Co-op); a co-op save you no longer need can be deleted from its card
+- Shared with every player: story steps, unlocks (such as the creature list and Water Gun), items handed out in talks, crafting recipes, creature requests and the player names
+- Anyone can start or continue a quest step; one player at a time talks to a character, the others get its busy line
+- Creature requests: a request a teammate takes on shows in everyone's requests app, and every player can finish it and gets its rewards; the town goal and the creature's friendship count once per request for the group
+- A player who falls behind catches up with the group every few seconds; changes from teammates wait until you are free (not talking, not in a menu, not loading)
+- Teammates' unlocks, new moves, items and story steps show as a line in the game's message log
+- Joining and leaving happen behind a loading screen
+- A player who leaves can rejoin while the others keep playing
+- Different mods or game versions that keep players apart are named on the Co-op page; Interact everywhere is always off in co-op
+- **Save logs for a bug report** on the Co-op page: one zip with your logs, settings and co-op save info; addresses, user names, account ids, player names, room codes and invites are left out
+- Fixed creatures in the host's world offering no requests to the other players: every player now gets their own requests from them, takes them on and hands them in
+
+### Known issues (co-op)
+- If a quest step stays stuck for one player, press **Save logs for a bug report** on both PCs before starting the game again
+- The host still sees a joining player arrive by the PC
+- Hints that something can be used (such as a sparkle) show only for the player who started that step
+- When a character starts a talk on its own, it picks one player (seemingly the nearest)
+- When the player who hosts quits, the others get a connection error (press A; the loading screen says so)
+- Progress is saved in each player's own copy of the co-op save; a shared save comes later
+- A mod with hook points that is turned on only for a co-op save cannot be used there yet (Play says so)
+
+### Link Play
+- Removed the Seamless co-op switch from the Link Play page; Recompia: Co-op replaces it (an old setting is ignored)
+
+### Gameplay
+- Fixed the camera jumping in steps when flying or gliding and when sinking or swimming underwater above 60 fps (#741, #743)
+  - Before: above 60 fps the follow camera's vertical dead zone held the view still and then snapped it toward the player a few times a second (about once a second while gliding, five times a second underwater at 144 fps)
+  - Now: the camera follows smoothly at high frame rates; 60 fps and below are unchanged
+  - Until **Set up again** has run, the camera stays as it was
+
+### Launcher
+- Changed the logo and the app icon
+- Steam shortcut pictures the launcher added earlier are replaced with the new ones at the next launcher start (your own Steam art is kept)
+- Changed Steam shortcuts to open the launcher, so updates are never skipped; the `--play` start is gone (an old shortcut with it opens the launcher, and Settings can remove the old game shortcut)
+- Fixed **Add to Steam** buttons that stayed greyed out after closing Steam; they now always answer, and say "Close Steam first" while Steam runs
+- Added **Save logs for a bug report**, see Co-op
+
+## 0.14.2 (build R: Raccoon Hotfix a2)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Highlights
+- **Seamless co-op v2 is ready for testing: join the Open Alpha!** Play together in one world over the internet, each player with their own character. It is stable now: there are still bugs, but nothing game-breaking. Get it from [Recompia: Co-op alpha 5](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.5) and tell us what you find
+- Fixed new creatures showing up invisible when **Creatures in town** was set high (#745)
+- Added community mods to Browse before the mod hub lists them, and Community Achievements 0.4.1 no longer gives five achievements too early
+
+### Link Play
+- Added the seamless co-op v2 Open Alpha: a separate test build, not part of this update
+  - Install: download the package for your system from [Co-op alpha 5](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.5), copy the contents of its PokopiaRecomp-0.0.0 folder over your Recompia folder, open the launcher and press **Set up again**. Saves, co-op saves, settings and shaders stay
+  - Play: open the **Co-op** tab, one player presses **Start a co-op save** and sends the invite code, every other player presses **Join a friend** and enters it
+  - Back to the normal release: press **Update** in the co-op build's launcher
+  - Bugs: press **Save logs for a bug report** on the Co-op page and send the zip with what you did in a GitHub issue
+
+### Performance
+- Graphics cards of 4 or 6 GB on PCs without Resizable BAR now read all of the game's shader constants from video memory; a third of them still came from system memory
+- Added a performance report to the game's log: what the PC is (CPU, memory, graphics card, driver, PCIe link, Resizable BAR, power plan), the settings that change the frame rate, and every 10 seconds whether the frame rate is held back by the graphics card or the processor. Sending the log is now enough for a low-fps report (`[diag] perf_report = off` turns it off)
+
+### Controls
+- Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)
+  - Before: since 0.14.0 the three faint buttons were drawn above the text, where they sit on the controller, but the dark shape that belongs behind them stayed below the text
+  - Now: the shape is behind the three buttons
+- Fixed the title screen's **PRESS (A)** showing the Switch A instead of the controller's or keyboard's button in French, German, Italian and Spanish (#730)
+- Fixed the **(A) Complete!** badge on the challenge list showing the Switch A instead of the controller's or keyboard's button (#733)
+
+### Gameplay
+- Fixed the pause menu's **Save** prompt only showing inside a home; it now shows wherever the pause menu opens, also while hosting or visiting in Link Play
+- Fixed new creatures showing up invisible when **Creatures in town** was set high: the game draws at most about 50 creatures at once, so the setting now goes up to 50 and higher values count as 50 (#745)
+
+### Launcher
+- Added icons to the Settings tabs
+- macOS and Linux: Play now prepares the shaders the game builds while it runs before the start, as Windows does (#727)
+  - Before: when Set up's warm-up collected none of them, the first start drew them black or not at all until the game was restarted
+  - Now: Play runs the warm-up once more in that case, and translates what an earlier run left before the start
+- Community Achievements 0.4.1 now comes with the launcher, until the mod hub has a newer version
+  - Fixed Identity Revealed, Cloud Pioneer, First Steps, Wanderer and Cartographer being earned before the player visited those places; the ones earned too early are taken back once and come back when the player gets there
+  - Added `achievements.json` in the mod's folder: every achievement with its progress, the time it was earned, the share of players who have it and its picture, for other programs to read
+- Added three community mods to Browse before the mod hub lists them; each one leaves the launcher's list once the hub lists it
+
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
@@ -23,8 +116,8 @@
 - Mod settings can be global or per profile
 
 ### Performance
-- PCs with a separate graphics card of 4 or 6 GB (such as a GTX 1650 or RTX 2060) now read the game's shader constants from video memory instead of system memory. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged. Switch: **Shader constants in video memory** in the launcher's Settings > Graphics and in the game's Settings (idea from pokopia-native)
-- Graphics cards under 8 GB keep more of the game's geometry in video memory: it is now held in 2 MB pieces where draws read it, instead of 16 MB blocks that filled up with unused data. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged (idea from pokopia-native)
+- PCs with a separate graphics card of 4 or 6 GB (such as a GTX 1650 or RTX 2060) now read the game's shader constants from video memory instead of system memory. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged. Switch: **Shader constants in video memory** in the launcher's Settings > Graphics and in the game's Settings (idea from the parent project)
+- Graphics cards under 8 GB keep more of the game's geometry in video memory: it is now held in 2 MB pieces where draws read it, instead of 16 MB blocks that filled up with unused data. Handhelds, PCs without a separate graphics card and cards of 8 GB or more are unchanged (idea from the parent project)
 
 ### Controls
 - Fixed the prompt beside the player (such as **(A) Talk**) drawing its four face buttons where a Switch controller has them when **Face Buttons** is set to **Xbox** (#683)
@@ -56,10 +149,10 @@
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
 
 ### Online
-- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; on by default) for events that need an internet connection the first time, such as **Apples to Applin** (16 Nov to 1 Dec 2026). It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts. With it on, a moved game clock (Time Travel) moves the network clock too, so the game sees one date
-  - The event also needs the town's important request done and its Pokémon Center rebuilt, and the real date (Time Travel off)
+- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; on by default) for events that need an internet connection the first time, such as the event from 16 Nov to 1 Dec 2026. It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts. With it on, a moved game clock (Time Travel) moves the network clock too, so the game sees one date
+  - The event also needs the town's important request done and its Creature Center rebuilt, and the real date (Time Travel off)
   - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): the switch is on by default, so they start on their dates (or pick the event in the game's **Events** tab); turn it off in Settings > Game > Online if the game shows connection messages
-- The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
+- The game's Settings > **Events** tab now lists every event so far, from the first to the latest, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
@@ -75,7 +168,7 @@
 
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
-- Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
+- Fixed the loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
   - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
   - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
   - Still not: the stars in the loading screen's sky end at the old 16:9 edges
@@ -156,7 +249,7 @@
 - Fixed the **Mouse Mode Key** row in the game's Settings never leaving "Press the new key" when its capture was started with the arrow keys
 
 ### Launcher
-- Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many Pokemon have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
+- Added an opt-in **Share that I am online** switch (off by default): while the game runs, the launcher can tell the Recompia online server your online name (or anonymous), version, Windows or Linux and how many creatures have a home in your save, never the save itself. It is on Home, in Settings > Game, and the first Play asks once (#519)
 - Added a **Save Editor** page: [PokoHex](https://github.com/berichan/PokoHex) built into the launcher, working on the save the game plays
   - Before: editing a save meant copying it out of the save folder, editing it in PokoHex's web page or Windows program, and copying the result back by hand
   - Now: **Load Game save** opens the active profile's save in the editor, **Write to Game** puts the edited save back. A **Before a save edit** copy is made first (Settings > Saves > Backups can restore it). Both need the game closed. It works offline, on Windows and Linux (Steam Deck). The first time the page opens it makes the item, villager, skill and reaction names and pictures from your own game files (a few seconds, once); the launcher carries none of them
@@ -224,9 +317,9 @@
 
 ### Added
 - Seamless co-op (experimental): turn on Seamless co-op under Same for everyone on the launcher's Link Play page; every player of the session needs it on
-- Seamless co-op: Pokémon give each player the requests and story talks of that player's own progress, the host and each visitor alike
+- Seamless co-op: creatures give each player the requests and story talks of that player's own progress, the host and each visitor alike
 - Seamless co-op: story progress is kept in each player's own save, and written after every story step
-- Seamless co-op: a story step that changes the town (a Pokémon moving in, its home) waits until you are back in your own world
+- Seamless co-op: a story step that changes the town (a creature moving in, its home) waits until you are back in your own world
 - Seamless co-op: an important item a visitor picks up stays in the host's world for the host, and each visitor takes it once
 - Seamless co-op: a copy of your save from before each session is kept (the newest 5, in `story-coop-backup` in the save folder), with a journal of every story quest change (`story-journal`)
 - Link Play: every room on the public relay is listed in the game's Visit a Friend, with how many players are in it
@@ -256,11 +349,11 @@
 - The launcher no longer promises "about 7 minutes" for a rebuild: it says from a few minutes to an hour, depending on your PC
 
 ### Fixed
-- Stuck on the Ditto loading screen for good with the render scale above 100% on a 4K screen
+- Stuck on the loading screen for good with the render scale above 100% on a 4K screen
 - Windows: a Switch 2 Pro Controller on a USB cable not being picked up; it now works with Switch prompts, rumble and gyro (#522, thanks ondona)
 - Linux: the Steam Controller not working when the game is started from Steam without `SDL_VIDEO_DRIVER=x11` in the launch options
 - Linux and SteamOS: Set up not finding the shader translator
-- The Ditto loading screen's black background not reaching the top and bottom on taller screens such as the Steam Deck (#534, thanks Piktrip)
+- The loading screen's black background not reaching the top and bottom on taller screens such as the Steam Deck (#534, thanks Piktrip)
 - Set up looking frozen while it translates the game code: the bar now moves through that step and shows the time left
 - Set up showing no reason for a failure when the game folder has an accent in its path (#630)
 - The launcher reporting "The game stopped unexpectedly" (0xC0000409) when the game closes itself
@@ -276,7 +369,7 @@
 - While an update is in progress, Set up, repair, profiles and mods are locked in the launcher until it has installed or you cancel it
 - A room with a Link Code still shows up in everyone's list; only joining it needs the code
 - Seamless co-op is experimental: to go back to a save from before a session, copy its account folder and `.meta` file from `story-coop-backup` over `account` with the game closed
-- Seamless co-op: story markers, story talks, buried spots and Pokémon traces follow each player's own story, so players do not see the same ones
+- Seamless co-op: story markers, story talks, buried spots and creature traces follow each player's own story, so players do not see the same ones
 - Seamless co-op: the Dream Island trip is not available from a story area in a session; it still is in Palette Town and on Cloud Islands
 - Seamless co-op: an important item a visitor already took still lies in the host's world for that visitor, who cannot take it again
 - Seamless co-op: when the host picks an item up, it is gone for everyone, as in the game
@@ -289,7 +382,7 @@
 **Update:** press Update, then Set up again once (the game code is translated again, several minutes). Shaders and saves are kept.
 
 ### Highlights
-- Mods are here: browse and install Modtopia mods right in the launcher, and manage them in the game's Settings (Modtopia support was built in collaboration with the Pokopia Native team)
+- Mods are here: browse and install Modtopia mods right in the launcher, and manage them in the game's Settings (Modtopia support was built in collaboration with the parent project's team)
 - Achievements are here: earn community achievements and see how your progress compares with every other player
 - Linux runs natively: no Proton or Wine
 - macOS runs natively on Apple silicon: VERY EXPERIMENTAL, expect bugs
@@ -331,14 +424,14 @@
 
 ### Highlights
 - Fixed internet Link Play: 0.11.0 sent hosts and visitors to an old address of the official relay, so no room could be opened or joined
-- Added **Modtopia mods**: Recompia now runs mods made for Modtopia, the mod loader shared with Pokopia Native
+- Added **Modtopia mods**: Recompia now runs mods made for Modtopia, the mod loader shared with the parent project
 
 ### Link Play
 - Fixed the **Internet** choice reaching the official relay: the launcher now uses the relay's permanent address (the game log said "the relay does not answer")
   - Still on 0.11.0? Type `204.216.111.91:47610` under Link Play > Advanced > Use my own relay or address
 
 ### Mods
-- Added Modtopia mods: the same `.pkmod` files work in Recompia and Pokopia Native
+- Added Modtopia mods: the same `.pkmod` files work in Recompia and the parent project
 - Added a **Mods** page in the launcher: switch your mods on and off, change their order and settings, and remove them. Put mods into the mods folder to install them
 - Added a permission step: a mod's code runs only after you allow it on the Mods page; a new or changed mod asks again. Mods with only files need no permission
 - Added a **Set up again** prompt when your mods need new hook points (a few minutes; shaders and saves are kept)
@@ -353,7 +446,7 @@
 
 **Update:** press **Update**, then **Set up again** once. It rebuilds the game code with a new, leaner translation, several minutes. Your shaders and saves are kept; no shader is translated again.
 
-Ocelot brings Recompia's own **official relay server**, so friends anywhere in the world join with just a room code, and a big step up in **Steam Deck performance**. It also fixes the random "graphics device was lost" crash on Steam Deck and Linux, brings Joy-Con 2 mouse mode back and lets more Pokémon live in your town.
+Ocelot brings Recompia's own **official relay server**, so friends anywhere in the world join with just a room code, and a big step up in **Steam Deck performance**. It also fixes the random "graphics device was lost" crash on Steam Deck and Linux, brings Joy-Con 2 mouse mode back and lets more creatures live in your town.
 
 ### Highlights
 - **Official Recompia relay server:** internet Link Play now needs only a room code. The host shares the code, visitors pick Visit and type it, from anywhere in the world: no addresses, no port forwarding
@@ -380,7 +473,7 @@ Ocelot brings Recompia's own **official relay server**, so friends anywhere in t
 - **Frame generation** (AMD FSR 3.1), added in 0.10.3, is removed for now: it has a bug that can't be fixed yet (#529)
 
 ### Gameplay mods
-- New, experimental: a **Pokémon resident cap** up to 64. On by default at 31 residents (the game's own limit is 25); set it from 25 to 64 in the launcher's Settings > Gameplay, or with `pokemon_cap_limit` in `pkp.ini`. The game has 64 actor slots in all, so a high cap leaves less room for visitors and temporary spawns, and not every resident is sure to be out at once. Thanks to SpiderNic96 for the research and first implementation (#524)
+- New, experimental: a **creature resident cap** up to 64. On by default at 31 residents (the game's own limit is 25); set it from 25 to 64 in the launcher's Settings > Gameplay, or with `pokemon_cap_limit` in `pkp.ini`. The game has 64 actor slots in all, so a high cap leaves less room for visitors and temporary spawns, and not every resident is sure to be out at once. Thanks to SpiderNic96 for the research and first implementation (#524)
 
 ### Controls
 - **Joy-Con 2 mouse mode** is back: press the middle mouse button in play to point and click; placing and breaking land on the block under the pointer (left click is the Joy-Con's R, right click its ZR). Press it again to go back to camera aim. The **Mouse Mode Key** row is back in **Settings > Mouse**
@@ -395,7 +488,7 @@ Ocelot brings Recompia's own **official relay server**, so friends anywhere in t
 - Fixed the random **"The graphics device was lost"** crash on Steam Deck and other Linux PCs (Proton), and the matching full freeze on NVIDIA under Linux (#531, #533)
   - Before: the game's copy of graphics memory could keep an old value next to a block the graphics card was still writing, and a compute shader then looped for seconds on it
   - Now: that memory is kept up to date, and the game's light-list and two other compute loops can no longer run past the table they walk. `[nvn] loop_guard = off` turns the second part off
-- Fixed the Pokédex tabs showing "Time" as their title after the Settings screen had been opened (#494)
+- Fixed the creature list tabs showing "Time" as their title after the Settings screen had been opened (#494)
 
 ### For bug reports
 - New lines in `pkp.log` every 10 seconds: `tcpu` (processor time by thread) and, with `present_stats = 1` under `[latency]`, `pacing: present timing` (how many refreshes each frame was shown for)
@@ -540,7 +633,7 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
 - Added a **Search** button to the crafting menu: type part of an item name and only those recipes are listed (#324)
 - Added **Anti-aliasing** (SMAA) and **Shadow quality** (up to 8x sharper shadow maps), both picked by the Quality preset too
 - Fixed the **hitch about once a second** with a frame cap on the Legion Go S and Steam Deck (#276)
-- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+- Fixed new creatures and areas staying **invisible until a restart** (#304)
 - Added **Add DLC** to the launcher and a **Steam Deck** button icon style
 - Fixed **Repair** and **Undo** in the launcher, which could not run
 
@@ -573,7 +666,7 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
   - Still not: bloom and other soft glow effects stay smooth on purpose
-- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+- Fixed new creatures and areas staying **invisible until a restart** (#304)
   - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
   - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
 
@@ -622,7 +715,7 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
   - Before: Nearest gave sharp pixels only with Resolution; with Scene Resolution the 3D scene was still stretched smooth and blurry
   - Now: with Scene Resolution below 100% the 3D scene is enlarged with hard pixels too, and the menus and HUD stay at full size
   - Still not: bloom and other soft glow effects stay smooth on purpose
-- Fixed new Pokémon and areas staying **invisible until a restart** (#304)
+- Fixed new creatures and areas staying **invisible until a restart** (#304)
   - Before: when the graphics driver briefly refused to map more game memory (`importing pool ... failed (-2)` in `pkp.log`), every model whose data lay in that part of memory stayed invisible for the rest of the session
   - Now: that memory is tried again a moment later (after half a second, then up to every few seconds), and imports nothing has used for a while are released first to make room, so the models appear once the driver has room again. `pkp.log` says when a retry worked
 
@@ -641,7 +734,7 @@ The Narwhal patch sharpens the picture and smooths the handhelds: anti-aliasing 
 ### Launcher
 - Added **Add DLC** (on the Setup page, or drop the file in the launcher): unpack the add-on of a DLC `.nsp` without building it by hand
   - Before: DLC had to be unpacked and put in `aoc/<add-on id>/romfs/` yourself, and the game saw none until you did
-  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `Pokopia DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
+  - Now: press **Add DLC** and pick the `.nsp` (for the Bubbly Basin key, `DLC [0400A3A01EE4D001].nsp`). The launcher unpacks its RomFS into the folder `[fs] aoc_dir` names, or into `aoc` next to the game and sets `aoc_dir` itself when `pkp.ini` names none. The game lists the add-on at its next start
   - Still not: the `.nsp` must already be decrypted, like the game files (an encrypted one is refused in words); no check of the IVFC hashes
 - Settings > **Gameplay** now lists every gameplay option, each on by default
   - Before: only Camera aim and Running jump were there; the Sort button, crafting Search and Quit Game could only be switched off in `pkp.ini`
@@ -886,7 +979,7 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
   - Profiles share the game files and the shaders, so a second profile costs almost no disk space
   - Removing a profile keeps its save in the save folder, nothing is deleted
   - Still not: screenshots, settings and controls are shared by all profiles
-- Added one **Timed event** toggle each for the Copycat Challenge, More Spores for Hoppip, Bulbasaur's Jump Rope Contest and Sableye's Gem Hunt. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
+- Added one **Timed event** toggle each for each of the four timed events so far. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
 
 ## 0.7.9 (build K: Kiwi)
 
@@ -925,9 +1018,9 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
   - Now: the seed comes from the OS random source, so new saves get their own id
   - Saves you already have are repaired at the next start, before the game reads them: the shared id is replaced with a new random one in all its places. Progress is kept; a copy of the save from before goes to `uuid-backup\` in your save folder
   - `[pkp] uuid_repair = 0` turns the repair off
-- Still cross-plays with pokopia-native 1.3.3: its co-op wire format, discovery, room codes and relay are unchanged since 1.3.0
+- Still cross-plays with the parent project 1.3.3: its co-op wire format, discovery, room codes and relay are unchanged since 1.3.0
 - Joining a VPN address (Radmin VPN 26.x, Hamachi 25.x, Tailscale / carrier NAT 100.64.x) on LAN now names the VPN in the refusal and says to turn on internet play for every player
-- Co-op module updated to pokopia-native 1.3.3 (`035bd9c`); its Interact everywhere and Story co-op sites for game 1.0.5 come along but do nothing here (this project needs 2.0.1). Based on pokopia-native (MIT) `windows/src/coop` @035bd9c
+- Co-op module updated to the parent project 1.3.3 (`035bd9c`); its Interact everywhere and Story co-op sites for game 1.0.5 come along but do nothing here (this project needs 2.0.1). Based on the parent project (MIT) `windows/src/coop` @035bd9c
 
 ### Launcher
 - Fixed Set up looking frozen on "Checking the setup tools..." or "Scanning game files: 29 of 29" for players whose shader cache was made before 0.7.0 (#269)
@@ -1109,7 +1202,7 @@ This one is a small fix for people who keep the game in a different folder than 
 - **Linux still runs the game and the shader setup through Proton.** A game that runs on Linux without it is something we are working on, but it is not in this release.
 - **The launcher can feel slow on Linux** (page changes lag, scrolling stutters). We found the reason, it is the big background picture that gets redrawn all the time, and a fix is ready for testing. It is not in this release.
 - **If Update does not work for you on Linux,** extract the new release over your old one like before and tell us what happened.
-- If Link Play with pokopia-native players does not work for you, please tell us what you find.
+- If Link Play with players of the parent project does not work for you, please tell us what you find.
 
 ### Fixes
 
@@ -1166,7 +1259,7 @@ Removed: the shader cache path (it never worked), the RomFS folder (it follows t
 #### Link Play: Steam Deck and Proton find hosts and are found on the LAN
 **Before:** Proton has no DNS-SD (`dnsapi.dll` without `DnsService*`), so a host under Proton was invisible and a visitor under Proton found nothing (`DNS-SD needs Windows 10 1809 or later ... join by address`); every visit needed the host's address. Proton also showed a wrong "this PC's network is set to Public" note.
 
-**Now:** where DNS-SD is missing, each scan sweeps this device's own private network (up to 254 addresses per network, 512 in all, TCP port 47600, about 300 ms) and asks every host that answers for its game over the co-op link, as for a host DNS-SD found. A hosting device answers DNS-SD queries itself (a small mDNS responder on UDP 5353 with the records pokopia-native registers), so Windows players see it. Nothing to type, and nothing to change on another network. The Public-network note is not shown under Wine. Windows with DNS-SD is unchanged. `[net] lan_sweep = off` turns it off; `NXRT_COOP_NO_DNSSD=1` tries it on Windows (a diagnostic).
+**Now:** where DNS-SD is missing, each scan sweeps this device's own private network (up to 254 addresses per network, 512 in all, TCP port 47600, about 300 ms) and asks every host that answers for its game over the co-op link, as for a host DNS-SD found. A hosting device answers DNS-SD queries itself (a small mDNS responder on UDP 5353 with the records the parent project registers), so Windows players see it. Nothing to type, and nothing to change on another network. The Public-network note is not shown under Wine. Windows with DNS-SD is unchanged. `[net] lan_sweep = off` turns it off; `NXRT_COOP_NO_DNSSD=1` tries it on Windows (a diagnostic).
 
 **Still not:** Wi-Fi that keeps devices apart (cafes, hotels, guest networks; use internet play with a relay), and a host that fell back to another port than 47600.
 
@@ -1181,7 +1274,7 @@ Extract it over your 0.6.x install, then run **Set up again** once: the game cod
 asks for it. Link Play builds from before this one cannot join this one, so update together.
 
 ### Highlights
-- Link Play now speaks pokopia-native's protocol, so you can play with pokopia-native players on game 2.0.1.
+- Link Play now speaks the parent project's protocol, so you can play with players of the parent project on game 2.0.1.
 - Text on 21:9 and 32:9 screens no longer runs together.
 - House and area transitions take the same time at any frame rate, with no 60 fps hold.
 - Fewer GPU freezes on NVIDIA, GPU counters that count once, and particle effects that were missing.
@@ -1189,16 +1282,16 @@ asks for it. Link Play builds from before this one cannot join this one, so upda
 - More graphics memory for 4K, and a smaller default picture size on GPUs with 4 GB or less.
 
 ### Known issues
-- If Link Play cross-play with pokopia-native does not work for you, please report what you find.
+- If Link Play cross-play with the parent project does not work for you, please report what you find.
 
 ### New
 
-#### Link Play: cross-play with pokopia-native
-**Before:** Link Play only worked between builds of this port (our own relay protocol on port 39660), so nobody could play with pokopia-native players.
+#### Link Play: cross-play with the parent project
+**Before:** Link Play only worked between builds of this port (our own relay protocol on port 39660), so nobody could play with players of the parent project.
 
-**Now:** the default `[net] protocol = native` speaks pokopia-native's co-op protocol (their module, vendored in `runtime/third_party/pokopia-coop`), so this port and pokopia-native builds of game 2.0.1 meet in one session. A host listens on 47600 (TCP and UDP) and is found on the LAN by itself (DNS-SD); `[net] mode = join:<IPv4>[:<port>]` joins one host by address; `[net] internet = true` with `room_code` plays over the internet, directly or through a relay on port 47610. The launcher's Link Play page was reworked for it, and `PokopiaLauncher --host` is now a port of pokopia-native's coop relay (pokopia-native's own relay works too). New `[pkp] link_story_coop` (off by default, needs `link_interact_everywhere`, which it turns on) lets visitors talk to the story characters; every player of a session needs the same setting. Between two builds of this port, a launcher relay also carries the game's packets over UDP (a small extension that stays off, and leaves the wire unchanged, when the host, the visitor or the relay does not have it).
+**Now:** the default `[net] protocol = native` speaks the parent project's co-op protocol (their module, vendored in `runtime/third_party/pokopia-coop`), so this port and builds of the parent project for game 2.0.1 meet in one session. A host listens on 47600 (TCP and UDP) and is found on the LAN by itself (DNS-SD); `[net] mode = join:<IPv4>[:<port>]` joins one host by address; `[net] internet = true` with `room_code` plays over the internet, directly or through a relay on port 47610. The launcher's Link Play page was reworked for it, and `PokopiaLauncher --host` is now a port of the parent project's coop relay (the parent project's own relay works too). New `[pkp] link_story_coop` (off by default, needs `link_interact_everywhere`, which it turns on) lets visitors talk to the story characters; every player of a session needs the same setting. Between two builds of this port, a launcher relay also carries the game's packets over UDP (a small extension that stays off, and leaves the wire unchanged, when the host, the visitor or the relay does not have it).
 
-**Lost:** Link Play builds from before this one cannot join (set `protocol = linkplay` while everyone still has an old build), the relay hosted inside the game and the broadcast discovery on port 39660 are not used with the new protocol, and on Steam Deck / Proton the host may not be found by itself (use Visit by address). Details: `docs/multiplayer/README.md`; the README guide and the launcher's firewall hint name the new ports. Based on pokopia-native (MIT) `windows/src/coop` and `windows/tools/coop-relay` @4a72d23.
+**Lost:** Link Play builds from before this one cannot join (set `protocol = linkplay` while everyone still has an old build), the relay hosted inside the game and the broadcast discovery on port 39660 are not used with the new protocol, and on Steam Deck / Proton the host may not be found by itself (use Visit by address). Details: `docs/multiplayer/README.md`; the README guide and the launcher's firewall hint name the new ports. Based on the parent project (MIT) `windows/src/coop` and `windows/tools/coop-relay` @4a72d23.
 
 #### Shaders translated while the game runs are used without a restart
 **Before:** a shader the game builds while it runs (the romfs cache cannot have it) stayed missing until the next start, even once it
@@ -1211,17 +1304,17 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
 #### Controller shortcut for the F1 menu
 **Before:** the F1 menu opened only from the keyboard, so a handheld with a touch screen had no way to open it from the controller.
 
-**Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on pokopia-native (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
+**Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on the parent project (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
 
 #### Small GPUs: the default picture size stops at 2560x1440
-**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
+**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K on the loading screen).
 
-**Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on pokopia-native (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
+**Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on the parent project (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
 
 ### Fixes
 
 #### 4K: more graphics memory for the first world load (#119, #164)
-**What was wrong:** at a 3840x2160 render size the game could stay on the Ditto jumping loading screen for good, or crash just after
+**What was wrong:** at a 3840x2160 render size the game could stay on the jumping loading screen for good, or crash just after
 the first world frame. The game's graphics pools were sized from what start-up uses, not what the first world load needs.
 
 **Now:** both pools grow above 1080p (at 4K: 333 MiB more general memory and 595 MiB more for render targets). 1080p and below are
@@ -1239,7 +1332,7 @@ their quads on the GPU and draws them indirectly; the runtime converted quad dra
 not written yet, and skipped them.
 
 **Now:** a small compute shader turns those counts into an ordinary indexed draw on the GPU, at most 65536 quads and instances.
-`[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on pokopia-native 1.2.6.
+`[nvn] indirect_quads_gpu = false` brings back the old behaviour. Based on the parent project 1.2.6.
 
 #### Shaders: GPU counters no longer count twice
 **What was wrong:** the shader translator ran an atomic instruction twice when the shader read its result once: every counter a
@@ -1251,14 +1344,14 @@ in the new translation). Run **Set up again** once after updating: the launcher 
 with atomics again (the others are kept).
 
 #### NVIDIA: fewer GPU freezes in compute shaders
-**What was wrong:** on NVIDIA GPUs (RTX 50 confirmed in pokopia-native, an RTX 3050 Laptop inferred) a compute shader that counts
+**What was wrong:** on NVIDIA GPUs (RTX 50 confirmed in the parent project, an RTX 3050 Laptop inferred) a compute shader that counts
 with one atomic add per warp (`ballot(true)`, the highest lane adds for all) after some of its lanes have returned can stop the GPU
 for good: the game freezes and Windows resets the driver ("device lost").
 
 **Now:** on NVIDIA those counters are made per lane: every lane adds its own share and takes a slot of its own, so the warp never
 waits on the lanes that returned. 30 of the game's shaders (65 counters, 132 ballots) are changed; shaders with a counter the
 runtime cannot follow whole are left as translated. `[nvn] ballot_fix = auto` (NVIDIA only, the default), `on` (any GPU),
-`off`. Approach from pokopia-native (MIT) `windows/docs/ballot-hang.md`, `windows/src/nxrt/vk/vk_shader.c` @4a72d23.
+`off`. Approach from the parent project (MIT) `windows/docs/ballot-hang.md`, `windows/src/nxrt/vk/vk_shader.c` @4a72d23.
 
 #### Wide screens: text no longer squeezed (#176)
 **What was wrong:** on displays wider than 16:9 (21:9, 32:9) the letters in text boxes ran into each other and words merged
@@ -1359,7 +1452,7 @@ for the GPU now sleep instead of spinning a CPU core, which leaves more power to
 ~27 to ~30). `[am] operation_mode = docked` and `[kernel] short_sleep = yield` bring the old behaviour back. Windows desktops are
 unchanged. Thanks to @tinfoil-chewer.
 
-#### Leaving an area above 60 fps: the Poké Ball wipe crawled or seemed stuck (#144)
+#### Leaving an area above 60 fps: the ball wipe crawled or seemed stuck (#144)
 **What was wrong:** 0.6.0's fix was not enough. Above 60 fps the wipe that opens after leaving a house crawled: about 15 seconds at
 180 fps, and at higher frame rates it looked stuck until the frame limit was set to 60. A part of the transition breaks on the shorter
 frames the game gets above 60 fps.
@@ -1384,7 +1477,7 @@ Thanks to @Exon0t for finding and measuring this on a Legion Go S.
 
 ### Highlights
 - The 3D world is drawn in the right place again below 100% scene size on Steam Deck, Legion Go S, 1440p and ultrawide screens.
-- No more getting stuck on the Poké Ball wipe when you leave an area above 60 fps. Frame limits above 60 and unlimited work again.
+- No more getting stuck on the ball wipe when you leave an area above 60 fps. Frame limits above 60 and unlimited work again.
 - Lamp lights no longer show a ghost copy at 16:10 or 1440p.
 - The in-game clock shows your real time.
 - New one-click presets: Steam Deck, Legion Go S, Laptop and Desktop PC.
@@ -1395,13 +1488,13 @@ Thanks to @Exon0t for finding and measuring this on a Legion Go S.
 #### The world was drawn in the wrong spot below 100% scene size (#163)
 **What was wrong:** with Scene size under 100% (FSR 3 / DLSS quality presets and dynamic resolution count too) on any screen that is
 not exactly 1920x1080, the 3D world went into the wrong part of the screen. On 16:10 (Steam Deck, Legion Go S) the player and objects
-stood at the wrong height, floors such as the planks by the Pokémon Center were missing and a blank band sat under the picture. At
+stood at the wrong height, floors such as the planks by the Creature Center were missing and a blank band sat under the picture. At
 1440p and wider, only a corner of the screen showed the world.
 
 **Now:** the world fills the frame (16:10 and 1440p, scene size 75%).
 
-#### Stuck on the Poké Ball wipe when leaving an area (#144)
-**What was wrong:** above 60 fps (or unlimited), leaving an area could leave the Poké Ball wipe half open with your controls locked.
+#### Stuck on the ball wipe when leaving an area (#144)
+**What was wrong:** above 60 fps (or unlimited), leaving an area could leave the ball wipe half open with your controls locked.
 **Now:** fixed. The stopgap that held everyone to 60 fps is gone, so frame limits above 60 and unlimited work normally again.
 
 #### Ghost lights at 16:10, 1440p and other sizes (#44)
@@ -1417,8 +1510,8 @@ clock was reset.
 #### Missing placement outline (#120)
 The dashed outline when you place an item shows up again.
 
-#### Crash on Pokédex pictures (NVIDIA) (#121)
-Some Pokédex pictures crashed the game with a "GPU lost" error. Fixed.
+#### Crash on creature list pictures (NVIDIA) (#121)
+Some creature list pictures crashed the game with a "GPU lost" error. Fixed.
 
 #### Freeze at start with an incomplete game dump (#128)
 Some update dumps are missing the base game's files, and the game froze at start ("exited with code 4"). If your dump also has the base
@@ -1480,7 +1573,7 @@ Steam's Performance menu if you want a real 40. Ticked by default only on a Stea
 ### Known issues
 - The Steam Deck changes under "less stutter" are not measured on a Deck yet.
 - On some Windows PCs the slowest frames may be a little less smooth than in 0.5.0. The average frame rate is unchanged.
-- Some players crash at 4K in the Ditto jumping scene (#119). Not fixed yet.
+- Some players crash at 4K in the jumping loading scene (#119). Not fixed yet.
 - The launcher doesn't start under Proton / Linux (it needs WebView2), so handheld players don't see the update banner.
 
 ### For tinkerers: switching things back
@@ -1530,12 +1623,12 @@ Every change above can be undone in `pkp.ini` (details in CONFIG.md): `[pkp] sce
 - New opt-in keys, all off: `[sched] precise_sleep`, `[sched] precise_waits`, `[sched] yield_backoff`, `[diag] yield_census`,
   `[nvn] shader_key_check`, `[nvn] reduced_precision`. On by default: `[sched] power_throttling`, `[nvn] pipe_last`. See CONFIG.md.
 - Releases run the launcher tests first and ship SHA256SUMS.txt; pull requests are scanned for private text.
-- Uses code and ideas from pokopia-native (MIT), credited in CREDITS.md.
+- Uses code and ideas from the parent project (MIT), credited in CREDITS.md.
 
 ## 0.4.1 (build H: Hedgehog, hotfix)
 
 ### Fixes
-- Steam Deck, Legion Go S and other 16:10 screens: trees, rocks, stairs, players and Pokémon are drawn at the right height again. They
+- Steam Deck, Legion Go S and other 16:10 screens: trees, rocks, stairs, players and creatures are drawn at the right height again. They
   used to float above the screen centre and sink into the ground below it, and only settled when you walked up to them. With
   `aspect = auto` the picture now stays 16:9 with thin bars on screens taller than 16:9 (#73). `aspect = 16:10` still gives the full
   taller view, with the old placement problem, until it is fixed properly.
@@ -1597,7 +1690,7 @@ Base: fork 0.3.0 (`9edefb8`).
   - Profiling: `[prof] gpu_passes`, `replay_fine`, `render_split` and the `ftrace_report.py` / `gpu_pass_report.py` scripts (all off).
   - Legion Go S numbers: SteamOS, Proton 11, in the world at native 1920x1200 on a time-based walk, three ABAB pairs on the release
     build: 54.0 / 55.3 / 56.9 -> 74.5 / 76.1 / 75.0 fps (mean 55.4 -> 75.2, +36%), 1% low 31.3 -> 37.5, 0 error lines.
-- **#72** `launcher/src-tauri/src/update.rs`: one GET of `/repos/featureJosh/pokopia-recomp/releases/latest` at start (ureq 2 +
+- **#72** `launcher/src-tauri/src/update.rs`: one GET of `/repos/Dittobyte/Recompia/releases/latest` at start (ureq 2 +
   rustls, 5 s timeout), semver compare against the launcher's own version; untagged builds (0.0.0, 0.1.1) skip it. The banner's link
   opens only `https://github.com/` URLs.
 
@@ -1640,7 +1733,7 @@ Builds A to F were the test builds that led to 0.2.0.
 
 **Build A: the starting point**
 - Everything from the original 0.1.1 release, plus a long list of small fixes to setup, the launcher and stability.
-- Colours look right now. Before, the game looked washed out and too bright (the Pokédex was orange instead of red, Ditto was pale pink).
+- Colours look right now. Before, the game looked washed out and too bright (the creature list was orange instead of red, the loading screen's creature was pale pink).
 - AMD graphics cards no longer show black or white blocks instead of textures.
 - First-time setup no longer runs out of memory while it builds the game, and a step that fails is retried.
 - The launcher checks shaders before every start and warms them up, so there is less stutter the first time you see something new.
@@ -1681,7 +1774,7 @@ Builds A to F were the test builds that led to 0.2.0.
 
 ### Release notes for developers
 
-Base: upstream `2c29515` (v0.1.1). Fork PRs on featureJosh/pokopia-recomp; issue numbers are fork issues.
+Base: upstream `2c29515` (v0.1.1). Fork PRs on Dittobyte/Recompia; issue numbers are fork issues.
 
 - **#1** sweep: build, test, NVN, kernel, shader and launcher fixes (upstream tests compile again).
 - **#2** spirv_harness with server GC (~4x faster translation). **#4** HFMA2/HADD2 `.H0_NH1` swaps lanes and negates the low one.

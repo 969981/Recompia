@@ -113,7 +113,8 @@ fn update_steps(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted
     let session = update::install(&target, &paths, st, &mut report, &update::Steps { busy: &busy, ready: &ready, code: &code })?;
     report(update::Progress::of("restart", "", 0, 1));
     stop_relay(app);
-    if let Err(e) = update::relaunch(&paths.launcher, &paths.install) {
+    // the new launcher: where the running one was, or its own name beside it after an update across the release rename
+    if let Err(e) = update::relaunch(session.launcher(), &paths.install) {
         return Err(match session.rollback(&code) {
             Ok(()) => format!("The new launcher did not start ({}). The update was undone.", e),
             Err(left) => format!("The new launcher did not start ({}). {}", e, left),

@@ -2,7 +2,7 @@
 // Offline network services (S3c): nifm, bsd, bsdcfg, ssl, nim:eca, friend, prepo, pctl, bcat, ldn, nsd, sfdnsres, ntc, ngct, ngc, notif.
 // The console has no network connection, no friends and no BCAT data. Every command answers what a console in that state gives. The one
 // exceptions are ldn (local wireless over the relay server: services/ldn.cpp registers ldn:u's objects, this file the name) and bsd's UDP
-// sockets, which run on the virtual local-wireless LAN (net/vsock.h) when ldn has a vnet link up, or on pokopia-native's co-op module
+// sockets, which run on the virtual local-wireless LAN (net/vsock.h) when ldn has a vnet link up, or on the parent project's co-op module
 // ([net] protocol = native: descriptors 0x100..0x11F, coop_vnet_*).
 // Adapted from ScarletNX (GPL-3.0-or-later): src/nx/hle/services/network/nifm.swipc, bsd.swipc, ssl.swipc, dns.swipc, ldn.swipc and
 //   src/nx/hle/services/misc.swipc (pctl, friend, prepo, bcat, ngct, nsd). Command ids, names and layouts.

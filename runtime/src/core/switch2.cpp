@@ -110,7 +110,7 @@ void vi_get_native_window(::Ctx* c) {
 }
 
 // nn::vi::SetLayerNext{Extended,Standard}ContentLuminanceRangeMetadata(Layer*, uint16_t min, uint16_t max): what the game declares about its
-// picture for an HDR TV (Pokopia: extended 0..400, standard 0..300 nits, from its graphics-system defaults, every time it makes the layer). The
+// picture for an HDR TV (the game: extended 0..400, standard 0..300 nits, from its graphics-system defaults, every time it makes the layer). The
 // values go to the HDR sink the graphics layer registered ([hdr] mode = native uses them; none: dropped); nn::Result 0.
 std::atomic<HdrLuminanceSink> g_hdr_sink{nullptr};
 void note_luminance(bool extended, ::Ctx* c) {

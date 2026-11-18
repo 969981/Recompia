@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The relay's command line (the launcher's `--host` and the standalone `pokopia-relay`): one parser, so both take the same options.
-//! The limits are pokopia-native's coop-relay options.
+//! The limits are the parent project's coop-relay options.
 
 use crate::engine::Config;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-pub const OPTIONS: &str = "[--listen <IPv4>[:<port>]] [--port N] [--no-udp] [--no-list] [--rooms N] [--peers N] [--links N] [--per-ip N] [--new-per-ip N] [--nofind-per-min N] [--room-hours H] [--room-mib M] [--link-kib K] [--list-per-min N] [--wait-s S] [--idle-s S] [--stats S] [--quiet]";
+pub const OPTIONS: &str = "[--listen <IPv4>[:<port>]] [--port N] [--no-udp] [--no-list] [--no-invites] [--rooms N] [--peers N] [--links N] [--per-ip N] [--new-per-ip N] [--nofind-per-min N] [--room-hours H] [--room-mib M] [--link-kib K] [--list-per-min N] [--invites N] [--invite-per-min N] [--wait-s S] [--idle-s S] [--stats S] [--quiet]";
 
 /// What the command line asked for. `stats_s`: a counters line every so many seconds (0: never). `quiet`: no log lines.
 pub struct Args {
@@ -32,6 +32,10 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
             }
             "--no-list" => {
                 cfg.list = false;
+                continue;
+            }
+            "--no-invites" => {
+                cfg.invites = false;
                 continue;
             }
             "--quiet" => {
@@ -70,6 +74,8 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
             "--new-per-ip" => cfg.new_per_ip = x as i64,
             "--nofind-per-min" => cfg.nofind_per_min = x as i64,
             "--list-per-min" => cfg.list_per_min = x as i64,
+            "--invites" => cfg.invite_max = x as usize,
+            "--invite-per-min" => cfg.invite_per_min = x as i64,
             "--room-hours" => cfg.room_ms = x as i64 * 3600 * 1000,
             "--room-mib" => cfg.room_bytes = x << 20,
             "--link-kib" => cfg.link_bps = (x << 10) as i64,
@@ -85,7 +91,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 /// The lines every relay prints once it listens.
 pub fn banner(addr: std::net::SocketAddr) -> [String; 2] {
     [
-        format!("Pokopia relay (pokopia-native coop-relay protocol) running on {}.", addr),
+        format!("Recompia relay (the parent project's coop-relay protocol) running on {}.", addr),
         "Anyone who can reach this address can open rooms here; rooms are authenticated end to end by the players, but their traffic is not encrypted."
             .to_string(),
     ]

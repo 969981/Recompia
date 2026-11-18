@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
+// Game layer: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "core/pkp_game.h"
+#include "core/pkp_coop.h"
 #include "input/pkp_aim.h"
 #include "input/pkp_aim_debug.h"
 #include "ui/pkp_craft.h"
@@ -18,6 +19,7 @@
 #include "core/pkp_mods.h"
 #include "ui/pkp_menu.h"
 #if NXRT_TESTTOOLS
+#include "test/pkp_coop_probe.h"
 #include "test/pkp_movie_test.h"
 #include "test/pkp_taa_probe.h"
 #endif
@@ -28,9 +30,6 @@
 #include "core/pkp_pokemon_cap.h"
 #include "core/pkp_save_uuid.h"
 #include "ui/pkp_save_now.h"
-#include "core/pkp_story_guard.h"
-#include "core/pkp_story_hold.h"
-#include "core/pkp_story_pickups.h"
 #include "render/pkp_shoulder_camera.h"
 #include "ui/pkp_sort.h"
 #include "render/pkp_taa.h"
@@ -60,8 +59,9 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 // frame-rate hook at that site, as they did when that hook called them. Where the order matters:
 //   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
-//   story_guard         after save_uuid: its install copies the save, which is then the repaired one (pkp_story_guard.h)
-//   story_hold          after story_guard, whose journal it writes to (pkp_story_hold.h)
+//   coop                after linkplay: both hook the permission mask's online pattern (main+0xb1030; both return 0, so both run), and
+//                       co-op's runs second, so its pattern is the one the builder keeps. Installs nothing unless this is a co-op launch
+//   coop_probe          a test tool (NXRT_TESTTOOLS only): after coop, so its game-frame state lines see the frame's co-op messages applied
 //   mods                the Modtopia mods' frame tick (pkp_mods.h): first of the game-frame callbacks, so mods see each frame before our
 //                       features change anything in it
 //   play, kbm           play's status fields come first in the status line, kbm's right after them
@@ -75,7 +75,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   options             after title: title's frame callback runs first
 //   item_edit           no hooks and no callbacks: the Options screen's Items tab calls it when it opens and commits (pkp_item_edit.h)
 //   loading_backdrop   after play: uses the canvas size set by its UI camera hook
-//   cross_guide        shares the picture and the window pane's draw site with menu (both hooks return 0, so both run); no order between them
+//   cross_guide        shares the quad builder's site with loading_backdrop (both hooks return 0, so both run); no order between them
 // No other two features hook the same address.
 //
 // Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]
@@ -91,7 +91,11 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kStoryGuardFeature), port(&kStoryHoldFeature), port(&kStoryPickupsFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kCoopFeature),
+#if NXRT_TESTTOOLS
+    port(&kCoopProbeFeature),
+#endif
+    port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif

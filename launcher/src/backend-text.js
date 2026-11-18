@@ -34,6 +34,32 @@ const TEXTS = [
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
 
+  // coop_cmds.rs, coop.rs, coop_code.rs, coop_save.rs, mods.rs: Recompia: Co-op's Home
+  msg('The game is running. Close it first, then change the co-op save.'),
+  msg('Type a name for the co-op save (1 to 24 characters).'),
+  msg('Type a name for the player (1 to 24 characters).'),
+  msg('There is already a co-op save called {1}.'),
+  msg('There is already a player called {1}.'),
+  msg('A co-op save has at most {n1} players.'),
+  msg('That co-op save does not exist.'),
+  msg('This is not a co-op invite.'),
+  msg('You already have this co-op save.'),
+  msg('Only the player who made this co-op save can change its players.'),
+  msg('This invite does not match the co-op save you have.'),
+  msg('You made this co-op save: send the invite to the other players.'),
+  msg('You are no longer a player in this co-op save.'),
+  msg('Cannot delete {1}: {2}'),
+  msg('The creator and the player on this PC cannot be removed.'),
+  msg('{1} already has files in it. A co-op save starts in a new, empty folder.'),
+  msg('That player is not in the invite.'),
+  msg('No invite has this code. Codes last 6 hours: ask for a new one, or for the long code.'),
+  msg('Too many codes were tried from this PC. Wait a minute, then try again.'),
+  msg('The relay could not look up this code. Ask your friend for the long code instead.'),
+  msg('That player is not in this co-op save.'),
+  msg('The save folder {1} holds a co-op save, and a co-op save is only played from Recompia: Co-op. Choose another save folder in the settings.'),
+  msg('A mod this co-op save has on needs hook points the game was not built with. Switch it off for this co-op save on the Mods page of Recompia: Co-op.'),
+  msg('The co-op save folder and the singleplayer save folder overlap. Choose another save folder in the settings.'),
+
   // dlss.rs
   msg('This package has no DLSS download tool. Extract the release zip again so tools/ is complete.'),
   msg('The download needs the Linux build tools that Set up fetches: run Set up first.'),
@@ -51,7 +77,7 @@ const TEXTS = [
   msg('version {1}'),
   msg('No folder chosen yet.'),
   msg('That folder does not exist or cannot be read.'),
-  msg('This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Pokopia_v2.0.1a).'),
+  msg('This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Game_v2.0.1a).'),
   msg('Some game files are shorter than they should be: the dump was copied in text mode, which damages them. Copy the exefs and romfs folders again in binary mode (FileZilla: Transfer > Transfer type > Binary).'),
   msg('Update the game on your Switch 2 to {1}, then dump again.'),
   msg('These game files are from an older version. {1}'),
@@ -109,6 +135,7 @@ const TEXTS = [
   msg('Running the game once in the background to collect the shaders it builds while it runs (about {n1} s)...'),
   msg('Setup paused. Set up again continues where it stopped.'),
   msg('There is no setup log yet: it is written when Set up starts.'),
+  msg('There are no logs yet. Start the game once, then try again.'),
 
   // host.rs: the Linux build tools
   msg('Nothing to run the game\'s Windows programs with was found. Install Steam and its Proton (in Steam: Library, Tools, Proton Experimental), umu-launcher, or Wine.'),
@@ -234,15 +261,15 @@ const TEXTS = [
   msg('Cannot put the backup in place: {1}. Your save was not changed.'),
 
   // saveimport.rs, saves.rs
-  msg('{1} holds no Pokopia save (no G00 and S00 folders).'),
-  msg('{1} holds no Pokopia save (it needs the G00 and S00 folders).'),
+  msg('{1} holds no game save (no G00 and S00 folders).'),
+  msg('{1} holds no game save (it needs the G00 and S00 folders).'),
   msg('{1} is inside the save folder the game plays. Pick a copy outside it.'),
   msg('Copying the save failed ({1}). Your current save was not touched.'),
   msg('The folder holds no save files.'),
   msg('Could not move the old save aside ({1}). Nothing was changed.'),
   msg('Could not put the imported save in place ({1}). The old save was put back.'),
   msg('The save was copied to {1} but its .meta could not be written. Start the game once to let it create one.'),
-  msg('No Pokopia save found in Eden or Ryujinx. Use "Pick a folder" instead.'),
+  msg('No game save found in Eden or Ryujinx. Use "Pick a folder" instead.'),
 
   // settings.rs
   msg('{1} does not exist yet. Start the game once so it creates it.'),

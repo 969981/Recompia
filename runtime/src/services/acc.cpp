@@ -7,14 +7,14 @@
 //
 // The network service account id (GetAccountId): [account] network_account_id (16 hex digits, nonzero), else a hash of the Windows
 // MachineGuid (HKLM\SOFTWARE\Microsoft\Cryptography; per prefix under Wine/Proton) and the uid, else (registry unreadable) the old
-// uid[0] ^ uid[1]. It must differ between the players of a local session even when both keep the default uid: Pokopia's KTGL session
+// uid[0] ^ uid[1]. It must differ between the players of a local session even when both keep the default uid: the game's KTGL session
 // layer builds its member id from it and the host refuses a joining member whose id it already has (error 9005,
 // work/mp/join-reject-analysis.md).
 // SDK 20.x (sdk image, read for this): nn::account::EnsureNetworkServiceAccountAvailable (sdk 0x189ca0) calls IManagerForApplication
 // cmd 0 CheckAvailability and returns at once when it succeeds; only a 124-200..269 failure starts the player select applet in mode 2.
 // nn::account::GetNetworkServiceAccountId (sdk 0x189de0) is cmd 1 GetAccountId (a tail call, no other command).
 //
-// The id token answers follow the yuzu family (Lichii / Eglantine, GPL-3.0, src/core/hle/service/acc/acc.cpp, where Pokopia's Link
+// The id token answers follow the yuzu family (Lichii / Eglantine, GPL-3.0, src/core/hle/service/acc/acc.cpp, where the game's Link
 // Play works): EnsureIdTokenCacheAsync succeeds with a context that is already done, LoadIdTokenCache answers a zero-filled token.
 //
 // Adapted from ScarletNX src/nx/hle/services/acc.c (GPL-3.0-or-later): the command table (acc.swipc), the one-local-user answers,
@@ -270,7 +270,7 @@ std::shared_ptr<ipc::Service> make_license_async_context() {
 // nn::account::baas::IManagerForApplication: CheckAvailability (0), GetAccountId (1), EnsureIdTokenCacheAsync (2), LoadIdTokenCache (3, 4),
 // LoadNetworkServiceLicenseKindAsync (170). GetAccountId answers network_account_id(); the id token cache succeeds (yuzu family); the
 // licence context fails (no network). Every command logs its first use at Info with what it answered (the account id in hex): a game's
-// online/local session layer may build its player id from it (Pokopia's KTGL member id, see work/mp/join-reject-analysis.md), so two PCs
+// online/local session layer may build its player id from it (the game's KTGL member id, see work/mp/join-reject-analysis.md), so two PCs
 // must be seen to get different ids.
 std::shared_ptr<ipc::Service> make_manager(const Uid& u) {
     return make_iface("IManagerForApplication", [u](ipc::Service& s) {

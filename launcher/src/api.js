@@ -23,11 +23,13 @@ export const api = {
 
   // Opening links, files and folders
   openLink: (args) => invoke('open_link', args),   // { url }
+  openLicensesDir: () => invoke('open_licenses_dir'),
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),
   openSaveDir: () => invoke('open_save_dir'),
   openBackupDir: () => invoke('open_backup_dir'),
   openSetupLog: () => invoke('open_setup_log'),
+  saveLogBundle: (args) => invoke('save_log_bundle', args),   // { publicRelay }: { path }: a zip of the logs, settings and co-op save info (no secrets) for a bug report
 
   // Choosing the game files
   pickFolder: (args) => invoke('pick_folder', args),   // { title, start }
@@ -77,11 +79,24 @@ export const api = {
   profileRemove: (args) => invoke('profile_remove', args),   // { id }
   profileSelect: (args) => invoke('profile_select', args),   // { id }
 
+  // Co-op saves: each view is { profile: { id, name, members: [{ id, name }], me, ... }, host: { host, role }, folder }
+  coopList: () => invoke('coop_list'),
+  coopCreate: (args) => invoke('coop_create', args),   // { name, myName, relay }; resolves the list
+  coopAddMember: (args) => invoke('coop_add_member', args),   // { id, name }
+  coopRemoveMember: (args) => invoke('coop_remove_member', args),   // { id, member }
+  coopInvite: (args) => invoke('coop_invite', args),   // { id, relay }: { long, short }; short ('XXX-XXX') is null when that relay keeps none
+  coopResolveInvite: (args) => invoke('coop_resolve_invite', args),   // { text, relay }: the long invite for a short code; other text as it is; rejects { code: 'invite_not_found' } when no invite has it
+  coopInviteMembers: (args) => invoke('coop_invite_members', args),   // { invite }: { id, members: [{ id, name }] }, null when it is not an invite
+  coopAccept: (args) => invoke('coop_accept', args),   // { invite, member }
+  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit' }
+  coopDelete: (args) => invoke('coop_delete', args),   // { id, relay }: relay = the one coop_invite was given; resolves the list
+  coopLastRun: (args) => invoke('coop_last_run', args),   // { since }: unix seconds; { mismatch: 'build' | 'mods', own_mods } or null
+
   // Steam
   steamStatus: () => invoke('steam_status'),
   applyBranding: () => invoke('apply_branding'),
-  steamAdd: (args) => invoke('steam_add', args),   // { target }
-  steamRemove: (args) => invoke('steam_remove', args),   // { target }
+  steamAdd: () => invoke('steam_add'),   // the launcher shortcut
+  steamRemove: (args) => invoke('steam_remove', args),   // { target: 'launcher' | 'game' } (game: the old shortcut)
 
   // Link Play
   relayStart: (args) => invoke('relay_start', args),   // { port }

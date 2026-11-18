@@ -257,7 +257,7 @@ const chooseButtons = () => `<div class="setup-choices">
     <button class="btn big" data-act="package">${icon('file-archive')}${esc(t('Choose a .nup or .nx file'))}</button>
   </div>`;
 
-const LAYOUT = `Pokopia/
+const LAYOUT = `Game/
   base/
     exefs/    main, sdk, subsdk0, rtld, main.npdm
     romfs/
@@ -344,7 +344,7 @@ const VIEWS = {
     ${chooseButtons()}
     ${flow.typing
       ? `<form class="setup-path" data-form="path">
-          ${field('path', flow.saved, 'C:/path/to/Pokopia', { mono: true, label: t('Game files path') })}
+          ${field('path', flow.saved, 'C:/path/to/Game', { mono: true, label: t('Game files path') })}
           <button class="btn" type="submit">${esc(t('Use this path'))}</button>
         </form>`
       : `<button class="btn quiet sm setup-link" data-act="type">${esc(t('Enter a path'))}</button>`}
@@ -427,7 +427,7 @@ export function render(el, ctx) {
   if (!flow.checking && !store.state.unpack) Object.assign(flow, { report: null, error: null });
 
   el.innerHTML = `<div class="setup">
-    ${ctx.firstRun ? `<div class="setup-brand">${brandImg('logo', 'alt="Pokopia"')}</div>` : ''}
+    ${ctx.firstRun ? `<div class="setup-brand">${brandImg('logo', 'alt="Recompia"')}</div>` : ''}
     <section class="setup-panel glass strong" id="panel"></section>
   </div>`;
   const panel = el.querySelector('#panel');
@@ -524,7 +524,7 @@ export function render(el, ctx) {
   panel.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     switch (act) {
-      case 'folder': return pick(api.pickFolder, { title: t('Choose your Pokopia game files folder'), start: flow.saved || null });
+      case 'folder': return pick(api.pickFolder, { title: t('Choose your game files folder'), start: flow.saved || null });
       case 'package': return pick(api.pickPackage, { start: null });
       case 'dlc': return pick(api.pickNsp);
       case 'type':

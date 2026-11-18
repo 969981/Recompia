@@ -2,7 +2,7 @@
 // [nvn] shader_key_check: a debug diagnostic. SetShaders hashes each stage's code block once (Program::code_hash). If the game fills or moves
 // that code after SetShaders (a GPU copy, a pool rewrite), the program keeps a stale shader without any sign. With the key on, the replay
 // thread re-hashes the blocks a program points at when it is first drawn (and every Nth draw with a value above 1), compares with the key
-// taken at SetShaders, and logs one line per program on a mismatch. The keying itself is not changed. Idea from pokopia-native's lazy shader
+// taken at SetShaders, and logs one line per program on a mismatch. The keying itself is not changed. Idea from the parent project's lazy shader
 // key (host/nxnative-switch2.patch, hle_nvn.c), which found "4 of 6 keys hashed at SetShaders differed from the code at the first draw".
 #pragma once
 #include <cstdint>

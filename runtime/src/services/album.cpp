@@ -2,7 +2,7 @@
 // caps:su (IScreenShotApplicationService): the photos the game saves are written as PNG files into the album folder ([album] dir,
 // default "album" next to the exe).
 //
-// The path from the game (Pokopia main, sdk module from the same title, read in IDA):
+// The path from the game (the game main, sdk module from the same title, read in IDA):
 //   nn::album::SaveScreenshot(const void* rgba, size_t size, ImageSize, AlbumReportOption)    sdk 0x1a2160
 //     -> nn::capsrv::SaveScreenShotForApplication(entry*, data, size, ScreenShotAttribute&, ApplicationData&, option)  sdk 0x28182c
 //     -> caps:su (InitializeForApplication, sdk 0x2815f8) cmd 205 SaveScreenShotEx1 (proxy sdk 0x281d40 / 0x2821ec).

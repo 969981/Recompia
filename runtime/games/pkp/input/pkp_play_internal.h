@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode's PC features (pkp_play.cpp and the files it is split into): the state and the hook sites they share, and the
+// Game layer, play mode's PC features (pkp_play.cpp and the files it is split into): the state and the hook sites they share, and the
 // functions one of them calls in another. Internal to those files.
 #pragma once
 #include <atomic>
@@ -33,6 +33,9 @@ constexpr uint64_t kFrameMultiplier = layout::kFrameStep;                   // m
 constexpr uint64_t kTweenStep[4] = {0xe51688, 0xe516f0, 0xe5173c, 0xe51788};   // mid: general tween step (fadd s0, s0, s1): x19 tween, x10 counter, s0 multiplier, s1 0.5
 constexpr uint64_t kSyncPeriod = 0x89e27c;                                  // mid: x22 the Sync wait's frame period in ticks (frequency / 60)
 constexpr uint64_t kFixedStepRate = 0x89e398;                               // mid: s0 60.0, x28 now, x25 previous frame tick, d8 tick frequency
+constexpr uint64_t kCamFollowRate = 0x7b024;                                // entry: follow camera target lerp factor (s0 curve t, x1 camera, s1 dt)
+constexpr uint64_t kCamAirStep = 0x7b6ac;                                   // inline: airborne target Y catch-up step (s3 fraction, [sp] saved dt)
+constexpr uint64_t kCamDeadzone = 0x7bca0;                                  // entry: follow camera target dead zone (s0/s1 radii, s2 factor, x1..x3 vec4*, w4/w5 flags, s8 dt)
 constexpr uint64_t kCamStick = 0x87d30;                                     // mid: x19 camera, s0 right stick x
 constexpr uint64_t kCamField = 0x87cd0;                                     // mid: x19 camera, the update past its scene check, before the turn gate
 constexpr uint64_t kFollowGate = 0x249848;                                  // mid: w0 bit 0 = run the follow placement (0x783c0) this frame
@@ -159,6 +162,9 @@ int hook_frame_multiplier(::Ctx* c, uint64_t, void*);
 int hook_tween_step(::Ctx* c, uint64_t, void*);
 int hook_sync_period(::Ctx* c, uint64_t, void*);
 int hook_fixed_step_rate(::Ctx* c, uint64_t, void*);
+int hook_cam_follow_rate(::Ctx* c, uint64_t, void*);
+void hook_cam_air_step(::Ctx* c, uint64_t, void*);
+int hook_cam_deadzone(::Ctx* c, uint64_t, void*);
 
 // ---- mouse camera (pkp_mouse_camera.cpp) ----
 uint64_t mono_ns();

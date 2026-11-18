@@ -106,6 +106,7 @@ else()
 endif()
 add_library(nxrt STATIC ${NXRT_SOURCES})
 target_include_directories(nxrt PUBLIC include)
+target_compile_definitions(nxrt PUBLIC NXRT_TESTTOOLS=$<BOOL:${NXRT_TESTTOOLS}>)
 if(NOT NXRT_WINDOWS)
     # The signal handler's thread-locals (t_guard, t_thread_name) must be a plain thread-pointer access: with the default
     # global-dynamic model the handler calls __tls_get_addr, which is not async-signal-safe, and the guarded-call machinery
@@ -180,10 +181,10 @@ endif()
 if(NXRT_WINDOWS)
     target_link_libraries(nxrt PUBLIC psapi)
 endif()
-add_subdirectory(third_party/pokopia-coop)   # [net] protocol = native: pokopia-native's Link Play (MIT, C11)
+add_subdirectory(third_party/pokopia-coop)   # [net] protocol = native: the parent project's Link Play (MIT, C11)
 target_link_libraries(nxrt PRIVATE pokopia_coop)
 include(cmake/guest_segment.cmake)   # macOS: reserve the guest address space in the executable's Mach-O header
-add_subdirectory(third_party/miniz)   # zlib streams (MIT): the Pokopia save repair, games/pkp/core/pkp_save_uuid.cpp
+add_subdirectory(third_party/miniz)   # zlib streams (MIT): the game save repair, games/pkp/core/pkp_save_uuid.cpp
 if(NXRT_LINUX)
     target_link_libraries(nxrt PRIVATE nxrt_miniz)   # album.cpp's PNG writer (services/album.cpp)
 endif()

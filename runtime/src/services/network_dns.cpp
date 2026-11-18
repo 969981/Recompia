@@ -373,7 +373,7 @@ namespace {
 
 // =============================================================================================================================================
 // ngc: ngc:u (nn::ngc::detail::IService), the profanity filter behind nn::ngc::ProfanityFilter. No word list: Check finds nothing and
-// Mask returns the text as it was sent, with no word masked. Pokopia's name check (the keyboard's text check) calls Mask (cmd 2, text in
+// Mask returns the text as it was sent, with no word masked. The game's name check (the keyboard's text check) calls Mask (cmd 2, text in
 // buffer A, masked text in buffer B) and refuses the name when the call fails: with the generic stub's error every name was "a word or
 // character that isn't allowed" and the keyboard reopened forever (fork issue #6).
 // =============================================================================================================================================

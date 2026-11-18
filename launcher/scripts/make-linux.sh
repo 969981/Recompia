@@ -66,7 +66,13 @@ cp "$repo/runtime/assets/fonts/DejaVuSans.ttf" "$pkg/tools/build/sdk/fonts/"
 cp -R "$repo/runtime/assets/prompts" "$pkg/assets/prompts"
 
 # licences and documents
+sh "$repo/launcher/scripts/stage-licenses.sh" "$pkg/licenses" "$repo/build/licenses/THIRD_PARTY_CRATES.txt"
 cp "$repo/game-build/release_b/BUNDLED_TOOLS.txt" "$pkg/licenses/"
+# the notices of the libraries inside the AppImage: made on the runner that built it (appimage-notices.sh), where dpkg knows them
+notices="$repo/build/appimage-notices"
+[ -f "$notices/SOURCES.txt" ] || { echo "no AppImage library notices at $notices (launcher/scripts/appimage-notices.sh, see release.yml)" >&2; exit 1; }
+mkdir -p "$pkg/licenses/appimage"
+cp -R "$notices/." "$pkg/licenses/appimage/"
 cp "$repo/LICENSE" "$pkg/LICENSE.txt"
 cp "$repo/CHANGELOG.md" "$pkg/CHANGELOG.txt"
 sed "s/@VERSION@/$version/g" "$repo/game-build/release_b/README.linux.txt" > "$pkg/README.txt"

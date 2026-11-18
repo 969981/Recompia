@@ -7,6 +7,12 @@ mod branding_cmds;
 mod child_lines;
 mod cli;
 mod config;
+mod coop;
+mod coop_cmds;
+mod coop_code;
+mod coop_diag;
+mod coop_launch;
+mod coop_save;
 mod dialogs;
 mod dlss;
 mod dlss_cmds;
@@ -26,12 +32,17 @@ mod home_count;
 mod host;
 mod ini;
 mod lan;
+mod logbundle;
+mod logbundle_cmds;
 mod modtopia_ffi;
 mod mods;
+mod mods_additions;
+mod mods_carried;
 mod mods_catalog;
 mod mods_cmds;
 mod mods_install;
 mod mods_lock;
+mod mods_scope;
 mod mods_update;
 mod nsp;
 mod launch;
@@ -52,6 +63,7 @@ mod public_ip;
 mod readiness;
 use pokopia_relay as relay;
 mod relay_cmds;
+mod release_names;
 mod releases;
 mod repair;
 mod repair_cmds;
@@ -82,6 +94,7 @@ mod update_game;
 mod update_cmds;
 mod window;
 mod writecheck;
+mod zipout;
 
 use std::sync::atomic::Ordering;
 use tauri::Manager;
@@ -95,9 +108,8 @@ fn main() {
     if args.iter().any(|a| a == "--host") {
         std::process::exit(cli::run_headless(&args));
     }
-    if args.iter().any(|a| a == "--play") {
-        std::process::exit(cli::run_play(&args));
-    }
+    // no `--play` mode any more: old Steam/Sunshine shortcuts still pass it (alone or with `--game <dir>`) and just get the window,
+    // which checks for updates first; Tauri's builder ignores arguments it does not know
     readiness::UPDATED.store(args.iter().any(|a| a == "--updated"), Ordering::SeqCst);
     // WebKitGTK's DMA-BUF renderer leaves the window blank or kills it ("Error 71 (Protocol error)") on NVIDIA's driver
     #[cfg(target_os = "linux")]
@@ -146,6 +158,7 @@ fn main() {
             update_cmds::install_version,
             update_cmds::cancel_update,
             open::open_link,
+            open::open_licenses_dir,
             config::save_config,
             readiness::get_overview,
             dialogs::pick_folder,
@@ -181,6 +194,17 @@ fn main() {
             profile_cmds::profile_rename,
             profile_cmds::profile_remove,
             profile_cmds::profile_select,
+            coop_cmds::coop_list,
+            coop_cmds::coop_create,
+            coop_cmds::coop_add_member,
+            coop_cmds::coop_remove_member,
+            coop_cmds::coop_invite,
+            coop_cmds::coop_resolve_invite,
+            coop_cmds::coop_invite_members,
+            coop_cmds::coop_accept,
+            coop_cmds::coop_play,
+            coop_cmds::coop_delete,
+            coop_cmds::coop_last_run,
             repair_cmds::repair_plan,
             repair_cmds::repair_apply,
             repair_cmds::repair_undo,
@@ -199,6 +223,7 @@ fn main() {
             steam_cmds::steam_add,
             steam_cmds::steam_remove,
             open::open_game_file,
+            logbundle_cmds::save_log_bundle,
             open::open_game_dir,
             relay_cmds::relay_start,
             relay_cmds::relay_stop,

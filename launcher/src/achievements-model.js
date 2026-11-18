@@ -8,7 +8,7 @@ import { lockAction } from './mods-model.js';
 /** The title of a group of the hub's list (its `cat`). The hub names no titles, so these are ours; an unknown group shows its id. */
 export function categoryTitle(cat) {
   switch (cat) {
-    case 'pokedex': return t('Pokédex');
+    case 'pokedex': return t('Creature list');
     case 'habitats': return t('Habitats');
     case 'items': return t('Items');
     case 'recipes': return t('Recipes');

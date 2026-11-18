@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, Link Play in the story areas ([pkp] link_interact_everywhere, link_story_coop; pkp_linkplay.h): a story dig spot a
+// Game layer, Link Play in the story areas ([pkp] link_interact_everywhere, pkp_linkplay.h): a story dig spot a
 // visitor digs up is still the host's find.
 //
 // A story dig spot is a block that glows gold with an item buried in it. The game makes the spots from the player's own save (a

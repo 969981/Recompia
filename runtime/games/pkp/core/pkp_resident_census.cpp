@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Read-only Pokopia v2.0.1a census. Candidate actor links are not verified GPU/model handles.
+// Read-only census of the game v2.0.1a. Candidate actor links are not verified GPU/model handles.
 #include "core/pkp_resident_census.h"
 
 #include <array>
@@ -64,7 +64,7 @@ std::uint64_t root(std::uint64_t off, const char** error = nullptr) {
 void unavailable(const char* reason) {
     ++g.failed_samples;
     if (g.failed_samples == 1 || g.failed_samples % kDetailEverySamples == 0)
-        NXLOG_W("pkp", "pokemon census: unavailable (%s), attempts=%u; checking again",
+        NXLOG_W("pkp", "creature census: unavailable (%s), attempts=%u; checking again",
                 reason, g.failed_samples);
 }
 
@@ -130,7 +130,7 @@ bool crossed(std::uint32_t before, std::uint32_t after, std::uint32_t n) {
 void start(std::uint64_t main_base) {
     g = {};
     g.base = main_base;
-    NXLOG_I("pkp", "pokemon census: installed (read-only, samples every 120 game frames)");
+    NXLOG_I("pkp", "creature census: installed (read-only, samples every 120 game frames)");
 }
 void stop() { g = {}; }
 
@@ -156,7 +156,7 @@ void tick() {
         return;
     }
     if (g.failed_samples)
-        NXLOG_I("pkp", "pokemon census: actor pool available again after %u unsuccessful samples", g.failed_samples);
+        NXLOG_I("pkp", "creature census: actor pool available again after %u unsuccessful samples", g.failed_samples);
     g.failed_samples = 0;
     const auto world = root(kWorldGlobal);
     std::array<Slot, kSlots> details{};
@@ -176,11 +176,11 @@ void tick() {
     const bool count_changed = !g.valid || occupied != g.occupied;
     const bool periodic = (++g.samples % kDetailEverySamples) == 0;
     if (root_changed || count_changed || periodic) {
-        NXLOG_I("pkp", "pokemon census: actors=%u/64 free=%u resident_records=%u positioned=%u offmap=%u invalid=%u missing_candidate_links=%u pool=%llx world=%llx",
+        NXLOG_I("pkp", "creature census: actors=%u/64 free=%u resident_records=%u positioned=%u offmap=%u invalid=%u missing_candidate_links=%u pool=%llx world=%llx",
                 occupied, free, resident_count(), positioned, offmap, invalid, missing_links,
                 static_cast<unsigned long long>(pool), static_cast<unsigned long long>(world));
         if (occupied + free != kSlots)
-            NXLOG_W("pkp", "pokemon census: pool counters disagree (actors=%u free=%u capacity=64)", occupied, free);
+            NXLOG_W("pkp", "creature census: pool counters disagree (actors=%u free=%u capacity=64)", occupied, free);
     }
     // Rows only when something changed: 64 lines every 30 s would be log writes on the game thread for nothing.
     const bool details_needed = root_changed ||
@@ -190,7 +190,7 @@ void tick() {
     if (details_needed && occupied) {
         for (const Slot& s : details) {
             if (!s.valid) continue;
-            NXLOG_I("pkp", "pokemon census row: slot=%u resident=%u kind=%u flags=%08x pos_known=%u offmap=%u xyz=%.1f,%.1f,%.1f linkA=%llx linkB=%llx",
+            NXLOG_I("pkp", "creature census row: slot=%u resident=%u kind=%u flags=%08x pos_known=%u offmap=%u xyz=%.1f,%.1f,%.1f linkA=%llx linkB=%llx",
                     s.slot, s.row, static_cast<unsigned>(s.kind), s.flags,
                     s.positioned ? 1u : 0u, s.offmap ? 1u : 0u, s.x, s.y, s.z,
                     static_cast<unsigned long long>(s.link_a), static_cast<unsigned long long>(s.link_b));

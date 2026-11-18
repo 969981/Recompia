@@ -4,13 +4,14 @@
 # Python, FSR 3 / Streamline DLLs, astcdec, fonts, input icons, licence texts) comes from a base package (the previous release zip; release.yml BASE_REPO / BASE_RELEASE).
 # ponytail: base zip for the third-party payload; fetch each piece from its own source when one of them needs a new version.
 #   pwsh game-build\scripts\make-release.ps1 -Version 0.2.0 -Base PokopiaRecomp-0.1.1-win64.zip -RtDir game-build\build\rtdll `
-#        -Launcher launcher\src-tauri\target\release\pokopia-launcher.exe -Harness work\rel\harness -Out work\rel
+#        -Launcher launcher\src-tauri\target\release\pokopia-launcher.exe -Harness work\rel\harness -Crates work\licenses\THIRD_PARTY_CRATES.txt -Out work\rel
 param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$Base,       # previous player zip (third-party payload)
     [Parameter(Mandatory)][string]$RtDir,      # folder with pkp_rt.dll + pkp_rt.lib (game-build, PKP_RT_DLL=ON PKP_RELEASE=ON)
     [Parameter(Mandatory)][string]$Launcher,   # pokopia-launcher.exe (launcher, npm run tauri build)
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder
+    [Parameter(Mandatory)][string]$Crates,     # THIRD_PARTY_CRATES.txt (the release workflow's licenses job: cargo about, launcher/about.hbs)
     [string]$PokoHex,                          # the Save Editor's data tool (build-pokohex.sh --extractor win-x64 <dir>)
     [Parameter(Mandatory)][string]$Out
 )
@@ -69,6 +70,14 @@ Put "$root\game-build\res\pkp.rc" 'tools\build\sdk\pkp.rc'
 foreach ($f in 'pkp_build.py', 'dump_hashes.json', 'fetch_dlss.py') { Put "$root\game-build\release_b\$f" "tools\build\$f" }
 (Get-Content -Raw "$root\game-build\release_b\README.txt").Replace('@VERSION@', $Version) | Set-Content -NoNewline (Join-Path $pkg 'README.txt')
 Put "$root\game-build\release_b\BUNDLED_TOOLS.txt" 'licenses\BUNDLED_TOOLS.txt'
+# licence texts and notices (the base package's licenses/ keeps what only it carries: Zig, Python, FSR 3, Streamline)
+foreach ($d in 'tools\release\licenses', 'tools\shaders\licenses') {
+    Get-ChildItem "$root\$d" -File | ForEach-Object { Put $_.FullName "licenses\$($_.Name)" }
+}
+Put "$root\runtime\THIRD_PARTY_NOTICES.md" 'licenses\THIRD_PARTY_NOTICES.md'
+Put "$root\recomp\THIRD_PARTY.md" 'licenses\THIRD_PARTY_RECOMP.md'
+Put "$root\CREDITS.md" 'licenses\CREDITS.md'
+Put $Crates 'licenses\THIRD_PARTY_CRATES.txt'
 Put "$root\launcher\release\Play.bat" 'Play.bat'
 Put "$root\LICENSE" 'LICENSE.txt'
 Put "$root\CHANGELOG.md" 'CHANGELOG.txt'

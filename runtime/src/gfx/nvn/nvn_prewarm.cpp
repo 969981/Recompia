@@ -79,7 +79,7 @@ std::string g_path;
 std::vector<Rec> g_recs;
 std::vector<Rec> g_cs_recs;                                  // compute records (kComputeTag), kept apart from the graphics ones
 std::vector<std::shared_ptr<Job>> g_rec_jobs;                // by index in g_recs (null: recorded this session, built at its draw)
-// Programs of one stage each (Pokopia binds a vertex program and a fragment program separately): a record is found by any of its stages.
+// Programs of one stage each (the game binds a vertex program and a fragment program separately): a record is found by any of its stages.
 std::unordered_multimap<uint64_t, size_t> g_by_any;          // any stage's hash -> index in g_recs
 std::unordered_set<uint64_t> g_digests;                      // recorded keys
 std::deque<std::shared_ptr<Job>> g_queue;                    // a job can sit in it twice (moved ahead): the second visit skips it

@@ -306,12 +306,14 @@ static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
 // pool copies (nvn_gpu_pool.cpp) leave them "hot": every shader read of a uniform went over PCIe (logs of 2026-11-16: 22.9 million of
 // 22.9 million uniform binds read the pool, on a GTX 1650 and an RTX 2060). On a discrete GPU the bytes of the block are copied, when the
 // draw is recorded, into the submission's upload memory, which is device-local there (the resizable-BAR window), and the draw reads them
-// from video memory. The same block bound again in the submission reuses its copy.
-// The idea comes from pokopia-native (MIT, the pokopia-native contributors): its draws read every pool buffer from video memory, with the
+// from video memory. The same block bound again in the submission reuses its copy. A slot whose upload memory is in system memory (24 of
+// 36 slots in video memory without resizable BAR: a 214 MiB window) takes a small ring of its own in video memory (Frame::vram_ring);
+// before it, a third of the uniform reads on an RTX 2060 still went over PCIe (logs of 2026-11-17).
+// The idea comes from the parent project (MIT, its contributors): its draws read every pool buffer from video memory, with the
 // bytes taken when the replay binds them (windows/src/nxrt/vk/vk_mem.c, vkm_use).
 // Only when the pool bytes are final: no submission still in flight (this one included) may write the range (gw_settled_fast), and no
-// compute result for it is held elsewhere (out_overlaps). Otherwise, and when the upload memory is full or not in video memory, the block is
-// bound from the pool as before.
+// compute result for it is held elsewhere (out_overlaps). Otherwise, and when the video memory ring is full or none could be made, the
+// block is bound from the pool as before. Every such case is counted in the log line.
 // auto (default): on with a discrete GPU of under 7 GiB of video memory only. An integrated GPU or APU (Steam Deck, Legion Go S, ...) has
 // one memory for both: a copy buys nothing there, so nothing changes for them; larger cards keep their path until it is measured there.
 // on / off force it.
@@ -319,7 +321,7 @@ namespace {
 // auto turns the snapshots on below this much video memory only (the cards the pool copies give the small cap: nvn_mirror_cap.h): the
 // reports came from 4 and 6 GB cards, and larger cards keep the path they had until the snapshots are measured there (PROJECT.md 6.6).
 constexpr uint64_t kSnapshotMaxVram = 7ull << 30;
-struct UniformSnapStats { uint64_t copies = 0, reused = 0, bytes = 0, unsettled = 0, full = 0; };
+struct UniformSnapStats { uint64_t copies = 0, reused = 0, bytes = 0, unsettled = 0, full = 0, copying = 0, unresolved = 0; };
 UniformSnapStats g_usnap;
 
 bool uniform_snapshot_on() {
@@ -345,16 +347,19 @@ void uniform_snapshot_log() {
     const uint64_t now = counters().presents.load(std::memory_order_relaxed);
     if (now - last < 1200) return;
     last = now;
-    NXLOG_I(kTag, "uniform snapshots: %llu copied (%llu MiB), %llu reused, %llu read from the pool (GPU write in flight), %llu (upload memory full)",
+    NXLOG_I(kTag, "uniform snapshots: %llu copied (%llu MiB), %llu reused; read from the pool: %llu GPU write in flight, %llu no video memory "
+            "(ring full or none), %llu pool copy commands on, %llu outside a pool",
             (unsigned long long)g_usnap.copies, (unsigned long long)(g_usnap.bytes >> 20), (unsigned long long)g_usnap.reused,
-            (unsigned long long)g_usnap.unsettled, (unsigned long long)g_usnap.full);
+            (unsigned long long)g_usnap.unsettled, (unsigned long long)g_usnap.full, (unsigned long long)g_usnap.copying,
+            (unsigned long long)g_usnap.unresolved);
 }
 }  // namespace
 
 static bool uniform_snapshot(uint64_t addr, uint64_t bind_size, VkDeviceSize align, VkDescriptorBufferInfo* bi) {
-    if (!uniform_snapshot_on() || !F->upload_in_vram() || pool_copy_any()) return false;
+    if (!uniform_snapshot_on()) return false;
+    if (pool_copy_any()) { ++g_usnap.copying; return false; }
     const BufRef br = resolve_buffer(addr, bind_size);
-    if (!br.ok) return false;
+    if (!br.ok) { ++g_usnap.unresolved; return false; }
     const VkDeviceSize n = std::min<VkDeviceSize>({bind_size ? bind_size : 65536, br.avail, 65536});
     if (!n) return false;
     if (!gw_settled_fast(addr, n) || out_overlaps(addr, n)) { ++g_usnap.unsettled; return false; }
@@ -375,7 +380,7 @@ static bool uniform_snapshot(uint64_t addr, uint64_t bind_size, VkDeviceSize ali
         ++g_usnap.reused;
         return true;
     }
-    const UploadAlloc u = F->upload_ring(n, std::max<VkDeviceSize>(align, 256));
+    const UploadAlloc u = F->vram_ring(n, std::max<VkDeviceSize>(align, 256));
     if (!u) { ++g_usnap.full; return false; }
     std::memcpy(u.ptr, host_ptr(addr), n);
     *bi = {u.buffer, u.offset, n};

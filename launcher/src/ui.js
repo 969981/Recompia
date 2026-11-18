@@ -3,13 +3,16 @@
 import {
   ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Mouse, Newspaper, Palette, Pause,
-  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, UserCheck, Users, Wrench, X,
+  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, User, UserCheck, Users, Wrench, X, Crown, KeyRound, LogIn, Send,
 } from 'lucide';
+import {
+  faCircleInfo, faDisplay, faFloppyDisk, faGamepad, faSliders, faVolumeHigh, faWandMagicSparkles,
+} from '@fortawesome/free-solid-svg-icons';
 
 const ICONS = {
   ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Mouse, Newspaper, Palette, Pause,
-  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, UserCheck, Users, Wrench, X,
+  Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, User, UserCheck, Users, Wrench, X, Crown, KeyRound, LogIn, Send,
 };
 
 import { fromBackend } from './backend-text.js';
@@ -36,6 +39,20 @@ export function icon(name, cls = '') {
   }
   const parts = node.map(([tag, attrs]) => `<${tag} ${Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(' ')}/>`).join('');
   return `<svg class="icon i-${name} ${cls}" viewBox="0 0 24 24" aria-hidden="true">${parts}</svg>`;
+}
+
+const FA_ICONS = { faCircleInfo, faDisplay, faFloppyDisk, faGamepad, faSliders, faVolumeHigh, faWandMagicSparkles };
+
+/** Finished SVG markup for a Font Awesome solid icon by kebab name ("floppy-disk"). A new name is added to the import list above. */
+export function faIcon(name, cls = '') {
+  const def = FA_ICONS[`fa${pascal(name)}`];
+  if (!def) {
+    if (import.meta.env?.DEV) console.warn(`Font Awesome icon "${name}" is not in ui.js`);
+    return '';
+  }
+  const [w, h, , , path] = def.icon;
+  const paths = (Array.isArray(path) ? path : [path]).map((d) => `<path d="${d}"/>`).join('');
+  return `<svg class="icon fa i-${name} ${cls}" viewBox="0 0 ${w} ${h}" aria-hidden="true">${paths}</svg>`;
 }
 
 const MAX_TOASTS = 3;
@@ -133,6 +150,67 @@ export function askText(opts = {}) {
   });
 }
 
+/**
+ * A modal with a form of the caller's fields (`html`, trusted markup). Resolves read(form) for OK, or null for Esc, Cancel or a click outside.
+ * opts: { title, body, html, ok = 'OK', wide, check(form), read(form) }. check runs at open and on every input (it may be async and may change the
+ * form, e.g. to show choices that follow from what was typed): true lets OK be pressed, a string is shown under the form as the reason it
+ * cannot ('' says nothing).
+ */
+export function formDialog(opts = {}) {
+  const { title = '', body = '', html = '', ok = t('OK'), wide = false, check = () => true, read = () => true } = opts;
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = `modal glass strong${wide ? ' wide' : ''}`;
+    dlg.setAttribute('aria-labelledby', 'modal-title');
+    dlg.innerHTML = `
+      <form method="dialog" novalidate>
+        <div class="modal-body">
+          <h2 id="modal-title">${esc(title)}</h2>
+          ${body ? `<p>${esc(body)}</p>` : ''}
+          ${html}
+          <p class="form-error" role="alert" hidden></p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn quiet" type="button" data-answer="">${esc(t('Cancel'))}</button>
+          <button class="btn primary" type="submit" data-answer="ok" disabled>${esc(ok)}</button>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const form = dlg.querySelector('form');
+    const okBtn = dlg.querySelector('[data-answer="ok"]');
+    const err = dlg.querySelector('.form-error');
+    let seq = 0;
+    let value = null;
+    const validate = async () => {
+      const mine = ++seq;
+      const r = await check(form);
+      if (mine !== seq) return;
+      okBtn.disabled = r !== true;
+      err.textContent = typeof r === 'string' ? r : '';
+      err.hidden = !err.textContent;
+    };
+    form.addEventListener('input', validate);
+    form.addEventListener('change', validate);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await validate();
+      if (okBtn.disabled) return;
+      value = read(form);
+      dlg.close('ok');
+    });
+    dlg.addEventListener('close', () => {
+      dlg.remove();
+      resolve(dlg.returnValue === 'ok' ? value : null);
+    });
+    dlg.addEventListener('click', (e) => {
+      if (e.target.closest('[type="button"][data-answer]') || e.target === dlg) dlg.close('');
+    });
+    dlg.showModal();
+    form.querySelector('input, textarea')?.focus();
+    validate();
+  });
+}
+
 /** Options come as ['a', ...], [['value', 'Label'], ...] or [{ value, label, disabled }, ...]. */
 const optionOf = (o) => (Array.isArray(o) ? { value: o[0], label: o[1] ?? o[0] } : typeof o === 'object' ? o : { value: o, label: o });
 const named = (label) => (label ? `aria-label="${esc(label)}"` : 'aria-labelledby="@"');
@@ -157,11 +235,11 @@ export function group(title, rows) {
   </section>`;
 }
 
-/** Pill radio group: read it with a `change` listener, e.target.name / e.target.value. */
+/** Pill radio group: read it with a `change` listener, e.target.name / e.target.value. An option's `icon` is SVG markup (icon() / faIcon()) before its label. */
 export function segmented(name, opts, value, { label = '', disabled = false } = {}) {
   const items = opts.map(optionOf).map((o) => `<label>
       <input type="radio" name="${esc(name)}" value="${esc(o.value)}" ${String(o.value) === String(value) ? 'checked' : ''} ${disabled || o.disabled ? 'disabled' : ''} />
-      <span>${esc(o.label)}</span>
+      <span>${o.icon ?? ''}${esc(o.label)}</span>
     </label>`);
   return `<div class="seg" role="radiogroup" ${named(label)}>${items.join('')}</div>`;
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: spec() and the doc rows of the [pkp] table (pkp_settings_table.h). Pure data, in nxrt_game_pkp_data, so the docs
+// Game layer: spec() and the doc rows of the [pkp] table (pkp_settings_table.h). Pure data, in nxrt_game_pkp_data, so the docs
 // generator (apps/settings_doc.cpp) reads it without the runtime; the getters are in pkp_settings.cpp.
 #include "core/pkp_settings_table.h"
 
@@ -56,6 +56,14 @@ std::vector<setting_doc::Row> doc_rows() {
         r.hidden = sp.hidden;
         r.doc = sp.doc;
         if (sp.applies == Applies::AtStart) r.doc += " Next start.";
+        rows.push_back(std::move(r));
+    }
+    for (const char* name : table::kRetired) {
+        setting_doc::Row r;
+        r.section = kSection;
+        r.key = name;
+        r.type = "retired";
+        r.retired = true;
         rows.push_back(std::move(r));
     }
     return rows;

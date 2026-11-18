@@ -348,8 +348,13 @@ LPVOID VirtualAlloc(LPVOID addr, SIZE_T size, DWORD type, DWORD protect) {
     std::lock_guard<std::mutex> guard(g_reg_mu);
 
     if (type & MEM_RESERVE) {
+        // MEM_RESERVE | MEM_COMMIT reserves and commits in one call, as the Windows API does. Handling only the reservation
+        // left the pages PROT_NONE (state MEM_RESERVE, protect as asked), so the first store faulted: [prof] trace's event
+        // array is the one caller in the tree and it crashed on its first event (nxrt::ft::event).
+        const bool also_commit = (type & MEM_COMMIT) != 0;
         if (want == 0) {
-            void* p = ::mmap(nullptr, bytes, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
+            void* p = ::mmap(nullptr, bytes, also_commit ? prot_of(protect) : PROT_NONE,
+                             MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
             if (p == MAP_FAILED) {
                 SetLastError(ERROR_NOT_ENOUGH_MEMORY);
                 return nullptr;
@@ -357,7 +362,7 @@ LPVOID VirtualAlloc(LPVOID addr, SIZE_T size, DWORD type, DWORD protect) {
             Region r;
             r.base = reinterpret_cast<uintptr_t>(p);
             r.size = bytes;
-            r.state = MEM_RESERVE;
+            r.state = also_commit ? MEM_COMMIT : MEM_RESERVE;
             r.protect = protect;
             r.own_mapping = true;
                         r.alloc_base = r.base;
@@ -372,7 +377,7 @@ LPVOID VirtualAlloc(LPVOID addr, SIZE_T size, DWORD type, DWORD protect) {
             return nullptr;
         }
         if (guest) {
-            void* p = ::mmap(reinterpret_cast<void*>(want), bytes, PROT_NONE,
+            void* p = ::mmap(reinterpret_cast<void*>(want), bytes, also_commit ? prot_of(protect) : PROT_NONE,
                              MAP_PRIVATE | MAP_ANON | MAP_NORESERVE | MAP_FIXED, -1, 0);
             if (p == MAP_FAILED || reinterpret_cast<uintptr_t>(p) != want) {
                 if (p != MAP_FAILED) ::munmap(p, bytes);
@@ -382,11 +387,13 @@ LPVOID VirtualAlloc(LPVOID addr, SIZE_T size, DWORD type, DWORD protect) {
         } else if (!reserve_exact(want, bytes)) {
             SetLastError(ERROR_NOT_ENOUGH_MEMORY);
             return nullptr;
+        } else if (also_commit) {
+            ::mprotect(reinterpret_cast<void*>(want), bytes, prot_of(protect));
         }
         Region r;
         r.base = want;
         r.size = bytes;
-        r.state = MEM_RESERVE;
+        r.state = also_commit ? MEM_COMMIT : MEM_RESERVE;
         r.protect = protect;
         r.own_mapping = true;
                 r.alloc_base = r.base;

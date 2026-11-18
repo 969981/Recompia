@@ -43,11 +43,11 @@ pub struct Config {
     pub achievements_unlocked: bool,
     /// The player unlocked the mod's sharing setting (mods_lock.rs): it may be switched off. Locked unless the player unlocks it.
     pub achievements_sharing_unlocked: bool,
-    /// The wordmark the launcher and the Steam shortcut show: "classic" (the bubble letters of 0.10) or anything else for the current
-    /// Recompia logo (branding.rs).
-    pub logo: String,
-    /// The icon of the launcher, the game and the Steam shortcut, with the same values as `logo` (branding.rs).
-    pub icon: String,
+    // Retired keys an older launcher.json may still hold are skipped (serde ignores unknown fields): `logo` and `icon` (the logo and
+    // icon choice, removed with the Classic look).
+    /// Which game the launcher shows (src/games.js): "recompia" or "coop". Empty (an older launcher.json): "recompia". Only the pages
+    /// read it; both games are the same install, build and shaders.
+    pub game: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -104,4 +104,15 @@ pub fn online_salt(app: &AppHandle) -> Option<String> {
         save_config(app.clone(), cfg.clone()).ok()?;
     }
     Some(cfg.online_salt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_old_launcher_json_with_retired_keys_still_loads() {
+        let cfg: Config = serde_json::from_str(r#"{"channel":"testing","logo":"classic","icon":"classic"}"#).unwrap();
+        assert_eq!(cfg.channel, "testing");
+    }
 }

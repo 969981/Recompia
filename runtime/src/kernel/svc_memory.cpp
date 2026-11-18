@@ -169,7 +169,7 @@ void fail(::Ctx* c, const char* what, uint32_t rc, uint64_t a, uint64_t b, uint6
 }
 
 // Windows refused the heap commit for lack of commit (ERROR_COMMITMENT_LIMIT: RAM plus page file used up; most often the page file is
-// off or small). The heap is committed whole when the game sizes it (Pokopia: 10.4 GiB at start-up), so this happens at boot, and the
+// off or small). The heap is committed whole when the game sizes it (the game: 10.4 GiB at start-up), so this happens at boot, and the
 // game would only crash on the first heap write (code 4). Say why in a box (not in a headless run or a test) and end with code 6.
 [[noreturn]] void out_of_commit(uint64_t want) {
     char msg[768];

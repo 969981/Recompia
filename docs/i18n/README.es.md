@@ -5,45 +5,45 @@
   <img src="../assets/logo.png" alt="Recompia" width="420">
 </h1>
 
-<h3 align="center">Pokopia Recomp</h3>
+<h3 align="center">Recompia</h3>
 
 <p align="center">
-  <b>Pokémon Pokopia (Switch 2) recompilado para funcionar de forma nativa en Windows, con compatibilidad con multijugador.</b>
+  <b>Un juego acogedor de simulación de vida y construcción sandbox con criaturas fantásticas (Switch 2, ID de título 0400A3A01EE4C000, versión 2.0.1a), recompilado para funcionar de forma nativa en Windows, con compatibilidad con multijugador.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/featureJosh/pokopia-recomp?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/github/v/release/Dittobyte/Recompia?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740" alt="Windows downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740" alt="Linux downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/main"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/testing"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues"><img src="https://img.shields.io/github/issues/featureJosh/pokopia-recomp?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/testing"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
+  <a href="https://github.com/Dittobyte/Recompia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/Recompia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">Versiones</a></b> ·
+  <b><a href="https://github.com/Dittobyte/Recompia/releases">Versiones</a></b> ·
   <a href="../../CHANGELOG.md">Registro de cambios</a> ·
   <a href="../../CONTRIBUTING.md">Cómo contribuir</a> ·
   <a href="../../CREDITS.md">Créditos</a> ·
-  <a href="https://github.com/xFractals/pokopia-native">Proyecto original: pokopia-native</a> ·
+  <a href="https://github.com/xFractals/pokopia-native">Proyecto original</a> ·
   <a href="../../SECURITY.md">Seguridad</a> ·
   <a href="../../LEGAL.md">Información legal</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">Problemas</a> ·
+  <a href="https://github.com/Dittobyte/Recompia/issues">Problemas</a> ·
   <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
-> **No se incluye ningún archivo del juego.** Necesitas tu propia copia extraída del juego, versión **2.0.1a**. Este proyecto no proporciona archivos del juego, claves ni herramientas de volcado. No está afiliado a Nintendo, The Pokémon Company ni Koei Tecmo; Pokémon es una marca registrada de Nintendo, Creatures Inc. y GAME FREAK inc. (consulta [LEGAL.md](../../LEGAL.md)).
+> **No se incluye ningún archivo del juego.** Necesitas tu propia copia extraída de este juego acogedor de simulación de vida y construcción sandbox con criaturas fantásticas (ID de título 0400A3A01EE4C000, versión **2.0.1a**). Este proyecto no proporciona archivos del juego, claves ni herramientas de volcado. Consulta [LEGAL.md](../../LEGAL.md).
 
 > [!NOTE]
 > **Creado con herramientas de desarrollo automatizadas y supervisión humana.** Este proyecto se desarrolla principalmente con herramientas automatizadas, bajo mi supervisión. Tengo varios años de experiencia en desarrollo, así que no es un trabajo descuidado. Reviso, verifico y pruebo cada commit antes de incorporarlo.
@@ -65,7 +65,7 @@
 
 ### Jugar juntos (Link Play)
 - **Visita la isla de un amigo o invítalo a la tuya**, en la misma red Wi-Fi o por internet.
-- **Juego cruzado con jugadores de [pokopia-native](https://github.com/xFractals/pokopia-native)** en la versión 2.0.1 del juego.
+- **Juego cruzado con jugadores de [el proyecto original](https://github.com/xFractals/pokopia-native)** en la versión 2.0.1 del juego.
 - Configúralo en la página **Link Play** del launcher. No hay que editar archivos.
 - Guía paso a paso: [Jugar juntos](#playing-together).
 
@@ -112,7 +112,7 @@ Pulsa **F1** en el juego para cambiar los gráficos, los controles y el sonido (
 
 ## Inicio rápido
 
-1. Descarga el zip de la [última versión](https://github.com/featureJosh/pokopia-recomp/releases/latest) y extráelo donde quieras.
+1. Descarga el zip de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras.
 2. Ejecuta `PokopiaLauncher.exe`. Si SmartScreen muestra una advertencia, elige **More info → Run anyway**. Selecciona la carpeta de tu volcado y pulsa **Set up**: el juego se compila en tu PC (unos 7 minutos) y después se genera la caché de sombreadores (entre 1 y 2 horas; puedes pausar y continuar más tarde).
 3. Pulsa **Play**.
 
@@ -121,13 +121,13 @@ F1 abre los ajustes dentro del juego. El botón central del ratón activa o desa
 ### Linux, SteamOS y Steam Deck
 
 1. En Steam, instala **Proton Experimental** (Biblioteca, Herramientas; en Steam Deck, cambia primero al modo de escritorio).
-2. Descarga `PokopiaRecomp-<version>-linux-x64.tar.gz` de la [última versión](https://github.com/featureJosh/pokopia-recomp/releases/latest) y extráelo donde quieras, por ejemplo en tu carpeta personal.
+2. Descarga `PokopiaRecomp-<version>-linux-x64.tar.gz` de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras, por ejemplo en tu carpeta personal.
 3. Ejecuta `PokopiaLauncher.AppImage` en esa carpeta (haz doble clic o ejecuta `./PokopiaLauncher.AppImage` en una terminal). Selecciona la carpeta de tu volcado y pulsa **Set up**: la primera vez descarga sus herramientas de compilación (Python y Zig, unos 100 MB), compila el juego y genera la caché de sombreadores mediante Proton. Puedes pausar y continuar más tarde.
 4. Pulsa **Play**. El juego se ejecuta mediante Proton de Steam.
 
 Si `PokopiaLauncher.AppImage` no se inicia en un sistema sin FUSE, ejecuta `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
-Para iniciar el juego desde Steam (modo Juego en Deck): en el modo de escritorio, selecciona **Add a Non-Steam Game**, elige `PokopiaLauncher.AppImage` y establece sus opciones de lanzamiento en `--play`. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+Para iniciar desde Steam (modo Juego en Deck): añade el launcher a Steam, bien en los Ajustes del launcher (Steam, Add to Steam) o en el modo de escritorio con **Add a Non-Steam Game**, eligiendo `PokopiaLauncher.AppImage` y dejando vacías las opciones de lanzamiento. El acceso directo abre el launcher, que busca actualizaciones; después pulsa Jugar. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## Mods y traducciones
 
@@ -159,7 +159,7 @@ Tus partidas guardadas, ajustes y sombreadores se conservan.
 
 **Desde 0.7.5 en adelante:** pulsa **Update** en Home o en Settings > About. El launcher descarga la nueva versión, la comprueba, sustituye sus propios archivos y se reinicia.
 
-**Desde 0.7.0 o una versión anterior:** descarga el nuevo zip (Windows) o `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) de la [última versión](https://github.com/featureJosh/pokopia-recomp/releases/latest), cierra el juego y el launcher, y extráelo sobre tu instalación, en la misma carpeta. No contiene partidas guardadas, ajustes, caché de sombreadores ni archivos del juego, por lo que no sustituye nada de lo tuyo.
+**Desde 0.7.0 o una versión anterior:** descarga el nuevo zip (Windows) o `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest), cierra el juego y el launcher, y extráelo sobre tu instalación, en la misma carpeta. No contiene partidas guardadas, ajustes, caché de sombreadores ni archivos del juego, por lo que no sustituye nada de lo tuyo.
 
 **Si Home muestra Finish update después de una actualización:** esa versión ha cambiado el código del juego, por lo que el launcher vuelve a compilar el programa del juego (`pkp.exe`) a partir de tus archivos del juego. También ocurre si antes omitiste una versión de este tipo y actualizas más tarde. La espera es corta, unos 7 minutos en la mayoría de los PC y algo más en un dispositivo portátil, porque se conservan los sombreadores y las partidas guardadas. No es la larga configuración inicial: los sombreadores solo se vuelven a traducir cuando lo indican las notas de la versión, y entonces solo los que han cambiado. El `pkp.exe` anterior se conserva hasta que el nuevo está listo.
 
@@ -167,9 +167,9 @@ Si quieres una copia de seguridad, copia primero la carpeta `save` en otro lugar
 
 ## Jugar juntos
 
-Link Play reúne a varios jugadores en una isla. El juego cruzado funciona con jugadores de pokopia-native en la versión **2.0.1** del juego. Los jugadores con la versión 1.0.5 no pueden unirse.
+Link Play reúne a varios jugadores en una isla. El juego cruzado funciona con jugadores del proyecto original en la versión **2.0.1** del juego. Los jugadores con la versión 1.0.5 no pueden unirse.
 
-**Qué ha cambiado.** Link Play ahora utiliza el protocolo cooperativo de pokopia-native. No funciona con compilaciones anteriores de Link Play de este port, así que todos deben actualizarse a esta versión. (El launcher conserva el protocolo anterior en **Advanced**, para una sesión en la que todos sigan usando una compilación antigua).
+**Qué ha cambiado.** Link Play ahora utiliza el protocolo cooperativo del proyecto original. No funciona con compilaciones anteriores de Link Play de este port, así que todos deben actualizarse a esta versión. (El launcher conserva el protocolo anterior en **Advanced**, para una sesión en la que todos sigan usando una compilación antigua).
 
 **Cada jugador necesita su propia partida guardada.** La copia de la partida guardada de otra persona no puede unirse a la partida original.
 
@@ -191,7 +191,7 @@ Los cambios se aplican la próxima vez que se inicia el juego.
 **Por internet.** Todos eligen **Internet** y se conectan mediante un servidor de retransmisión:
 - El anfitrión elige **I host**. La página muestra un código de sala. Da a los visitantes la dirección del servidor y el código. **Copy** y **New code** están en la página.
 - El visitante elige **I visit** y escribe la dirección del servidor y el código.
-- Para ejecutar tu propio servidor, pulsa **Run a relay here** en la página Link Play del anfitrión (funciona mientras el launcher permanezca abierto), o ejecuta `PokopiaLauncher --host` en un servidor. También sirve cualquier servidor cooperativo de pokopia-native.
+- Para ejecutar tu propio servidor, pulsa **Run a relay here** en la página Link Play del anfitrión (funciona mientras el launcher permanezca abierto), o ejecuta `PokopiaLauncher --host` en un servidor. También sirve cualquier servidor cooperativo del proyecto original.
 - Si no utilizas un servidor de retransmisión, deja vacía su dirección en el anfitrión y redirige los puertos TCP y UDP **47600** en el router. Los visitantes usan **Visit by address** con la dirección pública del anfitrión.
 - El servidor comprueba el código de la sala, pero no cifra el tráfico del juego.
 
@@ -210,18 +210,18 @@ Link Play todavía está en pruebas: unirse y caminar juntos funcionan. Las sesi
 
 - **La ventana está negra o el juego se entrecorta mucho en el primer inicio.** El juego crea algunos sombreadores mientras se ejecuta. El launcher traduce los que ya ha visto antes de cada inicio y otra vez al salir, por lo que las primeras sesiones son irregulares y las posteriores mejoran. Dale un minuto y sigue jugando. Si la configuración se detuvo a mitad, abre **Game files** y pulsa **Set up** para continuar. Conserva el trabajo terminado.
 - **El launcher indica que los archivos del juego son de una versión anterior o que falta la actualización.** Esta versión necesita 2.0.1a. Vuelve a volcar el juego con la actualización instalada. El juego base por sí solo no es suficiente.
-- **El launcher indica que no encontró archivos utilizables del juego, o Set up indica que un archivo no coincide.** Elige la carpeta que contiene `base` y `updates`, por ejemplo `Pokopia_v2.0.1a`. Cada una necesita `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) y `romfs`. Un archivo que no coincide está dañado. Vuélvelo a volcar o a copiar.
+- **El launcher indica que no encontró archivos utilizables del juego, o Set up indica que un archivo no coincide.** Elige la carpeta que contiene `base` y `updates`, por ejemplo `Game_v2.0.1a`. Cada una necesita `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) y `romfs`. Un archivo que no coincide está dañado. Vuélvelo a volcar o a copiar.
 - **El launcher indica que los datos del juego (romfs) están incompletos, o el juego se cerró al inicio con "pkp.exe exited with code 4".** Tu herramienta de volcado escribió el `romfs` de la actualización sin incluir debajo los archivos del juego base (una actualización solo contiene los archivos que cambia). Conserva el juego base en el mismo volcado (`base` junto a `updates`, cada uno con `exefs` y `romfs`) y elige la carpeta que contiene ambos: el launcher añade automáticamente los archivos que faltan de `base`. Después pulsa **Set up** otra vez. Si no, vuelve a volcar el juego con la actualización integrada en el juego base.
 - **El launcher indica que el volcado se copió en modo texto.** Lo copiaste por FTP en modo texto, lo que daña `main`, `sdk` y `subsdk0`. Copia otra vez las carpetas `exefs` y `romfs` con el tipo de transferencia **Binary** (FileZilla: Transfer, Transfer type, Binary).
 - **Tu volcado es un solo archivo** (`.nsp`, `.xci`). El launcher acepta el juego en carpetas o como `.nup` o `.nx`. Extrae el `.nsp` o `.xci` en carpetas con tu herramienta de volcado.
-- **La configuración se detiene con un error porque no se puede abrir o eliminar un archivo.** Coloca la carpeta en una ubicación sencilla, como `C:\Pokopia`, no en una carpeta sincronizada por OneDrive. Es posible que el antivirus esté analizando los archivos que se están compilando: espera a que termine o permite la carpeta. **Open setup log** muestra dónde se detuvo.
+- **La configuración se detiene con un error porque no se puede abrir o eliminar un archivo.** Coloca la carpeta en una ubicación sencilla, como `C:\Recompia`, no en una carpeta sincronizada por OneDrive. Es posible que el antivirus esté analizando los archivos que se están compilando: espera a que termine o permite la carpeta. **Open setup log** muestra dónde se detuvo.
 - **Set up muestra una advertencia antes de empezar.** Primero comprueba el espacio libre en disco (unos 14 GB con los archivos de sombreadores empaquetados, que es lo predeterminado, o unos 31 GB con archivos sueltos), Vulkan, la memoria y el procesador. En una CPU de escritorio Intel de 13.ª o 14.ª generación, actualiza la BIOS antes de la configuración: sin la corrección de Intel, estas CPU pueden fallar durante cargas completas prolongadas. Si el PC se calienta o resulta difícil de usar durante la compilación, marca **Use fewer cores**.
 - **Frecuencia de fotogramas baja o imagen borrosa.** El tamaño de la imagen se fija al iniciar el juego. Es el tamaño de la ventana o la pantalla en ese momento (**Settings**, **Display**).
   - Si empiezas en **Borderless** en una pantalla 4K, el juego dibuja a 4K. Eso exige mucho. Reduce **Render scale**.
   - Si empiezas en **Windowed** (1280x720 de forma predeterminada) y pulsas Alt+Enter, la imagen sigue siendo 720p y se amplía. Define **Window mode** antes de pulsar **Play**.
   - Ajusta **Frame rate limit** a lo que puede mostrar tu pantalla.
 - **Link Play: el visitante no encuentra al anfitrión.** Elige **Visit by address** y escribe la dirección del anfitrión, que aparece en su página Link Play. Comprueba que el anfitrión haya iniciado el juego y elegido **Invite Others to Visit**, que el Firewall de Windows permita `pkp.exe` en redes privadas y que la red sea privada. La Wi-Fi de cafeterías, hoteles y redes de invitados que aísla dispositivos impide el juego LAN para todos: usa **Internet** con un servidor de retransmisión y un código de sala. Por internet, comprueba la dirección del servidor y el código de sala. Los cambios de la página Link Play se aplican la próxima vez que se inicia el juego.
-- **Link Play: se rechaza la conexión.** Los jugadores no tienen contenido coincidente. Todos necesitan el juego 2.0.1, la misma versión del port (o pokopia-native para juego cruzado), los mismos mods y los mismos ajustes de **Interact everywhere** y **Story co-op**.
+- **Link Play: se rechaza la conexión.** Los jugadores no tienen contenido coincidente. Todos necesitan el juego 2.0.1, la misma versión del port (o el proyecto original para juego cruzado), los mismos mods y los mismos ajustes de **Interact everywhere** y **Story co-op**.
 - **Link Play: "Communication error" (9005) al visitar.** Ambos estáis jugando con copias de la misma partida guardada, por lo que tenéis el mismo ID de jugador. Cada jugador necesita su propia partida guardada.
 - **No se detecta el mando.** Abre el juego con F1 y mira la línea **Gamepad** de la página Controls. Muestra "No gamepad open" cuando el juego no detecta ninguno. Conéctalo antes de pulsar **Play** y prueba con otro cable o puerto. Cierra otros programas que puedan estar usando el mando.
 
@@ -245,11 +245,11 @@ No adjuntes nunca archivos del juego, las carpetas `build` o `shader_cache`, ni 
 
 ## Comunidad
 
-Preguntas, ayuda con errores, pruebas y chat: únete al [Discord de Recompia](https://discord.recompia.com). El launcher también tiene un botón **Join Discord** en **Settings > About > Community**. Los errores que necesitan una corrección se siguen informando en [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose).
+Preguntas, ayuda con errores, pruebas y chat: únete al [Discord de Recompia](https://discord.recompia.com). El launcher también tiene un botón **Join Discord** en **Settings > About > Community**. Los errores que necesitan una corrección se siguen informando en [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose).
 
 ## Informar de problemas
 
-[Abre un problema](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) con el `pkp.log` de la sesión en la que ocurrió, tu GPU y tu versión de Windows (en Linux: tu distribución, la versión de Proton y el dispositivo).
+[Abre un problema](https://github.com/Dittobyte/Recompia/issues/new/choose) con el `pkp.log` de la sesión en la que ocurrió, tu GPU y tu versión de Windows (en Linux: tu distribución, la versión de Proton y el dispositivo).
 
 **Linux, SteamOS y dispositivos portátiles con Linux:** yo (Jerban) me ocupo de la parte de Linux, así que los errores de Linux se corrigen y se publican rápidamente mediante el actualizador de un clic. Perdona las actualizaciones frecuentes y gracias por tu paciencia. Sigue informando de errores de Linux, siempre con tus registros: `pkp.log`, y `setup.log` para problemas con Set up (consulta [Dónde están tus partidas guardadas, registros y ajustes](#where-your-saves-logs-and-settings-are)). Josh revisa primero todo lo que no sea de Linux.
 

@@ -9,7 +9,7 @@ use tauri::AppHandle;
 
 use crate::config::{config_path, game_dir, load_config, store_config};
 use crate::guard::{ensure_idle, Need};
-use crate::mods::{self, ModsView};
+use crate::mods::{self, ModsView, Scope};
 use crate::mods_catalog::{self, CatalogView};
 use crate::mods_lock::{self, Locks, Step};
 use crate::mods_update::Updated;
@@ -38,25 +38,27 @@ fn locks(app: &AppHandle) -> Locks {
     Locks::of(&load_config(app))
 }
 
-/// The installed mods (writes their hook plan too).
+/// The installed mods (writes their hook plan too), as the global defaults, a singleplayer profile (`profile`, or the active one with
+/// `active`) or a co-op group (`coop`) see them (mods_scope.rs).
 #[tauri::command]
-pub async fn mods_list(app: AppHandle, profile: Option<String>, active: Option<bool>) -> Result<ModsView, String> {
+pub async fn mods_list(app: AppHandle, profile: Option<String>, coop: Option<String>, active: Option<bool>) -> Result<ModsView, String> {
     let locks = locks(&app);
     off_thread(move || {
         let dir = game_dir(&app);
         let profile = if active.unwrap_or(false) { Some(crate::profiles::load(&dir).active_profile().id.clone()) } else { profile };
-        mods::list_for_profile(&dir, profile.as_deref()).map(|v| locks.mark(v))
+        mods::list_in(&dir, &Scope::of(profile, coop)?).map(|v| locks.mark(v))
     }).await
 }
 
 /// A mod's switch. `allow`: the player said yes to running its code (asked when the list says `needs_yes`).
 #[tauri::command]
-pub async fn mods_set_enabled(app: AppHandle, id: String, on: bool, allow: Option<bool>, profile: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
+pub async fn mods_set_enabled(app: AppHandle, id: String, on: bool, allow: Option<bool>, profile: Option<String>, coop: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
+    let scope = Scope::of(profile, coop)?;
     let dir = idle_game_dir(&app)?;
     let locks = locks(&app);
     let inherit = inherit.unwrap_or(false);
     locks.check_switch(&id, if inherit { false } else { on })?;
-    off_thread(move || mods::set_enabled_for_profile(&dir, &id, on, allow.unwrap_or(false), profile.as_deref(), inherit).map(|v| locks.mark(v))).await
+    off_thread(move || mods::set_enabled_in(&dir, &id, on, allow.unwrap_or(false), &scope, inherit).map(|v| locks.mark(v))).await
 }
 
 /// One place earlier (delta -1) or later (+1) in the load order.
@@ -69,12 +71,13 @@ pub async fn mods_move(app: AppHandle, id: String, delta: i32) -> Result<ModsVie
 
 /// A mod's setting: `number` for on/off (0/1), numbers and choices (their index), `text` for text and keys.
 #[tauri::command]
-pub async fn mods_set_setting(app: AppHandle, id: String, key: String, number: Option<f64>, text: Option<String>, profile: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
+pub async fn mods_set_setting(app: AppHandle, id: String, key: String, number: Option<f64>, text: Option<String>, profile: Option<String>, coop: Option<String>, inherit: Option<bool>) -> Result<ModsView, String> {
+    let scope = Scope::of(profile, coop)?;
     let dir = idle_game_dir(&app)?;
     let locks = locks(&app);
     let inherit = inherit.unwrap_or(false);
     locks.check_setting(&id, &key, if inherit { None } else { number })?;
-    off_thread(move || mods::set_setting_for_profile(&dir, &id, &key, number, text.as_deref(), profile.as_deref(), inherit).map(|v| locks.mark(v))).await
+    off_thread(move || mods::set_setting_in(&dir, &id, &key, number, text.as_deref(), &scope, inherit).map(|v| locks.mark(v))).await
 }
 
 /// Deletes a mod from the mods folder (the page asks first).
@@ -132,8 +135,8 @@ pub async fn mods_auto_update(app: AppHandle) -> Result<Vec<Updated>, String> {
     off_thread(move || mods_update::run(&dir, &app.mod_catalog(), &catalog_cache(&app))).await
 }
 
-/// Once at launcher start: the locks into pkp.ini, then the locked mod kept installed and on (mods_lock.rs `keep`). Returns what was done,
-/// for the page's one line. Quietly nothing while the game, Set up or an update runs, and when the hub cannot be reached (the next start
+/// Once at launcher start: the locks into pkp.ini, installed copies older than the launcher's own replaced (mods_carried.rs `refresh`,
+/// logged only), then the locked mod kept installed and on (mods_lock.rs `keep`). Returns what keeping did, for the page's one line. Quietly nothing while the game, Set up or an update runs, and when the hub cannot be reached (the next start
 /// tries again).
 #[tauri::command]
 pub async fn mods_keep_locked(app: AppHandle) -> Result<Vec<Step>, String> {
@@ -148,6 +151,9 @@ pub async fn mods_keep_locked(app: AppHandle) -> Result<Vec<Step>, String> {
     off_thread(move || {
         if let Err(e) = mods_lock::mirror(&dir, locks) {
             eprintln!("mods: the locks were not written to pkp.ini: {e}");
+        }
+        if let Err(e) = crate::mods_carried::refresh(&dir) {
+            eprintln!("mods: the launcher's own mod copies were not checked: {e}");
         }
         mods_lock::keep(&dir, locks, || mods_catalog::load(&app.mod_catalog(), &catalog_cache(&app), false))
     })

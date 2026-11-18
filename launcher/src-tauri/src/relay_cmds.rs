@@ -19,7 +19,7 @@ pub fn stop_relay(app: &AppHandle) {
 #[derive(Default)]
 pub struct RelayState(Mutex<Option<relay::RelayServer>>);
 
-/// Starts the relay (pokopia-native's coop-relay protocol) on 0.0.0.0:port (0 or none: 47610). A running one is stopped first.
+/// Starts the relay (the parent project's coop-relay protocol) on 0.0.0.0:port (0 or none: 47610). A running one is stopped first.
 #[tauri::command]
 pub fn relay_start(state: RelayArg, port: Option<u16>) -> Result<relay::Status, String> {
     let mut slot = state.0.lock().unwrap();

@@ -6,45 +6,45 @@
   <img src="../assets/logo.png" alt="Recompia" width="420">
 </h1>
 
-<h3 align="center">Pokopia Recomp</h3>
+<h3 align="center">Recompia</h3>
 
 <p align="center">
-  <b>पोकीमोन पोकोपिया (Switch 2) को रीकंपाइल करके Windows पर सीधे चलाने के लिए, मल्टीप्लेयर समर्थन के साथ।</b>
+  <b>काल्पनिक जीवों वाले एक आरामदायक लाइफ-सिमुलेशन और सैंडबॉक्स बिल्डर गेम (Switch 2, टाइटल ID 0400A3A01EE4C000, वर्ज़न 2.0.1a) को रीकंपाइल करके Windows पर सीधे चलाने के लिए, मल्टीप्लेयर समर्थन के साथ।</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/featureJosh/pokopia-recomp?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/github/v/release/Dittobyte/Recompia?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740" alt="Windows downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740" alt="Linux downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/main"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/testing"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues"><img src="https://img.shields.io/github/issues/featureJosh/pokopia-recomp?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/testing"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
+  <a href="https://github.com/Dittobyte/Recompia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/Recompia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">रिलीज़</a></b> ·
+  <b><a href="https://github.com/Dittobyte/Recompia/releases">रिलीज़</a></b> ·
   <a href="../../CHANGELOG.md">चेंजलॉग</a> ·
   <a href="../../CONTRIBUTING.md">योगदान</a> ·
   <a href="../../CREDITS.md">श्रेय</a> ·
-  <a href="https://github.com/xFractals/pokopia-native">मूल: pokopia-native</a> ·
+  <a href="https://github.com/xFractals/pokopia-native">मूल प्रोजेक्ट</a> ·
   <a href="../../SECURITY.md">सुरक्षा</a> ·
   <a href="../../LEGAL.md">कानूनी</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">समस्याएँ</a> ·
+  <a href="https://github.com/Dittobyte/Recompia/issues">समस्याएँ</a> ·
   <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
-> **इसमें गेम की कोई फ़ाइल शामिल नहीं है।** आपको गेम की अपनी एक्सट्रैक्ट की गई कॉपी चाहिए, वर्ज़न **2.0.1a**। यह प्रोजेक्ट कोई गेम फ़ाइल, key या डंपिंग टूल नहीं देता। Nintendo, The Pokémon Company या Koei Tecmo से इसका कोई संबंध नहीं है; Pokémon, Nintendo, Creatures Inc. और GAME FREAK inc. का ट्रेडमार्क है (देखें [LEGAL.md](../../LEGAL.md))।
+> **इसमें गेम की कोई फ़ाइल शामिल नहीं है।** आपको काल्पनिक जीवों वाले इस आरामदायक लाइफ-सिमुलेशन और सैंडबॉक्स बिल्डर गेम की अपनी एक्सट्रैक्ट की गई कॉपी चाहिए (टाइटल ID 0400A3A01EE4C000, वर्ज़न **2.0.1a**)। यह प्रोजेक्ट कोई गेम फ़ाइल, key या डंपिंग टूल नहीं देता। देखें [LEGAL.md](../../LEGAL.md)।
 
 > [!NOTE]
 > **AI की मदद से बनाया गया, इंसान की निगरानी में।** यह प्रोजेक्ट मुख्य रूप से AI के साथ बनाया गया है, और मैं इसका सुपरवाइज़र हूँ। मेरे पास कुछ सालों का डेवलपमेंट अनुभव है, इसलिए यह सब बेकार नहीं है। हर commit को मैं खुद जाँचता, सत्यापित करता और टेस्ट करता हूँ, तभी वह शामिल होता है।
@@ -66,7 +66,7 @@
 
 ### साथ में खेलें (Link Play)
 - **किसी दोस्त के द्वीप पर जाएँ, या उसे अपने द्वीप पर बुलाएँ**, एक ही Wi-Fi पर या इंटरनेट के ज़रिए।
-- **गेम वर्ज़न 2.0.1 पर [pokopia-native](https://github.com/xFractals/pokopia-native) खिलाड़ियों के साथ क्रॉस-प्ले।**
+- **गेम वर्ज़न 2.0.1 पर [मूल प्रोजेक्ट](https://github.com/xFractals/pokopia-native) खिलाड़ियों के साथ क्रॉस-प्ले।**
 - इसे लॉन्चर के **Link Play** पेज में सेट करें। कोई फ़ाइल एडिट नहीं करनी।
 - चरण-दर-चरण गाइड: [साथ में खेलना](#playing-together)।
 
@@ -113,7 +113,7 @@
 
 ## त्वरित शुरुआत
 
-1. [नवीनतम रिलीज़](https://github.com/featureJosh/pokopia-recomp/releases/latest) से zip डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें।
+1. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से zip डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें।
 2. `PokopiaLauncher.exe` चलाएँ। अगर SmartScreen चेतावनी दे, तो **More info → Run anyway** चुनें। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: यह आपके PC पर गेम कंपाइल करता है (लगभग 7 मिनट), फिर शेडर कैश बनाता है (1 से 2 घंटे, आप रोककर बाद में जारी रख सकते हैं)।
 3. **Play** दबाएँ।
 
@@ -122,13 +122,13 @@ F1 गेम में सेटिंग्स खोलता है। मा
 ### Linux, SteamOS और Steam Deck
 
 1. Steam में **Proton Experimental** इंस्टॉल करें (Library, Tools; Steam Deck पर पहले Desktop Mode में जाएँ)।
-2. [नवीनतम रिलीज़](https://github.com/featureJosh/pokopia-recomp/releases/latest) से `PokopiaRecomp-<version>-linux-x64.tar.gz` डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें (जैसे अपने home फ़ोल्डर में)।
+2. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से `PokopiaRecomp-<version>-linux-x64.tar.gz` डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें (जैसे अपने home फ़ोल्डर में)।
 3. उस फ़ोल्डर में `PokopiaLauncher.AppImage` चलाएँ (उस पर डबल-क्लिक करें, या टर्मिनल में `./PokopiaLauncher.AppImage`)। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: पहली बार यह अपने बिल्ड टूल डाउनलोड करता है (Python और Zig, लगभग 100 MB), गेम कंपाइल करता है, फिर Proton के ज़रिए शेडर कैश बनाता है। आप रोककर बाद में जारी रख सकते हैं।
 4. **Play** दबाएँ। गेम खुद Steam के Proton के ज़रिए चलता है।
 
 अगर FUSE के बिना सिस्टम पर `PokopiaLauncher.AppImage` शुरू नहीं होता, तो `./PokopiaLauncher.AppImage --appimage-extract-and-run` चलाएँ।
 
-Steam से गेम शुरू करने के लिए (Deck पर Game Mode): Desktop Mode में **Add a Non-Steam Game**, `PokopiaLauncher.AppImage` चुनें, और उसके लॉन्च विकल्प `--play` सेट करें। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
+Steam से शुरू करने के लिए (Deck पर Game Mode): लॉन्चर को Steam में जोड़ें, या तो लॉन्चर की Settings में (Steam, Add to Steam) या Desktop Mode में **Add a Non-Steam Game** से, `PokopiaLauncher.AppImage` चुनकर और लॉन्च विकल्प खाली छोड़कर। यह शॉर्टकट लॉन्चर खोलता है, जो अपडेट जाँचता है; फिर Play दबाएँ। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
 
 ## मॉड और अनुवाद
 
@@ -160,7 +160,7 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 **0.7.5 से:** Home पर **Update** दबाएँ (या Settings > About में)। लॉन्चर नई रिलीज़ डाउनलोड करता है, जाँचता है, अपनी फ़ाइलें बदलता है और फिर से शुरू होता है।
 
-**0.7.0 या पुराने से:** [नवीनतम रिलीज़](https://github.com/featureJosh/pokopia-recomp/releases/latest) से नया zip (Windows) या `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) डाउनलोड करें, गेम और लॉन्चर बंद करें, और इसे अपने इंस्टॉल पर, उसी फ़ोल्डर में एक्सट्रैक्ट करें। इसमें कोई सेव, सेटिंग, शेडर कैश या गेम फ़ाइल नहीं होती, इसलिए आपकी कोई चीज़ नहीं बदलती।
+**0.7.0 या पुराने से:** [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से नया zip (Windows) या `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) डाउनलोड करें, गेम और लॉन्चर बंद करें, और इसे अपने इंस्टॉल पर, उसी फ़ोल्डर में एक्सट्रैक्ट करें। इसमें कोई सेव, सेटिंग, शेडर कैश या गेम फ़ाइल नहीं होती, इसलिए आपकी कोई चीज़ नहीं बदलती।
 
 **अगर अपडेट के बाद Home पर Finish update दिखे:** उस रिलीज़ ने गेम का कोड बदला है, इसलिए लॉन्चर आपकी गेम फ़ाइलों से गेम प्रोग्राम (`pkp.exe`) फिर से बनाता है। ऐसा तब भी होता है जब आपने पहले ऐसी रिलीज़ छोड़ी हो और बाद में अपडेट करें। यह छोटा इंतज़ार है, ज़्यादातर PCs पर लगभग 7 मिनट और हैंडहेल्ड पर थोड़ा ज़्यादा, क्योंकि आपके शेडर और सेव बचे रहते हैं। यह लंबा पहला सेटअप नहीं है: शेडर सिर्फ़ तब फिर अनुवादित होते हैं जब रिलीज़ नोट्स कहें, और तब भी सिर्फ़ बदले हुए। पुराना `pkp.exe` तब तक रहता है जब तक नया तैयार न हो जाए।
 
@@ -168,9 +168,9 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 ## साथ में खेलना
 
-Link Play कई खिलाड़ियों को एक द्वीप पर रखता है। क्रॉस-प्ले गेम वर्ज़न **2.0.1** पर pokopia-native खिलाड़ियों के साथ काम करता है। गेम 1.0.5 पर खिलाड़ी शामिल नहीं हो सकते।
+Link Play कई खिलाड़ियों को एक द्वीप पर रखता है। क्रॉस-प्ले गेम वर्ज़न **2.0.1** पर मूल प्रोजेक्ट खिलाड़ियों के साथ काम करता है। गेम 1.0.5 पर खिलाड़ी शामिल नहीं हो सकते।
 
-**क्या बदला।** Link Play अब pokopia-native का co-op प्रोटोकॉल बोलता है। यह इस पोर्ट के पुराने Link Play बिल्ड्स के साथ काम नहीं करता, इसलिए सब लोग इस रिलीज़ पर अपडेट करें। (लॉन्चर पुराना प्रोटोकॉल **Advanced** के नीचे रखता है, उस सत्र के लिए जहाँ सबके पास अभी भी पुराना बिल्ड हो।)
+**क्या बदला।** Link Play अब मूल प्रोजेक्ट का co-op प्रोटोकॉल बोलता है। यह इस पोर्ट के पुराने Link Play बिल्ड्स के साथ काम नहीं करता, इसलिए सब लोग इस रिलीज़ पर अपडेट करें। (लॉन्चर पुराना प्रोटोकॉल **Advanced** के नीचे रखता है, उस सत्र के लिए जहाँ सबके पास अभी भी पुराना बिल्ड हो।)
 
 **हर खिलाड़ी को अपना सेव चाहिए।** किसी और के सेव की कॉपी उसके मूल से जुड़ नहीं सकती।
 
@@ -192,7 +192,7 @@ Link Play कई खिलाड़ियों को एक द्वीप �
 **इंटरनेट के ज़रिए।** सब **Internet** चुनते हैं और रिले के ज़रिए जाते हैं:
 - होस्ट **I host** चुनता है। पेज रूम कोड दिखाता है। आगंतुकों को रिले पता और कोड दें। **Copy** और **New code** पेज पर हैं।
 - आगंतुक **I visit** चुनता है और रिले पता और कोड टाइप करता है।
-- खुद रिले चलाने के लिए, होस्ट के Link Play पेज पर **Run a relay here** दबाएँ (जब तक लॉन्चर खुला है काम करता है), या सर्वर पर `PokopiaLauncher --host` चलाएँ। कोई भी pokopia-native co-op रिले भी काम करता है।
+- खुद रिले चलाने के लिए, होस्ट के Link Play पेज पर **Run a relay here** दबाएँ (जब तक लॉन्चर खुला है काम करता है), या सर्वर पर `PokopiaLauncher --host` चलाएँ। कोई भी मूल प्रोजेक्ट co-op रिले भी काम करता है।
 - रिले के बिना, होस्ट पर रिले पता खाली छोड़ें और राउटर पर TCP और UDP **47600** फ़ॉरवर्ड करें। आगंतुक होस्ट के सार्वजनिक पते के साथ **Visit by address** इस्तेमाल करते हैं।
 - रिले रूम कोड की जाँच करता है पर गेम का ट्रैफ़िक एन्क्रिप्ट नहीं करता।
 
@@ -211,18 +211,18 @@ Link Play अभी परीक्षण में है: जुड़ना �
 
 - **पहली बार चलाने पर विंडो काली है, या गेम बहुत अटकता है।** गेम चलते समय कुछ शेडर बनाता है। लॉन्चर हर शुरुआत से पहले पहले देखे गए शेडर अनुवाद करता है और आपके बाहर निकलने के बाद फिर करता है, इसलिए शुरुआती रन खराब और बाद के बेहतर होते हैं। एक मिनट दें और खेलते रहें। अगर सेटअप बीच में रुक गया, तो **Game files** खोलें और जारी रखने के लिए **Set up** दबाएँ। यह पूरा हुआ काम रखता है।
 - **लॉन्चर कहता है गेम फ़ाइलें पुराने वर्ज़न की हैं, या अपडेट नहीं मिला।** इस रिलीज़ को वर्ज़न 2.0.1a चाहिए। अपडेट इंस्टॉल करके गेम फिर से डंप करें। सिर्फ़ बेस गेम काफ़ी नहीं है।
-- **लॉन्चर कहता है उसे कोई काम की गेम फ़ाइल नहीं मिली, या Set up कहता है कोई फ़ाइल मेल नहीं खाती।** वह फ़ोल्डर चुनें जिसमें `base` और `updates` हैं (जैसे `Pokopia_v2.0.1a`)। हर एक में `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) और `romfs` होने चाहिए। जो फ़ाइल मेल नहीं खाती वह खराब है। उसे फिर डंप करें, या फिर से कॉपी करें।
+- **लॉन्चर कहता है उसे कोई काम की गेम फ़ाइल नहीं मिली, या Set up कहता है कोई फ़ाइल मेल नहीं खाती।** वह फ़ोल्डर चुनें जिसमें `base` और `updates` हैं (जैसे `Game_v2.0.1a`)। हर एक में `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) और `romfs` होने चाहिए। जो फ़ाइल मेल नहीं खाती वह खराब है। उसे फिर डंप करें, या फिर से कॉपी करें।
 - **लॉन्चर कहता है गेम डेटा (romfs) अधूरा है, या गेम शुरू होते ही "pkp.exe exited with code 4" के साथ बंद हो जाता है।** आपके डंपिंग टूल ने अपडेट का `romfs` बेस गेम की फ़ाइलों के बिना लिखा (अपडेट में सिर्फ़ बदली फ़ाइलें होती हैं)। बेस गेम को उसी डंप में रखें (`updates` के बगल में `base`, दोनों में `exefs` और `romfs`) और वह फ़ोल्डर चुनें जिसमें दोनों हों: लॉन्चर `base` से छूटी फ़ाइलें खुद जोड़ देता है। फिर एक बार और **Set up** दबाएँ। वरना गेम को अपडेट को बेस गेम में मिलाकर फिर डंप करें।
 - **लॉन्चर कहता है डंप टेक्स्ट मोड में कॉपी हुआ।** आपने उसे FTP से टेक्स्ट मोड में कॉपी किया, जो `main`, `sdk` और `subsdk0` को खराब करता है। `exefs` और `romfs` फ़ोल्डर फिर से कॉपी करें और ट्रांसफ़र टाइप **Binary** रखें (FileZilla: Transfer, Transfer type, Binary)।
 - **आपका डंप एक फ़ाइल है** (`.nsp`, `.xci`)। लॉन्चर गेम को फ़ोल्डरों के रूप में, या `.nup` या `.nx` के रूप में लेता है। अपने डंपिंग टूल से `.nsp` या `.xci` को फ़ोल्डरों में एक्सट्रैक्ट करें।
-- **सेटअप किसी फ़ाइल के खुलने या हटने न पाने की गलती पर रुकता है।** फ़ोल्डर को किसी साधारण जगह रखें, जैसे `C:\Pokopia`, OneDrive के सिंक वाले फ़ोल्डर में नहीं। आपका एंटीवायरस बन रही फ़ाइलों को स्कैन कर रहा हो सकता है: इंतज़ार करें, या फ़ोल्डर को अनुमति दें। **Open setup log** दिखाता है कहाँ रुका।
+- **सेटअप किसी फ़ाइल के खुलने या हटने न पाने की गलती पर रुकता है।** फ़ोल्डर को किसी साधारण जगह रखें, जैसे `C:\Recompia`, OneDrive के सिंक वाले फ़ोल्डर में नहीं। आपका एंटीवायरस बन रही फ़ाइलों को स्कैन कर रहा हो सकता है: इंतज़ार करें, या फ़ोल्डर को अनुमति दें। **Open setup log** दिखाता है कहाँ रुका।
 - **Set up शुरू होने से पहले चेताता है।** यह पहले खाली डिस्क स्पेस (पैक की गई शेडर फ़ाइलों के साथ, जो डिफ़ॉल्ट है, लगभग 14 GB; अलग-अलग फ़ाइलों के साथ लगभग 31 GB), Vulkan, मेमोरी और प्रोसेसर जाँचता है। Intel 13वीं या 14वीं पीढ़ी के डेस्कटॉप CPU पर सेटअप से पहले BIOS अपडेट करें: Intel के फ़िक्स के बिना ये CPUs लंबे पूरे लोड में क्रैश हो सकते हैं। अगर बिल्ड के दौरान PC गरम हो या इस्तेमाल में कठिन लगे, तो **Use fewer cores** चुनें।
 - **कम फ़्रेम रेट, या धुँधली तस्वीर।** तस्वीर का आकार गेम शुरू होने पर तय होता है। यह उस पल की विंडो या स्क्रीन का आकार है (**Settings**, **Display**)।
   - 4K स्क्रीन पर **Borderless** में शुरू करें तो गेम 4K पर बनता है। यह भारी है। **Render scale** घटाएँ।
   - **Windowed** (डिफ़ॉल्ट 1280x720) में शुरू करें और Alt+Enter दबाएँ, तो तस्वीर 720p ही रहती है, बड़ी करके। **Play** दबाने से पहले **Window mode** सेट करें।
   - **Frame rate limit** वह रखें जो आपकी स्क्रीन दिखा सके।
 - **Link Play: आगंतुक होस्ट नहीं ढूँढ पाता।** **Visit by address** चुनें और होस्ट का पता टाइप करें (होस्ट का Link Play पेज इसे दिखाता है)। जाँचें कि होस्ट ने गेम शुरू किया और **Invite Others to Visit** चुना, Windows Firewall Private नेटवर्क पर `pkp.exe` को अनुमति देता है, और नेटवर्क Private है। कैफ़े, होटल और गेस्ट Wi-Fi जो डिवाइसों को अलग रखते हैं, सबके लिए LAN खेल रोकते हैं: रिले और रूम कोड के साथ **Internet** इस्तेमाल करें। इंटरनेट पर, रिले पता और रूम कोड जाँचें। Link Play पेज के बदलाव गेम के अगली बार शुरू होने पर लागू होते हैं।
-- **Link Play: कनेक्शन अस्वीकार।** खिलाड़ी मेल नहीं खाते। सबको गेम 2.0.1, एक ही रिलीज़ (या क्रॉस-प्ले के लिए pokopia-native), और एक ही मॉड तथा वही **Interact everywhere** और **Story co-op** स्विच चाहिए।
+- **Link Play: कनेक्शन अस्वीकार।** खिलाड़ी मेल नहीं खाते। सबको गेम 2.0.1, एक ही रिलीज़ (या क्रॉस-प्ले के लिए मूल प्रोजेक्ट), और एक ही मॉड तथा वही **Interact everywhere** और **Story co-op** स्विच चाहिए।
 - **Link Play: मिलने पर "Communication error" (9005)।** आप दोनों एक ही सेव की कॉपी खेल रहे हैं, इसलिए दोनों का player ID एक है। हर खिलाड़ी को अपना सेव चाहिए।
 - **कंट्रोलर नहीं पहचाना जाता।** गेम में F1 दबाएँ और Controls पेज पर **Gamepad** पंक्ति देखें। जब गेम को कोई गेमपैड न दिखे तो वह "No gamepad open" कहता है। **Play** दबाने से पहले उसे जोड़ें, फिर दूसरा केबल या पोर्ट आज़माएँ। दूसरे प्रोग्राम बंद करें जो पैड रोके हों।
 
@@ -246,11 +246,11 @@ Link Play अभी परीक्षण में है: जुड़ना �
 
 ## समुदाय
 
-सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.recompia.com) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) पर रिपोर्ट करें।
+सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.recompia.com) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) पर रिपोर्ट करें।
 
 ## समस्याएँ रिपोर्ट करना
 
-[issue खोलें](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) उस सत्र का `pkp.log`, अपनी GPU और अपना Windows वर्ज़न साथ दें (Linux पर: आपका डिस्ट्रिब्यूशन, Proton वर्ज़न और डिवाइस)।
+[issue खोलें](https://github.com/Dittobyte/Recompia/issues/new/choose) उस सत्र का `pkp.log`, अपनी GPU और अपना Windows वर्ज़न साथ दें (Linux पर: आपका डिस्ट्रिब्यूशन, Proton वर्ज़न और डिवाइस)।
 
 **Linux, SteamOS और Linux हैंडहेल्ड:** मैं (Jerban) Linux की तरफ़ देखता हूँ, इसलिए Linux बग जल्दी ठीक होकर एक-क्लिक अपडेटर से भेजे जाते हैं। बार-बार अपडेट के लिए माफ़ी, और धैर्य के लिए धन्यवाद। Linux बग रिपोर्ट करते रहें, हमेशा अपने लॉग के साथ: `pkp.log`, और Set up की समस्याओं के लिए `setup.log` (देखें [आपके सेव, लॉग और सेटिंग्स कहाँ हैं](#where-your-saves-logs-and-settings-are))। Linux से बाहर की हर चीज़ की समीक्षा पहले Josh करते हैं।
 

@@ -24,6 +24,7 @@
 #include "nxrt/present_timing.h"
 #include "nxrt/text.h"
 #include "vk_gauges.h"
+#include "vk_perf_facts.h"
 #include "extras/temporal.h"
 
 #if defined(__APPLE__)
@@ -877,6 +878,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
 
     NXLOG_I(kTag, "device ready: %s, queue family %u, validation %s, %s", props_.deviceName, queue_family_, validation_ ? "on" : "off",
             headless ? "headless" : "window surface");
+    vk_publish_perf_facts(physical_);     // the performance report's system block (nxrt/perf_report.h)
     return true;
 }
 

@@ -9,6 +9,8 @@ use serde::Serialize;
 pub const UPDATE_CANCELLED: &str = "update_cancelled";
 /// The player stopped the unpack of a game package.
 pub const UNPACK_CANCELLED: &str = "unpack_cancelled";
+/// No co-op invite is kept under the short code typed (coop_code::NOT_FOUND).
+pub const INVITE_NOT_FOUND: &str = "invite_not_found";
 
 #[derive(Debug, Serialize)]
 pub struct CmdError {
@@ -17,7 +19,7 @@ pub struct CmdError {
 }
 
 impl CmdError {
-    /// `message` with `code` when it is the cancel sentence of its job (`cancelled`), plain otherwise.
+    /// `message` with `code` when it is the sentence `cancelled` (its job's cancel, or another the page branches on), plain otherwise.
     pub fn coded_if(message: String, cancelled: &str, code: &'static str) -> Self {
         CmdError { code: (message == cancelled).then_some(code), message }
     }

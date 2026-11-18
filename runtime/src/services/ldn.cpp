@@ -8,6 +8,7 @@
 #include "nx_os.h"   // _wfopen on POSIX: the wide path is converted to UTF-8
 #endif
 
+#include "nxrt/coop_channel.h"
 #include "nxrt/log.h"
 #include "nxrt/services.h"
 #include "nxrt/services_api.h"
@@ -19,10 +20,8 @@ namespace nxrt::services {
 using namespace ldn_impl;
 namespace {
 
-// [net] protocol picks the backend (ldn_backend.h): native (the default; the offline answers with the co-op module off) or linkplay. The
-// service object only forwards: the backend adds the command table and the session it returns is shut down on close.
-LdnBackend& selected_backend() { return native_protocol() ? native_backend() : linkplay_backend(); }
-
+// The service object only forwards: the backend [net] protocol picks adds the command table and the session it returns is shut down
+// on close.
 class LdnService final : public ipc::Service {
 public:
     LdnService() : ipc::Service("nn::ldn::detail::IUserLocalCommunicationService") { session_ = selected_backend().open(*this); }
@@ -35,6 +34,11 @@ private:
 };
 
 }  // namespace
+
+namespace ldn_impl {
+// [net] protocol picks the backend (ldn_backend.h): native (the default; the offline answers with the co-op module off) or linkplay.
+LdnBackend& selected_backend() { return native_protocol() ? native_backend() : linkplay_backend(); }
+}  // namespace ldn_impl
 
 std::shared_ptr<ipc::Service> make_ldn_user_creator() {
     return make_iface("nn::ldn::detail::IUserServiceCreator", [](ipc::Service& s) {
@@ -62,6 +66,7 @@ void ldn_reset() {
     }
     ldnapi::set_session_variant(0, "");
     ldnapi::set_coop_mods({});
+    coop_channel::close();   // first: its port lives on a backend's session
     for (LdnBackend* b : {&linkplay_backend(), &native_backend()}) b->reset();
 }
 

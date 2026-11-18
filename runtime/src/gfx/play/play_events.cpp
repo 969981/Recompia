@@ -2,6 +2,7 @@
 // Play mode: input event routing (handle_event), pad polling and rumble.
 #include "play_state.h"
 #include "nxrt/key_state.h"
+#include "nxrt/perf_report.h"
 
 namespace nxrt::play {
 using namespace detail;
@@ -163,10 +164,12 @@ void handle_event(const input::Event& e, uint64_t now) {
             st.mouse1 = false;
             st.jc2_buttons = 0;
             mm::pointer().on_focus_lost();
+            perf::note_focus(false);
             break;
         case EventType::WindowFocusGained:
             audio::set_muted(false);
             st.limiter.reset_schedule();
+            perf::note_focus(true);
             break;
         case EventType::WindowRestored:
         case EventType::WindowMinimized:

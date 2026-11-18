@@ -5,45 +5,45 @@
   <img src="../assets/logo.png" alt="Recompia" width="420">
 </h1>
 
-<h3 align="center">Pokopia Recomp</h3>
+<h3 align="center">Recompia</h3>
 
 <p align="center">
-  <b>《Pokémon Pokopia》（Switch 2）经过重新编译，可在 Windows 上原生运行，并支持多人游戏。</b>
+  <b>一款治愈系生活模拟与沙盒建造游戏，充满奇幻生物（Switch 2，标题 ID 0400A3A01EE4C000，版本 2.0.1a），经过重新编译，可在 Windows 上原生运行，并支持多人游戏。</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/featureJosh/pokopia-recomp?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/github/v/release/Dittobyte/Recompia?label=latest&color=d8b46a&labelColor=1b2740" alt="Latest release"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flatest.json&label=latest%20downloads&labelColor=1b2740" alt="Latest release downloads"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fall.json&label=all%20downloads&labelColor=1b2740" alt="All downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Fwin64.json&label=Windows%20downloads&labelColor=1b2740" alt="Windows downloads">
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Flinux-x64.json&label=Linux%20downloads&labelColor=1b2740" alt="Linux downloads"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/main"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/commits/testing"><img src="https://img.shields.io/github/last-commit/featureJosh/pokopia-recomp/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues"><img src="https://img.shields.io/github/issues/featureJosh/pokopia-recomp?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
+  <a href="https://github.com/Dittobyte/Recompia/commits/testing"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
+  <a href="https://github.com/Dittobyte/Recompia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/Recompia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
-  <a href="https://github.com/featureJosh/pokopia-recomp/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/featureJosh/pokopia-recomp/releases">发布版本</a></b> ·
+  <b><a href="https://github.com/Dittobyte/Recompia/releases">发布版本</a></b> ·
   <a href="../../CHANGELOG.md">更新日志</a> ·
   <a href="../../CONTRIBUTING.md">参与贡献</a> ·
   <a href="../../CREDITS.md">致谢</a> ·
-  <a href="https://github.com/xFractals/pokopia-native">上游项目：pokopia-native</a> ·
+  <a href="https://github.com/xFractals/pokopia-native">上游项目</a> ·
   <a href="../../SECURITY.md">安全</a> ·
   <a href="../../LEGAL.md">法律信息</a> ·
-  <a href="https://github.com/featureJosh/pokopia-recomp/issues">问题反馈</a> ·
+  <a href="https://github.com/Dittobyte/Recompia/issues">问题反馈</a> ·
   <a href="https://discord.recompia.com">Discord</a>
 </p>
 
 > [!IMPORTANT]
-> **不包含任何游戏文件。** 你需要自行提取游戏，版本必须为 **2.0.1a**。本项目不提供游戏文件、密钥或转储工具。本项目与 Nintendo、The Pokémon Company 或 Koei Tecmo 没有隶属关系；Pokémon 是 Nintendo、Creatures Inc. 和 GAME FREAK inc. 的商标（请参阅 [LEGAL.md](../../LEGAL.md)）。
+> **不包含任何游戏文件。** 你需要自行提取这款治愈系生活模拟与沙盒建造游戏，充满奇幻生物（标题 ID 0400A3A01EE4C000，版本必须为 **2.0.1a**）。本项目不提供游戏文件、密钥或转储工具。请参阅 [LEGAL.md](../../LEGAL.md)。
 
 > [!NOTE]
 > **由自动化开发工具辅助构建，并由人工监督。** 本项目主要由自动化开发工具辅助完成，由我负责监督。我有数年开发经验，因此并非粗制滥造。每个提交在合并前都由我审查、验证和测试。
@@ -65,7 +65,7 @@
 
 ### 一起游玩（Link Play）
 - **拜访朋友的岛屿，或邀请朋友来到你的岛屿**，可通过同一 Wi-Fi 或互联网进行。
-- **与使用 [pokopia-native](https://github.com/xFractals/pokopia-native) 的玩家跨平台联机**，游戏版本为 2.0.1。
+- **与使用 [上游项目](https://github.com/xFractals/pokopia-native)的玩家跨平台联机**，游戏版本为 2.0.1。
 - 在启动器的 **Link Play** 页面中设置，无需编辑文件。
 - 分步指南：[一起游玩](#playing-together)。
 
@@ -112,7 +112,7 @@
 
 ## 快速开始
 
-1. 从[最新发布版本](https://github.com/featureJosh/pokopia-recomp/releases/latest)下载 zip 文件，并解压到任意位置。
+1. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 zip 文件，并解压到任意位置。
 2. 运行 `PokopiaLauncher.exe`。如果 SmartScreen 发出警告，请选择 **More info → Run anyway**。选择你的转储文件夹，然后按 **Set up**（设置）：程序会在你的电脑上编译游戏（约 7 分钟），再构建着色器缓存（1 至 2 小时，可以暂停并稍后继续）。
 3. 按 **Play**（开始游戏）。
 
@@ -121,13 +121,13 @@
 ### Linux、SteamOS 和 Steam Deck
 
 1. 在 Steam 中安装 **Proton Experimental**（库、工具；在 Steam Deck 上请先切换到桌面模式）。
-2. 从[最新发布版本](https://github.com/featureJosh/pokopia-recomp/releases/latest)下载 `PokopiaRecomp-<version>-linux-x64.tar.gz`，并解压到任意位置，例如你的主目录。
+2. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 `PokopiaRecomp-<version>-linux-x64.tar.gz`，并解压到任意位置，例如你的主目录。
 3. 运行该文件夹中的 `PokopiaLauncher.AppImage`（双击它，或在终端中运行 `./PokopiaLauncher.AppImage`）。选择你的转储文件夹，然后按 **Set up**：首次运行时会下载构建工具（Python 和 Zig，约 100 MB）、编译游戏，再通过 Proton 构建着色器缓存。你可以暂停并稍后继续。
 4. 按 **Play**。游戏本身通过 Steam 的 Proton 运行。
 
 如果在没有 FUSE 的系统上 `PokopiaLauncher.AppImage` 无法启动，请运行 `./PokopiaLauncher.AppImage --appimage-extract-and-run`。
 
-要从 Steam 启动游戏（Deck 上的游戏模式）：在桌面模式中，选择 **Add a Non-Steam Game**，选择 `PokopiaLauncher.AppImage`，并将其启动选项设为 `--play`。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
+要从 Steam 启动（Deck 上的游戏模式）：把启动器添加到 Steam，可以在启动器的设置中（Steam，Add to Steam），也可以在桌面模式中用 **Add a Non-Steam Game** 选择 `PokopiaLauncher.AppImage`，并让启动选项留空。该快捷方式会打开启动器，由它检查更新；然后点击“开始游戏”。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
 
 ## 模组与翻译
 
@@ -159,7 +159,7 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 **从 0.7.5 开始：** 在 Home 页面按 **Update**（更新），或前往 Settings > About。启动器会下载新版本、进行检查、替换自身文件并重新启动。
 
-**从 0.7.0 或更早版本：** 从[最新发布版本](https://github.com/featureJosh/pokopia-recomp/releases/latest)下载新的 zip（Windows）或 `PokopiaRecomp-<version>-linux-x64.tar.gz`（Linux），关闭游戏和启动器，然后解压到现有安装的同一文件夹中覆盖。包中不含存档、设置、着色器缓存或游戏文件，因此不会替换你的这些内容。
+**从 0.7.0 或更早版本：** 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载新的 zip（Windows）或 `PokopiaRecomp-<version>-linux-x64.tar.gz`（Linux），关闭游戏和启动器，然后解压到现有安装的同一文件夹中覆盖。包中不含存档、设置、着色器缓存或游戏文件，因此不会替换你的这些内容。
 
 **如果更新后 Home 显示 Finish update：** 该版本更改了游戏代码，因此启动器会根据你的游戏文件重新构建游戏程序 `pkp.exe`。如果你之前跳过了此类版本，之后更新时也会出现这一过程。通常只需等待约 7 分钟，掌机上会稍长一些，因为着色器和存档都会保留。这不是漫长的首次设置：只有发布说明要求时才会重新翻译着色器，而且只处理有变化的着色器。在新的 `pkp.exe` 准备就绪前，旧文件会保留。
 
@@ -167,9 +167,9 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 ## 一起游玩
 
-Link Play 可让多名玩家来到同一座岛屿。与使用 pokopia-native 的玩家跨平台联机时，游戏版本须为 **2.0.1**。游戏版本为 1.0.5 的玩家无法加入。
+Link Play 可让多名玩家来到同一座岛屿。与使用上游项目的玩家跨平台联机时，游戏版本须为 **2.0.1**。游戏版本为 1.0.5 的玩家无法加入。
 
-**有什么变化。** Link Play 现在使用 pokopia-native 的合作协议。它不能与本移植版早期的 Link Play 构建配合使用，因此每个人都需要更新到此版本。（启动器在 **Advanced** 下保留旧协议，供所有人都仍使用旧构建的联机会话使用。）
+**有什么变化。** Link Play 现在使用上游项目的合作协议。它不能与本移植版早期的 Link Play 构建配合使用，因此每个人都需要更新到此版本。（启动器在 **Advanced** 下保留旧协议，供所有人都仍使用旧构建的联机会话使用。）
 
 **每位玩家都需要自己的存档。** 复制他人的存档后，该副本无法与原存档一起加入。
 
@@ -191,7 +191,7 @@ Link Play 可让多名玩家来到同一座岛屿。与使用 pokopia-native 的
 **通过互联网。** 每个人都选择 **Internet**，并通过中继服务器连接：
 - 主机选择 **I host**。页面会显示房间代码。将中继地址和代码发给访客。页面上有 **Copy** 和 **New code**。
 - 访客选择 **I visit**，然后输入中继地址和代码。
-- 若要自行运行中继服务器，请在主机的 Link Play 页面按 **Run a relay here**（启动器保持打开时可用），或在服务器上运行 `PokopiaLauncher --host`。任何 pokopia-native 合作中继服务器也都可以使用。
+- 若要自行运行中继服务器，请在主机的 Link Play 页面按 **Run a relay here**（启动器保持打开时可用），或在服务器上运行 `PokopiaLauncher --host`。任何上游项目 合作中继服务器也都可以使用。
 - 如果不使用中继，请在主机上将中继地址留空，并在路由器上转发 TCP 和 UDP **47600** 端口。访客通过 **Visit by address** 使用主机的公网地址。
 - 中继服务器会检查房间代码，但不会加密游戏流量。
 
@@ -210,18 +210,18 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 
 - **首次启动时窗口黑屏，或游戏严重卡顿。** 游戏会在运行时生成一些着色器。启动器会在每次启动前以及退出后翻译此前见过的着色器，因此最初几次运行会比较卡顿，之后会改善。请给它一分钟并继续游玩。如果设置中途停止，请打开 **Game files** 并按 **Set up** 继续。已完成的工作会保留。
 - **启动器提示游戏文件来自旧版本，或缺少更新。** 此版本需要 2.0.1a。安装更新后重新转储游戏。仅有基础游戏不够。
-- **启动器提示未找到可用的游戏文件，或 Set up 提示文件不匹配。** 请选择包含 `base` 和 `updates` 的文件夹（例如 `Pokopia_v2.0.1a`）。两者都需要包含 `exefs`（`main`、`sdk`、`subsdk0`、`rtld`、`main.npdm`）和 `romfs`。不匹配的文件已经损坏，请重新转储或重新复制。
+- **启动器提示未找到可用的游戏文件，或 Set up 提示文件不匹配。** 请选择包含 `base` 和 `updates` 的文件夹（例如 `Game_v2.0.1a`）。两者都需要包含 `exefs`（`main`、`sdk`、`subsdk0`、`rtld`、`main.npdm`）和 `romfs`。不匹配的文件已经损坏，请重新转储或重新复制。
 - **启动器提示游戏数据（romfs）不完整，或游戏启动时关闭并显示 "pkp.exe exited with code 4"。** 你的转储工具写入更新的 `romfs` 时，没有将基础游戏的文件放在其中（更新只包含它更改的文件）。请将基础游戏保留在同一转储中（`base` 与 `updates` 并列，各自包含 `exefs` 和 `romfs`），并选择同时包含这两者的文件夹：启动器会自动从 `base` 添加缺失文件。然后再按一次 **Set up**。否则，请重新转储游戏，并将更新合并到基础游戏中。
 - **启动器提示转储以文本模式复制。** 你使用 FTP 的文本模式进行了复制，这会损坏 `main`、`sdk` 和 `subsdk0`。请将传输类型设为 **Binary**，重新复制 `exefs` 和 `romfs` 文件夹（FileZilla：Transfer、Transfer type、Binary）。
 - **你的转储只有一个文件**（`.nsp`、`.xci`）。启动器接受文件夹形式或 `.nup` 或 `.nx` 形式的游戏。请用你的转储工具将 `.nsp` 或 `.xci` 解压为文件夹。
-- **设置因文件无法打开或删除而报错停止。** 请将文件夹放在简单路径下，例如 `C:\Pokopia`，不要放在 OneDrive 同步的文件夹中。杀毒软件可能正在扫描构建中的文件：等待扫描完成，或允许该文件夹。**Open setup log** 会显示停止的位置。
+- **设置因文件无法打开或删除而报错停止。** 请将文件夹放在简单路径下，例如 `C:\Recompia`，不要放在 OneDrive 同步的文件夹中。杀毒软件可能正在扫描构建中的文件：等待扫描完成，或允许该文件夹。**Open setup log** 会显示停止的位置。
 - **Set up 在开始前发出警告。** 它会先检查可用磁盘空间（使用打包的着色器文件，即默认设置，约需 14 GB；使用松散文件约需 31 GB）、Vulkan、内存和处理器。如果你使用 Intel 第 13 或第 14 代台式机 CPU，请在设置前更新 BIOS：没有 Intel 的修复，这些 CPU 在长时间满载时可能崩溃。如果构建期间电脑过热或难以使用，请勾选 **Use fewer cores**。
 - **帧率低或画面模糊。** 画面尺寸在游戏启动时确定，即当时窗口或屏幕的尺寸（**Settings**、**Display**）。
   - 在 4K 屏幕上以 **Borderless** 启动，游戏就会以 4K 绘制。这会给硬件带来很大负担，请降低 **Render scale**。
   - 以 **Windowed**（默认 1280x720）启动后按 Alt+Enter，画面仍保持 720p，只会放大显示。请在按 **Play** 前设置 **Window mode**。
   - 将 **Frame rate limit** 设为屏幕能够显示的值。
 - **Link Play：访客找不到主机。** 选择 **Visit by address** 并输入主机地址（主机的 Link Play 页面会显示该地址）。确认主机已启动游戏并选择 **Invite Others to Visit**，Windows 防火墙允许 `pkp.exe` 使用专用网络，并且网络已设为专用。咖啡馆、酒店和访客 Wi-Fi 的设备隔离会阻止所有人进行 LAN 游玩：请使用 **Internet**，通过中继服务器和房间代码连接。通过互联网游玩时，请检查中继地址和房间代码。Link Play 页面的更改会在下次启动游戏时生效。
-- **Link Play：连接被拒绝。** 玩家之间的内容不匹配。每个人都需要游戏 2.0.1、相同的发布版本（跨平台联机时使用 pokopia-native）、相同的模组，并且 **Interact everywhere** 和 **Story co-op** 开关状态相同。
+- **Link Play：连接被拒绝。** 玩家之间的内容不匹配。每个人都需要游戏 2.0.1、相同的发布版本（跨平台联机时使用 上游项目）、相同的模组，并且 **Interact everywhere** 和 **Story co-op** 开关状态相同。
 - **Link Play：拜访时出现 "Communication error" (9005)。** 你们正在使用同一存档的副本，因此拥有相同的玩家 ID。每位玩家都需要自己的存档。
 - **未检测到手柄。** 在游戏中按 F1，查看 Controls 页面的 **Gamepad** 一行。如果游戏未检测到手柄，会显示 "No gamepad open"。请在按 **Play** 前连接手柄，然后尝试其他线缆或接口。关闭可能正在占用该手柄的其他程序。
 
@@ -245,11 +245,11 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 
 ## 社区
 
-问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.recompia.com)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/featureJosh/pokopia-recomp/issues/new/choose) 报告。
+问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.recompia.com)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) 报告。
 
 ## 报告问题
 
-请[提交问题](https://github.com/featureJosh/pokopia-recomp/issues/new/choose)，并附上发生问题的那次会话所生成的 `pkp.log`、你的 GPU 和 Windows 版本（在 Linux 上：你的发行版、Proton 版本和设备）。
+请[提交问题](https://github.com/Dittobyte/Recompia/issues/new/choose)，并附上发生问题的那次会话所生成的 `pkp.log`、你的 GPU 和 Windows 版本（在 Linux 上：你的发行版、Proton 版本和设备）。
 
 **Linux、SteamOS 和 Linux 掌机：** 我（Jerban）负责 Linux 部分，因此 Linux 问题会得到修复，并通过一键更新快速发布。很抱歉更新如此频繁，感谢你的耐心。请继续报告 Linux 问题，并务必附上日志：`pkp.log`；如果是 Set up 问题，还要附上 `setup.log`（请参阅[存档、日志和设置的位置](#where-your-saves-logs-and-settings-are)）。Linux 以外的问题会先由 Josh 审查。
 

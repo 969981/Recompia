@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Game layer: seamless co-op on the co-op channel (pkp_coop_internal.h, nxrt/coop_channel.h, the messages in pkp_coop_wire.h).
+//
+// The channel is opened once the game's session is up and stays open for the launch (it joins the next session on its own); its
+// messages and member events are drained once a frame on the game thread, so every handler runs where the game's own code runs.
+// Routing: the channel orders the messages of one sender only, so every rule change goes through the authority (node 0, the process
+// that opened the session). A shared message is sent to the authority, which applies it (unless its own player is the origin: that
+// change is applied already) and passes it on, byte for byte, to every member except the origin. The authority's own changes take
+// the same path through the channel's loopback. So every process applies the changes in the authority's order, and never its own
+// change twice. The other messages (the talk lock's) go to one node and are applied there.
+#include "core/pkp_coop_internal.h"
+#include "core/pkp_layout.h"
+
+#include <cstddef>
+
+#include "nxrt/coop_channel.h"
+#include "nxrt/log.h"
+
+namespace nxrt::games::pkp::coop::link {
+
+namespace {
+
+namespace ch = nxrt::coop_channel;
+constexpr const char* kTag = "pkp";
+
+// How a message type travels, which also says who may have sent it.
+enum class Path : uint8_t {
+    Shared,          // a member's (or the authority's own) change, to the authority, which passes it on to every other member
+    ToAuthority,     // a member's request to the authority alone
+    FromAuthority,   // the authority's word to a member
+};
+
+// Every message type, how it travels and the part that applies it, in one place.
+struct Route {
+    wire::Type type;
+    Path path;
+    void (*apply)(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+};
+constexpr Route kRoutes[] = {
+    {wire::Type::StoryStates, Path::Shared, &story::on_states_message},
+    {wire::Type::Ability, Path::Shared, &story::on_ability_message},
+    {wire::Type::TalkAsk, Path::ToAuthority, &talk::on_ask},
+    {wire::Type::TalkDone, Path::ToAuthority, &talk::on_done},
+    {wire::Type::TalkHolder, Path::FromAuthority, &talk::on_holder},
+    {wire::Type::NamePrompt, Path::Shared, &catchup::on_name_message},
+    {wire::Type::Items, Path::Shared, &catchup::on_items_message},
+    {wire::Type::StoryDigest, Path::FromAuthority, &story::on_digest_message},
+    {wire::Type::MemberName, Path::Shared, &notice::on_name_message},
+    {wire::Type::ReqUnique, Path::Shared, &requests::on_unique_message},
+    {wire::Type::ReqOutcome, Path::ToAuthority, &outcomes::on_outcome_message},
+    {wire::Type::RecipeKnown, Path::Shared, &recipes::on_known_message},
+};
+
+struct State {
+    bool open = false;
+    uint32_t bad_version = 0;   // bit per type: a message of another version was logged
+    uint32_t bad_sender = 0;    // bit per type: a message whose sender may not send it was logged
+    ::Ctx* ctx = nullptr;       // the game thread's context while drain() runs the handlers
+};
+State& st() {
+    static State s;
+    return s;
+}
+
+// The sender (m.from, set by the channel) may send this message with this origin. A process sends only its own messages (origin is
+// its node; the authority's own reach it through the loopback, from itself), and only the authority passes a member's shared message
+// on, byte for byte, so a shared message on a member comes from the authority with any other member as its origin. The authority is
+// known before the first message of a session is drained (the channel sets it before it queues our join).
+bool sender_ok(Path path, int from, uint8_t origin) {
+    const int authority = ch::authority();
+    switch (path) {
+    case Path::Shared:
+        return ch::is_authority() ? from == origin : from == authority && origin != ch::self();
+    case Path::ToAuthority:
+        return ch::is_authority() && from == origin;
+    case Path::FromAuthority:
+        return from == authority && origin == from;
+    }
+    return false;
+}
+
+void deliver(const Route& route, const ch::Message& m) {
+    State& s = st();
+    wire::Reader r(m.data, m.size);
+    uint8_t origin = wire::kNobody;
+    const uint32_t bit = 1u << (static_cast<uint32_t>(route.type) & 31);
+    if (!r.header(&origin)) {
+        if (!(s.bad_version & bit)) {
+            s.bad_version |= bit;
+            NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: version %u, this build speaks %u", m.type, m.from,
+                    m.size ? m.data[0] : 0, wire::kVersion);
+        }
+        return;
+    }
+    if (!sender_ok(route.path, m.from, origin)) {
+        if (!(s.bad_sender & bit)) {
+            s.bad_sender |= bit;
+            NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: origin %u, authority node %d; it may not send that", m.type,
+                    m.from, origin, ch::authority());
+        }
+        return;
+    }
+    if (route.path == Path::Shared && ch::is_authority()) {
+        if (origin != ch::self()) route.apply(s.ctx, m.from, origin, r);
+        for (int node : ch::members())
+            if (node != origin) ch::send(node, m.type, m.data, m.size);
+        return;
+    }
+    route.apply(s.ctx, m.from, origin, r);
+}
+
+void on_member(const ch::MemberEvent& e) {
+    // Our own leave may be drained once the channel has no node for us any more.
+    const bool self = e.node == ch::self() || ch::self() == ch::kNoNode;
+    talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
+    if (self) {
+        story::on_session_change();
+        notice::on_session_change();
+        requests::on_session_change();
+        recipes::on_session_change();
+        NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
+        if (e.joined && e.authority != (role() == CoopRole::Host))
+            NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
+                    role() == CoopRole::Host ? "host" : "visit");
+        return;
+    }
+    if (e.joined) {
+        story::on_member_joined();
+        notice::on_member_joined();
+        requests::on_member_joined();
+        recipes::on_member_joined();
+    }
+    NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
+}
+
+void open_channel(State& s) {
+    for (const Route& route : kRoutes)
+        ch::on_message(static_cast<uint32_t>(route.type), [&route](const ch::Message& m) { deliver(route, m); });
+    ch::on_member(&on_member);
+    s.open = ch::open();
+    NXLOG_I(kTag, "Co-op: the session is up; the co-op channel %s", s.open ? "is open" : "did not open");
+}
+
+}  // namespace
+
+void tick(::Ctx* c) {
+    State& s = st();
+    if (!s.open) {
+        if (session_bits() & layout::kSessionOnline) open_channel(s);
+        if (!s.open) return;
+    }
+    s.ctx = c;
+    ch::drain();
+    s.ctx = nullptr;
+}
+
+void reset() {
+    State& s = st();
+    if (s.open) ch::close();
+    for (const Route& route : kRoutes) ch::on_message(static_cast<uint32_t>(route.type), nullptr);
+    ch::on_member(nullptr);
+    s = State{};
+}
+
+uint8_t self() {
+    const int node = ch::self();
+    return node == ch::kNoNode ? wire::kNobody : static_cast<uint8_t>(node);
+}
+
+bool in_session() { return st().open && ch::authority() != ch::kNoNode && ch::self() != ch::kNoNode; }
+
+size_t member_count() { return st().open ? ch::members().size() : 0; }
+
+bool is_authority() { return in_session() && ch::is_authority(); }
+
+int authority() { return ch::authority(); }
+
+bool to_authority(wire::Type type, std::vector<uint8_t>&& payload) {
+    return in_session() && ch::send(ch::authority(), static_cast<uint32_t>(type), std::move(payload));
+}
+
+bool share(wire::Type type, std::vector<uint8_t>&& payload) { return to_authority(type, std::move(payload)); }
+
+bool to_node(int node, wire::Type type, std::vector<uint8_t>&& payload) {
+    return in_session() && ch::send(node, static_cast<uint32_t>(type), std::move(payload));
+}
+
+void to_members(wire::Type type, const std::vector<uint8_t>& payload) {
+    if (in_session()) ch::send_all(static_cast<uint32_t>(type), payload.data(), payload.size());
+}
+
+}  // namespace nxrt::games::pkp::coop::link

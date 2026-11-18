@@ -52,7 +52,7 @@ struct PromptInputs {
 
 // The icon pack, loaded once (thread-safe) from [prompts] dir, then <exe folder>/prompts/, assets/prompts/ under the working
 // directory and the exe folder (prompt_icons.pak). nullptr when no pack is found. Shared by the texture hook below and by
-// games that patch their own glyph atlases instead (Pokopia, pkp_kbm.cpp).
+// games that patch their own glyph atlases instead (the game, pkp_kbm.cpp).
 const IconPack* prompts_pack();
 
 // Main thread, once per frame (cheap when nothing changed): works out the style that shows now and the icon for every game icon, and

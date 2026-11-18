@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the core part of the game module (pkp_game.h): the data part plus the title facts and the polling loops the kernel
+// Game layer, the core part of the game module (pkp_game.h): the data part plus the title facts and the polling loops the kernel
 // treats specially. Needs the runtime library, not the graphics one.
 #include "core/pkp_game.h"
 

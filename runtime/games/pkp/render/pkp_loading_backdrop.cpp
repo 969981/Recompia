@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// What covers the picture while the game loads ends at or near the old 16:9 edges (#534): the Ditto loading layout's full-width quads
+// What covers the picture while the game loads ends at or near the old 16:9 edges (#534): the loading screen layout's full-width quads
 // (two black ones over the strip's scenery, and the strip's sky and ground under it) and the black quad the game fades the picture
 // with before and after it. On a wider or taller canvas the scene showed beside them.
 #include "render/pkp_loading_backdrop.h"
@@ -17,10 +17,8 @@ namespace {
 
 using guest::rd;
 
-constexpr uint64_t kQuadGeometry = 0x1f98b98;
-constexpr uint64_t kPaneQuadReturn = 0x1f772ec;
-constexpr size_t kSavedReturn = 8, kSavedDraw = 0x58;   // x29-relative LR and SP-relative caller x21 in the quad builder
-constexpr size_t kDrawPane = 8;
+using layout::kDrawPane;
+using layout::kQuadGeometry;
 constexpr size_t kWorldY = 13;
 constexpr float kAuthoredHalfWidth = 960.f, kAuthoredHalfHeight = 540.f;
 
@@ -63,7 +61,7 @@ const float* centred_world(uint64_t pane) {
 int extend_backdrop(::Ctx* c, uint64_t addr, void*) {
     // This caller supplies an authored pane. The quad builder saved the caller's draw object (x21) on entry.
     const uint64_t base = addr - kQuadGeometry;
-    if (rd<uint64_t>(c->x[29] + kSavedReturn) != base + kPaneQuadReturn) return 0;
+    if (rd<uint64_t>(c->x[29] + layout::kQuadReturn) != base + layout::kPictureQuadReturn) return 0;
     float& half_width = c->v[0].f32[0];
     float& half_height = c->v[1].f32[0];
     const float local_x = c->v[2].f32[0];
@@ -72,7 +70,7 @@ int extend_backdrop(::Ctx* c, uint64_t addr, void*) {
     const bool fade = half_width == kFadeHalfWidth && half_height == kFadeHalfHeight;
     if (!fade && half_width != kAuthoredHalfWidth) return 0;
 
-    const uint64_t draw = rd<uint64_t>(c->x[31] + kSavedDraw);
+    const uint64_t draw = rd<uint64_t>(c->x[31] + layout::kQuadPictureDraw);
     const uint64_t pane = rd<uint64_t>(draw + kDrawPane);
     // These registers belong to this draw; the pane and its matrix stay reusable.
     if (fade) {

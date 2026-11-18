@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus (pkp_menu.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/menus.md).
+// Game layer, the mouse in the game's menus (pkp_menu.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/menus.md).
 //
 // The game's UI is KTGL screen layouts: a layout object holds its panes in a list, each pane has a name, a size and a world matrix in a
 // 1920x1080 canvas (origin at the centre, y up). The game itself never hit-tests them for its menus (the engine's script call
@@ -26,7 +26,6 @@
 
 #include <atomic>
 #include <cstdio>
-#include <cstring>
 #include <string>
 
 #include "nxrt/hooks.h"
@@ -119,9 +118,6 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     if (!s.installed || !s.enabled || !snap.active) {
         if (s.was_up && log_ok(true)) NXLOG_I(kTag, "menu: closed");
         s.was_up = false;
-        // The pointer can be off while the pause menu is still up (the mouse outside the picture, a controller only): the last scan's
-        // answer stands until play mode leaves the menu context. Outside it nothing can be up.
-        if (!menu_up) s.pause_up.store(false, std::memory_order_relaxed);
         s.panes.clear();
         s.hovered = s.focused = s.cursor = s.slider = -1;
         return play::Act::None;
@@ -129,15 +125,11 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     s.active = true;
     s.pages.clear();
     scan();
-    // the UI plane: Pokopia keeps its menus and HUD 16:9 and centred on wider shapes (p5l at 21:9: the whole-picture mapping hit one slot left)
+    // the UI plane: the game keeps its menus and HUD 16:9 and centred on wider shapes (p5l at 21:9: the whole-picture mapping hit one slot left)
     const float px = (snap.nx + 1.f) * 0.5f * kCanvasW, py = (1.f - snap.ny) * 0.5f * kCanvasH;
     pick(px, py, snap.inside && snap.shown);
     s.frame_scanned = true;
     s.frame_present = (s.cursor >= 0 && s.focused >= 0) || key_guide_drawn(s);
-    // The pause menu's main view (its 9 buttons) is up. Published here as well as in menu_in_game: the home opens the menu where play
-    // mode's in-game path does not run, so the Save prompt (pkp_save_now.cpp) has to follow this scan.
-    s.pause_up.store(s.focused >= 0 && std::strncmp(s.panes[s.focused].name, "CL_0300_parts_btn_mainmenu_", 27) == 0,
-                     std::memory_order_relaxed);
     log_layouts();
     s.was_up = true;
     {   // which rule found the selection (pick_extend), once per change: the proof for menus outside play

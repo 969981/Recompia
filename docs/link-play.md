@@ -1,6 +1,6 @@
 # Link Play guide
 
-Play Pokopia together: several players on one island, between PCs, Steam Decks and other handhelds. This is the short guide. Relays of
+Play together: several players on one island, between PCs, Steam Decks and other handhelds. This is the short guide. Relays of
 your own, port forwarding and every detail are in the [full multiplayer page](multiplayer/README.md).
 
 **On this page**
@@ -79,9 +79,10 @@ On the launcher's Link Play page, under **Same for everyone**:
 | Option | What it does |
 |---|---|
 | **Visitors can build everywhere** | Visitors can use moves and items and build in the story areas too, not only in Palette Town. |
-| **Seamless co-op** | Every player plays their own story in the host's world: their own requests, talks and progress, kept in their own save. Turning it on turns the first one on too. |
 
-Both are experimental and off by default. Every player in the session needs the same two settings, or the host is not listed.
+It is experimental and off by default. Every player in the session needs the same setting, or the host is not listed.
+
+To play the story together, use **Recompia: Co-op** (the **Co-op** tab at the top of the launcher's sidebar) instead: it is separate from Link Play and uses co-op saves of its own.
 
 Changes on the Link Play page apply the next time the game starts.
 
@@ -113,4 +114,4 @@ The host and the visitor must type exactly the same code. The host sets it when 
 
 [Open an issue](https://github.com/Dittobyte/Recompia/issues/new/choose) and attach `pkp.log` (next to `pkp.exe`) from every player.
 The [full multiplayer page](multiplayer/README.md) covers your own relay, port forwarding, the ports the game uses and play with
-pokopia-native players.
+players of the parent project.

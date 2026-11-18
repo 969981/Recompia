@@ -1,6 +1,6 @@
-# Pokopia Launcher
+# Recompia Launcher
 
-Tauri 2 launcher for the Pokopia PC port (`pkp.exe`). It ships no game files and never changes yours. It reads the game
+Tauri 2 launcher for the Recompia PC port (`pkp.exe`). It ships no game files and never changes yours. It reads the game
 files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and builds the shader cache from your romfs.
 
 ## First run
@@ -41,9 +41,10 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
    next to it makes its folder the working directory, and every path comes from the ini (relative paths start there).
 
 `release\Play.bat` starts the game the same way without the launcher (after setup).
-`PokopiaLauncher --play [--game <folder>]` does what Play does without the window (it also prepares the run-time shaders
-before the start and translates the new ones after it) and waits for the game: for a Steam, Sunshine or desktop shortcut.
-The game folder is the launcher's own folder unless `--game` names another.
+
+A Steam or Sunshine shortcut starts the launcher itself, with no launch options: the window checks for updates, then Play starts the game.
+There is no mode that starts the game without the window, so updates are never skipped. An old shortcut that still passes `--play`
+(with or without `--game <folder>`) opens the window like a normal start.
 
 ## Release model (b): pkp.exe built on the player's PC
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: repair of the shared player UUID (pkp_save_uuid.h). CMNDAT layout from berichan/PokoHex (GPL-3.0, SaveFile.cs):
+// Game layer: repair of the shared player UUID (pkp_save_uuid.h). CMNDAT layout from berichan/PokoHex (GPL-3.0, SaveFile.cs):
 // magic 0x31227687, end of the compressed data at +0x10, zlib stream from 0x130. The rewrite is the one work/tools/pkp_uuid.py made
 // (checked in game: a save so changed joins a host made from the same original save).
 #include "core/pkp_save_uuid.h"
@@ -91,7 +91,7 @@ bool rewrite(const stdfs::path& p, bool cmndat, const uint8_t* uuid, size_t* cou
         *count = replace_all(*out, kShared, uuid);
         return true;
     }
-    if (file.size() < kCmnHeader || rd32(file, 0) != kCmnMagic) { *why = "not a Pokopia common save"; return false; }
+    if (file.size() < kCmnHeader || rd32(file, 0) != kCmnMagic) { *why = "not a game common save"; return false; }
     const uint32_t end = rd32(file, kCmnEndAt);
     if (end <= kCmnHeader || end > file.size()) { *why = "bad compressed size"; return false; }
     size_t raw_n = 0;

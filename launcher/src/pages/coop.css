@@ -1,0 +1,73 @@
+/* Co-op Home (coop.js): a head with the two ways in, one glass card per co-op save, the three steps when there is none. */
+
+.coop-head { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
+.coop-head h1 { margin-bottom: var(--space-1); }
+.coop-lead { max-width: 520px; color: var(--color-text-2); }
+.coop-head [hidden] { display: none; }
+.coop-body { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* no save yet: two big choices, then how it works */
+.coop-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
+.coop-choice {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-5);
+  border: 1px solid var(--line); border-radius: var(--radius-md, var(--radius-sm)); color: var(--color-text); font: inherit; text-align: left; cursor: default;
+}
+.coop-choice > .icon { grid-row: span 2; width: 40px; height: 40px; padding: 9px; border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-on-accent); }
+.coop-choice strong { font-size: var(--text-lg); }
+.coop-choice span { color: var(--color-text-2); font-size: var(--text-sm); }
+
+.coop-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.coop-steps li { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); background: var(--surface-1); border: 1px solid var(--line); }
+.coop-steps strong { display: block; font-size: var(--text-sm); }
+.coop-steps span { color: var(--color-text-2); font-size: var(--text-xs); }
+.coop-step-n { display: grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--surface-2); font-size: var(--text-xs); font-weight: var(--weight-bold); }
+
+.coop-how > summary { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: default; list-style: none; }
+.coop-how > summary::-webkit-details-marker { display: none; }
+.coop-how > summary .icon { width: 14px; height: 14px; transition: transform var(--dur) var(--ease); }
+.coop-how[open] > summary .icon { transform: rotate(90deg); }
+.coop-how > summary:hover { color: var(--color-text); }
+
+/* a save */
+.coop-save { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5) var(--space-5); border-radius: var(--radius-lg); }
+.coop-save-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.coop-save-head h2 { font-size: var(--text-xl, 20px); }
+.coop-meta { color: var(--color-text-2); font-size: var(--text-sm); }
+
+.coop-players { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.coop-player { display: inline-flex; align-items: center; gap: 6px; }
+.coop-you { padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--color-text-2); font-size: 11px; font-weight: var(--weight-semi); }
+.coop-host-mark { display: inline-flex; color: var(--color-warn); }
+.coop-host-mark .icon { width: 14px; height: 14px; }
+.chip-x { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: -4px; padding: 0; border: 0; border-radius: var(--radius-pill); background: none; color: var(--color-text-2); cursor: default; }
+.chip-x:hover { background: var(--surface-2); color: var(--color-text); }
+.chip-x .icon { width: 12px; height: 12px; }
+.coop-add { border-style: dashed; color: var(--color-text-2); cursor: default; font: inherit; font-size: var(--text-sm); }
+.coop-add:hover { color: var(--color-text); }
+.coop-add .icon { width: 14px; height: 14px; }
+
+.coop-banner strong, .coop-banner span { display: block; }
+.coop-banner span { font-size: var(--text-sm); }
+
+.coop-start-row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.coop-role { display: flex; flex: 1 1 320px; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.coop-role-pick { display: flex; align-items: center; gap: var(--space-3); }
+.coop-role-label { color: var(--color-text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.coop-role-line { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.coop-role-line.ok { color: var(--color-ok); font-weight: var(--weight-medium); }
+.coop-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* the invite dialog: the short code to read out, the long one folded under it */
+.coop-short-code {
+  display: block; margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md, var(--radius-sm));
+  background: var(--surface-1); font-family: ui-monospace, Consolas, monospace; font-size: 32px; font-weight: var(--weight-bold); letter-spacing: 0.12em;
+  text-align: center; user-select: all;
+}
+.coop-long { margin-bottom: var(--space-3); }
+.coop-long > summary { margin-bottom: var(--space-2); }
+.coop-long .btn { margin-top: var(--space-2); }
+
+/* the join dialog */
+.coop-who { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
+.coop-who legend { margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.coop-note { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }

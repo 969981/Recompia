@@ -195,7 +195,7 @@ export function highlights(md, count = 2) {
   return [firstSentence(plain(first.type === 'para' ? first.text : first.items[0].text))];
 }
 
-/** "Pokopia Recomp 0.7.0 (build K: Kangaroo)" -> { version: '0.7.0', build: 'Kangaroo' }. The tag stands in for a name without a version. */
+/** "Recompia 0.7.0 (build K: Kangaroo)" -> { version: '0.7.0', build: 'Kangaroo' }. The tag stands in for a name without a version. */
 export function parseReleaseName(name, tag = '') {
   const text = String(name ?? '');
   return {

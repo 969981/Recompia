@@ -1,5 +1,7 @@
-//! Add to Steam: puts the launcher into Steam as a Non-Steam Game ("Recompia", or "Recompia (Testing)" on the Testing channel) with the
-//! launch option `--play`, and copies the artwork into Steam's `grid` folder, so Game Mode and Big Picture show it without a search.
+//! Add to Steam: puts the launcher into Steam as a Non-Steam Game ("Recompia Launcher", or "Recompia Launcher (Testing)" on the Testing
+//! channel), with no launch options, and copies the artwork into Steam's `grid` folder, so Game Mode and Big Picture show it without a
+//! search. The shortcut opens the launcher window, which checks for updates before Play. Older launchers also added a game shortcut
+//! ("Recompia") that started the game without the window; it is no longer added, but it is still found and can be removed.
 //!
 //! Files (the app id rule and the file layout are the ones Steam ROM Manager uses):
 //!  * `<Steam>/userdata/<account>/config/shortcuts.vdf`: Steam's binary key-value file, one numbered entry per shortcut. Steam keeps it in
@@ -406,7 +408,7 @@ pub struct Status {
     pub found: bool,
     pub running: bool,
     pub accounts: usize,
-    /// Accounts that have the shortcut that starts the game straight away (`--play`).
+    /// Accounts that still have the old game shortcut (added by an earlier launcher; it started the game without the window).
     pub game_added: usize,
     /// Accounts that have the shortcut that opens the launcher window.
     pub launcher_added: usize,
@@ -414,9 +416,10 @@ pub struct Status {
     pub launcher_name: String,
 }
 
-/// Which shortcut: the game itself (starts it at once, `--play`) or the launcher window.
+/// Which shortcut: the launcher window, or the old game shortcut an earlier launcher added (found and removed, never added).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
+    /// The old "Recompia" shortcut. Only used to find it and remove it.
     Game,
     Launcher,
 }
@@ -431,8 +434,9 @@ impl Target {
     }
 }
 
-/// The shortcut for this launcher's own file (the AppImage when run from one). The game shortcut is named "Recompia" (the name the game
-/// goes by, so a SteamGridDB search for it finds the right title) and starts the game with `--play`; the launcher shortcut is "Recompia Launcher" and has no launch option.
+/// The shortcut for this launcher's own file (the AppImage when run from one). The launcher shortcut is "Recompia Launcher" and has no
+/// launch option. The old game shortcut ("Recompia", the name the game goes by) is the same file under another name; it is matched by
+/// name and exe, so its old launch option does not matter.
 pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
     let exe = std::env::var_os("APPIMAGE")
         .map(PathBuf::from)
@@ -444,7 +448,7 @@ pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
         name: shortcut_name(look.testing, target),
         exe: format!("\"{}\"", exe.display()),
         start_dir: format!("\"{}\"", dir.display()),
-        launch: if target == Target::Game { "--play".into() } else { String::new() },
+        launch: String::new(),
         look: *look,
     })
 }
@@ -483,7 +487,8 @@ pub fn status(look: &Branding) -> Status {
     }
 }
 
-pub fn add(look: &Branding, target: Target) -> Result<String, String> {
+/// Adds the launcher shortcut for every Steam account.
+pub fn add(look: &Branding) -> Result<String, String> {
     if steam_running() {
         return Err("Close Steam first (Steam, Exit), then press the button again. Steam only saves its shortcut list when it closes.".into());
     }
@@ -491,7 +496,7 @@ pub fn add(look: &Branding, target: Target) -> Result<String, String> {
     if accs.is_empty() {
         return Err("Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and try again.".into());
     }
-    let spec = spec_here(look, target)?;
+    let spec = spec_here(look, Target::Launcher)?;
     for a in &accs {
         add_to_account(a, &spec)?;
     }
@@ -512,7 +517,7 @@ pub fn remove(look: &Branding, target: Target) -> Result<String, String> {
     Ok(if n == 0 { "It was not in Steam.".into() } else { format!("Removed \"{}\" from Steam. Start Steam again.", spec.name) })
 }
 
-/// After a logo or icon choice: the shortcuts already in Steam get the new artwork. Only pictures that are still ours are replaced (a
+/// After a channel change: the shortcuts already in Steam get the channel's artwork. Only pictures that are still ours are replaced (a
 /// player's own art from SteamGridDB stays), and shortcuts.vdf is not touched, so Steam may run; it shows the new pictures after a restart.
 pub fn refresh_art(look: &Branding) -> Result<(), String> {
     for target in [Target::Game, Target::Launcher] {
@@ -553,15 +558,15 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    const LOOK: Branding = Branding { logo: crate::branding::Look::Recompia, icon: crate::branding::Look::Recompia, testing: false };
+    const LOOK: Branding = Branding { testing: false };
 
     fn spec(testing: bool) -> Spec {
         Spec {
             name: if testing { "Recompia (Testing)" } else { "Recompia" }.into(),
             exe: "\"/home/deck/Games/PokopiaRecomp/PokopiaLauncher.AppImage\"".into(),
             start_dir: "\"/home/deck/Games/PokopiaRecomp\"".into(),
-            launch: "--play".into(),
-            look: Branding { testing, ..LOOK },
+            launch: String::new(),
+            look: Branding { testing },
         }
     }
 
@@ -612,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn game_and_launcher_are_two_shortcuts() {
+    fn the_old_game_shortcut_is_still_found_and_removed() {
         let g = shortcut_name(false, Target::Game);
         let l = shortcut_name(false, Target::Launcher);
         assert_eq!(g, "Recompia");
@@ -622,6 +627,7 @@ mod tests {
         assert!(Target::parse("game").is_ok() && Target::parse("launcher").is_ok() && Target::parse("x").is_err());
         let acc = tmp("two");
         let exe = "\"/h/PokopiaLauncher.AppImage\"".to_string();
+        // what an earlier launcher wrote: the game shortcut with its start option; the launcher's own spec for it has none and must still match
         let game = Spec { name: g, exe: exe.clone(), start_dir: "\"/h\"".into(), launch: "--play".into(), look: LOOK };
         let launcher = Spec { name: l, exe, start_dir: "\"/h\"".into(), launch: String::new(), look: LOOK };
         assert_ne!(short_id(&game.exe, &game.name), short_id(&launcher.exe, &launcher.name));
@@ -630,7 +636,8 @@ mod tests {
         let root = parse(&fs::read(acc.join("config/shortcuts.vdf")).unwrap()).unwrap();
         assert!(has_entry(&root, &game) && has_entry(&root, &launcher));
         // removing one leaves the other
-        assert!(remove_from_account(&acc, &game).unwrap());
+        let plain = Spec { name: game.name.clone(), exe: game.exe.clone(), start_dir: game.start_dir.clone(), launch: String::new(), look: LOOK };
+        assert!(remove_from_account(&acc, &plain).unwrap());
         let root = parse(&fs::read(acc.join("config/shortcuts.vdf")).unwrap()).unwrap();
         assert!(!has_entry(&root, &game) && has_entry(&root, &launcher));
         let _ = fs::remove_dir_all(&acc);
@@ -710,6 +717,73 @@ mod tests {
         assert!(!has_entry(&parse(&fs::read(cfg.join("shortcuts.vdf")).unwrap()).unwrap(), &s));
         assert!(!remove_from_account(&acc, &s).unwrap());
         let _ = fs::remove_dir_all(&acc);
+    }
+
+    /// One shortcut as Steam itself writes it when a player adds a game by hand: a random app id (not the CRC rule), StartDir without
+    /// quotes and with a trailing separator, `sortas`, a play time, a tag.
+    fn steam_written_entry(out: &mut Vec<u8>, key: &str, appid: u32, name: &str) {
+        let s = |out: &mut Vec<u8>, k: &str, v: &str| {
+            out.push(1);
+            out.extend_from_slice(k.as_bytes());
+            out.push(0);
+            out.extend_from_slice(v.as_bytes());
+            out.push(0);
+        };
+        let n = |out: &mut Vec<u8>, k: &str, v: u32| {
+            out.push(2);
+            out.extend_from_slice(k.as_bytes());
+            out.push(0);
+            out.extend_from_slice(&v.to_le_bytes());
+        };
+        out.push(0);
+        out.extend_from_slice(key.as_bytes());
+        out.push(0);
+        n(out, "appid", appid);
+        s(out, "AppName", name);
+        s(out, "Exe", &format!("\"C:\\Games\\{name}\\game.exe\""));
+        s(out, "StartDir", &format!("C:\\Games\\{name}\\"));
+        for k in ["icon", "ShortcutPath", "LaunchOptions"] {
+            s(out, k, "");
+        }
+        for (k, v) in [("IsHidden", 0), ("AllowDesktopConfig", 1), ("AllowOverlay", 1), ("OpenVR", 0), ("Devkit", 0)] {
+            n(out, k, v);
+        }
+        s(out, "DevkitGameID", "");
+        n(out, "DevkitOverrideAppID", 0);
+        n(out, "LastPlayTime", 0x6900_0000);
+        s(out, "FlatpakAppID", "");
+        s(out, "sortas", "");
+        out.push(0);
+        out.extend_from_slice(b"tags\0");
+        s(out, "0", "Favorites");
+        out.extend_from_slice(&[8, 8]); // tags, entry
+    }
+
+    #[test]
+    fn a_file_steam_wrote_keeps_its_bytes() {
+        let mut steam = Vec::new();
+        steam.extend_from_slice(b"\0shortcuts\0");
+        steam_written_entry(&mut steam, "0", 0x8123_4567, "First Game");
+        steam_written_entry(&mut steam, "1", 0x9abc_def0, "Second Game");
+        steam.extend_from_slice(&[8, 8]); // shortcuts, root
+        let mut root = parse(&steam).unwrap();
+        assert_eq!(write(&root), steam, "read and written back unchanged");
+        // ours goes after Steam's entries as "2": the old bytes stay as they were, up to the two closing marks
+        add_entry(&mut root, &spec(false), "");
+        let added = write(&root);
+        assert_eq!(&added[..steam.len() - 2], &steam[..steam.len() - 2]);
+        let mut ours = b"\x002\0".to_vec();
+        write_map(&mut ours, &entry_for(&spec(false), ""));
+        assert_eq!(&added[steam.len() - 2..added.len() - 2], &ours[..]);
+        assert_eq!(&added[added.len() - 2..], &[8, 8]);
+        // the stored app id is the one the art is named after
+        let back = parse(&added).unwrap();
+        let Val::Map(list) = &back[0].1 else { panic!() };
+        let Val::Map(entry) = &list[2].1 else { panic!() };
+        assert_eq!(entry[0], ("appid".into(), Val::Int(short_id(&spec(false).exe, &spec(false).name))));
+        // and removing it gives Steam's file back byte for byte
+        assert!(remove_entry(&mut root, &spec(false)));
+        assert_eq!(write(&root), steam);
     }
 
     #[test]

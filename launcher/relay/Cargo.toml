@@ -1,7 +1,7 @@
 [package]
 name = "pokopia-relay"
 version = "0.1.1"
-description = "Link Play relay for the Pokopia PC port (the launcher's relay, and a standalone server)"
+description = "Link Play relay for the Recompia PC port (the launcher's relay, and a standalone server)"
 edition = "2021"
 license = "GPL-3.0-or-later"
 

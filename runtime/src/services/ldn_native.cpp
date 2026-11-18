@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// ldn:u on pokopia-native's co-op module (see the comment below): the coop node from [net] and the nn::ldn commands as coop_ldn_* calls.
+// ldn:u on the parent project's co-op module (see the comment below): the coop node from [net] and the nn::ldn commands as coop_ldn_* calls.
 #include "ldn_native.h"
 
 #include "ldn_linkplay.h"
@@ -41,26 +41,24 @@
 namespace nxrt::services::ldn_impl {
 
 // =============================================================================================================================================
-// [net] protocol = native (the default): ldn:u on pokopia-native's co-op module (third_party/pokopia-coop, MIT @035bd9c), so this build
-// and pokopia-native builds of the same main meet in one Link Play session. The module owns the nn::ldn state machine, the 0x480
+// [net] protocol = native (the default): ldn:u on the parent project's co-op module (third_party/pokopia-coop, MIT @035bd9c), so this build
+// and the parent project builds of the same main meet in one Link Play session. The module owns the nn::ldn state machine, the 0x480
 // NetworkInfo, discovery (DNS-SD on the LAN), the transport (TCP control links in a star around the host, UDP for game datagrams) and the
 // game's UDP sockets on 169.254.S.0/24 (bsd: network.cpp routes descriptors 0x100.. to coop_vnet_*). Each IPC command is one coop_ldn_*
-// call (the structs are the SDK's, as the IPC carries them; results are nn::Result module 203). Wiring after pokopia-native's
+// call (the structs are the SDK's, as the IPC carries them; results are nn::Result module 203). Wiring after the parent project's
 // windows/src/coop/nxnative/ldn_glue.c.
 // Config ([net], read once when the first ldn:u service object is made): mode = auto | join:<IPv4>[:<port>] | off (auto: host on the LAN
 // while the game hosts, find LAN hosts with DNS-SD while it scans; without DNS-SD, Wine / Proton, a LAN sweep and mDNS answers: lan_sweep =
 // auto | off), internet (0/1: internet play, every link proves its room's code: through a relay the room list's code, else
-// COOP_X_ROOM_OPEN), relay (<IPv4>[:<port>], a pokopia-native coop relay, ours lists rooms; mode auto only), uid (32 hex digits; default: the install's persistent uid,
+// COOP_X_ROOM_OPEN), relay (<IPv4>[:<port>], a the parent project coop relay, ours lists rooms; mode auto only), uid (32 hex digits; default: the install's persistent uid,
 // coop_uid_load). mode = off or an invalid setting: local wireless off (the Link Play backend's answers with no lobby).
 // What peers compare before a join: main's build id (first 16 hex digits) and a mods fingerprint. The fingerprint is
-// coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; Pokopia's "Interact everywhere" while armed, the same
-// name pokopia-native adds as COOP_INTERACT_MOD) while one is set, then the co-op mods below; 0 when there is neither. The variant's
+// coop_mods_add(0, name) of the session variant's name (services_api.h ldnapi; the game's "Interact everywhere" while armed, the same
+// name the parent project adds as COOP_INTERACT_MOD) while one is set, then the co-op mods below; 0 when there is neither. The variant's
 // bits 12..14 of the local communication version are a Link Play (relay) thing and are not sent here: the game's version goes out as the
 // game gave it.
-// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order: Pokopia's Story co-op
-// (games/pkp/core/pkp_linkplay.cpp) adds COOP_STORY_MOD's name after the Interact one, so both on give pokopia-native's fingerprint
-// c75a2da0380038c1.
-// Not mapped (the module has no counterpart; pokopia-native cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
+// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order.
+// Not mapped (the module has no counterpart; the parent project cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
 // (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
 // built here from the node tables the game reads.
 // =============================================================================================================================================
@@ -101,6 +99,7 @@ public:
         }
         if (node) coop_destroy(node);   // finalizes: the host's links and the virtual sockets close
     }
+    std::unique_ptr<vnet::SessionPort> open_port(uint16_t port) override { return open_native_port(slot_.node.load(), port); }
 
     NativeSlot slot_;
 };
@@ -135,7 +134,7 @@ uint64_t coop_hook_mods(void*, char* what, size_t n) {
     std::vector<std::string> mods;
     if (!own_variant(&name, &mods)) name.clear();   // the variant's name is kept for the log while none is set: it counts only when one is
     if (name.empty() && mods.empty()) return 0;
-    // pokopia-native's coop_hmods order: the cheats (none here), the variant's name (when one is set), then the game module's co-op mods in
+    // The parent project's coop_hmods order: the cheats (none here), the variant's name (when one is set), then the game module's co-op mods in
     // its order (its own features, then the Modtopia gameplay mods, which count with or without a variant)
     uint64_t h = 0;
     std::string shown;
@@ -215,7 +214,11 @@ coop_node* native_node() {
     // module's room list: anyone finds it with the game's search, the game's own Link Code keeps a room private); without a relay every
     // player uses the module's open code, so a host and its visitors agree.
     const std::string relay = config_get_str("net", "relay", "");
-    const std::string room = internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
+    // A private room ([net] private_room, set per start by the launcher for a coop group, never written to an ini): every member
+    // uses the same code and the room is not listed on the relay. The retired room_code key stays ignored.
+    std::string priv = config_get_str("net", "private_room", "");
+    text::trim_blanks(priv);
+    const std::string room = !priv.empty() && internet ? priv : internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
     // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
     // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
     if (internet && !relay.empty() && mode.compare(0, 5, "join:") == 0) {
@@ -252,7 +255,7 @@ coop_node* native_node() {
     if (c.role == COOP_ROLE_JOIN)   // a join:<ip> left over from a visit: Invite Others makes a room nobody can reach (#239)
         NXLOG_W("net", "ldn: [net] mode = %s: this PC can only visit that host. To host (Invite Others to Visit), set [net] mode = auto in "
                 "%s, or pick Host on the launcher's Link Play page", mode.c_str(), *game::info().game_ini ? game::info().game_ini : "the ini file");
-    NXLOG_I("net", "ldn: protocol native (pokopia-native's co-op), mode %s, port %u, %s", role, c.port,
+    NXLOG_I("net", "ldn: protocol native (the parent project's co-op), mode %s, port %u, %s", role, c.port,
             c.scope == COOP_SCOPE_INTERNET ? "internet play (links prove the room code; not encrypted)"
             : c.scope == COOP_SCOPE_LOOPBACK ? "loopback peers only" : "LAN peers only");
     if (c.x_list) {
