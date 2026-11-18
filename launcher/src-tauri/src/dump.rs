@@ -291,7 +291,7 @@ fn scan_need(path: &str, want: Option<(String, String)>, need: Option<RomfsNeed>
     };
     if !base.is_dir() && !updates.is_dir() && direct.is_none() {
         report.errors.push(
-            "This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Pokopia_v2.0.1a).".to_string(),
+            "This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Game_v2.0.1a).".to_string(),
         );
         return report;
     }

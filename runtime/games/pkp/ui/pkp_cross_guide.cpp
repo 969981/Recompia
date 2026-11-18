@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the cross key guide follows the player's pad (pkp_cross_guide.h). Offsets in main of the 2.0.1a update.
+// Game layer: the cross key guide follows the player's pad (pkp_cross_guide.h). Offsets in main of the 2.0.1a update.
 //
 // The cross key guide's layout holds three sets of panes, one for each place the action's button can have in the cross:
 //   set 1  'Null_set_A'  the button at the right   the cross to its left, the text to the right

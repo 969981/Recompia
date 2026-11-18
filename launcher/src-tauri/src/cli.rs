@@ -10,7 +10,7 @@ use crate::{lan, play, relay};
 
 /// `--host [options]`: the relay alone, no window, log lines on stdout, until Ctrl+C. Listens on 0.0.0.0:47610 by default. The options are
 /// the relay crate's (pokopia_relay::cli, shared with the standalone `pokopia-relay` server); `--no-udp`: no relay UDP (game datagrams stay
-/// on the TCP links, as with pokopia-native's relay).
+/// on the TCP links, as with the parent project's relay).
 pub fn run_headless(args: &[String]) -> i32 {
     #[cfg(windows)]
     win_console::attach_and_hook_ctrl_c();

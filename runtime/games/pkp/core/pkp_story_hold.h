@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op's rule for quests that change a world ([pkp] link_story_coop, pkp_linkplay.h). A story quest's completion
+// Game layer: Story co-op's rule for quests that change a world ([pkp] link_story_coop, pkp_linkplay.h). A story quest's completion
 // runs up to four effect commands of its table row (and four more in its second phase): most are the player's own (rewards, flags of
 // the story), some change who lives in the town or what stands in it. Done as a visitor, such an effect would mark the visitor's own
-// save ("this Pokémon lives in my town") while the Pokémon and its home were made in the host's world, or not at all: the game refuses
+// save ("this creature lives in my town") while the creature and its home were made in the host's world, or not at all: the game refuses
 // the arrival to a visitor (0x9bdf50), and a world's residents come from that world's own save, never from the player's record.
 //
 // So while the player is a visitor, a quest with such an effect is not completed: the quest pump (0x11b600) sees its "done" flag as not

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Online presence: while pkp.exe runs, and only while the player has it switched on, tells api.recompia.com that this player is online
 //! (hello, then a heartbeat every half minute, then leave). What is sent is exactly what the setting's notice and recompia.com say: the
-//! online name the player typed (none: the server shows "anonymous"), the build, the kind of device and the Pokemon-at-home count of the
+//! online name the player typed (none: the server shows "anonymous"), the build, the kind of device and the creatures-at-home count of the
 //! save (home_count.rs). Never the save, the profile nickname or the account uid.
 //!
 //! The switch is `[pkp] online_presence` in pkp.ini (runtime/games/pkp/core/pkp_settings_table.h, not read by the runtime), so the

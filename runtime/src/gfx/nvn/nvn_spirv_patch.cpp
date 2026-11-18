@@ -1120,7 +1120,7 @@ bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t
                 continue;
             case oStore:
                 // the rank kept in a GPU register (a variable stored more than once): not followed. NVN's rank is dead after its add
-                // (pokopia-native's note: 560a0262fe47818a); here 0f9696499923d6d3 copies it into a float register that is overwritten
+                // (the parent project's note: 560a0262fe47818a); here 0f9696499923d6d3 copies it into a float register that is overwritten
                 // before it is read
                 if (wc >= 3 && (fl(w[2]) & CHECKED) == K && w[1] < bound && nst[w[1]] > 1) continue;
                 if (wc >= 3) give(w[1], fl(w[2]), gr(w[2]));

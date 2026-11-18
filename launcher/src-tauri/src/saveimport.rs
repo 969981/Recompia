@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Save import: brings a Pokopia save from Eden, Ryujinx or any folder holding the game's save layout into the save the runtime plays.
+// Save import: brings a game save from Eden, Ryujinx or any folder holding the game's save layout into the save the runtime plays.
 // The finder and the layout test follow pokopia-native (MIT), nxs2.py eden_saves() / import_save() @7c3655d; the Ryujinx scan, the
 // committed-volume placement and the staging/rollback are new.
 //
@@ -45,7 +45,7 @@ fn fwd(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
-/// A folder is a Pokopia save when it holds the game's G00 and S00 folders (nxs2.py import_save).
+/// A folder is a game save when it holds the game's G00 and S00 folders (nxs2.py import_save).
 pub fn is_save_folder(d: &Path) -> bool {
     d.join("G00").is_dir() && d.join("S00").is_dir()
 }
@@ -267,7 +267,7 @@ fn put_back(old: &[PathBuf], bacc: &Path) {
 /// caller has checked that the game is not running.
 pub fn import(save_dir: &Path, key: &str, src: &Path) -> Result<Report, String> {
     if !is_save_folder(src) {
-        return Err(format!("{} holds no Pokopia save (no G00 and S00 folders).", fwd(src)));
+        return Err(format!("{} holds no game save (no G00 and S00 folders).", fwd(src)));
     }
     let acc = save_dir.join("account");
     let root = acc.join(key);

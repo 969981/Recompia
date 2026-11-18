@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus: the game's menus over play (menu_in_game; split out of pkp_menu.cpp).
+// Game layer, the mouse in the game's menus: the game's menus over play (menu_in_game; split out of pkp_menu.cpp).
 #include "ui/pkp_menu.h"
 #include "ui/pkp_menu_internal.h"
 #include "input/pkp_play.h"
 
 #include <cstdio>
-#include <cstring>
 
 #include "nxrt/log.h"
 
@@ -19,24 +18,11 @@ using namespace menu_detail;
 // every frame and its result is reused. Debounced: up after kOpenHits positive polls in a row, down after kCloseFrames negative frames.
 // A drawn key guide layout from [pkp] menu_key_guides (the title's "(-) Settings"): a screen with no selection cursor that still takes clicks.
 // Gameplay's HUD draws the same key guide layout (Run / Bag / Focus), so it counts only while the follow camera is not running (the title).
-// The pause menu (+ over play): its 9 CL_0300_parts_btn_mainmenu_* buttons and its key guide (menu_log 2 run, issue #354). The grid is
-// the same in every area (the home opens it from its own layout); pause_menu_up() publishes it for the key guide clients (pkp_save_now.cpp).
 bool key_guide_drawn(const State& s) {
     if (s.key_guides.empty() || play_follow_live()) return false;
     for (const Layout& L : s.layouts)
         if (L.visible > 0 && s.key_guides.count(L.id)) return true;
     return false;
-}
-
-// The pause menu flag (any thread), published at every exit of menu_in_game. The pause menu's main view: the selected entry is one of its
-// 9 CL_0300_parts_btn_mainmenu_* buttons, in the pause layout (the Pokédex and the other panels opened from it share its key guide set but
-// select other entries).
-bool publish(State& s) {
-    // The pause menu's 9 buttons, whatever layout instance holds them: the home and the other areas open the same grid from their own
-    // layout (the sub id differs), and the panels opened from it (the Pokédex, the Settings screen) select other entries.
-    const bool pause = s.ig_up && std::strncmp(s.ig_focus, "CL_0300_parts_btn_mainmenu_", 27) == 0;
-    s.pause_up.store(pause, std::memory_order_relaxed);
-    return s.ig_up;
 }
 
 bool menu_in_game(bool in_game) {
@@ -53,9 +39,7 @@ bool menu_in_game(bool in_game) {
         if (s.ig_up && log_ok(true)) NXLOG_I(kTag, "menu: in-game menu closed (layout %u/%u, the game left play)", s.ig_lay_id, s.ig_lay_sub);
         s.ig_up = false;
         s.ig_hits = s.ig_miss = s.ig_tick = 0;
-        // Outside play the pause menu is found by the menu scan (menu_frame), which owns the flag there: the home stops calling
-        // ProcessInput while its menu is up, and publishing here (before the frame callbacks) would clear what the scan set.
-        return in_game ? publish(s) : false;
+        return false;
     }
     // Photo mode's own screen (style tabs, zoom bar) has cursors but is not a menu while the photo camera takes look input
     // (pkp_photo_camera.cpp); a dialog over it stops that input, and play mode then leaves play on its own.
@@ -85,17 +69,15 @@ bool menu_in_game(bool in_game) {
             ++s.n_ig_opens;
             if (s.cursor < 0 || s.focused < 0) {   // a key guide screen (title): no cursor
                 s.ig_lay_id = s.ig_lay_sub = 0;
-                s.ig_focus[0] = 0;
                 std::snprintf(s.ig_cursor, sizeof s.ig_cursor, "%s", "(key guide)");
                 if (log_ok(true)) NXLOG_I(kTag, "menu: in-game menu up: a key guide screen with no cursor (%zu layouts); clicks go to the key guides, else A", s.layouts.size());
-                return publish(s);
+                return s.ig_up;
             }
             const Pane& c = s.panes[s.cursor];
             const Pane& f = s.panes[s.focused];
             s.ig_lay_id = c.lay_id;
             s.ig_lay_sub = c.lay_sub;
             std::snprintf(s.ig_cursor, sizeof s.ig_cursor, "%s", c.name);
-            std::snprintf(s.ig_focus, sizeof s.ig_focus, "%s", f.name);
             if (log_ok(true))
                 NXLOG_I(kTag,
                         "menu: in-game menu up: layout %u/%u (cursor '%s' on '%s', entry layout %u/%u), %zu layouts, %zu visible panes; "
@@ -110,22 +92,7 @@ bool menu_in_game(bool in_game) {
             if (log_ok(true)) NXLOG_I(kTag, "menu: in-game menu closed (layout %u/%u, cursor '%s')", s.ig_lay_id, s.ig_lay_sub, s.ig_cursor);
         }
     }
-    // The selected entry, every frame while up: the pause menu's panels (the Pokédex, ...) change it without closing the menu.
-    if (s.ig_up) {
-        if (s.cursor >= 0 && s.focused >= 0) {
-            const Pane& c = s.panes[s.cursor];
-            const Pane& f = s.panes[s.focused];
-            s.ig_lay_id = c.lay_id;
-            s.ig_lay_sub = c.lay_sub;
-            std::snprintf(s.ig_cursor, sizeof s.ig_cursor, "%s", c.name);
-            std::snprintf(s.ig_focus, sizeof s.ig_focus, "%s", f.name);
-        } else {
-            s.ig_focus[0] = 0;
-        }
-    }
-    return publish(s);
+    return s.ig_up;
 }
-
-bool pause_menu_up() { return st().pause_up.load(std::memory_order_relaxed); }
 
 }  // namespace nxrt::games::pkp

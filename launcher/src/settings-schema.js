@@ -33,8 +33,6 @@ const controls = (section, key) => ({ file: 'controls', section, key });
 const pkp = (section, key) => ({ file: 'pkp', section, key });
 const config = (key) => ({ file: 'config', section: '', key });
 
-/** The logo and icon choices: 'Recompia' is a name and stays in English. */
-const LOOKS = [{ value: 'recompia', label: 'Recompia' }, { value: 'classic', label: t('Classic') }];
 
 const keyOf = (at) => (at.file === 'config' ? at.key : `${at.section}.${at.key}`);
 const rawOf = (src, at) => src[at.file]?.[keyOf(at)];
@@ -233,9 +231,9 @@ const AT_CLOCK_SCOPE = pkp('time', 'clock_scope');
 const AT_EVENT_PRESET = pkp('time', 'event_preset');
 const TIMED_EVENTS = [
   { id: 'copycat', label: t('Copycat Challenge (April 2, 2026)') },
-  { id: 'hoppip', label: t('More Spores for Hoppip (March 12, 2026)') },
-  { id: 'bulbasaur', label: t("Bulbasaur's Jump Rope Contest (April 21, 2026)") },
-  { id: 'sableye', label: t("Sableye's Gem Hunt (May 1, 2026)") },
+  { id: 'hoppip', label: t('Timed event (March 12, 2026)') },
+  { id: 'bulbasaur', label: t('Timed event (April 21, 2026)') },
+  { id: 'sableye', label: t('Timed event (May 1, 2026)') },
 ];
 const clockScope = (src) => (has(src, AT_CLOCK_SCOPE) && word(rawOf(src, AT_CLOCK_SCOPE)) === 'all' ? 'all' : 'user');
 const scopeNeedsReset = (src) => clockScope(src) === 'all';
@@ -287,7 +285,9 @@ const WRITE = {
 // ---- the page ---------------------------------------------------------------------------------------------------------------------
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
+const SOURCE_URL = 'https://github.com/Dittobyte/Recompia';
 const DISCORD_URL = 'https://discord.recompia.com';
+const PRIVACY_URL = 'https://github.com/Dittobyte/Recompia/blob/main/PRIVACY.md';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
@@ -319,10 +319,10 @@ const GAMEPLAY = {
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
   },
   pokemon_cap_50: {
-    label: t('More Pokémon in town'),
-    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.') }) }],
+    label: t('More creatures in town'),
+    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
-  pokemon_cap_limit: { label: t('Pokémon in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
+  pokemon_cap_limit: { label: t('Creatures in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
@@ -630,7 +630,7 @@ export const SECTIONS = [
           },
           {
             id: 'online_note', type: 'note',
-            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
+            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many creatures have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
           },
           { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
           { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },
@@ -638,7 +638,7 @@ export const SECTIONS = [
           { id: 'online_events', label: t('Online events'), type: 'toggle', ...fromSchema(pkp('pkp', 'online_events')) },
           {
             id: 'online_events_note', type: 'note',
-            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time, such as Apples to Applin, can start. Nothing is sent. Takes effect the next time the game starts.') }),
+            note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
         ],
       },
@@ -661,15 +661,6 @@ export const SECTIONS = [
         rows: [
           { id: 'gameplay_note', type: 'note', note: () => ({ text: t('New ways of playing: switch each one on or off here. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).') }) },
           ...gameplayRows(),
-        ],
-      },
-      {
-        title: t('Logo and icon'),
-        rows: [
-          // launcher.json; the launcher puts the choice in place (writer.js -> apply_branding, src-tauri/src/branding.rs)
-          { id: 'logo', label: t('Logo'), type: 'segmented', at: config('logo'), def: 'recompia', options: LOOKS },
-          { id: 'icon', label: t('Icon'), type: 'segmented', at: config('icon'), def: 'recompia', options: LOOKS },
-          { id: 'look_note', type: 'note', note: () => ({ text: t('Classic is the bubble-letter logo and R icon of earlier versions. The icon changes for the launcher, the game and the Steam shortcut (Steam shows it after a restart). Windows can take a moment to redraw an icon it has already shown.') }) },
         ],
       },
       {
@@ -786,9 +777,10 @@ export const SECTIONS = [
           { id: 'language', label: t('Language'), type: 'language' },
           { id: 'licence', label: t('Licence'), type: 'info', value: 'GPL-3.0-or-later' },
           { id: 'built_with', label: t('Built with'), type: 'info', value: t('Tauri 2, Lucide (ISC), Inter (OFL)') },
-          { id: 'repo', label: t('Source code'), type: 'info', actions: [open(REPO_URL, 'GitHub')] },
+          { id: 'repo', label: t('Source code'), type: 'info', actions: (env) => [open(`${SOURCE_URL}/tree/v${env.version}`, 'GitHub')] },
+          { id: 'licences', label: t('Licences'), type: 'info', actions: [{ act: 'licences-open', label: t('Open folder'), icon: 'folder-open' }] },
+          { id: 'privacy', label: t('Privacy'), type: 'info', actions: [open(PRIVACY_URL, 'GitHub')] },
           { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
-          { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: t('Artwork by Koi, hand drawn') },
           { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },
           { id: 'bug', label: t('Report a bug'), type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],

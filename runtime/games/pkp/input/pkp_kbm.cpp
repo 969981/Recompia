@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, keyboard and mouse button prompts (pkp_kbm.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/pc_features.md).
+// Game layer, keyboard and mouse button prompts (pkp_kbm.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/pc_features.md).
 //
 // The game writes button prompts as text tags: "^30~153~" is the glyph of whatever pad button does input action 153 ("pick up"). The text
 // layout (0x1f90ca0) parses the tag and calls the tag handler stored in its text system (0xbfbe08 -> 0xe922dc). For type 0x30 the handler asks

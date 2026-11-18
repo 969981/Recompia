@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: what the graphics back end may know about its rendering (nxrt/game_render.h, game::Info::render).
+// Game layer: what the graphics back end may know about its rendering (nxrt/game_render.h, game::Info::render).
 #include <volk.h>
 
 #include "nxrt/game_render.h"
@@ -30,7 +30,7 @@ constexpr game::ToneMapMatch kToneMaps[] = {
     {game::ToneMapKind::LutShaper, 0, 5.55555582f, 0.0479959995f},
 };
 
-// The loop guards, pokopia-native's (1.4.0) in this translator's shaders. Their 634565ab (D-1's hang on an RTX 3050 Laptop) is two shaders
+// The loop guards, the parent project's (1.4.0) in this translator's shaders. Their 634565ab (D-1's hang on an RTX 3050 Laptop) is two shaders
 // here, 3a718dcc49952e74 and dc36e3636f3c2221: a loop to c3 word 0 over 5-texel items of cp_t_cb0_10. Their 560a0262 (D-11), the
 // clustered light lists, is four variants here: 0f9696499923d6d3, 95a73c014ee1eb95, 99a5312bd3dbfc27 and b81c48ff486acef4, each with
 // loops to c3 words 12 and 13 (compared as unsigned) over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. An RTX 3060 log that fell to
@@ -52,7 +52,7 @@ constexpr game::LoopGuard kLoopGuards[] = {
 // The 2D after the picture (#572): the composite (the LUT tone map above) is the last full-screen pass into the window texture; the HUD,
 // menus, text and the world markers (speech bubbles, "This way!") are drawn after it into the same texture as vertex-input draws, the fades
 // as full-screen draws without vertex inputs. The camera menu and the album draw the composite into a corner of it for their blurred
-// background, also without vertex inputs. Based on pokopia-native's (MIT) in-game findings for the same build (its wide view and
+// background, also without vertex inputs. Based on the parent project's (MIT) in-game findings for the same build (its wide view and
 // anti-aliasing notes: an effect between the composite and the HUD leaves the HUD sharp, a squeeze of the later draws moves only the 2D).
 // The scene stretch (#571). With [upscale] scene_scale below 100 the scene passes, the bloom, the composite (tone map) and the colour pass
 // after it all draw into the top-left part of the 1920x1080 targets (scissor = the part, traced at 50%: 960x540). The enlargement comes after

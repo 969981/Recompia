@@ -9,7 +9,7 @@ const list = [item('dex_5', 'pokedex', 90), item('dex_25', 'pokedex', 10), item(
 
 const groups = groupList(list);
 check(groups.map((g) => g.cat).join() === 'pokedex,habitats,town,dishes', 'groups in the hub\'s order');
-check(groups[0].items.length === 2 && groups[0].title === 'Pokédex' && groups[2].title === 'Towns', 'items sit under their group, with our titles');
+check(groups[0].items.length === 2 && groups[0].title === 'Creature list' && groups[2].title === 'Towns', 'items sit under their group, with our titles');
 check(groupList([item('x', 'newgroup', 1)])[0].title === 'Newgroup' && groupList([item('x', '', 1)])[0].title === 'Other', 'an unknown group still has a title');
 
 check(earnedCount(list, { dex_5: 1, dish_1: 2, other_id: 3 }) === 2, 'earned counts only the list\'s ids');

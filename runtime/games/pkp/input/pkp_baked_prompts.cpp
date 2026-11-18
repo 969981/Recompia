@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, button prompts drawn into the game's art (pkp_baked_prompts.h).
+// Game layer, button prompts drawn into the game's art (pkp_baked_prompts.h).
 //
 // Some Switch A glyphs are not the UI atlas's sprite (pkp_kbm.cpp overwrites that one) but part of a bigger picture the game loads from its
 // files, so they kept the Switch letter while every other prompt showed the pad's or the keyboard's (#730, #733). Each such picture is

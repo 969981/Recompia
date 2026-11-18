@@ -2,7 +2,7 @@
 // Pieces of the XAudio2 sink's output-device recovery that need no device, so they can be tested: the silent stand-in clock and the
 // retry delays. When the device is lost (headphones unplugged, Bluetooth gone, the HDMI monitor off) the sink keeps the audio renderer's
 // pacing alive on a StandInClock (a queue that drains at the sample rate on the host clock and plays nothing) while a worker thread
-// tries to open the output device again. The approach follows pokopia-native's silent sink (windows/src/nxrt/hle/audio_silent.c): the
+// tries to open the output device again. The approach follows the parent project's silent sink (windows/src/nxrt/hle/audio_silent.c): the
 // game's audio threads must pace exactly as they would with sound, or the game stalls when the device disappears.
 // Time is passed in (seconds on any steady clock), never read here.
 #pragma once

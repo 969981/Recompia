@@ -74,7 +74,7 @@ const DISCORD_URL = 'https://discord.recompia.com';
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home">
     <div class="home-hero">
-      <h1 class="display">${brandImg('logo', 'class="home-logo" alt="Pokopia"')}</h1>
+      <h1 class="display">${brandImg('logo', 'class="home-logo" alt="Recompia"')}</h1>
       <div class="home-actions">
         <button class="btn primary big" id="primary"></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>

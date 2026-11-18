@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: text spacing on displays wider than 16:9 (#176; split out of pkp_play.cpp).
+// Game layer, play mode: text spacing on displays wider than 16:9 (#176; split out of pkp_play.cpp).
 #include "input/pkp_play_internal.h"
 
 #include <cstdint>

@@ -1,4 +1,4 @@
-Pokopia PC @VERSION@ for Apple Silicon Macs
+Recompia @VERSION@ for Apple Silicon Macs
 
 1. You need an M1 or newer Mac (arm64, macOS 13 or newer). Nothing else: the game, the runtime and the shader translator are Mac programs, and Vulkan comes from MoltenVK, which this release carries.
 2. Open PokopiaLauncher.app and pick your dump folder (base/ and updates/<version>/, each with exefs/ and romfs/) or a .nup or .nx package. Version 2.0.1a is required.

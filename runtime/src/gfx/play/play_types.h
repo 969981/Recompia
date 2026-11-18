@@ -3,12 +3,12 @@
 //
 // Vocabulary:
 //   input    a physical thing on the keyboard or mouse: a key (SDL scancode), a mouse button or a wheel notch.
-//   action   what the player wants the game to do (Pokopia: "move_forward", "btn_a", "dpad_up"). The game only knows the Switch pad,
+//   action   what the player wants the game to do (the game: "move_forward", "btn_a", "dpad_up"). The game only knows the Switch pad,
 //            so every action is tied to a Switch output (buttons and stick directions) by the [switch] table of the settings file.
 //   context  where the player is: in play, on the map, in a menu.
 //            `all` is a layer under every context.
 // The action and context slots are generic; the registered game may name them and give their factory outputs and the launcher's labels
-// (GameVocabulary below). Pokopia uses the generic names.
+// (GameVocabulary below). The game uses the generic names.
 //   trigger  how an input turns into an action: press (while held), tap (a short pulse after a quick release), hold (after a delay,
 //            while held), toggle (each press flips it), doubletap (a second quick press, while held).
 // A binding says "in this context, this input drives this action with this trigger".
@@ -141,7 +141,7 @@ struct PadSettings {
     bool label_abxy = false;       // false (default): Switch layout, by position (right = Switch A, bottom = B); true: Xbox layout, by label (A = A)
     double stick_deadzone = 0.10;  // left stick, radial, 0..0.5, applied before the game's own dead zone
     double right_deadzone = 0.10;  // right stick (looking), same rule
-    double stick_max = 0.92;       // left stick, 0.5..1: the fraction of the travel that counts as full deflection (1 = off). A pad whose stick tops out below 1 (a worn pad, a DualSense near 0.96) reaches full speed with this lowered. Default 0.92 as in pokopia-native
+    double stick_max = 0.92;       // left stick, 0.5..1: the fraction of the travel that counts as full deflection (1 = off). A pad whose stick tops out below 1 (a worn pad, a DualSense near 0.96) reaches full speed with this lowered. Default 0.92 as in the parent project
     double right_stick_max = 0.92; // right stick (looking), same rule
     bool invert_y = false;         // right stick up looks down (in play only: menus and the map keep the stick as it is). Stacks with the game's own option.
     double look_sens = 1.0;        // 0.25..3: the right stick's deflection is multiplied by this in play (below 1 the turn speed tops out lower, above 1 it tops out sooner)

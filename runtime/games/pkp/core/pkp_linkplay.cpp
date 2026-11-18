@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, Link Play "Interact everywhere" and Story co-op (pkp_linkplay.h). Based on pokopia-native (MIT) windows/src/coop/
+// Game layer, Link Play "Interact everywhere" and Story co-op (pkp_linkplay.h). Based on pokopia-native (MIT) windows/src/coop/
 // coop_interact.c and windows/docs/coop-interact.md, story-coop.md @555813a.
 //
 // The game keeps a session's permissions in a 36-bit mask (GameMgr+0x8c; bits 32-35, the byte at +0x90, are online / host / visitor) and
@@ -9,14 +9,14 @@
 // 0xb1030, `movk x13, #1, lsl #32` in the story-area online block, x13 holds the pattern's bits 0-31 (0x87800000, set at 0xb1020) and the
 // movk adds bit 32; x22 is the session's Spectator flag (w3 of the call, clear in every story area). The midhook there (recomp/games/pkp/
 // main.sites) swaps the pattern for the normal one while the flag is clear: the mask is then exactly Palette Town's with Spectator Mode Off
-// (pokopia-native measured fe ff ff 5f 03 for a host, fe ff ff 5f 05 for a visitor). Palette Town, the other type-3 towns, offline play, the
-// host's Spectator setting, the session flag and the advertise data are not touched. Known gaps (pokopia-native): the visitor's join notice
+// (the parent project measured fe ff ff 5f 03 for a host, fe ff ff 5f 05 for a visitor). Palette Town, the other type-3 towns, offline play, the
+// host's Spectator setting, the session flag and the advertise data are not touched. Known gaps (the parent project): the visitor's join notice
 // and the host's settings row still say Spectator Mode; a visitor's bag goes home with it as in Palette Town.
 //
 // Story co-op adds bit 0 to that pattern for every player (pkp_linkplay.h) and the talk-condition sites. What a player's story reads and
 // writes is their own save: the m_story object (story quest history at +0x1060, ids 1-800, the DLC's at +0x1860; m_storyStageState,
 // m_charaTownFlag) sits at save root (main+0x3561930) + 0x4a26a0, inside m_saveCommon (root +0xf8 up to m_saveStage at +0x7419a0), which is
-// CMNDAT.BIN. A visitor keeps its own m_saveCommon in a session (its bag, coins and Pokédex are its own), so its story runs on its own save.
+// CMNDAT.BIN. A visitor keeps its own m_saveCommon in a session (its bag, coins and creature list are its own), so its story runs on its own save.
 #include "core/pkp_linkplay.h"
 #include "core/pkp_settings.h"
 
@@ -39,12 +39,12 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-// Pokopia 2.0.1 main (build 76a489f3...): the mask builder and its story-area online block.
+// The game 2.0.1 main (build 76a489f3...): the mask builder and its story-area online block.
 constexpr const char* kBuild201 = "76a489f3bd3642fa5e18bd83d32c98ba";
 constexpr InteractSite kSites[] = {
     {kBuild201, 0xb0f60, 0xb1030, 0xf2c0002du},
 };
-// Story co-op's sites in the same main (words read from main; pokopia-native docs/story-coop.md, coop_interact.c g_story):
+// Story co-op's sites in the same main (words read from main; the parent project docs/story-coop.md, coop_interact.c g_story):
 // - Talk: the talk handler 0x4c024c gives an online player who is not the host a visitor's reply; at 0x4c06d8 (`orr w8, w25, w0`) w0 is
 //   IsHost's answer, and x0 = 1 there makes a visitor take the host's path;
 // - Role: the mask builder's first instruction after the frame (`mov x19, x0`): the builder starts, the story is not kept until the mask
@@ -222,7 +222,7 @@ void install(const FeatureInstall& in) {
         want_story = false;
     }
     if (want_story && !on) {
-        NXLOG_I(kTag, "Story co-op ([pkp] link_story_coop): turns Interact everywhere on with it, as pokopia-native's does");
+        NXLOG_I(kTag, "Story co-op ([pkp] link_story_coop): turns Interact everywhere on with it, as the parent project's does");
         on = true;
     }
     if (!on) {

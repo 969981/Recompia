@@ -41,7 +41,7 @@ std::string u32_to_utf8(const std::u32string& s, size_t from = 0, size_t to = st
     return out;
 }
 
-// Typographic punctuation the overlay's font has no glyph for, as plain ASCII, for the game's header and guide text (Pokopia's name question
+// Typographic punctuation the overlay's font has no glyph for, as plain ASCII, for the game's header and guide text (the game's name question
 // is "What\u2019s your name?", drawn as "What?s" otherwise).
 std::string fold_punct(const std::string& s) {
     std::u32string in = utf8_to_u32(s), out;

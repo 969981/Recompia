@@ -6,13 +6,13 @@
 // test mains. Every part is optional. A null table or an empty string turns off what needs it (no hooks, no
 // probes, neutral title facts), so a new title can start with the identity alone and add tables as its hooks are found.
 //
-// What each table is for, and where the Pokopia one lives:
+// What each table is for, and where the game one lives:
 //   title_defaults   services::TitleProfile defaults (main.npdm, control.nacp); ini keys still override them    games/pkp/core/pkp_core.cpp
-//   timestep         the sites of the real-time frame step (nxrt/timestep.h, Sites)                           (Pokopia sets none)
+//   timestep         the sites of the real-time frame step (nxrt/timestep.h, Sites)                           (the game sets none)
 //   probes           test-tooling game-state probes and script steps (nxrt/tt.h, GameProbes)                  games/pkp/test/pkp_tt_probe.cpp
 //   play_defaults    factory controls.ini text and the bindings added by later revisions (play_types.h)       games/pkp/core/pkp_data.cpp
 //   play             play-mode hooks: aim, camera, display, menu pointer, F1 entries (play_game.h)            games/pkp/core/pkp_game.cpp
-//   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (Pokopia sets none)
+//   prompts          the game's button icon textures (play/prompt_resolve.h, PromptGame)                      (the game sets none)
 //   poll_sleeps      SleepThread calls inside the game's own polling loops, shortened (PollSleep below)        games/pkp/core/pkp_core.cpp
 //   poll_waits       SleepThread calls of polling loops that end when the polled value changes (PollWait below) games/pkp/core/pkp_core.cpp
 //   settings_doc     the keys of the game's own game-ini section, described (nxrt/setting_doc.h)              games/pkp/core/pkp_settings_table.cpp
@@ -82,9 +82,9 @@ enum class Platform : uint8_t { Switch1, Switch2 };
 struct Info {
     // ---- identity ----
     const char* id = "";                    // short id, also the stem of the game's file names: "pkp"
-    const char* title = "";                 // the game's own name: "Pokémon Pokopia"
-    const char* product = "";               // the PC port's name in window titles and dialogs: "Pokémon Pokopia PC"
-    const char* short_title = "";           // a short name for file headers: "Pokopia" (empty: product)
+    const char* title = "";                 // the name shown in dialogs and file headers: "Recompia"
+    const char* product = "";               // the PC port's name in window titles and dialogs: "Recompia"
+    const char* short_title = "";           // a short name for sentences ("Choose your game files again in the Recompia launcher"): "Recompia" (empty: product)
     uint64_t program_id = 0;                // the Switch title id
     const char* version = "";               // the game version the hooks were found in: "2.0.1"
     uint64_t main_base = 0x7100000000ull;   // where main is mapped (the lifter's base for it): hook offsets are relative to this
@@ -99,7 +99,7 @@ struct Info {
 
     // ---- game data ----
     // The RomFS of the supported version holds at least this many files and bytes (0: not checked). A RomFS with less is missing files and
-    // the game fails at an unpredictable point when it reaches one (a null read at start for Pokopia, fork #128), so the exe stops at start
+    // the game fails at an unpredictable point when it reaches one (a null read at start for the game, fork #128), so the exe stops at start
     // with a message instead. Extra files (desktop.ini and the like) pass.
     uint32_t romfs_min_files = 0;
     uint64_t romfs_min_bytes = 0;

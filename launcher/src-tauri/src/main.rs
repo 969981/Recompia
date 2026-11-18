@@ -28,6 +28,8 @@ mod ini;
 mod lan;
 mod modtopia_ffi;
 mod mods;
+mod mods_additions;
+mod mods_carried;
 mod mods_catalog;
 mod mods_cmds;
 mod mods_install;
@@ -52,6 +54,7 @@ mod public_ip;
 mod readiness;
 use pokopia_relay as relay;
 mod relay_cmds;
+mod release_names;
 mod releases;
 mod repair;
 mod repair_cmds;
@@ -146,6 +149,7 @@ fn main() {
             update_cmds::install_version,
             update_cmds::cancel_update,
             open::open_link,
+            open::open_licenses_dir,
             config::save_config,
             readiness::get_overview,
             dialogs::pick_folder,

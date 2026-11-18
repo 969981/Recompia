@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // nn::codec hardware video decoders (VP9, VP8) + their fences on the host, decoding with libvpx. See include/nxrt/video_codec.h.
 //
-// Calling conventions, read off Pokopia's subsdk0 (movie::detail::*, which forwards its registers unchanged to nn::codec) and off the
+// Calling conventions, read off the game's subsdk0 (movie::detail::*, which forwards its registers unchanged to nn::codec) and off the
 // mangled names (Mario Kart World's variants differ where noted):
 //   MakeDecodeImagePreference(u16 w, u16 h, OutputFormat, CodecMode) -> 64-byte VideoDecoderImagePreference returned through x8
 //   CalculateDecoderImagePoolBuffer(size_t* size, size_t* align, const Preference*, u32 count)
@@ -721,7 +721,7 @@ void gs_trywait(::Ctx* c) {   // (const NativeSyncHandle&) -> bool
 }
 
 // ---- nn::movie extractor trace ([media] movie_trace) ------------------------------------------------------------------------------
-// Pokopia's movie::Extractor (subsdk0) runs the SDK's nn::movie::MediaExtractor in media source mode: its ExtractorSourceModeThread
+// The game's movie::Extractor (subsdk0) runs the SDK's nn::movie::MediaExtractor in media source mode: its ExtractorSourceModeThread
 // reads the file through the game's ClientStreamReader (8 KiB at a time) and appends it with AppendMediaSourceData; the extractor
 // (nandroid MatroskaExtractor for WebM) parses from that. movie::Extractor::SetDataSource then checks the track count and the
 // "container-mime" of track 0 against the ContainerType (3 = WebM) and answers 0x4000 when they disagree, which the game's player

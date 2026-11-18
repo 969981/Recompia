@@ -20,7 +20,7 @@ Run it as a service under its own user (`sudo useradd --system --no-create-home 
 `/etc/systemd/system/pokopia-relay.service`:
 
     [Unit]
-    Description=Pokopia Link Play relay
+    Description=Recompia Link Play relay
     After=network-online.target
     Wants=network-online.target
 

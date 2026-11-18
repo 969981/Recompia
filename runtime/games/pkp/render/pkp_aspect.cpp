@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: display aspects other than 16:9 (ultrawide, 16:10) for the scene cameras and the UI layout camera (split out
+// Game layer, play mode: display aspects other than 16:9 (ultrawide, 16:10) for the scene cameras and the UI layout camera (split out
 // of pkp_play.cpp).
 #include "input/pkp_play_internal.h"
 

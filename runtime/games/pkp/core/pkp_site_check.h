@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the check a module makes of its hook sites once main is loaded, before it arms its hooks: every site holds the
+// Game layer: the check a module makes of its hook sites once main is loaded, before it arms its hooks: every site holds the
 // instruction word the module was written against, and a midhook's site is a hook site of the lifted game libraries (the lifter makes
 // it a function of its own; an entry hook's address is a lifted function either way).
 #pragma once

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: native render resolution (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the 2.0.1 update.
+// Game layer, play mode: native render resolution (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the 2.0.1 update.
 //
 // Render resolution. KTGL's dynamic-resolution manager (the object at [0x35618d0]) sizes everything from a level table of 34 sizes
 // (0x2849658 widths, 0x28496e0 heights: 960x540 + 32x18 per level, then 2560x1440, 3840x2160, 7680x4320), read only through two getters

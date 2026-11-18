@@ -92,12 +92,12 @@ Both devices must be switched on, awake and online for this step. They do not ha
 ## Step 6: Share the backup folder
 
 1. On device A, click **Add Folder**.
-2. **Folder Label:** `Pokopia backups`. Leave **Folder ID** as it is; you will see it again on device B.
+2. **Folder Label:** `Recompia backups`. Leave **Folder ID** as it is; you will see it again on device B.
 3. **Folder Path:** paste the address you copied in Step 2.
 4. Open the **Sharing** tab and tick device B.
 5. Open the **Ignore Patterns** tab and type this one line: `.tmp-*`. It stops Syncthing from copying a backup that is still being made.
 6. Click **Save**.
-7. On device B, a banner appears: "Device A wants to share folder Pokopia backups". Click **Add**.
+7. On device B, a banner appears: "Device A wants to share folder Recompia backups". Click **Add**.
 8. Syncthing asks for the **Folder Path** on device B. Choose the `save-backups` folder in **device B's own game folder** (do Step 2 on device B to find it, or press **Back up now** there first so the folder exists). The Folder ID must stay the same.
 9. Click **Save**.
 

@@ -746,7 +746,7 @@ void setup_hid(ipc::Service& svc) {
     ignore_cmd(svc, 1004, "SetTouchScreenResolution");
     // ---- Switch 2 Joy-Con 2 mouse (Nmouse / Jcms). Ids from the sdk proxy thunks (0x75006701b4..0x75006702ec, IHidServer vtable
     // slots 0x538..0x5B8) matched to the nn::hid::detail callers; raw-data layouts from the thunks' CMIF writers. docs/hid_mouse_sw2.md.
-    // Pokopia imports only the wrappers behind 3110, 3111, 3112, 3131 and 3136-3139; the others get the answer a server with the two
+    // The game imports only the wrappers behind 3110, 3111, 3112, 3131 and 3136-3139; the others get the answer a server with the two
     // listed devices gives. There is no 3114-3129 or 3134 in the SDK's table.
     svc.add_cmd(3110, "InitializeJcms", [](ipc::Request& req, ipc::Response&) -> uint32_t {
         const uint64_t size = req.arg<uint64_t>(8);   // aruid at 0
@@ -772,7 +772,7 @@ void setup_hid(ipc::Service& svc) {
         st().jcms_starts++;
         return 0;
     });
-    // u32 JcmsHandle @0, aruid @8. Not imported by Pokopia; the rings keep sampling (nothing to stop).
+    // u32 JcmsHandle @0, aruid @8. Not imported by the game; the rings keep sampling (nothing to stop).
     ignore_cmd(svc, 3113, "StopJcms");
     // InitializeNmouse with an NmouseStateRange (sdk 0x75006576c0): the width and height come from the SDK's range table (720p, 1080p,
     // 1440p, 4K), the pointer type is 0. The SDK sends SetMergedNmouseSourceTypes(6) right after it.
@@ -826,7 +826,7 @@ void setup_hid(ipc::Service& svc) {
         st().nm_merged_types = req.arg<uint32_t>(0);   // aruid at 8
         return 0;
     });
-    // InitializeNmouse (sdk 0x75006569e0, the form Pokopia uses: 0xC000 bytes, 1920x1080).
+    // InitializeNmouse (sdk 0x75006569e0, the form the game uses: 0xC000 bytes, 1920x1080).
     svc.add_cmd(3139, "InitializeNmouse", [](ipc::Request& req, ipc::Response&) -> uint32_t { return nm_initialize(req, "InitializeNmouse"); });
     // SetNmousePointerPosition (sdk 0x7500657410): s32 x @0, s32 y @4, aruid @8, NmouseHandle @0x10. The pointer is the PC mouse, which
     // the game cannot move: accepted and logged.

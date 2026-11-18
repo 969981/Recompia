@@ -1,0 +1,30 @@
+# cargo-about config for the licence notices of the launcher's Rust crates (the relay crate is a path dependency, so it is covered).
+# Run from the release workflow: cargo about generate -c launcher/about.toml --manifest-path launcher/src-tauri/Cargo.toml launcher/about.hbs
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+    "0BSD",
+    "BSL-1.0",
+    "OpenSSL",
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-or-later",
+]
+# Every platform the launcher ships on, so a crate that only one of them builds is listed too.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = true

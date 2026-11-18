@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: an item slot's fields and an item's name, for every hook file that reads items (the inventory sort, the crafting
+// Game layer: an item slot's fields and an item's name, for every hook file that reads items (the inventory sort, the crafting
 // search, the item editor). The addresses are in pkp_layout.h.
 //
 // A slot is 16 bytes: a vtable qword (main + layout::kItemSlotVtable), a packed u32 (bits 0..12 the item id, 0 = empty; 13..20, 21..25,

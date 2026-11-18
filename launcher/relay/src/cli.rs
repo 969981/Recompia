@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The relay's command line (the launcher's `--host` and the standalone `pokopia-relay`): one parser, so both take the same options.
-//! The limits are pokopia-native's coop-relay options.
+//! The limits are the parent project's coop-relay options.
 
 use crate::engine::Config;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -85,7 +85,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 /// The lines every relay prints once it listens.
 pub fn banner(addr: std::net::SocketAddr) -> [String; 2] {
     [
-        format!("Pokopia relay (pokopia-native coop-relay protocol) running on {}.", addr),
+        format!("Recompia relay (the parent project's coop-relay protocol) running on {}.", addr),
         "Anyone who can reach this address can open rooms here; rooms are authenticated end to end by the players, but their traffic is not encrypted."
             .to_string(),
     ]

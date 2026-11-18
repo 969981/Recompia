@@ -1,0 +1,69 @@
+{
+ "mods": [
+  {
+   "id": "unlimited_crafting_storage_range",
+   "name": "Unlimited Crafting Storage Range",
+   "version": "1.0.0",
+   "summary": "Crafting stations use the materials in every box you have placed, at any distance, not only the boxes next to them.",
+   "description": "Crafting stations use the items in every storage box, chest and crate you have placed, at any distance, not only the boxes right next to them. Crafting takes the materials from whichever box holds them, and from your bag if the boxes run short. No buttons. A community mod, made for Recompia.",
+   "group": "qol",
+   "affects": "gameplay",
+   "network": false,
+   "game": [
+    "2.0.1"
+   ],
+   "needs": ">=0.6.0 <1.0.0",
+   "authors": [
+    "cycalo"
+   ],
+   "license": "GPL-3.0-or-later",
+   "settings": [],
+   "tested": false,
+   "source": "https://github.com/cycalo/Pokopia-Editor",
+   "page": "",
+   "download": {
+    "url": "https://github.com/cycalo/Pokopia-Editor/releases/download/v1.6.0/recompia_unlimited_crafting_storage_range-1.0.0.pkmod",
+    "file": "recompia_unlimited_crafting_storage_range-1.0.0.pkmod",
+    "size": 118314,
+    "sha256": "1e95c8e84ffa6719291f68fedf1f8c6272c763aa9bace2cfcd068a2e66620bb1"
+   }
+  },
+  {
+   "id": "personal_cheats",
+   "name": "Simple Cheats",
+   "version": "1.0.1",
+   "summary": "F5 adds 1,000 Life Coins, ability PP and bag stacks refill, and the Water Gun area is yours to choose. Single-player only.",
+   "description": "Add 1,000 Life Coins with F5, refill PP and bag stacks, and choose the Water Gun area. Single-player only.",
+   "group": "gameplay",
+   "affects": "gameplay",
+   "network": false,
+   "game": [
+    "2.0.1"
+   ],
+   "needs": ">=0.2.0 <1.0.0",
+   "authors": [
+    "Doker"
+   ],
+   "license": "MIT",
+   "settings": [
+    "F5 adds 1,000 Life Coins",
+    "Refill ability PP",
+    "Refill bag item stacks",
+    "Target stack count",
+    "Water Gun area"
+   ],
+   "tested": false,
+   "source": "https://github.com/tenn6871/poch",
+   "page": "",
+   "download": {
+    "url": "https://github.com/tenn6871/poch/releases/download/v1.0.1/personal_cheats-1.0.1.pkmod",
+    "file": "personal_cheats-1.0.1.pkmod",
+    "size": 72692,
+    "sha256": "e6b8a7df99b964409af72905bf25d94a8efd9be23fba38bf7b30027117706714"
+   },
+   "platforms": [
+    "windows-x64"
+   ]
+  }
+ ]
+}

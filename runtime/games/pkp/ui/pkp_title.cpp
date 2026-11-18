@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, title screen: a "Quit Game" key guide next to "(-) Settings" (issue #319). [pkp] title_quit, on by default.
+// Game layer, title screen: a "Quit Game" key guide next to "(-) Settings" (issue #319). [pkp] title_quit, on by default.
 //
 // The title's prompts are the game's key guide widget (pkp_key_guide.h): 0x7100e60be4 (manager, player, set) gives it a key guide set, and
 // the title uses set 152 = {233}: action 0x80 (the (-) button) and "Settings". A key guide client (pkp_key_guide.h):

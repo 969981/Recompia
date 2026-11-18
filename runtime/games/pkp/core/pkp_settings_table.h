@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the table of [pkp] keys (pkp_settings.h). A header of constexpr data, so the feature registry (pkp_game.cpp) can check
+// Game layer: the table of [pkp] keys (pkp_settings.h). A header of constexpr data, so the feature registry (pkp_game.cpp) can check
 // at compile time that every gameplay mod switch belongs to a feature and every mod feature names its switches. spec() and the doc rows
 // are in pkp_settings_table.cpp (nxrt_game_pkp_data, which the docs generator reads without the runtime), the getters in
 // pkp_settings.cpp. Defaults and ranges are the ones each module used before the table.
@@ -97,14 +97,14 @@ inline constexpr Spec kSpecs[] = {
     opt_in(gameplay(b(CraftSearch, "craft_search", false, "A Search button in the crafting screen's key guide."))),
     opt_in(gameplay(b(ItemEditor, "item_editor", false, "Experimental: an Items tab in the game's Settings screen that changes the count of a stack in the bag."))),
     hidden(gameplay(b(TitleQuit, "title_quit", true, "A Quit Game key guide on the title screen."))),
-    gameplay(b(PokemonCap, "pokemon_cap_50", true, "Experimental: more Pokemon can live in the town than the game's 25 (pokemon_cap_limit).")),
-    under(PokemonCap, i(PokemonCapLimit, "pokemon_cap_limit", 31, 25, 64,
-                        "With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the game's 64 actor slots.")),
+    gameplay(b(PokemonCap, "pokemon_cap_50", true, "Experimental: more creatures can live in the town than the game's 25 (pokemon_cap_limit).")),
+    under(PokemonCap, i(PokemonCapLimit, "pokemon_cap_limit", 31, 25, 50,
+                        "With pokemon_cap_50: how many creatures can live in the town; visitors and spawns share the same room, and the game draws at most 50 creatures.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events."),
     gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
     // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
-    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the Pokemon-at-home count. Sends data off the PC, so off by default.")),
+    live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the creatures-at-home count. Sends data off the PC, so off by default.")),
     // Read by the network services at start (game::Info::report_online, pkp_game.cpp). On by default so events that need a connection
     // start on their date; online services other than the clock and nifm answers still fail.
     b(OnlineEvents, "online_events", true, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),

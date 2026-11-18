@@ -38,10 +38,10 @@ uint64_t call_or_zero(uint64_t (*fn)()) { return fn ? fn() : 0; }
 constexpr uint32_t kInvalidCombination = 0xE801;   // kernel result 116 (InvalidCombination); not in kernel.h yet
 
 // Values Switchbrew does not document (it gives names only) are nxrt choices; the comment on each says where a value comes from.
-constexpr uint64_t kCoreMaskAppSwitch2 = 0x3f;                  // Switch 2: cores 0..5 (Pokopia NPDM ThreadInfo cores 0-5)
+constexpr uint64_t kCoreMaskAppSwitch2 = 0x3f;                  // Switch 2: cores 0..5 (the game NPDM ThreadInfo cores 0-5)
 constexpr uint64_t kCoreMaskApp = 0x7;                          // nxrt: cores 0..2, the three application cores
 constexpr uint64_t kPriorityMaskApp = 0x0FFFFFFFF0000000ull;    // nxrt: bits 28..59 = HOS priorities 0x1C..0x3B (kernel.h: applications 28..59)
-constexpr uint64_t kTotalMemorySwitch2 = 0x2A0000000ull;        // Switch 2 application: 10.5 GiB (nxrt choice; Pokopia alone pools ~8 GiB)
+constexpr uint64_t kTotalMemorySwitch2 = 0x2A0000000ull;        // Switch 2 application: 10.5 GiB (nxrt choice; the game alone pools ~8 GiB)
 constexpr uint64_t kTotalMemoryAvailable = 0xCD500000ull;       // chosen value: ~3.2 GiB, like an application ([memory] app_memory_mb overrides)
 constexpr uint64_t kUsedMemoryOverhead = 0x4000000ull;          // chosen value: 64 MiB added to the heap size for "used"
 constexpr uint64_t kEntropyFallbackSeed = 0x1234567890ABCDEFull; // chosen value, only when the OS random source gives 0
@@ -53,7 +53,7 @@ constexpr uint64_t kProcessStateStarted = 2;                    // Switchbrew Pr
 constexpr uint64_t kSubAllCores = 0xFFFFFFFFFFFFFFFFull;        // ThreadTickCount sub-argument: the total over all cores (Switchbrew)
 
 // RandomEntropy seeds nn::os's random generator (GenerateRandomBytes, nn::util::GenerateUuid), so it must differ per process as on
-// the console: one fixed value gave every Pokopia save made here the same player UUID, and Link Play's host refuses a visitor with
+// the console: one fixed value gave every game save made here the same player UUID, and Link Play's host refuses a visitor with
 // the host's UUID (error 9005). [process] entropy_seed fixes it for tests; else the OS random source (entropy::fill: the seeded
 // stream in deterministic test mode), drawn once per process.
 uint64_t entropy_seed() {

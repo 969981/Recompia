@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the getters and setters of the [pkp] keys (pkp_settings.h); the table is pkp_settings_table.cpp.
+// Game layer: the getters and setters of the [pkp] keys (pkp_settings.h); the table is pkp_settings_table.cpp.
 #include "core/pkp_settings.h"
 
 #include <algorithm>

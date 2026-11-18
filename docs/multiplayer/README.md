@@ -1,13 +1,13 @@
 # Multiplayer (Link Play) — experimental
 
-Pokopia's **Link Play** (local wireless, several players on one island) between PCs, Steam Decks and other handhelds. This port speaks
-pokopia-native's co-op protocol, so you can also play with **pokopia-native** players.
+The game's **Link Play** (local wireless, several players on one island) between PCs, Steam Decks and other handhelds. This port speaks
+the parent project's co-op protocol, so you can also play with players of the **parent project**.
 
 **New to Link Play? Start with the [Link Play guide](../link-play.md):** the few steps to play together. This page is the full reference.
 
 ## Before you start
 
-- **Cross-play** works with pokopia-native players on game version **2.0.1**. Players on 1.0.5 cannot join (the game builds differ).
+- **Cross-play** works with players of the parent project on game version **2.0.1**. Players on 1.0.5 cannot join (the game builds differ).
 - **Not compatible with earlier Link Play builds of this port** (the old relay on port 39660). Everyone needs a build with this protocol.
 - **Each player needs their own save.** The host refuses a visitor whose save it already has (error 9005, "Communication error"):
   two copies of one save cannot play together. Earlier builds gave every new save the same player id, so every visit failed with
@@ -115,25 +115,25 @@ What it cannot get past:
 - **Internet through the public relay** (the default): every player only dials out; nothing to forward.
 - **Internet without a relay** (Advanced): the host forwards TCP and UDP 47600 on its router; visitors turn on **Use my own relay or address** under **Advanced**, pick
   **Visit** and type the host's public address, with **Through a relay** off.
-- **Internet through your own relay** (Advanced): nobody forwards anything except whoever runs the relay. Any pokopia-native coop relay works. The launcher can
+- **Internet through your own relay** (Advanced): nobody forwards anything except whoever runs the relay. Any coop relay of the parent project works. The launcher can
   run one too: **Run a relay on this PC** on the Link Play page (while the launcher stays open), or `PokopiaLauncher --host` on a server
-  (`--listen <IPv4>[:<port>]`, `--no-udp`, and pokopia-native's limits options), or the standalone `pokopia-relay` server
+  (`--listen <IPv4>[:<port>]`, `--no-udp`, and the parent project's limits options), or the standalone `pokopia-relay` server
   (`launcher/relay/README.md`). Forward TCP 47610 to it, and UDP 47610 too for the faster path.
 
 With the launcher's relay and this port's build on both ends of a link, the game's packets go over UDP through the relay instead of the TCP
-link, which avoids stalls on lossy connections. With pokopia-native's relay, or a pokopia-native player on the other end, they use the TCP
-link as pokopia-native does. Either way they are checked end to end by the players: the relay only forwards them. Nothing is encrypted.
+link, which avoids stalls on lossy connections. With the parent project's relay, or a player of the parent project on the other end, they use the TCP
+link as the parent project does. Either way they are checked end to end by the players: the relay only forwards them. Nothing is encrypted.
 
 ## Old protocol
 
 The old protocol is `[net] protocol = linkplay` in `pkp.ini`, for a session where everyone still has an earlier build of this port. It
-cannot meet pokopia-native players. When the file says it, the Link Play page shows a banner with **Switch to current**.
+cannot meet players of the parent project. When the file says it, the Link Play page shows a banner with **Switch to current**.
 
 ## Common problems
 
 - **The host is not found:** type the host's address in **Join directly** (Same network). Check the firewall prompt and the Private network profile.
   On cafe or hotel Wi-Fi that keeps devices apart, nothing on the LAN works: use **Internet**.
-- **Refused:** version or mods mismatch. Same game (2.0.1), same release or pokopia-native, same two switches.
+- **Refused:** version or mods mismatch. Same game (2.0.1), same release or the parent project, same two switches.
 - **Error 9005:** both players have the same player id: two copies of one save, or a player still on an earlier build (every save made
   before had the same id). Update both; a copied save still needs a new game.
 

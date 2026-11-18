@@ -1476,7 +1476,7 @@ bool install_movie_hle() {
     static std::once_flag once;
     static bool ok = false;
     std::call_once(once, [] {
-        // Switch 2's movie:: (Pokopia's subsdk0) is a compatibility layer with virtual Extractor/Decoder objects over nn::movie and
+        // Switch 2's movie:: (the game's subsdk0) is a compatibility layer with virtual Extractor/Decoder objects over nn::movie and
         // nn::codec: these Switch 1 handlers (a marker where it keeps a vtable) would break it. There the decoders answer on the host
         // one level down instead (src/media/video_codec.cpp).
         // [media] movie is not read there: Media Foundation never takes these imports on Switch 2.

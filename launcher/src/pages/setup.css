@@ -18,7 +18,7 @@
   letter-spacing: var(--tracking-title);
   text-shadow: var(--shadow-text);
 }
-.setup-brand img { height: 48px; width: auto; }
+.setup-brand img { height: 64px; width: auto; }   /* the wordmark fills about 2/3 of logo.png's height */
 
 .setup-panel {
   display: flex;

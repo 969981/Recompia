@@ -1,6 +1,6 @@
-# Pokopia Launcher
+# Recompia Launcher
 
-Tauri 2 launcher for the Pokopia PC port (`pkp.exe`). It ships no game files and never changes yours. It reads the game
+Tauri 2 launcher for the Recompia PC port (`pkp.exe`). It ships no game files and never changes yours. It reads the game
 files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and builds the shader cache from your romfs.
 
 ## First run

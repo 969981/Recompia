@@ -4,7 +4,7 @@ import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './api.js';
-import { brandImg, setBranding } from './branding.js';
+import { brandImg } from './branding.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
@@ -50,13 +50,14 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 
-// Launcher colours: 'koi' (Koi's Camp: a bright daytime picture, the default), 'sunrise' (amber to red; reads well with red-green colour blindness), 'dusk' (the old violet) or 'meadow' (a bright daytime scene made for the project).
-// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
-const THEMES = ['sunrise', 'dusk', 'koi', 'meadow'];
+// Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
+// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default. A value no longer in THEMES (such as an
+// older launcher's 'koi') shows the default too.
+const THEMES = ['sunrise', 'dusk', 'meadow'];
 // theme names are proper names: they stay in English in every language
-const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', koi: "Koi's Camp", meadow: 'Meadow' };
+const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', meadow: 'Meadow' };
 function readTheme() {
-  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'koi'; } catch { return 'koi'; }
+  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'meadow'; } catch { return 'meadow'; }
 }
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -80,7 +81,7 @@ function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Pokopia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
+    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Recompia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
@@ -109,12 +110,11 @@ function drawNav() {
 }
 
 /** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a
- *  glance; the pictures follow the player's logo and icon choice. */
+ *  glance. */
 async function syncLook() {
   try {
     const c = await api.getConfig();
     document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
-    setBranding(c);
   } catch (e) {
     console.warn('get_config', e);
   }

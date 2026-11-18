@@ -169,7 +169,7 @@ void do_copy_buffer_texture(const P_CopyBufTex& p, bool to_texture) {
     // The bytes Vulkan touches: every layer / slice and row at the buffer's strides, the last row only as wide as the region. A copy
     // whose buffer does not hold all of it (an address in no importable pool resolves to the 64 KiB dummy buffer, a chunk or span
     // import shorter than the range, a copy of every layer sized for one) would read or write past the end of a VkBuffer: device lost
-    // on NVIDIA (issue #121, saving a Pokédex photo reads a whole screen back into a buffer). Such copies are skipped.
+    // on NVIDIA (issue #121, saving a creature list photo reads a whole screen back into a buffer). Such copies are skipped.
     const uint64_t rows = (rh + bh - 1) / bh;
     if (c.imageSubresource.layerCount <= 1 && c.imageExtent.depth <= 1) c.bufferImageHeight = 0;   // one slice: the image stride is not used
     const uint64_t row_len = c.bufferRowLength ? (c.bufferRowLength + bw - 1) / bw * bpb : row_bytes;

@@ -18,6 +18,7 @@ export function createUpdateActions(h) {
       },
       update: () => store.installUpdate(),
       'open-url': (url) => api.openLink({ url }),
+      'licences-open': () => api.openLicensesDir(),
       async 'builds-open'() {
         await h.flush();
         await chooseBuild(st.src.config.channel === 'testing' ? 'testing' : 'stable', false);

@@ -146,8 +146,8 @@ constexpr uint8_t kSessionTag[4] = {'p', 'k', 'p', 'R'};
 // request timeout is 5 s too (vnet::RelayOptions::timeout_ms).
 constexpr int kRoomStateWaitMs = 5000;
 // Host: datagrams from a node the game has not yet seen in a NetworkInfo are held (vnet::HoldLink) until the game reads a table listing
-// it, at most this long (pokopia-native windows/src/coop/coop_mpnet.c ACCEPT_WAIT_MS: the game polls GetNetworkInfo every frame), and at
-// most kHoldCap of them. A game's session layer may drop a datagram from a sender outside the member table it last read (KTGL, Pokopia's
+// it, at most this long (the parent project windows/src/coop/coop_mpnet.c ACCEPT_WAIT_MS: the game polls GetNetworkInfo every frame), and at
+// most kHoldCap of them. A game's session layer may drop a datagram from a sender outside the member table it last read (KTGL, the game's
 // engine, does, and the new station's first one is its join request); for any other game a new node's first datagrams wait at most
 // kHoldMs, less once the game reads the table.
 constexpr int kHoldMs = 300;

@@ -1404,7 +1404,7 @@ bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
 
 namespace {
 // The last serial queued before each of the game's presents (the end of that frame's GPU work), for the low-latency GPU wait (lowlat.h).
-// Written by the game thread in present(), read by the main thread at the frame boundary (the same thread in Pokopia).
+// Written by the game thread in present(), read by the main thread at the frame boundary (the same thread in game).
 std::atomic<uint64_t> g_frame_work[4];
 std::atomic<uint64_t> g_frame_count{0};
 

@@ -147,7 +147,7 @@ pub fn remaining_of(game_dir: &Path, build_pending: bool, compact: bool) -> Rema
 }
 
 /// (shader jobs, build jobs). Normal: every thread but one (the build gets one more, as before). Gentle: a quarter of the
-/// threads, 2 to 8 (pokopia-native's default), so a laptop stays cool and the PC usable.
+/// threads, 2 to 8 (the parent project's default), so a laptop stays cool and the PC usable.
 pub fn jobs_for(cpus: usize, gentle: bool) -> (usize, usize) {
     if gentle {
         let j = (cpus / 4).clamp(2, 8);
@@ -332,7 +332,7 @@ pub fn free_bytes(dir: &Path) -> Option<u64> {
     sys::free_bytes(dir)
 }
 
-/// "C:" of `C:\games\pokopia`, else the path itself.
+/// "C:" of `C:\games\recompia`, else the path itself.
 pub fn drive_of(p: &Path) -> String {
     let s = p.to_string_lossy();
     let s = s.strip_prefix(r"\\?\").unwrap_or(&s);

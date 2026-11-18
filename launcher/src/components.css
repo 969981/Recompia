@@ -80,7 +80,9 @@ body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(
   letter-spacing: var(--tracking-title);
 }
 .brand > * { pointer-events: none; }
-.brand-logo { height: 28px; width: auto; }
+/* logo.png is a 640x228 canvas with the wordmark centred in it (about 2/3 of its height): 40px shows the letters about 27px high. It may
+   shrink (object-fit keeps its shape) so the Testing tag still fits beside it. */
+.brand-logo { height: 40px; width: auto; min-width: 0; object-fit: contain; object-position: left center; }
 .brand-mark { display: none; width: 26px; height: 26px; flex: none; object-fit: contain; }
 /* The Testing channel: the Testing mark (and a small tag next to the wordmark) replace the Stable look. [data-channel] is set by main.js. */
 .brand-mark-testing { display: none; width: 30px; height: 30px; flex: none; object-fit: contain; }

@@ -43,7 +43,7 @@ bool jc2_mouse_wants_pointer();
 bool jc2_mouse_active();
 
 // The coordinate space of the pointer x, y the game reads (game layer, any thread). The pointer range from InitializeNmouse stays what the
-// state reports, but a game that unprojects x, y with its own screen size (Pokopia: its render size) needs x, y in that size.
+// state reports, but a game that unprojects x, y with its own screen size (the game: its render size) needs x, y in that size.
 // w or h <= 0: the pointer range (the default).
 void jc2_mouse_set_pointer_space(int w, int h);
 
