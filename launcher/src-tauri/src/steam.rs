@@ -432,7 +432,7 @@ fn count_added(accs: &[PathBuf], spec: &Result<Spec, String>) -> (usize, usize) 
     let Ok(s) = spec else { return (0, 0) };
     let (mut here, mut other) = (0, 0);
     for root in accs.iter().filter_map(|a| load_root(&a.join("config").join("shortcuts.vdf")).ok()) {
-        if has(&root, s, Ours::Here) {
+        if has_entry(&root, s) {
             here += 1;
         } else if has(&root, s, Ours::OtherName) {
             other += 1;
