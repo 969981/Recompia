@@ -455,6 +455,7 @@ export default {
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': 'Recompiaのアートワーク付きのショートカットをSteamライブラリに追加し、ゲームモードとBig Pictureに表示されるようにします。先にSteamを閉じ、追加後にもう一度起動してください。すぐにプレイするにはゲームを、先にこのウィンドウを開くにはランチャーを追加してください。',
   'Game in Steam': 'Steam内のゲーム',
   'In Steam as {name}': 'Steamでの名前: {name}',
+  "In Steam as {name}, starting the launcher's old file name": 'Steamでの名前: {name}（ランチャーの古いファイル名を起動します）',
   'Not in Steam. Starts the game at once.': 'Steamにありません。ゲームをすぐに起動します。',
   'Add to Steam': 'Steamに追加',
   'Launcher in Steam': 'Steam内のランチャー',

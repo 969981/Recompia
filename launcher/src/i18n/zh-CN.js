@@ -455,6 +455,7 @@ export default {
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': '在你的 Steam 库中添加一个带有 Recompia 插图的快捷方式，使其显示在游戏模式和 Big Picture 中。请先关闭 Steam，之后再重新启动。添加游戏可立即开始游玩，添加启动器则会先打开此窗口。',
   'Game in Steam': 'Steam 中的游戏',
   'In Steam as {name}': '在 Steam 中的名称：{name}',
+  "In Steam as {name}, starting the launcher's old file name": '在 Steam 中的名称：{name}（启动的是启动器的旧文件名）',
   'Not in Steam. Starts the game at once.': '不在 Steam 中。立即启动游戏。',
   'Add to Steam': '添加到 Steam',
   'Launcher in Steam': 'Steam 中的启动器',

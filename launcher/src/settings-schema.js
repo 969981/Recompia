@@ -218,6 +218,22 @@ function writeSensitivity(value) {
   return [edit(AT_YAW, rad), edit(AT_PITCH, rad)];
 }
 
+// The Steam rows ('game' or 'launcher', steam.rs Status). A shortcut that starts the launcher's old file name (made before the release
+// rename, still working through the small starter left under that name) is offered Update: Add to Steam points it here, keeping its app id.
+function steamValue(env, kind, none) {
+  const st = env.steam ?? {};
+  if (st[`${kind}_added`]) return t('In Steam as {name}', { name: st[`${kind}_name`] });
+  if (st[`${kind}_other_name`]) return t("In Steam as {name}, starting the launcher's old file name", { name: st[`${kind}_name`] });
+  return none;
+}
+
+function steamAction(env, kind) {
+  const disabled = env.steamBusy || env.steam?.running;
+  if (env.steam?.[`${kind}_added`]) return { act: `steam-remove-${kind}`, label: t('Remove'), icon: 'trash-2', disabled };
+  if (env.steam?.[`${kind}_other_name`]) return { act: `steam-add-${kind}`, label: t('Update'), icon: 'refresh-cw', disabled };
+  return { act: `steam-add-${kind}`, label: t('Add to Steam'), icon: 'plus', disabled };
+}
+
 // ---- the plain mapping of each type -------------------------------------------------------------------------------------------------
 
 const CLOCK_LIMIT_MIN = 10 * 366 * 24 * 60;
@@ -674,17 +690,13 @@ export const SECTIONS = [
           },
           {
             id: 'steam_game', label: t('Game in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.game_added ? t('In Steam as {name}', { name: env.steam.game_name }) : t('Not in Steam. Starts the game at once.')),
-            actions: (env) => [env.steam?.game_added
-              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+            value: (env) => steamValue(env, 'game', t('Not in Steam. Starts the game at once.')),
+            actions: (env) => [steamAction(env, 'game')],
           },
           {
             id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
-            actions: (env) => [env.steam?.launcher_added
-              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+            value: (env) => steamValue(env, 'launcher', t('Not in Steam. Opens this window.')),
+            actions: (env) => [steamAction(env, 'launcher')],
           },
           { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: t('Steam is running. Close it (Steam, Exit) to add or remove a shortcut.') }) },
         ],

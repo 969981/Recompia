@@ -129,7 +129,7 @@ let setup = structuredClone(sc.setup);
 let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Game' : '';
 let relay = null;
-let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
+let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0, game_other_name: 0, launcher_other_name: 0 };
 let mockChannel = 'stable';
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
@@ -498,7 +498,7 @@ function handle(cmd, args) {
       return runUpdate();
     }
     case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'testing' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'testing' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
-    case 'steam_add': mockSteam[`${args.target}_added`] = 1; return `Added "${args.target === 'game' ? 'Recompia' : 'Recompia Launcher'}" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'steam_add': mockSteam[`${args.target}_added`] = 1; mockSteam[`${args.target}_other_name`] = 0; return `Added "${args.target === 'game' ? 'Recompia' : 'Recompia Launcher'}" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
     case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);

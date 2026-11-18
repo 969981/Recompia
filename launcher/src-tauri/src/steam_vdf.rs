@@ -103,6 +103,31 @@ pub fn get_str<'a>(entry: &'a [(String, Val)], name: &str) -> Option<&'a str> {
     })
 }
 
+pub fn get_int(entry: &[(String, Val)], name: &str) -> Option<u32> {
+    entry.iter().find_map(|(k, v)| match v {
+        Val::Int(n) if key_is(k, name) => Some(*n),
+        _ => None,
+    })
+}
+
+/// Sets a string field, under the key's spelling the entry already uses (Steam writes some in lower case), or adds it.
+pub fn set_str(entry: &mut Vec<(String, Val)>, name: &str, value: &str) {
+    match entry.iter_mut().find(|(k, v)| key_is(k, name) && matches!(v, Val::Str(_))) {
+        Some((_, v)) => *v = Val::Str(value.to_string()),
+        None => entry.push((name.to_string(), Val::Str(value.to_string()))),
+    }
+}
+
+/// The list of shortcuts inside the root map; empty when the file has none.
+pub fn shortcuts(root: &[(String, Val)]) -> &[(String, Val)] {
+    root.iter()
+        .find_map(|(k, v)| match v {
+            Val::Map(list) if key_is(k, "shortcuts") => Some(list.as_slice()),
+            _ => None,
+        })
+        .unwrap_or(&[])
+}
+
 /// The list of shortcuts inside the root map, created when the file has none.
 pub fn shortcuts_mut(root: &mut Vec<(String, Val)>) -> &mut Vec<(String, Val)> {
     let i = match root.iter().position(|(k, v)| key_is(k, "shortcuts") && matches!(v, Val::Map(_))) {
@@ -129,5 +154,16 @@ mod tests {
         assert!(parse(&[1, b'k', 0, b'v']).is_err());      // string not finished
         assert!(parse(&[2, b'k', 0, 1, 2]).is_err());      // number cut short
         assert!(parse(&[0, b'a', 0]).is_err());            // map not closed
+    }
+
+    #[test]
+    fn set_str_keeps_the_spelling_steam_used() {
+        let mut e = vec![("exe".to_string(), Val::Str("a".into())), ("appid".to_string(), Val::Int(7))];
+        set_str(&mut e, "Exe", "b");
+        set_str(&mut e, "StartDir", "c");
+        assert_eq!(e[0], ("exe".to_string(), Val::Str("b".into())));
+        assert_eq!(get_str(&e, "startdir"), Some("c"));
+        assert_eq!(get_int(&e, "AppId"), Some(7));
+        assert!(shortcuts(&[]).is_empty());
     }
 }

@@ -455,6 +455,7 @@ export default {
   'Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.': 'Aggiunge alla tua libreria Steam un collegamento con l\'illustrazione di Recompia, così compare in Modalità Gioco e in Big Picture. Chiudi prima Steam, poi riavvialo. Aggiungi il gioco per iniziare subito a giocare, oppure il launcher per aprire prima questa finestra.',
   'Game in Steam': 'Gioco in Steam',
   'In Steam as {name}': 'In Steam come {name}',
+  "In Steam as {name}, starting the launcher's old file name": 'In Steam come {name}, avvia il vecchio nome file del launcher',
   'Not in Steam. Starts the game at once.': 'Non è in Steam. Avvia subito il gioco.',
   'Add to Steam': 'Aggiungi a Steam',
   'Launcher in Steam': 'Launcher in Steam',
