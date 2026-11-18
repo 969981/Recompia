@@ -1,6 +1,6 @@
-# Pokémon Pokopia game module
+# the game module
 
-The title-specific part of the runtime (`nxrt`): everything the game-independent base needs to run Pokopia, as one `nxrt::game::Info` (`core/pkp_game.h`, `runtime/docs/GAME_BOUNDARY.md`). Nothing outside this folder and `recomp/games/pkp` names the game.
+The title-specific part of the runtime (`nxrt`): everything the game-independent base needs to run the game, as one `nxrt::game::Info` (`core/pkp_game.h`, `runtime/docs/GAME_BOUNDARY.md`). Nothing outside this folder and `recomp/games/pkp` names the game.
 
 Includes are relative to this folder (`#include "core/pkp_game.h"`); no `../`. File names keep the `pkp_` prefix.
 

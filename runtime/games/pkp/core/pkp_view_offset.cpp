@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the per-player view offset (pkp_view_offset.h).
+// Game layer: the per-player view offset (pkp_view_offset.h).
 #include "core/pkp_view_offset.h"
 
 #include <atomic>

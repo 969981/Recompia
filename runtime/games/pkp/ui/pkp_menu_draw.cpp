@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus: the drawn set, from mid hooks on the pane draws (split out of pkp_menu.cpp).
+// Game layer, the mouse in the game's menus: the drawn set, from mid hooks on the pane draws (split out of pkp_menu.cpp).
 //
 // ---- the layouts the game draws (needs the midhooks in recomp/games/pkp/main.sites) ----
 // Every KTGL pane class's draw (vtable slot +0x2b0; e.g. the picture pane 0x7101f5b248) starts the same way: it ORs 0x20 into the pane's

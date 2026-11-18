@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: a player's render view and the projection to the picture (pkp_view_projection.h).
+// Game layer: a player's render view and the projection to the picture (pkp_view_projection.h).
 #include "render/pkp_view_projection.h"
 
 #include <cmath>

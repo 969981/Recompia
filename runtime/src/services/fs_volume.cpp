@@ -55,7 +55,7 @@ bool flush_unsupported(DWORD e) { return e == ERROR_INVALID_FUNCTION || e == ERR
 // The first host failure while changing a journalled volume since its last commit (Win32 error, 0 = none). The game does not check the
 // results of Write / SetSize and commits anyway, so a full disk or a file held by an antivirus or OneDrive would otherwise commit a
 // truncated or torn file over the last good save. commit() refuses a tainted transaction and drops its work folder. The policy is
-// pokopia-native's (MIT), windows/src/nxrt/hle/hle_fs.c @7c3655d (save_poison_txn, the refusal in commit_mount_locked); the code is new.
+// The parent project's (MIT), windows/src/nxrt/hle/hle_fs.c @7c3655d (save_poison_txn, the refusal in commit_mount_locked); the code is new.
 struct Taint {
     std::atomic<uint32_t> err{0};
     void set(DWORD e) {

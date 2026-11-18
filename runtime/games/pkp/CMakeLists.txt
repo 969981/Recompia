@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# The Pokémon Pokopia game module (docs/GAME_BOUNDARY.md, pkp_game.h). Libraries, each a superset of the one before:
+# The game module (docs/GAME_BOUNDARY.md, pkp_game.h). Libraries, each a superset of the one before:
 #   nxrt_game_pkp_data   identity, branding, factory controls.ini, the [pkp] key table (pure data)
 #   nxrt_game_pkp_core   + title facts, test probes (links nxrt)
 #   nxrt_game_pkp        + play-mode hooks (links nxrt_gfx; only with NXRT_BUILD_GFX). pkp.exe links this one.

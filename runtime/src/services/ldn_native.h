@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// ldn:u on pokopia-native's co-op module ([net] protocol = native, the default): the process's coop node and NativeLdn (ldn_native.cpp).
+// ldn:u on the parent project's co-op module ([net] protocol = native, the default): the process's coop node and NativeLdn (ldn_native.cpp).
 #pragma once
 #include <array>
 #include <atomic>

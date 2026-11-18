@@ -20,7 +20,7 @@ namespace {
 // guest; Jcms rings at 0x7E000, 0x1800 per (pad 0/1, Joy-Con type 0/1) and 0x800 per guest. The readers reach 0x84000. "No GameShare
 // session" is all zero: every style set 0 (GetGuestPadStyleSet: no pad) and every ring count 0 (the state readers return 0 entries).
 //
-// Hosting a GameShare session (Pokopia: main 0x7101132f60 state 1 nn::streamplay::Initialize, state 2 OpenSessionWithMatchmakeSupport).
+// Hosting a GameShare session (the game: main 0x7101132f60 state 1 nn::streamplay::Initialize, state 2 OpenSessionWithMatchmakeSupport).
 // A console with no guests around shows the matchmaking applet and the player backs out of it; am.cpp ends that applet (0x1000024 /
 // 0x1030024) as cancelled, the SDK returns 0x3D1F and the game (main 0x7101133704) goes back quietly, without the error applet, and
 // tears the session down (nn::streamplay::Finalize). Before that applet every IUserService command on the way must succeed: a failure

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: a Save prompt in the pause menu's key guide (issue #354). [pkp] save_now, on by default.
+// Game layer: a Save prompt in the pause menu's key guide (issue #354). [pkp] save_now, on by default.
 //
 // The pause menu (+) shows its actions in the game's key guide widget: A select, B close, (-) Save and Quit (the game's own, which asks
 // first and then returns to the title). This module adds one more entry, "Save", which writes the save and leaves the player in the world.

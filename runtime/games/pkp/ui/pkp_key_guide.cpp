@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: our entries in the game's key guide (pkp_key_guide.h). Offsets in main of the 2.0.1a update.
+// Game layer: our entries in the game's key guide (pkp_key_guide.h). Offsets in main of the 2.0.1a update.
 #include "ui/pkp_key_guide.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"

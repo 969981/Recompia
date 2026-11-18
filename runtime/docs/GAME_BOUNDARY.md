@@ -1,7 +1,7 @@
 # The game boundary
 
 The runtime (nxrt) is shared and knows no game. Everything one title brings is one `nxrt::game::Info` (`include/nxrt/game.h`), filled
-by the game module and registered before `nxrt::init()`. Today there is one game, Pokemon Pokopia: its module is `runtime/games/pkp/`
+by the game module and registered before `nxrt::init()`. Today there is one game, a cozy life-simulation and sandbox builder with fantastical creatures: its module is `runtime/games/pkp/`
 ("the game layer" below), its lifter config is `recomp/games/pkp/`, and its program is `game-build/` (`pkp.exe`).
 
 ## What shared code may know
@@ -26,11 +26,11 @@ registered, so the runtime runs without a game and skips what needs one). It is 
 | `exe_name`, `game_ini`, `shader_pack`, `save_folder` | file names the exe, launcher and services use; saves go under `%APPDATA%\<save_folder>` (empty: `nxrt`) | `pkp_data.cpp` |
 | `romfs_min_files`, `romfs_min_bytes` | start-up check that the RomFS is complete (0: not checked) | `pkp_data.cpp` |
 | `title_defaults(TitleProfile&)` | the services' title profile (main.npdm and control.nacp facts); ini keys still override | `pkp_core.cpp` |
-| `timestep` (`timestep::Sites`) | sites of the real-time frame step | none set for Pokopia |
+| `timestep` (`timestep::Sites`) | sites of the real-time frame step | none set for the game |
 | `probes` (`tt::GameProbes`) | test-tooling state readout, warp, grant, object dump, ray casts, watches | `pkp_tt_probe.cpp` (only with `NXRT_TESTTOOLS`) |
 | `play_defaults` (`play::GameDefaults`) | factory `controls.ini` text and the bindings added by later revisions | `pkp_data.cpp` |
 | `play` (`play::GamePlay`, `play_game.h`) | play mode's game half: input, camera and display hooks, menu pointer, status, F1 entries, a layer drawn over its picture (`overlay_layer`, `nxrt/overlay_canvas.h`); `GameHost` is what play mode gives back | `pkp_game.cpp` and the files it installs |
-| `prompts` (`play::PromptGame`) | how to find the game's button icon textures | none set for Pokopia |
+| `prompts` (`play::PromptGame`) | how to find the game's button icon textures | none set for the game |
 | `poll_sleeps`, `poll_sleep_count` | `SleepThread` call sites inside the game's polling loops that get a shorter sleep (`[sched] poll_sleeps`) | `pkp_core.cpp` |
 | `poll_waits`, `poll_wait_count` | `SleepThread` call sites inside polling loops that wait for a value in guest memory, with what each loop watches; the sleep ends when the value has changed (`[kernel] poll_wait`) | `pkp_core.cpp` |
 | `settings_doc` (`setting_doc::Row` list) | the keys of the game's own ini section; `CONFIG.md`'s game section and the launcher's game-ini schema are generated from it (`apps/settings_doc.cpp`, `runtime/scripts/gen_settings_doc.ps1`) | `pkp_data.cpp`; the rows are in `pkp_settings_table.cpp` |
@@ -67,8 +67,8 @@ Game knowledge that remains in shared code (see `TECH-DEBT.md`, "Still owed"):
 
 - The native co-op backend (`third_party/pokopia-coop`) and the BSD `coop_vnet_*` routing are registered from shared code. Plan:
   `nxrt/ldn_backend.h` (`LdnBackend`, `BsdRoute`) and `game::Info::ldn_backends`.
-- Streaming thresholds (`kStreamGap`, `kStreamAfter`) and the loading-detector thresholds are tuned on Pokopia. Plan: a
+- Streaming thresholds (`kStreamGap`, `kStreamAfter`) and the loading-detector thresholds are tuned on the game. Plan: a
   `Render::loading` block.
-- Pokopia's tone-map list tries the curve match first only to keep the old order.
+- The game's tone-map list tries the curve match first only to keep the old order.
 - Test-tooling vocabulary: `tt::GameState` fields, the hash over them (`tt_core.cpp`) and the item names in `tt_script.cpp`.
 - `timestep` reads `[test] clock_step_ticks` itself.

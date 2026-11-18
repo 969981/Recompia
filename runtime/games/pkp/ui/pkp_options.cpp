@@ -361,7 +361,7 @@ void hook_bar_icons(::Ctx* c, uint64_t, void*) {
     }
 }
 
-// The title function is shared by every screen with a tab bar, and the Pokédex reuses the bar's address after Options closed (#494):
+// The title function is shared by every screen with a tab bar, and the creature list reuses the bar's address after Options closed (#494):
 // only the Options bar's own calls are ours. Each of them has just stored the tab at x19 + 0xac.
 int hook_bar_title(::Ctx* c, uint64_t, void*) {
     const uint64_t ret = c->x[30] - g.base;

@@ -53,7 +53,7 @@ private:
 // ---- HoldLink -----------------------------------------------------------------------------------------------------------------------------
 // A Link in front of another one that holds inbound datagrams from senders its owner has not admitted yet, then delivers them in arrival
 // order. For the ldn host: the game (KTGL) knows senders only from the node table of the NetworkInfo it last read and drops a datagram
-// from anyone else, and a new station sends its first datagram (Pokopia's join request) as soon as its Connect returns, which can be
+// from anyone else, and a new station sends its first datagram (the game's join request) as soon as its Connect returns, which can be
 // before the host game's next GetNetworkInfo on a slow host frame.
 //   admit(vips)    the addresses of the table the game just read: they pass from now on, their held datagrams go first.
 //   members(vips)  the room's addresses now: a sender that is no longer a member is admitted again only by a read (or the timeout), so a

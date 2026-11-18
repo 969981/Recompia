@@ -51,7 +51,7 @@ void temporal_gbuffer_note() {
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
 
-// The game's scene covers only part of its targets (extras::scene_fraction, Pokopia's [upscale] scene_scale, #116): the part of a scene
+// The game's scene covers only part of its targets (extras::scene_fraction, the game's [upscale] scene_scale, #116): the part of a scene
 // image of size `scene` that holds it, and the size of the image the draw that reads it then needs, out / fraction, so that its own lookup
 // at uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
 static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: who the game is, what its files are called, its factory controls.ini and its [pkp] keys (nxrt/game.h Info). Pure
+// Game layer: who the game is, what its files are called, its factory controls.ini and its [pkp] keys (nxrt/game.h Info). Pure
 // data, no runtime, so the factory settings can be read without linking the rest.
 #include "core/pkp_game.h"
 
@@ -97,9 +97,9 @@ const game::Info& data_info() {
     static const game::Info info = [] {
         game::Info g;
         g.id = "pkp";
-        g.title = "Pokémon Pokopia";
+        g.title = "Recompia";
         g.product = "Recompia";
-        g.short_title = "Pokopia";
+        g.short_title = "Recompia";
         g.program_id = 0x0400A3A01EE4C000ull;
         g.version = "2.0.1";
         g.main_base = 0x7100000000ull;
@@ -119,7 +119,7 @@ const game::Info& data_info() {
         // Modtopia mods (nxrt/mods.h): the default folders of game::ModHost (the launcher and Set up use the same ones), shown to mods as
         // "Recompia <version>".
         // The shader files: the linked-data archive (GLSLC outputs stored as is) and the RDB data files with G2S containers or system
-        // resources holding GLSLC outputs (tools/shaders/docs/AMPERE.md section 1), checked against 2.0.1a's RomFS. Based on pokopia-native's
+        // resources holding GLSLC outputs (tools/shaders/docs/AMPERE.md section 1), checked against 2.0.1a's RomFS. Based on the parent project's
         // list (MIT, host/mods.c), plus 0x38f972af.fdata (most of the game's G2S containers) and without the archive's index LI_C0_R.IDX (no
         // shaders in it).
         static constexpr const char* kShaderFiles[] = {

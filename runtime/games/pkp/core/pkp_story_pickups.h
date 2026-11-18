@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op's own copy of a world's important items for every visitor ([pkp] link_story_coop, pkp_linkplay.h).
+// Game layer: Story co-op's own copy of a world's important items for every visitor ([pkp] link_story_coop, pkp_linkplay.h).
 //
 // Items lying in a world are the world's (the drop lists of its save), and in a Link Play session the host decides every pickup: a
 // visitor asks, the host gives the item to the visitor and removes it from its world for everyone. With every player on a story of

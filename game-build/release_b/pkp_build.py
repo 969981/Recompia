@@ -983,7 +983,7 @@ def write_identity(lib, game):
                 '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                 '<plist version="1.0">\n<dict>\n'
                 '    <key>CFBundleIdentifier</key><string>%s</string>\n'
-                '    <key>CFBundleName</key><string>Pokopia Recomp</string>\n'
+                '    <key>CFBundleName</key><string>Recompia</string>\n'
                 '    <key>CFBundleExecutable</key><string>pkp</string>\n'
                 '    <key>CFBundlePackageType</key><string>APPL</string>\n'
                 '    <key>CFBundleShortVersionString</key><string>%s</string>\n'

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play time for the launcher (pkp_play_time.h). The save data's play time is read only while play mode says the game is
+// Game layer, play time for the launcher (pkp_play_time.h). The save data's play time is read only while play mode says the game is
 // in play: before the player loads a save the save data holds no save's time. The file is written off the frame, a thread per write a
 // minute apart (so the one before has always ended); write_file_atomic means a process that ends mid-write leaves the old file whole. The
 // path is UTF-8, which pkp.exe's manifest makes the process code page (game-build/res/pkp.manifest), so a save folder with accents works.

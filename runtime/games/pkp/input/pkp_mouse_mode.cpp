@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: the Joy-Con 2 mouse mode key and the gate of the game's own mouse mode (pkp_play.h play_frame; split out of
+// Game layer, play mode: the Joy-Con 2 mouse mode key and the gate of the game's own mouse mode (pkp_play.h play_frame; split out of
 // pkp_play.cpp).
 #include "input/pkp_play_internal.h"
 #include "input/pkp_play.h"

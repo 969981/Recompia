@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the PC features of play mode (pkp_play.h): native render resolution, frame rates above 60 at the right game speed and the
+// Game layer, the PC features of play mode (pkp_play.h): native render resolution, frame rates above 60 at the right game speed and the
 // raw mouse camera. All addresses are offsets in `main` of the 2.0.1 update (build 76a489f3...), found in IDA (work/re/pc_features.md);
 // the sites are in recomp/games/pkp/main.sites.
 //
@@ -53,7 +53,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         // g_tHdrLut: a log shaper into a 32^3 grade that clips flat at 1 from scene 0.85-1.1) runs as an HDR variant whose highlights climb
         // above paper white to the display's peak (extras spirv_hdr_tonemap_lut; the shader is matched by structure from the render facts in game::Info::render, render/pkp_render_info.cpp; no game hook). The game's own "true HDR" constants
         // (fKIDSTrueHDR, fMaxLum, SIMHDR_PARAMS set at 0x2580198; HdrTvNit / BaseTvNit at 0x2581580) are looked up by name and no shader
-        // in the game's data declares them, so driving them would change nothing. Pokopia never asks whether the
+        // in the game's data declares them, so driving them would change nothing. The game never asks whether the
         // TV is HDR (no settings / vi / oe / NVN capability query in main) and never calls the NVN2 window HDR procs; what it does declare are the
         // nn::vi layer content luminance ranges (standard 0..300, extended 0..400 nits), which [hdr] mode = native uses (paper white, content max).
         const extras::HdrState hs = extras::hdr_state();

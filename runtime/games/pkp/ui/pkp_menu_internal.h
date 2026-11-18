@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus (pkp_menu.cpp and the files it is split into): the scan's state, the game's layout and pane
+// Game layer, the mouse in the game's menus (pkp_menu.cpp and the files it is split into): the scan's state, the game's layout and pane
 // offsets, and the functions one of those files calls in another. Internal to those files.
 #pragma once
 #include <atomic>

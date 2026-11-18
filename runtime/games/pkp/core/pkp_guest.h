@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: guest memory and guest-call helpers shared by the game hooks (raw reads and writes, the address check, calls into
+// Game layer: guest memory and guest-call helpers shared by the game hooks (raw reads and writes, the address check, calls into
 // lifted game code, the data-table row lookup). Header only; every helper is the exact code the hook files carried before.
 #pragma once
 #include <array>

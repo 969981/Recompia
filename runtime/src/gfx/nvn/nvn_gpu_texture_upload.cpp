@@ -47,7 +47,7 @@ static void fill_zero(Frame& f, TexGpu& g) {
 }  // namespace tex
 
 // ---- GPU untile ([nvn] gpu_untile, default on) ----------------------------------------------------------------------------------
-// A block-linear texture the CPU rewrites every frame (Pokopia: three 1024x1024 RGBA8 textures in turn) cost the render thread ~3 ms
+// A block-linear texture the CPU rewrites every frame (the game: three 1024x1024 RGBA8 textures in turn) cost the render thread ~3 ms
 // per upload: untile 4 MiB on the CPU, copy it into staging, copy that to the image. Instead a compute shader untiles straight from
 // the pool (the game's memory, imported) into a device-local linear buffer, which is copied to the image: no CPU work. Like a sampler
 // on the console, it reads the storage when the GPU runs the command. One level, one layer, 2D, block depth 1, rows of whole 16-byte
@@ -264,12 +264,12 @@ void tex_ensure_current(Texture* t, Frame& f) {
     TexGpu* g = tex_or_null(t);
     if (!g || g->depth) return;
     if (t->b.samples > 1 || target_is_multisample(t->b.target)) return;   // multisampled images are only ever rendered
-    // A coherent texture the CPU rewrites every frame (Pokopia: three 1024x1024 RGBA8 textures in turn) cost one write-watch fault per 4 KiB
+    // A coherent texture the CPU rewrites every frame (the game: three 1024x1024 RGBA8 textures in turn) cost one write-watch fault per 4 KiB
     // page per rewrite (~3500 a second on the main thread, inside the game's writes) because each upload armed its pages again. Once its CPU
     // uploads come kStreamGap presents apart or closer kStreamAfter times in a row, and the GPU untile path takes it, it is "streamed": never
     // armed again, and read from the pool once per present at its first use (a compute untile; the bytes the CPU wrote that frame, as a
     // console GPU sampling the memory would see them). [nvn] tex_stream = false: off.
-    constexpr uint32_t kStreamGap = 4, kStreamAfter = 8;   // gap 4: Pokopia rewrites its three in turn (every third present each)
+    constexpr uint32_t kStreamGap = 4, kStreamAfter = 8;   // gap 4: the game rewrites its three in turn (every third present each)
     static const bool stream_on = nxrt::config_get_bool("nvn", "tex_stream", true);
     const uint32_t now = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));
     if (g->streamed) {

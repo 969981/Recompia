@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: frame rates above 60 at the right game speed (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the
+// Game layer, play mode: frame rates above 60 at the right game speed (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the
 // 2.0.1 update.
 //
 // Frame rate. The main loop's frame step (0xbfc404) turns the measured frame time into a frame multiplier in 60 Hz units that 90 functions

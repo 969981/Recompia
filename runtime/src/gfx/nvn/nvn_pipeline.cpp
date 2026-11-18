@@ -430,8 +430,8 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
     std::vector<uint32_t> base_inst;
     if (spirv_base_instance_from_c0(*code, base_inst)) code = &base_inst;
     // [nvn] ballot_fix: NVN's warp-aggregated atomic counters made per lane (spirv_ballot_per_lane). After some lanes have returned,
-    // their ballot(true) can stop NVIDIA GPUs for good (device lost; pokopia-native #12, #21, #22 on RTX 50, D-1 on an RTX 3050 Laptop).
-    // auto (default): NVIDIA (vendor 0x10de) only, as pokopia-native; the rewrite assumes 32-lane subgroups. on: any GPU. off: never.
+    // their ballot(true) can stop NVIDIA GPUs for good (device lost; the parent project #12, #21, #22 on RTX 50, D-1 on an RTX 3050 Laptop).
+    // auto (default): NVIDIA (vendor 0x10de) only, as the parent project; the rewrite assumes 32-lane subgroups. on: any GPU. off: never.
     static const bool ballot_fix = [] {
         const std::string v = config_get_str("nvn", "ballot_fix", "auto");
         const uint32_t vendor = device().properties().vendorID;
@@ -455,7 +455,7 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
     }
     // [nvn] loop_guard: the game's compute loops whose count is a constant buffer word get it limited (game::Render::loop_guards,
     // spirv_limit_count). auto (default): by the table's size on NVIDIA and on Linux (Mesa's drivers: RADV on the Deck and other AMD
-    // handhelds, #531); a plain cap of 16384 elsewhere (AMD's Windows driver crashed making pokopia-native's size-query version). A loop of
+    // handhelds, #531); a plain cap of 16384 elsewhere (AMD's Windows driver crashed making the parent project's size-query version). A loop of
     // up to 16384 items a lane can still pass the Deck's 5 s GPU timeout, so the table size is used wherever it builds. table / cap: that on
     // any GPU. off: never.
     static const int loop_guard = [] {   // 0 off, 1 table, 2 cap
@@ -583,7 +583,7 @@ static VkShaderModule no_output_module(const ShaderInfo* fs) {
 
 // The tone-map fragment shader runs as its HDR variant while the HDR scene is active (extras/hdr_nvn.h); every other fragment shader is the translated one.
 static VkShaderModule hdr_fragment_module(const ShaderInfo* fs) {
-    if (!extras::hdr_scene_active() || fs->spirv.size() > 65536) return shader_module(fs);   // Pokopia's composite tone map is about 24.5k words
+    if (!extras::hdr_scene_active() || fs->spirv.size() > 65536) return shader_module(fs);   // The game's composite tone map is about 24.5k words
     std::lock_guard<std::recursive_mutex> lk(g_module_mu);
     auto it = g_hdr_frag.find(fs);
     if (it != g_hdr_frag.end()) return it->second.first;

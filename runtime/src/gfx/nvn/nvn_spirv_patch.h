@@ -35,7 +35,7 @@
 //
 //   spirv_limit_count   a compute shader whose loop runs to a count read from a constant buffer word and walks the items of a texel buffer
 //                       table. A count that is not the game's (a stale or garbage word) runs the loop for seconds and NVIDIA's driver
-//                       drops the device (pokopia-native D-1, D-11). The count, where it is compared, becomes min(count, the items the
+//                       drops the device (the parent project D-1, D-11). The count, where it is compared, becomes min(count, the items the
 //                       table holds), or min(count, 16384). Ported from pokopia-native (MIT) vk_shader.c vkspv_limit_count @9cb7f07.
 //
 // The idea (pattern-matching on the module's declarations, new ids from the bound) follows SuperMarioWonderRecomp's
@@ -105,7 +105,7 @@ bool spirv_outputs_to_private(const std::vector<uint32_t>& in, std::vector<uint3
 bool spirv_init_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
 
 // [nvn] reduced_precision: the module as the translator would have written it with QueryHostReducedPrecision() = true (Ryujinx's
-// HostCapabilities.ReducedPrecision, the mode pokopia-native translates with), without translating again. That mode changes exactly two
+// HostCapabilities.ReducedPrecision, the mode the parent project translates with), without translating again. That mode changes exactly two
 // things in SPIR-V (tools/shaders/third_party/ryubing CodeGen/Spirv): no NoContraction on the float results of binary / ternary ops, so the
 // driver may fuse a multiply and an add, except on the ops ForcePreciseEnable marks (fragment stage only: the FP32 add of a constant whose
 // result is the divisor of 1.0 / x, so a small bias against a division by zero is not rounded away); and Invariant on every BuiltIn Position

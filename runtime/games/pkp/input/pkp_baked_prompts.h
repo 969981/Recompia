@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, button prompts drawn into the game's art (pkp_baked_prompts.cpp) rather than set as glyphs of its UI atlas: the title
+// Game layer, button prompts drawn into the game's art (pkp_baked_prompts.cpp) rather than set as glyphs of its UI atlas: the title
 // logo's "PRESS (A) BUTTON" (one logo texture per language) and the challenge list's "(A) Complete!" badge. Part of the kbm feature
 // (pkp_kbm.cpp), which owns one of these and calls it from its game-frame callback; the game thread is the only caller.
 #pragma once

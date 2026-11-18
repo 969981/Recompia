@@ -7,7 +7,7 @@ namespace nxrt::services::miscsvc {
 namespace {
 
 // ---- caps:u (caps:su is in album.cpp) --------------------------------------------------------------------------------------------
-// Album reading: lists are empty (Pokopia main imports no album list or load function, only nn::album::SaveScreenshot).
+// Album reading: lists are empty (the game main imports no album list or load function, only nn::album::SaveScreenshot).
 Handler album_list() {
     return [](Request& req, Response& rsp) -> uint32_t {
         zero_buffer(req.out_buf(0));

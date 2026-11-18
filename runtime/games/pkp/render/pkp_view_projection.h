@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: a player's render view as the game last built it, captured on the game thread, and world points projected through it to
+// Game layer: a player's render view as the game last built it, captured on the game thread, and world points projected through it to
 // the picture (debug views drawn on the overlay's canvas, nxrt/overlay_canvas.h).
 //
 // The render view is the camera object the follow camera writes each frame (0x7100088aac, pkp_shoulder_camera.cpp):

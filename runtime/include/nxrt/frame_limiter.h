@@ -23,7 +23,7 @@ public:
     void set_target_fps(double fps);
     double target_fps() const;
 
-    // The game's own ceiling (0 = none): frames never start closer together than 1 / max, whatever the target (unlimited included). Pokopia sets
+    // The game's own ceiling (0 = none): frames never start closer together than 1 / max, whatever the target (unlimited included). The game sets
     // it to 60 while an area transition plays (#144: a part of it breaks on frames shorter than 1/60 s). With
     // RefreshSync::snap_ceiling the ceiling in force is the next divisor of the refresh rate at or under it.
     // Safe to call from any thread.
@@ -105,7 +105,7 @@ private:
 // the display never falls back to plain vsync or tearing. refresh - max(3, refresh^2 / 3600) (Blur Busters formula, at least 3
 // under): 120 -> 116, 144 -> 138.24, 240 -> 224. Below 100 Hz it is the refresh rate itself (60 -> 60, 90 -> 90): there 3 fps is
 // a felt loss, a screen without VRR (Steam Deck) shows the lower rate unevenly, and a game that counts a frame within 1.5 ms of
-// 1/60 s as exactly 1/60 s (Pokopia) runs 5 % slow at 57.
+// 1/60 s as exactly 1/60 s (the game) runs 5 % slow at 57.
 double suggest_vrr_cap(double refresh_hz);
 
 // Frame cap snapped to a divisor of the refresh rate (F5): with vsync on, a cap that is not a divisor shows frames for uneven numbers of

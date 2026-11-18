@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op's own copy of a world's important items for every visitor (pkp_story_pickups.h).
+// Game layer: Story co-op's own copy of a world's important items for every visitor (pkp_story_pickups.h).
 //
 // The drop manager of the 2.0.1 main (*(game state + 0xb8)) has one 0xd0-byte entry per item lying in the world: +0 -> the item's
 // element in the save's drop list (+0x10 the item word: bits 0-12 the id, 13-20 the variant; +0x20 16 bytes, its place; +0x30 flags,

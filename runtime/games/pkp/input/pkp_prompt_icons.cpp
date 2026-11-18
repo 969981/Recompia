@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the icons button prompts are drawn with (pkp_prompt_icons.h).
+// Game layer, the icons button prompts are drawn with (pkp_prompt_icons.h).
 #include "input/pkp_prompt_icons.h"
 
 #include <algorithm>

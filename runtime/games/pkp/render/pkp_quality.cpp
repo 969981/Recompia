@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, PC picture quality (pkp_quality.h). Offsets in `main` of the 2.0.1 update; the RE notes are work/audit/quality_params.md.
+// Game layer, PC picture quality (pkp_quality.h). Offsets in `main` of the 2.0.1 update; the RE notes are work/audit/quality_params.md.
 //
 // View distance is the console's and cannot be changed (#249). The game's shadow projection and the pictures in frames and photo
 // displays depend on the scene camera's far clip: a longer one made the shadows follow the camera, seamed the block textures and blanked

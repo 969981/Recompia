@@ -65,7 +65,7 @@ nxrt::GaugeCounter g_gauge_pools_live("nvn.pools_live");   // pools imported and
 // [nvn] pool_import_chunk_mb (default 64, rounded up to a multiple of 64; 0 = import every pool whole). A pool larger than one chunk is imported
 // in chunks of that many MiB plus a quarter of it overlapping the next chunk, each on the render thread the first time a draw, copy or texture
 // touches it. vkAllocateMemory of an import pins every page of it (about a quarter of a millisecond per MiB) and a vkQueueSubmit2 running beside
-// it waits: Pokopia's 3500 MiB graphics heap took ~0.9 s as one import, while draws read only a few MiB of it.
+// it waits: the game's 3500 MiB graphics heap took ~0.9 s as one import, while draws read only a few MiB of it.
 uint64_t import_stride() {
     static const uint64_t s = [] {
         const int64_t mb = std::max<int64_t>(0, config_get_int("nvn", "pool_import_chunk_mb", 64));
@@ -916,7 +916,7 @@ void pool_gpu_destroy(PoolGpu* p) {
 // host memory for a while instead of faulting and being copied every frame.
 //
 // The copy is made of chunks (64 MiB, or 16 MiB under a smaller cap: nvn_mirror_cap.h), each created the first time a draw wants one of
-// its pages, so a pool of gigabytes (Pokopia's 3.5 GiB graphics heap) costs video memory only for the parts draws read. A bind that spans
+// its pages, so a pool of gigabytes (the game's 3.5 GiB graphics heap) costs video memory only for the parts draws read. A bind that spans
 // two chunks reads the pool. When the cap is used up, chunks no draw used for a while are released for new ones (release_idle_chunks).
 //
 // Sparse copies ([nvn] mirror_sparse, nvn_mirror_cap.h: a cap under kMirrorLargeCap on a discrete GPU that can bind sparse buffers): the

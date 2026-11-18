@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokopia v2.0.1a resident limit and active-appearance budget (gameplay mod pokemon_cap_50; the registry installs it only while on).
-// Ported from the Eglantine cap's default (non-staged) behavior. The game has 64 actor slots, but past about 50 live Pokemon a new arrival
-// keeps working without a drawn model (#745: the 51st and 52nd live Pokemon stayed invisible), so every limit stops at 50.
+// Resident limit and active-appearance budget of the game v2.0.1a (gameplay mod pokemon_cap_50; the registry installs it only while on).
+// Ported from the Eglantine cap's default (non-staged) behavior. The game has 64 actor slots, but past about 50 live creatures a new arrival
+// keeps working without a drawn model (#745: the 51st and 52nd live creatures stayed invisible), so every limit stops at 50.
 #include "core/pkp_pokemon_cap.h"
 #include "core/pkp_resident_census.h"
 
@@ -26,7 +26,7 @@ constexpr std::uint32_t kOriginalObjects = 30;
 constexpr std::uint32_t kPoolSize = 64;
 constexpr std::uint32_t kMaximumLiving = 64;
 constexpr std::uint32_t kVisitorHeadroom = 14; // visitor slots above the residents while they fit under kDrawLimit
-// Live Pokemon actors that still get a drawn model (#745). Likely a per-species engine memory pool for motions, sized before our first
+// Live creature actors that still get a drawn model (#745). Likely a per-species engine memory pool for motions, sized before our first
 // frame, so it is not raised; objects, the active budget and the residents all stop here.
 constexpr std::uint32_t kDrawLimit = 50;
 
@@ -66,7 +66,7 @@ void game_frame(::Ctx*) {
     if (living < kOriginalLiving || living > kMaximumLiving ||
         objects < kOriginalObjects || objects > kPoolSize) {
         if ((living || objects) && !g.warned_layout) {
-            NXLOG_W("pkp", "pokemon cap: unexpected limits %u living / %u objects; untouched",
+            NXLOG_W("pkp", "creature cap: unexpected limits %u living / %u objects; untouched",
                     living, objects);
             g.warned_layout = true;
         }
@@ -83,7 +83,7 @@ void game_frame(::Ctx*) {
     if (objects != target_objects)
         guest::wr<std::uint32_t>(params + kObjectsOffset, target_objects);
     if (!g.limits_reported) {
-        NXLOG_I("pkp", "pokemon cap: applied %u living / %u objects (previous %u/%u; drawn at most 50 of the 64 slots)",
+        NXLOG_I("pkp", "creature cap: applied %u living / %u objects (previous %u/%u; drawn at most 50 of the 64 slots)",
                 target_living, target_objects, living, objects);
         g.limits_reported = true;
     }
@@ -99,7 +99,7 @@ void game_frame(::Ctx*) {
     const auto active = guest::rd<std::uint32_t>(block + kActiveBudget);
     if (active == 0 || active > kPoolSize) {
         if (active && !g.warned_active) {
-            NXLOG_W("pkp", "pokemon cap: unexpected active budget %u; untouched", active);
+            NXLOG_W("pkp", "creature cap: unexpected active budget %u; untouched", active);
             g.warned_active = true;
         }
         return;
@@ -108,7 +108,7 @@ void game_frame(::Ctx*) {
     if (active != target_active)
         guest::wr<std::uint32_t>(block + kActiveBudget, target_active);
     if (!g.active_reported) {
-        NXLOG_I("pkp", "pokemon cap: active budget %u -> %u (drawn at most 50)",
+        NXLOG_I("pkp", "creature cap: active budget %u -> %u (drawn at most 50)",
                 active, target_active);
         g.active_reported = true;
     }
@@ -119,7 +119,7 @@ void install(const FeatureInstall& in) {
     g.base = in.base;
     g.requested = static_cast<std::uint32_t>(settings::get_int(settings::Key::PokemonCapLimit));
     resident_census::start(in.base);
-    NXLOG_I("pkp", "pokemon cap: requested %u living (physical actor pool: 64, drawn at most %u)", g.requested, kDrawLimit);
+    NXLOG_I("pkp", "creature cap: requested %u living (physical actor pool: 64, drawn at most %u)", g.requested, kDrawLimit);
 }
 
 void remove() {

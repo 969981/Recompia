@@ -20,7 +20,7 @@
 namespace nxrt::kernel {
 
 namespace {
-constexpr int64_t kLateStartNs = 450000;    // pokopia-native's start value (their PC: 0.36-0.50 ms measured)
+constexpr int64_t kLateStartNs = 450000;    // The parent project's start value (their PC: 0.36-0.50 ms measured)
 constexpr int64_t kLateMaxNs = 2000000;     // the estimate never exceeds 2 ms (a plain timer under Wine can be far later)
 constexpr int64_t kSampleMaxNs = kLateMaxNs; // a wake later than that is preemption, not the timer: not learned (with 5 ms, as theirs, the
                                              // estimate rose to 1-2 ms on a fully loaded PC and every wait then woke early and slept twice)
