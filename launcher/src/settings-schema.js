@@ -33,8 +33,6 @@ const controls = (section, key) => ({ file: 'controls', section, key });
 const pkp = (section, key) => ({ file: 'pkp', section, key });
 const config = (key) => ({ file: 'config', section: '', key });
 
-/** The logo and icon choices: 'Recompia' is a name and stays in English. */
-const LOOKS = [{ value: 'recompia', label: 'Recompia' }, { value: 'classic', label: t('Classic') }];
 
 const keyOf = (at) => (at.file === 'config' ? at.key : `${at.section}.${at.key}`);
 const rawOf = (src, at) => src[at.file]?.[keyOf(at)];
@@ -663,15 +661,6 @@ export const SECTIONS = [
         rows: [
           { id: 'gameplay_note', type: 'note', note: () => ({ text: t('New ways of playing: switch each one on or off here. They take effect the next time the game starts, and they need the game built with this version (Set up again once after an update).') }) },
           ...gameplayRows(),
-        ],
-      },
-      {
-        title: t('Logo and icon'),
-        rows: [
-          // launcher.json; the launcher puts the choice in place (writer.js -> apply_branding, src-tauri/src/branding.rs)
-          { id: 'logo', label: t('Logo'), type: 'segmented', at: config('logo'), def: 'recompia', options: LOOKS },
-          { id: 'icon', label: t('Icon'), type: 'segmented', at: config('icon'), def: 'recompia', options: LOOKS },
-          { id: 'look_note', type: 'note', note: () => ({ text: t('Classic is the bubble-letter logo and R icon of earlier versions. The icon changes for the launcher, the game and the Steam shortcut (Steam shows it after a restart). Windows can take a moment to redraw an icon it has already shown.') }) },
         ],
       },
       {
