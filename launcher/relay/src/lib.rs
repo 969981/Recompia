@@ -2,8 +2,8 @@
 //! The relay crate: the launcher's "Run a relay here" and `--host`, and the standalone `pokopia-relay` server binary (src/main.rs).
 //!
 //! Based on pokopia-native (MIT) windows/tools/coop-relay/coop_relay.h @4a72d23: the Link Play relay ("pkp host"), a Rust port of
-//! pokopia-native's coop-relay, the meeting point for internet play when the host cannot forward a port. Game builds with `[net] relay` set
-//! (ours and pokopia-native's) all dial out to it.
+//! the parent project's coop-relay, the meeting point for internet play when the host cannot forward a port. Game builds with `[net] relay` set
+//! (ours and the parent project's) all dial out to it.
 //!
 //! It keeps rooms keyed by a 16-byte room id the players derive from their room code (coop_auth.c croom_keys): it never sees a private code or any
 //! key (a listed room's code is public, see "Room list"). A host keeps a control link open for its room; a visitor asks for the room, the relay tells the host, the host dials one more link for
@@ -21,9 +21,9 @@
 //! 60 failed lookups a minute per address, hello within 5 s, a visitor waits 10 s for its host, a host's control link silent 30 s closes its
 //! room, a room lives 12 h and carries 4 GiB, a link sends 256 KiB/s (bursts twice that).
 //!
-//! # Relay UDP (pokopia-recomp extension, opt-in, coop_int.h "pokopia-recomp extension: relay UDP")
+//! # Relay UDP (Recompia extension, opt-in, coop_int.h "pokopia-recomp extension: relay UDP")
 //!
-//! pokopia-native sends game datagrams over UDP on direct links but over the TCP link through a relay (one lost segment stalls every datagram
+//! The parent project sends game datagrams over UDP on direct links but over the TCP link through a relay (one lost segment stalls every datagram
 //! behind it). This relay can also carry them over UDP, only between two links that both ask for it, so their builds and their relay see
 //! exactly the PKR1 above:
 //!
@@ -38,7 +38,7 @@
 //!   the room's byte budget. The payload is the players' own tagged datagram (PCU3: token, sequence number, HMAC tag), checked end to end.
 //! - The clients also agree end to end, over their tagged link (frame type 0xC5), before either sends game datagrams this way.
 //!
-//! # Room list (pokopia-recomp extension, opt-in, coop_int.h "pokopia-recomp extension: room list")
+//! # Room list (Recompia extension, opt-in, coop_int.h "pokopia-recomp extension: room list")
 //!
 //! Internet play through a relay with no room code set: the host lists its room and anyone can find it with the game's own search (Visit a
 //! Friend); the game's own Link Code keeps a room private (the game checks it). A listed room's code is public: it only keeps the relay's room
@@ -66,5 +66,5 @@ mod server;
 pub use engine::Config;
 pub use server::{RelayServer, Status};
 
-/// Default port of the relay (TCP, and UDP for relay UDP): pokopia-native's COOP_RELAY_PORT.
+/// Default port of the relay (TCP, and UDP for relay UDP): the parent project's COOP_RELAY_PORT.
 pub const DEFAULT_PORT: u16 = 47610;

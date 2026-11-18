@@ -403,7 +403,7 @@ mod tests {
     fn reads_the_achievements_block_and_its_absence() {
         let with = r#"{"schema": 1, "mods": [], "achievements": {"page": "https://pokopia-native.vercel.app/mods/achievements",
           "stats": "https://achievements.pokopia-native.workers.dev/api/stats", "license": "https://pokopia-native.vercel.app/img/ach/LICENSE.txt", "extra": 1,
-          "list": [{"id": "dex_5", "name": "New Neighbors", "desc": "Have 5 Pokemon in your Pokedex.", "cat": "pokedex", "goal": 5,
+          "list": [{"id": "dex_5", "name": "New Neighbors", "desc": "Have 5 creatures in your creature list.", "cat": "pokedex", "goal": 5,
                     "picture": "https://pokopia-native.vercel.app/img/ach/dex_5.webp", "new": true}, {"name": "no id"}, {"id": "dex_25", "name": "Busy Street"}]}}"#;
         let a = parse(with.as_bytes()).unwrap().achievements.unwrap();
         assert_eq!(a.list.len(), 2, "an entry without an id is left out, not the list");

@@ -50,7 +50,7 @@ Recompia is not notarized by Apple, so macOS refuses to open it the first time. 
 1. Unpack the zip anywhere you like (the folder can stay where it is; nothing is installed).
 2. Start PokopiaLauncher once and let macOS say it cannot be opened. Close that dialog.
 3. Open System Settings, Privacy and Security, and scroll down to the Security section.
-   There is a line about Pokopia Launcher being blocked: press "Open Anyway", then "Open".
+   There is a line about PokopiaLauncher being blocked: press "Open Anyway", then "Open".
 4. From then on it opens like any other program.
 
 On macOS 14 and older you can also right-click PokopiaLauncher, choose Open, and confirm.

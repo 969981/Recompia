@@ -87,7 +87,7 @@ export async function render(el, _ctx) {
   }
 
   function creditsHtml() {
-    return `<p class="faint ach-note">${esc(t('Counts from the Modtopia community service: players of Pokopia Native and Recompia together. Names and descriptions are the hub\'s own, in English. Pictures: Microsoft Fluent Emoji (MIT).'))}</p>
+    return `<p class="faint ach-note">${esc(t('Counts from the Modtopia community service: players of the parent project and Recompia together. Names and descriptions are the hub\'s own, in English. Pictures: Microsoft Fluent Emoji (MIT).'))}</p>
       <div class="cluster"><button class="btn quiet sm" data-act="licence">${icon('file-text')}${esc(t('Pictures\' licence'))}</button></div>`;
   }
 

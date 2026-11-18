@@ -321,10 +321,10 @@ const GAMEPLAY = {
     after: [{ id: 'item_editor_note', type: 'note', when: isOn('item_editor'), note: () => ({ text: t('Adds an Items tab to the game\'s Settings screen where you change how many of an item in your bag you hold. Off during Link Play. Back up your save first.') }) }],
   },
   pokemon_cap_50: {
-    label: t('More Pokémon in town'),
+    label: t('More creatures in town'),
     after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
-  pokemon_cap_limit: { label: t('Pokémon in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
+  pokemon_cap_limit: { label: t('Creatures in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
@@ -632,7 +632,7 @@ export const SECTIONS = [
           },
           {
             id: 'online_note', type: 'note',
-            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many Pokemon have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
+            note: () => ({ text: t('While the game runs, the launcher sends your online name (empty: anonymous), the Recompia version, Windows or Linux, and how many creatures have a home in your save to the Recompia online server. Your save, your profile nickname and your user ID are never sent. recompia.com says how long it is kept.') }),
           },
           { id: 'online_where', type: 'note', note: () => ({ text: t("The same switch is on Home and in the game's own Settings, on the Online tab.") }) },
           { id: 'online_id', label: t('Online ID'), type: 'info', actions: [{ act: 'online-reset', label: t('Reset my online ID'), icon: 'rotate-ccw' }] },

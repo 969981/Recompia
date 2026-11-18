@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! "Pokemon at home": how many villager slots of the save are occupied and have a home assigned, read from the committed
+//! "Creatures at home": how many villager slots of the save are occupied and have a home assigned, read from the committed
 //! `G00/CMNDAT.BIN` of the active profile (online.rs sends it when the player switched online presence on).
 //!
 //! Layout of the 2.0.1 common save (berichan/PokoHex, GPL-3.0: SaveLayout.cs, SaveFile.cs, Villager.cs, VillagerHome.cs; the envelope is

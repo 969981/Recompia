@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 #[derive(Serialize, Clone, Debug)]
 pub struct Status {
     pub addr: String,
-    /// Relay UDP (the pokopia-recomp extension) is open on the same port.
+    /// Relay UDP (the Recompia extension) is open on the same port.
     pub udp: bool,
     /// Links now (host control links, waiting and paired visitors' links).
     pub clients: usize,
