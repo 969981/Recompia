@@ -704,6 +704,7 @@ export default {
   'Close Steam first (Steam, Exit), then press the button again.': '请先关闭 Steam（Steam，退出），然后再次点击该按钮。',
   'It was not in Steam.': '它不在 Steam 中。',
   'Removed "{1}" from Steam. Start Steam again.': '已从 Steam 中移除“{1}”。请重新启动 Steam。',
+  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.15.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': '启动器的文件在 0.15.0 中改名为 Recompia.exe（Linux 上为 Recompia.AppImage，macOS 上为 Recompia）。旧版本会改回旧文件名，因此启动新名称的 Steam 快捷方式将无法使用：退回后请再次使用“添加到 Steam”。',
   'Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.': '配置文件（每位玩家各有独立的存档和名称）在 0.8.0 中推出。旧版本会忽略 profiles.json 并使用一个存档，因此可能找不到第二位玩家的存档。',
   'The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.': '一键更新程序在 0.7.5 中推出。旧版启动器无法自行更新，因此再次升级就需要手动解压版本。',
   'That version could not be compared with the one you have.': '无法将该版本与你当前的版本进行比较。',

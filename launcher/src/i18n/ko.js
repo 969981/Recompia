@@ -704,6 +704,7 @@ export default {
   'Close Steam first (Steam, Exit), then press the button again.': '먼저 Steam을 닫고(Steam, 종료) 버튼을 다시 누르세요.',
   'It was not in Steam.': 'Steam에 없었습니다.',
   'Removed "{1}" from Steam. Start Steam again.': '"{1}"을(를) Steam에서 제거했습니다. Steam을 다시 시작하세요.',
+  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.15.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': '런처 파일 이름이 0.15.0에서 Recompia.exe(Linux에서는 Recompia.AppImage, macOS에서는 Recompia)로 바뀌었습니다. 이전 버전은 예전 파일 이름으로 돌아가므로 새 이름을 실행하는 Steam 바로 가기는 더 이상 작동하지 않습니다. 되돌린 뒤 Steam에 추가를 다시 사용하세요.',
   'Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.': '프로필(플레이어마다 별도의 세이브와 이름)은 0.8.0에서 도입되었습니다. 이전 버전은 profiles.json을 무시하고 세이브 하나만 사용하므로 두 번째 플레이어의 세이브를 찾지 못할 수 있습니다.',
   'The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.': '원클릭 업데이터는 0.7.5에서 도입되었습니다. 이전 런처는 스스로 업데이트할 수 없으므로 다시 앞으로 가려면 릴리스를 직접 압축 해제해야 합니다.',
   'That version could not be compared with the one you have.': '해당 버전을 현재 버전과 비교할 수 없었습니다.',
