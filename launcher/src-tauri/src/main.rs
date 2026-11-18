@@ -74,6 +74,7 @@ mod shader_archive;
 mod shaders;
 mod steam;
 mod steam_cmds;
+mod steam_vdf;
 mod states;
 mod storage;
 #[cfg(debug_assertions)]
