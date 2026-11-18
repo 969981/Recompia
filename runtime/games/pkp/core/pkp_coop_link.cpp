@@ -48,6 +48,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::MemberName, Path::Shared, &notice::on_name_message},
     {wire::Type::ReqUnique, Path::Shared, &requests::on_unique_message},
     {wire::Type::ReqOutcome, Path::ToAuthority, &outcomes::on_outcome_message},
+    {wire::Type::RecipeKnown, Path::Shared, &recipes::on_known_message},
 };
 
 struct State {
@@ -116,6 +117,7 @@ void on_member(const ch::MemberEvent& e) {
         story::on_session_change();
         notice::on_session_change();
         requests::on_session_change();
+        recipes::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
@@ -126,6 +128,7 @@ void on_member(const ch::MemberEvent& e) {
         story::on_member_joined();
         notice::on_member_joined();
         requests::on_member_joined();
+        recipes::on_member_joined();
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }

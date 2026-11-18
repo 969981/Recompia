@@ -108,6 +108,11 @@ constexpr uint32_t kQuestWordCount = 1000;
 constexpr uint64_t kSaveAbilities = 0x4a26a8;    // save root: the ability bits, id 1..0xf9 at byte id >> 3, bit id & 7 (0x20 bytes)
 constexpr uint64_t kSaveUniqueRequests = 0x6fabd9;   // save root + id * 4: the record of unique request id 1..200 (+0 its state)
 constexpr uint32_t kUniqueRequestCount = 200;
+constexpr uint64_t kSaveRecipes = 0x6cfdec;      // save root + id * kRecipeSize: m_recipeHistory, the record of recipe id 1..0x5db
+constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn order, +4 u8 flags (kRecipeKnown: learned)
+constexpr uint64_t kRecipeFlags = 4;
+constexpr uint8_t kRecipeKnown = 0x02;
+constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;

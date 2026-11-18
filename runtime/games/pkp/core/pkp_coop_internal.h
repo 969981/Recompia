@@ -15,6 +15,7 @@
 //   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
 //   pkp_coop_requests.cpp the Pokémon requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
+//   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -116,6 +117,17 @@ void on_outcome_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace outcomes
+
+namespace recipes {
+// The message (pkp_coop_link.cpp): kept until this player can learn it.
+void on_known_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Teaches what other members know when this player can walk and talks to no one, reads this player's recipes and shares the new
+// ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the recipes are read again, the whole list sent
+void on_member_joined();    // another member joined: the whole list is sent again
+void reset();
+}  // namespace recipes
 
 namespace talk {
 // The hook sites (pkp_coop.cpp).
