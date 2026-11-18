@@ -33,6 +33,7 @@
   <a href="https://github.com/xFractals/pokopia-native">Parent: pokopia-native</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="LEGAL.md">Legal</a> ·
+  <a href="PRIVACY.md">Privacy</a> ·
   <a href="https://github.com/featureJosh/pokopia-recomp/issues">Issues</a> ·
   <a href="https://discord.recompia.com">Discord</a>
 </p>
