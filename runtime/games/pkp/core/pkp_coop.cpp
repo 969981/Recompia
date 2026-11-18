@@ -58,6 +58,7 @@ enum class Site : uintptr_t {
     TripFile,         // a trip is filed (five filers): every door out of the session is shut, except the stage moves the group makes
                       // together
     DropCheck,        // the drop check: a drop files no trip home; the session pauses and waits for the member instead
+    AreaMove,         // the area move by destination index: in a session it waits for the group's poll (pkp_coop_travel.cpp)
     StateReset,       // the state reset after a drop: does not run
     Error3103,        // error 3103 (the session was lost): held back while the session waits for a reconnect
     LinkMenu,         // the PC's Link Play menu: shut, the co-op session is the launcher's
@@ -93,6 +94,7 @@ constexpr CoopSite kSites[] = {
     {{0x5483a0, kPacibsp, true}, Site::TripFile},
     {{0xbe5f0, kPacibsp, true}, Site::TripFile},
     {{0xbca8c, kPacibsp, true}, Site::DropCheck},
+    {{0xbda20, kPacibsp, true}, Site::AreaMove},
     {{0xb0d74, kPacibsp, true}, Site::StateReset},
     {{0x547278, kPacibsp, true}, Site::Error3103},
     {{0xf282a8, kPacibsp, true}, Site::LinkMenu},
@@ -136,6 +138,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
+        case Site::AreaMove: return coop::travel::on_area_move(c);
         default: return 0;
     }
 }
@@ -201,6 +204,7 @@ void game_frame(::Ctx* c) {
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
+    coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
@@ -221,6 +225,7 @@ void remove() {   // the registry has removed the hooks
     coop::outcomes::reset();
     coop::recipes::reset();
     coop::talk::reset();
+    coop::travel::reset();
     coop::catchup::reset();
     coop::notice::reset();
     coop::curtain::reset();
