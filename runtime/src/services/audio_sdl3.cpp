@@ -89,6 +89,12 @@ public:
             NXLOG_W(kTag, "SDL3 audio does not initialize: %s", SDL_GetError());
             return false;
         }
+        // PipeWire can pull SDL's default 1024 frames at once. That can make audout return more tags in one burst than
+        // a small guest buffer pool can refill, producing silent PCM blocks. Request a shorter period before opening.
+        const char* driver = SDL_GetCurrentAudioDriver();
+        if (driver && SDL_strcmp(driver, "pipewire") == 0) {
+            SDL_SetHintWithPriority(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512", SDL_HINT_DEFAULT);
+        }
         const std::string want = config_get_str("audio", "device", "");
         if (!want.empty()) {
             const SDL_AudioDeviceID named = device_by_name(want);
