@@ -125,12 +125,8 @@
    "tested": false,
    "source": "https://github.com/peppershinybooty/Pokopia-Voices",
    "page": "",
-   "download": {
-    "url": "https://github.com/peppershinybooty/Pokopia-Voices/releases/download/2.1/pokemon_anime_voices2.1.pkmod",
-    "file": "pokemon_anime_voices2.1.pkmod",
-    "size": 88840092,
-    "sha256": "12ba11d293cf645b817452addb556cd176c595d2c2534b8cf3d65699e93a2de4"
-   }
+   "download": null,
+   "manual": "https://github.com/peppershinybooty/Pokopia-Voices/releases/tag/2.1"
   }
  ]
 }

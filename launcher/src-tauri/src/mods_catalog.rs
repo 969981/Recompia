@@ -88,6 +88,10 @@ pub struct Entry {
     /// null until the mod is out ("Coming soon")
     #[serde(default)]
     pub download: Option<Download>,
+    /// Only for one of Recompia's additions the launcher may not install (mods_additions.rs): the author's page where the player gets it
+    /// themselves. Never read from the hub's list.
+    #[serde(skip)]
+    pub manual: String,
 }
 
 /// One achievement of the community tracker's list, as the hub publishes it (names and sentences are the hub's, in English).
@@ -257,6 +261,8 @@ pub struct CardView {
     pub page: String,
     /// it has a download (else "Coming soon")
     pub available: bool,
+    /// the author's page to get it from by hand, when the launcher does not install it (`Entry::manual`), else ""
+    pub manual: String,
     /// the installed version, "" when it is not installed
     pub installed: String,
     /// the list has a newer version than the installed one
@@ -305,6 +311,7 @@ pub fn view(c: &Catalog, offline: bool, installed: &[(String, String)]) -> Catal
                 network: e.network,
                 page: link(&e.page),
                 available: e.download.as_ref().is_some_and(download_ok),
+                manual: if crate::open::openable_link(&e.manual) { e.manual.clone() } else { String::new() },
                 newer: !have.is_empty() && ffi::version_compare(&e.version, &have) == std::cmp::Ordering::Greater,
                 installed: have,
             }
