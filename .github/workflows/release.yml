@@ -598,10 +598,22 @@ jobs:
           chmod 755 "$ai.new" && mv "$ai.new" "$ai"
           "$ai" --appimage-offset
 
+      - name: Library notices of the AppImage
+        # The AppImage bundles GTK, WebKitGTK, GLib, libsoup and more from this runner's Ubuntu packages (mostly LGPL). Only here do
+        # dpkg and /usr/share/doc know them, so the list, the copyright files and SOURCES.txt are made here and travel with the
+        # launcher artifact; make-linux.sh puts them into the package as licenses/appimage/.
+        run: sh launcher/scripts/appimage-notices.sh "$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)" work/appimage-notices
+
       - name: Launcher artifact
         run: |
           ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
           mkdir -p work/play && cp "$ai" work/play/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage-notices
+          path: work/appimage-notices
+          compression-level: 6
 
       - uses: actions/upload-artifact@v4
         with:
@@ -658,6 +670,12 @@ jobs:
           name: linux-pokohex
           path: build/pokohex
 
+      - name: Library notices of the AppImage from linux-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage-notices
+          path: build/appimage-notices
+
       - name: Licence notices from licenses
         uses: actions/download-artifact@v4
         with:
@@ -682,7 +700,7 @@ jobs:
                    tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
                    tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
                    tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
-                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md; do
+                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \n                   licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
             test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
           done
           test -x "$pkg/tools/harness/spirv_harness"
@@ -876,10 +894,22 @@ jobs:
           chmod 755 "$ai.new" && mv "$ai.new" "$ai"
           "$ai" --appimage-offset
 
+      - name: Library notices of the AppImage
+        # The AppImage bundles GTK, WebKitGTK, GLib, libsoup and more from this runner's Ubuntu packages (mostly LGPL). Only here do
+        # dpkg and /usr/share/doc know them, so the list, the copyright files and SOURCES.txt are made here and travel with the
+        # launcher artifact; make-linux.sh puts them into the package as licenses/appimage/.
+        run: sh launcher/scripts/appimage-notices.sh "$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)" work/appimage-notices
+
       - name: Launcher artifact
         run: |
           ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
           mkdir -p work/play && cp "$ai" work/play/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-appimage-notices
+          path: work/appimage-notices
+          compression-level: 6
 
       - uses: actions/upload-artifact@v4
         with:
@@ -935,6 +965,12 @@ jobs:
           name: linux-arm64-pokohex
           path: build/pokohex
 
+      - name: Library notices of the AppImage from linux-arm64-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-appimage-notices
+          path: build/appimage-notices
+
       - name: Licence notices from licenses
         uses: actions/download-artifact@v4
         with:
@@ -960,7 +996,7 @@ jobs:
                    tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
                    tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
                    tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
-                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md; do
+                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \n                   licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
             test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
           done
           test -x "$pkg/tools/harness/spirv_harness"
