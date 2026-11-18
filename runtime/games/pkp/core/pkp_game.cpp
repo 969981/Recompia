@@ -29,6 +29,7 @@
 #include "core/pkp_save_uuid.h"
 #include "ui/pkp_save_now.h"
 #include "core/pkp_story_guard.h"
+#include "core/pkp_story_gifts.h"
 #include "core/pkp_story_hold.h"
 #include "core/pkp_story_pickups.h"
 #include "render/pkp_shoulder_camera.h"
@@ -91,7 +92,7 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kStoryGuardFeature), port(&kStoryHoldFeature), port(&kStoryPickupsFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kStoryGuardFeature), port(&kStoryHoldFeature), port(&kStoryPickupsFeature), port(&kStoryGiftsFeature), port(&kLinkTripsFeature), port(&kLinkDigSpotsFeature), port(&kModsFeature), port(&kPlayFeature), port(&kKbmFeature),
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif

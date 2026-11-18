@@ -258,8 +258,12 @@ entryhook 0x71004d04fc
 #   Story co-op's journal (pkp_story_guard.cpp): the setters of a story quest's state (m_story, id, state) and flag (m_story, id, bool)
 entryhook 0x71005d865c
 entryhook 0x71005d8774
-#   Story co-op holds a visitor's town-changing quests (pkp_story_hold.cpp): the quest pump 0x710011b600, at `tbz w0, #0` after the flag read
-midhook 0x710011b6a4
+#   Story co-op keeps a visitor's town-changing quest commands for the visitor's own world (pkp_story_hold.cpp): the quest command runner
+#   0x710011b214 (x0 = the command; entered from 0x710011c0a4's four slots)
+entryhook 0x710011b214
+#   Story co-op gives a visitor its own gifts from the creatures of the world it is in (pkp_story_gifts.cpp): "can this creature give
+#   gifts" 0x710011435c (x0 = its handle; says no to every visitor)
+entryhook 0x710011435c
 #   Story co-op's items (pkp_story_pickups.cpp): the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world, and
 #   the host's removal of an item it gave a visitor, `bl 0x71009cb680` in the request handler 0x7100222a20, and the end of that
 #   handler's memory-piece branch (`b` after the pickup; x21 = the item's entry)
