@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// What covers the picture while the game loads ends at or near the old 16:9 edges (#534): the Ditto loading layout's full-width quads
+// What covers the picture while the game loads ends at or near the old 16:9 edges (#534): the loading screen layout's full-width quads
 // (two black ones over the strip's scenery, and the strip's sky and ground under it) and the black quad the game fades the picture
 // with before and after it. On a wider or taller canvas the scene showed beside them.
 #include "render/pkp_loading_backdrop.h"

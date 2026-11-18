@@ -10,7 +10,7 @@
 // twelve 1D buffers of 0x40bf00 x 4 B, among others): with play mode's targets about 3800x2140 and up it was ~1 MB short, an allocation failed, the game backed
 // out of its init and its teardown unmounted "save" twice (svcBreak, fs 2002-6905; fork #49).
 // High-water marks at boot (render size: general / RT): 1920x1080 223.7 / 937.6 MiB, 2560x1440 262.9 / 1179.3, 3712x2088 330.6 / 1788.8:
-// the general pool grows ~17-24 B per pixel, the RT pool ~150. Start-up is all those marks cover: the first world load (after the Ditto
+// the general pool grows ~17-24 B per pixel, the RT pool ~150. Start-up is all those marks cover: the first world load (after the loading
 // jumping loading screen) needs more of both pools, by an amount nobody has measured. With the first plan (general +28 B per pixel, the RT
 // pool grown only past 937.6 MiB + 160 B per extra pixel + 1 GiB, so left at 3500 MiB at 4K) a 3840x2160 render size started up, then the
 // world load never finished (#164: a 1920x1080 window at 200%) or crashed on a null pointer right after its first world frame (#119: a 4K
@@ -23,7 +23,7 @@
 // render size whose start-up RT use plus 1 GiB would not fit is clamped to the largest that fits.
 // Game targets are also held to 3840x2160 pixels, the largest size known to load the world. Above it the start-up rate no longer holds:
 // a 4K window at 133% (5088x2862) and at 200% (clamped to 5312x2988) both filled the 4095 MiB RT pool to 99% on the title screen (the
-// estimate was ~2.7 GiB), and the world load then waited on the Ditto loading screen for good. Larger render scales are clamped to the
+// estimate was ~2.7 GiB), and the world load then waited on the loading screen for good. Larger render scales are clamped to the
 // same pixel count (the back end still scales the picture to the window).
 #include "render/pkp_gfx_heap.h"
 #include "core/pkp_guest.h"
