@@ -312,7 +312,7 @@ const TEXTS = [
   msg("The game folder's drive is write-protected"),
   msg("The game folder's drive is full"),
   msg('Cannot write in the game folder'),
-  msg('Windows is blocking writes in this folder ({1}). This is most likely Windows Security\'s Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow PokopiaLauncher.exe, pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.'),
+  msg('Windows is blocking writes in this folder ({1}). This is most likely Windows Security\'s Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow Recompia.exe, PokopiaLauncher.exe (its old name), pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.'),
   msg('The drive is write-protected ({1}). Move the game folder to another drive, somewhere like C:\\Games.'),
   msg('The drive is full ({1}). Free some space, or move the game folder to a bigger drive.'),
   msg('Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.'),
