@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Linux: fixed rhythmic audio crackling with SDL3's PipeWire backend.
+
 ## 0.15.0 (build S: Sloth)
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets the co-op hook points and is linked again; saves and shaders are kept, no shader is translated again).
