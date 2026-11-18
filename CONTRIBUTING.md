@@ -10,6 +10,10 @@ Always build code cleanly, modularly, and with proper architecture and separatio
 - Release notes are the version's section of [CHANGELOG.md](CHANGELOG.md); write it from [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md).
 - Code for this game goes in `recomp/games/pkp/` and `runtime/games/pkp/`; the rest is shared with other games.
 
+## No piracy
+
+Never ask for, share or link game files, keys, dumps or ROM sites in issues, pull requests or the project's community spaces; such posts are deleted. Never commit game data. See [LEGAL.md](LEGAL.md).
+
 ## Changes that make players compile the game again
 
 Every player builds the game code on their own PC, and a full compile is 15 minutes on a fast PC and an hour on a slow one. Set up
