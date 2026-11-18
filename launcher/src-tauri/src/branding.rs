@@ -44,7 +44,7 @@ impl Branding {
 
 // ---- the art ------------------------------------------------------------------------------------------------------------------------
 // Recompia: the files the bundle and the Steam shortcut used before the choice existed. Classic: assets/branding/classic, the 0.10 files
-// (icons, Steam logo and icons) and the Koi Steam grids with the classic wordmark in place of the new one.
+// (icons, Steam logo and icons) and the Steam grids with the classic wordmark in place of the new one.
 
 /// The .ico for an exe (Windows only: an AppImage or a macOS app keeps the icon it was built with).
 #[cfg_attr(not(windows), allow(dead_code))]

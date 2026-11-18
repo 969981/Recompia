@@ -12,6 +12,7 @@
 ### Launcher
 - Changed the launcher's list of community mods
 - Changed the launcher's default colours to **Meadow** and removed the **Koi's Camp** colours; a launcher set to Koi's Camp opens in Meadow
+- Changed the pictures of the Steam shortcuts to the Meadow scene
 
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 
