@@ -13,6 +13,7 @@
 - Changed the game window's title and the game exe's description to Recompia
 
 ### Launcher
+- Changed the launcher window's title to Recompia
 - Changed the launcher's list of community mods
 - Changed the launcher's default colours to **Meadow** and removed the **Koi's Camp** colours; a launcher set to Koi's Camp opens in Meadow
 - Changed the pictures of the Steam shortcuts to the Meadow scene
