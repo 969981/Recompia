@@ -24,6 +24,7 @@
 #include "core/pkp_text.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -65,6 +66,7 @@ using layout::kChildOf;
 constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 0)
 using layout::kTables;
 constexpr uint64_t kOptionTable = 0x10 + 0x828, kRowId = 0x420, kItemValue = 0x358;
+constexpr uint64_t kScreenState = 0x90;
 constexpr uint64_t kVecPtr = 0xa8, kVecCount = 0xb0, kMode = 0x358, kCategory = 0x360, kGroup = 0x361, kTabIndex = 0x364, kDirty = 0x383;
 constexpr uint32_t kCustomText = 801;         // past the game's guards (1..800): text id 801 + slot is that slot's description
 constexpr uint32_t kFirstValueSlot = 7;       // text slots of the value names
@@ -100,7 +102,7 @@ const Tab kTabs[] = {
     {"Performance", 5, &g_performance},
     {"Graphics", 6, &g_graphics},
     {"Picture", 7, &g_picture},
-    {"Mouse", 8, &g_mouse},
+    {"Keyboard & Mouse", 8, &g_mouse},
     {"Controller", 9, &g_controller},
     {"Gameplay", 10, &g_gameplay},
     {"Time", 11, &time_tab()},
@@ -122,6 +124,7 @@ struct State {
     bool active = false, bar_extended = false;
     int tab = 0;
     uint8_t* rec[kSlots] = {};
+    std::array<uint64_t, kDirtySlot> capture_widgets{};
 } g;
 
 using guest::rd;
@@ -219,6 +222,7 @@ bool find_records(::Ctx* c) {
 
 int hook_open(::Ctx* c, uint64_t, void*) {
     const uint64_t child = c->x[0];
+    g.capture_widgets.fill(0);
     if (!g.rec[0] && !find_records(c)) {
         static bool logged = false;
         if (!logged) NXLOG_W(kTag, "options: the option records were not found, the PC rows stay hidden");
@@ -268,6 +272,7 @@ int hook_commit(::Ctx* c, uint64_t, void*) {
 
 // Rewrites the slot records for the shown tab's rows and swaps its values into the vector; the game's row list is then built again.
 void show_tab(::Ctx* c) {
+    g.capture_widgets.fill(0);
     write_records(g.tab);
     store_to_vector();
     call(c, g.base + kRebuildList, g.child);
@@ -308,7 +313,7 @@ int hook_store(::Ctx* c, uint64_t, void*) {
 int change_tab(::Ctx* c, int dir) {
     const uint64_t child = c->x[0];
     if (!g.active || child != g.child) return 0;
-    if (rd<uint32_t>(child + 0x90) - 1u > 1 || rd<int>(child + 0x350) != 0 || rd<uint8_t>(child + 0x385) != 0) {
+    if (rd<uint32_t>(child + kScreenState) - 1u > 1 || rd<int>(child + 0x350) != 0 || rd<uint8_t>(child + 0x385) != 0) {
         c->x[0] = 0;
         return 1;
     }
@@ -383,17 +388,23 @@ int hook_value_names(::Ctx* c, uint64_t, void*) {
 
 uint64_t text_pane(::Ctx* c, uint64_t widget, uint32_t slot);
 
+void set_slider_text(::Ctx* c, uint64_t widget, const TabModel& model, int row, int pos) {
+    // The number pane is too narrow for the longer captions used by the PC sliders.
+    if (const uint64_t pane = text_pane(c, widget, kSliderSlot)) {
+        if (rd<int16_t>(pane + kPaneWidth) < kSliderTextWidth) wr<int16_t>(pane + kPaneWidth, kSliderTextWidth);
+    }
+    char buf[128];
+    set_text(c, widget, kSliderSlot, model.value_text(row, pos, buf, sizeof buf));
+}
+
 void hook_row_drawn(::Ctx* c, uint64_t, void*) {
     int row = -1;
     const TabModel* m = shown(rd<uint8_t>(c->x[19] + kRowId), &row);
     if (!m) return;
     set_text(c, c->x[19], kLabelSlot, m->label(row));
-    if (m->shape(row).use == Use::Capture && capture::take_redraw(*m->capture(row))) {   // the capture started or ended: the key text, not the slider's number
-        if (const uint64_t pane = text_pane(c, c->x[19], kSliderSlot)) {
-            if (rd<int16_t>(pane + kPaneWidth) < kSliderTextWidth) wr<int16_t>(pane + kPaneWidth, kSliderTextWidth);
-        }
-        char buf[128];
-        set_text(c, c->x[19], kSliderSlot, m->value_text(row, capture::kMid, buf, sizeof buf));
+    if (m->shape(row).use == Use::Capture) {
+        g.capture_widgets[row] = c->x[19];
+        set_slider_text(c, c->x[19], *m, row, capture::kMid);
     }
 }
 
@@ -415,12 +426,7 @@ void hook_slider_text(::Ctx* c, uint64_t, void*) {
     int row = -1;
     const TabModel* m = shown(rd<uint8_t>(c->x[19] + kRowId), &row);
     if (!m || m->shape(row).choices) return;
-    // The box is sized for a short number: "Match Display" came out at half size.
-    if (const uint64_t pane = text_pane(c, c->x[19], kSliderSlot)) {
-        if (rd<int16_t>(pane + kPaneWidth) < kSliderTextWidth) wr<int16_t>(pane + kPaneWidth, kSliderTextWidth);
-    }
-    char buf[128];
-    set_text(c, c->x[19], kSliderSlot, m->value_text(row, static_cast<int>(c->x[20]), buf, sizeof buf));
+    set_slider_text(c, c->x[19], *m, row, static_cast<int>(c->x[20]));
 }
 
 int hook_text_by_id(::Ctx* c, uint64_t, void*) {
@@ -437,6 +443,21 @@ int hook_text_by_id(::Ctx* c, uint64_t, void*) {
 
 // frame boundary, main thread: the key capture of capture rows
 void frame(bool, double, play::GameFrame*) { capture::frame(g.active); }
+
+void game_frame(::Ctx* c) {
+    const CaptureClient* client = capture::take_redraw();
+    if (!client || !g.active || !guest::ok(g.child + kScreenState, 4) || rd<uint32_t>(g.child + kScreenState) - 1u > 1) return;
+    const TabModel* model = kTabs[g.tab].model;
+    if (!model) return;
+    for (int row = 0; row < model->count(); ++row) {
+        if (model->capture(row) != client) continue;
+        const uint64_t widget = g.capture_widgets[row];
+        // Scrolling can recycle the widget between the press and the capture result.
+        if (guest::ok(widget + kRowId, 1) && rd<uint8_t>(widget + kRowId) == kFirstId + row)
+            set_slider_text(c, widget, *model, row, capture::kMid);
+        return;
+    }
+}
 
 void install(const FeatureInstall& in) {
     in.hooks.add_entry(in.base + kClockText, &hook_clock_text);   // clock_format works without the Settings tabs too
@@ -465,6 +486,7 @@ void install(const FeatureInstall& in) {
 }  // namespace
 }  // namespace options_detail
 
-const Feature kOptionsFeature = {.name = "options", .install = &options_detail::install, .frame = &options_detail::frame};
+const Feature kOptionsFeature = {.name = "options", .install = &options_detail::install, .frame = &options_detail::frame,
+                                 .game_frame = &options_detail::game_frame};
 
 }  // namespace nxrt::games::pkp

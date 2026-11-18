@@ -17,7 +17,7 @@ namespace {
 // + main menu, - camera, D-pad follow/emote/swap move. Pads keep the console layout.
 constexpr const char* kSettingsText = R"INI(
 [meta]
-defaults_rev = 5
+defaults_rev = 6
 
 [display]
 render_scale = auto
@@ -51,6 +51,7 @@ C = btn_minus
 2 = dpad_down
 3 = dpad_left
 4 = dpad_right
+F5 = save
 
 [bindings.play]
 Mouse2 = mouse_mode
@@ -65,7 +66,9 @@ WheelDown = dpad_down
 // Revision 3: the frame limit follows the display's refresh rate (the game's own 60 Hz wait is off, pkp_play.cpp) unless the player changed it.
 // Revision 4: in the menus the right button is B (back) and the wheel moves the selection (pkp_menu.cpp: hover and click).
 // Revision 5: the middle mouse button is the Mouse mode key in play (the Joy-Con 2 mouse, pkp_play.cpp play_frame).
+// Revision 6: F5 saves in the world. An all-context default leaves existing context-specific uses of F5 in force.
 constexpr play::GameDefaultAddition kAdditions[] = {
+    {6, play::Ctx::All, "F5", play::Act::Save},
     {5, play::Ctx::Play, "Mouse2", play::Act::MouseMode},
     {4, play::Ctx::Menu, "Mouse3", play::Act::BtnB},
     {4, play::Ctx::Menu, "WheelUp", play::Act::DpadUp},
@@ -81,7 +84,7 @@ const play::GameDefaults& game_defaults() {
     static const play::GameDefaults d = [] {
         play::GameDefaults g;
         g.settings_text = kSettingsText;
-        g.defaults_rev = 5;
+        g.defaults_rev = 6;
         g.additions = kAdditions;
         g.addition_count = sizeof kAdditions / sizeof kAdditions[0];
         g.changes = kChanges;

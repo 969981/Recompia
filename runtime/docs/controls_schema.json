@@ -2,7 +2,7 @@
   "file": "controls.ini",
   "sections": [
     {"name": "meta", "keys": [
-        {"key": "defaults_rev", "type": "int", "default": "5", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
+        {"key": "defaults_rev", "type": "int", "default": "6", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
         {"key": "display_rev", "type": "int", "default": "0", "min": 0, "max": 1000, "doc": "The display-defaults revision the file was written with (the game writes it; a file without it counts as 0). macOS turns vsync on for an older file."}
     ]},
     {"name": "mouse", "keys": [

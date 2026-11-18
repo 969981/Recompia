@@ -3,6 +3,7 @@
 #include "ui/pkp_options_capture.h"
 
 #include <cstdio>
+#include <mutex>
 
 #include "nxrt/log.h"
 #include "ui/pkp_options_internal.h"
@@ -11,6 +12,7 @@ namespace nxrt::games::pkp::options_detail::capture {
 namespace {
 
 struct State {
+    std::mutex mutex;
     play::GameHost* host = nullptr;
     CaptureClient* client = nullptr;   // the row of the last capture
     bool waiting = false;              // waiting for the key
@@ -20,9 +22,13 @@ struct State {
 
 }  // namespace
 
-void set_host(play::GameHost* host) { g.host = host; }
+void set_host(play::GameHost* host) {
+    std::lock_guard lock(g.mutex);
+    g.host = host;
+}
 
 void begin(CaptureClient& c) {
+    std::lock_guard lock(g.mutex);
     if (!g.host || g.waiting) return;
     g.host->begin_capture();
     if (g.client != &c) g.shown.clear();
@@ -33,18 +39,21 @@ void begin(CaptureClient& c) {
 }
 
 const char* text(const CaptureClient& c, char* out, size_t n) {
+    std::lock_guard lock(g.mutex);
     if (g.waiting && g.client == &c) return "Press the new key (Esc: cancel)";
     std::snprintf(out, n, "%s", g.client == &c && !g.shown.empty() ? g.shown.c_str() : c.bound().c_str());
     return out;
 }
 
-bool take_redraw(const CaptureClient& c) {
-    if (!g.redraw || g.client != &c) return false;
+const CaptureClient* take_redraw() {
+    std::lock_guard lock(g.mutex);
+    if (!g.redraw) return nullptr;
     g.redraw = false;
-    return true;
+    return g.client;
 }
 
 void frame(bool screen_open) {
+    std::lock_guard lock(g.mutex);
     if (!g.shown.empty() && !g.waiting && g.client && g.client->bound() == g.shown) g.shown.clear();
     if (!g.waiting || !g.host) return;
     play::InputId in;
