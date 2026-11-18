@@ -150,6 +150,13 @@ midhook 0x7100bfc4fc
 midhook 0x710089e27c
 #   frame rate: its fixed-step frame time (1 / s0, s0 = 60.0), before the division
 midhook 0x710089e398
+#   frame rate (#741, #743): the follow camera's target-follow factor 0x710007b024 (s0 = curve t, x1 = follow camera, s1 = dt),
+#   the airborne Y catch-up step in 0x710007b190 right before `fmul s2, s3, v2.s[1]` (s3 = step fraction, [sp] = saved dt), and
+#   the target dead-zone clamp 0x710007bca0 (s0 = horizontal, s1 = vertical, s2 = follow factor, x1 = out, x2 = prev, x3 = target,
+#   w4 = vertical on, w5 = slow horizontal, s8 = dt)
+entryhook 0x710007b024
+inline 0x710007b6ac
+entryhook 0x710007bca0
 #   mouse camera: the follow camera's update (0x7100087840), right after it loaded the right stick's X (s0), x19 = the camera
 midhook 0x7100087d30
 #   mouse camera: the same update past its scene-state check, before the turn gate (every frame the follow camera runs), x19 = the camera

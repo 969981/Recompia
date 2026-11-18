@@ -22,7 +22,9 @@
 // ([display] fps_limit) alone paces the game ([pkp] game_frame_limit = 1 keeps the game's 60 Hz wait). In the frame step's fixed-step mode
 // (byte +0xb4 of the main-loop object, copied to sp+0xc) the frame time is 1 / 60 whatever the real time; the mid hook before that division
 // (0x89e398, s0 = 60.0, x28 now, x25 the previous frame's tick, d8 the tick frequency) puts the measured rate in s0 for frames shorter
-// than 1/60 s, the same rule as the multiplier.
+// than 1/60 s, the same rule as the multiplier. In the follow camera's placement (0x78440), the target-follow factor (0x7b024), airborne Y
+// catch-up step (0x7b6ac in 0x7b190) and dead-zone clamp (0x7bca0) also assume a 60 Hz step (#741, #743); their hooks below keep 1:1 follow
+// and unlerped dead-zone boundaries above 60 fps while leaving 60 fps and below untouched.
 #include "input/pkp_play_internal.h"
 
 #include <algorithm>
@@ -151,6 +153,95 @@ int hook_fixed_step_rate(::Ctx* c, uint64_t, void*) {
     const double rate = freq / static_cast<double>(now - prev);
     if (rate > 60.0 / (1.0 - 0.0015152 * 60.0)) c->v[0].f32[0] = static_cast<float>(std::min(rate, 480.0));
     return 0;
+}
+
+// Follow-camera target tracking above 60 fps (#741, #743):
+// 1) 0x7b024 blends the follow camera's 60 Hz follow rates (+0xe4, +0xe8; both 1.0 in the game's tuning) into `rate`, then linearizes the
+//    step as clamp(dt * 60 * rate, 0, 1). Above 60 fps that turns instantaneous 1:1 follow (rate = 1.0) into fractional lag (60 / fps).
+// 2) 0x7bca0 tests the vertical dead zone on the already-lerped step |out.y - prev.y| < v_dz and snaps to the unlerped boundary
+//    target.y -/+ v_dz on exit, jumping by v_dz * (1/alpha - 1) on one frame while gliding or sinking underwater, and caps slow horizontal
+//    drift (w5 & 1) to 0.2 units per call rather than per 60 Hz frame.
+// 3) 0x7b190's airborne Y catch-up (0x7b608..0x7b6cc) steps by a per-frame fraction s3 with no dt factor ([sp] holds caller 0x78440's d8 = dt).
+constexpr float kShortFrameMax = 1.f / 60.f - 0.0015152f;   // matches the game's 60 Hz tolerance in hook_frame_multiplier
+
+int hook_cam_follow_rate(::Ctx* c, uint64_t, void*) {
+    State& s = st();
+    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed) || s.holding) return 0;
+    const float dt = c->v[1].f32[0];
+    if (!(dt > 0.f && dt < kShortFrameMax)) return 0;
+    const uint64_t cam = c->x[1];
+    if (!cam || !guest::ok(cam, 0x149) || rd<uint8_t>(cam + 0x148) != 0) return 0;
+    const float k = c->v[0].f32[0];
+    const float r0 = rd<float>(cam + 0xe4), r1 = rd<float>(cam + 0xe8);
+    const float rate = (k <= 0.f) ? ((r0 - 1.f) * (k + 1.f) + 1.f) : ((r1 - r0) * k + r0);
+    float alpha = 0.f;
+    if (rate >= 1.f) alpha = 1.f;
+    else if (rate > 0.f) alpha = 1.f - std::pow(1.f - rate, dt * 60.f);
+    c->v[0] = {};
+    c->v[0].f32[0] = alpha;
+    return 1;
+}
+
+void hook_cam_air_step(::Ctx* c, uint64_t, void*) {
+    State& s = st();
+    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed) || s.holding) return;
+    if (!guest::ok(c->x[31], sizeof(float))) return;
+    const float dt = rd<float>(c->x[31]);
+    if (!(dt > 0.f && dt < kShortFrameMax)) return;
+    const float r = c->v[3].f32[0];
+    if (r > 0.f && r < 1.f) c->v[3].f32[0] = 1.f - std::pow(1.f - r, dt * 60.f);
+}
+
+int hook_cam_deadzone(::Ctx* c, uint64_t, void*) {
+    State& s = st();
+    if (!s.fps_fix.load(std::memory_order_relaxed) || !s.above60.load(std::memory_order_relaxed) || s.holding) return 0;
+    const float dt = c->v[8].f32[0];
+    if (!(dt > 0.f && dt < kShortFrameMax)) return 0;
+    const float h_dz = c->v[0].f32[0], v_dz = c->v[1].f32[0], alpha = c->v[2].f32[0];
+    if (!(h_dz > 0.f) && !(v_dz > 0.f)) return 1;
+    const uint64_t out_p = c->x[1], prev_p = c->x[2], des_p = c->x[3];
+    if (!guest::ok(out_p, 16) || !guest::ok(prev_p, 16) || !guest::ok(des_p, 16)) return 0;
+
+    const float prev_x = rd<float>(prev_p + 0), prev_y = rd<float>(prev_p + 4), prev_z = rd<float>(prev_p + 8), prev_w = rd<float>(prev_p + 12);
+    const float des_x = rd<float>(des_p + 0), des_y = rd<float>(des_p + 4), des_z = rd<float>(des_p + 8), des_w = rd<float>(des_p + 12);
+    const float out_y = rd<float>(out_p + 4);
+
+    const float dx = prev_x - des_x, dz = prev_z - des_z;
+    constexpr float kEps = 1.1920929e-5f;   // 0x37480000 in 0x7bca0
+    float dir_x = dx, dir_z = dz;
+    if (!(dx >= -kEps && dx <= kEps && dz >= -kEps && dz <= kEps)) {
+        const float inv = 1.f / std::sqrt(dx * dx + dz * dz);
+        dir_x = dx * inv;
+        dir_z = dz * inv;
+    }
+    const float dist_xz = std::sqrt(dx * dx + dz * dz);
+    const float bound_xz = std::sqrt((h_dz * dir_x) * (h_dz * dir_x) + (h_dz * dir_z) * (h_dz * dir_z));
+    float res_x = prev_x, res_z = prev_z, res_w = prev_w;
+    if (dist_xz > bound_xz) {
+        float excess = dist_xz - bound_xz;
+        if (c->x[5] & 1) excess = std::min(excess, 0.2f * (dt * 60.f));
+        const float k = (excess / dist_xz) * alpha;
+        res_x = prev_x + k * (des_x - prev_x);
+        res_z = prev_z + k * (des_z - prev_z);
+        res_w = des_w;
+    }
+
+    float res_y = out_y;
+    if ((c->x[4] & 1) && v_dz > 0.f) {
+        const float dy = (alpha > 0.f && out_y != prev_y) ? (des_y - prev_y) : (out_y - prev_y);
+        if (std::fabs(dy) < v_dz) {
+            res_y = prev_y;
+        } else {
+            const float bound_y = dy > 0.f ? (des_y - v_dz) : (des_y + v_dz);
+            res_y = prev_y + alpha * (bound_y - prev_y);
+        }
+    }
+
+    wr<float>(out_p + 0, res_x);
+    wr<float>(out_p + 4, res_y);
+    wr<float>(out_p + 8, res_z);
+    wr<float>(out_p + 12, res_w);
+    return 1;
 }
 
 }  // namespace nxrt::games::pkp::play_detail

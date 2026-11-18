@@ -176,6 +176,9 @@ void install(const FeatureInstall& in) {
     for (const uint64_t site : kTweenStep) s.hooks->add_mid(base + site, &hook_tween_step);
     s.hooks->add_mid(base + kSyncPeriod, &hook_sync_period);
     s.hooks->add_mid(base + kFixedStepRate, &hook_fixed_step_rate);
+    s.hooks->add_entry(base + kCamFollowRate, &hook_cam_follow_rate);
+    s.hooks->add_inline(base + kCamAirStep, &hook_cam_air_step);
+    s.hooks->add_entry(base + kCamDeadzone, &hook_cam_deadzone);
     s.hooks->add_mid(base + kCamField, &hook_cam_field);
     s.hooks->add_mid(base + kCamStick, &hook_cam_stick);
     s.hooks->add_mid(base + kFollowGate, &hook_follow_gate);
