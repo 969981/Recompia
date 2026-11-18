@@ -2,32 +2,57 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** (the game code gets three new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+## 0.15.0 (build S: Sloth)
 
-### Added
-- Every download (Windows, Linux, macOS) carries the licence texts of what it contains, and Settings has a Licences row that opens them
-- Each release also has the source of the bundled save editor and of libusb
-- A Privacy page (PRIVACY.md) that lists every connection the launcher and the game make, linked from Settings
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets the co-op hook points and is linked again; saves and shaders are kept, no shader is translated again).
 
-### Changed
-- Settings > Source code opens the source of the version you have installed
+### Highlights
+- **Recompia: Co-op is here (seamless co-op v2).** Play the story together over the internet, each player on their own PC with their own character, in one shared world. Open the **Co-op** tab at the top of the launcher's sidebar to start
+- **Co-op needs a new save.** A co-op save is a save of its own that starts from the beginning: your current save cannot be played in co-op, and co-op never uses or changes it
+- **Co-op is fully separate from the old Seamless co-op switch.** That switch on the Link Play page is gone, and it never had anything to do with Recompia: Co-op. Link Play itself works as before
+- Fixed the camera jumping in steps when flying, gliding or swimming above 60 fps (#741, #743)
 
-### Game
-- Changed the game window's title and the game exe's description to Recompia
+### Co-op
+- Added Recompia: Co-op as a second game in the launcher, with its own logo: the **Solo** and **Co-op** tabs at the top of the sidebar switch between them; both use the same install, build and shaders
+- Start: one player presses **Start a co-op save** and sends its invite code; every other player presses **Join a friend**, enters the code and picks which player they are
+- Invite codes: a short code such as `K7Q-4MX` you can type on a controller (one per co-op save, kept by the public relay for 6 hours), or the long code
+- Play: everyone presses **Play**. The save card says who hosts and **Start as** changes that. Each player makes their own character, and the game waits until every player is in
+- Each co-op save has its own folder and its own mod set (the Mods page in Co-op); a co-op save you no longer need can be deleted from its card
+- Shared with every player: story steps, unlocks (such as the creature list and Water Gun), items handed out in talks, crafting recipes, creature requests and the player names
+- Anyone can start or continue a quest step; one player at a time talks to a character, the others get its busy line
+- Creature requests: a request a teammate takes on shows in everyone's requests app, and every player can finish it and gets its rewards; the town goal and the creature's friendship count once per request for the group
+- A player who falls behind catches up with the group every few seconds; changes from teammates wait until you are free (not talking, not in a menu, not loading)
+- Teammates' unlocks, new moves, items and story steps show as a line in the game's message log
+- Joining and leaving happen behind a loading screen
+- A player who leaves can rejoin while the others keep playing
+- Different mods or game versions that keep players apart are named on the Co-op page; Interact everywhere is always off in co-op
+- **Save logs for a bug report** on the Co-op page: one zip with your logs, settings and co-op save info; addresses, user names, account ids, player names, room codes and invites are left out
+- Fixed creatures in the host's world offering no requests to the other players: every player now gets their own requests from them, takes them on and hands them in
 
-### Launcher
-- Changed the launcher window's title to Recompia
-- Changed the launcher's list of community mods
-- Changed the launcher's default colours to **Meadow** and removed the **Koi's Camp** colours; a launcher set to Koi's Camp opens in Meadow
-- Changed the pictures of the Steam shortcuts to the Meadow scene
-- Changed the logo and the app icon; the Classic logo choice is gone
-- Steam shortcut pictures the launcher added earlier are replaced with the new ones at the next launcher start (your own Steam art is kept)
+### Known issues (co-op)
+- If a quest step stays stuck for one player, press **Save logs for a bug report** on both PCs before starting the game again
+- The host still sees a joining player arrive by the PC
+- Hints that something can be used (such as a sparkle) show only for the player who started that step
+- When a character starts a talk on its own, it picks one player (seemingly the nearest)
+- When the player who hosts quits, the others get a connection error (press A; the loading screen says so)
+- Progress is saved in each player's own copy of the co-op save; a shared save comes later
+- A mod with hook points that is turned on only for a co-op save cannot be used there yet (Play says so)
+
+### Link Play
+- Removed the Seamless co-op switch from the Link Play page; Recompia: Co-op replaces it (an old setting is ignored)
 
 ### Gameplay
 - Fixed the camera jumping in steps when flying or gliding and when sinking or swimming underwater above 60 fps (#741, #743)
   - Before: above 60 fps the follow camera's vertical dead zone held the view still and then snapped it toward the player a few times a second (about once a second while gliding, five times a second underwater at 144 fps)
   - Now: the camera follows smoothly at high frame rates; 60 fps and below are unchanged
   - Until **Set up again** has run, the camera stays as it was
+
+### Launcher
+- Changed the logo and the app icon
+- Steam shortcut pictures the launcher added earlier are replaced with the new ones at the next launcher start (your own Steam art is kept)
+- Changed Steam shortcuts to open the launcher, so updates are never skipped; the `--play` start is gone (an old shortcut with it opens the launcher, and Settings can remove the old game shortcut)
+- Fixed **Add to Steam** buttons that stayed greyed out after closing Steam; they now always answer, and say "Close Steam first" while Steam runs
+- Added **Save logs for a bug report**, see Co-op
 
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 

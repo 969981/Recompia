@@ -57,9 +57,7 @@ namespace nxrt::services::ldn_impl {
 // name the parent project adds as COOP_INTERACT_MOD) while one is set, then the co-op mods below; 0 when there is neither. The variant's
 // bits 12..14 of the local communication version are a Link Play (relay) thing and are not sent here: the game's version goes out as the
 // game gave it.
-// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order: the game's Story co-op
-// (games/pkp/core/pkp_linkplay.cpp) adds COOP_STORY_MOD's name after the Interact one, so both on give the parent project's fingerprint
-// c75a2da0380038c1.
+// The game module's co-op mods (ldnapi::set_coop_mods) follow the variant's name in its order.
 // Not mapped (the module has no counterpart; the parent project cuts them too): CreateNetworkPrivate (DeviceNotAvailable), ConnectPrivate
 // (ConnectNotFound), the accept filter (accepted in access point states and ignored). GetNetworkInfoLatestUpdate's per-node flags are
 // built here from the node tables the game reads.
@@ -101,6 +99,7 @@ public:
         }
         if (node) coop_destroy(node);   // finalizes: the host's links and the virtual sockets close
     }
+    std::unique_ptr<vnet::SessionPort> open_port(uint16_t port) override { return open_native_port(slot_.node.load(), port); }
 
     NativeSlot slot_;
 };
@@ -215,7 +214,11 @@ coop_node* native_node() {
     // module's room list: anyone finds it with the game's search, the game's own Link Code keeps a room private); without a relay every
     // player uses the module's open code, so a host and its visitors agree.
     const std::string relay = config_get_str("net", "relay", "");
-    const std::string room = internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
+    // A private room ([net] private_room, set per start by the launcher for a coop group, never written to an ini): every member
+    // uses the same code and the room is not listed on the relay. The retired room_code key stays ignored.
+    std::string priv = config_get_str("net", "private_room", "");
+    text::trim_blanks(priv);
+    const std::string room = !priv.empty() && internet ? priv : internet && relay.empty() ? COOP_X_ROOM_OPEN : "";
     // Internet play through a relay is always mode = auto (the module refuses "join:" with a relay and Link Play would be off). A join:<ip>
     // left in the file from an earlier visit is not a choice in that case: use auto (#239). Every other combination is left as it is.
     if (internet && !relay.empty() && mode.compare(0, 5, "join:") == 0) {

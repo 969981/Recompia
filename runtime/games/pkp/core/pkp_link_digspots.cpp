@@ -99,7 +99,7 @@ int hook(::Ctx* c, uint64_t, void*) {
 void install(const FeatureInstall& in) {
     State& s = st();
     if (s.id) return;
-    if (!settings::get_bool(settings::Key::LinkInteractEverywhere) && !settings::get_bool(settings::Key::LinkStoryCoop)) return;
+    if (!settings::get_bool(settings::Key::LinkInteractEverywhere)) return;
     s.base = in.base;
     s.hooks = &in.hooks;
     s.armed.store(false);

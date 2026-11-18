@@ -128,7 +128,7 @@ F1 गेम में सेटिंग्स खोलता है। मा
 
 अगर FUSE के बिना सिस्टम पर `PokopiaLauncher.AppImage` शुरू नहीं होता, तो `./PokopiaLauncher.AppImage --appimage-extract-and-run` चलाएँ।
 
-Steam से गेम शुरू करने के लिए (Deck पर Game Mode): Desktop Mode में **Add a Non-Steam Game**, `PokopiaLauncher.AppImage` चुनें, और उसके लॉन्च विकल्प `--play` सेट करें। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
+Steam से शुरू करने के लिए (Deck पर Game Mode): लॉन्चर को Steam में जोड़ें, या तो लॉन्चर की Settings में (Steam, Add to Steam) या Desktop Mode में **Add a Non-Steam Game** से, `PokopiaLauncher.AppImage` चुनकर और लॉन्च विकल्प खाली छोड़कर। यह शॉर्टकट लॉन्चर खोलता है, जो अपडेट जाँचता है; फिर Play दबाएँ। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
 
 ## मॉड और अनुवाद
 

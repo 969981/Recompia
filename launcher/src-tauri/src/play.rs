@@ -63,7 +63,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool) -> Result<(), String> {
+/// `coop`: a co-op start (coop_launch.rs); None is a singleplayer start.
+pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<crate::coop_launch::Launch>) -> Result<(), String> {
     let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     let gentle = cfg.gentle_build;
     {
@@ -120,7 +121,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
             eprintln!("branding: {e}");
         }
         // Calculate after shader preparation, immediately before the process starts, so a long preparation cannot age the offset.
-        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods)) {
+        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods, coop.as_ref())) {
             Ok(c) => c,
             Err(e) => {
                 set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
@@ -189,8 +190,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
 }
 
 /// How Play starts the game: `pkp` in its folder on macOS and Linux, `pkp.exe` on Windows (host.rs). Every path (exefs, romfs, shader
-/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods.
-fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool) -> Result<std::process::Command, String> {
+/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods. `coop`: the co-op start's environment, or None.
+fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool, coop: Option<&crate::coop_launch::Launch>) -> Result<std::process::Command, String> {
     if !crate::host::native_game() {
         crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;   // pkp_rt.dll and the ASTC decoders: Windows files
     }
@@ -215,6 +216,7 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
     if without_mods {
         leave_mods_out(&mut cmd);
     }
+    crate::coop_launch::apply(&mut cmd, coop);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -227,72 +229,6 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
 /// the mods folder are not touched and the next start has its mods again.
 fn leave_mods_out(cmd: &mut std::process::Command) {
     cmd.env("NXRT_MODS_OFF", "1");
-}
-
-/// `--play`: what Play does, without the window, for a shortcut that starts the game directly (Steam, Sunshine). Checks
-/// that setup finished, prepares the run-time shaders, runs pkp.exe until it exits, then translates the shaders it built.
-/// Returns the game's exit code (1 when it could not start).
-pub fn run_cli(game_dir: &Path, tools: &Path) -> i32 {
-    let fail = |m: String| {
-        eprintln!("{}", m);
-        1
-    };
-    let exe = crate::host::game_exe(game_dir);
-    if !exe.is_file() || (!crate::host::native_game() && crate::gamebuild::is_package_b(tools) && !crate::gamebuild::is_built(game_dir, tools)) {
-        return fail(format!(
-            "{} in {} is missing or from an older release: open the launcher and press Set up.",
-            crate::host::game_exe_name(),
-            crate::dump::fwd(game_dir)
-        ));
-    }
-    if !game_dir.join(crate::settings::PKP_INI).is_file() || (!crate::host::native_game() && !crate::shaders::is_complete(game_dir)) {
-        return fail("Setup has not finished: open the launcher and press Set up.".into());
-    }
-    if crate::host::native_game() {
-        match crate::host::native_prepare(game_dir, false) {
-            Ok(Some(line)) => println!("shaders: {}", line),
-            Ok(None) => {}
-            Err(e) => eprintln!("Shaders were not prepared: {}.", e),
-        }
-    } else {
-        match crate::shaders::prepare(game_dir, tools, &std::sync::atomic::AtomicBool::new(false)) {
-            Ok(Some(n)) if n > 0 => println!("{} shaders were translated before the start.", n),
-            Err(e) => eprintln!("Shaders were not prepared: {}.", e),
-            _ => {}
-        }
-    }
-    // the same rule as Play in the window: without the active profile in pkp.ini the game could start on another player's account and save
-    if let Err(e) = crate::profiles::apply_active(game_dir) {
-        return fail(format!("The profile could not be applied, so the game was not started: {}", e));
-    }
-    let clock = match crate::events::override_for(game_dir) {
-        Ok(clock) => clock,
-        Err(e) => return fail(e),
-    };
-    let backups = crate::savebackup::Watch::start(game_dir);   // the same save backups as Play in the window
-    let status = game_command(&exe, game_dir, clock, false).and_then(|mut c| {
-        let mut child = c.spawn().map_err(|e| format!("Could not start {}: {}", crate::host::game_exe_name(), e))?;
-        wait_with_memory_guard(&mut child).map_err(|e| format!("Lost track of {}: {}", crate::host::game_exe_name(), e))
-    });
-    backups.finish();
-    let code = match status {
-        Ok(st) => st.code().unwrap_or(1),
-        Err(e) => return fail(e),
-    };
-    if crate::host::native_game() {
-        match crate::host::native_translate_shaders(game_dir, &std::sync::atomic::AtomicBool::new(false), false, None) {
-            Ok(Some(line)) => println!("shaders: {}", line),
-            Ok(None) => {}
-            Err(e) => eprintln!("shaders were not translated: {}", e),
-        }
-    } else {
-        match crate::shaders::translate_missing(game_dir, tools) {
-            Ok(n) if n > 0 => println!("{} new shaders translated.", n),
-            Err(e) => eprintln!("New shaders were not translated: {}.", e),
-            _ => {}
-        }
-    }
-    code
 }
 
 /// Waits for the game, stopping it if the machine runs out of memory. macOS: the world load needs ~9 GB on a 16 GB host, and

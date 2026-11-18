@@ -247,22 +247,57 @@ midhook 0x7101f98b98
 #   Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): the permission-mask builder 0x71000b0f60, story-area
 #   online block at `movk x13, #1, lsl #32` (x13 = the pattern's bits 0-31, x22 = the session's Spectator flag)
 midhook 0x71000b1030
-#   Story co-op (pkp_linkplay.cpp, [pkp] link_story_coop): the talk handler 0x71004c024c, at `orr w8, w25, w0` (w0 = IsHost's answer)
-midhook 0x71004c06d8
-#   Story co-op, every player's own story: the mask builder's `mov x19, x0` (it starts), talk conditions 0x19 (`mov w8, #1` after IsOnline)
-#   and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`
+#   Seamless co-op (pkp_coop.cpp, [pkp] coop; hooked only in a co-op launch). The shared story: the mask builder's `mov x19, x0` (it
+#   starts) and its online pattern (above, shared with Interact everywhere); the talk start 0x71003180e0, the `mov w0, wzr` right after
+#   its talk event call returns (w22 bit 0 clear next: "no talk after all") and the end of a talk's event chain 0x710047bd00; the setters of a story quest's state (m_story,
+#   id, state) and flag (m_story, id, bool); one effect command of a completed quest; event-script commands 0x44
+#   (the name entry) and 0xbea (items)
 midhook 0x71000b0f74
+entryhook 0x71003180e0
+midhook 0x71003181cc
+entryhook 0x710047bd00
+entryhook 0x71005d865c
+entryhook 0x71005d8774
+entryhook 0x710011b214
+entryhook 0x710043d3e0
+entryhook 0x710012c734
+#   Seamless co-op, the requests (pkp_coop_requests.cpp): the bind gate of the unique request manager ("can this creature have requests
+#   here", the only caller 0x710061d068), which refuses every visitor
+entryhook 0x710011435c
+#   Seamless co-op, the requests (pkp_coop_outcomes.cpp): in a unique request's completion step 0x7100618304, the `cbz x0` before its
+#   town goal +1 (x0 = the challenge manager, x19 = the request's slot), and the friendship it adds 0x7100619410 (its two calls there
+#   return to 0x7100618710 / 0x7100618758)
+midhook 0x710061858c
+entryhook 0x7100619410
+#   Seamless co-op, the session: the title screen's continue, the simulation step, the five trip filers, the drop check and the state reset
+#   after it, error 3103, the PC's Link Play menu and the member screen
+entryhook 0x7100a88214
+entryhook 0x7100231890
+entryhook 0x71000bd45c
+entryhook 0x71000bdc68
+entryhook 0x71000bdd28
+entryhook 0x71005483a0
+entryhook 0x71000be5f0
+entryhook 0x71000bca8c
+entryhook 0x71000b0d74
+entryhook 0x7100547278
+entryhook 0x7100f282a8
+entryhook 0x7100fb9ea0
+#   Seamless co-op, the save: the three writers of a member's own save, and the bag sync of a join
+entryhook 0x7100241324
+entryhook 0x7100245200
+entryhook 0x71005a8a34
+entryhook 0x71005727c0
+#   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): the talk handler
+#   0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer); talk conditions 0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0`
+#   after IsOnline), and condition 0x22, the one instruction `b IsOnline`; the quest pump 0x710011b600 at `tbz w0, #0` after the flag read;
+#   the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world; in the request handler 0x7100222a20, `bl
+#   0x71009cb680` and the end of its memory-piece branch
+midhook 0x71004c06d8
 midhook 0x71004cfe20
 midhook 0x71004d4860
 entryhook 0x71004d04fc
-#   Story co-op's journal (pkp_story_guard.cpp): the setters of a story quest's state (m_story, id, state) and flag (m_story, id, bool)
-entryhook 0x71005d865c
-entryhook 0x71005d8774
-#   Story co-op holds a visitor's town-changing quests (pkp_story_hold.cpp): the quest pump 0x710011b600, at `tbz w0, #0` after the flag read
 midhook 0x710011b6a4
-#   Story co-op's items (pkp_story_pickups.cpp): the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world, and
-#   the host's removal of an item it gave a visitor, `bl 0x71009cb680` in the request handler 0x7100222a20, and the end of that
-#   handler's memory-piece branch (`b` after the pickup; x21 = the item's entry)
 entryhook 0x71009cdba0
 entryhook 0x71009cb680
 midhook 0x7100222cf0

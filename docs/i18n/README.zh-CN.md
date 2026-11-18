@@ -127,7 +127,7 @@
 
 如果在没有 FUSE 的系统上 `PokopiaLauncher.AppImage` 无法启动，请运行 `./PokopiaLauncher.AppImage --appimage-extract-and-run`。
 
-要从 Steam 启动游戏（Deck 上的游戏模式）：在桌面模式中，选择 **Add a Non-Steam Game**，选择 `PokopiaLauncher.AppImage`，并将其启动选项设为 `--play`。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
+要从 Steam 启动（Deck 上的游戏模式）：把启动器添加到 Steam，可以在启动器的设置中（Steam，Add to Steam），也可以在桌面模式中用 **Add a Non-Steam Game** 选择 `PokopiaLauncher.AppImage`，并让启动选项留空。该快捷方式会打开启动器，由它检查更新；然后点击“开始游戏”。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
 
 ## 模组与翻译
 

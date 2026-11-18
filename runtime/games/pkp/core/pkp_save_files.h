@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: the player's save on the host's disk, for the modules that work on its files while the game is not using them (the
-// UUID repair, Story co-op's copy and journal). The save is <save dir>/account/<key>/ ([fs] save_dir; fs.cpp names the folder after the
+// UUID repair). The save is <save dir>/account/<key>/ ([fs] save_dir; fs.cpp names the folder after the
 // profile's user) with <key>.meta next to it.
 #pragma once
 #include <cstddef>

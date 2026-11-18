@@ -10,7 +10,7 @@ import { store } from '../store.js';
 import { gamePhase } from '../action.js';
 import {
   HOST_PORT, RELAY_PORT, addrProblem, addressRows, applyEdits, editsFor, interactEdits, internetShare, pathParts, protocolEdits, readIni,
-  relayPort, storyEdits, uiFrom,
+  relayPort, uiFrom,
 } from '../linkplay-model.js';
 
 const LS = 'pkp.linkplay';
@@ -99,8 +99,7 @@ export async function render(el, ctx) {
       ? `<div class="banner info">${icon('puzzle')}<div class="grow">${esc(t('Your mods that change gameplay: {mods}. Everyone in the session needs the same ones.', { mods: gameplayMods.join(', ') }))}</div></div>`
       : '';
     return group(t('Same for everyone'), [
-      row(t('Visitors can build everywhere'), exp + toggle('lp-interact', ui.interact || ui.story, { disabled: ui.story })),
-      row(t('Seamless co-op: every player plays their own story'), exp + toggle('lp-story', ui.story)),
+      row(t('Visitors can build everywhere'), exp + toggle('lp-interact', ui.interact)),
     ]) + mods;
   }
 
@@ -321,7 +320,6 @@ export async function render(el, ctx) {
     try {
       await save(edits);
       const n = readIni(pkp);
-      ui.story = n.story;
       ui.interact = n.interact;
     } catch (e) {
       input.checked = !input.checked;
@@ -370,7 +368,6 @@ export async function render(el, ctx) {
     else if (t.id === 'lp-run-relay') setRelay(t.checked);
     else if (t.id === 'lp-own') setOwn(t.checked);
     else if (t.id === 'lp-interact') setShared(interactEdits(t.checked), t);
-    else if (t.id === 'lp-story') setShared(storyEdits(t.checked), t);
     else if (t.id === 'lp-through') {
       ui.through = t.checked;
       remember({ through: t.checked });

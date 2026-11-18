@@ -4,7 +4,7 @@ What the launcher's **Settings > Saves > Backups** does, how it is stored, and h
 
 ## What it does
 - While the game runs and the player switched it on, the launcher copies the active profile's save every 5, 10 or 15 minutes.
-- When the game closes (any way: the launcher's Play, or a `--play` shortcut), one more copy is made if backups are on.
+- When the game closes (the launcher's Play), one more copy is made if backups are on.
 - **Back up now** makes a copy on request, any time.
 - **Restore** puts a chosen copy back. The game must be closed. The current save is copied first (kind `before-restore`), so a restore can be undone by restoring that copy.
 - **Save Editor** (launcher): before it writes an edited save, the current save is copied first (kind `before-edit`), so an edit can be undone by restoring that copy.

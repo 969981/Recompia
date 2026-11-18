@@ -74,7 +74,6 @@ export function readIni(pkp) {
     internet: truthy(ini('net.internet')),
     relay: ini('net.relay'),
     interact: truthy(ini('pkp.link_interact_everywhere')),
-    story: truthy(ini('pkp.link_story_coop')),
   };
 }
 
@@ -110,8 +109,7 @@ export function uiFrom(pkp, mem = {}) {
     lastJoin: remembered(mem.joinAddr),
     relay: internet && !direct && !pub ? ownRelay : ownRelay || memRelay,
     visitAddr: direct ? join : internet && ownRelay ? ownRelay : through ? memRelay : remembered(mem.joinAddr),
-    interact: n.interact || n.story,
-    story: n.story,
+    interact: n.interact,
   };
 }
 
@@ -130,9 +128,6 @@ export const visitEdits = (addr, through) => choice(net('mode', through ? 'auto'
 export const protocolEdits = () => choice();
 
 export const interactEdits = (on) => [pkpKey('link_interact_everywhere', on ? 'true' : 'false')];
-
-/** Story on turns the first toggle on too and locks it; story off leaves it as it is. */
-export const storyEdits = (on) => (on ? [pkpKey('link_story_coop', 'true'), pkpKey('link_interact_everywhere', 'true')] : [pkpKey('link_story_coop', 'false')]);
 
 export function applyEdits(pkp, edits) {
   const next = { ...pkp };

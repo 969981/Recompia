@@ -12,6 +12,9 @@ Notices
   THIRD_PARTY_CRATES.txt      the Rust crates the launcher is built from, with the licence text of each
   CREDITS.md                  the projects Recompia builds on
   BUNDLED_TOOLS.txt           the build tools that come in the package (Windows and Linux packages)
+  appimage/                   Linux packages: the libraries inside PokopiaLauncher.AppImage (GTK, WebKitGTK, GLib, libsoup and others, mostly
+                              LGPL): LIBRARIES.txt (each file, its Ubuntu package and version), SOURCES.txt (where the source is, and the
+                              written offer) and copyright/<package>.copyright
 
 Components of the runtime (pkp_rt, libpkp_rt) and the game layer
   SDL3 (zlib), Dear ImGui (MIT), volk (MIT), VulkanMemoryAllocator (MIT), Vulkan-Headers (Apache-2.0 OR MIT), zstd (BSD-3-Clause),
@@ -27,10 +30,14 @@ Shader tools: Sascha Willems' Vulkan samples (MIT, the stand-in shader corpus).
 Launcher: Inter (OFL 1.1), Lucide (ISC), Font Awesome Free (CC BY 4.0, MIT, OFL 1.1), @tauri-apps/api (MIT or Apache-2.0), and the
   crates in THIRD_PARTY_CRATES.txt.
 Save Editor: PokoHex (GPL-3.0) and BCnEncoder.Net (MIT or Unlicense; the data tool pokohex-extract).
+Linux package: the libraries inside the AppImage, listed in appimage/LIBRARIES.txt, under the LGPL-2.0, LGPL-2.1, LGPL-3.0 and GPL-2.0
+  (LICENSE.AppImage-libraries.*.txt) and the other licences in appimage/copyright/.
 Windows package: libusb (LGPL-2.1-or-later; the unchanged official libusb-1.0.dll). The packages' bundled build tools (Zig, Python,
   FSR 3 and Streamline libraries) have their licence texts in BUNDLED_TOOLS.txt's list, in this folder on Windows.
 
 Source code of GPL and LGPL components
+  AppImage libraries (Linux): the Ubuntu source packages named in appimage/SOURCES.txt (apt-get source <package>=<version>), and on
+    request at legal.recompia@gmail.com for three years, as that file states.
   Recompia: the release tag in https://github.com/Dittobyte/Recompia, which holds every file this package is built from, including the
     launcher, the runtime, the lifter and the scripts that make this package.
   PokoHex: the release page of this version carries PokoHex-source-<commit>.tar.gz. It is the PokoHex source at the commit the Save

@@ -106,6 +106,7 @@ else()
 endif()
 add_library(nxrt STATIC ${NXRT_SOURCES})
 target_include_directories(nxrt PUBLIC include)
+target_compile_definitions(nxrt PUBLIC NXRT_TESTTOOLS=$<BOOL:${NXRT_TESTTOOLS}>)
 if(NOT NXRT_WINDOWS)
     # The signal handler's thread-locals (t_guard, t_thread_name) must be a plain thread-pointer access: with the default
     # global-dynamic model the handler calls __tls_get_addr, which is not async-signal-safe, and the guarded-call machinery

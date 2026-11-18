@@ -3,6 +3,7 @@ import { api } from '../../api.js';
 import { num, t } from '../../i18n.js';
 import { confirm } from '../../ui.js';
 import { askCompact, store } from '../../store.js';
+import { saveLogs } from '../../log-bundle.js';
 
 export function createGameActions(h) {
   const { ctx } = h;
@@ -16,6 +17,7 @@ export function createGameActions(h) {
         if (yes && (await store.startSetup())) ctx.go('home');
       },
       'setup-log': () => api.openSetupLog(),
+      'save-logs': saveLogs,
       'compact-shaders': () => askCompact(),
       async 'expand-shaders'() {
         const st = store.state.storage;

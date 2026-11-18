@@ -28,6 +28,20 @@ target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
+        "${_pkp}/core/pkp_coop.cpp"
+        "${_pkp}/core/pkp_coop_catchup.cpp"
+        "${_pkp}/core/pkp_coop_curtain.cpp"
+        "${_pkp}/core/pkp_coop_gate.cpp"
+        "${_pkp}/core/pkp_coop_link.cpp"
+        "${_pkp}/core/pkp_coop_lock.cpp"
+        "${_pkp}/core/pkp_coop_notice.cpp"
+        "${_pkp}/core/pkp_coop_outcomes.cpp"
+        "${_pkp}/core/pkp_coop_recipes.cpp"
+        "${_pkp}/core/pkp_coop_requests.cpp"
+        "${_pkp}/core/pkp_coop_session.cpp"
+        "${_pkp}/core/pkp_coop_story.cpp"
+        "${_pkp}/core/pkp_coop_talk.cpp"
+        "${_pkp}/core/pkp_coop_trace.cpp"
         "${_pkp}/core/pkp_game.cpp"
         "${_pkp}/core/pkp_link_digspots.cpp"
         "${_pkp}/core/pkp_link_trips.cpp"
@@ -39,9 +53,6 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_save_files.cpp"
         "${_pkp}/core/pkp_save_uuid.cpp"
         "${_pkp}/core/pkp_settings.cpp"
-        "${_pkp}/core/pkp_story_guard.cpp"
-        "${_pkp}/core/pkp_story_hold.cpp"
-        "${_pkp}/core/pkp_story_pickups.cpp"
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
@@ -90,6 +101,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_time.cpp")
     if(NXRT_TESTTOOLS)
         target_sources(nxrt_game_pkp PRIVATE
+            "${_pkp}/test/pkp_coop_probe.cpp"
             "${_pkp}/test/pkp_movie_test.cpp"
             "${_pkp}/test/pkp_taa_probe.cpp")   # test-only features (pkp_game.cpp, NXRT_TESTTOOLS)
     endif()

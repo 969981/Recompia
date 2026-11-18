@@ -840,6 +840,7 @@ public:
         }
         // old goes away here, outside the lock (a relay client closes its connection)
     }
+    std::unique_ptr<vnet::SessionPort> open_port(uint16_t port) override { return open_linkplay_port(port); }
 
     LobbySlot slot_;
     Discovery discovery_;
