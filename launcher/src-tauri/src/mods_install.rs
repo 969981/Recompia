@@ -4,14 +4,15 @@
 //! stops the install), written as `<file>.part` in mods/ and renamed (download.rs), and nothing in it runs. Then the yes is recorded for
 //! that exact file (the core's `mt_loader_trust_mod`: a later change to it asks again). `put_in_place` is that shared path: the page's Install
 //! then switches the mod on; the update by itself (mods_update.rs) leaves the switch and the order as they were. A newer version replaces the
-//! older file.
+//! older file. `install_best` picks between that and a package the launcher carries (mods_carried.rs).
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use crate::download::{self, Pinned};
 use crate::mods::{self, ModsView};
-use crate::mods_catalog::{self, CatalogStore, Entry};
+use crate::mods_carried;
+use crate::mods_catalog::{self, Catalog, CatalogStore, Entry};
 
 /// The one install path: downloads the entry's package (the hub's server only, size and SHA-256 checked, never half a file in mods/),
 /// removes an older version's file, and, when `trust` (the player said yes to this mod's code), records the yes for the new file when it
@@ -34,24 +35,43 @@ pub fn put_in_place(game_dir: &Path, entry: &Entry, trust: bool) -> Result<(), S
 
 /// The older version's file goes once the new one is in place (two copies of one id: the core loads only one). `before` is what the core
 /// found for the id before the download: its file is found by the id inside it, never by its name, and is kept when it is the new file.
-fn drop_older(game_dir: &Path, before: Option<(String, String)>, new_file: &str) -> Result<(), String> {
+pub(crate) fn drop_older(game_dir: &Path, before: Option<(String, String)>, new_file: &str) -> Result<(), String> {
     match before {
         Some((_, source)) if source != new_file => mods::delete_source(game_dir, &source),
         _ => Ok(()),
     }
 }
 
+/// Installs `id` from the better source: the package the launcher carries unless `hub` (the hub's entry for this game, None when the
+/// hub has none or cannot be reached) is newer, else the hub's. Err when neither has it.
+pub fn install_best(game_dir: &Path, hub: Option<&Entry>, id: &str, trust: bool) -> Result<(), String> {
+    match (mods_carried::find(id), hub) {
+        (Some(c), h) if c.wins_over(h.map(|e| e.version.as_str())) => c.put_in_place(game_dir, trust),
+        (_, Some(e)) => put_in_place(game_dir, e, trust),
+        _ => Err(format!("{} is not in the mod list for this game.", id)),
+    }
+}
+
+/// The hub's entry for `id` that fits this game and can be installed now, from the list `load` gave.
+pub fn hub_entry<'a>(catalog: &'a Catalog, offline: bool, id: &str) -> Option<&'a Entry> {
+    if offline || catalog.preview {
+        return None;
+    }
+    catalog.mods.iter().find(|e| e.id == id && mods_catalog::fits(e) && e.download.is_some())
+}
+
 pub fn install(game_dir: &Path, store: &CatalogStore, cache: &Path, id: &str) -> Result<ModsView, String> {
     let (catalog, offline) = mods_catalog::load(store, cache, false)?;
-    if offline {
-        return Err("Installing needs the mod hub, which cannot be reached now. Check the internet connection and try again.".into());
+    if mods_carried::find(id).is_none() {
+        if offline {
+            return Err("Installing needs the mod hub, which cannot be reached now. Check the internet connection and try again.".into());
+        }
+        if catalog.preview {
+            return Err("The mod hub is not open for installs yet.".into());
+        }
     }
-    if catalog.preview {
-        return Err("The mod hub is not open for installs yet.".into());
-    }
-    let entry = catalog.mods.iter().find(|e| e.id == id && mods_catalog::fits(e)).ok_or_else(|| format!("{} is not in the mod list for this game.", id))?;
     // the page asked the install question (code runs with the player's rights) before this call
-    put_in_place(game_dir, entry, true)?;
+    install_best(game_dir, hub_entry(&catalog, offline, id), id, true)?;
     mods::set_enabled(game_dir, id, true, true)
 }
 

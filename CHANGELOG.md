@@ -20,6 +20,9 @@
 - macOS and Linux: Play now prepares the shaders the game builds while it runs before the start, as Windows does (#727)
   - Before: when Set up's warm-up collected none of them, the first start drew them black or not at all until the game was restarted
   - Now: Play runs the warm-up once more in that case, and translates what an earlier run left before the start
+- Community Achievements 0.4.1 now comes with the launcher, until the mod hub has a newer version
+  - Fixed Identity Revealed, Cloud Pioneer, First Steps, Wanderer and Cartographer being earned before the player visited those places; the ones earned too early are taken back once and come back when the player gets there
+  - Added `achievements.json` in the mod's folder: every achievement with its progress, the time it was earned, the share of players who have it and its picture, for other programs to read
 
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
