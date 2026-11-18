@@ -3,7 +3,7 @@
 //! has the protocol). Every byte from the network is untrusted: a link's first message must be exactly the 32-byte hello within hello_ms; a
 //! host's control link may only send 16-byte messages (pings answered, the rest ignored); paired links are copied as they are, within a byte
 //! rate, a buffer bound and the room's byte budget, and never parsed. One thread, one poll() over every socket.
-//! pokopia-recomp extension: relay UDP (lib.rs "Relay UDP"): a UDP socket on the same port forwards datagrams between the two links of a pair
+//! Recompia extension: relay UDP (lib.rs "Relay UDP"): a UDP socket on the same port forwards datagrams between the two links of a pair
 //! when both asked for it in their hello; the payload is the players' own tagged datagram, never parsed either.
 
 use crate::poll::{self, Fd};
@@ -35,7 +35,7 @@ const READ_MAX: usize = 16 << 10;
 const CLOSE_FLUSH_MS: i64 = 2000;
 const IPS: usize = 256;
 
-// pokopia-recomp extension: relay UDP. Hello byte 6 = X_UDP: this link wants relay UDP. Relay message type X_UDP: arg + cookie = the link's
+// Recompia extension: relay UDP. Hello byte 6 = X_UDP: this link wants relay UDP. Relay message type X_UDP: arg + cookie = the link's
 // 64-bit UDP token (low, high), sent to both links of a pair when both asked, before the visitor's OK. UDP packets: u32 X_UMAGIC, u8 type,
 // u8 flags, 2 reserved, u64 token, payload.
 pub const X_UDP: u8 = 0xC5;
@@ -46,7 +46,7 @@ const XU_DATA: u8 = 3; // either way: payload for the other link of the pair (re
 const XU_HDR: usize = 16;
 const XU_MAX: usize = 4608; // a tagged game datagram (24 + 12 + 4096 + 16) and the header, with room to spare
 
-// pokopia-recomp extension: the room list (lib.rs "Room list"). A host's OK carries arg X_CAP_LIST when this relay lists rooms; such a host may
+// Recompia extension: the room list (lib.rs "Room list"). A host's OK carries arg X_CAP_LIST when this relay lists rooms; such a host may
 // send X_LISTING on its control link (arg = the record's length, the record follows). Hello kind K_LIST asks for the list: X_LIST (arg = entries
 // following | rooms open << 16, cookie = players in the listed rooms), then one X_ENTRY (arg = length, the record follows) per room, then close.
 // Record v1: u8 version 1, u8 flags 0, u16 info length, room code[16] (normalized Crockford base32, ASCII), build[16] (main's build id, first 16
@@ -118,8 +118,8 @@ pub struct Config {
     pub room_ms: i64,      // a room lives at most this long (12 h), then it closes with "expired"
     pub room_bytes: u64,   // and carries at most this many bytes, both ways, all its links (4 GiB)
     pub link_bps: i64,     // bytes a second one link may send (256 KiB; bursts twice that); beyond, the relay stops reading it for a moment
-    pub udp: bool,         // pokopia-recomp extension: relay UDP on the same port (true)
-    pub list: bool,        // pokopia-recomp extension: the room list (true)
+    pub udp: bool,         // Recompia extension: relay UDP on the same port (true)
+    pub list: bool,        // Recompia extension: the room list (true)
     pub list_per_min: i64, // lists one address may ask for a minute (120; bursts as much); beyond, refused with "limit"
     pub log: Option<LogFn>, // one line without a newline; None: silent
 }
@@ -160,9 +160,9 @@ pub struct Stats {
     pub not_found: u64, // joins and attaches naming no open room or waiting visitor
     pub bad: u64,       // malformed or late first messages
     pub expired: u64,   // rooms closed by age, bytes or a silent host
-    pub udp_pairs: u64, // pokopia-recomp extension: pairs given relay UDP
+    pub udp_pairs: u64, // Recompia extension: pairs given relay UDP
     pub udp_packets: u64,
-    pub listed: usize,  // pokopia-recomp extension: rooms in the room list now
+    pub listed: usize,  // Recompia extension: rooms in the room list now
     pub players: usize, // and the players in them
     pub lists: u64,     // lists answered
 }
@@ -196,11 +196,11 @@ struct Conn {
     tok_at: i64, // bytes it may still send, refilled at link_bps
     closing: bool,
     close_by: i64, // flush what is queued for it, then close
-    // pokopia-recomp extension: relay UDP
+    // Recompia extension: relay UDP
     x_want: bool,               // its hello asked for relay UDP
     x_tok: u64,                 // Pair: its UDP token (0: none)
     x_ep: Option<SocketAddrV4>, // the endpoint its last bind or datagram came from
-    // pokopia-recomp extension: the room list. Host: the bytes of a listing record still to read, and those read
+    // Recompia extension: the room list. Host: the bytes of a listing record still to read, and those read
     l_need: usize,
     l_rec: Vec<u8>,
 }
@@ -244,7 +244,7 @@ struct Room {
     created: i64,
     bytes: u64,
     next_vid: u32,
-    listed_at: i64, // pokopia-recomp extension: the room list: its last listing (0: none yet)
+    listed_at: i64, // Recompia extension: the room list: its last listing (0: none yet)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -255,7 +255,7 @@ struct IpRec {
     nat: i64,
     ftok: i64,
     fat: i64,
-    ltok: i64, // pokopia-recomp extension: the room list: lists a minute
+    ltok: i64, // Recompia extension: the room list: lists a minute
     lat: i64,
     seen: i64,
 }
@@ -267,7 +267,7 @@ pub struct Relay {
     addr: SocketAddr,
     k: Vec<Conn>,
     rm: Vec<Room>,
-    lst: Vec<Option<Listing>>, // pokopia-recomp extension: the room list, one slot per room
+    lst: Vec<Option<Listing>>, // Recompia extension: the room list, one slot per room
     ips: Vec<IpRec>,
     st: Stats,
     t0: Instant,
@@ -525,7 +525,7 @@ impl Relay {
             self.list(i, &h, ad, now);
             return;
         }
-        self.k[i].x_want = h[6] == X_UDP; // pokopia-recomp extension: relay UDP (their clients send zeros)
+        self.k[i].x_want = h[6] == X_UDP; // Recompia extension: relay UDP (their clients send zeros)
         let ri = self.room_find(&h[8..24]);
         if h[4] == K_HOST {
             if ri.is_some() {
@@ -609,7 +609,7 @@ impl Relay {
             v.tok = bps;
             v.tok_at = now;
         }
-        // pokopia-recomp extension: relay UDP, only when both links asked (then each gets its token: the host's link before any byte
+        // Recompia extension: relay UDP, only when both links asked (then each gets its token: the host's link before any byte
         // of the visitor's, the visitor before its OK). Anyone else gets exactly what coop_relay.c sends
         let udp = self.us.is_some() && self.k[i].x_want && self.k[w].x_want;
         if udp {
@@ -632,7 +632,7 @@ impl Relay {
             }
         }
     }
-    /// pokopia-recomp extension: the room list. A LIST hello: the matching listed rooms, then the link closes. Filter (hello byte 6): bit 0 the
+    /// Recompia extension: the room list. A LIST hello: the matching listed rooms, then the link closes. Filter (hello byte 6): bit 0 the
     /// build in bytes 8..24 must match, bit 1 the mods fingerprint in bytes 24..32. Byte 7: entries wanted (0: LIST_MAX). Rooms with a free
     /// place first, then the newest.
     fn list(&mut self, i: usize, h: &[u8; HELLO_LEN], ad: Option<usize>, now: i64) {
@@ -666,7 +666,7 @@ impl Relay {
         self.st.lists += 1;
         self.closing(i, now);
     }
-    /// pokopia-recomp extension: the room list. A host's listing record is complete: checked, then its room is listed with it.
+    /// Recompia extension: the room list. A host's listing record is complete: checked, then its room is listed with it.
     fn listing(&mut self, i: usize, now: i64) {
         let rec = std::mem::take(&mut self.k[i].l_rec);
         let Some(ri) = self.k[i].room.filter(|&r| self.rm[r].used && self.rm[r].host == Some(i)) else { return };
@@ -687,7 +687,7 @@ impl Relay {
             }
         }
     }
-    /// A host's control link: 16-byte messages; pings are answered, a listing's header starts its record (pokopia-recomp extension), the rest
+    /// A host's control link: 16-byte messages; pings are answered, a listing's header starts its record (Recompia extension), the rest
     /// is ignored.
     fn host_ctl(&mut self, i: usize, now: i64) {
         while self.k[i].inn >= MSG_LEN {
@@ -742,7 +742,7 @@ impl Relay {
     fn conn_read(&mut self, i: usize, now: i64) {
         let st = self.k[i].st;
         if st == St::Host && self.k[i].l_need > 0 {
-            // pokopia-recomp extension: the room list: the rest of a listing record
+            // Recompia extension: the room list: the rest of a listing record
             let mut b = vec![0u8; self.k[i].l_need];
             match self.k[i].s.as_mut().unwrap().read(&mut b) {
                 Ok(0) => self.conn_free(i, now),
@@ -917,7 +917,7 @@ impl Relay {
         }
     }
 
-    // ---------- pokopia-recomp extension: relay UDP ----------
+    // ---------- Recompia extension: relay UDP ----------
     // A packet counts only when it is well formed, its token belongs to a paired link and it comes from that link's own address (any port:
     // NATs pick one). A bind makes its source the link's endpoint and is answered with a packet as long as itself; data goes to the other
     // link's endpoint, which that link proved the same way, within the link's byte rate and the room's budget (the same as its TCP bytes).

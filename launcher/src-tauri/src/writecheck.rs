@@ -71,7 +71,7 @@ pub fn cause_of(step: Step, code: Option<i32>) -> Cause {
     {
         // ERROR_ACCESS_DENIED 5, ERROR_VIRUS_INFECTED 225, ERROR_VIRUS_DELETED 226, ERROR_ACCESS_DISABLED_BY_POLICY 1260
         // ERROR_FILE_NOT_FOUND 2 / ERROR_PATH_NOT_FOUND 3 on a file in a folder that exists: Controlled folder access makes
-        // the new file look missing (what Python reported in pokopia-native's case). Not for the folder itself: a
+        // the new file look missing (what Python reported in the parent project's case). Not for the folder itself: a
         // missing drive gives the same codes.
         match c {
             5 | 225 | 226 | 1260 => Cause::Blocked,
@@ -133,7 +133,7 @@ pub fn probe(dir: &Path) -> Result<(), WriteError> {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
     let name = format!(".pkp-write-test-{}-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed), nanos);
     let path = dir.join(&name);
-    let body = format!("Pokopia launcher write test {}\n", name);
+    let body = format!("Recompia launcher write test {}\n", name);
     let fail = |step: Step, e: io::Error| WriteError::from_io(dir, step, &e);
     let res = (|| {
         let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| fail(Step::Create, e))?;

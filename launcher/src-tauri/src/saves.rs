@@ -26,10 +26,10 @@ pub fn import_save(app: AppHandle, source: Option<String>) -> Result<saveimport:
     ensure_idle(&app, &[Need::Game("The game is running. Close it first, then import the save.")])?;
     let src = match source.filter(|s| !s.trim().is_empty()) {
         Some(p) => saveimport::resolve_picked(Path::new(p.trim()))
-            .ok_or_else(|| format!("{} holds no Pokopia save (it needs the G00 and S00 folders).", p.trim()))?,
+            .ok_or_else(|| format!("{} holds no game save (it needs the G00 and S00 folders).", p.trim()))?,
         None => {
             let found = saveimport::find_sources_here();
-            let first = found.first().ok_or("No Pokopia save found in Eden or Ryujinx. Use \"Pick a folder\" instead.")?;
+            let first = found.first().ok_or("No game save found in Eden or Ryujinx. Use \"Pick a folder\" instead.")?;
             PathBuf::from(&first.path)
         }
     };

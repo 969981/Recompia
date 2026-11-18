@@ -51,7 +51,7 @@ const TEXTS = [
   msg('version {1}'),
   msg('No folder chosen yet.'),
   msg('That folder does not exist or cannot be read.'),
-  msg('This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Pokopia_v2.0.1a).'),
+  msg('This folder has no base/ or updates/ subfolder, and no exefs/ and romfs/ either. Pick the folder that contains them (for example Game_v2.0.1a).'),
   msg('Some game files are shorter than they should be: the dump was copied in text mode, which damages them. Copy the exefs and romfs folders again in binary mode (FileZilla: Transfer > Transfer type > Binary).'),
   msg('Update the game on your Switch 2 to {1}, then dump again.'),
   msg('These game files are from an older version. {1}'),
@@ -234,15 +234,15 @@ const TEXTS = [
   msg('Cannot put the backup in place: {1}. Your save was not changed.'),
 
   // saveimport.rs, saves.rs
-  msg('{1} holds no Pokopia save (no G00 and S00 folders).'),
-  msg('{1} holds no Pokopia save (it needs the G00 and S00 folders).'),
+  msg('{1} holds no game save (no G00 and S00 folders).'),
+  msg('{1} holds no game save (it needs the G00 and S00 folders).'),
   msg('{1} is inside the save folder the game plays. Pick a copy outside it.'),
   msg('Copying the save failed ({1}). Your current save was not touched.'),
   msg('The folder holds no save files.'),
   msg('Could not move the old save aside ({1}). Nothing was changed.'),
   msg('Could not put the imported save in place ({1}). The old save was put back.'),
   msg('The save was copied to {1} but its .meta could not be written. Start the game once to let it create one.'),
-  msg('No Pokopia save found in Eden or Ryujinx. Use "Pick a folder" instead.'),
+  msg('No game save found in Eden or Ryujinx. Use "Pick a folder" instead.'),
 
   // settings.rs
   msg('{1} does not exist yet. Start the game once so it creates it.'),
