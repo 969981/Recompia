@@ -38,6 +38,9 @@ cp "$repo/work/build/rtb/libpkp_rt.dylib" "$root/tools/build/sdk/libpkp_rt.dylib
 # that nothing reads (tools_dir_for() is the game folder). Bytecode caches are build leftovers as well.
 rm -rf "$root/tools/macos"
 find "$root" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+# the licence texts and notices the README promises, with the root licence
+sh "$repo/launcher/scripts/stage-licenses.sh" "$root/licenses" "$repo/work/licenses/THIRD_PARTY_CRATES.txt"
+cp "$repo/LICENSE" "$root/LICENSE.txt"
 # An artifact round trip leaves com.apple.provenance on the files; harmless, but no reason to ship it.
 xattr -cr "$root" 2>/dev/null || true
 
@@ -55,6 +58,8 @@ On macOS 14 and older you can also right-click PokopiaLauncher, choose Open, and
 If System Settings shows no such line, remove the download flag in Terminal instead:
 
    xattr -dr com.apple.quarantine /path/to/PokopiaRecomp-<version>
+
+Licences: LICENSE.txt and the licenses folder.
 
 The folder is the whole release: the launcher, tools/ (the lifter, the SDK and the shader translator), and libpkp_rt.dylib. A
 game folder is made by the launcher's Set up from your own dump; no game code is shipped here.
