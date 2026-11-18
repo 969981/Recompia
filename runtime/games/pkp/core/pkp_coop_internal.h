@@ -91,6 +91,8 @@ void reset();
 }  // namespace story
 
 namespace requests {
+// The hook site (pkp_coop.cpp): entry 0x11435c, the bind gate; a member answers as the game does at home.
+int on_giver_check(::Ctx* c);
 // The message (pkp_coop_link.cpp): kept until this player can take it.
 void on_unique_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Applies what other members shared when this player can walk and talks to no one, reads this player's request records and shares

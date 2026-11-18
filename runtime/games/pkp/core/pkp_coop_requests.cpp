@@ -30,6 +30,12 @@
 //   data table slot 0x129 (#1081)    a row per character 1..0x1ff, read as the Pokémon's load 0x61ccc0 reads it: *(row + 8) + 2
 //                                    .. + 0x15 are the unique ids that Pokémon offers in that order, one at a time (its one
 //                                    component; the load re-applies every saved 2, 3 or 4 of the list, the last one winning).
+//   the bind gate 0x11435c(&handle)  the load 0x61ccc0, the unbind 0x61d1ac and the Pokémon's own "have I a request" 0x3b5624 get
+//                                    its chara from 0x61d068, whose first test (its only caller) is this: the handle is a resident
+//                                    Pokémon (0x286de4), the player is no visitor (game state +0x90 bit 2) and the stage is not
+//                                    Cloud Island (0x77ecb0). So on a member no slot ever binds: no offer, no take-on (kTakeOn
+//                                    returns at once) and no report talk. The hook answers on a member as the game does at home
+//                                    (mapped first by a community contributor's link_story_coop gifts work).
 // Rules on a receiver (the repo owner's call: every member can complete a request and gets its rewards; two to four times the
 // resources is fine), so nothing is undone and no history is invented:
 //   - another member's 3, 4 or 5: a record here below 3 becomes 3 through the game's own take-on step (or 3 + the queue when the
@@ -95,6 +101,7 @@ constexpr uint64_t kGeneralOwn = 0x22fef0, kGeneralMirror = 0x16f2af8, kGeneralC
 constexpr uint64_t kGeneralSize = 0x30, kGeneralState = 8;   // per chara; entry + : u8 state (0 none, 1..5 a request today)
 constexpr uint32_t kGeneralCount = 0x41a;                    // charas with an entry (another reads entry 0, as the game does)
 constexpr uint8_t kCloudStage = 0x11;                        // game state stage: Cloud Island (0x77ecb0)
+constexpr uint64_t kIsResident = 0x286de4;                   // (&u16 handle): bit 0, the handle is a resident Pokémon's
 constexpr uint64_t kRecFlags = 3;                            // record + : u8 flags
 constexpr uint8_t kEventBit = 0x01;                          // flags: the event of an event-type request ran
 // Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group.
@@ -124,6 +131,7 @@ struct State {
     bool have_seen = false;          // the first read of a session only takes the baseline
     bool baseline_sent = false;      // the session's first list went out (until then a send is the baseline: no change lines)
     bool send_all = true;            // the whole list at the next read
+    bool logged_giver = false;       // the bind gate's first member answer was logged
     double all_at = 0.0, line_at = -1e9;
     alignas(8) uint64_t slot_arg = 0;     // the queue's argument, holding the slot (guest-readable, outlives the call's frame)
     alignas(8) uint16_t handle_arg = 0;   // the actor lookup's argument: a handle
@@ -357,6 +365,21 @@ void apply(::Ctx* c, uint64_t recs) {
 }
 
 }  // namespace
+
+int on_giver_check(::Ctx* c) {
+    // The game's own session bits, as the world effects' skip: a member in the host's world, even before its channel is up.
+    if (role() != CoopRole::Visit || !(session_bits() & layout::kSessionVisitor)) return 0;
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(game, layout::kStateStage + 1)) return 0;
+    const bool resident = guest::call(c, base() + kIsResident, c->x[0]) & 1;
+    c->x[0] = resident && guest::rd<uint8_t>(game + layout::kStateStage) != kCloudStage ? 1 : 0;
+    State& s = st();
+    if (c->x[0] && !s.logged_giver) {
+        s.logged_giver = true;
+        NXLOG_I(kTag, "Co-op requests: the Pokémon of the group's world bind this member's own requests");
+    }
+    return 1;   // the function returns x0
+}
 
 void on_unique_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();

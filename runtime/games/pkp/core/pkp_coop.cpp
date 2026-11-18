@@ -47,6 +47,8 @@ enum class Site : uintptr_t {
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
     MaskPattern,      // the mask builder's online pattern: every member gets the full permissions with the story system on
     // ---- the requests ----
+    GiverCheck,       // "can this Pokémon have requests here" (the bind gate of the unique request manager): a member answers as at
+                      // home, so the Pokémon of the group's world bind its own requests
     GoalCount,        // a unique request's completion step, right before its town goal +1: the run's one-off world effects are
                       // decided (once for the group), the goal skipped when they are not this run's
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
@@ -80,6 +82,7 @@ constexpr CoopSite kSites[] = {
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
     {{0xb1030, 0xf2c0002du, false}, Site::MaskPattern},      // movk x13, #1, lsl #32
+    {{0x11435c, kPacibsp, true}, Site::GiverCheck},
     {{0x61858c, 0xb4000040u, false}, Site::GoalCount},       // cbz x0, 0x618594 (x0 = the challenge manager, before bl 0x618b00)
     {{0x619410, kPacibsp, true}, Site::Friendship},
     {{0xa88214, 0xb00156c8u, true}, Site::PastTitle},        // adrp x8, ...
@@ -130,6 +133,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
+        case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
         default: return 0;
