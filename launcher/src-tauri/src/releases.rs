@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::release_names;
+use crate::release_names::Suffixes;
 
 const REPO: &str = "featureJosh/pokopia-recomp";
 /// The releases list: small, so a whole-call limit, generous for a slow link.
@@ -26,16 +26,7 @@ const DEV_VERSIONS: [&str; 2] = ["0.0.0", "0.1.1"];
 const LIST_LIMIT: u64 = 8 << 20;
 const SUMS_ASSET: &str = "SHA256SUMS.txt";
 
-#[cfg(windows)]
-const ASSET_SUFFIX: &str = "-win64.zip";
-#[cfg(target_os = "macos")]
-// The macOS release zip (launcher/scripts/make-mac.sh): a flat folder with the launcher binary at its root, no .app; that
-// folder is the install root the update is applied to.
-const ASSET_SUFFIX: &str = "-macos-arm64.zip";
-#[cfg(all(not(any(windows, target_os = "macos")), target_arch = "aarch64"))]
-const ASSET_SUFFIX: &str = "-linux-arm64.tar.gz";
-#[cfg(all(not(any(windows, target_os = "macos")), not(target_arch = "aarch64")))]
-const ASSET_SUFFIX: &str = "-linux-x64.tar.gz";
+const ASSET_SUFFIX: Suffixes = Suffixes::HERE;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Release {
@@ -234,11 +225,11 @@ pub fn for_channel(list: Vec<GhRelease>, channel: Channel) -> Vec<GhRelease> {
     }
 }
 
-/// This platform's package of a release: the new scheme's when the release carries both (release_names.rs), else the first that
-/// ends in the suffix, which is what every launcher before the rename takes.
-fn asset_for<'a>(r: &'a GhRelease, suffix: &str) -> Option<&'a Asset> {
-    let fits = |a: &&Asset| a.name.ends_with(suffix) && !a.name.contains(['/', '\\']) && github(&a.browser_download_url);
-    r.assets.iter().filter(fits).find(|a| release_names::is_new_asset(&a.name)).or_else(|| r.assets.iter().find(fits))
+/// This platform's package of a release: the new scheme's when the release has one (release_names.rs), else the first that ends in
+/// the old suffix, prefix ignored, which is what every launcher before the rename takes.
+fn asset_for<'a>(r: &'a GhRelease, suffix: Suffixes) -> Option<&'a Asset> {
+    let fits = |a: &&Asset| !a.name.contains(['/', '\\']) && github(&a.browser_download_url);
+    r.assets.iter().filter(fits).find(|a| suffix.is_new(&a.name)).or_else(|| r.assets.iter().filter(fits).find(|a| suffix.is_old(&a.name)))
 }
 
 fn sums_of(r: &GhRelease) -> Option<&Asset> {
@@ -248,7 +239,7 @@ fn sums_of(r: &GhRelease) -> Option<&Asset> {
 /// The newest release newer than `current` that can be installed here. One without this platform's package or a checksum file is
 /// passed over: the Linux package lands an hour after the Windows one, and an Update button that can only fail is worse than none
 /// for that hour (What's New lists the release anyway).
-fn pick_update<'a>(list: &'a [GhRelease], current: &str, suffix: &str) -> Option<(&'a GhRelease, &'a Asset, &'a Asset)> {
+fn pick_update<'a>(list: &'a [GhRelease], current: &str, suffix: Suffixes) -> Option<(&'a GhRelease, &'a Asset, &'a Asset)> {
     list.iter()
         .filter(|r| is_newer(&r.tag_name, current))
         .filter_map(|r| Some((r, asset_for(r, suffix)?, sums_of(r)?)))
@@ -256,7 +247,7 @@ fn pick_update<'a>(list: &'a [GhRelease], current: &str, suffix: &str) -> Option
 }
 
 /// What get_releases returns. `current`: None for a build that takes no updates.
-pub fn view(list: &[GhRelease], current: Option<&str>, suffix: &str) -> Releases {
+pub fn view(list: &[GhRelease], current: Option<&str>, suffix: Suffixes) -> Releases {
     let releases = list
         .iter()
         .map(|r| Release {
@@ -383,7 +374,7 @@ pub fn check_pick(current: &str, tag: &str, accepted: bool) -> Result<bool, Stri
 }
 
 /// Every release of the list as a pick for the player, newest first. `current`: the running version.
-pub fn builds(list: &[GhRelease], current: &str, suffix: &str) -> Vec<Build> {
+pub fn builds(list: &[GhRelease], current: &str, suffix: Suffixes) -> Vec<Build> {
     let mut out: Vec<(Option<Version>, Build)> = list
         .iter()
         .map(|r| {
@@ -415,7 +406,7 @@ pub fn builds(list: &[GhRelease], current: &str, suffix: &str) -> Vec<Build> {
 }
 
 /// The release with exactly this tag, when it can be installed here (this system's package and the checksum file).
-pub fn target_for_tag(list: &[GhRelease], tag: &str, suffix: &str) -> Option<Target> {
+pub fn target_for_tag(list: &[GhRelease], tag: &str, suffix: Suffixes) -> Option<Target> {
     let r = list.iter().find(|r| r.tag_name == tag)?;
     Version::parse(&r.tag_name)?;
     let (a, s) = (asset_for(r, suffix)?, sums_of(r)?);
@@ -440,7 +431,7 @@ pub struct Target {
     pub sums_url: String,
 }
 
-pub fn target_of(list: &[GhRelease], current: &str, suffix: &str) -> Option<Target> {
+pub fn target_of(list: &[GhRelease], current: &str, suffix: Suffixes) -> Option<Target> {
     pick_update(list, current, suffix).map(|(r, a, s)| Target {
         tag: r.tag_name.clone(),
         asset: a.name.clone(),
@@ -514,9 +505,9 @@ mod channel_tests {
     fn updates_follow_the_channel() {
         let all = list_of(&[("v0.8.1-beta.2", true), ("v0.8.1-beta.1", true), ("v0.8.0", false)]);
         let stable = for_channel(all.clone(), Channel::Stable);
-        assert!(pick_update(&stable, "0.8.0", "-linux-x64.tar.gz").is_none(), "Stable never offers a prerelease");
+        assert!(pick_update(&stable, "0.8.0", Suffixes::LINUX_X64).is_none(), "Stable never offers a prerelease");
         let testing = for_channel(all, Channel::Testing);
-        let v = view(&testing, Some("0.8.0"), "-linux-x64.tar.gz");
+        let v = view(&testing, Some("0.8.0"), Suffixes::LINUX_X64);
         assert!(v.releases.iter().any(|r| r.prerelease) && v.releases.iter().any(|r| !r.prerelease));
     }
 
@@ -525,7 +516,7 @@ mod channel_tests {
         assert!(Channel::Stable.offers_updates() && !Channel::Testing.offers_updates());
         let all = list_of(&[("v0.12.0-beta.1", true), ("v0.12.0-alpha.1", true), ("v0.11.1", false), ("v0.10.4-alpha.1", true)]);
         let testing = for_channel(all, Channel::Testing);
-        assert_eq!(builds(&testing, "0.11.1", "-linux-x64.tar.gz").iter().filter(|b| b.prerelease).count(), 3, "every prerelease is listed, older test lines too");
+        assert_eq!(builds(&testing, "0.11.1", Suffixes::LINUX_X64).iter().filter(|b| b.prerelease).count(), 3, "every prerelease is listed, older test lines too");
     }
 
     #[test]
@@ -550,7 +541,7 @@ mod channel_tests {
     #[test]
     fn builds_are_listed_newest_first_with_their_relation_to_the_running_one() {
         let all = list_of(&[("v0.8.0", false), ("v0.8.1-beta.6", true), ("v0.7.9", false), ("v0.8.1-beta.5", true)]);
-        let b = builds(&all, "0.8.1-beta.5", "-linux-x64.tar.gz");
+        let b = builds(&all, "0.8.1-beta.5", Suffixes::LINUX_X64);
         let tags: Vec<&str> = b.iter().map(|x| x.tag.as_str()).collect();
         assert_eq!(tags, ["v0.8.1-beta.6", "v0.8.1-beta.5", "v0.8.0", "v0.7.9"]);
         let rel: Vec<&str> = b.iter().map(|x| x.relation.as_str()).collect();
@@ -566,22 +557,22 @@ mod channel_tests {
     fn a_build_without_a_package_or_checksum_is_listed_but_not_installable() {
         let body = format!("[{},{}]", rel("v0.8.1", false), r#"{"tag_name":"v0.8.0","name":"x","html_url":"https://github.com/featureJosh/Recompia/releases/tag/v0.8.0","draft":false,"prerelease":false,"assets":[]}"#);
         let all = parse_releases(body.as_bytes()).unwrap();
-        let b = builds(&all, "0.8.1", "-linux-x64.tar.gz");
+        let b = builds(&all, "0.8.1", Suffixes::LINUX_X64);
         assert_eq!(b.len(), 2);
         assert!(b[0].installable && !b[1].installable);
-        assert!(target_for_tag(&all, "v0.8.0", "-linux-x64.tar.gz").is_none());
-        assert!(target_for_tag(&all, "v0.8.1", "-linux-x64.tar.gz").is_some());
+        assert!(target_for_tag(&all, "v0.8.0", Suffixes::LINUX_X64).is_none());
+        assert!(target_for_tag(&all, "v0.8.1", Suffixes::LINUX_X64).is_some());
     }
 
     #[test]
     fn a_tag_that_is_not_in_the_list_is_refused_and_a_channel_list_decides_what_can_be_picked() {
         let all = list_of(&[("v0.8.1-beta.6", true), ("v0.8.0", false)]);
-        assert!(target_for_tag(&all, "v9.9.9", "-linux-x64.tar.gz").is_none());
-        assert!(target_for_tag(&all, "nonsense", "-linux-x64.tar.gz").is_none());
+        assert!(target_for_tag(&all, "v9.9.9", Suffixes::LINUX_X64).is_none());
+        assert!(target_for_tag(&all, "nonsense", Suffixes::LINUX_X64).is_none());
         let stable = for_channel(all.clone(), Channel::Stable);
-        assert!(target_for_tag(&stable, "v0.8.1-beta.6", "-linux-x64.tar.gz").is_none(), "a Stable list never offers a Testing build");
-        assert!(builds(&stable, "0.8.0", "-linux-x64.tar.gz").iter().all(|b| !b.prerelease));
-        assert!(target_for_tag(&all, "v0.8.1-beta.6", "-linux-x64.tar.gz").is_some());
+        assert!(target_for_tag(&stable, "v0.8.1-beta.6", Suffixes::LINUX_X64).is_none(), "a Stable list never offers a Testing build");
+        assert!(builds(&stable, "0.8.0", Suffixes::LINUX_X64).iter().all(|b| !b.prerelease));
+        assert!(target_for_tag(&all, "v0.8.1-beta.6", Suffixes::LINUX_X64).is_some());
     }
 
     #[test]
@@ -599,8 +590,8 @@ mod channel_tests {
     #[test]
     fn the_plain_update_still_picks_the_newest_newer_build_and_ignores_older_ones() {
         let all = list_of(&[("v0.8.1", false), ("v0.8.0", false), ("v0.7.9", false)]);
-        assert_eq!(pick_update(&all, "0.8.0", "-linux-x64.tar.gz").unwrap().0.tag_name, "v0.8.1");
-        assert!(pick_update(&all, "0.8.1", "-linux-x64.tar.gz").is_none(), "nothing newer: an older build is never an update");
+        assert_eq!(pick_update(&all, "0.8.0", Suffixes::LINUX_X64).unwrap().0.tag_name, "v0.8.1");
+        assert!(pick_update(&all, "0.8.1", Suffixes::LINUX_X64).is_none(), "nothing newer: an older build is never an update");
     }
 
     /// v1.0.0 with these asset names (and the checksum file), in this order.
@@ -617,26 +608,67 @@ mod channel_tests {
     }
 
     fn asset_picked(names: &[&str]) -> Option<String> {
-        target_of(&with_assets(names), "0.9.0", "-win64.zip").map(|t| t.asset)
+        asset_picked_for(Suffixes::WINDOWS, names)
+    }
+
+    fn asset_picked_for(suffix: Suffixes, names: &[&str]) -> Option<String> {
+        target_of(&with_assets(names), "0.9.0", suffix).map(|t| t.asset)
     }
 
     #[test]
     fn a_release_with_both_name_schemes_installs_from_the_new_one_in_either_order() {
-        let (new, old) = ("Recompia-1.0.0-win64.zip", "PokopiaRecomp-1.0.0-win64.zip");
+        let (new, old) = ("Recompia-1.0.0-windows-x64.zip", "PokopiaRecomp-1.0.0-win64.zip");
         assert_eq!(asset_picked(&[old, new]).as_deref(), Some(new));
         assert_eq!(asset_picked(&[new, old]).as_deref(), Some(new));
-        assert_eq!(asset_picked(&[new, "Recompia-1.0.0-linux-x64.tar.gz"]).as_deref(), Some(new));
-        let t = target_for_tag(&with_assets(&[old, new]), "v1.0.0", "-win64.zip").unwrap();
+        assert_eq!(asset_picked(&[new, "Recompia-1.0.0-linux-x86_64.tar.gz"]).as_deref(), Some(new));
+        let t = target_for_tag(&with_assets(&[old, new]), "v1.0.0", Suffixes::WINDOWS).unwrap();
         assert_eq!((t.asset.as_str(), t.asset_url.ends_with(new)), (new, true), "the name and its download go together");
+        // the same on every platform, and the old-token macOS name of today next to the new one
+        for (sx, new, old) in [
+            (Suffixes::LINUX_X64, "Recompia-1.0.0-linux-x86_64.tar.gz", "PokopiaRecomp-1.0.0-linux-x64.tar.gz"),
+            (Suffixes::LINUX_ARM64, "Recompia-1.0.0-linux-aarch64.tar.gz", "PokopiaRecomp-1.0.0-linux-arm64.tar.gz"),
+            (Suffixes::MACOS, "Recompia-1.0.0-macos-aarch64.zip", "Recompia-1.0.0-macos-arm64.zip"),
+        ] {
+            assert_eq!(asset_picked_for(sx, &[old, new]).as_deref(), Some(new));
+            assert_eq!(asset_picked_for(sx, &[new, old]).as_deref(), Some(new));
+        }
     }
 
     #[test]
-    fn a_release_with_one_scheme_installs_from_it_as_before() {
+    fn a_release_with_only_old_names_installs_from_the_first_old_suffix_match() {
         assert_eq!(asset_picked(&["PokopiaRecomp-1.0.0-win64.zip"]).as_deref(), Some("PokopiaRecomp-1.0.0-win64.zip"));
+        // the prefix is never looked at, as in every launcher before the rename
         assert_eq!(asset_picked(&["Recompia-1.0.0-win64.zip"]).as_deref(), Some("Recompia-1.0.0-win64.zip"));
-        // no known prefix at all: still the first name with the suffix, as every launcher before the rename picks
         assert_eq!(asset_picked(&["other-win64.zip", "PokopiaRecomp-1.0.0-win64.zip"]).as_deref(), Some("other-win64.zip"));
-        assert_eq!(asset_picked(&["Recompia-1.0.0-linux-x64.tar.gz"]), None, "another platform's package is not this one");
-        assert!(builds(&with_assets(&["Recompia-1.0.0-win64.zip"]), "0.9.0", "-win64.zip")[0].installable);
+        // macOS today: new prefix, old token
+        let mac = "Recompia-1.0.0-macos-arm64.zip";
+        assert_eq!(asset_picked_for(Suffixes::MACOS, &[mac]).as_deref(), Some(mac));
+        assert!(builds(&with_assets(&["PokopiaRecomp-1.0.0-win64.zip"]), "0.9.0", Suffixes::WINDOWS)[0].installable);
+    }
+
+    #[test]
+    fn a_release_with_only_new_names_installs_from_them_and_another_platform_is_no_match() {
+        for (sx, new) in [
+            (Suffixes::WINDOWS, "Recompia-1.0.0-windows-x64.zip"),
+            (Suffixes::LINUX_X64, "Recompia-1.0.0-linux-x86_64.tar.gz"),
+            (Suffixes::LINUX_ARM64, "Recompia-1.0.0-linux-aarch64.tar.gz"),
+            (Suffixes::MACOS, "Recompia-1.0.0-macos-aarch64.zip"),
+        ] {
+            assert_eq!(asset_picked_for(sx, &[new]).as_deref(), Some(new));
+            assert!(builds(&with_assets(&[new]), "0.9.0", sx)[0].installable);
+        }
+        assert_eq!(asset_picked(&["Recompia-1.0.0-linux-x86_64.tar.gz"]), None, "another platform's package is not this one");
+        assert_eq!(asset_picked(&["Recompia-1.0.0-linux-x64.tar.gz"]), None);
+        // a new-token name without the new prefix is not the new scheme, and not the old suffix either
+        assert_eq!(asset_picked(&["other-1.0.0-windows-x64.zip"]), None);
+    }
+
+    #[test]
+    fn the_checksum_is_looked_up_by_the_exact_name_in_either_scheme() {
+        let hex = |c: char| c.to_string().repeat(64);
+        let sums = format!("{}  PokopiaRecomp-1.0.0-win64.zip\n{} *Recompia-1.0.0-windows-x64.zip\n", hex('a'), hex('b'));
+        assert_eq!(crate::update::sum_for(&sums, "PokopiaRecomp-1.0.0-win64.zip"), Some(hex('a')));
+        assert_eq!(crate::update::sum_for(&sums, "Recompia-1.0.0-windows-x64.zip"), Some(hex('b')));
+        assert_eq!(crate::update::sum_for(&sums, "Recompia-1.0.0-win64.zip"), None);
     }
 }

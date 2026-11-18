@@ -2,9 +2,10 @@
 //! The file names of a release, in both naming schemes while the release files are renamed (two releases: first the updater knows
 //! both, then releases switch): the asset `<prefix>-<version><suffix>` (releases.rs), the top folder `<prefix>-<version>/` it
 //! unpacks to, and the launcher file at that folder's root, which is also its name in an install (update.rs, update_apply.rs).
-//! Every list is new scheme first: a release that carries both installs from its new-scheme files. The asset's platform suffix
-//! (`-win64.zip`, ...) is the same in both schemes, and so is everything outside these names (pkp.exe, pkp.ini, the save, the
-//! launcher's data folder).
+//! Every list is new scheme first: a release that carries both installs from its new-scheme files. The new scheme also has its own
+//! platform tokens (`-windows-x64.zip`, ...), which a launcher from before the rename cannot match by suffix, so which asset it
+//! takes never depends on the order GitHub lists them in. Everything outside these names is the same in both schemes (pkp.exe,
+//! pkp.ini, the save, the launcher's data folder).
 
 use std::path::{Path, PathBuf};
 
@@ -38,9 +39,41 @@ impl Host {
     }
 }
 
-/// An asset of the new scheme. A launcher from before the rename takes the first name that ends in its suffix, whatever the prefix.
-pub fn is_new_asset(name: &str) -> bool {
-    name.strip_prefix(PREFIXES[0]).is_some_and(|rest| rest.starts_with('-'))
+/// The platform's asset suffix in each scheme. `old` is what every launcher before the rename takes by suffix alone, whatever the
+/// prefix: macOS releases so far are `Recompia-<v>-macos-arm64.zip`, an old-token name that stays the old scheme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Suffixes {
+    pub new: &'static str,
+    pub old: &'static str,
+}
+
+impl Suffixes {
+    pub const WINDOWS: Suffixes = Suffixes { new: "-windows-x64.zip", old: "-win64.zip" };
+    pub const LINUX_X64: Suffixes = Suffixes { new: "-linux-x86_64.tar.gz", old: "-linux-x64.tar.gz" };
+    pub const LINUX_ARM64: Suffixes = Suffixes { new: "-linux-aarch64.tar.gz", old: "-linux-arm64.tar.gz" };
+    pub const MACOS: Suffixes = Suffixes { new: "-macos-aarch64.zip", old: "-macos-arm64.zip" };
+
+    // The macOS zip (launcher/scripts/make-mac.sh) is a flat folder with the launcher binary at its root, no .app; that folder is
+    // the install root the update is applied to.
+    pub const HERE: Suffixes = if cfg!(windows) {
+        Suffixes::WINDOWS
+    } else if cfg!(target_os = "macos") {
+        Suffixes::MACOS
+    } else if cfg!(target_arch = "aarch64") {
+        Suffixes::LINUX_ARM64
+    } else {
+        Suffixes::LINUX_X64
+    };
+
+    /// An asset of the new scheme: `Recompia-<v>` plus the new suffix.
+    pub fn is_new(self, name: &str) -> bool {
+        name.strip_prefix(PREFIXES[0]).is_some_and(|rest| rest.starts_with('-')) && name.ends_with(self.new)
+    }
+
+    /// An asset of the old scheme: any name ending in the old suffix (the first of them wins), whatever its prefix.
+    pub fn is_old(self, name: &str) -> bool {
+        name.ends_with(self.old)
+    }
 }
 
 /// The unpacked package in `staged`: `<prefix>-<version>/` holding a launcher file and tools/build, any prefix with any launcher name,
@@ -87,11 +120,22 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn only_the_new_prefix_is_the_new_scheme() {
-        assert!(is_new_asset("Recompia-1.0.0-win64.zip"));
-        for old in ["PokopiaRecomp-1.0.0-win64.zip", "RecompiaX-1.0.0-win64.zip", "Recompia", "1.0.0-win64.zip", ""] {
-            assert!(!is_new_asset(old), "{old}");
+    fn each_platform_has_a_new_and_an_old_name_that_never_match_each_others_suffix() {
+        for (sx, new, old) in [
+            (Suffixes::WINDOWS, "Recompia-1.0.0-windows-x64.zip", "PokopiaRecomp-1.0.0-win64.zip"),
+            (Suffixes::LINUX_X64, "Recompia-1.0.0-linux-x86_64.tar.gz", "PokopiaRecomp-1.0.0-linux-x64.tar.gz"),
+            (Suffixes::LINUX_ARM64, "Recompia-1.0.0-linux-aarch64.tar.gz", "PokopiaRecomp-1.0.0-linux-arm64.tar.gz"),
+            (Suffixes::MACOS, "Recompia-1.0.0-macos-aarch64.zip", "PokopiaRecomp-1.0.0-macos-arm64.zip"),
+        ] {
+            assert!(sx.is_new(new) && !sx.is_old(new), "{new}: a launcher from before the rename cannot match it");
+            assert!(sx.is_old(old) && !sx.is_new(old), "{old}");
+            for bad in ["PokopiaRecomp-1.0.0", "RecompiaX-1.0.0", ""] {
+                assert!(!sx.is_new(&format!("{bad}{}", sx.new)), "{bad}");
+            }
         }
+        // the macOS release so far: the new prefix around the old token stays the old scheme
+        assert!(Suffixes::MACOS.is_old("Recompia-0.14.2-macos-arm64.zip") && !Suffixes::MACOS.is_new("Recompia-0.14.2-macos-arm64.zip"));
+        assert!(Suffixes::WINDOWS.is_old("Recompia-1.0.0-win64.zip") && !Suffixes::WINDOWS.is_new("Recompia-1.0.0-win64.zip"));
     }
 
     /// A staged folder with the given top folders, each with tools/build and the given files at its root.
