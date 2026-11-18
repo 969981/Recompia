@@ -114,10 +114,10 @@
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
 
 ### Online
-- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; on by default) for events that need an internet connection the first time, such as **Apples to Applin** (16 Nov to 1 Dec 2026). It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts. With it on, a moved game clock (Time Travel) moves the network clock too, so the game sees one date
+- Added an **Online events** switch (the game's Settings > Online tab, and the launcher's Settings > Game > Online; on by default) for events that need an internet connection the first time, such as the event from 16 Nov to 1 Dec 2026. It tells the game it is connected; nothing is sent, and the game's other online services still do not work. Takes effect the next time the game starts. With it on, a moved game clock (Time Travel) moves the network clock too, so the game sees one date
   - The event also needs the town's important request done and its Creature Center rebuilt, and the real date (Time Travel off)
   - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): the switch is on by default, so they start on their dates (or pick the event in the game's **Events** tab); turn it off in Settings > Game > Online if the game shows connection messages
-- The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
+- The game's Settings > **Events** tab now lists every event so far, from the first to the latest, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
@@ -133,7 +133,7 @@
 
 ### Graphics
 - Added a **Brightness** setting under Settings > Picture: it dims the whole picture, white menus included, for players who find a bright screen uncomfortable (#678)
-- Fixed the Ditto loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
+- Fixed the loading screen and the fade to black around it covering only the 16:9 middle of a wider picture (ultrawide screens)
   - Before: what lay behind them showed on the left and right, the world itself during the fade; on 16:10 the fade left a thin strip of it at the top and bottom
   - Now: the loading screen's black areas and its strip of sky reach the picture's edges, and the fade covers the whole picture
   - Still not: the stars in the loading screen's sky end at the old 16:9 edges
@@ -314,11 +314,11 @@
 - The launcher no longer promises "about 7 minutes" for a rebuild: it says from a few minutes to an hour, depending on your PC
 
 ### Fixed
-- Stuck on the Ditto loading screen for good with the render scale above 100% on a 4K screen
+- Stuck on the loading screen for good with the render scale above 100% on a 4K screen
 - Windows: a Switch 2 Pro Controller on a USB cable not being picked up; it now works with Switch prompts, rumble and gyro (#522, thanks ondona)
 - Linux: the Steam Controller not working when the game is started from Steam without `SDL_VIDEO_DRIVER=x11` in the launch options
 - Linux and SteamOS: Set up not finding the shader translator
-- The Ditto loading screen's black background not reaching the top and bottom on taller screens such as the Steam Deck (#534, thanks Piktrip)
+- The loading screen's black background not reaching the top and bottom on taller screens such as the Steam Deck (#534, thanks Piktrip)
 - Set up looking frozen while it translates the game code: the bar now moves through that step and shows the time left
 - Set up showing no reason for a failure when the game folder has an accent in its path (#630)
 - The launcher reporting "The game stopped unexpectedly" (0xC0000409) when the game closes itself
@@ -944,7 +944,7 @@ The Monkey patch is all about quality of life: tidy bags in one press, aim where
   - Profiles share the game files and the shaders, so a second profile costs almost no disk space
   - Removing a profile keeps its save in the save folder, nothing is deleted
   - Still not: screenshots, settings and controls are shared by all profiles
-- Added one **Timed event** toggle each for the Copycat Challenge, More Spores for Hoppip, Bulbasaur's Jump Rope Contest and Sableye's Gem Hunt. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
+- Added one **Timed event** toggle each for each of the four timed events so far. Enabling one switches the others off. On every launch, Play applies that event's local 2026 start date at 09:00 to both game clocks without overwriting the ordinary Game clock, which is used again when all toggles are off. Use this in single player only for now. In-game event activation has not been tested.
 
 ## 0.7.9 (build K: Kiwi)
 
@@ -1272,14 +1272,14 @@ bind of the programs that lacked them. Something that translates `[nvn] dump_mis
 **Now:** `[overlay] pad` in `controls.ini` takes a button combination (like `[quit] pad`, for example `left_shoulder+right_shoulder`) that opens and closes the F1 menu. It is off (`none`) by default. A combination equal to the quit one is ignored with a log warning. Based on the parent project (MIT) `windows/src/nxrt/front/menu.c` @e5d9ac6.
 
 #### Small GPUs: the default picture size stops at 2560x1440
-**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K while Ditto loads).
+**Before:** on a 4K screen the picture size you had not set followed the screen (3840x2160), which can run out of video memory on a GPU with 4 GB or less. Possibly related to #164 (hang at 4K on the loading screen).
 
 **Now:** on a GPU with 4 GB of video memory or less, a picture size you have not set is kept to 2560x1440. A set `render_width` / `render_height` or `render_scale` is never changed. `[display] vram_cap = 0` brings back the old behaviour. Based on the parent project (MIT) `windows/src/nxrt/vk/vk_dev.c` @e5d9ac6.
 
 ### Fixes
 
 #### 4K: more graphics memory for the first world load (#119, #164)
-**What was wrong:** at a 3840x2160 render size the game could stay on the Ditto jumping loading screen for good, or crash just after
+**What was wrong:** at a 3840x2160 render size the game could stay on the jumping loading screen for good, or crash just after
 the first world frame. The game's graphics pools were sized from what start-up uses, not what the first world load needs.
 
 **Now:** both pools grow above 1080p (at 4K: 333 MiB more general memory and 595 MiB more for render targets). 1080p and below are
@@ -1538,7 +1538,7 @@ Steam's Performance menu if you want a real 40. Ticked by default only on a Stea
 ### Known issues
 - The Steam Deck changes under "less stutter" are not measured on a Deck yet.
 - On some Windows PCs the slowest frames may be a little less smooth than in 0.5.0. The average frame rate is unchanged.
-- Some players crash at 4K in the Ditto jumping scene (#119). Not fixed yet.
+- Some players crash at 4K in the jumping loading scene (#119). Not fixed yet.
 - The launcher doesn't start under Proton / Linux (it needs WebView2), so handheld players don't see the update banner.
 
 ### For tinkerers: switching things back
@@ -1698,7 +1698,7 @@ Builds A to F were the test builds that led to 0.2.0.
 
 **Build A: the starting point**
 - Everything from the original 0.1.1 release, plus a long list of small fixes to setup, the launcher and stability.
-- Colours look right now. Before, the game looked washed out and too bright (the creature list was orange instead of red, Ditto was pale pink).
+- Colours look right now. Before, the game looked washed out and too bright (the creature list was orange instead of red, the loading screen's creature was pale pink).
 - AMD graphics cards no longer show black or white blocks instead of textures.
 - First-time setup no longer runs out of memory while it builds the game, and a step that fails is retried.
 - The launcher checks shaders before every start and warms them up, so there is less stutter the first time you see something new.
