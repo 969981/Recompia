@@ -712,6 +712,73 @@ mod tests {
         let _ = fs::remove_dir_all(&acc);
     }
 
+    /// One shortcut as Steam itself writes it when a player adds a game by hand: a random app id (not the CRC rule), StartDir without
+    /// quotes and with a trailing separator, `sortas`, a play time, a tag.
+    fn steam_written_entry(out: &mut Vec<u8>, key: &str, appid: u32, name: &str) {
+        let s = |out: &mut Vec<u8>, k: &str, v: &str| {
+            out.push(1);
+            out.extend_from_slice(k.as_bytes());
+            out.push(0);
+            out.extend_from_slice(v.as_bytes());
+            out.push(0);
+        };
+        let n = |out: &mut Vec<u8>, k: &str, v: u32| {
+            out.push(2);
+            out.extend_from_slice(k.as_bytes());
+            out.push(0);
+            out.extend_from_slice(&v.to_le_bytes());
+        };
+        out.push(0);
+        out.extend_from_slice(key.as_bytes());
+        out.push(0);
+        n(out, "appid", appid);
+        s(out, "AppName", name);
+        s(out, "Exe", &format!("\"C:\\Games\\{name}\\game.exe\""));
+        s(out, "StartDir", &format!("C:\\Games\\{name}\\"));
+        for k in ["icon", "ShortcutPath", "LaunchOptions"] {
+            s(out, k, "");
+        }
+        for (k, v) in [("IsHidden", 0), ("AllowDesktopConfig", 1), ("AllowOverlay", 1), ("OpenVR", 0), ("Devkit", 0)] {
+            n(out, k, v);
+        }
+        s(out, "DevkitGameID", "");
+        n(out, "DevkitOverrideAppID", 0);
+        n(out, "LastPlayTime", 0x6900_0000);
+        s(out, "FlatpakAppID", "");
+        s(out, "sortas", "");
+        out.push(0);
+        out.extend_from_slice(b"tags\0");
+        s(out, "0", "Favorites");
+        out.extend_from_slice(&[8, 8]); // tags, entry
+    }
+
+    #[test]
+    fn a_file_steam_wrote_keeps_its_bytes() {
+        let mut steam = Vec::new();
+        steam.extend_from_slice(b"\0shortcuts\0");
+        steam_written_entry(&mut steam, "0", 0x8123_4567, "First Game");
+        steam_written_entry(&mut steam, "1", 0x9abc_def0, "Second Game");
+        steam.extend_from_slice(&[8, 8]); // shortcuts, root
+        let mut root = parse(&steam).unwrap();
+        assert_eq!(write(&root), steam, "read and written back unchanged");
+        // ours goes after Steam's entries as "2": the old bytes stay as they were, up to the two closing marks
+        add_entry(&mut root, &spec(false), "");
+        let added = write(&root);
+        assert_eq!(&added[..steam.len() - 2], &steam[..steam.len() - 2]);
+        let mut ours = b"\x002\0".to_vec();
+        write_map(&mut ours, &entry_for(&spec(false), ""));
+        assert_eq!(&added[steam.len() - 2..added.len() - 2], &ours[..]);
+        assert_eq!(&added[added.len() - 2..], &[8, 8]);
+        // the stored app id is the one the art is named after
+        let back = parse(&added).unwrap();
+        let Val::Map(list) = &back[0].1 else { panic!() };
+        let Val::Map(entry) = &list[2].1 else { panic!() };
+        assert_eq!(entry[0], ("appid".into(), Val::Int(short_id(&spec(false).exe, &spec(false).name))));
+        // and removing it gives Steam's file back byte for byte
+        assert!(remove_entry(&mut root, &spec(false)));
+        assert_eq!(write(&root), steam);
+    }
+
     #[test]
     fn unreadable_file_is_left_alone() {
         let acc = tmp("bad");
