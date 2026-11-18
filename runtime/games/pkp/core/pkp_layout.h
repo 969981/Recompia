@@ -11,7 +11,7 @@ namespace nxrt::games::pkp::layout {
 constexpr uint64_t kPlayerManager = 0x3561928;   // the player manager (26344 bytes, made in 0x71000ae380)
 constexpr uint64_t kManagerPlayer = 0x30;        // player manager: the local player's character (+0x38 the second one)
 constexpr uint64_t kSaveRoot = 0x3561930;        // the save data (the save/options block)
-constexpr uint64_t kSaveStory = 0x4a26a0;         // save root: m_story, the story quest history (pkp_story_guard.h story_quest_offset)
+constexpr uint64_t kSaveStory = 0x4a26a0;         // save root: m_story, the story quest history (the story quest history)
 constexpr uint8_t kQuestDone = 4;                // m_story: a quest's state byte once it is completed
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
@@ -64,6 +64,8 @@ constexpr uint64_t kMouseModeOn = 0xaa81;        // the game's Joy-Con 2 mouse m
 constexpr uint64_t kMouseHitValid = 0xaa82;      // the pointer's hit is valid (u8)
 constexpr uint64_t kMouseSwingPos = 0xaa50, kMouseSwingValid = 0xaa84;   // the swing tools' position under the pointer (vec4), its flag
 constexpr uint64_t kAction = 0x18b8;             // the action component (pointer)
+constexpr uint64_t kInputLock = 0xa9ec;          // u8 flags; bit kInputLockBit set: the character takes no input (verified at runtime)
+constexpr uint8_t kInputLockBit = 0x20;
 
 // ---- action component ([character + kAction]) ----
 // u16: the action running now. StartAction stores the started id at 0x710027e5d8 (its only non-zero writer); every end path writes 0.
@@ -84,7 +86,7 @@ constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / con
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
 
-// ---- the save manager (pkp_story_guard.cpp, ui/pkp_save_now.cpp) ----
+// ---- the save manager (ui/pkp_save_now.cpp) ----
 constexpr uint64_t kSaveManager = 0x35619d0;      // main: -> the save manager
 constexpr uint64_t kSaveRequest = 0x241324;       // (manager, request, mode, flag) -> 1 when queued
 constexpr uint64_t kSaveDone = 0x2412b0;          // (manager) -> 1 when the save manager is idle (its last request finished)
@@ -106,5 +108,22 @@ constexpr uint64_t kChildOf = 0xa6f92c;          // (children (screen + 0x48), e
 constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id, const char*): a text id with a string argument
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
+
+// ---- story and characters (read by co-op and its test probe) ----
+constexpr uint64_t kQuestWords = 0x4a3702;       // save root: u16 per quest id 1..1000 (index id - 1; 0x4a3700 + id * 2), low byte the state,
+                                                 // 0x100 the flag (a flag set on quest 2 in state 3 turned 0x4a3704 0x3 -> 0x103 -> 0x4)
+constexpr uint32_t kQuestWordCount = 1000;
+constexpr uint64_t kSaveAbilities = 0x4a26a8;    // save root: the ability bits, id 1..0xf9 at byte id >> 3, bit id & 7 (0x20 bytes)
+constexpr uint64_t kSaveUniqueRequests = 0x6fabd9;   // save root + id * 4: the record of unique request id 1..200 (+0 its state)
+constexpr uint32_t kUniqueRequestCount = 200;
+constexpr uint64_t kSaveRecipes = 0x6cfdec;      // save root + id * kRecipeSize: m_recipeHistory, the record of recipe id 1..0x5db
+constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn order, +4 u8 flags (kRecipeKnown: learned)
+constexpr uint64_t kRecipeFlags = 4;
+constexpr uint8_t kRecipeKnown = 0x02;
+constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
+constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
+constexpr uint64_t kCharaStatusStride = 0x30;
+constexpr uint32_t kCharaCount = 1050;           // chara 0..1049 (the save's character arrays)
 
 }  // namespace nxrt::games::pkp::layout

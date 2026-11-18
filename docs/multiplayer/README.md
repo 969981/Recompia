@@ -12,7 +12,8 @@ the parent project's co-op protocol, so you can also play with players of the **
 - **Each player needs their own save.** The host refuses a visitor whose save it already has (error 9005, "Communication error"):
   two copies of one save cannot play together. Earlier builds gave every new save the same player id, so every visit failed with
   9005; the game now repairs such a save by itself at start (a copy is kept in `uuid-backup\` in the save folder).
-- Every player needs the same **Interact everywhere** and **Seamless co-op** settings, or the host is not listed. With Seamless co-op every player's story progress is kept in their own save.
+- Every player needs the same **Interact everywhere** setting, or the host is not listed.
+- To play the story together, use **Recompia: Co-op** (the **Co-op** tab at the top of the launcher's sidebar): it is separate from Link Play and uses co-op saves of its own.
 
 ## Setting it up
 
@@ -29,8 +30,7 @@ The page shows the menu path to take in the game. In the game: the PC in your fi
 Level 2 in Withered Wasteland) -> **Local connection**. **Online connection** is Nintendo's own service and does not work here. The host
 picks **Invite Others to Visit**, the others **Visit a Friend**.
 
-**Same for everyone:** **Visitors can build everywhere** (moves, items and building in the story areas too, not only in Palette Town) and
-**Seamless co-op** (every player plays their own story, saved in their own save; turns the first one on). Both are experimental and off by default.
+**Same for everyone:** **Visitors can build everywhere** (moves, items and building in the story areas too, not only in Palette Town). It is experimental and off by default.
 
 ## Step by step: on the same network
 

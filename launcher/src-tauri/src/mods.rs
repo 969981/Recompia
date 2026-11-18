@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::gamebuild;
 use crate::modtopia_ffi::{self as ffi, Core, ModInfo, SettingInfo};
+pub use crate::mods_scope::Scope;
 
 include!(concat!(env!("OUT_DIR"), "/modtopia_mappings.rs"));
 
@@ -80,11 +81,9 @@ fn open(game_dir: &Path) -> Core {
     scan(game_dir)
 }
 
-fn open_profile(game_dir: &Path, profile: Option<&str>) -> Result<Core, String> {
-    let Some(id) = profile else { return Ok(open(game_dir)); };
-    let profiles = crate::profiles::load(game_dir);
-    let selected = profiles.get(id).ok_or("That profile does not exist.")?;
-    let account = crate::saveimport::account_key_of(&selected.uid);
+/// A scan with `scope`'s layer selected (mods_scope.rs): its switches and settings are the ones read and changed.
+fn open_scope(game_dir: &Path, scope: &Scope) -> Result<Core, String> {
+    let Some(account) = scope.account(game_dir)? else { return Ok(open(game_dir)); };
     write_mappings(game_dir)?;
     Ok(Core::open(&mods_dir(game_dir), &mappings_dir(game_dir), &host_name(), Some(&account)))
 }
@@ -124,9 +123,32 @@ fn write_plan(core: &Core, game_dir: &Path) -> Result<String, String> {
 /// Scans the mods and writes their hook plan: before Play, before Set up and after every change on the Mods page.
 pub fn refresh_plan(game_dir: &Path) -> Result<(), String> {
     let profiles = crate::profiles::load(game_dir);
-    let core = open_profile(game_dir, Some(&profiles.active_profile().id))?;
+    let core = open_scope(game_dir, &Scope::Profile(profiles.active_profile().id.clone()))?;
     write_plan(&core, game_dir).map(|_| ())
 }
+
+/// Refuses a start in `scope` (a co-op group) when a mod it has on needs a hook point pkp.exe was not built with. Set up builds the
+/// active profile's plan only (refresh_plan), so a point only this scope needs is never built in, and the game would start that mod
+/// switched off on this PC while the other members run it.
+pub fn ensure_points_built(game_dir: &Path, scope: &Scope) -> Result<(), String> {
+    let core = open_scope(game_dir, scope)?;
+    if core.plan_count() == 0 {
+        return Ok(());
+    }
+    let dir = game_dir.join(gamebuild::MOD_PLAN);
+    let dir = dir.parent().unwrap();
+    fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {}", dir.display(), e))?;
+    let tmp = crate::fsutil::temp_beside(&dir.join("scope-hooks.tsv"));
+    let built = core.plan_write(&tmp).map_err(|_| format!("Cannot write {}.", tmp.display())).map(|()| gamebuild::plan_is_built(game_dir, &tmp));
+    let _ = fs::remove_file(&tmp);
+    if built? {
+        Ok(())
+    } else {
+        Err(POINTS_NOT_BUILT.into())
+    }
+}
+
+const POINTS_NOT_BUILT: &str = "A mod this co-op save has on needs hook points the game was not built with. Switch it off for this co-op save on the Mods page of Recompia: Co-op.";
 
 /// One setting row of a mod.
 #[derive(Serialize, Clone, Debug)]
@@ -204,8 +226,10 @@ pub struct ModView {
 /// The Mods page's list.
 #[derive(Serialize, Clone, Debug)]
 pub struct ModsView {
-    /// Editing scope only; does not change the profile selected for Play.
+    /// Editing scope only; does not change the profile selected for Play. A singleplayer profile's id, or None.
     pub profile: Option<String>,
+    /// The co-op group whose set this is (mods_scope.rs), or None.
+    pub coop: Option<String>,
     /// the mods folder, for the page's "Open mods folder"
     pub dir: String,
     /// installed mods: those that load, in load order, then the rest
@@ -253,30 +277,31 @@ fn view_of(core: &Core, game_dir: &Path) -> ModsView {
             lockable: false,
         })
         .collect();
-    ModsView { profile: None, dir: crate::dump::fwd(&mods_dir(game_dir)), mods, gameplay: core.gameplay_mods(), points: core.plan_count(), locks: None, achievements_mod: crate::achievements::MOD_ID }
+    ModsView { profile: None, coop: None, dir: crate::dump::fwd(&mods_dir(game_dir)), mods, gameplay: core.gameplay_mods(), points: core.plan_count(), locks: None, achievements_mod: crate::achievements::MOD_ID }
 }
 
 /// The installed mods, after writing their plan (a mod dropped in by hand changes it as much as a click does).
 pub fn list(game_dir: &Path) -> Result<ModsView, String> {
-    list_for_profile(game_dir, None)
+    list_in(game_dir, &Scope::Global)
 }
 
-pub fn list_for_profile(game_dir: &Path, profile: Option<&str>) -> Result<ModsView, String> {
-    // Editing an inactive profile must never replace the active profile's build plan.
+/// The list as `scope` sees it. Editing another profile or a co-op group never replaces the active profile's build plan.
+pub fn list_in(game_dir: &Path, scope: &Scope) -> Result<ModsView, String> {
     refresh_plan(game_dir)?;
-    let core = open_profile(game_dir, profile)?;
+    let core = open_scope(game_dir, scope)?;
     let mut view = view_of(&core, game_dir);
-    view.profile = profile.map(str::to_owned);
+    view.profile = scope.profile_id();
+    view.coop = scope.coop_id();
     Ok(view)
 }
 
 /// Opens a scan, applies `change` to it, then lists again with a fresh scan (the switches, the order and the plan are the scan's).
-fn change_profile(game_dir: &Path, profile: Option<&str>, change: impl FnOnce(&Core) -> Result<(), String>) -> Result<ModsView, String> {
+fn change_in(game_dir: &Path, scope: &Scope, change: impl FnOnce(&Core) -> Result<(), String>) -> Result<ModsView, String> {
     {
-        let core = open_profile(game_dir, profile)?;
+        let core = open_scope(game_dir, scope)?;
         change(&core)?;
     }
-    list_for_profile(game_dir, profile)
+    list_in(game_dir, scope)
 }
 
 fn known(core: &Core, id: &str) -> Result<i32, String> {
@@ -287,11 +312,11 @@ const SAVE_FAILED: &str = "Could not save the mods' list in the mods folder.";
 
 /// The player's switch. A code mod that is not allowed yet is switched on only with `allow` (the player said yes to the question).
 pub fn set_enabled(game_dir: &Path, id: &str, on: bool, allow: bool) -> Result<ModsView, String> {
-    set_enabled_for_profile(game_dir, id, on, allow, None, false)
+    set_enabled_in(game_dir, id, on, allow, &Scope::Global, false)
 }
-pub fn set_enabled_for_profile(game_dir: &Path, id: &str, on: bool, allow: bool, profile: Option<&str>, inherit: bool) -> Result<ModsView, String> {
-    if inherit && profile.is_none() { return Err("Select a profile to remove an override.".into()); }
-    change_profile(game_dir, profile, |core| {
+pub fn set_enabled_in(game_dir: &Path, id: &str, on: bool, allow: bool, scope: &Scope, inherit: bool) -> Result<ModsView, String> {
+    if inherit && scope.is_global() { return Err("Select a profile to remove an override.".into()); }
+    change_in(game_dir, scope, |core| {
         known(core, id)?;
         let m = core.mods().into_iter().find(|m| m.id == id).unwrap();
         let effective = if inherit { m.global_enabled } else { on };
@@ -333,11 +358,11 @@ pub fn move_by(game_dir: &Path, id: &str, delta: i32) -> Result<ModsView, String
 
 /// A new value for one of a mod's settings: a number (bools 0/1, choices by index) or a text, as the setting's kind takes it.
 pub fn set_setting(game_dir: &Path, id: &str, key: &str, number: Option<f64>, text: Option<&str>) -> Result<ModsView, String> {
-    set_setting_for_profile(game_dir, id, key, number, text, None, false)
+    set_setting_in(game_dir, id, key, number, text, &Scope::Global, false)
 }
-pub fn set_setting_for_profile(game_dir: &Path, id: &str, key: &str, number: Option<f64>, text: Option<&str>, profile: Option<&str>, inherit: bool) -> Result<ModsView, String> {
-    if inherit && profile.is_none() { return Err("Select a profile to remove an override.".into()); }
-    change_profile(game_dir, profile, |core| {
+pub fn set_setting_in(game_dir: &Path, id: &str, key: &str, number: Option<f64>, text: Option<&str>, scope: &Scope, inherit: bool) -> Result<ModsView, String> {
+    if inherit && scope.is_global() { return Err("Select a profile to remove an override.".into()); }
+    change_in(game_dir, scope, |core| {
         let m = known(core, id)?;
         let i = core.settings(m).iter().position(|s| s.key == key).ok_or_else(|| format!("{} has no setting {}.", id, key))? as i32;
         let r = if inherit { core.clear_setting_override(m, i) } else { match (number, text) {
@@ -349,10 +374,10 @@ pub fn set_setting_for_profile(game_dir: &Path, id: &str, key: &str, number: Opt
     })
 }
 
-/// Clear profile exceptions when the existing global lock policy is re-applied.
+/// Clear the exceptions of every profile and co-op group when the existing global lock policy is re-applied.
 pub fn clear_locked_overrides(game_dir: &Path, id: &str, enabled: bool, setting: Option<&str>) -> Result<(), String> {
-    for profile in crate::profiles::load(game_dir).profiles {
-        let core = open_profile(game_dir, Some(&profile.id))?;
+    for scope in Scope::every_layer(game_dir) {
+        let core = open_scope(game_dir, &scope)?;
         let Some(m) = core.find(id) else { continue; };
         if enabled { core.clear_enabled_override(id).map_err(|_| SAVE_FAILED.to_string())?; }
         if let Some(key) = setting {
@@ -509,8 +534,11 @@ mod tests {
         let b = crate::profiles::add(&dir, "Second").unwrap().profiles.last().unwrap().id.clone();
         (dir, a, b)
     }
-    fn mod_view(dir: &Path, profile: Option<&str>) -> ModView {
-        list_for_profile(dir, profile).unwrap().mods.into_iter().find(|m| m.id == "demo").unwrap()
+    fn p(id: &str) -> Scope {
+        Scope::Profile(id.to_string())
+    }
+    fn mod_view(dir: &Path, scope: &Scope) -> ModView {
+        list_in(dir, scope).unwrap().mods.into_iter().find(|m| m.id == "demo").unwrap()
     }
     fn profile_folder(dir: &Path, id: &str) -> PathBuf {
         let profiles = crate::profiles::load(dir);
@@ -523,37 +551,37 @@ mod tests {
         fs::create_dir_all(dir.join("config/demo")).unwrap();
         fs::write(dir.join("config/demo/journal"), "keep").unwrap();
         set_setting(&dir, "demo", "server", None, Some("global-one")).unwrap();
-        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "global-one");
+        assert_eq!(mod_view(&dir, &p(&a)).settings[0].text, "global-one");
         assert!(!profile_folder(&dir, &a).exists(), "reading inheritance must not materialize overrides");
         let globals = fs::read(dir.join("config/demo.toml")).unwrap();
         let active = crate::profiles::load(&dir).active;
-        set_setting_for_profile(&dir, "demo", "server", None, Some("first"), Some(&a), false).unwrap();
+        set_setting_in(&dir, "demo", "server", None, Some("first"), &p(&a), false).unwrap();
         // An explicit same-value override pins the value too.
-        set_setting_for_profile(&dir, "demo", "server", None, Some("global-one"), Some(&b), false).unwrap();
+        set_setting_in(&dir, "demo", "server", None, Some("global-one"), &p(&b), false).unwrap();
         assert_eq!(fs::read(dir.join("config/demo.toml")).unwrap(), globals);
         let sparse = fs::read_to_string(profile_folder(&dir, &a).join("demo.toml")).unwrap();
         assert!(!sparse.contains("switch =") && !sparse.contains("level =") && !sparse.contains("choice ="));
         set_setting(&dir, "demo", "server", None, Some("global-two")).unwrap();
-        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "first");
-        assert_eq!(mod_view(&dir, Some(&b)).settings[0].text, "global-one");
-        assert_eq!(mod_view(&dir, Some("default")).settings[0].text, "global-two");
-        set_setting_for_profile(&dir, "demo", "server", None, None, Some(&b), true).unwrap();
-        assert!(!mod_view(&dir, Some(&b)).settings[0].overridden);
+        assert_eq!(mod_view(&dir, &p(&a)).settings[0].text, "first");
+        assert_eq!(mod_view(&dir, &p(&b)).settings[0].text, "global-one");
+        assert_eq!(mod_view(&dir, &p("default")).settings[0].text, "global-two");
+        set_setting_in(&dir, "demo", "server", None, None, &p(&b), true).unwrap();
+        assert!(!mod_view(&dir, &p(&b)).settings[0].overridden);
         set_setting(&dir, "demo", "server", None, Some("global-three")).unwrap();
-        assert_eq!(mod_view(&dir, Some(&b)).settings[0].text, "global-three");
+        assert_eq!(mod_view(&dir, &p(&b)).settings[0].text, "global-three");
         for (key, value) in [("switch", 0.0), ("level", 7.0), ("choice", 1.0)] {
-            set_setting_for_profile(&dir, "demo", key, Some(value), None, Some(&a), false).unwrap();
+            set_setting_in(&dir, "demo", key, Some(value), None, &p(&a), false).unwrap();
         }
-        let m = mod_view(&dir, Some(&a));
+        let m = mod_view(&dir, &p(&a));
         assert_eq!((m.settings[1].number, m.settings[2].number, m.settings[3].text.as_str()), (0.0, 7.0, "high"));
-        for key in ["switch", "level", "choice"] { set_setting_for_profile(&dir, "demo", key, None, None, Some(&a), true).unwrap(); }
-        assert!(mod_view(&dir, Some(&a)).settings[1..].iter().all(|s| !s.overridden));
+        for key in ["switch", "level", "choice"] { set_setting_in(&dir, "demo", key, None, None, &p(&a), true).unwrap(); }
+        assert!(mod_view(&dir, &p(&a)).settings[1..].iter().all(|s| !s.overridden));
         crate::profiles::rename(&dir, &a, "Renamed").unwrap();
-        assert_eq!(mod_view(&dir, Some(&a)).settings[0].text, "first");
+        assert_eq!(mod_view(&dir, &p(&a)).settings[0].text, "first");
         assert_eq!(crate::profiles::load(&dir).active, active, "editing context is not playing context");
         assert_eq!(fs::read_to_string(dir.join("config/demo/journal")).unwrap(), "keep");
-        assert!(list_for_profile(&dir, Some("../invalid")).is_err());
-        assert!(set_setting_for_profile(&dir, "demo", "server", None, None, None, true).is_err());
+        assert!(list_in(&dir, &p("../invalid")).is_err());
+        assert!(set_setting_in(&dir, "demo", "server", None, None, &Scope::Global, true).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -562,21 +590,64 @@ mod tests {
         let (dir, a, b) = override_fixture("inherit-enabled");
         set_enabled(&dir, "demo", true, false).unwrap();
         let global = fs::read(dir.join("mods/modtopia.toml")).unwrap();
-        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), false).unwrap();
-        assert_eq!(mod_view(&dir, Some(&a)).enabled_override, Some(false));
-        assert!(mod_view(&dir, Some(&b)).enabled);
+        set_enabled_in(&dir, "demo", false, false, &p(&a), false).unwrap();
+        assert_eq!(mod_view(&dir, &p(&a)).enabled_override, Some(false));
+        assert!(mod_view(&dir, &p(&b)).enabled);
         assert_eq!(fs::read(dir.join("mods/modtopia.toml")).unwrap(), global);
         set_enabled(&dir, "demo", false, false).unwrap();
-        assert!(!mod_view(&dir, Some(&b)).enabled);
-        set_enabled_for_profile(&dir, "demo", true, false, Some(&b), false).unwrap();
-        assert!(mod_view(&dir, Some(&b)).enabled && !mod_view(&dir, None).enabled);
-        set_enabled_for_profile(&dir, "demo", false, false, Some(&b), true).unwrap();
-        assert_eq!(mod_view(&dir, Some(&b)).enabled_override, None);
-        assert!(!mod_view(&dir, Some(&b)).enabled);
+        assert!(!mod_view(&dir, &p(&b)).enabled);
+        set_enabled_in(&dir, "demo", true, false, &p(&b), false).unwrap();
+        assert!(mod_view(&dir, &p(&b)).enabled && !mod_view(&dir, &Scope::Global).enabled);
+        set_enabled_in(&dir, "demo", false, false, &p(&b), true).unwrap();
+        assert_eq!(mod_view(&dir, &p(&b)).enabled_override, None);
+        assert!(!mod_view(&dir, &p(&b)).enabled);
         set_enabled(&dir, "demo", true, false).unwrap();
-        assert!(!mod_view(&dir, Some(&a)).enabled && mod_view(&dir, Some(&b)).enabled);
-        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), true).unwrap();
-        assert!(mod_view(&dir, Some(&a)).enabled);
+        assert!(!mod_view(&dir, &p(&a)).enabled && mod_view(&dir, &p(&b)).enabled);
+        set_enabled_in(&dir, "demo", false, false, &p(&a), true).unwrap();
+        assert!(mod_view(&dir, &p(&a)).enabled);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_co_op_group_has_a_layer_of_its_own() {
+        let (dir, a, _) = override_fixture("coop-layer");
+        let g = crate::coop::create(&crate::coop::root_of(&dir), "Island", "Ash", "192.0.2.10").unwrap();
+        let group = Scope::Coop(g.id.clone());
+        set_setting_in(&dir, "demo", "server", None, Some("group"), &group, false).unwrap();
+        set_enabled_in(&dir, "demo", false, false, &group, false).unwrap();
+        let v = list_in(&dir, &group).unwrap();
+        assert_eq!((v.coop.as_deref(), v.profile.as_deref()), (Some(g.id.as_str()), None));
+        assert_eq!(mod_view(&dir, &group).settings[0].text, "group");
+        assert!(!mod_view(&dir, &group).enabled);
+        assert_eq!(mod_view(&dir, &p(&a)).settings[0].text, "factory", "the singleplayer profile keeps its own");
+        assert!(mod_view(&dir, &p(&a)).enabled && mod_view(&dir, &Scope::Global).enabled);
+        // the layer the game picks from NXRT_ACCOUNT_UID (coop_launch.rs)
+        assert!(dir.join("config/accounts").join(crate::saveimport::account_key_of(&g.account_uid)).join("demo.toml").exists());
+        // the folder Scope::layer_dir names (what deleting a co-op save removes) is the one the core wrote
+        assert!(group.layer_dir(&dir).unwrap().unwrap().join("demo.toml").exists());
+        ensure_points_built(&dir, &group).unwrap();
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_co_op_group_starts_only_with_its_hook_points_built() {
+        let (dir, _, _) = override_fixture("coop-points");
+        let folder = mods_dir(&dir).join("demo");
+        let binary = folder.join("bin").join(ffi::platform_tag());
+        fs::create_dir_all(&binary).unwrap();
+        fs::write(binary.join(if cfg!(windows) { "mod.dll" } else if cfg!(target_os = "macos") { "mod.dylib" } else { "mod.so" }), b"fixture-code").unwrap();
+        let mut manifest = fs::read_to_string(folder.join("mod.toml")).unwrap();
+        manifest.push_str("\n[[hooks.\"2.0.1\"]]\nname = \"probe\"\ntarget = \"main+0x100\"\nword = 0xd503201f\nkind = \"observe\"\n");
+        fs::write(folder.join("mod.toml"), manifest).unwrap();
+        set_enabled(&dir, "demo", false, false).unwrap();
+        let g = crate::coop::create(&crate::coop::root_of(&dir), "Island", "Ash", "192.0.2.10").unwrap();
+        let group = Scope::Coop(g.id);
+        set_enabled_in(&dir, "demo", true, true, &group, false).unwrap();
+        assert_eq!(ensure_points_built(&dir, &group), Err(POINTS_NOT_BUILT.to_string()), "only the group has it on: never built in");
+        let built = dir.join(gamebuild::MOD_HOOKS_BUILT);
+        fs::create_dir_all(built.parent().unwrap()).unwrap();
+        fs::write(&built, "# modtopia hooks 1\n# hash x\nmain\t0x100\tobserve\t0xd503201f\tmidhook\n").unwrap();
+        ensure_points_built(&dir, &group).unwrap();
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -592,13 +663,13 @@ mod tests {
         manifest.push_str("\n[[hooks.\"2.0.1\"]]\nname = \"probe\"\ntarget = \"main+0x100\"\nword = 0xd503201f\nkind = \"observe\"\n");
         fs::write(folder.join("mod.toml"), manifest).unwrap();
         set_enabled(&dir, "demo", false, false).unwrap();
-        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&b), false).is_err());
-        set_enabled_for_profile(&dir, "demo", true, true, Some(&b), false).unwrap();
+        assert!(set_enabled_in(&dir, "demo", true, false, &p(&b), false).is_err());
+        set_enabled_in(&dir, "demo", true, true, &p(&b), false).unwrap();
         assert!(!dir.join(gamebuild::MOD_PLAN).exists(), "editing inactive profile must not change the active plan");
         crate::profiles::select(&dir, &b).unwrap(); refresh_plan(&dir).unwrap();
         let plan = fs::read(dir.join(gamebuild::MOD_PLAN)).unwrap();
         assert!(String::from_utf8_lossy(&plan).contains("0x100"));
-        set_enabled_for_profile(&dir, "demo", false, false, Some(&a), false).unwrap();
+        set_enabled_in(&dir, "demo", false, false, &p(&a), false).unwrap();
         list(&dir).unwrap();
         assert_eq!(fs::read(dir.join(gamebuild::MOD_PLAN)).unwrap(), plan);
         assert_eq!(crate::profiles::load(&dir).active, b);
@@ -606,12 +677,12 @@ mod tests {
         let global = fs::read(dir.join("mods/modtopia.toml")).unwrap();
         let overrides = fs::read(profile_folder(&dir, &b).join(".enabled.toml")).unwrap();
         fs::write(&library, b"fixture-code-two").unwrap();
-        assert!(mod_view(&dir, Some(&b)).needs_yes);
+        assert!(mod_view(&dir, &p(&b)).needs_yes);
         assert_eq!(fs::read(dir.join("mods/modtopia.toml")).unwrap(), global);
         assert_eq!(fs::read(profile_folder(&dir, &b).join(".enabled.toml")).unwrap(), overrides);
-        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&b), true).is_err());
-        set_enabled_for_profile(&dir, "demo", true, true, Some(&b), true).unwrap();
-        assert_eq!(mod_view(&dir, Some(&b)).enabled_override, None);
+        assert!(set_enabled_in(&dir, "demo", true, false, &p(&b), true).is_err());
+        set_enabled_in(&dir, "demo", true, true, &p(&b), true).unwrap();
+        assert_eq!(mod_view(&dir, &p(&b)).enabled_override, None);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -623,16 +694,16 @@ mod tests {
         set_setting(&dir, "demo", "server", None, Some("global")).unwrap();
         let path = profile_folder(&dir, &a);
         fs::create_dir_all(path.join("demo.toml")).unwrap();
-        assert!(set_setting_for_profile(&dir, "demo", "server", None, Some("new"), Some(&a), false).is_err());
+        assert!(set_setting_in(&dir, "demo", "server", None, Some("new"), &p(&a), false).is_err());
         fs::remove_dir(path.join("demo.toml")).unwrap();
         fs::write(path.join("demo.toml"), "server = [broken").unwrap();
-        assert_eq!(mod_view(&dir, Some(&a)).state, "error");
-        assert_eq!(list_for_profile(&dir, Some(&a)).unwrap().mods.iter().find(|m| m.id == "dependent").unwrap().state, "error");
-        assert!(set_setting_for_profile(&dir, "demo", "server", None, Some("new"), Some(&a), false).is_err());
+        assert_eq!(mod_view(&dir, &p(&a)).state, "error");
+        assert_eq!(list_in(&dir, &p(&a)).unwrap().mods.iter().find(|m| m.id == "dependent").unwrap().state, "error");
+        assert!(set_setting_in(&dir, "demo", "server", None, Some("new"), &p(&a), false).is_err());
         assert_eq!(fs::read_to_string(path.join("demo.toml")).unwrap(), "server = [broken");
         fs::write(path.join(".enabled.toml"), "[enabled]\ndemo = \"off\"").unwrap();
-        assert!(set_enabled_for_profile(&dir, "demo", true, false, Some(&a), false).is_err());
-        assert_eq!(mod_view(&dir, None).settings[0].text, "global");
+        assert!(set_enabled_in(&dir, "demo", true, false, &p(&a), false).is_err());
+        assert_eq!(mod_view(&dir, &Scope::Global).settings[0].text, "global");
         let _ = fs::remove_dir_all(dir);
     }
 

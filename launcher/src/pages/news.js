@@ -28,7 +28,7 @@ function item(r, s) {
   </button>`;
 }
 
-function noteHead(r, s) {
+function noteHead(r, s, install) {
   if (r.virtual) {
     return `<div class="grow">
       <h1>${esc(r.name)}</h1>
@@ -39,7 +39,9 @@ function noteHead(r, s) {
   const date = formatDate(r.date, 'long');
   const newer = s.news.update && isNewer(version, s.app?.version);
   const updating = !!s.update;
-  const action = newer
+  const action = newer && !install
+    ? `<button class="btn primary" data-act="install-game">${esc(t('Go to Recompia'))}</button>`   // games.js `install`: updates run from Recompia
+    : newer
     ? `<button class="btn primary" data-act="update" ${canUpdate(s) ? '' : 'disabled'}>${updating ? `${icon('loader-circle', 'spin')}${esc(t('Updating'))}` : `${icon('download')}${esc(t('Update'))}`}</button>`
     : '';
   const open = isGithub(r.url) ? `<button class="btn quiet icon-only" data-url="${esc(r.url)}" aria-label="${esc(t('Open on GitHub'))}" title="${esc(t('Open on GitHub'))}">${icon('external-link')}</button>` : '';
@@ -113,7 +115,7 @@ export function render(el, ctx) {
     if (shown && changed) places.set(shown, part('note').scrollTop);
     shown = r.tag;
     patch(part('list'), grouped.map((g) => groupHtml(g, s)).join(''));
-    patch(part('head'), noteHead(r, s));
+    patch(part('head'), noteHead(r, s, ctx.game?.install !== false));
     patch(part('body'), noteBody(r));
     markSelected(changed);
     if (changed) part('note').scrollTop = places.get(r.tag) ?? 0;
@@ -141,6 +143,7 @@ export function render(el, ctx) {
     if (hit.id === 'retry') return check();
     if (hit.dataset.tag) return select(hit.dataset.tag);
     if (hit.dataset.act === 'update') return store.installUpdate();
+    if (hit.dataset.act === 'install-game') return ctx.go('home');   // Recompia's Home, where the update is
     if (hit.dataset.url) api.openLink({ url: hit.dataset.url }).catch((err) => toast(errText(err), 'error'));
   });
 

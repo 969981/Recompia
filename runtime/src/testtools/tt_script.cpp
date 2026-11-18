@@ -4,6 +4,7 @@
 
 #include "nxrt/tt_script.h"
 #include "nxrt/text.h"
+#include "nxrt/tt_coop.h"
 
 #include <cctype>
 #include <cmath>
@@ -640,6 +641,15 @@ bool parse_stmt(const std::string& body, const std::vector<std::string>& t, cons
         Step s = make(StepKind::Log);
         s.text = rest_after_first_word(body);
         if (s.text.empty()) return fail_with(msg, "@log needs text");
+        out.push_back(s);
+        return true;
+    }
+
+    if (kw.rfind("@coop_", 0) == 0) {
+        Step s = make(StepKind::Coop);
+        s.text = body.substr(1);
+        std::string why;
+        if (!coop::check_step(s.text, &why)) return fail_with(msg, why);
         out.push_back(s);
         return true;
     }

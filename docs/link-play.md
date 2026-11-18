@@ -79,9 +79,10 @@ On the launcher's Link Play page, under **Same for everyone**:
 | Option | What it does |
 |---|---|
 | **Visitors can build everywhere** | Visitors can use moves and items and build in the story areas too, not only in Palette Town. |
-| **Seamless co-op** | Every player plays their own story in the host's world: their own requests, talks and progress, kept in their own save. Turning it on turns the first one on too. |
 
-Both are experimental and off by default. Every player in the session needs the same two settings, or the host is not listed.
+It is experimental and off by default. Every player in the session needs the same setting, or the host is not listed.
+
+To play the story together, use **Recompia: Co-op** (the **Co-op** tab at the top of the launcher's sidebar) instead: it is separate from Link Play and uses co-op saves of its own.
 
 Changes on the Link Play page apply the next time the game starts.
 

@@ -5,8 +5,8 @@
 //! the parent project's coop-relay, the meeting point for internet play when the host cannot forward a port. Game builds with `[net] relay` set
 //! (ours and the parent project's) all dial out to it.
 //!
-//! It keeps rooms keyed by a 16-byte room id the players derive from their room code (coop_auth.c croom_keys): it never sees a private code or any
-//! key (a listed room's code is public, see "Room list"). A host keeps a control link open for its room; a visitor asks for the room, the relay tells the host, the host dials one more link for
+//! It keeps rooms keyed by a 16-byte room id the players derive from their room code (coop_auth.c croom_keys): it never sees a private code (except inside an invite
+//! a launcher asks it to keep, see "Invite codes") or any key (a listed room's code is public, see "Room list"). A host keeps a control link open for its room; a visitor asks for the room, the relay tells the host, the host dials one more link for
 //! that visitor, and the relay pairs the two and copies bytes between them without reading them. Everything inside is the players' own
 //! authenticated protocol (coop protocol 3), so the relay cannot forge or change game messages; it CAN read them (nothing is encrypted).
 //!
@@ -21,7 +21,7 @@
 //! 60 failed lookups a minute per address, hello within 5 s, a visitor waits 10 s for its host, a host's control link silent 30 s closes its
 //! room, a room lives 12 h and carries 4 GiB, a link sends 256 KiB/s (bursts twice that).
 //!
-//! # Relay UDP (Recompia extension, opt-in, coop_int.h "pokopia-recomp extension: relay UDP")
+//! # Relay UDP (Recompia extension, opt-in, coop_int.h "Recompia extension: relay UDP")
 //!
 //! The parent project sends game datagrams over UDP on direct links but over the TCP link through a relay (one lost segment stalls every datagram
 //! behind it). This relay can also carry them over UDP, only between two links that both ask for it, so their builds and their relay see
@@ -38,7 +38,7 @@
 //!   the room's byte budget. The payload is the players' own tagged datagram (PCU3: token, sequence number, HMAC tag), checked end to end.
 //! - The clients also agree end to end, over their tagged link (frame type 0xC5), before either sends game datagrams this way.
 //!
-//! # Room list (Recompia extension, opt-in, coop_int.h "pokopia-recomp extension: room list")
+//! # Room list (Recompia extension, opt-in, coop_int.h "Recompia extension: room list")
 //!
 //! Internet play through a relay with no room code set: the host lists its room and anyone can find it with the game's own search (Visit a
 //! Friend); the game's own Link Code keeps a room private (the game checks it). A listed room's code is public: it only keeps the relay's room
@@ -55,10 +55,39 @@
 //!   cookie = players in the listed rooms), then per room type 0xC8 (arg = length) and its record, rooms with a free place first, then the
 //!   newest. Then the relay closes the link. 120 lists a minute per address (bursts as much). A relay without the list refuses kind 4 ("bad").
 //! - A visitor joins a listed room as any other: the room id and the keys come from the listed code.
+//!
+//! # Invite codes (Recompia extension, launcher only, invites.rs)
+//!
+//! A co-op invite (the launcher's `PKCOOP1.` text) is long; the relay can keep one for 6 hours under a 6-symbol code (`XXX-XXX`, symbols
+//! `23456789ABCDEFGHJKMNPQRSTVWXYZ`) that a player can read out. Game builds never use this; a relay without it refuses these kinds
+//! ("bad"), and the launcher then shows the long invite only.
+//!
+//! - Hello kind 0xC9 (PUT), room id field = the save's token (16 bytes, a hash the launcher makes from the save's group id and room code;
+//!   zeros: none, as older launchers send), visitor id field = the invite's length (1..2048), then the invite: `PKCOOP1.` and base64
+//!   (URL-safe or standard), anything else is refused ("bad"). Answer: type 0xC9, arg + cookie = the code (6 ASCII, 2 zeros); the same
+//!   invite again, or a newer invite with the same token (a member change makes a new invite), gets the same code, now pointing at that
+//!   invite and kept 6 hours from then (the launcher stores it again each time its invite dialog opens). An address keeps at most 8 invites:
+//!   past them a new one is answered "limit" (the launcher then shows the long invite), so players behind one shared address never push
+//!   each other's codes out. A full store drops the oldest invite of the address keeping the most. "limit" also when over the rate (or
+//!   when the relay's random source fails).
+//! - Hello kind 0xCA (GET), room id field = the code (6 ASCII, the rest zeros). Answer: type 0xCA (arg = length) and the invite, or "no room"
+//!   (no invite under that code: never stored, expired, deleted or dropped).
+//! - Hello kind 0xCB (DEL), as PUT: the invite and every invite with the same token are forgotten (the launcher sends it when a co-op save
+//!   is deleted). Answer: type 0xCB, arg = 1 when one was kept. Only who has the invite or the save's token can delete its code. Relays from before 0xCB refuse it ("bad"), which the launcher ignores.
+//! - Then the relay closes the link. Stores, deletes and lookups share one budget per address: 10 a minute (bursts as much), found or not,
+//!   kept until the address has been quiet a minute (invites.rs Limiter), so leaving and coming back does not refill it. One guess finds an
+//!   invite with odds N / 30^6 for N kept: with the store full (4096) 1 in 178 000, about one hit in 12 days per address; K addresses guess
+//!   K times as fast. The store is in memory only (4096 invites, at most 2 KiB each); filling it takes 512 addresses, and only shortens how
+//!   long the oldest codes last.
+//! - The invite is kept as it came and never parsed (only its shape is checked) or logged, but it is not encrypted: it carries the co-op
+//!   save's private room code, so whoever runs the relay can read the invites it keeps. The launcher stores one only on the relay that
+//!   already holds that room.
 
 pub mod cli;
 mod engine;
 mod hkdf;
+pub mod invite_client;
+pub mod invites;
 mod poll;
 pub mod random;
 mod server;

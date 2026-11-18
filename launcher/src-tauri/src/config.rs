@@ -45,6 +45,9 @@ pub struct Config {
     pub achievements_sharing_unlocked: bool,
     // Retired keys an older launcher.json may still hold are skipped (serde ignores unknown fields): `logo` and `icon` (the logo and
     // icon choice, removed with the Classic look).
+    /// Which game the launcher shows (src/games.js): "recompia" or "coop". Empty (an older launcher.json): "recompia". Only the pages
+    /// read it; both games are the same install, build and shaders.
+    pub game: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

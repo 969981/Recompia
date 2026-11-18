@@ -63,7 +63,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool) -> Result<(), String> {
+/// `coop`: a co-op start (coop_launch.rs); None is a singleplayer start.
+pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<crate::coop_launch::Launch>) -> Result<(), String> {
     let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     let gentle = cfg.gentle_build;
     {
@@ -120,7 +121,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
             eprintln!("branding: {e}");
         }
         // Calculate after shader preparation, immediately before the process starts, so a long preparation cannot age the offset.
-        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods)) {
+        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods, coop.as_ref())) {
             Ok(c) => c,
             Err(e) => {
                 set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
@@ -189,8 +190,8 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool)
 }
 
 /// How Play starts the game: `pkp` in its folder on macOS and Linux, `pkp.exe` on Windows (host.rs). Every path (exefs, romfs, shader
-/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods.
-fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool) -> Result<std::process::Command, String> {
+/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods. `coop`: the co-op start's environment, or None.
+fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool, coop: Option<&crate::coop_launch::Launch>) -> Result<std::process::Command, String> {
     if !crate::host::native_game() {
         crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;   // pkp_rt.dll and the ASTC decoders: Windows files
     }
@@ -215,6 +216,7 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
     if without_mods {
         leave_mods_out(&mut cmd);
     }
+    crate::coop_launch::apply(&mut cmd, coop);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

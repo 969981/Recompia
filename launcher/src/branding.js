@@ -1,9 +1,26 @@
-// The launcher's logo and icon pictures. src-tauri/src/branding.rs puts the icon in the exes, this window and the Steam art.
+// The launcher's logo and icon pictures, per game (games.js ids). src-tauri/src/branding.rs puts the icon in the exes, this window and
+// the Steam art; those stay Recompia's in every game. Pages draw their pictures with brandImg(); setBrandGame() swaps every one already on screen.
 import logoUrl from './art/logo.png';
+import logoCoopUrl from './art/logo-coop.png';
 import markUrl from './art/mark.png';
 import markTestingUrl from './art/mark-testing.png';
 
-const ART = { logo: logoUrl, mark: markUrl, 'mark-testing': markTestingUrl };
+const RECOMPIA_ART = { logo: logoUrl, mark: markUrl, 'mark-testing': markTestingUrl };
 
-/** An <img> of `kind` (logo, mark, mark-testing). `attrs`: the rest of the tag (class, alt). */
-export const brandImg = (kind, attrs = '') => `<img src="${ART[kind]}" ${attrs} />`;
+/** Each game's pictures. Co-op has its own wordmark (with the Co-op badge in it) and Recompia's marks. */
+const GAME_ART = { recompia: RECOMPIA_ART, coop: { ...RECOMPIA_ART, logo: logoCoopUrl } };
+
+let currentGame = 'recompia';
+
+/** The picture of `kind` (logo, mark, mark-testing) of the current game; `game` asks for another game's. */
+export const brandUrl = (kind, game = currentGame) => (GAME_ART[game] ?? RECOMPIA_ART)[kind];
+
+/** An <img> of `kind` that setBrandGame keeps up to date. `attrs`: the rest of the tag (class, alt). `game`: a fixed game's picture
+ *  instead of the current game's. */
+export const brandImg = (kind, attrs = '', game = '') => `<img data-brand="${kind}"${game ? ` data-brand-game="${game}"` : ''} src="${brandUrl(kind, game || currentGame)}" ${attrs} />`;
+
+/** Shows game `id`'s pictures (games.js) on every picture already on screen. */
+export function setBrandGame(id) {
+  currentGame = id;
+  for (const img of document.querySelectorAll('img[data-brand]')) img.src = brandUrl(img.dataset.brand, img.dataset.brandGame || currentGame);
+}

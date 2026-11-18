@@ -5,30 +5,33 @@
 //! rate, a buffer bound and the room's byte budget, and never parsed. One thread, one poll() over every socket.
 //! Recompia extension: relay UDP (lib.rs "Relay UDP"): a UDP socket on the same port forwards datagrams between the two links of a pair
 //! when both asked for it in their hello; the payload is the players' own tagged datagram, never parsed either.
+//! Recompia extension: invite codes (lib.rs "Invite codes"): a launcher's link stores an invite or looks one up, then closes; the store is
+//! invites.rs.
 
+use crate::invites;
 use crate::poll::{self, Fd};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::time::Instant;
 
 pub const MAGIC: u32 = 0x3152_4B50; // "PKR1"
-const HELLO_LEN: usize = 32;
-const MSG_LEN: usize = 16;
+pub(crate) const HELLO_LEN: usize = 32;
+pub(crate) const MSG_LEN: usize = 16;
 const K_HOST: u8 = 1;
 const K_JOIN: u8 = 2;
 const K_ATTACH: u8 = 3;
 const T_OK: u8 = 1;
 const T_VISITOR: u8 = 2;
 const T_GONE: u8 = 3;
-const T_ERR: u8 = 4;
+pub(crate) const T_ERR: u8 = 4;
 const T_PONG: u8 = 5;
 const T_PING: u8 = 6;
-const E_NOROOM: u8 = 1;
+pub(crate) const E_NOROOM: u8 = 1;
 const E_TAKEN: u8 = 2;
 const E_FULL: u8 = 3;
-const E_LIMIT: u8 = 4;
+pub(crate) const E_LIMIT: u8 = 4;
 const E_TIMEOUT: u8 = 5;
-const E_BAD: u8 = 6;
+pub(crate) const E_BAD: u8 = 6;
 const E_EXPIRED: u8 = 7;
 const OUT_MAX: usize = 256 << 10; // bytes waiting for a slow reader; beyond, the other side is not read
 const READ_MAX: usize = 16 << 10;
@@ -62,6 +65,17 @@ const REC_INFO_MAX: usize = 0x480;
 pub const LIST_MAX: usize = 32; // entries one answer carries
 const LISTING_GAP_MS: i64 = 250; // a host's listing changes at most this often; faster ones are read and dropped
 const B32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+// Recompia extension: invite codes (lib.rs "Invite codes"). Hello kind X_INVITE_PUT, room id field = the save's token (zeros: none),
+// visitor id field = the invite's length, then the invite: answered with type X_INVITE_PUT, arg + cookie = the code (6 ASCII, 2 zeros).
+// Hello kind X_INVITE_GET, room id field = the code (6 ASCII, the rest zeros): answered with type X_INVITE_GET (arg = length) and the
+// invite. Hello kind X_INVITE_DEL, as PUT: the invite and every invite of the token are forgotten, answered with type X_INVITE_DEL (arg =
+// 1 when one was kept). Either way the link closes after the answer.
+pub const X_INVITE_PUT: u8 = 0xC9;
+pub const X_INVITE_GET: u8 = 0xCA;
+pub const X_INVITE_DEL: u8 = 0xCB;
+const INVITE_PRUNE_MS: i64 = 60_000;
+const INVITE_ADDRS: usize = 65536; // addresses whose invite budget is remembered (each forgotten after a quiet minute); beyond, refused
 
 /// A listed room: its record as the host sent it (checked), and what lists sort and filter by.
 #[derive(Clone)]
@@ -121,6 +135,9 @@ pub struct Config {
     pub udp: bool,         // Recompia extension: relay UDP on the same port (true)
     pub list: bool,        // Recompia extension: the room list (true)
     pub list_per_min: i64, // lists one address may ask for a minute (120; bursts as much); beyond, refused with "limit"
+    pub invites: bool,     // Recompia extension: invite codes (true)
+    pub invite_max: usize, // invites kept at once (4096); a full store drops the oldest of the address keeping the most
+    pub invite_per_min: i64, // invites stored or deleted plus codes looked up, per address a minute (10; bursts as much); beyond, refused with "limit"
     pub log: Option<LogFn>, // one line without a newline; None: silent
 }
 
@@ -142,6 +159,9 @@ impl Default for Config {
             udp: true,
             list: true,
             list_per_min: 120,
+            invites: true,
+            invite_max: 4096,
+            invite_per_min: 10,
             log: None,
         }
     }
@@ -165,6 +185,10 @@ pub struct Stats {
     pub listed: usize,  // Recompia extension: rooms in the room list now
     pub players: usize, // and the players in them
     pub lists: u64,     // lists answered
+    pub invites: usize, // Recompia extension: invite codes: invites kept now
+    pub invites_stored: u64,
+    pub invites_found: u64, // lookups answered with an invite
+    pub invites_missed: u64, // lookups naming no invite kept
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -174,6 +198,7 @@ enum St {
     Host,
     Wait,
     Pair,
+    Put, // Recompia extension: invite codes: an invite to store is coming in
 }
 
 struct Conn {
@@ -200,9 +225,9 @@ struct Conn {
     x_want: bool,               // its hello asked for relay UDP
     x_tok: u64,                 // Pair: its UDP token (0: none)
     x_ep: Option<SocketAddrV4>, // the endpoint its last bind or datagram came from
-    // Recompia extension: the room list. Host: the bytes of a listing record still to read, and those read
-    l_need: usize,
-    l_rec: Vec<u8>,
+    // Recompia extensions: a record that follows a header (Host: a listing; Put: an invite): its bytes still to read, and those read
+    rec_need: usize,
+    rec: Vec<u8>,
 }
 
 impl Conn {
@@ -230,8 +255,8 @@ impl Conn {
             x_want: false,
             x_tok: 0,
             x_ep: None,
-            l_need: 0,
-            l_rec: Vec::new(),
+            rec_need: 0,
+            rec: Vec::new(),
         }
     }
 }
@@ -268,6 +293,9 @@ pub struct Relay {
     k: Vec<Conn>,
     rm: Vec<Room>,
     lst: Vec<Option<Listing>>, // Recompia extension: the room list, one slot per room
+    inv: invites::Store,       // Recompia extension: invite codes, and each address's budget for them
+    inv_rate: invites::Limiter,
+    inv_pruned: i64,
     ips: Vec<IpRec>,
     st: Stats,
     t0: Instant,
@@ -298,6 +326,19 @@ fn rand64() -> u64 {
     let _ = crate::random::os_random(&mut b);
     u64::from_le_bytes(b)
 }
+/// A per-address bucket of `rate` requests a minute, bursting as much: `tok` holds thousandths of a request, refilled since `at`. True takes one.
+fn per_min_ok(tok: &mut i64, at: &mut i64, rate: i64, now: i64) -> bool {
+    let add = (now - *at) * rate / 60;
+    if add > 0 {
+        *tok = (*tok + add).min(1000 * rate);
+        *at = now;
+    }
+    if *tok < 1000 {
+        return false;
+    }
+    *tok -= 1000;
+    true
+}
 fn blocked(e: &io::Error) -> bool {
     matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted)
 }
@@ -314,6 +355,9 @@ impl Relay {
             k: (0..c.max_conns).map(|_| Conn::free()).collect(),
             rm: vec![Room::default(); c.max_rooms],
             lst: vec![None; c.max_rooms],
+            inv: invites::Store::new(c.invite_max),
+            inv_rate: invites::Limiter::new(c.invite_per_min, INVITE_ADDRS),
+            inv_pruned: 0,
             ips: vec![IpRec::default(); IPS],
             us: None,
             c,
@@ -374,20 +418,9 @@ impl Relay {
         Some(f)
     }
     fn ip_list_ok(&mut self, a: Option<usize>, now: i64) -> bool {
-        // thousandths of a list: per minute, burst as much
         let Some(a) = a else { return false };
-        let rate = self.c.list_per_min;
         let a = &mut self.ips[a];
-        let add = (now - a.lat) * rate / 60;
-        if add > 0 {
-            a.ltok = (a.ltok + add).min(1000 * rate);
-            a.lat = now;
-        }
-        if a.ltok < 1000 {
-            return false;
-        }
-        a.ltok -= 1000;
-        true
+        per_min_ok(&mut a.ltok, &mut a.lat, self.c.list_per_min, now)
     }
     fn ip_new_ok(&mut self, a: usize, now: i64) -> bool {
         // thousandths of a link: rate a second, burst twice that
@@ -405,23 +438,9 @@ impl Relay {
         true
     }
     fn ip_nofind_ok(&mut self, a: Option<usize>, now: i64) -> bool {
-        // thousandths of a request: per minute, burst as much
         let Some(a) = a else { return false };
-        let rate = self.c.nofind_per_min;
         let a = &mut self.ips[a];
-        let add = (now - a.fat) * rate / 60;
-        if add > 0 {
-            a.ftok += add;
-            a.fat = now;
-            if a.ftok > 1000 * rate {
-                a.ftok = 1000 * rate;
-            }
-        }
-        if a.ftok < 1000 {
-            return false;
-        }
-        a.ftok -= 1000;
-        true
+        per_min_ok(&mut a.ftok, &mut a.fat, self.c.nofind_per_min, now)
     }
 
     // ---------- links ----------
@@ -515,15 +534,22 @@ impl Relay {
         let a = ipstr(self.k[i].ip);
         let id = roomstr(&h[8..]);
         let ad = self.ip_get(self.k[i].ip, now);
-        let last = if self.c.list { K_LIST } else { K_ATTACH };
-        if get32(&h) != MAGIC || h[5] != 1 || h[4] < K_HOST || h[4] > last {
+        let kind_ok = match h[4] {
+            K_HOST..=K_ATTACH => true,
+            K_LIST => self.c.list,
+            X_INVITE_PUT | X_INVITE_GET | X_INVITE_DEL => self.c.invites,
+            _ => false,
+        };
+        if get32(&h) != MAGIC || h[5] != 1 || !kind_ok {
             self.st.bad += 1;
             self.refuse(i, E_BAD, now);
             return;
         }
-        if h[4] == K_LIST {
-            self.list(i, &h, ad, now);
-            return;
+        match h[4] {
+            K_LIST => return self.list(i, &h, ad, now),
+            X_INVITE_PUT | X_INVITE_DEL => return self.invite_put(i, &h, now),
+            X_INVITE_GET => return self.invite_get(i, &h, now),
+            _ => {}
         }
         self.k[i].x_want = h[6] == X_UDP; // Recompia extension: relay UDP (their clients send zeros)
         let ri = self.room_find(&h[8..24]);
@@ -666,9 +692,79 @@ impl Relay {
         self.st.lists += 1;
         self.closing(i, now);
     }
+    /// Recompia extension: invite codes. A PUT or DEL hello: within the address's rate, the invite (its length in the visitor id field)
+    /// is read next, then kept or forgotten (invite_kept).
+    fn invite_put(&mut self, i: usize, h: &[u8; HELLO_LEN], now: i64) {
+        let n = get32(&h[24..]) as usize;
+        if !(1..=invites::BLOB_MAX).contains(&n) {
+            self.st.bad += 1;
+            return self.refuse(i, E_BAD, now);
+        }
+        if !self.inv_rate.ok(self.k[i].ip, now) {
+            self.st.refused += 1;
+            return self.refuse(i, E_LIMIT, now);
+        }
+        let k = &mut self.k[i];
+        k.st = St::Put;
+        k.rec_need = n;
+        k.rec.clear();
+    }
+    /// The invite of a PUT or DEL link (its hello is still in inb) is complete. Anything but a launcher invite is "bad". DEL: forgotten, with
+    /// every invite of its save's token. PUT: its code, or "limit" when the address keeps its most already or the relay's random source
+    /// failed. Codes, tokens and invites are never logged.
+    fn invite_kept(&mut self, i: usize, now: i64) {
+        let blob = std::mem::take(&mut self.k[i].rec);
+        if !invites::looks_like_invite(&blob) {
+            self.st.bad += 1;
+            return self.refuse(i, E_BAD, now);
+        }
+        let mut token: invites::Token = [0; 16];
+        token.copy_from_slice(&self.k[i].inb[8..24]); // the room id field: the save's token (older launchers send zeros: none)
+        if self.k[i].inb[4] == X_INVITE_DEL {
+            let had = self.inv.remove(&blob, &token);
+            self.msg(i, X_INVITE_DEL, 0, had as u32, 0);
+            return self.closing(i, now);
+        }
+        let ip = self.k[i].ip;
+        match self.inv.put(&blob, &token, ip, now, &mut invites::os_fill) {
+            Some(code) => {
+                let mut m = [0u8; 8];
+                m[..invites::CODE_LEN].copy_from_slice(&code);
+                self.msg(i, X_INVITE_PUT, 0, get32(&m), get32(&m[4..]));
+                self.st.invites_stored += 1;
+                self.closing(i, now);
+            }
+            None => {
+                self.st.refused += 1;
+                self.refuse(i, E_LIMIT, now);
+            }
+        }
+    }
+    /// Recompia extension: invite codes. A GET hello: the invite under the code in the room id field, within the address's rate (every
+    /// lookup counts, found or not, so guessing codes is as slow as the rate), then the link closes.
+    fn invite_get(&mut self, i: usize, h: &[u8; HELLO_LEN], now: i64) {
+        if !invites::valid(&h[8..8 + invites::CODE_LEN]) {
+            self.st.bad += 1;
+            return self.refuse(i, E_BAD, now);
+        }
+        if !self.inv_rate.ok(self.k[i].ip, now) {
+            self.st.refused += 1;
+            return self.refuse(i, E_LIMIT, now);
+        }
+        let mut code = [0u8; invites::CODE_LEN];
+        code.copy_from_slice(&h[8..8 + invites::CODE_LEN]);
+        let Some(blob) = self.inv.get(&code, now).map(|b| b.to_vec()) else {
+            self.st.invites_missed += 1;
+            return self.refuse(i, E_NOROOM, now);
+        };
+        self.msg(i, X_INVITE_GET, 0, blob.len() as u32, 0);
+        self.k[i].out.extend_from_slice(&blob);
+        self.st.invites_found += 1;
+        self.closing(i, now);
+    }
     /// Recompia extension: the room list. A host's listing record is complete: checked, then its room is listed with it.
     fn listing(&mut self, i: usize, now: i64) {
-        let rec = std::mem::take(&mut self.k[i].l_rec);
+        let rec = std::mem::take(&mut self.k[i].rec);
         let Some(ri) = self.k[i].room.filter(|&r| self.rm[r].used && self.rm[r].host == Some(i)) else { return };
         if self.rm[ri].listed_at != 0 && now - self.rm[ri].listed_at < LISTING_GAP_MS {
             return; // too soon after the last one: the next change brings it up to date
@@ -707,8 +803,8 @@ impl Relay {
                     return;
                 }
                 let k = &mut self.k[i];
-                k.l_need = n;
-                k.l_rec.clear();
+                k.rec_need = n;
+                k.rec.clear();
                 k.inn = 0; // reads are one message at most: nothing follows the header in inb
                 return;
             }
@@ -741,22 +837,36 @@ impl Relay {
     }
     fn conn_read(&mut self, i: usize, now: i64) {
         let st = self.k[i].st;
-        if st == St::Host && self.k[i].l_need > 0 {
-            // Recompia extension: the room list: the rest of a listing record
-            let mut b = vec![0u8; self.k[i].l_need];
+        if (st == St::Host || st == St::Put) && self.k[i].rec_need > 0 {
+            // Recompia extensions: the rest of a host's listing record, or of an invite to store
+            let mut b = vec![0u8; self.k[i].rec_need];
             match self.k[i].s.as_mut().unwrap().read(&mut b) {
                 Ok(0) => self.conn_free(i, now),
                 Err(e) if !blocked(&e) => self.conn_free(i, now),
                 Err(_) => {}
                 Ok(n) => {
                     let k = &mut self.k[i];
-                    k.l_rec.extend_from_slice(&b[..n]);
-                    k.l_need -= n;
+                    k.rec.extend_from_slice(&b[..n]);
+                    k.rec_need -= n;
                     k.last_rx = now;
-                    if k.l_need == 0 {
-                        self.listing(i, now);
+                    if k.rec_need == 0 {
+                        if st == St::Host {
+                            self.listing(i, now);
+                        } else {
+                            self.invite_kept(i, now);
+                        }
                     }
                 }
+            }
+            return;
+        }
+        if st == St::Put {
+            // the invite is in and answered: anything more is ignored until the link closes
+            let mut b = [0u8; 64];
+            match self.k[i].s.as_mut().unwrap().read(&mut b) {
+                Ok(0) => self.conn_free(i, now),
+                Err(e) if !blocked(&e) => self.conn_free(i, now),
+                _ => {}
             }
             return;
         }
@@ -896,7 +1006,8 @@ impl Relay {
                 }
                 continue;
             }
-            if k.st == St::New && now - k.opened >= self.c.hello_ms {
+            if (k.st == St::New || k.st == St::Put) && now - k.opened >= self.c.hello_ms {
+                // the hello, and an invite after it, come within hello_ms
                 self.st.bad += 1;
                 self.conn_free(i, now);
             } else if k.st == St::Wait && now >= k.deadline {
@@ -914,6 +1025,11 @@ impl Relay {
                 self.st.expired += 1;
                 self.room_close(i, "it reached its age limit", E_EXPIRED, now);
             }
+        }
+        if now - self.inv_pruned >= INVITE_PRUNE_MS {
+            self.inv_pruned = now;
+            self.inv.prune(now);
+            self.inv_rate.prune(now);
         }
     }
 
@@ -1078,6 +1194,7 @@ impl Relay {
         s.paired = self.k.iter().filter(|k| k.st == St::Pair).count();
         s.listed = self.lst.iter().flatten().count();
         s.players = self.lst.iter().flatten().map(|l| l.players as usize).sum();
+        s.invites = self.inv.len();
         s
     }
 }

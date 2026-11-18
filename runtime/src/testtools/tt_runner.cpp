@@ -18,6 +18,7 @@
 #include "nxrt/diag.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/log.h"
+#include "nxrt/tt_coop.h"
 #include "tt_internal.h"
 
 namespace nxrt::tt::detail {
@@ -482,6 +483,12 @@ void Runner::frame(uint64_t k, const GameState& s, bool valid, ::Ctx* c) {
                 std::string why;
                 if (!take_shot(st.text, &why) && require_shots()) { fail(st, "@shot " + st.text + ": " + why); return; }
                 shot_frame_ = k;
+                advance();
+                continue;
+            }
+            case StepKind::Coop: {
+                std::string why;
+                if (!coop::run_step(st.text, &why)) { fail(st, "@" + st.text + ": " + why); return; }
                 advance();
                 continue;
             }

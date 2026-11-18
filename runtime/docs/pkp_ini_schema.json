@@ -27,7 +27,11 @@
         {"key": "quality_probe", "type": "bool", "default": "0", "env": "NXRT_PKP_QUALITY_PROBE", "doc": "Log what the quality hooks see (diagnostics). Next start."},
         {"key": "game_taa", "type": "int", "default": "0", "min": 0, "max": 2, "clamped": true, "env": "NXRT_PKP_GAME_TAA", "doc": "Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's). Next start."},
         {"key": "link_interact_everywhere", "type": "bool", "default": "0", "env": "NXRT_PKP_LINK_INTERACT_EVERYWHERE", "doc": "Experimental: Link Play visitors can interact outside Palette Town. Next start."},
-        {"key": "link_story_coop", "type": "bool", "default": "0", "env": "NXRT_PKP_LINK_STORY_COOP", "doc": "Experimental: in Link Play every player plays their own story, saved in their own save. Next start."},
+        {"key": "coop", "type": "bool", "default": "0", "env": "NXRT_PKP_COOP", "doc": "Launcher only: this launch plays a seamless co-op session (with coop_role, coop_group and coop_member). Next start."},
+        {"key": "coop_role", "type": "choice", "optional": true, "choices": ["host", "visit"], "env": "NXRT_PKP_COOP_ROLE", "doc": "Launcher only, with coop: host opens the co-op session, visit joins it. Next start."},
+        {"key": "coop_group", "type": "text", "default": "", "env": "NXRT_PKP_COOP_GROUP", "doc": "Launcher only, with coop: the id of the co-op group this launch plays in. Next start."},
+        {"key": "coop_member", "type": "text", "default": "", "env": "NXRT_PKP_COOP_MEMBER", "doc": "Launcher only, with coop: this player's member id in the group (32 hex digits). Next start."},
+        {"key": "coop_members", "type": "int", "optional": true, "min": 0, "max": 16, "clamped": true, "env": "NXRT_PKP_COOP_MEMBERS", "doc": "Launcher only, with coop: how many members the group has; the session waits for all of them (0: no waiting). Next start."},
         {"key": "uuid_repair", "type": "bool", "default": "1", "env": "NXRT_PKP_UUID_REPAIR", "doc": "At start, give a save with the player UUID earlier builds shared a UUID of its own. Next start."},
         {"key": "jump_momentum", "type": "bool", "default": "1", "env": "NXRT_PKP_JUMP_MOMENTUM", "group": "gameplay", "doc": "A running jump keeps the running speed in the air. Next start."},
         {"key": "jump_momentum_strength", "type": "real", "default": "1", "min": 0, "max": 1, "clamped": true, "env": "NXRT_PKP_JUMP_MOMENTUM_STRENGTH", "doc": "With jump_momentum: how much of the extra running speed is kept. Next start."},
@@ -48,5 +52,7 @@
         {"key": "online_events", "type": "bool", "default": "1", "env": "NXRT_PKP_ONLINE_EVENTS", "doc": "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail. Next start."}
     ]}
   ],
-  "retired": []
+  "retired": [
+    {"section": "pkp", "key": "link_story_coop"}
+  ]
 }
