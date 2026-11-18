@@ -10,6 +10,9 @@
 - The launcher shows Recompia and Recompia: Co-op as two games, switched from the sidebar; each co-op save has its own mods
 - The Seamless co-op switch is gone from the Link Play page (the old Story co-op is retired)
 
+### Fixed
+- Fixed **Settings > Game** not opening in the launcher: the page stayed on the previous tab
+
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.

@@ -714,7 +714,8 @@ export const SECTIONS = [
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
           },
           {
-            id: 'romfs_mod', games: SINGLEPLAYER, label: t('Replacement game files'),   // not the Mods page's Modtopia mods type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
+            // not the Mods page's Modtopia mods: files that replace the game's own romfs files
+            id: 'romfs_mod', games: SINGLEPLAYER, label: t('Replacement game files'), type: 'path', at: pkp('fs', 'romfs_mod'), pick: t('Choose the mods folder'),
             placeholder: () => '',
           },
           {
