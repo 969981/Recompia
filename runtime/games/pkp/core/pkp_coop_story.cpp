@@ -78,6 +78,7 @@ constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word o
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
                                                           // is one no pump step reaches, so the catch-up would flag it for ever
+constexpr uint32_t kFirstTalk = 2;   // a new world: quest 1 closes on entering the first room, quest 2 at the first talk (run P0RE-2)
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
                                             0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
@@ -476,6 +477,12 @@ void on_session_change() {
 }
 
 void on_member_joined() { st().send_all = true; }
+
+bool world_started() {
+    const uint64_t words = quest_words();
+    const uint32_t i = kFirstTalk - 1;
+    return st().target[i] >= kClosed || (words && state_at(words, i) >= kClosed);
+}
 
 void reset() { st() = State{}; }
 

@@ -8,6 +8,9 @@ Press **Update** in the launcher. This change keeps your saves and shader cache 
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
 - Linux: fixed rhythmic audio crackling with SDL3's PipeWire backend.
 
+### Co-op
+- The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
+
 ## 0.15.0 (build S: Sloth)
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets the co-op hook points and is linked again; saves and shaders are kept, no shader is translated again).

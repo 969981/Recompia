@@ -88,6 +88,9 @@ void on_session_change();
 // Another member joined: all of this process's quest states are sent again, so the newcomer catches up.
 void on_member_joined();
 void reset();
+// The group's world is past its opening: the first talk's quest is closed in this save or on another member (saved, so it holds
+// across boots, and a newcomer learns it from the authority's states).
+bool world_started();
 }  // namespace story
 
 namespace requests {
@@ -197,7 +200,8 @@ void release(Holder who);                // no claim left on the character: the 
 }  // namespace lock
 
 namespace gate {
-// Holds this player's input, with a notice, while fewer members than the group has are in the session (once a frame).
+// Holds this player's input, with a notice, while fewer members than the group has are in the session and the group's world has not
+// started (once a frame).
 void tick(bool in_game);
 void reset();
 }  // namespace gate
