@@ -132,8 +132,8 @@ pub async fn mods_auto_update(app: AppHandle) -> Result<Vec<Updated>, String> {
     off_thread(move || mods_update::run(&dir, &app.mod_catalog(), &catalog_cache(&app))).await
 }
 
-/// Once at launcher start: the locks into pkp.ini, then the locked mod kept installed and on (mods_lock.rs `keep`). Returns what was done,
-/// for the page's one line. Quietly nothing while the game, Set up or an update runs, and when the hub cannot be reached (the next start
+/// Once at launcher start: the locks into pkp.ini, installed copies older than the launcher's own replaced (mods_carried.rs `refresh`,
+/// logged only), then the locked mod kept installed and on (mods_lock.rs `keep`). Returns what keeping did, for the page's one line. Quietly nothing while the game, Set up or an update runs, and when the hub cannot be reached (the next start
 /// tries again).
 #[tauri::command]
 pub async fn mods_keep_locked(app: AppHandle) -> Result<Vec<Step>, String> {
@@ -148,6 +148,9 @@ pub async fn mods_keep_locked(app: AppHandle) -> Result<Vec<Step>, String> {
     off_thread(move || {
         if let Err(e) = mods_lock::mirror(&dir, locks) {
             eprintln!("mods: the locks were not written to pkp.ini: {e}");
+        }
+        if let Err(e) = crate::mods_carried::refresh(&dir) {
+            eprintln!("mods: the launcher's own mod copies were not checked: {e}");
         }
         mods_lock::keep(&dir, locks, || mods_catalog::load(&app.mod_catalog(), &catalog_cache(&app), false))
     })
