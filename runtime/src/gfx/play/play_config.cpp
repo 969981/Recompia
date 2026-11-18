@@ -77,7 +77,9 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
             line = strip_inline_comment(line);
         }
 
-        if (line[0] == '[') {
+        // A binding may use "[" or "=" as the key. Its last '=' separates the key from the action.
+        const size_t eq = sec == Sec::Bindings ? line.rfind('=') : line.find('=');
+        if (line[0] == '[' && !(sec == Sec::Bindings && line.back() != ']' && eq != kNpos && trim(line.substr(0, eq)) == "[")) {
             if (line.back() != ']') {
                 bail(i, "section header without ']'");
                 return false;
@@ -97,8 +99,6 @@ bool parse_onto(const std::string& text, Settings* s, std::string* err, std::vec
 
         if (sec == Sec::Unknown || sec == Sec::Retired) continue;   // the keys of an unknown or retired section are skipped
 
-        // Bindings keep the key before the LAST '=' (the key may itself be "="); their value never contains '='.
-        const size_t eq = sec == Sec::Bindings ? line.rfind('=') : line.find('=');
         if (eq == kNpos) {
             bail(i, "expected 'key = value', got '" + line + "'");
             return false;

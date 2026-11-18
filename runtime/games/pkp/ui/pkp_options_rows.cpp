@@ -196,26 +196,46 @@ const Row kPicture[] = {
     number("Brightness", "Dims the whole picture, white included. 1.00 is the game's own.", 0, 75, "%.2f", 0.25, 0.01, ROW_STEP(extras.picture.brightness, 0.25, 0.01), true),
 };
 
-// The Mouse mode key (the Joy-Con 2 mouse mode, pkp_play.cpp): its binding in play, any key, mouse button or wheel notch, saved at once. The
-// new key replaces any other play binding of that input; an all-context binding of it still works elsewhere.
-class MouseModeKey final : public CaptureClient {
+// Game actions bound in play. A new key replaces that input's play binding; an all-context binding still works elsewhere.
+class PlayBindingKey final : public CaptureClient {
 public:
-    const char* name() const override { return "Mouse Mode Key"; }
+    PlayBindingKey(const char* label, play::Act action, bool keyboard_only = false)
+        : label_(label), action_(action), keyboard_only_(keyboard_only) {}
+
+    const char* name() const override { return label_; }
     std::string bound() const override {
+        const S s = play::current_settings();
         std::string out;
-        for (const play::Binding& b : play::current_settings().bindings)
-            if (b.act == play::Act::MouseMode && (b.ctx == play::Ctx::Play || b.ctx == play::Ctx::All))
-                out += (out.empty() ? "" : ", ") + play::input_name(b.in);
+        for (const play::Binding& b : s.bindings) {
+            if (b.act != action_ || (b.ctx != play::Ctx::Play && b.ctx != play::Ctx::All)) continue;
+            if (b.ctx == play::Ctx::All && std::any_of(s.bindings.begin(), s.bindings.end(), [&](const play::Binding& other) {
+                    return other.ctx == play::Ctx::Play && other.in == b.in;
+                })) continue;
+            out += (out.empty() ? "" : ", ") + play::input_name(b.in);
+        }
         return out.empty() ? "None" : out;
     }
     bool take(const play::InputId& in) override {
         S s = play::current_settings();
-        std::erase_if(s.bindings, [&](const play::Binding& b) { return b.act == play::Act::MouseMode || (b.in == in && b.ctx == play::Ctx::Play); });
-        s.bindings.push_back(play::Binding{in, play::Ctx::Play, play::Act::MouseMode, play::Trig::Press, 0});
+        if (keyboard_only_) {
+            play::InputId persisted;
+            if (in.kind != play::InKind::Key || in == s.fps.key || in == s.quit.key ||
+                !play::parse_input(play::input_name(in), &persisted) || persisted != in) return false;
+        }
+        std::erase_if(s.bindings, [&](const play::Binding& b) { return b.act == action_ || (b.in == in && b.ctx == play::Ctx::Play); });
+        s.bindings.push_back(play::Binding{in, play::Ctx::Play, action_, play::Trig::Press, 0});
         play::apply_settings(s);   // main thread, next frame; also writes controls.ini
         return true;
     }
-} g_mouse_mode_key;
+
+private:
+    const char* label_;
+    play::Act action_;
+    bool keyboard_only_;
+};
+
+PlayBindingKey g_mouse_mode_key{"Mouse Mode Key", play::Act::MouseMode};
+PlayBindingKey g_save_key{"Quick Save Key", play::Act::Save, true};
 
 #define SENS(p) [](const S& s) { return static_cast<int>(std::lround(play::source_sens(s.mouse.p) * 10.0)); }, [](S& s, int v) { s.mouse.p = play::rad_per_count(v / 10.0); }
 const Row kMouse[] = {
@@ -227,6 +247,7 @@ const Row kMouse[] = {
     names("Button Icons", "The button icons in prompts. Automatic follows the last device used.", kPromptNames, static_cast<uint8_t>(std::size(kPromptNames)), ROW_ENUM(prompts.style, play::PromptStyle)),
     capture_row("Mouse Mode Key", "Turns the Joy-Con 2 mouse mode on and off (point and click to place and break). To change it, press left or right on this row (or click it), then press the new key or mouse button. Esc cancels.",
                 g_mouse_mode_key),
+    capture_row("Quick Save Key", "Saves while you play. Press left or right on this row (or click it), then press a keyboard key. It replaces that key's action in play. Esc cancels.", g_save_key),
 };
 
 const Row kController[] = {
@@ -258,7 +279,7 @@ constexpr Row kGameplay[] = {
     key_row("Sort button in the bag and containers", "Click Hold to Sort in the bag and storage boxes to sort at once.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
-    key_row("Save button in the pause menu", "A Save prompt in the key guide of the pause menu: writes the save and stays in the world.", Key::SaveNow),
+    key_row("Save button in the pause menu", "Enables the Save prompt and the Quick Save Key. Both save your progress and keep you in the world.", Key::SaveNow),
     key_row("Item editor (experimental)", "Adds an Items tab to this screen that changes how many of an item you hold. Not during Link Play.", Key::ItemEditor),
     key_row("More creatures in town", "Experimental: more creatures can live in your town than the game's 25.", Key::PokemonCap),
     key_row("Creatures in town", "With More creatures in town: how many can live there, 25 to 50. Visitors and spawns share the game's 50 drawn creatures, so a high number leaves them less room.", Key::PokemonCapLimit, 1, "%.0f"),

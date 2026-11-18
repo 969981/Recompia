@@ -100,7 +100,7 @@ const Tab kTabs[] = {
     {"Performance", 5, &g_performance},
     {"Graphics", 6, &g_graphics},
     {"Picture", 7, &g_picture},
-    {"Mouse", 8, &g_mouse},
+    {"Keyboard & Mouse", 8, &g_mouse},
     {"Controller", 9, &g_controller},
     {"Gameplay", 10, &g_gameplay},
     {"Time", 11, &time_tab()},

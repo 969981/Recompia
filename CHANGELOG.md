@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Press **Update** in the launcher. This change keeps your saves and shader cache and uses the existing game hook sites.
+
+### Gameplay
+- Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
+
 ## 0.15.0 (build S: Sloth)
 
 **Update:** press **Update** in the launcher, then **Set up again** (the game code gets the co-op hook points and is linked again; saves and shaders are kept, no shader is translated again).

@@ -46,8 +46,8 @@ enum class Act : uint8_t {
     DpadUp, DpadDown, DpadLeft, DpadRight,
     // raw Switch buttons
     BtnA, BtnB, BtnX, BtnY, BtnL, BtnR, BtnZL, BtnZR, BtnPlus, BtnMinus, BtnLStick, BtnRStick,
-    // a game-side switch with no Switch output (pkp: the Joy-Con 2 mouse mode, toggled by each activation)
-    MouseMode,
+    // Game-side actions with no default Switch output.
+    MouseMode, Save,
     kCount
 };
 constexpr int kActCount = static_cast<int>(Act::kCount);
