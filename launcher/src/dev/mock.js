@@ -498,7 +498,7 @@ function handle(cmd, args) {
       return runUpdate();
     }
     case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'testing' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'testing' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
-    case 'steam_add': mockSteam[`${args.target}_added`] = 1; return `Added "${args.target === 'game' ? 'Recompia' : 'Recompia Launcher'}" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'steam_add': mockSteam.launcher_added = 1; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
     case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);

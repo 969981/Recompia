@@ -130,7 +130,7 @@ F1 يفتح الإعدادات في اللعبة. زر الفأرة الأوسط
 
 إذا لم يبدأ `PokopiaLauncher.AppImage` على نظام بدون FUSE، شغّل `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
-لتشغيل اللعبة من Steam (وضع الألعاب على Deck): في وضع سطح المكتب، اختر **Add a Non-Steam Game**، واختر `PokopiaLauncher.AppImage`، واضبط خيارات التشغيل على `--play`. مزيد من التفاصيل، وما تم اختباره، في [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+لبدء اللعبة من Steam (وضع الألعاب على Deck): أضف المشغّل إلى Steam، إما من إعدادات المشغّل (Steam، Add to Steam) أو في وضع سطح المكتب عبر **Add a Non-Steam Game** مع اختيار `PokopiaLauncher.AppImage` وترك خيارات التشغيل فارغة. يفتح الاختصار المشغّل، الذي يتحقق من التحديثات؛ ثم اضغط Play. مزيد من التفاصيل، وما تم اختباره، في [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## المودات والترجمات
 

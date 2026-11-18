@@ -96,7 +96,7 @@ pub fn apply(dir: &Path, edits: &[Edit]) -> Result<(), String> {
     Ok(())
 }
 
-/// Called once when the launcher window starts (not by `--play` or `--host`): puts Link Play's per-session [net] keys back to their
+/// Called once when the launcher window starts (not by `--host`): puts Link Play's per-session [net] keys back to their
 /// defaults, so nothing left from an earlier session or an older version (a `join:<ip>`, a relay that is no longer running, an old room
 /// code, `protocol = linkplay`) decides how the next one runs (#239). The Link Play page remembers the player's own addresses and codes in
 /// its storage and offers them again. Off stays off; `lan_sweep` and `uid` are preferences and are kept. Internet through a relay on

@@ -9,7 +9,7 @@ Recompia @VERSION@ para Linux, SteamOS e Steam Deck
 4. Pressione Play. O jogo roda nativamente: sem Proton, sem Wine. Os upscalers FSR 3 e DLSS são exclusivos do Windows.
 
 Se o PokopiaLauncher.AppImage não iniciar (um sistema sem FUSE): ./PokopiaLauncher.AppImage --appimage-extract-and-run
-Do Steam (modo Jogo no Deck): adicione PokopiaLauncher.AppImage como um jogo que não é do Steam e use --play nas opções de inicialização.
+Do Steam (modo Jogo no Deck): adicione o launcher em Configurações, Add to Steam, ou adicione PokopiaLauncher.AppImage como um jogo que não é do Steam, sem opções de inicialização. Ele abre o launcher, que verifica atualizações; depois aperte Jogar.
 
 Para atualizar, extraia a nova versão sobre a sua instalação. Se a atualização mudar o código do jogo, o launcher avisa: pressione Set up de novo e ele recompila o pkp. Seus shaders e saves são mantidos.
 

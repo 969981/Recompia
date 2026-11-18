@@ -81,8 +81,8 @@ export const api = {
   // Steam
   steamStatus: () => invoke('steam_status'),
   applyBranding: () => invoke('apply_branding'),
-  steamAdd: (args) => invoke('steam_add', args),   // { target }
-  steamRemove: (args) => invoke('steam_remove', args),   // { target }
+  steamAdd: () => invoke('steam_add'),   // the launcher shortcut
+  steamRemove: (args) => invoke('steam_remove', args),   // { target: 'launcher' | 'game' } (game: the old shortcut)
 
   // Link Play
   relayStart: (args) => invoke('relay_start', args),   // { port }

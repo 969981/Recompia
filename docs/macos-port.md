@@ -536,7 +536,7 @@ What is in the tree and what the evidence for it is. Everything below was run on
 | M2, graphics | `nxrt_gfx_demo --headless --frames 300` → `gpu="Apple M3" frames=300 fps≈4400 … validation_errors=0`; `--overlay --frames 600` presents 600 frames with the ImGui overlay; `--screenshot` writes a 1280x720 PNG. |
 | M3, the game | `pkp` loads all four lifted modules (149,924 + 47,943 + 2,730 + 37 functions), runs rtld, starts `sm:` and the services, creates the heap section, brings up NVN on MoltenVK, places the game's five GPU pools, and plays: ~300 fps headless, audio at 48 kHz with no underruns, save data mounted, the world loaded. |
 | M5, diagnostics | the crash report is written by a helper thread with host stacks; `SuspendThread`/`GetThreadContext` stop a thread on its mach port (the sampler reads 2,688 stacks across main, the render thread and 40+ guest threads); `tools/symbolize.py` names both host and guest frames. |
-| M6, launcher | the Tauri launcher runs natively: Set up extracts and translates the shader corpus, Play starts `pkp` with `--ini`, `--setup`/`--preflight`/`--readiness`/`--play` work without the window, `make-mac.sh` builds the flat release zip, and the update tests pass. |
+| M6, launcher | the Tauri launcher runs natively: Set up extracts and translates the shader corpus, Play starts `pkp` with `--ini`, `--setup`/`--preflight`/`--readiness` work without the window, `make-mac.sh` builds the flat release zip, and the update tests pass. |
 
 ### What macOS had already taken (measured on the target)
 
@@ -635,7 +635,7 @@ terminal is the same thing). The game's stdout and stderr are discarded
 when the launcher starts it (Windows spawns it with `CREATE_NO_WINDOW`); its log, crash report and freeze dump are files in
 the game folder either way.
 
-`--play` starts the game without the window, `--setup` runs Set up without it (extract the shader corpus and translate
+`--setup` runs Set up without it (extract the shader corpus and translate
 it), `--preflight` prints the checks and `--readiness` prints what Play would see. The window's Play starts `pkp` in that
 folder with `--log pkp.log`; the shader steps of the Windows release are skipped (the game is native, the tools are not).
 

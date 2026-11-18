@@ -9,7 +9,7 @@ Recompia @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
 4. 点击 Play。游戏原生运行：不需要 Proton，也不需要 Wine。FSR 3 和 DLSS 超分只支持 Windows。
 
 如果 PokopiaLauncher.AppImage 无法启动（系统没有 FUSE）：./PokopiaLauncher.AppImage --appimage-extract-and-run
-从 Steam 启动（Deck 上的游戏模式）：把 PokopiaLauncher.AppImage 添加为非 Steam 游戏，并在启动选项中填写 --play。
+从 Steam 启动（Deck 上的游戏模式）：在设置中使用 Add to Steam 添加启动器，或把 PokopiaLauncher.AppImage 添加为非 Steam 游戏且不填写启动选项。它会打开启动器，由它检查更新；然后点击“开始游戏”。
 
 更新：把新版本解压覆盖到你的安装目录。如果更新改变了游戏代码，启动器会提示你：再点一次 Set up，它会重新编译 pkp。你的着色器和存档都会保留。
 
