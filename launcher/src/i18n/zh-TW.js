@@ -349,7 +349,7 @@ export default {
   'Save button in the pause menu': '暫停選單中的儲存按鈕',
   'More Pokémon in town': '城鎮中更多寶可夢',
   'Pokémon in town': '城鎮中的寶可夢數量',
-  'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '實驗性功能。訪客和臨時出現的寶可夢與你的居民共用遊戲的64個位置，數量設得越高，留給牠們的空間越少。',
+  'Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.': '實驗性功能。訪客和臨時出現的寶可夢與你的居民共用遊戲的50個位置，數量設得越高，留給牠們的空間越少。',
   'Download DLSS?': '要下載 DLSS 嗎？',
   'Download': '下載',
   'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.': '你目前的存檔會先移到備份資料夾，來源僅被讀取。複製的存檔無法在 Link Play 中與其原始存檔一同加入。',

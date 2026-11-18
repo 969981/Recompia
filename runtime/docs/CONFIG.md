@@ -423,7 +423,7 @@ Pokopia's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.ini
 | `pkp` | `item_editor` | `0` | `1` `0` | `NXRT_PKP_ITEM_EDITOR` | Experimental: an Items tab in the game's Settings screen that changes the count of a stack in the bag. Next start. |
 | `pkp` | `title_quit` | `1` | `1` `0` | `NXRT_PKP_TITLE_QUIT` | A Quit Game key guide on the title screen. Next start. |
 | `pkp` | `pokemon_cap_50` | `1` | `1` `0` | `NXRT_PKP_POKEMON_CAP_50` | Experimental: more Pokemon can live in the town than the game's 25 (pokemon_cap_limit). Next start. |
-| `pkp` | `pokemon_cap_limit` | `31` | `25` to `64` (clamped into it) | `NXRT_PKP_POKEMON_CAP_LIMIT` | With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the game's 64 actor slots. Next start. |
+| `pkp` | `pokemon_cap_limit` | `31` | `25` to `50` (clamped into it) | `NXRT_PKP_POKEMON_CAP_LIMIT` | With pokemon_cap_50: how many Pokemon can live in the town; visitors and spawns share the same room, and the game draws at most 50 Pokemon. Next start. |
 | `pkp` | `options_menu` | `1` | `1` `0` | `NXRT_PKP_OPTIONS_MENU` | The PC settings as tabs and rows of the game's own Settings screen. Next start. |
 | `pkp` | `events_file` | `pokopia_events.tsv` | text | `NXRT_PKP_EVENTS_FILE` | The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events. Next start. |
 | `pkp` | `save_now` | `1` | `1` `0` | `NXRT_PKP_SAVE_NOW` | A Save prompt in the pause menu's key guide: writes the save and stays in the world. Next start. |

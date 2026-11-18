@@ -349,7 +349,7 @@ export default {
   'Save button in the pause menu': 'Botón Guardar en el menú de pausa',
   'More Pokémon in town': 'Más Pokémon en el pueblo',
   'Pokémon in town': 'Pokémon en el pueblo',
-  'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': 'Experimental. Los visitantes y las apariciones temporales comparten con tus residentes los 64 espacios del juego, así que un número alto les deja menos sitio.',
+  'Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.': 'Experimental. Los visitantes y las apariciones temporales comparten con tus residentes los 50 espacios del juego, así que un número alto les deja menos sitio.',
   'Download DLSS?': '¿Descargar DLSS?',
   'Download': 'Descargar',
   'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.': 'Tu partida actual se mueve primero a una carpeta de copia, y el origen solo se lee. Una partida copiada no puede unirse a su original en Link Play.',

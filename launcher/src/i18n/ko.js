@@ -349,7 +349,7 @@ export default {
   'Save button in the pause menu': '일시정지 메뉴에 저장 버튼',
   'More Pokémon in town': '마을에 더 많은 포켓몬',
   'Pokémon in town': '마을의 포켓몬 수',
-  'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '실험적 기능입니다. 방문자와 일시적으로 나타나는 포켓몬은 주민과 게임의 64칸을 함께 쓰므로, 수를 높이면 그만큼 자리가 줄어듭니다.',
+  'Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.': '실험적 기능입니다. 방문자와 일시적으로 나타나는 포켓몬은 주민과 게임의 50칸을 함께 쓰므로, 수를 높이면 그만큼 자리가 줄어듭니다.',
   'Download DLSS?': 'DLSS를 다운로드할까요?',
   'Download': '다운로드',
   'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.': '현재 세이브가 먼저 백업 폴더로 이동하며, 원본은 읽기만 합니다. 복사한 세이브는 Link Play에서 원본 세이브와 함께 참여할 수 없습니다.',
