@@ -15,6 +15,8 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::release_names;
+
 const REPO: &str = "featureJosh/pokopia-recomp";
 /// The releases list: small, so a whole-call limit, generous for a slow link.
 const API_TIMEOUT: Duration = Duration::from_secs(15);
@@ -27,8 +29,8 @@ const SUMS_ASSET: &str = "SHA256SUMS.txt";
 #[cfg(windows)]
 const ASSET_SUFFIX: &str = "-win64.zip";
 #[cfg(target_os = "macos")]
-// The macOS release zip (launcher/scripts/make-mac.sh): PokopiaLauncher.app at its root, whose Contents/MacOS is the
-// launcher's own folder and so the install root the update is applied to.
+// The macOS release zip (launcher/scripts/make-mac.sh): a flat folder with the launcher binary at its root, no .app; that
+// folder is the install root the update is applied to.
 const ASSET_SUFFIX: &str = "-macos-arm64.zip";
 #[cfg(all(not(any(windows, target_os = "macos")), target_arch = "aarch64"))]
 const ASSET_SUFFIX: &str = "-linux-arm64.tar.gz";
@@ -232,9 +234,11 @@ pub fn for_channel(list: Vec<GhRelease>, channel: Channel) -> Vec<GhRelease> {
     }
 }
 
-/// This platform's package of a release.
+/// This platform's package of a release: the new scheme's when the release carries both (release_names.rs), else the first that
+/// ends in the suffix, which is what every launcher before the rename takes.
 fn asset_for<'a>(r: &'a GhRelease, suffix: &str) -> Option<&'a Asset> {
-    r.assets.iter().find(|a| a.name.ends_with(suffix) && !a.name.contains(['/', '\\']) && github(&a.browser_download_url))
+    let fits = |a: &&Asset| a.name.ends_with(suffix) && !a.name.contains(['/', '\\']) && github(&a.browser_download_url);
+    r.assets.iter().filter(fits).find(|a| release_names::is_new_asset(&a.name)).or_else(|| r.assets.iter().find(fits))
 }
 
 fn sums_of(r: &GhRelease) -> Option<&Asset> {
@@ -597,5 +601,42 @@ mod channel_tests {
         let all = list_of(&[("v0.8.1", false), ("v0.8.0", false), ("v0.7.9", false)]);
         assert_eq!(pick_update(&all, "0.8.0", "-linux-x64.tar.gz").unwrap().0.tag_name, "v0.8.1");
         assert!(pick_update(&all, "0.8.1", "-linux-x64.tar.gz").is_none(), "nothing newer: an older build is never an update");
+    }
+
+    /// v1.0.0 with these asset names (and the checksum file), in this order.
+    fn with_assets(names: &[&str]) -> Vec<GhRelease> {
+        let url = "https://github.com/Dittobyte/Recompia/releases/download/v1.0.0";
+        let assets: Vec<String> = names.iter().chain(["SHA256SUMS.txt"].iter())
+            .map(|n| format!(r#"{{"name":"{n}","size":1,"browser_download_url":"{url}/{n}"}}"#))
+            .collect();
+        let body = format!(
+            r#"[{{"tag_name":"v1.0.0","html_url":"https://github.com/Dittobyte/Recompia/releases/tag/v1.0.0","assets":[{}]}}]"#,
+            assets.join(",")
+        );
+        parse_releases(body.as_bytes()).unwrap()
+    }
+
+    fn asset_picked(names: &[&str]) -> Option<String> {
+        target_of(&with_assets(names), "0.9.0", "-win64.zip").map(|t| t.asset)
+    }
+
+    #[test]
+    fn a_release_with_both_name_schemes_installs_from_the_new_one_in_either_order() {
+        let (new, old) = ("Recompia-1.0.0-win64.zip", "PokopiaRecomp-1.0.0-win64.zip");
+        assert_eq!(asset_picked(&[old, new]).as_deref(), Some(new));
+        assert_eq!(asset_picked(&[new, old]).as_deref(), Some(new));
+        assert_eq!(asset_picked(&[new, "Recompia-1.0.0-linux-x64.tar.gz"]).as_deref(), Some(new));
+        let t = target_for_tag(&with_assets(&[old, new]), "v1.0.0", "-win64.zip").unwrap();
+        assert_eq!((t.asset.as_str(), t.asset_url.ends_with(new)), (new, true), "the name and its download go together");
+    }
+
+    #[test]
+    fn a_release_with_one_scheme_installs_from_it_as_before() {
+        assert_eq!(asset_picked(&["PokopiaRecomp-1.0.0-win64.zip"]).as_deref(), Some("PokopiaRecomp-1.0.0-win64.zip"));
+        assert_eq!(asset_picked(&["Recompia-1.0.0-win64.zip"]).as_deref(), Some("Recompia-1.0.0-win64.zip"));
+        // no known prefix at all: still the first name with the suffix, as every launcher before the rename picks
+        assert_eq!(asset_picked(&["other-win64.zip", "PokopiaRecomp-1.0.0-win64.zip"]).as_deref(), Some("other-win64.zip"));
+        assert_eq!(asset_picked(&["Recompia-1.0.0-linux-x64.tar.gz"]), None, "another platform's package is not this one");
+        assert!(builds(&with_assets(&["Recompia-1.0.0-win64.zip"]), "0.9.0", "-win64.zip")[0].installable);
     }
 }
