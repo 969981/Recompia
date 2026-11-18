@@ -1,7 +1,7 @@
-# Pokopia shaders: container, NVN2 control section, Ampere SASS
+# Game shaders: container, NVN2 control section, Ampere SASS
 
 First stage of the Ampere (Switch 2) translator: where the game's shaders live, how a shader is laid out, and the
-nvdisasm reference. Data: Pokopia v2.0.1a (update 655360). Everything below was read from the game's own files unless
+nvdisasm reference. Data: the game, title ID 0400A3A01EE4C000, v2.0.1a (update 655360). Everything below was read from the game's own files unless
 marked *inferred*. Game data and the corpus stay in `work\shaders\` (gitignored).
 
 ## 1. Archives (KTGL RDB)
@@ -15,7 +15,7 @@ wattostudios GameExtractor `Plugin_RDB_DRK` cover the same family; code was not 
 - `.fdata`: `PDRK0000`, u64 0x10, then IDRK entries. `.file`: IDRK entries only.
 - IDRK entry: `IDRK0000`, u64 entry length, u64 stored length, u64 inflated length, u32 (1), u32 file KTID,
   u32 type KTID, u32 flags, parameter words; the stored data is the entry's last *stored length* bytes.
-- Every entry in Pokopia has flags 0x400000: chunks of {u16 stored length, 8 bytes, zlib stream}, a zero length ends,
+- Every entry in the game has flags 0x400000: chunks of {u16 stored length, 8 bytes, zlib stream}, a zero length ends,
   each chunk inflates to ≤ 0x4000 bytes. (0x500000 = LZ4 chunks, 0x100000 alone = u32-length zlib chunks; not seen here.)
 
 Survey (`.weaver\ktgl_rdb.py survey`, 5,574 type/magic rows): shaders are in type KTID **0x7bcd279f** = `_S2G7000`

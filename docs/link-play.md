@@ -1,6 +1,6 @@
 # Link Play guide
 
-Play Pokopia together: several players on one island, between PCs, Steam Decks and other handhelds. This is the short guide. Relays of
+Play together: several players on one island, between PCs, Steam Decks and other handhelds. This is the short guide. Relays of
 your own, port forwarding and every detail are in the [full multiplayer page](multiplayer/README.md).
 
 **On this page**
@@ -113,4 +113,4 @@ The host and the visitor must type exactly the same code. The host sets it when 
 
 [Open an issue](https://github.com/Dittobyte/Recompia/issues/new/choose) and attach `pkp.log` (next to `pkp.exe`) from every player.
 The [full multiplayer page](multiplayer/README.md) covers your own relay, port forwarding, the ports the game uses and play with
-pokopia-native players.
+players of the parent project.

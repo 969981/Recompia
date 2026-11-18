@@ -31,13 +31,13 @@ Before merging one, measure it and put the number in the pull request:
 It prints how many of the 284 units a player updating from the last release compiles again. A change that costs a few units ships
 any time. Changes that cost most of the game are collected and shipped together in one release, not one after another.
 
-## Keeping up with pokopia-native
+## Keeping up with the parent project
 
-[pokopia-native](https://github.com/xFractals/pokopia-native) is this project's parent. Every update it publishes gets mirrored here:
+[The parent project](https://github.com/xFractals/pokopia-native) is this project's parent. Every update it publishes gets mirrored here:
 
 1. Read its commits since the last reviewed one (named at the top of [CHANGELOG.md](CHANGELOG.md)): `git remote add native https://github.com/xFractals/pokopia-native.git`, `git fetch native`, `git log <last reviewed>..native/main`.
 2. For each change that touches the game, the runtime, the builder or the launcher, decide: we already have it, take it, or skip it (Mac/iPhone-only, or not how this project works). Its runtime is different code, so taking a change usually means writing the same fix in ours.
-3. One pull request per change taken, saying "Based on pokopia-native (MIT) `<path>` @`<commit>`"; copied code gets a header comment naming the file and commit.
+3. One pull request per change taken, saying "Based on the parent project (MIT) `<path>` @`<commit>`"; copied code gets a header comment naming the file and commit.
 4. Only a version that works is merged; behaviour changes for all players go behind their own ini key unless they are plain bug fixes.
 5. Move the "last reviewed" commit at the top of the changelog, and the commit named in `runtime/THIRD_PARTY_NOTICES.md` if code was copied.
 

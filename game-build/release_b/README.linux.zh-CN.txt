@@ -1,7 +1,7 @@
 # source-sha256: 5cbb87d01e3e7fefcc22735bcc5a27585b9aca77f56d6fbef640c1799de09fb6
 这是英文文本的机器翻译，可能包含错误；英文文本是权威版本。
 
-Pokopia PC @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
+Recompia @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
 
 1. 你需要一个 Vulkan 驱动：Mesa 的 AMD 和 Intel 驱动，或者 NVIDIA 的专有驱动。除此之外不需要别的，因为游戏、运行时和着色器翻译器都是 Linux 原生程序。
 2. 运行 PokopiaLauncher.AppImage，选择你的转储文件夹（base/ 和 updates/<version>/，各自包含 exefs/ 和 romfs/）或一个 .nup 或 .nx 文件。需要版本 2.0.1a。

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Pokémon Pokopia: lift the NSOs of the user's dump and build one static library per module.
+# The game: lift the NSOs of the user's dump and build one static library per module.
 #
 #   scripts\build_game.cmd pkp                  (configure + build into work\build\pkp; NX_ROOT is the repository root)
 #

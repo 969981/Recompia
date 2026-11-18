@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Ampere (NVN2) shader corpus of a KTGL game (Pokemon Pokopia) from its RDB data and main.
+"""Build the Ampere (NVN2) shader corpus of a KTGL game (title ID 0400A3A01EE4C000) from its RDB data and main.
 
 Sources:
   * romfs motor_asset_re/<platform>/*.fdata and data/*.file: IDRK entries (see .weaver/ktgl_rdb.py); entries whose

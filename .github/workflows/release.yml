@@ -111,10 +111,10 @@ jobs:
                 mv build-notes.new build-notes.md
               fi
             fi
-            printf '\n\n### How to report\nOpen [a bug report](https://github.com/featureJosh/pokopia-recomp/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach `pkp.log` (and `setup.log` if Set up ran). Thank you for testing.\n' >> build-notes.md
+            printf '\n\n### How to report\nOpen [a bug report](https://github.com/Dittobyte/Recompia/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach `pkp.log` (and `setup.log` if Set up ran). Thank you for testing.\n' >> build-notes.md
           fi
           build=$(grep -m1 -E "^## ${VERSION//./\\.} \(build ([^)]+)\)" CHANGELOG.md | tr -d '\r' | sed -E 's/^## [^(]*\(build ([^)]+)\).*/\1/' || true)
-          title="Pokopia Recomp $VERSION"
+          title="Recompia $VERSION"
           if [ -n "$build" ]; then title="$title (build $build)"; elif [ "$PRERELEASE" = true ]; then title="$title (Testing)"; fi
           args=()
           [ "$PRERELEASE" = true ] && args+=(--prerelease)

@@ -1,6 +1,6 @@
 # PROJECT.md
 
-The guide to working on Pokopia Recomp: what the project is, how the code is laid out, the rules, and how to add things without breaking
+The guide to working on Recompia: what the project is, how the code is laid out, the rules, and how to add things without breaking
 the structure. It is shared in the repository so every contributor, and every AI assistant they use, works from the same rules. Read it
 once fully before your first change, then read the area you touch again before each task. Always read the
 version on `origin/main` after a `git fetch origin` (section 6.4).
@@ -61,7 +61,7 @@ What that means in practice:
 
 - Never commit game data: `/game/`, `/work/`, `*.nso`, `exefs/`, `romfs/` are git-ignored. Add files by path, never `git add -A` blindly.
 - Game-specific code lives only in `recomp/games/pkp/` and `runtime/games/pkp/`. Everything else is shared (nxrecomp, nxrt) and must
-  know no game: no "Pokopia", no `pkp.ini`, no game addresses, no texture ids, no game-tuned thresholds. Shared code asks the game
+  know no game: no game name, no `pkp.ini`, no game addresses, no texture ids, no game-tuned thresholds. Shared code asks the game
   through `nxrt/game.h` (`game::info()`) or an interface the game registers.
 - Keep each file's line endings (many are CRLF). Use an editor that keeps them; Git Bash `sed -i` strips CR.
 - Remove a worktree with `git worktree remove`, never by deleting the folder.
@@ -84,9 +84,9 @@ What that means in practice:
 
 ## 3. What the project is
 
-Static recompilation of Pokémon Pokopia (Switch 2, program `0400A3A01EE4C000`, v2.0.1a = update 655360) to native Windows x64, also
+Static recompilation of the cozy life-simulation and sandbox builder with fantastical creatures (Switch 2, program `0400A3A01EE4C000`, v2.0.1a = update 655360) to native Windows x64, also
 played on Linux handhelds through Proton (Steam Deck, Legion Go S). Goal: good to play on every PC and handheld; fix what is broken,
-make it fast, ship releases from the fork (`featureJosh/pokopia-recomp`). The fork is its own line: upstream (`drakolordx7`) gets a PR
+make it fast, ship releases from the fork (`Dittobyte/Recompia`). The fork is its own line: upstream (`drakolordx7`) gets a PR
 only when the repo owner asks for that exact one. The parent project to follow for updates is `xFractals/pokopia-native` (remote
 `native`; process in CONTRIBUTING.md).
 
@@ -354,7 +354,7 @@ alternatives. A bug report from a few players is worth fixing, but not by making
 Stop and rethink (or stop and propose, section 1) if you are about to:
 
 - turn an extra off by default, or touch a GitHub check (section 6: stop, these are not yours to decide);
-- write "Pokopia", "pkp", a game address or a game texture id outside the two `games/pkp` folders or the launcher;
+- write the game's name, "pkp", a game address or a game texture id outside the two `games/pkp` folders or the launcher;
 - copy a helper (trim, FNV, guest read, copy_tree, ini parsing, Vulkan create-info) instead of including the one that exists;
 - add a global to a file that already has an owner struct, or a `static` singleton with a hand-written reset;
 - call `hook_add_*` or `config_get_*("pkp", ...)` directly in a feature module;
@@ -439,6 +439,6 @@ what a person must check in the game.
 
 ## 12. Open questions
 
-- Older game versions (pokopia-native targets update 327680): needs an older dump.
+- Older game versions (the parent project targets update 327680): needs an older dump.
 - Shader updates that never block Play: only when the repo owner says go.
-- Cross-play with pokopia-native, lazy memory commit, indirect quad draws: pinned for later.
+- Cross-play with the parent project, lazy memory commit, indirect quad draws: pinned for later.
