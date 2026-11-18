@@ -20,6 +20,7 @@
 - Changed the launcher's list of community mods
 - Changed the launcher's default colours to **Meadow** and removed the **Koi's Camp** colours; a launcher set to Koi's Camp opens in Meadow
 - Changed the pictures of the Steam shortcuts to the Meadow scene
+- Changed the logo and the app icon
 
 ### Gameplay
 - Fixed the camera jumping in steps when flying or gliding and when sinking or swimming underwater above 60 fps (#741, #743)
