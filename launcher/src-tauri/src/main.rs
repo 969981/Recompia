@@ -75,6 +75,7 @@ mod shader_archive;
 mod shaders;
 mod steam;
 mod steam_cmds;
+mod steam_dirs;
 mod steam_vdf;
 mod states;
 mod storage;
