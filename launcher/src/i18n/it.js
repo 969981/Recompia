@@ -490,6 +490,7 @@ export default {
   'Tauri 2, Lucide (ISC), Inter (OFL)': 'Tauri 2, Lucide (ISC), Inter (OFL)',
   'Source code': 'Codice sorgente',
   'Licences': 'Licenze',
+  'Privacy': 'Privacy',
   'Community': 'Community',
   'Recompia Discord: help, testing and chat': 'Discord di Recompia: aiuto, test e chiacchiere',
   'Join Discord': 'Unisciti al Discord',

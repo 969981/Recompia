@@ -289,6 +289,7 @@ const WRITE = {
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
 const SOURCE_URL = 'https://github.com/Dittobyte/Recompia';
 const DISCORD_URL = 'https://discord.recompia.com';
+const PRIVACY_URL = 'https://github.com/Dittobyte/Recompia/blob/main/PRIVACY.md';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;
 
@@ -789,6 +790,7 @@ export const SECTIONS = [
           { id: 'built_with', label: t('Built with'), type: 'info', value: t('Tauri 2, Lucide (ISC), Inter (OFL)') },
           { id: 'repo', label: t('Source code'), type: 'info', actions: (env) => [open(`${SOURCE_URL}/tree/v${env.version}`, 'GitHub')] },
           { id: 'licences', label: t('Licences'), type: 'info', actions: [{ act: 'licences-open', label: t('Open folder'), icon: 'folder-open' }] },
+          { id: 'privacy', label: t('Privacy'), type: 'info', actions: [open(PRIVACY_URL, 'GitHub')] },
           { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
           { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },
           { id: 'bug', label: t('Report a bug'), type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },

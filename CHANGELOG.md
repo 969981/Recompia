@@ -5,6 +5,7 @@
 ### Added
 - Every download (Windows, Linux, macOS) carries the licence texts of what it contains, and Settings has a Licences row that opens them
 - Each release also has the source of the bundled save editor and of libusb
+- A Privacy page (PRIVACY.md) that lists every connection the launcher and the game make, linked from Settings
 
 ### Changed
 - Settings > Source code opens the source of the version you have installed
