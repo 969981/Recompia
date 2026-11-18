@@ -1,8 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.14.2 (build R: Raccoon Hotfix a2)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Highlights
+- **Seamless co-op v2 is ready for testing: join the Open Alpha!** Play together in one world over the internet, each player with their own character. It is stable now: there are still bugs, but nothing game-breaking. Get it from [Recompia: Co-op alpha 4](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.4) and tell us what you find
+- Fixed new Pokémon showing up invisible when **Pokémon in town** was set high (#745)
+- Added four community mods to Browse before the mod hub lists them, and Community Achievements 0.4.1 no longer gives five achievements too early
+
+### Link Play
+- Added the seamless co-op v2 Open Alpha: a separate test build, not part of this update
+  - Install: download the package for your system from [Co-op alpha 4](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.4), copy the contents of its PokopiaRecomp-0.0.0 folder over your Recompia folder, open the launcher and press **Set up again**. Saves, co-op saves, settings and shaders stay
+  - Play: open the **Co-op** tab, one player presses **Start a co-op save** and sends the invite code, every other player presses **Join a friend** and enters it
+  - Back to the normal release: press **Update** in the co-op build's launcher
+  - Bugs: press **Save logs for a bug report** on the Co-op page and send the zip with what you did in a GitHub issue
 
 ### Performance
 - Graphics cards of 4 or 6 GB on PCs without Resizable BAR now read all of the game's shader constants from video memory; a third of them still came from system memory
