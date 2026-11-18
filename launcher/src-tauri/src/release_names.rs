@@ -66,7 +66,9 @@ pub fn find_package(staged: &Path, version: &str, host: Host) -> Result<(PathBuf
 /// An install from an older macOS `.app` (`Contents/MacOS`, paths.rs) keeps its name too: the bundle's Info.plist names the binary.
 pub fn landing(root: &Path, running: &Path, name: &str, host: Host) -> PathBuf {
     let bundle = root.ends_with("Contents/MacOS");
-    let ours = !bundle && running.parent() == Some(root) && running.file_name().and_then(|n| n.to_str()).is_some_and(|n| host.launchers().contains(&n));
+    // any case: Windows and macOS file names are case-insensitive, and a file Explorer shows as ours is ours
+    let named = |n: &str| host.launchers().iter().any(|l| l.eq_ignore_ascii_case(n));
+    let ours = !bundle && running.parent() == Some(root) && running.file_name().and_then(|n| n.to_str()).is_some_and(named);
     if ours {
         root.join(name)
     } else {
@@ -159,6 +161,7 @@ mod tests {
             let elsewhere = Path::new("/other").join(old);
             assert_eq!(landing(root, &elsewhere, new, host), elsewhere, "a launcher outside the install is replaced where it is");
         }
+        assert_eq!(landing(root, &root.join("pokopialauncher.exe"), "Recompia.exe", Host::Windows), root.join("Recompia.exe"), "any case");
         let bundle = Path::new("/Applications/R.app/Contents/MacOS");
         let [new, old] = Host::MacOs.launchers();
         assert_eq!(landing(bundle, &bundle.join(old), new, Host::MacOs), bundle.join(old), "a bundle keeps the binary its Info.plist names");

@@ -222,7 +222,8 @@ fn apply_with(job: &Job, report: &mut dyn FnMut(&str, u64, u64), mut mover: Move
     let files: Vec<PathBuf> = walk(job.package)
         .map_err(unreadable)?
         .into_iter()
-        .filter(|r| !kept(r) && r != Path::new(job.launcher_name) && Some(r) != stub.as_ref())
+        // the stub in any case, as `landing` matched the running name: on Windows `PokopiaLauncher.exe` is the running file
+        .filter(|r| !kept(r) && r != Path::new(job.launcher_name) && !stub.as_ref().is_some_and(|s| s.as_os_str().eq_ignore_ascii_case(r)))
         .collect();
     // a folder where the package has a file: the one conflict moving aside must not resolve, it would take the folder's content along
     if let Some(r) = files.iter().find(|r| job.root.join(r).is_dir()) {
@@ -378,6 +379,18 @@ mod tests {
         assert_eq!(read(&to).as_deref(), Some("new launcher"));
         assert!(!install.join("Recompia.exe").exists());
         assert_eq!(read(&install.join("PokopiaLauncher.exe")).as_deref(), Some("stub"), "the stub is a plain file of the package then");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_running_launcher_named_in_another_case_is_still_ours_and_gets_the_stub() {
+        let (tmp, install, work) =
+            across("case", "pokopialauncher.exe", "Recompia-1.0.0", &[("Recompia.exe", "new launcher"), ("PokopiaLauncher.exe", "stub")]);
+        let (_, to) = swap_across(&install, &work, "pokopialauncher.exe", "1.0.0");
+        assert_eq!(read(&to).as_deref(), Some("new launcher"));
+        assert_eq!(read(&install.join("PokopiaLauncher.exe")).as_deref(), Some("stub"));
+        assert_eq!(read(&install.join("pokopialauncher.exe.old")).as_deref(), Some("old launcher"));
         let _ = fs::remove_dir_all(&tmp);
     }
 
