@@ -78,7 +78,7 @@ PokoMac (https://github.com/Chaos192/PokoMac, Copyright (c) 2026 Chaos192) is th
 
 ## Eglantine / Lichii (GPL-3.0)
 
-`games/pkp/core/pkp_pokemon_cap.cpp` ports the default (non-staged) behaviour of the Eglantine Pokémon cap, and the id token answers in `src/services/acc.cpp` follow Lichii / Eglantine `src/core/hle/service/acc/acc.cpp` (yuzu family, GPL-3.0). Both files are GPL-3.0-or-later here; the GPL-3.0 text is the `LICENSE` file at the repository root.
+`games/pkp/core/pkp_pokemon_cap.cpp` ports the default (non-staged) behaviour of the Eglantine town population cap, and the id token answers in `src/services/acc.cpp` follow Lichii / Eglantine `src/core/hle/service/acc/acc.cpp` (yuzu family, GPL-3.0). Both files are GPL-3.0-or-later here; the GPL-3.0 text is the `LICENSE` file at the repository root.
 
 ## LLVM libc++abi (Apache-2.0 with LLVM exceptions)
 
@@ -264,7 +264,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ## miniz 3.0.2 (MIT)
 
 `third_party/miniz/` is miniz 3.0.2 (https://github.com/richgel999/miniz, release asset `miniz-3.0.2.zip`), the amalgamated `miniz.c` and
-`miniz.h`, unchanged. It reads and writes the zlib stream of Pokopia's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
+`miniz.h`, unchanged. It reads and writes the zlib stream of the game's CMNDAT for the save repair (`games/pkp/core/pkp_save_uuid.cpp`).
 `LICENSE`, reproduced verbatim:
 
 ```text
