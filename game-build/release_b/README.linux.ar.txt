@@ -9,7 +9,7 @@ Recompia @VERSION@ لنظام Linux وSteamOS وSteam Deck
 4. اضغط Play. تعمل اللعبة أصلياً: بدون Proton وبدون Wine. موسّعات FSR 3 و DLSS خاصة بـ Windows فقط.
 
 إذا لم يبدأ PokopiaLauncher.AppImage (نظام بدون FUSE): ./PokopiaLauncher.AppImage --appimage-extract-and-run
-من Steam (وضع الألعاب على Deck): أضف PokopiaLauncher.AppImage كلعبة غير تابعة لـ Steam مع خيارات التشغيل --play.
+من Steam (وضع الألعاب على Deck): أضف المشغّل من الإعدادات ثم Add to Steam، أو أضف PokopiaLauncher.AppImage كلعبة غير تابعة لـ Steam دون خيارات تشغيل. يفتح المشغّل، الذي يتحقق من التحديثات؛ ثم اضغط Play.
 
 التحديث: استخرج الإصدار الجديد فوق تثبيتك. إذا غيّر التحديث شيفرة اللعبة، يخبرك المشغّل: اضغط Set up مرة أخرى وسيعيد بناء pkp. تبقى شيدراتك وملفات حفظك.
 

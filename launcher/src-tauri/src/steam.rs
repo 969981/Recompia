@@ -1,5 +1,7 @@
-//! Add to Steam: puts the launcher into Steam as a Non-Steam Game ("Recompia", or "Recompia (Testing)" on the Testing channel) with the
-//! launch option `--play`, and copies the artwork into Steam's `grid` folder, so Game Mode and Big Picture show it without a search.
+//! Add to Steam: puts the launcher into Steam as a Non-Steam Game ("Recompia Launcher", or "Recompia Launcher (Testing)" on the Testing
+//! channel), with no launch options, and copies the artwork into Steam's `grid` folder, so Game Mode and Big Picture show it without a
+//! search. The shortcut opens the launcher window, which checks for updates before Play. Older launchers also added a game shortcut
+//! ("Recompia") that started the game without the window; it is no longer added, but it is still found and can be removed.
 //!
 //! Files (the app id rule and the file layout are the ones Steam ROM Manager uses):
 //!  * `<Steam>/userdata/<account>/config/shortcuts.vdf`: Steam's binary key-value file, one numbered entry per shortcut. Steam keeps it in
@@ -406,7 +408,7 @@ pub struct Status {
     pub found: bool,
     pub running: bool,
     pub accounts: usize,
-    /// Accounts that have the shortcut that starts the game straight away (`--play`).
+    /// Accounts that still have the old game shortcut (added by an earlier launcher; it started the game without the window).
     pub game_added: usize,
     /// Accounts that have the shortcut that opens the launcher window.
     pub launcher_added: usize,
@@ -414,9 +416,10 @@ pub struct Status {
     pub launcher_name: String,
 }
 
-/// Which shortcut: the game itself (starts it at once, `--play`) or the launcher window.
+/// Which shortcut: the launcher window, or the old game shortcut an earlier launcher added (found and removed, never added).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
+    /// The old "Recompia" shortcut. Only used to find it and remove it.
     Game,
     Launcher,
 }
@@ -431,8 +434,9 @@ impl Target {
     }
 }
 
-/// The shortcut for this launcher's own file (the AppImage when run from one). The game shortcut is named "Recompia" (the name the game
-/// goes by, so a SteamGridDB search for it finds the right title) and starts the game with `--play`; the launcher shortcut is "Recompia Launcher" and has no launch option.
+/// The shortcut for this launcher's own file (the AppImage when run from one). The launcher shortcut is "Recompia Launcher" and has no
+/// launch option. The old game shortcut ("Recompia", the name the game goes by) is the same file under another name; it is matched by
+/// name and exe, so its old launch option does not matter.
 pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
     let exe = std::env::var_os("APPIMAGE")
         .map(PathBuf::from)
@@ -444,7 +448,7 @@ pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
         name: shortcut_name(look.testing, target),
         exe: format!("\"{}\"", exe.display()),
         start_dir: format!("\"{}\"", dir.display()),
-        launch: if target == Target::Game { "--play".into() } else { String::new() },
+        launch: String::new(),
         look: *look,
     })
 }
@@ -483,7 +487,8 @@ pub fn status(look: &Branding) -> Status {
     }
 }
 
-pub fn add(look: &Branding, target: Target) -> Result<String, String> {
+/// Adds the launcher shortcut for every Steam account.
+pub fn add(look: &Branding) -> Result<String, String> {
     if steam_running() {
         return Err("Close Steam first (Steam, Exit), then press the button again. Steam only saves its shortcut list when it closes.".into());
     }
@@ -491,7 +496,7 @@ pub fn add(look: &Branding, target: Target) -> Result<String, String> {
     if accs.is_empty() {
         return Err("Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and try again.".into());
     }
-    let spec = spec_here(look, target)?;
+    let spec = spec_here(look, Target::Launcher)?;
     for a in &accs {
         add_to_account(a, &spec)?;
     }
@@ -560,7 +565,7 @@ mod tests {
             name: if testing { "Recompia (Testing)" } else { "Recompia" }.into(),
             exe: "\"/home/deck/Games/PokopiaRecomp/PokopiaLauncher.AppImage\"".into(),
             start_dir: "\"/home/deck/Games/PokopiaRecomp\"".into(),
-            launch: "--play".into(),
+            launch: String::new(),
             look: Branding { testing },
         }
     }
@@ -612,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn game_and_launcher_are_two_shortcuts() {
+    fn the_old_game_shortcut_is_still_found_and_removed() {
         let g = shortcut_name(false, Target::Game);
         let l = shortcut_name(false, Target::Launcher);
         assert_eq!(g, "Recompia");
@@ -622,6 +627,7 @@ mod tests {
         assert!(Target::parse("game").is_ok() && Target::parse("launcher").is_ok() && Target::parse("x").is_err());
         let acc = tmp("two");
         let exe = "\"/h/PokopiaLauncher.AppImage\"".to_string();
+        // what an earlier launcher wrote: the game shortcut with its start option; the launcher's own spec for it has none and must still match
         let game = Spec { name: g, exe: exe.clone(), start_dir: "\"/h\"".into(), launch: "--play".into(), look: LOOK };
         let launcher = Spec { name: l, exe, start_dir: "\"/h\"".into(), launch: String::new(), look: LOOK };
         assert_ne!(short_id(&game.exe, &game.name), short_id(&launcher.exe, &launcher.name));
@@ -630,7 +636,8 @@ mod tests {
         let root = parse(&fs::read(acc.join("config/shortcuts.vdf")).unwrap()).unwrap();
         assert!(has_entry(&root, &game) && has_entry(&root, &launcher));
         // removing one leaves the other
-        assert!(remove_from_account(&acc, &game).unwrap());
+        let plain = Spec { name: game.name.clone(), exe: game.exe.clone(), start_dir: game.start_dir.clone(), launch: String::new(), look: LOOK };
+        assert!(remove_from_account(&acc, &plain).unwrap());
         let root = parse(&fs::read(acc.join("config/shortcuts.vdf")).unwrap()).unwrap();
         assert!(!has_entry(&root, &game) && has_entry(&root, &launcher));
         let _ = fs::remove_dir_all(&acc);

@@ -135,7 +135,7 @@ Nothing runs through Proton or Wine: the launcher, the game, the shader translat
 
 If `PokopiaLauncher.AppImage` does not start on a system without FUSE, run `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
-To start the game from Steam (Game Mode on the Deck): in Desktop Mode, **Add a Non-Steam Game**, pick `PokopiaLauncher.AppImage`, and set its launch options to `--play`. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+To start from Steam (Game Mode on the Deck): add the launcher to Steam, either in the launcher's Settings (Steam, Add to Steam) or in Desktop Mode with **Add a Non-Steam Game**, picking `PokopiaLauncher.AppImage` and leaving the launch options empty. The shortcut opens the launcher, which checks for updates; then press Play. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## Mods and translations
 

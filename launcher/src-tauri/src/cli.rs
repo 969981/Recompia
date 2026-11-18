@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The command line modes: the relay alone (--host) and the game without a window (--play).
+//! The command line modes: the relay alone (--host).
 
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::paths::exe_dir;
-use crate::{lan, play, relay};
+use crate::{lan, relay};
 
 /// `--host [options]`: the relay alone, no window, log lines on stdout, until Ctrl+C. Listens on 0.0.0.0:47610 by default. The options are
 /// the relay crate's (pokopia_relay::cli, shared with the standalone `pokopia-relay` server); `--no-udp`: no relay UDP (game datagrams stay
@@ -72,18 +70,4 @@ mod win_console {
             SetConsoleCtrlHandler(Some(on_ctrl), 1);
         }
     }
-}
-
-/// The game folder a command line mode works on: `--game <folder>`, else the launcher's own (paths.rs default_game_dir).
-fn game_arg(args: &[String]) -> PathBuf {
-    args.iter().position(|a| a == "--game").and_then(|i| args.get(i + 1)).map(PathBuf::from).unwrap_or_else(crate::paths::default_game_dir)
-}
-
-/// `--play [--game <folder>]`: starts the game as Play does, without the window (a Steam or Sunshine shortcut). The game
-/// folder is the launcher's own unless given: the one set in Settings lives in the window's config, not read here.
-pub fn run_play(args: &[String]) -> i32 {
-    #[cfg(windows)]
-    win_console::attach_and_hook_ctrl_c();
-    let game = game_arg(args);
-    play::run_cli(&game, &exe_dir().join("tools"))
 }

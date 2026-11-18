@@ -98,9 +98,8 @@ fn main() {
     if args.iter().any(|a| a == "--host") {
         std::process::exit(cli::run_headless(&args));
     }
-    if args.iter().any(|a| a == "--play") {
-        std::process::exit(cli::run_play(&args));
-    }
+    // no `--play` mode any more: old Steam/Sunshine shortcuts still pass it (alone or with `--game <dir>`) and just get the window,
+    // which checks for updates first; Tauri's builder ignores arguments it does not know
     readiness::UPDATED.store(args.iter().any(|a| a == "--updated"), Ordering::SeqCst);
     // WebKitGTK's DMA-BUF renderer leaves the window blank or kills it ("Error 71 (Protocol error)") on NVIDIA's driver
     #[cfg(target_os = "linux")]

@@ -127,7 +127,7 @@ F1 abre los ajustes dentro del juego. El botón central del ratón activa o desa
 
 Si `PokopiaLauncher.AppImage` no se inicia en un sistema sin FUSE, ejecuta `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
 
-Para iniciar el juego desde Steam (modo Juego en Deck): en el modo de escritorio, selecciona **Add a Non-Steam Game**, elige `PokopiaLauncher.AppImage` y establece sus opciones de lanzamiento en `--play`. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+Para iniciar desde Steam (modo Juego en Deck): añade el launcher a Steam, bien en los Ajustes del launcher (Steam, Add to Steam) o en el modo de escritorio con **Add a Non-Steam Game**, eligiendo `PokopiaLauncher.AppImage` y dejando vacías las opciones de lanzamiento. El acceso directo abre el launcher, que busca actualizaciones; después pulsa Jugar. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## Mods y traducciones
 

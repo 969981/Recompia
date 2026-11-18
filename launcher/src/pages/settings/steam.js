@@ -1,4 +1,4 @@
-// Steam shortcuts: 'game' starts the game at once, 'launcher' opens this window. Adds or removes one and says what happened.
+// Steam shortcuts: the launcher shortcut opens this window (add or remove); the old game shortcut an earlier launcher added can only be removed.
 import { api } from '../../api.js';
 import { errText, toast } from '../../ui.js';
 import { fromBackend } from '../../backend-text.js';
@@ -15,12 +15,12 @@ export function createSteamActions(h) {
     h.draw();
   }
 
-  async function steamDo(command, target) {
+  async function steamDo(command, args) {
     if (st.steamBusy) return;
     st.steamBusy = true;
     h.draw();
     try {
-      toast(fromBackend(await command({ target })), 'ok');
+      toast(fromBackend(await command(args)), 'ok');
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -31,10 +31,9 @@ export function createSteamActions(h) {
   return {
     load: refresh,
     actions: {
-      'steam-add-game': () => steamDo(api.steamAdd, 'game'),
-      'steam-add-launcher': () => steamDo(api.steamAdd, 'launcher'),
-      'steam-remove-game': () => steamDo(api.steamRemove, 'game'),
-      'steam-remove-launcher': () => steamDo(api.steamRemove, 'launcher'),
+      'steam-add-launcher': () => steamDo(api.steamAdd),
+      'steam-remove-game': () => steamDo(api.steamRemove, { target: 'game' }),
+      'steam-remove-launcher': () => steamDo(api.steamRemove, { target: 'launcher' }),
     },
   };
 }

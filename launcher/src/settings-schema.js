@@ -670,23 +670,22 @@ export const SECTIONS = [
             id: 'steam_note', type: 'note',
             note: (env) => ({ text: env.steam && !env.steam.found
               ? t('Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.')
-              : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.') }),
+              : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. The shortcut opens this window, which checks for updates, and then you press Play.') }),
           },
           // The buttons stay pressable while Steam runs: the status is read when the page opens, so a player who closes Steam afterwards
           // would face dead buttons. steam.rs checks again on every press and answers "Close Steam first" while it runs.
-          {
-            id: 'steam_game', label: t('Game in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.game_added ? t('In Steam as {name}', { name: env.steam.game_name }) : t('Not in Steam. Starts the game at once.')),
-            actions: (env) => [env.steam?.game_added
-              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
-              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
-          },
           {
             id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
             value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
             actions: (env) => [env.steam?.launcher_added
               ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
               : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
+          },
+          {
+            // only for a shortcut an earlier launcher added: it started the game without the window, so updates were skipped. It is never added again.
+            id: 'steam_game', label: t('Old game shortcut'), type: 'info', when: (v, env) => !!env.steam?.found && !!env.steam.game_added,
+            value: (env) => t('Still in Steam as {name}. This is an old shortcut: the launcher shortcut replaces it.', { name: env.steam.game_name }),
+            actions: (env) => [{ act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }],
           },
           { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: t('Steam is running. Close it (Steam, Exit) to add or remove a shortcut.') }) },
         ],
