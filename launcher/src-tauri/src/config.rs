@@ -43,6 +43,9 @@ pub struct Config {
     pub achievements_unlocked: bool,
     /// The player unlocked the mod's sharing setting (mods_lock.rs): it may be switched off. Locked unless the player unlocks it.
     pub achievements_sharing_unlocked: bool,
+    /// The install folder whose first start under the launcher's new file name already ran (rename_migrate.rs); empty: none yet. A folder,
+    /// not a yes/no, because every install on the machine shares this file.
+    pub renamed_in: String,
     // Retired keys an older launcher.json may still hold are skipped (serde ignores unknown fields): `logo` and `icon` (the logo and
     // icon choice, removed with the Classic look).
 }
