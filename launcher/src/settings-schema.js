@@ -672,19 +672,21 @@ export const SECTIONS = [
               ? t('Steam was not found on this PC, or nobody has signed in to it yet. Start Steam once, sign in, close it, and come back.')
               : t('Adds a shortcut with the Recompia artwork to your Steam library, so it shows in Game Mode and Big Picture. Close Steam first, then start it again afterwards. Add the game to start playing at once, or the launcher to open this window first.') }),
           },
+          // The buttons stay pressable while Steam runs: the status is read when the page opens, so a player who closes Steam afterwards
+          // would face dead buttons. steam.rs checks again on every press and answers "Close Steam first" while it runs.
           {
             id: 'steam_game', label: t('Game in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
             value: (env) => (env.steam?.game_added ? t('In Steam as {name}', { name: env.steam.game_name }) : t('Not in Steam. Starts the game at once.')),
             actions: (env) => [env.steam?.game_added
-              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+              ? { act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
+              : { act: 'steam-add-game', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
           },
           {
             id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
             value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
             actions: (env) => [env.steam?.launcher_added
-              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy || env.steam?.running }
-              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy || env.steam?.running }],
+              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
+              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
           },
           { id: 'steam_running', type: 'note', when: (v, env) => !!env.steam?.running, note: () => ({ text: t('Steam is running. Close it (Steam, Exit) to add or remove a shortcut.') }) },
         ],

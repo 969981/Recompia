@@ -24,6 +24,7 @@
 - Changed the pictures of the Steam shortcuts to the Meadow scene
 - Changed the logo and the app icon; the Classic logo choice is gone
 - Steam shortcut pictures the launcher added earlier are replaced with the new ones at the next launcher start (your own Steam art is kept)
+- Fixed **Add to Steam** buttons that stayed greyed out after closing Steam; they now always answer, and say "Close Steam first" while Steam runs
 
 ### Gameplay
 - Fixed the camera jumping in steps when flying or gliding and when sinking or swimming underwater above 60 fps (#741, #743)
