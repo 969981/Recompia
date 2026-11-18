@@ -17,6 +17,7 @@
 
 ### Gameplay
 - Fixed the pause menu's **Save** prompt only showing inside a home; it now shows wherever the pause menu opens, also while hosting or visiting in Link Play
+- Fixed new Pokémon showing up invisible when **Pokémon in town** was set high: the game draws at most about 50 Pokémon at once, so the setting now goes up to 50 and higher values count as 50 (#745)
 
 ### Launcher
 - Added icons to the Settings tabs

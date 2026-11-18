@@ -349,7 +349,7 @@ export default {
   'Save button in the pause menu': 'ポーズメニューにセーブボタン',
   'More Pokémon in town': '町に住めるポケモンを増やす',
   'Pokémon in town': '町のポケモンの数',
-  'Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.': '実験的な機能です。訪問者や一時的な出現は、住人とゲームの64枠を共有するため、数を多くするとその分の余裕が減ります。',
+  'Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.': '実験的な機能です。訪問者や一時的な出現は、住人とゲームの50枠を共有するため、数を多くするとその分の余裕が減ります。',
   'Download DLSS?': 'DLSSをダウンロードしますか？',
   'Download': 'ダウンロード',
   'Your current save moves to a backup folder first, and the source is only read. A copied save cannot join its original in Link Play.': '現在のセーブはまずバックアップフォルダーに移動され、元のデータは読み取りのみです。コピーしたセーブは、Link Playで元のセーブと一緒に参加できません。',
