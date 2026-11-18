@@ -35,7 +35,7 @@ namespace {
 // yields). auto: wait on a handheld (host_is_handheld; sleep when ntdll has no address wait), yield elsewhere.
 // Measured in game with sleep against yield: on the PC, uncapped, yielding 231 fps on 4.1 cores and sleeping 198 fps on 3.8 cores; on a Steam Deck LCD, where the frame waits on the GPU anyway and CPU and GPU share one power budget,
 // sleeping 54 fps (1% lows ~30) against 52 yielding (lows ~27).
-// Pokopia polls its GPU fences with ~80 us SleepThread calls on two threads, thousands a second: yielded through, each keeps a
+// The game polls its GPU fences with ~80 us SleepThread calls on two threads, thousands a second: yielded through, each keeps a
 // processor core busy for as long as the GPU takes.
 //
 // On a Steam Deck OLED under Proton the same call measured ~1.1 ms for a 100 us request (a 60 s trace in the world: 46,000 sleeps on each
@@ -160,7 +160,7 @@ void timer_wait(int64_t ns) {
 #if defined(__APPLE__) || defined(__linux__)
     // A direct precise sleep, not the waitable-timer shim: that one wakes a worker thread on a condition variable, the worker
     // signals an event, and this thread then has to be scheduled to return from its wait. Two context switches per call make a
-    // 1 ms guest sleep cost about 1.4 ms, and Pokopia's frame loop sleeps out most of its frame in 1 ms steps, so the frame
+    // 1 ms guest sleep cost about 1.4 ms, and the game's frame loop sleeps out most of its frame in 1 ms steps, so the frame
     // inherited the error (24 ms instead of the 16.7 ms it paces for). mach_wait_until and clock_nanosleep take an absolute
     // monotonic deadline and return within tens of microseconds of it.
 #if defined(__APPLE__)
@@ -211,7 +211,7 @@ void sleep_once(int64_t ns) {
         yield_host();
         return;
     }
-    // Short sleeps (polls such as Pokopia's GPU-fence wait, 100 us a round) overshoot to about half a millisecond on the timer: yield until the
+    // Short sleeps (polls such as the game's GPU-fence wait, 100 us a round) overshoot to about half a millisecond on the timer: yield until the
     // deadline instead. Longer ones keep the timer (no busy waiting while a thread idles).
     // A thread that armed an early wake with a poll just before (nxrt/early_wake.h) is in a poll loop whatever span it asks for: on the
     // address wait its sleep is a short one up to kEarlyWakeMaxNs, and a fire ends it.
@@ -246,8 +246,8 @@ void sleep_once(int64_t ns) {
         if (!early) short_sleep_note(ns, (end ? end : qpc_ns()) - t0);
         return;
     }
-    // [sched] precise_sleep: the timer is asked for less by its learned lateness (precise_wait.cpp). Pokopia's main thread waits out each
-    // frame in about 900 SleepThread(1 ms) a second; uncorrected, each takes about 1.4-1.5 ms (pokopia-native m4-title: title 59.3 Hz).
+    // [sched] precise_sleep: the timer is asked for less by its learned lateness (precise_wait.cpp). The game's main thread waits out each
+    // frame in about 900 SleepThread(1 ms) a second; uncorrected, each takes about 1.4-1.5 ms (the parent project m4-title: title 59.3 Hz).
     if (precise_sleep_enabled()) {
         precise_wait_ns(ns, nullptr);
         return;
@@ -270,7 +270,7 @@ void detail::sleep_timer_ns(int64_t ns) {
 }
 
 // On the thread set_blocked_hook names, a sleep longer than 10 ms is cut into 10 ms slices with the hook run between them, as in the kernel
-// waits: Pokopia's main thread sleeps in SleepThread while the software keyboard applet is open (the freeze report's main stack).
+// waits: the game's main thread sleeps in SleepThread while the software keyboard applet is open (the freeze report's main stack).
 void sleep_ns(int64_t ns) {
     if (clock::virtual_sleep(ns)) return;                   // a virtual clock (deterministic test mode): time advances, the thread only yields
     constexpr int64_t kSlice = 10000000;

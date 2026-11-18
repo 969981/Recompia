@@ -92,7 +92,7 @@ void handles_reset();                                      // tests
 // is a busy spin (on a handheld that shares one power budget between CPU and GPU, spin watts come out of the GPU clock). The step:
 // the run's first `plain` yields hand the processor over (yield_host); then Sleep(0) until the run has lasted start_ns; then each yield
 // sleeps an eighth of the run so far, clamped to [min_ns, cap_ns]. Any other SVC, or changed registers, starts a new run.
-// Run shape from pokopia-native host/hle_thread.c yield_backoff_ns / thr_yield (MIT) @7c3655d; the Sleep(0) step is ours.
+// Run shape from the parent project host/hle_thread.c yield_backoff_ns / thr_yield (MIT) @7c3655d; the Sleep(0) step is ours.
 struct YieldBackoffCfg {
     uint32_t plain = 64;                 // the run's first yields: SwitchToThread
     uint64_t start_ns = 2000000;         // until the run has lasted this long: Sleep(0)

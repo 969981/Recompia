@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus (pkp_menu.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/menus.md).
+// Game layer, the mouse in the game's menus (pkp_menu.h). Offsets in `main` of the 2.0.1 update, found in IDA (work/re/menus.md).
 //
 // The game's UI is KTGL screen layouts: a layout object holds its panes in a list, each pane has a name, a size and a world matrix in a
 // 1920x1080 canvas (origin at the centre, y up). The game itself never hit-tests them for its menus (the engine's script call
@@ -125,7 +125,7 @@ play::Act menu_frame(bool menu_up, const play::mm::Geometry& g) {
     s.active = true;
     s.pages.clear();
     scan();
-    // the UI plane: Pokopia keeps its menus and HUD 16:9 and centred on wider shapes (p5l at 21:9: the whole-picture mapping hit one slot left)
+    // the UI plane: the game keeps its menus and HUD 16:9 and centred on wider shapes (p5l at 21:9: the whole-picture mapping hit one slot left)
     const float px = (snap.nx + 1.f) * 0.5f * kCanvasW, py = (1.f - snap.ny) * 0.5f * kCanvasH;
     pick(px, py, snap.inside && snap.shown);
     s.frame_scanned = true;

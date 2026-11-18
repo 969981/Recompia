@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: a story dig spot a visitor digs up is still the host's find (pkp_link_digspots.h).
+// Game layer: a story dig spot a visitor digs up is still the host's find (pkp_link_digspots.h).
 //
 // The 2.0.1 main's dig-spot manager (*(main+0x3561900) + 0x2f30e0) holds the 19 story dig spots at +0x820, 10 bytes each (id 1-19):
 // +2 the glow's effect handle, +4 u8 the stage, +6 u16 the data row, +8 valid.

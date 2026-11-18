@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The Pokémon Pokopia game module (docs/GAME_BOUNDARY.md): what the game-independent base needs to run this title, as one
+// The game module (docs/GAME_BOUNDARY.md): what the game-independent base needs to run this title, as one
 // nxrt::game::Info. Libraries (games/pkp/CMakeLists.txt), each a superset of the one before:
 //   nxrt_game_pkp_data   identity, branding, factory controls.ini (pure data)   nxrt_register_game_pkp_data()
 //   nxrt_game_pkp_core   + title facts (needs nxrt)                             nxrt_register_game_pkp_core()

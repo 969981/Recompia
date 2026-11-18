@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: rows of the game's data tables ([main + layout::kTables], the data-table manager), looked up as the game does. One
+// Game layer: rows of the game's data tables ([main + layout::kTables], the data-table manager), looked up as the game does. One
 // lookup for every hook file (the key guide, the inventory sort, the crafting search).
 //
 // The manager holds its tables as qwords at +0x10 + offset, and the u32 at layout::kTableCount is how many it holds: a table at `off` is

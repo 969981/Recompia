@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus (pkp_menu.cpp): the pointer over the game's UI panes, hover moves the game's own cursor
+// Game layer, the mouse in the game's menus (pkp_menu.cpp): the pointer over the game's UI panes, hover moves the game's own cursor
 // there, left click confirms, right click and the wheel are menu bindings (pkp_data.cpp). A feature of the registry; its frame answers
 // are wired into play mode's GamePlay table by pkp_game.cpp.
 #pragma once

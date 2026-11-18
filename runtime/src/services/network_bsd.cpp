@@ -77,11 +77,11 @@ uint32_t bsd_recv(ipc::Response& rsp, int fd, int flags, const ipc::Buffer& data
     return bsd_ret(rsp, vsock::stack().recvfrom(fd, buf_mut(data), static_cast<size_t>(data.size), flags, from));
 }
 
-// ---- [net] protocol = native: the co-op module's virtual sockets (third_party/pokopia-coop coop.h, after pokopia-native's
+// ---- [net] protocol = native: the co-op module's virtual sockets (third_party/pokopia-coop coop.h, after the parent project's
 // windows/src/coop/nxnative/sock_glue.c). AF_INET datagram sockets made while its ldn is initialized are its descriptors (0x100..0x11F);
 // every command on one of them goes to coop_vnet_*, everything else stays on the vsock table. The module answers >= 0 or -errno in
 // FreeBSD numbers; bsd answers Linux numbers (as vsock does), so they are translated. It has no connected sockets: Send/Write on one
-// answers EDESTADDRREQ, Connect, GetPeerName and Shutdown ENETDOWN (pokopia-native's answer). Poll and Select wait on the module when
+// answers EDESTADDRREQ, Connect, GetPeerName and Shutdown ENETDOWN (the parent project's answer). Poll and Select wait on the module when
 // every descriptor in the set is one of its; any other set keeps the offline answer (-1, ENETDOWN).
 static_assert(vsock::kMaxSockets <= COOP_FD_BASE, "vsock descriptors (0..kMaxSockets-1) must stay below the co-op module's");
 

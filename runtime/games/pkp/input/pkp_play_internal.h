@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode's PC features (pkp_play.cpp and the files it is split into): the state and the hook sites they share, and the
+// Game layer, play mode's PC features (pkp_play.cpp and the files it is split into): the state and the hook sites they share, and the
 // functions one of them calls in another. Internal to those files.
 #pragma once
 #include <atomic>

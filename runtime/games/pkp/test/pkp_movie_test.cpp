@@ -6,7 +6,7 @@
 //   [test] movie_frame = 300     game frame at which the player is created
 //   [test] shot_dir              where the decoded frames go as movie_<name>_<n>.png (frames 1, 60, 300, 900, 1500, 3000)
 //
-// It uses the player class the game's movie component uses (main, Pokopia 2.0.1a): create 0x7101fd33ec with the component's config
+// It uses the player class the game's movie component uses (main, the game 2.0.1a): create 0x7101fd33ec with the component's config
 // (NV12 output, as sub_7102579094 builds it), open 0x7101fd3940 with a stand-in file entry, start 0x7101fd3b38. The player's own threads
 // then demux (nn::movie::MediaExtractor) and decode (movie:: in subsdk0 over nn::codec, on the host here). Every game frame the hook
 // takes the next decoded frame from the player's video output queue the way 0x7101fd7a60 does (GetOutputBuffer into the output's NV12
@@ -34,7 +34,7 @@ namespace nxrt::games::pkp {
 namespace {
 
 constexpr const char* kTag = "pkp.movietest";
-// main, Pokopia 2.0.1a (offsets from the main base)
+// main, the game 2.0.1a (offsets from the main base)
 constexpr uint64_t kPlayerCreate = 0x1fd33ec;    // (renderer, gfx, const Config*, Allocator*) -> Player*
 // steps of 0x1fd3b98 (start) with no audio track, on Player+104 unless noted
 constexpr uint64_t kStOutputs = 0x1fd4cec;       // makes the audio/video output objects (Player+1176 / +1184) -> result

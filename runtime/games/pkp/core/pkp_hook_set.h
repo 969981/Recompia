@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the hooks one feature module registered (nxrt/hooks.h), owned by the feature registry (pkp_feature.h). A module adds
+// Game layer: the hooks one feature module registered (nxrt/hooks.h), owned by the feature registry (pkp_feature.h). A module adds
 // its hooks through the set it is given at install; the registry removes every hook of the set when play mode stops, so removal is
 // complete whatever the module registered. A module that drops one of its hooks while it runs (Link Play's arming) removes it here.
 // Main thread only (install, remove and play mode's frame).

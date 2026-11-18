@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op's safety net ([pkp] link_story_coop, pkp_linkplay.h). With Story co-op a player's story also moves in
+// Game layer: Story co-op's safety net ([pkp] link_story_coop, pkp_linkplay.h). With Story co-op a player's story also moves in
 // other players' worlds, so two records are kept next to the save and a step is saved at once, all only while the setting is on:
 // - a copy of the save as it was at start, before the game read it: <save dir>/story-coop-backup/<yyyymmdd-hhmmss>/ (the newest
 //   kCopiesKept stay). Putting one back is copying its <key> folder and <key>.meta over <save dir>/account/ with the game closed;

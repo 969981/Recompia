@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the icons button prompts are drawn with (pkp_prompt_icons.cpp): the prompt icon pack's pad icons and Kenney's keyboard
+// Game layer, the icons button prompts are drawn with (pkp_prompt_icons.cpp): the prompt icon pack's pad icons and Kenney's keyboard
 // and mouse icons (assets/kbm_icons/<name>.png next to the exe), loaded once and kept, plus the image helpers that put them into the
 // game's glyphs (pkp_kbm.cpp) and into the game's art (pkp_baked_prompts.cpp). Not thread-safe: the owner (the kbm feature) holds its lock.
 #pragma once

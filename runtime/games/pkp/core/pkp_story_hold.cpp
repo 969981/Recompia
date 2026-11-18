@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op holds a visitor's world-changing quests for the visitor's own world (pkp_story_hold.h).
+// Game layer: Story co-op holds a visitor's world-changing quests for the visitor's own world (pkp_story_hold.h).
 //
 // The site is in the quest pump of the 2.0.1 main, 0x11b600: for each id of the active list it reads the quest's flag (0x5d86e4) and at
 // 0x11b6a4, `tbz w0, #0, <next>`, goes on to the completion (0x11bd3c: state 3, the row's second command set through 0x11c0a4) and takes

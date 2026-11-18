@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, Link Play in the story areas ([pkp] link_interact_everywhere, link_story_coop; pkp_linkplay.h): no Dream Island trip
+// Game layer, Link Play in the story areas ([pkp] link_interact_everywhere, link_story_coop; pkp_linkplay.h): no Dream Island trip
 // from a story area's session.
 //
 // The trip is the game's own group feature in Palette Town and on a Cloud Island: a poll ("<player> is going to a Dream Island"), then

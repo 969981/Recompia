@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: the raw mouse camera (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the 2.0.1 update.
+// Game layer, play mode: the raw mouse camera (pkp_play.h; split out of pkp_play.cpp). Offsets in `main` of the 2.0.1 update.
 //
 // Mouse camera. The follow camera's update (0x87840, vtable slot of the class at 0x322cd58) turns the right stick (pad state +0x278 / +0x27c)
 // into its yaw (+0xa4, radians, 0..2pi, stick right lowers it) and pitch (+0xa0, clamped to [+0xd8, +0xd4]), with the twin angles +0x128

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the player's save on the host's disk (pkp_save_files.h).
+// Game layer: the player's save on the host's disk (pkp_save_files.h).
 #include "core/pkp_save_files.h"
 
 #include <algorithm>

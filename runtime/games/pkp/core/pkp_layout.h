@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia (main 2.0.1a): game globals, struct offsets and functions that more than one hook file uses. Main-image values are
+// Game layer (main 2.0.1a): game globals, struct offsets and functions that more than one hook file uses. Main-image values are
 // offsets from main's base; struct values are offsets into the object named in the group. A value one file alone uses stays in that file.
 #pragma once
 #include <cstddef>

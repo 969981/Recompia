@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the [pkp] section of the ini (pkp_settings.cpp). Every key is declared once here, with its type, default, range and
+// Game layer: the [pkp] section of the ini (pkp_settings.cpp). Every key is declared once here, with its type, default, range and
 // a one-line description; the feature modules read typed values through it instead of naming the key and its default at each read.
 // runtime/docs/CONFIG.md's [pkp] table is generated from the table (doc_rows below); the long notes on each key sit under it there.
 // NXRT_PKP_<KEY> environment variables win over the ini (nxrt/config.h).

@@ -2,7 +2,7 @@
 // Host implementation of the Switch 2 SDK's hardware video decoders (nn::codec Vp9Decoder / Vp8Decoder, the decoder image pools) and of
 // the sync objects their output is fenced with (nn::syncpt::sdk SyncPointEvent, nn::gs::TryWaitNativeSync), decoding with libvpx.
 //
-// Why this layer: on Switch 2 every movie player (Pokopia's movie:: compatibility library in subsdk0, the nn::movie player Mario Kart
+// Why this layer: on Switch 2 every movie player (the game's movie:: compatibility library in subsdk0, the nn::movie player Mario Kart
 // World links into main) demuxes with the SDK's nn::movie::MediaExtractor and decodes with nn::codec, which drives NVDEC through the
 // GraphicsSupervisor of the GPU boot nxrt skips. nn::codec is the narrowest interface both games import by name, so the demuxer, the
 // players and their A/V clocks stay guest code and only the decoder and its fences answer on the host.

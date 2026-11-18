@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the graphics memory pools for render sizes above the console's (pkp_gfx_heap.h). Addresses are offsets in `main` of the
+// Game layer, the graphics memory pools for render sizes above the console's (pkp_gfx_heap.h). Addresses are offsets in `main` of the
 // 2.0.1 update; the sites are in recomp/games/pkp/main.sites.
 //
 // The game's graphics init (0x1793db0, x1 = a config) creates its NVN memory pools from a fixed config that 0x112ec80 builds on its stack

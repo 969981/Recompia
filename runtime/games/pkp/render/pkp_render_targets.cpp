@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: render targets the game creates at a literal size (#44; split out of pkp_play.cpp).
+// Game layer, play mode: render targets the game creates at a literal size (#44; split out of pkp_play.cpp).
 #include "input/pkp_play_internal.h"
 #include "core/pkp_settings.h"
 
@@ -22,7 +22,7 @@ namespace nxrt::games::pkp::play_detail {
 // render-size one, the two disagree at any other size. The local-light buffer is the case seen (#44): the light volumes (vs a70f6d6e,
 // fs 1bc278d7) are drawn into it and read the G-buffer's depth (t381) and normals (t382) with texelFetch at gl_FragCoord, and the
 // deferred lighting (fs 0cd3176a, 37c9671c, f9b9b006) samples it at screen UV. On a W x H frame the light lit for pixel (x, y) showed
-// at (x W / 1920, y H / 1080): lamps, the PC terminal and the Pokemon Center door lamps glowed a second time below (16:10) or below and
+// at (x W / 1920, y H / 1080): lamps, the PC terminal and the creature center door lamps glowed a second time below (16:10) or below and
 // right (1440p) of themselves, shaped like whatever lay there. The entry hook on the create gives each listed call site the size its
 // class says; the viewports those passes record as 1920x1080 (or a fraction of it) then follow through fix_rect, like every
 // render-size target.

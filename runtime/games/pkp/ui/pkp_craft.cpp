@@ -30,7 +30,7 @@
 //    heap blocks (0x7101121ee8 ([main+0x3483d58] -> allocator, 3, size, 0x10, &{u32 0x35, u64 0})), kept for the session.
 //  * The button: the screen's prompts are the key guide widget (pkp_key_guide.h; this is a client) fed set 26 ({Confirm, Close, Favorite};
 //    only the crafting screen's browsing state uses it). When the widget takes the set, key guide 158 (the game's own "Search", the
-//    Pokédex's) is put in the set's first free slot (the widget lays out six), and when its part is filled its icon becomes Y (action 0x97),
+//    creature list's) is put in the set's first free slot (the widget lays out six), and when its part is filled its icon becomes Y (action 0x97),
 //    its text "Search: <word>" while a word is active (the widget takes set 26 again after a new word), and its layout goes to the menu
 //    pointer (the key guide's click routing, pkp_menu.cpp): a click on it asks too. Y is free in this screen (A Confirm, B Close, X Sort,
 //    (+) Favorite, (-) Details, L / R tabs).

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, the mouse in the game's menus: the game's cursor, the entry it marks and the entry under the pointer (split out of
+// Game layer, the mouse in the game's menus: the game's cursor, the entry it marks and the entry under the pointer (split out of
 // pkp_menu.cpp).
 #include "ui/pkp_menu_internal.h"
 

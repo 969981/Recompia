@@ -79,7 +79,7 @@ void copy_name(char (&dst)[33], const std::string& s) {
     std::memcpy(dst, s.data(), n);
 }
 
-// The first 128 bytes of the advertise data as hex for the Debug SetAdvertiseData line ("|" every 16 bytes, "..." when cut). Pokopia puts
+// The first 128 bytes of the advertise data as hex for the Debug SetAdvertiseData line ("|" every 16 bytes, "..." when cut). The game puts
 // the host's KTGL member id in it (work/mp/join-reject-analysis.md section 3). Only built when Debug is on (NXLOG_D).
 std::string hex_head(const std::vector<uint8_t>& b) { return text::hex_head(b, 128); }
 

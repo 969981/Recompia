@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
+// Game layer: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "core/pkp_game.h"
 #include "input/pkp_aim.h"
 #include "input/pkp_aim_debug.h"

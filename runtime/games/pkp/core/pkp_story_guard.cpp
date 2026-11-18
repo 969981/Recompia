@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: Story co-op's safety net, the save copy at start and the story quest journal (pkp_story_guard.h).
+// Game layer: Story co-op's safety net, the save copy at start and the story quest journal (pkp_story_guard.h).
 //
 // The journal's two sites are the setters of the story quest history in the 2.0.1 main (m_story = save root + 0x4a26a0, in the player's
 // own save): 0x5d865c (m_story, id, state 1..4) writes a quest's state byte and 0x5d8774 (m_story, id, bool) bit 0 of its flag byte; the

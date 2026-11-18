@@ -152,7 +152,7 @@ TexLayout compute_texture_layout(const TextureBuilderInfo& b) {
             layers = 6;
             break;
         case NVN_TEXTURE_TARGET_CUBEMAP_ARRAY:
-            if (!depth_field || depth_field % 6) return out;   // depth = layer-faces (6 per cube), as GL: Pokopia sets 6 * cubes
+            if (!depth_field || depth_field % 6) return out;   // depth = layer-faces (6 per cube), as GL: the game sets 6 * cubes
             layers = depth_field;
             break;
         case NVN_TEXTURE_TARGET_3D:

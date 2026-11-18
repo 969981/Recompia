@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: no Dream Island trip from a story area's Link Play session (pkp_link_trips.h).
+// Game layer: no Dream Island trip from a story area's Link Play session (pkp_link_trips.h).
 //
 // The 2.0.1 main's chain: Drifloon's talk script starts poll kind 2 and waits for it; the poll's end writes each player's result (the
 // byte "this player goes") into the script context, and one of three event callbacks reads it:

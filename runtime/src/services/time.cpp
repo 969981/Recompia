@@ -29,7 +29,7 @@
 //   0x0D0 ContinuousAdjustmentTimePoint x2 (pad 4; slots 0x0D8, 0x110; 0x38 each), see Adjust below.
 // The user clock has no slot of its own (the layout of the console has none): it is the local context.
 //
-// Which block the game reads: Pokopia's SDK (nn::time::detail::SharedMemoryClient in the sdk module) does NOT read the steady
+// Which block the game reads: the game's SDK (nn::time::detail::SharedMemoryClient in the sdk module) does NOT read the steady
 // context at 0x000 any more. GetStandardSteadyClockCurrentTimePoint, CalculateSystemClockCurrentTime and ...CurrentTimespec all take
 // the steady time from the ContinuousAdjustmentTimePoint (disassembly, sdk +0x557160, +0x5572c0, +0x5576c0):
 //     raw  = ConvertToTimeSpan(GetSystemTick())                  (ns since host boot here: QueryPerformanceCounter)
@@ -113,7 +113,7 @@ struct SysCtx {
     int64_t time_point;
     uint8_t source[16];
 };
-// nn::time ContinuousAdjustmentTimePoint as Pokopia's SDK reads it (see the top of the file). Ryubing declares the last 0x20 bytes
+// nn::time ContinuousAdjustmentTimePoint as the game's SDK reads it (see the top of the file). Ryubing declares the last 0x20 bytes
 // as a SystemClockContext; the SDK reads them as two adjustment bounds and the uuid.
 struct Adjust {
     uint64_t clock_offset;     // raw tick time (ns) where the slew starts
@@ -304,7 +304,7 @@ void write_shm(State& s) {
     const uint8_t ac = s.auto_correction ? 1 : 0;
     lifo_write(b, kOffAutoCorr, kPadAutoCorr, &ac, 1);
 
-    // Pokopia's SDK reads the steady clock here (top of the file): no slew, the offset fixed at steady - raw from the start tick on, so
+    // The game's SDK reads the steady clock here (top of the file): no slew, the offset fixed at steady - raw from the start tick on, so
     // the guest's steady time is the runtime's and context.offset + it is the clock's posix time.
     Adjust adj{};
     adj.clock_offset = s.tick0_ns;

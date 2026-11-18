@@ -46,8 +46,8 @@
 // lobby's sinks are cleared before the new one's are set; the old relay client stays as a scan client. host:port mode writes a zero tag:
 // every byte as before.
 //
-// That is the Link Play backend ([net] protocol = linkplay). The default, [net] protocol = native, is pokopia-native's co-op module
-// (NativeLdn, ldn_native.cpp): wire-compatible with pokopia-native builds, not with the relay.
+// That is the Link Play backend ([net] protocol = linkplay). The default, [net] protocol = native, is the parent project's co-op module
+// (NativeLdn, ldn_native.cpp): wire-compatible with the parent project builds, not with the relay.
 #include "ldn_linkplay.h"
 
 

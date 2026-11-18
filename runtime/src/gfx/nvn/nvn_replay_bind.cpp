@@ -309,7 +309,7 @@ static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
 // from video memory. The same block bound again in the submission reuses its copy. A slot whose upload memory is in system memory (24 of
 // 36 slots in video memory without resizable BAR: a 214 MiB window) takes a small ring of its own in video memory (Frame::vram_ring);
 // before it, a third of the uniform reads on an RTX 2060 still went over PCIe (logs of 2026-11-17).
-// The idea comes from pokopia-native (MIT, the pokopia-native contributors): its draws read every pool buffer from video memory, with the
+// The idea comes from the parent project (MIT, its contributors): its draws read every pool buffer from video memory, with the
 // bytes taken when the replay binds them (windows/src/nxrt/vk/vk_mem.c, vkm_use).
 // Only when the pool bytes are final: no submission still in flight (this one included) may write the range (gw_settled_fast), and no
 // compute result for it is held elsewhere (out_overlaps). Otherwise, and when the video memory ring is full or none could be made, the

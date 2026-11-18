@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia: what a feature module declares to the feature registry (the table in pkp_game.cpp). Each module exports one Feature;
+// Game layer: what a feature module declares to the feature registry (the table in pkp_game.cpp). Each module exports one Feature;
 // the registry installs them in table order, calls their per-frame and settings callbacks in the same order and removes them in reverse.
 // Every hook a module registers goes into the HookSet it is given (pkp_hook_set.h) and is removed by the registry, so a module's remove
 // only resets its own state. No module installs another one: what one needs of another is ordered by the table.

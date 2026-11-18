@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): an experimental opt-in that gives
+// Game layer, Link Play "Interact everywhere" (pkp_linkplay.cpp, [pkp] link_interact_everywhere): an experimental opt-in that gives
 // a Link Play session in the story areas Palette Town's Spectator-Off permissions (visitors can use moves and items, pick up, place and
 // build). Every player of a session must have the same setting: it is sent as the ldn session variant (services_api.h ldnapi), so a peer
 // whose setting differs is refused when it joins.
@@ -22,7 +22,7 @@ enum class InteractCheck { Ok, UnknownBuild, NotLifted, WordDiffers };
 
 constexpr uint8_t kInteractVariant = 1;                   // the ldn session variant while the hook is armed
 constexpr const char* kInteractName = "Interact everywhere";
-// Story co-op's name in the co-op mods fingerprint (ldnapi::set_coop_mods). Not pokopia-native's COOP_STORY_MOD: here every player keeps
+// Story co-op's name in the co-op mods fingerprint (ldnapi::set_coop_mods). Not the parent project's COOP_STORY_MOD: here every player keeps
 // a story of their own (below), there only the host does, so a session refuses a player whose Story co-op is the other one.
 constexpr const char* kStoryName = "Story co-op: own story (experimental)";
 
@@ -49,7 +49,7 @@ InteractCheck linkplay_arm(const std::string& build_id, bool site_lifted, uint32
 // their own save, under their own UUID. Two of the game's rules stop it online, and the sites below lift both for every player:
 // - the permission mask's bit 0 switches the story system on (the per-frame story update 0xba660, the quest pump 0x11b600): every online
 //   pattern clears it; the mask site keeps it, and the builder's first instruction (Role) forgets it before each rebuild;
-// - a Pokémon's talks are picked by conditions (table main+0x34c2958): the story and request talks need 0x19 "not online" (0x4cfe10) or
+// - a creature's talks are picked by conditions (table main+0x34c2958): the story and request talks need 0x19 "not online" (0x4cfe10) or
 //   0x60 (0x4d4844), their stand-in "bring <the town's owner> here" needs 0x22 "online" (0x4d04fc, `b IsOnline`); while the story is
 //   kept, the three read the player as offline.
 // And a visitor's talk takes the host's path in the talk handler (Talk: a visitor's reply has no conversation). Only with [net] protocol =

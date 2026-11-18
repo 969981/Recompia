@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pokémon Pokopia, play mode: the mouse turns the photo camera (pkp_play.h; part of play mode's PC features). Offsets in `main` of the 2.0.1 update.
+// Game layer, play mode: the mouse turns the photo camera (pkp_play.h; part of play mode's PC features). Offsets in `main` of the 2.0.1 update.
 //
 // Photo mode (the Camera from the main menu or the tool wheel: 0x259bc0 sets the player's flow state 7) switches the camera manager
 // (0x3561948) to mode 3: byte +0xcc8 + player = 3, the camera at +0x730 + player * 0xf0 (class vtable 0x322ce40, update 0x8e660). The

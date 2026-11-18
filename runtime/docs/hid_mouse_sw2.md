@@ -1,6 +1,6 @@
 # Switch 2 Joy-Con 2 mouse (Nmouse / Jcms) and hid cmd 214
 
-Found by reading the SDK 20.5 client in Pokopia 2.0.1a (`sdk` mapped at 0x7500000000, `main` at 0x7100000000). No public Switch 2
+Found by reading the SDK 20.5 client in the game 2.0.1a (`sdk` mapped at 0x7500000000, `main` at 0x7100000000). No public Switch 2
 emulator source covers it: `refs/pound` and `refs/Instaurix` have no Nmouse/Jcms code, and Switchbrew lists none of these commands
 (checked Nov 2026). Confidence notes: **confirmed** = read in the client code; **inferred** = a guess that fits what the code does.
 
@@ -43,7 +43,7 @@ that parked the mode in Nov 2026.
 From the sdk proxy thunks at 0x75006701b4.. (vtable order from slot 0x538) matched to the `nn::hid::detail` callers' vtable slots.
 Raw-argument offsets are after the CMIF header.
 
-| Cmd | Slot | Function | Arguments | Output | Pokopia |
+| Cmd | Slot | Function | Arguments | Output | Game |
 |---|---|---|---|---|---|
 | 3110 | 0x538 | InitializeJcms | aruid @0, u64 size @8, copy handle: transfer memory; sends PID | none | yes |
 | 3111 | 0x540 | FinalizeJcms | aruid | none | yes |
@@ -64,7 +64,7 @@ Raw-argument offsets are after the CMIF header.
 | 3143 | 0x5B8 | unknown (no nn::hid::detail caller) | aruid @0, u64 @8 | none | no |
 
 Ids are the `mov w, #id` of each thunk; the slots were checked against the IHidServer vtable in the sdk data (3110 at +0x538). There is
-no 3114-3129 or 3134. "Pokopia" = the game imports the nn::hid wrapper that sends it.
+no 3114-3129 or 3134. "Game" = the game imports the nn::hid wrapper that sends it.
 
 The old runtime names (3110 = InitializeNmouse … 3139 = StartJcms) were wrong; the boot order is 3139, 3110, 3138, 3136, 3137.
 
