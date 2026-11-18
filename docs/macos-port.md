@@ -391,15 +391,15 @@ native stack; `[diag] ftrace` timings are sane.
 > Support`). CI: `.github/workflows/macos.yml`. libvpx: found in Homebrew, so VP9/VP8 decode on the host, which is what the
 > movies need (D10). Open: a run that reaches a movie, and an `arm64-apple-macos` target in `pkp_build.py`.
 >
-> Packaging: **no `.app`, no signature.** `make-mac.sh` builds one zip whose root is `PokopiaRecomp-<version>/` — the launcher
-> binary, `tools/` (the lifter, the SDK sources, the shader harness and MoltenVK) and `libpkp_rt.dylib` — the same shape as
-> the Windows and Linux packages. The player unpacks it anywhere and starts `PokopiaLauncher` from there; macOS blocks the
+> Packaging: **no `.app`, no signature.** `make-mac.sh` builds a zip whose root is `Recompia-<version>/` — the launcher
+> binary `Recompia` (with the starter script `PokopiaLauncher` under its old name, launcher/stub/old-name.sh), `tools/` (the lifter, the SDK sources, the shader harness and MoltenVK) and `libpkp_rt.dylib` — the same shape as
+> the Windows and Linux packages. The player unpacks it anywhere and starts `Recompia` from there; macOS blocks the
 > first start, and the zip's `How to open Recompia.txt` walks them through System Settings, Privacy and Security, "Open
 > Anyway" (or `xattr -dr com.apple.quarantine <folder>`). A bundle was tried and dropped: signing it needs every nested code
 > object signed, and the shader harness is a self-contained .NET publish whose assemblies are PE files `codesign` cannot sign,
 > so every signature attempt failed and left the zip unsigned anyway.
 >
-> In-place updates: the zip is the whole macOS artifact, and `update.rs` takes `PokopiaRecomp-<version>/` as the install root
+> In-place updates: the zip is the whole macOS artifact, and `update.rs` takes `Recompia-<version>/` (or an older release's `PokopiaRecomp-<version>/`) as the install root
 > (`find_package`, `exe_dir()`) — the launcher and `tools/` are replaced in place, as on Windows and Linux. The runtime dylib
 > is in the package twice (beside the launcher, and in `tools/build/sdk`, where Set up copies it from into the game folder);
 > after the swap `update.rs` brings the copies already on disk along with the one the update replaced. Nothing is signed, so
@@ -412,7 +412,7 @@ Work:
 2. `launcher/` — macOS build of the Tauri app: replace the `pkp.exe`/`vulkan-1.dll`/`.bat` assumptions, point the
    shader-cache pipeline at the bundled `spirv_harness`, keep the disk-space and Vulkan checks
    (`launcher/README.md` steps 1–3).
-3. Packaging: decided — no `.app`, no signature (see M6 above). A flat `PokopiaRecomp-<version>/` zip, as on the other
+3. Packaging: decided — no `.app`, no signature (see M6 above). A flat `Recompia-<version>/` zip, as on the other
    platforms. If a bundle ever comes back, note that `codesign` cannot sign the harness's .NET assemblies, so `--deep` fails
    and the bundle ships unsigned.
 4. Signing: not done on purpose. Only a Developer ID + notarization would make Gatekeeper wave the app through, and both need
@@ -421,7 +421,7 @@ Work:
    LLVM tarball), same content-addressed `ObjCache`, same `@progress`/`@error` protocol.
 6. CI: `.github/workflows/macos.yml` on `macos-14` (arm64), build + `nxrt_gfx_demo` smoke test.
 
-Acceptance: a second Mac unpacks the release zip, starts `PokopiaLauncher`, allows it once in System Settings and plays the
+Acceptance: a second Mac unpacks the release zip, starts `Recompia`, allows it once in System Settings and plays the
 game with its own dump.
 
 ---
@@ -622,15 +622,15 @@ The Tauri launcher builds and runs on macOS (`runtime/apps/launcher` is Win32 an
 
 ```sh
 cd launcher && npm install          # once
-npm run tauri build                 # launcher/src-tauri/target/release/pokopia-launcher
+npm run tauri build                 # launcher/src-tauri/target/release/recompia
 ```
 
 `npm run tauri build -- --no-bundle` for the release (only the binary is packaged): a plain `cargo build --release` is a dev binary (no `TAURI_ENV_*`, no embedded front-end) and
 opens a white window — it is ~650 KB smaller and has no `index-<hash>.js` in its `strings`.
 
 Put the binary in the game folder; the launcher looks for the game next to itself (`pkp`, `pkp.ini`, `shader_cache`).
-There is no `.app`: the release folder holds `PokopiaLauncher` and `tools/`, and the launcher is started from there (a
-double click opens Terminal around it, which is where its output and the game's would show; `./PokopiaLauncher` from a
+There is no `.app`: the release folder holds `Recompia` and `tools/`, and the launcher is started from there (a
+double click opens Terminal around it, which is where its output and the game's would show; `./Recompia` from a
 terminal is the same thing). The game's stdout and stderr are discarded
 when the launcher starts it (Windows spawns it with `CREATE_NO_WINDOW`); its log, crash report and freeze dump are files in
 the game folder either way.
@@ -650,7 +650,7 @@ cmake -S game-build -B build/rtb -G Ninja -DCMAKE_BUILD_TYPE=Release -DPKP_RT_DL
 cmake --build build/rtb -j 6
 ```
 
-The release is a zip (`launcher/scripts/make-mac.sh`): `PokopiaRecomp-<version>/` with the launcher, `tools/` (the lifter,
+The release is a zip (`launcher/scripts/make-mac.sh`): `Recompia-<version>/` with the launcher, `tools/` (the lifter,
 the SDK sources, the shader harness, MoltenVK) and `libpkp_rt.dylib`, plus the Gatekeeper note. The package carries no game code and
 no Python: Set up fetches python-build-standalone and the lz4 and capstone wheels into `tools/macos` at the first run, the
 way the Linux package does, and compiles with the Apple clang of the Command Line Tools. The game folder (`pkp`, `pkp.ini`,

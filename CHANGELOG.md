@@ -11,6 +11,7 @@
 
 ### Changed
 - Settings > Source code opens the source of the version you have installed
+- The launcher is now Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) and the downloads are named Recompia-<version>-...; shortcuts to the old name keep working
 
 ### Game
 - Changed the game window's title and the game exe's description to Recompia

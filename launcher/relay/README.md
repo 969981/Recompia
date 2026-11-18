@@ -2,7 +2,7 @@
 
 The Link Play relay: the meeting point for internet play (protocol and limits in `src/lib.rs`). One crate, used two ways:
 
-- by the launcher (`launcher/src-tauri`): **Run a relay on this PC** on the Link Play page, and `PokopiaLauncher --host`;
+- by the launcher (`launcher/src-tauri`): **Run a relay on this PC** on the Link Play page, and `Recompia --host`;
 - as the standalone `pokopia-relay` binary, for a server. No window, no WebView, only the standard library, `serde` and `libc`.
 
 Both take the same options (`src/cli.rs`): `pokopia-relay --help`.

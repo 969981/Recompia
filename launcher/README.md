@@ -41,7 +41,7 @@ files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and b
    next to it makes its folder the working directory, and every path comes from the ini (relative paths start there).
 
 `release\Play.bat` starts the game the same way without the launcher (after setup).
-`PokopiaLauncher --play [--game <folder>]` does what Play does without the window (it also prepares the run-time shaders
+`Recompia --play [--game <folder>]` does what Play does without the window (it also prepares the run-time shaders
 before the start and translates the new ones after it) and waits for the game: for a Steam, Sunshine or desktop shortcut.
 The game folder is the launcher's own folder unless `--game` names another.
 
@@ -69,7 +69,9 @@ The launcher looks for its tools in `tools\` next to its own exe. A release fold
 
 ```
 pkp.exe                     the game (game-build)
-PokopiaLauncher.exe         this launcher (npm run tauri build)
+Recompia.exe                this launcher (npm run tauri build)
+PokopiaLauncher.exe         the starter under the launcher's old file name (launcher/stub): starts Recompia.exe beside it,
+                            so shortcuts made before the rename keep working
 Play.bat                    release\Play.bat (optional)
 tools\
   spirv_harness\            self-contained publish of nx tools/shaders/harness:
@@ -122,8 +124,9 @@ it.
 
 The launcher also builds as a native Linux program (`npm run tauri build -- --no-bundle` on Linux, or an AppImage with
 `--bundles appimage`). Tauri draws it with WebKitGTK there, so it needs no WebView2, which Proton lacks (the Windows launcher
-does not start under Proton). Releases ship it as `PokopiaRecomp-<version>-linux-x64.tar.gz`: the Windows package with
-`PokopiaLauncher.AppImage` in place of `PokopiaLauncher.exe` (built by the `linux` job of `.github/workflows/release.yml`). A
+does not start under Proton). Releases ship it as `Recompia-<version>-linux-x86_64.tar.gz` (and `-linux-aarch64`): the Windows package with
+`Recompia.AppImage` in place of `Recompia.exe` and the starter script `PokopiaLauncher.AppImage` (launcher/stub/old-name.sh) in
+place of `PokopiaLauncher.exe` (built by the `linux` jobs of `.github/workflows/release.yml`). A
 build of your own goes in the release folder next to `tools/`. The game stays the Windows
 `pkp.exe`; what differs on Linux is in `src-tauri/src/host.rs`:
 
