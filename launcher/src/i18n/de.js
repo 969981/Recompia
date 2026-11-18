@@ -489,6 +489,7 @@ export default {
   'Built with': 'Erstellt mit',
   'Tauri 2, Lucide (ISC), Inter (OFL)': 'Tauri 2, Lucide (ISC), Inter (OFL)',
   'Source code': 'Quellcode',
+  'Licences': 'Lizenzen',
   'Community': 'Community',
   'Recompia Discord: help, testing and chat': 'Recompia-Discord: Hilfe, Tests und Austausch',
   'Join Discord': 'Dem Discord beitreten',
