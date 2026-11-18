@@ -28,7 +28,7 @@ constexpr int kMid = 100;   // a capture row's position whenever the screen open
 void set_host(play::GameHost* host);
 void begin(CaptureClient& c);                                   // the row moved: wait for the key (nothing while a capture runs)
 const char* text(const CaptureClient& c, char* out, size_t n);  // the row's text: "Press the new key", the key just picked, or bound()
-bool take_redraw(const CaptureClient& c);                       // true once after the capture of c started or ended (text changed)
+const CaptureClient* take_redraw();                            // the row to refresh on the game thread when capture starts or ends
 void frame(bool screen_open);                                   // main thread: delivers the key; a closed screen cancels the wait
 
 }  // namespace capture
