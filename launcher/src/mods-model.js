@@ -26,10 +26,9 @@ export function updatedLine(done) {
   return t('Updated by itself: {list}', { list: done.map((u) => `${u.name} ${u.from} → ${u.to}`).join(', ') });
 }
 
-/** What a Browse card's button is: 'install', 'update' (a newer version than the installed one), 'installed', 'manual' (listed, but
- *  the player gets it from its author's page themselves), 'soon' (no download yet) or 'closed' (the hub says nothing is installable yet). */
+/** What a Browse card's button is: 'install', 'update' (a newer version than the installed one), 'installed', 'soon' (no download
+ *  yet) or 'closed' (the hub says nothing is installable yet). */
 export function cardAction(card, preview) {
-  if (card.manual) return card.installed ? 'installed' : 'manual';
   if (!card.available) return 'soon';
   if (card.installed && !card.newer) return 'installed';
   if (preview) return 'closed';

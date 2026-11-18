@@ -8,8 +8,6 @@
 //! - Each addition names one exact file (its release asset on GitHub, never a "latest" link) with its size and SHA-256; the download is
 //!   taken only when it matches. Only those exact addresses are allowed besides the hub's server (`is_addition`), so the hub's list can
 //!   never point somewhere new through this.
-//! - A mod whose content the project should not hand out itself (media taken from elsewhere) is listed with `manual`, its author's page,
-//!   and no download: Browse explains why and opens that page, and the player puts the file into mods/ themselves.
 //! - Adding a mod: append its entry (read from the package's own mod.toml: id, version, game, loader as `needs`), size and SHA-256 of the
 //!   exact file; drop it once the hub lists it.
 
@@ -27,10 +25,6 @@ struct Addition {
     /// the platforms its package has code for (absent: every platform, e.g. a data-only mod)
     #[serde(default)]
     platforms: Option<Vec<String>>,
-    /// a mod the launcher lists but does not install for the player (its content's rights are unclear): no `download`, and this page of
-    /// its author's, where the player gets it themselves (`Entry::manual`)
-    #[serde(default)]
-    manual: String,
 }
 
 #[derive(Deserialize)]
@@ -47,19 +41,7 @@ static ADDITIONS: LazyLock<Vec<Entry>> = LazyLock::new(|| {
         }
     };
     let here = ffi::platform_tag();
-    list.mods
-        .into_iter()
-        .filter(|a| a.platforms.as_ref().is_none_or(|p| p.iter().any(|t| t == here)))
-        .map(|a| {
-            let mut e = a.entry;
-            if !a.manual.is_empty() {
-                // the launcher never downloads a manual one, whatever the entry says
-                e.download = None;
-                e.manual = a.manual;
-            }
-            e
-        })
-        .collect()
+    list.mods.into_iter().filter(|a| a.platforms.as_ref().is_none_or(|p| p.iter().any(|t| t == here))).map(|a| a.entry).collect()
 });
 
 /// Adds every addition whose id the hub's list does not have (after the hub's own mods, in the file's order).
