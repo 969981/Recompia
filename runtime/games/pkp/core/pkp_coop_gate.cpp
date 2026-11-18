@@ -81,7 +81,7 @@ void tick(bool in_game) {
     }
     if (s.complete) NXLOG_I(kTag, "Co-op: %d of %d members in%s", want - missing, want, s.started ? "; play goes on" : "");
     s.complete = false;
-    if (!s.started && story::world_started()) {
+    if (!s.started && session::can_walk(in_game) && story::world_started()) {   // read once the world is in, not at boot
         s.started = true;
         NXLOG_I(kTag, "Co-op: the group's world has started; %d of %d members in, no one is held", want - missing, want);
         let_go(s);
