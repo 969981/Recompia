@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/featureJosh/pokopia-recomp/security/advisories/new
     about: Report security problems privately (see SECURITY.md).
   - name: Rights holder contact
-    url: mailto:legal.recompia@gmail.com
-    about: Notices from rights holders and counter-notices (see LEGAL.md).
+    url: https://github.com/Dittobyte/Recompia/blob/main/LEGAL.md#rights-holders
+    about: Notices and counter-notices go by email to legal.recompia@gmail.com (see LEGAL.md).
