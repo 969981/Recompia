@@ -7,10 +7,12 @@
 ### Added
 - Every download (Windows, Linux, macOS) carries the licence texts of what it contains, and Settings has a Licences row that opens them
 - Each release also has the source of the bundled save editor and of libusb
+- Linux downloads list the libraries inside the AppImage with their licences and where their source is (licenses/appimage/)
 - A Privacy page (PRIVACY.md) that lists every connection the launcher and the game make, linked from Settings
 
 ### Changed
 - Settings > Source code opens the source of the version you have installed
+- The launcher and the game use generic names for the game, its creatures and its timed events in their texts and translations
 
 ### Game
 - Changed the game window's title and the game exe's description to Recompia
