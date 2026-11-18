@@ -81,7 +81,7 @@ function drawNav() {
   const items = Object.entries(PAGES).filter(([, p]) => p.nav).map(([id, p]) =>
     `<button class="nav-item" data-page="${id}" aria-label="${esc(p.nav)}">${icon(p.icon)}<span class="nav-label">${esc(p.nav)}</span><span class="nav-tip" aria-hidden="true">${esc(p.nav)}</span></button>`);
   nav.innerHTML = `
-    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Pokopia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
+    <div class="brand" data-tauri-drag-region>${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="Recompia"')}<span class="brand-tag">${esc(t('Testing'))}</span></div>
     ${items.join('')}
     <div class="nav-spacer"></div>
     <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
