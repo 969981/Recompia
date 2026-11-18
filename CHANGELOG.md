@@ -10,6 +10,7 @@ Press **Update** in the launcher. This change keeps your saves and shader cache 
 
 ### Co-op
 - The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
+- Launcher: the Co-op page says plainly that co-op is experimental and needs its own new save, which starts from the beginning.
 
 ## 0.15.0 (build S: Sloth)
 
