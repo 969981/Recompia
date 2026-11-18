@@ -28,6 +28,7 @@ mod ini;
 mod lan;
 mod modtopia_ffi;
 mod mods;
+mod mods_additions;
 mod mods_carried;
 mod mods_catalog;
 mod mods_cmds;

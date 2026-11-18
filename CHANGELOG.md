@@ -27,6 +27,8 @@
 - Community Achievements 0.4.1 now comes with the launcher, until the mod hub has a newer version
   - Fixed Identity Revealed, Cloud Pioneer, First Steps, Wanderer and Cartographer being earned before the player visited those places; the ones earned too early are taken back once and come back when the player gets there
   - Added `achievements.json` in the mod's folder: every achievement with its progress, the time it was earned, the share of players who have it and its picture, for other programs to read
+- Added four community mods to Browse before the mod hub lists them: Unlimited Crafting Storage Range, Play as Pokemon, Simple Cheats (Windows) and Pokopia Anime Voices; each one leaves the launcher's list once the hub lists it
+  - Pokopia Anime Voices is not installed by the launcher: **Get it yourself** explains why and opens its author's page
 
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
