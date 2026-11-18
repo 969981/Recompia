@@ -374,7 +374,7 @@ jobs:
   # The Windows zip: the three artifacts around the base package (make-release.ps1), which carries the unchanged third-party
   # payload — Zig, embedded Python, the FSR/Streamline DLLs, astcdec, fonts, icons and licences.
   windows-package:
-    needs: [windows-payload, windows-runtime, windows-launcher]
+    needs: [windows-payload, windows-runtime, windows-launcher, licenses]
     runs-on: windows-2025
     timeout-minutes: 40
     defaults:
@@ -409,13 +409,19 @@ jobs:
           name: win-pokohex
           path: build/pokohex
 
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
+
       - name: Package
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p '*-win64.zip' -D build/base
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
-              -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -PokoHex build/pokohex -Out build/rel
+              -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -PokoHex build/pokohex -Crates build/licenses/THIRD_PARTY_CRATES.txt -Out build/rel
 
       - uses: actions/upload-artifact@v4
         with:
@@ -613,7 +619,7 @@ jobs:
   # The Linux tar.gz: the AppImage, the runtime, the build kit and the shader translator, staged from this checkout (nothing
   # comes from another platform's build), then started once under Xvfb to prove it finds tools/.
   linux-package:
-    needs: [linux-payload, linux-runtime, linux-launcher]
+    needs: [linux-payload, linux-runtime, linux-launcher, licenses]
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     env:
@@ -652,6 +658,12 @@ jobs:
           name: linux-pokohex
           path: build/pokohex
 
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
+
       - name: Restore executable bits
         run: |
           mkdir -p launcher/src-tauri/target/release/bundle/appimage
@@ -669,7 +681,8 @@ jobs:
           for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
                    tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
                    tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
-                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak; do
+                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md; do
             test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
           done
           test -x "$pkg/tools/harness/spirv_harness"
@@ -883,7 +896,7 @@ jobs:
 
   # The arm64 tar.gz: the same content and checks as the x64 package, started once under Xvfb.
   linux-arm64-package:
-    needs: [linux-arm64-payload, linux-arm64-runtime, linux-arm64-launcher]
+    needs: [linux-arm64-payload, linux-arm64-runtime, linux-arm64-launcher, licenses]
     runs-on: ubuntu-22.04-arm
     timeout-minutes: 40
     env:
@@ -922,6 +935,12 @@ jobs:
           name: linux-arm64-pokohex
           path: build/pokohex
 
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
+
       - name: Restore executable bits
         run: |
           mkdir -p launcher/src-tauri/target/release/bundle/appimage
@@ -940,7 +959,8 @@ jobs:
           for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
                    tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
                    tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
-                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak; do
+                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md; do
             test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
           done
           test -x "$pkg/tools/harness/spirv_harness"
@@ -1128,7 +1148,7 @@ jobs:
 
   # The macOS zip: the payload the Linux job staged, the dylib and the launcher, in one folder — no .app, no signature.
   macos-package:
-    needs: [macos-payload, macos-runtime, macos-launcher]
+    needs: [macos-payload, macos-runtime, macos-launcher, licenses]
     runs-on: macos-latest
     timeout-minutes: 40
     env:
@@ -1162,6 +1182,12 @@ jobs:
           name: macos-pokohex
           path: work/payload/tools/pokohex
 
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: work/licenses
+
       - name: Launcher is executable
         run: chmod +x work/play/PokopiaLauncher work/payload/tools/pokohex/pokohex-extract
 
@@ -1179,7 +1205,7 @@ jobs:
           file "$root/PokopiaLauncher" | grep -q arm64
           for f in tools/build/sdk/libpkp_rt.dylib tools/build/sdk/libvulkan.1.dylib tools/build/sdk/kbm_icons \
                    tools/build/sdk/fonts tools/build/pkp_build.py tools/pokohex/pokohex-extract \
-                   libpkp_rt.dylib "How to open Recompia.txt"; do
+                   libpkp_rt.dylib "How to open Recompia.txt" LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt; do
             test -e "$root/$f" || { echo "missing $f in the package"; ls -R "$root" | head -60; exit 1; }
           done
           # the launcher execs the apphost directly (host.rs), so presence is not enough
@@ -1204,10 +1230,64 @@ jobs:
             work/play/macos.sha256
           compression-level: 0
 
+  # The licence notices of the Rust crates the launcher is built from (every package ships them in licenses/), generated from
+  # Cargo.lock with a pinned cargo-about (launcher/about.toml, launcher/about.hbs).
+  licenses:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo-about
+        run: cargo install cargo-about --locked --version 0.9.3 --features cli
+
+      - name: Crate notices
+        run: |
+          mkdir -p work/licenses
+          cargo about generate --locked -c launcher/about.toml --manifest-path launcher/src-tauri/Cargo.toml \
+              launcher/about.hbs -o work/licenses/THIRD_PARTY_CRATES.txt
+          test -s work/licenses/THIRD_PARTY_CRATES.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-licenses
+          path: work/licenses
+          compression-level: 6
+
+  # The source the GPL and LGPL components of the packages are built from, attached to the release next to the archives: PokoHex
+  # at the commit in launcher/pokohex/PIN with the patch and the script that build the Save Editor, and the libusb 1.0.30 source
+  # release (the Windows package carries its unchanged libusb-1.0.dll).
+  sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Source archives
+        run: |
+          set -euo pipefail
+          pin=$(tr -d ' \r\n' < launcher/pokohex/PIN)
+          short=$(printf '%s' "$pin" | cut -c1-12)
+          top="work/stage/PokoHex-source-$short"
+          mkdir -p "$top/PokoHex" work/sources
+          git -c core.autocrlf=false clone -q https://github.com/berichan/PokoHex work/pokohex-src
+          git -C work/pokohex-src archive --format=tar "$pin" | tar -x -C "$top/PokoHex"
+          cp launcher/pokohex/PIN launcher/pokohex/launcher.patch launcher/scripts/build-pokohex.sh "$top/"
+          tar -C work/stage -czf "work/sources/PokoHex-source-$short.tar.gz" "PokoHex-source-$short"
+          curl -fsSL -o work/sources/libusb-1.0.30.tar.bz2 https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2
+          echo "fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf  work/sources/libusb-1.0.30.tar.bz2" | sha256sum -c -
+          ls -la work/sources
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PokopiaRecomp-sources
+          path: work/sources
+          compression-level: 0
+
   # The one place that writes into the release: it takes the archives the four package jobs produced, uploads them, and
   # writes one SHA256SUMS.txt over all of them. A platform job that failed leaves its archive out instead of failing this one.
   publish:
-    needs: [windows-package, linux-package, linux-arm64-package, macos-package]
+    needs: [windows-package, linux-package, linux-arm64-package, macos-package, sources]
     if: always() && !cancelled() && (github.ref_type == 'tag' || inputs.release_tag != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1228,7 +1308,7 @@ jobs:
           cd build/assets
           ls -la
           rm -f SHA256SUMS.txt
-          archives=(./*.zip ./*.tar.gz)
+          archives=(./*.zip ./*.tar.gz ./*.tar.bz2)
           sha256sum -b "${archives[@]}" | sed -E 's#\./##' > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
           test -s SHA256SUMS.txt || { echo "::error::no release archives were built"; exit 1; }
