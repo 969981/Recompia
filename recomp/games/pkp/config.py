@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-game configuration of Pokémon Pokopia (Nintendo Switch 2, title 0400A3A01EE4C000).
+"""Per-game configuration of the cozy life-simulation and sandbox builder with fantastical creatures (Nintendo Switch 2, title ID 0400A3A01EE4C000, version 2.0.1a).
 
 Supported builds of main are listed in BUILDS (build id -> display version); the setup tool checks the build id. The
 lifter itself is build-neutral: the hook sites of main are in main.sites.

@@ -2,7 +2,7 @@
 
 Turns the code of a Nintendo Switch program (NSO modules, or any static AArch64 ELF) into C++ that builds natively on Windows
 x64 with clang-cl. The translation is done by deterministic code. There is no inline assembly and no
-interpreter. It is the CPU half of the Pokopia PC port; nothing here is specific to that game except `games/pkp/`.
+interpreter. It is the CPU half of the Recompia port; nothing here is specific to that game except `games/pkp/`.
 
 Licence: GPL-3.0-or-later (`LICENSE`). Borrowed code and its licences: `THIRD_PARTY.md`.
 

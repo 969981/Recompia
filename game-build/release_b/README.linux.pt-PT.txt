@@ -1,7 +1,7 @@
 # source-sha256: 5cbb87d01e3e7fefcc22735bcc5a27585b9aca77f56d6fbef640c1799de09fb6
 Esta é uma tradução automática do texto em inglês; pode conter erros. O texto em inglês é a versão oficial.
 
-Pokopia PC @VERSION@ para Linux, SteamOS e Steam Deck
+Recompia @VERSION@ para Linux, SteamOS e Steam Deck
 
 1. Precisas de um controlador Vulkan: os controladores Mesa para AMD e Intel ou o proprietário da NVIDIA. Nada mais, porque o jogo, o runtime e o tradutor de shaders são binários de Linux.
 2. Executa o PokopiaLauncher.AppImage e escolhe a pasta do teu dump (base/ e updates/<version>/, cada uma com exefs/ e romfs/) ou um ficheiro .nup ou .nx. É necessária a versão 2.0.1a.

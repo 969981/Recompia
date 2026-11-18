@@ -12,4 +12,4 @@ Fixes #
 
 ## Source
 
-<!-- Taken from pokopia-native? "Based on pokopia-native (MIT) `<path>` @`<commit>`". Otherwise delete this section. -->
+<!-- Taken from the parent project? "Based on the parent project (MIT) `<path>` @`<commit>`". Otherwise delete this section. -->

@@ -338,7 +338,7 @@ D4, D5 and D7 together; expect it to be where the surprises are.
 
 > **Status 2026-11-10.** Audio: done (`audio_coreaudio.cpp`). Device list: done (`audio_devices_posix.cpp`). Keyboard and
 > mouse: done through SDL3 (`pkp_kbm.cpp` has no Windows calls on the POSIX path). Relay: `relay_server.cpp` binds and
-> advertises the LAN address on macOS; the guest side has not been run against a `pokopia-native` peer. Open: a gamepad
+> advertises the LAN address on macOS; the guest side has not been run against a parent project peer. Open: a gamepad
 > with a real pad, the `fs_volume` XPC check, and a `tt_runner` executable (the testtools code is in the library; no
 > target builds a runner).
 
@@ -356,7 +356,7 @@ Work:
 5. `runtime/src/timestep/timestep.cpp`, `runtime/src/testtools/*` — `QueryPerformanceCounter` → shim.
 
 Acceptance: audio plays through the built-in speakers and a USB interface; keyboard/mouse and a Bluetooth
-controller drive the game; Link Play connects to a `pokopia-native` peer; the test-tools runner replays a script.
+controller drive the game; Link Play connects to a parent project peer; the test-tools runner replays a script.
 
 ### M5 — Fault-driven features and diagnostics
 
@@ -566,7 +566,7 @@ non-MSVC branch was exercised, not just written.
 
 ### Still open
 
-See §8 "What is left": Link Play against a `pokopia-native` peer, a real gamepad, the `fs_volume` XPC check, a
+See §8 "What is left": Link Play against a parent project peer, a real gamepad, the `fs_volume` XPC check, a
 `tt_runner` executable, a movie played end to end, signing and notarization, an `arm64-apple-macos` target in `pkp_build.py`,
 and the GPU-bound frame rate in the world.
 
@@ -732,7 +732,7 @@ run must fit the host, and the launcher stops the game at the kernel's critical 
 
 ### What is left
 
-- **M4**: Link Play against a `pokopia-native` peer (the relay half is verified), a gamepad with a real pad, the
+- **M4**: Link Play against a parent project peer (the relay half is verified), a gamepad with a real pad, the
   `fs_volume` XPC check, and a `tt_runner` executable (the testtools code is in the library; no target builds a runner).
 - **M6**: a movie played end to end (the lifted `movie::` demuxer and the host VP9 decoder are in place, D10); an
   `arm64-apple-macos` target in `pkp_build.py` (macOS builds through CMake), and a release design for a static binary. No
