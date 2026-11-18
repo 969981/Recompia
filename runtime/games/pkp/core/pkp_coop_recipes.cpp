@@ -17,8 +17,9 @@
 //                                    game's "learned a recipe" event for the player's slot (player + 0x5a39). The player is the
 //                                    player manager's +0x30 character (local_player()), as 0x3bcb38 passes it.
 // Rules on a receiver: another member's known recipe is learned here through kLearn, at a safe moment (in the group's world, can
-// walk, talks to no one), only if bit 1 is still clear (the game's own path may have taught it meanwhile: quest effect 3 runs on
-// every process). A few at a time are taught with the game's own notice, one per safe moment (the notice is an event, so the next
+// walk, talks to no one), kSettle seconds after it arrived and only if bit 1 is still clear: the game's own path may teach it here
+// meanwhile (quest effect 3 runs on every process, through the story's catch-up of the same step; an item give through the catch-up's
+// items), and it must win, since its learn on a known id shows "already known" instead of its scene. A few at a time are taught with the game's own notice, one per safe moment (the notice is an event, so the next
 // one waits for it to close); a larger batch (a join's whole list) is taught quietly, kApplyPerTick a frame, with one line in the
 // message log when it is done.
 // Each process reads bit 1 of every record each frame and sends the ids that became known (one that could not be sent goes at the
@@ -45,11 +46,13 @@ constexpr uint32_t kIdMax = layout::kRecipeMax;
 constexpr double kAllEvery = 30.0;        // the whole list again (a member that missed a change)
 constexpr unsigned kLoudMax = 2;          // at most this many waiting: each with the game's own notice
 constexpr unsigned kApplyPerTick = 16;    // quiet learns in one frame, at most (each recounts the whole record table)
+constexpr double kSettle = 8.0;           // seconds a received id waits for the game's own learn of the same step here
 
 struct State {
     std::bitset<kIdMax + 1> seen;      // per id: known at the last read (and sent, once baseline_sent)
     std::bitset<kIdMax + 1> pending;   // per id: another member knows it, not taught here yet
     uint8_t origin[kIdMax + 1] = {};   // per pending id: the member that sent it
+    double at[kIdMax + 1] = {};        // per pending id: when it arrived
     bool have_seen = false;            // the first read of a session only takes the baseline
     bool baseline_sent = false;        // the session's first list went out (until then a send is the baseline: no change lines)
     bool send_all = true;              // the whole list at the next read
@@ -117,20 +120,23 @@ void batch_line() {
     s.quiet_origin = -1;
 }
 
-// Teaches the waiting recipes: one with the game's notice when only a few wait, else up to kApplyPerTick quietly.
+// Teaches the waiting recipes that settled: one with the game's notice when only a few wait, else up to kApplyPerTick quietly.
 void apply(::Ctx* c, uint64_t recs) {
     State& s = st();
     const uint64_t player = local_player();
     if (!player) return;
-    const size_t waiting = s.pending.count();
-    if (!waiting) {
+    if (s.pending.none()) {
         batch_line();
         return;
     }
+    const double now = qpc::seconds();
+    size_t waiting = 0;
+    for (uint32_t id = 1; id <= kIdMax; ++id) waiting += s.pending.test(id) && now - s.at[id] >= kSettle;
+    if (!waiting) return;
     const bool loud = waiting <= kLoudMax && !s.quiet_count;
     unsigned taught = 0;
     for (uint32_t id = 1; id <= kIdMax && taught < (loud ? 1u : kApplyPerTick); ++id) {
-        if (!s.pending.test(id)) continue;
+        if (!s.pending.test(id) || now - s.at[id] < kSettle) continue;
         s.pending.reset(id);
         if (known(recs, id)) continue;   // the game's own path taught it meanwhile: a loud learn would show "already known"
         ++taught;
@@ -160,6 +166,7 @@ void on_known_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         if (id < 1 || id > kIdMax || known(recs, id) || s.pending.test(id)) continue;
         s.pending.set(id);
         s.origin[id] = origin;
+        s.at[id] = qpc::seconds();
     }
 }
 
