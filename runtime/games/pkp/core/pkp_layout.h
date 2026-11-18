@@ -11,6 +11,8 @@ namespace nxrt::games::pkp::layout {
 constexpr uint64_t kPlayerManager = 0x3561928;   // the player manager (26344 bytes, made in 0x71000ae380)
 constexpr uint64_t kManagerPlayer = 0x30;        // player manager: the local player's character (+0x38 the second one)
 constexpr uint64_t kSaveRoot = 0x3561930;        // the save data (the save/options block)
+constexpr uint64_t kSaveStory = 0x4a26a0;         // save root: m_story, the story quest history (pkp_story_guard.h story_quest_offset)
+constexpr uint8_t kQuestDone = 4;                // m_story: a quest's state byte once it is completed
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline

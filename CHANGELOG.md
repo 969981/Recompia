@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** (the game code gets three new hook points and is linked again; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** (the game code gets five new hook points and is linked again; saves and shaders are kept, no shader is translated again).
 
 ### Added
 - Every download (Windows, Linux, macOS) carries the licence texts of what it contains, and Settings has a Licences row that opens them
@@ -28,6 +28,9 @@
   - Before: above 60 fps the follow camera's vertical dead zone held the view still and then snapped it toward the player a few times a second (about once a second while gliding, five times a second underwater at 144 fps)
   - Now: the camera follows smoothly at high frame rates; 60 fps and below are unchanged
   - Until **Set up again** has run, the camera stays as it was
+- Fixed a visitor in Seamless co-op missing a story step's rewards in the host's world
+  - Before: a step that changes the town (a creature moving in, its home) stayed unfinished for a visitor until they were back home, a gift a creature hands over (such as a new move) never reached a visitor, and a visitor who finished such a step first could keep the host from starting it
+  - Now: the step completes in the host's world with its own rewards (moves, items, a creature's gift); only its changes to the town wait, and they are made once you are back in your own world if that step is done in the save you play
 
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 

@@ -5,8 +5,8 @@
 //   kCopiesKept stay). Putting one back is copying its <key> folder and <key>.meta over <save dir>/account/ with the game closed;
 // - a journal of every change to the story quest history (m_story's quest state and flag, pkp_linkplay.cpp):
 //   <save dir>/story-journal/<key>.tsv, one line per change with the time, the player's role, the stage, the quest, what changed and the
-//   value before and after. It says in whose world a step happened and what to set back to undo it. Other lines: "hold" (pkp_story_hold.h,
-//   the effect type in the before column) and "save";
+//   value before and after. It says in whose world a step happened and what to set back to undo it. Other lines: "skip" and "replay"
+//   (pkp_story_hold.h: the effect type in the before column, set * 4 + slot in the after column) and "save";
 // - in a session, once a step's changes have settled (two seconds), the game is asked to write the player's own save file, its own
 //   request for that file alone, so a lost connection or a crash keeps the step.
 #pragma once
