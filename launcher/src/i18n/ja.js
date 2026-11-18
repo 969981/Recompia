@@ -493,7 +493,6 @@ export default {
   'Community': 'コミュニティ',
   'Recompia Discord: help, testing and chat': 'RecompiaのDiscord: サポート、テスト、雑談',
   'Join Discord': 'Discordに参加',
-  'Artwork by Koi, hand drawn': 'Koiによる手描きのアートワーク',
   'Original artwork made for the project': 'このプロジェクトのために描かれたオリジナルのアートワーク',
   'Report a bug': '不具合を報告',
   'Troubleshooting': 'トラブルシューティング',

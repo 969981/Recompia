@@ -493,7 +493,6 @@ export default {
   'Community': '커뮤니티',
   'Recompia Discord: help, testing and chat': 'Recompia Discord: 도움말, 테스트, 대화',
   'Join Discord': 'Discord 참여',
-  'Artwork by Koi, hand drawn': 'Koi가 손으로 그린 아트워크',
   'Original artwork made for the project': '이 프로젝트를 위해 만든 오리지널 아트워크',
   'Report a bug': '버그 보고',
   'Troubleshooting': '문제 해결',

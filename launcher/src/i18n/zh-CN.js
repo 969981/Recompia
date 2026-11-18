@@ -493,7 +493,6 @@ export default {
   'Community': '社区',
   'Recompia Discord: help, testing and chat': 'Recompia Discord：帮助、测试和交流',
   'Join Discord': '加入 Discord',
-  'Artwork by Koi, hand drawn': 'Koi 的手绘插图',
   'Original artwork made for the project': '为本项目创作的原创插图',
   'Report a bug': '报告错误',
   'Troubleshooting': '故障排除',

@@ -493,7 +493,6 @@ export default {
   'Community': 'Community',
   'Recompia Discord: help, testing and chat': 'Recompia-Discord: Hilfe, Tests und Austausch',
   'Join Discord': 'Dem Discord beitreten',
-  'Artwork by Koi, hand drawn': 'Artwork von Koi, handgezeichnet',
   'Original artwork made for the project': 'Originales Artwork, extra für das Projekt gemacht',
   'Report a bug': 'Fehler melden',
   'Troubleshooting': 'Fehlerbehebung',

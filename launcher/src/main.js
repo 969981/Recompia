@@ -50,13 +50,14 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 
-// Launcher colours: 'koi' (Koi's Camp: a bright daytime picture, the default), 'sunrise' (amber to red; reads well with red-green colour blindness), 'dusk' (the old violet) or 'meadow' (a bright daytime scene made for the project).
-// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
-const THEMES = ['sunrise', 'dusk', 'koi', 'meadow'];
+// Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
+// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default. A value no longer in THEMES (such as an
+// older launcher's 'koi') shows the default too.
+const THEMES = ['sunrise', 'dusk', 'meadow'];
 // theme names are proper names: they stay in English in every language
-const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', koi: "Koi's Camp", meadow: 'Meadow' };
+const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', meadow: 'Meadow' };
 function readTheme() {
-  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'koi'; } catch { return 'koi'; }
+  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'meadow'; } catch { return 'meadow'; }
 }
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;

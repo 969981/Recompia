@@ -790,7 +790,6 @@ export const SECTIONS = [
           { id: 'repo', label: t('Source code'), type: 'info', actions: (env) => [open(`${SOURCE_URL}/tree/v${env.version}`, 'GitHub')] },
           { id: 'licences', label: t('Licences'), type: 'info', actions: [{ act: 'licences-open', label: t('Open folder'), icon: 'folder-open' }] },
           { id: 'community', label: t('Community'), type: 'info', value: t('Recompia Discord: help, testing and chat'), actions: [open(DISCORD_URL, t('Join Discord'))] },
-          { id: 'koi-credit', label: "Koi's Camp", type: 'info', value: t('Artwork by Koi, hand drawn') },
           { id: 'meadow-credit', label: 'Meadow', type: 'info', value: t('Original artwork made for the project') },
           { id: 'bug', label: t('Report a bug'), type: 'info', actions: [open(`${REPO_URL}/issues/new/choose`)] },
         ],
