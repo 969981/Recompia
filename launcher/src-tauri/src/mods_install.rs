@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Installing a mod from the hub's list, after the player's one yes (the page asks): the package is downloaded from the hub's download
-//! server only (mods_catalog.rs `download_ok`; no redirect is followed), checked against the size and SHA-256 the list gives (a mismatch
+//! server only (mods_catalog.rs `download_ok`; no redirect is followed) or as one of Recompia's exact additions (mods_additions.rs), checked against the size and SHA-256 the list gives (a mismatch
 //! stops the install), written as `<file>.part` in mods/ and renamed (download.rs), and nothing in it runs. Then the yes is recorded for
 //! that exact file (the core's `mt_loader_trust_mod`: a later change to it asks again). `put_in_place` is that shared path: the page's Install
 //! then switches the mod on; the update by itself (mods_update.rs) leaves the switch and the order as they were. A newer version replaces the
@@ -25,7 +25,7 @@ pub fn put_in_place(game_dir: &Path, entry: &Entry, trust: bool) -> Result<(), S
     let dir = mods::ensure_mods_dir(game_dir)?;
     let before = mods::installed(game_dir, &entry.id);
     let pin = Pinned { file: &dl.file, url: &dl.url, size: dl.size, sha256: &dl.sha256 };
-    download::fetch(&download::agent(false), &pin, &dir, &AtomicBool::new(false), &mut |_| {})?;
+    download::fetch(&mods_catalog::download_agent(dl), &pin, &dir, &AtomicBool::new(false), &mut |_| {})?;
     drop_older(game_dir, before, &dl.file)?;
     if trust {
         mods::trust_file(game_dir, &entry.id)?;

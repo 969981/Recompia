@@ -2,7 +2,8 @@
 //! The Mods page's Browse tab: the Modtopia mod hub's list, `catalog.json` (schema 1). Its mods are checked by hand by the hub's team
 //! before they are listed. The launcher reads it from the hub only, keeps the last good copy in its settings folder for browsing offline,
 //! and shows only the mods made for this game version whose `needs` range holds the core this launcher carries. Fields it does not know
-//! are ignored (schema 1 may grow); an entry it cannot read is left out, never the whole list.
+//! are ignored (schema 1 may grow); an entry it cannot read is left out, never the whole list. Recompia's
+//! additions (mods_additions.rs) join the list in `load`, for mods the hub does not list yet.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -175,11 +176,18 @@ pub fn hub_link(url: &str) -> bool {
     url.starts_with(HUB_SITE) && !url.chars().any(|c| c.is_whitespace() || c == '"' || c == '&' || c == '\\')
 }
 
-/// A download the launcher takes: on the hub's download server, over https, a plain `.pkmod` file name.
+/// A download the launcher takes: on the hub's download server (or exactly one of Recompia's additions, mods_additions.rs), over https,
+/// a plain `.pkmod` file name.
 pub fn download_ok(d: &Download) -> bool {
     let name_ok = !d.file.is_empty() && d.file.ends_with(".pkmod") && !d.file.starts_with('.') && !d.file.contains(['/', '\\', ':', '\0']);
     let hex_ok = d.sha256.len() == 64 && d.sha256.chars().all(|c| c.is_ascii_hexdigit());
-    d.url.starts_with(DOWNLOAD_HOST) && !d.url.contains(['@', '\\', ' ', '"']) && name_ok && hex_ok && d.size > 0
+    (d.url.starts_with(DOWNLOAD_HOST) || crate::mods_additions::is_addition(d)) && !d.url.contains(['@', '\\', ' ', '"']) && name_ok && hex_ok && d.size > 0
+}
+
+/// The HTTP agent for a download `download_ok` took: no redirect from the hub's server; an addition's GitHub release asset redirects to
+/// GitHub's file host, and its size and SHA-256 are what make it the file meant.
+pub fn download_agent(d: &Download) -> ureq::Agent {
+    download::agent(!d.url.starts_with(DOWNLOAD_HOST))
 }
 
 /// This session's copy of the list, and whether it came from the cache file (offline).
@@ -194,7 +202,7 @@ pub fn load(store: &CatalogStore, cache: &Path, refresh: bool) -> Result<(Catalo
         return Ok(c.clone());
     }
     let fetched = fetch().and_then(|body| parse(&body).map(|c| (body, c)));
-    let got = match fetched {
+    let mut got = match fetched {
         Ok((body, c)) => {
             if let Err(e) = crate::settings::write_atomic(cache, &String::from_utf8_lossy(&body)) {
                 eprintln!("mod list not cached: {}", e);
@@ -210,6 +218,7 @@ pub fn load(store: &CatalogStore, cache: &Path, refresh: bool) -> Result<(Catalo
             }
         }
     };
+    crate::mods_additions::add_to(&mut got.0);
     *mem = Some(got.clone());
     Ok(got)
 }
