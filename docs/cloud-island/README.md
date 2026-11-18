@@ -1,12 +1,12 @@
 # Cloud Islands against a self-hosted server (experimental)
 
 With `[net] cloud_server` set, the game's own NPLN client talks to a self-hosted server such as
-[Raikaru/pokopia-cloud-server](https://github.com/Raikaru/pokopia-cloud-server). Nothing contacts Nintendo: the NPLN names resolve to
+[Raikaru/pokopia-cloud-server](https://github.com/Raikaru/pokopia-cloud-server). Nothing contacts the original servers: the NPLN names resolve to
 the configured address or fail. Everything is off without `cloud_server`.
 
 ## Status
 
-Run-tested on Pokopia 2.0.1a with the 0.11.1 runtime: create an island, enter it, upload, return to it (download), a second player
+Run-tested on game version 2.0.1a with the 0.11.1 runtime: create an island, enter it, upload, return to it (download), a second player
 joining by address and Link Code, building together. Two machines on a LAN and over the internet (router port forward, direct UDP).
 Run-tested on 0.13.1 with this branch (two copies on one PC): online, travel to the island, upload on arrival and on leaving, the
 owner's return (download), a second player joining by address and Link Code, and the game's own "Kick a player". "Send a report"

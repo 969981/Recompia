@@ -1,4 +1,4 @@
-# save_uuid.py <save dir> [show|reroll]: the player UUID of a Pokopia recomp save; reroll gives it a new random one in every place
+# save_uuid.py <save dir> [show|reroll]: the player UUID of a Recompia save; reroll gives it a new random one in every place
 # (G00/B00 CMNDAT: zlib from 0x130, end offset at +0x10; S00/SYDAT plain), as runtime/games/pkp/core/pkp_save_uuid.cpp does for the shared id.
 # For test copies only: two copies of one save are the same player, and a Link Play / Cloud Island host refuses its own id (error 9005).
 import sys, os, zlib, struct, glob, collections
