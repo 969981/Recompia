@@ -131,40 +131,7 @@ bool is_bc7(const Texture& t) {
     return !t.destroyed.load() && t.mem && t.block_linear && t.fmt && (t.fmt->nvn == NVN_FORMAT_BPTC_UNORM || t.fmt->nvn == NVN_FORMAT_BPTC_UNORM_SRGB);
 }
 
-}  // namespace
-
-bool texture_patch_bc7(const void* guest, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* rgba, std::vector<uint8_t>* saved) {
-    return patch(bc7_texture(guest), x, y, w, h, rgba, saved);
-}
-
-size_t texture_registry_count() { return nvn::be::texture_registry_size(); }
-
-int texture_patch_bc7_matching(const Bc7Match& m, const uint8_t* rgba, std::vector<uint32_t>* checked) {
-    struct Want { uint32_t w, h; const std::vector<uint32_t>* skip; } want{m.width, m.height, checked};
-    auto pred = [](const Texture& t, void* u) {
-        const Want& wt = *static_cast<const Want*>(u);
-        if (!is_bc7(t) || static_cast<uint32_t>(t.b.width) != wt.w || static_cast<uint32_t>(t.b.height) != wt.h) return false;
-        if (!(t.prep_flags.load() & 1)) return false;   // not drawn yet: the game may still be filling it (looked at once it was uploaded)
-        return !wt.skip || std::find(wt.skip->begin(), wt.skip->end(), t.id) == wt.skip->end();
-    };
-    int n = 0;
-    for (const nvn::be::Ref<Texture>& r : nvn::be::texture_registry_collect(pred, &want)) {
-        Texture* t = r.get();
-        if (checked) checked->push_back(t->id);
-        uint64_t hash = nvn::be::kFnvBasis;   // FNV-1a 64 of the rectangle's blocks, row by row
-        const bool read = with_level(t, 0, m.x, m.y, m.w, m.h, false, [&](uint8_t* lin, size_t stride) {
-            for (uint32_t by = 0; by < m.h / 4; ++by) {
-                const uint8_t* row = lin + (m.y / 4 + by) * stride + static_cast<size_t>(m.x / 4) * 16;
-                for (size_t i = 0; i < static_cast<size_t>(m.w / 4) * 16; ++i) hash = nvn::be::fnv_step(hash, row[i]);
-            }
-        });
-        if (read && hash == m.hash && patch(t, m.x, m.y, m.w, m.h, rgba, nullptr)) ++n;
-    }
-    return n;
-}
-
-bool texture_put_bc7_blocks(const void* guest, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* blocks, size_t size) {
-    Texture* t = bc7_texture(guest);
+bool put_blocks(Texture* t, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* blocks, size_t size) {
     if (!t || !blocks) return false;
     const uint32_t n = rect_levels(t, x, y, w, h);
     size_t at = 0;
@@ -179,6 +146,72 @@ bool texture_put_bc7_blocks(const void* guest, uint32_t x, uint32_t y, uint32_t 
     }
     mark_written(t);
     return ok;
+}
+
+// The live BC7 texture with this id, referenced (null when the game freed it).
+nvn::be::Ref<Texture> by_id(uint32_t id) {
+    auto pred = [](const Texture& t, void* u) { return t.id == *static_cast<const uint32_t*>(u) && is_bc7(t); };
+    std::vector<nvn::be::Ref<Texture>> found = nvn::be::texture_registry_collect(pred, &id);
+    return found.empty() ? nvn::be::Ref<Texture>() : std::move(found.front());
+}
+
+}  // namespace
+
+bool texture_patch_bc7(const void* guest, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* rgba, std::vector<uint8_t>* saved) {
+    return patch(bc7_texture(guest), x, y, w, h, rgba, saved);
+}
+
+bool texture_put_bc7_blocks(const void* guest, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* blocks, size_t size) {
+    return put_blocks(bc7_texture(guest), x, y, w, h, blocks, size);
+}
+
+bool texture_patch_bc7_by_id(uint32_t id, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* rgba, std::vector<uint8_t>* saved) {
+    const nvn::be::Ref<Texture> t = by_id(id);
+    return patch(t.get(), x, y, w, h, rgba, saved);
+}
+
+bool texture_put_bc7_blocks_by_id(uint32_t id, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t* blocks, size_t size) {
+    const nvn::be::Ref<Texture> t = by_id(id);
+    return put_blocks(t.get(), x, y, w, h, blocks, size);
+}
+
+size_t texture_registry_count() { return nvn::be::texture_registry_size(); }
+
+std::vector<Bc7Found> texture_find_bc7(const Bc7Match* m, size_t n, std::vector<uint32_t>* checked) {
+    struct Want { const Bc7Match* m; size_t n; const std::vector<uint32_t>* skip; } want{m, n, checked};
+    auto pred = [](const Texture& t, void* u) {
+        const Want& wt = *static_cast<const Want*>(u);
+        if (!is_bc7(t)) return false;
+        bool size = false;
+        for (size_t i = 0; i < wt.n && !size; ++i)
+            size = static_cast<uint32_t>(t.b.width) == wt.m[i].width && static_cast<uint32_t>(t.b.height) == wt.m[i].height;
+        if (!size) return false;
+        if (!(t.prep_flags.load() & 1)) return false;   // not drawn yet: the game may still be filling it (looked at once it was uploaded)
+        return !wt.skip || std::find(wt.skip->begin(), wt.skip->end(), t.id) == wt.skip->end();
+    };
+    std::vector<Bc7Found> out;
+    for (const nvn::be::Ref<Texture>& r : nvn::be::texture_registry_collect(pred, &want)) {
+        Texture* t = r.get();
+        if (checked) checked->push_back(t->id);
+        const uint32_t tw = static_cast<uint32_t>(t->b.width), th = static_cast<uint32_t>(t->b.height);
+        // level 0 is untiled once; every match of this size is hashed from it
+        with_level(t, 0, 0, 0, 4, 4, false, [&](uint8_t* lin, size_t stride) {
+            for (size_t i = 0; i < n; ++i) {
+                const Bc7Match& mi = m[i];
+                if (tw != mi.width || th != mi.height || ((mi.x | mi.y | mi.w | mi.h) & 3u) || mi.x + mi.w > tw || mi.y + mi.h > th) continue;
+                uint64_t hash = nvn::be::kFnvBasis;   // FNV-1a 64 of the rectangle's blocks, row by row
+                for (uint32_t by = 0; by < mi.h / 4; ++by) {
+                    const uint8_t* row = lin + (mi.y / 4 + by) * stride + static_cast<size_t>(mi.x / 4) * 16;
+                    for (size_t k = 0; k < static_cast<size_t>(mi.w / 4) * 16; ++k) hash = nvn::be::fnv_step(hash, row[k]);
+                }
+                if (hash == mi.hash) {
+                    out.push_back({t->id, static_cast<uint32_t>(i)});
+                    return;
+                }
+            }
+        });
+    }
+    return out;
 }
 
 bool texture_read_bc7_level(const void* guest, uint32_t level, std::vector<uint8_t>* blocks, uint32_t* width, uint32_t* height) {

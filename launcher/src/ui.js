@@ -5,6 +5,9 @@ import {
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Mouse, Newspaper, Palette, Pause,
   Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, User, UserCheck, Users, Wrench, X, Crown, KeyRound, LogIn, Send,
 } from 'lucide';
+import {
+  faCircleInfo, faDisplay, faFloppyDisk, faGamepad, faSliders, faVolumeHigh, faWandMagicSparkles,
+} from '@fortawesome/free-solid-svg-icons';
 
 const ICONS = {
   ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
@@ -36,6 +39,20 @@ export function icon(name, cls = '') {
   }
   const parts = node.map(([tag, attrs]) => `<${tag} ${Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(' ')}/>`).join('');
   return `<svg class="icon i-${name} ${cls}" viewBox="0 0 24 24" aria-hidden="true">${parts}</svg>`;
+}
+
+const FA_ICONS = { faCircleInfo, faDisplay, faFloppyDisk, faGamepad, faSliders, faVolumeHigh, faWandMagicSparkles };
+
+/** Finished SVG markup for a Font Awesome solid icon by kebab name ("floppy-disk"). A new name is added to the import list above. */
+export function faIcon(name, cls = '') {
+  const def = FA_ICONS[`fa${pascal(name)}`];
+  if (!def) {
+    if (import.meta.env?.DEV) console.warn(`Font Awesome icon "${name}" is not in ui.js`);
+    return '';
+  }
+  const [w, h, , , path] = def.icon;
+  const paths = (Array.isArray(path) ? path : [path]).map((d) => `<path d="${d}"/>`).join('');
+  return `<svg class="icon fa i-${name} ${cls}" viewBox="0 0 ${w} ${h}" aria-hidden="true">${paths}</svg>`;
 }
 
 const MAX_TOASTS = 3;
@@ -218,11 +235,11 @@ export function group(title, rows) {
   </section>`;
 }
 
-/** Pill radio group: read it with a `change` listener, e.target.name / e.target.value. */
+/** Pill radio group: read it with a `change` listener, e.target.name / e.target.value. An option's `icon` is SVG markup (icon() / faIcon()) before its label. */
 export function segmented(name, opts, value, { label = '', disabled = false } = {}) {
   const items = opts.map(optionOf).map((o) => `<label>
       <input type="radio" name="${esc(name)}" value="${esc(o.value)}" ${String(o.value) === String(value) ? 'checked' : ''} ${disabled || o.disabled ? 'disabled' : ''} />
-      <span>${esc(o.label)}</span>
+      <span>${o.icon ?? ''}${esc(o.label)}</span>
     </label>`);
   return `<div class="seg" role="radiogroup" ${named(label)}>${items.join('')}</div>`;
 }

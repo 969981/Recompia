@@ -38,6 +38,7 @@ body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.icon.fa { fill: currentColor; stroke: none; }
 .i-play { fill: currentColor; }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -417,6 +418,8 @@ button.chip:hover { background: var(--surface-3); }
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .seg input:hover:not(:checked):not(:disabled) + span { color: var(--color-text); }
+.seg span .icon { width: var(--icon-sm); height: var(--icon-sm); margin-right: 7px; }
+.seg input:checked + span .icon { color: var(--color-accent); }
 .seg input:checked + span { background: var(--surface-3); color: var(--color-text); box-shadow: var(--glass-highlight), var(--shadow-sm); }
 .seg input:focus-visible + span { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .seg input:disabled + span { color: var(--color-text-3); }

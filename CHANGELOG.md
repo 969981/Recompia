@@ -13,6 +13,48 @@
 ### Fixed
 - Fixed **Settings > Game** not opening in the launcher: the page stayed on the previous tab
 
+## 0.14.2 (build R: Raccoon Hotfix a2)
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Highlights
+- **Seamless co-op v2 is ready for testing: join the Open Alpha!** Play together in one world over the internet, each player with their own character. It is stable now: there are still bugs, but nothing game-breaking. Get it from [Recompia: Co-op alpha 4](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.4) and tell us what you find
+- Fixed new Pokémon showing up invisible when **Pokémon in town** was set high (#745)
+- Added four community mods to Browse before the mod hub lists them, and Community Achievements 0.4.1 no longer gives five achievements too early
+
+### Link Play
+- Added the seamless co-op v2 Open Alpha: a separate test build, not part of this update
+  - Install: download the package for your system from [Co-op alpha 4](https://github.com/Dittobyte/Recompia/releases/tag/coop-v2-alpha.4), copy the contents of its PokopiaRecomp-0.0.0 folder over your Recompia folder, open the launcher and press **Set up again**. Saves, co-op saves, settings and shaders stay
+  - Play: open the **Co-op** tab, one player presses **Start a co-op save** and sends the invite code, every other player presses **Join a friend** and enters it
+  - Back to the normal release: press **Update** in the co-op build's launcher
+  - Bugs: press **Save logs for a bug report** on the Co-op page and send the zip with what you did in a GitHub issue
+
+### Performance
+- Graphics cards of 4 or 6 GB on PCs without Resizable BAR now read all of the game's shader constants from video memory; a third of them still came from system memory
+- Added a performance report to the game's log: what the PC is (CPU, memory, graphics card, driver, PCIe link, Resizable BAR, power plan), the settings that change the frame rate, and every 10 seconds whether the frame rate is held back by the graphics card or the processor. Sending the log is now enough for a low-fps report (`[diag] perf_report = off` turns it off)
+
+### Controls
+- Fixed the dark shape behind the prompt beside the player (such as **(A) Talk**) sitting under the text when **Face Buttons** is set to **Xbox** (#683)
+  - Before: since 0.14.0 the three faint buttons were drawn above the text, where they sit on the controller, but the dark shape that belongs behind them stayed below the text
+  - Now: the shape is behind the three buttons
+- Fixed the title screen's **PRESS (A)** showing the Switch A instead of the controller's or keyboard's button in French, German, Italian and Spanish (#730)
+- Fixed the **(A) Complete!** badge on the challenge list showing the Switch A instead of the controller's or keyboard's button (#733)
+
+### Gameplay
+- Fixed the pause menu's **Save** prompt only showing inside a home; it now shows wherever the pause menu opens, also while hosting or visiting in Link Play
+- Fixed new Pokémon showing up invisible when **Pokémon in town** was set high: the game draws at most about 50 Pokémon at once, so the setting now goes up to 50 and higher values count as 50 (#745)
+
+### Launcher
+- Added icons to the Settings tabs
+- macOS and Linux: Play now prepares the shaders the game builds while it runs before the start, as Windows does (#727)
+  - Before: when Set up's warm-up collected none of them, the first start drew them black or not at all until the game was restarted
+  - Now: Play runs the warm-up once more in that case, and translates what an earlier run left before the start
+- Community Achievements 0.4.1 now comes with the launcher, until the mod hub has a newer version
+  - Fixed Identity Revealed, Cloud Pioneer, First Steps, Wanderer and Cartographer being earned before the player visited those places; the ones earned too early are taken back once and come back when the player gets there
+  - Added `achievements.json` in the mod's folder: every achievement with its progress, the time it was earned, the share of players who have it and its picture, for other programs to read
+- Added four community mods to Browse before the mod hub lists them: Unlimited Crafting Storage Range, Play as Pokemon, Simple Cheats (Windows) and Pokopia Anime Voices; each one leaves the launcher's list once the hub lists it
+  - Pokopia Anime Voices is not installed by the launcher: **Get it yourself** explains why and opens its author's page
+
 ## 0.14.1 (build R: Raccoon Hotfix a1)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.

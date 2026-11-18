@@ -14,6 +14,7 @@
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/log.h"
+#include "nxrt/perf_report.h"
 #include "nxrt/present_timing.h"
 
 namespace nxrt::extras {
@@ -59,6 +60,7 @@ struct LowLatency::Impl {
     std::atomic<uint64_t> input_ns_for[64] = {};   // id % 64 -> time of INPUT_SAMPLE
     std::atomic<uint64_t> frames{0};
     double sleep_ms_avg = 0, in2present_ema = 0, in2gpu_ema = 0, sim2present_ema = 0;
+    uint64_t prev_sim_ns = 0;          // sim_begin's previous start (the main thread only): the performance report's capped frames
     std::atomic<uint64_t> reports{0};
     uint64_t last_report_us = 0, last_log_ns = 0;
     uint64_t report_seen_id = 0;
@@ -342,6 +344,16 @@ void LowLatency::sim_begin() {
         s.antilag_update(VK_ANTI_LAG_STAGE_INPUT_AMD, id);
     }
     const double slept = ms_since(t0);
+    {   // Reflex paces the cap (paces_frames): a frame it held back to the cap counts as capped in the performance report. The sleep alone
+        // does not say that (it also covers the in-flight and GPU waits when the GPU is the bottleneck): the frame must also run at the cap.
+        const uint64_t prev = s.prev_sim_ns;
+        s.prev_sim_ns = t0;
+        if (s.reflex && slept > 0.05 && prev && paces_frames()) {
+            const double cap = g_cap_fps.load();
+            const double interval_ms = static_cast<double>(t0 - prev) * 1e-6;
+            if (cap > 0 && interval_ms <= 1000.0 / cap * 1.03) perf::note_pacer_wait();
+        }
+    }
     s.sleep_ms_avg = s.sleep_ms_avg * 0.95 + slept * 0.05;
     s.marker(VK_LATENCY_MARKER_SIMULATION_START_NV, id);
     {

@@ -30,9 +30,15 @@ constexpr size_t kPaneName = 176, kPaneParent = 208, kPaneWorld = 224, kPaneName
 constexpr size_t kPaneLocal = 232;
 // A picture pane's texture record: the four corner UVs of its sprite (8 floats), not animated.
 constexpr size_t kPaneTexture = 0x1b0, kTextureUv = 8;
-// mid: the draw of a picture pane and of a window pane, at its flag store (pane in x0), before it reads the pane's world matrix. Two of
-// the menu pointer's sites (pkp_menu_internal.h kDrawSites).
-constexpr uint64_t kPictureDraw = 0x1f76168, kWindowDraw = 0x1f7fe48;
+
+// ---- the quad builder (0x7101f98aa4): one quad of a pane into the vertex buffer, in the pane's own units ----
+// mid: just before the vertices are written: s0 and s1 are the quad's half width and half height, s2 and s3 its centre. Every frame,
+// for every quad that is drawn. Where it returns to says which pane class builds; its callers' registers are saved on its stack.
+constexpr uint64_t kQuadGeometry = 0x1f98b98;
+constexpr size_t kQuadReturn = 8;                  // x29-relative: the return address
+constexpr uint64_t kPictureQuadReturn = 0x1f772ec;   // the return into a picture pane's build
+constexpr size_t kQuadPictureDraw = 0x58;          // SP-relative: that build's draw object (its x21)
+constexpr size_t kDrawPane = 8;                    // draw object: the pane
 
 // ---- the data-table manager: table i at +0x10 + its offset (pkp_tables.h looks a row up) ----
 // u32: how many tables it holds (8-byte slots from +0x10; a table at off is there while this is above off / 8, pkp_tables.h).

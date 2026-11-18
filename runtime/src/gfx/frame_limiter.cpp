@@ -6,6 +6,7 @@
 #include "nxrt/frame_limiter.h"
 
 #include "nxrt/log.h"
+#include "nxrt/perf_report.h"
 #include "nxrt/qpc.h"
 
 #include <windows.h>
@@ -298,6 +299,7 @@ uint64_t FrameLimiter::begin_frame_nohook() {
 
     const uint64_t target = static_cast<uint64_t>(std::ceil(next));
     const bool had_to_wait = target > entry;
+    if (had_to_wait) perf::note_pacer_wait();     // the performance report counts this frame as capped
     s.wait_until(target);
     const uint64_t start = now_ns();
     // A wait that ends long after its target means the thread was not scheduled (the timer fired late); a long planned wait means the schedule ran ahead.

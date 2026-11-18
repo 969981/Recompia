@@ -75,6 +75,8 @@ if(TARGET nxrt_gfx)
         "${_pkp}/input/pkp_aim_debug.cpp"
         "${_pkp}/input/pkp_jump.cpp"
         "${_pkp}/input/pkp_kbm.cpp"
+        "${_pkp}/input/pkp_prompt_icons.cpp"
+        "${_pkp}/input/pkp_baked_prompts.cpp"
         # ui
         "${_pkp}/ui/pkp_menu.cpp"
         "${_pkp}/ui/pkp_menu_scan.cpp"

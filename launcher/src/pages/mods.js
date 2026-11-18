@@ -166,6 +166,7 @@ export async function render(el, ctx) {
       install: `<button class="btn primary sm" data-act="install" data-id="${esc(c.id)}" ${dis}>${icon('download')}${esc(t('Install'))}</button>`,
       update: `<button class="btn primary sm" data-act="install" data-id="${esc(c.id)}" ${dis}>${icon('download')}${esc(t('Update to {version}', { version: c.version }))}</button>`,
       installed: `<span class="chip ok">${icon('check')}${esc(t('Installed'))}</span>`,
+      manual: `<button class="btn sm" data-act="manual" data-id="${esc(c.id)}" ${dis}>${icon('external-link')}${esc(t('Get it yourself'))}</button>`,
       soon: `<span class="chip">${esc(t('Coming soon'))}</span>`,
       closed: `<button class="btn sm" disabled>${icon('download')}${esc(t('Install'))}</button>`,
     }[act];
@@ -183,6 +184,18 @@ export async function render(el, ctx) {
       <div class="cluster">${chips.map(chip).join('')}${c.installed && c.newer ? `<span class="chip">${esc(t('{version} installed', { version: c.installed }))}</span>` : ''}</div>
       <div class="cluster mod-actions"><button class="btn quiet sm" data-act="details" data-id="${esc(c.id)}">${icon('info')}${esc(t('Details'))}</button>${linkButton(c.page, t('Mod page'))}<span class="grow"></span>${button}</div>
     </section>`;
+  }
+
+  /** A card the launcher does not install (mods_additions.rs `manual`): why, then the author's page. */
+  async function manual(id) {
+    const c = catalog?.mods.find((m) => m.id === id);
+    if (!c?.manual) return;
+    const yes = await confirm({
+      title: t('Install it yourself'),
+      body: t("Because of what this mod contains, Recompia cannot download or install it for you. Get it from its author's page, then put the .pkmod file into the mods folder yourself."),
+      ok: t("Open the author's page"),
+    });
+    if (yes) api.openLink({ url: c.manual }).catch((err) => toast(errText(err), 'error'));
   }
 
   /** The group chips of Browse (only when the hub names groups): one button each, the chosen one pressed. */
@@ -382,6 +395,7 @@ export async function render(el, ctx) {
       case 'unlock': return setLock(id, false);
       case 'lock': return setLock(id, true);
       case 'install': return install(id);
+      case 'manual': return manual(id);
       case 'details': return details(id);
       case 'group': group = id; return draw();
       case 'folder': return api.openModsDir().catch((err) => toast(errText(err), 'error'));

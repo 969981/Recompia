@@ -34,6 +34,7 @@
 #include "nxrt/present_timing.h"
 #include "vk_gauges.h"
 #include "nvn_gpu_internal.h"
+#include "nvn_gpu_timing.h"
 #include "nvn_thread.h"
 #include "nvn_impl.h"
 #include "nvn_pipeline.h"
@@ -48,8 +49,11 @@ namespace {
 constexpr const char* kTag = "nvn.gpu";
 constexpr uint32_t kSlots = 36;                  // about three frames of submissions (the game submits ~11 times a frame): with fewer, recording waits on
                                                  // the GPU for a submission of a recent frame and the CPU cannot get frames ahead
-constexpr uint32_t kGpMax = 1024;      // GPU pass profiler: timestamps per submission
 constexpr VkDeviceSize kUploadBytes = 8ull << 20;   // per slot; larger uploads get their own staging buffer
+// Frame::vram_ring: a slot whose upload memory is in system memory gets this much device-local, host-visible memory of its own the first
+// time it is asked (uniform snapshots: about 130 KB a submission on a GTX 1650 / RTX 2060 in the 2026-11-17 traces, 1 MiB leaves room).
+// Without resizable BAR that memory is a ~214 MiB window, and 24 of the 36 upload rings (8 MiB each) already fill most of it.
+constexpr VkDeviceSize kVramRingBytes = 1ull << 20;
 constexpr uint32_t kMaxPieces = 8;               // [nvn] gpu_split: command buffers per slot (the most pieces one submission is cut into)
 
 // Live-count gauges of this file (leak monitor, nxrt/gauge.h).
@@ -84,14 +88,15 @@ struct Slot {
     size_t dpool_cur = 0;
     gfx::Buffer upload;
     VkDeviceSize upload_off = 0;
-    bool upload_dl = false;               // `upload` is in device-local memory (Frame::upload_in_vram)
+    bool upload_dl = false;               // `upload` is in device-local memory (Frame::vram_ring uses it then)
+    // Frame::vram_ring when `upload` is in system memory: made on first use (kVramRingBytes); vram_state 0 not tried, 1 in video memory,
+    // 2 none (the allocation failed or landed in system memory: no second try)
+    gfx::Buffer vram;
+    VkDeviceSize vram_off = 0;
+    uint8_t vram_state = 0;
     std::vector<gfx::Buffer> extra;       // staging / overflow buffers of the submission
     uint64_t serial = 0;                  // last submission that used the slot
-    bool timed = false;                   // frame trace: the submission wrote GPU timestamps (query pair index = slot index * 2)
-    uint64_t cpu_t0 = 0;
     uint64_t sets_live = 0;               // descriptor sets allocated from this slot's pools since the last reset (vk.descriptor_sets)
-    uint32_t gp_n = 0;                    // GPU pass profiler: timestamps written by the submission
-    std::vector<std::pair<std::string, uint32_t>> gp_labels;   // label and argument of each interval (stamp i closes interval i)
 };
 
 struct Deferred {
@@ -140,9 +145,7 @@ struct Gpu {
     Ref<Window> last_window;
     int last_index = -1;
     std::chrono::steady_clock::time_point last_present{};
-    Slot slots[kSlots];
-    VkQueryPool qpool = VK_NULL_HANDLE;   // frame trace: two timestamps per slot
-    VkQueryPool gpool = VK_NULL_HANDLE;   // GPU pass profiler ([prof] gpu_passes): kGpMax timestamps per slot
+    Slot slots[kSlots];                   // GPU timestamps of each slot's submission: nvn_gpu_timing.h, by slot index
     uint32_t next_slot = 0;
     Counters ctr;
 
@@ -363,10 +366,6 @@ bool create_slot(Slot& s) {
     if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
     const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
     s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
-    static int n_dl = 0, n_sys = 0;
-    ++(s.upload_dl ? n_dl : n_sys);
-    if (n_dl + n_sys == 1 || (!s.upload_dl && n_sys == 1))
-        NXLOG_I(kTag, "upload memory: slot %d in %s memory (flags 0x%x)", n_dl + n_sys - 1, s.upload_dl ? "video" : "system", static_cast<unsigned>(mp));
     return true;
 }
 
@@ -520,7 +519,7 @@ void flush_batch(Slot* piece, bool direct) {
     if (piece) cbi.back().commandBuffer = piece->cb;
     const uint64_t serial = g->batch.empty() ? 0 : g->batch.back()->serial;
     std::vector<Slot*> stamp;
-    if (g->qpool) {
+    if (timing::queued_wanted()) {
         stamp = g->batch;
         if (piece) stamp.push_back(piece);
     }
@@ -628,39 +627,7 @@ Slot* acquire_slot() {
         if (!wait_serial_blocking(s.serial)) return nullptr;
     }
     const uint64_t queued = s.queued_ns.exchange(0);
-    if (s.timed) {
-        s.timed = false;
-        uint64_t ts[2] = {0, 0};
-        const uint32_t idx = static_cast<uint32_t>(&s - g->slots) * 2;
-        if (vkGetQueryPoolResults(g->dev->device(), g->qpool, idx, 2, sizeof ts, ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS && ts[1] >= ts[0]) {
-            // gpu.exec: drawn from the recording start. gpu.exec.queued: the same GPU time drawn from when the submission's first command buffer
-            // was handed to vkQueueSubmit2 (the GPU cannot start before; it starts later when it is still busy with earlier work). Missing for a
-            // flush that rode in the present's submit after being parked ([nvn] one_submit).
-            static const uint16_t z = ft::zone_id("gpu.exec"), zq = ft::zone_id("gpu.exec.queued");
-            const double ns = static_cast<double>(ts[1] - ts[0]) * g->dev->properties().limits.timestampPeriod;
-            ft::event(z, s.cpu_t0, s.cpu_t0 + static_cast<uint64_t>(ns), static_cast<uint32_t>(s.serial));
-            if (queued) ft::event(zq, queued, queued + static_cast<uint64_t>(ns), static_cast<uint32_t>(s.serial));
-        }
-    }
-    if (s.gp_n >= 2 && g->gpool) {      // GPU pass profiler: one event per interval between two timestamps, named gp:<label>, arg = draws
-        uint64_t ts[kGpMax];
-        const uint32_t n = std::min(s.gp_n, kGpMax);
-        const uint32_t base = static_cast<uint32_t>(&s - g->slots) * kGpMax;
-        if (vkGetQueryPoolResults(g->dev->device(), g->gpool, base, n, sizeof(uint64_t) * n, ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
-            static std::map<std::string, uint16_t> zones;
-            const double period = g->dev->properties().limits.timestampPeriod;
-            uint64_t t = s.cpu_t0;
-            for (uint32_t i = 1; i < n && i < s.gp_labels.size(); i++) {
-                const uint64_t d = ts[i] >= ts[i - 1] ? static_cast<uint64_t>(static_cast<double>(ts[i] - ts[i - 1]) * period) : 0;
-                auto it = zones.find(s.gp_labels[i].first);
-                if (it == zones.end()) it = zones.emplace(s.gp_labels[i].first, ft::zone_id(("gp:" + s.gp_labels[i].first).c_str())).first;
-                ft::event(it->second, t, t + d, s.gp_labels[i].second);
-                t += d;
-            }
-        }
-    }
-    s.gp_n = 0;
-    s.gp_labels.clear();
+    timing::collect(static_cast<uint32_t>(&s - g->slots), s.serial, queued);
     retire();
     vkResetCommandPool(g->dev->device(), s.pool, 0);
     s.cb = s.cbs[0];
@@ -670,6 +637,7 @@ Slot* acquire_slot() {
     s.sets_live = 0;
     s.dpool_cur = 0;
     s.upload_off = 0;
+    s.vram_off = 0;
     for (auto& b : s.extra) g->dev->destroy_buffer(b);
     s.extra.clear();
     return &s;
@@ -697,7 +665,35 @@ UploadAlloc Frame::upload(VkDeviceSize size, VkDeviceSize align) {
     return staging(size + (align ? align : 16));
 }
 
-bool Frame::upload_in_vram() const { return static_cast<const Slot*>(slot)->upload_dl; }
+UploadAlloc Frame::vram_ring(VkDeviceSize size, VkDeviceSize align) {
+    Slot& s = *static_cast<Slot*>(slot);
+    if (s.upload_dl) return upload_ring(size, align);
+    if (s.vram_state == 0) {      // first use: a small device-local ring of the slot's own (kVramRingBytes)
+        s.vram_state = 2;
+        gfx::Device& d = *g->dev;
+        const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        if (d.create_buffer(kVramRingBytes, usage, gfx::MemoryUse::Upload, &s.vram, "nvn vram ring") == VK_SUCCESS) {
+            if (d.memory_flags(s.vram) & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) s.vram_state = 1;
+            else d.destroy_buffer(s.vram);      // the window is full: this slot reads its blocks from the pools
+        }
+        static uint32_t made = 0, missed = 0;
+        ++(s.vram_state == 1 ? made : missed);
+        if ((s.vram_state == 1 ? made : missed) == 1)     // the first of each outcome
+            NXLOG_I(kTag, "video memory ring of %llu KiB for upload slots in system memory: %s", static_cast<unsigned long long>(kVramRingBytes >> 10),
+                    s.vram_state == 1 ? "made (uniform snapshots read video memory in every slot)" : "no video memory left for one (those slots read the pools)");
+    }
+    if (s.vram_state != 1) return {};
+    if (align == 0) align = 16;
+    const VkDeviceSize off = (s.vram_off + align - 1) & ~(align - 1);
+    if (off + size > kVramRingBytes) return {};
+    s.vram_off = off + size;
+    UploadAlloc a;
+    a.buffer = s.vram.buffer;
+    a.offset = off;
+    a.ptr = static_cast<uint8_t*>(s.vram.mapped) + off;
+    a.size = size;
+    return a;
+}
 
 UploadAlloc Frame::staging(VkDeviceSize size) {
     Slot& s = *static_cast<Slot*>(slot);
@@ -811,15 +807,11 @@ void run_on_render_thread(const std::function<void()>& fn) {
     cv.wait(lk, [&] { return done; });
 }
 
-bool gpass_on() { return g && g->gpool != VK_NULL_HANDLE; }
+bool gpass_on() { return timing::pass_on(); }
 
 void gpass_stamp(Frame& f, const char* label, uint32_t arg) {
-    if (!g || !g->gpool || !f.slot) return;
-    Slot& s = *static_cast<Slot*>(f.slot);
-    if (s.gp_n >= kGpMax) return;
-    vkCmdWriteTimestamp2(f.cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, g->gpool, static_cast<uint32_t>(&s - g->slots) * kGpMax + s.gp_n);
-    s.gp_labels.emplace_back(label, arg);
-    s.gp_n++;
+    if (!g || !f.slot) return;
+    timing::pass_stamp(f.cb, static_cast<uint32_t>(static_cast<Slot*>(f.slot) - g->slots), label, arg);
 }
 
 namespace {
@@ -958,24 +950,12 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi);
-    const uint32_t qi = static_cast<uint32_t>(&s - g->slots) * 2;
-    if (g->gpool) {
-        vkCmdResetQueryPool(s.cb, g->gpool, static_cast<uint32_t>(&s - g->slots) * kGpMax, kGpMax);
-        s.gp_n = 0;
-        s.gp_labels.clear();
-        gpass_stamp(f, "(start)", 0);
-    }
-    if (g->qpool) {
-        vkCmdResetQueryPool(s.cb, g->qpool, qi, 2);
-        vkCmdWriteTimestamp(s.cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, g->qpool, qi);
-        s.timed = true;
-        s.cpu_t0 = ft::now_ns();
-    }
+    const uint32_t slot_i = static_cast<uint32_t>(&s - g->slots);
+    timing::begin(s.cb, slot_i);
     if (t_cb0) ft::event(z_cbsetup, t_cb0, ft::now_ns());   // slot, begin command buffer, query resets
     record(f);      // [nvn] gpu_split: may have sent pieces (split_piece); s.cb is then the last one
     const uint64_t t_cb1 = ft::on() ? ft::now_ns() : 0;
-    if (g->gpool) gpass_stamp(f, "tail", 0);
-    if (g->qpool) vkCmdWriteTimestamp(s.cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g->qpool, qi + 1);
+    timing::end(s.cb, slot_i);
     vkEndCommandBuffer(s.cb);
     if (!unsignalled) {
         s.serial = serial;
@@ -1150,7 +1130,7 @@ bool take_batch_for_present(std::vector<VkCommandBuffer>* cmds, gfx::Renderer::S
     if (g->sw) {    // [nvn] submit_thread: what present_batch_done does with the result happens on the worker, right after the submit
         const uint64_t value = p->value;
         std::vector<Slot*> stamp;
-        if (g->qpool) stamp = g->batch;     // gpu.exec.queued: stamped just after the submit (before the publish that lets the slot be reused)
+        if (timing::queued_wanted()) stamp = g->batch;     // gpu.exec.queued: stamped just after the submit (before the publish that lets the slot be reused)
         p->after_submit = [value, stamp = std::move(stamp)](bool submitted) {
             stamp_queued(stamp);
             if (!submitted && !g->dev->device_lost()) {
@@ -1646,20 +1626,12 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
             delete gp;
             return false;
         }
-    if (ft::on()) {
-        VkQueryPoolCreateInfo qi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-        qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        qi.queryCount = kSlots * 2;
-        if (vkCreateQueryPool(dev.device(), &qi, nullptr, &gp->qpool) != VK_SUCCESS) gp->qpool = VK_NULL_HANDLE;
-        else vk_gauge_query_pools().add(1);
+    {
+        uint32_t n_dl = 0;
+        for (const Slot& s : gp->slots) n_dl += s.upload_dl ? 1 : 0;
+        NXLOG_I(kTag, "upload memory: %u of %u slots in video memory (%llu MiB each)", n_dl, kSlots, static_cast<unsigned long long>(kUploadBytes >> 20));
     }
-    if (ft::on() && config_get_bool("prof", "gpu_passes", false)) {
-        VkQueryPoolCreateInfo qi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-        qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        qi.queryCount = kSlots * kGpMax;
-        if (vkCreateQueryPool(dev.device(), &qi, nullptr, &gp->gpool) != VK_SUCCESS) gp->gpool = VK_NULL_HANDLE;
-        else vk_gauge_query_pools().add(1);
-    }
+    timing::init(dev, kSlots);
     if (ft::on()) extras::lowlat_set_backlog_fn([]() -> uint64_t {      // latency probe: submissions the GPU has not finished
         if (!g || !g->timeline) return 0;
         uint64_t v = 0;
@@ -1802,14 +1774,14 @@ void tear_down() {
             vk_gauge_descriptor_pools().sub(1);
         }
         d.destroy_buffer(s.upload);
+        if (s.vram.buffer) d.destroy_buffer(s.vram);
         if (s.pool) {
             vkDestroyCommandPool(d.device(), s.pool, nullptr);
             vk_gauge_command_pools().sub(1);
             if (s.cb) vk_gauge_command_buffers().sub(1);
         }
     }
-    if (gp->qpool) { vkDestroyQueryPool(d.device(), gp->qpool, nullptr); vk_gauge_query_pools().sub(1); }
-    if (gp->gpool) { vkDestroyQueryPool(d.device(), gp->gpool, nullptr); vk_gauge_query_pools().sub(1); }
+    timing::shutdown(d);
     if (gp->timeline) { vkDestroySemaphore(d.device(), gp->timeline, nullptr); vk_gauge_semaphores().sub(1); }
     g = nullptr;
     delete gp;

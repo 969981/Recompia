@@ -2,6 +2,7 @@
 // Play mode: loading the settings, start and stop, the process exit and the public API (play.h).
 #include "play_state.h"
 #include "nxrt/key_state.h"
+#include "nxrt/perf_report.h"
 #include "nxrt/screenshot.h"
 #include "nxrt/text.h"
 #include "nxrt/vi_sinks.h"
@@ -19,6 +20,7 @@ using namespace detail;
         st.dirty = false;
     }
     if (flush_gpu_cache) nvn::backend_flush_caches();   // unsafe after VK_ERROR_DEVICE_LOST; normal early-exit paths still save it
+    perf::session_end();     // TerminateProcess below: runtime::shutdown (hitch_stop) never runs on this path
     nxrt::log_flush();
     if (tt::enabled() && !tt::finished()) tt::end_run(code, verdict, message);     // writes result.json, then terminates
     TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
@@ -199,6 +201,8 @@ bool start(const StartOptions& opt) {
     if (st.renderer) screenshot::set_provider(&screenshot_provider, nullptr);
     if (st.renderer) tt::set_screenshot_flush(&gfx::wait_screenshot_writes);
     set_hdr_luminance_sink(&extras::hdr_note_layer_luminance);
+    perf_settings_register();
+    if (st.window) perf::note_focus(platform::focused());     // a window opened without focus sends no focus-lost event
     if (const std::string script = config_get_str("play", "selftest", ""); !script.empty()) {
         std::string err;
         if (!st.selftest.parse(script, &err)) {

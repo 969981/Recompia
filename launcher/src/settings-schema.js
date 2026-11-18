@@ -8,6 +8,7 @@
 // A source is { pkp, controls, config, controls_exists }: read_settings' `section.key` maps plus get_config.
 // An edit is { file, section, key, value }. file 'pkp' and 'controls' go to write_settings, 'config' to save_config.
 //
+// A section: { id, icon (a Font Awesome solid name for faIcon), label, groups }.
 // Field: { id, label, type, at, def, options, min, max, step, suffix, ... }
 //   type     segmented | select | choice | size | toggle | slider | path | clock
 //   at       where it lives: controls(), pkp() or config(); an array when it has two keys
@@ -320,7 +321,7 @@ const GAMEPLAY = {
   },
   pokemon_cap_50: {
     label: t('More Pokémon in town'),
-    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 64 slots with your residents, so a high number leaves them less room.') }) }],
+    after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
   pokemon_cap_limit: { label: t('Pokémon in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
 };
@@ -368,6 +369,7 @@ const SINGLEPLAYER = ['recompia'];
 export const SECTIONS = [
   {
     id: 'display',
+    icon: 'display',
     label: t('Display'),
     groups: [
       {
@@ -423,6 +425,7 @@ export const SECTIONS = [
   },
   {
     id: 'graphics',
+    icon: 'wand-magic-sparkles',
     label: t('Graphics'),
     groups: [
       {
@@ -475,6 +478,7 @@ export const SECTIONS = [
   },
   {
     id: 'audio',
+    icon: 'volume-high',
     label: t('Audio'),
     groups: [
       {
@@ -491,6 +495,7 @@ export const SECTIONS = [
   },
   {
     id: 'controls',
+    icon: 'gamepad',
     label: t('Controls'),
     groups: [
       {
@@ -536,6 +541,7 @@ export const SECTIONS = [
   },
   {
     id: 'saves', games: SINGLEPLAYER,
+    icon: 'floppy-disk',
     label: t('Saves'),
     groups: [
       {
@@ -615,6 +621,7 @@ export const SECTIONS = [
   },
   {
     id: 'game',
+    icon: 'sliders',
     label: t('Game'),
     groups: [
       {
@@ -748,6 +755,7 @@ export const SECTIONS = [
   },
   {
     id: 'about',
+    icon: 'circle-info',
     label: t('About'),
     groups: [
       {
