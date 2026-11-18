@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Every download (Windows, Linux, macOS) carries the licence texts of what it contains, and Settings has a Licences row that opens them
+- Each release also has the source of the bundled save editor and of libusb
+
+### Changed
+- Settings > Source code opens the source of the version you have installed
+
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed.

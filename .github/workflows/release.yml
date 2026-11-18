@@ -1280,7 +1280,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-sources
+          name: release-sources
           path: work/sources
           compression-level: 0
 
