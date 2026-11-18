@@ -1,0 +1,19 @@
+[package]
+name = "recompia-stub"
+version = "0.1.0"
+description = "Starts Recompia.exe from the launcher's old file name"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Windows only (make-release.ps1 ships it as PokopiaLauncher.exe); Linux and macOS ship old-name.sh. No dependencies at run time, so
+# it adds nothing to the crate notices: embed-resource only puts the launcher's icon into the exe while building.
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
