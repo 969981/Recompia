@@ -95,12 +95,15 @@ void tick(bool in_game) {
         if (!session::can_walk(in_game)) return;
         s.holding = true;
         NXLOG_I(kTag, "Co-op: waiting for %d of %d members; this player's input is held", missing, want);
-    } else if (!in_game || !me) {   // loading or at the title: nothing to hold, the claim ends and begins again at the next walk
+    } else if (!me) {   // at the title or loading: no character to hold, the claim ends and begins again at the next walk
         let_go(s);
         return;
     }
+    // Kept while in_game dips: a controller/keyboard prompt switch stops input for ~135 ms (in_game false), and a claim let go then
+    // let the held stick move the character (the field host, 300 switches). A world load changes the character; lock::hold moves the
+    // claim to the new one.
     lock::hold(lock::Holder::Gate, me);
-    show(s, missing);
+    if (in_game) show(s, missing);
 }
 
 void reset() {
