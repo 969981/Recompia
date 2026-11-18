@@ -5,7 +5,8 @@
 //! 1. SHA256SUMS.txt first, so a release without a checksum for the package costs no 170 MB. The package is streamed to `.update/`
 //!    and hashed as it arrives. Nothing outside `.update/` has changed until step 4, so cancel and every failure before it only
 //!    delete it.
-//! 2. The system tar unpacks it to `.update/staged/`, and the tree is checked: launcher and tools/build in `PokopiaRecomp-<v>/`.
+//! 2. The system tar unpacks it to `.update/staged/`, and the tree is checked: launcher and tools/build in `<prefix>-<v>/`, under
+//!    either release naming scheme (release_names.rs).
 //! 3. `GameCode::prepare` (update_game.rs): the package's own build tools build the game code it needs into the game folder's
 //!    `build/next`, beside the installed build, which stays playable; Play is not blocked until step 4. The part that takes long
 //!    (minutes to an hour) is here, where it can be cancelled and continues from the object cache when Update is pressed again.
@@ -14,7 +15,8 @@
 //!    step can be undone, and a start after a power cut restores the backup. Then `GameCode::adopt` moves the prepared build into
 //!    place (renames, seconds); if it fails, the swap is undone.
 //! 5. `relaunch`: the new launcher starts with `--updated` and this one exits. The running exe cannot be deleted on Windows but can
-//!    be renamed, so it becomes `<name>.old` and the next start deletes it (`clean_start`). If the new launcher does not start,
+//!    be renamed, so it becomes `<name>.old` and the next start deletes it (`clean_start`). An update across the release rename puts
+//!    the new launcher under its own name beside it and starts that one (`release_names::landing`). If the new launcher does not start,
 //!    `Session::rollback` puts the old game build back and undoes the swap.
 //!
 //! Renames only, inside one folder tree, so a swap cannot run out of disk space halfway. A second launcher window leaves a running
@@ -23,6 +25,7 @@
 
 use crate::download;
 use crate::update_apply::{apply, exists, recover, rollback_message, with_old, Applied, Job, MARKER};
+use crate::release_names::{self, Host};
 use crate::releases::{get, user_agent, Target};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
@@ -43,15 +46,6 @@ const LOCK: &str = "lock";
 pub const CANCELLED: &str = "Update cancelled.";
 /// How often a prepared update looks whether the game has been closed.
 const WAIT_POLL: Duration = Duration::from_millis(500);
-
-#[cfg(windows)]
-const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.exe";
-#[cfg(target_os = "macos")]
-// The binary at the root of the release zip's PokopiaRecomp-<version>/ folder: that folder is the install root (exe_dir), so
-// the package replaces the launcher and tools/ in place, as on Windows and Linux.
-const PACKAGE_LAUNCHER: &str = "PokopiaLauncher";
-#[cfg(not(any(windows, target_os = "macos")))]
-const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.AppImage";
 
 
 /// The SHA-256 SHA256SUMS.txt lists for `name` (`<hex> *<name>` from the release job, `<hex>  <name>` from sha256sum), lower case.
@@ -156,17 +150,6 @@ pub fn extract(dir: &Path, archive: &str, out: &str, cancel: &AtomicBool) -> Res
     Err(format!("Could not unpack the update ({}). Check that the drive has free space, then try again. Nothing was changed.", if last.is_empty() { status.to_string() } else { last }))
 }
 
-/// `staged/PokopiaRecomp-<version>`, once it has the launcher and tools/build. Asked before the install is touched.
-pub fn find_package(staged: &Path, version: &str, launcher: &str) -> Result<PathBuf, String> {
-    // Every host's zip puts the same tree under PokopiaRecomp-<version>/: the launcher, tools/ and the runtime library. That
-    // folder is the install root, and an update replaces what is in it in place.
-    let root = staged.join(format!("PokopiaRecomp-{}", version));
-    if root.join(launcher).is_file() && root.join("tools").join("build").is_dir() {
-        return Ok(root);
-    }
-    Err("The downloaded package is not laid out as expected. Nothing was changed.".into())
-}
-
 
 /// Another launcher is in the middle of an update here.
 fn locked(work: &Path) -> bool {
@@ -202,9 +185,18 @@ pub fn clean_start(root: &Path, old: &[PathBuf]) {
     }
 }
 
-/// The `.old` files of `launcher` and of a custom game folder.
+/// The `.old` files of `launcher`, of both schemes' launcher names beside it (an update across the release rename sets the other
+/// name aside) and of a custom game folder.
 pub fn old_files(launcher: &Path, game_dir: &Path) -> Vec<PathBuf> {
-    vec![with_old(launcher), with_old(&crate::host::runtime_lib(game_dir))]
+    let mut old = vec![with_old(launcher), with_old(&crate::host::runtime_lib(game_dir))];
+    if let Some(root) = launcher.parent() {
+        for p in release_names::launcher_files(root, Host::HERE).iter().map(|p| with_old(p)) {
+            if !old.contains(&p) {
+                old.push(p);
+            }
+        }
+    }
+    old
 }
 
 /// The update's flags. `busy` keeps Set up and the other jobs that write what an update replaces from starting under it; Play only
@@ -300,6 +292,8 @@ pub struct Steps<'a> {
 /// A swap that is done, with the lock still held.
 pub struct Session {
     applied: Applied,
+    /// the new launcher, to start: the running one's path, or its own name beside it across the release rename
+    launcher: PathBuf,
     work: PathBuf,
     /// the install's tools folder, which holds the new build tools now
     tools: PathBuf,
@@ -307,6 +301,10 @@ pub struct Session {
 }
 
 impl Session {
+    pub fn launcher(&self) -> &Path {
+        &self.launcher
+    }
+
     /// The new launcher runs: the backup and the game code the update replaced can go.
     pub fn finish(mut self, code: &dyn GameCode) {
         code.finish();
@@ -354,7 +352,7 @@ pub fn install(t: &Target, p: &Paths, st: &UpdateState, report: &mut dyn FnMut(P
     reset_work(&p.install, &work)?;
     let lock = File::create(work.join(LOCK)).ok().filter(|f| f.try_lock().is_ok()).ok_or("Another launcher window is updating. Close it first.")?;
     match stages(t, p, st, &work, report, steps) {
-        Ok(applied) => Ok(Session { applied, work, tools: p.install.join("tools"), lock: Some(lock) }),
+        Ok((applied, launcher)) => Ok(Session { applied, launcher, work, tools: p.install.join("tools"), lock: Some(lock) }),
         Err(e) => {
             drop(lock);
             // a failed rollback keeps the marker and the backup for the next start
@@ -366,7 +364,7 @@ pub fn install(t: &Target, p: &Paths, st: &UpdateState, report: &mut dyn FnMut(P
     }
 }
 
-fn stages(t: &Target, p: &Paths, st: &UpdateState, work: &Path, report: &mut dyn FnMut(Progress), steps: &Steps) -> Result<Applied, String> {
+fn stages(t: &Target, p: &Paths, st: &UpdateState, work: &Path, report: &mut dyn FnMut(Progress), steps: &Steps) -> Result<(Applied, PathBuf), String> {
     let free = crate::preflight::free_bytes(&p.install);
     if !enough_space(free, t.size) {
         let gb = |b: u64| format!("{:.1} GB", b as f64 / crate::preflight::GB as f64);
@@ -403,20 +401,23 @@ fn stages(t: &Target, p: &Paths, st: &UpdateState, work: &Path, report: &mut dyn
     extract(work, &t.asset, "staged", &st.cancel)?;
     send("extract", 1, 1);
     let version = t.tag.trim_start_matches(['v', 'V']);
-    let package = find_package(&work.join("staged"), version, PACKAGE_LAUNCHER)?;
+    let (package, name) = release_names::find_package(&work.join("staged"), version, Host::HERE)?;
     drop(send);
-    put_in_place(&package, p, st, work, &mut tell, steps)
+    let to = release_names::landing(&p.install, &p.launcher, name, Host::HERE);
+    put_in_place(&package, name, &to, p, st, work, &mut tell, steps).map(|applied| (applied, to))
 }
 
-/// Steps 3 and 4 of the header, from the unpacked package on. Plain paths: the tests run it on a fake install with their own steps.
-fn put_in_place(package: &Path, p: &Paths, st: &UpdateState, work: &Path, tell: &mut dyn FnMut(Progress), steps: &Steps) -> Result<Applied, String> {
+/// Steps 3 and 4 of the header, from the unpacked package on: its launcher `name` goes to `to`. Plain paths: the tests run it on a fake
+/// install with their own steps.
+#[allow(clippy::too_many_arguments)]
+fn put_in_place(package: &Path, name: &str, to: &Path, p: &Paths, st: &UpdateState, work: &Path, tell: &mut dyn FnMut(Progress), steps: &Steps) -> Result<Applied, String> {
     if !steps.code.prepare(&package.join("tools"), &st.cancel, &mut |step, done, total| tell(Progress::of("prepare", step, done, total)))? {
         return Err(CANCELLED.into());
     }
     // the last moment to turn back: the game may run (it stayed playable), and Steam can start it without the launcher
     wait_idle(st, steps.busy, tell)?;
     (steps.ready)()?;
-    let job = Job { root: &p.install, package, work, launcher_name: PACKAGE_LAUNCHER, launcher: &p.launcher, game_dll: game_dll(p) };
+    let job = Job { root: &p.install, package, work, launcher_name: name, launcher: &p.launcher, launcher_to: to, game_dll: game_dll(p) };
     let applied = apply(&job, &mut |phase, done, total| tell(Progress::of(phase, "", done, total)))?;
     let undone = |e: String, applied: Applied| {
         let failed = applied.undo();
@@ -552,6 +553,9 @@ mod tests {
         }
     }
 
+    /// The launcher's name in the fake install and package: the old scheme, as every update before the rename.
+    const PACKAGE_LAUNCHER: &str = Host::HERE.launchers()[1];
+
     /// An install with an old launcher and tools, and an unpacked package with new ones: (temp root, paths, package, work).
     fn fake_install(name: &str) -> (PathBuf, Paths, PathBuf, PathBuf) {
         let tmp = std::env::temp_dir().join(format!("nxrt-update-{}-{}", name, std::process::id()));
@@ -576,7 +580,7 @@ mod tests {
     fn run(p: &Paths, package: &Path, work: &Path, st: &UpdateState, busy: &dyn Fn() -> Option<String>, code: &Fake) -> (Result<Applied, String>, Vec<String>) {
         let mut phases: Vec<String> = Vec::new();
         let ready = || Ok(());
-        let r = put_in_place(package, p, st, work, &mut |pr: Progress| {
+        let r = put_in_place(package, PACKAGE_LAUNCHER, &p.launcher, p, st, work, &mut |pr: Progress| {
             if phases.last() != Some(&pr.phase) {
                 phases.push(pr.phase.clone());
             }
@@ -670,7 +674,7 @@ mod tests {
         let (tmp, p, package, work) = fake_install("rollback");
         let (st, code) = (UpdateState::default(), Fake::new(&p.install));
         let applied = run(&p, &package, &work, &st, &|| None, &code).0.unwrap();
-        let session = Session { applied, work: work.clone(), tools: p.install.join("tools"), lock: None };
+        let session = Session { applied, launcher: p.launcher.clone(), work: work.clone(), tools: p.install.join("tools"), lock: None };
         assert!(session.rollback(&code).is_ok());
         assert_eq!(*code.calls.borrow(), ["prepare", "adopt", "revert"]);
         assert!(untouched(&p));
@@ -679,7 +683,7 @@ mod tests {
         let (tmp, p, package, work) = fake_install("finish");
         let (st, code) = (UpdateState::default(), Fake::new(&p.install));
         let applied = run(&p, &package, &work, &st, &|| None, &code).0.unwrap();
-        Session { applied, work: work.clone(), tools: p.install.join("tools"), lock: None }.finish(&code);
+        Session { applied, launcher: p.launcher.clone(), work: work.clone(), tools: p.install.join("tools"), lock: None }.finish(&code);
         assert_eq!(*code.calls.borrow(), ["prepare", "adopt", "finish"]);
         assert!(!work.exists(), "the backup goes once the new launcher runs");
         let _ = fs::remove_dir_all(&tmp);
