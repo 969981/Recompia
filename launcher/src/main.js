@@ -4,7 +4,7 @@ import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './api.js';
-import { brandImg, setBranding } from './branding.js';
+import { brandImg } from './branding.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
@@ -110,12 +110,11 @@ function drawNav() {
 }
 
 /** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a
- *  glance; the pictures follow the player's logo and icon choice. */
+ *  glance. */
 async function syncLook() {
   try {
     const c = await api.getConfig();
     document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
-    setBranding(c);
   } catch (e) {
     console.warn('get_config', e);
   }

@@ -512,7 +512,7 @@ pub fn remove(look: &Branding, target: Target) -> Result<String, String> {
     Ok(if n == 0 { "It was not in Steam.".into() } else { format!("Removed \"{}\" from Steam. Start Steam again.", spec.name) })
 }
 
-/// After a logo or icon choice: the shortcuts already in Steam get the new artwork. Only pictures that are still ours are replaced (a
+/// After a channel change: the shortcuts already in Steam get the channel's artwork. Only pictures that are still ours are replaced (a
 /// player's own art from SteamGridDB stays), and shortcuts.vdf is not touched, so Steam may run; it shows the new pictures after a restart.
 pub fn refresh_art(look: &Branding) -> Result<(), String> {
     for target in [Target::Game, Target::Launcher] {
@@ -553,7 +553,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    const LOOK: Branding = Branding { logo: crate::branding::Look::Recompia, icon: crate::branding::Look::Recompia, testing: false };
+    const LOOK: Branding = Branding { testing: false };
 
     fn spec(testing: bool) -> Spec {
         Spec {
@@ -561,7 +561,7 @@ mod tests {
             exe: "\"/home/deck/Games/PokopiaRecomp/PokopiaLauncher.AppImage\"".into(),
             start_dir: "\"/home/deck/Games/PokopiaRecomp\"".into(),
             launch: "--play".into(),
-            look: Branding { testing, ..LOOK },
+            look: Branding { testing },
         }
     }
 
