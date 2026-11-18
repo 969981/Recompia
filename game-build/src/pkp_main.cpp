@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// pkp.exe: Pokémon Pokopia (Switch 2, 0400A3A01EE4C000, 2.0.1) as a native Windows process.
+// pkp.exe: this cozy life-simulation and sandbox builder with fantastical creatures (Switch 2, 0400A3A01EE4C000, 2.0.1) as a native Windows process.
 //
 // This is the part of the process that Horizon's kernel and loader do before the first guest instruction:
 //   1. map the four NSOs of the ExeFS (rtld, main, sdk, subsdk0) at the bases the lifter baked into the generated code,
@@ -53,7 +53,7 @@
 #include "nxrt/runtime.h"
 #include "nxrt/services.h"
 
-#include "pkp/core/pkp_game.h"   // the Pokémon Pokopia game module (runtime/games/pkp): every title-specific table the runtime uses
+#include "pkp/core/pkp_game.h"   // the game module (runtime/games/pkp): every title-specific table the runtime uses
 
 #include "nx_modules.gen.h"     // NX_MODULES: the game's module list, generated from recomp/games/pkp/config.py
 
@@ -336,11 +336,11 @@ extern "C" int pkp_rt_main(int argc, char** argv, const PkpRtModules* mods) {
         char text[256];
         std::snprintf(text, sizeof text, "pkp.exe was built for runtime API %u, but this pkp_rt.dll is API %u: they come from different releases. Open the launcher and press Play: it says what to do.",
                       mods ? mods->api : 0u, PKP_RT_API);
-        MessageBoxA(nullptr, text, "Pokopia", MB_OK | MB_ICONERROR);
+        MessageBoxA(nullptr, text, "Recompia", MB_OK | MB_ICONERROR);
         return 3;
     }
     if (mods->count != sizeof kModules / sizeof kModules[0]) {
-        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll list different game modules. Run the launcher's Set up again.", "Pokopia", MB_OK | MB_ICONERROR);
+        MessageBoxA(nullptr, "pkp.exe and pkp_rt.dll list different game modules. Run the launcher's Set up again.", "Recompia", MB_OK | MB_ICONERROR);
         return 3;
     }
     for (uint32_t i = 0; i < mods->count; ++i) { kModules[i].nx = mods->mods[i]; kModules[i].abi = mods->abis[i]; }
@@ -511,7 +511,7 @@ int main(int argc, char** argv) {
             m = nxrt::module_load_nso_memory(bytes.data(), bytes.size(), lo, &err);
         } else {
             if (!file_exists(widen_utf8(path)))
-                die("The game files were not found (%s). Choose your game files in the Pokopia launcher (or set [fs] exefs in pkp.ini), then start the game again.", path.c_str());
+                die("The game files were not found (%s). Choose your game files in the Recompia launcher (or set [fs] exefs in pkp.ini), then start the game again.", path.c_str());
             m = nxrt::module_load_nso_file(path.c_str(), lo, &err);
         }
         if (!m) die("cannot load %s: %s", path.c_str(), err.c_str());
