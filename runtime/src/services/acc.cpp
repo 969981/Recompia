@@ -40,11 +40,15 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <unistd.h>
+#include <uuid/uuid.h>
 #endif
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <set>
@@ -110,6 +114,27 @@ std::string machine_guid() {
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid", RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr,
                      buf, &n) == ERROR_SUCCESS)
         return std::string(buf, strnlen(buf, sizeof buf));
+#elif defined(__APPLE__)
+    // macOS: the host UUID.
+    uuid_t id;
+    const struct timespec wait = {5, 0};
+    if (gethostuuid(id, &wait) == 0) {
+        char text[40] = {};
+        for (int i = 0; i < 16; ++i) std::snprintf(text + i * 2, 3, "%02x", static_cast<unsigned>(id[i]));
+        return text;
+    }
+#else
+    // Linux: /etc/machine-id (systemd), the D-Bus copy as a fallback. Only ever used hashed together with the uid (hash_id), never
+    // sent or logged as it is. Without it every player on the default uid gets the same network service account id, which a Cloud
+    // Islands server takes for one user.
+    for (const char* path : {"/etc/machine-id", "/var/lib/dbus/machine-id"}) {
+        std::ifstream f(path);
+        std::string line;
+        if (f && std::getline(f, line)) {
+            while (!line.empty() && (line.back() == '\n' || line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (line.size() >= 16) return line;
+        }
+    }
 #endif
     return {};
 }
@@ -162,10 +187,10 @@ uint64_t network_account_id(const Uid& u) {
         const std::string guid = machine_guid();
         if (!guid.empty()) {
             id = hash_id(guid, u);
-            from = "hash of MachineGuid and uid";
+            from = "hash of the machine id and uid";
         } else {
             id = u.hi ^ u.lo;
-            from = "uid hi ^ lo (MachineGuid not readable)";
+            from = "uid hi ^ lo (no machine id readable)";
         }
     }
     st.nsa_id = id;
