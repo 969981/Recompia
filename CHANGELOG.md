@@ -12,6 +12,7 @@
 
 ### Fixed
 - Fixed **Settings > Game** not opening in the launcher: the page stayed on the previous tab
+- Fixed Pokémon in the host's world offering no requests to the other players in co-op: every player now gets their own requests from them, takes them on and hands them in
 
 ## 0.14.2 (build R: Raccoon Hotfix a2)
 
