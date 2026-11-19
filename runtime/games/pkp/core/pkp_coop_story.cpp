@@ -488,6 +488,8 @@ int on_town_action(::Ctx* c) {
     }
     c->x[0] = 1;   // the game's own return (every path returns 1): the line steps on as before
     return 1;
+}
+
 int on_ability_effect(::Ctx* c) {
     // A clear (+4 value 0) or a set is noted; the effect itself runs as the game has it.
     if (!link::in_session() || !guest::ok(c->x[0], 6)) return 0;
