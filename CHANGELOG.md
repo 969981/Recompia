@@ -9,6 +9,7 @@
 - Co-op: moves, emotes, areas and buildings are shared. When a teammate learns a new move or emote, every player learns it too, with the game's own scene. The areas the group has been to count as visited for every player (in their own save too), and the buildings anyone has built are in everyone's building list. Anyone who joins later gets the group's unlocks, with one line in the message log.
 - Co-op: story events that a teammate's game held back for an unanswered online request (they played all at once when the teammate dropped home) are now let through after 5 seconds. The co-op trace also logs every story event a teammate's game still holds back, to find the rest of the missing quest text. Press **Set up again** after updating (a new game hook point).
 - Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
+- Co-op: two Pokémon of the same kind (two Peakychu, say) no longer block each other's talks: while a teammate talks to one, you can talk to the other. Every player needs the same build.
 
 ## 0.15.1 (build S: Sloth Hotfix a1)
 

@@ -14,7 +14,14 @@
 // The game, 2.0.1:
 //   0x3180e0(obj, w1 slot, x2 &actor id, w3 flags)  the one real talk start (every other caller of the talk selector only probes).
 //                                     Returning 0 starts no talk, as its own busy check does (it shows its line through 0xa8fba0 then).
-//                                     0x285434(&actor id) gives the character id: the same character on every process.
+//                                     The key is the character itself, not its species (0x285434 gives the species, so two of one
+//                                     species would share it): 0x281360(actors = [[main+0x3483bd0]], &actor id) finds the actor;
+//                                     a resident (vt+0x1d8 true, vt+0x410 its resident part: the actor itself, 0x666d48 `ret`) has
+//                                     u16 +0x39f0 the data id (a row of #469, 1..0x3ff) and u16 +0x39f2 its idx, both set by its init
+//                                     0x295600 from the one save; key (data id << 16) | idx. Other talk targets (vt+0x1f0 true,
+//                                     vt+0x420) have only u16 +0x2ba4: key bit 31 | (that id << 16). Read in 0x285434's order.
+//                                     The pair is how the game itself knows one character on another process: the replication
+//                                     receive 0x289700 applies a record of actor id 0x2xxx only when both equal the receiver's.
 //   0x3181cc (midhook)                right after the talk event call 0x4bf7c0, on every return of it: w22 bit 0 clear there is the
 //                                     path where no talk started (the function then returns 0); w19 is the slot
 //   0x47bd00(runner)                  the end of a slot's whole event chain; byte runner+0x2000 is the slot
@@ -39,7 +46,12 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-constexpr uint64_t kCharacterOf = 0x285434;
+constexpr uint64_t kActors = 0x3483bd0;   // main + : -> the actor manager
+constexpr uint64_t kActorOf = 0x281360;   // (actors, &u16 actor id): the actor, or 0
+constexpr uint64_t kIsResident = 0x1d8, kResident = 0x410, kIsOther = 0x1f0, kOther = 0x420;   // actor vtable +
+constexpr uint64_t kDataId = 0x39f0, kIdx = 0x39f2, kOtherId = 0x2ba4;                        // resident part / other part +
+constexpr uint32_t kDataIds = 0x3ff;      // data ids 1..0x3ff, as 0x285434 accepts them
+constexpr uint32_t kOtherKey = 0x80000000u;
 constexpr uint64_t kSlotReg = 1, kActorReg = 2, kTalkedReg = 22, kNoTalkSlotReg = 19;
 constexpr uint64_t kRunners = 0x35650f8, kRunnerSize = 0x2010, kRunnerSlot = 0x2000;
 constexpr uint64_t kQueue = 0x3565100, kQueueSlot = 0x20fa0, kQueuePending = 0x20e08;
@@ -71,8 +83,28 @@ State& st() {
     return s;
 }
 
-uint32_t character_of(::Ctx* c, uint64_t actor) {
-    return guest::ok(actor, 2) ? static_cast<uint32_t>(guest::call(c, base() + kCharacterOf, actor)) : 0;
+// The lock key of the talk target whose u16 actor id is at id (guest): one character, the same on every process; 0 for none.
+uint32_t character_of(::Ctx* c, uint64_t id) {
+    if (!guest::ok(id, 2)) return 0;
+    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
+    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
+    if (!actors) return 0;
+    const uint64_t actor = guest::call(c, base() + kActorOf, actors, id);
+    if (!actor || !guest::ok(actor, 8)) return 0;
+    const uint64_t vt = guest::rd<uint64_t>(actor);
+    if (!guest::ok(vt + kOther, 8)) return 0;
+    if (guest::call(c, guest::rd<uint64_t>(vt + kIsResident), actor) & 1) {
+        const uint64_t part = guest::call(c, guest::rd<uint64_t>(vt + kResident), actor);
+        if (part && guest::ok(part + kDataId, 4)) {
+            const uint32_t data = guest::rd<uint16_t>(part + kDataId);
+            return data - 1 < kDataIds ? (data << 16) | guest::rd<uint16_t>(part + kIdx) : 0;
+        }
+    }
+    if (!(guest::call(c, guest::rd<uint64_t>(vt + kIsOther), actor) & 1)) return 0;
+    const uint64_t part = guest::call(c, guest::rd<uint64_t>(vt + kOther), actor);
+    if (!part || !guest::ok(part + kOtherId, 2)) return 0;
+    const uint32_t data = guest::rd<uint16_t>(part + kOtherId);
+    return data - 1 < kDataIds ? kOtherKey | (data << 16) : 0;
 }
 
 void tell_members(uint32_t chara, uint8_t holder) {
