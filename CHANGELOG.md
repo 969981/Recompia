@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Gameplay
+- Standard storage boxes get up to 12 pages of 20 slots (4 by default), and big storage boxes get up to 6 tabs of 60 slots (360 slots total, 4 tabs by default). Change both limits in the launcher's Settings > Gameplay or in the new Inventory tab of the game's Settings screen, which now also holds the sort settings. L and R switch pages and move between big box tabs at their page boundaries; the box shows the game's own page dots and L / R icons for all its pages. Each standard page uses one of the island's 271 standard box spots and each big tab uses one of its 256 big box spots. About the first 22 standard boxes and 42 big boxes placed get every extra, with fewer or none for later boxes. Extra storage is off during Link Play. Items stay saved. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+
 ## 0.15.2 (build S: Sloth Hotfix a2)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets new game hook points; saves and shaders are kept).
@@ -70,7 +73,6 @@
 - Co-op: story events that a teammate's game held back for an unanswered online request (they played all at once when the teammate dropped home) are now let through after 5 seconds. The co-op trace also logs every story event a teammate's game still holds back, to find the rest of the missing quest text. Press **Set up again** after updating (a new game hook point).
 - Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
 - Co-op: two Pokémon of the same kind (two Peakychu, say) no longer block each other's talks: while a teammate talks to one, you can talk to the other. Every player needs the same build.
-- Standard storage boxes get up to 12 pages of 20 slots (4 by default), and big storage boxes get up to 6 tabs of 60 slots (360 slots total, 4 tabs by default). Change both limits in the launcher's Settings > Gameplay or in the new Inventory tab of the game's Settings screen, which now also holds the sort settings. L and R switch pages and move between big box tabs at their page boundaries; the box shows the game's own page dots and L / R icons for all its pages. Each standard page uses one of the island's 271 standard box spots and each big tab uses one of its 256 big box spots. About the first 22 standard boxes and 42 big boxes placed get every extra, with fewer or none for later boxes. Extra storage is off during Link Play. Items stay saved. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
 ## 0.15.1 (build S: Sloth Hotfix a1)
 
