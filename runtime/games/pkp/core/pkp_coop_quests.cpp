@@ -25,8 +25,10 @@
 // of the authority instead (QuestFlagAsk: the quest and the member's state of it):
 // - the C and B passes when the condition is one that reads the member's own player or records (F4): 1 / 0x13 the unique request
 //   records, 5 the player stands in a box (0x117838: the player manager's +0x30 actor's position in 100-unit blocks, so not a clock;
-//   tested a0..a2 <= pos < a3..a5), 9 (save root +0x73b264), 0xe (save root +0x7416dc), 0x11 the bag holds an item. Any other type
-//   (the world, characters, contents) and a quest with no condition are the authority's own pass's to decide;
+//   tested a0..a2 <= pos < a3..a5), 9 (save root +0x73b264), 0xe (save root +0x7416dc), 0x1a (a bit at save root +0x98), 0x11 the
+//   bag holds an item. Any other type and a quest with no condition are the authority's own pass's to decide: 6 / 8 / 0x10 test a
+//   character's position in a box (0x121690 on 0x28cc60's character, 0x12159c), 3 / 4 / 7 / 0xa / 0xb / 0xc / 0x14 / 0x1b read
+//   characters and the world, 0x15 the contents scheduler;
 // - the event matches and 0x11598c (the event, the request, happened to this player);
 // - not the A timer (the authority's own timer runs) and not the new day (the authority's own).
 // The C and B passes call the setter each frame while the condition holds, so a quest is asked again every kAskEvery seconds at most.
@@ -67,7 +69,7 @@ constexpr uint64_t kStartPass = 0x119c0c, kTimerPass = 0x119d94, kClosePass = 0x
 constexpr uint64_t kNewDay = 0x1fbad8;   // the event matches and 0x11598c are asked, as any other caller
 
 // Condition types that read the member's own player or records.
-constexpr uint8_t kPlayerTypes[] = {0x01, 0x05, 0x09, 0x0e, 0x11, 0x13};
+constexpr uint8_t kPlayerTypes[] = {0x01, 0x05, 0x09, 0x0e, 0x11, 0x13, 0x1a};
 
 constexpr double kAskEvery = 2.0;      // a polled condition that still holds: asked again at most this often
 constexpr double kPendingFor = 30.0;   // an ask the authority cannot apply yet: retried this long
@@ -90,6 +92,7 @@ struct State {
     uint8_t asked_state[kQuestMax] = {};
     uint8_t logged_state[kQuestMax] = {}; // per quest: the state a skipped set was last logged for
     std::vector<Pending> pending;         // the authority's asks waiting for their quest to be listed
+    uint8_t refused_state[kQuestMax] = {};   // the authority, per quest: the asked state last logged as not applied (state + 1)
     alignas(8) uint8_t cond[0x20] = {};   // 0x11e1bc's out, guest-readable
 };
 State& st() {
@@ -160,7 +163,8 @@ Kind kind_of(::Ctx* c, uint64_t from, uint32_t id, uint8_t* type) {
 bool apply(::Ctx* c, uint32_t id, uint8_t state, uint8_t origin) {
     const uint64_t s = story(), ql = quest_lists();
     if (!s || !ql || !listed(ql, id, state)) return false;
-    if (!(guest::call(c, base() + kFlagOf, s, id) & 1)) set_flag(c, s, id);
+    if (guest::call(c, base() + kFlagOf, s, id) & 1) return true;   // set already: the pump steps it
+    set_flag(c, s, id);
     NXLOG_I(kTag, "Co-op quests: quest %u at state %u moved on here for node %u (its ask)", id, state, origin);
     return true;
 }
@@ -258,7 +262,11 @@ void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     if (!r.ok() || !quest_id(id) || state < kListed || state > kComplete || !story_obj) return;
     const uint8_t here = state_of(c, story_obj, id);
     if (here != state) {
-        NXLOG_I(kTag, "Co-op quests: node %u asked for quest %u's step at state %u; it is at %u here, not applied", origin, id, state, here);
+        if (s.refused_state[id - 1] != state + 1) {   // a held condition asks again every few seconds: logged once per state
+            s.refused_state[id - 1] = static_cast<uint8_t>(state + 1);
+            NXLOG_I(kTag, "Co-op quests: node %u asked for quest %u's step at state %u; it is at %u here, not applied", origin, id, state,
+                    here);
+        }
         return;
     }
     if (apply(c, id, state, origin)) return;
@@ -283,6 +291,7 @@ void on_session_change() {
     s.pending.clear();
     std::memset(s.asked_state, 0, sizeof s.asked_state);
     std::memset(s.logged_state, 0, sizeof s.logged_state);
+    std::memset(s.refused_state, 0, sizeof s.refused_state);
 }
 
 void reset() { st() = State{}; }
