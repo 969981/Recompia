@@ -780,9 +780,8 @@ mod tests {
         assert!(qr_text("x").unwrap().lines().count() > 10);
     }
 
-    #[test]
-    fn saves_loads_and_removes_a_sign_in() {
-        let dir = std::env::temp_dir().join(format!("recompia-signin-test-{}", hex(&random(6).unwrap())));
+    /// Saves a device signed in with a certificate from a throwaway authority (its server: 127.0.0.1:9443, localhost).
+    fn save_test_device(dir: &std::path::Path, account: &str, device: &str) -> Vec<u8> {
         let req = Request::new().unwrap();
         // a certificate for the request's key, from a throwaway authority
         let ca_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
@@ -794,9 +793,9 @@ mod tests {
         let (cert_pem, ca_pem) = (pem("CERTIFICATE", leaf.der()), pem("CERTIFICATE", ca.der()));
         let new = device::NewDevice {
             portal: "http://127.0.0.1:8790",
-            account: "acct-test",
+            account,
             account_name: "Test",
-            device: "dev-test",
+            device,
             host: "127.0.0.1",
             port: 9443,
             server_name: "localhost",
@@ -804,7 +803,14 @@ mod tests {
             ingress_ca_pem: &ca_pem,
             key_pkcs8: &key,
         };
-        device::save(&dir, &new).unwrap();
+        device::save(dir, &new).unwrap();
+        key
+    }
+
+    #[test]
+    fn saves_loads_and_removes_a_sign_in() {
+        let dir = std::env::temp_dir().join(format!("recompia-signin-test-{}", hex(&random(6).unwrap())));
+        let key = save_test_device(&dir, "acct-test", "dev-test");
         assert!(device::linked(&dir));
         let loaded = device::load(&dir).unwrap();
         assert_eq!((loaded.account.as_str(), loaded.device.as_str(), loaded.port), ("acct-test", "dev-test", 9443));
@@ -817,6 +823,20 @@ mod tests {
         device::remove(&dir).unwrap();
         assert!(!device::linked(&dir));
         assert!(device::FILES.iter().all(|f| !dir.join(f).exists()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_gateway_log_names_ids_by_their_first_4_characters() {
+        let dir = std::env::temp_dir().join(format!("recompia-signin-test-{}", hex(&random(6).unwrap())));
+        save_test_device(&dir, "acct-abcd2345efgh", "dev-wxyz6789mnop");
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let linked = crate::Linked { dir: dir.clone(), log: std::sync::Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_string())), seen: std::sync::Mutex::new(None) };
+        assert!(linked.upstream().is_ok());
+        let said = lines.lock().unwrap().join("\n");
+        assert_eq!(said, "gateway: signed in as device dev-wxyz.. of account acct-abcd.. -> 127.0.0.1:9443 (localhost)");
+        device::remove(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -12,7 +12,8 @@
 //!   else, and the same application protocol (ALPN) the game chose. Bytes are passed unchanged both ways.
 //!
 //! Anyone who can connect to the listeners acts as this device's account, so they are never bound to anything but
-//! 127.0.0.1. One log line per connection: counts and how it ended, never contents.
+//! 127.0.0.1. One log line per connection: counts and how it ended, never contents. Players post the log when they report a
+//! problem, so it names the account and the device by the first 4 characters of their ids only (`short_id`).
 //!
 //! The device folder is looked at again for every connection (sizes and times of its files only; it is read again
 //! when they changed), so a device signed in, signed in again or signed out while the game runs is used from the next
@@ -204,7 +205,7 @@ impl Linked {
             (Err("not signed in: no device in the device folder".to_string()), "gateway: not signed in; connections are closed until a device signs in".to_string())
         } else {
             match device::load(&self.dir).and_then(|d| Upstream::new(&d).map(|u| (d, u))) {
-                Ok((d, u)) => (Ok(Arc::new(u)), format!("gateway: signed in as device {} of account {} -> {}:{} ({})", d.device, d.account, d.host, d.port, d.server_name)),
+                Ok((d, u)) => (Ok(Arc::new(u)), format!("gateway: signed in as device {} of account {} -> {}:{} ({})", short_id(&d.device), short_id(&d.account), d.host, d.port, d.server_name)),
                 Err(e) => (Err(e.clone()), format!("gateway: the device folder is not usable: {e}")),
             }
         };
@@ -214,6 +215,18 @@ impl Linked {
         *seen = Some(Seen { stamp: now, at: Instant::now(), upstream: upstream.clone(), said });
         upstream
     }
+}
+
+/// An account or device id as the log shows it: its kind (`acct-`, `dev-`) and the first 4 characters after it, then `..` when
+/// there were more. Enough to tell two apart in a report; the whole id stays out of a log that may be posted in public.
+fn short_id(id: &str) -> String {
+    let (kind, rest) = match id.split_once('-') {
+        Some((k, r)) if (1..=8).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_lowercase()) => (&id[..=k.len()], r),
+        _ => ("", id),
+    };
+    let head: String = rest.chars().take(4).collect();
+    let more = if rest.chars().count() > 4 { ".." } else { "" };
+    format!("{kind}{head}{more}")
 }
 
 /// Makes the gateway's certificate, opens both listeners and serves on a thread of its own. The device folder is read
@@ -382,4 +395,21 @@ async fn pipe<G: AsyncRead + AsyncWrite, S: AsyncRead + AsyncWrite>(game: G, ser
         }
     };
     format!("game->server {} B, server->game {} B, {end}", up.load(Ordering::Relaxed), down.load(Ordering::Relaxed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short_id;
+
+    #[test]
+    fn short_ids() {
+        assert_eq!(short_id("acct-abcd2345efgh"), "acct-abcd..");
+        assert_eq!(short_id("dev-wxyz6789mnop"), "dev-wxyz..");
+        assert_eq!(short_id("dev-test"), "dev-test");
+        assert_eq!(short_id("dev-abc"), "dev-abc");
+        // no kind in front: the first 4 characters of the whole id
+        assert_eq!(short_id("0123456789abcdef"), "0123..");
+        assert_eq!(short_id("Acct-abcd2345"), "Acct..");
+        assert_eq!(short_id(""), "");
+    }
 }
