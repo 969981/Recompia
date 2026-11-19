@@ -120,7 +120,7 @@ constexpr uint64_t kAuthorityPattern = 0x7fffffffull;   // bits 0..30: the offli
 constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 23: no shop visitor lock
 
 constexpr uint64_t kStory = 0x4a26a0, kAbilities = layout::kSaveAbilities;         // save root +
-constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]); the state is read from the quest words
+constexpr uint64_t kFlagOf = 0x5d86e4;   // (S, id); set through quests::set_flag (0x5d8774); the state is read from the quest words
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
 constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at save root + layout::quest_word(id), state in its low byte
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
@@ -259,6 +259,7 @@ bool ability_changes(uint64_t root, const uint8_t* cmd) {
 
 // Shares the quests whose state rose here since the last look (every started one after a join), as (u16 id, u8 state) pairs.
 void share_states() {
+    if (quests::member_rules()) return;   // a member's quests move only on the authority's states (pkp_coop_quests.cpp)
     State& s = st();
     const uint64_t words = quest_words();
     if (!words || !link::in_session()) return;
@@ -543,7 +544,7 @@ void catch_up(::Ctx* c) {
             s.logged[i] = s.target[i];
             NXLOG_I(kTag, "Co-op story: quest %u catching up here, state %u -> %u", id, state, s.target[i]);
         }
-        if (!quest_flag(c, story_obj, id)) guest::call(c, base() + kSetFlag, story_obj, id, 1);
+        if (!quest_flag(c, story_obj, id)) quests::set_flag(c, story_obj, id);
         return;   // one quest at a time
     }
 }

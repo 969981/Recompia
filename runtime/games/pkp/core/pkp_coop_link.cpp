@@ -50,6 +50,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::ReqOutcome, Path::ToAuthority, &outcomes::on_outcome_message},
     {wire::Type::RecipeKnown, Path::Shared, &recipes::on_known_message},
     {wire::Type::WildPop, Path::ToAuthority, &story::on_wild_pop_message},
+    {wire::Type::QuestFlagAsk, Path::ToAuthority, &quests::on_ask_message},
     {wire::Type::Purchase, Path::ToAuthority, &purchases::on_purchase_message},
     {wire::Type::PurchaseAsk, Path::ToAuthority, &purchases::on_ask_message},
     {wire::Type::PurchaseLog, Path::FromAuthority, &purchases::on_log_message},
@@ -127,6 +128,7 @@ void on_member(const ch::MemberEvent& e) {
     talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
     if (self) {
         story::on_session_change();
+        quests::on_session_change();
         notice::on_session_change();
         requests::on_session_change();
         recipes::on_session_change();
