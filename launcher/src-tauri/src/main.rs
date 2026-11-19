@@ -5,6 +5,8 @@ mod backup_cmds;
 mod branding;
 mod branding_cmds;
 mod child_lines;
+mod cloud_account;
+mod cloud_signin;
 mod cli;
 mod config;
 mod coop;
@@ -158,6 +160,11 @@ fn main() {
             update_cmds::install_version,
             update_cmds::cancel_update,
             open::open_link,
+            cloud_signin::cloud_signin_state,
+            cloud_signin::cloud_signin_begin,
+            cloud_signin::cloud_signin_cancel,
+            cloud_signin::cloud_sign_out,
+            cloud_signin::cloud_account_page,
             open::open_licenses_dir,
             config::save_config,
             readiness::get_overview,

@@ -23,6 +23,12 @@ export const api = {
 
   // Opening links, files and folders
   openLink: (args) => invoke('open_link', args),   // { url }
+  // the online account (cloud_signin.rs; Home's Sign in, cloud-signin.js)
+  cloudSigninState: () => invoke('cloud_signin_state'),
+  cloudSigninBegin: (args) => invoke('cloud_signin_begin', args),   // { method: 'browser' | 'phone' | null }
+  cloudSigninCancel: () => invoke('cloud_signin_cancel'),
+  cloudSignOut: () => invoke('cloud_sign_out'),
+  cloudAccountPage: () => invoke('cloud_account_page'),
   openLicensesDir: () => invoke('open_licenses_dir'),
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),

@@ -653,6 +653,13 @@ export const SECTIONS = [
             id: 'cloud_server_note', type: 'note',
             note: () => ({ text: t('Experimental. The address of a Cloud Islands test server (four numbers with dots). With it set, PC > Link Play > Cloud Island in the game uses that server; nothing is sent to the original servers. Leave it empty to turn Cloud Islands off. Takes effect the next time the game starts.') }),
           },
+          // pkp.ini [net] cloud_portal: the server's account portal. Set, Home shows Sign in (cloud-signin.js, cloud_signin.rs) and a
+          // signed-in device connects through the account gateway (cloud_account.rs). Empty: no sign-in anywhere in the launcher.
+          { id: 'cloud_portal', label: t('Online account portal'), type: 'text', at: pkp('net', 'cloud_portal'), def: '', placeholder: () => t('off') },
+          {
+            id: 'cloud_portal_note', type: 'note',
+            note: () => ({ text: t('Optional. The account page of your Cloud Islands server (https://…). With it set, Home has a Sign in button: signed in, this device joins islands with your account. Signed out, everything plays as before. Leave it empty to hide the sign-in.') }),
+          },
         ],
       },
       {

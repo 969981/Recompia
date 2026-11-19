@@ -1,0 +1,28 @@
+/* The Online account dialog (cloud-signin.js): the launcher's own modal, with a QR code and the short code for the phone. */
+dialog.modal.signin { width: min(540px, calc(100vw - 2 * var(--space-5))); }
+/* the wordmark above the title (logo.png: the letters fill about 2/3 of the canvas, so 54px shows them about 36px high) */
+.signin .signin-logo { display: block; height: 54px; width: auto; align-self: flex-start; margin: calc(-1 * var(--space-2)) 0 calc(-1 * var(--space-2)); }
+.signin p { margin: 0; color: var(--color-text-2); line-height: var(--leading); }
+.signin .signin-who { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-weight: var(--weight-semi); font-size: var(--text-lg); }
+.signin .signin-who .icon { color: var(--color-ok); width: 20px; height: 20px; flex: none; }
+.signin .signin-how, .signin .signin-url, .signin .signin-key, .signin .signin-left { font-size: var(--text-sm); color: var(--color-text-3); }
+.signin .signin-url { overflow-wrap: anywhere; }
+.signin .signin-key { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.signin .signin-busy { display: flex; align-items: flex-start; gap: var(--space-3); color: var(--color-text); }
+.signin .signin-busy .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--color-accent); }
+.signin-phone { display: grid; grid-template-columns: auto 1fr; gap: var(--space-4); align-items: start; }
+/* the QR code brings its own size (signin.rs: whole pixels a module, so a phone reads it from further away) */
+.signin-qr { width: fit-content; max-width: 100%; border-radius: var(--radius-xs); overflow: hidden; background: #fff; box-shadow: var(--glass-highlight); }
+.signin-qr svg { display: block; max-width: 100%; height: auto; }
+.signin-steps ol { margin: 0; padding-left: 1.2em; color: var(--color-text-2); font-size: var(--text-sm); line-height: var(--leading); }
+.signin-steps li + li { margin-top: 2px; }
+.signin .signin-code {
+  margin-top: var(--space-3); padding: var(--space-2) var(--space-3); width: fit-content;
+  font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-semi); letter-spacing: 0.12em; color: var(--color-text);
+  background: var(--surface-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+}
+.signin .signin-left { margin-top: var(--space-2); }
+.signin .modal-actions { flex-wrap: wrap; }
+@media (max-width: 520px) {
+  .signin-phone { grid-template-columns: 1fr; justify-items: center; }
+}
