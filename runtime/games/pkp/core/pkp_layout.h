@@ -95,6 +95,12 @@ constexpr uint64_t kContainerSlotCounts = 0x280baf0, kContainerSlotBases = 0x280
 // ---- items in main ----
 constexpr uint64_t kItemSlotVtable = 0x322c1d8;  // the vtable every item slot holds
 constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / container screen works on a temp copy (an item is held)
+constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): the item held in the bag / container screen: +8 packed u32, +0xc u8
+                                                 // count at pick-up, +0x10 / +0x16 u16 slot / u8 panel kind it goes back to, +0x12 / +0x17 the
+                                                 // last cell it came from, +0x14 u16 count held
+constexpr uint64_t kHeldItemSize = 0x18;
+constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
+constexpr uint64_t kStagedBagSize = 0x838;
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)

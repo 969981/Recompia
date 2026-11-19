@@ -5,6 +5,7 @@
 // The pages show as the game's own page dots under the grid, one per page of the whole box (a standard box also gets the big box's
 // frame pose for them and its L / R icons); the panel's own page count and page stay native.
 #include "ui/pkp_box_tabs.h"
+#include "ui/pkp_box_tabs_carry.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
 #include "core/pkp_layout.h"
@@ -51,7 +52,8 @@ constexpr int kMaxDots = 20;
 constexpr uint64_t kPlayerHelper = 0x30, kSelectors = 0x80, kOpenState = 0x90, kPhysicalPayload = 0xc8;
 constexpr uint64_t kType = 0x148, kId = 0x154, kState = 0x160, kKind = 0x168;
 constexpr uint64_t kPanelType = 0xc1, kPanelId = 0xd4, kPanelPageCount = 0xd8;
-constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorPage = 0x98;
+constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorAction = 0x94, kSelectorPage = 0x98, kSelectorPrevious = 0x9c;
+constexpr uint16_t kActionPrevious = 0x10, kActionNext = 0x11;   // the selector's L / R actions
 constexpr uint8_t kBoxType = 1, kBigBoxType = 2, kBoxPanel = 1, kBrowsing = 1;
 constexpr uint32_t kBoxSelector = 2;
 constexpr int kMaxPages = 12, kMaxBigTabs = 6;   // fixed for good: they set where every tab's items live (available_tabs)
@@ -267,6 +269,34 @@ bool switch_in_frame(::Ctx* c, OpenBox& box, uint16_t target) {
     return true;
 }
 
+// An item held across the tab boundary (pkp_box_tabs_carry.h): parked in the bag, the copies written back, the ids switched, the copies
+// taken again. A big box also moves to the new tab's first page (R) or last page (L), as its own page change would.
+bool carry_to(::Ctx* c, OpenBox& box, uint16_t target, int direction) {
+    const uint64_t panel = ready_panel(c, box);
+    if (!panel) return false;
+    const box_carry::Parked parked = box_carry::park(c, g.base, box.screen);
+    if (!parked.ok) {
+        notices::post(kNotice, box.type == kBigBoxType ? "Big storage box: no free bag slot to carry the item to another tab"
+                                                       : "Storage box: no free bag slot to carry the item to another page", 3.0);
+        return false;
+    }
+    const uint64_t selector = box.type == kBigBoxType ? container_selector(c, box.screen) : 0;
+    const uint32_t last = std::max<uint32_t>(1, rd<uint8_t>(panel + kPanelPageCount)) - 1;
+    const uint32_t from = ok(selector, kSelectorPage + 8) ? rd<uint32_t>(selector + kSelectorPage) : 0, to = direction > 0 ? 0 : last;
+    set_tab_id(box, panel, target);
+    box_carry::resume(c, g.base, box.screen, parked);   // false: the hold ended, the item is in the bag; the new tab shows either way
+    if (ok(selector, kSelectorPage + 8)) {
+        wr<uint32_t>(selector + kSelectorPrevious, from);
+        wr<uint32_t>(selector + kSelectorPage, to);
+        wr<uint16_t>(selector + kSelectorAction, direction > 0 ? kActionNext : kActionPrevious);
+        call(c, g.base + kSetPanelPage, panel, to);
+        call(c, g.base + kRebuildGrid, box.screen, 1);
+    }
+    call(c, g.base + kRefresh, box.screen);
+    if (g.log) NXLOG_I(kTag, "storage box tabs: carried the held item to container %u (parked in bag slot %u)", target, parked.slot);
+    return true;
+}
+
 int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     const uint64_t screen = c->x[0];
     if (!is_screen(screen)) return 0;
@@ -319,11 +349,13 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     // A session that opens while a tab is shown: back to the box itself as soon as staging permits (tabs are offline only). A frame gap
     // with a tab still shown is the same open (a reopen writes the physical id to +0x154 and is caught above), so the tab stays.
     if (tab_shown && online) box.restore_physical = true;
-    if ((!box.restore_physical && (!box.active || online || !direction)) || !can_switch(c, screen)) return 0;
+    const bool carry = !box.restore_physical && box_carry::holding(c, g.base, screen);
+    if ((!box.restore_physical && (!box.active || online || !direction)) || (!carry && !can_switch(c, screen))) return 0;
 
     const Tabs tabs = online ? Tabs{{box.physical}} : available_tabs(box);
     const int target = box.restore_physical ? 0 : adjacent_tab(tabs, id, direction, true);
-    if (tabs.ids[target] == id || !switch_in_frame(c, box, tabs.ids[target])) return 0;
+    if (tabs.ids[target] == id) return 0;
+    if (!(carry ? carry_to(c, box, tabs.ids[target], direction) : switch_in_frame(c, box, tabs.ids[target]))) return 0;
     box.restore_physical = false;
     box.tabs = tabs;
     if (box.active && tabs.count > 1)
@@ -361,7 +393,9 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     const int target = adjacent_tab(tabs, box.shown, direction, (c->x[2] & 1) != 0);
     if (target < 0 || tabs.ids[target] == box.shown) return 0;
     if (!can_switch(c, box.screen)) {
-        // An item held or the page still sliding: stay on this page rather than let the game wrap back to the tab's first page.
+        // An item held: carried over in the frame hook (the copies are written back and taken again there, on the screen's own frame).
+        // The page still sliding: stay on this page. Either way the game must not wrap back to the tab's first page.
+        if (box_carry::holding(c, g.base, box.screen)) box.pending = direction;
         c->x[0] = 0;
         return 1;
     }
