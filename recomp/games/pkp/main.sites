@@ -283,6 +283,9 @@ entryhook 0x71000b0d74
 entryhook 0x7100547278
 entryhook 0x7100f282a8
 entryhook 0x7100fb9ea0
+#   Seamless co-op, group travel (pkp_coop_travel.cpp): the area-move filer by destination index (event callbacks 0x52 / 0x53, a
+#   travel object's step 0x71007cbc88), the moves that run no poll of their own
+entryhook 0x71000bda20
 #   Seamless co-op, the save: the three writers of a member's own save, and the bag sync of a join
 entryhook 0x7100241324
 entryhook 0x7100245200

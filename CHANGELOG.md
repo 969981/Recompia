@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Press **Update** in the launcher. This change keeps your saves and shader cache and uses the existing game hook sites.
+Press **Update** in the launcher, then **Set up again** (co-op gets a new game hook point; saves and shaders are kept).
 
 ### Gameplay
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
@@ -12,6 +12,7 @@ Press **Update** in the launcher. This change keeps your saves and shader cache 
 - Fixed the no-Resizable-BAR path not being used on large graphics cards without Resizable BAR (such as some eGPU connections): such cards now read the game's shader constants from video memory too, like 4 and 6 GB cards. Cards of 8 GB or more with Resizable BAR, handhelds and PCs without a separate graphics card are unchanged.
 
 ### Co-op
+- The group travels to another area together or not at all. A move to another area asks the whole group with the game's own poll; it goes ahead only if everyone answers yes, and the host then takes everyone along. On a no, nobody moves. A teammate's map trip that everyone agrees to now actually takes the group there. Needs **Set up again** (a new hook point), and every player on the same build
 - The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
 - Launcher: the Co-op page says plainly that co-op is experimental and needs its own new save, which starts from the beginning.
 

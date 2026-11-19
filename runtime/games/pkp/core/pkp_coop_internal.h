@@ -16,6 +16,7 @@
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
+//   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -133,6 +134,15 @@ void on_session_change();   // this process joined or left: the recipes are read
 void on_member_joined();    // another member joined: the whole list is sent again
 void reset();
 }  // namespace recipes
+
+namespace travel {
+// The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
+// passed; a member's never runs (the host's move brings it).
+int on_area_move(::Ctx* c);
+// Watches the game's poll: a member's area poll that passed is carried out by the host; a held move of the host's runs (once a frame).
+void tick(::Ctx* c);
+void reset();
+}  // namespace travel
 
 namespace talk {
 // The hook sites (pkp_coop.cpp).
