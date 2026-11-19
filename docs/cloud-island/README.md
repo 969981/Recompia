@@ -42,14 +42,22 @@ gRPC; the island file goes through `nn::ssl`, which the runtime does not impleme
 A server in account mode (`--client-ca`) takes only connections that present a device certificate its account portal issued. The
 game cannot present one, so for each game run the launcher starts a small gateway on 127.0.0.1 (`launcher/cloud-gateway`, program
 `recompia-cloud-gateway`) that pipes the game's connections to the server over mutual TLS with the device certificate, and checks
-the server's certificate against the CA the portal handed out at sign-in. Signing in is optional: without `cloud_portal` nothing
-changes, and signed out the game plays as before with only Cloud Islands unavailable.
+the server's certificate against the CA the portal handed out at sign-in. Signing in is optional: signed out the game plays as before
+with only Cloud Islands unavailable.
+
+All of it sits behind one launcher switch, **Settings > Game > Online > Cloud Islands** (marked Experimental; launcher.json
+`cloud_islands`), off by default. Off, the launcher is as it was without Cloud Islands: no account chip, no sign-in screen, no
+gateway, and the game is not pointed at a server (a `cloud_server` left in pkp.ini is overridden with an empty one for the run).
+Switching it off keeps the sign-in (the device folder). Switching it on opens the sign-in screen at once (Skip or Back returns to
+Settings). On, for each run the launcher points the game at the Cloud Islands server (`NXRT_NET_CLOUD_SERVER`) and runs the gateway;
+the server and portal addresses are built in (`launcher/src-tauri/src/cloud_account.rs`, `SERVER` and `PORTAL`). pkp.ini can name
+others for a test server; the launcher never writes these keys:
 
 ```ini
 [net]
-cloud_server = <server address>
-cloud_portal = https://<portal>      ; the account portal: the Home screen shows a Sign in chip and account mode is on
-cloud_account = on                   ; optional: on / off overrides what cloud_portal implies
+cloud_server = <server address>      ; optional: another server (default: the built-in one, while the switch is on)
+cloud_portal = https://<portal>      ; optional: another account portal (default: the built-in one, while the switch is on)
+cloud_account = off                  ; optional: a server without accounts (no gateway, no sign-in needed to play)
 cloud_account_dir = <folder>         ; optional: the device folder (default: the launcher's data folder under %LOCALAPPDATA% or ~/.local/share)
 cloud_account_tls_port = 18443       ; optional: the gateway's ports on 127.0.0.1 (these are the launcher's defaults)
 cloud_account_plain_port = 18444
@@ -63,7 +71,7 @@ the device at `/link?ticket=...` (the device polls `/api/link/remote/poll`; the 
 the device makes its own key and sends only a CSR; the key stays in the device folder (Windows: encrypted, the passphrase protected
 by DPAPI; elsewhere owner-only files). Removing the device on the portal's account page revokes it.
 
-The account is the launcher's, not a game's: one sign-in per device, used by Recompia's Cloud Islands. While a portal is set and the
+The account is the launcher's, not a game's: one sign-in per device, used by Recompia's Cloud Islands. While the switch is on and the
 device is signed out (or its sign-in expired), a launcher start that opens on Recompia or its Co-op shows that screen before Home (a
 start that opens on Zonith is not asked). A
 sign-in continues on it (Back returns to the choice); signed in, it says so for a moment and goes on to Home by itself. **Skip** (or
@@ -78,8 +86,8 @@ screen at any time; its way out is then **Back**
 <name>", **Sign out**, **Account page** (the portal's account page in the browser) and Back; after Sign out it says so, points to the
 account page to revoke the device for good and offers the two ways in again. Expired, it offers both ways in and Sign out.
 
-The launcher hands the game the gateway's ports and its CA (`NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`, `NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`,
-`NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after
+The launcher hands the game the server, the gateway's ports and its CA (`NXRT_NET_CLOUD_SERVER`, `NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`,
+`NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`, `NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after
 signing, starts even when signed out, and picks up a sign-in or sign-out at the next connection. Log: `cloud_gateway.log` next to
 `pkp.log`. Without the launcher: `recompia-cloud-gateway signin --portal <url> [--home <dir>] [--method browser|phone]`, `status`,
 `signout`, and `run [--home <dir>] [--tls-port N] [--plain-port N] [--ca-out <file>]` next to a game whose pkp.ini sets the two
