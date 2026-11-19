@@ -108,7 +108,7 @@ inline constexpr Spec kSpecs[] = {
                         "With pokemon_cap_50: how many creatures can live in the town; visitors and spawns share the same room, and the game draws at most 50 creatures.")),
     b(OptionsMenu, "options_menu", true, "The PC settings as tabs and rows of the game's own Settings screen."),
     s(EventsFile, "events_file", "pokopia_events.tsv", "", "The Events tab's list: one event per line, start date, end date and name, separated by tabs. No file: the built-in list of the game's events."),
-    gameplay(b(SaveNow, "save_now", true, "A Save prompt in the pause menu's key guide: writes the save and stays in the world.")),
+    gameplay(b(SaveNow, "save_now", true, "The pause menu's Save prompt and the quick-save key write the save and keep the player in the world.")),
     // Not read by the runtime: the launcher reads it while the game runs, so the Online tab of the game's Settings and the launcher share it.
     live(b(OnlinePresence, "online_presence", false, "Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the creatures-at-home count. Sends data off the PC, so off by default.")),
     // Read by the network services at start (game::Info::report_online, pkp_game.cpp). On by default so events that need a connection

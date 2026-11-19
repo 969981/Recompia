@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Descriptor sets of the replay: the set memo, driver banks, set building per binding kind, render-scale support buffers, set binding.
 #include "nvn_replay_internal.h"
+#include "nxrt/perf_report.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -314,13 +315,16 @@ static VkDescriptorSet build_set(const ProgLayout& pl, uint32_t set) {
 // Only when the pool bytes are final: no submission still in flight (this one included) may write the range (gw_settled_fast), and no
 // compute result for it is held elsewhere (out_overlaps). Otherwise, and when the video memory ring is full or none could be made, the
 // block is bound from the pool as before. Every such case is counted in the log line.
-// auto (default): on with a discrete GPU of under 7 GiB of video memory only. An integrated GPU or APU (Steam Deck, Legion Go S, ...) has
-// one memory for both: a copy buys nothing there, so nothing changes for them; larger cards keep their path until it is measured there.
-// on / off force it.
+// auto (default): on with a discrete GPU of under 7 GiB of video memory, or a discrete GPU of any size without resizable BAR. An
+// integrated GPU or APU (Steam Deck, Legion Go S, ...) has one memory for both: a copy buys nothing there, so nothing changes for them;
+// larger cards with resizable BAR keep their path until it is measured there. on / off force it.
 namespace {
-// auto turns the snapshots on below this much video memory only (the cards the pool copies give the small cap: nvn_mirror_cap.h): the
+// auto turns the snapshots on below this much video memory (the cards the pool copies give the small cap: nvn_mirror_cap.h): the
 // reports came from 4 and 6 GB cards, and larger cards keep the path they had until the snapshots are measured there (PROJECT.md 6.6).
 constexpr uint64_t kSnapshotMaxVram = 7ull << 30;
+// ... and on a discrete GPU whose host-visible video memory is only the window without resizable BAR (perf::kBarWindowMaxBytes), whatever
+// its size: a large card on a link without it (some eGPU enclosures, older boards) has the same 214-256 MiB window as a small one, so its
+// upload slots land in system memory too. The size of the video memory says nothing about resizable BAR.
 struct UniformSnapStats { uint64_t copies = 0, reused = 0, bytes = 0, unsettled = 0, full = 0, copying = 0, unresolved = 0; };
 UniformSnapStats g_usnap;
 
@@ -328,15 +332,27 @@ bool uniform_snapshot_on() {
     static const bool on = [] {
         const std::string v = nxrt::config_get_str("nvn", "uniform_snapshot", "auto");
         const bool discrete = device().properties().deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-        uint64_t vram = 0;      // the largest device-local heap
+        // Of the GPU the NVN back end runs on (with an integrated and a discrete GPU, the chosen one): the largest device-local heap, and
+        // the largest device-local heap a device-local host-visible memory type lives in (as vk_perf_facts.cpp: the resizable-BAR fact).
+        uint64_t vram = 0, bar = 0;
         VkPhysicalDeviceMemoryProperties mp{};
         vkGetPhysicalDeviceMemoryProperties(device().physical(), &mp);
-        for (uint32_t h = 0; h < mp.memoryHeapCount; ++h)
-            if (mp.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max<uint64_t>(vram, mp.memoryHeaps[h].size);
+        for (uint32_t h = 0; h < mp.memoryHeapCount; ++h) {
+            if (!(mp.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
+            vram = std::max<uint64_t>(vram, mp.memoryHeaps[h].size);
+            for (uint32_t t = 0; t < mp.memoryTypeCount; ++t) {
+                const VkMemoryPropertyFlags fl = mp.memoryTypes[t].propertyFlags;
+                if (mp.memoryTypes[t].heapIndex == h && (fl & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && (fl & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+                    bar = std::max<uint64_t>(bar, mp.memoryHeaps[h].size);
+            }
+        }
         const bool small = vram < kSnapshotMaxVram;
-        const bool r = v == "on" || v == "1" || v == "true" || (v == "auto" && discrete && small);
-        NXLOG_I(kTag, "uniform snapshots: %s ([nvn] uniform_snapshot = %s, %s GPU, %llu MiB of video memory)", r ? "on" : "off", v.c_str(),
-                discrete ? "discrete" : "not a discrete", static_cast<unsigned long long>(vram >> 20));
+        const bool no_rebar = bar <= perf::kBarWindowMaxBytes;
+        // bar == 0: no device-local host-visible memory at all, so no video memory ring either; nothing to gain on a large card
+        const bool r = v == "on" || v == "1" || v == "true" || (v == "auto" && discrete && (small || (bar != 0 && no_rebar)));
+        NXLOG_I(kTag, "uniform snapshots: %s ([nvn] uniform_snapshot = %s, %s GPU, %llu MiB of video memory, %llu MiB of it host-visible: "
+                "resizable BAR %s)", r ? "on" : "off", v.c_str(), discrete ? "discrete" : "not a discrete", static_cast<unsigned long long>(vram >> 20),
+                static_cast<unsigned long long>(bar >> 20), no_rebar ? "off" : "on");
         return r;
     }();
     return on;

@@ -467,7 +467,7 @@ export const SECTIONS = [
         title: t('Performance'),
         rows: [
           {
-            // [display] uniform_snapshot: becomes [nvn] uniform_snapshot at the next start (play_startup.cpp); auto = discrete GPUs under 7 GiB
+            // [display] uniform_snapshot: becomes [nvn] uniform_snapshot at the next start (play_startup.cpp); auto = discrete GPUs under 7 GiB or without resizable BAR
             id: 'uniform_snapshot', label: t('Shader constants in video memory'), type: 'select', ...fromSchema(controls('display', 'uniform_snapshot')),
             options: [{ value: 'auto', label: t('Automatic') }, { value: 'on', label: t('On') }, { value: 'off', label: t('Off') }],
           },

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Game layer: a Save prompt in the pause menu's key guide (issue #354). [pkp] save_now, on by default.
+// Game layer: a Save prompt in the pause menu (#354) and a quick-save key in play (#659). [pkp] save_now, on by default.
 //
 // The pause menu (+) shows its actions in the game's key guide widget: A select, B close, (-) Save and Quit (the game's own, which asks
 // first and then returns to the title). This module adds one more entry, "Save", which writes the save and leaves the player in the world.
@@ -12,9 +12,8 @@
 //     first free slot, before the widget reads the set. Only pause sets get it, so it never has to be taken out again.
 //   * the part is filled: the icon is the first of kButtons no other prompt of the set uses (Y, then R; click only when both are taken),
 //     the text is "Save" in the game's language, and the part's layout goes to the menu pointer.
-//   * a left click on the prompt, or that button on any pad, while the widget still shows the pause set, asks for the save; the game
-//     thread then queues it with the game's own request, the one its Save and Quit dialog makes (0x241324, kind 2, pkp_layout.h;
-//     pkp_story_guard.cpp uses the same call), and says so with a notice.
+//   * a click or button on the prompt, or the Save binding in play, asks for the save. The game thread then queues it with the game's
+//     own request, the one its Save and Quit dialog makes (0x241324, kind 2, pkp_layout.h), and says so with a notice.
 #include "ui/pkp_save_now.h"
 #include "ui/pkp_key_guide.h"
 #include "core/pkp_guest.h"
@@ -60,13 +59,15 @@ using guest::wr;
 
 struct State {
     uint64_t base = 0;
+    play::GameHost* host = nullptr;
     int client = -1;
     std::atomic<uint64_t> widget{0};    // the key guide widget that last took a pause set
     std::atomic<uint32_t> set{0};       // that pause set
     uint64_t row = 0;                   // key guide 158's table row
-    std::atomic<bool> save{false};      // a Save was asked for (click or button)
+    std::atomic<bool> save{false};      // a Save was asked for (click, pad button or shortcut)
     std::atomic<int> button{-1};        // the pad bit shown on the prompt, -1 = click only
     uint64_t prev_buttons = 0;          // main thread: the pads' buttons last frame
+    uint64_t save_activations = 0;      // main thread: the last Save activation seen
     bool logged_fill = false;
     bool logged_full = false;
     int tries = 0;                      // game frames spent waiting for the save manager
@@ -170,38 +171,45 @@ void install(const FeatureInstall& in) {
         return;
     }
     g.base = in.base;
+    g.host = in.host;
     g.client = key_guide::add({.name = "save now",
                                .set_taken = &set_taken,
                                .part_filled = &part_filled,
                                .click = &click,
                                .click_note = "the pause menu's Save prompt"});
-    NXLOG_I(kTag, "save now: on (a Save prompt in the pause menu's key guide writes the save and stays in the world; [pkp] save_now)");
+    NXLOG_I(kTag, "save now: on (pause menu prompt and quick-save key; [pkp] save_now)");
 }
 
 void remove() {
     g.base = 0;
+    g.host = nullptr;
     g.widget.store(0);
     g.set.store(0);
     g.row = 0;
     g.save.store(false);
     g.button.store(-1);
     g.prev_buttons = 0;
+    g.save_activations = 0;
     g.logged_fill = false;
     g.logged_full = false;
     g.tries = 0;
     g.pending = 0;
 }
 
-// Main thread, once per frame: the prompt's button on any pad asks for the save.
-void frame(bool, double, play::GameFrame*) {
+// Main thread, once per frame: the shortcut in play or the prompt's button on any pad asks for the same save.
+void frame(bool in_game, double, play::GameFrame*) {
     if (!g.base) return;
     const bool up = pause_shown();
+    const uint64_t activations = g.host ? g.host->action_activations(play::Act::Save) : 0;
+    const bool shortcut = in_game && !up && activations != g.save_activations;
+    g.save_activations = activations;
     const uint64_t buttons = hid::sampled_buttons();
     const int b = g.button.load(std::memory_order_acquire);
     const uint64_t mask = b >= 0 ? 1ull << b : 0;
-    if (up && mask && (buttons & mask) && !(g.prev_buttons & mask)) {
+    const bool prompt = up && mask && (buttons & mask) && !(g.prev_buttons & mask);
+    if (shortcut || prompt) {
         g.save.store(true, std::memory_order_release);
-        NXLOG_I(kTag, "save now: button on the pause menu's Save prompt");
+        NXLOG_I(kTag, "save now: %s", shortcut ? "quick-save key" : "button on the pause menu's Save prompt");
     }
     g.prev_buttons = up ? buttons : ~uint64_t{0};   // a button held from before the menu opened does not count
 }

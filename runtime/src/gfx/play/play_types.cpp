@@ -242,6 +242,7 @@ const ActInfo kActs[] = {
     {Act::BtnLStick, "btn_lstick", "LSTICK"},
     {Act::BtnRStick, "btn_rstick", "RSTICK"},
     {Act::MouseMode, "mouse_mode", ""},
+    {Act::Save, "save", ""},
 };
 static_assert(sizeof(kActs) / sizeof(kActs[0]) == kActCount, "one row per Act");
 const ActInfo* acts() {

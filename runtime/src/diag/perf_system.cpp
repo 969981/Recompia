@@ -329,7 +329,7 @@ void perf_log_system(const perf::GpuFacts& g) {
     std::string bar;
     if (!g.discrete) bar = "n/a (not a discrete GPU)";
     else if (!g.bar_bytes) bar = "no host-visible video memory";
-    else if (g.bar_bytes <= (272ull << 20)) bar = "off (" + mib(g.bar_bytes) + " host-visible video memory)";
+    else if (g.bar_bytes <= perf::kBarWindowMaxBytes) bar = "off (" + mib(g.bar_bytes) + " host-visible video memory)";
     else bar = "on (" + mib(g.bar_bytes) + " host-visible video memory)";
     char ids[32];
     std::snprintf(ids, sizeof ids, "%04x:%04x", g.vendor_id, g.device_id);

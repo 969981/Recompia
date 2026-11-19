@@ -293,7 +293,7 @@ void gpu_group(Page& p) {
             ImGui::EndCombo();
         }
         tip("Copies the game's shader constants into video memory when a draw uses them, instead of reading system memory over PCIe. Auto: on for graphics cards with "
-            "under 7 GiB of video memory. [nvn] uniform_snapshot in the ini wins over this.");
+            "under 7 GiB of video memory or without resizable BAR. [nvn] uniform_snapshot in the ini wins over this.");
         restart_badge();
     }
     if (ImGui::Checkbox("Fewer GPU pipeline waits", &d.fewer_gpu_waits)) mark(p);
