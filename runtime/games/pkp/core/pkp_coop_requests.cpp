@@ -63,6 +63,12 @@
 // Each process reads its records every frame and sends a change when it sees one (one that could not be sent goes at the next
 // frame), and its whole list of taken-on and finished requests every kAllEvery seconds and when it or another member joins,
 // through the authority to every member.
+// General requests, one exception: their completion 0x6218e0(.., w2 rewards, w3 replay) counts the town goal ("hand in requests",
+// 0x618b00(CM) at 0x621bec, behind `cbz x0` at 0x621be8; w21 = w3 there) with no test of its own, so a replay counted it again on
+// every process: the kind 6 reader's replay of the host's step on each member (0x620ba8, w3 = 1) and the host's apply of a member's
+// step (0x62e0fc, w3 = 1). The talks pass w3 = 0 (0x62a404, 0x62ab90). The talker's own count is the group's: on the host it is
+// the host's goal, on a member the game sends it to the host (CM frame 0x631020 -> 0x633150, RequestChallengeProgress; host
+// handler 0x54fbc0 -> 0x54fd60). So in a session a replay skips the goal (x0 = 0 at 0x621be8) and each hand-in counts once.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -365,6 +371,15 @@ void apply(::Ctx* c, uint64_t recs) {
 }
 
 }  // namespace
+
+int on_general_goal(::Ctx* c) {
+    // w21 bit 0: the game's own replay of a step (the talks pass 0). Replays only run online; offline nothing changes.
+    if (!(c->x[21] & 1) || !(session_bits() & layout::kSessionOnline) || !c->x[0]) return 0;
+    c->x[0] = 0;
+    NXLOG_I(kTag, "Co-op requests: a general request's hand-in replayed here; its town goal counted on the process of the player who "
+            "handed it in, skipped here");
+    return 0;
+}
 
 int on_giver_check(::Ctx* c) {
     // The game's own session bits, as the world effects' skip: a member in the host's world, even before its channel is up.

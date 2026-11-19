@@ -108,6 +108,9 @@ bool world_started();
 namespace requests {
 // The hook site (pkp_coop.cpp): entry 0x11435c, the bind gate; a member answers as the game does at home.
 int on_giver_check(::Ctx* c);
+// Midhook 0x621be8 in a general request's completion 0x6218e0: a replay of the step (w21 bit 0) skips its town goal (x0 = 0) in a
+// session, so each hand-in counts once, on the talker's process.
+int on_general_goal(::Ctx* c);
 // The message (pkp_coop_link.cpp): kept until this player can take it.
 void on_unique_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Applies what other members shared when this player can walk and talks to no one, reads this player's request records and shares

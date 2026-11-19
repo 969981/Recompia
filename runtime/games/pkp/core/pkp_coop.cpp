@@ -56,6 +56,8 @@ enum class Site : uintptr_t {
     GoalCount,        // a unique request's completion step, right before its town goal +1: the run's one-off world effects are
                       // decided (once for the group), the goal skipped when they are not this run's
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
+    GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
+                      // it, so each hand-in counts once
     // ---- the session ----
     PastTitle,        // the title screen's continue: the co-op save loads without the title, and its unclean-exit mark is cleared
     SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
@@ -103,6 +105,7 @@ constexpr CoopSite kSites[] = {
     {{0x11435c, kPacibsp, true}, Site::GiverCheck},
     {{0x61858c, 0xb4000040u, false}, Site::GoalCount},       // cbz x0, 0x618594 (x0 = the challenge manager, before bl 0x618b00)
     {{0x619410, kPacibsp, true}, Site::Friendship},
+    {{0x621be8, 0xb4000040u, false}, Site::GeneralGoal},     // cbz x0, 0x621bf0 (x0 = the challenge manager, before bl 0x618b00)
     {{0xa88214, 0xb00156c8u, true}, Site::PastTitle},        // adrp x8, ...
     {{0x231890, kPacibsp, true}, Site::SimStep},
     {{0xbd45c, 0xb9400008u, true}, Site::TripFile},          // ldr w8, [x0]
@@ -162,6 +165,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
+        case Site::GeneralGoal: return coop::requests::on_general_goal(c);
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
