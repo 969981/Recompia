@@ -15,7 +15,8 @@
 // frame) moves a quest on its flag alone: flag -> start / complete / close, which writes the state and clears the flag through the two
 // setters and runs the quest's effect commands. In 2.0.1 the state setter has three callers, all inside those pump steps.
 // Whoever moves a quest on moves it on for everyone: every process shares its quests' states (the low byte of each quest word, save
-// root + kQuestWords), all of them when it joins a session or another member does, then every state that rose since the last look.
+// root + layout::quest_word(id); the DLC ids 801..1000 have their own run, as the game keeps them), all of them when it joins a
+// session or another member does, then every state that rose since the last look.
 // A process behind a received state catches up through its own pump: it sets the quest's flag in its own state, the pump makes the
 // step (state write, effects), and the next frame sets it again until the state is reached. So a step only one player could make (a
 // quest active for one of them, a condition met in one process: the grass built by another player, a talk started by another) is
@@ -28,6 +29,24 @@
 // passed over, for kStallSkip seconds doubled on each stall of that quest up to kStallSkipMax, so quests that cannot move never hold up
 // the ones that can. The flag stays set: the pump takes it whenever the quest can move. It runs only while the game's own session is
 // up (on a member: in the host's world), the same condition the world effects' skip uses.
+// The pump steps only quests in its lists (QL = GM+0x3b9328, the object 0x118d44 also keeps in *(main+0x34efd60): C, state 1, count
+// +0, u16 ids +4, 40 at most; A, state 2, count +0x60, {u32 id, f32 timer} at +0x64; B, state 3, count +0x1b8, u16 ids +0x1bc). A quest
+// is listed only when its prerequisites (5 u16 at the quest row +0x4e, 0x114e40(id, 0..4)) are all closed (0x11af60) and its stage
+// (0x11ac38) is this area's (GM+0x18): at the stage start (0x11933c clears, 0x119640(QL, GM+0x18) lists), and in C later only when
+// one of its prerequisites closes in this process's own pump (0x11c220(QL, prerequisite), the pump's only caller; it walks the follow-up
+// map 0xa58a80, checks the stage, the prerequisites, state 1 and duplicates itself). So:
+// - A quest behind whose prerequisites are not closed here is not flagged first: a prerequisite another member is ahead on is moved
+//   on before it (quest 11 needs 9, 10 and 44). A quest skipped after a stall is tried again at once when one of its prerequisites
+//   closes here.
+// - A quest that became listable after its prerequisite closed here through the catch-up, but that was off-stage or not yet at state
+//   1 then, is never put in C until the next stage start. When such a quest stalls at state 1 with its stage here and every
+//   prerequisite closed, the catch-up calls 0x11c220(QL, p) for each prerequisite p, as the pump would have; a quest still not listed
+//   after that (none to call with, or at state 2 / 3 not in A / B) gets the stage start's own rebuild, 0x11933c + 0x119640, at most
+//   once per kRebuildGap and once per quest and state. Both only at a moment the pump could run (not busy, 0x1186ec(0)), from the
+//   game thread between frames. 0x11933c clears whatever the gate is, but 0x119640 lists only behind its own gate (GM+0x8c bit 0,
+//   0x538750() clear, and not GM+0x98 with the player manager's +0x30 vt+0x148 true): the rebuild runs only when that gate is open,
+//   and the lists are put back as they were if it left all three empty.
+// - Why a stalled quest is not listed (its stage, a prerequisite, a full list) is logged once per reason.
 // The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
 // the ability bits). A member behind it catches up as above; a member ahead of it sends each quest it is ahead on again, once per
 // state (a rise lost on the way is sent once more; one the authority's pump cannot step yet is not sent every digest); ability bits
@@ -37,17 +56,39 @@
 //
 // Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
 // returns with nothing done). Every process runs them, since every process runs the pump. Personal kinds (the player's abilities,
-// bag, name, profile: 0x01 0x02 0x03 0x19 0x1e 0x1f 0x30) and the story kinds (quest flags and states: 0x04 0x14 0x15 0x27 0x29 0x2d)
-// run on every process; every other kind changes the shared world, which the game's own
+// bag, name, profile: 0x01 0x02 0x03 0x19 0x1e 0x1f 0x30), the quest music 0x07 and the story kinds (quest flags and states: 0x04
+// 0x14 0x15 0x27 0x29 0x2d) run on every process; every other kind changes the shared world, which the game's own
 // replication brings from the authority to the members, so on a member in the session it returns at once, as an unknown kind does.
+// 0x07 (0x1222d4): +4 nonzero plays BGM +2 through the BGM player *(main+0x3561910)+0x10 (0xf9774, +6 its flag), 0 stops it
+// (0xf99e0); both only play locally and keep the stage's music id in this process's m_contentsBGM (save root +0x4a36e0 + stage).
+// 0x09 (0x1231f0, zone u8 +2): with no event running it fades the screen out (0xa9fcc4), marks save root +0x4a4402 = 1 and +0x4a4403
+// = the zone; the environment's frame (0x1f79b8 -> 0x1f9e68) waits for the fade (0xa9ff4c(0)), then makes the time change (0x1f8f9c /
+// 0x1f9140, the world's clock) and fades back in (0xa9fa34). On a member the world's clock is the authority's, so the member's 0x09
+// still returns before the handler; when the handler's own tests would fade, the member fades out the same way and, once the fade is
+// done, back in: the time skip's fade on every screen, the clock left to the authority.
+// Both only for a live step: a step the catch-up replays (a process behind runs every old step through its own pump) plays no music
+// and starts no fade, so a member several quests behind neither hears each old step's music nor is left with an old quest's. A member
+// makes every step through the catch-up now (it moves no quest by itself, pkp_coop_quests.cpp), so the step that reaches the group's
+// state of its quest (the target is the state the step leads to) counts as live and plays both; only a step with more of that
+// quest's steps after it is a replay.
 //
 // Abilities (unlocks such as the creature list and its menu entries). The bits live at save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit
 // id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
 // 0x12c35c (the creature list talk sets ids 17 and 76 through one of the latter two). So the bits themselves are
 // watched, not a writer: once a frame in the session, every bit that turned on here since the last look is shared as an effect 0x19
 // "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline; what a
-// member had before joining reaches the others through the digest (below), which merges the bits both ways. A bit turned off is not
-// shared (no writer clears one in the story; the saves seen only grow).
+// member had before joining reaches the others through the digest (below), which merges the bits both ways.
+// Some steps take an ability away (quest 664's effect 0x19 clears 99): 0x1227fc with its +4 value 0 and the story-line step action
+// 0x10c0d0 (record *(x1 + 8)) with its +6 value 0 clear the bit. The union above would bring such a bit back from any process that
+// still has it, so a cleared id is kept in a set for the co-op run (entry hooks on both clears, in a session only), shared
+// (AbilityCleared) and cleared on every member, and never shared or applied again: not as a bit that turned on, not by the digest's
+// merge (a member that still has it clears it instead), not from an ability command. The set is sent again whole when this process
+// joins or another member does. A later step can give it back (quest 680 sets 99 again): a set the game makes here (0x1227fc with
+// +4 nonzero, 0x10c0d0 with +6 nonzero, a slot of effect 0x01 at the dispatcher) takes the id out of this process's set; co-op's own
+// applies never set an id in the set, so every set those hooks see is the game's. Every process runs that step through its own pump
+// (the catch-up), so each takes the id out of its own set. A clear the catch-up replays (a process behind runs quest 664 long after
+// the others passed 680) is not kept or shared: only a live one is. The set lives in memory only and only for the session (emptied
+// when this process joins or leaves one); the event command 0x12c35c (value 2 clears) is not watched.
 //
 // Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
 // for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
@@ -82,16 +123,37 @@ constexpr uint64_t kAuthorityPattern = 0x7fffffffull;   // bits 0..30: the offli
 constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 23: no shop visitor lock
 
 constexpr uint64_t kStory = 0x4a26a0, kAbilities = layout::kSaveAbilities;         // save root +
-constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]); the state is read from the quest words
+constexpr uint64_t kFlagOf = 0x5d86e4;   // (S, id); set through quests::set_flag (0x5d8774); the state is read from the quest words
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
-constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte
+constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at save root + layout::quest_word(id), state in its low byte
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
                                                           // is one no pump step reaches, so the catch-up would flag it for ever
+constexpr uint64_t kQuestListGlobal = 0x34efd60;   // GM: *(main + layout::kGameState)
+constexpr uint64_t kGmStage = 0x18, kGmQuestLists = 0x3b9328;   // GM + : this area's stage, the quest lists (QL)
+constexpr uint64_t kListC = 0x0, kListCIds = 0x4, kListA = 0x60, kListAEntries = 0x64, kListB = 0x1b8, kListBIds = 0x1bc;   // QL +
+constexpr uint64_t kListAEntry = 8, kListATimer = 4;   // A's entry {u32 id (low u16), f32 timer} (0x11b600, 0x119640 writes timer 0)
+constexpr uint32_t kListCap = 0x28;
+constexpr uint64_t kPrereqOf = 0x114e40, kStageOf = 0x11ac38, kUnlockFollowUps = 0x11c220;
+constexpr uint64_t kClearLists = 0x11933c, kListStage = 0x119640, kStoryBusy = 0x1186ec;
+constexpr unsigned kPrereqs = 5;
+constexpr unsigned kPrereqDepth = 4;     // prerequisites of prerequisites looked through, at most
+constexpr double kRebuildGap = 60.0;     // the stage start's list rebuild, at most once per this many seconds
+constexpr uint64_t kListsSize = 0x258;   // QL + 0 .. : the four lists 0x11933c clears (their counts and entries)
+constexpr uint64_t kGmStory = 0x8c, kGmLinkWait = 0x98, kPlayerMgr = 0x3561928, kPmObject = 0x30, kPmBusySlot = 0x148;
+constexpr uint64_t kStoryOff = 0x538750;
 constexpr uint32_t kFirstTalk = 2;   // a new world: quest 1 closes on entering the first room, quest 2 at the first talk (run P0RE-2)
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
+                                            0x07,                                         // quest music (local)
                                             0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
+constexpr uint8_t kQuestMusicEffect = 0x07, kTimeFadeEffect = 0x09;
+constexpr uint8_t kTimeZoneMax = 7;                    // 0x1231f0 returns for a larger zone, before any fade
+constexpr uint64_t kEnvManager = 0x35616f8, kGameMgr = 0x3561710, kGmContents = 0xd8;   // 0x1231f0's first two tests
+constexpr uint64_t kScEvent = 0x119f60, kScEventOn = 0x119f74;   // contents scheduler + : the running event (**(+0x119f60))+0x30 bit 0
+constexpr uint64_t kFadeBlocker = 0x35650f8, kFadeBlockerTest = 0x2410b0, kFadeBlockerAsk = 0xaa01c8;   // 0x1231f0's second test
+constexpr uint64_t kFadeOut = 0xa9fcc4, kFadeBusy = 0xa9ff4c, kFadeIn = 0xa9fa34;
+constexpr double kFadeMax = 10.0;                      // a member's time fade is brought back in after this at the latest
 constexpr uint8_t kEffectFirst = 0x01, kEffectLast = 0x39;
 
 constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
@@ -122,6 +184,12 @@ struct State {
     bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
     double stall_until[kQuestMax] = {};   // per quest: passed over by the catch-up until then
     uint8_t stalls[kQuestMax] = {};       // per quest: how often the pump left its flag (the skip doubles each time)
+    uint16_t prereq[kQuestMax][kPrereqs] = {};   // per quest: its prerequisites (0x114e40), once read
+    bool prereq_read[kQuestMax] = {};
+    uint8_t closed_prereqs[kQuestMax] = {};      // per quest: how many of its prerequisites were closed here at the last look
+    uint8_t why[kQuestMax] = {};                 // per quest: the "not listed" reason last logged
+    double rebuilt_at = -1e9;
+    uint8_t rebuilt_for[kQuestMax] = {};         // per quest: the state the rebuild was last made for (once per quest and state)
     uint32_t stepping = 0;                // the quest the catch-up flagged last (id), and its state then
     uint8_t stepping_state = 0;
     double stepping_since = 0.0;
@@ -138,6 +206,11 @@ struct State {
     };
     std::vector<WildPop> wild_pops;          // a member's appearances not sent yet (the channel was not up)
     alignas(8) uint8_t pop_command[wire::kEffectSize] = {};   // a received appearance as an effect 0x33 command, guest-readable
+    uint8_t cleared[kAbilityBytes] = {};     // the abilities a step took away in this co-op run (bit per id): never given back
+    std::vector<uint8_t> cleared_new;        // cleared here and not sent yet
+    bool cleared_send_all = false;           // the next send is the whole set (joined, or another member joined)
+    bool fade_out = false;                   // a member's time-skip fade is out; brought back in once it is done
+    double fade_since = 0.0;
 };
 State& st() {
     static State s;
@@ -153,14 +226,27 @@ uint64_t story() {
     return r ? r + kStory : 0;
 }
 
+// The save root, when every quest word (ids 1..800 and the DLC run 801..1000) is readable; read through state_at.
 uint64_t quest_words() {
     const uint64_t r = save_root();
-    return r && guest::ok(r + layout::kQuestWords, kQuestMax * 2) ? r + layout::kQuestWords : 0;
+    return r && guest::ok(r + layout::kQuestWords, layout::kQuestWordsEnd - layout::kQuestWords) ? r : 0;
 }
+
+// Quest (index + 1)'s state, from its word where the game keeps it (0x5d85c0's mapping).
+uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest::rd<uint16_t>(words + layout::quest_word(i + 1))); }
 
 bool quest_flag(::Ctx* c, uint64_t s, uint32_t id) { return guest::call(c, base() + kFlagOf, s, id) & 1; }
 
 bool ability_id(uint16_t v) { return static_cast<uint8_t>(v - 1) < 0xf9; }
+bool ability_cleared(uint16_t v) { return st().cleared[(v & 0xff) >> 3] & (1u << (v & 7)); }
+// Puts the id in the cleared set; true when it was not in it yet.
+bool mark_cleared(uint16_t v) {
+    uint8_t& byte = st().cleared[(v & 0xff) >> 3];
+    const uint8_t bit = static_cast<uint8_t>(1u << (v & 7));
+    if (byte & bit) return false;
+    byte |= bit;
+    return true;
+}
 bool ability_on(uint64_t root, uint16_t v) {
     return guest::rd<uint8_t>(root + kAbilities + ((v & 0xff) >> 3)) & (1u << (v & 7));
 }
@@ -176,6 +262,7 @@ bool ability_changes(uint64_t root, const uint8_t* cmd) {
 
 // Shares the quests whose state rose here since the last look (every started one after a join), as (u16 id, u8 state) pairs.
 void share_states() {
+    if (quests::member_rules()) return;   // a member's quests move only on the authority's states (pkp_coop_quests.cpp)
     State& s = st();
     const uint64_t words = quest_words();
     if (!words || !link::in_session()) return;
@@ -184,7 +271,7 @@ void share_states() {
     std::vector<uint8_t> pairs;
     uint16_t n = 0;
     for (uint32_t i = 0; i < kQuestMax; ++i) {
-        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2));
+        const uint8_t state = state_at(words, i);
         if (state <= kListed || (!all && state <= s.sent[i])) continue;
         s.sent[i] = state;
         if (!all && state <= s.target[i]) continue;   // caught up to another member's state: they have it already
@@ -202,13 +289,218 @@ void share_states() {
     if (all) NXLOG_I(kTag, "Co-op story: the states of %u started quests shared (a join)", static_cast<unsigned>(n));
 }
 
-uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2)); }
-
 // The game's own session is up, and on a member it is in the host's world: the condition the world effects' skip uses too.
 bool story_shared_here() {
     const uint8_t bits = session_bits();
     if (!(bits & layout::kSessionOnline) || !link::in_session()) return false;
     return role() == CoopRole::Host || (bits & layout::kSessionVisitor);
+}
+
+uint64_t quest_lists() {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(gm, kGmQuestLists + kListsSize)) return 0;
+    const uint64_t ql = gm + kGmQuestLists;
+    // The pump's own object (0xb80c0 passes GM+0x3b9328 to 0xba660); 0x118d44 keeps it in the global too.
+    return guest::rd<uint64_t>(base() + kQuestListGlobal) == ql ? ql : 0;
+}
+
+uint8_t area_stage() {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    return guest::ok(gm, kGmStage + 1) ? guest::rd<uint8_t>(gm + kGmStage) : 0;
+}
+
+// Quest (index i)'s prerequisites as its row has them; read once the row is there (its stage nonzero: a stage-0 row is never listed).
+const uint16_t* prereqs_of(::Ctx* c, uint32_t i) {
+    State& s = st();
+    if (!s.prereq_read[i]) {
+        const uint32_t id = i + 1;
+        for (unsigned k = 0; k < kPrereqs; ++k) s.prereq[i][k] = static_cast<uint16_t>(guest::call(c, base() + kPrereqOf, id, k));
+        s.prereq_read[i] = (guest::call(c, base() + kStageOf, id) & 0xff) != 0;
+    }
+    return s.prereq[i];
+}
+
+bool quest_id(uint16_t id) { return static_cast<uint16_t>(id - 1) < kQuestMax; }
+
+// Quest id is in the list for its state here (C for 1, A for 2, B for 3).
+bool listed(uint64_t ql, uint32_t id, uint8_t state) {
+    if (state == kListed) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListC), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if (guest::rd<uint16_t>(ql + kListCIds + k * 2) == id) return true;
+    } else if (state == kStarted) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListA), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if ((guest::rd<uint32_t>(ql + kListAEntries + k * 8) & 0xffff) == id) return true;
+    } else if (state == kComplete) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListB), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if (guest::rd<uint16_t>(ql + kListBIds + k * 2) == id) return true;
+    }
+    return false;
+}
+
+// A prerequisite of quest (index i) that is not closed here and that another member is ahead on, and is not passed over now: the
+// one to move on first (looked through up to kPrereqDepth levels). 0 if none.
+uint32_t prereq_to_step(::Ctx* c, uint64_t words, uint32_t i, double now, unsigned depth = 0) {
+    State& s = st();
+    if (depth >= kPrereqDepth) return 0;
+    const uint16_t* pre = prereqs_of(c, i);
+    for (unsigned k = 0; k < kPrereqs; ++k) {
+        if (!quest_id(pre[k])) continue;
+        const uint32_t p = pre[k] - 1u;
+        if (state_at(words, p) >= kClosed) continue;
+        if (const uint32_t deeper = prereq_to_step(c, words, p, now, depth + 1)) return deeper;
+        if (s.target[p] > state_at(words, p) && now >= s.stall_until[p]) return p + 1;
+    }
+    return 0;
+}
+
+// Why the stalled quest (index i, at state here) is not stepped; logged once per reason.
+enum class Why : uint8_t { None, Listed, Stage, Prereq, Full, Unlisted };
+Why why_not(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state, uint16_t* prereq_open) {
+    const uint32_t id = i + 1;
+    *prereq_open = 0;
+    if (listed(ql, id, state)) return Why::Listed;
+    if ((guest::call(c, base() + kStageOf, id) & 0xff) != area_stage()) return Why::Stage;
+    const uint16_t* pre = prereqs_of(c, i);
+    for (unsigned k = 0; k < kPrereqs; ++k)
+        if (quest_id(pre[k]) && state_at(words, pre[k] - 1u) != kClosed) {
+            *prereq_open = pre[k];
+            return Why::Prereq;
+        }
+    if (state == kListed && guest::rd<uint32_t>(ql + kListC) >= kListCap) return Why::Full;
+    return Why::Unlisted;
+}
+
+void log_why(::Ctx* c, uint32_t i, uint8_t state, Why why, uint16_t prereq, uint64_t words) {
+    State& s = st();
+    if (s.why[i] == static_cast<uint8_t>(why)) return;
+    s.why[i] = static_cast<uint8_t>(why);
+    const uint32_t id = i + 1;
+    switch (why) {
+        case Why::Listed:
+            NXLOG_I(kTag, "Co-op story: quest %u is listed here at state %u; the pump does not step it yet (its condition, or busy)", id,
+                    state);
+            break;
+        case Why::Stage:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: its stage is %u, this area's %u", id,
+                    static_cast<unsigned>(guest::call(c, base() + kStageOf, id) & 0xff), area_stage());
+            break;
+        case Why::Prereq:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: its prerequisite %u is at state %u here (%u on the group)", id, prereq,
+                    state_at(words, prereq - 1u), st().target[prereq - 1u]);
+            break;
+        case Why::Full:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: the list of listed quests is full (%u)", id, kListCap);
+            break;
+        case Why::Unlisted:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here (state %u): its prerequisites closed after this area's quests were listed",
+                    id, state);
+            break;
+        default: break;
+    }
+}
+
+uint32_t list_counts(uint64_t ql) {
+    return guest::rd<uint32_t>(ql + kListC) + guest::rd<uint32_t>(ql + kListA) + guest::rd<uint32_t>(ql + kListB);
+}
+
+// 0x119640's own gate: it lists nothing unless the story is on (GM+0x8c bit 0), 0x538750() is clear, and not (GM+0x98 set and the
+// player manager's object +0x30 answering true to its vt+0x148).
+bool stage_listing_open(::Ctx* c) {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(gm, kGmLinkWait + 8) || !(guest::rd<uint8_t>(gm + kGmStory) & 1)) return false;
+    if (guest::call(c, base() + kStoryOff, 0) & 1) return false;
+    if (!guest::rd<uint64_t>(gm + kGmLinkWait)) return true;
+    const uint64_t pm = guest::rd<uint64_t>(base() + kPlayerMgr);
+    const uint64_t obj = pm && guest::ok(pm + kPmObject, 8) ? guest::rd<uint64_t>(pm + kPmObject) : 0;
+    if (!obj || !guest::ok(obj, 8)) return true;
+    const uint64_t vt = guest::rd<uint64_t>(obj);
+    if (!guest::ok(vt + kPmBusySlot, 8)) return false;
+    return !(guest::call(c, guest::rd<uint64_t>(vt + kPmBusySlot), obj) & 1);
+}
+
+// A stalled quest whose stage is this area's and whose prerequisites are all closed, but which is in no list: put in the list as the
+// game does (0x11c220 for each closed prerequisite; the stage start's rebuild when that does not do it). Only when the pump could
+// run now. True when it is listed afterwards.
+bool list_quest(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state) {
+    State& s = st();
+    const uint32_t id = i + 1;
+    if (guest::call(c, base() + kStoryBusy, 0) & 1) return false;
+    if (state == kListed) {
+        const uint16_t* pre = prereqs_of(c, i);
+        unsigned called = 0;
+        for (unsigned k = 0; k < kPrereqs; ++k) {
+            if (!quest_id(pre[k]) || state_at(words, pre[k] - 1u) != kClosed) continue;
+            guest::call(c, base() + kUnlockFollowUps, ql, pre[k]);
+            ++called;
+        }
+        if (listed(ql, id, state)) {
+            NXLOG_I(kTag, "Co-op story: quest %u listed here through its %u closed prerequisites (0x11c220)", id, called);
+            return true;
+        }
+    }
+    const double now = qpc::seconds();
+    if (now - s.rebuilt_at < kRebuildGap || s.rebuilt_for[i] == state || !stage_listing_open(c)) return false;
+    s.rebuilt_at = now;
+    s.rebuilt_for[i] = state;
+    uint8_t saved[kListsSize];
+    std::memcpy(saved, reinterpret_cast<const void*>(ql), sizeof saved);
+    const uint32_t before = list_counts(ql);
+    guest::call(c, base() + kClearLists, ql);
+    guest::call(c, base() + kListStage, ql, area_stage());
+    if (before && !list_counts(ql)) {   // 0x119640 listed nothing after all: the lists as they were
+        std::memcpy(reinterpret_cast<void*>(ql), saved, sizeof saved);
+        NXLOG_W(kTag, "Co-op story: the quest list rebuild for quest %u listed nothing; the lists were put back", id);
+        return false;
+    }
+    // 0x119640 starts every quest it puts in A with timer 0: a quest that was in A already keeps the timer it had (the catch-up runs
+    // on the host too, so every started quest's wait would start over otherwise).
+    uint32_t old_a = 0;
+    std::memcpy(&old_a, saved + kListA, sizeof old_a);
+    old_a = std::min(old_a, kListCap);
+    const uint32_t new_a = std::min(guest::rd<uint32_t>(ql + kListA), kListCap);
+    unsigned kept = 0;
+    for (uint32_t k = 0; k < new_a; ++k) {
+        const uint64_t entry = ql + kListAEntries + k * kListAEntry;
+        const uint16_t quest = static_cast<uint16_t>(guest::rd<uint32_t>(entry));
+        for (uint32_t j = 0; j < old_a; ++j) {
+            uint32_t old_id = 0;
+            float timer = 0.0f;
+            std::memcpy(&old_id, saved + kListAEntries + j * kListAEntry, sizeof old_id);
+            if (static_cast<uint16_t>(old_id) != quest) continue;
+            std::memcpy(&timer, saved + kListAEntries + j * kListAEntry + kListATimer, sizeof timer);
+            guest::wr<float>(entry + kListATimer, timer);
+            ++kept;
+            break;
+        }
+    }
+    const bool ok = listed(ql, id, state);
+    if (kept) NXLOG_I(kTag, "Co-op story: %u started quests kept their timers through the rebuild", kept);
+    NXLOG_W(kTag, "Co-op story: this area's quest lists rebuilt as at a stage start, for quest %u at state %u: %s", id, state,
+            ok ? "listed now" : "still not listed");
+    return ok;
+}
+
+uint8_t closed_prereqs(::Ctx* c, uint64_t words, uint32_t i) {
+    const uint16_t* pre = prereqs_of(c, i);
+    uint8_t closed = 0;
+    for (unsigned k = 0; k < kPrereqs; ++k)
+        if (quest_id(pre[k]) && state_at(words, pre[k] - 1u) == kClosed) ++closed;
+    return closed;
+}
+
+// A quest passed over after a stall is tried again at once when one of its prerequisites closed here since it stalled.
+void retry_on_prereq_close(::Ctx* c, uint64_t words, double now) {
+    State& s = st();
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        if (!s.target[i] || s.stall_until[i] <= now) continue;
+        if (closed_prereqs(c, words, i) <= s.closed_prereqs[i]) continue;
+        s.stall_until[i] = 0.0;
+        s.stalls[i] = 0;
+        NXLOG_I(kTag, "Co-op story: a prerequisite of quest %u closed here; it is tried again", i + 1);
+    }
 }
 
 // Moves the lowest quest that is behind another member's state one pump step on (its flag set in this process's own state), and
@@ -218,18 +510,33 @@ void catch_up(::Ctx* c) {
     const uint64_t words = quest_words(), story_obj = story();
     if (!words || !story_obj || !story_shared_here()) return;
     const double now = qpc::seconds();
-    for (uint32_t i = 0; i < kQuestMax; ++i) {
-        if (!s.target[i] || now < s.stall_until[i]) continue;
+    retry_on_prereq_close(c, words, now);
+    for (uint32_t q = 0; q < kQuestMax; ++q) {
+        if (!s.target[q] || now < s.stall_until[q]) continue;
+        if (state_at(words, q) >= s.target[q]) continue;
+        // Its prerequisites first: a quest is listed only once they are closed here. i is the quest moved on now.
+        uint32_t i = q;
+        if (const uint32_t first = prereq_to_step(c, words, q, now)) i = first - 1;
         const uint8_t state = state_at(words, i);
-        if (state >= s.target[i]) continue;
         const uint32_t id = i + 1;
         if (s.stepping != id || s.stepping_state != state) {   // a new quest, or the pump made the last step
             s.stepping = id;
             s.stepping_state = state;
             s.stepping_since = now;
+            if (i != q) NXLOG_I(kTag, "Co-op story: quest %u waits for its prerequisite %u here; that one is moved on first", q + 1, id);
         } else if (now - s.stepping_since > kStall) {
+            if (const uint64_t ql = quest_lists()) {
+                uint16_t open = 0;
+                const Why why = why_not(c, words, ql, i, state, &open);
+                log_why(c, i, state, why, open, words);
+                if (why == Why::Unlisted && list_quest(c, words, ql, i, state)) {
+                    s.stepping_since = now;   // listed now: the pump gets its frames again
+                    return;
+                }
+            }
             const double skip = std::min(kStallSkipMax, kStallSkip * static_cast<double>(1u << std::min<unsigned>(s.stalls[i], 5)));
             s.stall_until[i] = now + skip;
+            s.closed_prereqs[i] = closed_prereqs(c, words, i);   // one more closing here ends the skip (retry_on_prereq_close)
             s.stepping = 0;
             if (s.stalls[i]++ == 0)
                 NXLOG_W(kTag, "Co-op story: quest %u stays at state %u here (the pump does not step it yet; %u wanted); passed over for now",
@@ -240,7 +547,7 @@ void catch_up(::Ctx* c) {
             s.logged[i] = s.target[i];
             NXLOG_I(kTag, "Co-op story: quest %u catching up here, state %u -> %u", id, state, s.target[i]);
         }
-        if (!quest_flag(c, story_obj, id)) guest::call(c, base() + kSetFlag, story_obj, id, 1);
+        if (!quest_flag(c, story_obj, id)) quests::set_flag(c, story_obj, id);
         return;   // one quest at a time
     }
 }
@@ -290,6 +597,79 @@ void apply_ability(::Ctx* c, uint64_t root, uint16_t id) {
     if (s.have_seen && ability_on(root, id)) s.seen[(id & 0xff) >> 3] |= static_cast<uint8_t>(1u << (id & 7));
 }
 
+// The ability bit cleared here through the quest effect 0x19 (+4 value 0), as the step that took it away did. The id is already in
+// the set, so the clear hook does not take it for a new one.
+void clear_ability(::Ctx* c, uint16_t id) {
+    State& s = st();
+    std::memset(s.command, 0, sizeof s.command);
+    s.command[0] = kAbilityToggle;
+    const uint16_t args[2] = {id, 0};
+    std::memcpy(s.command + 2, args, sizeof args);
+    guest::call(c, base() + kAbilityToggleFn, reinterpret_cast<uint64_t>(s.command));
+}
+
+// A pump step the catch-up is replaying here: a quest whose flag is set and whose state is still below another member's. The pump runs
+// a step's effects before it writes the state and clears the flag (0x11bd3c, and 0x11b600's close path), so while such a step runs
+// the quest is still behind here: every other member made that step already, and is past what it did. Every catch-up step counts,
+// the group's latest too (unlike catch_up_step, the music's test): a member steps only through the catch-up, and the authority,
+// whose step is the live one, keeps and shares that clear itself (members share no states, so it replays nothing). A member one step
+// behind on quest 664 may be in a group long past 680, which gave the ability back; keeping that clear would take it from all.
+bool replaying(::Ctx* c) {
+    const State& s = st();
+    const uint64_t words = quest_words(), story_obj = story();
+    if (!words || !story_obj) return false;
+    for (uint32_t i = 0; i < kQuestMax; ++i)
+        if (s.target[i] > state_at(words, i) && quest_flag(c, story_obj, i + 1)) return true;
+    return false;
+}
+
+// A clear seen at one of the two clear paths (raw: the id as the command holds it; the game uses its low byte). Only a live clear is
+// kept and shared: one a catch-up replays (an old step, quest 664 on a process still behind) is a step the others made long ago,
+// and a later step (quest 680) may have given the id back for them; sharing it would take the ability from the whole group.
+void note_clear(::Ctx* c, uint16_t raw, const char* by) {
+    const uint16_t id = raw & 0xff;
+    if (!ability_id(id) || ability_cleared(id)) return;
+    if (replaying(c)) {
+        NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s) by a step the catch-up replays; not shared", id, by);
+        return;
+    }
+    mark_cleared(id);
+    st().cleared_new.push_back(static_cast<uint8_t>(id));
+    NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s); it stays off for the group", id, by);
+}
+
+// A set the game made here of an id in the set (a later step gives it back): out of the set, so it is shared and merged again.
+void note_grant(uint16_t raw, const char* by) {
+    State& s = st();
+    const uint16_t id = raw & 0xff;
+    if (!ability_id(id) || !ability_cleared(id)) return;
+    s.cleared[id >> 3] &= static_cast<uint8_t>(~(1u << (id & 7)));
+    s.cleared_new.erase(std::remove(s.cleared_new.begin(), s.cleared_new.end(), static_cast<uint8_t>(id)), s.cleared_new.end());
+    NXLOG_I(kTag, "Co-op story: ability %u given back here (%s); shared again", id, by);
+}
+
+// The ids cleared here since the last send (the whole set after a join), once the channel can carry them.
+void send_cleared() {
+    State& s = st();
+    if (!link::in_session()) return;
+    std::vector<uint8_t> ids;
+    if (s.cleared_send_all) {
+        for (uint16_t id = 1; id <= 0xf9; ++id)
+            if (ability_cleared(id)) ids.push_back(static_cast<uint8_t>(id));
+    } else {
+        ids = s.cleared_new;
+    }
+    if (ids.empty()) {
+        s.cleared_send_all = false;
+        return;
+    }
+    if (!link::share(wire::Type::AbilityCleared,
+                     wire::Writer(link::self()).u16(static_cast<uint16_t>(ids.size())).bytes(ids.data(), ids.size()).take()))
+        return;   // kept for the next frame
+    s.cleared_new.clear();
+    s.cleared_send_all = false;
+}
+
 void share_ability(uint16_t id) {
     uint8_t cmd[wire::kEffectSize] = {kAbilityToggle};
     const uint16_t args[2] = {id, 1};
@@ -313,7 +693,7 @@ void share_new_abilities() {
         const uint8_t turned_on = now[byte] & ~s.seen[byte];
         for (unsigned bit = 0; bit < 8; ++bit) {
             const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
-            if (!(turned_on & (1u << bit)) || !ability_id(id)) continue;
+            if (!(turned_on & (1u << bit)) || !ability_id(id) || ability_cleared(id)) continue;
             share_ability(id);
             NXLOG_I(kTag, "Co-op story: ability %u turned on here, shared", id);
         }
@@ -357,21 +737,144 @@ int on_quest_flag(::Ctx* c) {
     return 0;
 }
 
+namespace {
+
+// A pump step the catch-up replays here, for the quest music and the time fade: a quest whose flag is set and whose state is more
+// than one step below another member's. The pump runs a step's effects before it writes the state and clears the flag (0x11bd3c,
+// and 0x11b600's close path), so while such a step runs the quest is still at the state the step starts from. A step to the group's
+// state of the quest (target == state + 1) is the group's latest: on a member it is the live step (members step only through the
+// catch-up), and it plays. The quest the catch-up is stepping decides; a quest passed over earlier keeps its flag, and is looked at
+// only when the stepping one is not being stepped (no flag, or moved on), so one stalled quest far behind does not mute every live
+// step. The ability clears keep their own, stricter test (replaying()).
+bool catch_up_step(::Ctx* c) {
+    const State& s = st();
+    const uint64_t words = quest_words(), story_obj = story();
+    if (!words || !story_obj) return false;
+    if (quest_id(static_cast<uint16_t>(s.stepping))) {
+        const uint32_t i = s.stepping - 1;
+        const uint8_t here = state_at(words, i);
+        if (here == s.stepping_state && s.target[i] > here && quest_flag(c, story_obj, s.stepping)) return s.target[i] > here + 1;
+    }
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        const uint8_t here = state_at(words, i);
+        if (s.target[i] > here + 1 && quest_flag(c, story_obj, i + 1)) return true;
+    }
+    return false;
+}
+
+// Calls a fade function as 0x1231f0 / 0x1f9e68 do: s0 = 1.0 and w0..w4; the caller's v0 is kept.
+void fade_call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4) {
+    const V128 v0 = c->v[0];
+    c->v[0] = V128{};
+    c->v[0].f[0] = 1.0f;
+    guest::call(c, base() + fn, a0, a1, a2, a3, a4);
+    c->v[0] = v0;
+}
+
+// 0x1231f0's tests before it fades: the environment and the contents scheduler are there, no event runs (the scheduler's running
+// event, bit 0 of its +0x30) and the blocker *(main+0x35650f8) does not hold (0x2410b0(it, 0) and 0xaa01c8(0)).
+bool time_fade_would_run(::Ctx* c) {
+    if (!guest::rd<uint64_t>(base() + kEnvManager)) return false;
+    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
+    if (!guest::ok(gm, kGmContents + 8)) return false;
+    const uint64_t sc = guest::rd<uint64_t>(gm + kGmContents);
+    if (!guest::ok(sc, kScEventOn + 4)) return false;
+    if (guest::rd<uint32_t>(sc + kScEventOn)) {
+        uint64_t p = guest::rd<uint64_t>(sc + kScEvent);
+        for (int k = 0; k < 2 && p; ++k) p = guest::ok(p, 8) ? guest::rd<uint64_t>(p) : 0;
+        if (p && guest::ok(p + 0x30, 4) && (guest::rd<uint32_t>(p + 0x30) & 1)) return false;
+    }
+    const uint64_t blocker = guest::rd<uint64_t>(base() + kFadeBlocker);
+    if (blocker && (guest::call(c, base() + kFadeBlockerTest, blocker, 0) & 1) && (guest::call(c, base() + kFadeBlockerAsk, 0) & 1))
+        return false;
+    return true;
+}
+
+// A member's time-skip fade, out now (as 0x1231f0: 0xa9fcc4(1.0, 0, 1, 3, 0, 0)); tick brings it back in.
+void member_time_fade(::Ctx* c, uint8_t zone) {
+    State& s = st();
+    if (zone > kTimeZoneMax || s.fade_out || !time_fade_would_run(c)) return;
+    fade_call(c, kFadeOut, 0, 1, 3, 0, 0);
+    s.fade_out = true;
+    s.fade_since = qpc::seconds();
+    NXLOG_I(kTag, "Co-op story: effect 0x09 (time zone %u): the fade only here, the clock is the authority's", zone);
+}
+
+// The fade back in (as 0x1f9e68: 0xa9fa34(1.0, 0, 1, 0, 0)) once the fade out is done (0xa9ff4c(0) clear), or after kFadeMax.
+void finish_time_fade(::Ctx* c) {
+    State& s = st();
+    if (!s.fade_out) return;
+    const bool late = qpc::seconds() - s.fade_since > kFadeMax;
+    if (!late && (guest::call(c, base() + kFadeBusy, 0) & 1)) return;
+    fade_call(c, kFadeIn, 0, 1, 0, 0, 0);
+    s.fade_out = false;
+    if (late) NXLOG_W(kTag, "Co-op story: the time fade here was still running after %.0f s; faded back in", kFadeMax);
+}
+
+}  // namespace
+
 int on_quest_effect(::Ctx* c) {
     // The game's own session bits, not the channel: a member in the host's world never runs a world effect, even before its channel
     // has learnt the authority.
     if (!guest::ok(c->x[0], 1)) return 0;
     const uint8_t kind = guest::rd<uint8_t>(c->x[0]);
     if (kind < kEffectFirst || kind > kEffectLast) return 0;
+    if (kind == kAbilitySet && link::in_session() && guest::ok(c->x[0], 2 + kAbilitySlots * 2))
+        for (unsigned k = 0; k < kAbilitySlots; ++k) note_grant(guest::rd<uint16_t>(c->x[0] + 2 + k * 2), "quest effect 0x01");
     const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    if (kind == kQuestMusicEffect && link::in_session() && catch_up_step(c)) {
+        NXLOG_I(kTag, "Co-op story: effect 0x07 of a step the catch-up replays; its music not played here");
+        return 1;
+    }
     bool every_process = false;
     for (uint8_t every : kEveryProcessEffects) every_process |= kind == every;
     if (!member || every_process) {
         if (link::in_session()) NXLOG_I(kTag, "Co-op story: effect 0x%02x run here", kind);
         return 0;
     }
+    if (kind == kTimeFadeEffect && guest::ok(c->x[0], 3)) {
+        if (!catch_up_step(c)) member_time_fade(c, guest::rd<uint8_t>(c->x[0] + 2));
+        return 1;
+    }
     NXLOG_I(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
+}
+
+int on_town_action(::Ctx* c) {
+    // Step action 6 of a story line (0x10afc0 calls it through table 0x322d658 row 6 and ANDs the returns): the twin of quest effect
+    // 0x26. It writes the town record (R+0x4a27cc + idx bit 0, target R+0x4a32e0 + idx = 0); when bit 0 turned on, the character's
+    // home stage decides: the current stage runs the house arrival 0x9bdf50 (which refuses on a visitor, so a member gets nothing),
+    // another stage sets bit 4 (pending move), which on a member no reader acts on or clears. A member in the host's world leaves it to
+    // the authority, as the world effects (the game's own session bits); the authority runs it when it applies the line
+    // (pkp_coop_events.cpp apply_lines). Single player and the authority run the game's own code.
+    const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    if (!member) return 0;
+    if (guest::ok(c->x[1], 0x10)) {
+        const uint64_t node = guest::rd<uint64_t>(c->x[1] + 8);
+        if (node && guest::ok(node, 8))
+            NXLOG_I(kTag, "Co-op story: story-line town register of index %u (on %u) left to the authority",
+                    guest::rd<uint16_t>(node + 4), guest::rd<uint16_t>(node + 6));
+    }
+    c->x[0] = 1;   // the game's own return (every path returns 1): the line steps on as before
+    return 1;
+}
+
+int on_ability_effect(::Ctx* c) {
+    // A clear (+4 value 0) or a set is noted; the effect itself runs as the game has it.
+    if (!link::in_session() || !guest::ok(c->x[0], 6)) return 0;
+    if (guest::rd<uint16_t>(c->x[0] + 4) == 0) note_clear(c, guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    else note_grant(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    return 0;
+}
+
+int on_ability_step(::Ctx* c) {
+    // 0x10c0d0's own guards: the record *(x1 + 8) is there, its id (+4, low byte) in range; +6 value 0 is the clear, else a set.
+    if (!link::in_session() || !guest::ok(c->x[1] + 8, 8)) return 0;
+    const uint64_t rec = guest::rd<uint64_t>(c->x[1] + 8);
+    if (!rec || !guest::ok(rec, 8)) return 0;
+    if (guest::rd<int16_t>(rec + 6) == 0) note_clear(c, guest::rd<uint16_t>(rec + 4), "story step");
+    else note_grant(guest::rd<uint16_t>(rec + 4), "story step");
+    return 0;
 }
 
 int on_wild_pop(::Ctx* c) {
@@ -417,7 +920,7 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
         const uint8_t state = r.u8();
         if (!r.ok() || id - 1u >= kQuestMax || state < kStarted || state > kClosed || state <= s.target[id - 1]) continue;
         s.target[id - 1] = state;
-        const uint8_t here = words ? static_cast<uint8_t>(guest::rd<uint16_t>(words + (id - 1u) * 2)) : 0;
+        const uint8_t here = words ? state_at(words, id - 1u) : 0;
         if (here < state) {
             ++ahead;
             completed |= state >= kComplete;
@@ -458,13 +961,20 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
             ++ahead;
         }
     }
-    unsigned got = 0, gave = 0;
+    unsigned got = 0, gave = 0, dropped = 0;
     for (unsigned byte = 0; byte < kAbilityBytes; ++byte) {
         const uint8_t mine = guest::rd<uint8_t>(root + kAbilities + byte);
         for (unsigned bit = 0; bit < 8; ++bit) {
             const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
             if (!ability_id(id)) continue;
             const bool there = bits[byte] & (1u << bit), here = mine & (1u << bit);
+            if (ability_cleared(id)) {   // taken away in this run: never given back, and off here too
+                if (here && !there) {
+                    clear_ability(c, id);
+                    ++dropped;
+                }
+                continue;
+            }
             if (there && !here) {
                 apply_ability(c, root, id);
                 ++got;
@@ -474,9 +984,9 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
             }
         }
     }
-    if (behind || ahead || got || gave)
+    if (behind || ahead || got || gave || dropped)
         NXLOG_I(kTag, "Co-op story: the authority's story (node %u): %u quests behind it here, %u ahead (sent again); abilities %u taken, "
-                "%u sent", origin, behind, ahead, got, gave);
+                "%u sent, %u cleared here (taken away in this run)", origin, behind, ahead, got, gave, dropped);
     if (behind || got) {
         const double now = qpc::seconds();
         if (now - s.story_line_at >= kNoticeGap) {
@@ -487,14 +997,41 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     catch_up(c);
 }
 
+void on_cleared_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
+    const uint16_t n = r.u16();
+    const uint64_t root = save_root();
+    unsigned turned_off = 0;
+    for (uint16_t k = 0; k < n && r.ok(); ++k) {
+        const uint8_t id = r.u8();
+        if (!r.ok() || !ability_id(id)) continue;
+        mark_cleared(id);
+        if (root && ability_on(root, id)) {
+            clear_ability(c, id);
+            ++turned_off;
+            NXLOG_I(kTag, "Co-op story: ability %u was taken away on node %u; cleared here too", id, origin);
+        }
+    }
+    if (n && !turned_off) NXLOG_I(kTag, "Co-op story: %u cleared abilities from node %u, all already off here", n, origin);
+}
+
 void on_ability_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     std::memset(s.command, 0, sizeof s.command);
     r.bytes(s.command, wire::kEffectSize);
     const uint64_t root = save_root();
-    if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle) || !ability_changes(root, s.command)) return;
+    if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle)) return;
     uint16_t ids[kAbilitySlots];
     std::memcpy(ids, s.command + 2, sizeof ids);
+    // An id taken away in this run is never applied again: a set command's slot is emptied (id 0 fails the game's own range test),
+    // a toggle that sets it is dropped.
+    if (s.command[0] == kAbilityToggle) {
+        if (ids[1] != 0 && ability_cleared(ids[0])) return;
+    } else {
+        for (uint16_t& id : ids)
+            if (ability_id(id) && ability_cleared(id)) id = 0;
+        std::memcpy(s.command + 2, ids, sizeof ids);
+    }
+    if (!ability_changes(root, s.command)) return;
     bool off_before[kAbilitySlots] = {};
     for (unsigned k = 0; k < kAbilitySlots; ++k) off_before[k] = ability_id(ids[k]) && !ability_on(root, ids[k]);
     guest::call(c, base() + (s.command[0] == kAbilitySet ? kAbilitySetFn : kAbilityToggleFn), reinterpret_cast<uint64_t>(s.command));
@@ -527,7 +1064,9 @@ static void send_wild_pops() {
 }
 
 void tick(::Ctx* c) {
+    finish_time_fade(c);   // also out of a session: a fade started here is always brought back in
     send_wild_pops();
+    send_cleared();
     catch_up(c);
     share_states();
     share_new_abilities();
@@ -541,13 +1080,24 @@ void on_session_change() {
     std::memset(s.resent, 0, sizeof s.resent);
     std::fill(std::begin(s.stall_until), std::end(s.stall_until), 0.0);
     std::memset(s.stalls, 0, sizeof s.stalls);
+    std::memset(s.closed_prereqs, 0, sizeof s.closed_prereqs);
+    std::memset(s.why, 0, sizeof s.why);
+    std::memset(s.rebuilt_for, 0, sizeof s.rebuilt_for);
     s.stepping = 0;
     s.digest_at = 0.0;
     s.send_all = true;
     s.have_seen = false;
+    // The set belongs to this session: joined or left, it starts empty, so a set from another group (or another save) never strips
+    // an ability here or there. On a rejoin of the same group the others send theirs again (on_member_joined).
+    std::memset(s.cleared, 0, sizeof s.cleared);
+    s.cleared_new.clear();
+    s.cleared_send_all = false;
 }
 
-void on_member_joined() { st().send_all = true; }
+void on_member_joined() {
+    st().send_all = true;
+    st().cleared_send_all = true;
+}
 
 bool world_started() {
     const uint64_t words = quest_words();

@@ -1,17 +1,17 @@
-// Choose a build: the list of builds a channel offers, with their notes, and the questions asked before an older one goes in. Used when
-// someone joins Testing (the Testing builds are listed right away) and from Settings > About > Choose a version. The install itself is
-// store.installVersion (the same download, check and restart as Update); the backend refuses an older build that was not confirmed.
+// The list of builds a channel offers, with their notes, and the questions asked before an older one goes in. Used by the version picker
+// (version-picker.js): joining Experimental lists its builds with their notes, and every pick of an older build asks first. The install
+// itself is store.installVersion (the same download, check and restart as Update); the backend refuses an older build that was not
+// confirmed.
 import './news.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { store } from '../store.js';
 import { confirm, esc, icon } from '../ui.js';
 import { formatDate, render as renderNote } from '../markdown.js';
 import { actionLabel, canConfirm, forChannel, versionOf, warningFor } from '../builds-model.js';
 
-const relationMark = (b) => (b.relation === 'installed' ? t('Installed') : b.relation === 'older' ? t('Older') : b.prerelease ? t('Testing') : '');
+const relationMark = (b) => (b.relation === 'installed' ? t('Installed') : b.relation === 'older' ? t('Older') : b.prerelease ? t('Experimental') : '');
 
-/** The builds of a channel (works for Testing before the channel is saved). Resolves [] when they cannot be loaded. */
+/** The builds of a channel (works for Experimental before the channel is saved). Resolves [] when they cannot be loaded. */
 export async function loadBuilds(channel, refresh = false) {
   try {
     return forChannel(await api.listBuilds({ channel, refresh }), channel);
@@ -21,23 +21,25 @@ export async function loadBuilds(channel, refresh = false) {
   }
 }
 
-function row(b) {
+/** One build. `keep`: the installed build can be picked too (joining Experimental on the build already installed installs nothing). */
+function row(b, keep) {
   const mark = relationMark(b);
-  const off = b.relation === 'installed' || !b.installable;
+  const kept = keep && b.relation === 'installed';
+  const off = (b.relation === 'installed' && !kept) || (!b.installable && !kept);
   return `<li class="build-row" data-tag="${esc(b.tag)}">
     <div class="build-head">
       <div class="build-title">
         <span class="build-name"><strong>${esc(versionOf(b))}</strong>${mark ? `<span class="note-mark">${esc(mark)}</span>` : ''}</span>
         <time>${esc(formatDate(b.date))}</time>
       </div>
-      <button class="btn ${b.relation === 'newer' && b.installable ? 'primary' : ''}" type="button" data-install="${esc(b.tag)}" ${off ? 'disabled' : ''}>${esc(actionLabel(b))}</button>
+      <button class="btn ${b.relation === 'newer' && b.installable ? 'primary' : ''}" type="button" data-install="${esc(b.tag)}" ${off ? 'disabled' : ''}>${esc(kept ? t('Keep this build') : actionLabel(b))}</button>
     </div>
     <details class="build-notes"><summary>${esc(t('Notes'))}</summary><div class="md selectable">${renderNote(b.notes, { title: versionOf(b), warn: !!b.prerelease })}</div></details>
   </li>`;
 }
 
 /** The list dialog. Resolves the picked build, or null (Not now, Esc, click outside). */
-export function pickBuild({ title, intro, builds, close = t('Not now') }) {
+export function pickBuild({ title, intro, builds, close = t('Not now'), keep = false }) {
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'modal glass strong builds-dialog';
@@ -46,7 +48,7 @@ export function pickBuild({ title, intro, builds, close = t('Not now') }) {
       <div class="modal-body">
         <h2 id="modal-title">${esc(title)}</h2>
         <p>${esc(intro)}</p>
-        ${builds.length ? `<ul class="build-list">${builds.map(row).join('')}</ul>` : `<p>${esc(t('No builds could be loaded. Check your connection and try again.'))}</p>`}
+        ${builds.length ? `<ul class="build-list">${builds.map((b) => row(b, keep)).join('')}</ul>` : `<p>${esc(t('No builds could be loaded. Check your connection and try again.'))}</p>`}
       </div>
       <div class="modal-actions"><button class="btn quiet" type="button" data-answer="">${esc(close)}</button></div>`;
     document.body.appendChild(dlg);
@@ -117,16 +119,4 @@ export async function confirmBuild(b) {
     danger: true,
   });
   return yes ? { accepted: true } : null;
-}
-
-/** The builds of a channel with their notes; installs the one the player picks, after the question an older build needs. */
-export async function chooseBuild(channel, join) {
-  const builds = await loadBuilds(channel, true);
-  const picked = await pickBuild(join
-    ? { title: t('Testing builds'), intro: t('You are on the Testing channel now. Pick a build to install, or choose Not now and pick one later in Settings > About > Choose a version.'), builds }
-    : { title: t('Choose a version'), intro: channel === 'testing' ? t('Testing builds and the normal releases. Newer builds install like an update; an older one asks first.') : t('The releases you can install. A newer one installs like an update; an older one asks first.'), builds, close: t('Close') });
-  if (!picked) return;
-  const ok = await confirmBuild(picked);
-  if (!ok) return;
-  await store.installVersion(picked.tag, channel, ok.accepted);
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // In-game Options, the rows of the PC settings tabs (pkp_options_internal.h): each binds to a field of the play-mode Settings behind
-// controls.ini, the same store as the F1 page, except the Gameplay tab's, which bind to the gameplay mods' [pkp] keys of the game ini.
+// controls.ini, the same store as the F1 page, except the Gameplay and Inventory tabs', which bind to the gameplay mods' [pkp] keys of the game
+// ini.
 // Nothing reaches the save file.
 #include "ui/pkp_options_internal.h"
 
@@ -267,7 +268,8 @@ const Row kController[] = {
 };
 
 // The gameplay mods (the gameplay() rows of pkp_settings_table.h), labelled as in the launcher's Settings > Gameplay (settings-schema.js
-// GAMEPLAY). title_quit has no row (hidden by the repo owner). Every mod reads its keys when it installs, so these rows apply after a restart;
+// GAMEPLAY). title_quit has no row (hidden by the repo owner); the inventory mods have their own tab (kInventory). Every mod reads its keys
+// when it installs, so these rows apply after a restart;
 // the shoulder camera's two distances are live keys (no switch: 0 / 0 is the game's own camera), in force when the screen commits. A tab has
 // kDirtySlot (13) rows; camera aim's debug view moved to Performance (an on-screen diagnostic) to keep this tab within that.
 using settings::Key;
@@ -276,8 +278,6 @@ constexpr Row kGameplay[] = {
     key_row("Running jump speed kept", "With the running jump on: how much of the extra running speed is kept.", Key::JumpMomentumStrength, 0.01, "%.0f%%", 100),
     key_row("Camera aim", "Abilities and tools aim where the camera looks instead of where your character faces, and your character turns to the target when the ability starts.", Key::CameraAim),
     key_row("Extra reach in blocks", "With camera aim: extra blocks of reach. Off is the game's own range.", Key::CameraAimReach, 1, "%.0f", 1, "Off"),
-    key_row("Sort button in the bag and containers", "Click Hold to Sort in the bag and storage boxes to sort at once.", Key::InventorySort),
-    key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
     key_row("Search in the crafting screen", "A Search button in the key guide of the crafting screen.", Key::CraftSearch),
     key_row("Save button in the pause menu", "Enables the Save prompt and the Quick Save Key. Both save your progress and keep you in the world.", Key::SaveNow),
     key_row("Item editor (experimental)", "Adds an Items tab to this screen that changes how many of an item you hold. Not during Link Play.", Key::ItemEditor),
@@ -286,13 +286,23 @@ constexpr Row kGameplay[] = {
     key_row("Shoulder camera: side", "Moves the camera to the side so your character no longer blocks the view, in blocks. Right is positive, left negative; 0 is the game's own camera.", Key::CameraShoulderSide, 0.1, "%+.1f"),
     key_row("Shoulder camera: height", "Moves the camera up, in blocks. 0 is the game's own camera.", Key::CameraShoulderHeight, 0.1, "%+.1f"),
 };
+// The inventory mods (bag, storage boxes), gameplay() rows like kGameplay's and labelled as in the launcher, in a tab of their own so the
+// Gameplay tab keeps room within its kDirtySlot (13) rows.
+constexpr Row kInventory[] = {
+    key_row("Sort button in the bag and containers", "Click Hold to Sort in the bag and storage boxes to sort at once.", Key::InventorySort),
+    key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
+    key_row("Storage box tabs", "Extra pages in storage boxes; L or R switches them. About the first 22 boxes (big boxes: 42) get every page. Off in Link Play.", Key::BoxTabs),
+    key_row("Pages per storage box", "Pages per storage box, 2 to 12 (20 slots each). A page that holds items stays shown if you lower this.", Key::BoxTabPages, 1, "%.0f"),
+    key_row("Tabs per big storage box", "Tabs of 60 slots per big storage box, 1 to 6 (6: 360 slots). A tab that holds items stays shown if you lower this.", Key::BigBoxTabs, 1, "%.0f"),
+};
 // clang-format on
 
 }  // namespace
 
 constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows = rows_of(kDisplay), kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),
-                        kControllerRows = rows_of(kController), kGameplayRows = rows_of(kGameplay);
+                        kControllerRows = rows_of(kController), kGameplayRows = rows_of(kGameplay),
+                        kInventoryRows = rows_of(kInventory);
 
 void refresh_audio_devices() {
     g_devices.clear();

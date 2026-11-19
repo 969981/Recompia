@@ -4,6 +4,7 @@ import {
   ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Monitor, Mouse, Newspaper, Palette, Pause,
   Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, User, UserCheck, Users, Wrench, X, Crown, KeyRound, LogIn, Send,
+  Monitor, Smartphone,
 } from 'lucide';
 import {
   faCircleInfo, faDisplay, faFloppyDisk, faGamepad, faSliders, faVolumeHigh, faWandMagicSparkles,
@@ -13,6 +14,7 @@ const ICONS = {
   ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Copy, Download, ExternalLink, Eye, EyeOff, FileArchive, FileText,
   Folder, FolderOpen, Gamepad2, Globe, HardDrive, House, Info, Keyboard, Link, LoaderCircle, Lock, LockOpen, Minus, Monitor, Mouse, Newspaper, Palette, Pause,
   Pencil, Play, Plus, Puzzle, RefreshCw, RotateCcw, Save, Settings, Square, Trash2, TriangleAlert, Trophy, Upload, User, UserCheck, Users, Wrench, X, Crown, KeyRound, LogIn, Send,
+  Monitor, Smartphone,
 };
 
 import { fromBackend } from './backend-text.js';

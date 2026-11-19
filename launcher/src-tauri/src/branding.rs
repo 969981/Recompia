@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The launcher's icon and Steam art, Stable or Testing (the Testing channel has its own icons). The pages show their own pictures
+//! The launcher's icon and Steam art, Stable or Testing (the Experimental channel has the Testing icons). The pages show their own pictures
 //! (src/branding.js); this side owns the art the system shows:
 //!  * this window's icon (title bar, taskbar, Alt+Tab)
 //!  * on Windows, the icon inside pkp.exe (Explorer, shortcuts, the game window and its taskbar button) and inside the launcher's exe
@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::config::Config;
 
-/// Whether the Testing icons apply (the Testing channel). launcher.json `logo` / `icon` of older launchers are no longer read.
+/// Whether the Testing icons apply (the Experimental channel). launcher.json `logo` / `icon` of older launchers are no longer read.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Branding {
     pub testing: bool,
@@ -22,7 +22,7 @@ pub struct Branding {
 
 impl Branding {
     pub fn of(cfg: &Config) -> Branding {
-        Branding { testing: cfg.channel == "testing" }
+        Branding { testing: crate::releases::Channel::parse(&cfg.channel) == crate::releases::Channel::Experimental }
     }
 }
 

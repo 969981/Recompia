@@ -1,5 +1,6 @@
 // Controller navigation for the launcher (Steam Deck, ROG Ally and other handhelds, or any pad): the d-pad or left stick moves between
-// controls, A presses the focused one, B goes back (closes a question, or returns Home), LB and RB switch pages, LT and RT switch games,
+// controls, A presses the focused one, B goes back (closes a question, presses a page's own way out marked data-pad-back, such as the
+// sign-in screen's Skip or Back, or returns Home), LB and RB switch pages (the tabs in sight), LT and RT switch games,
 // Start presses the shown Home's Play, the right stick scrolls. While a pad is in use a bar along the bottom shows these (main.js).
 // The pad is read from the webview's Gamepad API; where it has none (WebKitGTK on Linux and the Steam Deck), from the launcher's own reader
 // (src-tauri/src/pad.rs), whose events store.js passes to feedNativePad.
@@ -149,13 +150,15 @@ function back() {
     return;
   }
   if (frame) return leave(frame, null);   // out of the frame first; B again then goes Home
+  const out = document.querySelector('#view [data-pad-back]');   // a screen's own way out (pages/welcome.js: Skip at start, Back from Home)
+  if (out && usable(out, document.body)) return out.click();
   const home = document.querySelector('#nav [data-home]');   // the shown game's Home (games.js `home`)
   if (home && !home.hasAttribute('aria-current')) home.click();   // from any other page, B goes Home
 }
 
 function switchPage(step) {
   if (root().doc.querySelector('dialog[open]')) return;
-  const items = [...document.querySelectorAll('#nav [data-page]')];
+  const items = [...document.querySelectorAll('#nav [data-page]')].filter((b) => b.getClientRects().length);   // none while a full-window screen hides the tabs
   const at = items.findIndex((b) => b.hasAttribute('aria-current'));
   const to = cycle(at, items.length, step);
   if (to >= 0 && to !== at) items[to].click();

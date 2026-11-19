@@ -36,6 +36,7 @@ TABS = [
     ("Keyboard & Mouse", "keyboard", (206, 212, 222)),
     ("Controller", "gamepad", (156, 212, 136)),
     ("Gameplay", "sliders", (250, 214, 110)),
+    ("Inventory", "boxes-stacked", (238, 170, 196)),
     ("Time", "clock", (178, 166, 236)),
     ("Events", "calendar-days", (246, 140, 136)),
     ("Mods", "puzzle-piece", (134, 214, 166)),

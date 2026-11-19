@@ -32,7 +32,7 @@ constexpr size_t kAbilityBytes = coop::wire::kAbilityBytes;
 uint64_t save_root() {
     if (!coop::base()) return 0;
     const uint64_t r = guest::rd<uint64_t>(coop::base() + layout::kSaveRoot);
-    const uint64_t end = std::max({layout::kQuestWords + layout::kQuestWordCount * 2, layout::kSaveAbilities + kAbilityBytes,
+    const uint64_t end = std::max({layout::kQuestWordsEnd, layout::kSaveAbilities + kAbilityBytes,
                                    layout::kSaveUniqueRequests + (layout::kUniqueRequestCount + 1) * 4});
     return guest::ok(r, end) ? r : 0;
 }
@@ -41,7 +41,7 @@ StateSection quests(uint64_t root) {
     StateSection p{"quests", {}, {}};
     unsigned by_state[5] = {}, other = 0;
     for (uint32_t i = 0; i < layout::kQuestWordCount; ++i) {
-        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(root + layout::kQuestWords + i * 2));
+        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(root + layout::quest_word(i + 1)));
         p.text.push_back(static_cast<char>(state));
         if (state < 5) ++by_state[state];
         else ++other;

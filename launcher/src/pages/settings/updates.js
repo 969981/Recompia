@@ -1,7 +1,7 @@
-// About > updates: check for a new version, install it, pick a specific build, open a release page.
+// About > updates: check for a new version, install it, open a release page. Picking a version is the version picker's
+// (pages/version-picker.js).
 import { api } from '../../api.js';
 import { store } from '../../store.js';
-import { chooseBuild } from '../builds.js';
 
 export function createUpdateActions(h) {
   const { st } = h;
@@ -19,10 +19,6 @@ export function createUpdateActions(h) {
       update: () => store.installUpdate(),
       'open-url': (url) => api.openLink({ url }),
       'licences-open': () => api.openLicensesDir(),
-      async 'builds-open'() {
-        await h.flush();
-        await chooseBuild(st.src.config.channel === 'testing' ? 'testing' : 'stable', false);
-      },
     },
   };
 }

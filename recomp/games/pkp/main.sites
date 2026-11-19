@@ -256,12 +256,22 @@ midhook 0x71000b0f74
 entryhook 0x71003180e0
 midhook 0x71003181cc
 entryhook 0x710047bd00
+#   the talk handler 0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer): a member takes the host's path, not the visitor's stub
+#   (pkp_coop_talk.cpp; lifted since the retired Story co-op, so no new lift)
+midhook 0x71004c06d8
 entryhook 0x71005d865c
 entryhook 0x71005d8774
 entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, the story lines (pkp_coop_story.cpp): step action 6 0x710010c270 (the town register and house arrival; no direct
+#   callers, row 6 of the step-action table 0x710322d658 that 0x710010afc0 calls through)
+entryhook 0x710010c270
+#   Seamless co-op, abilities taken away (pkp_coop_story.cpp): quest effect 0x19's handler 0x71001227fc (+4 value 0 clears the bit
+#   of +2) and the story-line step action 0x710010c0d0 (record *(x1 + 8): +6 value 0 clears the bit of +4)
+entryhook 0x71001227fc
+entryhook 0x710010c0d0
 #   Seamless co-op, the requests (pkp_coop_requests.cpp): the bind gate of the unique request manager ("can this creature have requests
 #   here", the only caller 0x710061d068), which refuses every visitor
 entryhook 0x710011435c
@@ -270,6 +280,9 @@ entryhook 0x710011435c
 #   return to 0x7100618710 / 0x7100618758)
 midhook 0x710061858c
 entryhook 0x7100619410
+#   Seamless co-op, the requests (pkp_coop_requests.cpp): in a general request's completion 0x71006218e0, the `cbz x0` before its town
+#   goal +1 0x7100618b00 (x0 = the challenge manager, w21 = the replay flag)
+midhook 0x7100621be8
 #   Seamless co-op, the session: the title screen's continue, the simulation step, the five trip filers, the drop check and the state reset
 #   after it, error 3103, the PC's Link Play menu and the member screen
 entryhook 0x7100a88214
@@ -297,12 +310,22 @@ entryhook 0x71005727c0
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
 entryhook 0x7100e889f8
 entryhook 0x7100e87260
-#   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): the talk handler
-#   0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer); talk conditions 0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0`
-#   after IsOnline), and condition 0x22, the one instruction `b IsOnline`; the quest pump 0x710011b600 at `tbz w0, #0` after the flag read;
-#   the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world; in the request handler 0x7100222a20, `bl
-#   0x71009cb680` and the end of its memory-piece branch
-midhook 0x71004c06d8
+#   Seamless co-op, the discoveries (pkp_coop_discovery.cpp): the "registered in the Pokédex" scene 0x71003b9060 (slot, &actor id; the
+#   talk-end registration 0x71003b88b4 calls it) and the "new habitat" scene 0x710045f2a0 (slot, habitat, placed habitat, flag; the
+#   habitat build 0x7100957588 and 0x71009598c0 call it)
+entryhook 0x71003b9060
+entryhook 0x710045f2a0
+#   Seamless co-op, held story events (pkp_coop_held.cpp): the visitor's "every Link Play request answered" test 0x7100313418, which
+#   the event queue's ready test 0x7100479c60 asks for events with flag bit 22
+entryhook 0x7100313418
+#   Seamless co-op, the placement notice (pkp_coop_placement.cpp): the "object placed" notice to the contents 0x710013596c (scheduler,
+#   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
+#   the host)
+entryhook 0x710013596c
+#   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
+#   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
+#   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
+#   lying in the world; in the request handler 0x7100222a20, `bl 0x71009cb680` and the end of its memory-piece branch
 midhook 0x71004cfe20
 midhook 0x71004d4860
 entryhook 0x71004d04fc
@@ -356,6 +379,11 @@ inline 0x7100ec69b4
 #   set's "Hold to Sort" entry becomes "Sort"); with the two shared sites above
 entryhook 0x7100feee78
 entryhook 0x7100ec54a0
+#   Storage box tabs (pkp_box_tabs.cpp, [pkp] box_tabs): page-selector request, open-container removal lookup and cabinet allocator.
+#   The bag / container screen's frame is shared with inventory sort above.
+entryhook 0x7100e980c0
+entryhook 0x7100ff08c0
+entryhook 0x7100776540
 #   Crafting search (pkp_craft.cpp, [pkp] craft_search): the crafting screen's per-frame virtual (x0 = the screen, UI class 0xe3): Y or a click
 #   on the Search key guide asks for a word on the game's keyboard and refills the recipe grid; its open virtual (x0 = the screen: the search
 #   ends when the screen opens); in the grid fill 0x7100ef0b80, after the recipe ids come from 0x7100e634e0 (u16 ids at [sp + 8], count at

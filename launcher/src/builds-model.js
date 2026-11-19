@@ -6,8 +6,8 @@ import { t } from './i18n.js';
 /** The version of a tag or a build name: "v0.8.1-beta.6" gives "0.8.1-beta.6". */
 export const versionOf = (b) => String(b?.tag ?? '').replace(/^v/i, '');
 
-/** The builds a channel may show. Stable never lists a Testing build, whatever the list holds. */
-export const forChannel = (builds, channel) => (Array.isArray(builds) ? builds : []).filter((b) => channel === 'testing' || !b.prerelease);
+/** The builds a channel's version picker may show: Stable the releases, Experimental the prereleases, whatever the list holds. */
+export const forChannel = (builds, channel) => (Array.isArray(builds) ? builds : []).filter((b) => (channel === 'experimental' ? !!b.prerelease : !b.prerelease));
 
 /**
  * What to ask before installing `build`: { kind: 'none' | 'low' | 'high', needsTick, ok }.

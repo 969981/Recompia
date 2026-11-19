@@ -34,6 +34,16 @@ const TEXTS = [
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
 
+  // cloud_signin.rs, cloud-gateway signin.rs: why a sign-in stopped (the sign-in screen and the account chip's toasts); the portal is the account server
+  msg('Cloud Islands are switched off (Settings > Game > Online).'),
+  msg('No approval arrived from the browser in time. Start again.'),
+  msg('The sign-in request expired. Start again.'),
+  msg('The portal issued a certificate for a different key.'),
+  msg('could not reach the portal: {1}'),
+  msg("the portal's answer was cut off: {1}"),
+  msg('the portal sent an unusable answer'),
+  msg('the portal answered {n1}'),
+
   // coop_cmds.rs, coop.rs, coop_code.rs, coop_save.rs, mods.rs: Recompia: Co-op's Home
   msg('The game is running. Close it first, then change the co-op save.'),
   msg('Type a name for the co-op save (1 to 24 characters).'),

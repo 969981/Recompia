@@ -91,7 +91,8 @@ struct Tab {
 };
 
 StaticTab g_sound{kSoundRows, &refresh_audio_devices}, g_display{kDisplayRows}, g_performance{kPerformanceRows}, g_graphics{kGraphicsRows},
-    g_picture{kPictureRows}, g_mouse{kMouseRows}, g_controller{kControllerRows}, g_gameplay{kGameplayRows};
+    g_picture{kPictureRows}, g_mouse{kMouseRows}, g_controller{kControllerRows}, g_gameplay{kGameplayRows},
+    g_inventory{kInventoryRows};
 
 const Tab kTabs[] = {
     {nullptr, 1, nullptr},   // Game
@@ -104,11 +105,12 @@ const Tab kTabs[] = {
     {"Keyboard & Mouse", 8, &g_mouse},
     {"Controller", 9, &g_controller},
     {"Gameplay", 10, &g_gameplay},
+    {"Inventory", 17, &g_inventory},   // group 16 is Online's
     {"Time", 11, &time_tab()},
     {"Events", 12, &events_tab()},
     {"Mods", 14, &mods_tab()},   // group 13 is the game's own (Notes), so 14
     {"Items", 15, &items_tab()},
-    {"Online", 16, &online_tab()},   // last: the launcher's online sharing switch; groups 1..15 are taken (13 is the game's own Notes)
+    {"Online", 16, &online_tab()},   // last: the launcher's online sharing switch; groups 1..17 are taken (13 is the game's own Notes)
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;

@@ -5,13 +5,15 @@ import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './api.js';
 import { brandImg, setBrandGame } from './branding.js';
-import { PRODUCTS, gameForPage, gameOf, gamesOf, hasPage, stepGame } from './games.js';
+import { GAMES, PRODUCTS, gameForPage, gameOf, gamesOf, hasPage, stepGame } from './games.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
+import { welcomeOwed } from './cloud-signin.js';
 import { padGlyph, startGamepadNav } from './gamepad-nav.js';
 import { zonithBadge } from './zonith-model.js';
+import { channelOf } from './version-model.js';
 import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
@@ -21,6 +23,7 @@ import * as news from './pages/news.js';
 import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
+import * as welcome from './pages/welcome.js';
 import * as zonith from './pages/zonith.js';
 import * as zonithNews from './pages/zonith-news.js';
 
@@ -37,14 +40,19 @@ const PAGES = {
   'zonith-news': { mod: zonithNews, nav: t("What's New") },
   settings: { mod: settings, nav: t('Settings') },
   setup: { mod: setup },
+  welcome: { mod: welcome, art: 'clear' },   // the online account's sign-in screen (pages/welcome.js; at start, and Home's account chip): the picture without scrims
 };
 
-// Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly. Vite drops this from production.
+// Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly (&from=chip: the sign-in screen as Home's
+// account chip opens it). Vite drops this from production.
 let startPage = null;
+let startOpts = {};
 if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
   await import('./dev/mock.js');
   PAGES.kit = { mod: await import('./dev/kit.js') };
-  startPage = new URLSearchParams(location.search).get('page');
+  const q = new URLSearchParams(location.search);
+  startPage = q.get('page');
+  if (q.get('from')) startOpts = { from: q.get('from') };
 }
 
 // where the task pill leads (a page of another game switches to that game, see go)
@@ -63,6 +71,7 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 let shown = gameOf();    // the game the launcher shows (games.js; launcher.json `game`)
+let welcomeAsked = false;   // the sign-in screen is a question for the first Home of a launcher start only
 
 // Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
 // They colour Recompia; Zonith keeps its own (theme.css). Per PC, kept in localStorage: nothing else needs it, and losing it just shows the
@@ -111,7 +120,7 @@ function drawRail() {
   }).join('<div class="rail-sep" aria-hidden="true"></div>');
   rail.setAttribute('aria-label', t('Games'));
   rail.innerHTML = `
-    <div class="rail-brand" data-tauri-drag-region><span class="brand-tag">${esc(t('Testing'))}</span></div>
+    <div class="rail-brand" data-tauri-drag-region><span class="brand-tag">${esc(t('Experimental'))}</span></div>
     ${groups}
     <div class="rail-spacer"></div>
     <button class="rail-tool" id="theme-btn">${icon('palette')}${tip('')}</button>
@@ -188,11 +197,11 @@ async function switchGame(id, page, opts) {
   return go(page ?? next.home, opts);
 }
 
-/** The Testing channel is marked on the rail (a tag under the mark), so a tester can tell this launcher from a Stable one at a glance. */
+/** The Experimental channel is marked on the rail (a tag under the mark), so a tester can tell this launcher from a Stable one at a glance. */
 async function syncLook() {
   try {
     const c = await api.getConfig();
-    document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
+    document.documentElement.dataset.channel = channelOf(c);
   } catch (e) {
     console.warn('get_config', e);
   }
@@ -248,9 +257,24 @@ function drawChrome() {
   pill.toggleAttribute('data-indeterminate', task.pct === null);
 }
 
-/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup hides the tabs (the rail stays). */
+/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup and the sign-in screen hide the tabs (the rail
+ *  stays). */
 async function go(page, opts = {}) {
   if (!PAGES[page]) return;
+  // the first Home of a launcher start, when it is one of Recompia's (the online account is for its Cloud Islands; a start on Zonith is not
+  // asked): Cloud Islands switched on and signed out (and not skipped), the sign-in screen comes first and the start questions (freeing shader
+  // space) wait behind it (cloud-signin.js welcomeOwed, pages/welcome.js)
+  const firstHome = !welcomeAsked && GAMES.find((g) => g.home === page);
+  if (firstHome) {
+    welcomeAsked = true;
+    if (firstHome.product === 'recompia') {
+      let release;
+      store.holdQuestions(new Promise((r) => { release = r; }));
+      const before = token;
+      if (await welcomeOwed().catch(() => false) && token === before) return go('welcome', { next: page, nextOpts: opts, release });
+      release();
+    }
+  }
   // a page the shown game lacks (Set up from Co-op, Settings from Zonith, the task pill, first run) is shown in the game that has it
   const owner = gameForPage(shown, page);
   if (owner && owner !== shown) return switchGame(owner.id, page, opts);
@@ -258,8 +282,9 @@ async function go(page, opts = {}) {
   leaving.forEach((fn) => fn());
   leaving = [];
   current = page;
-  document.body.dataset.shell = page === 'setup' && opts.firstRun ? 'full' : '';
+  document.body.dataset.shell = (page === 'setup' && opts.firstRun) || page === 'welcome' ? 'full' : '';
   document.body.dataset.art = PAGES[page].art || 'soft';
+  sayBack(page, opts);
   drawChrome();
 
   const host = document.createElement('div');
@@ -323,11 +348,18 @@ function drawWindowButtons() {
   syncMax();
 }
 
-/** What the pad's buttons do, along the bottom while a pad is in use. The Start button is the shown Home's main button. */
+/** What the pad's buttons do, along the bottom while a pad is in use. The Start button is the shown Home's main button. A full-window
+ *  screen (data-shell full) shows no Page or Play hint (layout.css); B's word follows the page (sayBack). */
 function drawPadBar() {
-  const hint = (buttons, label) => `<span class="pad-hint">${buttons.map(([b, cls]) => padGlyph(b, cls)).join('')}${esc(label)}</span>`;
-  document.getElementById('padbar').innerHTML = hint([['LT'], ['RT']], t('Game')) + hint([['LB'], ['RB']], t('Page'))
-    + hint([['Start']], t('Play')) + hint([['B', 'round b']], t('Back')) + hint([['A', 'round a']], t('Select'));
+  const hint = (key, buttons, label) => `<span class="pad-hint" data-hint="${key}">${buttons.map(([b, cls]) => padGlyph(b, cls)).join('')}<span class="pad-say">${esc(label)}</span></span>`;
+  document.getElementById('padbar').innerHTML = hint('game', [['LT'], ['RT']], t('Game')) + hint('page', [['LB'], ['RB']], t('Page'))
+    + hint('play', [['Start']], t('Play')) + hint('back', [['B', 'round b']], t('Back')) + hint('select', [['A', 'round a']], t('Select'));
+}
+
+/** B's hint: Skip on the sign-in screen at start (B presses its Skip, gamepad-nav.js data-pad-back), else Back. */
+function sayBack(page, opts) {
+  const say = document.querySelector('#padbar [data-hint="back"] .pad-say');
+  if (say) say.textContent = page === 'welcome' && opts.from !== 'chip' ? t('Skip') : t('Back');
 }
 
 async function start() {
@@ -358,7 +390,7 @@ async function start() {
   const once = store.subscribe((s, why) => {
     if (why !== 'app') return;
     once();
-    if (startPage) go(startPage);
+    if (startPage) go(startPage, startOpts);
     // first run sets up Recompia; a player who chose Zonith opens on it, it has nothing to set up here
     else if (shown.product === 'zonith') go(shown.home);
     else go(isFirstRun(s) ? 'setup' : shown.home, { firstRun: isFirstRun(s) });

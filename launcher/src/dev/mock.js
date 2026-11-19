@@ -131,9 +131,50 @@ let dumpDir = sc.dump ? 'D:/Dumps/Game' : '';
 let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
+let mockPicked = '';
 let mockGame = params.get('game') || 'recompia';   // &game=<recompia|coop|zonith> opens that game
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
+// the online account (cloud_signin.rs): &account=off|signed_out|signed_in|expired (default signed_out). A sign-in approves itself after a
+// few seconds (5 browser, 12 phone; &hold=1: never, to look at the waiting steps). The QR code is a made-up pattern in the shape and size
+// signin.rs draws (4 px a module), so safeQr takes it; it does not scan. Signed out or expired, the launcher starts on the sign-in screen
+// (pages/welcome.js; ?page=welcome opens it directly, ?page=welcome&from=chip as Home's account chip opens it, with Back and, signed in,
+// the account); &skipped=1 previews an install that pressed Skip before. All of it only while Cloud Islands are switched on (launcher.json
+// cloud_islands, Settings > Game > Online): off by default, as in the launcher; &cloud=1, or any &account other than off, switches them on.
+let mockAccount = params.get('account') || 'signed_out';
+let mockCloud = params.get('cloud') === '1' || (params.has('account') && mockAccount !== 'off');
+let mockSkipped = params.get('skipped') === '1';   // launcher.json signin_skipped
+const mockHold = params.get('hold') === '1';
+let mockSignin = null;   // { method, at }
+function mockQr() {
+  const n = 49, q = 4, s = n + 2 * q, b = 2 * Math.floor(n / 10) + 1, o = q + (n - b) / 2;   // the middle square as signin::qr_badge
+  const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => {
+    const i = x - fx, j = y - fy;
+    return i >= 0 && i < 7 && j >= 0 && j < 7 && (i === 0 || i === 6 || j === 0 || j === 6 || (i > 1 && i < 5 && j > 1 && j < 5));
+  });
+  const near = (x, y) => (x < 8 && y < 8) || (x >= n - 8 && y < 8) || (x < 8 && y >= n - 8);
+  let d = '';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (near(x, y) ? finder(x, y) : (x * 7 + y * 13 + x * y) % 3 === 0) d += `M${x + q},${y + q}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${s * 4}" height="${s * 4}" viewBox="0 0 ${s} ${s}" shape-rendering="crispEdges"><rect width="${s}" height="${s}" fill="#fff"/><path d="${d}" fill="#000"/><rect x="${o}" y="${o}" width="${b}" height="${b}" fill="#fff"/></svg>`;
+}
+function accountState() {
+  const base = { state: mockAccount, default_method: 'browser', device_name: 'Windows PC' };
+  if (!mockCloud || mockAccount === 'off') return { ...base, state: 'off' };
+  if (mockSignin) {
+    const s = (Date.now() - mockSignin.at) / 1000;
+    if (mockHold || s < (mockSignin.method === 'phone' ? 12 : 5)) {
+      const fingerprint = '4F2A 9C1E 07BD 33A8';
+      const phase = mockSignin.method === 'phone'
+        ? { phase: 'phone', url: 'https://accounts.example.org:8444/link?ticket=mQ7vR2xK9pL4wN8sT1yB6cF3hJ5dG0aZeU-iO_tVb2M', user_code: 'KXMR-PLWT', qr_svg: mockQr(), fingerprint, expires_in: Math.round(300 - s) }
+        : { phase: 'browser', fingerprint };
+      return { ...base, state: 'waiting', method: mockSignin.method, phase };
+    }
+    mockSignin = null;
+    mockAccount = 'signed_in';
+  }
+  if (mockAccount === 'signed_out') return { ...base, state: 'signed_out' };
+  return { ...base, state: mockAccount, account_name: 'Island Tester', not_after: Math.floor(Date.now() / 1000) + (mockAccount === 'expired' ? -86400 : 90 * 86400) };
+}
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
 const BACK = ['The game code may have to be built again for the older version, before it is installed or with Set up again after it: from a few minutes to an hour, depending on your PC.', 'Files that only the newer version has stay in the folder; they are not removed.'];
 const MOCK_BUILDS = [
@@ -464,7 +505,7 @@ function handle(cmd, args) {
       return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
     case 'setup_status': return structuredClone(setup);
     case 'game_status': return game;
-    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'testing' ? [{ ...release('v0.8.1-beta.2', 'Recompia 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Recompia 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update && mockChannel !== 'testing' ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };   // Testing offers no update (update.rs Channel::offers_updates)
+    case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'experimental' ? [{ ...release('v0.8.1-beta.2', 'Recompia 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Recompia 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update && mockChannel !== 'testing' ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };   // Testing offers no update (update.rs Channel::offers_updates)
     case 'install_update': return runUpdate();
     case 'cancel_update': return updateStop?.();
     case 'play': return runPlay();
@@ -475,8 +516,9 @@ function handle(cmd, args) {
       console.info('[mock] open', cmd, args);
       return null;
     case 'save_log_bundle': return { path: 'C:/Users/Player/Downloads/recompia-logs-20260101-120000.zip' };
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, game: mockGame };
-    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockGame = args.config.game ?? mockGame;
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, picked_version: mockPicked, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame };
+    case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockPicked = args.config.picked_version ?? ''; mockGame = args.config.game ?? mockGame;
+      mockSkipped = !!args.config.signin_skipped; mockCloud = !!args.config.cloud_islands;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;
@@ -518,7 +560,7 @@ function handle(cmd, args) {
     case 'repair_apply': mockRepair = { name: '20261108-120000', files: ['pkp.ini'] }; return { done: ['Game settings (pkp.ini) are back to their defaults'], backup: '20261108-120000' };
     case 'repair_undo': mockRepair = null; return { done: ['pkp.ini restored'], backup: null };
     case 'repair_last': return mockRepair;
-    case 'list_builds': return structuredClone(MOCK_BUILDS.filter((b) => args.channel === 'testing' || !b.prerelease));
+    case 'list_builds': return structuredClone(MOCK_BUILDS.filter((b) => (args.channel === 'experimental') === !!b.prerelease));
     case 'install_version': {
       const b = MOCK_BUILDS.find((x) => x.tag === args.tag);
       if (!b) throw 'That build cannot be installed on this system.';
@@ -526,8 +568,13 @@ function handle(cmd, args) {
       console.info('[mock] install_version', args.tag, 'accepted', args.accepted);
       return runUpdate();
     }
-    case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'testing' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'testing' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
+    case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'experimental' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'experimental' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
     case 'steam_add': mockSteam.launcher_added = 1; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'cloud_signin_state': return accountState();
+    case 'cloud_signin_begin': mockSignin = { method: args.method || 'browser', at: Date.now() }; return accountState();
+    case 'cloud_signin_cancel': mockSignin = null; return accountState();
+    case 'cloud_sign_out': mockSignin = null; mockAccount = 'signed_out'; return accountState();
+    case 'cloud_account_page': console.info('[mock] open the account page'); return null;
     case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);
