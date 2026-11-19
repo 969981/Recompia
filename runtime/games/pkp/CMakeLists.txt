@@ -31,6 +31,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop.cpp"
         "${_pkp}/core/pkp_coop_catchup.cpp"
         "${_pkp}/core/pkp_coop_curtain.cpp"
+        "${_pkp}/core/pkp_coop_events.cpp"
         "${_pkp}/core/pkp_coop_gate.cpp"
         "${_pkp}/core/pkp_coop_link.cpp"
         "${_pkp}/core/pkp_coop_lock.cpp"

@@ -17,6 +17,8 @@
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
+//   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
+//                         kept by every member
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
@@ -139,6 +141,18 @@ void on_session_change();   // this process joined or left: the recipes are read
 void on_member_joined();    // another member joined: the whole list is sent again
 void reset();
 }  // namespace recipes
+
+namespace events {
+// The messages (pkp_coop_link.cpp): kept until this player can take them.
+void on_history_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_lines_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Takes what other members' events left when this player can walk and talks to no one, reads this player's and shares what grew
+// (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: everything is read and sent again
+void on_member_joined();    // another member joined: everything is sent again
+void reset();
+}  // namespace events
 
 namespace purchases {
 // The hook site (pkp_coop.cpp): entry 0xe889f8, a purchase's give on the buyer's process; it is logged for the group.
