@@ -6,7 +6,10 @@
 // The game, 2.0.1: the completion step 0x618304(MU, slot, w3) of unique request id (slot = MU + id * 16, +2 u8 the id, +0 u16 the
 // bound creature's actor handle h) runs, after the record write (5) and its re-sort:
 //   #6  0x618b00(CM)            CM = *(main + 0x3565170): +1 on every active "complete requests" town goal of the current area (it
-//                               never reads the id: any completion counts). Accumulates: one +1 per run.
+//                               never reads the id: any completion counts). Accumulates: one +1 per run. On a member the +1
+//                               lands in its own CM and the game sends it to the authority the next frame (CM frame 0x631020 ->
+//                               0x633150 on a visitor: RequestChallengeProgress {goal id, amount}; the authority's handler
+//                               0x54fbc0 adds it with 0x54fd60, no area test there).
 //   #8  0x617d98(&h, 7)         row +0x5d == 7: ends the escort (a member's run sends RequestPartyNPC; the authority's own run is
 //                               the owner). Not replayed: the member's run already moved the party, a repeat changes nothing.
 //   #9  0x6191e8(&h, +0x40, f)  row +0x5d == 0x14: the creature moves in (guarded by 0x616dbc: a no-op once it lives in a matching
@@ -20,8 +23,9 @@
 //                               date, in the entry the 3-way select picks (0x77ecb0: R + 0xc81488, else 0x376c4: R + 0x16f2af8, else
 //                               R + 0x22fef0; + chara * 0x30 while chara < 0x41a). Idempotent but the date.
 //
-// The two accumulating ones (#6, #11) are what "once for the group" is about. Two hook sites (pkp_coop.cpp) steer them in the game's
-// own step, one decision per run:
+// The two accumulating ones (#6, #11) are what the rules below steer: #11 once for the group, #6 on the authority once for the
+// group and on each member's own hand-in (the game forwards it). Two hook sites (pkp_coop.cpp) steer them in the game's own step,
+// one decision per run:
 //   midhook 0x61858c  `cbz x0, 0x618594` right before `bl 0x618b00`: x0 = CM, x19 = the slot. x0 = 0 skips #6 (x0 is not read after
 //                     0x618594: 0x618dd0 loads its own). Every run that reaches #11 passes here first (0x618520..0x61858c is straight
 //                     line), so the decision for the run is made here and kept for #11.
@@ -30,23 +34,29 @@
 //                     else to restore). A midhook cannot skip one call (nonzero returns the whole function, nxrt/hooks.h), hence the
 //                     entry hook.
 // Rules:
-//   - a member (visit role, in the group's world) skips #6 and #11 on every run and reports the id to the authority (ReqOutcome).
-//     Its world effects would land in its mirrors (or, #6, likely be forwarded by the game: skipped so a forward never counts twice);
+//   - a member (visit role, in the group's world) runs #6 itself: the game's own forward (above) counts it on the authority at
+//     once, for the goal of the area the member is in. It skips #11 on every run (on a visitor the level store returns early and
+//     the points land in its mirror) and reports the id to the authority (ReqOutcome);
 //   - the authority's own run applies #6 and #11 the first time for the group (the ledger bit is clear) and sets the bit; a later
 //     run (any player) skips them. Its idempotent pieces run every time, as the game does;
 //   - a member's report on the authority, the bit clear: the authority replays the world part in its own world once, at a safe
-//     moment (it can walk, talks to no one, the creature is bound and loaded here), in the step's order: #6, #9, #10, #11, #12, #13,
-//     then sets the bit. Its own record and request component are left as they are (the host keeps its own hand-in);
+//     moment (it can walk, talks to no one, the creature is bound and loaded here), in the step's order: #9, #10, #11, #12, #13
+//     (not #6: the member's run counted it), then sets the bit. Its own record and request component are left as they are (the
+//     host keeps its own hand-in);
 //     for #10 the component's id is cleared for that one call and put back, or 0x117320 sees this creature's open request and
 //     clears nothing. Not replayed: #7 (the gift: personal), #8 (above), the play report, the UI trigger and the follow-up offer;
 //   - a report of an id whose bit is set is dropped; a non-story id whose record is 5 on the authority (its own hand-in, maybe
 //     from before this ledger) only sets the bit. A story id's 5 there proves nothing (the share closes story ids with a raw 5);
-//   - the authority's own run while a replay waits does the world part itself: the replay is dropped;
+//   - the authority's own run while a replay waits does the world part itself: the replay is dropped (its #6 then counts once more
+//     than the member's: each hand-in counts);
+//   - a waiting replay is kept in the authority's save too (below), so a session that ends before the creature is loaded there
+//     replays it in a later one;
 //   - ids the game binds to one player (requests::own_request) are not touched: the game's own step runs as it does.
 // The ledger lives in the authority's save, so a later session does not apply the world part again: the unused elements of the
 // record array (256 of 4 bytes, ids 1..200 used; every reader checks id - 1 <= 0xc7, and the file is the flat CMNDAT image,
 // elements 201..255 seen at their default 01 01 00 00 in a real save): element 201 holds kLedgerMagic, 202..208 hold one bit per
-// id (bit (id - 1) & 7 of byte (id - 1) / 8). Members never write it.
+// id (bit (id - 1) & 7 of byte (id - 1) / 8). Element 240 holds kPendingMagic, 241..247 one bit per id whose replay waits (the
+// same packing; 209..212 are pkp_coop_purchases.cpp's). Members never write either.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -68,14 +78,14 @@ constexpr uint32_t kRecordCount = 256;                        // elements of the
 constexpr uint32_t kLedgerMagicAt = 201, kLedgerBitsAt = 202;   // elements: the ledger's mark, then its bits (25 bytes)
 constexpr uint32_t kLedgerMagic = 0x706f6f63;                 // "coop"; the default element is 01 01 00 00
 constexpr size_t kLedgerBytes = 7 * 4;                         // elements 202..208: ids 1..200, one bit each
+constexpr uint32_t kPendingMagicAt = 240;                      // element: the waiting replays' mark, then their bits (241..247)
+constexpr uint32_t kPendingMagic = 0x646e6570;                 // "pend"
 
 // The completion step's two calls of 0x619410 return here (main +).
 constexpr uint64_t kFriendshipFrom[] = {0x618710, 0x618758};
 constexpr uint64_t kSlotId = 2;   // slot + : u8 the id
 
-// The world pieces of the step (main +), called as 0x618304 calls them.
-constexpr uint64_t kChallengeMgr = 0x3565170;   // main + : CM
-constexpr uint64_t kGoalCount = 0x618b00;       // (CM)
+// The world pieces of the step (main +), called as 0x618304 calls them (#6, 0x618b00, is the member's own run's).
 constexpr uint64_t kMoveIn = 0x6191e8;          // (&h, u16 row +0x40, &f[6])
 constexpr uint64_t kPopFlags = 0x11752c;        // (u16 row +0x2a)
 constexpr uint64_t kFriendship = 0x619410;      // (&h)
@@ -96,21 +106,22 @@ constexpr uint64_t kEntrySize = 0x30, kEntryItem = 0x22, kEntryFlag = 0x24, kEnt
 constexpr uint64_t kDate = 0x13d3640;   // save root + : u32 the date the entry keeps
 constexpr uint64_t kCompChara = 0xc;    // request component + : u32 the creature's chara
 constexpr uint64_t kCompId = 0x10;      // request component + : u8 the id it holds
-// Logged only: the friend level (per-chara 0x180 record, CMNDAT) and the goals' pending count.
+// Logged only: the friend level (per-chara 0x180 record, CMNDAT).
 constexpr uint64_t kFriendRecords = 0x120, kFriendSize = 0x180, kFriendLevel = 0x2e;   // save root +
-constexpr uint64_t kGoalPending = 0x18030;                                             // CM + : u64
 
-enum Wait : uint8_t {
-    kReport = 1,   // a member: this id's completion is still to be sent to the authority
-    kReplay = 2,   // the authority: a member finished this id first; the world part waits for a safe moment
+// One completion step's decision (true: skipped).
+struct Decision {
+    bool goal = false;         // #6
+    bool friendship = false;   // #11
 };
 
 struct State {
-    uint8_t wait[kIdMax + 1] = {};     // per id: Wait bits
-    uint8_t origin[kIdMax + 1] = {};   // per id: the node whose report waits for the replay
+    State() { std::memset(origin, wire::kNobody, sizeof origin); }
+    bool report[kIdMax + 1] = {};      // a member: per id, the completion is still to be sent to the authority
+    uint8_t origin[kIdMax + 1];        // the authority: per id, the node whose report waits for the replay (kNobody: from the save)
     bool logged[kIdMax + 1] = {};      // per id: the replay's wait was logged
     uint32_t run_id = 0;               // the completion step that passed the midhook last (0: none) and its decision
-    bool run_skip = false;
+    Decision run;
     bool replaying = false;            // our own calls of the pieces: the hooks pass
     // The pieces' guest-readable arguments (guest addresses are host addresses).
     alignas(8) uint16_t handle_arg = 0;
@@ -130,22 +141,32 @@ uint64_t records() {
 
 bool member_in_world() { return role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor); }
 
-bool done(uint32_t id) {
+// A bit set in the save's record array: its mark at element `mark` (magic), its bits from element mark + 1.
+bool save_bit(uint32_t mark, uint32_t magic, uint32_t id) {
     const uint64_t recs = records();
-    if (!recs || guest::rd<uint32_t>(recs + kLedgerMagicAt * 4) != kLedgerMagic) return false;
-    return guest::rd<uint8_t>(recs + kLedgerBitsAt * 4 + (id - 1) / 8) >> ((id - 1) & 7) & 1;
+    if (!recs || guest::rd<uint32_t>(recs + mark * 4) != magic) return false;
+    return guest::rd<uint8_t>(recs + (mark + 1) * 4 + (id - 1) / 8) >> ((id - 1) & 7) & 1;
 }
 
-void set_done(uint32_t id) {
+void set_save_bit(uint32_t mark, uint32_t magic, uint32_t id, bool on) {
     const uint64_t recs = records();
     if (!recs) return;
-    if (guest::rd<uint32_t>(recs + kLedgerMagicAt * 4) != kLedgerMagic) {   // first use in this save: an empty ledger
-        std::memset(reinterpret_cast<void*>(recs + kLedgerBitsAt * 4), 0, kLedgerBytes);
-        guest::wr<uint32_t>(recs + kLedgerMagicAt * 4, kLedgerMagic);
+    if (guest::rd<uint32_t>(recs + mark * 4) != magic) {   // first use in this save: an empty set
+        if (!on) return;
+        std::memset(reinterpret_cast<void*>(recs + (mark + 1) * 4), 0, kLedgerBytes);
+        guest::wr<uint32_t>(recs + mark * 4, magic);
     }
-    const uint64_t at = recs + kLedgerBitsAt * 4 + (id - 1) / 8;
-    guest::wr<uint8_t>(at, static_cast<uint8_t>(guest::rd<uint8_t>(at) | 1u << ((id - 1) & 7)));
+    const uint64_t at = recs + (mark + 1) * 4 + (id - 1) / 8;
+    const uint8_t bit = static_cast<uint8_t>(1u << ((id - 1) & 7)), was = guest::rd<uint8_t>(at);
+    guest::wr<uint8_t>(at, static_cast<uint8_t>(on ? was | bit : was & ~bit));
 }
+
+static_assert(kLedgerBitsAt == kLedgerMagicAt + 1, "the ledger's bits follow its mark");
+bool done(uint32_t id) { return save_bit(kLedgerMagicAt, kLedgerMagic, id); }
+void set_done(uint32_t id) { set_save_bit(kLedgerMagicAt, kLedgerMagic, id, true); }
+// The authority: a member finished id first and its world part waits for a safe moment here.
+bool pending(uint32_t id) { return save_bit(kPendingMagicAt, kPendingMagic, id); }
+void set_pending(uint32_t id, bool on) { set_save_bit(kPendingMagicAt, kPendingMagic, id, on); }
 
 // The id of the slot in x19 (both sites), or 0 when it is not a shared unique request.
 uint32_t slot_id(::Ctx* c) {
@@ -155,24 +176,25 @@ uint32_t slot_id(::Ctx* c) {
     return id >= 1 && id <= kIdMax && !requests::own_request(id) ? id : 0;
 }
 
-// Decides one completion step's #6 and #11 (true: skip both) and does the bookkeeping that goes with the decision.
-bool decide(uint32_t id) {
+// Decides one completion step's #6 and #11 and does the bookkeeping that goes with the decision.
+Decision decide(uint32_t id) {
     State& s = st();
     if (member_in_world()) {
-        s.wait[id] |= kReport;
-        NXLOG_I(kTag, "Co-op outcomes: request %u finished here; its town goal and friendship are the authority's, reported", id);
-        return true;
+        s.report[id] = true;
+        NXLOG_I(kTag, "Co-op outcomes: request %u finished here; its town goal is left to the game (it forwards it to the authority), "
+                "its friendship is the authority's, reported", id);
+        return {false, true};
     }
-    if (role() != CoopRole::Host) return false;
+    if (role() != CoopRole::Host) return {};
     if (done(id)) {
         NXLOG_I(kTag, "Co-op outcomes: request %u finished here; the group's town goal and friendship were applied before, skipped", id);
-        return true;
+        return {true, true};
     }
     set_done(id);
-    if (s.wait[id] & kReplay) NXLOG_I(kTag, "Co-op outcomes: request %u finished here first; node %u's replay is dropped", id, s.origin[id]);
-    s.wait[id] &= ~kReplay;
+    if (pending(id)) NXLOG_I(kTag, "Co-op outcomes: request %u finished here first; node %u's replay is dropped", id, s.origin[id]);
+    set_pending(id, false);
     NXLOG_I(kTag, "Co-op outcomes: request %u finished here; town goal and friendship applied for the group", id);
-    return false;
+    return {};
 }
 
 uint16_t friend_level(uint64_t comp) {
@@ -181,8 +203,6 @@ uint16_t friend_level(uint64_t comp) {
     const uint64_t at = r + kFriendRecords + chara * kFriendSize + kFriendLevel;
     return chara && chara < kEntryCharaMax && guest::ok(at, 2) ? guest::rd<uint16_t>(at) : 0;
 }
-
-uint64_t goal_pending(uint64_t cm) { return cm && guest::ok(cm + kGoalPending, 8) ? guest::rd<uint64_t>(cm + kGoalPending) : 0; }
 
 // #13: the three general-entry stores, with the entry the game's select picks on this process.
 void general_entry(::Ctx* c, uint64_t comp, uint16_t kind) {
@@ -211,13 +231,10 @@ bool replay(::Ctx* c, uint32_t id) {
     if (!guest::ok(row, kRowType + 1)) return false;
     const uint8_t type = guest::rd<uint8_t>(row + kRowType);
     const uint16_t goal = guest::rd<uint16_t>(row + kRowGoal), kind = guest::rd<uint16_t>(row + kRowKind);
-    const uint64_t cm = guest::rd<uint64_t>(base() + kChallengeMgr);
     const uint16_t level = friend_level(comp);
-    const uint64_t pending = goal_pending(cm);
     s.handle_arg = guest::rd<uint16_t>(slot);
     const uint64_t h = reinterpret_cast<uint64_t>(&s.handle_arg);
     s.replaying = true;
-    if (cm) guest::call(c, base() + kGoalCount, cm);
     if (type == kTypeMoveIn) {
         for (size_t k = 0; k < 6; ++k) s.house_arg[k] = guest::rd<uint16_t>(row + kRowHouse[k]);
         guest::call(c, base() + kMoveIn, h, kind, reinterpret_cast<uint64_t>(s.house_arg));
@@ -239,9 +256,8 @@ bool replay(::Ctx* c, uint32_t id) {
     if (type == kTypeEntryA || type == kTypeEntryB) general_entry(c, comp, kind);
     s.replaying = false;
     set_done(id);
-    NXLOG_I(kTag, "Co-op outcomes: request %u (type 0x%x) finished first on node %u: its world part ran here; friend level %u -> %u, "
-            "town goal pending %llu -> %llu", id, type, s.origin[id], level, friend_level(comp),
-            static_cast<unsigned long long>(pending), static_cast<unsigned long long>(goal_pending(cm)));
+    NXLOG_I(kTag, "Co-op outcomes: request %u (type 0x%x) finished first on node %u: its world part ran here (the town goal was the "
+            "member's); friend level %u -> %u", id, type, s.origin[id], level, friend_level(comp));
     return true;
 }
 
@@ -256,8 +272,8 @@ int on_goal_count(::Ctx* c) {
     const uint32_t id = slot_id(c);
     if (!id) return 0;
     s.run_id = id;
-    s.run_skip = decide(id);
-    if (s.run_skip) c->x[0] = 0;
+    s.run = decide(id);
+    if (s.run.goal) c->x[0] = 0;
     return 0;
 }
 
@@ -267,7 +283,7 @@ int on_friendship(::Ctx* c) {
     const uint64_t from = c->x[30] - base();
     if (from != kFriendshipFrom[0] && from != kFriendshipFrom[1]) return 0;
     const uint32_t id = slot_id(c);
-    const bool skip = id && id == s.run_id && s.run_skip;
+    const bool skip = id && id == s.run_id && s.run.friendship;
     s.run_id = 0;
     return skip ? 1 : 0;
 }
@@ -287,7 +303,7 @@ void on_outcome_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         NXLOG_I(kTag, "Co-op outcomes: node %u finished request %u; this player finished it before, nothing to apply", origin, id);
         return;
     }
-    s.wait[id] |= kReplay;
+    set_pending(id, true);
     s.origin[id] = origin;
     s.logged[id] = false;
 }
@@ -296,14 +312,26 @@ void tick(::Ctx* c, bool in_game) {
     State& s = st();
     if (!c || !records()) return;
     for (uint32_t id = 1; id <= kIdMax; ++id) {
-        if ((s.wait[id] & kReport) && link::to_authority(wire::Type::ReqOutcome, wire::Writer(link::self()).u8(static_cast<uint8_t>(id)).take()))
-            s.wait[id] &= ~kReport;
+        if (s.report[id] && link::to_authority(wire::Type::ReqOutcome, wire::Writer(link::self()).u8(static_cast<uint8_t>(id)).take()))
+            s.report[id] = false;
     }
-    if (role() != CoopRole::Host || !safe_now(in_game)) return;
+    // Replays only in a session (a waiting one kept in the save waits for the next session).
+    if (role() != CoopRole::Host || !(session_bits() & layout::kSessionOnline) || !safe_now(in_game)) return;
+    const uint64_t recs = records();
     for (uint32_t id = 1; id <= kIdMax; ++id) {
-        if (!(s.wait[id] & kReplay)) continue;
+        if (!pending(id)) continue;
+        if (done(id) || requests::own_request(id)) {   // applied meanwhile (or no longer shared): nothing waits
+            set_pending(id, false);
+            continue;
+        }
+        if (!requests::story_request(id) && guest::rd<uint8_t>(recs + id * 4) == kDone) {   // this player finished it meanwhile
+            set_done(id);                                                                    // (as on_outcome_message)
+            set_pending(id, false);
+            NXLOG_I(kTag, "Co-op outcomes: request %u waited for its replay; this player finished it meanwhile, nothing to apply", id);
+            continue;
+        }
         if (replay(c, id)) {
-            s.wait[id] &= ~kReplay;
+            set_pending(id, false);
             return;   // one a frame
         }
         if (!s.logged[id])
