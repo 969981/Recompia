@@ -273,6 +273,9 @@ entryhook 0x710011435c
 #   return to 0x7100618710 / 0x7100618758)
 midhook 0x710061858c
 entryhook 0x7100619410
+#   Seamless co-op, the requests (pkp_coop_requests.cpp): in a general request's completion 0x71006218e0, the `cbz x0` before its town
+#   goal +1 0x7100618b00 (x0 = the challenge manager, w21 = the replay flag)
+midhook 0x7100621be8
 #   Seamless co-op, the session: the title screen's continue, the simulation step, the five trip filers, the drop check and the state reset
 #   after it, error 3103, the PC's Link Play menu and the member screen
 entryhook 0x7100a88214
