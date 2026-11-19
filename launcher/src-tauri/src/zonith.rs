@@ -191,13 +191,39 @@ impl ZonithProgress {
     }
 }
 
-/// Deletes the folders of older setups once the new one is recorded (`keep`: its folder). The setup app's starter exits at once, so the
-/// launcher cannot tell whether an old setup window is still open: each folder is renamed first, which Windows refuses while a program
-/// runs from it, and a folder that will not rename is left for the next update rather than half deleted under the window.
+/// The file Zonith's setup writes at the top of every game folder it installs (docs/installer.md).
+pub const INSTALL_MARKER: &str = "totk-install.json";
+
+/// A game Zonith's setup installed somewhere inside `dir` (its INSTALL_MARKER), without following links.
+pub fn holds_install(dir: &Path) -> bool {
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        if d.join(INSTALL_MARKER).is_file() {
+            return true;
+        }
+        for e in std::fs::read_dir(&d).map(|r| r.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                todo.push(e.path());
+            }
+        }
+    }
+    false
+}
+
+/// Deletes the folders of older setups once the new one is recorded (`keep`: its folder). Only the launcher's own release folders
+/// (`<tag>`, `<tag>.old`) go, and never one holding a game: the setup window starts in the launcher's folder (its working directory), so
+/// its folder picker opens there, and a player may install the game into it. The setup app's starter exits at once, so the launcher
+/// cannot tell whether an old setup window is still open: each folder is renamed first, which Windows refuses while a program has its
+/// working directory in it (as the setup window does), and a folder that will not rename is left for the next update rather than half
+/// deleted under the window.
 pub fn remove_old(zonith: &Path, keep: &str) {
     for e in std::fs::read_dir(zonith).map(|r| r.flatten().collect::<Vec<_>>()).unwrap_or_default() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if !e.path().is_dir() || name == keep {
+        if !e.file_type().is_ok_and(|t| t.is_dir()) || name == keep {
+            continue;
+        }
+        let tag = name.strip_suffix(".old").unwrap_or(&name);
+        if crate::releases::Version::parse(tag).is_none() || holds_install(&e.path()) {
             continue;
         }
         let gone = if name.ends_with(".old") { e.path() } else { zonith.join(format!("{name}.old")) };
@@ -300,10 +326,19 @@ mod tests {
         std::fs::write(dir.join("v0.5.0/TotK-Setup-windows/x"), b"x").unwrap();
         std::fs::write(dir.join(CURRENT_FILE), "{}").unwrap();
         std::fs::write(dir.join("TotK-Setup-x86_64.AppImage"), b"x").unwrap();
+        // games the player installed into the launcher's folder: next to the setups, inside an old one, and a folder that is no release
+        for d in ["v0.4.1/TotK-Setup-windows/TotK", "TotK", "v0.3.0.old/game", "Zonith games/empty"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        for d in ["v0.4.1/TotK-Setup-windows/TotK", "TotK", "v0.3.0.old/game"] {
+            std::fs::write(dir.join(d).join(INSTALL_MARKER), b"{}").unwrap();
+        }
         remove_old(&dir, "v0.5.1");
         let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["TotK-Setup-x86_64.AppImage", CURRENT_FILE, "v0.5.1"]);
+        assert_eq!(left, ["TotK", "TotK-Setup-x86_64.AppImage", "Zonith games", CURRENT_FILE, "v0.3.0.old", "v0.4.1", "v0.5.1"]);
+        assert!(dir.join("v0.4.1/TotK-Setup-windows/TotK").join(INSTALL_MARKER).is_file());
+        assert!(holds_install(&dir.join("v0.4.1")) && !holds_install(&dir.join("v0.5.1")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
