@@ -117,7 +117,8 @@ constexpr RowList rows_of(const Row (&r)[N]) {
 }
 
 // ---- pkp_options_rows.cpp ----
-extern const RowList kSoundRows, kDisplayRows, kPerformanceRows, kGraphicsRows, kPictureRows, kMouseRows, kControllerRows, kGameplayRows;
+extern const RowList kSoundRows, kDisplayRows, kPerformanceRows, kGraphicsRows, kPictureRows, kMouseRows, kControllerRows, kGameplayRows,
+    kInventoryRows;
 void refresh_audio_devices();                 // the Output Device row's list, read again when the screen opens
 
 // ---- pkp_options_time.cpp (its tabs: pkp_options_model.h) ----
@@ -130,7 +131,7 @@ uint64_t slot_pane(::Ctx* c, uint64_t handler, uint32_t slot);
 
 // ---- pkp_options_icons.cpp ----
 namespace icons {
-constexpr int kTabs = 12;                     // our tabs, each with its own icon (tools/settings_tab_icons.py)
+constexpr int kTabs = 13;                     // our tabs, each with its own icon (tools/settings_tab_icons.py)
 // Once per build of the extended tab bar, before set_cell: finds the atlas of the game's tab icons and paints our tabs' icons into a part
 // of it nothing uses, unless that texture has them already. False when the atlas is not the one the icons were placed for.
 bool prepare(::Ctx* c, uint64_t base, uint64_t scratch, uint64_t sp);

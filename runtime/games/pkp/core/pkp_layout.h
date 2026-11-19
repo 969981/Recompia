@@ -82,10 +82,25 @@ constexpr uint64_t kSavePlayTime = 0x4a5418;     // double: the save's play time
 constexpr uint64_t kSaveCommon = 0x13d4920;      // the common block
 constexpr uint64_t kBagOffline = 0x830;          // common block: the bag's slots while offline (m_useItemInventoryOffline)
 constexpr uint32_t kBagSlots = 120;
+constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
+constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
+constexpr uint32_t kCabinetRecordCount = 0x610;
+constexpr uint64_t kCabinetRecordSize = 0x10;
+constexpr uint64_t kCabinetCellX = 8, kCabinetCellY = 0xa, kCabinetCellZ = 0xc;  // u16 each
+constexpr uint64_t kCabinetFlags = 0xe, kCabinetType = 0xf;  // u8 each
+constexpr uint8_t kCabinetOccupied = 1;
+constexpr uint64_t kCabinetCounts = 0x280bb6c, kCabinetBases = 0x280bbaa;  // main: u16 per container type
+constexpr uint64_t kContainerSlotCounts = 0x280baf0, kContainerSlotBases = 0x280bb2e;  // main: u16 per container type
 
 // ---- items in main ----
 constexpr uint64_t kItemSlotVtable = 0x322c1d8;  // the vtable every item slot holds
 constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / container screen works on a temp copy (an item is held)
+constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): the item held in the bag / container screen: +8 packed u32, +0xc u8
+                                                 // count at pick-up, +0x10 / +0x16 u16 slot / u8 panel kind it goes back to, +0x12 / +0x17 the
+                                                 // last cell it came from, +0x14 u16 count held
+constexpr uint64_t kHeldItemSize = 0x18;
+constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
+constexpr uint64_t kStagedBagSize = 0x838;
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
@@ -104,6 +119,7 @@ constexpr uint64_t kFrameStep = 0xbfc4fc;
 
 // ---- game functions ----
 constexpr uint64_t kOnline = 0x376c4;            // () -> bit 0: Link Play session
+constexpr uint64_t kIsOnline = 0x207b0;          // () -> bit 0: a Link Play session is open, host and visitor alike (kOnline is the visitor's bit only)
 constexpr uint64_t kMaxStack = 0x2a7f0c;         // () -> the max stack (u16), one value for every item
 constexpr uint64_t kNameOf = 0xa34e1c;           // (name id, form) -> UTF-8 name in the game's language
 constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
