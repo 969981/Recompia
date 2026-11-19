@@ -104,10 +104,12 @@ void loop() {
             tc.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
             if (GetThreadContext(h, &tc)) {
                 batch[i].n = static_cast<uint8_t>(detail::capture_stack(&tc, batch[i].frames, kDepth));
-                batch[i].waiting = after_syscall(NX_CONTEXT_PC(tc)) ? 1 : 0;
                 ok[i] = batch[i].n > 0;
             }
             ResumeThread(h);
+            // After the resume: after_syscall reads through ReadProcessMemory, which on POSIX takes the shim's region lock
+            // (VirtualQuery) that the stopped thread may hold. The code bytes it reads do not change; frames[0] is the pc.
+            if (ok[i]) batch[i].waiting = after_syscall(batch[i].frames[0]) ? 1 : 0;
         }
         const std::vector<std::string> names = [&] {   // the names are copied: the records go away with the handles
             std::vector<std::string> n;

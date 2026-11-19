@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### For developers
+- Linux: fixed the sampling profiler (`[prof] sample_hz`) writing no samples, and freeze reports having no host stack for the stuck threads. SuspendThread and GetThreadContext now stop a running thread with a signal, as macOS does with its thread calls (#814)
+
 ## 0.15.2 (build S: Sloth Hotfix a2)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets new game hook points; saves and shaders are kept).
