@@ -53,7 +53,11 @@
 // still has it, so a cleared id is kept in a set for the co-op run (entry hooks on both clears, in a session only), shared
 // (AbilityCleared) and cleared on every member, and never shared or applied again: not as a bit that turned on, not by the digest's
 // merge (a member that still has it clears it instead), not from an ability command. The set is sent again whole when this process
-// joins or another member does. It lives in memory only; the event command 0x12c35c's clear (value 2) is not watched.
+// joins or another member does. A later step can give it back (quest 680 sets 99 again): a set the game makes here (0x1227fc with
+// +4 nonzero, 0x10c0d0 with +6 nonzero, a slot of effect 0x01 at the dispatcher) takes the id out of this process's set; co-op's own
+// applies never set an id in the set, so every set those hooks see is the game's. Every process runs that step through its own pump
+// (the catch-up), so each takes the id out of its own set. It lives in memory only; the event command 0x12c35c (value 2 clears) is not
+// watched.
 //
 // Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
 // for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
@@ -329,6 +333,16 @@ void note_clear(uint16_t raw, const char* by) {
     NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s); it stays off for the group", id, by);
 }
 
+// A set the game made here of an id in the set (a later step gives it back): out of the set, so it is shared and merged again.
+void note_grant(uint16_t raw, const char* by) {
+    State& s = st();
+    const uint16_t id = raw & 0xff;
+    if (!ability_id(id) || !ability_cleared(id)) return;
+    s.cleared[id >> 3] &= static_cast<uint8_t>(~(1u << (id & 7)));
+    s.cleared_new.erase(std::remove(s.cleared_new.begin(), s.cleared_new.end(), static_cast<uint8_t>(id)), s.cleared_new.end());
+    NXLOG_I(kTag, "Co-op story: ability %u given back here (%s); shared again", id, by);
+}
+
 // The ids cleared here since the last send (the whole set after a join), once the channel can carry them.
 void send_cleared() {
     State& s = st();
@@ -424,6 +438,8 @@ int on_quest_effect(::Ctx* c) {
     if (!guest::ok(c->x[0], 1)) return 0;
     const uint8_t kind = guest::rd<uint8_t>(c->x[0]);
     if (kind < kEffectFirst || kind > kEffectLast) return 0;
+    if (kind == kAbilitySet && link::in_session() && guest::ok(c->x[0], 2 + kAbilitySlots * 2))
+        for (unsigned k = 0; k < kAbilitySlots; ++k) note_grant(guest::rd<uint16_t>(c->x[0] + 2 + k * 2), "quest effect 0x01");
     const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
     bool every_process = false;
     for (uint8_t every : kEveryProcessEffects) every_process |= kind == every;
@@ -453,18 +469,20 @@ int on_town_action(::Ctx* c) {
     c->x[0] = 1;   // the game's own return (every path returns 1): the line steps on as before
     return 1;
 int on_ability_effect(::Ctx* c) {
-    // Only the clear (+4 value 0) is noted; the effect itself runs as the game has it.
-    if (!link::in_session() || !guest::ok(c->x[0], 6) || guest::rd<uint16_t>(c->x[0] + 4) != 0) return 0;
-    note_clear(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    // A clear (+4 value 0) or a set is noted; the effect itself runs as the game has it.
+    if (!link::in_session() || !guest::ok(c->x[0], 6)) return 0;
+    if (guest::rd<uint16_t>(c->x[0] + 4) == 0) note_clear(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    else note_grant(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
     return 0;
 }
 
 int on_ability_step(::Ctx* c) {
-    // 0x10c0d0's own guards: the record *(x1 + 8) is there, its id (+4, low byte) in range; +6 value 0 is the clear.
+    // 0x10c0d0's own guards: the record *(x1 + 8) is there, its id (+4, low byte) in range; +6 value 0 is the clear, else a set.
     if (!link::in_session() || !guest::ok(c->x[1] + 8, 8)) return 0;
     const uint64_t rec = guest::rd<uint64_t>(c->x[1] + 8);
-    if (!rec || !guest::ok(rec, 8) || guest::rd<int16_t>(rec + 6) != 0) return 0;
-    note_clear(guest::rd<uint16_t>(rec + 4), "story step");
+    if (!rec || !guest::ok(rec, 8)) return 0;
+    if (guest::rd<int16_t>(rec + 6) == 0) note_clear(guest::rd<uint16_t>(rec + 4), "story step");
+    else note_grant(guest::rd<uint16_t>(rec + 4), "story step");
     return 0;
 }
 
