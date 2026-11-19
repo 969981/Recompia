@@ -17,6 +17,7 @@ Press **Update** in the launcher, then **Set up again** (co-op gets a new game h
 - The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
 - Launcher: the Co-op page says plainly that co-op is experimental and needs its own new save, which starts from the beginning.
 - Fixed Bulbasaur never coming to the tall grass after Squirtle when another player than the host had the talk that sends it there, which left the story stuck. Such talks now bring the Pokémon into the host's world, the group's. A world already stuck this way is not repaired: start a new co-op save.
+- Shop purchases are shared: whatever one player buys in a shop (an item, an upgrade such as the Backpack Upgrade, a recipe) every other player gets too, with a line in the message log, and so does anyone who joins the group later. Only the buyer pays. A one-of-a-kind item that is sold out after a teammate bought it is no longer missed. The host's shop now sells the Backpack Upgrade (Packing Tips), PP Up and the other items it only showed offline (#780). Needs **Set up again** (a new hook point), and every player on the same build
 
 ## 0.15.0 (build S: Sloth)
 

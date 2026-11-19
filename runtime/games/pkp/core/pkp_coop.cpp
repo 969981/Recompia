@@ -68,6 +68,11 @@ enum class Site : uintptr_t {
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
     JoinBagSync,      // the bag sync of a join: the authority's working copy never overwrites a member's own bag
+    // ---- the shops ----
+    ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
+                      // group, so every member gets it too (pkp_coop_purchases.cpp)
+    OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
+                      // lists them as it does offline (#780)
 };
 
 struct CoopSite {
@@ -106,6 +111,8 @@ constexpr CoopSite kSites[] = {
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
     {{0x5727c0, kPacibsp, true}, Site::JoinBagSync},
+    {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
+    {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -143,6 +150,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
         case Site::AreaMove: return coop::travel::on_area_move(c);
+        case Site::ShopGrant: return coop::purchases::on_grant(c);
+        case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
         default: return 0;
     }
 }
@@ -207,6 +216,7 @@ void game_frame(::Ctx* c) {
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -228,6 +238,7 @@ void remove() {   // the registry has removed the hooks
     coop::requests::reset();
     coop::outcomes::reset();
     coop::recipes::reset();
+    coop::purchases::reset();
     coop::talk::reset();
     coop::travel::reset();
     coop::catchup::reset();
@@ -245,6 +256,7 @@ namespace coop {
 uint64_t base() { return st().base; }
 CoopRole role() { return st().launch.role; }
 int members() { return st().launch.members; }
+const std::string& member_key() { return st().launch.member; }
 
 uint8_t session_bits() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
