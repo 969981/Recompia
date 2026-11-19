@@ -1,0 +1,68 @@
+/* What the sign-in screen's card says (.signin: pages/welcome.js, cloud-signin-model.js welcome()): the account, the waiting steps, the
+   QR code and the short code for the phone. */
+.signin p { margin: 0; color: var(--color-text-2); line-height: var(--leading); }
+.signin .signin-who { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-weight: var(--weight-semi); font-size: var(--text-lg); }
+.signin .signin-who .icon { color: var(--color-ok); width: 20px; height: 20px; flex: none; }
+.signin .signin-how, .signin .signin-url, .signin .signin-key, .signin .signin-left { font-size: var(--text-sm); color: var(--color-text-3); }
+.signin .signin-url { overflow-wrap: anywhere; }
+.signin .signin-key { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.signin .signin-busy { display: flex; align-items: flex-start; gap: var(--space-3); color: var(--color-text); }
+.signin .signin-busy .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--color-accent); }
+.signin-phone { display: grid; grid-template-columns: auto 1fr; gap: var(--space-4); align-items: start; }
+/* the QR code brings its own size (signin.rs: whole pixels a module, so a phone reads it from further away) */
+.signin-qr { width: fit-content; max-width: 100%; border-radius: var(--radius-xs); overflow: hidden; background: #fff; box-shadow: var(--glass-highlight); }
+.signin-qr svg { display: block; max-width: 100%; height: auto; }
+.signin-steps ol { margin: 0; padding-left: 1.2em; color: var(--color-text-2); font-size: var(--text-sm); line-height: var(--leading); }
+.signin-steps li + li { margin-top: 2px; }
+.signin .signin-code {
+  margin-top: var(--space-3); padding: var(--space-2) var(--space-3); width: fit-content;
+  font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-semi); letter-spacing: 0.12em; color: var(--color-text);
+  background: var(--surface-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+}
+.signin .signin-left { margin-top: var(--space-2); }
+.signin-steps .signin-key { margin-top: var(--space-1); }
+@media (max-width: 520px) {
+  .signin-phone { grid-template-columns: 1fr; justify-items: center; }
+}
+
+/* Recompia's logo standing on its floating island (cloud-signin.js hero), as on the account portal's sign-in page. .float-isles is the big
+   island's 720 x 270 box (a little wider than the logo, its grass behind the logo's lower edge) holding the big island, its waterfall's
+   flowing streaks and the two small islets at their spots, in % of that box. The logo and the big island bob together, each islet at its
+   own pace (negative delays start them mid-swing), the streaks flow down from the pond on the grass; transform only, each on a layer of
+   its own. The pictures are PNG on purpose (drawn 8x, box-filtered to 2x, shadows baked in, so nothing that moves carries a filter but
+   the logo): a moving SVG is resampled anew every fraction of a pixel it travels and its crisp edges pulse, which looks choppy; a 2x
+   PNG glides like the logo. --rise: the big island's bob (12 px at the portal's size), scaled with the logo for each place; the islets
+   rise 10/12 and 9/12 of it (the sign-in screen sets --logo-w: pages/welcome.css). Reduced motion: all still. */
+.float-hero {
+  --logo-w: 200px; --rise: clamp(3px, calc(var(--logo-w) * 0.032), 12px);
+  flex: none; display: grid; justify-items: center; width: calc(var(--logo-w) * 1.08);
+  padding: var(--rise) 0 calc(var(--logo-w) * 0.035);   /* the bob above; the waterfall's mist below the box */
+}
+.float-logo { position: relative; z-index: 2; display: block; width: var(--logo-w); height: auto; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.3)); }
+.float-isles { position: relative; z-index: 1; width: 100%; aspect-ratio: 720 / 270; margin-top: calc(var(--logo-w) * -0.134); }
+.float-isle, .float-islet { position: absolute; display: block; background: center / 100% 100% no-repeat; }
+.float-isle { left: 0; top: 0; width: 100%; height: 114.815%; background-image: url("./art/floating-island.png"); }   /* 720 x 310: shadow and mist below */
+.float-islet-a { left: 13.889%; top: 71.852%; width: 11.111%; height: 33.333%; background-image: url("./art/floating-islet-a.png"); }
+.float-islet-b { left: 83.333%; top: 78.519%; width: 8.333%; height: 28.148%; background-image: url("./art/floating-islet-b.png"); }
+/* the streaks: a repeating strip slid down inside the falling sheet, faded in under the brink and out where it breaks into spray */
+.float-falls {
+  position: absolute; left: 75.694%; top: 33.548%; width: 2.917%; height: 29.677%; overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 62%, transparent);
+  mask-image: linear-gradient(transparent, #000 22%, #000 62%, transparent);
+}
+.float-falls::before {
+  content: ""; position: absolute; left: 0; top: -100%; width: 100%; height: 200%;
+  background: url("./art/floating-falls.png") center top / 100% 50% repeat-y;
+}
+.float-logo, .float-isle, .float-islet, .float-falls::before { will-change: transform; backface-visibility: hidden; }
+.float-logo, .float-isle { animation: float-bob 3.6s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate; }
+.float-islet-a { animation: float-bob-a 2.7s cubic-bezier(0.37, 0, 0.63, 1) -1.9s infinite alternate; }
+.float-islet-b { animation: float-bob-b 4.1s cubic-bezier(0.37, 0, 0.63, 1) -0.7s infinite alternate; }
+.float-falls::before { animation: float-flow 1.5s linear infinite; }
+@keyframes float-bob { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, calc(var(--rise) * -1), 0); } }
+@keyframes float-bob-a { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, calc(var(--rise) * -10 / 12), 0); } }
+@keyframes float-bob-b { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, calc(var(--rise) * -0.75), 0); } }
+@keyframes float-flow { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, 50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .float-logo, .float-isle, .float-islet, .float-falls::before { animation: none; }
+}

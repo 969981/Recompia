@@ -40,9 +40,17 @@ export function createControls(h, dlss) {
       if (!t.value || !Number.isFinite(picked.getTime())) return h.draw(true);
       return h.commit(f, Math.round((picked.getTime() - Date.now()) / 60000));
     }
+    if (f.type === 'toggle' && f.guard === 'signin' && t.checked) return switchOnSignin(f);
     if (f.type === 'toggle') return h.commit(f, t.checked);
     if (f.type === 'slider') return h.commit(f, Number(t.value));
     return h.commit(f, t.value);
+  }
+
+  /** Cloud Islands switched on: once it is saved, the sign-in screen at once (pages/welcome.js, with Skip); Skip or a sign-in comes
+   *  back here. Not saved (writer.js puts the switch back), or the player has left Settings meanwhile: no screen. */
+  async function switchOnSignin(f) {
+    await h.commit(f, true);
+    if (h.el.isConnected && readField(f, h.st.src)) h.ctx.go('welcome', { from: 'settings', next: 'settings', nextOpts: { section: 'game' } });
   }
 
   function onSelect(f, value) {

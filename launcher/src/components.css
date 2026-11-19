@@ -268,6 +268,19 @@ body.pad-nav #nav .nav-bumper { display: inline-grid; }
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-highlight);
 }
+/* Experimental, in red: next to Settings' Cloud Islands switch, on the sign-in screen and in Home's account chip. Link Play's small chip
+   (.lp-exp) in the danger colours, as a warning label: no icon, nothing to press. */
+.chip.exp-tag {
+  height: 20px;
+  padding-inline: var(--space-2);
+  border-color: var(--color-danger);
+  background: var(--tint-danger);
+  color: var(--color-danger);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semi);
+  vertical-align: middle;
+}
+.chip .chip.exp-tag { height: 18px; padding-inline: 6px; }
 button.chip { font-family: inherit; cursor: default; transition: background var(--dur) var(--ease); }
 button.chip:hover { background: var(--surface-3); }
 .dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-pill); background: currentColor; }

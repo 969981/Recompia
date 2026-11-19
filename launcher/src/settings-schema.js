@@ -646,6 +646,15 @@ export const SECTIONS = [
             id: 'online_events_note', type: 'note',
             note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
+          // launcher.json cloud_islands: Cloud Islands with an online account (cloud_account.rs: the game is pointed at the server and the
+          // account gateway runs with it; cloud_signin.rs, cloud-signin.js: Home's account chip and the sign-in screen). Off unless the player
+          // switches it on; switched on, the sign-in screen opens at once (controls.js, guard 'signin'). Switching it off keeps the sign-in.
+          // A test server: pkp.ini [net] cloud_server / cloud_portal (docs/cloud-island/README.md).
+          { id: 'cloud_islands', label: t('Cloud Islands'), badge: t('Experimental'), type: 'toggle', at: config('cloud_islands'), def: false, guard: 'signin' },
+          {
+            id: 'cloud_islands_note', type: 'note',
+            note: () => ({ text: t('Online islands, with an optional account. It may break; turn it off to get the plain launcher.') }),
+          },
         ],
       },
       {

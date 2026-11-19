@@ -14,6 +14,7 @@ const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
 let compactOffered = false;   // the "free up space" question is asked once per launcher start
 const GB = 2 ** 30;
+let questionsWait = Promise.resolve();   // holdQuestions(): the welcome screen keeps the start questions back while it is up
 const UPDATE_CANCELLED = 'update_cancelled';   // error.rs: the player stopped it, not a failure
 
 /** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop' | 'storage'. */
@@ -127,6 +128,12 @@ export const store = {
     afterUpdate();
     store.refreshStorage().then(offerCompact);
     store.keepLockedMods().then(() => store.updateMods());
+  },
+
+  /** Keeps what the launcher asks by itself at start (freeing shader space) back until `until` resolves: the welcome screen
+   *  (pages/welcome.js, main.js) comes first. */
+  holdQuestions(until) {
+    questionsWait = until;
   },
 
   /** The mod the launcher keeps on (Community Achievements and its sharing, mods_lock.rs): installed or switched back on at start unless
@@ -410,6 +417,7 @@ export async function askCompact() {
 }
 
 async function offerCompact() {
+  for (let wait; wait !== questionsWait;) await (wait = questionsWait);   // a hold set while waiting counts too
   if (compactOffered || !compactOffer(store.state)) return;
   compactOffered = true;
   await askCompact();

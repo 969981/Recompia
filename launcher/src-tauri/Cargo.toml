@@ -21,6 +21,7 @@ base64 = "0.22"
 flate2 = "1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 pokopia-relay = { path = "../relay" }
+recompia-cloud-gateway = { path = "../cloud-gateway" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

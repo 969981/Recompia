@@ -22,6 +22,14 @@ pub struct Config {
     /// The first Play after online presence came asked once whether to switch it on (home.js); never asked again. The switch itself is
     /// pkp.ini [pkp] online_presence (online.rs), shared with the game's own Settings screen.
     pub online_asked: bool,
+    /// Cloud Islands with an online account (experimental; Settings > Game > Online). On: the game is pointed at the Cloud Islands
+    /// server, Home has the account chip and the sign-in screen, and the account gateway runs with the game (cloud_account.rs,
+    /// cloud_signin.rs). Off unless the player switches it on; off, the launcher is as it was without them. Switching it off keeps
+    /// the sign-in (the device folder).
+    pub cloud_islands: bool,
+    /// The player pressed Skip on the sign-in screen the launcher starts on while this device is signed out (pages/welcome.js,
+    /// cloud-signin.js): it is not opened by itself again until the next sign-in or sign-out clears this.
+    pub signin_skipped: bool,
     /// The name online.rs sends; empty (the default): anonymous. The profile's nickname is never sent.
     pub online_name: String,
     /// Random, made the first time online presence starts; with the profile uid it makes the online ID (online.rs token_of). Only
@@ -114,5 +122,7 @@ mod tests {
     fn an_old_launcher_json_with_retired_keys_still_loads() {
         let cfg: Config = serde_json::from_str(r#"{"channel":"testing","logo":"classic","icon":"classic"}"#).unwrap();
         assert_eq!(cfg.channel, "testing");
+        assert!(!cfg.signin_skipped, "a launcher.json from before the sign-in offer has not skipped it");
+        assert!(!cfg.cloud_islands, "Cloud Islands are off unless the player switches them on");
     }
 }

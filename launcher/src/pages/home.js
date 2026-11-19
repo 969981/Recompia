@@ -9,6 +9,8 @@ import { store } from '../store.js';
 import { canCancelUpdate, canUpdate, gamePhase, primaryAction, updatePlayable } from '../action.js';
 import { readIni, viewOf } from '../linkplay-model.js';
 import { onlineOn, setOnline } from '../online.js';
+import { chip as accountChipOf } from '../cloud-signin-model.js';
+import { readAccount } from '../cloud-signin.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 import { playTimeLine } from '../play-time-model.js';
 
@@ -169,6 +171,7 @@ export function render(el, ctx) {
     if (t.id === 'link-chip') ctx.go('linkplay');
     if (t.id === 'discord-chip') api.openLink({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
     if (t.id === 'online-chip') toggleOnline();
+    if (t.id === 'account-chip') ctx.go('welcome', { from: 'chip' });   // the sign-in screen the launcher starts on (pages/welcome.js)
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
@@ -189,8 +192,9 @@ export function render(el, ctx) {
   let profileChip = '';
   let timeChip = '';
   let onlineChip = '';
+  let accountChip = '';
   const discordChip = `<button class="chip on-art" id="discord-chip">${icon('globe')}Discord</button>`;
-  const drawChips = () => { part('link').innerHTML = onlineChip + profileChip + timeChip + linkChip + discordChip; };
+  const drawChips = () => { part('link').innerHTML = onlineChip + accountChip + profileChip + timeChip + linkChip + discordChip; };
   // online presence (online.js): first among the chips so it is seen; one click switches it, the same key as Settings > Game and the
   // game's own Settings (Online tab), so a change made in the game shows here the next time Home is drawn
   const drawOnline = (on) => {
@@ -209,7 +213,10 @@ export function render(el, ctx) {
       toast(errText(err), 'error');
     }
   }
+  // the online account (cloud-signin.js): shown only while Cloud Islands are switched on (Settings > Game > Online); it opens the sign-in screen
+  const drawAccount = (st) => { accountChip = accountChipOf(st, icon); drawChips(); };
   drawChips();
+  readAccount().then(drawAccount);
   api.readSettings().then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('link')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
     online = onlineOn(data.pkp);
