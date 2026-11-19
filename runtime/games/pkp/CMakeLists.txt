@@ -44,6 +44,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_requests.cpp"
         "${_pkp}/core/pkp_coop_session.cpp"
         "${_pkp}/core/pkp_coop_story.cpp"
+        "${_pkp}/core/pkp_coop_quests.cpp"
         "${_pkp}/core/pkp_coop_talk.cpp"
         "${_pkp}/core/pkp_coop_trace.cpp"
         "${_pkp}/core/pkp_coop_held.cpp"

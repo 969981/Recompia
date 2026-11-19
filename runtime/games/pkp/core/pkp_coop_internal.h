@@ -6,6 +6,7 @@
 //   pkp_coop_link.cpp     the co-op channel: opened with the session, drained once a frame; every rule change goes through the authority
 //   pkp_coop_wire.h       the messages: type ids and payload layouts
 //   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
+//   pkp_coop_quests.cpp   the quest authority: in a session only the authority moves quests on; a member asks it for its player's steps
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
@@ -84,7 +85,7 @@ namespace story {
 int on_mask_start(::Ctx* c);     // midhook 0xb0f74: the mask builder's arguments
 int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online pattern
 int on_quest_state(::Ctx* c);    // entry 0x5d865c
-int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged only
+int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged (a member's set is pkp_coop_quests.cpp's first)
 int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
 int on_wild_pop(::Ctx* c);       // entry 0x1240dc: a member's wild-creature appearance is sent to the authority
 int on_town_action(::Ctx* c);    // entry 0x10c270: story-line step action 6 (town register) runs on the authority only
@@ -108,6 +109,23 @@ void reset();
 // across boots, and a newcomer learns it from the authority's states).
 bool world_started();
 }  // namespace story
+
+namespace quests {
+// The hook site (pkp_coop.cpp): entry 0x5d8774, a quest's flag set. On a member in the session the set does not run (returns 1);
+// a step its own player made is asked of the authority. 0 everywhere else (the game's own set runs).
+int on_quest_flag(::Ctx* c);
+// Sets quest id's flag in S as co-op's own step (the catch-up, the authority's answer): never skipped by on_quest_flag.
+void set_flag(::Ctx* c, uint64_t s, uint32_t id);
+// This process is a member in the session (the visit role, the game's visitor bits, the channel up and not the authority): it
+// moves no quest by itself and shares no quest state.
+bool member_rules();
+// The message (pkp_coop_link.cpp): a member's ask, applied on the authority.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's asks; the authority retries the ones waiting for their quest to be listed (once a frame, after the story).
+void tick(::Ctx* c);
+void on_session_change();
+void reset();
+}  // namespace quests
 
 namespace requests {
 // The hook site (pkp_coop.cpp): entry 0x11435c, the bind gate; a member answers as the game does at home.

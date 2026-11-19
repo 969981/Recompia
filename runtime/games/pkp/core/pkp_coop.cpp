@@ -41,7 +41,8 @@ enum class Site : uintptr_t {
                       // talks too) and not the visitor's stub
     QuestState,       // a story quest's state is set: every write comes from the quest pump's own steps, which every process runs on
                       // the flag alone, so nothing is sent; a write from anywhere else is logged once
-    QuestFlag,        // a story quest's flag is set here: logged (the quests' states are what is shared, pkp_coop_story.cpp)
+    QuestFlag,        // a story quest's flag is set here: on a member in the session it does not run, and a step the member's own
+                      // player made is asked of the authority (pkp_coop_quests.cpp); elsewhere logged (pkp_coop_story.cpp)
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
     TownAction,       // a story line's step action 6 (the town register and house arrival, table 0x322d658 row 6): a member's own scene
@@ -165,7 +166,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::MaskStart: return coop::story::on_mask_start(c);
         case Site::MaskPattern: return coop::story::on_mask_pattern(c);
         case Site::QuestState: return coop::story::on_quest_state(c);
-        case Site::QuestFlag: return coop::story::on_quest_flag(c);
+        case Site::QuestFlag: return coop::quests::on_quest_flag(c) ? 1 : coop::story::on_quest_flag(c);
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
         case Site::WildPop: return coop::story::on_wild_pop(c);
         case Site::TownAction: return coop::story::on_town_action(c);
@@ -249,6 +250,7 @@ void game_frame(::Ctx* c) {
     coop::session::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::link::tick(c);
     coop::story::tick(c);
+    coop::quests::tick(c);
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -275,6 +277,7 @@ void remove() {   // the registry has removed the hooks
     s.launch = {};
     coop::link::reset();
     coop::story::reset();
+    coop::quests::reset();
     coop::requests::reset();
     coop::outcomes::reset();
     coop::recipes::reset();

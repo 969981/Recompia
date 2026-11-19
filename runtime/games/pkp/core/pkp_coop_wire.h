@@ -32,6 +32,8 @@
 //                m bytes: its conversation rows (row 0..m-1, bit 0 kept)   (whole, when either grew; a receiver takes the union)
 //   StoryLines   +2 u8 count n, then n times: u8 story line (1..0xfe), u8 the line's id, s16 its step, u16 its condition bits
 //                                                            (the lines that changed on the origin; a receiver takes the furthest)
+//   QuestFlagAsk +2 u16 quest id (1..1000), +4 u8 its state on the origin (1..3)   (a member's player made that state's next step
+//               happen: the authority sets the quest's flag when its own state is the same; pkp_coop_quests.cpp)
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
 //               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
 //               a list this build does not know is skipped
@@ -83,6 +85,7 @@ enum class Type : uint32_t {
     HabitatScene = 20,
     EventHistory = 21,
     StoryLines = 22,
+    QuestFlagAsk = 24,   // with the story's types (pkp_coop_quests.cpp)
     UnlockKnown = 23,
     AbilityCleared = 25,
 };
