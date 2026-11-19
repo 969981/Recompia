@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Co-op: the DLC quests are shared between players like the main story quests: when one player moves a DLC quest on, every player's quest moves on too.
 - Co-op: when one player finishes a talk or a scene, every player's game now remembers it too: the same conversations are not offered again to the others, and the story lines that wait for that scene move on in the group's save on the host, also for players who join later.
 - Co-op: Pokédex entries and habitats are shared. When a teammate meets a new Pokémon or finds a new habitat, every player gets it in their own Pokédex and habitat list too, with the game's own "registered" or "new habitat" scene (or a line in the message log when that Pokémon is not near them). Anyone who joins later gets the group's finds. Needs **Set up again** (new hook points), and every player on the same build
 - Co-op: moves, emotes, areas and buildings are shared. When a teammate learns a new move or emote, every player learns it too, with the game's own scene. The areas the group has been to count as visited for every player (in their own save too), and the buildings anyone has built are in everyone's building list. Anyone who joins later gets the group's unlocks, with one line in the message log.
