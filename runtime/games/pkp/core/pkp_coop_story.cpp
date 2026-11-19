@@ -67,7 +67,10 @@
 // still returns before the handler; when the handler's own tests would fade, the member fades out the same way and, once the fade is
 // done, back in: the time skip's fade on every screen, the clock left to the authority.
 // Both only for a live step: a step the catch-up replays (a process behind runs every old step through its own pump) plays no music
-// and starts no fade, so a member several quests behind neither hears each old step's music nor is left with an old quest's.
+// and starts no fade, so a member several quests behind neither hears each old step's music nor is left with an old quest's. A member
+// makes every step through the catch-up now (it moves no quest by itself, pkp_coop_quests.cpp), so the step that reaches the group's
+// state of its quest (the target is the state the step leads to) counts as live and plays both; only a step with more of that
+// quest's steps after it is a replay.
 //
 // Abilities (unlocks such as the creature list and its menu entries). The bits live at save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit
 // id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
@@ -607,7 +610,10 @@ void clear_ability(::Ctx* c, uint16_t id) {
 
 // A pump step the catch-up is replaying here: a quest whose flag is set and whose state is still below another member's. The pump runs
 // a step's effects before it writes the state and clears the flag (0x11bd3c, and 0x11b600's close path), so while such a step runs
-// the quest is still behind here: every other member made that step already, and is past what it did.
+// the quest is still behind here: every other member made that step already, and is past what it did. Every catch-up step counts,
+// the group's latest too (unlike catch_up_step, the music's test): a member steps only through the catch-up, and the authority,
+// whose step is the live one, keeps and shares that clear itself (members share no states, so it replays nothing). A member one step
+// behind on quest 664 may be in a group long past 680, which gave the ability back; keeping that clear would take it from all.
 bool replaying(::Ctx* c) {
     const State& s = st();
     const uint64_t words = quest_words(), story_obj = story();
@@ -733,15 +739,26 @@ int on_quest_flag(::Ctx* c) {
 
 namespace {
 
-// A pump step the catch-up replays here: a quest whose flag is set and whose state is still below another member's. The pump runs a
-// step's effects before it writes the state and clears the flag (0x11bd3c, and 0x11b600's close path), so while such a step runs the
-// quest is still behind here.
+// A pump step the catch-up replays here, for the quest music and the time fade: a quest whose flag is set and whose state is more
+// than one step below another member's. The pump runs a step's effects before it writes the state and clears the flag (0x11bd3c,
+// and 0x11b600's close path), so while such a step runs the quest is still at the state the step starts from. A step to the group's
+// state of the quest (target == state + 1) is the group's latest: on a member it is the live step (members step only through the
+// catch-up), and it plays. The quest the catch-up is stepping decides; a quest passed over earlier keeps its flag, and is looked at
+// only when the stepping one is not being stepped (no flag, or moved on), so one stalled quest far behind does not mute every live
+// step. The ability clears keep their own, stricter test (replaying()).
 bool catch_up_step(::Ctx* c) {
     const State& s = st();
     const uint64_t words = quest_words(), story_obj = story();
     if (!words || !story_obj) return false;
-    for (uint32_t i = 0; i < kQuestMax; ++i)
-        if (s.target[i] > state_at(words, i) && quest_flag(c, story_obj, i + 1)) return true;
+    if (quest_id(static_cast<uint16_t>(s.stepping))) {
+        const uint32_t i = s.stepping - 1;
+        const uint8_t here = state_at(words, i);
+        if (here == s.stepping_state && s.target[i] > here && quest_flag(c, story_obj, s.stepping)) return s.target[i] > here + 1;
+    }
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        const uint8_t here = state_at(words, i);
+        if (s.target[i] > here + 1 && quest_flag(c, story_obj, i + 1)) return true;
+    }
     return false;
 }
 
