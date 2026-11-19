@@ -42,6 +42,8 @@ enum class Site : uintptr_t {
     QuestFlag,        // a story quest's flag is set here: logged (the quests' states are what is shared, pkp_coop_story.cpp)
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
+    WildPop,          // a wild creature's appearance armed or cleared (event-script command 0xc1e, quest effect 0x33): a member's goes
+                      // to the authority, whose world is the group's
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
@@ -79,6 +81,7 @@ constexpr CoopSite kSites[] = {
     {{0x5d865c, 0x51000428u, true}, Site::QuestState},       // sub w8, w1, #1
     {{0x5d8774, 0x51000428u, true}, Site::QuestFlag},        // sub w8, w1, #1
     {{0x11b214, 0x39400008u, true}, Site::QuestEffect},      // ldrb w8, [x0]
+    {{0x1240dc, kPacibsp, true}, Site::WildPop},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
@@ -130,6 +133,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QuestState: return coop::story::on_quest_state(c);
         case Site::QuestFlag: return coop::story::on_quest_flag(c);
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
+        case Site::WildPop: return coop::story::on_wild_pop(c);
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);
         case Site::TalkEnd: return coop::talk::on_talk_end(c);

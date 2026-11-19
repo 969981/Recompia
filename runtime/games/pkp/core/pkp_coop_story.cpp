@@ -48,11 +48,21 @@
 // "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline; what a
 // member had before joining reaches the others through the digest (below), which merges the bits both ways. A bit turned off is not
 // shared (no writer clears one in the story; the saves seen only grow).
+//
+// Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
+// for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
+// 10 slots) by 0x1240dc(s0 delay, w0 habitat id, w1 creature data id, w2 bit 0 add). Its callers are quest effect 0x33 (0x123008,
+// a world effect: the authority's) and event-script command 0xc1e, which the talks run on the process of the player who talks, so
+// a member's talk armed the appearance only in that member's own stage data, which no replication carries: the group's world never
+// had the creature and the quest waited for ever. A member's call in the session is sent to the authority (WildPop), which makes
+// the same call through effect 0x33's handler; the add keeps one slot per creature (0x5f9a3c overwrites the creature's slot), so
+// an appearance armed twice is armed once. The member's own call still runs, as before.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -92,6 +102,9 @@ constexpr double kDigestEvery = 5.0;                 // the authority's whole st
 constexpr double kStall = 1.0, kStallSkip = 5.0, kStallSkipMax = 120.0;   // a catch-up flag the pump leaves: passed over
 constexpr double kNoticeGap = 4.0;                   // at most one "moved the story on" line per this many seconds
 constexpr uint8_t kComplete = 3;
+constexpr uint64_t kWildPopEffectFn = 0x123008;   // effect 0x33's handler: the command's fields -> the call 0x1240dc
+constexpr uint8_t kWildPopEffect = 0x33;
+constexpr size_t kWildPopQueue = 16;   // a member's appearances waiting for the channel
 
 // The abilities a line names; any other is "something new".
 struct AbilityName {
@@ -118,6 +131,13 @@ struct State {
     alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
     uint8_t seen[kAbilityBytes] = {};        // the ability bits at the last look; a bit on now and off here turned on since
     bool have_seen = false;                  // false until the first look of a session (the baseline)
+    struct WildPop {
+        uint16_t habitat, creature;
+        int16_t delay;
+        uint8_t add;
+    };
+    std::vector<WildPop> wild_pops;          // a member's appearances not sent yet (the channel was not up)
+    alignas(8) uint8_t pop_command[wire::kEffectSize] = {};   // a received appearance as an effect 0x33 command, guest-readable
 };
 State& st() {
     static State s;
@@ -354,6 +374,38 @@ int on_quest_effect(::Ctx* c) {
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
+int on_wild_pop(::Ctx* c) {
+    // A member in the host's world (the game's own session bits, as the world effects' skip): the authority's world is the group's.
+    const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    if (!member) return 0;
+    const uint16_t habitat = static_cast<uint16_t>(c->x[0]), creature = static_cast<uint16_t>(c->x[1]);
+    if (static_cast<uint16_t>(habitat - 1) >= 500 || static_cast<uint16_t>(creature - 1) >= 0x3ff) return 0;   // the game's own bounds
+    const float delay = c->v[0].f[0];
+    State::WildPop pop{habitat, creature,
+                       static_cast<int16_t>(delay > 30000.0f ? 30000 : delay < -30000.0f ? -30000 : static_cast<int>(delay)),
+                       static_cast<uint8_t>(c->x[2] & 1)};
+    State& s = st();
+    if (s.wild_pops.size() < kWildPopQueue) s.wild_pops.push_back(pop);
+    NXLOG_I(kTag, "Co-op story: wild appearance of creature %u at habitat %u %s here (from main+0x%llx), sent to the authority",
+            creature, habitat, pop.add ? "armed" : "cleared", static_cast<unsigned long long>(c->x[30] - base()));
+    return 0;   // the member's own call runs too, as before
+}
+
+void on_wild_pop_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
+    State& s = st();
+    const uint16_t habitat = r.u16(), creature = r.u16();
+    const int16_t delay = static_cast<int16_t>(r.u16());
+    const uint8_t add = r.u8();
+    if (!r.ok() || static_cast<uint16_t>(habitat - 1) >= 500 || static_cast<uint16_t>(creature - 1) >= 0x3ff || add > 1) return;
+    std::memset(s.pop_command, 0, sizeof s.pop_command);
+    s.pop_command[0] = kWildPopEffect;
+    const uint16_t args[4] = {habitat, creature, static_cast<uint16_t>(delay), add};
+    std::memcpy(s.pop_command + 2, args, sizeof args);
+    guest::call(c, base() + kWildPopEffectFn, reinterpret_cast<uint64_t>(s.pop_command));
+    NXLOG_I(kTag, "Co-op story: wild appearance of creature %u at habitat %u %s for node %u (delay %d s)", creature, habitat,
+            add ? "armed" : "cleared", origin, delay);
+}
+
 void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint16_t n = r.u16();
@@ -456,7 +508,26 @@ void on_ability_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     NXLOG_I(kTag, "Co-op story: ability command 0x%02x from node %u applied here", s.command[0], origin);
 }
 
+// A member's wild appearances to the authority, once the channel can carry them.
+static void send_wild_pops() {
+    State& s = st();
+    if (s.wild_pops.empty() || !link::in_session() || link::is_authority()) return;
+    size_t sent = 0;
+    for (const State::WildPop& p : s.wild_pops) {
+        if (!link::to_authority(wire::Type::WildPop, wire::Writer(link::self())
+                                                    .u16(p.habitat)
+                                                    .u16(p.creature)
+                                                    .u16(static_cast<uint16_t>(p.delay))
+                                                    .u8(p.add)
+                                                    .take()))
+            break;   // kept for the next frame, in order
+        ++sent;
+    }
+    s.wild_pops.erase(s.wild_pops.begin(), s.wild_pops.begin() + static_cast<std::ptrdiff_t>(sent));
+}
+
 void tick(::Ctx* c) {
+    send_wild_pops();
     catch_up(c);
     share_states();
     share_new_abilities();

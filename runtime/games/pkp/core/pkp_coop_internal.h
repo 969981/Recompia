@@ -77,10 +77,12 @@ int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online patte
 int on_quest_state(::Ctx* c);    // entry 0x5d865c
 int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged only
 int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
+int on_wild_pop(::Ctx* c);       // entry 0x1240dc: a member's wild-creature appearance is sent to the authority
 // The messages (pkp_coop_link.cpp).
 void on_states_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_wild_pop_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Moves the quests behind another member's state one step on, shares the quest states and ability bits that rose here (once a frame,
 // after the channel's handlers).
 void tick(::Ctx* c);
