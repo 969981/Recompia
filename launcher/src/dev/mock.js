@@ -154,8 +154,8 @@ const mockBackups = [
 // long (long names) | mismatch (the last start found a host with other mods) | build (another version)
 const coopState = params.get('coop') || 'many';
 const ASH = { id: 'a1', name: 'Ash' }, MISTY = { id: 'b2', name: 'Misty' }, BROCK = { id: 'c3', name: 'Brock' }, DAWN = { id: 'd4', name: 'Dawn' };
-const coopView = (name, members, me, { hostId = members[0].id, peers = false, savedAt = 0 } = {}) => ({
-  profile: { version: 1, id: `c${name.replace(/\W/g, '').toLowerCase()}`, name, account_uid: '0'.repeat(32), room_code: 'K7QM-2XRA-9DPH-TV4E', relay: '192.0.2.10:47610', members, me },
+const coopView = (name, members, me, { hostId = members[0].id, split = false, peers = split, savedAt = 0 } = {}) => ({
+  profile: { version: 1, id: `c${name.replace(/\W/g, '').toLowerCase()}`, name, account_uid: '0'.repeat(32), room_code: 'K7QM-2XRA-9DPH-TV4E', relay: split ? '' : '192.0.2.10:47610', members, me, split },
   host: { host: hostId, role: hostId === me ? 'host' : 'visit', own: { seq: 0, saved_at: savedAt }, peers_known: peers },
   folder: `D:/Games/coop-saves/c${name}`, creator: members[0].id === me, saved_at: savedAt, created: 1763300000,
 });
@@ -539,14 +539,20 @@ function handle(cmd, args) {
     case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
     case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'coop_list': return structuredClone(mockCoop);
-    case 'coop_create': {
+    case 'coop_create':
+    case 'coop_create_split': {
       if (mockCoop.some((c) => c.profile.name.toLowerCase() === args.name.toLowerCase())) throw `There is already a co-op save called ${args.name}.`;
-      mockCoop.push(coopView(args.name, [{ id: `m${mockCoop.length}a`, name: args.myName }], `m${mockCoop.length}a`));
+      const split = cmd === 'coop_create_split';
+      const members = (split ? args.players : [args.myName]).map((name, i) => ({ id: `m${mockCoop.length}${split ? i : 'a'}`, name }));
+      mockCoop.push(coopView(args.name, members, members[0].id, { split }));
       return structuredClone(mockCoop);
     }
     case 'coop_add_member': mockCoop.find((c) => c.profile.id === args.id).profile.members.push({ id: `m${Date.now()}`, name: args.name }); return structuredClone(mockCoop);
     case 'coop_remove_member': { const m = mockCoop.find((c) => c.profile.id === args.id).profile.members; m.splice(m.findIndex((x) => x.id === args.member), 1); return structuredClone(mockCoop); }
-    case 'coop_invite': return { long: `${MOCK_LONG_INVITE}${args.id}`, short: inviteState === 'long' ? null : MOCK_SHORT };
+    case 'coop_invite': {
+      if (mockCoop.find((c) => c.profile.id === args.id)?.profile.split) throw 'A split screen save is played on this PC only: it has no invite.';
+      return { long: `${MOCK_LONG_INVITE}${args.id}`, short: inviteState === 'long' ? null : MOCK_SHORT };
+    }
     case 'coop_resolve_invite': {
       const code = args.text.replace(/[-\s]/g, '').toUpperCase();
       if (!/^[2-9A-HJKMNP-TV-Z]{6}$/.test(code)) return args.text.trim();
@@ -558,6 +564,7 @@ function handle(cmd, args) {
     case 'coop_accept': {
       if (!args.invite.startsWith('PKCOOP1.')) throw 'This is not a co-op invite.';
       const have = mockCoop.find((c) => c.profile.id === MOCK_INVITE.id);
+      if (have?.profile.split) throw 'A split screen save is played on this PC only: it has no invite.';
       if (have) { have.profile.members = structuredClone(MOCK_INVITE.members); return structuredClone(mockCoop); }
       mockCoop.push({ ...coopView("Gary's island", structuredClone(MOCK_INVITE.members), args.member), profile: { ...coopView('x', MOCK_INVITE.members, args.member).profile, id: MOCK_INVITE.id, name: "Gary's island" } });
       return structuredClone(mockCoop);
