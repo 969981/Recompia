@@ -35,6 +35,8 @@
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
 //               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
 //               a list this build does not know is skipped
+//   AbilityCleared +2 u16 count n, then n u8 ability ids (1..0xf9) a step took away on the origin (pkp_coop_story.cpp): every
+//               receiver clears them and never gives them back in this co-op run
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -82,6 +84,7 @@ enum class Type : uint32_t {
     EventHistory = 21,
     StoryLines = 22,
     UnlockKnown = 23,
+    AbilityCleared = 25,
 };
 
 // Builds one payload: the header, then the fields in order.

@@ -48,6 +48,9 @@ enum class Site : uintptr_t {
                       // end leaves it to the authority, whose world is the group's; the line still steps
     WildPop,          // a wild creature's appearance armed or cleared (event-script command 0xc1e, quest effect 0x33): a member's goes
                       // to the authority, whose world is the group's
+    AbilityEffect,    // quest effect 0x19's handler (an ability set or cleared): a clear is kept for the co-op run and shared, so the
+                      // digest's merge never brings the ability back
+    AbilityStep,      // the story-line step action that sets or clears an ability: a clear likewise
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
@@ -104,6 +107,8 @@ constexpr CoopSite kSites[] = {
     {{0x11b214, 0x39400008u, true}, Site::QuestEffect},      // ldrb w8, [x0]
     {{0x1240dc, kPacibsp, true}, Site::WildPop},
     {{0x10c270, 0xf9400429u, true}, Site::TownAction},       // ldr x9, [x1, #8]
+    {{0x1227fc, kPacibsp, true}, Site::AbilityEffect},
+    {{0x10c0d0, kPacibsp, true}, Site::AbilityStep},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
@@ -164,6 +169,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
         case Site::WildPop: return coop::story::on_wild_pop(c);
         case Site::TownAction: return coop::story::on_town_action(c);
+        case Site::AbilityEffect: return coop::story::on_ability_effect(c);
+        case Site::AbilityStep: return coop::story::on_ability_step(c);
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
