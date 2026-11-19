@@ -2,9 +2,6 @@
 
 ## Unreleased
 
-### Gameplay
-- Fixed the quick save (**F5**, and **Save** in the pause menu) saving only your bag and not your island: it now saves the same way as the game's own Save and Quit, so items you put into a storage box, things you placed and items on the ground are still there after loading
-
 ## 0.15.2 (build S: Sloth Hotfix a2)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets new game hook points; saves and shaders are kept).
@@ -17,6 +14,9 @@
 ### Known issues
 - Co-op is still experimental: some quest text or events may still show up late on a teammate. Please send **pkp.log** (Settings > About) after such a session
 - A player on an older Recompia trying to join a 0.15.2 host is refused, but their older launcher says "different mods" instead of "another version". Update both games to 0.15.2
+
+### Gameplay
+- Fixed the quick save (**F5**, and **Save** in the pause menu) saving only your bag and not your island: it now saves the same way as the game's own Save and Quit, so items you put into a storage box, things you placed and items on the ground are still there after loading
 
 ### Co-op
 - Every player in a co-op session now needs the same version of Recompia. A teammate on another version is refused when joining, and the Co-op page says the host runs another version of Recompia
