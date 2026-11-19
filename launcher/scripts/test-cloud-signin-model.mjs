@@ -1,5 +1,5 @@
 // Tests for what the online account sign-in says (src/cloud-signin-model.js). Run: node scripts/test-cloud-signin-model.mjs   (exit 1 on a failure)
-import { autoOpen, chip, countdown, safeQr, shown, view } from '../src/cloud-signin-model.js';
+import { chip, countdown, heroSize, safeQr, shown, view, welcome, welcomeAtStart } from '../src/cloud-signin-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -32,6 +32,7 @@ const phone = view({ ...base, state: 'waiting', method: 'phone', phase: { phase:
 check(phone.body.includes(qr), 'the QR code is drawn');
 check(phone.body.includes('ABCD-EFGH') && phone.body.includes('“Windows PC”') && phone.body.includes('4:59'), 'code, device name, countdown');
 check(phone.actions.includes('data-signin="browser"'), 'can switch to this PC');
+check(phone.body.includes('0123 4567 89AB CDEF') && phone.body.includes('link?ticket=x'), 'the key line and the link for no camera');
 check(safeQr('<svg onload="x()"></svg>') === '' && safeQr(qr) === qr && safeQr(plainQr) === '', 'only signin.rs-shaped SVG goes in as markup');
 check(safeQr(qr.replace(' width="148" height="148"', '')) === '' && safeQr(qr.replace('width="148"', 'width="100%"')) === '', 'the QR code must bring its own pixel size');
 const marked = view({ ...base, state: 'waiting', method: 'phone', phase: { phase: 'phone', user_code: 'A', qr_svg: qr } }, icon, '', 'art/mark.png?"x');
@@ -50,17 +51,35 @@ const out = view({ ...base, state: 'signed_out' }, icon, 'signed-out');
 check(out.body.includes('remove it on your account page') && out.actions.includes('data-signin="account"'), 'after sign out: how to revoke');
 check(view({ ...base, state: 'expired' }, icon).body.includes('expired'), 'expired says so');
 
-// Home opens it by itself at start: signed out or expired with a portal, until Skip; never with no portal, signed in or waiting
-check(autoOpen({ ...base, state: 'signed_out' }, false) && autoOpen({ ...base, state: 'expired' }, false), 'opens by itself: signed out, expired');
-check(!autoOpen({ ...base, state: 'signed_out' }, true) && !autoOpen({ ...base, state: 'expired' }, true), 'not after Skip');
-check(!autoOpen(null, false) && !autoOpen({ ...base, state: 'off' }, false), 'not without a portal');
-check(!autoOpen({ ...base, state: 'signed_in', account_name: 'Ana' }, false) && !autoOpen({ ...base, state: 'waiting' }, false), 'not signed in or waiting');
-const startup = view({ ...base, state: 'signed_out' }, icon, '', '', true);
-check(startup.actions.includes('data-signin="close">Skip<') && !startup.actions.includes('Not now'), 'at start the way out is Skip');
-check(view({ ...base, state: 'expired' }, icon, '', '', true).actions.includes('>Skip<'), 'expired at start: Skip');
-check(view({ ...base, state: 'waiting', phase: { phase: 'phone', user_code: 'A', qr_svg: qr } }, icon, '', '', true).actions.includes('>Skip<'), 'waiting at start: Skip stops it');
-check(view({ ...base, state: 'signed_out' }, icon, 'signed-out', '', true).actions.includes('Not now'), 'right after Sign out: Not now');
-check(!view({ ...base, state: 'signed_in', account_name: 'Ana' }, icon, '', '', true).actions.includes('Skip'), 'signed in: no Skip');
+// the dialog's island: small beside the QR code, large signed in
+check(heroSize({ ...base, state: 'waiting', phase: { phase: 'phone' } }) === 'small' && heroSize({ ...base, state: 'signed_in' }) === 'large', 'island sizes');
+check(heroSize({ ...base, state: 'signed_out' }) === '' && heroSize({ ...base, state: 'waiting', phase: { phase: 'browser' } }) === '' && heroSize(null) === '', 'island: the usual size');
+
+// the launcher starts on the welcome screen: signed out or expired with a portal, until Skip; never with no portal, signed in or waiting
+check(welcomeAtStart({ ...base, state: 'signed_out' }, false) && welcomeAtStart({ ...base, state: 'expired' }, false), 'welcome: signed out, expired');
+check(!welcomeAtStart({ ...base, state: 'signed_out' }, true) && !welcomeAtStart({ ...base, state: 'expired' }, true), 'welcome: not after Skip');
+check(!welcomeAtStart(null, false) && !welcomeAtStart({ ...base, state: 'off' }, false), 'welcome: not without a portal');
+check(!welcomeAtStart({ ...base, state: 'signed_in', account_name: 'Ana' }, false) && !welcomeAtStart({ ...base, state: 'waiting' }, false), 'welcome: not signed in or waiting');
+
+// the welcome card: the platform's way in first and primary, the other one under it, Skip on every step but signed in
+const wPc = welcome({ ...base, state: 'signed_out' }, icon);
+check(wPc.step === 'choose' && /data-signin="browser">.*Sign in with this PC.*data-signin="phone">.*Sign in with my phone/s.test(wPc.body), 'welcome on Windows: this PC first');
+check(wPc.body.includes('btn primary" data-signin="browser"') && !wPc.body.includes('btn primary" data-signin="phone"'), 'welcome on Windows: this PC is primary');
+const wDeck = welcome({ ...base, default_method: 'phone', state: 'signed_out' }, icon);
+check(/data-signin="phone">.*data-signin="browser">/s.test(wDeck.body) && wDeck.body.includes('btn primary" data-signin="phone"'), 'welcome elsewhere: my phone first and primary');
+check(wPc.body.includes('One account for your islands and everything online.') && wPc.body.includes('Optional: everything plays without it.'), 'welcome: what it is for, optional');
+check(wPc.actions.includes('data-signin="skip"') && wPc.actions.includes('>Skip<'), 'welcome: Skip');
+check(welcome({ ...base, state: 'expired' }, icon).body.includes('expired') && welcome({ ...base, state: 'signed_out', error: 'declined' }, icon).body.includes('form-error'), 'welcome: expired, an error');
+const wPhone = welcome({ ...base, state: 'waiting', method: 'phone', phase: { phase: 'phone', url: 'http://localhost:8790/link?ticket=x', user_code: 'ABCD-EFGH', qr_svg: qr, fingerprint: '0123 4567 89AB CDEF', expires_in: 299 } }, icon);
+check(wPhone.step === 'phone' && wPhone.body.includes(qr) && wPhone.body.includes('ABCD-EFGH') && wPhone.body.includes('0123 4567 89AB CDEF'), 'welcome phone: QR, code, key');
+check(wPhone.actions.includes('data-signin="back"') && wPhone.actions.includes('data-signin="browser"') && wPhone.actions.includes('data-signin="skip"'), 'welcome phone: Back, this PC, Skip');
+const wBrowser = welcome({ ...base, state: 'waiting', phase: { phase: 'browser', fingerprint: 'AAAA' } }, icon);
+check(wBrowser.step === 'browser' && wBrowser.body.includes('Finish in your browser') && wBrowser.actions.includes('data-signin="back"') && wBrowser.actions.includes('data-signin="phone"') && wBrowser.actions.includes('data-signin="skip"'), 'welcome browser: wait, Back, phone, Skip');
+const wBusy = welcome({ ...base, state: 'waiting', phase: { phase: 'finishing' } }, icon);
+check(wBusy.step === 'busy' && wBusy.body.includes('certificate') && wBusy.actions.includes('data-signin="skip"'), 'welcome finishing: Skip');
+const wIn = welcome({ ...base, state: 'signed_in', account_name: '<Ana>' }, icon);
+check(wIn.step === 'done' && wIn.body.includes('Signed in as &lt;Ana&gt;') && wIn.actions === '', 'welcome signed in: names the account (escaped), no buttons');
+check(welcome({ ...base, state: 'off' }, icon).step === 'off' && welcome(null, icon).step === 'off', 'welcome without a portal: on to Home');
 
 check(countdown(0) === '0:00' && countdown(61.4) === '1:01' && countdown(-5) === '0:00', 'countdown');
 

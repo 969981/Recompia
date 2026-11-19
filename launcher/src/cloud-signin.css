@@ -1,7 +1,7 @@
-/* The Online account dialog (cloud-signin.js): the launcher's own modal, with a QR code and the short code for the phone. */
-dialog.modal.signin { width: min(540px, calc(100vw - 2 * var(--space-5))); }
-/* the wordmark above the title (logo.png: the letters fill about 2/3 of the canvas, so 54px shows them about 36px high) */
-.signin .signin-logo { display: block; height: 54px; width: auto; align-self: flex-start; margin: calc(-1 * var(--space-2)) 0 calc(-1 * var(--space-2)); }
+/* The Online account dialog (cloud-signin.js): the launcher's own modal, with a QR code and the short code for the phone. The welcome
+   screen's card (pages/welcome.js) carries .signin too, so what the two say looks the same. */
+dialog.modal.signin { width: min(540px, calc(100vw - 2 * var(--space-5))); max-height: calc(100vh - 2 * var(--space-2)); }
+dialog.modal.signin.phone { width: min(660px, calc(100vw - 2 * var(--space-5))); }
 .signin p { margin: 0; color: var(--color-text-2); line-height: var(--leading); }
 .signin .signin-who { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-weight: var(--weight-semi); font-size: var(--text-lg); }
 .signin .signin-who .icon { color: var(--color-ok); width: 20px; height: 20px; flex: none; }
@@ -22,7 +22,46 @@ dialog.modal.signin { width: min(540px, calc(100vw - 2 * var(--space-5))); }
   background: var(--surface-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
 }
 .signin .signin-left { margin-top: var(--space-2); }
+.signin-steps .signin-key { margin-top: var(--space-1); }
 .signin .modal-actions { flex-wrap: wrap; }
 @media (max-width: 520px) {
   .signin-phone { grid-template-columns: 1fr; justify-items: center; }
+}
+
+/* The dialog's head: the logo on the island, then the title; beside the QR code the island steps aside to the left of the title and
+   gets smaller, so the code keeps its size in the launcher's smallest window (900 x 440). */
+.signin .modal-body { padding-top: var(--space-4); }
+.signin-head { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); }
+.signin-head .float-hero { --logo-w: 190px; }
+.signin-head .float-hero.large { --logo-w: 250px; }
+.signin.phone .signin-head { flex-direction: row; gap: var(--space-4); }
+.signin-head .float-hero.small { --logo-w: 104px; }
+@media (max-height: 560px) {
+  .signin-head .float-hero { --logo-w: 150px; }
+  .signin-head .float-hero.large { --logo-w: 190px; }
+  .signin-head .float-hero.small { --logo-w: 80px; }
+  dialog.signin.phone .modal-body { padding-bottom: var(--space-3); }
+  dialog.signin.phone .modal-actions { padding-bottom: var(--space-4); }
+  .signin.phone .signin-url { font-size: var(--text-xs); }
+}
+
+/* Recompia's logo standing on the floating island (cloud-signin.js hero), as on the account portal's sign-in page: the island is a little
+   wider than the logo and its grass sits behind the logo's lower edge. The two drift together, about 9 px up and down: translate3d on a
+   layer of its own moves in fractions of a pixel (a plain translateY snaps to whole pixels and looks choppy). Reduced motion: still. */
+.float-hero { --logo-w: 200px; flex: none; display: grid; justify-items: center; width: calc(var(--logo-w) * 1.08); padding-top: 9px; }
+.float-drift {
+  display: flex; flex-direction: column; align-items: center; width: 100%;
+  animation: float-drift 3.2s ease-in-out infinite alternate; will-change: transform; backface-visibility: hidden;
+}
+.float-logo { position: relative; z-index: 1; display: block; width: var(--logo-w); height: auto; filter: drop-shadow(0 6px 14px rgba(4, 22, 20, 0.28)); }
+.float-island {
+  width: 100%; aspect-ratio: 720 / 270; margin-top: calc(var(--logo-w) * -0.134);
+  background: url("./art/floating-island.svg") center / contain no-repeat; filter: drop-shadow(0 10px 18px rgba(4, 22, 20, 0.3));
+}
+@keyframes float-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, -9px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-drift { animation: none; }
 }

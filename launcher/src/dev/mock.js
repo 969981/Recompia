@@ -135,13 +135,15 @@ let mockGame = params.get('game') || '';   // launcher.json `game` (games.js); &
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
 // the online account (cloud_signin.rs): &account=off|signed_out|signed_in|expired (default signed_out). A sign-in approves itself after a
-// few seconds (5 browser, 12 phone). The QR code is a made-up pattern in the shape signin.rs draws, so safeQr takes it; it does not scan.
-// Signed out or expired, Home opens the dialog by itself at start (with Skip); &skipped=1 previews an install that pressed Skip before.
+// few seconds (5 browser, 12 phone; &hold=1: never, to look at the waiting steps). The QR code is a made-up pattern in the shape and size
+// signin.rs draws (4 px a module), so safeQr takes it; it does not scan. Signed out or expired, the launcher starts on the welcome screen
+// (pages/welcome.js; ?page=welcome opens it directly); &skipped=1 previews an install that pressed Skip before.
 let mockAccount = params.get('account') || 'signed_out';
 let mockSkipped = params.get('skipped') === '1';   // launcher.json signin_skipped
+const mockHold = params.get('hold') === '1';
 let mockSignin = null;   // { method, at }
 function mockQr() {
-  const n = 25, q = 2, s = n + 2 * q, b = 2 * Math.floor(n / 10) + 1, o = q + (n - b) / 2;   // the middle square as signin::qr_badge
+  const n = 49, q = 4, s = n + 2 * q, b = 2 * Math.floor(n / 10) + 1, o = q + (n - b) / 2;   // the middle square as signin::qr_badge
   const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => {
     const i = x - fx, j = y - fy;
     return i >= 0 && i < 7 && j >= 0 && j < 7 && (i === 0 || i === 6 || j === 0 || j === 6 || (i > 1 && i < 5 && j > 1 && j < 5));
@@ -156,10 +158,10 @@ function accountState() {
   if (mockAccount === 'off') return base;
   if (mockSignin) {
     const s = (Date.now() - mockSignin.at) / 1000;
-    if (s < (mockSignin.method === 'phone' ? 12 : 5)) {
+    if (mockHold || s < (mockSignin.method === 'phone' ? 12 : 5)) {
       const fingerprint = '4F2A 9C1E 07BD 33A8';
       const phase = mockSignin.method === 'phone'
-        ? { phase: 'phone', url: 'https://accounts.example.org/link?ticket=mock', user_code: 'KXMR-PLWT', qr_svg: mockQr(), fingerprint, expires_in: Math.round(300 - s) }
+        ? { phase: 'phone', url: 'https://accounts.example.org:8444/link?ticket=mQ7vR2xK9pL4wN8sT1yB6cF3hJ5dG0aZeU-iO_tVb2M', user_code: 'KXMR-PLWT', qr_svg: mockQr(), fingerprint, expires_in: Math.round(300 - s) }
         : { phase: 'browser', fingerprint };
       return { ...base, state: 'waiting', method: mockSignin.method, phase };
     }
@@ -167,7 +169,7 @@ function accountState() {
     mockAccount = 'signed_in';
   }
   if (mockAccount === 'signed_out') return { ...base, state: 'signed_out' };
-  return { ...base, account_name: 'Island Tester', not_after: Math.floor(Date.now() / 1000) + (mockAccount === 'expired' ? -86400 : 90 * 86400) };
+  return { ...base, state: mockAccount, account_name: 'Island Tester', not_after: Math.floor(Date.now() / 1000) + (mockAccount === 'expired' ? -86400 : 90 * 86400) };
 }
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
 const BACK = ['The game code may have to be built again for the older version, before it is installed or with Set up again after it: from a few minutes to an hour, depending on your PC.', 'Files that only the newer version has stay in the folder; they are not removed.'];

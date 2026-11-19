@@ -59,9 +59,12 @@ to the portal approves the device at `/link?ticket=...` (the device polls `/api/
 signed in). Either way the device makes its own key and sends only a CSR; the key stays in the device folder (Windows: encrypted, the
 passphrase protected by DPAPI; elsewhere owner-only files). Removing the device on the portal's account page revokes it.
 
-While the device is signed out (or its sign-in expired), Home opens the same dialog by itself once at start, after any question the
-launcher asks by itself. Its **Skip** is remembered in launcher.json (`signin_skipped`) until the next sign-in or sign-out, so it does
-not ask at every start; the chip stays the way back. Signed out, Play works as before.
+While a portal is set and the device is signed out (or its sign-in expired), the launcher starts on a full-window welcome screen
+before Home (`launcher/src/pages/welcome.js`, sidebar hidden): Recompia's logo on the floating island and a card with the same two
+ways to sign in, which continue on that screen (Back returns to the choice). Signed in, it says so for a moment and goes on to Home by
+itself. **Skip** (or Esc) goes to Home at once and is remembered in launcher.json (`signin_skipped`) until the next sign-in or
+sign-out, so it does not ask at every start; the chip on Home stays the way back. The launcher's own "free up space" question waits
+until the welcome screen is gone. Signed out, Play works as before.
 
 The launcher hands the game the gateway's ports and its CA (`NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`, `NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`,
 `NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after

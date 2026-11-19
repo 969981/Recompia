@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 270">
+  <!-- The floating island the logo stands on (the welcome screen, the Online account dialog and the account portal's sign-in page),
+       in the launcher's Meadow palette: meadow greens, round trees, sandy path-coloured soil, pond-blue waterfall. Original art. -->
+  <defs>
+    <linearGradient id="soil" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8d3a0"/>
+      <stop offset=".45" stop-color="#d2b47e"/>
+      <stop offset="1" stop-color="#b08a58"/>
+    </linearGradient>
+    <linearGradient id="soilShade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7a5634" stop-opacity="0"/>
+      <stop offset=".55" stop-color="#7a5634" stop-opacity="0"/>
+      <stop offset="1" stop-color="#7a5634" stop-opacity=".32"/>
+    </linearGradient>
+    <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9be07a"/>
+      <stop offset="1" stop-color="#6fbf5b"/>
+    </linearGradient>
+    <linearGradient id="fall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfe8ee"/>
+      <stop offset=".75" stop-color="#e9fbff" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="tree" cx=".38" cy=".3" r=".8">
+      <stop offset="0" stop-color="#7fcf63"/>
+      <stop offset=".6" stop-color="#4fa843"/>
+      <stop offset="1" stop-color="#2f7f3a"/>
+    </radialGradient>
+  </defs>
+  <!-- small floating rocks -->
+  <g>
+    <path fill="url(#soil)" d="M118 214c10-6 30-6 40 0-4 14-12 24-20 28-8-4-16-14-20-28z"/>
+    <path fill="#6cc055" d="M116 214c8-8 34-8 44 0-10 5-34 5-44 0z"/>
+    <path fill="url(#soil)" d="M610 226c7-4 21-4 28 0-3 10-8 17-14 20-6-3-11-10-14-20z"/>
+    <path fill="#6cc055" d="M608 226c6-6 26-6 32 0-8 4-24 4-32 0z"/>
+  </g>
+  <!-- underside -->
+  <path fill="url(#soil)" d="M36 76C64 130 146 152 208 180c48 22 98 56 152 78 56-20 106-58 156-82 64-30 140-48 168-100Z"/>
+  <path fill="url(#soilShade)" d="M36 76C64 130 146 152 208 180c48 22 98 56 152 78 56-20 106-58 156-82 64-30 140-48 168-100Z"/>
+  <g fill="none" stroke="#f3e6bc" stroke-width="4" stroke-linecap="round" opacity=".75">
+    <path d="M110 130c60 18 120 22 180 20"/>
+    <path d="M430 150c50-4 100-16 150-34"/>
+    <path d="M260 196c40 10 80 12 120 6"/>
+  </g>
+  <g fill="#b8935e" opacity=".7">
+    <circle cx="200" cy="150" r="7"/><circle cx="330" cy="176" r="5"/><circle cx="470" cy="170" r="6"/><circle cx="380" cy="226" r="4"/>
+  </g>
+  <!-- waterfall -->
+  <path fill="url(#fall)" d="M548 92h26c2 50 4 100 8 160h-42c4-60 6-110 8-160z"/>
+  <g stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".85">
+    <path d="M556 104v60"/><path d="M566 120v80"/><path d="M552 180v34"/>
+  </g>
+  <!-- grass top -->
+  <path fill="#4da845" d="M24 70 L28 79.5 Q45.0 92.5 62 90.6 Q79.0 105.7 96 96.3 Q113.0 110.4 130 100.2 Q147.0 113.8 164 103.2 Q181.0 116.5 198 105.5 Q215.0 118.5 232 107.3 Q249.0 120.0 266 108.6 Q283.0 121.0 300 109.4 Q317.0 121.7 334 109.9 Q351.0 122.0 368 110.0 Q385.0 121.9 402 109.7 Q419.0 121.4 436 109.1 Q453.0 120.6 470 108.0 Q487.0 119.3 504 106.5 Q521.0 117.6 538 104.5 Q555.0 115.3 572 101.9 Q589.0 112.3 606 98.5 Q623.0 108.4 640 93.9 Q657.0 102.8 674 86.8 Q683.0 89.9 692 79.5 L696 70 Z"/>
+  <path fill="url(#grass)" d="M24 70C24 42 150 26 360 26s336 16 336 44-126 36-336 36S24 98 24 70z"/>
+  <ellipse cx="340" cy="54" rx="250" ry="16" fill="#b9ec98" opacity=".5"/>
+  <!-- round trees at both ends -->
+  <g>
+    <circle cx="86" cy="52" r="22" fill="url(#tree)"/><circle cx="118" cy="44" r="26" fill="url(#tree)"/><circle cx="150" cy="56" r="18" fill="url(#tree)"/>
+    <circle cx="110" cy="34" r="11" fill="#9be07a" opacity=".45"/><circle cx="80" cy="44" r="7" fill="#9be07a" opacity=".45"/>
+    <circle cx="590" cy="50" r="20" fill="url(#tree)"/><circle cx="622" cy="42" r="26" fill="url(#tree)"/><circle cx="652" cy="56" r="17" fill="url(#tree)"/>
+    <circle cx="614" cy="32" r="11" fill="#9be07a" opacity=".45"/>
+  </g>
+  <g>
+    <circle cx="200" cy="62" r="4" fill="#ffc3d8"/><circle cx="214" cy="68" r="4" fill="#ffffff"/><circle cx="510" cy="64" r="4" fill="#f5b83a"/>
+    <circle cx="524" cy="58" r="4" fill="#ffffff"/><circle cx="480" cy="72" r="4" fill="#d9c4ff"/><circle cx="240" cy="74" r="4" fill="#fff3a0"/>
+  </g>
+</svg>

@@ -10,7 +10,7 @@ import { canCancelUpdate, canUpdate, gamePhase, primaryAction, updatePlayable } 
 import { readIni, viewOf } from '../linkplay-model.js';
 import { onlineOn, setOnline } from '../online.js';
 import { chip as accountChipOf } from '../cloud-signin-model.js';
-import { offerSignIn, openSignIn, readAccount } from '../cloud-signin.js';
+import { openSignIn, readAccount } from '../cloud-signin.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 import { playTimeLine } from '../play-time-model.js';
 
@@ -206,15 +206,10 @@ export function render(el, ctx) {
       toast(errText(err), 'error');
     }
   }
-  // the online account (cloud-signin.js): shown only when Settings > Game > Online names an account portal. Signed out, the dialog
-  // also opens by itself once per launcher start until the player presses Skip (offerSignIn).
-  let gone = false;
+  // the online account (cloud-signin.js): shown only when Settings > Game > Online names an account portal
   const drawAccount = (st) => { accountChip = accountChipOf(st, icon); drawChips(); };
   drawChips();
-  readAccount().then((st) => {
-    drawAccount(st);
-    offerSignIn(st, drawAccount, () => !gone);
-  });
+  readAccount().then(drawAccount);
   api.readSettings().then((data) => {
     linkChip = `<button class="chip on-art" id="link-chip">${icon('link')}${esc(t('Link Play: {mode}', { mode: LINK_PLAY_LABEL[viewOf(readIni(data.pkp))] }))}</button>`;
     online = onlineOn(data.pkp);
@@ -251,5 +246,4 @@ export function render(el, ctx) {
 
   ctx.on(draw);
   draw(store.state);
-  return () => { gone = true; };
 }

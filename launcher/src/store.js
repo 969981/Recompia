@@ -13,8 +13,7 @@ const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
 let compactOffered = false;   // the "free up space" question is asked once per launcher start
 const GB = 2 ** 30;
-let questionsAsked;           // resolves startupQuestions()
-const questions = new Promise((resolve) => { questionsAsked = resolve; });
+let questionsWait = Promise.resolve();   // holdQuestions(): the welcome screen keeps the start questions back while it is up
 const UPDATE_CANCELLED = 'update_cancelled';   // error.rs: the player stopped it, not a failure
 
 /** Applies a patch, derives `task`, tells subscribers. `why`: 'app' | 'setup' | 'game' | 'news' | 'task' | 'update' | 'drop' | 'storage'. */
@@ -110,13 +109,16 @@ export const store = {
     ]);
     await store.refresh();
     store.refreshNews(false).then(() => store.refreshNews(true));
-    Promise.allSettled([afterUpdate(), store.refreshStorage().then(offerCompact)]).then(() => questionsAsked());
+    afterUpdate();
+    store.refreshStorage().then(offerCompact);
     store.keepLockedMods().then(() => store.updateMods());
   },
 
-  /** Resolves once what the launcher asks by itself at start (finishing an update's set up, freeing shader space) is answered or not
-   *  needed: Home's own sign-in offer (cloud-signin.js) queues behind it. */
-  startupQuestions: () => questions,
+  /** Keeps what the launcher asks by itself at start (freeing shader space) back until `until` resolves: the welcome screen
+   *  (pages/welcome.js, main.js) comes first. */
+  holdQuestions(until) {
+    questionsWait = until;
+  },
 
   /** The mod the launcher keeps on (Community Achievements and its sharing, mods_lock.rs): installed or switched back on at start unless
    *  the player unlocked it, then one line says what changed. Offline or busy: nothing, the next start tries again. Never in Play's way. */
@@ -353,16 +355,17 @@ export async function askCompact() {
 }
 
 async function offerCompact() {
+  for (let wait; wait !== questionsWait;) await (wait = questionsWait);   // a hold set while waiting counts too
   if (compactOffered || !compactOffer(store.state)) return;
   compactOffered = true;
   await askCompact();
 }
 
-/** After a self-update restart: say so, and finish the update without being asked. Resolves once that set up started or did not. */
-async function afterUpdate() {
+/** After a self-update restart: say so, and finish the update without being asked. */
+function afterUpdate() {
   const app = store.state.app;
   if (!app?.updated || autoFinishDone) return;
   autoFinishDone = true;
   toast(t('Updated to {version}', { version: app.version }), 'ok');
-  if (needsFinish(app.readiness?.kind)) await store.startSetup();
+  if (needsFinish(app.readiness?.kind)) store.startSetup();
 }

@@ -10,6 +10,7 @@ import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
+import { welcomeOwed } from './cloud-signin.js';
 import { startGamepadNav } from './gamepad-nav.js';
 import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
@@ -20,6 +21,7 @@ import * as news from './pages/news.js';
 import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
+import * as welcome from './pages/welcome.js';
 
 // nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy. Which game offers a page is games.js.
 const PAGES = {
@@ -32,6 +34,7 @@ const PAGES = {
   news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
   settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
   setup: { mod: setup },
+  welcome: { mod: welcome, art: 'clear' },   // the online account's welcome screen (pages/welcome.js): the picture without scrims
 };
 
 // Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly. Vite drops this from production.
@@ -53,6 +56,7 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 let shown = gameOf();    // the game the sidebar shows (games.js; launcher.json `game`)
+let welcomeAsked = false;   // the welcome screen is a question for the first Home of a launcher start only
 
 // Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default. A value no longer in THEMES (such as an
@@ -187,9 +191,19 @@ function drawChrome() {
   pill.toggleAttribute('data-indeterminate', task.pct === null);
 }
 
-/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup hides the sidebar. */
+/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup and the welcome screen hide the sidebar. */
 async function go(page, opts = {}) {
   if (!PAGES[page]) return;
+  // the first Home of a launcher start: signed out of an account portal (and not skipped), the welcome screen comes first, the start
+  // questions (freeing shader space) wait behind it (cloud-signin.js welcomeOwed, pages/welcome.js)
+  if (!welcomeAsked && GAMES.some((g) => g.home === page)) {
+    welcomeAsked = true;
+    let release;
+    store.holdQuestions(new Promise((r) => { release = r; }));
+    const before = token;
+    if (await welcomeOwed().catch(() => false) && token === before) return go('welcome', { next: page, nextOpts: opts, release });
+    release();
+  }
   // a page the shown game lacks (Set up from Co-op, the task pill, first run) is shown in the game that has it
   const owner = gameForPage(shown, page);
   if (owner && owner !== shown) return switchGame(owner.id, page, opts);
@@ -197,7 +211,7 @@ async function go(page, opts = {}) {
   leaving.forEach((fn) => fn());
   leaving = [];
   current = page;
-  document.body.dataset.shell = page === 'setup' && opts.firstRun ? 'full' : '';
+  document.body.dataset.shell = (page === 'setup' && opts.firstRun) || page === 'welcome' ? 'full' : '';
   document.body.dataset.art = PAGES[page].art || 'soft';
   drawChrome();
 

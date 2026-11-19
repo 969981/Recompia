@@ -1,0 +1,42 @@
+/* The welcome screen (welcome.js): the whole window, the launcher's picture behind; Recompia's logo on the floating island on the left as
+   on the account portal's sign-in page, the card on the right. It fits the launcher's smallest window (900 x 440) on every step: beside
+   the QR code the island gives way, the code itself never does. */
+.welcome-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-6);
+  height: 100vh;
+  padding: var(--titlebar-h) var(--space-8) var(--space-5);
+}
+.welcome-hero { display: grid; place-items: center; min-width: 0; padding-bottom: var(--titlebar-h); }
+.welcome-hero .float-hero { --logo-w: min(470px, 36vw, calc((100vh - 120px) * 1.3)); }
+.welcome-screen[data-step="phone"] .welcome-hero .float-hero { --logo-w: min(360px, 24vw, calc((100vh - 120px) * 1.3)); }
+.welcome-hero .float-hero .float-logo { filter: drop-shadow(0 8px 22px rgba(4, 22, 20, 0.32)); }
+
+.welcome-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 420px;   /* Back, the other method and Skip on one row */
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-lg);
+}
+.welcome-screen[data-step="phone"] .welcome-card { width: 600px; padding: var(--space-5) var(--space-6); }
+.welcome-card h1 { font-size: var(--text-2xl); }
+.welcome-methods { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.welcome-methods .btn { width: 100%; height: 44px; }
+.welcome-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-1); }
+.welcome-actions:empty { display: none; }
+.welcome-actions .welcome-back { margin-right: auto; }
+.welcome-screen[data-step="choose"] .welcome-actions { margin-top: 0; }
+
+@media (max-height: 520px) {
+  .welcome-screen { padding-bottom: var(--space-3); }
+  .welcome-card { padding: var(--space-5); gap: var(--space-2); }
+  .welcome-screen[data-step="phone"] .welcome-card { padding: var(--space-4) var(--space-5); }
+  .welcome-card h1 { font-size: var(--text-xl); }
+}

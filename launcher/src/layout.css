@@ -28,6 +28,8 @@ body {
 body[data-art="sharp"] .art-soft,
 body[data-art="sharp"] .scrim-soft { opacity: 0; }
 body[data-art="sharp"] .scrim-hero { opacity: 1; }
+body[data-art="clear"] .art-soft,
+body[data-art="clear"] .scrim-soft { opacity: 0; }
 
 #app {
   position: relative;
@@ -99,6 +101,7 @@ body[data-shell="full"] #titlebar { left: 0; }
 :root[data-sidebar="hide"] #titlebar { left: 0; }
 #show-sidebar { position: fixed; left: var(--space-5); bottom: var(--space-5); z-index: 5; display: none; }
 :root[data-sidebar="hide"] #show-sidebar { display: inline-flex; }
+:root body[data-shell="full"] #show-sidebar { display: none; }
 
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
