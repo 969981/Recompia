@@ -465,7 +465,7 @@ mod tests {
         let cards = coop_cards(&root, "192.0.2.10", &private);
         let card = &cards[0];
         assert_eq!(card["relay"], "none");
-        assert_eq!(card["host_choice"]["host_slot"], 2);
+        assert_eq!(card["host_choice"]["host_slot"], 1, "player 1 hosts a split save, a newer copy or not");
         assert_eq!(card["players"][0]["this_pc"], true);
         assert_eq!(card["players"][1]["this_pc"], true);
         for secret in [&p.room_code, &p.account_uid, &p.id, second, &p.members[0].name, &p.members[1].name] {
