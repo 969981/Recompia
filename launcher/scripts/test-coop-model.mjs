@@ -1,5 +1,5 @@
 // Tests for what the co-op Home says (src/coop-model.js). Run: node scripts/test-coop-model.mjs   (exit 1 on a failure)
-import { askOnce, hosting, mismatchText, needsPlayers, others, roleLine, runningLine } from '../src/coop-model.js';
+import { askOnce, choosePad, hosting, isSplit, mismatchText, needsPlayers, others, roleLine, runningLine, windowPads } from '../src/coop-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -27,6 +27,20 @@ check(runningLine(asA, 'visit') === 'Joining. Your game waits until the host is 
 // players
 check(needsPlayers(save([A], 'a', 'a')) && !needsPlayers(asA), 'one player is not enough');
 check(others(newest).join() === 'Ash,Brock', 'the others, in list order');
+// a split screen save: every player here, nobody to wait for
+{
+  const couch = save([A, B, C], 'a', 'a');
+  couch.profile.split = true;
+  check(isSplit(couch) && !isSplit(asA), 'split screen save is marked');
+  check(windowPads(3).join() === '1,2,3', 'controllers in window order by default');
+  check(windowPads(3, [0]).join() === '0,1,2', 'keyboard for window 1: the controllers start at window 2');
+  check(windowPads(2, [2, 2]).join() === '2,1', 'a controller twice: the later window gets a free one');
+  check(windowPads(2, [0, 0, 3]).join() === '0,1', 'one keyboard; a choice for a window that is not there is dropped');
+  check(windowPads(2, [9, 'x']).join() === '1,2', 'nonsense is replaced');
+  check(choosePad(3, [1, 2, 3], 1, 0).join() === '1,0,3', 'window 2 takes the keyboard');
+  check(choosePad(3, [0, 1, 2], 2, 0).join() === '2,1,0', 'the keyboard moves: the window that had it gets the controller back');
+  check(roleLine(couch, 'auto').startsWith('Each player plays in a window of their own') && runningLine(couch, 'auto').startsWith('The windows find each other'), 'split lines name no host');
+}
 // a hidden host
 check(mismatchText({ mismatch: 'mods' }).title.includes('mods') && mismatchText({ mismatch: 'build' }).title.includes('version'), 'mismatch titles');
 

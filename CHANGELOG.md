@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
+- Co-op: split screen. **Split screen on this PC** on the Co-op page makes a co-op save for 2 to 4 players on one PC, each in a window of their own with their own character, controller (or the keyboard and mouse) and copy of the world. The windows share one story as in online co-op and meet on their own, with no internet. Each window needs about 7 GB of memory.
 
 ## 0.15.1 (build S: Sloth Hotfix a1)
 
