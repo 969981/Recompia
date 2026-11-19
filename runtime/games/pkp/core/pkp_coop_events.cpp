@@ -29,7 +29,8 @@
 // own end actions 0x481b40 (they queue events on the talker's slot), the replay counters (m_skitHistoryV7, no reader) and m_flags
 // bit 8 of event 0xe0f (one script condition; no setter).
 // Rules on a receiver, at a safe moment (in the group's world, can walk, talks to no one): a played scene that is clear here is
-// played here through kPlayed and kQuestUi; a seen conversation row gets the bits it lacks; a story line with the same id that is
+// played here through kPlayed and kQuestUi; a seen conversation row gets the bits it lacks; on the authority only (a step runs world
+// actions), a story line with the same id that is
 // a step behind here gets all its bits and one kStep, repeated each frame until it is level, and one at the same step gets the bits
 // it lacks (kStep once all are set). A line that kStep does not move gets its own bits back, and is let go after kStepTries tries. Each process reads the three
 // areas each frame and shares what grew, and all of it every kAllEvery seconds and when it or another member joins.
@@ -329,7 +330,9 @@ void tick(::Ctx* c, bool in_game) {
     if (c && safe_now(in_game)) {
         apply_rows(root);
         apply_played(c, root);
-        apply_lines(c, root);
+        // A line's step runs that step's actions, some of them world ones (kind 6: the house arrival 0x9bdf50): the authority's save is
+        // the group's, so only the authority moves its lines on for another member; a member's own lines move by its own scenes.
+        if (link::is_authority()) apply_lines(c, root);
     }
     const double now = qpc::seconds();
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
