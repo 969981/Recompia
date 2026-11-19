@@ -21,7 +21,7 @@ Components of the runtime (pkp_rt, libpkp_rt) and the game layer
   miniz (MIT), Modtopia (MIT), SMAA (MIT), NVIDIA Image Scaling (MIT), AMD FidelityFX FSR 1 and FidelityFX API headers (MIT),
   NVIDIA Streamline headers (MIT), the NVN header (MIT), libvpx and its x86inc macros (BSD-3-Clause, ISC; Windows builds),
   astc-encoder (Apache-2.0), bc7enc_rdo (MIT or public domain, bc7e under Apache-2.0), ISPC (BSD-3-Clause), DejaVu fonts
-  (Bitstream Vera licence).
+  (Bitstream Vera licence), Font Awesome Free icons (CC BY 4.0: the icons of the in-game Settings tabs).
 Code adapted from other projects
   pokopia-native and its co-op module pokopia-coop (MIT), SuperMarioWonderRecomp (MIT), Ryujinx / ryubing (MIT), totk-pc-recomp (MIT),
   libnx (ISC), LLVM libc++abi (Apache-2.0 with LLVM exception), yuzu and Eden (GPL-2.0-or-later), smo-recomp (GPL-3.0),

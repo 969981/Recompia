@@ -7,6 +7,7 @@ Press **Update** in the launcher, then **Set up again** (co-op gets a new game h
 ### Gameplay
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
 - Linux: fixed rhythmic audio crackling with SDL3's PipeWire backend.
+- Each in-game Settings tab has its own icon.
 
 ### Performance
 - Fixed the no-Resizable-BAR path not being used on large graphics cards without Resizable BAR (such as some eGPU connections): such cards now read the game's shader constants from video memory too, like 4 and 6 GB cards. Cards of 8 GB or more with Resizable BAR, handhelds and PCs without a separate graphics card are unchanged.
