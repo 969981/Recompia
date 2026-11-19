@@ -6,8 +6,8 @@
 // 0x8a / 0x89, Sound 0x8e / 0x8d), 72 x 72 sprites of the UI icon sheet in its 2048 x 2048 BC7 atlas. The romfs has no sprites for our
 // tabs, so:
 //   * our icons (tools/settings_tab_icons.py: Font Awesome Free glyphs in the look of the game's pairs) are painted into a strip of that
-//     atlas no sprite uses, (0, 1920) to (1920, 2048): one row of 24 cells of 72 x 72 at a pitch of 80, each icon's selected look and then
-//     its other one. The strip is one rectangle aligned to 128 texels, so every level down to 1/32 is painted with it.
+//     atlas no sprite uses, (0, 1920) to (2048, 2048): one row of 26 cells of 72 x 72 at a pitch of 76 (as the game's own pairs), each
+//     icon's selected look and then its other one. The strip is one rectangle aligned to 128 texels, so every level down to 1/32 is painted with it.
 //   * each of our cells is set to the Game tab's pair (as before: that leaves the pane on the atlas's page and gives it the animation's
 //     colours), then the two panes' texture records get the UVs of the tab's cells in the strip. The records are the panes' own (the set
 //     copies the sprite's UVs in) and the animation does not write them, so nothing else changes.
@@ -39,9 +39,9 @@ constexpr uint32_t kGameOn = 0x88, kGameOff = 0x87;   // the Game tab's pair (ic
 constexpr uint32_t kOnSlot = 5, kOffSlot = 6;
 constexpr uint32_t kAtlasSize = 2048;
 constexpr sprites::Rect kGameOnRect = {152, 1348, 72, 72};
-constexpr uint32_t kStripX = 0, kStripY = 1920, kStripW = 1920, kStripH = 128;
-constexpr uint32_t kPitch = 80, kCellX = 4, kCellY = 28;   // a cell's place in the strip
-static_assert(2 * kTabs * kPitch <= kStripW && kCellY + kIconSize <= kStripH, "the icons fit the strip");
+constexpr uint32_t kStripX = 0, kStripY = 1920, kStripW = 2048, kStripH = 128;
+constexpr uint32_t kPitch = 76, kCellX = 4, kCellY = 28;   // a cell's place in the strip (76: the game's own pairs' pitch)
+static_assert(kCellX + 2 * kTabs * kPitch <= kStripW && kCellY + kIconSize <= kStripH, "the icons fit the strip");
 
 struct State {
     uint64_t tex = 0;                 // the NVNtexture painted last
