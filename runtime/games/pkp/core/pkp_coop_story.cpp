@@ -56,8 +56,9 @@
 // joins or another member does. A later step can give it back (quest 680 sets 99 again): a set the game makes here (0x1227fc with
 // +4 nonzero, 0x10c0d0 with +6 nonzero, a slot of effect 0x01 at the dispatcher) takes the id out of this process's set; co-op's own
 // applies never set an id in the set, so every set those hooks see is the game's. Every process runs that step through its own pump
-// (the catch-up), so each takes the id out of its own set. It lives in memory only; the event command 0x12c35c (value 2 clears) is not
-// watched.
+// (the catch-up), so each takes the id out of its own set. A clear the catch-up replays (a process behind runs quest 664 long after
+// the others passed 680) is not kept or shared: only a live one is. The set lives in memory only and only for the session (emptied
+// when this process joins or leaves one); the event command 0x12c35c (value 2 clears) is not watched.
 //
 // Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
 // for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
@@ -325,10 +326,29 @@ void clear_ability(::Ctx* c, uint16_t id) {
     guest::call(c, base() + kAbilityToggleFn, reinterpret_cast<uint64_t>(s.command));
 }
 
-// A clear seen at one of the two clear paths (raw: the id as the command holds it; the game uses its low byte).
-void note_clear(uint16_t raw, const char* by) {
+// A pump step the catch-up is replaying here: a quest whose flag is set and whose state is still below another member's. The pump runs
+// a step's effects before it writes the state and clears the flag (0x11bd3c, and 0x11b600's close path), so while such a step runs
+// the quest is still behind here: every other member made that step already, and is past what it did.
+bool replaying(::Ctx* c) {
+    const State& s = st();
+    const uint64_t words = quest_words(), story_obj = story();
+    if (!words || !story_obj) return false;
+    for (uint32_t i = 0; i < kQuestMax; ++i)
+        if (s.target[i] > state_at(words, i) && quest_flag(c, story_obj, i + 1)) return true;
+    return false;
+}
+
+// A clear seen at one of the two clear paths (raw: the id as the command holds it; the game uses its low byte). Only a live clear is
+// kept and shared: one a catch-up replays (an old step, quest 664 on a process still behind) is a step the others made long ago,
+// and a later step (quest 680) may have given the id back for them; sharing it would take the ability from the whole group.
+void note_clear(::Ctx* c, uint16_t raw, const char* by) {
     const uint16_t id = raw & 0xff;
-    if (!ability_id(id) || !mark_cleared(id)) return;
+    if (!ability_id(id) || ability_cleared(id)) return;
+    if (replaying(c)) {
+        NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s) by a step the catch-up replays; not shared", id, by);
+        return;
+    }
+    mark_cleared(id);
     st().cleared_new.push_back(static_cast<uint8_t>(id));
     NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s); it stays off for the group", id, by);
 }
@@ -471,7 +491,7 @@ int on_town_action(::Ctx* c) {
 int on_ability_effect(::Ctx* c) {
     // A clear (+4 value 0) or a set is noted; the effect itself runs as the game has it.
     if (!link::in_session() || !guest::ok(c->x[0], 6)) return 0;
-    if (guest::rd<uint16_t>(c->x[0] + 4) == 0) note_clear(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    if (guest::rd<uint16_t>(c->x[0] + 4) == 0) note_clear(c, guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
     else note_grant(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
     return 0;
 }
@@ -481,7 +501,7 @@ int on_ability_step(::Ctx* c) {
     if (!link::in_session() || !guest::ok(c->x[1] + 8, 8)) return 0;
     const uint64_t rec = guest::rd<uint64_t>(c->x[1] + 8);
     if (!rec || !guest::ok(rec, 8)) return 0;
-    if (guest::rd<int16_t>(rec + 6) == 0) note_clear(guest::rd<uint16_t>(rec + 4), "story step");
+    if (guest::rd<int16_t>(rec + 6) == 0) note_clear(c, guest::rd<uint16_t>(rec + 4), "story step");
     else note_grant(guest::rd<uint16_t>(rec + 4), "story step");
     return 0;
 }
@@ -692,7 +712,11 @@ void on_session_change() {
     s.digest_at = 0.0;
     s.send_all = true;
     s.have_seen = false;
-    s.cleared_send_all = true;   // the set is kept: an ability taken away stays away for the co-op run
+    // The set belongs to this session: joined or left, it starts empty, so a set from another group (or another save) never strips
+    // an ability here or there. On a rejoin of the same group the others send theirs again (on_member_joined).
+    std::memset(s.cleared, 0, sizeof s.cleared);
+    s.cleared_new.clear();
+    s.cleared_send_all = false;
 }
 
 void on_member_joined() {
