@@ -40,6 +40,10 @@ struct GpuFacts {
     uint32_t pci_domain = 0, pci_bus = 0, pci_device = 0, pci_function = 0;
 };
 void set_gpu(const GpuFacts& gpu);
+// Resizable BAR is off when the host-visible part of the video memory (bar_bytes) is at most this: the fixed window without it is 214-256
+// MiB depending on the driver, whatever the size of the video memory. The report (perf_system.cpp) and the uniform snapshots'
+// auto rule (nvn_replay_bind.cpp) both use it.
+constexpr uint64_t kBarWindowMaxBytes = 272ull << 20;
 
 // Play mode: a function that describes the settings that matter (window and render size, scene scale, frame cap, vsync, present mode,
 // upscaler), called on the hitch monitor's thread at each summary; the report logs its text when it changed.

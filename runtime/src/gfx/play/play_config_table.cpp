@@ -321,7 +321,7 @@ const SettingDef kTable[] = {
     {ROW("display", "shader_prewarm", Bool), FLAG(display.shader_prewarm), .nxrt_key = "nvn.prewarm",
      .doc = "Build the pipelines recorded by earlier runs ahead of the draws. Next start."},
     {ROW("display", "uniform_snapshot", Choice), TEXT(display.uniform_snapshot), .words = kUniformSnapshotWords, .nxrt_key = "nvn.uniform_snapshot",
-     .doc = "Shader constants read from video memory: auto (discrete GPUs with under 7 GiB of video memory), on or off. Next start."},
+     .doc = "Shader constants read from video memory: auto (discrete GPUs with under 7 GiB of video memory or without resizable BAR), on or off. Next start."},
     {ROW("display", "astc_quality", Choice), TEXT(display.astc_quality), .words = kAstcWords, .nxrt_key = "gfx.astc_quality",
      .doc = "ASTC texture quality on this GPU (uncompressed: RGBA8, lots of video memory). Next start."},
     {ROW("display", "monitor", Int), WHOLE(display.monitor), .lo = 0, .hi = 32, .auto_word = "auto", .auto_at = 0,

@@ -53,6 +53,9 @@ store.subscribe((s) => {
   readLog(id, at);
 });
 
+// co-op is new and uses a save of its own: said on the page whatever it shows, since players expect their current world to come along
+const experimental = () => `<div class="banner info coop-banner">${icon('info')}<div class="grow"><strong>${esc(t('Co-op is experimental for now.'))}</strong><span>${esc(t('It needs its own save that starts from the beginning: your current save cannot be played in co-op, and co-op never uses or changes it.'))}</span></div></div>`;
+
 const field = (id, label, opts = {}) => `<label class="form-field"><span>${esc(label)}${opts.hint ? ` <span class="hint">${esc(opts.hint)}</span>` : ''}</span>
   <input class="input" id="${id}" type="text" maxlength="${MAX_NAME}" autocomplete="off" spellcheck="false" placeholder="${esc(opts.placeholder ?? '')}" value="${esc(opts.value ?? '')}" /></label>`;
 
@@ -142,6 +145,7 @@ export async function render(el, ctx) {
     const html = (!s.app || ready(s) ? ''
       : `<div class="banner warn">${icon('triangle-alert')}<div class="grow">${esc(t('Co-op plays the game you set up under Solo, and it is not ready yet.'))}</div>`
         + `<button class="btn sm" data-act="recompia">${esc(t('Go to Solo'))}</button></div>`)
+      + experimental()
       + (saves.length ? saves.map(saveHtml).join('') + `<details class="coop-how"><summary>${icon('chevron-right')}${esc(t('How co-op works'))}</summary>${steps()}</details>` : emptyHtml());
     if (html === lastHtml) return;   // store events come often: redraw only what changed, so focus and the open details stay
     const open = el.querySelector('.coop-how')?.open;
@@ -198,7 +202,8 @@ export async function render(el, ctx) {
     const extra = [2, 3, 4].map((n) => field(`coop-p${n}`, t('Player {n}', { n }), { placeholder: n === 2 ? t('Name of a friend') : t('Optional') })).join('');
     const form = await formDialog({
       title: t('New co-op save'), ok: t('Create'), wide: true,
-      html: `<div class="form-grid">${field('coop-name', t('Name of the save'), { placeholder: t('For example: Our island') })}
+      html: `<p class="faint">${esc(t('This makes a new save that starts from the beginning. Your current save is not used or changed.'))}</p>
+        <div class="form-grid">${field('coop-name', t('Name of the save'), { placeholder: t('For example: Our island') })}
         ${field('coop-me', t('Your name'), { hint: t('(you host first)') })}</div>
         <p class="faint">${esc(t('Who else plays? Type each name once; each friend picks theirs when they join.'))}</p><div class="form-grid">${extra}</div>`,
       check: (f) => {
@@ -250,7 +255,8 @@ export async function render(el, ctx) {
     const typed = (f) => f.querySelector('#coop-code').value.trim();
     const form = await formDialog({
       title: t('Join a co-op save'), ok: t('Join'), wide: true,
-      html: `<label class="form-field">${esc(t('Invite code'))} <span class="hint">${esc(t('The friend who made the save sends it to you: the short code or the long one, both work.'))}</span>
+      html: `<p class="faint">${esc(t('A co-op save is a save of its own that starts from the beginning. Your current save is not used or changed.'))}</p>
+        <label class="form-field">${esc(t('Invite code'))} <span class="hint">${esc(t('The friend who made the save sends it to you: the short code or the long one, both work.'))}</span>
           <textarea class="input" id="coop-code" rows="4" maxlength="${INVITE_LENGTH}" spellcheck="false" placeholder="K7Q-M2X · PKCOOP1..."></textarea></label>
         <div id="coop-who"></div>`,
       check: async (f) => {
