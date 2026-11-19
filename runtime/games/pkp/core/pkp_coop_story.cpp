@@ -126,9 +126,10 @@ constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word o
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
                                                           // is one no pump step reaches, so the catch-up would flag it for ever
-constexpr uint64_t kGameMgr = 0x3561710, kQuestListGlobal = 0x34efd60;
+constexpr uint64_t kQuestListGlobal = 0x34efd60;   // GM: *(main + layout::kGameState)
 constexpr uint64_t kGmStage = 0x18, kGmQuestLists = 0x3b9328;   // GM + : this area's stage, the quest lists (QL)
 constexpr uint64_t kListC = 0x0, kListCIds = 0x4, kListA = 0x60, kListAEntries = 0x64, kListB = 0x1b8, kListBIds = 0x1bc;   // QL +
+constexpr uint64_t kListAEntry = 8, kListATimer = 4;   // A's entry {u32 id (low u16), f32 timer} (0x11b600, 0x119640 writes timer 0)
 constexpr uint32_t kListCap = 0x28;
 constexpr uint64_t kPrereqOf = 0x114e40, kStageOf = 0x11ac38, kUnlockFollowUps = 0x11c220;
 constexpr uint64_t kClearLists = 0x11933c, kListStage = 0x119640, kStoryBusy = 0x1186ec;
@@ -292,7 +293,7 @@ bool story_shared_here() {
 }
 
 uint64_t quest_lists() {
-    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
     if (!guest::ok(gm, kGmQuestLists + kListsSize)) return 0;
     const uint64_t ql = gm + kGmQuestLists;
     // The pump's own object (0xb80c0 passes GM+0x3b9328 to 0xba660); 0x118d44 keeps it in the global too.
@@ -300,7 +301,7 @@ uint64_t quest_lists() {
 }
 
 uint8_t area_stage() {
-    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
     return guest::ok(gm, kGmStage + 1) ? guest::rd<uint8_t>(gm + kGmStage) : 0;
 }
 
@@ -404,7 +405,7 @@ uint32_t list_counts(uint64_t ql) {
 // 0x119640's own gate: it lists nothing unless the story is on (GM+0x8c bit 0), 0x538750() is clear, and not (GM+0x98 set and the
 // player manager's object +0x30 answering true to its vt+0x148).
 bool stage_listing_open(::Ctx* c) {
-    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
     if (!guest::ok(gm, kGmLinkWait + 8) || !(guest::rd<uint8_t>(gm + kGmStory) & 1)) return false;
     if (guest::call(c, base() + kStoryOff, 0) & 1) return false;
     if (!guest::rd<uint64_t>(gm + kGmLinkWait)) return true;
@@ -450,7 +451,29 @@ bool list_quest(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state
         NXLOG_W(kTag, "Co-op story: the quest list rebuild for quest %u listed nothing; the lists were put back", id);
         return false;
     }
+    // 0x119640 starts every quest it puts in A with timer 0: a quest that was in A already keeps the timer it had (the catch-up runs
+    // on the host too, so every started quest's wait would start over otherwise).
+    uint32_t old_a = 0;
+    std::memcpy(&old_a, saved + kListA, sizeof old_a);
+    old_a = std::min(old_a, kListCap);
+    const uint32_t new_a = std::min(guest::rd<uint32_t>(ql + kListA), kListCap);
+    unsigned kept = 0;
+    for (uint32_t k = 0; k < new_a; ++k) {
+        const uint64_t entry = ql + kListAEntries + k * kListAEntry;
+        const uint16_t quest = static_cast<uint16_t>(guest::rd<uint32_t>(entry));
+        for (uint32_t j = 0; j < old_a; ++j) {
+            uint32_t old_id = 0;
+            float timer = 0.0f;
+            std::memcpy(&old_id, saved + kListAEntries + j * kListAEntry, sizeof old_id);
+            if (static_cast<uint16_t>(old_id) != quest) continue;
+            std::memcpy(&timer, saved + kListAEntries + j * kListAEntry + kListATimer, sizeof timer);
+            guest::wr<float>(entry + kListATimer, timer);
+            ++kept;
+            break;
+        }
+    }
     const bool ok = listed(ql, id, state);
+    if (kept) NXLOG_I(kTag, "Co-op story: %u started quests kept their timers through the rebuild", kept);
     NXLOG_W(kTag, "Co-op story: this area's quest lists rebuilt as at a stage start, for quest %u at state %u: %s", id, state,
             ok ? "listed now" : "still not listed");
     return ok;
