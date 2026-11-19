@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-Press **Update** in the launcher, then **Set up again** (co-op gets a new game hook point; saves and shaders are kept).
+## 0.15.1 (build S: Sloth Hotfix a1)
+
+**Update:** press **Update** in the launcher, then **Set up again** (co-op gets new game hook points; saves and shaders are kept).
+
+### Highlights
+- **Co-op: shop purchases are shared.** Whatever one player buys, every teammate gets too, and so does anyone who joins later. Only the buyer pays
+- **Co-op: the host's shop now sells the Backpack Upgrade (Packing Tips) and PP Up** (#780)
+- **Co-op: the group travels to another area together**, and a player who is offline no longer freezes the others once the story has begun
 
 ### Gameplay
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
