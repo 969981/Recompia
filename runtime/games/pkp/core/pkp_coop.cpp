@@ -71,6 +71,8 @@ enum class Site : uintptr_t {
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
+    VisitorSync,      // the visitor's "every Link Play request answered" test, from the event queue's ready test: a member's story events
+                      // are not held for counters that stopped meeting (pkp_coop_held.cpp)
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
                       // lists them as it does offline (#780)
     // ---- the discoveries ----
@@ -119,6 +121,7 @@ constexpr CoopSite kSites[] = {
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
+    {{0x313418, kPacibsp, true}, Site::VisitorSync},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -160,6 +163,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
+        case Site::VisitorSync: return coop::held::on_visitor_sync(c);
         default: return 0;
     }
 }
@@ -260,6 +264,7 @@ void remove() {   // the registry has removed the hooks
     coop::curtain::reset();
     coop::gate::reset();
     coop::trace::reset();
+    coop::held::reset();
     coop::session::reset();
 }
 

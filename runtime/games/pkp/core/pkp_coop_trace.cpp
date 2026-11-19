@@ -8,6 +8,10 @@
 //   chara    a character's place (its CharacterStatus record: position vec4 at +0x10 with w 1.0, data id at +0x24) when it moved 150 units
 //            or more since it was last logged, once a second; a scan where more than kStageChange moved (a stage load) is one line instead,
 //            at most every kStageLineEvery seconds
+//   held     a queued event (the event queue's record slots of player slot 0) still waiting after kHeldAfter seconds: its id, kind, mode
+//            and flag word (rec +0x704, u24), with what the queue's ready test 0x479c60 reads besides: the visitor bit, Link Play's request
+//            counters (block map +0x9218378, u16 x5; bit 22 of the flag word waits on a visitor while the first two differ), the slot's
+//            mode word and the queue's locks. Logged once per record and on each change; and when a held record leaves the queue
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -32,6 +36,15 @@ constexpr float kPlayerMoved = 30.0f, kCharaMoved = 150.0f;
 constexpr int kCharaLinesMax = 12, kStageChange = 30, kQuestsPerLine = 16;
 constexpr uint64_t kSecondPlayer = 0x38;   // player manager: the second player's character
 constexpr uint64_t kCharaPos = 0x10, kCharaDataId = 0x24;   // CharacterStatus: m_position (vec4, w 1.0 when set), m_id (u16)
+// The event queue (HELD-EVENTS-RE): main+0x3483eb0 holds the queue global's address; slot 0's 0x40 records of 0x708 bytes start at the
+// queue. A record slot is taken when its id (u16 +0) is 1..0x18ff or its kind (u32 +0x664) is below 0xd1.
+constexpr uint64_t kEventQueueRef = 0x3483eb0, kRecordSize = 0x708, kRecId = 0, kRecKind = 0x664, kRecMode = 0x6ec, kRecFlags = 0x704;
+constexpr int kRecords = 0x40;
+constexpr uint64_t kQueueLocks = 0x41f40;   // u8 x3, tested by flag bits 14, 16 and 23
+constexpr uint64_t kModeWords = 0x35650e8, kModeWord = 0x140;   // u32 per slot: the game mode the queue matches against rec +0x6ec
+constexpr uint64_t kBlockMap = 0x34efc98, kRequestCounters = 0x9218378;
+constexpr uint64_t kEventRunnerRef = 0x3483e60, kRunnerHold = 0x4022;   // u8: set, the ready test passes only a few fixed ids
+constexpr double kHeldEvery = 2.0, kHeldAfter = 10.0;
 
 struct Vec {
     float x = 0, y = 0, z = 0;
@@ -43,6 +56,14 @@ struct State {
     uint16_t quests[layout::kQuestWordCount] = {};
     Vec me, other;
     std::vector<Vec> charas;   // the place last logged per chara (0,0,0: not placed)
+    double held_at = 0;
+    struct Held {
+        uint16_t id = 0;
+        uint32_t kind = 0, mode = 0, flags = 0;
+        double since = 0;
+        bool logged = false;
+    } held[kRecords];
+    std::string held_context;   // the last context line logged
 };
 State& st() {
     static State s;
@@ -177,6 +198,79 @@ void watch_charas(State& s, double t, bool first) {
     for (uint32_t i : moved) s.charas[i] = now[i];
 }
 
+uint64_t event_queue() {
+    const uint64_t ref = guest::rd<uint64_t>(base() + kEventQueueRef);
+    if (!guest::ok(ref, 8)) return 0;
+    const uint64_t q = guest::rd<uint64_t>(ref);
+    return guest::ok(q, kQueueLocks + 3) ? q : 0;
+}
+
+std::string held_context(uint64_t q) {
+    char line[256];
+    const uint64_t bm = guest::rd<uint64_t>(base() + kBlockMap);
+    uint16_t rq[5] = {};
+    const bool have_rq = guest::ok(bm, 8) && guest::ok(bm + kRequestCounters, sizeof rq);
+    if (have_rq) std::memcpy(rq, reinterpret_cast<const void*>(bm + kRequestCounters), sizeof rq);
+    const uint64_t mw = guest::rd<uint64_t>(base() + kModeWords);
+    const unsigned mode = guest::ok(mw, kModeWord + 4) ? guest::rd<uint32_t>(mw + kModeWord) : 0xffffffffu;
+    const uint64_t er_ref = guest::rd<uint64_t>(base() + kEventRunnerRef);
+    const uint64_t er = guest::ok(er_ref, 8) ? guest::rd<uint64_t>(er_ref) : 0;
+    const int hold = guest::ok(er, kRunnerHold + 1) ? guest::rd<uint8_t>(er + kRunnerHold) : -1;
+    if (have_rq)
+        std::snprintf(line, sizeof line, "session bits 0x%x, requests %u/%u (%u %u %u)%s, mode word %u, locks %u %u %u, runner hold %d",
+                      static_cast<unsigned>(session_bits()), rq[0], rq[1], rq[2], rq[3], rq[4], rq[0] != rq[1] ? " UNEQUAL" : "", mode,
+                      guest::rd<uint8_t>(q + kQueueLocks), guest::rd<uint8_t>(q + kQueueLocks + 1), guest::rd<uint8_t>(q + kQueueLocks + 2), hold);
+    else
+        std::snprintf(line, sizeof line, "session bits 0x%x, no block map, mode word %u, locks %u %u %u, runner hold %d",
+                      static_cast<unsigned>(session_bits()), mode, guest::rd<uint8_t>(q + kQueueLocks),
+                      guest::rd<uint8_t>(q + kQueueLocks + 1), guest::rd<uint8_t>(q + kQueueLocks + 2), hold);
+    return line;
+}
+
+void watch_held(State& s, double t) {
+    if (t - s.held_at < kHeldEvery) return;
+    s.held_at = t;
+    const uint64_t q = event_queue();
+    if (!q || !guest::ok(q, kRecords * kRecordSize)) return;
+    bool any_logged = false;
+    for (int i = 0; i < kRecords; ++i) {
+        const uint64_t r = q + i * kRecordSize;
+        State::Held now;
+        now.id = guest::rd<uint16_t>(r + kRecId);
+        now.kind = guest::rd<uint32_t>(r + kRecKind);
+        const bool taken = static_cast<uint16_t>(now.id - 1) < 0x18ff || now.kind < 0xd1;
+        State::Held& h = s.held[i];
+        if (!taken) {
+            if (h.logged) NXLOG_I(kTag, "Co-op trace: held event %u (record %d) left the queue after %.0f s", h.id, i, t - h.since);
+            h = State::Held{};
+            continue;
+        }
+        now.mode = guest::rd<uint32_t>(r + kRecMode);
+        now.flags = guest::rd<uint32_t>(r + kRecFlags) & 0xffffffu;
+        if (h.since == 0 || h.id != now.id || h.kind != now.kind) {
+            now.since = t;
+            h = now;
+            continue;
+        }
+        const bool changed = h.mode != now.mode || h.flags != now.flags;
+        h.mode = now.mode;
+        h.flags = now.flags;
+        if (t - h.since < kHeldAfter || (h.logged && !changed)) continue;
+        h.logged = true;
+        any_logged = true;
+        NXLOG_I(kTag, "Co-op trace: held event %u (record %d, kind %u) waiting %.0f s: mode 0x%x, flags 0x%06x%s", h.id, i, h.kind,
+                t - h.since, h.mode, h.flags, (h.flags >> 22 & 1) ? " (bit 22: waits for the request counters on a visitor)" : "");
+    }
+    bool any_held = false;
+    for (const auto& h : s.held) any_held = any_held || h.logged;
+    if (!any_held) return;
+    std::string ctx = held_context(q);
+    if (any_logged || ctx != s.held_context) {
+        NXLOG_I(kTag, "Co-op trace: held events context: %s", ctx.c_str());
+        s.held_context = std::move(ctx);
+    }
+}
+
 }  // namespace
 
 void tick(bool in_game) {
@@ -200,6 +294,7 @@ void tick(bool in_game) {
     if (!first) watch_quests(s);
     watch_players(s, t);
     watch_charas(s, t, first);
+    watch_held(s, t);
 }
 
 void reset() { st() = State{}; }
