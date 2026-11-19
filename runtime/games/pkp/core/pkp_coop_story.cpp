@@ -47,8 +47,13 @@
 // 0x12c35c (the creature list talk sets ids 17 and 76 through one of the latter two). So the bits themselves are
 // watched, not a writer: once a frame in the session, every bit that turned on here since the last look is shared as an effect 0x19
 // "set" command, and a receiver whose bit is off runs 0x1227fc with it. The first look in a session only takes the baseline; what a
-// member had before joining reaches the others through the digest (below), which merges the bits both ways. A bit turned off is not
-// shared (no writer clears one in the story; the saves seen only grow).
+// member had before joining reaches the others through the digest (below), which merges the bits both ways.
+// Some steps take an ability away (quest 664's effect 0x19 clears 99): 0x1227fc with its +4 value 0 and the story-line step action
+// 0x10c0d0 (record *(x1 + 8)) with its +6 value 0 clear the bit. The union above would bring such a bit back from any process that
+// still has it, so a cleared id is kept in a set for the co-op run (entry hooks on both clears, in a session only), shared
+// (AbilityCleared) and cleared on every member, and never shared or applied again: not as a bit that turned on, not by the digest's
+// merge (a member that still has it clears it instead), not from an ability command. The set is sent again whole when this process
+// joins or another member does. It lives in memory only; the event command 0x12c35c's clear (value 2) is not watched.
 //
 // Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
 // for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
@@ -139,6 +144,9 @@ struct State {
     };
     std::vector<WildPop> wild_pops;          // a member's appearances not sent yet (the channel was not up)
     alignas(8) uint8_t pop_command[wire::kEffectSize] = {};   // a received appearance as an effect 0x33 command, guest-readable
+    uint8_t cleared[kAbilityBytes] = {};     // the abilities a step took away in this co-op run (bit per id): never given back
+    std::vector<uint8_t> cleared_new;        // cleared here and not sent yet
+    bool cleared_send_all = false;           // the next send is the whole set (joined, or another member joined)
 };
 State& st() {
     static State s;
@@ -166,6 +174,15 @@ uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest
 bool quest_flag(::Ctx* c, uint64_t s, uint32_t id) { return guest::call(c, base() + kFlagOf, s, id) & 1; }
 
 bool ability_id(uint16_t v) { return static_cast<uint8_t>(v - 1) < 0xf9; }
+bool ability_cleared(uint16_t v) { return st().cleared[(v & 0xff) >> 3] & (1u << (v & 7)); }
+// Puts the id in the cleared set; true when it was not in it yet.
+bool mark_cleared(uint16_t v) {
+    uint8_t& byte = st().cleared[(v & 0xff) >> 3];
+    const uint8_t bit = static_cast<uint8_t>(1u << (v & 7));
+    if (byte & bit) return false;
+    byte |= bit;
+    return true;
+}
 bool ability_on(uint64_t root, uint16_t v) {
     return guest::rd<uint8_t>(root + kAbilities + ((v & 0xff) >> 3)) & (1u << (v & 7));
 }
@@ -293,6 +310,47 @@ void apply_ability(::Ctx* c, uint64_t root, uint16_t id) {
     if (s.have_seen && ability_on(root, id)) s.seen[(id & 0xff) >> 3] |= static_cast<uint8_t>(1u << (id & 7));
 }
 
+// The ability bit cleared here through the quest effect 0x19 (+4 value 0), as the step that took it away did. The id is already in
+// the set, so the clear hook does not take it for a new one.
+void clear_ability(::Ctx* c, uint16_t id) {
+    State& s = st();
+    std::memset(s.command, 0, sizeof s.command);
+    s.command[0] = kAbilityToggle;
+    const uint16_t args[2] = {id, 0};
+    std::memcpy(s.command + 2, args, sizeof args);
+    guest::call(c, base() + kAbilityToggleFn, reinterpret_cast<uint64_t>(s.command));
+}
+
+// A clear seen at one of the two clear paths (raw: the id as the command holds it; the game uses its low byte).
+void note_clear(uint16_t raw, const char* by) {
+    const uint16_t id = raw & 0xff;
+    if (!ability_id(id) || !mark_cleared(id)) return;
+    st().cleared_new.push_back(static_cast<uint8_t>(id));
+    NXLOG_I(kTag, "Co-op story: ability %u cleared here (%s); it stays off for the group", id, by);
+}
+
+// The ids cleared here since the last send (the whole set after a join), once the channel can carry them.
+void send_cleared() {
+    State& s = st();
+    if (!link::in_session()) return;
+    std::vector<uint8_t> ids;
+    if (s.cleared_send_all) {
+        for (uint16_t id = 1; id <= 0xf9; ++id)
+            if (ability_cleared(id)) ids.push_back(static_cast<uint8_t>(id));
+    } else {
+        ids = s.cleared_new;
+    }
+    if (ids.empty()) {
+        s.cleared_send_all = false;
+        return;
+    }
+    if (!link::share(wire::Type::AbilityCleared,
+                     wire::Writer(link::self()).u16(static_cast<uint16_t>(ids.size())).bytes(ids.data(), ids.size()).take()))
+        return;   // kept for the next frame
+    s.cleared_new.clear();
+    s.cleared_send_all = false;
+}
+
 void share_ability(uint16_t id) {
     uint8_t cmd[wire::kEffectSize] = {kAbilityToggle};
     const uint16_t args[2] = {id, 1};
@@ -316,7 +374,7 @@ void share_new_abilities() {
         const uint8_t turned_on = now[byte] & ~s.seen[byte];
         for (unsigned bit = 0; bit < 8; ++bit) {
             const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
-            if (!(turned_on & (1u << bit)) || !ability_id(id)) continue;
+            if (!(turned_on & (1u << bit)) || !ability_id(id) || ability_cleared(id)) continue;
             share_ability(id);
             NXLOG_I(kTag, "Co-op story: ability %u turned on here, shared", id);
         }
@@ -394,6 +452,20 @@ int on_town_action(::Ctx* c) {
     }
     c->x[0] = 1;   // the game's own return (every path returns 1): the line steps on as before
     return 1;
+int on_ability_effect(::Ctx* c) {
+    // Only the clear (+4 value 0) is noted; the effect itself runs as the game has it.
+    if (!link::in_session() || !guest::ok(c->x[0], 6) || guest::rd<uint16_t>(c->x[0] + 4) != 0) return 0;
+    note_clear(guest::rd<uint16_t>(c->x[0] + 2), "quest effect 0x19");
+    return 0;
+}
+
+int on_ability_step(::Ctx* c) {
+    // 0x10c0d0's own guards: the record *(x1 + 8) is there, its id (+4, low byte) in range; +6 value 0 is the clear.
+    if (!link::in_session() || !guest::ok(c->x[1] + 8, 8)) return 0;
+    const uint64_t rec = guest::rd<uint64_t>(c->x[1] + 8);
+    if (!rec || !guest::ok(rec, 8) || guest::rd<int16_t>(rec + 6) != 0) return 0;
+    note_clear(guest::rd<uint16_t>(rec + 4), "story step");
+    return 0;
 }
 
 int on_wild_pop(::Ctx* c) {
@@ -480,13 +552,20 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
             ++ahead;
         }
     }
-    unsigned got = 0, gave = 0;
+    unsigned got = 0, gave = 0, dropped = 0;
     for (unsigned byte = 0; byte < kAbilityBytes; ++byte) {
         const uint8_t mine = guest::rd<uint8_t>(root + kAbilities + byte);
         for (unsigned bit = 0; bit < 8; ++bit) {
             const uint16_t id = static_cast<uint16_t>(byte * 8 + bit);
             if (!ability_id(id)) continue;
             const bool there = bits[byte] & (1u << bit), here = mine & (1u << bit);
+            if (ability_cleared(id)) {   // taken away in this run: never given back, and off here too
+                if (here && !there) {
+                    clear_ability(c, id);
+                    ++dropped;
+                }
+                continue;
+            }
             if (there && !here) {
                 apply_ability(c, root, id);
                 ++got;
@@ -496,9 +575,9 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
             }
         }
     }
-    if (behind || ahead || got || gave)
+    if (behind || ahead || got || gave || dropped)
         NXLOG_I(kTag, "Co-op story: the authority's story (node %u): %u quests behind it here, %u ahead (sent again); abilities %u taken, "
-                "%u sent", origin, behind, ahead, got, gave);
+                "%u sent, %u cleared here (taken away in this run)", origin, behind, ahead, got, gave, dropped);
     if (behind || got) {
         const double now = qpc::seconds();
         if (now - s.story_line_at >= kNoticeGap) {
@@ -509,14 +588,41 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     catch_up(c);
 }
 
+void on_cleared_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
+    const uint16_t n = r.u16();
+    const uint64_t root = save_root();
+    unsigned turned_off = 0;
+    for (uint16_t k = 0; k < n && r.ok(); ++k) {
+        const uint8_t id = r.u8();
+        if (!r.ok() || !ability_id(id)) continue;
+        mark_cleared(id);
+        if (root && ability_on(root, id)) {
+            clear_ability(c, id);
+            ++turned_off;
+            NXLOG_I(kTag, "Co-op story: ability %u was taken away on node %u; cleared here too", id, origin);
+        }
+    }
+    if (n && !turned_off) NXLOG_I(kTag, "Co-op story: %u cleared abilities from node %u, all already off here", n, origin);
+}
+
 void on_ability_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     std::memset(s.command, 0, sizeof s.command);
     r.bytes(s.command, wire::kEffectSize);
     const uint64_t root = save_root();
-    if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle) || !ability_changes(root, s.command)) return;
+    if (!r.ok() || !root || (s.command[0] != kAbilitySet && s.command[0] != kAbilityToggle)) return;
     uint16_t ids[kAbilitySlots];
     std::memcpy(ids, s.command + 2, sizeof ids);
+    // An id taken away in this run is never applied again: a set command's slot is emptied (id 0 fails the game's own range test),
+    // a toggle that sets it is dropped.
+    if (s.command[0] == kAbilityToggle) {
+        if (ids[1] != 0 && ability_cleared(ids[0])) return;
+    } else {
+        for (uint16_t& id : ids)
+            if (ability_id(id) && ability_cleared(id)) id = 0;
+        std::memcpy(s.command + 2, ids, sizeof ids);
+    }
+    if (!ability_changes(root, s.command)) return;
     bool off_before[kAbilitySlots] = {};
     for (unsigned k = 0; k < kAbilitySlots; ++k) off_before[k] = ability_id(ids[k]) && !ability_on(root, ids[k]);
     guest::call(c, base() + (s.command[0] == kAbilitySet ? kAbilitySetFn : kAbilityToggleFn), reinterpret_cast<uint64_t>(s.command));
@@ -550,6 +656,7 @@ static void send_wild_pops() {
 
 void tick(::Ctx* c) {
     send_wild_pops();
+    send_cleared();
     catch_up(c);
     share_states();
     share_new_abilities();
@@ -567,9 +674,13 @@ void on_session_change() {
     s.digest_at = 0.0;
     s.send_all = true;
     s.have_seen = false;
+    s.cleared_send_all = true;   // the set is kept: an ability taken away stays away for the co-op run
 }
 
-void on_member_joined() { st().send_all = true; }
+void on_member_joined() {
+    st().send_all = true;
+    st().cleared_send_all = true;
+}
 
 bool world_started() {
     const uint64_t words = quest_words();
