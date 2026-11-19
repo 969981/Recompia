@@ -10,7 +10,8 @@
 // but not near" record runs (Tangrowth: "It's a tad far away..."), scene 65 is never queued, and quest 11 stays at 3.
 //   0x13596c (entry hook), from 0x593120 only (return to main+0x593d5c), on a member in a session: when the object is not at that cell
 //   in the local grid yet (0x14ebb8), the notice waits. It is raised (the game's own 0x13596c, same arguments) once the object is
-//   there and the player can walk, or after kWait seconds as the game would have raised it. Every other case runs the game's own code.
+//   there and the player can walk, or after kWait seconds as the game would have raised it. It is dropped when the stage or the
+//   scheduler changed meanwhile, or after kDrop seconds without a safe moment. Every other case runs the game's own code.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -35,10 +36,12 @@ constexpr uint64_t kFirstOf = 0x28cc60;           // (actor manager, data id) ->
 constexpr uint32_t kTangrowth = 0x2c;             // data id 44, for the log
 constexpr uint32_t kObjectMax = 0xfff;
 constexpr double kWait = 10.0;
+constexpr double kDrop = 60.0;
 constexpr size_t kQueue = 8;
 
 struct Pending {
     uint64_t scheduler;
+    uint8_t stage;
     uint16_t object;
     int16_t x, y, z;
     uint8_t dir;
@@ -57,6 +60,10 @@ State& st() {
 uint64_t scheduler() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
     return guest::ok(game, kScheduler + 8) ? guest::rd<uint64_t>(game + kScheduler) : 0;
+}
+uint8_t stage() {
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    return guest::ok(game, layout::kStateStage + 1) ? guest::rd<uint8_t>(game + layout::kStateStage) : 0;
 }
 
 bool member_here() {
@@ -106,7 +113,7 @@ int on_placed_notice(::Ctx* c) {
     const uint16_t object = static_cast<uint16_t>(c->x[1]);
     const uint8_t dir = static_cast<uint8_t>(c->x[5]);
     if (!c->x[0] || static_cast<uint16_t>(object - 1) >= kObjectMax || dir >= 4) return 0;   // the game's own test refuses these
-    const Pending p{c->x[0], object, static_cast<int16_t>(c->x[2]), static_cast<int16_t>(c->x[3]), static_cast<int16_t>(c->x[4]), dir,
+    const Pending p{c->x[0], stage(), object, static_cast<int16_t>(c->x[2]), static_cast<int16_t>(c->x[3]), static_cast<int16_t>(c->x[4]), dir,
                     qpc::seconds()};
     if (object_at(c, p) || s.waiting.size() >= kQueue) return 0;   // already in this world (or too many waiting): as the game does
     s.waiting.push_back(p);
@@ -124,12 +131,14 @@ void tick(::Ctx* c, bool in_game) {
         return;
     }
     const uint64_t sched = scheduler();
+    const uint8_t here = stage();
     const bool safe = session::can_walk(in_game) && !talk::talking();
     const double now = qpc::seconds();
     for (size_t i = 0; i < s.waiting.size();) {
         const Pending p = s.waiting[i];
-        if (p.scheduler != sched) {   // another area since: its contents are not the ones the notice was for
-            NXLOG_I(kTag, "Co-op placement: object %u's notice dropped, the area changed", p.object);
+        if (p.scheduler != sched || p.stage != here || now - p.at >= kDrop) {   // another stage since, or never a safe moment
+            NXLOG_I(kTag, "Co-op placement: object %u's notice dropped (%s)", p.object,
+                    now - p.at >= kDrop ? "no safe moment" : "the stage changed");
             s.waiting.erase(s.waiting.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
