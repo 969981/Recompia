@@ -531,8 +531,8 @@ pub fn zig(tools_dir: &Path) -> PathBuf {
     }
 }
 
-/// A command for a program of this system (Python, tar, xdg-open). In an AppImage, whose runtime points
-/// variables such as GTK_PATH, GIO_EXTRA_MODULES or XDG_DATA_DIRS into the AppImage for the launcher's own libraries, the
+/// A command for a program of this system (Python, tar, xdg-open) or the game. In an AppImage, whose runtime points
+/// variables such as LD_LIBRARY_PATH, GTK_PATH, GIO_EXTRA_MODULES or XDG_DATA_DIRS into the AppImage for the launcher's own libraries, the
 /// program gets the environment without those entries (and without APPDIR, APPIMAGE, ARGV0, OWD); elsewhere nothing
 /// changes. After tinfoil-chewer/pokopia-recomp-linux (GPL-3.0) launcher/src-tauri/src/linux.rs `host_env`.
 pub fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
@@ -861,6 +861,17 @@ pub fn sync_macos_runtime(game_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appimage_library_path_is_left_out_and_the_players_entries_kept() {
+        let app = "/tmp/.mount_pokopiAbc";
+        let only_app = format!("{app}/usr/lib/:{app}/usr/lib/x86_64-linux-gnu/:{app}/lib64/:");
+        let fixes = appimage_env_fixes(app, [("LD_LIBRARY_PATH".to_string(), only_app)].into_iter());
+        assert_eq!(fixes, vec![("LD_LIBRARY_PATH".to_string(), None)]);
+        let with_own = format!("{app}/usr/lib/:/opt/vulkan/lib");
+        let fixes = appimage_env_fixes(app, [("LD_LIBRARY_PATH".to_string(), with_own)].into_iter());
+        assert_eq!(fixes, vec![("LD_LIBRARY_PATH".to_string(), Some("/opt/vulkan/lib".to_string()))]);
+    }
 
     #[test]
     fn native_warm_up_is_retried_once_while_no_run_time_block_arrived() {
