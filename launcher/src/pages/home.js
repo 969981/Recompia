@@ -18,7 +18,7 @@ const REPORT_LABEL = {
   'pkp_fatal.txt': t('Error report'),
   'pkp.log': t('Game log'),
 };
-const CARDS = 3;   // home.css shows fewer where they do not fit
+const CARDS = 2;   // beside the co-op card; home.css shows fewer where they do not fit
 const CARD_LINES = 1;   // one highlight, clamped: two half-cut bullets read as broken text
 
 // Game status has no run id, so a dismissed crash is forgotten when the next run starts, on whatever page that happens.
@@ -72,14 +72,12 @@ const LINK_PLAY_LABEL = { off: t('Off'), lan: t('Same network'), internet: t('In
 const DISCORD_URL = 'https://discord.recompia.com';
 
 export function render(el, ctx) {
-  el.innerHTML = `<div class="page home">
-    <div class="home-hero">
-      <h1 class="display">${brandImg('logo', 'class="home-logo" alt="Recompia"')}</h1>
-      <div class="home-actions">
-        <button class="btn primary big" id="primary"></button>
+  el.innerHTML = `<div class="page home hero-page">
+    <section class="hero">
+      <h1 class="hero-title">${brandImg('logo', 'class="hero-logo" alt="Recompia"')}</h1>
+      <div class="hero-actions">
+        <button class="btn primary play" id="primary" data-hero-play></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>
-        <button class="btn big on-art" data-act="coop" title="${esc(t('Play the story together with friends, each on their own PC'))}">${icon('users')}${esc(t('Play co-op'))}</button>
-        <span id="link"></span>
       </div>
       <p class="home-detail" id="detail" hidden></p>
       <div class="home-task glass strong" id="task" hidden>
@@ -89,9 +87,18 @@ export function render(el, ctx) {
         <button class="btn sm" id="task-stop"></button>
         <p class="note" id="task-note" hidden></p>
       </div>
+      <div class="hero-chips" id="link"></div>
       <div class="home-notices" id="notices"></div>
-    </div>
-    <section class="home-news" id="news" aria-label="${esc(t('Newest releases'))}"></section>
+    </section>
+    <section class="home-feature" aria-label="${esc(t('More to play'))}">
+      <button class="feature-card coop-card" data-act="coop" aria-label="${esc(t('Recompia: Co-op'))}">
+        <span class="feature-art" aria-hidden="true"></span>
+        ${brandImg('logo', 'class="feature-logo" alt=""', 'coop')}
+        <span class="feature-text"><strong>${esc(t('Play the story together'))}</strong><span>${esc(t('Up to 4 players, each on their own PC'))}</span></span>
+        <span class="feature-go">${icon('chevron-right')}</span>
+      </button>
+      <div class="home-news" id="news" aria-label="${esc(t('Newest releases'))}"></div>
+    </section>
   </div>`;
 
   const part = (id) => el.querySelector(`#${id}`);

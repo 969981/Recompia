@@ -26,3 +26,9 @@ pub fn test_report(text: String) -> Result<(), String> {
     let path = std::env::var("PKP_LAUNCHER_EVAL_FILE").map_err(|_| "not a test run".to_string())?;
     std::fs::write(format!("{path}.out"), text).map_err(|e| e.to_string())
 }
+
+/// Debug builds only: PKP_ZONITH_RELEASES_URL points Zonith at a stand-in release list, so a test run can download, check and start a
+/// local setup (zonith_cmds.rs). A release build always reads GitHub's.
+pub fn zonith_releases_url() -> Option<String> {
+    if cfg!(debug_assertions) { std::env::var("PKP_ZONITH_RELEASES_URL").ok() } else { None }
+}

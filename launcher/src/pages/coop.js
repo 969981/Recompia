@@ -13,6 +13,7 @@ import { askText, confirm, errCode, errText, esc, formDialog, icon, segmented, t
 import { store } from '../store.js';
 import { saveLogs } from '../log-bundle.js';
 import { gamePhase } from '../action.js';
+import { brandImg } from '../branding.js';
 
 const busy = (s) => ['starting', 'running', 'finishing'].includes(gamePhase(s.game));
 /** The install is set up and current (readiness.rs): anything else is put right in Solo (Set up, Update, game files). */
@@ -124,7 +125,7 @@ export async function render(el, ctx) {
         </div>
         <div class="coop-buttons">
           ${v.creator ? `<button class="btn" data-act="invite" data-id="${esc(p.id)}" ${needsPlayers(v) ? 'disabled' : ''}>${icon('send')}${esc(t('Invite code'))}</button>` : ''}
-          <button class="btn primary" data-act="play" data-id="${esc(p.id)}" ${playOff ? 'disabled' : ''}>${icon(running ? 'loader-circle' : 'play', running ? 'spin' : '')}${esc(running ? t('Playing') : hosting(v, choice) ? t('Play as host') : t('Play and join'))}</button>
+          <button class="btn primary" data-act="play" data-hero-play data-id="${esc(p.id)}" ${playOff ? 'disabled' : ''}>${icon(running ? 'loader-circle' : 'play', running ? 'spin' : '')}${esc(running ? t('Playing') : hosting(v, choice) ? t('Play as host') : t('Play and join'))}</button>
         </div>
       </div>
     </article>`;
@@ -152,18 +153,20 @@ export async function render(el, ctx) {
     lastHtml = html;
     el.querySelector('#coop-body').innerHTML = html;
     if (open) el.querySelector('.coop-how').open = true;
+    // with no save yet the Start and Join cards below are the way in; the row (and its logs button) waits for a first save
     el.querySelector('#coop-actions').hidden = !saves.length;
   }
 
   el.innerHTML = `<div class="page coop">
-    <div class="coop-head">
-      <div class="grow"><h1>${esc(t('Co-op'))}</h1><p class="coop-lead">${esc(t('Play the story together, each on your own PC. Co-op saves are kept apart from your Solo saves.'))}</p></div>
-      <div class="cluster"><button class="btn quiet" data-act="save-logs" title="${esc(t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'))}">${icon('file-archive')}${esc(t('Save logs for a bug report'))}</button></div>
-      <div class="cluster" id="coop-actions">
-        <button class="btn" data-act="join">${icon('log-in')}${esc(t('Join'))}</button>
-        <button class="btn primary" data-act="create">${icon('plus')}${esc(t('New co-op save'))}</button>
+    <section class="coop-hero">
+      <h1 class="hero-title">${brandImg('logo', `class="coop-logo" alt="${esc(t('Recompia: Co-op'))}"`, 'coop')}</h1>
+      <p class="coop-lead">${esc(t('Up to 4 players, each on their own PC'))}</p>
+      <div class="cluster coop-hero-actions" id="coop-actions">
+        <button class="btn primary big" data-act="create">${icon('plus')}${esc(t('New co-op save'))}</button>
+        <button class="btn big on-art" data-act="join">${icon('log-in')}${esc(t('Join'))}</button>
+        <button class="btn big on-art icon-only" data-act="save-logs" aria-label="${esc(t('Save logs for a bug report'))}" title="${esc(t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'))}">${icon('file-archive')}</button>
       </div>
-    </div>
+    </section>
     <div class="coop-body" id="coop-body"></div>
   </div>`;
   draw();

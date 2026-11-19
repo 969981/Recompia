@@ -3,6 +3,29 @@
 Tauri 2 launcher for the Recompia PC port (`pkp.exe`). It ships no game files and never changes yours. It reads the game
 files you extracted from your own copy, writes `pkp.ini` next to `pkp.exe` and builds the shader cache from your romfs.
 
+## Games and the shell
+
+The launcher offers more than one game (`src/games.js`). A product is one thing a player installs; a game is one entry on the rail
+down the left, with its own Home, page tabs along the top and Play button:
+
+- **Recompia** (Solo) and **Recompia: Co-op**: one install played two ways. Co-op hangs under Recompia on the rail and has a hero of its
+  own, also featured as a card on Recompia's Home.
+- **Zonith**: the launcher fetches the newest release from GitHub (`Dittobyte/Zonith`, `src-tauri/src/zonith.rs`), checks it against
+  the SHA-256 GitHub lists for the file, keeps it under the launcher's local data folder and updates it when a newer one is out:
+  Windows unpacks the zip to `zonith/<tag>/TotK-Setup-windows/`; Linux keeps the AppImage at `zonith/TotK-Setup-x86_64.AppImage`, one
+  fixed path, because the rebuild command Zonith writes into an install starts that file. An older setup's folder is deleted only when
+  no window of it is open. Play opens Zonith's own setup window with the folders it remembers filled in; it builds the game from the
+  player's files and starts it. Its What's New lists Zonith's own releases. While the repository is private the release list answers
+  404 and the Home says "Coming soon". Not offered on macOS. A debug build reads the list from `PKP_ZONITH_RELEASES_URL` when set.
+
+Each game has its own picture and colours (`html[data-game]`, `theme.css`); the Colours button themes Recompia. Zonith's picture is
+`src/art/zonith-sky.svg`, rendered to webp by `python scripts/render-zonith-art.py`.
+
+**Controller**: the d-pad or left stick moves, A selects, B goes back, LB/RB switch pages, LT/RT switch games, Start presses the shown
+Home's Play, the right stick scrolls. A bar along the bottom shows these while a pad is in use. On Linux, where WebKitGTK has no
+Gamepad API, the launcher reads the pad itself while its window has the focus (`src-tauri/src/pad.rs`, gilrs; building it needs
+`libudev-dev`).
+
 ## First run
 
 1. **Game files**: pick the dump folder (`<dump>\base\{exefs,romfs}` and/or `<dump>\updates\<version>\{exefs,romfs}`).

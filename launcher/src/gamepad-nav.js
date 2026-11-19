@@ -1,15 +1,20 @@
 // Controller navigation for the launcher (Steam Deck, ROG Ally and other handhelds, or any pad): the d-pad or left stick moves between
-// controls, A presses the focused one, B goes back (closes a question, or returns Home), LB and RB switch pages, the right stick scrolls.
+// controls, A presses the focused one, B goes back (closes a question, or returns Home), LB and RB switch pages, LT and RT switch games,
+// Start presses the shown Home's Play, the right stick scrolls. While a pad is in use a bar along the bottom shows these (main.js).
+// The pad is read from the webview's Gamepad API; where it has none (WebKitGTK on Linux and the Steam Deck), from the launcher's own reader
+// (src-tauri/src/pad.rs), whose events store.js passes to feedNativePad.
 // A slider moves with left and right, a drop-down with up and down. It works beside touch and the mouse: the focus ring only shows while a
 // pad is being used. The logic that needs no page is in gamepad-nav-model.js.
 //
 // A frame of the launcher's own (same origin) marked data-pad-frame, such as the Save Editor's, is navigated like the page: moving onto it
 // goes to its first control, the pad then moves among its controls, past its edge on to the launcher's, and B steps out of it to the
 // page's entry in the sidebar (B never leaves a page from inside a frame, which may hold unsaved work).
-import { BTN, readPad, newlyDown, repeatStep, pickNext, cycle } from './gamepad-nav-model.js';
+import { BTN, readPad, newlyDown, repeatStep, pickNext, cycle, nativePad } from './gamepad-nav-model.js';
 
 const FOCUSABLE = 'button, a[href], input, select, textarea, [tabindex], iframe[data-pad-frame]';
 let started = false;
+let native = null;   // the last pad-state from pad.rs, as a Gamepad-like object (null: none)
+let hooks = { switchGame: () => {}, play: () => {} };
 let padActive = false;   // a pad has been used since the mouse or a finger last was
 const watched = new WeakSet();   // the frame documents whose mouse and touch turn the pad's focus ring off
 
@@ -194,8 +199,26 @@ function watch(doc) {
   doc.addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) setPadActive(false); }, true);
 }
 
-export function startGamepadNav() {
-  if (started || !navigator.getGamepads) return;
+/** A pad-state event from the launcher's own pad reader (pad.rs). */
+export function feedNativePad(state) {
+  native = nativePad(state);
+}
+
+/** The pad to read this frame: the webview's first connected pad, else the launcher's own reader's. */
+function currentPad() {
+  const pads = navigator.getGamepads ? [...navigator.getGamepads()] : [];
+  return pads.find((p) => p && p.connected) || native;
+}
+
+const GLYPH = { A: 'A', B: 'B', X: 'X', Y: 'Y', LB: 'LB', RB: 'RB', LT: 'LT', RT: 'RT', Start: '≡' };
+
+/** A pad button's glyph, as the hints and the tab row show it. `cls`: 'round a' and the like (components.css .pad-glyph). */
+export const padGlyph = (button, cls = '') => `<span class="pad-glyph ${cls}" aria-hidden="true">${GLYPH[button] ?? button}</span>`;
+
+/** hooks: { switchGame(step), play() }: what LT/RT and Start do (main.js). */
+export function startGamepadNav(opts = {}) {
+  hooks = { ...hooks, ...opts };
+  if (started) return;
   started = true;
   let prev = null;
   const rep = { dir: null, since: 0, last: 0 };
@@ -205,7 +228,7 @@ export function startGamepadNav() {
   const tick = (now) => {
     requestAnimationFrame(tick);
     if (!document.hasFocus()) { prev = null; return; }   // true too while the focus is inside a frame of this window
-    const pad = [...navigator.getGamepads()].find((p) => p && p.connected);
+    const pad = currentPad();
     if (!pad) { prev = null; return; }
     const cur = readPad(pad);
     const fresh = prev ? newlyDown(prev, cur) : [];   // the first frame only records what is held (a button held while the launcher opened)
@@ -219,6 +242,9 @@ export function startGamepadNav() {
       else if (b === BTN.B) back();
       else if (b === BTN.LB) switchPage(-1);
       else if (b === BTN.RB) switchPage(1);
+      else if (b === BTN.LT && !root().doc.querySelector('dialog[open]')) hooks.switchGame(-1);
+      else if (b === BTN.RT && !root().doc.querySelector('dialog[open]')) hooks.switchGame(1);
+      else if (b === BTN.START && !root().doc.querySelector('dialog[open]')) hooks.play();
     }
     if (cur.scroll) scroll(cur.scroll);
   };

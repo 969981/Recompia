@@ -4,11 +4,18 @@ import logoUrl from './art/logo.png';
 import logoCoopUrl from './art/logo-coop.png';
 import markUrl from './art/mark.png';
 import markTestingUrl from './art/mark-testing.png';
+import zonithLogoUrl from './art/zonith-logo.webp';
+import zonithMarkUrl from './art/zonith-mark.png';
 
 const RECOMPIA_ART = { logo: logoUrl, mark: markUrl, 'mark-testing': markTestingUrl };
 
-/** Each game's pictures. Co-op has its own wordmark (with the Co-op badge in it) and Recompia's marks. */
-const GAME_ART = { recompia: RECOMPIA_ART, coop: { ...RECOMPIA_ART, logo: logoCoopUrl } };
+/** Each game's pictures. Co-op has its own wordmark (with the Co-op badge in it) and Recompia's marks. Zonith has its own of each, from
+ *  Zonith's assets/Zonith-Logo.png and assets/Zonith-Icon.png (its Testing mark is its mark: the channel is Recompia's). */
+const GAME_ART = {
+  recompia: RECOMPIA_ART,
+  coop: { ...RECOMPIA_ART, logo: logoCoopUrl },
+  zonith: { logo: zonithLogoUrl, mark: zonithMarkUrl, 'mark-testing': zonithMarkUrl },
+};
 
 let currentGame = 'recompia';
 
