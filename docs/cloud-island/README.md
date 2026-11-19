@@ -13,7 +13,9 @@ owner's return (download), a second player joining by address and Link Code, and
 reaches `Screening/IssueUploadUri`, which the server does not answer yet.
 
 Accounts (see Account mode below): run-tested on 0.15.0, hosting an island through the launcher's account gateway on a server in
-account mode (create, matchmaking record, island upload).
+account mode (create, matchmaking record, island upload). On 0.15.1, from the launcher itself: signed in with the phone, Play started
+the gateway and the game, which hosted its island and uploaded it; skipped (signed out), Play started the game as before, and a
+Cloud Island trip ended in the game's own error dialog (2321-4992) without reaching the server.
 
 Not done: more than two players, a relay for strict NATs, TLS in the runtime, a lifter site for the fiber switch (see below).
 

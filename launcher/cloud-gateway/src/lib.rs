@@ -242,14 +242,20 @@ pub fn start(opt: Options) -> Result<Gateway, String> {
     log(&format!("gateway: TLS 127.0.0.1:{tls_port}, plain 127.0.0.1:{plain_port}"));
     let linked = Arc::new(Linked { dir: opt.device_dir.clone(), log: log.clone(), seen: Mutex::new(None) });
     let _ = linked.upstream();   // says at once whether a device is signed in
+    let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     let thread = std::thread::Builder::new()
         .name("cloud-gateway".into())
         .spawn(move || {
             rt.block_on(async move {
-                let serve = serve(tls, plain, acceptor, linked, log.clone());
+                let serve = serve(tls, plain, acceptor, linked, slots.clone(), log.clone());
                 tokio::select! {
                     r = serve => if let Err(e) = r { log(&format!("gateway: stopped: {e}")) },
-                    _ = stopped => {}
+                    // a connection logs its line when it ends; the ones still open now (the game's long gRPC ones, in their
+                    // grace time after the game has gone) end with the runtime below, so the log says how many there were
+                    _ = stopped => match MAX_CONNECTIONS - slots.available_permits() {
+                        0 => log("gateway: stopped"),
+                        n => log(&format!("gateway: stopped; {n} connection(s) still open were closed")),
+                    }
                 }
             });
             // dropping the runtime here ends every connection task and closes its sockets
@@ -258,10 +264,9 @@ pub fn start(opt: Options) -> Result<Gateway, String> {
     Ok(Gateway { tls_port, plain_port, ca_file, stop: Some(stop), thread: Some(thread) })
 }
 
-async fn serve(tls: std::net::TcpListener, plain: std::net::TcpListener, acceptor: TlsAcceptor, linked: Arc<Linked>, log: Log) -> Result<(), String> {
+async fn serve(tls: std::net::TcpListener, plain: std::net::TcpListener, acceptor: TlsAcceptor, linked: Arc<Linked>, slots: Arc<tokio::sync::Semaphore>, log: Log) -> Result<(), String> {
     let tls = TcpListener::from_std(tls).map_err(|e| e.to_string())?;
     let plain = TcpListener::from_std(plain).map_err(|e| e.to_string())?;
-    let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     let ids = AtomicU64::new(1);
     loop {
         let (accepted, secure) = tokio::select! {
