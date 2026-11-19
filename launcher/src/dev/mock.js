@@ -136,8 +136,9 @@ let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt
 let mockRepair = null;
 // the online account (cloud_signin.rs): &account=off|signed_out|signed_in|expired (default signed_out). A sign-in approves itself after a
 // few seconds (5 browser, 12 phone; &hold=1: never, to look at the waiting steps). The QR code is a made-up pattern in the shape and size
-// signin.rs draws (4 px a module), so safeQr takes it; it does not scan. Signed out or expired, the launcher starts on the welcome screen
-// (pages/welcome.js; ?page=welcome opens it directly); &skipped=1 previews an install that pressed Skip before.
+// signin.rs draws (4 px a module), so safeQr takes it; it does not scan. Signed out or expired, the launcher starts on the sign-in screen
+// (pages/welcome.js; ?page=welcome opens it directly, ?page=welcome&from=chip as Home's account chip opens it, with Back and, signed in,
+// the account); &skipped=1 previews an install that pressed Skip before.
 let mockAccount = params.get('account') || 'signed_out';
 let mockSkipped = params.get('skipped') === '1';   // launcher.json signin_skipped
 const mockHold = params.get('hold') === '1';

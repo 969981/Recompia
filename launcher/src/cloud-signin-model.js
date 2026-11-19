@@ -1,4 +1,4 @@
-// What the online account sign-in says: Home's account chip, the Online account dialog (cloud-signin.js) and the welcome screen
+// What the online account sign-in says: Home's account chip and the sign-in screen it opens, the one the launcher also starts on
 // (pages/welcome.js), from the state cloud_signin.rs sends: { state: off | signed_out | waiting | signed_in | expired, default_method, device_name, account_name?,
 // method?, phase?: { phase: starting | browser | phone | finishing, url?, user_code?, qr_svg?, fingerprint?, expires_in? }, error? }.
 // Pure: no DOM and no Tauri (icons come in as a function, pictures as URLs), so node scripts/test-cloud-signin-model.mjs runs it.
@@ -50,13 +50,6 @@ export function chip(st, icon) {
 
 const btn = (act, label, cls = '', iconHtml = '') => `<button class="btn ${cls}" data-signin="${act}">${iconHtml}${esc(label)}</button>`;
 
-/** The two ways to sign in, this platform's default first and primary. */
-function methods(st, icon) {
-  const pc = btn('browser', t('Use this PC'), st.default_method === 'browser' ? 'primary' : '', icon('monitor'));
-  const phone = btn('phone', t('Use my phone'), st.default_method === 'phone' ? 'primary' : '', icon('smartphone'));
-  return st.default_method === 'phone' ? pc + phone : phone + pc;   // the primary button sits last, next to the edge
-}
-
 const busy = (icon, text) => `<p class="signin-busy">${icon('loader-circle', 'spin')}<span>${esc(text)}</span></p>`;
 const keyLine = (fp) => (fp ? `<p class="signin-key">${esc(t('Device key {fingerprint}', { fingerprint: fp }))}</p>` : '');
 const error = (e) => (e ? `<p class="form-error" role="alert">${esc(e)}</p>` : '');
@@ -85,81 +78,56 @@ const browserBlock = (icon, ph, device) =>
   + `<p class="signin-url">${esc(t('No browser opened? Use your phone instead.'))}</p>`;
 
 /**
- * The dialog for a state: { body, actions } as HTML. `note` is 'signed-out' right after Sign out. `mark`: the picture for the
- * middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone (start that way), close (Not now: also stops
- * waiting), sign-out, account (the account page).
+ * The sign-in screen's card for a state (pages/welcome.js): { step, body, actions } as HTML. The launcher starts on it (its way out
+ * is Skip, remembered) and Home's account chip opens it (`chip`: its way out is Back, nothing remembered). step: choose (the two ways
+ * in, the platform's default first and primary; it says so when the sign-in expired, or right after Sign out with `note`
+ * 'signed-out'), phone, browser, busy (starting, finishing), done (signed in at start: the screen goes on to Home by itself),
+ * account (signed in, from the chip: who, Sign out, the account page), off (no portal: straight on to Home). The way out is on every
+ * step but done. `mark`: the picture for the middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone
+ * (start that way), back (stop waiting, choose again), skip (on to Home, remembered), leave (Back to Home), sign-out, account (the
+ * account page).
  */
-export function view(st, icon, note = '', mark = '') {
+export function welcome(st, icon, mark = '', { chip = false, note = '' } = {}) {
   const device = st?.device_name || t('this device');
-  const notNow = btn('close', t('Not now'), 'quiet');
-  if (!shown(st)) {
-    return { body: `<p>${esc(t('Online accounts are off. Set the account portal in Settings > Game > Online.'))}</p>`, actions: btn('close', t('Close'), 'primary') };
-  }
+  const out = chip ? btn('leave', t('Back'), 'welcome-skip') : btn('skip', t('Skip'), 'welcome-skip');
+  // at start Back steps back to the choice and Skip leaves; from the chip the way out is Back itself (leaving stops the wait), so
+  // one Back, not two
+  const back = chip ? '' : btn('back', t('Back'), 'quiet welcome-back', icon('arrow-left'));
+  const aside = (act, label, iconHtml = '') => btn(act, label, 'quiet welcome-aside', iconHtml);
+  if (!shown(st)) return { step: 'off', body: '', actions: out };
   if (st.state === 'signed_in') {
+    const who = (name) => `<p class="signin-who">${icon(name)}<span>${esc(t('Signed in as {name}', { name: st.account_name }))}</span></p>`;
+    if (!chip) return { step: 'done', body: `${who('circle-check')}<p>${esc(t('Taking you to the launcher…'))}</p>`, actions: '' };
     return {
-      body: `<p class="signin-who">${icon('user-check')}<span>${esc(t('Signed in as {name}', { name: st.account_name }))}</span></p>
-        <p>${esc(t('This {device} joins Cloud Islands with your account.', { device }))}</p>`,
-      actions: btn('sign-out', t('Sign out'), 'quiet') + btn('account', t('Account page'), '', icon('external-link')) + btn('close', t('Done'), 'primary'),
+      step: 'account',
+      body: `${who('user-check')}<p>${esc(t('This {device} joins Cloud Islands with your account.', { device }))}</p>`,
+      actions: aside('sign-out', t('Sign out')) + btn('account', t('Account page'), '', icon('external-link')) + out,
     };
   }
   if (st.state === 'waiting') {
     const ph = st.phase ?? {};
-    if (ph.phase === 'phone') return { body: phoneBlock(ph, mark, device), actions: notNow + btn('browser', t('Use this PC instead')) };
-    if (ph.phase === 'browser') return { body: browserBlock(icon, ph, device), actions: notNow + btn('phone', t('Use my phone instead')) };
-    if (ph.phase === 'finishing') return { body: busy(icon, t("Approved. Getting this device's certificate…")), actions: notNow };
-    return { body: busy(icon, t('Starting…')), actions: notNow };
-  }
-  const intro = st.state === 'expired'
-    ? `<p>${esc(t("This device's sign-in has expired. Sign in again to keep joining islands with your account."))}</p>`
-    : note === 'signed-out'
-      ? `<p class="signin-who">${icon('circle-check')}<span>${esc(t('Signed out on this {device}.', { device }))}</span></p>
-        <p>${esc(t('To revoke this device for good, remove it on your account page.'))}</p>`
-      : `<p>${esc(t('Sign in to join Cloud Islands with your account. It is optional: signed out, everything plays as it does now.'))}</p>
-        <p class="signin-how">${esc(t("Use this PC: approve in this PC's browser. Use my phone: scan a code and approve on your phone."))}</p>`;
-  const extra = st.state === 'expired' ? btn('sign-out', t('Sign out'), 'quiet') : note === 'signed-out' ? btn('account', t('Account page'), 'quiet', icon('external-link')) : '';
-  return { body: intro + error(st.error), actions: notNow + extra + methods(st, icon) };
-}
-
-/** The size of the floating island beside the dialog's title (cloud-signin.js): small beside the QR code (which is never made smaller,
- *  so the dialog fits the launcher's smallest window), large when signed in (room to spare), else ''. */
-export const heroSize = (st) => (st?.state === 'waiting' && st.phase?.phase === 'phone' ? 'small' : st?.state === 'signed_in' ? 'large' : '');
-
-/**
- * The welcome screen's card for a state (pages/welcome.js): { step, body, actions } as HTML. step: choose (the two ways in, the
- * platform's default first and primary), phone, browser, busy (starting, finishing), done (signed in: the screen goes on to Home by
- * itself), off (no portal: straight on to Home). Skip is on every step but done. `mark`: as view(). Buttons carry data-signin:
- * browser | phone (start that way), back (stop waiting, choose again), skip (on to Home, remembered).
- */
-export function welcome(st, icon, mark = '') {
-  const device = st?.device_name || t('this device');
-  const skip = btn('skip', t('Skip'), 'welcome-skip');
-  const back = btn('back', t('Back'), 'quiet welcome-back', icon('arrow-left'));
-  if (!shown(st)) return { step: 'off', body: '', actions: skip };
-  if (st.state === 'signed_in') {
-    return {
-      step: 'done',
-      body: `<p class="signin-who">${icon('circle-check')}<span>${esc(t('Signed in as {name}', { name: st.account_name }))}</span></p>
-        <p>${esc(t('Taking you to the launcher…'))}</p>`,
-      actions: '',
-    };
-  }
-  if (st.state === 'waiting') {
-    const ph = st.phase ?? {};
-    if (ph.phase === 'phone') return { step: 'phone', body: phoneBlock(ph, mark, device), actions: back + btn('browser', t('Use this PC instead')) + skip };
-    if (ph.phase === 'browser') return { step: 'browser', body: browserBlock(icon, ph, device), actions: back + btn('phone', t('Use my phone instead')) + skip };
+    if (ph.phase === 'phone') return { step: 'phone', body: phoneBlock(ph, mark, device), actions: back + btn('browser', t('Use this PC instead')) + out };
+    if (ph.phase === 'browser') return { step: 'browser', body: browserBlock(icon, ph, device), actions: back + btn('phone', t('Use my phone instead')) + out };
     const text = ph.phase === 'finishing' ? t("Approved. Getting this device's certificate…") : t('Starting…');
-    return { step: 'busy', body: busy(icon, text), actions: back + skip };
+    return { step: 'busy', body: busy(icon, text), actions: back + out };
   }
   const phoneFirst = st.default_method === 'phone';
   const pc = btn('browser', t('Sign in with this PC'), phoneFirst ? '' : 'primary', icon('monitor'));
   const phone = btn('phone', t('Sign in with my phone'), phoneFirst ? 'primary' : '', icon('smartphone'));
+  const optional = `<p class="signin-how">${esc(t('Optional: everything plays without it.'))}</p>`;
   const intro = st.state === 'expired'
-    ? t("This device's sign-in has expired. Sign in again to keep joining islands with your account.")
-    : t('One account for your islands and everything online.');
+    ? `<p>${esc(t("This device's sign-in has expired. Sign in again to keep joining islands with your account."))}</p>${optional}`
+    : note === 'signed-out'
+      ? `<p class="signin-who">${icon('circle-check')}<span>${esc(t('Signed out on this {device}.', { device }))}</span></p>
+        <p class="signin-how">${esc(t('To revoke this device for good, remove it on your account page.'))}</p>`
+      : `<p>${esc(t('One account for your islands and everything online.'))}</p>${optional}`;
+  const extra = st.state === 'expired'
+    ? aside('sign-out', t('Sign out'))
+    : note === 'signed-out' ? aside('account', t('Account page'), icon('external-link')) : '';
   return {
     step: 'choose',
-    body: `<p>${esc(intro)}</p><p class="signin-how">${esc(t('Optional: everything plays without it.'))}</p>${error(st.error)}
+    body: `${intro}${error(st.error)}
       <div class="welcome-methods">${phoneFirst ? phone + pc : pc + phone}</div>`,
-    actions: skip,
+    actions: extra + out,
   };
 }

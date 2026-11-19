@@ -639,7 +639,7 @@ pub fn qr_badge(n: i32) -> (i32, i32) {
 pub const QR_PX_PER_MODULE: i32 = 4;
 
 /// The QR code of `text` as a small SVG: black modules on white with the standard four-module margin, at level H (30 % of the
-/// code may be lost) with the middle square (`qr_badge`) left light and marked by a last white `<rect>`, where the dialog draws
+/// code may be lost) with the middle square (`qr_badge`) left light and marked by a last white `<rect>`, where the launcher draws
 /// the mark; `QR_PX_PER_MODULE` pixels a module. With the mark drawn in, rendered dialogs decoded (rqrr and jsQR) as shown and
 /// downscaled like a phone photo, the same as the code without the mark.
 pub fn qr_svg(text: &str) -> Result<String, String> {

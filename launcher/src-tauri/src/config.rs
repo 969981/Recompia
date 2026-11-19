@@ -22,8 +22,8 @@ pub struct Config {
     /// The first Play after online presence came asked once whether to switch it on (home.js); never asked again. The switch itself is
     /// pkp.ini [pkp] online_presence (online.rs), shared with the game's own Settings screen.
     pub online_asked: bool,
-    /// The player pressed Skip on the Online account dialog Home opens by itself at start while this device is signed out
-    /// (cloud-signin.js): it is not opened by itself again until the next sign-in or sign-out clears this.
+    /// The player pressed Skip on the sign-in screen the launcher starts on while this device is signed out (pages/welcome.js,
+    /// cloud-signin.js): it is not opened by itself again until the next sign-in or sign-out clears this.
     pub signin_skipped: bool,
     /// The name online.rs sends; empty (the default): anonymous. The profile's nickname is never sent.
     pub online_name: String,

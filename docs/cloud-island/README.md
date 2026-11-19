@@ -53,18 +53,22 @@ cloud_account_tls_port = 18443       ; optional: the gateway's ports on 127.0.0.
 cloud_account_plain_port = 18444
 ```
 
-Home, account chip, **Online account**: **Use this PC** opens the portal's `/link` page in the browser and takes the answer on a
-one-shot listener on 127.0.0.1 (PKCE S256, state checked); **Use my phone** shows a QR code and a short code, and a phone signed in
-to the portal approves the device at `/link?ticket=...` (the device polls `/api/link/remote/poll`; the phone then says the device is
-signed in). Either way the device makes its own key and sends only a CSR; the key stays in the device folder (Windows: encrypted, the
-passphrase protected by DPAPI; elsewhere owner-only files). Removing the device on the portal's account page revokes it.
+One sign-in screen (`launcher/src/pages/welcome.js`, full window, sidebar hidden): Recompia's logo on the floating island and a card.
+**Sign in with this PC** opens the portal's `/link` page in the browser and takes the answer on a one-shot listener on 127.0.0.1
+(PKCE S256, state checked); **Sign in with my phone** shows a QR code and a short code, and a phone signed in to the portal approves
+the device at `/link?ticket=...` (the device polls `/api/link/remote/poll`; the phone then says the device is signed in). Either way
+the device makes its own key and sends only a CSR; the key stays in the device folder (Windows: encrypted, the passphrase protected
+by DPAPI; elsewhere owner-only files). Removing the device on the portal's account page revokes it.
 
-While a portal is set and the device is signed out (or its sign-in expired), the launcher starts on a full-window welcome screen
-before Home (`launcher/src/pages/welcome.js`, sidebar hidden): Recompia's logo on the floating island and a card with the same two
-ways to sign in, which continue on that screen (Back returns to the choice). Signed in, it says so for a moment and goes on to Home by
-itself. **Skip** (or Esc) goes to Home at once and is remembered in launcher.json (`signin_skipped`) until the next sign-in or
-sign-out, so it does not ask at every start; the chip on Home stays the way back. The launcher's own "free up space" question waits
-until the welcome screen is gone. Signed out, Play works as before.
+While a portal is set and the device is signed out (or its sign-in expired), the launcher starts on that screen before Home. A
+sign-in continues on it (Back returns to the choice); signed in, it says so for a moment and goes on to Home by itself. **Skip** (or
+Esc) goes to Home at once and is remembered in launcher.json (`signin_skipped`) until the next sign-in or sign-out, so it does not
+ask at every start. The launcher's own "free up space" question waits until the screen is gone. Signed out, Play works as before.
+
+Home's account chip ("Sign in", "Signed in: <name>", "Sign in again") opens the same screen at any time; its way out is then **Back**
+(or Esc), back to Home, the skip flag untouched, and leaving while a sign-in waits stops it. Signed in, the card shows "Signed in as
+<name>", **Sign out**, **Account page** (the portal's account page in the browser) and Back; after Sign out it says so, points to the
+account page to revoke the device for good and offers the two ways in again. Expired, it offers both ways in and Sign out.
 
 The launcher hands the game the gateway's ports and its CA (`NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`, `NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`,
 `NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after

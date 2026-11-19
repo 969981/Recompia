@@ -10,7 +10,7 @@ import { canCancelUpdate, canUpdate, gamePhase, primaryAction, updatePlayable } 
 import { readIni, viewOf } from '../linkplay-model.js';
 import { onlineOn, setOnline } from '../online.js';
 import { chip as accountChipOf } from '../cloud-signin-model.js';
-import { openSignIn, readAccount } from '../cloud-signin.js';
+import { readAccount } from '../cloud-signin.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 import { playTimeLine } from '../play-time-model.js';
 
@@ -164,7 +164,7 @@ export function render(el, ctx) {
     if (t.id === 'link-chip') ctx.go('linkplay');
     if (t.id === 'discord-chip') api.openLink({ url: DISCORD_URL }).catch((err) => toast(errText(err), 'error'));
     if (t.id === 'online-chip') toggleOnline();
-    if (t.id === 'account-chip') openSignIn(drawAccount);
+    if (t.id === 'account-chip') ctx.go('welcome', { from: 'chip' });   // the sign-in screen the launcher starts on (pages/welcome.js)
     if (t.dataset.tag) ctx.go('news', { tag: t.dataset.tag });
     if (t.dataset.open) api.openGameFile({ name: t.dataset.open }).catch((err) => toast(errText(err), 'error'));
     switch (t.dataset.act) {
@@ -206,7 +206,7 @@ export function render(el, ctx) {
       toast(errText(err), 'error');
     }
   }
-  // the online account (cloud-signin.js): shown only when Settings > Game > Online names an account portal
+  // the online account (cloud-signin.js): shown only when Settings > Game > Online names an account portal; it opens the sign-in screen
   const drawAccount = (st) => { accountChip = accountChipOf(st, icon); drawChips(); };
   drawChips();
   readAccount().then(drawAccount);

@@ -34,15 +34,19 @@ const PAGES = {
   news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
   settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
   setup: { mod: setup },
-  welcome: { mod: welcome, art: 'clear' },   // the online account's welcome screen (pages/welcome.js): the picture without scrims
+  welcome: { mod: welcome, art: 'clear' },   // the online account's sign-in screen (pages/welcome.js; at start, and Home's account chip): the picture without scrims
 };
 
-// Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly. Vite drops this from production.
+// Dev in a plain browser only: the mock stands in for Rust, ?page=<id> opens a page directly (&from=chip: the sign-in screen as Home's
+// account chip opens it). Vite drops this from production.
 let startPage = null;
+let startOpts = {};
 if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
   await import('./dev/mock.js');
   PAGES.kit = { mod: await import('./dev/kit.js') };
-  startPage = new URLSearchParams(location.search).get('page');
+  const q = new URLSearchParams(location.search);
+  startPage = q.get('page');
+  if (q.get('from')) startOpts = { from: q.get('from') };
 }
 
 // where the sidebar pill leads (a page of another game switches to that game, see go)
@@ -296,7 +300,7 @@ async function start() {
   const once = store.subscribe((s, why) => {
     if (why !== 'app') return;
     once();
-    if (startPage) go(startPage);
+    if (startPage) go(startPage, startOpts);
     else go(isFirstRun(s) ? 'setup' : shown.home, { firstRun: isFirstRun(s) });
   });
 }

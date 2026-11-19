@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Signing this device in to a Cloud Islands account (launcher/cloud-gateway signin.rs), for the Home page's Sign in
-//! button and dialog (launcher/src/cloud-signin.js).
+//! Signing this device in to a Cloud Islands account (launcher/cloud-gateway signin.rs), for the sign-in screen the
+//! launcher starts on and Home's account chip opens (launcher/src/pages/welcome.js, cloud-signin.js).
 //!
-//! Optional: with no account portal in pkp.ini (`[net] cloud_portal`) the button is hidden and nothing here runs.
+//! Optional: with no account portal in pkp.ini (`[net] cloud_portal`) the chip is hidden and nothing here runs.
 //! Signed in, the device's four files are in the device folder (`[net] cloud_account_dir`, else the default one) and
 //! the account gateway (cloud_account.rs) presents them for the game; a running gateway notices a sign-in or sign-out
 //! by itself.
@@ -39,7 +39,7 @@ fn setup(app: &AppHandle) -> Setup {
     Setup { portal: crate::cloud_account::portal(&pkp).map(|p| signin::check_portal(&p)), dir: crate::cloud_account::device_dir(&pkp) }
 }
 
-/// What the dialog shows. Always: `state`, `default_method`, `device_name`. Signed in or expired: `account_name`
+/// What the sign-in screen shows. Always: `state`, `default_method`, `device_name`. Signed in or expired: `account_name`
 /// (falling back to the account id), `not_after` (Unix seconds). Waiting: `method` and the phase (`phase.phase` is
 /// starting | browser | phone | finishing; phone has `url`, `user_code`, `qr_svg` (an SVG made here), `fingerprint`,
 /// `expires_in`). After a failure: `error`. An unusable portal address: `portal_error`.
